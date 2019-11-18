@@ -45,13 +45,13 @@ t_detect_check(_) ->
                    peerhost => {127,0,0,1}
                   },
     false = emqx_flapping:detect(ClientInfo),
-    false = emqx_flapping:check(ClientInfo),
+    false = emqx_banned:check(ClientInfo),
     false = emqx_flapping:detect(ClientInfo),
-    false = emqx_flapping:check(ClientInfo),
+    false = emqx_banned:check(ClientInfo),
     true = emqx_flapping:detect(ClientInfo),
     timer:sleep(100),
-    true = emqx_flapping:check(ClientInfo),
-    timer:sleep(300),
-    false = emqx_flapping:check(ClientInfo),
+    true = emqx_banned:check(ClientInfo),
+    timer:sleep(200),
+    false = emqx_banned:check(ClientInfo),
     ok = emqx_flapping:stop().
 

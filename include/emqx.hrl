@@ -154,15 +154,13 @@
 %% Banned
 %%--------------------------------------------------------------------
 
--type(banned_who() ::  {clientid,  binary()}
-                     | {username,   binary()}
-                     | {ip_address, inet:ip_address()}).
-
 -record(banned, {
-          who    :: banned_who(),
-          reason :: binary(),
+          who    :: {clientid,  binary()}
+                  | {username,   binary()}
+                  | {ip_address, inet:ip_address()},
           by     :: binary(),
-          desc   :: binary(),
+          reason :: binary(),
+          at     :: integer(),
           until  :: integer()
         }).
 
