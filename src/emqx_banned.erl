@@ -33,7 +33,7 @@
 -export([start_link/0, stop/0]).
 
 -export([ check/1
-        , add/1
+        , create/1
         , delete/1
         , info/1
         ]).
@@ -74,21 +74,39 @@ start_link() ->
 stop() -> gen_server:stop(?MODULE).
 
 -spec(check(emqx_types:clientinfo()) -> boolean()).
-check(#{clientid := ClientId,
-        username := Username,
-        peerhost := IPAddr}) ->
-    ets:member(?BANNED_TAB, {clientid, ClientId})
-        orelse ets:member(?BANNED_TAB, {username, Username})
-            orelse ets:member(?BANNED_TAB, {ipaddr, IPAddr}).
+check(ClientInfo) ->
+    do_check({clientid, maps:get(clientid, ClientInfo, undefined)})
+        orelse do_check({username, maps:get(username, ClientInfo, undefined)})
+            orelse do_check({peerhost, maps:get(peerhost, ClientInfo, undefined)}).
 
--spec(add(emqx_types:banned()) -> ok).
-add(Banned) when is_record(Banned, banned) ->
+do_check({_, undefined}) ->
+    false;
+do_check(Who) when is_tuple(Who) ->
+    case mnesia:dirty_read(?BANNED_TAB, Who) of
+        [] -> false;
+        [#banned{until = Until}] ->
+            Until > erlang:system_time(millisecond)
+    end.
+
+-spec(create(emqx_types:banned()) -> ok).
+create(#{who    := Who,
+         by     := By,
+         reason := Reason,
+         at     := At,
+         until  := Until}) ->
+    mnesia:dirty_write(?BANNED_TAB, #banned{who = Who,
+                                            by = By,
+                                            reason = Reason,
+                                            at = At,
+                                            until = Until});
+create(Banned) when is_record(Banned, banned) ->
     mnesia:dirty_write(?BANNED_TAB, Banned).
 
 -spec(delete({clientid, emqx_types:clientid()}
            | {username, emqx_types:username()}
            | {peerhost, emqx_types:peerhost()}) -> ok).
-delete(Key) -> mnesia:dirty_delete(?BANNED_TAB, Key).
+delete(Who) ->
+    mnesia:dirty_delete(?BANNED_TAB, Who).
 
 info(InfoKey) ->
     mnesia:table_info(?BANNED_TAB, InfoKey).

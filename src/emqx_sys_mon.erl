@@ -177,7 +177,7 @@ suppress(Key, SuccFun, State = #{events := Events}) ->
     end.
 
 procinfo(Pid) ->
-    case {emqx_vm:get_process_info(Pid), emqx_vm:get_process_gc(Pid)} of
+    case {emqx_vm:get_process_info(Pid), emqx_vm:get_process_gc_info(Pid)} of
         {undefined, _} -> undefined;
         {_, undefined} -> undefined;
         {Info, GcInfo} -> Info ++ GcInfo

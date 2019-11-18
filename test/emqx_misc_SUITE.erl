@@ -138,3 +138,12 @@ drain(Acc) ->
             lists:reverse(Acc)
     end.
 
+t_rand_seed(_) ->
+    ?assert(is_tuple(emqx_misc:rand_seed())).
+
+t_now_to_secs(_) ->
+    ?assert(is_integer(emqx_misc:now_to_secs(os:timestamp()))).
+
+t_now_to_ms(_) ->
+    ?assert(is_integer(emqx_misc:now_to_ms(os:timestamp()))).
+

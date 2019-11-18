@@ -495,9 +495,6 @@ t_enrich_client(_) ->
 t_check_banned(_) ->
     ok = emqx_channel:check_banned(connpkt(), channel()).
 
-t_check_flapping(_) ->
-    ok = emqx_channel:check_flapping(connpkt(), channel()).
-
 t_auth_connect(_) ->
     {ok, _Chan} = emqx_channel:auth_connect(connpkt(), channel()).
 

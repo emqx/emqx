@@ -19,6 +19,7 @@
 -export([ schedulers/0
         , scheduler_usage/1
         , microsecs/0
+        , system_info_keys/0
         , get_system_info/0
         , get_system_info/1
         , get_memory/0
@@ -26,11 +27,12 @@
         , loads/0
         ]).
 
--export([ get_process_list/0
+-export([ process_info_keys/0
         , get_process_info/0
         , get_process_info/1
-        , get_process_gc/0
-        , get_process_gc/1
+        , process_gc_info_keys/0
+        , get_process_gc_info/0
+        , get_process_gc_info/1
         , get_process_group_leader_info/1
         , get_process_limit/0
         ]).
@@ -62,86 +64,83 @@
                           sl_alloc,
                           ll_alloc,
                           fix_alloc,
-                          std_alloc]).
+                          std_alloc
+                         ]).
 
--define(PROCESS_LIST, [initial_call,
-                       reductions,
-                       memory,
-                       message_queue_len,
-                       current_function]).
+-define(PROCESS_INFO_KEYS, [initial_call,
+                            current_function,
+                            registered_name,
+                            status,
+                            message_queue_len,
+                            group_leader,
+                            priority,
+                            trap_exit,
+                            reductions,
+                            %%binary,
+                            last_calls,
+                            catchlevel,
+                            trace,
+                            suspending,
+                            sequential_trace_token,
+                            error_handler
+                           ]).
 
--define(PROCESS_INFO, [initial_call,
-                       current_function,
-                       registered_name,
-                       status,
-                       message_queue_len,
-                       group_leader,
-                       priority,
-                       trap_exit,
-                       reductions,
-                       %%binary,
-                       last_calls,
-                       catchlevel,
-                       trace,
-                       suspending,
-                       sequential_trace_token,
-                       error_handler]).
+-define(PROCESS_GC_KEYS, [memory,
+                          total_heap_size,
+                          heap_size,
+                          stack_size,
+                          min_heap_size
+                         ]).
 
--define(PROCESS_GC, [memory,
-                     total_heap_size,
-                     heap_size,
-                     stack_size,
-                     min_heap_size]).
-                     %fullsweep_after]).
-
--define(SYSTEM_INFO, [allocated_areas,
-                      allocator,
-                      alloc_util_allocators,
-                      build_type,
-                      check_io,
-                      compat_rel,
-                      creation,
-                      debug_compiled,
-                      dist,
-                      dist_ctrl,
-                      driver_version,
-                      elib_malloc,
-                      dist_buf_busy_limit,
-                      %fullsweep_after, % included in garbage_collection
-                      garbage_collection,
-                      %global_heaps_size, % deprecated
-                      heap_sizes,
-                      heap_type,
-                      info,
-                      kernel_poll,
-                      loaded,
-                      logical_processors,
-                      logical_processors_available,
-                      logical_processors_online,
-                      machine,
-                      %min_heap_size, % included in garbage_collection
-                      %min_bin_vheap_size, % included in garbage_collection
-                      modified_timing_level,
-                      multi_scheduling,
-                      multi_scheduling_blockers,
-                      otp_release,
-                      port_count,
-                      process_count,
-                      process_limit,
-                      scheduler_bind_type,
-                      scheduler_bindings,
-                      scheduler_id,
-                      schedulers,
-                      schedulers_online,
-                      smp_support,
-                      system_version,
-                      system_architecture,
-                      threads,
-                      thread_pool_size,
-                      trace_control_word,
-                      update_cpu_info,
-                      version,
-                      wordsize]).
+-define(SYSTEM_INFO_KEYS, [allocated_areas,
+                           allocator,
+                           alloc_util_allocators,
+                           build_type,
+                           check_io,
+                           compat_rel,
+                           creation,
+                           debug_compiled,
+                           dist,
+                           dist_ctrl,
+                           driver_version,
+                           elib_malloc,
+                           dist_buf_busy_limit,
+                           %fullsweep_after, % included in garbage_collection
+                           garbage_collection,
+                           %global_heaps_size, % deprecated
+                           heap_sizes,
+                           heap_type,
+                           info,
+                           kernel_poll,
+                           loaded,
+                           logical_processors,
+                           logical_processors_available,
+                           logical_processors_online,
+                           machine,
+                           %min_heap_size, % included in garbage_collection
+                           %min_bin_vheap_size, % included in garbage_collection
+                           modified_timing_level,
+                           multi_scheduling,
+                           multi_scheduling_blockers,
+                           otp_release,
+                           port_count,
+                           process_count,
+                           process_limit,
+                           scheduler_bind_type,
+                           scheduler_bindings,
+                           scheduler_id,
+                           schedulers,
+                           schedulers_online,
+                           smp_support,
+                           system_version,
+                           system_architecture,
+                           threads,
+                           thread_pool_size,
+                           trace_control_word,
+                           update_cpu_info,
+                           version,
+                           wordsize
+                          ]).
 
 -define(SOCKET_OPTS, [active,
                       broadcast,
@@ -166,7 +165,8 @@
                       send_timeout,
                       send_timeout_close,
                       sndbuf,
-                      tos]).
+                      tos
+                     ]).
 
 schedulers() ->
     erlang:system_info(schedulers).
@@ -178,16 +178,16 @@ microsecs() ->
 loads() ->
     [{load1,  ftos(avg1()/256)},
      {load5,  ftos(avg5()/256)},
-     {load15, ftos(avg15()/256)}].
+     {load15, ftos(avg15()/256)}
+    ].
+
+system_info_keys() -> ?SYSTEM_INFO_KEYS.
 
 get_system_info() ->
-    [{Key, format_system_info(Key, get_system_info(Key))} || Key <- ?SYSTEM_INFO].
+    [{Key, format_system_info(Key, get_system_info(Key))} || Key <- ?SYSTEM_INFO_KEYS].
 
 get_system_info(Key) ->
-    try erlang:system_info(Key) catch
-    error:badarg->undefined
-    end.
-%% conversion functions for erlang:system_info(Key)
+    try erlang:system_info(Key) catch error:badarg-> undefined end.
 
 format_system_info(allocated_areas, List) ->
     [convert_allocated_areas(Value) || Value <- List];
@@ -221,8 +221,9 @@ convert_allocated_areas({Key, Value}) ->
 
 mem_info() ->
     Dataset = memsup:get_system_memory_data(),
-    [{total_memory, proplists:get_value(total_memory, Dataset)},
-     {used_memory, proplists:get_value(total_memory, Dataset) - proplists:get_value(free_memory, Dataset)}].
+    Total = proplists:get_value(total_memory, Dataset),
+    Free = proplists:get_value(free_memory, Dataset),
+    [{total_memory, Total}, {used_memory, Total - Free}].
 
 ftos(F) ->
     S = io_lib:format("~.2f", [F]), S.
@@ -300,24 +301,24 @@ container_value(Props, Pos, Type, Container) ->
     TypeProps = proplists:get_value(Type, Props),
     element(Pos, lists:keyfind(Container, 1, TypeProps)).
 
-get_process_list()->
-    [get_process_list(Pid) || Pid <- processes()].
-
-get_process_list(Pid) when is_pid(Pid) ->
-    [{pid, Pid} | [process_info(Pid, Key) || Key <- ?PROCESS_LIST]].
+process_info_keys() ->
+    ?PROCESS_INFO_KEYS.
 
 get_process_info() ->
-    [get_process_info(Pid) || Pid <- processes()].
+    get_process_info(self()).
 get_process_info(Pid) when is_pid(Pid) ->
-    process_info(Pid, ?PROCESS_INFO).
+    process_info(Pid, ?PROCESS_INFO_KEYS).
 
-get_process_gc() ->
-    [get_process_gc(Pid) || Pid <- processes()].
-get_process_gc(Pid) when is_pid(Pid) ->
-    process_info(Pid, ?PROCESS_GC).
+process_gc_info_keys() ->
+    ?PROCESS_GC_KEYS.
+
+get_process_gc_info() ->
+    get_process_gc_info(self()).
+get_process_gc_info(Pid) when is_pid(Pid) ->
+    process_info(Pid, ?PROCESS_GC_KEYS).
 
 get_process_group_leader_info(LeaderPid) when is_pid(LeaderPid) ->
-    [{Key, Value}|| {Key, Value} <- process_info(LeaderPid), lists:member(Key, ?PROCESS_INFO)].
+    [{Key, Value}|| {Key, Value} <- process_info(LeaderPid), lists:member(Key, ?PROCESS_INFO_KEYS)].
 
 get_process_limit() ->
     erlang:system_info(process_limit).
@@ -446,8 +447,7 @@ ports_type_count(Types) ->
 
 mapping(Entries) ->
     mapping(Entries, []).
-mapping([], Acc) ->
-    Acc;
+mapping([], Acc) -> Acc;
 mapping([{owner, V}|Entries], Acc) when is_pid(V) ->
     OwnerInfo = process_info(V),
     Owner = proplists:get_value(registered_name, OwnerInfo, undefined),
@@ -470,10 +470,10 @@ cpu_util() ->
 compat_windows(Fun) ->
     case os:type() of
         {win32, nt} -> 0;
-        _Other -> handle_error(Fun())
+        _Type ->
+            case catch Fun() of
+                Val when is_number(Val) -> Val;
+                _Error -> 0
+            end
     end.
 
-handle_error(Value) when is_number(Value) ->
-    Value;
-handle_error({error, _Reason}) ->
-    0.

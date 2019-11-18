@@ -32,6 +32,13 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
+t_restart(_) ->
+    ConfFile = "test.config",
+    Data = "[{emqx_statsd,[{interval,15000},{push_gateway,\"http://127.0.0.1:9091\"}]}].",
+    file:write_file(ConfFile, list_to_binary(Data)),
+    emqx:restart(ConfFile),
+    file:delete(ConfFile).
+
 t_stop_start(_) ->
     emqx:stop(),
     false = emqx:is_running(node()),

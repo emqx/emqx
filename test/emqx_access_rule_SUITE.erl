@@ -23,15 +23,75 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-init_per_testcase(_TestCase, Config) ->
+init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules([router, broker]),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
-end_per_testcase(_TestCase, Config) ->
-    Config.
+end_per_suite(_Config) ->
+    emqx_ct_helpers:stop_apps([]).
 
-% t_compile(_) ->
-%     error('TODO').
+t_compile(_) ->
+    Rule1 = {allow, all, pubsub, <<"%u">>},
+    Compile1 = {allow, all, pubsub, [{pattern,[<<"%u">>]}]},
 
-% t_match(_) ->
-%     error('TODO').
+    Rule2 = {allow, {ipaddr, "127.0.0.1"}, pubsub, <<"%c">>},
+    Compile2 = {allow, {ipaddr, {{127,0,0,1}, {127,0,0,1}, 32}}, pubsub, [{pattern,[<<"%c">>]}]},
 
+    Rule3 = {allow, {'and', [{client, <<"testClient">>}, {user, <<"testUser">>}]}, pubsub, [<<"testTopics1">>,  <<"testTopics2">>]},
+    Compile3 = {allow, {'and', [{client, <<"testClient">>}, {user, <<"testUser">>}]}, pubsub, [[<<"testTopics1">>],  [<<"testTopics2">>]]},
+
+    Rule4 = {allow, {'or', [{client, all}, {user, all}]}, pubsub, [ <<"testTopics1">>,  <<"testTopics2">>]},
+    Compile4 = {allow, {'or', [{client, all}, {user, all}]}, pubsub, [[<<"testTopics1">>],  [<<"testTopics2">>]]},
+
+    ?assertEqual(Compile1, emqx_access_rule:compile(Rule1)),
+    ?assertEqual(Compile2, emqx_access_rule:compile(Rule2)),
+    ?assertEqual(Compile3, emqx_access_rule:compile(Rule3)),
+    ?assertEqual(Compile4, emqx_access_rule:compile(Rule4)).
+
+t_match(_) ->
+    ClientInfo1 = #{zone => external,
+                    clientid => <<"testClient">>,
+                    username => <<"TestUser">>,
+                    peerhost => {127,0,0,1}
+                   },
+    ClientInfo2 = #{zone => external,
+                    clientid => <<"testClient">>,
+                    username => <<"TestUser">>,
+                    peerhost => {192,168,0,10}
+                   },
+    ClientInfo3 = #{zone => external,
+                    clientid => <<"testClient">>,
+                    username => <<"TestUser">>,
+                    peerhost => undefined
+                   },
+    ?assertEqual({matched, deny}, emqx_access_rule:match([], [], {deny, all})),
+    ?assertEqual({matched, allow}, emqx_access_rule:match([], [], {allow, all})),
+    ?assertEqual(nomatch, emqx_access_rule:match(ClientInfo1, <<"Test/Topic">>,
+                                                    emqx_access_rule:compile({allow, {user, all}, pubsub, []}))),
+    ?assertEqual({matched, allow}, emqx_access_rule:match(ClientInfo1, <<"Test/Topic">>,
+                                                            emqx_access_rule:compile({allow, {client, all}, pubsub, ["$SYS/#", "#"]}))),
+    ?assertEqual(nomatch, emqx_access_rule:match(ClientInfo3, <<"Test/Topic">>,
+                                                    emqx_access_rule:compile({allow, {ipaddr, "127.0.0.1"}, pubsub, ["$SYS/#", "#"]}))),
+    ?assertEqual({matched, allow}, emqx_access_rule:match(ClientInfo1, <<"Test/Topic">>,
+                                                            emqx_access_rule:compile({allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]}))),
+    ?assertEqual({matched, allow}, emqx_access_rule:match(ClientInfo2, <<"Test/Topic">>,
+                                                            emqx_access_rule:compile({allow, {ipaddr, "192.168.0.1/24"}, subscribe, ["$SYS/#", "#"]}))),
+    ?assertEqual({matched, allow}, emqx_access_rule:match(ClientInfo1, <<"d/e/f/x">>,
+                                                            emqx_access_rule:compile({allow, {user, "TestUser"}, subscribe, ["a/b/c", "d/e/f/#"]}))),
+    ?assertEqual(nomatch, emqx_access_rule:match(ClientInfo1, <<"d/e/f/x">>,
+                                                    emqx_access_rule:compile({allow, {user, "admin"}, pubsub, ["d/e/f/#"]}))),
+    ?assertEqual({matched, allow}, emqx_access_rule:match(ClientInfo1, <<"testTopics/testClient">>,
+                                                            emqx_access_rule:compile({allow, {client, "testClient"}, publish, ["testTopics/testClient"]}))),
+    ?assertEqual({matched, allow}, emqx_access_rule:match(ClientInfo1, <<"clients/testClient">>,
+                                                            emqx_access_rule:compile({allow, all, pubsub, ["clients/%c"]}))),
+    ?assertEqual({matched, allow}, emqx_access_rule:match(#{username => <<"user2">>}, <<"users/user2/abc/def">>,
+                                                            emqx_access_rule:compile({allow, all, subscribe, ["users/%u/#"]}))),
+    ?assertEqual({matched, deny}, emqx_access_rule:match(ClientInfo1, <<"d/e/f">>,
+                                                            emqx_access_rule:compile({deny, all, subscribe, ["$SYS/#", "#"]}))),
+    ?assertEqual(nomatch, emqx_access_rule:match(ClientInfo1, <<"Topic">>,
+                                                    emqx_access_rule:compile({allow, {'and', [{ipaddr, "127.0.0.1"}, {user, <<"WrongUser">>}]}, publish, <<"Topic">>}))),
+    ?assertEqual({matched, allow}, emqx_access_rule:match(ClientInfo1, <<"Topic">>,
+                                                            emqx_access_rule:compile({allow, {'and', [{ipaddr, "127.0.0.1"}, {user, <<"TestUser">>}]}, publish, <<"Topic">>}))),
+    ?assertEqual({matched, allow}, emqx_access_rule:match(ClientInfo1, <<"Topic">>,
+                                                            emqx_access_rule:compile({allow, {'or', [{ipaddr, "127.0.0.1"}, {user, <<"WrongUser">>}]}, publish, ["Topic"]}))).

@@ -7,6 +7,9 @@
 [![Slack Invite](<https://slack-invite.emqx.io/badge.svg>)](https://slack-invite.emqx.io)
 [![Twitter](https://img.shields.io/badge/Twiiter-EMQ%20X-1DA1F2?logo=twitter)](https://twitter.com/emqtt)
 
+
+[![We are hiring](https://www.emqx.io/static/img/github_readme_en_bg.png)](https://emqx.io/about/jobs)
+
 English | [简体中文](./README-CN.md)
 
 *EMQ X* broker is a fully open source, highly scalable, highly available distributed MQTT messaging broker for IoT, M2M and Mobile applications that can handle tens of millions of concurrent clients.
@@ -20,7 +23,13 @@ Starting from 3.0 release, *EMQ X* broker fully supports MQTT V5.0 protocol spec
 
 The *EMQ X* broker is cross-platform, which supports Linux, Unix, Mac OS and Windows. It means *EMQ X* can be deployed on x86_64 architecture servers and ARM devices like Raspberry Pi.
 
-Download the binary package for your platform from [here](https://emqx.io/downloads).
+**Installing via EMQ X Docker Image**
+
+```
+docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
+```
+
+**Or download the binary package for your platform from [here](https://emqx.io/downloads).**
 
 - [Single Node Install](https://docs.emqx.io/broker/v3/en/install.html)
 - [Multi Node Install](https://docs.emqx.io/broker/v3/en/cluster.html)
@@ -69,6 +78,7 @@ You can reach the EMQ community and developers via the following channels:
 - [Twitter](https://twitter.com/emqtt)
 - [Forum](https://groups.google.com/d/forum/emqtt)
 - [Blog](https://medium.com/@emqtt)
+- [Reddit](https://www.reddit.com/r/emqx/)
 
 Please submit any bugs, issues, and feature requests to [emqx/emqx](https://github.com/emqx/emqx/issues).
 
