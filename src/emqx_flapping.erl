@@ -123,7 +123,7 @@ handle_cast({detected, #flapping{clientid   = ClientId,
     case now_diff(StartedAt) < Duration of
         true -> %% Flapping happened:(
             ?LOG(error, "Flapping detected: ~s(~s) disconnected ~w times in ~wms",
-                 [ClientId, esockd_net:ntoa(PeerHost), DetectCnt, Duration]),
+                 [ClientId, inet:ntoa(PeerHost), DetectCnt, Duration]),
             Now = erlang:system_time(millisecond),
             Banned = #banned{who    = {clientid, ClientId},
                              by     = <<"flapping detector">>,
@@ -134,7 +134,7 @@ handle_cast({detected, #flapping{clientid   = ClientId,
             emqx_banned:create(Banned);
         false ->
             ?LOG(warning, "~s(~s) disconnected ~w times in ~wms",
-                 [ClientId, esockd_net:ntoa(PeerHost), DetectCnt, Interval])
+                 [ClientId, inet:ntoa(PeerHost), DetectCnt, Interval])
     end,
     {noreply, State};
 

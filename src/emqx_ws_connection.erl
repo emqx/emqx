@@ -218,7 +218,7 @@ websocket_init([Req, Opts]) ->
     IdleTimeout = emqx_zone:idle_timeout(Zone),
     IdleTimer = start_timer(IdleTimeout, idle_timeout),
     emqx_misc:tune_heap_size(emqx_zone:oom_policy(Zone)),
-    emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
+    emqx_logger:set_metadata_peername(esockd:format(Peername)),
     {ok, #state{peername     = Peername,
                 sockname     = Sockname,
                 sockstate    = running,
