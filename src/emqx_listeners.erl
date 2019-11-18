@@ -176,5 +176,5 @@ format(Port) when is_integer(Port) ->
 format({Addr, Port}) when is_list(Addr) ->
     io_lib:format("~s:~w", [Addr, Port]);
 format({Addr, Port}) when is_tuple(Addr) ->
-    io_lib:format("~s:~w", [esockd_net:ntoab(Addr), Port]).
+    io_lib:format("~s:~w", [inet:ntoab(Addr), Port]).
 

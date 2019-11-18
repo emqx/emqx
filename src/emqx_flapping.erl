@@ -140,7 +140,7 @@ handle_cast({detected, Flapping = #flapping{clientid   = ClientId,
         true -> %% Flapping happened:(
             %% Log first
             ?LOG(error, "Flapping detected: ~s(~s) disconnected ~w times in ~wms",
-                 [ClientId, esockd_net:ntoa(PeerHost), DetectCnt, Duration]),
+                 [ClientId, inet:ntoa(PeerHost), DetectCnt, Duration]),
             %% Banned.
             BannedFlapping = Flapping#flapping{clientid  = {banned, ClientId},
                                                banned_at = erlang:system_time(millisecond)
