@@ -602,7 +602,7 @@ handle_info(Info, State = #state{channel = Channel}) ->
 %% Ensure rate limit
 
 ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
-    case ?ENABLED(limiter) andalso emqx_limiter:check(Stats, Limiter) of
+    case ?ENABLED(Limiter) andalso emqx_limiter:check(Stats, Limiter) of
         false -> State;
         {ok, Limiter1} ->
             State#state{limiter = Limiter1};
