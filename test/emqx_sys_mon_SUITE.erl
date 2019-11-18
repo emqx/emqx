@@ -80,9 +80,9 @@ end_per_testcase(_, _Config) ->
 
 t_procinfo(_) ->
     ok = meck:new(emqx_vm, [passthrough, no_history]),
-    ok = meck:expect(emqx_vm, get_process_info, fun(_) -> undefined end),
-    ok = meck:expect(emqx_vm, get_process_gc, fun(_) -> ok end),
-    ?assertEqual(undefined, emqx_sys_mon:procinfo([])),
+    ok = meck:expect(emqx_vm, get_process_info, fun(_) -> [] end),
+    ok = meck:expect(emqx_vm, get_process_gc_info, fun(_) -> [] end),
+    ?assertEqual([], emqx_sys_mon:procinfo([])),
     ok = meck:expect(emqx_vm, get_process_info, fun(_) -> ok end),
     ok = meck:expect(emqx_vm, get_process_gc, fun(_) -> undefined end),
     ?assertEqual(undefined, emqx_sys_mon:procinfo([])),
