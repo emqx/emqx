@@ -45,6 +45,11 @@
         , terminate/2
         ]).
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
 -import(emqx_topic, [systop/1]).
 -import(emqx_misc, [start_timer/2]).
 
@@ -192,7 +197,7 @@ uptime(hours, H) when H < 24 ->
 uptime(hours, H) ->
     [uptime(days, H div 24), integer_to_list(H rem 24), " hours, "];
 uptime(days, D) ->
-    [integer_to_list(D), " days,"].
+    [integer_to_list(D), " days, "].
 
 publish(uptime, Uptime) ->
     safe_publish(systop(uptime), Uptime);

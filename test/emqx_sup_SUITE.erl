@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_cm_locker_SUITE).
+-module(emqx_sup_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -31,15 +31,9 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
-t_start_link(_) ->
-    emqx_cm_locker:start_link().
-
-t_trans(_) ->
-    ok = emqx_cm_locker:trans(undefined, fun(_) -> ok end, []),
-    ok = emqx_cm_locker:trans(<<"clientid">>, fun(_) -> ok end).
-
-t_lock_unlocak(_) ->
-    {true, _Nodes} = emqx_cm_locker:lock(<<"clientid">>),
-    {true, _Nodes} = emqx_cm_locker:lock(<<"clientid">>),
-    {true, _Nodes} = emqx_cm_locker:unlock(<<"clientid">>),
-    {true, _Nodes} = emqx_cm_locker:unlock(<<"clientid">>).
+t_child(_) ->
+    ?assertMatch({error, _}, emqx_sup:start_child(undef, worker)),
+    ?assertMatch({error, not_found}, emqx_sup:stop_child(undef)),
+    ?assertMatch({error, _}, emqx_sup:start_child(emqx_broker_sup, supervisor)),
+    ?assertEqual(ok, emqx_sup:stop_child(emqx_broker_sup)),
+    ?assertMatch({ok, _}, emqx_sup:start_child(emqx_broker_sup, supervisor)).

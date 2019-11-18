@@ -32,6 +32,10 @@
         , load_expand_plugin/1
         ]).
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -82,7 +86,7 @@ load_expand_plugin(PluginDir) ->
     init_expand_plugin_config(PluginDir),
     Ebin = filename:join([PluginDir, "ebin"]),
     code:add_patha(Ebin),
-    Modules = filelib:wildcard(filename:join([Ebin ++ "*.beam"])),
+    Modules = filelib:wildcard(filename:join([Ebin, "*.beam"])),
     lists:foreach(fun(Mod) ->
         Module = list_to_atom(filename:basename(Mod, ".beam")),
         code:load_file(Module)
