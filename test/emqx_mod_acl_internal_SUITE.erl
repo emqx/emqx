@@ -19,28 +19,53 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() -> emqx_ct:all(?MODULE).
 
-init_per_testcase(_TestCase, Config) ->
+init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([emqx]),
     Config.
 
-end_per_testcase(_TestCase, Config) ->
-    Config.
+end_per_suite(_Config) ->
+    emqx_ct_helpers:stop_apps([emqx]).
 
-% t_load(_) ->
-%     error('TODO').
+t_load_unload(_) ->
+    ?assertEqual({error,already_exists}, emqx_mod_acl_internal:load([])),
+    ?assertEqual(ok, emqx_mod_acl_internal:unload([])),
+    ?assertEqual(ok, emqx_mod_acl_internal:load([])).
 
-% t_unload(_) ->
-%     error('TODO').
+t_all_rules(_) ->
+    application:set_env(emqx, acl_file, ""),
+    ?assertMatch(#{}, emqx_mod_acl_internal:all_rules()),
 
-% t_all_rules(_) ->
-%     error('TODO').
+    application:set_env(emqx, acl_file, emqx_ct_helpers:deps_path(emqx, "etc/acl.conf")),
+    ?assertMatch(#{publish := _, subscribe := _}, emqx_mod_acl_internal:all_rules()).
 
-% t_check_acl(_) ->
-%     error('TODO').
+t_check_acl(_) ->
+    Rules=#{publish => [{allow,all}], subscribe => [{deny, all}]},
+    ?assertEqual({ok, allow}, emqx_mod_acl_internal:check_acl(clientinfo(), publish,  <<"t">>, [], Rules)),
+    ?assertEqual({ok, deny}, emqx_mod_acl_internal:check_acl(clientinfo(), subscribe,  <<"t">>, [], Rules)),
+    ?assertEqual(ok, emqx_mod_acl_internal:check_acl(clientinfo(), connect,  <<"t">>, [], Rules)).
 
-% t_reload_acl(_) ->
-%     error('TODO').
+t_reload_acl(_) ->
+    ?assertEqual(ok, emqx_mod_acl_internal:reload_acl()).
 
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
+
+clientinfo() -> clientinfo(#{}).
+clientinfo(InitProps) ->
+    maps:merge(#{zone       => zone,
+                 protocol   => mqtt,
+                 peerhost   => {127,0,0,1},
+                 clientid   => <<"clientid">>,
+                 username   => <<"username">>,
+                 password   => <<"passwd">>,
+                 is_superuser => false,
+                 peercert   => undefined,
+                 mountpoint => undefined
+                }, InitProps).

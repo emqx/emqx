@@ -29,6 +29,9 @@
         emqx_ct_helpers:wait_for(
           ?FUNCTION_NAME, ?LINE, fun() -> For end, Timeout)).
 
+-define(ack, shared_sub_ack).
+-define(no_ack, no_ack).
+
 all() -> emqx_ct:all(?SUITE).
 
 init_per_suite(Config) ->
@@ -39,17 +42,22 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
     
-% t_is_ack_required(_) ->
-%     error('TODO').
+t_is_ack_required(_) ->
+    ?assertEqual(false, emqx_shared_sub:is_ack_required(#message{headers = #{}})).
 
-% t_maybe_nack_dropped(_) ->
-%     error('TODO').
+t_maybe_nack_dropped(_) ->
+    ?assertEqual(ok, emqx_shared_sub:maybe_nack_dropped(#message{headers = #{}})),
+    ?assertEqual(ok, emqx_shared_sub:maybe_nack_dropped(#message{headers = #{shared_dispatch_ack => {self(), for_test}}})),
+    ?assertEqual(ok,receive {for_test, {shared_sub_nack, dropped}} -> ok after 100 -> timeout end).
 
-% t_nack_no_connection(_) ->
-%     error('TODO').
+t_nack_no_connection(_) ->
+    ?assertEqual(ok, emqx_shared_sub:nack_no_connection(#message{headers = #{shared_dispatch_ack => {self(), for_test}}})),
+    ?assertEqual(ok,receive {for_test, {shared_sub_nack, no_connection}} -> ok after 100 -> timeout end).
 
-% t_maybe_ack(_) ->
-%     error('TODO').
+t_maybe_ack(_) ->
+    ?assertEqual(#message{headers = #{}}, emqx_shared_sub:maybe_ack(#message{headers = #{}})),
+    ?assertEqual(#message{headers = #{shared_dispatch_ack => ?no_ack}}, emqx_shared_sub:maybe_ack(#message{headers = #{shared_dispatch_ack => {self(), for_test}}})),
+    ?assertEqual(ok,receive {for_test, ?ack} -> ok after 100 -> timeout end).
 
 % t_subscribers(_) ->
 %     error('TODO').
@@ -239,14 +247,23 @@ last_message(ExpectedPayload, Pids) ->
         <<"not yet?">>
     end.
     
-% t_dispatch(_) ->
-%     error('TODO').
+t_dispatch(_) ->
+    ok = ensure_config(random),
+    Topic = <<"foo">>,
+    ?assertEqual({error, no_subscribers}, emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})),
+    emqx:subscribe(Topic, #{qos => 2, share => <<"group1">>}),
+    ?assertEqual(ok, emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})).
 
 % t_unsubscribe(_) ->
 %     error('TODO').
 
 % t_subscribe(_) ->
 %     error('TODO').
+t_uncovered_func(_) ->
+    ignored = gen_server:call(emqx_shared_sub, ignored),
+    ok = gen_server:cast(emqx_shared_sub, ignored),
+    ignored = emqx_shared_sub ! ignored,
+    {mnesia_table_event, []} = emqx_shared_sub ! {mnesia_table_event, []}.
 
 %%--------------------------------------------------------------------
 %% help functions
