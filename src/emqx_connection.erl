@@ -101,7 +101,8 @@
 -spec(start_link(esockd:transport(), esockd:socket(), proplists:proplist())
       -> {ok, pid()}).
 start_link(Transport, Socket, Options) ->
-    CPid = proc_lib:spawn_link(?MODULE, init, [self(), Transport, Socket, Options]),
+    Args = [self(), Transport, Socket, Options],
+    CPid = proc_lib:spawn_link(?MODULE, init, Args),
     {ok, CPid}.
 
 %%--------------------------------------------------------------------
@@ -196,7 +197,7 @@ do_init(Parent, Transport, Socket, Options) ->
     IdleTimeout = emqx_zone:idle_timeout(Zone),
     IdleTimer = start_timer(IdleTimeout, idle_timeout),
     emqx_misc:tune_heap_size(emqx_zone:oom_policy(Zone)),
-    emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
+    emqx_logger:set_metadata_peername(esockd:format(Peername)),
     State = #state{transport   = Transport,
                    socket      = Socket,
                    peername    = Peername,
@@ -601,7 +602,7 @@ handle_info(Info, State = #state{channel = Channel}) ->
 %% Ensure rate limit
 
 ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
-    case ?ENABLED(limiter) andalso emqx_limiter:check(Stats, Limiter) of
+    case ?ENABLED(Limiter) andalso emqx_limiter:check(Stats, Limiter) of
         false -> State;
         {ok, Limiter1} ->
             State#state{limiter = Limiter1};

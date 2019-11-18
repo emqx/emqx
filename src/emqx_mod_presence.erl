@@ -112,5 +112,5 @@ reason({Error, _}) when is_atom(Error) -> Error;
 reason(_) -> internal_error.
 
 -compile({inline, [ntoa/1]}).
-ntoa(IpAddr) -> iolist_to_binary(esockd_net:ntoa(IpAddr)).
+ntoa(IpAddr) -> iolist_to_binary(inet:ntoa(IpAddr)).
 

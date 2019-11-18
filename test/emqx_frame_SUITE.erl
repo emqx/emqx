@@ -40,7 +40,8 @@ all() ->
      {group, unsuback},
      {group, ping},
      {group, disconnect},
-     {group, auth}].
+     {group, auth}
+    ].
 
 groups() ->
     [{parse, [parallel],
@@ -333,7 +334,10 @@ t_serialize_parse_qos1_publish(_) ->
                           payload  = <<"haha">>},
     ?assertEqual(Bin, serialize_to_binary(Packet)),
     ?assertMatch(Packet, parse_to_packet(Bin, #{strict_mode => true})),
-    ?catch_error(bad_packet_id, parse_serialize(?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 0, <<>>))).
+    %% strict_mode = true
+    ?catch_error(bad_packet_id, parse_serialize(?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 0, <<>>))),
+    %% strict_mode = false
+    _ = parse_serialize(?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 0, <<>>), #{strict_mode => false}).
 
 t_serialize_parse_qos2_publish(_) ->
     Packet = ?PUBLISH_PACKET(?QOS_2, <<"Topic">>, 1, <<>>),
@@ -341,7 +345,10 @@ t_serialize_parse_qos2_publish(_) ->
     ?assertEqual(Packet, parse_serialize(Packet)),
     ?assertEqual(Bin, serialize_to_binary(Packet)),
     ?assertMatch(Packet, parse_to_packet(Bin, #{strict_mode => true})),
-    ?catch_error(bad_packet_id, parse_serialize(?PUBLISH_PACKET(?QOS_2, <<"Topic">>, 0, <<>>))).
+    %% strict_mode = true
+    ?catch_error(bad_packet_id, parse_serialize(?PUBLISH_PACKET(?QOS_2, <<"Topic">>, 0, <<>>))),
+    %% strict_mode = false
+    _ = parse_serialize(?PUBLISH_PACKET(?QOS_2, <<"Topic">>, 0, <<>>), #{strict_mode => false}).
 
 t_serialize_parse_publish_v5(_) ->
     Props = #{'Payload-Format-Indicator' => 1,
@@ -358,7 +365,10 @@ t_serialize_parse_puback(_) ->
     Packet = ?PUBACK_PACKET(1),
     ?assertEqual(<<64,2,0,1>>, serialize_to_binary(Packet)),
     ?assertEqual(Packet, parse_serialize(Packet)),
-    ?catch_error(bad_packet_id, parse_serialize(?PUBACK_PACKET(0))).
+    %% strict_mode = true
+    ?catch_error(bad_packet_id, parse_serialize(?PUBACK_PACKET(0))),
+    %% strict_mode = false
+    ?PUBACK_PACKET(0) = parse_serialize(?PUBACK_PACKET(0), #{strict_mode => false}).
 
 t_serialize_parse_puback_v3_4(_) ->
     Bin = <<64,2,0,1>>,
@@ -376,7 +386,10 @@ t_serialize_parse_pubrec(_) ->
     Packet = ?PUBREC_PACKET(1),
     ?assertEqual(<<5:4,0:4,2,0,1>>, serialize_to_binary(Packet)),
     ?assertEqual(Packet, parse_serialize(Packet)),
-    ?catch_error(bad_packet_id, parse_serialize(?PUBREC_PACKET(0))).
+    %% strict_mode = true
+    ?catch_error(bad_packet_id, parse_serialize(?PUBREC_PACKET(0))),
+    %% strict_mode = false
+    ?PUBREC_PACKET(0) = parse_serialize(?PUBREC_PACKET(0), #{strict_mode => false}).
 
 t_serialize_parse_pubrec_v5(_) ->
     Packet = ?PUBREC_PACKET(16, ?RC_SUCCESS, #{'Reason-String' => <<"success">>}),
@@ -391,6 +404,9 @@ t_serialize_parse_pubrel(_) ->
     Bin0 = <<6:4,0:4,2,0,1>>,
     ?assertMatch(Packet, parse_to_packet(Bin0, #{strict_mode => false})),
     ?catch_error(bad_frame_header, parse_to_packet(Bin0, #{strict_mode => true})),
+    %% strict_mode = false
+    ?PUBREL_PACKET(0) = parse_serialize(?PUBREL_PACKET(0), #{strict_mode => false}),
+    %% strict_mode = true
     ?catch_error(bad_packet_id, parse_serialize(?PUBREL_PACKET(0))).
 
 t_serialize_parse_pubrel_v5(_) ->
@@ -402,6 +418,9 @@ t_serialize_parse_pubcomp(_) ->
     Bin = serialize_to_binary(Packet),
     ?assertEqual(<<7:4,0:4,2,0,1>>, Bin),
     ?assertEqual(Packet, parse_serialize(Packet)),
+    %% strict_mode = false
+    ?PUBCOMP_PACKET(0) = parse_serialize(?PUBCOMP_PACKET(0), #{strict_mode => false}),
+    %% strict_mode = true
     ?catch_error(bad_packet_id, parse_serialize(?PUBCOMP_PACKET(0))).
 
 t_serialize_parse_pubcomp_v5(_) ->
@@ -419,7 +438,12 @@ t_serialize_parse_subscribe(_) ->
     %% SUBSCRIBE with bad qos 0
     Bin0 = <<?SUBSCRIBE:4,0:4,11,0,2,0,6,84,111,112,105,99,65,2>>,
     ?assertMatch(Packet, parse_to_packet(Bin0, #{strict_mode => false})),
+    %% strict_mode = false
+    _ = parse_to_packet(Bin0, #{strict_mode => false}),
     ?catch_error(bad_frame_header, parse_to_packet(Bin0, #{strict_mode => true})),
+    %% strict_mode = false
+    _ = parse_serialize(?SUBSCRIBE_PACKET(0, TopicFilters), #{strict_mode => false}),
+    %% strict_mode = true
     ?catch_error(bad_packet_id, parse_serialize(?SUBSCRIBE_PACKET(0, TopicFilters))),
     ?catch_error(bad_subqos, parse_serialize(?SUBSCRIBE_PACKET(1, [{<<"t">>, #{qos => 3}}]))).
 
@@ -432,6 +456,9 @@ t_serialize_parse_subscribe_v5(_) ->
 t_serialize_parse_suback(_) ->
     Packet = ?SUBACK_PACKET(10, [?QOS_0, ?QOS_1, 128]),
     ?assertEqual(Packet, parse_serialize(Packet)),
+    %% strict_mode = false
+    _ = parse_serialize(?SUBACK_PACKET(0, [?QOS_0]), #{strict_mode => false}),
+    %% strict_mode = true
     ?catch_error(bad_packet_id, parse_serialize(?SUBACK_PACKET(0, [?QOS_0]))).
 
 t_serialize_parse_suback_v5(_) ->
@@ -451,6 +478,9 @@ t_serialize_parse_unsubscribe(_) ->
     Bin0 = <<?UNSUBSCRIBE:4,0:4,10,0,2,0,6,84,111,112,105,99,65>>,
     ?assertMatch(Packet, parse_to_packet(Bin0, #{strict_mode => false})),
     ?catch_error(bad_frame_header, parse_to_packet(Bin0, #{strict_mode => true})),
+    %% strict_mode = false
+    _ = parse_serialize(?UNSUBSCRIBE_PACKET(0, [<<"TopicA">>]), #{strict_mode => false}),
+    %% strict_mode = true
     ?catch_error(bad_packet_id, parse_serialize(?UNSUBSCRIBE_PACKET(0, [<<"TopicA">>]))).
 
 t_serialize_parse_unsubscribe_v5(_) ->

@@ -69,10 +69,24 @@ init_per_testcase(t_sys_mon2, Config) ->
             ok;
            (_) -> ok
         end),
+    Config;
+init_per_testcase(_, Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_testcase(_, _Config) ->
     emqx_ct_helpers:stop_apps([]).
+
+t_procinfo(_) ->
+    ok = meck:new(emqx_vm, [passthrough, no_history]),
+    ok = meck:expect(emqx_vm, get_process_info, fun(_) -> [] end),
+    ok = meck:expect(emqx_vm, get_process_gc_info, fun(_) -> [] end),
+    ?assertEqual([], emqx_sys_mon:procinfo([])),
+    ok = meck:expect(emqx_vm, get_process_info, fun(_) -> ok end),
+    ok = meck:expect(emqx_vm, get_process_gc_info, fun(_) -> undefined end),
+    ?assertEqual(undefined, emqx_sys_mon:procinfo([])),
+    ok = meck:unload(emqx_vm).
 
 t_sys_mon(_Config) ->
     lists:foreach(

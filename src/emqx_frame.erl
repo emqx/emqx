@@ -89,12 +89,12 @@ parse(<<>>, {none, Options}) ->
 parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>,
       {none, Options = #{strict_mode := StrictMode}}) ->
     %% Validate header if strict mode.
+    StrictMode andalso validate_header(Type, Dup, QoS, Retain),
     Header = #mqtt_packet_header{type   = Type,
                                  dup    = bool(Dup),
                                  qos    = QoS,
                                  retain = bool(Retain)
                                 },
-    StrictMode andalso validate_header(Type, Dup, QoS, Retain),
     Header1 = case fixqos(Type, QoS) of
                   QoS      -> Header;
                   FixedQoS -> Header#mqtt_packet_header{qos = FixedQoS}
@@ -164,7 +164,8 @@ packet(Header, Variable, Payload) ->
 parse_packet(#mqtt_packet_header{type = ?CONNECT}, FrameBin, _Options) ->
     {ProtoName, Rest} = parse_utf8_string(FrameBin),
     <<BridgeTag:4, ProtoVer:4, Rest1/binary>> = Rest,
-    % Note: Crash when reserved flag doesn't equal to 0, there is no strict compliance with the MQTT5.0.
+    % Note: Crash when reserved flag doesn't equal to 0, there is no strict
+    % compliance with the MQTT5.0.
     <<UsernameFlag : 1,
       PasswordFlag : 1,
       WillRetain   : 1,
@@ -201,13 +202,15 @@ parse_packet(#mqtt_packet_header{type = ?CONNACK},
                          properties  = Properties
                         };
 
-parse_packet(#mqtt_packet_header{type = ?PUBLISH, qos = QoS}, Bin, #{version := Ver}) ->
+parse_packet(#mqtt_packet_header{type = ?PUBLISH, qos = QoS}, Bin,
+             #{strict_mode := StrictMode, version := Ver}) ->
     {TopicName, Rest} = parse_utf8_string(Bin),
     {PacketId, Rest1} = case QoS of
                             ?QOS_0 -> {undefined, Rest};
                             _ -> parse_packet_id(Rest)
                         end,
-    (PacketId =/= undefined) andalso validate_packet_id(PacketId),
+    (PacketId =/= undefined) andalso
+      StrictMode andalso validate_packet_id(PacketId),
     {Properties, Payload} = parse_properties(Rest1, Ver),
     Publish = #mqtt_packet_publish{topic_name = TopicName,
                                    packet_id  = PacketId,
@@ -215,15 +218,15 @@ parse_packet(#mqtt_packet_header{type = ?PUBLISH, qos = QoS}, Bin, #{version := 
                                   },
     {Publish, Payload};
 
-parse_packet(#mqtt_packet_header{type = PubAck}, <<PacketId:16/big>>, _Options)
-    when ?PUBACK =< PubAck, PubAck =< ?PUBCOMP ->
-    ok = validate_packet_id(PacketId),
+parse_packet(#mqtt_packet_header{type = PubAck}, <<PacketId:16/big>>, #{strict_mode := StrictMode})
+  when ?PUBACK =< PubAck, PubAck =< ?PUBCOMP ->
+    StrictMode andalso validate_packet_id(PacketId),
     #mqtt_packet_puback{packet_id = PacketId, reason_code = 0};
 
 parse_packet(#mqtt_packet_header{type = PubAck}, <<PacketId:16/big, ReasonCode, Rest/binary>>,
-             #{version := Ver = ?MQTT_PROTO_V5})
-    when ?PUBACK =< PubAck, PubAck =< ?PUBCOMP ->
-    ok = validate_packet_id(PacketId),
+             #{strict_mode := StrictMode, version := Ver = ?MQTT_PROTO_V5})
+  when ?PUBACK =< PubAck, PubAck =< ?PUBCOMP ->
+    StrictMode andalso validate_packet_id(PacketId),
     {Properties, <<>>} = parse_properties(Rest, Ver),
     #mqtt_packet_puback{packet_id   = PacketId,
                         reason_code = ReasonCode,
@@ -231,8 +234,8 @@ parse_packet(#mqtt_packet_header{type = PubAck}, <<PacketId:16/big, ReasonCode, 
                        };
 
 parse_packet(#mqtt_packet_header{type = ?SUBSCRIBE}, <<PacketId:16/big, Rest/binary>>,
-             #{version := Ver}) ->
-    ok = validate_packet_id(PacketId),
+             #{strict_mode := StrictMode, version := Ver}) ->
+    StrictMode andalso validate_packet_id(PacketId),
     {Properties, Rest1} = parse_properties(Rest, Ver),
     TopicFilters = parse_topic_filters(subscribe, Rest1),
     ok = validate_subqos([QoS || {_, #{qos := QoS}} <- TopicFilters]),
@@ -242,8 +245,8 @@ parse_packet(#mqtt_packet_header{type = ?SUBSCRIBE}, <<PacketId:16/big, Rest/bin
                           };
 
 parse_packet(#mqtt_packet_header{type = ?SUBACK}, <<PacketId:16/big, Rest/binary>>,
-             #{version := Ver}) ->
-    ok = validate_packet_id(PacketId),
+             #{strict_mode := StrictMode, version := Ver}) ->
+    StrictMode andalso validate_packet_id(PacketId),
     {Properties, Rest1} = parse_properties(Rest, Ver),
     ReasonCodes = parse_reason_codes(Rest1),
     #mqtt_packet_suback{packet_id    = PacketId,
@@ -252,8 +255,8 @@ parse_packet(#mqtt_packet_header{type = ?SUBACK}, <<PacketId:16/big, Rest/binary
                        };
 
 parse_packet(#mqtt_packet_header{type = ?UNSUBSCRIBE}, <<PacketId:16/big, Rest/binary>>,
-             #{version := Ver}) ->
-    ok = validate_packet_id(PacketId),
+             #{strict_mode := StrictMode, version := Ver}) ->
+    StrictMode andalso validate_packet_id(PacketId),
     {Properties, Rest1} = parse_properties(Rest, Ver),
     TopicFilters = parse_topic_filters(unsubscribe, Rest1),
     #mqtt_packet_unsubscribe{packet_id     = PacketId,
@@ -261,13 +264,14 @@ parse_packet(#mqtt_packet_header{type = ?UNSUBSCRIBE}, <<PacketId:16/big, Rest/b
                              topic_filters = TopicFilters
                             };
 
-parse_packet(#mqtt_packet_header{type = ?UNSUBACK}, <<PacketId:16/big>>, _Options) ->
-    ok = validate_packet_id(PacketId),
+parse_packet(#mqtt_packet_header{type = ?UNSUBACK}, <<PacketId:16/big>>,
+             #{strict_mode := StrictMode}) ->
+    StrictMode andalso validate_packet_id(PacketId),
     #mqtt_packet_unsuback{packet_id = PacketId};
 
 parse_packet(#mqtt_packet_header{type = ?UNSUBACK}, <<PacketId:16/big, Rest/binary>>,
-             #{version := Ver}) ->
-    ok = validate_packet_id(PacketId),
+             #{strict_mode := StrictMode, version := Ver}) ->
+    StrictMode andalso validate_packet_id(PacketId),
     {Properties, Rest1} = parse_properties(Rest, Ver),
     ReasonCodes = parse_reason_codes(Rest1),
     #mqtt_packet_unsuback{packet_id    = PacketId,
@@ -296,8 +300,7 @@ parse_will_message(Packet = #mqtt_packet_connect{will_flag = true,
                                 will_topic   = Topic,
                                 will_payload = Payload
                                }, Rest2};
-parse_will_message(Packet, Bin) ->
-    {Packet, Bin}.
+parse_will_message(Packet, Bin) -> {Packet, Bin}.
 
 -compile({inline, [parse_packet_id/1]}).
 parse_packet_id(<<PacketId:16/big, Rest/binary>>) ->
@@ -720,6 +723,7 @@ validate_header(?DISCONNECT, 0, 0, 0)   -> ok;
 validate_header(?AUTH, 0, 0, 0)         -> ok;
 validate_header(_Type, _Dup, _QoS, _Rt) -> error(bad_frame_header).
 
+-compile({inline, [validate_packet_id/1]}).
 validate_packet_id(0) -> error(bad_packet_id);
 validate_packet_id(_) -> ok.
 

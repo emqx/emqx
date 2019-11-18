@@ -219,7 +219,6 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
                    fun enrich_client/2,
                    fun set_logger_meta/2,
                    fun check_banned/2,
-                   fun check_flapping/2,
                    fun auth_connect/2], ConnPkt, Channel) of
         {ok, NConnPkt, NChannel} ->
             process_connect(NConnPkt, NChannel);
@@ -942,19 +941,12 @@ set_logger_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId}}) ->
     emqx_logger:set_metadata_clientid(ClientId).
 
 %%--------------------------------------------------------------------
-%% Check banned/flapping
+%% Check banned
 %%--------------------------------------------------------------------
 
 check_banned(_ConnPkt, #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
     case emqx_zone:enable_ban(Zone) andalso emqx_banned:check(ClientInfo) of
         true  -> {error, ?RC_BANNED};
-        false -> ok
-    end.
-
-check_flapping(_ConnPkt, #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
-    case emqx_zone:enable_flapping_detect(Zone)
-         andalso emqx_flapping:check(ClientInfo) of
-        true -> {error, ?RC_CONNECTION_RATE_EXCEEDED};
         false -> ok
     end.
 
