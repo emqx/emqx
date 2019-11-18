@@ -157,7 +157,7 @@
 
 -define(STATS_KEYS, [subscriptions_cnt,
                      subscriptions_max,
-                     inflight,
+                     inflight_cnt,
                      inflight_max,
                      mqueue_len,
                      mqueue_max,
