@@ -566,7 +566,7 @@ handle_out(connack, {?RC_SUCCESS, SP, ConnPkt},
                                alias_maximum = init_alias_maximum(ConnPkt, ClientInfo)
                               },
     Channel2 = ensure_keepalive(AckProps, Channel1),
-    ok = emqx_hooks:run('client.connected', [ClientInfo, ?RC_SUCCESS, ConnInfo]),
+    ok = emqx_hooks:run('client.connected', [ClientInfo, ?RC_SUCCESS, ConnInfo1]),
     AckPacket = ?CONNACK_PACKET(?RC_SUCCESS, SP, AckProps),
     case maybe_resume_session(Channel2) of
         ignore ->
