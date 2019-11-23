@@ -155,7 +155,7 @@ safe_execute(Fun, Args) ->
         _:Reason:Stacktrace ->
             ?LOG(error, "Failed to execute ~p(~p): ~p", [Fun, Args, {Reason, Stacktrace}]);
             ok
-	end.
+    end.
 
 %% @doc execute a function.
 execute(Fun, Args) when is_function(Fun) ->
