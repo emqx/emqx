@@ -165,7 +165,7 @@ safe_execute(Fun, Args) ->
         Result -> Result
     catch
         _:Reason:Stacktrace ->
-            ?LOG(error, "Failed to execute ~p(~p): ~p", [Fun, Args, {Reason, Stacktrace}]);
+            ?LOG(error, "Failed to execute ~p(~p): ~p", [Fun, Args, {Reason, Stacktrace}]),
             ok
     end.
 
