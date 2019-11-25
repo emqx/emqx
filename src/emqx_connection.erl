@@ -346,8 +346,8 @@ handle_msg({Passive, _Sock}, State)
     handle_info(activate_socket, NState1);
 
 handle_msg(Deliver = {deliver, _Topic, _Msg},
-           State = #state{channel = Channel}) ->
-    Delivers = [Deliver|emqx_misc:drain_deliver()],
+           State = #state{active_n = ActiveN, channel = Channel}) ->
+    Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
     Ret = emqx_channel:handle_out(Delivers, Channel),
     handle_chan_return(Ret, State);
 

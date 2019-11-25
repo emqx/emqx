@@ -102,7 +102,7 @@ t_drain_deliver(_) ->
     self() ! {deliver, t2, m2},
     ?assertEqual([{deliver, t1, m1},
                   {deliver, t2, m2}
-                 ], emqx_misc:drain_deliver()).
+                 ], emqx_misc:drain_deliver(2)).
 
 t_drain_down(_) ->
     {Pid1, _Ref1} = erlang:spawn_monitor(fun() -> ok end),
