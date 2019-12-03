@@ -715,6 +715,12 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc Whether to verify and check MQTT PacketId
+{mapping, "mqtt.strict_mode", "emqx.strict_mode", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
 %%--------------------------------------------------------------------
 %% Zones
 %%--------------------------------------------------------------------
@@ -931,14 +937,14 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc Whether to verify and check MQTT PacketId
+{mapping, "zone.$name.strict_mode", "emqx.zones", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {translation, "emqx.zones", fun(Conf) ->
-  Mapping = fun("retain_available", Val) ->
-                    {retain_available, Val};
-               ("wildcard_subscription", Val) ->
-                    {wildcard_subscription, Val};
-               ("shared_subscription", Val) ->
-                    {shared_subscription, Val};
-               ("publish_limit", Val) ->
+  Mapping = fun("publish_limit", Val) ->
                     [L, D] = string:tokens(Val, ", "),
                     Limit = list_to_integer(L),
                     Duration = case cuttlefish_duration:parse(D, s) of
@@ -1000,8 +1006,6 @@ end}.
                                         end, #{}, string:tokens(Val, ",")),
                             {mqueue_priorities, MqueuePriorities}
                     end;
-               ("mountpoint", Val) ->
-                    {mountpoint, iolist_to_binary(Val)};
                (Opt, Val) ->
                     {list_to_atom(Opt), Val}
             end,
