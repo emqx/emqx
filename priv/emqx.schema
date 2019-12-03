@@ -715,7 +715,7 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
-%% @doc Whether to verify and check MQTT PacketId
+%% @doc Whether strict mode check MQTT packets
 {mapping, "mqtt.strict_mode", "emqx.strict_mode", [
   {default, false},
   {datatype, {enum, [true, false]}}
@@ -937,7 +937,7 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
-%% @doc Whether to verify and check MQTT PacketId
+%% @doc Whether strict mode check MQTT packets
 {mapping, "zone.$name.strict_mode", "emqx.zones", [
   {default, false},
   {datatype, {enum, [true, false]}}
