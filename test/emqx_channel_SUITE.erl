@@ -95,7 +95,7 @@ t_chan_attrs(_) ->
     #{conn_state := connected} = emqx_channel:attrs(channel()).
 
 t_chan_caps(_) ->
-    Caps = emqx_channel:caps(channel()).
+    _Caps = emqx_channel:caps(channel()).
 
 %%--------------------------------------------------------------------
 %% Test cases for channel init
@@ -103,7 +103,7 @@ t_chan_caps(_) ->
 
 %% TODO:
 t_chan_init(_) ->
-    Channel = channel().
+    _Channel = channel().
 
 %%--------------------------------------------------------------------
 %% Test cases for channel handle_in
@@ -154,7 +154,7 @@ t_handle_in_qos2_publish(_) ->
 t_handle_in_puback_ok(_) ->
     Msg = emqx_message:make(<<"t">>, <<"payload">>),
     ok = meck:expect(emqx_session, puback,
-                     fun(PacketId, Session) -> {ok, Msg, Session} end),
+                     fun(_PacketId, Session) -> {ok, Msg, Session} end),
     Channel = channel(#{conn_state => connected}),
     {ok, _NChannel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), Channel).
     % ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, NChannel)).
@@ -186,7 +186,7 @@ t_handle_in_pubrec_ok(_) ->
 
 t_handle_in_pubrec_id_in_use(_) ->
     ok = meck:expect(emqx_session, pubrec,
-                     fun(_, Session) ->
+                     fun(_, _Session) ->
                              {error, ?RC_PACKET_IDENTIFIER_IN_USE}
                      end),
     {ok, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_IN_USE), _Channel}
@@ -196,7 +196,7 @@ t_handle_in_pubrec_id_in_use(_) ->
 
 t_handle_in_pubrec_id_not_found(_) ->
     ok = meck:expect(emqx_session, pubrec,
-                     fun(_, Session) ->
+                     fun(_, _Session) ->
                              {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
                      end),
     {ok, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND), _Channel}
@@ -360,7 +360,7 @@ t_handle_out_publish_nl(_) ->
     {ok, Channel} = emqx_channel:handle_out(Publish, Channel).
 
 t_handle_out_connack_sucess(_) ->
-    {ok, [{connack, ?CONNACK_PACKET(?RC_SUCCESS, SP, _)}], _Chan}
+    {ok, [{connack, ?CONNACK_PACKET(?RC_SUCCESS, _SP, _)}], _Chan}
         = emqx_channel:handle_out(connack, {?RC_SUCCESS, 0, connpkt()}, channel()).
 
 t_handle_out_connack_failure(_) ->
@@ -459,13 +459,13 @@ t_handle_timeout_emit_stats(_) ->
 
 t_handle_timeout_keepalive(_) ->
     TRef = make_ref(),
-    Channel = emqx_channel:set_field(timers, #{alive_timer => TRef}, channel()),
+    _Channel = emqx_channel:set_field(timers, #{alive_timer => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(make_ref(), {keepalive, 10}, channel()).
 
 t_handle_timeout_retry_delivery(_) ->
     ok = meck:expect(emqx_session, retry, fun(Session) -> {ok, Session} end),
     TRef = make_ref(),
-    Channel = emqx_channel:set_field(timers, #{retry_timer => TRef}, channel()),
+    _Channel = emqx_channel:set_field(timers, #{retry_timer => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(TRef, retry_delivery, channel()).
 
 t_handle_timeout_expire_awaiting_rel(_) ->
