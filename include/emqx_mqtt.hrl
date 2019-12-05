@@ -178,8 +178,9 @@
 %% Maximum MQTT Packet ID and Length
 %%--------------------------------------------------------------------
 
--define(MAX_PACKET_ID, 16#ffff).
--define(MAX_PACKET_SIZE, 16#fffffff).
+-define(MAX_PACKET_ID, 16#FFFF).
+-define(MAX_PACKET_SIZE, 16#FFFFFFF).
+-define(MAX_TOPIC_AlIAS, 16#FFFF).
 
 %%--------------------------------------------------------------------
 %% MQTT Frame Mask
@@ -317,6 +318,9 @@
 %%--------------------------------------------------------------------
 %% MQTT Packet Match
 %%--------------------------------------------------------------------
+
+-define(CONNECT_PACKET(),
+        #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT}}).
 
 -define(CONNECT_PACKET(Var),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNECT},
