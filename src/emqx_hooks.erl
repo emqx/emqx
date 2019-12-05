@@ -127,7 +127,7 @@ run_fold(HookPoint, Args, Acc) ->
     do_run_fold(lookup(HookPoint), Args, Acc).
 
 do_run([#callback{action = Action, filter = Filter} | Callbacks], Args) ->
-    case filter_passed(Filter, Args) andalso execute(Action, Args) of
+    case filter_passed(Filter, Args) andalso safe_execute(Action, Args) of
         %% stop the hook chain and return
         stop -> ok;
         %% continue the hook chain, in following cases:
@@ -140,7 +140,7 @@ do_run([], _Args) ->
 
 do_run_fold([#callback{action = Action, filter = Filter} | Callbacks], Args, Acc) ->
     Args1 = Args ++ [Acc],
-    case filter_passed(Filter, Args1) andalso execute(Action, Args1) of
+    case filter_passed(Filter, Args1) andalso safe_execute(Action, Args1) of
         %% stop the hook chain
         stop -> Acc;
         %% stop the hook chain with NewAcc
@@ -159,6 +159,15 @@ do_run_fold([], _Args, Acc) ->
 filter_passed(undefined, _Args) -> true;
 filter_passed(Filter, Args) ->
     execute(Filter, Args).
+
+safe_execute(Fun, Args) ->
+    try execute(Fun, Args) of
+        Result -> Result
+    catch
+        _:Reason:Stacktrace ->
+            ?LOG(error, "Failed to execute ~p(~p): ~p", [Fun, Args, {Reason, Stacktrace}]),
+            ok
+    end.
 
 %% @doc execute a function.
 execute(Fun, Args) when is_function(Fun) ->

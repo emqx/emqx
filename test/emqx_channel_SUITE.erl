@@ -95,7 +95,7 @@ t_chan_attrs(_) ->
     #{conn_state := connected} = emqx_channel:attrs(channel()).
 
 t_chan_caps(_) ->
-    Caps = emqx_channel:caps(channel()).
+    _Caps = emqx_channel:caps(channel()).
 
 %%--------------------------------------------------------------------
 %% Test cases for channel init
@@ -103,7 +103,7 @@ t_chan_caps(_) ->
 
 %% TODO:
 t_chan_init(_) ->
-    Channel = channel().
+    _Channel = channel().
 
 %%--------------------------------------------------------------------
 %% Test cases for channel handle_in
@@ -155,7 +155,7 @@ t_handle_in_qos2_publish(_) ->
 t_handle_in_puback_ok(_) ->
     Msg = emqx_message:make(<<"t">>, <<"payload">>),
     ok = meck:expect(emqx_session, puback,
-                     fun(PacketId, Session) -> {ok, Msg, Session} end),
+                     fun(_PacketId, Session) -> {ok, Msg, Session} end),
     Channel = channel(#{conn_state => connected}),
     {ok, _NChannel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), Channel).
     % ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, NChannel)).
@@ -187,7 +187,7 @@ t_handle_in_pubrec_ok(_) ->
 
 t_handle_in_pubrec_id_in_use(_) ->
     ok = meck:expect(emqx_session, pubrec,
-                     fun(_, Session) ->
+                     fun(_, _Session) ->
                              {error, ?RC_PACKET_IDENTIFIER_IN_USE}
                      end),
     {ok, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_IN_USE), _Channel}
@@ -197,7 +197,7 @@ t_handle_in_pubrec_id_in_use(_) ->
 
 t_handle_in_pubrec_id_not_found(_) ->
     ok = meck:expect(emqx_session, pubrec,
-                     fun(_, Session) ->
+                     fun(_, _Session) ->
                              {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
                      end),
     {ok, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND), _Channel}
