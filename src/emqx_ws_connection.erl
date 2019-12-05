@@ -289,7 +289,7 @@ websocket_info({check_gc, Stats}, State) ->
 websocket_info(Deliver = {deliver, _Topic, _Msg},
                State = #state{active_n = ActiveN, channel = Channel}) ->
     Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
-    Ret = emqx_channel:handle_out(Delivers, Channel),
+    Ret = emqx_channel:handle_deliver(Delivers, Channel),
     handle_chan_return(Ret, State);
 
 websocket_info({timeout, TRef, limit_timeout}, State = #state{limit_timer = TRef}) ->

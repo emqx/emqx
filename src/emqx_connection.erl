@@ -348,7 +348,7 @@ handle_msg({Passive, _Sock}, State)
 handle_msg(Deliver = {deliver, _Topic, _Msg},
            State = #state{active_n = ActiveN, channel = Channel}) ->
     Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
-    Ret = emqx_channel:handle_out(Delivers, Channel),
+    Ret = emqx_channel:handle_deliver(Delivers, Channel),
     handle_chan_return(Ret, State);
 
 handle_msg({outgoing, Packets}, State) ->
@@ -479,6 +479,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             {[{frame_error, Reason}|Packets], State}
     end.
 
+-compile({inline, [next_incoming_msgs/1]}).
 next_incoming_msgs([Packet]) ->
     {incoming, Packet};
 next_incoming_msgs(Packets) ->
@@ -559,6 +560,7 @@ handle_info({connack, ConnAck}, State = #state{channel = Channel}) ->
     ok = emqx_cm:set_chan_stats(ClientId, stats(State)),
     ok = handle_outgoing(ConnAck, State);
 
+%% TODO: deprecated...
 handle_info({enter, disconnected}, State = #state{channel = Channel}) ->
     #{clientid := ClientId} = emqx_channel:info(clientinfo, Channel),
     emqx_cm:set_chan_attrs(ClientId, attrs(State)),
@@ -596,7 +598,8 @@ handle_info({close, Reason}, State) ->
     handle_info({sock_closed, Reason}, close_socket(State));
 
 handle_info(Info, State = #state{channel = Channel}) ->
-    handle_chan_return(emqx_channel:handle_info(Info, Channel), State).
+    Ret = emqx_channel:handle_info(Info, Channel),
+    handle_chan_return(Ret, State).
 
 %%--------------------------------------------------------------------
 %% Ensure rate limit
