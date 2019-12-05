@@ -101,6 +101,7 @@
     {counter, 'packets.pubrel.missed'},         % PUBREL packets missed
     {counter, 'packets.pubcomp.received'},      % PUBCOMP packets received
     {counter, 'packets.pubcomp.sent'},          % PUBCOMP packets sent
+    {counter, 'packets.pubcomp.inuse'},         % PUBCOMP packet_id inuse
     {counter, 'packets.pubcomp.missed'},        % PUBCOMP packets missed
     {counter, 'packets.subscribe.received'},    % SUBSCRIBE Packets received
     {counter, 'packets.subscribe.error'},       % SUBSCRIBE error
@@ -460,5 +461,6 @@ reserved_idx('messages.forward')             -> 51;
 reserved_idx('auth.mqtt.anonymous')          -> 52;
 reserved_idx('channel.gc.cnt')               -> 53;
 reserved_idx('packets.pubrec.inuse')         -> 54;
+reserved_idx('packets.pubcomp.inuse')        -> 55;
 reserved_idx(_)                              -> undefined.
 
