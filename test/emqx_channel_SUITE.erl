@@ -124,8 +124,9 @@ t_handle_in_connect_packet_sucess(_) ->
 
 t_handle_in_unexpected_connect_packet(_) ->
     Channel = emqx_channel:set_field(conn_state, connected, channel()),
-    {shutdown, protocol_error, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR), Channel}
-        = emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), Channel).
+    Packet = ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR),
+    {ok, [{outgoing, Packet}, {close, protocol_error}], Channel}
+      = emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), Channel).
 
 t_handle_in_qos0_publish(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> ok end),
@@ -258,34 +259,38 @@ t_handle_in_pingreq(_) ->
         = emqx_channel:handle_in(?PACKET(?PINGREQ), channel()).
 
 t_handle_in_disconnect(_) ->
+    Packet = ?DISCONNECT_PACKET(?RC_SUCCESS),
     Channel = channel(#{conn_state => connected}),
-    {shutdown, normal, Channel1} = emqx_channel:handle_in(?DISCONNECT_PACKET(?RC_SUCCESS), Channel),
+    {ok, {close, normal}, Channel1} = emqx_channel:handle_in(Packet, Channel),
     ?assertEqual(undefined, emqx_channel:info(will_msg, Channel1)).
 
 t_handle_in_auth(_) ->
     Channel = channel(#{conn_state => connected}),
     Packet = ?DISCONNECT_PACKET(?RC_IMPLEMENTATION_SPECIFIC_ERROR),
-    {shutdown, implementation_specific_error, Packet, Channel}
-        = emqx_channel:handle_in(?AUTH_PACKET(), Channel).
+    {ok, [{outgoing, Packet},
+          {close, implementation_specific_error}], Channel}
+    = emqx_channel:handle_in(?AUTH_PACKET(), Channel).
 
 t_handle_in_frame_error(_) ->
     IdleChannel = channel(#{conn_state => idle}),
     {shutdown, frame_too_large, _}
-        = emqx_channel:handle_in({frame_error, frame_too_large}, IdleChannel),
+      = emqx_channel:handle_in({frame_error, frame_too_large}, IdleChannel),
     ConnectingChan =  channel(#{conn_state => connecting}),
-    {shutdown, frame_too_large, ?CONNACK_PACKET(?RC_MALFORMED_PACKET), _}
-        = emqx_channel:handle_in({frame_error, frame_too_large}, ConnectingChan),
+    ConnackPacket = ?CONNACK_PACKET(?RC_MALFORMED_PACKET),
+    {shutdown, frame_too_large, ConnackPacket, _}
+      = emqx_channel:handle_in({frame_error, frame_too_large}, ConnectingChan),
+    DisconnectPacket = ?DISCONNECT_PACKET(?RC_MALFORMED_PACKET),
     ConnectedChan = channel(#{conn_state => connected}),
-    {shutdown, malformed_Packet, ?DISCONNECT_PACKET(?RC_MALFORMED_PACKET), _}
-        = emqx_channel:handle_in({frame_error, frame_too_large}, ConnectedChan),
+    {ok, [{outgoing, DisconnectPacket}, {close, malformed_Packet}], _}
+      = emqx_channel:handle_in({frame_error, frame_too_large}, ConnectedChan),
     DisconnectedChan = channel(#{conn_state => disconnected}),
     {ok, DisconnectedChan}
-        = emqx_channel:handle_in({frame_error, frame_too_large}, DisconnectedChan).
+      = emqx_channel:handle_in({frame_error, frame_too_large}, DisconnectedChan).
 
-%% TODO:
 t_handle_in_expected_packet(_) ->
-    {shutdown, protocol_error, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR), _Chan}
-        = emqx_channel:handle_in(packet, channel()).
+    Packet = ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR),
+    {ok, [{outgoing, Packet}, {close, protocol_error}], _Chan}
+      = emqx_channel:handle_in(packet, channel()).
 
 t_process_connect(_) ->
     ok = meck:expect(emqx_cm, open_session,
@@ -293,18 +298,18 @@ t_process_connect(_) ->
                              {ok, #{session => session(), present => false}}
                      end),
     {ok, [{connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _Channel}
-        = emqx_channel:process_connect(connpkt(), channel(#{conn_state => idle})).
+      = emqx_channel:process_connect(connpkt(), channel(#{conn_state => idle})).
 
-t_handle_publish_qos0(_) ->
+t_process_publish_qos0(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
-    {ok, _Channel} = emqx_channel:handle_publish(Publish, channel()).
+    {ok, _Channel} = emqx_channel:process_publish(Publish, channel()).
 
 t_process_publish_qos1(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
-    Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<"payload">>),
+    Publish = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>),
     {ok, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS), _Channel}
-        = emqx_channel:process_publish(1, Msg, channel()).
+      = emqx_channel:process_publish(Publish, channel()).
 
 t_process_subscribe(_) ->
     ok = meck:expect(emqx_session, subscribe, fun(_, _, _, Session) -> {ok, Session} end),
@@ -317,55 +322,56 @@ t_process_unsubscribe(_) ->
     {[?RC_SUCCESS], _Channel} = emqx_channel:process_unsubscribe(TopicFilters, channel()).
 
 %%--------------------------------------------------------------------
-%% Test cases for handle_out
+%% Test cases for handle_deliver
 %%--------------------------------------------------------------------
 
-t_handle_out_delivers(_) ->
+t_handle_deliver(_) ->
     WithPacketId = fun(Msgs) ->
                            lists:zip(lists:seq(1, length(Msgs)), Msgs)
                    end,
     ok = meck:expect(emqx_session, deliver,
                      fun(Delivers, Session) ->
-                             Msgs = [Msg || {deliver, _, Msg} <- Delivers],
-                             Publishes = [{publish, PacketId, Msg}
-                                          || {PacketId, Msg} <- WithPacketId(Msgs)],
+                             Publishes = WithPacketId([Msg || {deliver, _, Msg} <- Delivers]),
                              {ok, Publishes, Session}
                      end),
     ok = meck:expect(emqx_session, info, fun(retry_interval, _Session) -> 20000 end),
     Msg0 = emqx_message:make(test, ?QOS_1, <<"t1">>, <<"qos1">>),
     Msg1 = emqx_message:make(test, ?QOS_2, <<"t2">>, <<"qos2">>),
     Delivers = [{deliver, <<"+">>, Msg0}, {deliver, <<"+">>, Msg1}],
-    {ok, {outgoing, Packets}, _Ch} = emqx_channel:handle_out(Delivers, channel()),
+    {ok, {outgoing, Packets}, _Ch} = emqx_channel:handle_deliver(Delivers, channel()),
     ?assertEqual([?QOS_1, ?QOS_2], [emqx_packet:qos(Pkt)|| Pkt <- Packets]).
 
-t_handle_out_publishes(_) ->
-    Channel = channel(#{conn_state => connected}),
-    Pub0 = {publish, undefined, emqx_message:make(<<"t">>, <<"qos0">>)},
-    Pub1 = {publish, 1, emqx_message:make(<<"c">>, ?QOS_1, <<"t">>, <<"qos1">>)},
-    {ok, {outgoing, Packets}, _NChannel}
-        = emqx_channel:handle_out({publish, [Pub0, Pub1]}, Channel),
-    ?assertEqual(2, length(Packets)).
-    % ?assertEqual(#{publish_out => 2}, emqx_channel:info(pub_stats, NChannel)).
+%%--------------------------------------------------------------------
+%% Test cases for handle_out
+%%--------------------------------------------------------------------
 
 t_handle_out_publish(_) ->
+    Channel = channel(#{conn_state => connected}),
+    Pub0 = {undefined, emqx_message:make(<<"t">>, <<"qos0">>)},
+    Pub1 = {1, emqx_message:make(<<"c">>, ?QOS_1, <<"t">>, <<"qos1">>)},
+    {ok, {outgoing, Packets}, _NChannel}
+      = emqx_channel:handle_out(publish, [Pub0, Pub1], Channel),
+    ?assertEqual(2, length(Packets)).
+
+t_handle_out_publish_1(_) ->
     Msg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"t">>, <<"payload">>),
     {ok, ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>), _Chan}
-        = emqx_channel:handle_out({publish, 1, Msg}, channel()).
+      = emqx_channel:handle_out(publish, [{1, Msg}], channel()).
 
 t_handle_out_publish_nl(_) ->
     ClientInfo = clientinfo(#{clientid => <<"clientid">>}),
     Channel = channel(#{clientinfo => ClientInfo}),
     Msg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"t1">>, <<"qos1">>),
-    Publish = {publish, 1, emqx_message:set_flag(nl, Msg)},
-    {ok, Channel} = emqx_channel:handle_out(Publish, Channel).
+    Pubs = [{1, emqx_message:set_flag(nl, Msg)}],
+    {ok, Channel} = emqx_channel:handle_out(publish, Pubs, Channel).
 
 t_handle_out_connack_sucess(_) ->
     {ok, [{connack, ?CONNACK_PACKET(?RC_SUCCESS, SP, _)}], _Chan}
-        = emqx_channel:handle_out(connack, {?RC_SUCCESS, 0, connpkt()}, channel()).
+      = emqx_channel:handle_out(connack, {?RC_SUCCESS, 0, connpkt()}, channel()).
 
 t_handle_out_connack_failure(_) ->
     {shutdown, not_authorized, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _Chan}
-        = emqx_channel:handle_out(connack, {?RC_NOT_AUTHORIZED, connpkt()}, channel()).
+      = emqx_channel:handle_out(connack, {?RC_NOT_AUTHORIZED, connpkt()}, channel()).
 
 t_handle_out_puback(_) ->
     Channel = channel(#{conn_state => connected}),
@@ -376,33 +382,31 @@ t_handle_out_puback(_) ->
 t_handle_out_pubrec(_) ->
     Channel = channel(#{conn_state => connected}),
     {ok, ?PUBREC_PACKET(1, ?RC_SUCCESS), _NChannel}
-        = emqx_channel:handle_out(pubrec, {1, ?RC_SUCCESS}, Channel).
-    % ?assertEqual(#{pubrec_out => 1}, emqx_channel:info(pub_stats, NChannel)).
+      = emqx_channel:handle_out(pubrec, {1, ?RC_SUCCESS}, Channel).
 
 t_handle_out_pubrel(_) ->
     Channel = channel(#{conn_state => connected}),
     {ok, ?PUBREL_PACKET(1), Channel1}
-        = emqx_channel:handle_out(pubrel, {1, ?RC_SUCCESS}, Channel),
+      = emqx_channel:handle_out(pubrel, {1, ?RC_SUCCESS}, Channel),
     {ok, ?PUBREL_PACKET(2, ?RC_SUCCESS), _Channel2}
-        = emqx_channel:handle_out(pubrel, {2, ?RC_SUCCESS}, Channel1).
-    % ?assertEqual(#{pubrel_out => 2}, emqx_channel:info(pub_stats, Channel2)).
+      = emqx_channel:handle_out(pubrel, {2, ?RC_SUCCESS}, Channel1).
 
 t_handle_out_pubcomp(_) ->
     {ok, ?PUBCOMP_PACKET(1, ?RC_SUCCESS), _Channel}
-        = emqx_channel:handle_out(pubcomp, {1, ?RC_SUCCESS}, channel()).
-    % ?assertEqual(#{pubcomp_out => 1}, emqx_channel:info(pub_stats, Channel)).
+      = emqx_channel:handle_out(pubcomp, {1, ?RC_SUCCESS}, channel()).
 
 t_handle_out_suback(_) ->
     {ok, ?SUBACK_PACKET(1, [?QOS_2]), _Channel}
-        = emqx_channel:handle_out(suback, {1, [?QOS_2]}, channel()).
+      = emqx_channel:handle_out(suback, {1, [?QOS_2]}, channel()).
 
 t_handle_out_unsuback(_) ->
     {ok, ?UNSUBACK_PACKET(1, [?RC_SUCCESS]), _Channel}
-        = emqx_channel:handle_out(unsuback, {1, [?RC_SUCCESS]}, channel()).
+      = emqx_channel:handle_out(unsuback, {1, [?RC_SUCCESS]}, channel()).
 
 t_handle_out_disconnect(_) ->
-    {shutdown, normal, ?DISCONNECT_PACKET(?RC_SUCCESS), _Chan}
-        = emqx_channel:handle_out(disconnect, ?RC_SUCCESS, channel()).
+    Packet = ?DISCONNECT_PACKET(?RC_SUCCESS),
+    {ok, [{outgoing, Packet}, {close, normal}], _Chan}
+      = emqx_channel:handle_out(disconnect, ?RC_SUCCESS, channel()).
 
 t_handle_out_unexpected(_) ->
     {ok, _Channel} = emqx_channel:handle_out(unexpected, <<"data">>, channel()).
@@ -444,33 +448,33 @@ t_handle_info_unsubscribe(_) ->
     {ok, _Chan} = emqx_channel:handle_info({unsubscribe, topic_filters()}, channel()).
 
 t_handle_info_sock_closed(_) ->
-    {ok, _Chan} = emqx_channel:handle_out({sock_closed, reason},
-                                          channel(#{conn_state => disconnected})).
+    Channel = channel(#{conn_state => disconnected}),
+    {ok, Channel} = emqx_channel:handle_info({sock_closed, reason}, Channel).
 
 %%--------------------------------------------------------------------
 %% Test cases for handle_timeout
 %%--------------------------------------------------------------------
 
 t_handle_timeout_emit_stats(_) ->
-    ok = meck:expect(emqx_cm, set_chan_stats, fun(_, _) -> ok end),
     TRef = make_ref(),
+    ok = meck:expect(emqx_cm, set_chan_stats, fun(_, _) -> ok end),
     Channel = emqx_channel:set_field(timers, #{stats_timer => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(TRef, {emit_stats, []}, Channel).
 
 t_handle_timeout_keepalive(_) ->
     TRef = make_ref(),
     Channel = emqx_channel:set_field(timers, #{alive_timer => TRef}, channel()),
-    {ok, _Chan} = emqx_channel:handle_timeout(make_ref(), {keepalive, 10}, channel()).
+    {ok, _Chan} = emqx_channel:handle_timeout(make_ref(), {keepalive, 10}, Channel).
 
 t_handle_timeout_retry_delivery(_) ->
-    ok = meck:expect(emqx_session, retry, fun(Session) -> {ok, Session} end),
     TRef = make_ref(),
+    ok = meck:expect(emqx_session, retry, fun(Session) -> {ok, Session} end),
     Channel = emqx_channel:set_field(timers, #{retry_timer => TRef}, channel()),
-    {ok, _Chan} = emqx_channel:handle_timeout(TRef, retry_delivery, channel()).
+    {ok, _Chan} = emqx_channel:handle_timeout(TRef, retry_delivery, Channel).
 
 t_handle_timeout_expire_awaiting_rel(_) ->
-    ok = meck:expect(emqx_session, expire, fun(_, Session) -> {ok, Session} end),
     TRef = make_ref(),
+    ok = meck:expect(emqx_session, expire, fun(_, Session) -> {ok, Session} end),
     Channel = emqx_channel:set_field(timers, #{await_timer => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(TRef, expire_awaiting_rel, Channel).
 
@@ -522,7 +526,7 @@ t_check_subscribe(_) ->
     ok = emqx_channel:check_subscribe(<<"t">>, ?DEFAULT_SUBOPTS, channel()),
     ok = meck:unload(emqx_zone).
 
-t_enrich_caps(_) ->
+t_enrich_connack_caps(_) ->
     ok = meck:new(emqx_mqtt_caps, [passthrough, no_history]),
     ok = meck:expect(emqx_mqtt_caps, get_caps,
                      fun(_Zone) ->
@@ -534,7 +538,7 @@ t_enrich_caps(_) ->
                           wildcard_subscription => true
                          }
                      end),
-    AckProps = emqx_channel:enrich_caps(#{}, channel()),
+    AckProps = emqx_channel:enrich_connack_caps(#{}, channel()),
     ?assertMatch(#{'Retain-Available' := 1,
                    'Maximum-Packet-Size' := 1024,
                    'Topic-Alias-Maximum' := 10,
