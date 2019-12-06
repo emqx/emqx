@@ -364,7 +364,7 @@ init([]) ->
     % Store reserved indices
     lists:foreach(fun({Type, Name}) ->
                           Idx = reserved_idx(Name),
-                          Metric = #metric{name = Name, type = Type, idx = reserved_idx(Name)},
+                          Metric = #metric{name = Name, type = Type, idx = Idx},
                           true = ets:insert(?TAB, Metric),
                           ok = counters:put(CRef, Idx, 0)
                   end,?BYTES_METRICS ++ ?PACKET_METRICS ++ ?MESSAGE_METRICS ++ ?CHAN_METRICS ++ ?MQTT_METRICS),

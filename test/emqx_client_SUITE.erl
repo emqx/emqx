@@ -251,7 +251,7 @@ t_basic_with_props_v5(_) ->
 %% General test cases.
 %%--------------------------------------------------------------------
 
-t_basic(Opts) ->
+t_basic(_Opts) ->
     Topic = nth(1, ?TOPICS),
     {ok, C} = emqtt:start_link([{proto_ver, v4}]),
     {ok, _} = emqtt:connect(C),

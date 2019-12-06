@@ -123,12 +123,12 @@ t_publish_qos2(_) ->
 t_publish_qos1(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<"payload">>),
-    {ok, [], Session} = emqx_session:publish(1, Msg, session()).
+    {ok, [], _Session} = emqx_session:publish(1, Msg, session()).
 
 t_publish_qos0(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<"payload">>),
-    {ok, [], Session} = emqx_session:publish(0, Msg, session()).
+    {ok, [], _Session} = emqx_session:publish(0, Msg, session()).
 
 t_is_awaiting_full_false(_) ->
     ?assertNot(emqx_session:is_awaiting_full(session(#{max_awaiting_rel => 0}))).
@@ -191,7 +191,7 @@ t_pubcomp_id_not_found(_) ->
 %%--------------------------------------------------------------------
 
 t_dequeue(_) ->
-    {ok, Session} = emqx_session:dequeue(session()).
+    {ok, _Session} = emqx_session:dequeue(session()).
 
 t_deliver(_) ->
     Delivers = [delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)],
@@ -217,7 +217,6 @@ t_takeover(_) ->
 
 t_resume(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
-    Subs = #{<<"t">> => ?DEFAULT_SUBOPTS},
     Session = session(#{subscriptions => #{<<"t">> => ?DEFAULT_SUBOPTS}}),
     ok = emqx_session:resume(<<"clientid">>, Session).
 
