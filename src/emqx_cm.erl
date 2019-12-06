@@ -28,12 +28,16 @@
 -export([start_link/0]).
 
 -export([ register_channel/1
+        , register_channel/2
+        , register_channel/3
         , unregister_channel/1
         ]).
 
--export([ get_chan_attrs/1
-        , get_chan_attrs/2
-        , set_chan_attrs/2
+-export([connection_closed/1]).
+
+-export([ get_chan_info/1
+        , get_chan_info/2
+        , set_chan_info/2
         ]).
 
 -export([ get_chan_stats/1
@@ -66,15 +70,13 @@
 
 %% Tables for channel management.
 -define(CHAN_TAB, emqx_channel).
--define(CHAN_P_TAB, emqx_channel_p).
--define(CHAN_ATTRS_TAB, emqx_channel_attrs).
--define(CHAN_STATS_TAB, emqx_channel_stats).
+-define(CHAN_CONN_TAB, emqx_channel_conn).
+-define(CHAN_INFO_TAB, emqx_channel_info).
 
 -define(CHAN_STATS,
         [{?CHAN_TAB, 'channels.count', 'channels.max'},
-         {?CHAN_TAB, 'connections.count', 'connections.max'},
          {?CHAN_TAB, 'sessions.count', 'sessions.max'},
-         {?CHAN_P_TAB, 'sessions.persistent.count', 'sessions.persistent.max'}
+         {?CHAN_CONN_TAB, 'connections.count', 'connections.max'}
         ]).
 
 %% Batch drain
@@ -94,17 +96,28 @@ start_link() ->
 
 %% @doc Register a channel.
 -spec(register_channel(emqx_types:clientid()) -> ok).
-register_channel(ClientId) when is_binary(ClientId) ->
+register_channel(ClientId) ->
     register_channel(ClientId, self()).
 
 %% @doc Register a channel with pid.
 -spec(register_channel(emqx_types:clientid(), chan_pid()) -> ok).
-register_channel(ClientId, ChanPid) ->
+register_channel(ClientId, ChanPid) when is_pid(ChanPid) ->
     Chan = {ClientId, ChanPid},
     true = ets:insert(?CHAN_TAB, Chan),
+    true = ets:insert(?CHAN_CONN_TAB, Chan),
     ok = emqx_cm_registry:register_channel(Chan),
     cast({registered, Chan}).
 
+%% @doc Register a channel with info and stats.
+-spec(register_channel(emqx_types:clientid(),
+                       emqx_types:infos(),
+                       emqx_types:stats()) -> ok).
+register_channel(ClientId, Info, Stats) ->
+    Chan = {ClientId, ChanPid = self()},
+    true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, Stats}),
+    register_channel(ClientId, ChanPid).
+
+%% @doc Unregister a channel.
 -spec(unregister_channel(emqx_types:clientid()) -> ok).
 unregister_channel(ClientId) when is_binary(ClientId) ->
     true = do_unregister_channel({ClientId, self()}),
@@ -113,52 +126,72 @@ unregister_channel(ClientId) when is_binary(ClientId) ->
 %% @private
 do_unregister_channel(Chan) ->
     ok = emqx_cm_registry:unregister_channel(Chan),
-    true = ets:delete_object(?CHAN_P_TAB, Chan),
-    true = ets:delete(?CHAN_ATTRS_TAB, Chan),
-    true = ets:delete(?CHAN_STATS_TAB, Chan),
+    true = ets:delete_object(?CHAN_CONN_TAB, Chan),
+    true = ets:delete(?CHAN_INFO_TAB, Chan),
     ets:delete_object(?CHAN_TAB, Chan).
 
+-spec(connection_closed(emqx_types:clientid()) -> true).
+connection_closed(ClientId) ->
+    connection_closed(ClientId, self()).
+
+-spec(connection_closed(emqx_types:clientid(), chan_pid()) -> true).
+connection_closed(ClientId, ChanPid) ->
+    ets:delete_object(?CHAN_CONN_TAB, {ClientId, ChanPid}).
+
 %% @doc Get info of a channel.
--spec(get_chan_attrs(emqx_types:clientid()) -> maybe(emqx_types:attrs())).
-get_chan_attrs(ClientId) ->
-    with_channel(ClientId, fun(ChanPid) -> get_chan_attrs(ClientId, ChanPid) end).
+-spec(get_chan_info(emqx_types:clientid()) -> maybe(emqx_types:infos())).
+get_chan_info(ClientId) ->
+    with_channel(ClientId, fun(ChanPid) -> get_chan_info(ClientId, ChanPid) end).
 
--spec(get_chan_attrs(emqx_types:clientid(), chan_pid()) -> maybe(emqx_types:attrs())).
-get_chan_attrs(ClientId, ChanPid) when node(ChanPid) == node() ->
+-spec(get_chan_info(emqx_types:clientid(), chan_pid())
+      -> maybe(emqx_types:infos())).
+get_chan_info(ClientId, ChanPid) when node(ChanPid) == node() ->
     Chan = {ClientId, ChanPid},
-    emqx_tables:lookup_value(?CHAN_ATTRS_TAB, Chan);
-get_chan_attrs(ClientId, ChanPid) ->
-    rpc_call(node(ChanPid), get_chan_attrs, [ClientId, ChanPid]).
+    try ets:lookup_element(?CHAN_INFO_TAB, Chan, 2)
+    catch
+        error:badarg -> undefined
+    end;
+get_chan_info(ClientId, ChanPid) ->
+    rpc_call(node(ChanPid), get_chan_info, [ClientId, ChanPid]).
 
-%% @doc Set info of a channel.
--spec(set_chan_attrs(emqx_types:clientid(), emqx_types:attrs()) -> ok).
-set_chan_attrs(ClientId, Info) when is_binary(ClientId) ->
+%% @doc Update infos of the channel.
+-spec(set_chan_info(emqx_types:clientid(), emqx_types:attrs()) -> boolean()).
+set_chan_info(ClientId, Info) when is_binary(ClientId) ->
     Chan = {ClientId, self()},
-    true = ets:insert(?CHAN_ATTRS_TAB, {Chan, Info}),
-    ok.
+    try ets:update_element(?CHAN_INFO_TAB, Chan, {2, Info})
+    catch
+        error:badarg -> false
+    end.
 
 %% @doc Get channel's stats.
 -spec(get_chan_stats(emqx_types:clientid()) -> maybe(emqx_types:stats())).
 get_chan_stats(ClientId) ->
     with_channel(ClientId, fun(ChanPid) -> get_chan_stats(ClientId, ChanPid) end).
 
--spec(get_chan_stats(emqx_types:clientid(), chan_pid()) -> maybe(emqx_types:stats())).
+-spec(get_chan_stats(emqx_types:clientid(), chan_pid())
+      -> maybe(emqx_types:stats())).
 get_chan_stats(ClientId, ChanPid) when node(ChanPid) == node() ->
     Chan = {ClientId, ChanPid},
-    emqx_tables:lookup_value(?CHAN_STATS_TAB, Chan);
+    try ets:lookup_element(?CHAN_INFO_TAB, Chan, 3)
+    catch
+        error:badarg -> undefined
+    end;
 get_chan_stats(ClientId, ChanPid) ->
     rpc_call(node(ChanPid), get_chan_stats, [ClientId, ChanPid]).
 
 %% @doc Set channel's stats.
--spec(set_chan_stats(emqx_types:clientid(), emqx_types:stats()) -> ok).
+-spec(set_chan_stats(emqx_types:clientid(), emqx_types:stats()) -> boolean()).
 set_chan_stats(ClientId, Stats) when is_binary(ClientId) ->
     set_chan_stats(ClientId, self(), Stats).
 
--spec(set_chan_stats(emqx_types:clientid(), chan_pid(), emqx_types:stats()) -> ok).
+-spec(set_chan_stats(emqx_types:clientid(), chan_pid(), emqx_types:stats())
+      -> boolean()).
 set_chan_stats(ClientId, ChanPid, Stats) ->
     Chan = {ClientId, ChanPid},
-    true = ets:insert(?CHAN_STATS_TAB, {Chan, Stats}),
-    ok.
+    try ets:update_element(?CHAN_INFO_TAB, Chan, {3, Stats})
+    catch
+        error:badarg -> false
+    end.
 
 %% @doc Open a session.
 -spec(open_session(boolean(), emqx_types:clientinfo(), emqx_types:conninfo())
@@ -208,7 +241,7 @@ takeover_session(ClientId) ->
     end.
 
 takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
-    case get_chan_attrs(ClientId, ChanPid) of
+    case get_chan_info(ClientId, ChanPid) of
         #{conninfo := #{conn_mod := ConnMod}} ->
             Session = ConnMod:call(ChanPid, {takeover, 'begin'}),
             {ok, ConnMod, ChanPid, Session};
@@ -237,7 +270,7 @@ discard_session(ClientId) when is_binary(ClientId) ->
     end.
 
 discard_session(ClientId, ChanPid) when node(ChanPid) == node() ->
-    case get_chan_attrs(ClientId, ChanPid) of
+    case get_chan_info(ClientId, ChanPid) of
         #{conninfo := #{conn_mod := ConnMod}} ->
             ConnMod:call(ChanPid, discard);
         undefined -> ok
@@ -291,10 +324,9 @@ cast(Msg) -> gen_server:cast(?CM, Msg).
 
 init([]) ->
     TabOpts = [public, {write_concurrency, true}],
-    ok = emqx_tables:new(?CHAN_TAB, [bag, {read_concurrency, true} | TabOpts]),
-    ok = emqx_tables:new(?CHAN_P_TAB, [bag | TabOpts]),
-    ok = emqx_tables:new(?CHAN_ATTRS_TAB, [set, compressed | TabOpts]),
-    ok = emqx_tables:new(?CHAN_STATS_TAB, [set | TabOpts]),
+    ok = emqx_tables:new(?CHAN_TAB, [bag, {read_concurrency, true}|TabOpts]),
+    ok = emqx_tables:new(?CHAN_CONN_TAB, [bag | TabOpts]),
+    ok = emqx_tables:new(?CHAN_INFO_TAB, [set, compressed | TabOpts]),
     ok = emqx_stats:update_interval(chan_stats, fun ?MODULE:stats_fun/0),
     {ok, #{chan_pmon => emqx_pmon:new()}}.
 

@@ -124,14 +124,16 @@ subscribe(Topic, SubOpts) when is_binary(Topic), is_map(SubOpts) ->
 
 -spec(subscribe(emqx_topic:topic(), emqx_types:subid(), emqx_types:subopts()) -> ok).
 subscribe(Topic, SubId, SubOpts) when is_binary(Topic), ?is_subid(SubId), is_map(SubOpts) ->
-    SubPid = self(),
-    case ets:member(?SUBOPTION, {SubPid, Topic}) of
-        false ->
+    case ets:member(?SUBOPTION, {SubPid = self(), Topic}) of
+        false -> %% New
             ok = emqx_broker_helper:register_sub(SubPid, SubId),
             do_subscribe(Topic, SubPid, with_subid(SubId, SubOpts));
-        true -> ok
+        true -> %% Existed
+            set_subopts(SubPid, Topic, with_subid(SubId, SubOpts)),
+            ok %% ensure to return 'ok'
     end.
 
+-compile({inline, [with_subid/2]}).
 with_subid(undefined, SubOpts) ->
     SubOpts;
 with_subid(SubId, SubOpts) ->
@@ -377,7 +379,11 @@ get_subopts(SubId, Topic) when ?is_subid(SubId) ->
 
 -spec(set_subopts(emqx_topic:topic(), emqx_types:subopts()) -> boolean()).
 set_subopts(Topic, NewOpts) when is_binary(Topic), is_map(NewOpts) ->
-    Sub = {self(), Topic},
+    set_subopts(self(), Topic, NewOpts).
+
+%% @private
+set_subopts(SubPid, Topic, NewOpts) ->
+    Sub = {SubPid, Topic},
     case ets:lookup(?SUBOPTION, Sub) of
         [{_, OldOpts}] ->
             ets:insert(?SUBOPTION, {Sub, maps:merge(OldOpts, NewOpts)});

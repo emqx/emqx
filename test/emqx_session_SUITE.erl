@@ -59,7 +59,7 @@ t_session_init(_) ->
     ?assertEqual(0, emqx_session:info(retry_interval, Session)),
     ?assertEqual(0, emqx_session:info(awaiting_rel_cnt, Session)),
     ?assertEqual(100, emqx_session:info(awaiting_rel_max, Session)),
-    ?assertEqual(3600000, emqx_session:info(awaiting_rel_timeout, Session)),
+    ?assertEqual(300, emqx_session:info(await_rel_timeout, Session)),
     ?assert(is_integer(emqx_session:info(created_at, Session))).
 
 %%--------------------------------------------------------------------
@@ -67,28 +67,23 @@ t_session_init(_) ->
 %%--------------------------------------------------------------------
 
 t_session_info(_) ->
-    Info = emqx_session:info(session()),
-    ?assertMatch(#{subscriptions := #{},
-                   subscriptions_max := 0,
-                   upgrade_qos := false,
-                   inflight_max := 0,
+    ?assertMatch(#{subscriptions  := #{},
+                   upgrade_qos    := false,
                    retry_interval := 0,
-                   mqueue_len := 0,
-                   mqueue_max := 1000,
-                   mqueue_dropped := 0,
-                   next_pkt_id := 1,
-                   awaiting_rel := #{},
-                   awaiting_rel_max := 100,
-                   awaiting_rel_timeout := 3600000
-                  }, Info).
-
-t_session_attrs(_) ->
-    Attrs = emqx_session:attrs(session()),
-    io:format("~p~n", [Attrs]).
+                   await_rel_timeout := 300
+                  }, emqx_session:info(session())).
 
 t_session_stats(_) ->
     Stats = emqx_session:stats(session()),
-    io:format("~p~n", [Stats]).
+    ?assertMatch(#{subscriptions_max := 0,
+                   inflight_max      := 0,
+                   mqueue_len        := 0,
+                   mqueue_max        := 1000,
+                   mqueue_dropped    := 0,
+                   next_pkt_id       := 1,
+                   awaiting_rel_cnt  := 0,
+                   awaiting_rel_max  := 100
+                  }, maps:from_list(Stats)).
 
 %%--------------------------------------------------------------------
 %% Test cases for pub/sub

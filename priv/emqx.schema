@@ -685,10 +685,10 @@ end}.
   {validators, ["range:0-2"]}
 ]}.
 
-%% @doc Set the Maximum topic alias.
+%% @doc Set the Maximum Topic Alias.
 {mapping, "mqtt.max_topic_alias", "emqx.max_topic_alias", [
- {default, 0},
- {datatype, integer}
+  {default, 65535},
+  {datatype, integer}
 ]}.
 
 %% @doc Whether the server supports MQTT retained messages.
@@ -848,7 +848,7 @@ end}.
 %% @doc Retry interval for redelivering QoS1/2 messages.
 {mapping, "zone.$name.retry_interval", "emqx.zones", [
   {default, "20s"},
-  {datatype, {duration, ms}}
+  {datatype, {duration, s}}
 ]}.
 
 %% @doc Max Packets that Awaiting PUBREL, 0 means no limit
@@ -860,7 +860,7 @@ end}.
 %% @doc Awaiting PUBREL timeout
 {mapping, "zone.$name.await_rel_timeout", "emqx.zones", [
   {default, "300s"},
-  {datatype, {duration, ms}}
+  {datatype, {duration, s}}
 ]}.
 
 %% @doc Ignore loop delivery of messages
