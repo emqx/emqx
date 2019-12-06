@@ -31,7 +31,6 @@
 
 -export([ info/1
         , info/2
-        , attrs/1
         , stats/1
         , caps/1
         ]).
@@ -88,11 +87,12 @@
 
 -type(conn_state() :: idle | connecting | connected | disconnected).
 
--type(action() :: {outgoing, emqx_types:packet()}
-                | {outgoing, [emqx_types:packet()]}
-                | {close, Reason :: atom()}).
+-type(reply() :: {outgoing, emqx_types:packet()}
+               | {outgoing, [emqx_types:packet()]}
+               | {event, conn_state()|updated}
+               | {close, Reason :: atom()}).
 
--type(output() :: emqx_types:packet() | action() | [action()]).
+-type(replies() :: emqx_types:packet() | reply() | [reply()]).
 
 -define(TIMER_TABLE, #{
           alive_timer  => keepalive,
@@ -102,9 +102,7 @@
           will_timer   => will_message
          }).
 
--define(ATTR_KEYS, [conninfo, clientinfo, session, conn_state]).
-
--define(INFO_KEYS, ?ATTR_KEYS ++ [keepalive, will_msg, topic_aliases, alias_maximum]).
+-define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
 
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
@@ -120,6 +118,8 @@ info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 info(conninfo, #channel{conninfo = ConnInfo}) ->
     ConnInfo;
+info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
+    ClientId;
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
 info(session, #channel{session = Session}) ->
@@ -128,27 +128,17 @@ info(conn_state, #channel{conn_state = ConnState}) ->
     ConnState;
 info(keepalive, #channel{keepalive = Keepalive}) ->
     maybe_apply(fun emqx_keepalive:info/1, Keepalive);
-info(topic_aliases, #channel{topic_aliases = Aliases}) ->
-    Aliases;
-info(alias_maximum, #channel{alias_maximum = Limits}) ->
-    Limits;
 info(will_msg, #channel{will_msg = undefined}) ->
     undefined;
 info(will_msg, #channel{will_msg = WillMsg}) ->
     emqx_message:to_map(WillMsg);
-info(timers, #channel{timers = Timers}) ->
-    Timers.
+info(topic_aliases, #channel{topic_aliases = Aliases}) ->
+    Aliases;
+info(alias_maximum, #channel{alias_maximum = Limits}) ->
+    Limits;
+info(timers, #channel{timers = Timers}) -> Timers.
 
-%% @doc Get attrs of the channel.
--spec(attrs(channel()) -> emqx_types:attrs()).
-attrs(Channel) ->
-    Attrs = [{Key, attrs(Key, Channel)} || Key <- ?ATTR_KEYS],
-    maps:from_list(Attrs).
-
-attrs(session, #channel{session = Session}) ->
-    maybe_apply(fun emqx_session:attrs/1, Session);
-attrs(Key, Channel) -> info(Key, Channel).
-
+%% TODO: Add more stats.
 -spec(stats(channel()) -> emqx_types:stats()).
 stats(#channel{session = Session})->
     emqx_session:stats(Session).
@@ -207,9 +197,9 @@ peer_cert_as_username(Options) ->
 
 -spec(handle_in(emqx_types:packet(), channel())
       -> {ok, channel()}
-       | {ok, output(), channel()}
+       | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}
-       | {shutdown, Reason :: term(), output(), channel()}).
+       | {shutdown, Reason :: term(), replies(), channel()}).
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connected}) ->
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 
@@ -220,7 +210,7 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
                    fun set_logger_meta/2,
                    fun check_banned/2,
                    fun auth_connect/2
-                  ], ConnPkt, Channel) of
+                  ], ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel} ->
             process_connect(NConnPkt, NChannel);
         {error, ReasonCode, NChannel} ->
@@ -337,8 +327,8 @@ handle_in({frame_error, Reason}, Channel = #channel{conn_state = idle}) ->
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = connecting}) ->
     shutdown(Reason, ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel);
 
-handle_in({frame_error, _Reason}, Channel = #channel{conn_state = connected}) ->
-    handle_out(disconnect, ?RC_MALFORMED_PACKET, Channel);
+handle_in({frame_error, Reason}, Channel = #channel{conn_state = connected}) ->
+    handle_out(disconnect, {?RC_MALFORMED_PACKET, Reason}, Channel);
 
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = disconnected}) ->
     ?LOG(error, "Unexpected frame error: ~p", [Reason]),
@@ -514,7 +504,7 @@ maybe_update_expiry_interval(_Properties, Channel) -> Channel.
 %%--------------------------------------------------------------------
 
 -spec(handle_deliver(list(emqx_types:deliver()), channel())
-      -> {ok, channel()} | {ok, output(), channel()}).
+      -> {ok, channel()} | {ok, replies(), channel()}).
 handle_deliver(Delivers, Channel = #channel{conn_state = disconnected,
                                             session    = Session}) ->
     NSession = emqx_session:enqueue(maybe_nack(Delivers), Session),
@@ -548,16 +538,16 @@ not_nacked({deliver, _Topic, Msg}) ->
 
 -spec(handle_out(atom(), term(), channel())
       -> {ok, channel()}
-       | {ok, output(), channel()}
+       | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}
-       | {shutdown, Reason :: term(), output(), channel()}).
+       | {shutdown, Reason :: term(), replies(), channel()}).
 handle_out(connack, {?RC_SUCCESS, SP, ConnPkt}, Channel) ->
     AckProps = run_fold([fun enrich_connack_caps/2,
                          fun enrich_server_keepalive/2,
                          fun enrich_assigned_clientid/2
                         ], #{}, Channel),
     AckPacket = ?CONNACK_PACKET(?RC_SUCCESS, SP, AckProps),
-    handle_connack(AckPacket,
+    return_connack(AckPacket,
                    ensure_keepalive(AckProps,
                                     ensure_connected(ConnPkt, Channel)));
 
@@ -597,40 +587,46 @@ handle_out(pubcomp, {PacketId, ReasonCode}, Channel) ->
 
 handle_out(suback, {PacketId, ReasonCodes},
            Channel = #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
-    {ok, ?SUBACK_PACKET(PacketId, ReasonCodes), Channel};
+    return_suback(?SUBACK_PACKET(PacketId, ReasonCodes), Channel);
 
 handle_out(suback, {PacketId, ReasonCodes}, Channel) ->
     ReasonCodes1 = [emqx_reason_codes:compat(suback, RC) || RC <- ReasonCodes],
-    {ok, ?SUBACK_PACKET(PacketId, ReasonCodes1), Channel};
+    return_suback(?SUBACK_PACKET(PacketId, ReasonCodes1), Channel);
 
 handle_out(unsuback, {PacketId, ReasonCodes},
            Channel = #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
-    {ok, ?UNSUBACK_PACKET(PacketId, ReasonCodes), Channel};
+    return_unsuback(?UNSUBACK_PACKET(PacketId, ReasonCodes), Channel);
 
 handle_out(unsuback, {PacketId, _ReasonCodes}, Channel) ->
-    {ok, ?UNSUBACK_PACKET(PacketId), Channel};
+    return_unsuback(?UNSUBACK_PACKET(PacketId), Channel);
 
-handle_out(disconnect, ReasonCode, Channel =
+handle_out(disconnect, ReasonCode, Channel) when is_integer(ReasonCode) ->
+    ReasonName = disconnect_reason(ReasonCode),
+    handle_out(disconnect, {ReasonCode, ReasonName}, Channel);
+
+handle_out(disconnect, {ReasonCode, ReasonName}, Channel =
            #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
-    {ok, [{outgoing, ?DISCONNECT_PACKET(ReasonCode)},
-          {close, disconnect_reason(ReasonCode)}], Channel};
+    Packet = ?DISCONNECT_PACKET(ReasonCode),
+    {ok, [{outgoing, Packet}, {close, ReasonName}], Channel};
 
-handle_out(disconnect, ReasonCode, Channel) ->
-    {ok, {close, disconnect_reason(ReasonCode)}, Channel};
+handle_out(disconnect, {_ReasonCode, ReasonName}, Channel) ->
+    {ok, {close, ReasonName}, Channel};
 
 handle_out(Type, Data, Channel) ->
     ?LOG(error, "Unexpected outgoing: ~s, ~p", [Type, Data]),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------
-%% Handle ConnAck
+%% Return ConnAck
 %%--------------------------------------------------------------------
 
-handle_connack(AckPacket, Channel = #channel{conninfo   = ConnInfo,
-                                             clientinfo = ClientInfo}) ->
+return_connack(AckPacket, Channel = #channel{conninfo   = ConnInfo,
+                                             clientinfo = ClientInfo
+                                            }) ->
     ok = emqx_hooks:run('client.connected', [ClientInfo, ?RC_SUCCESS, ConnInfo]),
+    Replies = [{event, connected}, {connack, AckPacket}],
     case maybe_resume_session(Channel) of
-        ignore -> {ok, [{connack, AckPacket}], Channel};
+        ignore -> {ok, Replies, Channel};
         {ok, Publishes, NSession} ->
             NChannel = Channel#channel{session  = NSession,
                                        resuming = false,
@@ -638,7 +634,7 @@ handle_connack(AckPacket, Channel = #channel{conninfo   = ConnInfo,
                                       },
             Packets = handle_publish(Publishes, NChannel),
             Outgoing = [{outgoing, Packets} || length(Packets) > 0],
-            {ok, [{connack, AckPacket}|Outgoing], NChannel}
+            {ok, Replies ++ Outgoing, NChannel}
     end.
 
 %%--------------------------------------------------------------------
@@ -661,17 +657,26 @@ handle_publish([Pub = {_PacketId, Msg}|More], Acc, Channel) ->
             handle_publish(More, [Packet|Acc], Channel)
     end.
 
-pub_to_packet({PacketId, Msg}, #channel{clientinfo = ClientInfo
-                                        = #{mountpoint := MountPoint}}) ->
-    Msg1 = emqx_message:update_expiry(Msg),
-    Msg2 = emqx_hooks:run_fold('message.delivered', [ClientInfo], Msg1),
-    Msg3 = emqx_mountpoint:unmount(MountPoint, Msg2),
-    emqx_message:to_packet(PacketId, Msg3).
+pub_to_packet({PacketId, Msg}, #channel{clientinfo = ClientInfo}) ->
+    Msg1 = emqx_hooks:run_fold('message.delivered', [ClientInfo],
+                               emqx_message:update_expiry(Msg)),
+    Msg2 = emqx_mountpoint:unmount(maps:get(mountpoint, ClientInfo), Msg1),
+    emqx_message:to_packet(PacketId, Msg2).
 
 ignore_local(#message{flags = #{nl := true}, from = ClientId},
              #channel{clientinfo = #{clientid := ClientId}}) ->
     true;
 ignore_local(_Msg, _Channel) -> false.
+
+%%--------------------------------------------------------------------
+%% Handle out suback
+%%--------------------------------------------------------------------
+
+return_suback(Packet, Channel) ->
+    {ok, [{outgoing, Packet}, {event, updated}], Channel}.
+
+return_unsuback(Packet, Channel) ->
+    {ok, [{outgoing, Packet}, {event, updated}], Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle call
@@ -729,20 +734,34 @@ handle_info({unsubscribe, TopicFilters}, Channel = #channel{clientinfo = ClientI
     {_ReasonCodes, NChannel} = process_unsubscribe(TopicFilters1, Channel),
     {ok, NChannel};
 
-handle_info({sock_closed, _Reason}, Channel = #channel{conn_state = disconnected}) ->
-    {ok, Channel};
+handle_info({sock_closed, Reason}, Channel = #channel{conn_state = idle}) ->
+    shutdown(Reason, Channel);
 
-handle_info({sock_closed, Reason}, Channel =
-            #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
-    emqx_zone:enable_flapping_detect(Zone) andalso emqx_flapping:detect(ClientInfo),
-    maybe_shutdown(Reason, ensure_disconnected(mabye_publish_will_msg(Channel)));
+handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connecting}) ->
+    shutdown(Reason, Channel);
+
+handle_info({sock_closed, Reason},
+            Channel = #channel{conn_state = connected,
+                               clientinfo = ClientInfo = #{zone := Zone}}) ->
+    emqx_zone:enable_flapping_detect(Zone)
+        andalso emqx_flapping:detect(ClientInfo),
+    Channel1 = ensure_disconnected(
+                 mabye_publish_will_msg(Channel)),
+    case maybe_shutdown(Reason, Channel1) of
+        {ok, Channel2} -> {ok, {event, disconnected}, Channel2};
+        Shutdown -> Shutdown
+    end;
+
+handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnected}) ->
+    ?LOG(error, "Unexpected sock_closed: ~p", [Reason]),
+    {ok, Channel};
 
 handle_info(clean_acl_cache, Channel) ->
     ok = emqx_acl_cache:empty_acl_cache(),
     {ok, Channel};
 
 handle_info(Info, Channel) ->
-    ?LOG(error, "Unexpected info: ~p~n", [Info]),
+    ?LOG(error, "Unexpected info: ~p", [Info]),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------
@@ -751,7 +770,7 @@ handle_info(Info, Channel) ->
 
 -spec(handle_timeout(reference(), Msg :: term(), channel())
       -> {ok, channel()}
-       | {ok, Result :: term(), channel()}
+       | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}).
 handle_timeout(TRef, {keepalive, StatVal},
                Channel = #channel{keepalive = Keepalive,
@@ -834,9 +853,9 @@ clean_timer(Name, Channel = #channel{timers = Timers}) ->
 interval(alive_timer, #channel{keepalive = KeepAlive}) ->
     emqx_keepalive:info(interval, KeepAlive);
 interval(retry_timer, #channel{session = Session}) ->
-    emqx_session:info(retry_interval, Session);
+    timer:seconds(emqx_session:info(retry_interval, Session));
 interval(await_timer, #channel{session = Session}) ->
-    emqx_session:info(awaiting_rel_timeout, Session);
+    timer:seconds(emqx_session:info(await_rel_timeout, Session));
 interval(expire_timer, #channel{conninfo = ConnInfo}) ->
     timer:seconds(maps:get(expiry_interval, ConnInfo));
 interval(will_timer, #channel{will_msg = WillMsg}) ->
@@ -873,10 +892,10 @@ enrich_conninfo(ConnPkt = #mqtt_packet_connect{
                              username    = Username
                             },
                 Channel = #channel{conninfo   = ConnInfo,
-                                   clientinfo = #{zone := Zone}
+                                   clientinfo = ClientInfo
                                   }) ->
-    ExpiryInterval = expiry_interval(Zone, ConnPkt),
-    ReceiveMaximum = receive_maximum(Zone, ConnProps),
+    ExpiryInterval = expiry_interval(ClientInfo, ConnPkt),
+    ReceiveMaximum = receive_maximum(ClientInfo, ConnProps),
     NConnInfo = ConnInfo#{proto_name  => ProtoName,
                           proto_ver   => ProtoVer,
                           clean_start => CleanStart,
@@ -900,7 +919,7 @@ expiry_interval(_ClientInfo, #mqtt_packet_connect{clean_start = true}) ->
     0.
 
 -compile({inline, [receive_maximum/2]}).
-receive_maximum(Zone, ConnProps) ->
+receive_maximum(#{zone := Zone}, ConnProps) ->
     emqx_mqtt_props:get('Receive-Maximum', ConnProps, emqx_zone:max_inflight(Zone)).
 
 %%--------------------------------------------------------------------

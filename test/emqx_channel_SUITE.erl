@@ -91,11 +91,10 @@ t_chan_info(_) ->
      } = emqx_channel:info(channel()),
     ?assertEqual(clientinfo(), ClientInfo).
 
-t_chan_attrs(_) ->
-    #{conn_state := connected} = emqx_channel:attrs(channel()).
-
 t_chan_caps(_) ->
-    Caps = emqx_channel:caps(channel()).
+    Caps = emqx_mqtt_caps:default(),
+    ?assertEqual(Caps#{max_packet_size => 1048576},
+                 emqx_channel:caps(channel())).
 
 %%--------------------------------------------------------------------
 %% Test cases for channel init
@@ -114,8 +113,9 @@ t_handle_in_connect_packet_sucess(_) ->
                      fun(true, _ClientInfo, _ConnInfo) ->
                              {ok, #{session => session(), present => false}}
                      end),
-    {ok, [{connack, ?CONNACK_PACKET(?RC_SUCCESS, 0)}], Channel}
-        = emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), channel(#{conn_state => idle})),
+    IdleChannel = channel(#{conn_state => idle}),
+    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel}
+      = emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), IdleChannel),
     ClientInfo = emqx_channel:info(clientinfo, Channel),
     ?assertMatch(#{clientid := <<"clientid">>,
                    username := <<"username">>
@@ -145,7 +145,7 @@ t_handle_in_qos1_publish(_) ->
 
 t_handle_in_qos2_publish(_) ->
     ok = meck:expect(emqx_session, publish, fun(_, _Msg, Session) -> {ok, [], Session} end),
-    ok = meck:expect(emqx_session, info, fun(awaiting_rel_timeout, _Session) -> 300000 end),
+    ok = meck:expect(emqx_session, info, fun(await_rel_timeout, _Session) -> 300 end),
     Channel = channel(#{conn_state => connected}),
     Publish = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
     {ok, ?PUBREC_PACKET(1, RC), _NChannel} = emqx_channel:handle_in(Publish, Channel),
@@ -237,13 +237,12 @@ t_handle_in_pubcomp_not_found_error(_) ->
 
 t_handle_in_subscribe(_) ->
     ok = meck:expect(emqx_session, subscribe,
-                     fun(_, _, _, Session) ->
-                             {ok, Session}
-                     end),
+                     fun(_, _, _, Session) -> {ok, Session} end),
     Channel = channel(#{conn_state => connected}),
     TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
     Subscribe = ?SUBSCRIBE_PACKET(1, #{}, TopicFilters),
-    {ok, ?SUBACK_PACKET(1, [?QOS_0]), _} = emqx_channel:handle_in(Subscribe, Channel).
+    Replies = [{outgoing, ?SUBACK_PACKET(1, [?QOS_0])}, {event, updated}],
+    {ok, Replies, _Chan} = emqx_channel:handle_in(Subscribe, Channel).
 
 t_handle_in_unsubscribe(_) ->
     ok = meck:expect(emqx_session, unsubscribe,
@@ -251,8 +250,8 @@ t_handle_in_unsubscribe(_) ->
                              {ok, Session}
                      end),
     Channel = channel(#{conn_state => connected}),
-    UnsubPkt = ?UNSUBSCRIBE_PACKET(1, #{}, [<<"+">>]),
-    {ok, ?UNSUBACK_PACKET(1), _} = emqx_channel:handle_in(UnsubPkt, Channel).
+    {ok, [{outgoing, ?UNSUBACK_PACKET(1)}, {event, updated}], _Chan}
+      = emqx_channel:handle_in(?UNSUBSCRIBE_PACKET(1, #{}, [<<"+">>]), Channel).
 
 t_handle_in_pingreq(_) ->
     {ok, ?PACKET(?PINGRESP), _Channel}
@@ -281,7 +280,7 @@ t_handle_in_frame_error(_) ->
       = emqx_channel:handle_in({frame_error, frame_too_large}, ConnectingChan),
     DisconnectPacket = ?DISCONNECT_PACKET(?RC_MALFORMED_PACKET),
     ConnectedChan = channel(#{conn_state => connected}),
-    {ok, [{outgoing, DisconnectPacket}, {close, malformed_Packet}], _}
+    {ok, [{outgoing, DisconnectPacket}, {close, frame_too_large}], _}
       = emqx_channel:handle_in({frame_error, frame_too_large}, ConnectedChan),
     DisconnectedChan = channel(#{conn_state => disconnected}),
     {ok, DisconnectedChan}
@@ -297,7 +296,7 @@ t_process_connect(_) ->
                      fun(true, _ClientInfo, _ConnInfo) ->
                              {ok, #{session => session(), present => false}}
                      end),
-    {ok, [{connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _Channel}
+    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _Chan}
       = emqx_channel:process_connect(connpkt(), channel(#{conn_state => idle})).
 
 t_process_publish_qos0(_) ->
@@ -334,7 +333,7 @@ t_handle_deliver(_) ->
                              Publishes = WithPacketId([Msg || {deliver, _, Msg} <- Delivers]),
                              {ok, Publishes, Session}
                      end),
-    ok = meck:expect(emqx_session, info, fun(retry_interval, _Session) -> 20000 end),
+    ok = meck:expect(emqx_session, info, fun(retry_interval, _Session) -> 20 end),
     Msg0 = emqx_message:make(test, ?QOS_1, <<"t1">>, <<"qos1">>),
     Msg1 = emqx_message:make(test, ?QOS_2, <<"t2">>, <<"qos2">>),
     Delivers = [{deliver, <<"+">>, Msg0}, {deliver, <<"+">>, Msg1}],
@@ -366,8 +365,9 @@ t_handle_out_publish_nl(_) ->
     {ok, Channel} = emqx_channel:handle_out(publish, Pubs, Channel).
 
 t_handle_out_connack_sucess(_) ->
-    {ok, [{connack, ?CONNACK_PACKET(?RC_SUCCESS, SP, _)}], _Chan}
-      = emqx_channel:handle_out(connack, {?RC_SUCCESS, 0, connpkt()}, channel()).
+    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel}
+      = emqx_channel:handle_out(connack, {?RC_SUCCESS, 0, connpkt()}, channel()),
+    ?assertEqual(connected, emqx_channel:info(conn_state, Channel)).
 
 t_handle_out_connack_failure(_) ->
     {shutdown, not_authorized, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _Chan}
@@ -396,11 +396,13 @@ t_handle_out_pubcomp(_) ->
       = emqx_channel:handle_out(pubcomp, {1, ?RC_SUCCESS}, channel()).
 
 t_handle_out_suback(_) ->
-    {ok, ?SUBACK_PACKET(1, [?QOS_2]), _Channel}
+    Replies = [{outgoing, ?SUBACK_PACKET(1, [?QOS_2])}, {event, updated}],
+    {ok, Replies, _Channel}
       = emqx_channel:handle_out(suback, {1, [?QOS_2]}, channel()).
 
 t_handle_out_unsuback(_) ->
-    {ok, ?UNSUBACK_PACKET(1, [?RC_SUCCESS]), _Channel}
+    Replies = [{outgoing, ?UNSUBACK_PACKET(1, [?RC_SUCCESS])}, {event, updated}],
+    {ok, Replies, _Channel}
       = emqx_channel:handle_out(unsuback, {1, [?RC_SUCCESS]}, channel()).
 
 t_handle_out_disconnect(_) ->

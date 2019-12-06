@@ -92,7 +92,7 @@
 -type(state() :: #state{}).
 
 -define(ACTIVE_N, 100).
--define(INFO_KEYS, [socktype, peername, sockname, sockstate, active_n, limiter]).
+-define(INFO_KEYS, [socktype, peername, sockname, sockstate, active_n]).
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
@@ -115,8 +115,9 @@ info(CPid) when is_pid(CPid) ->
     call(CPid, info);
 info(State = #state{channel = Channel}) ->
     ChanInfo = emqx_channel:info(Channel),
-    SockInfo = maps:from_list(info(?INFO_KEYS, State)),
-    maps:merge(ChanInfo, #{sockinfo => SockInfo}).
+    SockInfo = maps:from_list(
+                 info(?INFO_KEYS, State)),
+    ChanInfo#{sockinfo => SockInfo}.
 
 info(Keys, State) when is_list(Keys) ->
     [{Key, info(Key, State)} || Key <- Keys];
@@ -148,13 +149,6 @@ stats(#state{transport = Transport,
     ChanStats = emqx_channel:stats(Channel),
     ProcStats = emqx_misc:proc_stats(),
     lists:append([SockStats, ConnStats, ChanStats, ProcStats]).
-
-attrs(#state{active_n = ActiveN, sockstate = SockSt, channel = Channel}) ->
-    SockAttrs = #{active_n  => ActiveN,
-                  sockstate => SockSt
-                 },
-    ChanAttrs = emqx_channel:attrs(Channel),
-    maps:merge(ChanAttrs, #{sockinfo => SockAttrs}).
 
 call(Pid, Req) ->
     gen_server:call(Pid, Req, infinity).
@@ -326,47 +320,71 @@ handle_msg({incoming, ?PACKET(?PINGREQ)}, State) ->
 handle_msg({incoming, Packet}, State) ->
     handle_incoming(Packet, State);
 
+handle_msg({outgoing, Packets}, State) ->
+    handle_outgoing(Packets, State);
+
 handle_msg({Error, _Sock, Reason}, State)
   when Error == tcp_error; Error == ssl_error ->
     handle_info({sock_error, Reason}, State);
 
 handle_msg({Closed, _Sock}, State)
   when Closed == tcp_closed; Closed == ssl_closed ->
-    handle_info(sock_closed, State);
+    handle_info({sock_closed, Closed}, close_socket(State));
 
 handle_msg({Passive, _Sock}, State)
   when Passive == tcp_passive; Passive == ssl_passive ->
-    InStats = #{cnt => emqx_pd:reset_counter(incoming_pubs),
-                oct => emqx_pd:reset_counter(incoming_bytes)
-               },
+    %% In Stats
+    Pubs = emqx_pd:reset_counter(incoming_pubs),
+    Bytes = emqx_pd:reset_counter(incoming_bytes),
+    InStats = #{cnt => Pubs, oct => Bytes},
     %% Ensure Rate Limit
     NState = ensure_rate_limit(InStats, State),
     %% Run GC and Check OOM
     NState1 = check_oom(run_gc(InStats, NState)),
     handle_info(activate_socket, NState1);
 
-handle_msg(Deliver = {deliver, _Topic, _Msg},
-           State = #state{active_n = ActiveN, channel = Channel}) ->
+handle_msg(Deliver = {deliver, _Topic, _Msg}, State =
+           #state{active_n = ActiveN, channel = Channel}) ->
     Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
     Ret = emqx_channel:handle_deliver(Delivers, Channel),
     handle_chan_return(Ret, State);
-
-handle_msg({outgoing, Packets}, State) ->
-    handle_outgoing(Packets, State);
 
 %% Something sent
 handle_msg({inet_reply, _Sock, ok}, State = #state{active_n = ActiveN}) ->
     case emqx_pd:get_counter(outgoing_pubs) > ActiveN of
         true ->
-            OutStats = #{cnt => emqx_pd:reset_counter(outgoing_pubs),
-                         oct => emqx_pd:reset_counter(outgoing_bytes)
-                        },
+            Pubs = emqx_pd:reset_counter(outgoing_pubs),
+            Bytes = emqx_pd:reset_counter(outgoing_bytes),
+            OutStats = #{cnt => Pubs, oct => Bytes},
             {ok, check_oom(run_gc(OutStats, State))};
         false -> ok
     end;
 
 handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
     handle_info({sock_error, Reason}, State);
+
+handle_msg({connack, ConnAck}, State) ->
+    handle_outgoing(ConnAck, State);
+
+handle_msg({close, Reason}, State) ->
+    ?LOG(debug, "Force to close the socket due to ~p", [Reason]),
+    handle_info({sock_closed, Reason}, close_socket(State));
+
+handle_msg({event, connected}, State = #state{channel = Channel}) ->
+    ClientId = emqx_channel:info(clientid, Channel),
+    emqx_cm:register_channel(ClientId, info(State), stats(State));
+
+handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
+    ClientId = emqx_channel:info(clientid, Channel),
+    emqx_cm:set_chan_info(ClientId, info(State)),
+    emqx_cm:connection_closed(ClientId),
+    {ok, State};
+
+handle_msg({event, _Other}, State = #state{channel = Channel}) ->
+    ClientId = emqx_channel:info(clientid, Channel),
+    emqx_cm:set_chan_info(ClientId, info(State)),
+    emqx_cm:set_chan_stats(ClientId, stats(State)),
+    {ok, State};
 
 handle_msg({timeout, TRef, TMsg}, State) ->
     handle_timeout(TRef, TMsg, State);
@@ -434,15 +452,14 @@ handle_timeout(TRef, limit_timeout, State = #state{limit_timer = TRef}) ->
                         },
     handle_info(activate_socket, NState);
 
-handle_timeout(TRef, emit_stats, State = #state{stats_timer = TRef,
-                                                channel = Channel}) ->
-    #{clientid := ClientId} = emqx_channel:info(clientinfo, Channel),
-    (ClientId =/= undefined) andalso
-        emqx_cm:set_chan_stats(ClientId, stats(State)),
+handle_timeout(TRef, emit_stats, State =
+               #state{stats_timer = TRef, channel = Channel}) ->
+    ClientId = emqx_channel:info(clientid, Channel),
+    emqx_cm:set_chan_stats(ClientId, stats(State)),
     {ok, State#state{stats_timer = undefined}};
 
-handle_timeout(TRef, keepalive, State = #state{transport = Transport,
-                                               socket    = Socket}) ->
+handle_timeout(TRef, keepalive, State =
+               #state{transport = Transport, socket = Socket}) ->
     case Transport:getstat(Socket, [recv_oct]) of
         {ok, [{recv_oct, RecvOct}]} ->
             handle_timeout(TRef, {keepalive, RecvOct}, State);
@@ -553,48 +570,19 @@ send(IoData, #state{transport = Transport, socket = Socket}) ->
 %%--------------------------------------------------------------------
 %% Handle Info
 
-handle_info({connack, ConnAck}, State = #state{channel = Channel}) ->
-    #{clientid := ClientId} = emqx_channel:info(clientinfo, Channel),
-    ok = emqx_cm:register_channel(ClientId),
-    ok = emqx_cm:set_chan_attrs(ClientId, attrs(State)),
-    ok = emqx_cm:set_chan_stats(ClientId, stats(State)),
-    ok = handle_outgoing(ConnAck, State);
-
-%% TODO: deprecated...
-handle_info({enter, disconnected}, State = #state{channel = Channel}) ->
-    #{clientid := ClientId} = emqx_channel:info(clientinfo, Channel),
-    emqx_cm:set_chan_attrs(ClientId, attrs(State)),
-    emqx_cm:set_chan_stats(ClientId, stats(State));
-
 handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
     case activate_socket(State) of
         {ok, NState = #state{sockstate = NewSst}} ->
             if OldSst =/= NewSst ->
-                   {ok, {event, sockstate_changed}, NState};
+                   {ok, {event, NewSst}, NState};
                true -> {ok, NState}
             end;
         {error, Reason} ->
             handle_info({sock_error, Reason}, State)
     end;
 
-handle_info({event, sockstate_changed}, State = #state{channel = Channel}) ->
-    #{clientid := ClientId} = emqx_channel:info(clientinfo, Channel),
-    ClientId =/= undefined andalso emqx_cm:set_chan_attrs(ClientId, attrs(State));
-
-%%TODO: this is not right
-handle_info({sock_error, _Reason}, #state{sockstate = closed}) ->
-    ok;
 handle_info({sock_error, Reason}, State) ->
     ?LOG(debug, "Socket error: ~p", [Reason]),
-    handle_info({sock_closed, Reason}, close_socket(State));
-
-handle_info(sock_closed, #state{sockstate = closed}) -> ok;
-handle_info(sock_closed, State) ->
-    ?LOG(debug, "Socket closed"),
-    handle_info({sock_closed, closed}, close_socket(State));
-
-handle_info({close, Reason}, State) ->
-    ?LOG(debug, "Force close due to : ~p", [Reason]),
     handle_info({sock_closed, Reason}, close_socket(State));
 
 handle_info(Info, State = #state{channel = Channel}) ->
@@ -658,8 +646,7 @@ activate_socket(State = #state{transport = Transport,
 %%--------------------------------------------------------------------
 %% Close Socket
 
-close_socket(State = #state{sockstate = closed}) ->
-    State;
+close_socket(State = #state{sockstate = closed}) -> State;
 close_socket(State = #state{transport = Transport, socket = Socket}) ->
     ok = Transport:fast_close(Socket),
     State#state{sockstate = closed}.

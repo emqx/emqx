@@ -86,7 +86,7 @@
 -type(state() :: #state{}).
 
 -define(ACTIVE_N, 100).
--define(INFO_KEYS, [socktype, peername, sockname, sockstate, active_n, limiter]).
+-define(INFO_KEYS, [socktype, peername, sockname, sockstate, active_n]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 
@@ -99,15 +99,15 @@
 -spec(info(pid()|state()) -> emqx_types:infos()).
 info(WsPid) when is_pid(WsPid) ->
     call(WsPid, info);
-info(WsConn = #state{channel = Channel}) ->
+info(State = #state{channel = Channel}) ->
     ChanInfo = emqx_channel:info(Channel),
-    SockInfo = maps:from_list(info(?INFO_KEYS, WsConn)),
-    maps:merge(ChanInfo, #{sockinfo => SockInfo}).
+    SockInfo = maps:from_list(
+                 info(?INFO_KEYS, State)),
+    ChanInfo#{sockinfo => SockInfo}.
 
-info(Keys, WsConn) when is_list(Keys) ->
-    [{Key, info(Key, WsConn)} || Key <- Keys];
-info(socktype, _State) ->
-    ws;
+info(Keys, State) when is_list(Keys) ->
+    [{Key, info(Key, State)} || Key <- Keys];
+info(socktype, _State) -> ws;
 info(peername, #state{peername = Peername}) ->
     Peername;
 info(sockname, #state{sockname = Sockname}) ->
@@ -122,11 +122,6 @@ info(channel, #state{channel = Channel}) ->
     emqx_channel:info(Channel);
 info(stop_reason, #state{stop_reason = Reason}) ->
     Reason.
-
-attrs(State = #state{channel = Channel}) ->
-    ChanAttrs = emqx_channel:attrs(Channel),
-    SockAttrs = maps:from_list(info(?INFO_KEYS, State)),
-    maps:merge(ChanAttrs, #{sockinfo => SockAttrs}).
 
 -spec(stats(pid()|state()) -> emqx_types:stats()).
 stats(WsPid) when is_pid(WsPid) ->
@@ -301,8 +296,8 @@ websocket_info({timeout, TRef, limit_timeout}, State = #state{limit_timer = TRef
 websocket_info({timeout, TRef, Msg}, State) when is_reference(TRef) ->
     handle_timeout(TRef, Msg, State);
 
-websocket_info({close, Reason}, State) ->
-    stop({shutdown, Reason}, State);
+websocket_info(Close = {close, _Reason}, State) ->
+    handle_info(Close, State);
 
 websocket_info({shutdown, Reason}, State) ->
     stop({shutdown, Reason}, State);
@@ -317,7 +312,7 @@ websocket_close(Reason, State) ->
     ?LOG(debug, "WebSocket closed due to ~p~n", [Reason]),
     handle_info({sock_closed, Reason}, State).
 
-terminate(SockError, _Req, #state{channel = Channel,
+terminate(SockError, _Req, #state{channel    = Channel,
                                   stop_reason = Reason}) ->
     ?LOG(debug, "Terminated for ~p, sockerror: ~p", [Reason, SockError]),
     emqx_channel:terminate(Reason, Channel).
@@ -350,16 +345,26 @@ handle_call(From, Req, State = #state{channel = Channel}) ->
 %%--------------------------------------------------------------------
 %% Handle Info
 
-handle_info({connack, ConnAck}, State = #state{channel = Channel}) ->
-    #{clientid := ClientId} = emqx_channel:info(clientinfo, Channel),
-    ok = emqx_cm:register_channel(ClientId),
-    ok = emqx_cm:set_chan_attrs(ClientId, attrs(State)),
-    ok = emqx_cm:set_chan_stats(ClientId, stats(State)),
+handle_info({connack, ConnAck}, State) ->
     reply(enqueue(ConnAck, State));
 
-handle_info({enter, disconnected}, State = #state{channel = Channel}) ->
-    #{clientid := ClientId} = emqx_channel:info(clientinfo, Channel),
-    emqx_cm:set_chan_attrs(ClientId, attrs(State)),
+handle_info({close, Reason}, State) ->
+    stop({shutdown, Reason}, State);
+
+handle_info({event, connected}, State = #state{channel = Channel}) ->
+    ClientId = emqx_channel:info(clientid, Channel),
+    emqx_cm:register_channel(ClientId, info(State), stats(State)),
+    reply(State);
+
+handle_info({event, disconnected}, State = #state{channel = Channel}) ->
+    ClientId = emqx_channel:info(clientid, Channel),
+    emqx_cm:set_chan_info(ClientId, info(State)),
+    emqx_cm:connection_closed(ClientId),
+    reply(State);
+
+handle_info({event, _Other}, State = #state{channel = Channel}) ->
+    ClientId = emqx_channel:info(clientid, Channel),
+    emqx_cm:set_chan_info(ClientId, info(State)),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
     reply(State);
 
@@ -377,10 +382,10 @@ handle_timeout(TRef, keepalive, State) when is_reference(TRef) ->
     RecvOct = emqx_pd:get_counter(recv_oct),
     handle_timeout(TRef, {keepalive, RecvOct}, State);
 
-handle_timeout(TRef, emit_stats, State = #state{channel = Channel,
-                                                stats_timer = TRef}) ->
-    #{clientid := ClientId} = emqx_channel:info(clientinfo, Channel),
-    (ClientId =/= undefined) andalso emqx_cm:set_chan_stats(ClientId, stats(State)),
+handle_timeout(TRef, emit_stats, State =
+               #state{channel = Channel, stats_timer = TRef}) ->
+    ClientId = emqx_channel:info(clientid, Channel),
+    emqx_cm:set_chan_stats(ClientId, stats(State)),
     reply(State#state{stats_timer = undefined});
 
 handle_timeout(TRef, TMsg, State = #state{channel = Channel}) ->
@@ -562,8 +567,8 @@ reply(Packet, State) when is_record(Packet, mqtt_packet) ->
     reply(enqueue(Packet, State));
 reply({outgoing, Packets}, State) ->
     reply(enqueue(Packets, State));
-reply(Close = {close, _Reason}, State) ->
-    self() ! Close,
+reply(Other, State) when is_tuple(Other) ->
+    self() ! Other,
     reply(State);
 
 reply([], State) ->

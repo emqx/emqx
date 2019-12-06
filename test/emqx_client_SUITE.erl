@@ -98,7 +98,7 @@ t_cm(_) ->
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
     ct:sleep(500),
-    #{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_attrs(ClientId),
+    #{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(ClientId),
     emqtt:subscribe(C, <<"mytopic">>, 0),
     ct:sleep(1200),
     Stats = emqx_cm:get_chan_stats(ClientId),

@@ -59,7 +59,6 @@
 
 -export([ info/1
         , info/2
-        , attrs/1
         , stats/1
         ]).
 
@@ -86,7 +85,7 @@
 
 -export([expire/2]).
 
-%% export for ct
+%% Export for ct
 -export([set_field/3]).
 
 -export_type([session/0]).
@@ -109,16 +108,15 @@
           mqueue :: emqx_mqueue:mqueue(),
           %% Next packet id of the session
           next_pkt_id = 1 :: emqx_types:packet_id(),
-          %% Retry interval for redelivering QoS1/2 messages
+          %% Retry interval for redelivering QoS1/2 messages (Unit: second)
           retry_interval :: timeout(),
-          %% Client -> Broker: QoS2 messages received from client and waiting for pubrel.
+          %% Client -> Broker: QoS2 messages received from client and
+          %% waiting for pubrel.
           awaiting_rel :: map(),
           %% Max Packets Awaiting PUBREL
           max_awaiting_rel :: non_neg_integer(),
-          %% Awaiting PUBREL Timeout
-          awaiting_rel_timeout :: timeout(),
-          %% Deliver Stats
-          %% deliver_stats :: emqx_types:stats(),
+          %% Awaiting PUBREL Timeout (Unit: second)
+          await_rel_timeout :: timeout(),
           %% Created at
           created_at :: pos_integer()
          }).
@@ -127,31 +125,10 @@
 
 -type(publish() :: {maybe(emqx_types:packet_id()), emqx_types:message()}).
 
--define(DEFAULT_BATCH_N, 1000).
-
--define(ATTR_KEYS, [inflight_cnt,
-                    inflight_max,
-                    mqueue_len,
-                    mqueue_max,
-                    retry_interval,
-                    awaiting_rel_max,
-                    awaiting_rel_timeout,
-                    created_at
-                   ]).
-
 -define(INFO_KEYS, [subscriptions,
-                    subscriptions_max,
                     upgrade_qos,
-                    inflight,
-                    inflight_max,
                     retry_interval,
-                    mqueue_len,
-                    mqueue_max,
-                    mqueue_dropped,
-                    next_pkt_id,
-                    awaiting_rel,
-                    awaiting_rel_max,
-                    awaiting_rel_timeout,
+                    await_rel_timeout,
                     created_at
                    ]).
 
@@ -162,9 +139,12 @@
                      mqueue_len,
                      mqueue_max,
                      mqueue_dropped,
-                     awaiting_rel,
+                     next_pkt_id,
+                     awaiting_rel_cnt,
                      awaiting_rel_max
                     ]).
+
+-define(DEFAULT_BATCH_N, 1000).
 
 %%--------------------------------------------------------------------
 %% Init a Session
@@ -182,7 +162,7 @@ init(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
              retry_interval    = get_env(Zone, retry_interval, 0),
              awaiting_rel      = #{},
              max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
-             awaiting_rel_timeout = get_env(Zone, awaiting_rel_timeout, 3600*1000),
+             await_rel_timeout = get_env(Zone, await_rel_timeout, 300),
              created_at        = erlang:system_time(second)
             }.
 
@@ -198,11 +178,6 @@ init_mqueue(Zone) ->
 -spec(info(session()) -> emqx_types:infos()).
 info(Session) ->
     maps:from_list(info(?INFO_KEYS, Session)).
-
-%% Get attrs of the session.
--spec(attrs(session()) -> emqx_types:attrs()).
-attrs(Session) ->
-    maps:from_list(info(?ATTR_KEYS, Session)).
 
 %% @doc Get stats of the session.
 -spec(stats(session()) -> emqx_types:stats()).
@@ -238,9 +213,9 @@ info(awaiting_rel, #session{awaiting_rel = AwaitingRel}) ->
     AwaitingRel;
 info(awaiting_rel_cnt, #session{awaiting_rel = AwaitingRel}) ->
     maps:size(AwaitingRel);
-info(awaiting_rel_max, #session{max_awaiting_rel = MaxAwaitingRel}) ->
-    MaxAwaitingRel;
-info(awaiting_rel_timeout, #session{awaiting_rel_timeout = Timeout}) ->
+info(awaiting_rel_max, #session{max_awaiting_rel = Max}) ->
+    Max;
+info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
     Timeout;
 info(created_at, #session{created_at = CreatedAt}) ->
     CreatedAt.
@@ -588,14 +563,15 @@ retry_delivery([], _Now, Acc, Session) ->
 retry_delivery([{PacketId, {Val, Ts}}|More], Now, Acc,
                Session = #session{retry_interval = Interval,
                                   inflight = Inflight}) ->
+    IntervalMs = Interval * 1000,
     %% Microseconds -> MilliSeconds
     Age = timer:now_diff(Now, Ts) div 1000,
     if
-        Age >= Interval ->
+        Age >= IntervalMs ->
             {Acc1, Inflight1} = retry_delivery(PacketId, Val, Now, Acc, Inflight),
             retry_delivery(More, Now, Acc1, Session#session{inflight = Inflight1});
         true ->
-            {ok, lists:reverse(Acc), Interval - max(0, Age), Session}
+            {ok, lists:reverse(Acc), IntervalMs - max(0, Age), Session}
     end.
 
 retry_delivery(PacketId, Msg, Now, Acc, Inflight) when is_record(Msg, message) ->
@@ -630,11 +606,11 @@ expire_awaiting_rel([], _Now, Session) ->
 
 expire_awaiting_rel([{PacketId, Ts} | More], Now,
                     Session = #session{awaiting_rel = AwaitingRel,
-                                       awaiting_rel_timeout = Timeout}) ->
+                                       await_rel_timeout = Timeout}) ->
     case (timer:now_diff(Now, Ts) div 1000) of
-        Age when Age >= Timeout ->
+        Age when Age >= (Timeout * 1000) ->
             ok = emqx_metrics:inc('messages.qos2.expired'),
-            ?LOG(warning, "Dropped qos2 packet ~s for awaiting_rel_timeout", [PacketId]),
+            ?LOG(warning, "Dropped qos2 packet ~s due to await_rel timeout", [PacketId]),
             Session1 = Session#session{awaiting_rel = maps:remove(PacketId, AwaitingRel)},
             expire_awaiting_rel(More, Now, Session1);
         Age ->
