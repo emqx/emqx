@@ -563,6 +563,12 @@ handle_out(connack, {ReasonCode, _ConnPkt},
     shutdown(emqx_reason_codes:name(ReasonCode), AckPacket, Channel);
 
 %% Optimize?
+handle_out(publish, [], Channel) ->
+    {ok, Channel};
+
+handle_out(publish, [{pubrel, PacketId}], Channel) ->
+    handle_out(pubrel, {PacketId, ?RC_SUCCESS}, Channel);
+
 handle_out(publish, [Pub = {_PacketId, Msg}], Channel) ->
     case ignore_local(Msg, Channel) of
         true  -> {ok, Channel};
@@ -648,6 +654,10 @@ handle_publish(Publishes, Channel) ->
 %% Handle out publish
 handle_publish([], Acc, _Channel) ->
     lists:reverse(Acc);
+
+handle_publish([{pubrel, PacketId}|More], Acc, Channel) ->
+    Packet = ?PUBREL_PACKET(PacketId, ?RC_SUCCESS),
+    handle_publish(More, [Packet|Acc], Channel);
 
 handle_publish([Pub = {_PacketId, Msg}|More], Acc, Channel) ->
     case ignore_local(Msg, Channel) of
