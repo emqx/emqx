@@ -29,6 +29,7 @@
         , delete/2
         , values/1
         , to_list/1
+        , to_list/2
         , size/1
         , max_size/1
         , is_full/1
@@ -104,6 +105,10 @@ values(?Inflight(Tree)) ->
 -spec(to_list(inflight()) -> list({key(), term()})).
 to_list(?Inflight(Tree)) ->
     gb_trees:to_list(Tree).
+
+-spec(to_list(fun(), inflight()) -> list({key(), term()})).
+to_list(SortFun, ?Inflight(Tree)) ->
+    lists:sort(SortFun, gb_trees:to_list(Tree)).
 
 -spec(window(inflight()) -> list()).
 window(Inflight = ?Inflight(Tree)) ->
