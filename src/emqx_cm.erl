@@ -47,8 +47,11 @@
 
 -export([ open_session/3
         , discard_session/1
+        , discard_session/2
         , takeover_session/1
+        , takeover_session/2
         , kick_session/1
+        , kick_session/2
         ]).
 
 -export([ lookup_channels/1
