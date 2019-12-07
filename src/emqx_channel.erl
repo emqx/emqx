@@ -375,7 +375,7 @@ process_publish(Packet = ?PUBLISH_PACKET(_QoS, Topic, PacketId), Channel) ->
                    fun check_pub_caps/2
                   ], Packet, Channel) of
         {ok, NPacket, NChannel} ->
-            Msg = pub_to_msg(NPacket, NChannel),
+            Msg = packet_to_msg(NPacket, NChannel),
             do_publish(PacketId, Msg, NChannel);
         {error, ReasonCode, NChannel} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s",
@@ -383,9 +383,9 @@ process_publish(Packet = ?PUBLISH_PACKET(_QoS, Topic, PacketId), Channel) ->
             handle_out(disconnect, ReasonCode, NChannel)
     end.
 
-pub_to_msg(Packet, #channel{conninfo   = #{proto_ver := ProtoVer},
-                            clientinfo = ClientInfo =
-                            #{mountpoint := MountPoint}}) ->
+packet_to_msg(Packet, #channel{conninfo   = #{proto_ver := ProtoVer},
+                               clientinfo = ClientInfo =
+                               #{mountpoint := MountPoint}}) ->
     emqx_mountpoint:mount(
       MountPoint, emqx_packet:to_message(
                     ClientInfo, #{proto_ver => ProtoVer}, Packet)).
