@@ -847,7 +847,7 @@ end}.
 
 %% @doc Retry interval for redelivering QoS1/2 messages.
 {mapping, "zone.$name.retry_interval", "emqx.zones", [
-  {default, "20s"},
+  {default, "30s"},
   {datatype, {duration, s}}
 ]}.
 
