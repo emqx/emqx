@@ -48,6 +48,7 @@
 -export([ open_session/3
         , discard_session/1
         , takeover_session/1
+        , kick_session/1
         ]).
 
 -export([ lookup_channels/1
@@ -278,6 +279,31 @@ discard_session(ClientId, ChanPid) when node(ChanPid) == node() ->
 
 discard_session(ClientId, ChanPid) ->
     rpc_call(node(ChanPid), discard_session, [ClientId, ChanPid]).
+
+kick_session(ClientId) ->
+    case lookup_channels(ClientId) of
+        [] -> {error, not_found};
+        [ChanPid] ->
+            kick_session(ClientId, ChanPid);
+        ChanPids ->
+            [ChanPid|StalePids] = lists:reverse(ChanPids),
+            ?LOG(error, "More than one channel found: ~p", [ChanPids]),
+            lists:foreach(fun(StalePid) ->
+                                  catch discard_session(ClientId, StalePid)
+                          end, StalePids),
+            kick_session(ClientId, ChanPid)
+    end.
+
+kick_session(ClientId, ChanPid) when node(ChanPid) == node() ->
+    case get_chan_info(ClientId, ChanPid) of
+        #{conninfo := #{conn_mod := ConnMod}} ->
+            ConnMod:call(ChanPid, kick);
+        undefined ->
+            {error, not_found}
+    end;
+
+kick_session(ClientId, ChanPid) ->
+    rpc_call(node(ChanPid), kick_session, [ClientId, ChanPid]).
 
 %% @doc Is clean start?
 % is_clean_start(#{clean_start := false}) -> false;
