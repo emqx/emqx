@@ -29,6 +29,7 @@
         , start_timer/3
         , cancel_timer/1
         , drain_deliver/0
+        , drain_deliver/1
         , drain_down/1
         , check_oom/1
         , check_oom/2
@@ -112,14 +113,19 @@ cancel_timer(Timer) when is_reference(Timer) ->
     end;
 cancel_timer(_) -> ok.
 
-%% @doc Drain delivers from the channel proc's mailbox.
+%% @doc Drain delivers
 drain_deliver() ->
-    drain_deliver([]).
+    drain_deliver(-1).
 
-drain_deliver(Acc) ->
+drain_deliver(N) when is_integer(N) ->
+    drain_deliver(N, []).
+
+drain_deliver(0, Acc) ->
+    lists:reverse(Acc);
+drain_deliver(N, Acc) ->
     receive
         Deliver = {deliver, _Topic, _Msg} ->
-            drain_deliver([Deliver|Acc])
+            drain_deliver(N-1, [Deliver|Acc])
     after 0 ->
         lists:reverse(Acc)
     end.
@@ -134,7 +140,7 @@ drain_down(0, Acc) ->
 drain_down(Cnt, Acc) ->
     receive
         {'DOWN', _MRef, process, Pid, _Reason} ->
-            drain_down(Cnt - 1, [Pid|Acc])
+            drain_down(Cnt-1, [Pid|Acc])
     after 0 ->
         lists:reverse(Acc)
     end.

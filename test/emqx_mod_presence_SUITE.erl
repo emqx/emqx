@@ -19,26 +19,70 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() -> emqx_ct:all(?MODULE).
 
-init_per_testcase(_TestCase, Config) ->
+init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([emqx]),
+    %% Ensure all the modules unloaded.
+    ok = emqx_modules:unload(),
     Config.
 
-end_per_testcase(_TestCase, Config) ->
-    Config.
+end_per_suite(_Config) ->
+    emqx_ct_helpers:stop_apps([emqx]).
 
-% t_load(_) ->
-%     error('TODO').
+%% Test case for emqx_mod_presence
+t_mod_presence(_) ->
+    ok = emqx_mod_presence:load([{qos, ?QOS_1}]),
+    {ok, C1} = emqtt:start_link([{clientid, <<"monsys">>}]),
+    {ok, _} = emqtt:connect(C1),
+    {ok, _Props, [?QOS_1]} = emqtt:subscribe(C1, <<"$SYS/brokers/+/clients/#">>, qos1),
+    %% Connected Presence
+    {ok, C2} = emqtt:start_link([{clientid, <<"clientid">>},
+                                 {username, <<"username">>}]),
+    {ok, _} = emqtt:connect(C2),
+    ok = recv_and_check_presence(<<"clientid">>, <<"connected">>),
+    %% Disconnected Presence
+    ok = emqtt:disconnect(C2),
+    ok = recv_and_check_presence(<<"clientid">>, <<"disconnected">>),
+    ok = emqtt:disconnect(C1),
+    ok = emqx_mod_presence:unload([{qos, ?QOS_1}]).
 
-% t_unload(_) ->
-%     error('TODO').
+t_mod_presence_reason(_) ->
+    ?assertEqual(normal, emqx_mod_presence:reason(normal)),
+    ?assertEqual(discarded, emqx_mod_presence:reason({shutdown, discarded})),
+    ?assertEqual(tcp_error, emqx_mod_presence:reason({tcp_error, einval})),
+    ?assertEqual(internal_error, emqx_mod_presence:reason(<<"unknown error">>)).
 
-% t_on_client_connected(_) ->
-%     error('TODO').
+recv_and_check_presence(ClientId, Presence) ->
+    {ok, #{qos := ?QOS_1, topic := Topic, payload := Payload}} = receive_publish(100),
+    ?assertMatch([<<"$SYS">>, <<"brokers">>, _Node, <<"clients">>, ClientId, Presence],
+                 binary:split(Topic, <<"/">>, [global])),
+    case Presence of
+        <<"connected">> ->
+            ?assertMatch(#{clientid := <<"clientid">>,
+                           username := <<"username">>,
+                           ipaddress := <<"127.0.0.1">>,
+                           proto_name := <<"MQTT">>,
+                           proto_ver := ?MQTT_PROTO_V4,
+                           connack := ?RC_SUCCESS,
+                           clean_start := true}, emqx_json:decode(Payload, [{labels, atom}, return_maps]));
+        <<"disconnected">> ->
+            ?assertMatch(#{clientid := <<"clientid">>,
+                           username := <<"username">>,
+                           reason := <<"normal">>}, emqx_json:decode(Payload, [{labels, atom}, return_maps]))
+    end.
 
-% t_on_client_disconnected(_) ->
-%     error('TODO').
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
-
+receive_publish(Timeout) ->
+    receive
+        {publish, Publish} -> {ok, Publish}
+    after
+        Timeout -> {error, timeout}
+    end.

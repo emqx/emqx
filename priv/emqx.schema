@@ -685,10 +685,10 @@ end}.
   {validators, ["range:0-2"]}
 ]}.
 
-%% @doc Set the Maximum topic alias.
+%% @doc Set the Maximum Topic Alias.
 {mapping, "mqtt.max_topic_alias", "emqx.max_topic_alias", [
- {default, 0},
- {datatype, integer}
+  {default, 65535},
+  {datatype, integer}
 ]}.
 
 %% @doc Whether the server supports MQTT retained messages.
@@ -712,6 +712,12 @@ end}.
 %% @doc Whether to ignore loop delivery of messages.(for mqtt v3.1.1)
 {mapping, "mqtt.ignore_loop_deliver", "emqx.ignore_loop_deliver", [
   {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+%% @doc Whether to parse the MQTT frame in strict mode
+{mapping, "mqtt.strict_mode", "emqx.strict_mode", [
+  {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
 
@@ -841,8 +847,8 @@ end}.
 
 %% @doc Retry interval for redelivering QoS1/2 messages.
 {mapping, "zone.$name.retry_interval", "emqx.zones", [
-  {default, "20s"},
-  {datatype, {duration, ms}}
+  {default, "30s"},
+  {datatype, {duration, s}}
 ]}.
 
 %% @doc Max Packets that Awaiting PUBREL, 0 means no limit
@@ -854,7 +860,7 @@ end}.
 %% @doc Awaiting PUBREL timeout
 {mapping, "zone.$name.await_rel_timeout", "emqx.zones", [
   {default, "300s"},
-  {datatype, {duration, ms}}
+  {datatype, {duration, s}}
 ]}.
 
 %% @doc Ignore loop delivery of messages
@@ -931,14 +937,14 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc Whether to parse the MQTT frame in strict mode
+{mapping, "zone.$name.strict_mode", "emqx.zones", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {translation, "emqx.zones", fun(Conf) ->
-  Mapping = fun("retain_available", Val) ->
-                    {retain_available, Val};
-               ("wildcard_subscription", Val) ->
-                    {wildcard_subscription, Val};
-               ("shared_subscription", Val) ->
-                    {shared_subscription, Val};
-               ("publish_limit", Val) ->
+  Mapping = fun("publish_limit", Val) ->
                     [L, D] = string:tokens(Val, ", "),
                     Limit = list_to_integer(L),
                     Duration = case cuttlefish_duration:parse(D, s) of
@@ -1000,8 +1006,6 @@ end}.
                                         end, #{}, string:tokens(Val, ",")),
                             {mqueue_priorities, MqueuePriorities}
                     end;
-               ("mountpoint", Val) ->
-                    {mountpoint, iolist_to_binary(Val)};
                (Opt, Val) ->
                     {list_to_atom(Opt), Val}
             end,

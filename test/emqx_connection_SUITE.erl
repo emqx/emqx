@@ -112,7 +112,7 @@ t_start_link_exit_on_activate(_) ->
 t_get_conn_info(_) ->
     with_connection(fun(CPid) ->
                             #{sockinfo := SockInfo} = emqx_connection:info(CPid),
-                            ?assertEqual(#{active_n => 100,limiter => undefined,
+                            ?assertEqual(#{active_n => 100,
                                            peername => {{127,0,0,1},3456},
                                            sockname => {{127,0,0,1},1883},
                                            sockstate => running,
@@ -218,8 +218,7 @@ t_handle_sock_closed(_) ->
                                              end),
                             CPid ! {tcp_closed, sock},
                             timer:sleep(100),
-                            %%TODO: closed?
-                            trap_exit(CPid, {shutdown, closed})
+                            trap_exit(CPid, {shutdown, tcp_closed})
                     end, #{trap_exit => true}).
 
 t_handle_outgoing(_) ->

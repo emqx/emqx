@@ -59,7 +59,7 @@
 
 -define(DEFAULT_CAPS, #{max_packet_size => ?MAX_PACKET_SIZE,
                         max_clientid_len => ?MAX_CLIENTID_LEN,
-                        max_topic_alias => ?UNLIMITED,
+                        max_topic_alias => ?MAX_TOPIC_AlIAS,
                         max_topic_levels => ?UNLIMITED,
                         max_qos_allowed => ?QOS_2,
                         retain_available => true,

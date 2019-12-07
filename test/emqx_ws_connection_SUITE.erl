@@ -138,7 +138,7 @@ t_websocket_info_incoming(_) ->
 
 t_websocket_info_deliver(_) ->
     with_ws_conn(fun(WsConn) ->
-                         ok = meck:expect(emqx_channel, handle_out,
+                         ok = meck:expect(emqx_channel, handle_deliver,
                                           fun(Delivers, Channel) ->
                                                   Packets = [emqx_message:to_packet(1, Msg) || {deliver, _, Msg} <- Delivers],
                                                   {ok, {outgoing, Packets}, Channel}

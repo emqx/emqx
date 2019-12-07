@@ -82,7 +82,10 @@ t_check_publish(_) ->
     Props = #{'Response-Topic' => <<"responsetopic">>, 'Topic-Alias' => 1},
     ok = emqx_packet:check(?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, Props, <<"payload">>)),
     ok = emqx_packet:check(#mqtt_packet_publish{packet_id = 1, topic_name = <<"t">>}),
-    ok = emqx_packet:check(#mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias'=> 0}}),
+
+    {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(#mqtt_packet_publish{topic_name = <<>>,
+                                                                         properties = #{'Topic-Alias'=> 0}
+                                                                        }),
     {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(?PUBLISH_PACKET(?QOS_1, <<>>, 1, #{}, <<"payload">>)),
     {error, ?RC_TOPIC_NAME_INVALID} = emqx_packet:check(?PUBLISH_PACKET(?QOS_1, <<"+/+">>, 1, #{}, <<"payload">>)),
     {error, ?RC_TOPIC_ALIAS_INVALID} = emqx_packet:check(?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Topic-Alias' => 0}, <<"payload">>)),
@@ -146,13 +149,15 @@ t_check_connect(_) ->
                                     ?CONNECT_PACKET(#mqtt_packet_connect{
                                                        properties = #{'Receive-Maximum' => 0}}), Opts),
     ConnPkt7 = #mqtt_packet_connect{clientid   = <<>>, clean_start = false},
-    {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID} = emqx_packet:check(ConnPkt7, Opts).                                                
+    {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID} = emqx_packet:check(ConnPkt7, Opts).
 
 t_from_to_message(_) ->
     ExpectedMsg = emqx_message:make(<<"clientid">>, ?QOS_0, <<"topic">>, <<"payload">>),
     ExpectedMsg1 = emqx_message:set_flag(retain, false, ExpectedMsg),
     ExpectedMsg2 = emqx_message:set_headers(#{peerhost => {127,0,0,1},
-                                              username => <<"test">>}, ExpectedMsg1),
+                                              protocol => mqtt,
+                                              username => <<"test">>
+                                             }, ExpectedMsg1),
     Pkt = #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
                                                     qos    = ?QOS_0,
                                                     retain = false,
@@ -161,7 +166,8 @@ t_from_to_message(_) ->
                                                        packet_id  = 10,
                                                        properties = #{}},
                        payload = <<"payload">>},
-    MsgFromPkt = emqx_packet:to_message(#{clientid => <<"clientid">>,
+    MsgFromPkt = emqx_packet:to_message(#{protocol => mqtt,
+                                          clientid => <<"clientid">>,
                                           username => <<"test">>,
                                           peerhost => {127,0,0,1}}, Pkt),
     ?assertEqual(ExpectedMsg2, MsgFromPkt#message{id = emqx_message:id(ExpectedMsg),
@@ -194,7 +200,7 @@ t_will_msg(_) ->
     Msg2 = emqx_packet:will_msg(Pkt2),
     ?assertEqual(<<"clientid">>, Msg2#message.from),
     ?assertEqual(<<"topic">>, Msg2#message.topic).
-    
+
 t_format(_) ->
     io:format("~s", [emqx_packet:format(#mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK, retain = true, dup = 0}, variable = undefined})]),
     io:format("~s", [emqx_packet:format(#mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK}, variable = 1, payload = <<"payload">>})]),

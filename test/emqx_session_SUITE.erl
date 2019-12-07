@@ -59,7 +59,7 @@ t_session_init(_) ->
     ?assertEqual(0, emqx_session:info(retry_interval, Session)),
     ?assertEqual(0, emqx_session:info(awaiting_rel_cnt, Session)),
     ?assertEqual(100, emqx_session:info(awaiting_rel_max, Session)),
-    ?assertEqual(3600000, emqx_session:info(awaiting_rel_timeout, Session)),
+    ?assertEqual(300, emqx_session:info(await_rel_timeout, Session)),
     ?assert(is_integer(emqx_session:info(created_at, Session))).
 
 %%--------------------------------------------------------------------
@@ -67,28 +67,23 @@ t_session_init(_) ->
 %%--------------------------------------------------------------------
 
 t_session_info(_) ->
-    Info = emqx_session:info(session()),
-    ?assertMatch(#{subscriptions := #{},
-                   subscriptions_max := 0,
-                   upgrade_qos := false,
-                   inflight_max := 0,
+    ?assertMatch(#{subscriptions  := #{},
+                   upgrade_qos    := false,
                    retry_interval := 0,
-                   mqueue_len := 0,
-                   mqueue_max := 1000,
-                   mqueue_dropped := 0,
-                   next_pkt_id := 1,
-                   awaiting_rel := #{},
-                   awaiting_rel_max := 100,
-                   awaiting_rel_timeout := 3600000
-                  }, Info).
-
-t_session_attrs(_) ->
-    Attrs = emqx_session:attrs(session()),
-    io:format("~p~n", [Attrs]).
+                   await_rel_timeout := 300
+                  }, emqx_session:info(session())).
 
 t_session_stats(_) ->
     Stats = emqx_session:stats(session()),
-    io:format("~p~n", [Stats]).
+    ?assertMatch(#{subscriptions_max := 0,
+                   inflight_max      := 0,
+                   mqueue_len        := 0,
+                   mqueue_max        := 1000,
+                   mqueue_dropped    := 0,
+                   next_pkt_id       := 1,
+                   awaiting_rel_cnt  := 0,
+                   awaiting_rel_max  := 100
+                  }, maps:from_list(Stats)).
 
 %%--------------------------------------------------------------------
 %% Test cases for pub/sub
@@ -128,12 +123,12 @@ t_publish_qos2(_) ->
 t_publish_qos1(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<"payload">>),
-    {ok, [], Session} = emqx_session:publish(1, Msg, session()).
+    {ok, [], _Session} = emqx_session:publish(1, Msg, session()).
 
 t_publish_qos0(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<"payload">>),
-    {ok, [], Session} = emqx_session:publish(0, Msg, session()).
+    {ok, [], _Session} = emqx_session:publish(0, Msg, session()).
 
 t_is_awaiting_full_false(_) ->
     ?assertNot(emqx_session:is_awaiting_full(session(#{max_awaiting_rel => 0}))).
@@ -196,7 +191,7 @@ t_pubcomp_id_not_found(_) ->
 %%--------------------------------------------------------------------
 
 t_dequeue(_) ->
-    {ok, Session} = emqx_session:dequeue(session()).
+    {ok, _Session} = emqx_session:dequeue(session()).
 
 t_deliver(_) ->
     Delivers = [delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)],
@@ -222,7 +217,6 @@ t_takeover(_) ->
 
 t_resume(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
-    Subs = #{<<"t">> => ?DEFAULT_SUBOPTS},
     Session = session(#{subscriptions => #{<<"t">> => ?DEFAULT_SUBOPTS}}),
     ok = emqx_session:resume(<<"clientid">>, Session).
 
