@@ -64,7 +64,8 @@
              , message/0
              ]).
 
--export_type([ delivery/0
+-export_type([ deliver/0
+             , delivery/0
              , publish_result/0
              , deliver_result/0
              ]).
@@ -172,6 +173,7 @@
 -type(payload() :: binary() | iodata()).
 -type(message() :: #message{}).
 -type(banned() :: #banned{}).
+-type(deliver() :: {deliver, topic(), message()}).
 -type(delivery() :: #delivery{}).
 -type(deliver_result() :: ok | {error, term()}).
 -type(publish_result() :: [ {node(), topic(), deliver_result()}

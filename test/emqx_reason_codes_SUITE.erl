@@ -25,23 +25,10 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-% t_name(_) ->
-%     error('TODO').
-
-% t_text(_) ->
-%     error('TODO').
-
-% t_mqtt_frame_error(_) ->
-%     error('TODO').
-
-% t_connack_error(_) ->
-%     error('TODO').
-
-% t_compat(_) ->
-%     error('TODO').
-
-% t_formalized(_) ->
-%     error('TODO').
+t_frame_error(_) ->
+    ?assertEqual(?RC_PACKET_TOO_LARGE, emqx_reason_codes:frame_error(frame_too_large)),
+    ?assertEqual(?RC_MALFORMED_PACKET, emqx_reason_codes:frame_error(bad_packet_id)),
+    ?assertEqual(?RC_MALFORMED_PACKET, emqx_reason_codes:frame_error(bad_qos)).
 
 t_prop_name_text(_) ->
     ?assert(proper:quickcheck(prop_name_text(), prop_name_text(opts))).
@@ -77,6 +64,7 @@ prop_connack_error() ->
 %%--------------------------------------------------------------------
 %% Helper
 %%--------------------------------------------------------------------
+
 default_opts() ->
     default_opts([]).
 
@@ -161,3 +149,4 @@ mqttv5_version() ->
 
 mqttv3_version() ->
     oneof([?MQTT_PROTO_V3, ?MQTT_PROTO_V4]).
+

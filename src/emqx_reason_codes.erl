@@ -23,9 +23,10 @@
         , name/2
         , text/1
         , text/2
+        ]).
+
+-export([ frame_error/1
         , connack_error/1
-        , mqtt_frame_error/1
-        , formalized/2
         ]).
 
 -export([compat/2]).
@@ -165,6 +166,9 @@ compat(suback, Code) when Code >= 16#80  -> 16#80;
 compat(unsuback, _Code) -> undefined;
 compat(_Other, _Code) -> undefined.
 
+frame_error(frame_too_large) -> ?RC_PACKET_TOO_LARGE;
+frame_error(_) -> ?RC_MALFORMED_PACKET.
+
 connack_error(client_identifier_not_valid) -> ?RC_CLIENT_IDENTIFIER_NOT_VALID;
 connack_error(bad_username_or_password) -> ?RC_BAD_USER_NAME_OR_PASSWORD;
 connack_error(bad_clientid_or_password) -> ?RC_BAD_USER_NAME_OR_PASSWORD;
@@ -175,11 +179,6 @@ connack_error(server_unavailable) -> ?RC_SERVER_UNAVAILABLE;
 connack_error(server_busy) -> ?RC_SERVER_BUSY;
 connack_error(banned) -> ?RC_BANNED;
 connack_error(bad_authentication_method) -> ?RC_BAD_AUTHENTICATION_METHOD;
+%% TODO: ???
 connack_error(_) -> ?RC_NOT_AUTHORIZED.
 
-mqtt_frame_error(mqtt_frame_too_large) -> ?RC_PACKET_TOO_LARGE;
-mqtt_frame_error(_) -> ?RC_MALFORMED_PACKET.
-
-formalized(connack, Code) when is_integer(Code) -> Code;
-formalized(connack, _Code) ->
-    ?RC_SERVER_UNAVAILABLE.

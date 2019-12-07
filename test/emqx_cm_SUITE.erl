@@ -46,19 +46,23 @@ t_reg_unreg_channel(_) ->
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ?assertEqual([], emqx_cm:lookup_channels(<<"clientid">>)).
 
-t_get_set_chan_attrs(_) ->
-    Attrs = #{proto_ver => 4, proto_name => <<"MQTT">>},
-    ok = emqx_cm:register_channel(<<"clientid">>),
-    ok = emqx_cm:set_chan_attrs(<<"clientid">>, Attrs),
-    ?assertEqual(Attrs, emqx_cm:get_chan_attrs(<<"clientid">>)),
+t_get_set_chan_info(_) ->
+    Info = #{proto_ver => 4, proto_name => <<"MQTT">>},
+    ok = emqx_cm:register_channel(<<"clientid">>, Info, []),
+    ?assertEqual(Info, emqx_cm:get_chan_info(<<"clientid">>)),
+    Info1 = Info#{proto_ver => 5},
+    true = emqx_cm:set_chan_info(<<"clientid">>, Info1),
+    ?assertEqual(Info1, emqx_cm:get_chan_info(<<"clientid">>)),
     ok = emqx_cm:unregister_channel(<<"clientid">>),
-    ?assertEqual(undefined, emqx_cm:get_chan_attrs(<<"clientid">>)).
+    ?assertEqual(undefined, emqx_cm:get_chan_info(<<"clientid">>)).
 
 t_get_set_chan_stats(_) ->
     Stats = [{recv_oct, 10}, {send_oct, 8}],
-    ok = emqx_cm:register_channel(<<"clientid">>),
-    ok = emqx_cm:set_chan_stats(<<"clientid">>, Stats),
+    ok = emqx_cm:register_channel(<<"clientid">>, #{}, Stats),
     ?assertEqual(Stats, emqx_cm:get_chan_stats(<<"clientid">>)),
+    Stats1 = [{recv_oct, 10}|Stats],
+    true = emqx_cm:set_chan_stats(<<"clientid">>, Stats1),
+    ?assertEqual(Stats1, emqx_cm:get_chan_stats(<<"clientid">>)),
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ?assertEqual(undefined, emqx_cm:get_chan_stats(<<"clientid">>)).
 

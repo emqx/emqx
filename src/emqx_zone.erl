@@ -141,7 +141,7 @@ mqtt_frame_options(Zone) ->
 
 -spec(mqtt_strict_mode(zone()) -> boolean()).
 mqtt_strict_mode(Zone) ->
-    get_env(Zone, mqtt_strict_mode, false).
+    get_env(Zone, strict_mode, false).
 
 -spec(max_packet_size(zone()) -> integer()).
 max_packet_size(Zone) ->

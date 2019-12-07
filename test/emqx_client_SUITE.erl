@@ -98,7 +98,7 @@ t_cm(_) ->
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
     ct:sleep(500),
-    #{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_attrs(ClientId),
+    #{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(ClientId),
     emqtt:subscribe(C, <<"mytopic">>, 0),
     ct:sleep(1200),
     Stats = emqx_cm:get_chan_stats(ClientId),
@@ -251,7 +251,7 @@ t_basic_with_props_v5(_) ->
 %% General test cases.
 %%--------------------------------------------------------------------
 
-t_basic(Opts) ->
+t_basic(_Opts) ->
     Topic = nth(1, ?TOPICS),
     {ok, C} = emqtt:start_link([{proto_ver, v4}]),
     {ok, _} = emqtt:connect(C),
