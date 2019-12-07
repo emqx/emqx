@@ -882,7 +882,11 @@ terminate(normal, #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
 terminate({shutdown, Reason}, #channel{conninfo = ConnInfo, clientinfo = ClientInfo})
     when Reason =:= kicked orelse Reason =:= discarded orelse Reason =:= takeovered ->
     ok = emqx_hooks:run('client.disconnected', [ClientInfo, Reason, ConnInfo]);
-terminate(Reason, #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
+terminate(Reason, #channel{conninfo = ConnInfo, clientinfo = ClientInfo, will_msg = WillMsg}) ->
+    case WillMsg of
+        undefined -> ok;
+        _ -> publish_will_msg(WillMsg)
+    end,
     ok = emqx_hooks:run('client.disconnected', [ClientInfo, Reason, ConnInfo]).
 
 %%--------------------------------------------------------------------
