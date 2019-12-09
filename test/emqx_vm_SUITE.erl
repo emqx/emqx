@@ -95,9 +95,6 @@ t_scheduler_usage(_Config) ->
 t_get_memory(_Config) ->
     emqx_vm:get_memory().
 
-t_microsecs(_Config) ->
-    emqx_vm:microsecs().
-
 t_schedulers(_Config) ->
     emqx_vm:schedulers().
 

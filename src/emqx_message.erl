@@ -89,7 +89,8 @@ make(From, QoS, Topic, Payload) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
              headers = #{},
              topic = Topic,
              payload = Payload,
-             timestamp = os:timestamp()}.
+             timestamp = erlang:system_time(millisecond)
+            }.
 
 -spec(id(emqx_types:message()) -> maybe(binary())).
 id(#message{id = Id}) -> Id.
@@ -106,7 +107,7 @@ topic(#message{topic = Topic}) -> Topic.
 -spec(payload(emqx_types:message()) -> emqx_types:payload()).
 payload(#message{payload = Payload}) -> Payload.
 
--spec(timestamp(emqx_types:message()) -> erlang:timestamp()).
+-spec(timestamp(emqx_types:message()) -> integer()).
 timestamp(#message{timestamp = TS}) -> TS.
 
 -spec(set_flags(map(), emqx_types:message()) -> emqx_types:message()).
@@ -240,7 +241,8 @@ to_map(#message{
       headers => Headers,
       topic => Topic,
       payload => Payload,
-      timestamp => Timestamp}.
+      timestamp => Timestamp
+     }.
 
 %% @doc Message to tuple list
 -spec(to_list(emqx_types:message()) -> map()).
@@ -249,7 +251,7 @@ to_list(Msg) ->
 
 %% MilliSeconds
 elapsed(Since) ->
-    max(0, timer:now_diff(os:timestamp(), Since) div 1000).
+    max(0, erlang:system_time(millisecond) - Since).
 
 format(#message{id = Id, qos = QoS, topic = Topic, from = From, flags = Flags, headers = Headers}) ->
     io_lib:format("Message(Id=~s, QoS=~w, Topic=~s, From=~p, Flags=~s, Headers=~s)",
