@@ -93,8 +93,7 @@ t_chan_info(_) ->
 
 t_chan_caps(_) ->
     Caps = emqx_mqtt_caps:default(),
-    ?assertEqual(Caps#{max_packet_size => 1048576},
-                 emqx_channel:caps(channel())).
+    ?assertEqual(Caps, emqx_channel:caps(channel())).
 
 %%--------------------------------------------------------------------
 %% Test cases for channel init
@@ -129,14 +128,14 @@ t_handle_in_unexpected_connect_packet(_) ->
       = emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), Channel).
 
 t_handle_in_qos0_publish(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(_) -> ok end),
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Channel = channel(#{conn_state => connected}),
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"topic">>, undefined, <<"payload">>),
     {ok, _NChannel} = emqx_channel:handle_in(Publish, Channel).
     % ?assertEqual(#{publish_in => 1}, emqx_channel:info(pub_stats, NChannel)).
 
 t_handle_in_qos1_publish(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(_) -> ok end),
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Channel = channel(#{conn_state => connected}),
     Publish = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
     {ok, ?PUBACK_PACKET(1, RC), _NChannel} = emqx_channel:handle_in(Publish, Channel),

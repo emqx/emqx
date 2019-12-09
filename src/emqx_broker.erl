@@ -191,20 +191,21 @@ do_unsubscribe(undefined, Topic, SubPid, SubOpts) ->
 do_unsubscribe(Group, Topic, SubPid, _SubOpts) ->
     emqx_shared_sub:unsubscribe(Group, Topic, SubPid).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Publish
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 -spec(publish(emqx_types:message()) -> emqx_types:publish_result()).
 publish(Msg) when is_record(Msg, message) ->
     _ = emqx_tracer:trace(publish, Msg),
-    Headers = Msg#message.headers,
-    case emqx_hooks:run_fold('message.publish', [], Msg#message{headers = Headers#{allow_publish => true}}) of
+    Msg1 = emqx_message:set_header(allow_publish, true,
+                                   emqx_message:clean_dup(Msg)),
+    case emqx_hooks:run_fold('message.publish', [], Msg1) of
         #message{headers = #{allow_publish := false}} ->
-            ?LOG(notice, "Publishing interrupted: ~s", [emqx_message:format(Msg)]),
+            ?LOG(notice, "Stop publishing: ~s", [emqx_message:format(Msg1)]),
             [];
-        #message{topic = Topic} = Msg1 ->
-            route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1))
+        #message{topic = Topic} = Msg2 ->
+            route(aggre(emqx_router:match_routes(Topic)), delivery(Msg2))
     end.
 
 %% Called internally

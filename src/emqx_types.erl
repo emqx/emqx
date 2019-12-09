@@ -176,8 +176,8 @@
 -type(deliver() :: {deliver, topic(), message()}).
 -type(delivery() :: #delivery{}).
 -type(deliver_result() :: ok | {error, term()}).
--type(publish_result() :: [ {node(), topic(), deliver_result()}
-                          | {share, topic(), deliver_result()}]).
+-type(publish_result() :: [{node(), topic(), deliver_result()} |
+                           {share, topic(), deliver_result()}]).
 -type(route() :: #route{}).
 -type(sub_group() :: tuple() | binary()).
 -type(route_entry() :: {topic(), node()} | {topic, sub_group()}).
