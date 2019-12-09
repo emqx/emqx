@@ -114,21 +114,21 @@ t_unsubscribe(_) ->
     Error = emqx_session:unsubscribe(clientinfo(), <<"#">>, NSession),
     ?assertEqual({error, ?RC_NO_SUBSCRIPTION_EXISTED}, Error).
 
-t_publish_qos2(_) ->
+t_publish_qos0(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
-    Msg = emqx_message:make(test, ?QOS_2, <<"t">>, <<"payload">>),
-    {ok, [], Session} = emqx_session:publish(1, Msg, session()),
-    ?assertEqual(1, emqx_session:info(awaiting_rel_cnt, Session)).
+    Msg = emqx_message:make(test, ?QOS_0, <<"t">>, <<"payload">>),
+    {ok, [], Session} = emqx_session:publish(0, Msg, Session = session()).
 
 t_publish_qos1(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<"payload">>),
     {ok, [], _Session} = emqx_session:publish(1, Msg, session()).
 
-t_publish_qos0(_) ->
+t_publish_qos2(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
-    Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<"payload">>),
-    {ok, [], _Session} = emqx_session:publish(0, Msg, session()).
+    Msg = emqx_message:make(test, ?QOS_2, <<"t">>, <<"payload">>),
+    {ok, [], Session} = emqx_session:publish(1, Msg, session()),
+    ?assertEqual(1, emqx_session:info(awaiting_rel_cnt, Session)).
 
 t_is_awaiting_full_false(_) ->
     ?assertNot(emqx_session:is_awaiting_full(session(#{max_awaiting_rel => 0}))).

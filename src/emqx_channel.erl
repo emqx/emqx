@@ -417,8 +417,8 @@ do_publish(PacketId, Msg = #message{qos = ?QOS_2},
     end.
 
 -compile({inline, [puback_reason_code/1]}).
-puback_reason_code([]) -> ?RC_NO_MATCHING_SUBSCRIBERS;
-puback_reason_code(_)  -> ?RC_SUCCESS.
+puback_reason_code([])    -> ?RC_NO_MATCHING_SUBSCRIBERS;
+puback_reason_code([_|_]) -> ?RC_SUCCESS.
 
 %%--------------------------------------------------------------------
 %% Process Subscribe
