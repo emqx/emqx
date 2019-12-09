@@ -141,13 +141,13 @@ t_is_awaiting_full_true(_) ->
 
 t_puback(_) ->
     Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<>>),
-    Inflight = emqx_inflight:insert(1, {Msg, os:timestamp()}, emqx_inflight:new()),
+    Inflight = emqx_inflight:insert(1, {Msg, erlang:system_time(millisecond)}, emqx_inflight:new()),
     Session = set_field(inflight, Inflight, session()),
     {ok, Msg, NSession} = emqx_session:puback(1, Session),
     ?assertEqual(0, emqx_session:info(inflight_cnt, NSession)).
 
 t_puback_error_packet_id_in_use(_) ->
-    Inflight = emqx_inflight:insert(1, {pubrel, os:timestamp()}, emqx_inflight:new()),
+    Inflight = emqx_inflight:insert(1, {pubrel, erlang:system_time(millisecond)}, emqx_inflight:new()),
     Session = set_field(inflight, Inflight, session()),
     {error, ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session:puback(1, Session).
 
@@ -156,13 +156,13 @@ t_puback_error_packet_id_not_found(_) ->
 
 t_pubrec(_) ->
     Msg = emqx_message:make(test, ?QOS_2, <<"t">>, <<>>),
-    Inflight = emqx_inflight:insert(2, {Msg, os:timestamp()}, emqx_inflight:new()),
+    Inflight = emqx_inflight:insert(2, {Msg, erlang:system_time(millisecond)}, emqx_inflight:new()),
     Session = set_field(inflight, Inflight, session()),
     {ok, Msg, NSession} = emqx_session:pubrec(2, Session),
     ?assertMatch([{pubrel, _}], emqx_inflight:values(emqx_session:info(inflight, NSession))).
 
 t_pubrec_packet_id_in_use_error(_) ->
-    Inflight = emqx_inflight:insert(1, {pubrel, ts()}, emqx_inflight:new()),
+    Inflight = emqx_inflight:insert(1, {pubrel, erlang:system_time(millisecond)}, emqx_inflight:new()),
     Session = set_field(inflight, Inflight, session()),
     {error, ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session:puback(1, Session).
 
@@ -170,7 +170,7 @@ t_pubrec_packet_id_not_found_error(_) ->
     {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} = emqx_session:pubrec(1, session()).
 
 t_pubrel(_) ->
-    Session = set_field(awaiting_rel, #{1 => os:timestamp()}, session()),
+    Session = set_field(awaiting_rel, #{1 => erlang:system_time(millisecond)}, session()),
     {ok, NSession} = emqx_session:pubrel(1, Session),
     ?assertEqual(#{}, emqx_session:info(awaiting_rel, NSession)).
 
@@ -178,7 +178,7 @@ t_pubrel_id_not_found(_) ->
     {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} = emqx_session:pubrel(1, session()).
 
 t_pubcomp(_) ->
-    Inflight = emqx_inflight:insert(2, {pubrel, os:timestamp()}, emqx_inflight:new()),
+    Inflight = emqx_inflight:insert(2, {pubrel, erlang:system_time(millisecond)}, emqx_inflight:new()),
     Session = emqx_session:set_field(inflight, Inflight, session()),
     {ok, NSession} = emqx_session:pubcomp(2, Session),
     ?assertEqual(0, emqx_session:info(inflight_cnt, NSession)).
@@ -251,6 +251,4 @@ subopts(Init) ->
 
 delivery(QoS, Topic) ->
     {deliver, Topic, emqx_message:make(test, QoS, Topic, <<"payload">>)}.
-
-ts() -> erlang:system_time(second).
 
