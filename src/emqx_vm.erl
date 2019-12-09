@@ -18,7 +18,6 @@
 
 -export([ schedulers/0
         , scheduler_usage/1
-        , microsecs/0
         , system_info_keys/0
         , get_system_info/0
         , get_system_info/1
@@ -170,10 +169,6 @@
 
 schedulers() ->
     erlang:system_info(schedulers).
-
-microsecs() ->
-    {Mega, Sec, Micro} = os:timestamp(),
-    (Mega * 1000000 + Sec) * 1000000 + Micro.
 
 loads() ->
     [{load1,  ftos(avg1()/256)},
