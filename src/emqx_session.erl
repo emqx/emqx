@@ -80,7 +80,7 @@
 
 -export([ takeover/1
         , resume/2
-        , redeliver/1
+        , replay/1
         ]).
 
 -export([expire/2]).
@@ -417,6 +417,10 @@ acc_msg(Msg, Msgs) ->
 
 -spec(deliver(list(emqx_types:deliver()), session())
       -> {ok, session()} | {ok, replies(), session()}).
+deliver([Deliver], Session) -> %% Optimize
+    Enrich = enrich_fun(Session),
+    deliver_msg(Enrich(Deliver), Session);
+
 deliver(Delivers, Session) ->
     Msgs = lists:map(enrich_fun(Session), Delivers),
     deliver(Msgs, [], Session).
@@ -424,12 +428,19 @@ deliver(Delivers, Session) ->
 deliver([], Publishes, Session) ->
     {ok, lists:reverse(Publishes), Session};
 
-deliver([Msg = #message{qos = ?QOS_0}|More], Acc, Session) ->
-    Publish = {undefined, maybe_ack(Msg)},
-    deliver(More, [Publish|Acc], Session);
+deliver([Msg|More], Acc, Session) ->
+    case deliver_msg(Msg, Session) of
+        {ok, Session1} ->
+            deliver(More, Acc, Session1);
+        {ok, [Publish], Session1} ->
+            deliver(More, [Publish|Acc], Session1)
+    end.
 
-deliver([Msg = #message{qos = QoS}|More], Acc, Session =
-        #session{next_pkt_id = PacketId, inflight = Inflight})
+deliver_msg(Msg = #message{qos = ?QOS_0}, Session) ->
+    {ok, [{undefined, maybe_ack(Msg)}], Session};
+
+deliver_msg(Msg = #message{qos = QoS}, Session =
+            #session{next_pkt_id = PacketId, inflight = Inflight})
     when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
     case emqx_inflight:is_full(Inflight) of
         true ->
@@ -437,15 +448,19 @@ deliver([Msg = #message{qos = QoS}|More], Acc, Session =
                            true  -> Session;
                            false -> enqueue(Msg, Session)
                        end,
-            deliver(More, Acc, Session1);
+            {ok, Session1};
         false ->
             Publish = {PacketId, maybe_ack(Msg)},
             Session1 = await(PacketId, Msg, Session),
-            deliver(More, [Publish|Acc], next_pkt_id(Session1))
+            {ok, [Publish], next_pkt_id(Session1)}
     end.
 
--spec(enqueue(list(emqx_types:deliver())|emqx_types:message(), session())
-      -> session()).
+-spec(enqueue(list(emqx_types:deliver())|emqx_types:message(),
+              session()) -> session()).
+enqueue([Deliver], Session) -> %% Optimize
+    Enrich = enrich_fun(Session),
+    enqueue(Enrich(Deliver), Session);
+
 enqueue(Delivers, Session) when is_list(Delivers) ->
     Msgs = lists:map(enrich_fun(Session), Delivers),
     lists:foldl(fun enqueue/2, Session, Msgs);
@@ -564,48 +579,43 @@ expire(awaiting_rel, Session = #session{awaiting_rel = AwaitingRel}) ->
 
 expire_awaiting_rel(Now, Session = #session{awaiting_rel = AwaitingRel,
                                             await_rel_timeout = Timeout}) ->
-
     NotExpired = fun(_PacketId, Ts) -> age(Now, Ts) < Timeout end,
-    case maps:filter(NotExpired, AwaitingRel) of
-        [] -> {ok, Session};
-        AwaitingRel1 ->
-            {ok, Timeout, Session#session{awaiting_rel = AwaitingRel1}}
+    AwaitingRel1 = maps:filter(NotExpired, AwaitingRel),
+    NSession = Session#session{awaiting_rel = AwaitingRel1},
+    case maps:size(AwaitingRel1) of
+        0 -> {ok, NSession};
+        _ -> {ok, Timeout, NSession}
     end.
 
 %%--------------------------------------------------------------------
-%% Takeover, Resume and Redeliver
+%% Takeover, Resume and Replay
 %%--------------------------------------------------------------------
 
 -spec(takeover(session()) -> ok).
 takeover(#session{subscriptions = Subs}) ->
-    lists:foreach(fun({TopicFilter, _SubOpts}) ->
-                          ok = emqx_broker:unsubscribe(TopicFilter)
-                  end, maps:to_list(Subs)).
+    lists:foreach(fun emqx_broker:unsubscribe/1, maps:keys(Subs)).
 
 -spec(resume(emqx_types:clientid(), session()) -> ok).
 resume(ClientId, #session{subscriptions = Subs}) ->
-    %% 1. Subscribe again.
     lists:foreach(fun({TopicFilter, SubOpts}) ->
-                          ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts)
+                      ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts)
                   end, maps:to_list(Subs)).
-    %% 2. Run hooks.
-    %% ok = emqx_hooks:run('session.resumed', [#{clientid => ClientId}, attrs(Session)]),
-    %% TODO: 3. Redeliver: Replay delivery and Dequeue pending messages
-    %%Session.
 
--spec(redeliver(session()) -> {ok, replies(), session()}).
-redeliver(Session = #session{inflight = Inflight}) ->
-    Pubs = lists:map(fun to_pub/1, emqx_inflight:to_list(Inflight)),
+-spec(replay(session()) -> {ok, replies(), session()}).
+replay(Session = #session{inflight = Inflight}) ->
+    Pubs = replay(Inflight),
     case dequeue(Session) of
         {ok, NSession} -> {ok, Pubs, NSession};
         {ok, More, NSession} ->
             {ok, lists:append(Pubs, More), NSession}
-    end.
+    end;
 
-to_pub({PacketId, {pubrel, _Ts}}) ->
-    {pubrel, PacketId};
-to_pub({PacketId, {Msg, _Ts}}) ->
-    {PacketId, emqx_message:set_flag(dup, true, Msg)}.
+replay(Inflight) ->
+    lists:map(fun({PacketId, {pubrel, _Ts}}) ->
+                      {pubrel, PacketId};
+                 ({PacketId, {Msg, _Ts}}) ->
+                      {PacketId, emqx_message:set_flag(dup, true, Msg)}
+              end, emqx_inflight:to_list(Inflight)).
 
 %%--------------------------------------------------------------------
 %% Next Packet Id
@@ -624,7 +634,7 @@ next_pkt_id(Session = #session{next_pkt_id = Id}) ->
 -compile({inline, [sort_fun/0, batch_n/1, with_ts/1, age/2]}).
 
 sort_fun() ->
-    fun({_, {_, Ts1}}, {_, {_, Ts2}}) -> Ts1 < Ts2 end.
+    fun({_, {_, Ts1}}, {_, {_, Ts2}}) -> Ts1 =< Ts2 end.
 
 batch_n(Inflight) ->
     case emqx_inflight:max_size(Inflight) of

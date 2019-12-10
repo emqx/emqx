@@ -1210,7 +1210,7 @@ maybe_resume_session(#channel{resuming = false}) ->
 maybe_resume_session(#channel{session  = Session,
                               resuming = true,
                               pendings = Pendings}) ->
-    {ok, Publishes, Session1} = emqx_session:redeliver(Session),
+    {ok, Publishes, Session1} = emqx_session:replay(Session),
     case emqx_session:deliver(Pendings, Session1) of
         {ok, Session2} ->
             {ok, Publishes, Session2};
