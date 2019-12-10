@@ -377,7 +377,7 @@ handle_call({create, Type, Name}, _From, State = #state{next_idx = ?MAX_SIZE}) -
 handle_call({create, Type, Name}, _From, State = #state{next_idx = NextIdx}) ->
     case ets:lookup(?TAB, Name) of
         [#metric{idx = Idx}] ->
-            ?LOG(warning, "~s already exists.", [Name]),
+            ?LOG(info, "~s already exists.", [Name]),
             {reply, {ok, Idx}, State};
         [] ->
             Metric = #metric{name = Name, type = Type, idx = NextIdx},
