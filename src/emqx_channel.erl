@@ -324,9 +324,13 @@ handle_in(?AUTH_PACKET(), Channel) ->
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = idle}) ->
     shutdown(Reason, Channel);
 
+handle_in({frame_error, frame_too_large}, Channel = #channel{conn_state = connecting}) ->
+    shutdown(frame_too_large, ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE), Channel);
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = connecting}) ->
     shutdown(Reason, ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel);
 
+handle_in({frame_error, frame_too_large}, Channel = #channel{conn_state = connected}) ->
+    handle_out(disconnect, {?RC_PACKET_TOO_LARGE, frame_too_large}, Channel);
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = connected}) ->
     handle_out(disconnect, {?RC_MALFORMED_PACKET, Reason}, Channel);
 
