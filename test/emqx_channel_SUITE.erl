@@ -267,7 +267,7 @@ t_handle_in_frame_error(_) ->
     ConnackPacket = ?CONNACK_PACKET(?RC_MALFORMED_PACKET),
     {shutdown, frame_too_large, ConnackPacket, _} =
         emqx_channel:handle_in({frame_error, frame_too_large}, ConnectingChan),
-    DisconnectPacket = ?DISCONNECT_PACKET(?RC_MALFORMED_PACKET),
+    DisconnectPacket = ?DISCONNECT_PACKET(?RC_PACKET_TOO_LARGE),
     ConnectedChan = channel(#{conn_state => connected}),
     {ok, [{outgoing, DisconnectPacket}, {close, frame_too_large}], _} =
         emqx_channel:handle_in({frame_error, frame_too_large}, ConnectedChan),
