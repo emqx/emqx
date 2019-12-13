@@ -53,6 +53,9 @@
 %% Internal callback
 -export([wakeup_from_hib/3]).
 
+%% Export for CT
+-export([set_field/3]).
+
 -import(emqx_misc,
         [ maybe_apply/2
         , start_timer/2
@@ -181,7 +184,8 @@ do_init(Parent, Transport, Socket, Options) ->
                 },
     Zone = proplists:get_value(zone, Options),
     ActiveN = proplists:get_value(active_n, Options, ?ACTIVE_N),
-    Limiter = emqx_limiter:init(Options),
+    PubLimit = emqx_zone:publish_limit(Zone),
+    Limiter = emqx_limiter:init([{pub_limit, PubLimit}|Options]),
     FrameOpts = emqx_zone:mqtt_frame_options(Zone),
     ParseState = emqx_frame:initial_parse_state(FrameOpts),
     Serialize = emqx_frame:serialize_fun(),
@@ -491,7 +495,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             parse_incoming(Rest, [Packet|Packets], NState)
     catch
         error:Reason:Stk ->
-            ?LOG(error, "~nParse failed for ~p~nStacktrace: ~p~nFrame data:~p",
+            ?LOG(error, "~nParse failed for ~p~n~p~nFrame data:~p",
                  [Reason, Stk, Data]),
             {[{frame_error, Reason}|Packets], State}
     end.
@@ -613,12 +617,12 @@ run_gc(Stats, State = #state{gc_state = GcSt}) ->
     case ?ENABLED(GcSt) andalso emqx_gc:run(Stats, GcSt) of
         false -> State;
         {IsGC, GcSt1} ->
-            IsGC andalso emqx_metrics:inc('channel.gc.cnt'),
+            IsGC andalso emqx_metrics:inc('channel.gc'),
             State#state{gc_state = GcSt1}
     end.
 
 check_oom(State = #state{channel = Channel}) ->
-    #{zone := Zone} = emqx_channel:info(clientinfo, Channel),
+    Zone = emqx_channel:info(zone, Channel),
     OomPolicy = emqx_zone:oom_policy(Zone),
     case ?ENABLED(OomPolicy) andalso emqx_misc:check_oom(OomPolicy) of
         Shutdown = {shutdown, _Reason} ->
@@ -705,4 +709,12 @@ stop(Reason, State) ->
 
 stop(Reason, Reply, State) ->
     {stop, Reason, Reply, State}.
+
+%%--------------------------------------------------------------------
+%% For CT tests
+%%--------------------------------------------------------------------
+
+set_field(Name, Value, State) ->
+    Pos = emqx_misc:index_of(Name, record_info(fields, state)),
+    setelement(Pos+1, State, Value).
 

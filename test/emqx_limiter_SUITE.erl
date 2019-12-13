@@ -24,15 +24,12 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_testcase(_TestCase, Config) ->
-    ok = meck:new(emqx_zone, [passthrough, no_history]),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = meck:unload(emqx_zone).
+    ok.
 
 t_info(_) ->
-    meck:expect(emqx_zone, publish_limit, fun(_) -> {1, 10} end),
-    Limiter = emqx_limiter:init([{rate_limit, {100, 1000}}]),
     #{pub_limit := #{rate   := 1,
                      burst  := 10,
                      tokens := 10
@@ -41,22 +38,21 @@ t_info(_) ->
                       burst  := 1000,
                       tokens := 1000
                      }
-     } = emqx_limiter:info(Limiter).
+     } = emqx_limiter:info(limiter()).
 
 t_check(_) ->
-    meck:expect(emqx_zone, publish_limit, fun(_) -> {1, 10} end),
-    Limiter = emqx_limiter:init([{rate_limit, {100, 1000}}]),
     lists:foreach(fun(I) ->
-                          {ok, Limiter1} = emqx_limiter:check(#{cnt => I, oct => I*100}, Limiter),
+                          {ok, Limiter} = emqx_limiter:check(#{cnt => I, oct => I*100}, limiter()),
                           #{pub_limit  := #{tokens := Cnt},
                             rate_limit := #{tokens := Oct}
-                           } = emqx_limiter:info(Limiter1),
+                           } = emqx_limiter:info(Limiter),
                           ?assertEqual({10 - I, 1000 - I*100}, {Cnt, Oct})
                   end, lists:seq(1, 10)).
 
 t_check_pause(_) ->
-    meck:expect(emqx_zone, publish_limit, fun(_) -> {1, 10} end),
-    Limiter = emqx_limiter:init([{rate_limit, {100, 1000}}]),
-    {pause, 1000, _} = emqx_limiter:check(#{cnt => 11, oct => 2000}, Limiter),
-    {pause, 2000, _} = emqx_limiter:check(#{cnt => 10, oct => 1200}, Limiter).
+    {pause, 1000, _} = emqx_limiter:check(#{cnt => 11, oct => 2000}, limiter()),
+    {pause, 2000, _} = emqx_limiter:check(#{cnt => 10, oct => 1200}, limiter()).
+
+limiter() ->
+    emqx_limiter:init([{pub_limit, {1, 10}}, {rate_limit, {100, 1000}}]).
 
