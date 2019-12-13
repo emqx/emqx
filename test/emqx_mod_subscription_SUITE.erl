@@ -32,10 +32,8 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx]).
 
-t_load(_) ->
-    ?assertEqual(ok, emqx_mod_subscription:load([{<<"connected/%c/%u">>, ?QOS_0}])).
-
 t_on_client_connected(_) ->
+    ?assertEqual(ok, emqx_mod_subscription:load([{<<"connected/%c/%u">>, ?QOS_0}])),
     {ok, C} = emqtt:start_link([{host, "localhost"},
                             {clientid, "myclient"},
                             {username, "admin"}]),
@@ -44,10 +42,19 @@ t_on_client_connected(_) ->
     {ok, #{topic := Topic, payload := Payload}} = receive_publish(100),
     ?assertEqual(<<"connected/myclient/admin">>, Topic),
     ?assertEqual(<<"Hello world">>, Payload),
-    ok = emqtt:disconnect(C).
-
-t_unload(_) ->
+    ok = emqtt:disconnect(C),
     ?assertEqual(ok, emqx_mod_subscription:unload([{<<"connected/%c/%u">>, ?QOS_0}])).
+
+t_on_undefined_client_connected(_) ->
+    ?assertEqual(ok, emqx_mod_subscription:load([{<<"connected/undefined">>, ?QOS_0}])),
+    {ok, C} = emqtt:start_link([{host, "localhost"}]),
+    {ok, _} = emqtt:connect(C),
+    emqtt:publish(C, <<"connected/undefined">>, <<"Hello world">>, ?QOS_0),
+    {ok, #{topic := Topic, payload := Payload}} = receive_publish(100),
+    ?assertEqual(<<"connected/undefined">>, Topic),
+    ?assertEqual(<<"Hello world">>, Payload),
+    ok = emqtt:disconnect(C),
+    ?assertEqual(ok, emqx_mod_subscription:unload([{<<"connected/undefined">>, ?QOS_0}])).
 
 %%--------------------------------------------------------------------
 %% Internal functions
