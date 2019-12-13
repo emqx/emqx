@@ -23,20 +23,6 @@
 -include("emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(DEFAULT_CONNINFO,
-        #{peername => {{127,0,0,1}, 3456},
-          sockname => {{127,0,0,1}, 1883},
-          conn_mod => emqx_connection,
-          proto_name => <<"MQTT">>,
-          proto_ver => ?MQTT_PROTO_V5,
-          clean_start => true,
-          keepalive => 30,
-          clientid => <<"clientid">>,
-          username => <<"username">>,
-          conn_props => #{},
-          receive_maximum => 100,
-          expiry_interval => 0
-         }).
 
 all() -> emqx_ct:all(?MODULE).
 
@@ -45,40 +31,40 @@ all() -> emqx_ct:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    Config.
-
-end_per_suite(_Config) ->
-    ok.
-
-init_per_testcase(_TestCase, Config) ->
     %% CM Meck
-    ok = meck:new(emqx_cm, [passthrough, no_history]),
+    ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
     %% Access Control Meck
-    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_access_control, authenticate,
                      fun(_) -> {ok, #{auth_result => success}} end),
     ok = meck:expect(emqx_access_control, check_acl, fun(_, _, _) -> allow end),
     %% Broker Meck
-    ok = meck:new(emqx_broker, [passthrough, no_history]),
+    ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
     %% Hooks Meck
-    ok = meck:new(emqx_hooks, [passthrough, no_history]),
+    ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end),
     ok = meck:expect(emqx_hooks, run_fold, fun(_Hook, _Args, Acc) -> Acc end),
     %% Session Meck
-    ok = meck:new(emqx_session, [passthrough, no_history]),
+    ok = meck:new(emqx_session, [passthrough, no_history, no_link]),
     %% Metrics
-    ok = meck:new(emqx_metrics, [passthrough, no_history]),
+    ok = meck:new(emqx_metrics, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
     ok = meck:expect(emqx_metrics, inc, fun(_, _) -> ok end),
     Config.
 
-end_per_testcase(_TestCase, Config) ->
+end_per_suite(_Config) ->
     ok = meck:unload(emqx_access_control),
     ok = meck:unload(emqx_metrics),
     ok = meck:unload(emqx_session),
     ok = meck:unload(emqx_broker),
     ok = meck:unload(emqx_hooks),
     ok = meck:unload(emqx_cm),
+    ok.
+
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(_TestCase, Config) ->
     Config.
 
 %%--------------------------------------------------------------------
@@ -328,15 +314,6 @@ t_process_unsubscribe(_) ->
 %%--------------------------------------------------------------------
 
 t_handle_deliver(_) ->
-    WithPacketId = fun(Msgs) ->
-                           lists:zip(lists:seq(1, length(Msgs)), Msgs)
-                   end,
-    ok = meck:expect(emqx_session, deliver,
-                     fun(Delivers, Session) ->
-                             Publishes = WithPacketId([Msg || {deliver, _, Msg} <- Delivers]),
-                             {ok, Publishes, Session}
-                     end),
-    ok = meck:expect(emqx_session, info, fun(retry_interval, _Session) -> 20 end),
     Msg0 = emqx_message:make(test, ?QOS_1, <<"t1">>, <<"qos1">>),
     Msg1 = emqx_message:make(test, ?QOS_2, <<"t2">>, <<"qos2">>),
     Delivers = [{deliver, <<"+">>, Msg0}, {deliver, <<"+">>, Msg1}],
@@ -426,7 +403,7 @@ t_handle_call_discard(_) ->
         emqx_channel:handle_call(discard, channel()).
 
 t_handle_call_takeover_begin(_) ->
-    {reply, undefined, _Chan} = emqx_channel:handle_call({takeover, 'begin'}, channel()).
+    {reply, _Session, _Chan} = emqx_channel:handle_call({takeover, 'begin'}, channel()).
 
 t_handle_call_takeover_end(_) ->
     ok = meck:expect(emqx_session, takeover, fun(_) -> ok end),
@@ -565,14 +542,27 @@ t_terminate(_) ->
 
 channel() -> channel(#{}).
 channel(InitFields) ->
+    ConnInfo = #{peername => {{127,0,0,1}, 3456},
+                 sockname => {{127,0,0,1}, 1883},
+                 conn_mod => emqx_connection,
+                 proto_name => <<"MQTT">>,
+                 proto_ver => ?MQTT_PROTO_V5,
+                 clean_start => true,
+                 keepalive => 30,
+                 clientid => <<"clientid">>,
+                 username => <<"username">>,
+                 conn_props => #{},
+                 receive_maximum => 100,
+                 expiry_interval => 0
+                },
     maps:fold(fun(Field, Value, Channel) ->
                       emqx_channel:set_field(Field, Value, Channel)
-              end, default_channel(), InitFields).
-
-default_channel() ->
-    Channel = emqx_channel:init(?DEFAULT_CONNINFO, [{zone, zone}]),
-    Channel1 = emqx_channel:set_field(conn_state, connected, Channel),
-    emqx_channel:set_field(clientinfo, clientinfo(), Channel1).
+              end,
+              emqx_channel:init(ConnInfo, [{zone, zone}]),
+              maps:merge(#{clientinfo => clientinfo(),
+                           session    => session(),
+                           conn_state => connected
+                          }, InitFields)).
 
 clientinfo() -> clientinfo(#{}).
 clientinfo(InitProps) ->

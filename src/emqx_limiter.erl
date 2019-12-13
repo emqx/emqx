@@ -37,8 +37,7 @@
 
 -spec(init(proplists:proplist()) -> maybe(limiter())).
 init(Options) ->
-    Zone = proplists:get_value(zone, Options),
-    Pl = emqx_zone:publish_limit(Zone),
+    Pl = proplists:get_value(pub_limit, Options),
     Rl = proplists:get_value(rate_limit, Options),
     case ?ENABLED(Pl) or ?ENABLED(Rl) of
         true  -> #limiter{pub_limit  = init_limit(Pl),

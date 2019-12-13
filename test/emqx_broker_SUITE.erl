@@ -89,6 +89,7 @@ t_subscribers(_) ->
 
 t_subscriptions(_) ->
     emqx_broker:subscribe(<<"topic">>, <<"clientid">>, #{qos => 1}),
+    ok = timer:sleep(100),
     ?assertEqual(#{qos => 1, subid => <<"clientid">>},
                  proplists:get_value(<<"topic">>, emqx_broker:subscriptions(self()))),
     ?assertEqual(#{qos => 1, subid => <<"clientid">>},

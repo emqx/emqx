@@ -651,8 +651,7 @@ age(Now, Ts) -> Now - Ts.
 %% For CT tests
 %%--------------------------------------------------------------------
 
-set_field(Name, Val, Channel) ->
-    Fields = record_info(fields, session),
-    Pos = emqx_misc:index_of(Name, Fields),
-    setelement(Pos+1, Channel, Val).
+set_field(Name, Value, Session) ->
+    Pos = emqx_misc:index_of(Name, record_info(fields, session)),
+    setelement(Pos+1, Session, Value).
 

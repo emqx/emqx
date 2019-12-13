@@ -118,6 +118,8 @@ info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 info(conninfo, #channel{conninfo = ConnInfo}) ->
     ConnInfo;
+info(zone, #channel{clientinfo = #{zone := Zone}}) ->
+    Zone;
 info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
     ClientId;
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
@@ -147,11 +149,6 @@ stats(#channel{session = Session})->
 caps(#channel{clientinfo = #{zone := Zone}}) ->
     emqx_mqtt_caps:get_caps(Zone).
 
-%% For tests
-set_field(Name, Val, Channel) ->
-    Fields = record_info(fields, channel),
-    Pos = emqx_misc:index_of(Name, Fields),
-    setelement(Pos+1, Channel, Val).
 
 %%--------------------------------------------------------------------
 %% Init the channel
@@ -1308,4 +1305,12 @@ sp(false) -> 0.
 
 flag(true)  -> 1;
 flag(false) -> 0.
+
+%%--------------------------------------------------------------------
+%% For CT tests
+%%--------------------------------------------------------------------
+
+set_field(Name, Value, Channel) ->
+    Pos = emqx_misc:index_of(Name, record_info(fields, channel)),
+    setelement(Pos+1, Channel, Value).
 

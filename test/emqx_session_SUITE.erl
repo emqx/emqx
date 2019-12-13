@@ -29,16 +29,21 @@ all() -> emqx_ct:all(?MODULE).
 %% CT callbacks
 %%--------------------------------------------------------------------
 
-init_per_testcase(_TestCase, Config) ->
-    %% Meck Broker
-    ok = meck:new(emqx_broker, [passthrough, no_history]),
-    ok = meck:new(emqx_hooks, [passthrough, no_history]),
+init_per_suite(Config) ->
+    %% Broker
+    ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
+    ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end),
     Config.
 
-end_per_testcase(_TestCase, Config) ->
+end_per_suite(_Config) ->
     ok = meck:unload(emqx_broker),
-    ok = meck:unload(emqx_hooks),
+    ok = meck:unload(emqx_hooks).
+
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(_TestCase, Config) ->
     Config.
 
 %%--------------------------------------------------------------------
@@ -330,7 +335,7 @@ t_replay(_) ->
     {ok, Pubs, Session1} = emqx_session:deliver(Delivers, session()),
     Msg = emqx_message:make(clientid, ?QOS_1, <<"t1">>, <<"payload">>),
     Session2 = emqx_session:enqueue(Msg, Session1),
-    Pubs1 = [{I, emqx_message:set_flag(dup, Msg)} || {I, Msg} <- Pubs],
+    Pubs1 = [{I, emqx_message:set_flag(dup, M)} || {I, M} <- Pubs],
     {ok, ReplayPubs, Session3} = emqx_session:replay(Session2),
     ?assertEqual(Pubs1 ++ [{3, Msg}], ReplayPubs),
     ?assertEqual(3, emqx_session:info(inflight_cnt, Session3)).
