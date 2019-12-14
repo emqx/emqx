@@ -347,11 +347,10 @@ handle_msg({Passive, _Sock}, State)
     NState1 = check_oom(run_gc(InStats, NState)),
     handle_info(activate_socket, NState1);
 
-handle_msg(Deliver = {deliver, _Topic, _Msg}, State =
-           #state{active_n = ActiveN, channel = Channel}) ->
+handle_msg(Deliver = {deliver, _Topic, _Msg},
+           State = #state{active_n = ActiveN}) ->
     Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
-    Ret = emqx_channel:handle_deliver(Delivers, Channel),
-    handle_chan_return(Ret, State);
+    with_channel(handle_deliver, [Delivers], State);
 
 %% Something sent
 handle_msg({inet_reply, _Sock, ok}, State = #state{active_n = ActiveN}) ->
@@ -471,9 +470,8 @@ handle_timeout(TRef, keepalive, State =
             handle_info({sock_error, Reason}, State)
     end;
 
-handle_timeout(TRef, Msg, State = #state{channel = Channel}) ->
-    Ret = emqx_channel:handle_timeout(TRef, Msg, Channel),
-    handle_chan_return(Ret, State).
+handle_timeout(TRef, Msg, State) ->
+    with_channel(handle_timeout, [TRef, Msg], State).
 
 %%--------------------------------------------------------------------
 %% Parse incoming data
@@ -509,30 +507,31 @@ next_incoming_msgs(Packets) ->
 %%--------------------------------------------------------------------
 %% Handle incoming packet
 
-handle_incoming(Packet, State = #state{channel = Channel})
-  when is_record(Packet, mqtt_packet) ->
+handle_incoming(Packet, State) when is_record(Packet, mqtt_packet) ->
     ok = inc_incoming_stats(Packet),
     ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]),
-    handle_chan_return(emqx_channel:handle_in(Packet, Channel), State);
+    with_channel(handle_in, [Packet], State);
 
-handle_incoming(FrameError, State = #state{channel = Channel}) ->
-    handle_chan_return(emqx_channel:handle_in(FrameError, Channel), State).
+handle_incoming(FrameError, State) ->
+    with_channel(handle_in, [FrameError], State).
 
 %%--------------------------------------------------------------------
-%% Handle channel return
+%% With Channel
 
-handle_chan_return(ok, State) ->
-    {ok, State};
-handle_chan_return({ok, NChannel}, State) ->
-    {ok, State#state{channel = NChannel}};
-handle_chan_return({ok, Replies, NChannel}, State) ->
-    {ok, next_msgs(Replies), State#state{channel = NChannel}};
-handle_chan_return({shutdown, Reason, NChannel}, State) ->
-    shutdown(Reason, State#state{channel = NChannel});
-handle_chan_return({shutdown, Reason, OutPacket, NChannel}, State) ->
-    NState = State#state{channel = NChannel},
-    ok = handle_outgoing(OutPacket, NState),
-    shutdown(Reason, NState).
+with_channel(Fun, Args, State = #state{channel = Channel}) ->
+    case erlang:apply(emqx_channel, Fun, Args ++ [Channel]) of
+        ok -> {ok, State};
+        {ok, NChannel} ->
+            {ok, State#state{channel = NChannel}};
+        {ok, Replies, NChannel} ->
+            {ok, next_msgs(Replies), State#state{channel = NChannel}};
+        {shutdown, Reason, NChannel} ->
+            shutdown(Reason, State#state{channel = NChannel});
+        {shutdown, Reason, Packet, NChannel} ->
+            NState = State#state{channel = NChannel},
+            ok = handle_outgoing(Packet, NState),
+            shutdown(Reason, NState)
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
@@ -589,9 +588,8 @@ handle_info({sock_error, Reason}, State) ->
     ?LOG(debug, "Socket error: ~p", [Reason]),
     handle_info({sock_closed, Reason}, close_socket(State));
 
-handle_info(Info, State = #state{channel = Channel}) ->
-    Ret = emqx_channel:handle_info(Info, Channel),
-    handle_chan_return(Ret, State).
+handle_info(Info, State) ->
+    with_channel(handle_info, [Info], State).
 
 %%--------------------------------------------------------------------
 %% Ensure rate limit

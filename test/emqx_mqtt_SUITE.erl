@@ -14,22 +14,39 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_msg_expiry_interval_SUITE).
+-module(emqx_mqtt_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
+
+-define(STATS_KYES, [recv_pkt, recv_msg, send_pkt, send_msg,
+                     recv_oct, recv_cnt, send_oct, send_cnt,
+                     send_pend
+                    ]).
 
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-	emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
+
+t_conn_stats(_) ->
+    with_client(fun(CPid) ->
+                            Stats = emqx_connection:stats(CPid),
+                            ct:pal("==== stats: ~p", [Stats]),
+                            [?assert(proplists:get_value(Key, Stats) >= 0) || Key <- ?STATS_KYES]
+                    end, []).
+
+t_tcp_sock_passive(_) ->
+    with_client(fun(CPid) -> CPid ! {tcp_passive, sock} end, []).
 
 t_message_expiry_interval_1(_) ->
 	ClientA = message_expiry_interval_init(),
@@ -92,3 +109,16 @@ message_expiry_interval_not_exipred(ClientA, QoS) ->
 		ct:fail(no_publish_received)
 	end,
 	emqtt:stop(ClientB1).
+
+with_client(TestFun, _Options) ->
+    ClientId = <<"t_conn">>,
+    {ok, C} = emqtt:start_link([{clientid, ClientId}]),
+    {ok, _} = emqtt:connect(C),
+    timer:sleep(50),
+    case emqx_cm:lookup_channels(ClientId) of
+        [] -> ct:fail({client_not_started, ClientId});
+        [ChanPid] ->
+            TestFun(ChanPid),
+            emqtt:stop(C)
+    end.
+
