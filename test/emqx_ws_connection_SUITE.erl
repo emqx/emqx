@@ -179,7 +179,7 @@ t_websocket_handle_pong(_) ->
     {ok, St} = websocket_handle({pong, <<>>}, St).
 
 t_websocket_handle_bad_frame(_) ->
-    {stop, St} = websocket_handle({badframe, <<>>}, st()),
+    {[{shutdown, unexpected_ws_frame}], St} = websocket_handle({badframe, <<>>}, st()),
     {shutdown, unexpected_ws_frame} = ?ws_conn:info(stop_reason, St).
 
 t_websocket_info_call(_) ->
@@ -211,16 +211,16 @@ t_websocket_info_incoming(_) ->
                  username    = <<"username">>,
                  password    = <<"passwd">>
                 },
-    {reply, [{binary, IoData1}], St1} =
+    {[{binary, IoData1}], St1} =
         websocket_info({incoming, ?CONNECT_PACKET(ConnPkt)}, st()),
     ?assertEqual(<<224,2,130,0>>, iolist_to_binary(IoData1)),
     %% PINGREQ
-    {reply, [{binary, IoData2}], St2} =
+    {[{binary, IoData2}], St2} =
         websocket_info({incoming, ?PACKET(?PINGREQ)}, St1),
     ?assertEqual(<<208,0>>, iolist_to_binary(IoData2)),
     %% PUBLISH
     Publish = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>),
-    {reply, [{binary, IoData3}], _St3} =
+    {[{binary, IoData3}], _St3} =
         websocket_info({incoming, Publish}, St2),
     ?assertEqual(<<64,4,0,1,0,0>>, iolist_to_binary(IoData3)).
 
@@ -232,15 +232,14 @@ t_websocket_info_deliver(_) ->
     Msg0 = emqx_message:make(clientid, ?QOS_0, <<"t">>, <<"">>),
     Msg1 = emqx_message:make(clientid, ?QOS_1, <<"t">>, <<"">>),
     self() ! {deliver, <<"#">>, Msg1},
-    {reply, [{binary, IoData}], _St} =
+    {[{binary, IoData}], _St} =
         websocket_info({deliver, <<"#">>, Msg0}, st()),
     ?assertEqual(<<48,3,0,1,116,50,5,0,1,116,0,1>>, iolist_to_binary(IoData)).
 
 t_websocket_info_timeout_limiter(_) ->
     Ref = make_ref(),
     Event = {timeout, Ref, limit_timeout},
-    {reply, [{active, true}], St} =
-        websocket_info(Event, st(#{limit_timer => Ref})),
+    {[{active, true}], St} = websocket_info(Event, st(#{limit_timer => Ref})),
     ?assertEqual([], ?ws_conn:info(postponed, St)).
 
 t_websocket_info_timeout_keepalive(_) ->
@@ -256,31 +255,30 @@ t_websocket_info_timeout_retry(_) ->
     {ok, _St} = websocket_info({timeout, make_ref(), retry_delivery}, st()).
 
 t_websocket_info_close(_) ->
-    {stop, St} = websocket_info({close, sock_error}, st()),
+    {[close], St} = websocket_info({close, sock_error}, st()),
     ?assertEqual({shutdown, sock_error}, ?ws_conn:info(stop_reason, St)).
 
 t_websocket_info_shutdown(_) ->
-    {stop, St} = websocket_info({shutdown, reason}, st()),
+    {[{shutdown, reason}], St} = websocket_info({shutdown, reason}, st()),
     ?assertEqual({shutdown, reason}, ?ws_conn:info(stop_reason, St)).
 
 t_websocket_info_stop(_) ->
-    {stop, St} = websocket_info({stop, normal}, st()),
+    {[{shutdown, normal}], St} = websocket_info({stop, normal}, st()),
     ?assertEqual(normal, ?ws_conn:info(stop_reason, St)).
 
 t_websocket_close(_) ->
-    {stop, St} = websocket_close(badframe, st()),
+    {[{shutdown, badframe}], St} = websocket_close(badframe, st()),
     ?assertEqual({shutdown, badframe}, ?ws_conn:info(stop_reason, St)).
 
 t_handle_info_connack(_) ->
     ConnAck = ?CONNACK_PACKET(?RC_SUCCESS),
-    {reply, [{binary, IoData}], _St} =
+    {[{binary, IoData}], _St} =
         ?ws_conn:handle_info({connack, ConnAck}, st()),
     ?assertEqual(<<32,2,0,0>>, iolist_to_binary(IoData)).
 
 t_handle_info_close(_) ->
-    {stop, St} = ?ws_conn:handle_info({close, protocol_error}, st()),
-    ?assertEqual({shutdown, protocol_error},
-                 ?ws_conn:info(stop_reason, St)).
+    {[close], St} = ?ws_conn:handle_info({close, protocol_error}, st()),
+    ?assertEqual({shutdown, protocol_error}, ?ws_conn:info(stop_reason, St)).
 
 t_handle_info_event(_) ->
     ok = meck:new(emqx_cm, [passthrough, no_history]),
@@ -293,8 +291,8 @@ t_handle_info_event(_) ->
 
 t_handle_timeout_idle_timeout(_) ->
     TRef = make_ref(),
-    {stop, St} = ?ws_conn:handle_timeout(
-                    TRef, idle_timeout, st(#{idle_timer => TRef})),
+    {[{shutdown, idle_timeout}], St} =
+        ?ws_conn:handle_timeout(TRef, idle_timeout, st(#{idle_timer => TRef})),
     ?assertEqual({shutdown, idle_timeout}, ?ws_conn:info(stop_reason, St)).
 
 t_handle_timeout_keepalive(_) ->
@@ -330,7 +328,7 @@ t_parse_incoming_frame_error(_) ->
 t_handle_incomming_frame_error(_) ->
     FrameError = {frame_error, bad_qos},
     Serialize = emqx_frame:serialize_fun(#{version => 5, max_size => 16#FFFF}),
-    {reply, [{binary, IoData}], _St} =
+    {[{binary, IoData}], _St} =
         ?ws_conn:handle_incoming(FrameError, st(#{serialize => Serialize})),
     ?assertEqual(<<224,2,129,0>>, iolist_to_binary(IoData)).
 
@@ -361,12 +359,8 @@ t_enqueue(_) ->
     [Packet] = ?ws_conn:info(postponed, St).
 
 t_shutdown(_) ->
-    {stop, St} = ?ws_conn:shutdown(closed, st()),
+    {[{shutdown, closed}], St} = ?ws_conn:shutdown(closed, st()),
     {shutdown, closed} = ?ws_conn:info(stop_reason, St).
-
-t_stop(_) ->
-    St = st(#{postponed => [{active, false}]}),
-    {reply, [{active, false}, close], _} = ?ws_conn:stop(closed, St).
 
 %%--------------------------------------------------------------------
 %% Helper functions
