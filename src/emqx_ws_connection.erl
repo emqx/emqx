@@ -287,6 +287,9 @@ websocket_info({incoming, ?PACKET(?PINGREQ)}, State) ->
 websocket_info({incoming, Packet}, State) ->
     handle_incoming(Packet, State);
 
+websocket_info({outgoing, Packets}, State) ->
+    return(enqueue(Packets, State));
+
 websocket_info({check_gc, Stats}, State) ->
     return(check_oom(run_gc(Stats, State)));
 
@@ -594,8 +597,6 @@ ensure_stats_timer(State) -> State.
 
 postpone(Packet, State) when is_record(Packet, mqtt_packet) ->
     enqueue(Packet, State);
-postpone({outgoing, Packets}, State) ->
-    enqueue(Packets, State);
 postpone(Event, State) when is_tuple(Event) ->
     enqueue(Event, State);
 postpone(More, State) when is_list(More) ->
