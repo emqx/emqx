@@ -128,10 +128,6 @@ t_info_postponed(_) ->
     St = ?ws_conn:postpone({active, false}, st()),
     ?assertEqual([{active, false}], ?ws_conn:info(postponed, St)).
 
-t_info_stop_reason(_) ->
-    St = st(#{stop_reason => normal}),
-    ?assertEqual(normal, ?ws_conn:info(stop_reason, St)).
-
 t_stats(_) ->
     WsPid = spawn(fun() ->
                       receive {call, From, stats} ->
@@ -179,8 +175,7 @@ t_websocket_handle_pong(_) ->
     {ok, St} = websocket_handle({pong, <<>>}, St).
 
 t_websocket_handle_bad_frame(_) ->
-    {[{shutdown, unexpected_ws_frame}], St} = websocket_handle({badframe, <<>>}, st()),
-    {shutdown, unexpected_ws_frame} = ?ws_conn:info(stop_reason, St).
+    {[{shutdown, unexpected_ws_frame}], _St} = websocket_handle({badframe, <<>>}, st()).
 
 t_websocket_info_call(_) ->
     From = {make_ref(), self()},
@@ -255,20 +250,16 @@ t_websocket_info_timeout_retry(_) ->
     {ok, _St} = websocket_info({timeout, make_ref(), retry_delivery}, st()).
 
 t_websocket_info_close(_) ->
-    {[close], St} = websocket_info({close, sock_error}, st()),
-    ?assertEqual({shutdown, sock_error}, ?ws_conn:info(stop_reason, St)).
+    {[close], _St} = websocket_info({close, sock_error}, st()).
 
 t_websocket_info_shutdown(_) ->
-    {[{shutdown, reason}], St} = websocket_info({shutdown, reason}, st()),
-    ?assertEqual({shutdown, reason}, ?ws_conn:info(stop_reason, St)).
+    {[{shutdown, reason}], _St} = websocket_info({shutdown, reason}, st()).
 
 t_websocket_info_stop(_) ->
-    {[{shutdown, normal}], St} = websocket_info({stop, normal}, st()),
-    ?assertEqual(normal, ?ws_conn:info(stop_reason, St)).
+    {[{shutdown, normal}], _St} = websocket_info({stop, normal}, st()).
 
 t_websocket_close(_) ->
-    {[{shutdown, badframe}], St} = websocket_close(badframe, st()),
-    ?assertEqual({shutdown, badframe}, ?ws_conn:info(stop_reason, St)).
+    {[{shutdown, badframe}], _St} = websocket_close(badframe, st()).
 
 t_handle_info_connack(_) ->
     ConnAck = ?CONNACK_PACKET(?RC_SUCCESS),
@@ -277,8 +268,7 @@ t_handle_info_connack(_) ->
     ?assertEqual(<<32,2,0,0>>, iolist_to_binary(IoData)).
 
 t_handle_info_close(_) ->
-    {[close], St} = ?ws_conn:handle_info({close, protocol_error}, st()),
-    ?assertEqual({shutdown, protocol_error}, ?ws_conn:info(stop_reason, St)).
+    {[close], _St} = ?ws_conn:handle_info({close, protocol_error}, st()).
 
 t_handle_info_event(_) ->
     ok = meck:new(emqx_cm, [passthrough, no_history]),
@@ -291,9 +281,8 @@ t_handle_info_event(_) ->
 
 t_handle_timeout_idle_timeout(_) ->
     TRef = make_ref(),
-    {[{shutdown, idle_timeout}], St} =
-        ?ws_conn:handle_timeout(TRef, idle_timeout, st(#{idle_timer => TRef})),
-    ?assertEqual({shutdown, idle_timeout}, ?ws_conn:info(stop_reason, St)).
+    St = st(#{idle_timer => TRef}),
+    {[{shutdown, idle_timeout}], _St} = ?ws_conn:handle_timeout(TRef, idle_timeout, St).
 
 t_handle_timeout_keepalive(_) ->
     {ok, _St} = ?ws_conn:handle_timeout(make_ref(), keepalive, st()).
@@ -359,8 +348,7 @@ t_enqueue(_) ->
     [Packet] = ?ws_conn:info(postponed, St).
 
 t_shutdown(_) ->
-    {[{shutdown, closed}], St} = ?ws_conn:shutdown(closed, st()),
-    {shutdown, closed} = ?ws_conn:info(stop_reason, St).
+    {[{shutdown, closed}], _St} = ?ws_conn:shutdown(closed, st()).
 
 %%--------------------------------------------------------------------
 %% Helper functions
