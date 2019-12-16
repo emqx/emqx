@@ -88,10 +88,10 @@
           gc_state :: maybe(emqx_gc:gc_state()),
           %% Stats Timer
           stats_timer :: disabled | maybe(reference()),
-          %% Idle Timer
-          idle_timer :: maybe(reference()),
           %% Idle Timeout
-          idle_timeout :: integer()
+          idle_timeout :: integer(),
+          %% Idle Timer
+          idle_timer :: maybe(reference())
         }).
 
 -type(state() :: #state{}).
@@ -208,8 +208,8 @@ init_state(Transport, Socket, Options) ->
            channel      = Channel,
            gc_state     = GcState,
            stats_timer  = StatsTimer,
-           idle_timer   = IdleTimer,
-           idle_timeout = IdleTimeout
+           idle_timeout = IdleTimeout,
+           idle_timer   = IdleTimer
           }.
 
 run_loop(Parent, State = #state{transport = Transport,
