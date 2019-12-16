@@ -53,5 +53,10 @@ t_detect_check(_) ->
     true = emqx_banned:check(ClientInfo),
     timer:sleep(200),
     false = emqx_banned:check(ClientInfo),
+    Childrens = supervisor:which_children(emqx_cm_sup),
+    {flapping, Pid, _, _} = lists:keyfind(flapping, 1, Childrens),
+    gen_server:call(Pid, test),
+    gen_server:cast(Pid, test),
+    Pid ! test,
     ok = emqx_flapping:stop().
 

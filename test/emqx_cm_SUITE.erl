@@ -22,6 +22,8 @@
 -include("emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
+-define(CM, emqx_cm).
+
 %%--------------------------------------------------------------------
 %% CT callbacks
 %%--------------------------------------------------------------------
@@ -81,10 +83,55 @@ t_open_session(_) ->
     ?assertEqual(100, emqx_session:info(inflight_max, Session2)).
 
 t_discard_session(_) ->
-    ok = emqx_cm:discard_session(<<"clientid">>).
+    ok = meck:new(emqx_connection, [passthrough, no_history]),
+    ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),
+    ok = emqx_cm:discard_session(<<"clientid">>),
+    ok = emqx_cm:register_channel(<<"clientid">>),
+    ok = emqx_cm:discard_session(<<"clientid">>),
+    ok = emqx_cm:unregister_channel(<<"clientid">>),
+    ok = emqx_cm:register_channel(<<"clientid">>, #{conninfo => #{conn_mod => emqx_connection}}, []),
+    ok = emqx_cm:discard_session(<<"clientid">>),
+    ok = meck:expect(emqx_connection, call, fun(_, _) -> error(testing) end),
+    ok = emqx_cm:discard_session(<<"clientid">>),
+    ok = emqx_cm:unregister_channel(<<"clientid">>),
+    ok = meck:unload(emqx_connection).
 
 t_takeover_session(_) ->
-    {error, not_found} = emqx_cm:takeover_session(<<"clientid">>).
+    ok = meck:new(emqx_connection, [passthrough, no_history]),
+    ok = meck:expect(emqx_connection, call, fun(_, _) -> test end),
+    {error, not_found} = emqx_cm:takeover_session(<<"clientid">>),
+    ok = emqx_cm:register_channel(<<"clientid">>),
+    {error, not_found} = emqx_cm:takeover_session(<<"clientid">>),
+    ok = emqx_cm:unregister_channel(<<"clientid">>),
+    ok = emqx_cm:register_channel(<<"clientid">>, #{conninfo => #{conn_mod => emqx_connection}}, []),
+    Pid = self(),
+    {ok, emqx_connection, Pid, test} = emqx_cm:takeover_session(<<"clientid">>),
+    erlang:spawn(fun() ->
+                     ok = emqx_cm:register_channel(<<"clientid">>, #{conninfo => #{conn_mod => emqx_connection}}, []),
+                     timer:sleep(1000)
+                 end),
+    ct:sleep(100),
+    {ok, emqx_connection, _, test} = emqx_cm:takeover_session(<<"clientid">>),
+    ok = emqx_cm:unregister_channel(<<"clientid">>),
+    ok = meck:unload(emqx_connection).
+
+t_kick_session(_) ->
+    ok = meck:new(emqx_connection, [passthrough, no_history]),
+    ok = meck:expect(emqx_connection, call, fun(_, _) -> test end),
+    {error, not_found} = emqx_cm:kick_session(<<"clientid">>),
+    ok = emqx_cm:register_channel(<<"clientid">>),
+    {error, not_found} = emqx_cm:kick_session(<<"clientid">>),
+    ok = emqx_cm:unregister_channel(<<"clientid">>),
+    ok = emqx_cm:register_channel(<<"clientid">>, #{conninfo => #{conn_mod => emqx_connection}}, []),
+    test = emqx_cm:kick_session(<<"clientid">>),
+    erlang:spawn(fun() ->
+                     ok = emqx_cm:register_channel(<<"clientid">>, #{conninfo => #{conn_mod => emqx_connection}}, []),
+                     timer:sleep(1000)
+                 end),
+    ct:sleep(100),
+    test = emqx_cm:kick_session(<<"clientid">>),
+    ok = emqx_cm:unregister_channel(<<"clientid">>),
+    ok = meck:unload(emqx_connection).
 
 t_lock_clientid(_) ->
     {true, _Nodes} = emqx_cm_locker:lock(<<"clientid">>),
@@ -92,27 +139,7 @@ t_lock_clientid(_) ->
     {true, _Nodes} = emqx_cm_locker:unlock(<<"clientid">>),
     {true, _Nodes} = emqx_cm_locker:unlock(<<"clientid">>).
 
-
-% t_unregister_channel(_) ->
-%     error('TODO').
-
-% t_get_chan_attrs(_) ->
-%     error('TODO').
-
-% t_get_chan_stats(_) ->
-%     error('TODO').
-
-% t_lookup_channels(_) ->
-%     error('TODO').
-
-% t_set_chan_stats(_) ->
-%     error('TODO').
-
-% t_set_chan_attrs(_) ->
-%     error('TODO').
-
-% t_register_channel(_) ->
-%     error('TODO').
-
-% t_stats_fun(_) ->
-%     error('TODO').
+t_message(_) ->
+    ?CM ! testing,
+    gen_server:cast(?CM, testing),
+    gen_server:call(?CM, testing).

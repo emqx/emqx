@@ -45,13 +45,16 @@
         , terminate/3
         ]).
 
+%% Export for CT
+-export([set_field/3]).
+
 -import(emqx_misc,
         [ maybe_apply/2
         , start_timer/2
         ]).
 
 -record(state, {
-          %% Peername of the ws connection.
+          %% Peername of the ws connection
           peername :: emqx_types:peername(),
           %% Sockname of the ws connection
           sockname :: emqx_types:peername(),
@@ -65,25 +68,25 @@
           limit_timer :: maybe(reference()),
           %% Parse State
           parse_state :: emqx_frame:parse_state(),
-          %% Serialize function
+          %% Serialize Fun
           serialize :: emqx_frame:serialize_fun(),
           %% Channel
           channel :: emqx_channel:channel(),
           %% GC State
           gc_state :: maybe(emqx_gc:gc_state()),
-          %% Out Pending Packets
-          pendings :: list(emqx_types:packet()),
+          %% Postponed Packets|Cmds|Events
+          postponed :: list(emqx_types:packet()|ws_cmd()|tuple()),
           %% Stats Timer
           stats_timer :: disabled | maybe(reference()),
           %% Idle Timeout
           idle_timeout :: timeout(),
           %% Idle Timer
-          idle_timer :: reference(),
-          %% The stop reason
-          stop_reason :: term()
+          idle_timer :: reference()
         }).
 
 -type(state() :: #state{}).
+
+-type(ws_cmd() :: {active, boolean()}|close).
 
 -define(ACTIVE_N, 100).
 -define(INFO_KEYS, [socktype, peername, sockname, sockstate, active_n]).
@@ -93,7 +96,7 @@
 -define(ENABLED(X), (X =/= undefined)).
 
 %%--------------------------------------------------------------------
-%% API
+%% Info, Stats
 %%--------------------------------------------------------------------
 
 -spec(info(pid()|state()) -> emqx_types:infos()).
@@ -120,8 +123,16 @@ info(limiter, #state{limiter = Limiter}) ->
     maybe_apply(fun emqx_limiter:info/1, Limiter);
 info(channel, #state{channel = Channel}) ->
     emqx_channel:info(Channel);
-info(stop_reason, #state{stop_reason = Reason}) ->
-    Reason.
+info(gc_state, #state{gc_state = GcSt}) ->
+    maybe_apply(fun emqx_gc:info/1, GcSt);
+info(postponed, #state{postponed = Postponed}) ->
+    Postponed;
+info(stats_timer, #state{stats_timer = TRef}) ->
+    TRef;
+info(idle_timeout, #state{idle_timeout = Timeout}) ->
+    Timeout;
+info(idle_timer, #state{idle_timer = TRef}) ->
+    TRef.
 
 -spec(stats(pid()|state()) -> emqx_types:stats()).
 stats(WsPid) when is_pid(WsPid) ->
@@ -201,8 +212,9 @@ websocket_init([Req, Opts]) ->
                  conn_mod  => ?MODULE
                 },
     Zone = proplists:get_value(zone, Opts),
+    PubLimit = emqx_zone:publish_limit(Zone),
+    Limiter = emqx_limiter:init([{pub_limit, PubLimit}|Opts]),
     ActiveN = proplists:get_value(active_n, Opts, ?ACTIVE_N),
-    Limiter = emqx_limiter:init(Opts),
     FrameOpts = emqx_zone:mqtt_frame_options(Zone),
     ParseState = emqx_frame:initial_parse_state(FrameOpts),
     Serialize = emqx_frame:serialize_fun(),
@@ -223,7 +235,7 @@ websocket_init([Req, Opts]) ->
                 serialize    = Serialize,
                 channel      = Channel,
                 gc_state     = GcState,
-                pendings     = [],
+                postponed    = [],
                 stats_timer  = StatsTimer,
                 idle_timeout = IdleTimeout,
                 idle_timer   = IdleTimer
@@ -235,145 +247,144 @@ websocket_handle({binary, Data}, State) when is_list(Data) ->
 websocket_handle({binary, Data}, State) ->
     ?LOG(debug, "RECV ~p", [Data]),
     ok = inc_recv_stats(1, iolist_size(Data)),
-    parse_incoming(Data, ensure_stats_timer(State));
+    NState = ensure_stats_timer(State),
+    return(parse_incoming(Data, NState));
 
 %% Pings should be replied with pongs, cowboy does it automatically
 %% Pongs can be safely ignored. Clause here simply prevents crash.
 websocket_handle(Frame, State) when Frame =:= ping; Frame =:= pong ->
-    {ok, State};
+    return(State);
 
-websocket_handle({FrameType, _}, State) when FrameType =:= ping;
-                                             FrameType =:= pong ->
-    {ok, State};
+websocket_handle({Frame, _}, State) when Frame =:= ping; Frame =:= pong ->
+    return(State);
 
-websocket_handle({FrameType, _}, State) ->
-    ?LOG(error, "Unexpected frame - ~p", [FrameType]),
-    stop({shutdown, unexpected_ws_frame}, State).
+websocket_handle({Frame, _}, State) ->
+    %% TODO: should not close the ws connection
+    ?LOG(error, "Unexpected frame - ~p", [Frame]),
+    shutdown(unexpected_ws_frame, State).
 
 websocket_info({call, From, Req}, State) ->
     handle_call(From, Req, State);
 
-websocket_info({cast, Msg}, State = #state{channel = Channel}) ->
-    handle_chan_return(emqx_channel:handle_info(Msg, Channel), State);
+websocket_info({cast, rate_limit}, State) ->
+    Stats = #{cnt => emqx_pd:reset_counter(incoming_pubs),
+              oct => emqx_pd:reset_counter(incoming_bytes)
+             },
+    NState = postpone({check_gc, Stats}, State),
+    return(ensure_rate_limit(Stats, NState));
 
-websocket_info({incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
-               State = #state{idle_timer = IdleTimer}) ->
-    ok = emqx_misc:cancel_timer(IdleTimer),
+websocket_info({cast, Msg}, State) ->
+    handle_info(Msg, State);
+
+websocket_info({incoming, Packet = ?CONNECT_PACKET(ConnPkt)}, State) ->
     Serialize = emqx_frame:serialize_fun(ConnPkt),
-    NState = State#state{serialize  = Serialize,
-                         idle_timer = undefined
-                        },
-    handle_incoming(Packet, NState);
+    NState = State#state{serialize = Serialize},
+    handle_incoming(Packet, cancel_idle_timer(NState));
 
 websocket_info({incoming, ?PACKET(?PINGREQ)}, State) ->
-    reply(?PACKET(?PINGRESP), State);
+    return(enqueue(?PACKET(?PINGRESP), State));
 
 websocket_info({incoming, Packet}, State) ->
     handle_incoming(Packet, State);
 
-websocket_info(rate_limit, State) ->
-    InStats = #{cnt => emqx_pd:reset_counter(incoming_pubs),
-                oct => emqx_pd:reset_counter(incoming_bytes)
-               },
-    erlang:send(self(), {check_gc, InStats}),
-    ensure_rate_limit(InStats, State);
+websocket_info({outgoing, Packets}, State) ->
+    return(enqueue(Packets, State));
 
 websocket_info({check_gc, Stats}, State) ->
-    {ok, check_oom(run_gc(Stats, State))};
+    return(check_oom(run_gc(Stats, State)));
 
 websocket_info(Deliver = {deliver, _Topic, _Msg},
-               State = #state{active_n = ActiveN, channel = Channel}) ->
+               State = #state{active_n = ActiveN}) ->
     Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
-    Ret = emqx_channel:handle_deliver(Delivers, Channel),
-    handle_chan_return(Ret, State);
+    with_channel(handle_deliver, [Delivers], State);
 
-websocket_info({timeout, TRef, limit_timeout}, State = #state{limit_timer = TRef}) ->
+websocket_info({timeout, TRef, limit_timeout},
+               State = #state{limit_timer = TRef}) ->
     NState = State#state{sockstate   = running,
                          limit_timer = undefined
                         },
-    {reply, [{active, true}], NState};
+    return(enqueue({active, true}, NState));
 
 websocket_info({timeout, TRef, Msg}, State) when is_reference(TRef) ->
     handle_timeout(TRef, Msg, State);
 
-websocket_info(Close = {close, _Reason}, State) ->
-    handle_info(Close, State);
-
 websocket_info({shutdown, Reason}, State) ->
-    stop({shutdown, Reason}, State);
+    shutdown(Reason, State);
 
 websocket_info({stop, Reason}, State) ->
-    stop(Reason, State);
+    shutdown(Reason, State);
 
 websocket_info(Info, State) ->
     handle_info(Info, State).
 
 websocket_close(Reason, State) ->
-    ?LOG(debug, "WebSocket closed due to ~p~n", [Reason]),
+    ?LOG(debug, "Websocket closed due to ~p~n", [Reason]),
     handle_info({sock_closed, Reason}, State).
 
-terminate(SockError, _Req, #state{channel    = Channel,
-                                  stop_reason = Reason}) ->
-    ?LOG(debug, "Terminated for ~p, sockerror: ~p", [Reason, SockError]),
+terminate(Reason, _Req, #state{channel = Channel}) ->
+    ?LOG(debug, "Terminated due to ~p", [Reason]),
     emqx_channel:terminate(Reason, Channel).
 
 %%--------------------------------------------------------------------
 %% Handle call
+%%--------------------------------------------------------------------
 
 handle_call(From, info, State) ->
     gen_server:reply(From, info(State)),
-    {ok, State};
+    return(State);
 
 handle_call(From, stats, State) ->
     gen_server:reply(From, stats(State)),
-    {ok, State};
+    return(State);
 
 handle_call(From, Req, State = #state{channel = Channel}) ->
     case emqx_channel:handle_call(Req, Channel) of
         {reply, Reply, NChannel} ->
-            _ = gen_server:reply(From, Reply),
-            {ok, State#state{channel = NChannel}};
-        {stop, Reason, Reply, NChannel} ->
-            _ = gen_server:reply(From, Reply),
-            stop(Reason, State#state{channel = NChannel});
-        {stop, Reason, Reply, OutPacket, NChannel} ->
+            gen_server:reply(From, Reply),
+            return(State#state{channel = NChannel});
+        {shutdown, Reason, Reply, NChannel} ->
+            gen_server:reply(From, Reply),
+            shutdown(Reason, State#state{channel = NChannel});
+        {shutdown, Reason, Reply, Packet, NChannel} ->
             gen_server:reply(From, Reply),
             NState = State#state{channel = NChannel},
-            stop(Reason, enqueue(OutPacket, NState))
+            shutdown(Reason, enqueue(Packet, NState))
     end.
 
 %%--------------------------------------------------------------------
 %% Handle Info
+%%--------------------------------------------------------------------
 
 handle_info({connack, ConnAck}, State) ->
-    reply(enqueue(ConnAck, State));
+    return(enqueue(ConnAck, State));
 
 handle_info({close, Reason}, State) ->
-    stop({shutdown, Reason}, State);
+    ?LOG(debug, "Force to close the socket due to ~p", [Reason]),
+    return(enqueue(close, State));
 
 handle_info({event, connected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:register_channel(ClientId, info(State), stats(State)),
-    reply(State);
+    ok = emqx_cm:register_channel(ClientId, info(State), stats(State)),
+    return(State);
 
 handle_info({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
     emqx_cm:connection_closed(ClientId),
-    reply(State);
+    return(State);
 
 handle_info({event, _Other}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
-    reply(State);
+    return(State);
 
-handle_info(Info, State = #state{channel = Channel}) ->
-    Ret = emqx_channel:handle_info(Info, Channel),
-    handle_chan_return(Ret, State).
+handle_info(Info, State) ->
+    with_channel(handle_info, [Info], State).
 
 %%--------------------------------------------------------------------
 %% Handle timeout
+%%--------------------------------------------------------------------
 
 handle_timeout(TRef, idle_timeout, State = #state{idle_timer = TRef}) ->
     shutdown(idle_timeout, State);
@@ -382,33 +393,24 @@ handle_timeout(TRef, keepalive, State) when is_reference(TRef) ->
     RecvOct = emqx_pd:get_counter(recv_oct),
     handle_timeout(TRef, {keepalive, RecvOct}, State);
 
-handle_timeout(TRef, emit_stats, State =
-               #state{channel = Channel, stats_timer = TRef}) ->
+handle_timeout(TRef, emit_stats, State = #state{channel = Channel,
+                                                stats_timer = TRef}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
-    reply(State#state{stats_timer = undefined});
+    return(State#state{stats_timer = undefined});
 
-handle_timeout(TRef, TMsg, State = #state{channel = Channel}) ->
-    Ret = emqx_channel:handle_timeout(TRef, TMsg, Channel),
-    handle_chan_return(Ret, State).
-
-%%--------------------------------------------------------------------
-%% Ensure stats timer
-
--compile({inline, [ensure_stats_timer/1]}).
-ensure_stats_timer(State = #state{idle_timeout = Timeout,
-                                  stats_timer  = undefined}) ->
-    State#state{stats_timer = start_timer(Timeout, emit_stats)};
-ensure_stats_timer(State) -> State.
+handle_timeout(TRef, TMsg, State) ->
+    with_channel(handle_timeout, [TRef, TMsg], State).
 
 %%--------------------------------------------------------------------
 %% Ensure rate limit
+%%--------------------------------------------------------------------
 
 ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
     case ?ENABLED(Limiter) andalso emqx_limiter:check(Stats, Limiter) of
-        false -> {ok, State};
+        false -> State;
         {ok, Limiter1} ->
-            {ok, State#state{limiter = Limiter1}};
+            State#state{limiter = Limiter1};
         {pause, Time, Limiter1} ->
             ?LOG(debug, "Pause ~pms due to rate limit", [Time]),
             TRef = start_timer(Time, limit_timeout),
@@ -416,102 +418,108 @@ ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
                                  limiter     = Limiter1,
                                  limit_timer = TRef
                                 },
-            {reply, [{active, false}], NState}
+            enqueue({active, false}, NState)
     end.
 
 %%--------------------------------------------------------------------
-%% Run GC and Check OOM
+%% Run GC, Check OOM
+%%--------------------------------------------------------------------
 
 run_gc(Stats, State = #state{gc_state = GcSt}) ->
     case ?ENABLED(GcSt) andalso emqx_gc:run(Stats, GcSt) of
-        false -> State;
         {IsGC, GcSt1} ->
-            IsGC andalso emqx_metrics:inc('channel.gc.cnt'),
-            State#state{gc_state = GcSt1}
+            IsGC andalso emqx_metrics:inc('channel.gc'),
+            State#state{gc_state = GcSt1};
+        false -> State
     end.
 
 check_oom(State = #state{channel = Channel}) ->
-    #{zone := Zone} = emqx_channel:info(clientinfo, Channel),
-    OomPolicy = emqx_zone:oom_policy(Zone),
+    OomPolicy = emqx_zone:oom_policy(emqx_channel:info(zone, Channel)),
     case ?ENABLED(OomPolicy) andalso emqx_misc:check_oom(OomPolicy) of
         Shutdown = {shutdown, _Reason} ->
-            erlang:send(self(), Shutdown);
-        _Other -> ok
-    end,
-    State.
+            postpone(Shutdown, State);
+        _Other -> State
+    end.
 
 %%--------------------------------------------------------------------
 %% Parse incoming data
+%%--------------------------------------------------------------------
 
 parse_incoming(<<>>, State) ->
-    {ok, State};
+    State;
 
 parse_incoming(Data, State = #state{parse_state = ParseState}) ->
     try emqx_frame:parse(Data, ParseState) of
         {more, NParseState} ->
-            {ok, State#state{parse_state = NParseState}};
+            State#state{parse_state = NParseState};
         {ok, Packet, Rest, NParseState} ->
-            erlang:send(self(), {incoming, Packet}),
-            parse_incoming(Rest, State#state{parse_state = NParseState})
+            NState = State#state{parse_state = NParseState},
+            parse_incoming(Rest, postpone({incoming, Packet}, NState))
     catch
         error:Reason:Stk ->
-            ?LOG(error, "~nParse failed for ~p~nStacktrace: ~p~nFrame data: ~p",
+            ?LOG(error, "~nParse failed for ~p~n~p~nFrame data: ~p",
                  [Reason, Stk, Data]),
-            self() ! {incoming, {frame_error, Reason}},
-            {ok, State}
+            FrameError = {frame_error, Reason},
+            postpone({incoming, FrameError}, State)
     end.
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
+%%--------------------------------------------------------------------
 
-handle_incoming(Packet, State = #state{active_n = ActiveN, channel = Channel})
+handle_incoming(Packet, State = #state{active_n = ActiveN})
   when is_record(Packet, mqtt_packet) ->
     ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]),
     ok = inc_incoming_stats(Packet),
-    (emqx_pd:get_counter(incoming_pubs) > ActiveN)
-        andalso erlang:send(self(), rate_limit),
-    Ret = emqx_channel:handle_in(Packet, Channel),
-    handle_chan_return(Ret, State);
+    NState = case emqx_pd:get_counter(incoming_pubs) > ActiveN of
+                 true  -> postpone({cast, rate_limit}, State);
+                 false -> State
+             end,
+    with_channel(handle_in, [Packet], NState);
 
-handle_incoming(FrameError, State = #state{channel = Channel}) ->
-    handle_chan_return(emqx_channel:handle_in(FrameError, Channel), State).
+handle_incoming(FrameError, State) ->
+    with_channel(handle_in, [FrameError], State).
 
 %%--------------------------------------------------------------------
-%% Handle channel return
+%% With Channel
+%%--------------------------------------------------------------------
 
-handle_chan_return(ok, State) ->
-    reply(State);
-handle_chan_return({ok, NChannel}, State) ->
-    reply(State#state{channel= NChannel});
-handle_chan_return({ok, Replies, NChannel}, State) ->
-    reply(Replies, State#state{channel= NChannel});
-handle_chan_return({shutdown, Reason, NChannel}, State) ->
-    stop(Reason, State#state{channel = NChannel});
-handle_chan_return({shutdown, Reason, OutPacket, NChannel}, State) ->
-    NState = State#state{channel = NChannel},
-    stop(Reason, enqueue(OutPacket, NState)).
+with_channel(Fun, Args, State = #state{channel = Channel}) ->
+    case erlang:apply(emqx_channel, Fun, Args ++ [Channel]) of
+        ok -> return(State);
+        {ok, NChannel} ->
+            return(State#state{channel = NChannel});
+        {ok, Replies, NChannel} ->
+            return(postpone(Replies, State#state{channel= NChannel}));
+        {shutdown, Reason, NChannel} ->
+            shutdown(Reason, State#state{channel = NChannel});
+        {shutdown, Reason, Packet, NChannel} ->
+            NState = State#state{channel = NChannel},
+            shutdown(Reason, postpone(Packet, NState))
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
+%%--------------------------------------------------------------------
 
 handle_outgoing(Packets, State = #state{active_n = ActiveN}) ->
     IoData = lists:map(serialize_and_inc_stats_fun(State), Packets),
     Oct = iolist_size(IoData),
     ok = inc_sent_stats(length(Packets), Oct),
-    case emqx_pd:get_counter(outgoing_pubs) > ActiveN of
-        true ->
-            OutStats = #{cnt => emqx_pd:reset_counter(outgoing_pubs),
-                         oct => emqx_pd:reset_counter(outgoing_bytes)
-                        },
-            erlang:send(self(), {check_gc, OutStats});
-        false -> ok
-    end,
-    {{binary, IoData}, ensure_stats_timer(State)}.
+    NState = case emqx_pd:get_counter(outgoing_pubs) > ActiveN of
+                 true ->
+                     Stats = #{cnt => emqx_pd:reset_counter(outgoing_pubs),
+                               oct => emqx_pd:reset_counter(outgoing_bytes)
+                              },
+                     postpone({check_gc, Stats}, State);
+                 false -> State
+             end,
+    {{binary, IoData}, ensure_stats_timer(NState)}.
 
 serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
     fun(Packet) ->
         case Serialize(Packet) of
-            <<>> -> ?LOG(warning, "~s is discarded due to the frame is too large!",
+            <<>> -> ?LOG(warning, "~s is discarded due to the frame is too large.",
                          [emqx_packet:format(Packet)]),
                     <<>>;
             Data -> ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]),
@@ -522,6 +530,7 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
 
 %%--------------------------------------------------------------------
 %% Inc incoming/outgoing stats
+%%--------------------------------------------------------------------
 
 -compile({inline,
           [ inc_recv_stats/2
@@ -561,46 +570,84 @@ inc_sent_stats(Cnt, Oct) ->
     emqx_metrics:inc('bytes.sent', Oct).
 
 %%--------------------------------------------------------------------
-%% Reply or Stop
+%% Helper functions
+%%--------------------------------------------------------------------
 
-reply(Packet, State) when is_record(Packet, mqtt_packet) ->
-    reply(enqueue(Packet, State));
-reply({outgoing, Packets}, State) ->
-    reply(enqueue(Packets, State));
-reply(Other, State) when is_tuple(Other) ->
-    self() ! Other,
-    reply(State);
+-compile({inline, [cancel_idle_timer/1, ensure_stats_timer/1]}).
 
-reply([], State) ->
-    reply(State);
-reply([Packet|More], State) when is_record(Packet, mqtt_packet) ->
-    reply(More, enqueue(Packet, State));
-reply([{outgoing, Packets}|More], State) ->
-    reply(More, enqueue(Packets, State));
-reply([Other|More], State) ->
-    self() ! Other,
-    reply(More, State).
+%%--------------------------------------------------------------------
+%% Cancel idle timer
 
--compile({inline, [reply/1, enqueue/2]}).
+cancel_idle_timer(State = #state{idle_timer = IdleTimer}) ->
+    ok = emqx_misc:cancel_timer(IdleTimer),
+    State#state{idle_timer = undefined}.
 
-reply(State = #state{pendings = []}) ->
+%%--------------------------------------------------------------------
+%% Ensure stats timer
+
+ensure_stats_timer(State = #state{idle_timeout = Timeout,
+                                  stats_timer  = undefined}) ->
+    State#state{stats_timer = start_timer(Timeout, emit_stats)};
+ensure_stats_timer(State) -> State.
+
+-compile({inline, [postpone/2, enqueue/2, return/1, shutdown/2]}).
+
+%%--------------------------------------------------------------------
+%% Postpone the packet, cmd or event
+
+postpone(Packet, State) when is_record(Packet, mqtt_packet) ->
+    enqueue(Packet, State);
+postpone(Event, State) when is_tuple(Event) ->
+    enqueue(Event, State);
+postpone(More, State) when is_list(More) ->
+    lists:foldl(fun postpone/2, State, More).
+
+enqueue([Packet], State = #state{postponed = Postponed}) ->
+    State#state{postponed = [Packet|Postponed]};
+enqueue(Packets, State = #state{postponed = Postponed})
+  when is_list(Packets) ->
+    State#state{postponed = lists:reverse(Packets) ++ Postponed};
+enqueue(Other, State = #state{postponed = Postponed}) ->
+    State#state{postponed = [Other|Postponed]}.
+
+shutdown(Reason, State = #state{postponed = Postponed}) ->
+    return(State#state{postponed = [{shutdown, Reason}|Postponed]}).
+
+return(State = #state{postponed = []}) ->
     {ok, State};
-reply(State = #state{pendings = Pendings}) ->
-    {Reply, NState} = handle_outgoing(Pendings, State),
-    {reply, Reply, NState#state{pendings = []}}.
+return(State = #state{postponed = Postponed}) ->
+    {Packets, Cmds, Events} = classify(Postponed, [], [], []),
+    ok = lists:foreach(fun trigger/1, Events),
+    State1 = State#state{postponed = []},
+    case {Packets, Cmds} of
+        {[], []}   -> {ok, State1};
+        {[], Cmds} -> {Cmds, State1};
+        {Packets, Cmds} ->
+            {Frame, State2} = handle_outgoing(Packets, State1),
+            {[Frame|Cmds], State2}
+    end.
 
-enqueue(Packet, State) when is_record(Packet, mqtt_packet) ->
-    enqueue([Packet], State);
-enqueue(Packets, State = #state{pendings = Pendings}) ->
-    State#state{pendings = lists:append(Pendings, Packets)}.
+classify([], Packets, Cmds, Events) ->
+    {Packets, Cmds, Events};
+classify([Packet|More], Packets, Cmds, Events)
+  when is_record(Packet, mqtt_packet) ->
+    classify(More, [Packet|Packets], Cmds, Events);
+classify([Cmd = {active, _}|More], Packets, Cmds, Events) ->
+    classify(More, Packets, [Cmd|Cmds], Events);
+classify([Cmd = {shutdown, _Reason}|More], Packets, Cmds, Events) ->
+    classify(More, Packets, [Cmd|Cmds], Events);
+classify([Cmd = close|More], Packets, Cmds, Events) ->
+    classify(More, Packets, [Cmd|Cmds], Events);
+classify([Event|More], Packets, Cmds, Events) ->
+    classify(More, Packets, Cmds, [Event|Events]).
 
-shutdown(Reason, State) ->
-    stop({shutdown, Reason}, State).
+trigger(Event) -> erlang:send(self(), Event).
 
-stop(Reason, State = #state{pendings = []}) ->
-    {stop, State#state{stop_reason = Reason}};
-stop(Reason, State = #state{pendings = Pendings}) ->
-    {Reply, State1} = handle_outgoing(Pendings, State),
-    State2 = State1#state{pendings = [], stop_reason = Reason},
-    {reply, [Reply, close], State2}.
+%%--------------------------------------------------------------------
+%% For CT tests
+%%--------------------------------------------------------------------
+
+set_field(Name, Value, State) ->
+    Pos = emqx_misc:index_of(Name, record_info(fields, state)),
+    setelement(Pos+1, State, Value).
 

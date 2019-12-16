@@ -99,6 +99,14 @@ t_run_hooks(_) ->
 
     ok = emqx_hooks:stop().
 
+t_uncovered_func(_) ->
+    {ok, _} = emqx_hooks:start_link(),
+    Pid = erlang:whereis(emqx_hooks),
+    gen_server:call(Pid, test),
+    gen_server:cast(Pid, test),
+    Pid ! test,
+    ok = emqx_hooks:stop().
+
 %%--------------------------------------------------------------------
 %% Hook fun
 %%--------------------------------------------------------------------

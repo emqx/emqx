@@ -1,6 +1,6 @@
 %%-*- mode: erlang -*-
-	%% .app.src.script
-	
+%% .app.src.script
+
 Config = case os:getenv("EMQX_DESC") of
 	false -> CONFIG; % env var not defined
 	[]    -> CONFIG; % env var set to empty string

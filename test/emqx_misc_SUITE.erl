@@ -66,8 +66,7 @@ t_pipeline(_) ->
             fun(I, St)   -> {ok, I*2, St*2} end],
     ?assertEqual({ok, 4, 6}, emqx_misc:pipeline(Funs, 1, 1)),
     ?assertEqual({error, undefined, 1}, emqx_misc:pipeline([fun(_I) -> {error, undefined} end], 1, 1)),
-    ?assertEqual({error, undefined, 2}, emqx_misc:pipeline([fun(_I, _St) -> {error, undefined, 2} end], 1, 1)),
-    ?assertEqual({error, undefined, 1}, emqx_misc:pipeline([fun(_I, _St) -> erlang:error(undefined) end], 1, 1)).
+    ?assertEqual({error, undefined, 2}, emqx_misc:pipeline([fun(_I, _St) -> {error, undefined, 2} end], 1, 1)).
 
 t_start_timer(_) ->
     TRef = emqx_misc:start_timer(1, tmsg),

@@ -118,6 +118,8 @@ info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 info(conninfo, #channel{conninfo = ConnInfo}) ->
     ConnInfo;
+info(zone, #channel{clientinfo = #{zone := Zone}}) ->
+    Zone;
 info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
     ClientId;
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
@@ -147,11 +149,6 @@ stats(#channel{session = Session})->
 caps(#channel{clientinfo = #{zone := Zone}}) ->
     emqx_mqtt_caps:get_caps(Zone).
 
-%% For tests
-set_field(Name, Val, Channel) ->
-    Fields = record_info(fields, channel),
-    Pos = emqx_misc:index_of(Name, Fields),
-    setelement(Pos+1, Channel, Val).
 
 %%--------------------------------------------------------------------
 %% Init the channel
@@ -324,9 +321,13 @@ handle_in(?AUTH_PACKET(), Channel) ->
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = idle}) ->
     shutdown(Reason, Channel);
 
+handle_in({frame_error, frame_too_large}, Channel = #channel{conn_state = connecting}) ->
+    shutdown(frame_too_large, ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE), Channel);
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = connecting}) ->
     shutdown(Reason, ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel);
 
+handle_in({frame_error, frame_too_large}, Channel = #channel{conn_state = connected}) ->
+    handle_out(disconnect, {?RC_PACKET_TOO_LARGE, frame_too_large}, Channel);
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = connected}) ->
     handle_out(disconnect, {?RC_MALFORMED_PACKET, Reason}, Channel);
 
@@ -375,7 +376,7 @@ process_publish(Packet = ?PUBLISH_PACKET(_QoS, Topic, PacketId), Channel) ->
                    fun check_pub_caps/2
                   ], Packet, Channel) of
         {ok, NPacket, NChannel} ->
-            Msg = pub_to_msg(NPacket, NChannel),
+            Msg = packet_to_msg(NPacket, NChannel),
             do_publish(PacketId, Msg, NChannel);
         {error, ReasonCode, NChannel} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s",
@@ -383,9 +384,9 @@ process_publish(Packet = ?PUBLISH_PACKET(_QoS, Topic, PacketId), Channel) ->
             handle_out(disconnect, ReasonCode, NChannel)
     end.
 
-pub_to_msg(Packet, #channel{conninfo   = #{proto_ver := ProtoVer},
-                            clientinfo = ClientInfo =
-                            #{mountpoint := MountPoint}}) ->
+packet_to_msg(Packet, #channel{conninfo   = #{proto_ver := ProtoVer},
+                               clientinfo = ClientInfo =
+                               #{mountpoint := MountPoint}}) ->
     emqx_mountpoint:mount(
       MountPoint, emqx_packet:to_message(
                     ClientInfo, #{proto_ver => ProtoVer}, Packet)).
@@ -417,8 +418,8 @@ do_publish(PacketId, Msg = #message{qos = ?QOS_2},
     end.
 
 -compile({inline, [puback_reason_code/1]}).
-puback_reason_code([]) -> ?RC_NO_MATCHING_SUBSCRIBERS;
-puback_reason_code(_)  -> ?RC_SUCCESS.
+puback_reason_code([])    -> ?RC_NO_MATCHING_SUBSCRIBERS;
+puback_reason_code([_|_]) -> ?RC_SUCCESS.
 
 %%--------------------------------------------------------------------
 %% Process Subscribe
@@ -1210,7 +1211,7 @@ maybe_resume_session(#channel{resuming = false}) ->
 maybe_resume_session(#channel{session  = Session,
                               resuming = true,
                               pendings = Pendings}) ->
-    {ok, Publishes, Session1} = emqx_session:redeliver(Session),
+    {ok, Publishes, Session1} = emqx_session:replay(Session),
     case emqx_session:deliver(Pendings, Session1) of
         {ok, Session2} ->
             {ok, Publishes, Session2};
@@ -1308,4 +1309,12 @@ sp(false) -> 0.
 
 flag(true)  -> 1;
 flag(false) -> 0.
+
+%%--------------------------------------------------------------------
+%% For CT tests
+%%--------------------------------------------------------------------
+
+set_field(Name, Value, Channel) ->
+    Pos = emqx_misc:index_of(Name, record_info(fields, channel)),
+    setelement(Pos+1, Channel, Value).
 
