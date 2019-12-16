@@ -72,7 +72,7 @@ pipeline([], Input, State) ->
     {ok, Input, State};
 
 pipeline([Fun|More], Input, State) ->
-    try apply_fun(Fun, Input, State) of
+    case apply_fun(Fun, Input, State) of
         ok -> pipeline(More, Input, State);
         {ok, NState} ->
             pipeline(More, Input, NState);
@@ -82,11 +82,6 @@ pipeline([Fun|More], Input, State) ->
             {error, Reason, State};
         {error, Reason, NState} ->
             {error, Reason, NState}
-    catch
-        Error:Reason:Stacktrace ->
-            ?LOG(error, "pipeline ~p failed: ~p,\nstacktrace: ~0p",
-                [{Fun, Input, State}, {Error, Reason}, Stacktrace]),
-            {error, Reason, State}
     end.
 
 -compile({inline, [apply_fun/3]}).

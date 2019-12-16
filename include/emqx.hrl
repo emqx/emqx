@@ -69,9 +69,9 @@
           topic :: binary(),
           %% Message Payload
           payload :: binary(),
-          %% Timestamp
-          timestamp :: erlang:timestamp()
-        }).
+          %% Timestamp (Unit: millisecond)
+          timestamp :: integer()
+         }).
 
 -record(delivery, {
           sender  :: pid(),      %% Sender of the delivery

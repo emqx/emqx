@@ -105,7 +105,7 @@ init(_) ->
     {ok, []}.
 
 handle_event({set_alarm, {AlarmId, AlarmDesc = #alarm{timestamp = undefined}}}, State) ->
-    handle_event({set_alarm, {AlarmId, AlarmDesc#alarm{timestamp = os:timestamp()}}}, State);
+    handle_event({set_alarm, {AlarmId, AlarmDesc#alarm{timestamp = erlang:system_time(second)}}}, State);
 handle_event({set_alarm, Alarm = {AlarmId, AlarmDesc}}, State) ->
     ?LOG(warning, "New Alarm: ~p, Alarm Info: ~p", [AlarmId, AlarmDesc]),
     case encode_alarm(Alarm) of
@@ -158,7 +158,7 @@ encode_alarm({AlarmId, #alarm{severity  = Severity,
                            {desc, [{severity, Severity},
                                    {title, iolist_to_binary(Title)},
                                    {summary, iolist_to_binary(Summary)},
-                                   {timestamp, emqx_misc:now_to_secs(Ts)}]}]);
+                                   {timestamp, Ts}]}]);
 encode_alarm({AlarmId, undefined}) ->
     emqx_json:safe_encode([{id, maybe_to_binary(AlarmId)}]);
 encode_alarm({AlarmId, AlarmDesc}) ->
@@ -194,5 +194,5 @@ clear_alarm_(Id) ->
 set_alarm_history(Id, Desc) ->
     His = #alarm_history{id = Id,
                          desc = Desc,
-                         clear_at = os:timestamp()},
+                         clear_at = erlang:system_time(second)},
     mnesia:dirty_write(?ALARM_HISTORY_TAB, His).

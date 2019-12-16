@@ -153,7 +153,7 @@ t_check_connect(_) ->
 
 t_from_to_message(_) ->
     ExpectedMsg = emqx_message:make(<<"clientid">>, ?QOS_0, <<"topic">>, <<"payload">>),
-    ExpectedMsg1 = emqx_message:set_flag(retain, false, ExpectedMsg),
+    ExpectedMsg1 = emqx_message:set_flags(#{dup => false, retain => false}, ExpectedMsg),
     ExpectedMsg2 = emqx_message:set_headers(#{peerhost => {127,0,0,1},
                                               protocol => mqtt,
                                               username => <<"test">>
