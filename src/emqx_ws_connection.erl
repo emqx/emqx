@@ -81,9 +81,7 @@
           %% Idle Timeout
           idle_timeout :: timeout(),
           %% Idle Timer
-          idle_timer :: reference(),
-          %% The Stop Reason
-          stop_reason :: term()
+          idle_timer :: reference()
         }).
 
 -type(state() :: #state{}).
@@ -131,8 +129,10 @@ info(postponed, #state{postponed = Postponed}) ->
     Postponed;
 info(stats_timer, #state{stats_timer = TRef}) ->
     TRef;
-info(stop_reason, #state{stop_reason = Reason}) ->
-    Reason.
+info(idle_timeout, #state{idle_timeout = Timeout}) ->
+    Timeout;
+info(idle_timer, #state{idle_timer = TRef}) ->
+    TRef.
 
 -spec(stats(pid()|state()) -> emqx_types:stats()).
 stats(WsPid) when is_pid(WsPid) ->
@@ -287,6 +287,9 @@ websocket_info({incoming, ?PACKET(?PINGREQ)}, State) ->
 websocket_info({incoming, Packet}, State) ->
     handle_incoming(Packet, State);
 
+websocket_info({outgoing, Packets}, State) ->
+    return(enqueue(Packets, State));
+
 websocket_info({check_gc, Stats}, State) ->
     return(check_oom(run_gc(Stats, State)));
 
@@ -318,8 +321,8 @@ websocket_close(Reason, State) ->
     ?LOG(debug, "Websocket closed due to ~p~n", [Reason]),
     handle_info({sock_closed, Reason}, State).
 
-terminate(Error, _Req, #state{channel = Channel, stop_reason = Reason}) ->
-    ?LOG(debug, "Terminated for ~p, error: ~p", [Reason, Error]),
+terminate(Reason, _Req, #state{channel = Channel}) ->
+    ?LOG(debug, "Terminated due to ~p", [Reason]),
     emqx_channel:terminate(Reason, Channel).
 
 %%--------------------------------------------------------------------
@@ -594,8 +597,6 @@ ensure_stats_timer(State) -> State.
 
 postpone(Packet, State) when is_record(Packet, mqtt_packet) ->
     enqueue(Packet, State);
-postpone({outgoing, Packets}, State) ->
-    enqueue(Packets, State);
 postpone(Event, State) when is_tuple(Event) ->
     enqueue(Event, State);
 postpone(More, State) when is_list(More) ->
@@ -610,8 +611,7 @@ enqueue(Other, State = #state{postponed = Postponed}) ->
     State#state{postponed = [Other|Postponed]}.
 
 shutdown(Reason, State = #state{postponed = Postponed}) ->
-    Postponed1 = [{shutdown, Reason}|Postponed],
-    return(State#state{postponed = Postponed1, stop_reason = Reason}).
+    return(State#state{postponed = [{shutdown, Reason}|Postponed]}).
 
 return(State = #state{postponed = []}) ->
     {ok, State};
