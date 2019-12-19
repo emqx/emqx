@@ -124,6 +124,7 @@
 -type(clientinfo() :: #{zone         := zone(),
                         protocol     := protocol(),
                         peerhost     := peerhost(),
+                        sockport     := non_neg_integer(),
                         clientid     := clientid(),
                         username     := username(),
                         peercert     := esockd_peercert:peercert(),
