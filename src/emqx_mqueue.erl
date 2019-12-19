@@ -53,7 +53,10 @@
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
 
--export([init/1]).
+-export([ init/1
+        , info/1
+        , info/2
+        ]).
 
 -export([ is_empty/1
         , len/1
@@ -86,6 +89,7 @@
 -define(LOWEST_PRIORITY, 0).
 -define(HIGHEST_PRIORITY, infinity).
 -define(MAX_LEN_INFINITY, 0).
+-define(INFO_KEYS, [store_qos0, max_len, len, dropped]).
 
 -record(mqueue, {
           store_qos0 = false              :: boolean(),
@@ -110,6 +114,20 @@ init(Opts = #{max_len := MaxLen0, store_qos0 := QoS_0}) ->
             p_table = get_opt(priorities, Opts, ?NO_PRIORITY_TABLE),
             default_p = get_priority_opt(Opts)
            }.
+
+-spec(info(mqueue()) -> emqx_types:infos()).
+info(MQ) ->
+    maps:from_list([{Key, info(Key, MQ)} || Key <- ?INFO_KEYS]).
+
+-spec(info(atom(), mqueue()) -> term()).
+info(store_qos0, #mqueue{store_qos0 = True}) ->
+    True;
+info(max_len, #mqueue{max_len = MaxLen}) ->
+    MaxLen;
+info(len, #mqueue{len = Len}) ->
+    Len;
+info(dropped, #mqueue{dropped = Dropped}) ->
+    Dropped.
 
 is_empty(#mqueue{len = Len}) -> Len =:= 0.
 
