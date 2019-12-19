@@ -156,7 +156,7 @@ caps(#channel{clientinfo = #{zone := Zone}}) ->
 
 -spec(init(emqx_types:conninfo(), proplists:proplist()) -> channel()).
 init(ConnInfo = #{peername := {PeerHost, _Port},
-                  sockname := {_Host, Sockport}}, Options) ->
+                  sockname := {_Host, SockPort}}, Options) ->
     Zone = proplists:get_value(zone, Options),
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Username = case peer_cert_as_username(Options) of
@@ -170,7 +170,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
     ClientInfo = #{zone         => Zone,
                    protocol     => Protocol,
                    peerhost     => PeerHost,
-                   sockport     => Sockport,
+                   sockport     => SockPort,
                    peercert     => Peercert,
                    clientid     => undefined,
                    username     => Username,
