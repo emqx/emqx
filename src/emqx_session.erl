@@ -398,18 +398,17 @@ dequeue(0, Msgs, Q) ->
 dequeue(Cnt, Msgs, Q) ->
     case emqx_mqueue:out(Q) of
         {empty, _Q} -> dequeue(0, Msgs, Q);
-        {{value, Msg = #message{qos = ?QOS_0}}, Q1} ->
-            dequeue(Cnt, acc_msg(Msg, Msgs), Q1);
         {{value, Msg}, Q1} ->
-            dequeue(Cnt-1, acc_msg(Msg, Msgs), Q1)
+            case emqx_message:is_expired(Msg) of
+                true  -> ok = inc_expired_cnt(delivery),
+                         dequeue(Cnt, Msgs, Q1);
+                false -> dequeue(acc_cnt(Msg, Cnt), [Msg|Msgs], Q1)
+            end
     end.
 
--compile({inline, [acc_msg/2]}).
-acc_msg(Msg, Msgs) ->
-    case emqx_message:is_expired(Msg) of
-        true  -> Msgs;
-        false -> [Msg|Msgs]
-    end.
+-compile({inline, [acc_cnt/2]}).
+acc_cnt(#message{qos = ?QOS_0}, Cnt) -> Cnt;
+acc_cnt(_Msg, Cnt) -> Cnt - 1.
 
 %%--------------------------------------------------------------------
 %% Broker -> Client: Deliver
@@ -467,12 +466,19 @@ enqueue(Delivers, Session) when is_list(Delivers) ->
 
 enqueue(Msg, Session = #session{mqueue = Q}) when is_record(Msg, message) ->
     {Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
-    if is_record(Dropped, message) ->
-           ?LOG(warning, "Dropped msg due to mqueue is full: ~s",
-                [emqx_message:format(Dropped)]);
-       true -> ok
-    end,
+    (Dropped =/= undefined) andalso log_dropped(Dropped, Session),
     Session#session{mqueue = NewQ}.
+
+log_dropped(Msg = #message{qos = QoS}, #session{mqueue = Q}) ->
+    case (QoS == ?QOS_0) andalso (not emqx_mqueue:info(store_qos0, Q)) of
+        true  ->
+            ok = emqx_metrics:inc('delivery.dropped.qos0_msg'),
+            ?LOG(warning, "Dropped qos0 msg: ~s", [emqx_message:format(Msg)]);
+        false ->
+            ok = emqx_metrics:inc('delivery.dropped.queue_full'),
+            ?LOG(warning, "Dropped msg due to mqueue is full: ~s",
+                 [emqx_message:format(Msg)])
+    end.
 
 enrich_fun(Session = #session{subscriptions = Subs}) ->
     fun({deliver, Topic, Msg}) ->
@@ -555,6 +561,7 @@ retry_delivery([{PacketId, {Msg, Ts}}|More], Acc, Now, Session =
 retry_delivery(PacketId, Msg, Now, Acc, Inflight) when is_record(Msg, message) ->
     case emqx_message:is_expired(Msg) of
         true ->
+            ok = inc_expired_cnt(delivery),
             {Acc, emqx_inflight:delete(PacketId, Inflight)};
         false ->
             Msg1 = emqx_message:set_flag(dup, true, Msg),
@@ -581,6 +588,8 @@ expire_awaiting_rel(Now, Session = #session{awaiting_rel = AwaitingRel,
                                             await_rel_timeout = Timeout}) ->
     NotExpired = fun(_PacketId, Ts) -> age(Now, Ts) < Timeout end,
     AwaitingRel1 = maps:filter(NotExpired, AwaitingRel),
+    ExpiredCnt = maps:size(AwaitingRel) - maps:size(AwaitingRel1),
+    (ExpiredCnt > 0) andalso inc_expired_cnt(message, ExpiredCnt),
     NSession = Session#session{awaiting_rel = AwaitingRel1},
     case maps:size(AwaitingRel1) of
         0 -> {ok, NSession};
@@ -618,8 +627,26 @@ replay(Inflight) ->
               end, emqx_inflight:to_list(Inflight)).
 
 %%--------------------------------------------------------------------
+%% Inc message/delivery expired counter
+%%--------------------------------------------------------------------
+
+-compile({inline, [inc_expired_cnt/1, inc_expired_cnt/2]}).
+
+inc_expired_cnt(K) -> inc_expired_cnt(K, 1).
+
+inc_expired_cnt(delivery, N) ->
+    ok = emqx_metrics:inc('delivery.dropped', N),
+    emqx_metrics:inc('delivery.dropped.expired', N);
+
+inc_expired_cnt(message, N) ->
+    ok = emqx_metrics:inc('messages.dropped', N),
+    emqx_metrics:inc('messages.dropped.expired', N).
+
+%%--------------------------------------------------------------------
 %% Next Packet Id
 %%--------------------------------------------------------------------
+
+-compile({inline, [next_pkt_id/1]}).
 
 next_pkt_id(Session = #session{next_pkt_id = 16#FFFF}) ->
     Session#session{next_pkt_id = 1};

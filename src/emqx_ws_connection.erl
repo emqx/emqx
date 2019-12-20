@@ -518,6 +518,8 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
         case Serialize(Packet) of
             <<>> -> ?LOG(warning, "~s is discarded due to the frame is too large.",
                          [emqx_packet:format(Packet)]),
+                    ok = emqx_metrics:inc('delivery.dropped.too_large'),
+                    ok = emqx_metrics:inc('delivery.dropped'),
                     <<>>;
             Data -> ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]),
                     ok = inc_outgoing_stats(Packet),

@@ -132,12 +132,12 @@
          {counter, 'messages.qos1.received'}, % QoS1 Messages received
          {counter, 'messages.qos1.sent'},     % QoS1 Messages sent
          {counter, 'messages.qos2.received'}, % QoS2 Messages received
-         {counter, 'messages.qos2.expired'},  % QoS2 Messages expired
          {counter, 'messages.qos2.sent'},     % QoS2 Messages sent
-         {counter, 'messages.qos2.dropped'},  % QoS2 Messages dropped
          %% PubSub Metrics
          {counter, 'messages.publish'},       % Messages Publish
          {counter, 'messages.dropped'},       % Messages dropped due to no subscribers
+         {counter, 'messages.dropped.expired'},  % QoS2 Messages expired
+         {counter, 'messages.dropped.no_subscribers'},  % Messages dropped
          {counter, 'messages.forward'},       % Messages forward
          {gauge,   'messages.retained'},      % Messages retained
          {gauge,   'messages.delayed'},       % Messages delayed
@@ -147,15 +147,18 @@
 
 %% Delivery metrics
 -define(DELIVERY_METRICS,
-        [{counter, 'delivery.dropped'},     % Deliveries dropped
+        [{counter, 'delivery.dropped'},
          {counter, 'delivery.dropped.no_local'},
-         {counter, 'delivery.expired'}      % Deliveries expired
+         {counter, 'delivery.dropped.too_large'},
+         {counter, 'delivery.dropped.qos0_msg'},
+         {counter, 'delivery.dropped.queue_full'},
+         {counter, 'delivery.dropped.expired'}
         ]).
 
 %% Client Lifecircle metrics
 -define(CLIENT_METRICS,
         [{counter, 'client.connected'},
-         {counter, 'client.authenticate'},
+         {cpunter, 'client.authenticate'},
          {counter, 'client.auth.anonymous'},
          {counter, 'client.check_acl'},
          {counter, 'client.subscribe'},
@@ -491,11 +494,11 @@ reserved_idx('messages.qos0.sent')           -> 103;
 reserved_idx('messages.qos1.received')       -> 104;
 reserved_idx('messages.qos1.sent')           -> 105;
 reserved_idx('messages.qos2.received')       -> 106;
-reserved_idx('messages.qos2.expired')        -> 107;
-reserved_idx('messages.qos2.sent')           -> 108;
-reserved_idx('messages.qos2.dropped')        -> 109;
-reserved_idx('messages.publish')             -> 110;
-reserved_idx('messages.dropped')             -> 111;
+reserved_idx('messages.qos2.sent')           -> 107;
+reserved_idx('messages.publish')             -> 108;
+reserved_idx('messages.dropped')             -> 109;
+reserved_idx('messages.dropped.expired')     -> 110;
+reserved_idx('messages.dropped.no_subscribers') -> 111;
 reserved_idx('messages.forward')             -> 112;
 reserved_idx('messages.retained')            -> 113;
 reserved_idx('messages.delayed')             -> 114;
@@ -504,6 +507,10 @@ reserved_idx('messages.acked')               -> 116;
 reserved_idx('delivery.expired')             -> 117;
 reserved_idx('delivery.dropped')             -> 118;
 reserved_idx('delivery.dropped.no_local')    -> 119;
+reserved_idx('delivery.dropped.too_large')   -> 120;
+reserved_idx('delivery.dropped.qos0_msg')    -> 121;
+reserved_idx('delivery.dropped.queue_full')  -> 122;
+reserved_idx('delivery.dropped.expired')     -> 123;
 
 reserved_idx('client.connected')             -> 200;
 reserved_idx('client.authenticate')          -> 201;

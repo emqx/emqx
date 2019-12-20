@@ -31,14 +31,15 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     %% Broker
-    ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
-    ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
+    ok = meck:new([emqx_hooks, emqx_metrics, emqx_broker],
+                  [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
+    ok = meck:expect(emqx_metrics, inc, fun(_K, _V) -> ok end),
     ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end),
     Config.
 
 end_per_suite(_Config) ->
-    ok = meck:unload(emqx_broker),
-    ok = meck:unload(emqx_hooks).
+    meck:unload([emqx_broker, emqx_hooks, emqx_metrics]).
 
 init_per_testcase(_TestCase, Config) ->
     Config.

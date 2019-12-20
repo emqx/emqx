@@ -231,7 +231,7 @@ delivery(Msg) -> #delivery{sender = self(), message = Msg}.
       -> emqx_types:publish_result()).
 route([], #delivery{message = Msg}) ->
     emqx_hooks:run('message.dropped', [#{node => node()}, Msg]),
-    _ = inc_dropped_cnt(Msg),
+    ok = inc_dropped_cnt(Msg),
     [];
 
 route(Routes, Delivery) ->
@@ -315,7 +315,11 @@ dispatch({shard, I}, Topic, Msg) ->
 
 -compile({inline, [inc_dropped_cnt/1]}).
 inc_dropped_cnt(Msg) ->
-    emqx_message:is_sys(Msg) orelse emqx_metrics:inc('messages.dropped').
+    case emqx_message:is_sys(Msg) of
+        true  -> ok;
+        false -> ok = emqx_metrics:inc('messages.dropped'),
+                 emqx_metrics:inc('messages.dropped.no_subscribers')
+    end.
 
 -compile({inline, [subscribers/1]}).
 -spec(subscribers(emqx_topic:topic()) -> [pid()]).
