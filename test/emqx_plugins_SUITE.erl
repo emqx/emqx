@@ -59,7 +59,7 @@ t_load(_) ->
     ?assertEqual([], emqx_plugins:unload()),
 
     ?assertEqual({error, not_found}, emqx_plugins:load(not_existed_plugin)),
-    ?assertMatch({ok, _}, emqx_plugins:load(emqx_mini_plugin)),
+    ?assertMatch(ok, emqx_plugins:load(emqx_mini_plugin)),
     ?assertEqual({error, already_started}, emqx_plugins:load(emqx_mini_plugin)),
     ?assertEqual(ok, emqx_plugins:unload(emqx_mini_plugin)),
     ?assertEqual({error, not_started}, emqx_plugins:unload(emqx_mini_plugin)),
@@ -127,7 +127,7 @@ t_load_plugin(_) ->
                                                             (App) -> {ok, App} end),
 
     ?assertMatch({error, _}, emqx_plugins:load_plugin(#plugin{name = already_loaded_app}, true)),
-    ?assertMatch({ok, _}, emqx_plugins:load_plugin(#plugin{name = normal}, true)),
+    ?assertMatch(ok, emqx_plugins:load_plugin(#plugin{name = normal}, true)),
     ?assertMatch({error,_}, emqx_plugins:load_plugin(#plugin{name = error_app}, true)),
 
     ok = meck:unload(application).
