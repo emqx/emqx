@@ -424,8 +424,7 @@ ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
 
 run_gc(Stats, State = #state{gc_state = GcSt}) ->
     case ?ENABLED(GcSt) andalso emqx_gc:run(Stats, GcSt) of
-        {IsGC, GcSt1} ->
-            IsGC andalso emqx_metrics:inc('channel.gc'),
+        {_IsGC, GcSt1} ->
             State#state{gc_state = GcSt1};
         false -> State
     end.
