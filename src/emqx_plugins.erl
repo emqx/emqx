@@ -213,7 +213,7 @@ start_app(App, SuccFun) ->
             ?LOG(info, "Started plugins: ~p", [Started]),
             ?LOG(info, "Load plugin ~s successfully", [App]),
             SuccFun(App),
-            {ok, Started};
+            ok;
         {error, {ErrApp, Reason}} ->
             ?LOG(error, "Load plugin ~s failed, cannot start plugin ~s for ~p", [App, ErrApp, Reason]),
             {error, {ErrApp, Reason}}
