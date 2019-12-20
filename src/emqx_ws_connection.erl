@@ -427,8 +427,7 @@ ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
 
 run_gc(Stats, State = #state{gc_state = GcSt}) ->
     case ?ENABLED(GcSt) andalso emqx_gc:run(Stats, GcSt) of
-        {IsGC, GcSt1} ->
-            IsGC andalso emqx_metrics:inc('channel.gc'),
+        {_IsGC, GcSt1} ->
             State#state{gc_state = GcSt1};
         false -> State
     end.
@@ -521,6 +520,8 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
         case Serialize(Packet) of
             <<>> -> ?LOG(warning, "~s is discarded due to the frame is too large.",
                          [emqx_packet:format(Packet)]),
+                    ok = emqx_metrics:inc('delivery.dropped.too_large'),
+                    ok = emqx_metrics:inc('delivery.dropped'),
                     <<>>;
             Data -> ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]),
                     ok = inc_outgoing_stats(Packet),

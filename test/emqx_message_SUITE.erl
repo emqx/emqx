@@ -68,6 +68,14 @@ t_timestamp(_) ->
     timer:sleep(1),
     ?assert(erlang:system_time(millisecond) > emqx_message:timestamp(Msg)).
 
+t_is_sys(_) ->
+    Msg0 = emqx_message:make(<<"t">>, <<"payload">>),
+    ?assertNot(emqx_message:is_sys(Msg0)),
+    Msg1 = emqx_message:set_flag(sys, Msg0),
+    ?assert(emqx_message:is_sys(Msg1)),
+    Msg2 = emqx_message:make(<<"$SYS/events">>, <<"payload">>),
+    ?assert(emqx_message:is_sys(Msg2)).
+
 t_clean_dup(_) ->
     Msg = emqx_message:make(<<"topic">>, <<"payload">>),
     ?assertNot(emqx_message:get_flag(dup, Msg)),

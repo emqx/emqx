@@ -28,24 +28,17 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-
-% t_init(_) ->
-%     error('TODO').
-
-% t_is_empty(_) ->
-%     error('TODO').
-
-% t_len(_) ->
-%     error('TODO').
-
-% t_max_len(_) ->
-%     error('TODO').
-
-% t_dropped(_) ->
-%     error('TODO').
-
-% t_stats(_) ->
-%     error('TODO').
+t_info(_) ->
+    Q = ?Q:init(#{max_len => 5, store_qos0 => true}),
+    true = ?Q:info(store_qos0, Q),
+    5 = ?Q:info(max_len, Q),
+    0 = ?Q:info(len, Q),
+    0 = ?Q:info(dropped, Q),
+    #{store_qos0 := true,
+      max_len    := 5,
+      len        := 0,
+      dropped    := 0
+     } = ?Q:info(Q).
 
 t_in(_) ->
     Opts = #{max_len => 5, store_qos0 => true},
@@ -162,4 +155,11 @@ t_length_priority_mqueue(_) ->
     ?assertEqual(2, ?Q:len(Q4)),
     {{value, _Val}, Q5} = ?Q:out(Q4),
     ?assertEqual(1, ?Q:len(Q5)).
+
+t_dropped(_) ->
+    Q = ?Q:init(#{max_len => 1, store_qos0 => true}),
+    Msg = emqx_message:make(<<"t">>, <<"payload">>),
+    {undefined, Q1} = ?Q:in(Msg, Q),
+    {Msg, Q2} = ?Q:in(Msg, Q1),
+    ?assertEqual(1, ?Q:dropped(Q2)).
 
