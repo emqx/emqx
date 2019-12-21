@@ -223,30 +223,30 @@ handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
             handle_out(disconnect, ReasonCode, Channel)
     end;
 
-handle_in(?PUBACK_PACKET(PacketId, _ReasonCode),
-          Channel = #channel{clientinfo = ClientInfo, session = Session}) ->
+handle_in(?PUBACK_PACKET(PacketId, _ReasonCode), Channel
+          = #channel{clientinfo = ClientInfo, session = Session}) ->
     case emqx_session:puback(PacketId, Session) of
         {ok, Msg, NSession} ->
-            ok = emqx_hooks:run('message.acked', [ClientInfo, Msg]),
+            ok = after_message_acked(ClientInfo, Msg),
             {ok, Channel#channel{session = NSession}};
         {ok, Msg, Publishes, NSession} ->
-            ok = emqx_hooks:run('message.acked', [ClientInfo, Msg]),
+            ok = after_message_acked(ClientInfo, Msg),
             handle_out(publish, Publishes, Channel#channel{session = NSession});
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?LOG(warning, "The PUBACK PacketId ~w is inuse.", [PacketId]),
             ok = emqx_metrics:inc('packets.puback.inuse'),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?LOG(warning, "The PUBACK PacketId ~w is not found", [PacketId]),
+            ?LOG(warning, "The PUBACK PacketId ~w is not found.", [PacketId]),
             ok = emqx_metrics:inc('packets.puback.missed'),
             {ok, Channel}
     end;
 
-handle_in(?PUBREC_PACKET(PacketId, _ReasonCode),
-          Channel = #channel{clientinfo = ClientInfo, session = Session}) ->
+handle_in(?PUBREC_PACKET(PacketId, _ReasonCode), Channel
+          = #channel{clientinfo = ClientInfo, session = Session}) ->
     case emqx_session:pubrec(PacketId, Session) of
         {ok, Msg, NSession} ->
-            ok = emqx_hooks:run('message.acked', [ClientInfo, Msg]),
+            ok = after_message_acked(ClientInfo, Msg),
             NChannel = Channel#channel{session = NSession},
             handle_out(pubrel, {PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
@@ -265,8 +265,8 @@ handle_in(?PUBREL_PACKET(PacketId, _ReasonCode), Channel = #channel{session = Se
             NChannel = Channel#channel{session = NSession},
             handle_out(pubcomp, {PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
+            ?LOG(warning, "The PUBREL PacketId ~w is not found.", [PacketId]),
             ok = emqx_metrics:inc('packets.pubrel.missed'),
-            ?LOG(warning, "The PUBREL PacketId ~w is not found", [PacketId]),
             handle_out(pubcomp, {PacketId, RC}, Channel)
     end;
 
@@ -346,8 +346,7 @@ handle_in(Packet, Channel) ->
 %%--------------------------------------------------------------------
 
 process_connect(ConnPkt = #mqtt_packet_connect{clean_start = CleanStart},
-                Channel = #channel{conninfo   = ConnInfo,
-                                   clientinfo = ClientInfo}) ->
+                Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo) of
         {ok, #{session := Session, present := false}} ->
             NChannel = Channel#channel{session = Session},
@@ -378,17 +377,17 @@ process_publish(Packet = ?PUBLISH_PACKET(_QoS, Topic, PacketId), Channel) ->
                    fun check_pub_caps/2
                   ], Packet, Channel) of
         {ok, NPacket, NChannel} ->
-            Msg = packet_to_msg(NPacket, NChannel),
+            Msg = packet_to_message(NPacket, NChannel),
             do_publish(PacketId, Msg, NChannel);
         {error, ReasonCode, NChannel} ->
-            ?LOG(warning, "Cannot publish message to ~s due to ~s",
+            ?LOG(warning, "Cannot publish message to ~s due to ~s.",
                  [Topic, emqx_reason_codes:text(ReasonCode)]),
             handle_out(disconnect, ReasonCode, NChannel)
     end.
 
-packet_to_msg(Packet, #channel{conninfo   = #{proto_ver := ProtoVer},
-                               clientinfo = ClientInfo =
-                               #{mountpoint := MountPoint}}) ->
+packet_to_message(Packet, #channel{conninfo = #{proto_ver := ProtoVer},
+                                   clientinfo = ClientInfo =
+                                   #{mountpoint := MountPoint}}) ->
     emqx_mountpoint:mount(
       MountPoint, emqx_packet:to_message(
                     ClientInfo, #{proto_ver => ProtoVer}, Packet)).
@@ -414,14 +413,20 @@ do_publish(PacketId, Msg = #message{qos = ?QOS_2},
             ok = emqx_metrics:inc('packets.publish.inuse'),
             handle_out(pubrec, {PacketId, RC}, Channel);
         {error, RC = ?RC_RECEIVE_MAXIMUM_EXCEEDED} ->
-            ?LOG(warning, "Dropped qos2 packet ~w due to awaiting_rel is full.", [PacketId]),
-            ok = emqx_metrics:inc('messages.qos2.dropped'),
+            ?LOG(warning, "Dropped the qos2 packet ~w "
+                 "due to awaiting_rel is full.", [PacketId]),
+            ok = emqx_metrics:inc('packets.publish.dropped'),
             handle_out(pubrec, {PacketId, RC}, Channel)
     end.
 
 -compile({inline, [puback_reason_code/1]}).
 puback_reason_code([])    -> ?RC_NO_MATCHING_SUBSCRIBERS;
 puback_reason_code([_|_]) -> ?RC_SUCCESS.
+
+-compile({inline, [after_message_acked/2]}).
+after_message_acked(ClientInfo, Msg) ->
+    ok = emqx_metrics:inc('messages.acked'),
+    emqx_hooks:run('message.acked', [ClientInfo, Msg]).
 
 %%--------------------------------------------------------------------
 %% Process Subscribe
@@ -569,17 +574,8 @@ handle_out(connack, {ReasonCode, _ConnPkt},
 handle_out(publish, [], Channel) ->
     {ok, Channel};
 
-handle_out(publish, [{pubrel, PacketId}], Channel) ->
-    handle_out(pubrel, {PacketId, ?RC_SUCCESS}, Channel);
-
-handle_out(publish, [Pub = {_PacketId, Msg}], Channel) ->
-    case ignore_local(Msg, Channel) of
-        true  -> {ok, Channel};
-        false -> {ok, pub_to_packet(Pub, Channel), Channel}
-    end;
-
 handle_out(publish, Publishes, Channel) ->
-    Packets = handle_publish(Publishes, Channel),
+    Packets = do_deliver(Publishes, Channel),
     {ok, {outgoing, Packets}, Channel};
 
 handle_out(puback, {PacketId, ReasonCode}, Channel) ->
@@ -641,45 +637,50 @@ return_connack(AckPacket, Channel = #channel{conninfo   = ConnInfo,
                                        resuming = false,
                                        pendings = []
                                       },
-            Packets = handle_publish(Publishes, NChannel),
+            Packets = do_deliver(Publishes, NChannel),
             Outgoing = [{outgoing, Packets} || length(Packets) > 0],
             {ok, Replies ++ Outgoing, NChannel}
     end.
 
 %%--------------------------------------------------------------------
-%% Handle out Publish
+%% Deliver publish: broker -> client
 %%--------------------------------------------------------------------
 
--compile({inline, [handle_publish/2]}).
-handle_publish(Publishes, Channel) ->
-    handle_publish(Publishes, [], Channel).
+%% return list(emqx_types:packet())
+do_deliver({pubrel, PacketId}, _Channel) ->
+    [?PUBREL_PACKET(PacketId, ?RC_SUCCESS)];
 
-%% Handle out publish
-handle_publish([], Acc, _Channel) ->
-    lists:reverse(Acc);
-
-handle_publish([{pubrel, PacketId}|More], Acc, Channel) ->
-    Packet = ?PUBREL_PACKET(PacketId, ?RC_SUCCESS),
-    handle_publish(More, [Packet|Acc], Channel);
-
-handle_publish([Pub = {_PacketId, Msg}|More], Acc, Channel) ->
-    case ignore_local(Msg, Channel) of
-        true  -> handle_publish(More, Acc, Channel);
+do_deliver({PacketId, Msg}, #channel{clientinfo = ClientInfo =
+                                     #{mountpoint := MountPoint}}) ->
+    case ignore_local(Msg, ClientInfo) of
+        true ->
+            ok = emqx_metrics:inc('delivery.dropped'),
+            ok = emqx_metrics:inc('delivery.dropped.no_local'),
+            [];
         false ->
-            Packet = pub_to_packet(Pub, Channel),
-            handle_publish(More, [Packet|Acc], Channel)
-    end.
+            ok = emqx_metrics:inc('messages.delivered'),
+            Msg1 = emqx_hooks:run_fold('message.delivered',
+                                       [ClientInfo],
+                                       emqx_message:update_expiry(Msg)
+                                      ),
+            Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
+            [emqx_message:to_packet(PacketId, Msg2)]
+    end;
 
-pub_to_packet({PacketId, Msg}, #channel{clientinfo = ClientInfo}) ->
-    Msg1 = emqx_hooks:run_fold('message.delivered', [ClientInfo],
-                               emqx_message:update_expiry(Msg)),
-    Msg2 = emqx_mountpoint:unmount(maps:get(mountpoint, ClientInfo), Msg1),
-    emqx_message:to_packet(PacketId, Msg2).
+do_deliver([Publish], Channel) ->
+    do_deliver(Publish, Channel);
+
+do_deliver(Publishes, Channel) when is_list(Publishes) ->
+    lists:reverse(
+      lists:foldl(
+        fun(Publish, Acc) ->
+                lists:append(do_deliver(Publish, Channel), Acc)
+        end, [], Publishes)).
 
 ignore_local(#message{flags = #{nl := true}, from = ClientId},
-             #channel{clientinfo = #{clientid := ClientId}}) ->
+             #{clientid := ClientId}) ->
     true;
-ignore_local(_Msg, _Channel) -> false.
+ignore_local(_Msg, _ClientInfo) -> false.
 
 %%--------------------------------------------------------------------
 %% Handle out suback
@@ -1010,6 +1011,8 @@ auth_connect(#mqtt_packet_connect{clientid  = ClientId,
              #channel{clientinfo = ClientInfo} = Channel) ->
     case emqx_access_control:authenticate(ClientInfo#{password => Password}) of
         {ok, AuthResult} ->
+            is_anonymous(AuthResult) andalso
+                emqx_metrics:inc('client.auth.anonymous'),
             NClientInfo = maps:merge(ClientInfo, AuthResult),
             {ok, Channel#channel{clientinfo = NClientInfo}};
         {error, Reason} ->
@@ -1017,6 +1020,9 @@ auth_connect(#mqtt_packet_connect{clientid  = ClientId,
                  [ClientId, Username, Reason]),
             {error, emqx_reason_codes:connack_error(Reason)}
     end.
+
+is_anonymous(#{anonymous := true}) -> true;
+is_anonymous(_AuthResult)          -> false.
 
 %%--------------------------------------------------------------------
 %% Process Topic Alias
