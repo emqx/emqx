@@ -118,8 +118,7 @@ do_check_sub(_Flags, _Caps) -> ok.
 
 -spec(get_caps(emqx_zone:zone()) -> caps()).
 get_caps(Zone) ->
-    maps:from_list([{Cap, emqx_zone:get_env(Zone, Cap, Def)} ||
-        {Cap, Def} <- maps:to_list(?DEFAULT_CAPS)]).
+    maps:map(fun(Cap, Def) -> emqx_zone:get_env(Zone, Cap, Def) end, ?DEFAULT_CAPS).
 
 -spec(get_caps(emqx_zone:zone(), publish|subscribe) -> caps()).
 get_caps(Zone, publish) ->
