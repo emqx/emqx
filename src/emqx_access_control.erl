@@ -35,9 +35,6 @@
 -spec(authenticate(emqx_types:clientinfo()) -> {ok, result()} | {error, term()}).
 authenticate(ClientInfo = #{zone := Zone}) ->
     case emqx_hooks:run_fold('client.authenticate', [ClientInfo], default_auth_result(Zone)) of
-    	Result = #{auth_result := success, anonymous := true} ->
-            emqx_metrics:inc('auth.mqtt.anonymous'),
-	        {ok, Result};
         Result = #{auth_result := success} ->
 	        {ok, Result};
 	    Result ->

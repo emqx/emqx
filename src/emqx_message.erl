@@ -38,7 +38,8 @@
         ]).
 
 %% Flags
--export([ clean_dup/1
+-export([ is_sys/1
+        , clean_dup/1
         , get_flag/2
         , get_flag/3
         , get_flags/1
@@ -111,6 +112,13 @@ payload(#message{payload = Payload}) -> Payload.
 
 -spec(timestamp(emqx_types:message()) -> integer()).
 timestamp(#message{timestamp = TS}) -> TS.
+
+-spec(is_sys(emqx_types:message()) -> boolean()).
+is_sys(#message{flags = #{sys := true}}) ->
+    true;
+is_sys(#message{topic = <<"$SYS/", _/binary>>}) ->
+    true;
+is_sys(_Msg) -> false.
 
 -spec(clean_dup(emqx_types:message()) -> emqx_types:message()).
 clean_dup(Msg = #message{flags = Flags = #{dup := true}}) ->

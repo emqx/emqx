@@ -118,40 +118,20 @@ do_check_sub(_Flags, _Caps) -> ok.
 
 -spec(get_caps(emqx_zone:zone()) -> caps()).
 get_caps(Zone) ->
-    with_env(Zone, '$mqtt_caps', fun all_caps/1).
+    maps:map(fun(Cap, Def) -> emqx_zone:get_env(Zone, Cap, Def) end, ?DEFAULT_CAPS).
 
 -spec(get_caps(emqx_zone:zone(), publish|subscribe) -> caps()).
 get_caps(Zone, publish) ->
-    with_env(Zone, '$mqtt_pub_caps', fun pub_caps/1);
+    filter_caps(?PUBCAP_KEYS, get_caps(Zone));
 get_caps(Zone, subscribe) ->
-    with_env(Zone, '$mqtt_sub_caps', fun sub_caps/1).
+    filter_caps(?SUBCAP_KEYS, get_caps(Zone)).
 
 -spec(get_caps(emqx_zone:zone(), atom(), term()) -> term()).
 get_caps(Zone, Cap, Def) ->
     emqx_zone:get_env(Zone, Cap, Def).
 
-pub_caps(Zone) ->
-    filter_caps(?PUBCAP_KEYS, get_caps(Zone)).
-
-sub_caps(Zone) ->
-    filter_caps(?SUBCAP_KEYS, get_caps(Zone)).
-
-all_caps(Zone) ->
-    maps:map(fun(Cap, Def) ->
-                     emqx_zone:get_env(Zone, Cap, Def)
-             end, ?DEFAULT_CAPS).
-
 filter_caps(Keys, Caps) ->
     maps:filter(fun(Key, _Val) -> lists:member(Key, Keys) end, Caps).
-
-with_env(Zone, Key, InitFun) ->
-    case emqx_zone:get_env(Zone, Key) of
-        undefined ->
-            Caps = InitFun(Zone),
-            ok = emqx_zone:set_env(Zone, Key, Caps),
-            Caps;
-        Caps -> Caps
-    end.
 
 -spec(default() -> caps()).
 default() -> ?DEFAULT_CAPS.

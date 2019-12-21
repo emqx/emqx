@@ -53,13 +53,13 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    ok = meck:unload(emqx_access_control),
-    ok = meck:unload(emqx_metrics),
-    ok = meck:unload(emqx_session),
-    ok = meck:unload(emqx_broker),
-    ok = meck:unload(emqx_hooks),
-    ok = meck:unload(emqx_cm),
-    ok.
+    meck:unload([emqx_access_control,
+                 emqx_metrics,
+                 emqx_session,
+                 emqx_broker,
+                 emqx_hooks,
+                 emqx_cm
+                ]).
 
 init_per_testcase(_TestCase, Config) ->
     Config.
@@ -334,15 +334,15 @@ t_handle_out_publish(_) ->
 
 t_handle_out_publish_1(_) ->
     Msg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"t">>, <<"payload">>),
-    {ok, ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>), _Chan} =
-        emqx_channel:handle_out(publish, [{1, Msg}], channel()).
+    {ok, {outgoing, [?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>)]}, _Chan}
+        = emqx_channel:handle_out(publish, [{1, Msg}], channel()).
 
 t_handle_out_publish_nl(_) ->
     ClientInfo = clientinfo(#{clientid => <<"clientid">>}),
     Channel = channel(#{clientinfo => ClientInfo}),
     Msg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"t1">>, <<"qos1">>),
     Pubs = [{1, emqx_message:set_flag(nl, Msg)}],
-    {ok, Channel} = emqx_channel:handle_out(publish, Pubs, Channel).
+    {ok, {outgoing,[]}, Channel} = emqx_channel:handle_out(publish, Pubs, Channel).
 
 t_handle_out_connack_sucess(_) ->
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
