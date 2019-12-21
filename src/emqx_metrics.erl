@@ -158,7 +158,7 @@
 %% Client Lifecircle metrics
 -define(CLIENT_METRICS,
         [{counter, 'client.connected'},
-         {cpunter, 'client.authenticate'},
+         {counter, 'client.authenticate'},
          {counter, 'client.auth.anonymous'},
          {counter, 'client.check_acl'},
          {counter, 'client.subscribe'},
