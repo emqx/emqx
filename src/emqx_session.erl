@@ -610,6 +610,7 @@ resume(ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = 
     lists:foreach(fun({TopicFilter, SubOpts}) ->
                       ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts)
                   end, maps:to_list(Subs)),
+    ok = emqx_metrics:inc('session.resumed'),
     emqx_hooks:run('session.resumed', [ClientInfo, info(Session)]).
 
 -spec(replay(session()) -> {ok, replies(), session()}).
@@ -630,11 +631,15 @@ replay(Inflight) ->
 
 -spec(terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok).
 terminate(ClientInfo, discarded, Session) ->
-    emqx_hooks:run('session.discarded', [ClientInfo, info(Session)]);
+    run_hook('session.discarded', [ClientInfo, info(Session)]);
 terminate(ClientInfo, takeovered, Session) ->
-    emqx_hooks:run('session.takeovered', [ClientInfo, info(Session)]);
+    run_hook('session.takeovered', [ClientInfo, info(Session)]);
 terminate(ClientInfo, Reason, Session) ->
-    emqx_hooks:run('session.terminated', [ClientInfo, Reason, info(Session)]).
+    run_hook('session.terminated', [ClientInfo, Reason, info(Session)]).
+
+-compile({inline, [run_hook/2]}).
+run_hook(Name, Args) ->
+    ok = emqx_metrics:inc(Name), emqx_hooks:run(Name, Args).
 
 %%--------------------------------------------------------------------
 %% Inc message/delivery expired counter

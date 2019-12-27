@@ -229,6 +229,7 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
 
 create_session(ClientInfo, ConnInfo) ->
     Session = emqx_session:init(ClientInfo, ConnInfo),
+    ok = emqx_metrics:inc('session.created'),
     ok = emqx_hooks:run('session.created', [ClientInfo, emqx_session:info(Session)]),
     Session.
 
