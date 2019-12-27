@@ -1033,11 +1033,15 @@ drain_q(Cnt, Msgs, Q) ->
             case emqx_message:is_expired(Msg) of
                 true ->
                     ok = emqx_metrics:inc('messages.expired'),
-                    drain_q(Cnt-1, Msgs, Q1);
+                    drain_q(Cnt, Msgs, Q1);
                 false ->
-                    drain_q(Cnt-1, [Msg|Msgs], Q1)
+                    drain_q(acc_cnt(Msg, Cnt), [Msg|Msgs], Q1)
             end
     end.
+
+-compile({inline, [acc_cnt/2]}).
+acc_cnt(#message{qos = ?QOS_0}, Cnt) -> Cnt;
+acc_cnt(_Msg, Cnt) -> Cnt - 1.
 
 %%------------------------------------------------------------------------------
 %% Ensure timers
