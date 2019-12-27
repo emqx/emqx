@@ -230,7 +230,7 @@ delivery(Msg) -> #delivery{sender = self(), message = Msg}.
 -spec(route([emqx_types:route_entry()], emqx_types:delivery())
       -> emqx_types:publish_result()).
 route([], #delivery{message = Msg}) ->
-    emqx_hooks:run('message.dropped', [#{node => node()}, Msg]),
+    ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
     ok = inc_dropped_cnt(Msg),
     [];
 
@@ -282,8 +282,8 @@ forward(Node, To, Delivery, sync) ->
 -spec(dispatch(emqx_topic:topic(), emqx_types:delivery()) -> emqx_types:deliver_result()).
 dispatch(Topic, #delivery{message = Msg}) ->
     case subscribers(Topic) of
-        [] -> emqx_hooks:run('message.dropped', [#{node => node()}, Msg]),
-              _ = inc_dropped_cnt(Topic),
+        [] -> ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
+              ok = inc_dropped_cnt(Topic),
               {error, no_subscribers};
         [Sub] -> %% optimize?
             dispatch(Sub, Topic, Msg);
