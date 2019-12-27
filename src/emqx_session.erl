@@ -76,6 +76,7 @@
 -export([ deliver/2
         , enqueue/2
         , retry/1
+        , terminate/3
         ]).
 
 -export([ takeover/1
@@ -604,11 +605,12 @@ expire_awaiting_rel(Now, Session = #session{awaiting_rel = AwaitingRel,
 takeover(#session{subscriptions = Subs}) ->
     lists:foreach(fun emqx_broker:unsubscribe/1, maps:keys(Subs)).
 
--spec(resume(emqx_types:clientid(), session()) -> ok).
-resume(ClientId, #session{subscriptions = Subs}) ->
+-spec(resume(emqx_types:clientinfo(), session()) -> ok).
+resume(ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = Subs}) ->
     lists:foreach(fun({TopicFilter, SubOpts}) ->
                       ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts)
-                  end, maps:to_list(Subs)).
+                  end, maps:to_list(Subs)),
+    emqx_hooks:run('session.resumed', [ClientInfo, info(Session)]).
 
 -spec(replay(session()) -> {ok, replies(), session()}).
 replay(Session = #session{inflight = Inflight}) ->
@@ -625,6 +627,14 @@ replay(Inflight) ->
                  ({PacketId, {Msg, _Ts}}) ->
                       {PacketId, emqx_message:set_flag(dup, true, Msg)}
               end, emqx_inflight:to_list(Inflight)).
+
+-spec(terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok).
+terminate(ClientInfo, discarded, Session) ->
+    emqx_hooks:run('session.discarded', [ClientInfo, info(Session)]);
+terminate(ClientInfo, takeovered, Session) ->
+    emqx_hooks:run('session.takeovered', [ClientInfo, info(Session)]);
+terminate(ClientInfo, Reason, Session) ->
+    emqx_hooks:run('session.terminated', [ClientInfo, Reason, info(Session)]).
 
 %%--------------------------------------------------------------------
 %% Inc message/delivery expired counter

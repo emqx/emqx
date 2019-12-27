@@ -24,6 +24,8 @@
         , reload_acl/0
         ]).
 
+-import(emqx_hooks, [run_fold/3]).
+
 -type(result() :: #{auth_result := emqx_types:auth_result(),
                     anonymous := boolean()
                    }).
@@ -34,9 +36,9 @@
 
 -spec(authenticate(emqx_types:clientinfo()) -> {ok, result()} | {error, term()}).
 authenticate(ClientInfo = #{zone := Zone}) ->
-    case emqx_hooks:run_fold('client.authenticate', [ClientInfo], default_auth_result(Zone)) of
+    case run_fold('client.authenticate', [ClientInfo], default_auth_result(Zone)) of
         Result = #{auth_result := success} ->
-	        {ok, Result};
+            {ok, Result};
 	    Result ->
             {error, maps:get(auth_result, Result, unknown_error)}
     end.
@@ -61,7 +63,7 @@ check_acl_cache(ClientInfo, PubSub, Topic) ->
 
 do_check_acl(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
     Default = emqx_zone:get_env(Zone, acl_nomatch, deny),
-    case emqx_hooks:run_fold('client.check_acl', [ClientInfo, PubSub, Topic], Default) of
+    case run_fold('client.check_acl', [ClientInfo, PubSub, Topic], Default) of
         allow  -> allow;
         _Other -> deny
     end.

@@ -45,7 +45,7 @@
         , terminate/2
         ]).
 
-%% export for ct
+%% Exports for CT
 -export([set_field/3]).
 
 -import(emqx_misc,
@@ -204,9 +204,10 @@ handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connected}) ->
 
 handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
     case pipeline([fun enrich_conninfo/2,
+                   fun run_conn_hooks/2,
                    fun check_connect/2,
                    fun enrich_client/2,
-                   fun set_logger_meta/2,
+                   fun set_log_meta/2,
                    fun check_banned/2,
                    fun auth_connect/2
                   ], ConnPkt, Channel#channel{conn_state = connecting}) of
@@ -549,26 +550,25 @@ not_nacked({deliver, _Topic, Msg}) ->
        | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}
        | {shutdown, Reason :: term(), replies(), channel()}).
-handle_out(connack, {?RC_SUCCESS, SP, ConnPkt}, Channel) ->
+handle_out(connack, {RC = ?RC_SUCCESS, SP, ConnPkt},
+           Channel = #channel{conninfo = ConnInfo}) ->
     AckProps = run_fold([fun enrich_connack_caps/2,
                          fun enrich_server_keepalive/2,
                          fun enrich_assigned_clientid/2
                         ], #{}, Channel),
-    AckPacket = ?CONNACK_PACKET(?RC_SUCCESS, SP, AckProps),
-    return_connack(AckPacket,
+    AckPacket = ?CONNACK_PACKET(RC, SP, AckProps),
+    AckPacket1 = emqx_hooks:run_fold('client.connack', [ConnInfo], AckPacket),
+    return_connack(AckPacket1,
                    ensure_keepalive(AckProps,
                                     ensure_connected(ConnPkt, Channel)));
 
-handle_out(connack, {ReasonCode, _ConnPkt},
-           Channel = #channel{conninfo   = ConnInfo,
-                              clientinfo = ClientInfo}) ->
-    ok = emqx_hooks:run('client.connected', [ClientInfo, ReasonCode, ConnInfo]),
-    AckPacket = ?CONNACK_PACKET(
-                   case maps:get(proto_ver, ConnInfo) of
-                       ?MQTT_PROTO_V5 -> ReasonCode;
-                       _Other -> emqx_reason_codes:compat(connack, ReasonCode)
-                   end),
-    shutdown(emqx_reason_codes:name(ReasonCode), AckPacket, Channel);
+handle_out(connack, {ReasonCode, _ConnPkt}, Channel = #channel{conninfo = ConnInfo}) ->
+    AckPacket = ?CONNACK_PACKET(case maps:get(proto_ver, ConnInfo) of
+                                    ?MQTT_PROTO_V5 -> ReasonCode;
+                                    _ -> emqx_reason_codes:compat(connack, ReasonCode)
+                                end),
+    AckPacket1 = emqx_hooks:run_fold('client.connack', [ConnInfo], AckPacket),
+    shutdown(emqx_reason_codes:name(ReasonCode), AckPacket1, Channel);
 
 %% Optimize?
 handle_out(publish, [], Channel) ->
@@ -625,10 +625,7 @@ handle_out(Type, Data, Channel) ->
 %% Return ConnAck
 %%--------------------------------------------------------------------
 
-return_connack(AckPacket, Channel = #channel{conninfo   = ConnInfo,
-                                             clientinfo = ClientInfo
-                                            }) ->
-    ok = emqx_hooks:run('client.connected', [ClientInfo, ?RC_SUCCESS, ConnInfo]),
+return_connack(AckPacket, Channel) ->
     Replies = [{event, connected}, {connack, AckPacket}],
     case maybe_resume_session(Channel) of
         ignore -> {ok, Replies, Channel};
@@ -754,13 +751,12 @@ handle_info({sock_closed, Reason}, Channel = #channel{conn_state = idle}) ->
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connecting}) ->
     shutdown(Reason, Channel);
 
-handle_info({sock_closed, Reason},
-            Channel = #channel{conn_state = connected,
-                               clientinfo = ClientInfo = #{zone := Zone}}) ->
+handle_info({sock_closed, Reason}, Channel =
+            #channel{conn_state = connected,
+                     clientinfo = ClientInfo = #{zone := Zone}}) ->
     emqx_zone:enable_flapping_detect(Zone)
         andalso emqx_flapping:detect(ClientInfo),
-    Channel1 = ensure_disconnected(
-                 mabye_publish_will_msg(Channel)),
+    Channel1 = ensure_disconnected(Reason, mabye_publish_will_msg(Channel)),
     case maybe_shutdown(Reason, Channel1) of
         {ok, Channel2} -> {ok, {event, disconnected}, Channel2};
         Shutdown -> Shutdown
@@ -879,19 +875,19 @@ interval(will_timer, #channel{will_msg = WillMsg}) ->
 %% Terminate
 %%--------------------------------------------------------------------
 
-terminate(_, #channel{conn_state = idle}) ->
-    ok;
-terminate(normal, #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
-    ok = emqx_hooks:run('client.disconnected', [ClientInfo, normal, ConnInfo]);
-terminate({shutdown, Reason}, #channel{conninfo = ConnInfo, clientinfo = ClientInfo})
-    when Reason =:= kicked orelse Reason =:= discarded orelse Reason =:= takeovered ->
-    ok = emqx_hooks:run('client.disconnected', [ClientInfo, Reason, ConnInfo]);
-terminate(Reason, #channel{conninfo = ConnInfo, clientinfo = ClientInfo, will_msg = WillMsg}) ->
-    case WillMsg of
-        undefined -> ok;
-        _ -> publish_will_msg(WillMsg)
-    end,
-    ok = emqx_hooks:run('client.disconnected', [ClientInfo, Reason, ConnInfo]).
+terminate(_, #channel{conn_state = idle}) -> ok;
+terminate(normal, Channel) ->
+    run_terminate_hook(normal, Channel);
+terminate({shutdown, Reason}, Channel)
+  when Reason =:= kicked; Reason =:= discarded; Reason =:= takeovered ->
+    run_terminate_hook(Reason, Channel);
+terminate(Reason, Channel = #channel{will_msg = WillMsg}) ->
+    (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
+    run_terminate_hook(Reason, Channel).
+
+run_terminate_hook(_Reason, #channel{session = undefined}) -> ok;
+run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session}) ->
+    emqx_session:terminate(ClientInfo, Reason, Session).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -941,6 +937,15 @@ receive_maximum(#{zone := Zone}, ConnProps) ->
     emqx_mqtt_props:get('Receive-Maximum', ConnProps, emqx_zone:max_inflight(Zone)).
 
 %%--------------------------------------------------------------------
+%% Run Connect Hooks
+
+run_conn_hooks(ConnPkt, Channel = #channel{conninfo = ConnInfo}) ->
+    case emqx_hooks:run_fold('client.connect', [ConnInfo], ConnPkt) of
+        Error = {error, _Reason} -> Error;
+        NConnPkt -> {ok, NConnPkt, Channel}
+    end.
+
+%%--------------------------------------------------------------------
 %% Check Connect Packet
 
 check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
@@ -987,9 +992,9 @@ fix_mountpoint(_ConnPkt, ClientInfo = #{mountpoint := MountPoint}) ->
     {ok, ClientInfo#{mountpoint := MountPoint1}}.
 
 %%--------------------------------------------------------------------
-%% Set logger metadata
+%% Set log metadata
 
-set_logger_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId}}) ->
+set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId}}) ->
     emqx_logger:set_metadata_clientid(ClientId).
 
 %%--------------------------------------------------------------------
@@ -1173,6 +1178,19 @@ enrich_assigned_clientid(AckProps, #channel{conninfo   = ConnInfo,
     end.
 
 %%--------------------------------------------------------------------
+%% Ensure connected
+
+ensure_connected(ConnPkt, Channel = #channel{conninfo = ConnInfo,
+                                             clientinfo = ClientInfo}) ->
+    NConnInfo = ConnInfo#{connected_at => erlang:system_time(second)},
+    ok = emqx_hooks:run('client.connected', [ClientInfo, NConnInfo]),
+    Channel#channel{conninfo   = NConnInfo,
+                    conn_state = connected,
+                    will_msg   = emqx_packet:will_msg(ConnPkt),
+                    alias_maximum = init_alias_maximum(ConnPkt, ClientInfo)
+                   }.
+
+%%--------------------------------------------------------------------
 %% Init Alias Maximum
 
 init_alias_maximum(#mqtt_packet_connect{proto_ver  = ?MQTT_PROTO_V5,
@@ -1182,20 +1200,6 @@ init_alias_maximum(#mqtt_packet_connect{proto_ver  = ?MQTT_PROTO_V5,
       inbound  => emqx_mqtt_caps:get_caps(Zone, max_topic_alias, ?MAX_TOPIC_AlIAS)
      };
 init_alias_maximum(_ConnPkt, _ClientInfo) -> undefined.
-
-%%--------------------------------------------------------------------
-%% Ensure connected
-
-ensure_connected(ConnPkt, Channel = #channel{conninfo   = ConnInfo,
-                                             clientinfo = ClientInfo}) ->
-    WillMsg = emqx_packet:will_msg(ConnPkt),
-    AliasMaximum = init_alias_maximum(ConnPkt, ClientInfo),
-    NConnInfo = ConnInfo#{connected_at => erlang:system_time(second)},
-    Channel#channel{conninfo   = NConnInfo,
-                    will_msg   = WillMsg,
-                    conn_state = connected,
-                    alias_maximum = AliasMaximum
-                   }.
 
 %%--------------------------------------------------------------------
 %% Enrich Keepalive
@@ -1255,8 +1259,10 @@ parse_topic_filters(TopicFilters) ->
 %%--------------------------------------------------------------------
 %% Ensure disconnected
 
-ensure_disconnected(Channel = #channel{conninfo = ConnInfo}) ->
+ensure_disconnected(Reason, Channel = #channel{conninfo = ConnInfo,
+                                               clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(second)},
+    ok = emqx_hooks:run('client.disconnected', [ClientInfo, Reason, NConnInfo]),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
 %%--------------------------------------------------------------------

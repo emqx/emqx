@@ -206,7 +206,7 @@ set_chan_stats(ClientId, ChanPid, Stats) ->
 open_session(true, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId),
-                     Session = emqx_session:init(ClientInfo, ConnInfo),
+                     Session = create_session(ClientInfo, ConnInfo),
                      {ok, #{session => Session, present => false}}
                  end,
     emqx_cm_locker:trans(ClientId, CleanStart);
@@ -215,17 +215,22 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     ResumeStart = fun(_) ->
                       case takeover_session(ClientId) of
                           {ok, ConnMod, ChanPid, Session} ->
-                              ok = emqx_session:resume(ClientId, Session),
+                              ok = emqx_session:resume(ClientInfo, Session),
                               Pendings = ConnMod:call(ChanPid, {takeover, 'end'}),
                               {ok, #{session  => Session,
                                      present  => true,
                                      pendings => Pendings}};
                           {error, not_found} ->
-                              Session = emqx_session:init(ClientInfo, ConnInfo),
+                              Session = create_session(ClientInfo, ConnInfo),
                               {ok, #{session => Session, present => false}}
                       end
                   end,
     emqx_cm_locker:trans(ClientId, ResumeStart).
+
+create_session(ClientInfo, ConnInfo) ->
+    Session = emqx_session:init(ClientInfo, ConnInfo),
+    ok = emqx_hooks:run('session.created', [ClientInfo, emqx_session:info(Session)]),
+    Session.
 
 %% @doc Try to takeover a session.
 -spec(takeover_session(emqx_types:clientid())

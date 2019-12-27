@@ -27,7 +27,7 @@
         ]).
 
 %% APIs
--export([on_client_connected/4]).
+-export([on_client_connected/3]).
 
 %%--------------------------------------------------------------------
 %% Load/Unload Hook
@@ -36,8 +36,7 @@
 load(Topics) ->
     emqx_hooks:add('client.connected', {?MODULE, on_client_connected, [Topics]}).
 
-on_client_connected(#{clientid := ClientId,
-                      username := Username}, ?RC_SUCCESS, _ConnInfo, Topics) ->
+on_client_connected(#{clientid := ClientId, username := Username}, _ConnInfo, Topics) ->
     Replace = fun(Topic) ->
                       rep(<<"%u">>, Username, rep(<<"%c">>, ClientId, Topic))
               end,
@@ -47,9 +46,9 @@ on_client_connected(#{clientid := ClientId,
 unload(_) ->
     emqx_hooks:del('client.connected', {?MODULE, on_client_connected}).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 rep(<<"%c">>, ClientId, Topic) ->
     emqx_topic:feed_var(<<"%c">>, ClientId, Topic);
