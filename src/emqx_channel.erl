@@ -786,9 +786,8 @@ handle_info(Info, Channel) ->
       -> {ok, channel()}
        | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}).
-handle_timeout(TRef, {keepalive, StatVal},
-               Channel = #channel{keepalive = Keepalive,
-                                  timers = #{alive_timer := TRef}}) ->
+handle_timeout(_TRef, {keepalive, StatVal},
+               Channel = #channel{keepalive = Keepalive}) ->
     case emqx_keepalive:check(StatVal, Keepalive) of
         {ok, NKeepalive} ->
             NChannel = Channel#channel{keepalive = NKeepalive},
@@ -797,9 +796,8 @@ handle_timeout(TRef, {keepalive, StatVal},
             handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
     end;
 
-handle_timeout(TRef, retry_delivery,
-               Channel = #channel{session = Session,
-                                  timers = #{retry_timer := TRef}}) ->
+handle_timeout(_TRef, retry_delivery,
+               Channel = #channel{session = Session}) ->
     case emqx_session:retry(Session) of
         {ok, NSession} ->
             {ok, clean_timer(retry_timer, Channel#channel{session = NSession})};
@@ -811,9 +809,8 @@ handle_timeout(TRef, retry_delivery,
             handle_out(publish, Publishes, reset_timer(retry_timer, Timeout, NChannel))
     end;
 
-handle_timeout(TRef, expire_awaiting_rel,
-               Channel = #channel{session = Session,
-                                  timers = #{await_timer := TRef}}) ->
+handle_timeout(_TRef, expire_awaiting_rel,
+               Channel = #channel{session = Session}) ->
     case emqx_session:expire(awaiting_rel, Session) of
         {ok, Session} ->
             {ok, clean_timer(await_timer, Channel#channel{session = Session})};
@@ -821,11 +818,10 @@ handle_timeout(TRef, expire_awaiting_rel,
             {ok, reset_timer(await_timer, Timeout, Channel#channel{session = Session})}
     end;
 
-handle_timeout(TRef, expire_session, Channel = #channel{timers = #{expire_timer := TRef}}) ->
+handle_timeout(_TRef, expire_session, Channel) ->
     shutdown(expired, Channel);
 
-handle_timeout(TRef, will_message, Channel = #channel{will_msg = WillMsg,
-                                                      timers = #{will_timer := TRef}}) ->
+handle_timeout(_TRef, will_message, Channel = #channel{will_msg = WillMsg}) ->
     (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
     {ok, clean_timer(will_timer, Channel#channel{will_msg = undefined})};
 
