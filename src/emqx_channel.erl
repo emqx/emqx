@@ -786,6 +786,9 @@ handle_info(Info, Channel) ->
       -> {ok, channel()}
        | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}).
+handle_timeout(_TRef, {keepalive, _StatVal},
+               Channel = #channel{keepalive = undefined}) ->
+    {ok, Channel};
 handle_timeout(_TRef, {keepalive, StatVal},
                Channel = #channel{keepalive = Keepalive}) ->
     case emqx_keepalive:check(StatVal, Keepalive) of
