@@ -30,7 +30,6 @@ all() -> emqx_ct:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    %% Broker
     ok = meck:new([emqx_hooks, emqx_metrics, emqx_broker],
                   [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
@@ -329,7 +328,7 @@ t_takeover(_) ->
 t_resume(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
     Session = session(#{subscriptions => #{<<"t">> => ?DEFAULT_SUBOPTS}}),
-    ok = emqx_session:resume(<<"clientid">>, Session).
+    ok = emqx_session:resume(#{clientid => <<"clientid">>}, Session).
 
 t_replay(_) ->
     Delivers = [delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)],

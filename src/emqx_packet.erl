@@ -27,8 +27,10 @@
         , retain/1
         ]).
 
+%% Field APIs
 -export([ proto_name/1
         , proto_ver/1
+        , info/2
         ]).
 
 %% Check API
@@ -94,6 +96,100 @@ proto_ver(?CONNECT_PACKET(ConnPkt)) ->
     proto_ver(ConnPkt);
 proto_ver(#mqtt_packet_connect{proto_ver = Ver}) ->
     Ver.
+
+%%--------------------------------------------------------------------
+%% Field Info
+%%--------------------------------------------------------------------
+
+info(proto_name, #mqtt_packet_connect{proto_name = Name}) ->
+    Name;
+info(proto_ver, #mqtt_packet_connect{proto_ver = Ver}) ->
+    Ver;
+info(is_bridge, #mqtt_packet_connect{is_bridge = IsBridge}) ->
+    IsBridge;
+info(clean_start, #mqtt_packet_connect{clean_start = CleanStart}) ->
+    CleanStart;
+info(will_flag, #mqtt_packet_connect{will_flag = WillFlag}) ->
+    WillFlag;
+info(will_qos, #mqtt_packet_connect{will_qos = WillQoS}) ->
+    WillQoS;
+info(will_retain, #mqtt_packet_connect{will_retain = WillRetain}) ->
+    WillRetain;
+info(keepalive, #mqtt_packet_connect{keepalive = KeepAlive}) ->
+    KeepAlive;
+info(properties, #mqtt_packet_connect{properties = Props}) ->
+    Props;
+info(clientid, #mqtt_packet_connect{clientid = ClientId}) ->
+    ClientId;
+info(will_props, #mqtt_packet_connect{will_props = WillProps}) ->
+    WillProps;
+info(will_topic, #mqtt_packet_connect{will_topic = WillTopic}) ->
+    WillTopic;
+info(will_payload, #mqtt_packet_connect{will_payload = Payload}) ->
+    Payload;
+info(username, #mqtt_packet_connect{username = Username}) ->
+    Username;
+info(password, #mqtt_packet_connect{password = Password}) ->
+    Password;
+
+info(ack_flags, #mqtt_packet_connack{ack_flags = Flags}) ->
+    Flags;
+info(reason_code, #mqtt_packet_connack{reason_code = RC}) ->
+    RC;
+info(properties, #mqtt_packet_connack{properties = Props}) ->
+    Props;
+
+info(topic_name, #mqtt_packet_publish{topic_name = Topic}) ->
+    Topic;
+info(packet_id, #mqtt_packet_publish{packet_id = PacketId}) ->
+    PacketId;
+info(properties, #mqtt_packet_publish{properties = Props}) ->
+    Props;
+
+info(packet_id, #mqtt_packet_puback{packet_id = PacketId}) ->
+    PacketId;
+info(reason_code, #mqtt_packet_puback{reason_code = RC}) ->
+    RC;
+info(properties,  #mqtt_packet_puback{properties = Props}) ->
+    Props;
+
+info(packet_id, #mqtt_packet_subscribe{packet_id = PacketId}) ->
+    PacketId;
+info(properties, #mqtt_packet_subscribe{properties = Props}) ->
+    Props;
+info(topic_filters, #mqtt_packet_subscribe{topic_filters = Topics}) ->
+    Topics;
+
+info(packet_id, #mqtt_packet_suback{packet_id = PacketId}) ->
+    PacketId;
+info(properties, #mqtt_packet_suback{properties = Props}) ->
+    Props;
+info(reason_codes, #mqtt_packet_suback{reason_codes = RCs}) ->
+    RCs;
+
+info(packet_id, #mqtt_packet_unsubscribe{packet_id = PacketId}) ->
+    PacketId;
+info(properties, #mqtt_packet_unsubscribe{properties = Props}) ->
+    Props;
+info(topic_filters, #mqtt_packet_unsubscribe{topic_filters = Topics}) ->
+    Topics;
+
+info(packet_id, #mqtt_packet_unsuback{packet_id = PacketId}) ->
+    PacketId;
+info(properties, #mqtt_packet_unsuback{properties = Props}) ->
+    Props;
+info(reason_codes, #mqtt_packet_unsuback{reason_codes = RCs}) ->
+    RCs;
+
+info(reason_code, #mqtt_packet_disconnect{reason_code = RC}) ->
+    RC;
+info(properties, #mqtt_packet_disconnect{properties = Props}) ->
+    Props;
+
+info(reason_code, #mqtt_packet_auth{reason_code = RC}) ->
+    RC;
+info(properties, #mqtt_packet_auth{properties = Props}) ->
+    Props.
 
 %%--------------------------------------------------------------------
 %% Check MQTT Packet
