@@ -317,7 +317,7 @@ websocket_info({stop, Reason}, State) ->
 websocket_info(Info, State) ->
     handle_info(Info, State).
 
-websocket_close({_, ReasonCode, _Payload}, State) when is_inetger(ReasonCode) ->
+websocket_close({_, ReasonCode, _Payload}, State) when is_integer(ReasonCode) ->
     websocket_close(ReasonCode, State);
 websocket_close(Reason, State) ->
     ?LOG(debug, "Websocket closed due to ~p~n", [Reason]),
