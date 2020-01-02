@@ -317,6 +317,8 @@ websocket_info({stop, Reason}, State) ->
 websocket_info(Info, State) ->
     handle_info(Info, State).
 
+websocket_close({_, ReasonCode, _Payload}, State) when is_inetger(ReasonCode) ->
+    websocket_close(ReasonCode, State);
 websocket_close(Reason, State) ->
     ?LOG(debug, "Websocket closed due to ~p~n", [Reason]),
     handle_info({sock_closed, Reason}, State).
@@ -360,7 +362,7 @@ handle_info({connack, ConnAck}, State) ->
 
 handle_info({close, Reason}, State) ->
     ?LOG(debug, "Force to close the socket due to ~p", [Reason]),
-    return(enqueue(close, State));
+    return(enqueue({close, Reason}, State));
 
 handle_info({event, connected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
@@ -638,6 +640,8 @@ classify([Cmd = {active, _}|More], Packets, Cmds, Events) ->
 classify([Cmd = {shutdown, _Reason}|More], Packets, Cmds, Events) ->
     classify(More, Packets, [Cmd|Cmds], Events);
 classify([Cmd = close|More], Packets, Cmds, Events) ->
+    classify(More, Packets, [Cmd|Cmds], Events);
+classify([Cmd = {close, _Reason}|More], Packets, Cmds, Events) ->
     classify(More, Packets, [Cmd|Cmds], Events);
 classify([Event|More], Packets, Cmds, Events) ->
     classify(More, Packets, Cmds, [Event|Events]).
