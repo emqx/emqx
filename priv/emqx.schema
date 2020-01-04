@@ -967,9 +967,9 @@ end}.
                     {DefaultLen, DefaultSize} =
                         case WordSize = erlang:system_info(wordsize) of
                             8 -> % arch_64
-                              {8000, cuttlefish_bytesize:parse("800MB")};
+                              {10000, cuttlefish_bytesize:parse("64MB")};
                             4 -> % arch_32
-                              {1000, cuttlefish_bytesize:parse("100MB")}
+                              {1000, cuttlefish_bytesize:parse("32MB")}
                         end,
                     {force_shutdown_policy, #{message_queue_len => DefaultLen,
                                               max_heap_size => DefaultSize div WordSize
