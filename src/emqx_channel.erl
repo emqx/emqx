@@ -699,7 +699,8 @@ return_unsuback(Packet, Channel) ->
       -> {reply, Reply :: term(), channel()}
        | {shutdown, Reason :: term(), Reply :: term(), channel()}).
 handle_call(kick, Channel) ->
-    shutdown(kicked, ok, Channel);
+    Channel1 = ensure_disconnected(kicked, Channel),
+    shutdown(kicked, ok, Channel1);
 
 handle_call(discard, Channel = #channel{conn_state = connected}) ->
     Packet = ?DISCONNECT_PACKET(?RC_SESSION_TAKEN_OVER),

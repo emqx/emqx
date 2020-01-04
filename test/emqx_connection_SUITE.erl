@@ -41,6 +41,7 @@ init_per_suite(Config) ->
     ok = meck:new(emqx_pd, [passthrough, no_history, no_link]),
     %% Meck Metrics
     ok = meck:new(emqx_metrics, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
     ok = meck:expect(emqx_metrics, inc, fun(_, _) -> ok end),
     ok = meck:expect(emqx_metrics, inc_recv, fun(_) -> ok end),
     ok = meck:expect(emqx_metrics, inc_sent, fun(_) -> ok end),
@@ -48,6 +49,9 @@ init_per_suite(Config) ->
     ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end),
     ok = meck:expect(emqx_hooks, run_fold, fun(_Hook, _Args, Acc) -> {ok, Acc} end),
+
+    ok = meck:expect(emqx_channel, ensure_disconnected, fun(_, Channel) -> Channel end),
+
     Config.
 
 end_per_suite(_Config) ->
@@ -218,7 +222,7 @@ t_handle_call(_) ->
     ?assertMatch({reply, _Info, _NSt}, emqx_connection:handle_call(self(), info, St)),
     ?assertMatch({reply, _Stats, _NSt }, emqx_connection:handle_call(self(), stats, St)),
     ?assertEqual({reply, ignored, St}, emqx_connection:handle_call(self(), for_testing, St)),
-    ?assertEqual({stop, {shutdown,kicked}, ok, St}, emqx_connection:handle_call(self(), kick, St)).
+    ?assertMatch({stop, {shutdown,kicked}, ok, _NSt}, emqx_connection:handle_call(self(), kick, St)).
 
 t_handle_timeout(_) ->
     TRef = make_ref(),

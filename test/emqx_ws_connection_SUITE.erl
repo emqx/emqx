@@ -206,7 +206,7 @@ t_websocket_info_incoming(_) ->
                  username    = <<"username">>,
                  password    = <<"passwd">>
                 },
-    {ok, St1} = websocket_info({incoming, ?CONNECT_PACKET(ConnPkt)}, st()),
+    {[{close,protocol_error}], St1} = websocket_info({incoming, ?CONNECT_PACKET(ConnPkt)}, st()),
     % ?assertEqual(<<224,2,130,0>>, iolist_to_binary(IoData1)),
     %% PINGREQ
     {[{binary, IoData2}], St2} =
@@ -214,8 +214,7 @@ t_websocket_info_incoming(_) ->
     ?assertEqual(<<208,0>>, iolist_to_binary(IoData2)),
     %% PUBLISH
     Publish = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>),
-    {[{binary, IoData3}], _St3} =
-        websocket_info({incoming, Publish}, St2),
+    {[{binary, IoData3}], _St3} = websocket_info({incoming, Publish}, St2),
     ?assertEqual(<<64,4,0,1,0,0>>, iolist_to_binary(IoData3)).
 
 t_websocket_info_check_gc(_) ->
@@ -248,7 +247,7 @@ t_websocket_info_timeout_retry(_) ->
     {ok, _St} = websocket_info({timeout, make_ref(), retry_delivery}, st()).
 
 t_websocket_info_close(_) ->
-    {[close], _St} = websocket_info({close, sock_error}, st()).
+    {[{close, _}], _St} = websocket_info({close, sock_error}, st()).
 
 t_websocket_info_shutdown(_) ->
     {[{shutdown, reason}], _St} = websocket_info({shutdown, reason}, st()).
@@ -266,7 +265,7 @@ t_handle_info_connack(_) ->
     ?assertEqual(<<32,2,0,0>>, iolist_to_binary(IoData)).
 
 t_handle_info_close(_) ->
-    {[close], _St} = ?ws_conn:handle_info({close, protocol_error}, st()).
+    {[{close, _}], _St} = ?ws_conn:handle_info({close, protocol_error}, st()).
 
 t_handle_info_event(_) ->
     ok = meck:new(emqx_cm, [passthrough, no_history]),
@@ -315,7 +314,7 @@ t_parse_incoming_frame_error(_) ->
 t_handle_incomming_frame_error(_) ->
     FrameError = {frame_error, bad_qos},
     Serialize = emqx_frame:serialize_fun(#{version => 5, max_size => 16#FFFF}),
-    {ok, _St} = ?ws_conn:handle_incoming(FrameError, st(#{serialize => Serialize})).
+    {[{close, bad_qos}], _St} = ?ws_conn:handle_incoming(FrameError, st(#{serialize => Serialize})).
     % ?assertEqual(<<224,2,129,0>>, iolist_to_binary(IoData)).
 
 t_handle_outgoing(_) ->
