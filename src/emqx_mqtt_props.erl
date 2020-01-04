@@ -23,6 +23,7 @@
         , name/1
         , filter/2
         , validate/1
+        , new/0
         ]).
 
 %% For tests
@@ -179,6 +180,10 @@ validate_value('UTF8-Encoded-String', Val)  ->
 validate_value('Binary-Data', Val) ->
     is_binary(Val);
 validate_value(_Type, _Val) -> false.
+
+-spec(new() -> map()).
+new() ->
+    #{}.
 
 -spec(all() -> map()).
 all() -> ?PROPS_TABLE.
