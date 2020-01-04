@@ -565,13 +565,13 @@ handle_out(connack, {?RC_SUCCESS, SP, ConnPkt}, Channel = #channel{conninfo = Co
                                     ensure_connected(ConnPkt, Channel)));
 
 handle_out(connack, {ReasonCode, _ConnPkt}, Channel = #channel{conninfo = ConnInfo}) ->
-    RcName = emqx_reason_codes:name(ReasonCode),
-    AckProps = run_hooks('client.connack', [ConnInfo, RcName], emqx_mqtt_props:new()),
+    Reason = emqx_reason_codes:name(ReasonCode),
+    AckProps = run_hooks('client.connack', [ConnInfo, Reason], emqx_mqtt_props:new()),
     AckPacket = ?CONNACK_PACKET(case maps:get(proto_ver, ConnInfo) of
                                     ?MQTT_PROTO_V5 -> ReasonCode;
                                     _ -> emqx_reason_codes:compat(connack, ReasonCode)
                                 end, sp(false), AckProps),
-    shutdown(RcName, AckPacket, Channel);
+    shutdown(Reason, AckPacket, Channel);
 
 %% Optimize?
 handle_out(publish, [], Channel) ->
