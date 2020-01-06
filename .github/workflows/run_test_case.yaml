@@ -11,16 +11,16 @@ jobs:
         container:
             image: erlang:22.1
       
-          steps:
-          - uses: actions/checkout@v1
-          - name: Run tests
-            run: |
-              make eunit
-              make ct
-              make cover
-          - uses: actions/upload-artifact@v1
-            with:
-              path: _build/test/logs
-          - uses: actions/upload-artifact@v1
-            with:
-              path: _build/test/cover
+        steps:
+        - uses: actions/checkout@v1
+        - name: Run tests
+          run: |
+            make eunit
+            make ct
+            make cover
+        - uses: actions/upload-artifact@v1
+          with:
+            path: _build/test/logs
+        - uses: actions/upload-artifact@v1
+          with:
+            path: _build/test/cover
