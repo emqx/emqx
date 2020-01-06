@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -157,7 +157,9 @@
 
 %% Client Lifecircle metrics
 -define(CLIENT_METRICS,
-        [{counter, 'client.connected'},
+        [{counter, 'client.connect'},
+         {counter, 'client.connack'},
+         {counter, 'client.connected'},
          {counter, 'client.authenticate'},
          {counter, 'client.auth.anonymous'},
          {counter, 'client.check_acl'},
@@ -512,13 +514,15 @@ reserved_idx('delivery.dropped.qos0_msg')    -> 121;
 reserved_idx('delivery.dropped.queue_full')  -> 122;
 reserved_idx('delivery.dropped.expired')     -> 123;
 
-reserved_idx('client.connected')             -> 200;
-reserved_idx('client.authenticate')          -> 201;
-reserved_idx('client.auth.anonymous')        -> 202;
-reserved_idx('client.check_acl')             -> 203;
-reserved_idx('client.subscribe')             -> 204;
-reserved_idx('client.unsubscribe')           -> 205;
-reserved_idx('client.disconnected')          -> 206;
+reserved_idx('client.connect')               -> 200;
+reserved_idx('client.connack')               -> 201;
+reserved_idx('client.connected')             -> 202;
+reserved_idx('client.authenticate')          -> 203;
+reserved_idx('client.auth.anonymous')        -> 204;
+reserved_idx('client.check_acl')             -> 205;
+reserved_idx('client.subscribe')             -> 206;
+reserved_idx('client.unsubscribe')           -> 207;
+reserved_idx('client.disconnected')          -> 208;
 
 reserved_idx('session.created')              -> 220;
 reserved_idx('session.resumed')              -> 221;

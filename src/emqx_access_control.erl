@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -24,8 +24,6 @@
         , reload_acl/0
         ]).
 
--import(emqx_hooks, [run_fold/3]).
-
 -type(result() :: #{auth_result := emqx_types:auth_result(),
                     anonymous := boolean()
                    }).
@@ -36,7 +34,7 @@
 
 -spec(authenticate(emqx_types:clientinfo()) -> {ok, result()} | {error, term()}).
 authenticate(ClientInfo = #{zone := Zone}) ->
-    case run_fold('client.authenticate', [ClientInfo], default_auth_result(Zone)) of
+    case run_hooks('client.authenticate', [ClientInfo], default_auth_result(Zone)) of
         Result = #{auth_result := success} ->
             {ok, Result};
 	    Result ->
@@ -63,7 +61,7 @@ check_acl_cache(ClientInfo, PubSub, Topic) ->
 
 do_check_acl(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
     Default = emqx_zone:get_env(Zone, acl_nomatch, deny),
-    case run_fold('client.check_acl', [ClientInfo, PubSub, Topic], Default) of
+    case run_hooks('client.check_acl', [ClientInfo, PubSub, Topic], Default) of
         allow  -> allow;
         _Other -> deny
     end.
@@ -75,7 +73,11 @@ reload_acl() ->
 
 default_auth_result(Zone) ->
     case emqx_zone:get_env(Zone, allow_anonymous, false) of
-	    true  -> #{auth_result => success, anonymous => true};
-	    false -> #{auth_result => not_authorized, anonymous => false}
+        true  -> #{auth_result => success, anonymous => true};
+        false -> #{auth_result => not_authorized, anonymous => false}
     end.
+
+-compile({inline, [run_hooks/3]}).
+run_hooks(Name, Args, Acc) ->
+    ok = emqx_metrics:inc(Name), emqx_hooks:run_fold(Name, Args, Acc).
 

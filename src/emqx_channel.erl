@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -289,11 +289,13 @@ handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), Channel = #channel{session = S
 handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
           Channel = #channel{clientinfo = ClientInfo}) ->
     case emqx_packet:check(Packet) of
-        ok -> TopicFilters1 = enrich_subid(Properties, parse_topic_filters(TopicFilters)),
-              TopicFilters2 = emqx_hooks:run_fold('client.subscribe',
-                                                  [ClientInfo, Properties],
-                                                  TopicFilters1),
-              {ReasonCodes, NChannel} = process_subscribe(TopicFilters2, Channel),
+        ok -> TopicFilters1 = parse_topic_filters(TopicFilters),
+              TopicFilters2 = enrich_subid(Properties, TopicFilters1),
+              TopicFilters3 = run_hooks('client.subscribe',
+                                        [ClientInfo, Properties],
+                                        TopicFilters2
+                                       ),
+              {ReasonCodes, NChannel} = process_subscribe(TopicFilters3, Channel),
               handle_out(suback, {PacketId, ReasonCodes}, NChannel);
         {error, ReasonCode} ->
             handle_out(disconnect, ReasonCode, Channel)
@@ -302,9 +304,10 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
 handle_in(Packet = ?UNSUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
           Channel = #channel{clientinfo = ClientInfo}) ->
     case emqx_packet:check(Packet) of
-        ok -> TopicFilters1 = emqx_hooks:run_fold('client.unsubscribe',
-                                                  [ClientInfo, Properties],
-                                                  parse_topic_filters(TopicFilters)),
+        ok -> TopicFilters1 = run_hooks('client.unsubscribe',
+                                        [ClientInfo, Properties],
+                                        parse_topic_filters(TopicFilters)
+                                       ),
               {ReasonCodes, NChannel} = process_unsubscribe(TopicFilters1, Channel),
               handle_out(unsuback, {PacketId, ReasonCodes}, NChannel);
         {error, ReasonCode} ->
@@ -550,25 +553,25 @@ not_nacked({deliver, _Topic, Msg}) ->
        | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}
        | {shutdown, Reason :: term(), replies(), channel()}).
-handle_out(connack, {RC = ?RC_SUCCESS, SP, ConnPkt},
-           Channel = #channel{conninfo = ConnInfo}) ->
+handle_out(connack, {?RC_SUCCESS, SP, ConnPkt}, Channel = #channel{conninfo = ConnInfo}) ->
     AckProps = run_fold([fun enrich_connack_caps/2,
                          fun enrich_server_keepalive/2,
                          fun enrich_assigned_clientid/2
                         ], #{}, Channel),
-    AckPacket = ?CONNACK_PACKET(RC, SP, AckProps),
-    AckPacket1 = emqx_hooks:run_fold('client.connack', [ConnInfo], AckPacket),
-    return_connack(AckPacket1,
-                   ensure_keepalive(AckProps,
+    NAckProps = run_hooks('client.connack', [ConnInfo, emqx_reason_codes:name(?RC_SUCCESS)], AckProps),
+
+    return_connack(?CONNACK_PACKET(?RC_SUCCESS, SP, NAckProps),
+                   ensure_keepalive(NAckProps,
                                     ensure_connected(ConnPkt, Channel)));
 
 handle_out(connack, {ReasonCode, _ConnPkt}, Channel = #channel{conninfo = ConnInfo}) ->
+    Reason = emqx_reason_codes:name(ReasonCode),
+    AckProps = run_hooks('client.connack', [ConnInfo, Reason], emqx_mqtt_props:new()),
     AckPacket = ?CONNACK_PACKET(case maps:get(proto_ver, ConnInfo) of
                                     ?MQTT_PROTO_V5 -> ReasonCode;
                                     _ -> emqx_reason_codes:compat(connack, ReasonCode)
-                                end),
-    AckPacket1 = emqx_hooks:run_fold('client.connack', [ConnInfo], AckPacket),
-    shutdown(emqx_reason_codes:name(ReasonCode), AckPacket1, Channel);
+                                end, sp(false), AckProps),
+    shutdown(Reason, AckPacket, Channel);
 
 %% Optimize?
 handle_out(publish, [], Channel) ->
@@ -697,7 +700,8 @@ return_unsuback(Packet, Channel) ->
       -> {reply, Reply :: term(), channel()}
        | {shutdown, Reason :: term(), Reply :: term(), channel()}).
 handle_call(kick, Channel) ->
-    shutdown(kicked, ok, Channel);
+    Channel1 = ensure_disconnected(kicked, Channel),
+    shutdown(kicked, ok, Channel1);
 
 handle_call(discard, Channel = #channel{conn_state = connected}) ->
     Packet = ?DISCONNECT_PACKET(?RC_SESSION_TAKEN_OVER),
@@ -732,16 +736,18 @@ handle_call(Req, Channel) ->
 -spec(handle_info(Info :: term(), channel())
       -> ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}).
 handle_info({subscribe, TopicFilters}, Channel = #channel{clientinfo = ClientInfo}) ->
-    TopicFilters1 = emqx_hooks:run_fold('client.subscribe',
-                                        [ClientInfo, #{'Internal' => true}],
-                                        parse_topic_filters(TopicFilters)),
+    TopicFilters1 = run_hooks('client.subscribe',
+                              [ClientInfo, #{'Internal' => true}],
+                              parse_topic_filters(TopicFilters)
+                             ),
     {_ReasonCodes, NChannel} = process_subscribe(TopicFilters1, Channel),
     {ok, NChannel};
 
 handle_info({unsubscribe, TopicFilters}, Channel = #channel{clientinfo = ClientInfo}) ->
-    TopicFilters1 = emqx_hooks:run_fold('client.unsubscribe',
-                                        [ClientInfo, #{'Internal' => true}],
-                                        parse_topic_filters(TopicFilters)),
+    TopicFilters1 = run_hooks('client.unsubscribe',
+                              [ClientInfo, #{'Internal' => true}],
+                              parse_topic_filters(TopicFilters)
+                             ),
     {_ReasonCodes, NChannel} = process_unsubscribe(TopicFilters1, Channel),
     {ok, NChannel};
 
@@ -782,9 +788,11 @@ handle_info(Info, Channel) ->
       -> {ok, channel()}
        | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}).
-handle_timeout(TRef, {keepalive, StatVal},
-               Channel = #channel{keepalive = Keepalive,
-                                  timers = #{alive_timer := TRef}}) ->
+handle_timeout(_TRef, {keepalive, _StatVal},
+               Channel = #channel{keepalive = undefined}) ->
+    {ok, Channel};
+handle_timeout(_TRef, {keepalive, StatVal},
+               Channel = #channel{keepalive = Keepalive}) ->
     case emqx_keepalive:check(StatVal, Keepalive) of
         {ok, NKeepalive} ->
             NChannel = Channel#channel{keepalive = NKeepalive},
@@ -793,9 +801,8 @@ handle_timeout(TRef, {keepalive, StatVal},
             handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
     end;
 
-handle_timeout(TRef, retry_delivery,
-               Channel = #channel{session = Session,
-                                  timers = #{retry_timer := TRef}}) ->
+handle_timeout(_TRef, retry_delivery,
+               Channel = #channel{session = Session}) ->
     case emqx_session:retry(Session) of
         {ok, NSession} ->
             {ok, clean_timer(retry_timer, Channel#channel{session = NSession})};
@@ -807,9 +814,8 @@ handle_timeout(TRef, retry_delivery,
             handle_out(publish, Publishes, reset_timer(retry_timer, Timeout, NChannel))
     end;
 
-handle_timeout(TRef, expire_awaiting_rel,
-               Channel = #channel{session = Session,
-                                  timers = #{await_timer := TRef}}) ->
+handle_timeout(_TRef, expire_awaiting_rel,
+               Channel = #channel{session = Session}) ->
     case emqx_session:expire(awaiting_rel, Session) of
         {ok, Session} ->
             {ok, clean_timer(await_timer, Channel#channel{session = Session})};
@@ -817,11 +823,10 @@ handle_timeout(TRef, expire_awaiting_rel,
             {ok, reset_timer(await_timer, Timeout, Channel#channel{session = Session})}
     end;
 
-handle_timeout(TRef, expire_session, Channel = #channel{timers = #{expire_timer := TRef}}) ->
+handle_timeout(_TRef, expire_session, Channel) ->
     shutdown(expired, Channel);
 
-handle_timeout(TRef, will_message, Channel = #channel{will_msg = WillMsg,
-                                                      timers = #{will_timer := TRef}}) ->
+handle_timeout(_TRef, will_message, Channel = #channel{will_msg = WillMsg}) ->
     (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
     {ok, clean_timer(will_timer, Channel#channel{will_msg = undefined})};
 
@@ -940,9 +945,10 @@ receive_maximum(#{zone := Zone}, ConnProps) ->
 %% Run Connect Hooks
 
 run_conn_hooks(ConnPkt, Channel = #channel{conninfo = ConnInfo}) ->
-    case emqx_hooks:run_fold('client.connect', [ConnInfo], ConnPkt) of
+    ConnProps = emqx_packet:info(properties, ConnPkt),
+    case run_hooks('client.connect', [ConnInfo], ConnProps) of
         Error = {error, _Reason} -> Error;
-        NConnPkt -> {ok, NConnPkt, Channel}
+        NConnProps -> {ok, emqx_packet:set_props(NConnProps, ConnPkt), Channel}
     end.
 
 %%--------------------------------------------------------------------
@@ -1183,7 +1189,7 @@ enrich_assigned_clientid(AckProps, #channel{conninfo   = ConnInfo,
 ensure_connected(ConnPkt, Channel = #channel{conninfo = ConnInfo,
                                              clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(second)},
-    ok = emqx_hooks:run('client.connected', [ClientInfo, NConnInfo]),
+    ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
     Channel#channel{conninfo   = NConnInfo,
                     conn_state = connected,
                     will_msg   = emqx_packet:will_msg(ConnPkt),
@@ -1262,7 +1268,7 @@ parse_topic_filters(TopicFilters) ->
 ensure_disconnected(Reason, Channel = #channel{conninfo = ConnInfo,
                                                clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(second)},
-    ok = emqx_hooks:run('client.disconnected', [ClientInfo, Reason, NConnInfo]),
+    ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo]),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
 %%--------------------------------------------------------------------
@@ -1291,6 +1297,13 @@ disconnect_reason(ReasonCode)  -> emqx_reason_codes:name(ReasonCode).
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+-compile({inline, [run_hooks/2, run_hooks/3]}).
+run_hooks(Name, Args) ->
+    ok = emqx_metrics:inc(Name), emqx_hooks:run(Name, Args).
+
+run_hooks(Name, Args, Acc) ->
+    ok = emqx_metrics:inc(Name), emqx_hooks:run_fold(Name, Args, Acc).
 
 -compile({inline, [find_alias/2, save_alias/3]}).
 

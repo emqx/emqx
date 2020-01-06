@@ -8,10 +8,15 @@ before_install:
 
 script:
   - make compile
+  - rm -rf rebar.lock
   - make xref
+  - rm -rf rebar.lock
   - make eunit
+  - rm -rf rebar.lock
   - make ct
+  - rm -rf rebar.lock
   - make cover
+  - rm -rf rebar.lock
 
 after_success:
   - make coveralls

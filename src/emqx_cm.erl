@@ -1,5 +1,5 @@
 %%-------------------------------------------------------------------
-%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -229,6 +229,7 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
 
 create_session(ClientInfo, ConnInfo) ->
     Session = emqx_session:init(ClientInfo, ConnInfo),
+    ok = emqx_metrics:inc('session.created'),
     ok = emqx_hooks:run('session.created', [ClientInfo, emqx_session:info(Session)]),
     Session.
 

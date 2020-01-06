@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -459,17 +459,17 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
 %%--------------------------------------------------------------------
 %% Handle timeout
 
-handle_timeout(TRef, idle_timeout, State = #state{idle_timer = TRef}) ->
+handle_timeout(_TRef, idle_timeout, State) ->
     shutdown(idle_timeout, State);
 
-handle_timeout(TRef, limit_timeout, State = #state{limit_timer = TRef}) ->
+handle_timeout(_TRef, limit_timeout, State) ->
     NState = State#state{sockstate   = idle,
                          limit_timer = undefined
                         },
     handle_info(activate_socket, NState);
 
-handle_timeout(TRef, emit_stats, State =
-               #state{stats_timer = TRef, channel = Channel}) ->
+handle_timeout(_TRef, emit_stats, State =
+               #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
     {ok, State#state{stats_timer = undefined}};
