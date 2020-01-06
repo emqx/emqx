@@ -19,6 +19,7 @@ jobs:
             make ct
             make cover
         - uses: actions/upload-artifact@v1
+          if: aways()
           with:
             path: _build/test/logs
         - uses: actions/upload-artifact@v1
