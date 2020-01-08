@@ -37,6 +37,9 @@ end_per_suite(_Config) ->
     ekka_mnesia:delete_schema().
 
 t_add_delete(_) ->
+    dbg:tracer(),dbg:p(all,call),
+    dbg:tp(emqx_banned, create,x),
+
     Banned = #banned{who = {clientid, <<"TestClient">>},
                      by = <<"banned suite">>,
                      reason = <<"test">>,
@@ -45,6 +48,8 @@ t_add_delete(_) ->
                     },
     ok = emqx_banned:create(Banned),
     ?assertEqual(1, emqx_banned:info(size)),
+
+    dbg:stop(),
     ok = emqx_banned:delete({clientid, <<"TestClient">>}),
     ?assertEqual(0, emqx_banned:info(size)).
 
