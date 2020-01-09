@@ -356,7 +356,6 @@ process_connect(ConnPkt = #mqtt_packet_connect{clean_start = CleanStart},
             NChannel = Channel#channel{session = Session},
             handle_out(connack, {?RC_SUCCESS, sp(false), ConnPkt}, NChannel);
         {ok, #{session := Session, present := true, pendings := Pendings}} ->
-            %%TODO: improve later.
             Pendings1 = lists:usort(lists:append(Pendings, emqx_misc:drain_deliver())),
             NChannel = Channel#channel{session  = Session,
                                        resuming = true,
@@ -717,7 +716,7 @@ handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
 handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
                                                   pendings = Pendings}) ->
     ok = emqx_session:takeover(Session),
-    %% TODO: Should not drain deliver here
+    %% TODO: Should not drain deliver here (side effect)
     Delivers = emqx_misc:drain_deliver(),
     AllPendings = lists:append(Delivers, Pendings),
     shutdown(takeovered, AllPendings, Channel);
