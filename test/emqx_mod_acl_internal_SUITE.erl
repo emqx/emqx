@@ -26,11 +26,11 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([emqx]),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx]).
+    emqx_ct_helpers:stop_apps([]).
 
 t_load_unload(_) ->
     ?assertEqual({error,already_exists}, emqx_mod_acl_internal:load([])),

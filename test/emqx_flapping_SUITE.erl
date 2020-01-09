@@ -37,7 +37,7 @@ set_special_configs(_App) -> ok.
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]),
-    ekka_mnesia:delete_schema(),
+    ekka_mnesia:delete_schema(),    %% Clean emqx_banned table
     ok.
 
 t_detect_check(_) ->
