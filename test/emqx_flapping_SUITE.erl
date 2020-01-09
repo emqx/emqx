@@ -37,6 +37,7 @@ set_special_configs(_App) -> ok.
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]),
+    ekka_mnesia:delete_schema(),    %% Clean emqx_banned table
     ok.
 
 t_detect_check(_) ->
@@ -55,8 +56,8 @@ t_detect_check(_) ->
     false = emqx_banned:check(ClientInfo),
     Childrens = supervisor:which_children(emqx_cm_sup),
     {flapping, Pid, _, _} = lists:keyfind(flapping, 1, Childrens),
-    gen_server:call(Pid, test),
-    gen_server:cast(Pid, test),
+    gen_server:call(Pid, unexpected_msg),
+    gen_server:cast(Pid, unexpected_msg),
     Pid ! test,
     ok = emqx_flapping:stop().
 

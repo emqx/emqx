@@ -3,7 +3,7 @@
 REBAR_GIT_CLONE_OPTIONS += --depth 1
 export REBAR_GIT_CLONE_OPTIONS
 
-SUITES_FILES := $(shell find test -name '*_SUITE.erl')
+SUITES_FILES := $(shell find test -name '*_SUITE.erl' | sort)
 
 CT_SUITES := $(foreach value,$(SUITES_FILES),$(shell val=$$(basename $(value) .erl); echo $${val%_*}))
 

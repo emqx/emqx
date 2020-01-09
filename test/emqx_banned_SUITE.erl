@@ -45,6 +45,7 @@ t_add_delete(_) ->
                     },
     ok = emqx_banned:create(Banned),
     ?assertEqual(1, emqx_banned:info(size)),
+
     ok = emqx_banned:delete({clientid, <<"TestClient">>}),
     ?assertEqual(0, emqx_banned:info(size)).
 

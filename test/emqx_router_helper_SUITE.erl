@@ -25,12 +25,12 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-init_per_testcase(_TestCase, Config) ->
-    emqx_ct_helpers:start_apps([emqx]),
+init_per_suite(Config) ->
+    emqx_ct_helpers:start_apps([]),
     Config.
 
-end_per_testcase(_TestCase, Config) ->
-    Config.
+end_per_suite(_Config) ->
+    emqx_ct_helpers:stop_apps([]).
 
 t_monitor(_) ->
     ok = emqx_router_helper:monitor({undefined, node()}),
