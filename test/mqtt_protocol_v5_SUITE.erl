@@ -119,6 +119,7 @@ t_connect_limit_timeout(_) ->
     timer:sleep(200),
     ?assert(is_reference(emqx_connection:info(limit_timer, sys:get_state(ClientPid)))),
 
+    emqtt:disconnect(Client),
     meck:unload(proplists).
 
 t_connect_emit_stats_timeout(_) ->
@@ -133,7 +134,8 @@ t_connect_emit_stats_timeout(_) ->
     pong = emqtt:ping(Client),
     ?assert(is_reference(emqx_connection:info(stats_timer, sys:get_state(ClientPid)))),
     timer:sleep(timer:seconds(IdleTimeout)),
-    ?assertEqual(undefined, emqx_connection:info(stats_timer, sys:get_state(ClientPid))).
+    ?assertEqual(undefined, emqx_connection:info(stats_timer, sys:get_state(ClientPid))),
+    emqtt:disconnect(Client).
 
 %% [MQTT-3.1.2-22]
 t_connect_keepalive_timeout(_) ->
@@ -156,6 +158,7 @@ t_connect_keepalive_timeout(_) ->
 %%--------------------------------------------------------------------
 
 t_shared_subscriptions_client_terminates_when_qos_eq_2(_) ->
+    process_flag(trap_exit, true),
     application:set_env(emqx, shared_dispatch_ack_enabled, true),
 
     Topic = nth(1, ?TOPICS),
@@ -184,5 +187,7 @@ t_shared_subscriptions_client_terminates_when_qos_eq_2(_) ->
     {ok, _} = emqtt:connect(Pub),
     {ok, _} = emqtt:publish(Pub, Topic, <<"t_shared_subscriptions_client_terminates_when_qos_eq_2">>, 2),
 
-    timer:sleep(200),
+    receive
+        {disconnected,shutdown,for_testiong} -> ok
+    end,
     ?assertEqual(1, counters:get(CRef, 1)).
