@@ -89,7 +89,7 @@ ct_setup:
 
 .PHONY: ct
 ct: ct_setup
-	@rebar3 ct -v --name $(CT_NODE_NAME) --suite=$(shell echo $(foreach var,$(CT_SUITES),test/$(var)_SUITE) | tr ' ' ',')
+	rebar3 ct -v --name $(CT_NODE_NAME) --suite=$(shell echo $(foreach var,$(CT_SUITES),test/$(var)_SUITE) | tr ' ' ',')
 
 ## Run one single CT with rebar3
 ## e.g. make ct-one-suite suite=emqx_bridge
