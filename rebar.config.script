@@ -1,11 +1,12 @@
-CONFIG1 = case os:getenv("TRAVIS") of
-              "true" ->
-                  JobId = os:getenv("TRAVIS_JOB_ID"),
+%% -*-: erlang -*-
+
+CONFIG1 = case os:getenv("GITHUB_ACTION") of
+              false -> CONFIG;
+              JobId ->
+                  %JobId = os:getenv("GITHUB_ACTION"),
                   [{coveralls_service_job_id, JobId},
                    {coveralls_coverdata, "_build/test/cover/*.coverdata"},
-                   {coveralls_service_name , "travis-ci"} | CONFIG];
-              _ ->
-                  CONFIG
+                   {coveralls_service_name , "github-action"} | CONFIG]
           end,
 
 CONFIG1.
