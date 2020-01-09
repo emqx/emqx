@@ -91,11 +91,11 @@ t_basic_test(_) ->
 %%--------------------------------------------------------------------
 
 t_connect_idle_timeout(_) ->
-    IdleTimeout = 2,
+    IdleTimeout = 2000,
     emqx_zone:set_env(external, idle_timeout, IdleTimeout),
 
     {ok, Sock} = emqtt_sock:connect({127,0,0,1}, 1883, [], 60000),
-    timer:sleep(timer:seconds(IdleTimeout)),
+    timer:sleep(IdleTimeout),
     ?assertMatch({error, closed}, emqtt_sock:recv(Sock,1024)).
 
 t_connect_limit_timeout(_) ->
@@ -123,17 +123,15 @@ t_connect_limit_timeout(_) ->
     meck:unload(proplists).
 
 t_connect_emit_stats_timeout(_) ->
-    IdleTimeout = 10,
+    IdleTimeout = 2000,
     emqx_zone:set_env(external, idle_timeout, IdleTimeout),
 
     {ok, Client} = emqtt:start_link([{clientid, <<"t_connect_emit_stats_timeout">>},{proto_ver, v5},{keepalive, 60}]),
     {ok, _} = emqtt:connect(Client),
     [ClientPid] = emqx_cm:lookup_channels(<<"t_connect_emit_stats_timeout">>),
-    
-    ?assertEqual(undefined, emqx_connection:info(stats_timer, sys:get_state(ClientPid))),
-    pong = emqtt:ping(Client),
+
     ?assert(is_reference(emqx_connection:info(stats_timer, sys:get_state(ClientPid)))),
-    timer:sleep(timer:seconds(IdleTimeout)),
+    timer:sleep(IdleTimeout),
     ?assertEqual(undefined, emqx_connection:info(stats_timer, sys:get_state(ClientPid))),
     emqtt:disconnect(Client).
 
