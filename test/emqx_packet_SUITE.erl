@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -156,6 +156,16 @@ t_auth_info(_) ->
     AuthPkt = #mqtt_packet_auth{reason_code = 0},
     ?assertEqual(0, emqx_packet:info(reason_code, AuthPkt)),
     ?assertEqual(undefined, emqx_packet:info(properties, AuthPkt)).
+
+t_set_props(_) ->
+    Pkts = [#mqtt_packet_connect{}, #mqtt_packet_connack{}, #mqtt_packet_publish{},
+            #mqtt_packet_puback{}, #mqtt_packet_subscribe{}, #mqtt_packet_suback{},
+            #mqtt_packet_unsubscribe{}, #mqtt_packet_unsuback{},
+            #mqtt_packet_disconnect{}, #mqtt_packet_auth{}],
+    Props = #{'A-Fake-Props' => true},
+    lists:foreach(fun(Pkt) ->
+        ?assertEqual(Props, emqx_packet:info(properties, emqx_packet:set_props(Props, Pkt)))
+    end, Pkts).
 
 t_check_publish(_) ->
     Props = #{'Response-Topic' => <<"responsetopic">>, 'Topic-Alias' => 1},
