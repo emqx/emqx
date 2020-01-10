@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@
         , name/1
         , filter/2
         , validate/1
+        , new/0
         ]).
 
 %% For tests
@@ -179,6 +180,10 @@ validate_value('UTF8-Encoded-String', Val)  ->
 validate_value('Binary-Data', Val) ->
     is_binary(Val);
 validate_value(_Type, _Val) -> false.
+
+-spec(new() -> map()).
+new() ->
+    #{}.
 
 -spec(all() -> map()).
 all() -> ?PROPS_TABLE.

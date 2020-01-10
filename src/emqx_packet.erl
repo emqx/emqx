@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@
 -export([ proto_name/1
         , proto_ver/1
         , info/2
+        , set_props/2
         ]).
 
 %% Check API
@@ -190,6 +191,36 @@ info(reason_code, #mqtt_packet_auth{reason_code = RC}) ->
     RC;
 info(properties, #mqtt_packet_auth{properties = Props}) ->
     Props.
+
+set_props(Props, #mqtt_packet_connect{} = Pkt) ->
+    Pkt#mqtt_packet_connect{properties = Props};
+
+set_props(Props, #mqtt_packet_connack{} = Pkt) ->
+    Pkt#mqtt_packet_connack{properties = Props};
+
+set_props(Props, #mqtt_packet_publish{} = Pkt) ->
+    Pkt#mqtt_packet_publish{properties = Props};
+
+set_props(Props, #mqtt_packet_puback{} = Pkt) ->
+    Pkt#mqtt_packet_puback{properties = Props};
+
+set_props(Props, #mqtt_packet_subscribe{} = Pkt) ->
+    Pkt#mqtt_packet_subscribe{properties = Props};
+
+set_props(Props, #mqtt_packet_suback{} = Pkt) ->
+    Pkt#mqtt_packet_suback{properties = Props};
+
+set_props(Props, #mqtt_packet_unsubscribe{} = Pkt) ->
+    Pkt#mqtt_packet_unsubscribe{properties = Props};
+
+set_props(Props, #mqtt_packet_unsuback{} = Pkt) ->
+    Pkt#mqtt_packet_unsuback{properties = Props};
+
+set_props(Props, #mqtt_packet_disconnect{} = Pkt) ->
+    Pkt#mqtt_packet_disconnect{properties = Props};
+
+set_props(Props, #mqtt_packet_auth{} = Pkt) ->
+    Pkt#mqtt_packet_auth{properties = Props}.
 
 %%--------------------------------------------------------------------
 %% Check MQTT Packet
