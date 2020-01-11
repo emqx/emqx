@@ -40,7 +40,7 @@ docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p
 The *EMQ X* broker requires Erlang/OTP R21+ to build since 3.0 release.
 
 ```
-git clone https://github.com/emqx/emqx-rel.git
+git clone -b v4.0.0 https://github.com/emqx/emqx-rel.git
 
 cd emqx-rel && make
 
