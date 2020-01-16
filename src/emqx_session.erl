@@ -889,6 +889,8 @@ process_subopts([{rap, 0}|Opts], Msg = #message{flags = Flags, headers = #{proto
     process_subopts(Opts, Msg#message{flags = maps:put(retain, false, Flags)}, Session);
 process_subopts([{rap, _}|Opts], Msg = #message{headers = #{proto_ver := ?MQTT_PROTO_V5}}, Session) ->
     process_subopts(Opts, Msg, Session);
+process_subopts([{rap, 1}|Opts], Msg, Session) ->
+    process_subopts(Opts, Msg, Session);
 process_subopts([{rap, _}|Opts], Msg = #message{headers = #{retained := true}}, Session = #session{}) ->
     process_subopts(Opts, Msg, Session);
 process_subopts([{rap, _}|Opts], Msg = #message{flags = Flags}, Session) ->
