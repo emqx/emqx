@@ -58,8 +58,7 @@ merge_opts(Defaults, Options) ->
 %% @doc Apply a function to a maybe argument.
 -spec(maybe_apply(fun((maybe(A)) -> maybe(A)), maybe(A))
       -> maybe(A) when A :: any()).
-maybe_apply(_Fun, undefined) ->
-    undefined;
+maybe_apply(_Fun, undefined) -> undefined;
 maybe_apply(Fun, Arg) when is_function(Fun) ->
     erlang:apply(Fun, [Arg]).
 
