@@ -237,7 +237,6 @@ end}.
 
 %% @doc More information at: http://erlang.org/doc/man/erl.html
 {mapping, "node.async_threads", "vm_args.+A", [
-  {default, 64},
   {datatype, integer},
   {validators, ["range:0-1024"]}
 ]}.

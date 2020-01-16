@@ -1,6 +1,6 @@
-##############################
-# Erlang VM Args
-##############################
+######################################################################
+## Erlang VM Args
+######################################################################
 
 ## NOTE:
 ##
@@ -52,7 +52,8 @@
 +spp true
 
 ## Sets the number of threads in async thread pool. Valid range is 0-1024.
-#+A 8
+## Increase the parameter if there are many simultaneous file I/O operations.
++A 4
 
 ## Sets the default heap size of processes to the size Size.
 #+hms 233
@@ -93,3 +94,7 @@
 
 ## Sets the mapping of warning messages for error_logger
 #+W w
+
+## Specifies how long time (in milliseconds) to spend shutting down the system.
+## See: http://erlang.org/doc/man/erl.html
+#-shutdown_time 15000
