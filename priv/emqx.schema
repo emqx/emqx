@@ -205,8 +205,6 @@ end}.
   {default, "emqx@127.0.0.1"}
 ]}.
 
-
-
 %% @doc Specify SSL Options in the file if using SSL for erlang distribution
 {mapping, "node.ssl_dist_optfile", "vm_args.-ssl_dist_optfile", [
   {datatype, string},
@@ -286,6 +284,11 @@ end}.
   ZDBBL >= 1024 andalso ZDBBL =< 2147482624
  end
 }.
+
+%% @doc Global GC Interval
+{mapping, "node.global_gc_interval", "emqx.global_gc_interval", [
+  {datatype, {duration, s}}
+]}.
 
 %% @doc http://www.erlang.org/doc/man/erlang.html#system_flag-2
 {mapping, "node.fullsweep_after", "vm_args.-env ERL_FULLSWEEP_AFTER", [
