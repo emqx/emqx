@@ -516,16 +516,11 @@ enrich_subopts([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS},
 enrich_subopts([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS},
                Session = #session{upgrade_qos = false}) ->
     enrich_subopts(Opts, Msg#message{qos = min(SubQoS, PubQoS)}, Session);
-enrich_subopts([{rap, 0}|Opts], Msg = #message{flags = Flags, headers = #{proto_ver := ?MQTT_PROTO_V5}}, Session) ->
-    enrich_subopts(Opts, Msg#message{flags = maps:put(retain, false, Flags)}, Session);
-enrich_subopts([{rap, _}|Opts], Msg = #message{headers = #{proto_ver := ?MQTT_PROTO_V5}}, Session) ->
-    enrich_subopts(Opts, Msg, Session);
-%% rap flag will be set to 1 in bridge mode
 enrich_subopts([{rap, 1}|Opts], Msg, Session) ->
     enrich_subopts(Opts, Msg, Session);
-enrich_subopts([{rap, _}|Opts], Msg = #message{headers = #{retained := true}}, Session = #session{}) ->
+enrich_subopts([{rap, 0}|Opts], Msg = #message{headers = #{retained := true}}, Session = #session{}) ->
     enrich_subopts(Opts, Msg, Session);
-enrich_subopts([{rap, _}|Opts], Msg = #message{flags = Flags}, Session) ->
+enrich_subopts([{rap, 0}|Opts], Msg = #message{flags = Flags}, Session) ->
     enrich_subopts(Opts, Msg#message{flags = maps:put(retain, false, Flags)}, Session);
 enrich_subopts([{subid, SubId}|Opts], Msg, Session) ->
     Msg1 = emqx_message:set_header('Subscription-Identifier', SubId, Msg),
