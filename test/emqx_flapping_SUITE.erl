@@ -31,7 +31,7 @@ set_special_configs(emqx) ->
     application:set_env(emqx, flapping_detect_policy,
                         #{threshold => 3,
                           duration => 100,
-                          banned_interval => 200
+                          banned_interval => 2
                          });
 set_special_configs(_App) -> ok.
 
@@ -52,7 +52,7 @@ t_detect_check(_) ->
     true = emqx_flapping:detect(ClientInfo),
     timer:sleep(100),
     true = emqx_banned:check(ClientInfo),
-    timer:sleep(200),
+    timer:sleep(3000),
     false = emqx_banned:check(ClientInfo),
     Childrens = supervisor:which_children(emqx_cm_sup),
     {flapping, Pid, _, _} = lists:keyfind(flapping, 1, Childrens),

@@ -640,15 +640,15 @@ end}.
 {translation, "emqx.flapping_detect_policy", fun(Conf) ->
     Policy = cuttlefish:conf_get("flapping_detect_policy", Conf),
     [Threshold, Duration, Interval] = string:tokens(Policy, ", "),
-    ParseDuration = fun(S) ->
-                        case cuttlefish_duration:parse(S, ms) of
+    ParseDuration = fun(S, Dur) ->
+                        case cuttlefish_duration:parse(S, Dur) of
                             I when is_integer(I) -> I;
                             {error, Reason} -> error(Reason)
                         end
                     end,
     #{threshold => list_to_integer(Threshold),
-      duration  => ParseDuration(Duration),
-      banned_interval => ParseDuration(Interval)
+      duration  => ParseDuration(Duration, ms),
+      banned_interval => ParseDuration(Interval, s)
      }
 end}.
 

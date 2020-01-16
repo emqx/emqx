@@ -147,8 +147,8 @@ t_connect_keepalive_timeout(_) ->
         Msg -> 
             ReasonCode = 141,
             ?assertMatch({disconnected, ReasonCode, _Channel}, Msg)
-    after 
-        round(timer:seconds(Keepalive) * 2 * 1.5 ) -> error("keepalive timeout")
+    after round(timer:seconds(Keepalive) * 2 * 1.5 ) ->
+        error("keepalive timeout")
     end.
 
 %%--------------------------------------------------------------------
@@ -160,7 +160,7 @@ t_shared_subscriptions_client_terminates_when_qos_eq_2(_) ->
     application:set_env(emqx, shared_dispatch_ack_enabled, true),
 
     Topic = nth(1, ?TOPICS),
-    Shared_topic = list_to_binary("$share/sharename/" ++ binary_to_list(<<"TopicA">>)),
+    SharedTopic = list_to_binary("$share/sharename/" ++ binary_to_list(<<"TopicA">>)),
 
     CRef = counters:new(1, [atomics]),
     meck:expect(emqtt, connected, 
@@ -174,18 +174,23 @@ t_shared_subscriptions_client_terminates_when_qos_eq_2(_) ->
                                     {clientid, <<"sub_client_1">>},
                                     {keepalive, 5}]),
     {ok, _} = emqtt:connect(Sub1),
-    {ok, _, [2]} = emqtt:subscribe(Sub1, Shared_topic, qos2),
+    {ok, _, [2]} = emqtt:subscribe(Sub1, SharedTopic, qos2),
+
     {ok, Sub2} = emqtt:start_link([{proto_ver, v5},
                                     {clientid, <<"sub_client_2">>},
                                     {keepalive, 5}]),
     {ok, _} = emqtt:connect(Sub2),
-    {ok, _, [2]} = emqtt:subscribe(Sub2, Shared_topic, qos2),
+    {ok, _, [2]} = emqtt:subscribe(Sub2, SharedTopic, qos2),
 
     {ok, Pub} = emqtt:start_link([{proto_ver, v5}, {clientid, <<"pub_client">>}]),
     {ok, _} = emqtt:connect(Pub),
     {ok, _} = emqtt:publish(Pub, Topic, <<"t_shared_subscriptions_client_terminates_when_qos_eq_2">>, 2),
 
     receive
-        {disconnected,shutdown,for_testiong} -> ok
+        {'EXIT', _,{shutdown, for_testiong}} ->
+            ok
+    after 1000 ->
+            error("disconnected timeout")
     end,
+
     ?assertEqual(1, counters:get(CRef, 1)).

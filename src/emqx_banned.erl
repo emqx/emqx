@@ -85,7 +85,7 @@ do_check(Who) when is_tuple(Who) ->
     case mnesia:dirty_read(?BANNED_TAB, Who) of
         [] -> false;
         [#banned{until = Until}] ->
-            Until > erlang:system_time(millisecond)
+            Until > erlang:system_time(second)
     end.
 
 -spec(create(emqx_types:banned()) -> ok).
