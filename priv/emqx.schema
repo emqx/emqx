@@ -362,10 +362,17 @@ end}.
 
 %% Default TCP port for outgoing connections
 {mapping, "rpc.tcp_client_num", "gen_rpc.tcp_client_num", [
-  {default, 32},
+  {default, 0},
   {datatype, integer},
   {validators, ["range:gt_0_lt_256"]}
 ]}.
+
+{translation, "gen_rpc.tcp_client_num", fun(Conf) ->
+  case cuttlefish:conf_get("rpc.tcp_client_num", Conf) of
+    0 -> max(1, erlang:system_info(schedulers) div 2);
+    V -> V
+  end
+end}.
 
 %% Client connect timeout
 {mapping, "rpc.connect_timeout", "gen_rpc.connect_timeout", [
@@ -428,7 +435,7 @@ end}.
 ]}.
 
 {validator, "range:gt_0_lt_256", "must greater than 0 and less than 256",
-  fun(X) -> X > 0 andalso X < 256 end
+  fun(X) -> X >= 0 andalso X < 256 end
 }.
 
 %%--------------------------------------------------------------------
