@@ -235,7 +235,6 @@ end}.
 
 %% @doc More information at: http://erlang.org/doc/man/erl.html
 {mapping, "node.async_threads", "vm_args.+A", [
-  {default, 64},
   {datatype, integer},
   {validators, ["range:0-1024"]}
 ]}.
@@ -280,6 +279,11 @@ end}.
   ZDBBL >= 1024 andalso ZDBBL =< 2147482624
  end
 }.
+
+%% @doc Global GC Interval
+{mapping, "node.global_gc_interval", "emqx.global_gc_interval", [
+  {datatype, {duration, s}}
+]}.
 
 %% @doc http://www.erlang.org/doc/man/erlang.html#system_flag-2
 {mapping, "node.fullsweep_after", "vm_args.-env ERL_FULLSWEEP_AFTER", [
@@ -633,15 +637,15 @@ end}.
 {translation, "emqx.flapping_detect_policy", fun(Conf) ->
     Policy = cuttlefish:conf_get("flapping_detect_policy", Conf),
     [Threshold, Duration, Interval] = string:tokens(Policy, ", "),
-    ParseDuration = fun(S) ->
-                        case cuttlefish_duration:parse(S, ms) of
+    ParseDuration = fun(S, Dur) ->
+                        case cuttlefish_duration:parse(S, Dur) of
                             I when is_integer(I) -> I;
                             {error, Reason} -> error(Reason)
                         end
                     end,
     #{threshold => list_to_integer(Threshold),
-      duration  => ParseDuration(Duration),
-      banned_interval => ParseDuration(Interval)
+      duration  => ParseDuration(Duration, ms),
+      banned_interval => ParseDuration(Interval, s)
      }
 end}.
 
@@ -906,7 +910,6 @@ end}.
 %% messages | bytes passed through.
 %% Numbers delimited by `|'. Zero or negative is to disable.
 {mapping, "zone.$name.force_gc_policy", "emqx.zones", [
-   {default, "0 | 0MB"},
    {datatype, string}
  ]}.
 
