@@ -124,7 +124,7 @@ handle_cast({detected, #flapping{clientid   = ClientId,
         true -> %% Flapping happened:(
             ?LOG(error, "Flapping detected: ~s(~s) disconnected ~w times in ~wms",
                  [ClientId, inet:ntoa(PeerHost), DetectCnt, Duration]),
-            Now = erlang:system_time(millisecond),
+            Now = erlang:system_time(second),
             Banned = #banned{who    = {clientid, ClientId},
                              by     = <<"flapping detector">>,
                              reason = <<"flapping is detected">>,

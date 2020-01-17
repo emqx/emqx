@@ -1,6 +1,6 @@
-##############################
-# Erlang VM Args
-##############################
+######################################################################
+## Erlang VM Args for EMQ X Edge
+######################################################################
 
 ## NOTE:
 ##
@@ -10,8 +10,7 @@
 ## such as `node.name` for `-name` and `node.cooke` for `-setcookie`.
 
 ## Sets the maximum number of simultaneously existing processes for this system.
-+P 20480
-
++P 16384
 ## Sets the maximum number of simultaneously existing ports for this system.
 +Q 4096
 
@@ -19,7 +18,7 @@
 +e 512
 
 ## Sets the maximum number of atoms the virtual machine can handle.
-+t 65536
++t 262144
 
 ## Set the location of crash dumps
 -env ERL_CRASH_DUMP {{ platform_log_dir }}/crash.dump
@@ -30,7 +29,7 @@
 
 ## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
 ## (Disabled by default..use with caution!)
-#-heart
+-heart
 
 ## Specify the erlang distributed protocol.
 ## Can be one of: inet_tcp, inet6_tcp, inet_tls
@@ -52,6 +51,7 @@
 +spp false
 
 ## Sets the number of threads in async thread pool. Valid range is 0-1024.
+## Increase the parameter if there are many simultaneous file I/O operations.
 +A 1
 
 ## Sets the default heap size of processes to the size Size.
@@ -59,6 +59,14 @@
 
 ## Sets the default binary virtual heap size of processes to the size Size.
 #+hmbs 46422
+
+## Sets the default maximum heap size of processes to the size Size.
+## Defaults to 0, which means that no maximum heap size is used.
+##For more information, see process_flag(max_heap_size, MaxHeapSize).
+#+hmax 0
+
+## Sets the default value for process flag message_queue_data. Defaults to on_heap.
+#+hmqd on_heap | off_heap
 
 ## Sets the number of IO pollsets to use when polling for I/O.
 +IOp 1
@@ -94,5 +102,13 @@
 ## Sets the mapping of warning messages for error_logger
 #+W w
 
-#Prevents loading information about source filenames and line numbers.
+## Sets time warp mode: no_time_warp | single_time_warp | multi_time_warp
+#+C no_time_warp
+
+## Prevents loading information about source filenames and line numbers.
 +L
+
+## Specifies how long time (in milliseconds) to spend shutting down the system.
+## See: http://erlang.org/doc/man/erl.html
+-shutdown_time 10000
+

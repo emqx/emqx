@@ -82,7 +82,7 @@ start_mqtt_listener(Name, ListenOn, Options) ->
                 {emqx_connection, start_link, [Options -- SockOpts]}).
 
 start_http_listener(Start, Name, ListenOn, RanchOpts, ProtoOpts) ->
-    Start(Name, with_port(ListenOn, RanchOpts), ProtoOpts).
+    Start(ws_name(Name, ListenOn), with_port(ListenOn, RanchOpts), ProtoOpts).
 
 mqtt_path(Options) ->
     proplists:get_value(mqtt_path, Options, "/mqtt").
@@ -125,10 +125,10 @@ restart_listener(tcp, ListenOn, _Options) ->
 restart_listener(Proto, ListenOn, _Options) when Proto == ssl; Proto == tls ->
     esockd:reopen('mqtt:ssl', ListenOn);
 restart_listener(Proto, ListenOn, Options) when Proto == http; Proto == ws ->
-    cowboy:stop_listener('mqtt:ws'),
+    cowboy:stop_listener(ws_name('mqtt:ws', ListenOn)),
     start_listener(Proto, ListenOn, Options);
 restart_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
-    cowboy:stop_listener('mqtt:wss'),
+    cowboy:stop_listener(ws_name('mqtt:wss', ListenOn)),
     start_listener(Proto, ListenOn, Options);
 restart_listener(Proto, ListenOn, _Opts) ->
     esockd:reopen(Proto, ListenOn).
@@ -156,10 +156,10 @@ stop_listener(tcp, ListenOn, _Opts) ->
     esockd:close('mqtt:tcp', ListenOn);
 stop_listener(Proto, ListenOn, _Opts) when Proto == ssl; Proto == tls ->
     esockd:close('mqtt:ssl', ListenOn);
-stop_listener(Proto, _ListenOn, _Opts) when Proto == http; Proto == ws ->
-    cowboy:stop_listener('mqtt:ws');
-stop_listener(Proto, _ListenOn, _Opts) when Proto == https; Proto == wss ->
-    cowboy:stop_listener('mqtt:wss');
+stop_listener(Proto, ListenOn, _Opts) when Proto == http; Proto == ws ->
+    cowboy:stop_listener(ws_name('mqtt:ws', ListenOn));
+stop_listener(Proto, ListenOn, _Opts) when Proto == https; Proto == wss ->
+    cowboy:stop_listener(ws_name('mqtt:wss', ListenOn));
 stop_listener(Proto, ListenOn, _Opts) ->
     esockd:close(Proto, ListenOn).
 
@@ -178,3 +178,7 @@ format({Addr, Port}) when is_list(Addr) ->
 format({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
 
+ws_name(Name, {_Addr, Port}) ->
+    ws_name(Name, Port);
+ws_name(Name, Port) ->
+    list_to_atom(lists:concat([Name, ":", Port])).

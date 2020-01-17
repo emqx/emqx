@@ -205,8 +205,6 @@ end}.
   {default, "emqx@127.0.0.1"}
 ]}.
 
-
-
 %% @doc Specify SSL Options in the file if using SSL for erlang distribution
 {mapping, "node.ssl_dist_optfile", "vm_args.-ssl_dist_optfile", [
   {datatype, string},
@@ -237,7 +235,6 @@ end}.
 
 %% @doc More information at: http://erlang.org/doc/man/erl.html
 {mapping, "node.async_threads", "vm_args.+A", [
-  {default, 64},
   {datatype, integer},
   {validators, ["range:0-1024"]}
 ]}.
@@ -245,16 +242,12 @@ end}.
 %% @doc Erlang Process Limit
 {mapping, "node.process_limit", "vm_args.+P", [
   {datatype, integer},
-  {default, 256000},
   hidden
 ]}.
 
-%% Note: OTP R15 and earlier uses -env ERL_MAX_PORTS, R16+ uses +Q
-%% @doc The number of concurrent ports/sockets
+%% @doc The maximum number of concurrent ports/sockets.
 %% Valid range is 1024-134217727
-{mapping, "node.max_ports",
-  cuttlefish:otp("R16", "vm_args.+Q", "vm_args.-env ERL_MAX_PORTS"), [
-  {default, 262144},
+{mapping, "node.max_ports", "vm_args.+Q", [
   {datatype, integer},
   {validators, ["range4ports"]}
 ]}.
@@ -287,6 +280,11 @@ end}.
  end
 }.
 
+%% @doc Global GC Interval
+{mapping, "node.global_gc_interval", "emqx.global_gc_interval", [
+  {datatype, {duration, s}}
+]}.
+
 %% @doc http://www.erlang.org/doc/man/erlang.html#system_flag-2
 {mapping, "node.fullsweep_after", "vm_args.-env ERL_FULLSWEEP_AFTER", [
   {default, 1000},
@@ -317,7 +315,6 @@ end}.
 
 %% @doc http://www.erlang.org/doc/man/kernel_app.html#net_ticktime
 {mapping, "node.dist_net_ticktime", "vm_args.-kernel net_ticktime", [
-  {commented, 60},
   {datatype, integer},
   hidden
 ]}.
@@ -365,10 +362,17 @@ end}.
 
 %% Default TCP port for outgoing connections
 {mapping, "rpc.tcp_client_num", "gen_rpc.tcp_client_num", [
-  {default, 32},
+  {default, 0},
   {datatype, integer},
   {validators, ["range:gt_0_lt_256"]}
 ]}.
+
+{translation, "gen_rpc.tcp_client_num", fun(Conf) ->
+  case cuttlefish:conf_get("rpc.tcp_client_num", Conf) of
+    0 -> max(1, erlang:system_info(schedulers) div 2);
+    V -> V
+  end
+end}.
 
 %% Client connect timeout
 {mapping, "rpc.connect_timeout", "gen_rpc.connect_timeout", [
@@ -431,7 +435,7 @@ end}.
 ]}.
 
 {validator, "range:gt_0_lt_256", "must greater than 0 and less than 256",
-  fun(X) -> X > 0 andalso X < 256 end
+  fun(X) -> X >= 0 andalso X < 256 end
 }.
 
 %%--------------------------------------------------------------------
@@ -640,15 +644,15 @@ end}.
 {translation, "emqx.flapping_detect_policy", fun(Conf) ->
     Policy = cuttlefish:conf_get("flapping_detect_policy", Conf),
     [Threshold, Duration, Interval] = string:tokens(Policy, ", "),
-    ParseDuration = fun(S) ->
-                        case cuttlefish_duration:parse(S, ms) of
+    ParseDuration = fun(S, Dur) ->
+                        case cuttlefish_duration:parse(S, Dur) of
                             I when is_integer(I) -> I;
                             {error, Reason} -> error(Reason)
                         end
                     end,
     #{threshold => list_to_integer(Threshold),
-      duration  => ParseDuration(Duration),
-      banned_interval => ParseDuration(Interval)
+      duration  => ParseDuration(Duration, ms),
+      banned_interval => ParseDuration(Interval, s)
      }
 end}.
 
@@ -913,7 +917,6 @@ end}.
 %% messages | bytes passed through.
 %% Numbers delimited by `|'. Zero or negative is to disable.
 {mapping, "zone.$name.force_gc_policy", "emqx.zones", [
-   {default, "0 | 0MB"},
    {datatype, string}
  ]}.
 
@@ -923,7 +926,6 @@ end}.
 %% of queued MQTT messages of QoS 1 and 2.
 %% Zero or negative is to disable.
 {mapping, "zone.$name.force_shutdown_policy", "emqx.zones", [
-  {default, "default"},
   {datatype, string}
 ]}.
 
@@ -963,17 +965,6 @@ end}.
                                          count => list_to_integer(Count)}
                                end,
                     {force_gc_policy, GcPolicy};
-               ("force_shutdown_policy", "default") ->
-                    {DefaultLen, DefaultSize} =
-                        case WordSize = erlang:system_info(wordsize) of
-                            8 -> % arch_64
-                              {10000, cuttlefish_bytesize:parse("32MB")};
-                            4 -> % arch_32
-                              {10000, cuttlefish_bytesize:parse("16MB")}
-                        end,
-                    {force_shutdown_policy, #{message_queue_len => DefaultLen,
-                                              max_heap_size => DefaultSize div WordSize
-                                             }};
                ("force_shutdown_policy", Val) ->
                     [Len, Siz] = string:tokens(Val, "| "),
                     MaxSiz = case WordSize = erlang:system_info(wordsize) of
