@@ -205,8 +205,6 @@ end}.
   {default, "emqx@127.0.0.1"}
 ]}.
 
-
-
 %% @doc Specify SSL Options in the file if using SSL for erlang distribution
 {mapping, "node.ssl_dist_optfile", "vm_args.-ssl_dist_optfile", [
   {datatype, string},
@@ -245,16 +243,12 @@ end}.
 %% @doc Erlang Process Limit
 {mapping, "node.process_limit", "vm_args.+P", [
   {datatype, integer},
-  {default, 256000},
   hidden
 ]}.
 
-%% Note: OTP R15 and earlier uses -env ERL_MAX_PORTS, R16+ uses +Q
-%% @doc The number of concurrent ports/sockets
+%% @doc The maximum number of concurrent ports/sockets.
 %% Valid range is 1024-134217727
-{mapping, "node.max_ports",
-  cuttlefish:otp("R16", "vm_args.+Q", "vm_args.-env ERL_MAX_PORTS"), [
-  {default, 262144},
+{mapping, "node.max_ports", "vm_args.+Q", [
   {datatype, integer},
   {validators, ["range4ports"]}
 ]}.
@@ -317,7 +311,6 @@ end}.
 
 %% @doc http://www.erlang.org/doc/man/kernel_app.html#net_ticktime
 {mapping, "node.dist_net_ticktime", "vm_args.-kernel net_ticktime", [
-  {commented, 60},
   {datatype, integer},
   hidden
 ]}.
