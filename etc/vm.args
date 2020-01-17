@@ -10,13 +10,13 @@
 ## such as `node.name` for `-name` and `node.cooke` for `-setcookie`.
 
 ## Sets the maximum number of simultaneously existing processes for this system.
-#+P 2097152
++P 2097152
 
 ## Sets the maximum number of simultaneously existing ports for this system.
-#+Q 1048576
++Q 1048576
 
 ## Sets the maximum number of ETS tables
-#+e 262144
++e 262144
 
 ## Sets the maximum number of atoms the virtual machine can handle.
 #+t 1048576
@@ -26,7 +26,7 @@
 
 ## Set how many times generational garbages collections can be done without
 ## forcing a fullsweep collection.
-#-env ERL_FULLSWEEP_AFTER 1000
+-env ERL_FULLSWEEP_AFTER 1000
 
 ## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
 ## (Disabled by default..use with caution!)
@@ -43,7 +43,7 @@
 ## Specifies the net_kernel tick time in seconds.
 ## This is the approximate time a connected node may be unresponsive until
 ## it is considered down and thereby disconnected.
-#-kernel net_ticktime 60
+-kernel net_ticktime 120
 
 ## Sets the distribution buffer busy limit (dist_buf_busy_limit).
 #+zdbbl 8192
@@ -117,4 +117,3 @@
 ## Specifies how long time (in milliseconds) to spend shutting down the system.
 ## See: http://erlang.org/doc/man/erl.html
 #-shutdown_time 15000
-#
