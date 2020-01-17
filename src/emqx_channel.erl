@@ -700,14 +700,10 @@ return_unsuback(Packet, Channel) ->
        | {shutdown, Reason :: term(), Reply :: term(), channel()}).
 handle_call(kick, Channel) ->
     Channel1 = ensure_disconnected(kicked, Channel),
-    shutdown(kicked, ok, Channel1);
+    shutdown_and_outgoing_pkt(kicked, ok, Channel1);
 
-handle_call(discard, Channel = #channel{conn_state = connected}) ->
-    Packet = ?DISCONNECT_PACKET(?RC_SESSION_TAKEN_OVER),
-    {shutdown, discarded, ok, Packet, Channel};
-
-handle_call(discard, Channel = #channel{conn_state = disconnected}) ->
-    shutdown(discarded, ok, Channel);
+handle_call(discard, Channel) ->
+    shutdown_and_outgoing_pkt(discarded, ok, Channel);
 
 %% Session Takeover
 handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
@@ -719,7 +715,7 @@ handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
     %% TODO: Should not drain deliver here (side effect)
     Delivers = emqx_misc:drain_deliver(),
     AllPendings = lists:append(Delivers, Pendings),
-    shutdown(takeovered, AllPendings, Channel);
+    shutdown_and_outgoing_pkt(takeovered, AllPendings, Channel);
 
 handle_call(list_acl_cache, Channel) ->
     {reply, emqx_acl_cache:list_acl_cache(), Channel};
@@ -1293,6 +1289,10 @@ publish_will_msg(Msg) -> emqx_broker:publish(Msg).
 disconnect_reason(?RC_SUCCESS) -> normal;
 disconnect_reason(ReasonCode)  -> emqx_reason_codes:name(ReasonCode).
 
+reason_code(takeovered) -> ?RC_SESSION_TAKEN_OVER;
+reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER;
+reason_code(_) -> ?RC_NORMAL_DISCONNECTION.
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -1329,6 +1329,17 @@ shutdown(success, Reply, Channel) ->
     shutdown(normal, Reply, Channel);
 shutdown(Reason, Reply, Channel) ->
     {shutdown, Reason, Reply, Channel}.
+
+shutdown(success, Reply, Packet, Channel) ->
+    shutdown(normal, Reply, Packet, Channel);
+shutdown(Reason, Reply, Packet, Channel) ->
+    {shutdown, Reason, Reply, Packet, Channel}.
+
+shutdown_and_outgoing_pkt(Reason, Reply, Channel = #channel{conn_state = connected}) ->
+    shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), Channel);
+
+shutdown_and_outgoing_pkt(Reason, Reply, Channel) ->
+    shutdown(Reason, Reply, Channel).
 
 sp(true)  -> 1;
 sp(false) -> 0.
