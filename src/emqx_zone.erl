@@ -45,6 +45,8 @@
           , session_expiry_interval/1
           , force_gc_policy/1
           , force_shutdown_policy/1
+          , get_env/2
+          , get_env/3
           ]}).
 
 %% APIs
@@ -114,7 +116,7 @@ start_link() ->
 stop() ->
     gen_server:stop(?SERVER).
 
--spec(init_gc_state(zone()) -> emqx_gc:gc_state()).
+-spec(init_gc_state(zone()) -> maybe(emqx_gc:gc_state())).
 init_gc_state(Zone) ->
     maybe_apply(fun emqx_gc:init/1, force_gc_policy(Zone)).
 

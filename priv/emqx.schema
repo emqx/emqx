@@ -915,7 +915,6 @@ end}.
 %% messages | bytes passed through.
 %% Numbers delimited by `|'. Zero or negative is to disable.
 {mapping, "zone.$name.force_gc_policy", "emqx.zones", [
-   {default, "0 | 0MB"},
    {datatype, string}
  ]}.
 
