@@ -28,9 +28,8 @@ t_check_pub(_) ->
     PubCaps = #{max_qos_allowed => ?QOS_1,
                 retain_available => false
                },
-    lists:foreach(fun({Key, Val}) ->
-        ok = emqx_zone:set_env(zone, Key, Val)
-    end, maps:to_list(PubCaps)),
+    emqx_zone:set_env(zone, '$mqtt_pub_caps', PubCaps),
+    timer:sleep(50),
     ok = emqx_mqtt_caps:check_pub(zone, #{qos => ?QOS_1,
                                           retain => false}),
     PubFlags1 = #{qos => ?QOS_2, retain => false},
@@ -39,9 +38,7 @@ t_check_pub(_) ->
     PubFlags2 = #{qos => ?QOS_1, retain => true},
     ?assertEqual({error, ?RC_RETAIN_NOT_SUPPORTED},
                  emqx_mqtt_caps:check_pub(zone, PubFlags2)),
-    lists:foreach(fun({Key, _Val}) ->
-        true = emqx_zone:unset_env(zone, Key)
-    end, maps:to_list(PubCaps)).
+    emqx_zone:unset_env(zone, '$mqtt_pub_caps').
 
 t_check_sub(_) ->
     SubOpts = #{rh  => 0,
@@ -54,9 +51,8 @@ t_check_sub(_) ->
                 shared_subscription => false,
                 wildcard_subscription => false
                },
-    lists:foreach(fun({Key, Val}) ->
-        ok = emqx_zone:set_env(zone, Key, Val)
-    end, maps:to_list(SubCaps)),
+    emqx_zone:set_env(zone, '$mqtt_sub_caps', SubCaps),
+    timer:sleep(50),
     ok = emqx_mqtt_caps:check_sub(zone, <<"topic">>, SubOpts),
     ?assertEqual({error, ?RC_TOPIC_FILTER_INVALID},
                  emqx_mqtt_caps:check_sub(zone, <<"a/b/c/d">>, SubOpts)),
@@ -64,6 +60,4 @@ t_check_sub(_) ->
                  emqx_mqtt_caps:check_sub(zone, <<"+/#">>, SubOpts)),
     ?assertEqual({error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED},
                  emqx_mqtt_caps:check_sub(zone, <<"topic">>, SubOpts#{share => true})),
-    lists:foreach(fun({Key, _Val}) ->
-        true = emqx_zone:unset_env(zone, Key)
-    end, maps:to_list(SubCaps)).
+    emqx_zone:unset_env(zone, '$mqtt_pub_caps').
