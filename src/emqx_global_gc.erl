@@ -58,7 +58,7 @@ init([]) ->
     {ok, ensure_timer(#{timer => undefined})}.
 
 handle_call(run, _From, State) ->
-    {Time, _} = timer:tc(fun run_gc/0),
+    {Time, ok} = timer:tc(fun run_gc/0),
     {reply, {ok, Time div 1000}, State, hibernate};
 
 handle_call(_Req, _From, State) ->
@@ -68,7 +68,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, run}, State = #{timer := TRef}) ->
-    run_gc(),
+    ok = run_gc(),
     {noreply, ensure_timer(State), hibernate};
 
 handle_info(_Info, State) ->
@@ -91,7 +91,12 @@ ensure_timer(State) ->
                      State#{timer := TRef}
     end.
 
-run_gc() ->
-    [garbage_collect(P) || P <- processes(),
-                           {status, waiting} == process_info(P, status)].
+run_gc() -> lists:foreach(fun do_gc/1, processes()).
+
+do_gc(Pid) ->
+    is_waiting(Pid) andalso garbage_collect(Pid, [{type, 'minor'}]).
+
+-compile({inline, [is_waiting/1]}).
+is_waiting(Pid) ->
+    {status, waiting} == process_info(Pid, status).
 
