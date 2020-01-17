@@ -23,6 +23,8 @@
 
 -export([ merge_opts/2
         , maybe_apply/2
+        , compose/1
+        , compose/2
         , run_fold/3
         , pipeline/3
         , start_timer/2
@@ -56,10 +58,18 @@ merge_opts(Defaults, Options) ->
 %% @doc Apply a function to a maybe argument.
 -spec(maybe_apply(fun((maybe(A)) -> maybe(A)), maybe(A))
       -> maybe(A) when A :: any()).
-maybe_apply(_Fun, undefined) ->
-    undefined;
+maybe_apply(_Fun, undefined) -> undefined;
 maybe_apply(Fun, Arg) when is_function(Fun) ->
     erlang:apply(Fun, [Arg]).
+
+-spec(compose(list(F)) -> G when F :: fun((any()) -> any()),
+                                 G :: fun((any()) -> any())).
+compose([F|More]) -> compose(F, More).
+
+-spec(compose(fun((X) -> Y), fun((Y) -> Z)) -> fun((X) -> Z)).
+compose(F, G) when is_function(G) -> fun(X) -> G(F(X)) end;
+compose(F, [G]) -> compose(F, G);
+compose(F, [G|More]) -> compose(compose(F, G), More).
 
 %% @doc RunFold
 run_fold([], Acc, _State) ->

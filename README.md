@@ -2,7 +2,7 @@
 
 [![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen)](https://github.com/emqx/emqx/releases)
 [![Build Status](https://travis-ci.org/emqx/emqx.svg)](https://travis-ci.org/emqx/emqx)
-[![Coverage Status](https://coveralls.io/repos/github/emqx/emqx/badge.svg)](https://coveralls.io/github/emqx/emqx)
+[![Coverage Status](https://coveralls.io/repos/github/emqx/emqx/badge.svg?branch=master)](https://coveralls.io/github/emqx/emqx?branch=master)
 [![Docker Pulls](https://img.shields.io/docker/pulls/emqx/emqx)](https://hub.docker.com/r/emqx/emqx)
 [![Slack Invite](<https://slack-invite.emqx.io/badge.svg>)](https://slack-invite.emqx.io)
 [![Twitter](https://img.shields.io/badge/Twitter-EMQ%20X-1DA1F2?logo=twitter)](https://twitter.com/emqtt)
@@ -40,7 +40,7 @@ docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p
 The *EMQ X* broker requires Erlang/OTP R21+ to build since 3.0 release.
 
 ```
-git clone https://github.com/emqx/emqx-rel.git
+git clone -b v4.0.0 https://github.com/emqx/emqx-rel.git
 
 cd emqx-rel && make
 
@@ -74,7 +74,7 @@ The [EMQ X Roadmap uses Github milestones](https://github.com/emqx/emqx/mileston
 ## Community, discussion, contribution, and support
 
 You can reach the EMQ community and developers via the following channels:
-- [EMQX Slack](http://emqx.slack.com)
+- [EMQX Slack](https://slack-invite.emqx.io/)
 - [Twitter](https://twitter.com/emqtt)
 - [Forum](https://groups.google.com/d/forum/emqtt)
 - [Blog](https://medium.com/@emqtt)
