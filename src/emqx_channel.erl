@@ -700,10 +700,10 @@ return_unsuback(Packet, Channel) ->
        | {shutdown, Reason :: term(), Reply :: term(), channel()}).
 handle_call(kick, Channel) ->
     Channel1 = ensure_disconnected(kicked, Channel),
-    shutdown_and_outgoing_pkt(kicked, ok, Channel1);
+    disconnect_and_shutdown(kicked, ok, Channel1);
 
 handle_call(discard, Channel) ->
-    shutdown_and_outgoing_pkt(discarded, ok, Channel);
+    disconnect_and_shutdown(discarded, ok, Channel);
 
 %% Session Takeover
 handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
@@ -715,7 +715,7 @@ handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
     %% TODO: Should not drain deliver here (side effect)
     Delivers = emqx_misc:drain_deliver(),
     AllPendings = lists:append(Delivers, Pendings),
-    shutdown_and_outgoing_pkt(takeovered, AllPendings, Channel);
+    disconnect_and_shutdown(takeovered, AllPendings, Channel);
 
 handle_call(list_acl_cache, Channel) ->
     {reply, emqx_acl_cache:list_acl_cache(), Channel};
@@ -1335,10 +1335,11 @@ shutdown(success, Reply, Packet, Channel) ->
 shutdown(Reason, Reply, Packet, Channel) ->
     {shutdown, Reason, Reply, Packet, Channel}.
 
-shutdown_and_outgoing_pkt(Reason, Reply, Channel = #channel{conn_state = connected}) ->
+disconnect_and_shutdown(Reason, Reply, Channel = #channel{conn_state = connected,
+                                                          conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
     shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), Channel);
 
-shutdown_and_outgoing_pkt(Reason, Reply, Channel) ->
+disconnect_and_shutdown(Reason, Reply, Channel) ->
     shutdown(Reason, Reply, Channel).
 
 sp(true)  -> 1;
