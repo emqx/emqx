@@ -112,4 +112,4 @@
 
 ## Specifies how long time (in milliseconds) to spend shutting down the system.
 ## See: http://erlang.org/doc/man/erl.html
-#-shutdown_time 15000
+-shutdown_time 30000
