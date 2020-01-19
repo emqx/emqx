@@ -154,16 +154,21 @@ encode_alarm({AlarmId, #alarm{severity  = Severity,
                               title     = Title,
                               summary   = Summary,
                               timestamp = Ts}}) ->
-    emqx_json:safe_encode([{id, maybe_to_binary(AlarmId)},
-                           {desc, [{severity, Severity},
-                                   {title, iolist_to_binary(Title)},
-                                   {summary, iolist_to_binary(Summary)},
-                                   {timestamp, Ts}]}]);
+    Descr = #{severity => Severity,
+              title => iolist_to_binary(Title),
+              summary => iolist_to_binary(Summary),
+              timestamp => Ts
+             },
+    emqx_json:safe_encode(#{id => maybe_to_binary(AlarmId),
+                            desc => Descr
+                           });
+
 encode_alarm({AlarmId, undefined}) ->
-    emqx_json:safe_encode([{id, maybe_to_binary(AlarmId)}]);
+    emqx_json:safe_encode(#{id => maybe_to_binary(AlarmId)});
 encode_alarm({AlarmId, AlarmDesc}) ->
-    emqx_json:safe_encode([{id, maybe_to_binary(AlarmId)},
-                           {desc, maybe_to_binary(AlarmDesc)}]).
+    emqx_json:safe_encode(#{id => maybe_to_binary(AlarmId),
+                            desc => maybe_to_binary(AlarmDesc)
+                           }).
 
 alarm_msg(Topic, Payload) ->
     Msg = emqx_message:make(?MODULE, Topic, Payload),

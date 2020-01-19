@@ -21,24 +21,76 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(DEC_OPTS, [{labels, atom}, return_maps]).
+-import(emqx_json,
+        [ encode/1
+        , decode/1
+        , decode/2
+        ]).
+
+%%--------------------------------------------------------------------
+%% Erlang                     JSON              Erlang
+%% -------------------------------------------------------------------
+%%
+%% null                       -> null           -> null
+%% true                       -> true           -> true
+%% false                      -> false          -> false
+%% "hi"                       -> [104, 105]     -> [104, 105]
+%% <<"hi">>                   -> "hi"           -> <<"hi">>
+%% hi                         -> "hi"           -> <<"hi">>
+%% 1                          -> 1              -> 1
+%% 1.25                       -> 1.25           -> 1.25
+%% []                         -> []             -> []
+%% [true, 1.0]                -> [true, 1.0]    -> [true, 1.0]
+%% {[]}                       -> {}             -> {[]}
+%% {[{foo, bar}]}             -> {"foo": "bar"} -> {[{<<"foo">>, <<"bar">>}]}
+%% {[{<<"foo">>, <<"bar">>}]} -> {"foo": "bar"} -> {[{<<"foo">>, <<"bar">>}]}
+%% #{<<"foo">> => <<"bar">>}  -> {"foo": "bar"} -> #{<<"foo">> => <<"bar">>}
+%%--------------------------------------------------------------------
 
 all() -> emqx_ct:all(?MODULE).
 
 t_decode_encode(_) ->
-    JsonText = <<"{\"library\": \"jsx\", \"awesome\": true}">>,
-    JsonTerm = emqx_json:decode(JsonText),
-    JsonMaps = #{library => <<"jsx">>, awesome => true},
-    ?assertEqual(JsonText, emqx_json:encode(JsonTerm, [{space, 1}])),
-    ?assertEqual(JsonMaps, emqx_json:decode(JsonText, ?DEC_OPTS)).
+    null = decode(encode(null)),
+    true = decode(encode(true)),
+    false = decode(encode(false)),
+    "hi" = decode(encode("hi")),
+    <<"hi">> = decode(encode(hi)),
+    1 = decode(encode(1)),
+    1.25 = decode(encode(1.25)),
+    [] = decode(encode([])),
+    [true, 1] = decode(encode([true, 1])),
+    [] = decode(encode({[]})),
+    [{<<"foo">>, <<"bar">>}] = decode(encode({[{foo, bar}]})),
+    [{<<"foo">>, <<"bar">>}] = decode(encode({[{<<"foo">>, <<"bar">>}]})),
+    #{<<"foo">> := <<"bar">>} = decode(encode(#{<<"foo">> => <<"bar">>}), [return_maps]),
+    JsonText = <<"{\"bool\":true,\"int\":10,\"foo\":\"bar\"}">>,
+    JsonMaps = #{<<"bool">> => true,
+                 <<"int">>  => 10,
+                 <<"foo">>  => <<"bar">>
+                },
+    ?assertEqual(JsonText, encode({decode(JsonText)})),
+    ?assertEqual(JsonMaps, decode(JsonText, [return_maps])).
 
 t_safe_decode_encode(_) ->
-    JsonText = <<"{\"library\": \"jsx\", \"awesome\": true}">>,
-    {ok, JsonTerm} = emqx_json:safe_decode(JsonText),
-    JsonMaps = #{library => <<"jsx">>, awesome => true},
-    ?assertEqual({ok, JsonText}, emqx_json:safe_encode(JsonTerm, [{space, 1}])),
-    ?assertEqual({ok, JsonMaps}, emqx_json:safe_decode(JsonText, ?DEC_OPTS)),
-    BadJsonText = <<"{\"library\", \"awesome\": true}">>,
-    ?assertEqual({error, badarg}, emqx_json:safe_decode(BadJsonText)),
-    {error, badarg} = emqx_json:safe_encode({a, {b ,1}}).
+    safe_encode_decode(null),
+    safe_encode_decode(true),
+    safe_encode_decode(false),
+    "hi" = safe_encode_decode("hi"),
+    <<"hi">> = safe_encode_decode(hi),
+    1 = safe_encode_decode(1),
+    1.25 = safe_encode_decode(1.25),
+    [] = safe_encode_decode([]),
+    [true, 1] = safe_encode_decode([true, 1]),
+    [] = safe_encode_decode({[]}),
+    [{<<"foo">>, <<"bar">>}] = safe_encode_decode({[{foo, bar}]}),
+    [{<<"foo">>, <<"bar">>}] = safe_encode_decode({[{<<"foo">>, <<"bar">>}]}),
+    {ok, Json} = emqx_json:safe_encode(#{<<"foo">> => <<"bar">>}),
+    {ok, #{<<"foo">> := <<"bar">>}} = emqx_json:safe_decode(Json, [return_maps]).
+
+safe_encode_decode(Term) ->
+    {ok, Json} = emqx_json:safe_encode(Term),
+    case emqx_json:safe_decode(Json) of
+        {ok, {NTerm}} -> NTerm;
+        {ok, NTerm}   -> NTerm
+    end.
 
