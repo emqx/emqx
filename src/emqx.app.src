@@ -4,7 +4,7 @@
   {vsn, "git"},
   {modules, []},
   {registered, []},
-  {applications, [kernel,stdlib,jsx,gproc,gen_rpc,esockd,cowboy,
+  {applications, [kernel,stdlib,gproc,gen_rpc,esockd,cowboy,
                   sasl,os_mon]},
   {mod, {emqx_app,[]}},
   {env, []},
