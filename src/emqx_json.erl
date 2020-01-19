@@ -51,11 +51,11 @@
 
 -spec(encode(json_term()) -> json_text()).
 encode(Term) ->
-    jsx:encode(Term).
+    jiffy:encode(Term).
 
 -spec(encode(json_term(), encode_options()) -> json_text()).
 encode(Term, Opts) ->
-    jsx:encode(Term, Opts).
+    jiffy:encode(Term, Opts).
 
 -spec(safe_encode(json_term())
       -> {ok, json_text()} | {error, Reason :: term()}).
@@ -73,12 +73,11 @@ safe_encode(Term, Opts) ->
     end.
 
 -spec(decode(json_text()) -> json_term()).
-decode(Json) ->
-    case jsx:decode(Json) of {Term} -> Term; Other -> Other end.
+decode(Json) -> decode(Json, []).
 
 -spec(decode(json_text(), decode_options()) -> json_term()).
 decode(Json, Opts) ->
-    case jsx:decode(Json, Opts) of {Term} -> Term; Other -> Other end.
+    case jiffy:decode(Json, Opts) of {Term} -> Term; Other -> Other end.
 
 -spec(safe_decode(json_text())
       -> {ok, json_term()} | {error, Reason :: term()}).
