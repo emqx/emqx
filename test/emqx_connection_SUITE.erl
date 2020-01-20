@@ -93,7 +93,7 @@ t_info(_) ->
                         {'$gen_call', From, info} ->
                             gen_server:reply(From, emqx_connection:info(st()))
                     after
-                        0 -> error("error")
+                        200 -> error("error")
                     end
                 end),
     #{sockinfo := SockInfo} = emqx_connection:info(CPid),
