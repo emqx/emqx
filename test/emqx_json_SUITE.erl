@@ -45,6 +45,10 @@
 %% {[{foo, bar}]}             -> {"foo": "bar"} -> {[{<<"foo">>, <<"bar">>}]}
 %% {[{<<"foo">>, <<"bar">>}]} -> {"foo": "bar"} -> {[{<<"foo">>, <<"bar">>}]}
 %% #{<<"foo">> => <<"bar">>}  -> {"foo": "bar"} -> #{<<"foo">> => <<"bar">>}
+%%
+%% Extension:
+%% [{<<"foo">>, <<"bar">>}]   -> {"foo": "bar"} -> [{<<"foo">>, <<"bar">>}]
+%%
 %%--------------------------------------------------------------------
 
 all() -> emqx_ct:all(?MODULE).
@@ -62,6 +66,7 @@ t_decode_encode(_) ->
     [] = decode(encode({[]})),
     [{<<"foo">>, <<"bar">>}] = decode(encode({[{foo, bar}]})),
     [{<<"foo">>, <<"bar">>}] = decode(encode({[{<<"foo">>, <<"bar">>}]})),
+    [{<<"foo">>, <<"bar">>}] = decode(encode([{<<"foo">>, <<"bar">>}])),
     #{<<"foo">> := <<"bar">>} = decode(encode(#{<<"foo">> => <<"bar">>}), [return_maps]),
     JsonText = <<"{\"bool\":true,\"int\":10,\"foo\":\"bar\"}">>,
     JsonMaps = #{<<"bool">> => true,
@@ -84,6 +89,7 @@ t_safe_decode_encode(_) ->
     [] = safe_encode_decode({[]}),
     [{<<"foo">>, <<"bar">>}] = safe_encode_decode({[{foo, bar}]}),
     [{<<"foo">>, <<"bar">>}] = safe_encode_decode({[{<<"foo">>, <<"bar">>}]}),
+    [{<<"foo">>, <<"bar">>}] = safe_encode_decode([{<<"foo">>, <<"bar">>}]),
     {ok, Json} = emqx_json:safe_encode(#{<<"foo">> => <<"bar">>}),
     {ok, #{<<"foo">> := <<"bar">>}} = emqx_json:safe_decode(Json, [return_maps]).
 

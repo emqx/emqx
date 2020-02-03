@@ -51,11 +51,11 @@
 
 -spec(encode(json_term()) -> json_text()).
 encode(Term) ->
-    jiffy:encode(Term).
+    encode(Term, []).
 
 -spec(encode(json_term(), encode_options()) -> json_text()).
 encode(Term, Opts) ->
-    jiffy:encode(Term, Opts).
+    jiffy:encode(to_ejson(Term), Opts).
 
 -spec(safe_encode(json_term())
       -> {ok, json_text()} | {error, Reason :: term()}).
@@ -77,7 +77,7 @@ decode(Json) -> decode(Json, []).
 
 -spec(decode(json_text(), decode_options()) -> json_term()).
 decode(Json, Opts) ->
-    case jiffy:decode(Json, Opts) of {Term} -> Term; Other -> Other end.
+    from_ejson(jiffy:decode(Json, Opts)).
 
 -spec(safe_decode(json_text())
       -> {ok, json_term()} | {error, Reason :: term()}).
@@ -93,4 +93,24 @@ safe_decode(Json, Opts) ->
         error:Reason ->
             {error, Reason}
     end.
+
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
+-compile({inline,
+          [ to_ejson/1
+          , from_ejson/1
+          ]}).
+
+to_ejson([{_, _}|_] = L) ->
+    lists:foldl(
+      fun({Name, Value}, Acc) ->
+        Acc#{Name => to_ejson(Value)}
+      end, #{}, L);
+to_ejson(T) -> T.
+
+from_ejson({L}) ->
+    [{Name, from_ejson(Value)} || {Name, Value} <- L];
+from_ejson(L) -> L.
 
