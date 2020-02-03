@@ -48,6 +48,9 @@ end_per_suite(_Config) ->
 %% Helpers
 %%--------------------------------------------------------------------
 
+client_info(Key, Client) ->
+    maps:find(Key, maps:from_list(emqtt:info(Client))).
+
 receive_messages(Count) ->
     receive_messages(Count, []).
 
@@ -89,6 +92,106 @@ t_basic_test(_) ->
 %%--------------------------------------------------------------------
 %% Connection
 %%--------------------------------------------------------------------
+
+t_connect_clean_start(_) ->
+    {ok, Client1} = emqtt:start_link([{clientid, <<"t_connect_clean_start">>},{proto_ver, v5},{clean_start, true}]),
+    {ok, _} = emqtt:connect(Client1),
+    ?assertEqual({ok, 0}, client_info(session_present, Client1)),  %% [MQTT-3.1.2-4]
+    ok = emqtt:pause(Client1),
+    {ok, Client2} = emqtt:start_link([{clientid, <<"t_connect_clean_start">>},{proto_ver, v5},{clean_start, false}]),
+    {ok, _} = emqtt:connect(Client2),
+    ?assertEqual({ok, 1}, client_info(session_present, Client2)),  %% [MQTT-3.1.2-5]
+    ok = emqtt:disconnect(Client2),
+    {ok, Client3} = emqtt:start_link([{clientid, <<"new_client">>},{proto_ver, v5},{clean_start, false}]),
+    {ok, _} = emqtt:connect(Client3),
+    ?assertEqual({ok, 0}, client_info(session_present, Client3)),  %% [MQTT-3.1.2-6]
+    ok = emqtt:disconnect(Client3).
+
+t_connect_will_message(_) ->
+    Topic = nth(1, ?TOPICS),
+    Payload = "will message",
+
+    {ok, Client1} = emqtt:start_link([
+                                        {clientid, <<"t_connect_will_message">>},
+                                        {proto_ver, v5},
+                                        {clean_start, true},
+                                        {will_flag, true},
+                                        {will_topic, Topic},
+                                        {will_payload, Payload}
+                                        ]),
+    {ok, _} = emqtt:connect(Client1),
+    [ClientPid] = emqx_cm:lookup_channels(<<"t_connect_will_message">>),
+    ?assertNotEqual(undefined, maps:find(will_msg, emqx_connection:info(sys:get_state(ClientPid)))),  %% [MQTT-3.1.2-7]
+
+    {ok, Client2} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client2),
+    {ok, _, [2]} = emqtt:subscribe(Client2, Topic, qos2),
+
+    ok = emqtt:disconnect(Client1, 4), %% [MQTT-3.14.2-1]
+    [Msg | _ ] = receive_messages(1),
+    %% [MQTT-3.1.2-8]
+    ?assertEqual({ok, iolist_to_binary(Topic)}, maps:find(topic, Msg)),
+    ?assertEqual({ok, iolist_to_binary(Payload)}, maps:find(payload, Msg)),
+    ?assertEqual({ok, 0}, maps:find(qos, Msg)),
+    ok = emqtt:disconnect(Client2),
+
+    {ok, Client3} = emqtt:start_link([
+                                        {proto_ver, v5},
+                                        {clean_start, true},
+                                        {will_flag, true},
+                                        {will_topic, Topic},
+                                        {will_payload, Payload}
+                                        ]),
+    {ok, _} = emqtt:connect(Client3),
+
+    {ok, Client4} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client4),
+    {ok, _, [2]} = emqtt:subscribe(Client4, Topic, qos2),
+    ok = emqtt:disconnect(Client3),
+    ?assertEqual(0, length(receive_messages(1))),  %% [MQTT-3.1.2-10]
+    ok = emqtt:disconnect(Client4).
+
+t_connect_will_retain(_) ->
+    Topic = nth(1, ?TOPICS),
+    Payload = "will message",
+
+    {ok, Client1} = emqtt:start_link([
+                                        {proto_ver, v5},
+                                        {clean_start, true},
+                                        {will_flag, true},
+                                        {will_topic, Topic},
+                                        {will_payload, Payload},
+                                        {will_retain, false}
+                                        ]),
+    {ok, _} = emqtt:connect(Client1),
+
+    {ok, Client2} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client2),
+    {ok, _, [2]} = emqtt:subscribe(Client2, #{}, [{Topic, [{rap, true}, {qos, 2}]}]),
+
+    ok = emqtt:disconnect(Client1, 4),
+    [Msg1 | _ ] = receive_messages(1),
+    ?assertEqual({ok, false}, maps:find(retain, Msg1)),  %% [MQTT-3.1.2-14]
+    ok = emqtt:disconnect(Client2),
+
+    {ok, Client3} = emqtt:start_link([
+                                        {proto_ver, v5},
+                                        {clean_start, true},
+                                        {will_flag, true},
+                                        {will_topic, Topic},
+                                        {will_payload, Payload},
+                                        {will_retain, true}
+                                        ]),
+    {ok, _} = emqtt:connect(Client3),
+
+    {ok, Client4} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client4),
+    {ok, _, [2]} = emqtt:subscribe(Client4, #{}, [{Topic, [{rap, true}, {qos, 2}]}]),
+
+    ok = emqtt:disconnect(Client3, 4),
+    [Msg2 | _ ] = receive_messages(1),
+    ?assertEqual({ok, true}, maps:find(retain, Msg2)),  %% [MQTT-3.1.2-15]
+    ok = emqtt:disconnect(Client4).
 
 t_connect_idle_timeout(_) ->
     IdleTimeout = 2000,
@@ -151,6 +254,108 @@ t_connect_keepalive_timeout(_) ->
         error("keepalive timeout")
     end.
 
+%% [MQTT-3.1.2-23]
+t_connect_session_expiry_interval(_) ->
+    Topic = nth(1, ?TOPICS),
+    Payload = "test message",
+
+    {ok, Client1} = emqtt:start_link([
+                                        {clientid, <<"t_connect_session_expiry_interval">>},
+                                        {proto_ver, v5},
+                                        {properties, #{'Session-Expiry-Interval' => 7200}}
+                                    ]),
+    {ok, _} = emqtt:connect(Client1),
+    {ok, _, [2]} = emqtt:subscribe(Client1, Topic, qos2),
+    ok = emqtt:disconnect(Client1),
+
+    {ok, Client2} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client2),
+    {ok, 2} = emqtt:publish(Client2, Topic, Payload, 2),
+    ok = emqtt:disconnect(Client2),
+
+    {ok, Client3} = emqtt:start_link([
+                                        {clientid, <<"t_connect_session_expiry_interval">>},
+                                        {proto_ver, v5},
+                                        {clean_start, false}
+                                    ]),
+    {ok, _} = emqtt:connect(Client3),
+    [Msg | _ ] = receive_messages(1),
+    ?assertEqual({ok, iolist_to_binary(Topic)}, maps:find(topic, Msg)),
+    ?assertEqual({ok, iolist_to_binary(Payload)}, maps:find(payload, Msg)),
+    ?assertEqual({ok, 0}, maps:find(qos, Msg)),
+    ok = emqtt:disconnect(Client3).
+
+%% [MQTT-3.1.3-9]
+t_connect_will_delay_interval(_) ->
+    process_flag(trap_exit, true),
+    Topic = nth(1, ?TOPICS),
+    Payload = "will message",
+
+    {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client1),
+    {ok, _, [2]} = emqtt:subscribe(Client1, Topic, qos2),
+
+    {ok, Client2} = emqtt:start_link([
+                                        {clientid, <<"t_connect_will_delay_interval">>},
+                                        {proto_ver, v5},
+                                        {clean_start, true},
+                                        {will_flag, true},
+                                        {will_qos, 2},
+                                        {will_topic, Topic},
+                                        {will_payload, Payload},
+                                        {will_props, #{'Will-Delay-Interval' => 3}},
+                                        {properties, #{'Session-Expiry-Interval' => 7200}},
+                                        {keepalive, 2}
+                                        ]),
+    {ok, _} = emqtt:connect(Client2),
+
+    timer:sleep(5000),
+    ?assertEqual(0, length(receive_messages(1))),
+    timer:sleep(7000),
+    ?assertEqual(1, length(receive_messages(1))),
+
+    {ok, Client3} = emqtt:start_link([
+                                        {clientid, <<"t_connect_will_delay_interval">>},
+                                        {proto_ver, v5},
+                                        {clean_start, true},
+                                        {will_flag, true},
+                                        {will_qos, 2},
+                                        {will_topic, Topic},
+                                        {will_payload, Payload},
+                                        {will_props, #{'Will-Delay-Interval' => 7200}},
+                                        {properties, #{'Session-Expiry-Interval' => 3}},
+                                        {keepalive, 2}
+                                        ]),
+    {ok, _} = emqtt:connect(Client3),
+
+    timer:sleep(5000),
+    ?assertEqual(0, length(receive_messages(1))),
+    timer:sleep(7000),
+    ?assertEqual(1, length(receive_messages(1))),
+
+    ok = emqtt:disconnect(Client1),
+    process_flag(trap_exit, false).
+
+%% [MQTT-3.1.4-3]
+t_connect_duplicate_clientid(_) ->
+    {ok, Client1} = emqtt:start_link([
+                                        {clientid, <<"t_connect_duplicate_clientid">>},
+                                        {proto_ver, v5}
+                                        ]),
+    {ok, _} = emqtt:connect(Client1),
+    {ok, Client2} = emqtt:start_link([
+                                        {clientid, <<"t_connect_duplicate_clientid">>},
+                                        {proto_ver, v5}
+                                        ]),
+    {ok, _} = emqtt:connect(Client2),
+    receive
+        Msg ->
+            ReasonCode = 142,
+            ?assertMatch({disconnected, ReasonCode, _Channel}, Msg)
+    after 100 ->
+        error("Duplicate clientid")
+    end.
+
 %%--------------------------------------------------------------------
 %% Shared Subscriptions
 %%--------------------------------------------------------------------
@@ -193,4 +398,5 @@ t_shared_subscriptions_client_terminates_when_qos_eq_2(_) ->
             error("disconnected timeout")
     end,
 
-    ?assertEqual(1, counters:get(CRef, 1)).
+    ?assertEqual(1, counters:get(CRef, 1)),
+    process_flag(trap_exit, false).
