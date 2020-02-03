@@ -191,7 +191,8 @@ t_connect_will_retain(_) ->
     ok = emqtt:disconnect(Client3, 4),
     [Msg2 | _ ] = receive_messages(1),
     ?assertEqual({ok, true}, maps:find(retain, Msg2)),  %% [MQTT-3.1.2-15]
-    ok = emqtt:disconnect(Client4).
+    ok = emqtt:disconnect(Client4),
+    clean_retained(Topic).
 
 t_connect_idle_timeout(_) ->
     IdleTimeout = 2000,
@@ -282,7 +283,7 @@ t_connect_session_expiry_interval(_) ->
     [Msg | _ ] = receive_messages(1),
     ?assertEqual({ok, iolist_to_binary(Topic)}, maps:find(topic, Msg)),
     ?assertEqual({ok, iolist_to_binary(Payload)}, maps:find(payload, Msg)),
-    ?assertEqual({ok, 0}, maps:find(qos, Msg)),
+    ?assertEqual({ok, 2}, maps:find(qos, Msg)),
     ok = emqtt:disconnect(Client3).
 
 %% [MQTT-3.1.3-9]
