@@ -90,6 +90,7 @@
          {counter, 'packets.connack.auth_error'},    % CONNACK auth_error sent
          {counter, 'packets.publish.received'},      % PUBLISH packets received
          {counter, 'packets.publish.sent'},          % PUBLISH packets sent
+         {counter, 'packets.publish.inuse'},         % PUBLISH packet_id inuse
          {counter, 'packets.publish.error'},         % PUBLISH failed for error
          {counter, 'packets.publish.auth_error'},    % PUBLISH failed for auth error
          {counter, 'packets.publish.dropped'},       % PUBLISH(QoS2) packets dropped
@@ -457,37 +458,38 @@ reserved_idx('packets.connack.error')        -> 14;
 reserved_idx('packets.connack.auth_error')   -> 15;
 reserved_idx('packets.publish.received')     -> 16;
 reserved_idx('packets.publish.sent')         -> 17;
-reserved_idx('packets.publish.error')        -> 18;
-reserved_idx('packets.publish.auth_error')   -> 19;
-reserved_idx('packets.puback.received')      -> 20;
-reserved_idx('packets.puback.sent')          -> 21;
-reserved_idx('packets.puback.inuse')         -> 22;
-reserved_idx('packets.puback.missed')        -> 23;
-reserved_idx('packets.pubrec.received')      -> 24;
-reserved_idx('packets.pubrec.sent')          -> 25;
-reserved_idx('packets.pubrec.inuse')         -> 26;
-reserved_idx('packets.pubrec.missed')        -> 27;
-reserved_idx('packets.pubrel.received')      -> 28;
-reserved_idx('packets.pubrel.sent')          -> 29;
-reserved_idx('packets.pubrel.missed')        -> 30;
-reserved_idx('packets.pubcomp.received')     -> 31;
-reserved_idx('packets.pubcomp.sent')         -> 32;
-reserved_idx('packets.pubcomp.inuse')        -> 33;
-reserved_idx('packets.pubcomp.missed')       -> 34;
-reserved_idx('packets.subscribe.received')   -> 35;
-reserved_idx('packets.subscribe.error')      -> 36;
-reserved_idx('packets.subscribe.auth_error') -> 37;
-reserved_idx('packets.suback.sent')          -> 38;
-reserved_idx('packets.unsubscribe.received') -> 39;
-reserved_idx('packets.unsubscribe.error')    -> 40;
-reserved_idx('packets.unsuback.sent')        -> 41;
-reserved_idx('packets.pingreq.received')     -> 42;
-reserved_idx('packets.pingresp.sent')        -> 43;
-reserved_idx('packets.disconnect.received')  -> 44;
-reserved_idx('packets.disconnect.sent')      -> 45;
-reserved_idx('packets.auth.received')        -> 46;
-reserved_idx('packets.auth.sent')            -> 47;
-reserved_idx('packets.publish.dropped')      -> 48;
+reserved_idx('packets.publish.inuse')        -> 18;
+reserved_idx('packets.publish.error')        -> 19;
+reserved_idx('packets.publish.auth_error')   -> 20;
+reserved_idx('packets.puback.received')      -> 21;
+reserved_idx('packets.puback.sent')          -> 22;
+reserved_idx('packets.puback.inuse')         -> 23;
+reserved_idx('packets.puback.missed')        -> 24;
+reserved_idx('packets.pubrec.received')      -> 25;
+reserved_idx('packets.pubrec.sent')          -> 26;
+reserved_idx('packets.pubrec.inuse')         -> 27;
+reserved_idx('packets.pubrec.missed')        -> 28;
+reserved_idx('packets.pubrel.received')      -> 29;
+reserved_idx('packets.pubrel.sent')          -> 30;
+reserved_idx('packets.pubrel.missed')        -> 31;
+reserved_idx('packets.pubcomp.received')     -> 32;
+reserved_idx('packets.pubcomp.sent')         -> 33;
+reserved_idx('packets.pubcomp.inuse')        -> 34;
+reserved_idx('packets.pubcomp.missed')       -> 35;
+reserved_idx('packets.subscribe.received')   -> 36;
+reserved_idx('packets.subscribe.error')      -> 37;
+reserved_idx('packets.subscribe.auth_error') -> 38;
+reserved_idx('packets.suback.sent')          -> 39;
+reserved_idx('packets.unsubscribe.received') -> 40;
+reserved_idx('packets.unsubscribe.error')    -> 41;
+reserved_idx('packets.unsuback.sent')        -> 42;
+reserved_idx('packets.pingreq.received')     -> 43;
+reserved_idx('packets.pingresp.sent')        -> 44;
+reserved_idx('packets.disconnect.received')  -> 45;
+reserved_idx('packets.disconnect.sent')      -> 46;
+reserved_idx('packets.auth.received')        -> 47;
+reserved_idx('packets.auth.sent')            -> 48;
+reserved_idx('packets.publish.dropped')      -> 49;
 %% Reserved indices of message's metrics
 reserved_idx('messages.received')            -> 100;
 reserved_idx('messages.sent')                -> 101;
