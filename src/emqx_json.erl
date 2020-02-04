@@ -112,5 +112,5 @@ to_ejson(T) -> T.
 
 from_ejson({L}) ->
     [{Name, from_ejson(Value)} || {Name, Value} <- L];
-from_ejson(L) -> L.
+from_ejson(T) -> T.
 
