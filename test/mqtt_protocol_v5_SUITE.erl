@@ -112,7 +112,6 @@ t_connect_will_message(_) ->
     Payload = "will message",
 
     {ok, Client1} = emqtt:start_link([
-                                        {clientid, <<"t_connect_will_message">>},
                                         {proto_ver, v5},
                                         {clean_start, true},
                                         {will_flag, true},
@@ -120,7 +119,7 @@ t_connect_will_message(_) ->
                                         {will_payload, Payload}
                                         ]),
     {ok, _} = emqtt:connect(Client1),
-    [ClientPid] = emqx_cm:lookup_channels(<<"t_connect_will_message">>),
+    [ClientPid] = emqx_cm:lookup_channels(client_info(clientid, Client1)),
     ?assertNotEqual(undefined, maps:find(will_msg, emqx_connection:info(sys:get_state(ClientPid)))),  %% [MQTT-3.1.2-7]
 
     {ok, Client2} = emqtt:start_link([{proto_ver, v5}]),
@@ -211,9 +210,9 @@ t_connect_limit_timeout(_) ->
     Topic = nth(1, ?TOPICS),
     emqx_zone:set_env(external, publish_limit, {2.0, 3}),
 
-    {ok, Client} = emqtt:start_link([{clientid, <<"t_connect_limit_timeout">>},{proto_ver, v5},{keepalive, 60}]),
+    {ok, Client} = emqtt:start_link([{proto_ver, v5},{keepalive, 60}]),
     {ok, _} = emqtt:connect(Client),
-    [ClientPid] = emqx_cm:lookup_channels(<<"t_connect_limit_timeout">>),
+    [ClientPid] = emqx_cm:lookup_channels(client_info(clientid, Client)),
 
     ?assertEqual(undefined, emqx_connection:info(limit_timer, sys:get_state(ClientPid))),
     ok = emqtt:publish(Client, Topic, <<"t_shared_subscriptions_client_terminates_when_qos_eq_2">>, 0),
@@ -223,21 +222,21 @@ t_connect_limit_timeout(_) ->
     timer:sleep(200),
     ?assert(is_reference(emqx_connection:info(limit_timer, sys:get_state(ClientPid)))),
 
-    emqtt:disconnect(Client),
+    ok = emqtt:disconnect(Client),
     meck:unload(proplists).
 
 t_connect_emit_stats_timeout(_) ->
     IdleTimeout = 2000,
     emqx_zone:set_env(external, idle_timeout, IdleTimeout),
 
-    {ok, Client} = emqtt:start_link([{clientid, <<"t_connect_emit_stats_timeout">>},{proto_ver, v5},{keepalive, 60}]),
+    {ok, Client} = emqtt:start_link([{proto_ver, v5},{keepalive, 60}]),
     {ok, _} = emqtt:connect(Client),
-    [ClientPid] = emqx_cm:lookup_channels(<<"t_connect_emit_stats_timeout">>),
+    [ClientPid] = emqx_cm:lookup_channels(client_info(clientid, Client)),
 
     ?assert(is_reference(emqx_connection:info(stats_timer, sys:get_state(ClientPid)))),
     timer:sleep(IdleTimeout),
     ?assertEqual(undefined, emqx_connection:info(stats_timer, sys:get_state(ClientPid))),
-    emqtt:disconnect(Client).
+    ok = emqtt:disconnect(Client).
 
 %% [MQTT-3.1.2-22]
 t_connect_keepalive_timeout(_) ->
@@ -370,7 +369,7 @@ t_connack_session_present(_) ->
                                         ]),
     {ok, _} = emqtt:connect(Client1),
     ?assertEqual(0, client_info(session_present, Client1)),   %% [MQTT-3.2.2-2]
-    emqtt:disconnect(Client1),
+    ok = emqtt:disconnect(Client1),
 
     {ok, Client2} = emqtt:start_link([
                                         {clientid, <<"t_connect_duplicate_clientid">>},
@@ -380,7 +379,7 @@ t_connack_session_present(_) ->
                                         ]),
     {ok, _} = emqtt:connect(Client2),
     ?assertEqual(1, client_info(session_present, Client2)),   %% [[MQTT-3.2.2-3]]
-    emqtt:disconnect(Client2).
+    ok = emqtt:disconnect(Client2).
 
 %% TODO: [MQTT-3.2.2-9] [MQTT-3.2.2-10] [MQTT-3.2.2-11] [MQTT-3.2.2-12]
 % t_connack_max_qos_allowed(_) ->
@@ -395,7 +394,7 @@ t_connack_session_present(_) ->
 %     {ok, _, [0]} = emqtt:subscribe(Client1, Topic, 0),  %% [MQTT-3.2.2-10]
 %     {ok, _, [1]} = emqtt:subscribe(Client1, Topic, 1),  %% [MQTT-3.2.2-10]
 %     {ok, _, [2]} = emqtt:subscribe(Client1, Topic, 2),  %% [MQTT-3.2.2-10]
-%     emqtt:disconnect(Client1),
+%     ok = emqtt:disconnect(Client1),
 
     % emqx_zone:set_env(external, max_qos_allowed, 1),
     % ?assertEqual(1, emqx_zone:get_env(external, max_qos_allowed)),
@@ -406,7 +405,7 @@ t_connack_session_present(_) ->
     % {ok, _, [0]} = emqtt:subscribe(Client2, Topic, 0),  %% [MQTT-3.2.2-10]
     % {ok, _, [1]} = emqtt:subscribe(Client2, Topic, 1),  %% [MQTT-3.2.2-10]
     % {ok, _, [2]} = emqtt:subscribe(Client2, Topic, 2),  %% [MQTT-3.2.2-10]
-    % emqtt:disconnect(Client2),
+    % ok = emqtt:disconnect(Client2),
 
     % emqx_zone:set_env(external, max_qos_allowed, 2),
     % ?assertEqual(2, emqx_zone:get_env(external, max_qos_allowed)),
@@ -417,13 +416,13 @@ t_connack_session_present(_) ->
     % {ok, _, [0]} = emqtt:subscribe(Client3, Topic, 0),  %% [MQTT-3.2.2-10]
     % {ok, _, [1]} = emqtt:subscribe(Client3, Topic, 1),  %% [MQTT-3.2.2-10]
     % {ok, _, [2]} = emqtt:subscribe(Client3, Topic, 2),  %% [MQTT-3.2.2-10]
-    % emqtt:disconnect(Client3).
+    % ok = emqtt:disconnect(Client3).
 
 t_connack_assigned_clienid(_) ->
     {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client1),
     ?assert(is_binary(client_info(clientid, Client1))), %%  [MQTT-3.2.2-16]
-    emqtt:disconnect(Client1).
+    ok = emqtt:disconnect(Client1).
 
 %%--------------------------------------------------------------------
 %% Publish
@@ -450,7 +449,7 @@ t_publish_rap(_) ->
     {ok, _} = emqtt:publish(Client1, Topic, #{}, <<"retained message">>, [{qos, ?QOS_1}, {retain, true}]),
     [Msg1 | _] = receive_messages(1),
     ?assertEqual(true, maps:get(retain, Msg1)),  %% [MQTT-3.3.1-12]
-    emqtt:disconnect(Client1),
+    ok = emqtt:disconnect(Client1),
 
     {ok, Client2} = emqtt:start_link([{proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client2),
@@ -458,7 +457,7 @@ t_publish_rap(_) ->
     {ok, _} = emqtt:publish(Client2, Topic, #{}, <<"retained message">>, [{qos, ?QOS_1}, {retain, true}]),
     [Msg2 | _] = receive_messages(1),
     ?assertEqual(false, maps:get(retain, Msg2)),  %% [MQTT-3.3.1-13]
-    emqtt:disconnect(Client2),
+    ok = emqtt:disconnect(Client2),
 
     clean_retained(Topic).
 
@@ -488,7 +487,7 @@ t_publish_payload_format_indicator(_) ->
     ok = emqtt:publish(Client1, Topic, Properties, <<"Payload Format Indicator">>, [{qos, ?QOS_0}]),
     [Msg1 | _] = receive_messages(1),
     ?assertEqual(Properties, maps:get(properties, Msg1)),   %% [MQTT-3.3.2-6]
-    emqtt:disconnect(Client1).
+    ok = emqtt:disconnect(Client1).
 
 % t_publish_message_expiry_interval(_) ->
 %     TODO: [MQTT-3.3.2-5] [MQTT-3.3.2-5]
@@ -513,7 +512,7 @@ t_publish_topic_alias(_) ->
     ok = emqtt:publish(Client2, Topic, #{'Topic-Alias' => 233}, <<"Topic-Alias">>, [{qos, ?QOS_0}]),
     ok = emqtt:publish(Client2, <<"">>, #{'Topic-Alias' => 233}, <<"Topic-Alias">>, [{qos, ?QOS_0}]),
     ?assertEqual(2, length(receive_messages(2))),   %% [MQTT-3.3.2-12]
-    emqtt:disconnect(Client2),
+    ok = emqtt:disconnect(Client2),
     process_flag(trap_exit, false).
     
 t_publish_response_topic(_) ->
@@ -547,7 +546,7 @@ t_publish_properties(_) ->
     ok = emqtt:publish(Client1, Topic, Properties, <<"Publish Properties">>, [{qos, ?QOS_0}]),
     [Msg1 | _] = receive_messages(1),
     ?assertEqual(Properties, maps:get(properties, Msg1)),   %% [MQTT-3.3.2-16]
-    emqtt:disconnect(Client1).
+    ok = emqtt:disconnect(Client1).
 
 t_publish_overlapping_subscriptions(_) ->
     Topic = nth(1, ?TOPICS),
@@ -562,13 +561,73 @@ t_publish_overlapping_subscriptions(_) ->
     [Msg1 | _ ] = receive_messages(2),
     ?assert( maps:get(qos, Msg1) < 2 ),  %% [MQTT-3.3.4-2]
     ?assertEqual(Properties, maps:get(properties, Msg1)),   %% [MQTT-3.3.4-3]
-    emqtt:disconnect(Client1).
+    ok = emqtt:disconnect(Client1).
 
 %%--------------------------------------------------------------------
 %% Subsctibe
 %%--------------------------------------------------------------------
 
+t_subscribe_no_local(_) ->
+    Topic = nth(1, ?TOPICS),
 
+    {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client1),
+    {ok, _, [2]} = emqtt:subscribe(Client1, #{}, [{Topic, [{nl, true}, {qos, 2}]}]),
+
+    {ok, Client2} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client2),
+    {ok, _, [2]} = emqtt:subscribe(Client2, #{}, [{Topic, [{nl, true}, {qos, 2}]}]),
+
+    ok = emqtt:publish(Client1, Topic, <<"t_subscribe_no_local">>, 0),
+    ?assertEqual(1, length(receive_messages(2))),   %% [MQTT-3.8.3-3]
+    ok = emqtt:disconnect(Client1).
+
+% t_subscribe_retain_handing(_) ->
+%     TODO
+
+t_subscribe_actions(_) ->
+    Topic = nth(1, ?TOPICS),
+    Properties = #{'Subscription-Identifier' => 2333},
+
+    {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client1),
+    {ok, _, [2]} = emqtt:subscribe(Client1, Properties, Topic, qos2),
+    {ok, _, [1]} = emqtt:subscribe(Client1, Properties, Topic, qos1),
+    {ok, _} = emqtt:publish(Client1, Topic, <<"t_subscribe_actions">>, 2),
+    [Msg1 | _ ] = receive_messages(1),
+    ?assertEqual(1, maps:get(qos, Msg1)),   %% [MQTT-3.8.4-3] [MQTT-3.8.4-8]
+
+    %% TODO [MQTT-3.8.4-4]
+
+    {ok, _, [2,2]} = emqtt:subscribe(Client1, [{nth(1, ?TOPICS), qos2}, {nth(2, ?TOPICS), qos2}] ), %% [MQTT-3.8.4-5] [MQTT-3.8.4-6] [MQTT-3.8.4-7]
+    ok = emqtt:disconnect(Client1).
+%%--------------------------------------------------------------------
+%% Unsubsctibe Unsuback
+%%--------------------------------------------------------------------
+
+t_unscbsctibe(_) ->
+    Topic1 = nth(1, ?TOPICS),
+    Topic2 = nth(2, ?TOPICS),
+
+    {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client1),
+    {ok, _, [2]} = emqtt:subscribe(Client1, Topic1, qos2),
+    {ok, _, [0]} = emqtt:unsubscribe(Client1, Topic1),  %% [MQTT-3.10.4-4]
+    {ok, _, [17]} = emqtt:unsubscribe(Client1, <<"noExistTopic">>),  %% [MQTT-3.10.4-5]
+
+    {ok, _, [2, 2]} = emqtt:subscribe(Client1, [{Topic1, qos2}, {Topic2, qos2}]),
+    {ok, _, [0, 0, 17]} = emqtt:unsubscribe(Client1, [Topic1, Topic2, <<"noExistTopic">>]), %% [[MQTT-3.10.4-6]]  [MQTT-3.11.3-1]  [MQTT-3.11.3-2]
+    ok = emqtt:disconnect(Client1).
+
+%%--------------------------------------------------------------------
+%% Pingreq
+%%--------------------------------------------------------------------
+
+t_pingreq(_) ->
+    {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client1),
+    pong = emqtt:ping(Client1),  %% [MQTT-3.12.4-1]
+    ok = emqtt:disconnect(Client1).
 
 %%--------------------------------------------------------------------
 %% Shared Subscriptions
