@@ -345,6 +345,9 @@ check_will_msg(#mqtt_packet_connect{will_flag = false}, _Caps) ->
 check_will_msg(#mqtt_packet_connect{will_retain = true},
                _Opts = #{mqtt_retain_available := false}) ->
     {error, ?RC_RETAIN_NOT_SUPPORTED};
+check_will_msg(#mqtt_packet_connect{will_qos = WillQoS},
+               _Opts = #{max_qos_allowed := MaxQoS}) when WillQoS > MaxQoS ->
+    {error, ?RC_QOS_NOT_SUPPORTED};
 check_will_msg(#mqtt_packet_connect{will_topic = WillTopic}, _Opts) ->
     try emqx_topic:validate(name, WillTopic) of
         true -> ok
