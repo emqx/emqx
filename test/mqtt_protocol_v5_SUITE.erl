@@ -66,6 +66,14 @@ receive_messages(Count, Msgs) ->
         Msgs
     end.
 
+receive_disconnect_reasoncode() ->
+    receive
+        {disconnected, ReasonCode, _} -> ReasonCode;
+        _Other -> receive_disconnect_reasoncode()
+    after 100 ->
+        error("no disconnect packet")
+    end.
+
 clean_retained(Topic) ->
     {ok, Clean} = emqtt:start_link([{clean_start, true}]),
     {ok, _} = emqtt:connect(Clean),
@@ -247,9 +255,7 @@ t_connect_keepalive_timeout(_) ->
     {ok, _} = emqtt:connect(Client),
     emqtt:pause(Client),
     receive
-        Msg -> 
-            ReasonCode = 141,
-            ?assertMatch({disconnected, ReasonCode, _Channel}, Msg)
+        {disconnected, ReasonCode, _Channel} -> ?assertEqual(141, ReasonCode)
     after round(timer:seconds(Keepalive) * 2 * 1.5 ) ->
         error("keepalive timeout")
     end.
@@ -348,13 +354,7 @@ t_connect_duplicate_clientid(_) ->
                                         {proto_ver, v5}
                                         ]),
     {ok, _} = emqtt:connect(Client2),
-    receive
-        Msg ->
-            ReasonCode = 142,
-            ?assertMatch({disconnected, ReasonCode, _Channel}, Msg)
-    after 100 ->
-        error("Duplicate clientid")
-    end.
+    ?assertEqual(142, receive_disconnect_reasoncode()).
 
 %%--------------------------------------------------------------------
 %% Connack
@@ -381,42 +381,77 @@ t_connack_session_present(_) ->
     ?assertEqual(1, client_info(session_present, Client2)),   %% [[MQTT-3.2.2-3]]
     ok = emqtt:disconnect(Client2).
 
-%% TODO: [MQTT-3.2.2-9] [MQTT-3.2.2-10] [MQTT-3.2.2-11] [MQTT-3.2.2-12]
-% t_connack_max_qos_allowed(_) ->
-%     Topic = nth(1, ?TOPICS),
+t_connack_max_qos_allowed(_) ->
+    process_flag(trap_exit, true),
+    Topic = nth(1, ?TOPICS),
 
-%     emqx_zone:set_env(external, max_qos_allowed, 0),
-%     ?assertEqual(0, emqx_zone:get_env(external, max_qos_allowed)),
-%     {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
-%     {ok, _} = emqtt:connect(Client1),
-%     ?assertEqual(0, maps:get('Maximum-QoS',client_info(properties, Client1))),  %% [MQTT-3.2.2-9]
+    %% max_qos_allowed = 0
+    emqx_zone:set_env(external, max_qos_allowed, 0),
+    persistent_term:erase({emqx_zone, external, '$mqtt_caps'}),
+    persistent_term:erase({emqx_zone, external, '$mqtt_pub_caps'}),
 
-%     {ok, _, [0]} = emqtt:subscribe(Client1, Topic, 0),  %% [MQTT-3.2.2-10]
-%     {ok, _, [1]} = emqtt:subscribe(Client1, Topic, 1),  %% [MQTT-3.2.2-10]
-%     {ok, _, [2]} = emqtt:subscribe(Client1, Topic, 2),  %% [MQTT-3.2.2-10]
-%     ok = emqtt:disconnect(Client1),
+    {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, Connack1} = emqtt:connect(Client1),
+    ?assertEqual(0, maps:get('Maximum-QoS',Connack1)),  %% [MQTT-3.2.2-9]
 
-    % emqx_zone:set_env(external, max_qos_allowed, 1),
-    % ?assertEqual(1, emqx_zone:get_env(external, max_qos_allowed)),
-    % {ok, Client2} = emqtt:start_link([{proto_ver, v5}]),
-    % {ok, _} = emqtt:connect(Client2),
-    % ?assertEqual(1, maps:get('Maximum-QoS',client_info(properties, Client2))),  %% [MQTT-3.2.2-9]
+    {ok, _, [0]} = emqtt:subscribe(Client1, Topic, 0),  %% [MQTT-3.2.2-10]
+    {ok, _, [1]} = emqtt:subscribe(Client1, Topic, 1),  %% [MQTT-3.2.2-10]
+    {ok, _, [2]} = emqtt:subscribe(Client1, Topic, 2),  %% [MQTT-3.2.2-10]
 
-    % {ok, _, [0]} = emqtt:subscribe(Client2, Topic, 0),  %% [MQTT-3.2.2-10]
-    % {ok, _, [1]} = emqtt:subscribe(Client2, Topic, 1),  %% [MQTT-3.2.2-10]
-    % {ok, _, [2]} = emqtt:subscribe(Client2, Topic, 2),  %% [MQTT-3.2.2-10]
-    % ok = emqtt:disconnect(Client2),
+    {ok, _} = emqtt:publish(Client1, Topic, <<"Unsupported Qos 1">>, qos1),
+    ?assertEqual(155, receive_disconnect_reasoncode()),    %% [MQTT-3.2.2-11]
 
-    % emqx_zone:set_env(external, max_qos_allowed, 2),
-    % ?assertEqual(2, emqx_zone:get_env(external, max_qos_allowed)),
-    % {ok, Client3} = emqtt:start_link([{proto_ver, v5}]),
-    % {ok, _} = emqtt:connect(Client3),
-    % ?assertEqual(2, maps:get('Maximum-QoS',client_info(properties, Client3))),  %% [MQTT-3.2.2-9]
+    {ok, Client2} = emqtt:start_link([
+                                        {proto_ver, v5},
+                                        {will_flag, true},
+                                        {will_topic, Topic},
+                                        {will_payload, <<"Unsupported Qos">>},
+                                        {will_qos, 2}
+                                        ]),
+    {error, Connack2} = emqtt:connect(Client2),
+    ?assertMatch({qos_not_supported,_ }, Connack2),     %% [MQTT-3.2.2-12]
 
-    % {ok, _, [0]} = emqtt:subscribe(Client3, Topic, 0),  %% [MQTT-3.2.2-10]
-    % {ok, _, [1]} = emqtt:subscribe(Client3, Topic, 1),  %% [MQTT-3.2.2-10]
-    % {ok, _, [2]} = emqtt:subscribe(Client3, Topic, 2),  %% [MQTT-3.2.2-10]
-    % ok = emqtt:disconnect(Client3).
+    %% max_qos_allowed = 1
+    emqx_zone:set_env(external, max_qos_allowed, 1),
+    persistent_term:erase({emqx_zone, external, '$mqtt_caps'}),
+    persistent_term:erase({emqx_zone, external, '$mqtt_pub_caps'}),
+
+    {ok, Client3} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, Connack3} = emqtt:connect(Client3),
+    ?assertEqual(1, maps:get('Maximum-QoS',Connack3)),  %% [MQTT-3.2.2-9]
+
+    {ok, _, [0]} = emqtt:subscribe(Client3, Topic, 0),  %% [MQTT-3.2.2-10]
+    {ok, _, [1]} = emqtt:subscribe(Client3, Topic, 1),  %% [MQTT-3.2.2-10]
+    {ok, _, [2]} = emqtt:subscribe(Client3, Topic, 2),  %% [MQTT-3.2.2-10]
+
+    {ok, _} = emqtt:publish(Client3, Topic, <<"Unsupported Qos 2">>, qos2),
+    ?assertEqual(155, receive_disconnect_reasoncode()), %% [MQTT-3.2.2-11]
+
+    {ok, Client4} = emqtt:start_link([
+                                        {proto_ver, v5},
+                                        {will_flag, true},
+                                        {will_topic, Topic},
+                                        {will_payload, <<"Unsupported Qos">>},
+                                        {will_qos, 2}
+                                        ]),
+    {error, Connack4} = emqtt:connect(Client4),
+    ?assertMatch({qos_not_supported,_ }, Connack4),     %% [MQTT-3.2.2-12]
+    receive
+        {'EXIT', _, {shutdown,qos_not_supported}} -> ok
+    after 100 -> error("t_connack_max_qos_allowed")
+    end,
+
+    %% max_qos_allowed = 2
+    emqx_zone:set_env(external, max_qos_allowed, 2),
+    persistent_term:erase({emqx_zone, external, '$mqtt_caps'}),
+    persistent_term:erase({emqx_zone, external, '$mqtt_pub_caps'}),
+
+    {ok, Client5} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, Connack5} = emqtt:connect(Client5),
+    ?assertEqual(2, maps:get('Maximum-QoS',Connack5)),  %% [MQTT-3.2.2-9]
+    ok = emqtt:disconnect(Client5),
+
+    process_flag(trap_exit, false).
 
 t_connack_assigned_clienid(_) ->
     {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
@@ -468,12 +503,7 @@ t_publish_wildtopic(_) ->
     {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client1),
     ok = emqtt:publish(Client1, Topic, <<"error topic">>),
-    receive
-        {disconnected,ReasonCode,_} ->
-            ?assertEqual(144, ReasonCode)   %% [MQTT-3.3.2-2]
-    after 100 ->
-        error("t_publish_wildtopic")
-    end,
+    ?assertEqual(144, receive_disconnect_reasoncode()),
 
     process_flag(trap_exit, false).
 
@@ -499,12 +529,7 @@ t_publish_topic_alias(_) ->
     {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client1),
     ok = emqtt:publish(Client1, Topic, #{'Topic-Alias' => 0}, <<"Topic-Alias">>, [{qos, ?QOS_0}]),
-    receive
-        {disconnected,ReasonCode,_} ->
-            ?assertEqual(148, ReasonCode)   %% [MQTT-3.3.2-8]
-    after 100 ->
-        error("t_publish_topic_alias")
-    end,
+    ?assertEqual(148, receive_disconnect_reasoncode()),  %% [MQTT-3.3.2-8]
 
     {ok, Client2} = emqtt:start_link([{proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client2),
@@ -522,12 +547,7 @@ t_publish_response_topic(_) ->
     {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client1),
     ok = emqtt:publish(Client1, Topic, #{'Response-Topic' => nth(1, ?WILD_TOPICS)}, <<"Response-Topic">>, [{qos, ?QOS_0}]),
-    receive
-        {disconnected,ReasonCode,_} ->
-            ?assertEqual(130, ReasonCode)   %% [MQTT-3.3.2-8]
-    after 100 ->
-        error("t_publish_topic_alias")
-    end,
+    ?assertEqual(130, receive_disconnect_reasoncode()),  %% [MQTT-3.3.2-14]
 
     process_flag(trap_exit, false).
 
