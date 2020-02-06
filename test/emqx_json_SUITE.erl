@@ -67,6 +67,7 @@ t_decode_encode(_) ->
     [{<<"foo">>, <<"bar">>}] = decode(encode({[{foo, bar}]})),
     [{<<"foo">>, <<"bar">>}] = decode(encode({[{<<"foo">>, <<"bar">>}]})),
     [{<<"foo">>, <<"bar">>}] = decode(encode([{<<"foo">>, <<"bar">>}])),
+    [[{<<"foo">>, <<"bar">>}]] = decode(encode([[{<<"foo">>, <<"bar">>}]])),
     #{<<"foo">> := <<"bar">>} = decode(encode(#{<<"foo">> => <<"bar">>}), [return_maps]),
     JsonText = <<"{\"bool\":true,\"int\":10,\"foo\":\"bar\"}">>,
     JsonMaps = #{<<"bool">> => true,
