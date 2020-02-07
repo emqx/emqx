@@ -340,6 +340,10 @@ t_connect_will_delay_interval(_) ->
     ?assertEqual(1, length(receive_messages(1))),
 
     ok = emqtt:disconnect(Client1),
+
+    receive {'EXIT', _, _} -> ok
+    after 100 -> ok
+    end,
     process_flag(trap_exit, false).
 
 %% [MQTT-3.1.4-3]
@@ -451,6 +455,9 @@ t_connack_max_qos_allowed(_) ->
     ?assertEqual(2, maps:get('Maximum-QoS',Connack5)),  %% [MQTT-3.2.2-9]
     ok = emqtt:disconnect(Client5),
 
+    receive {'EXIT', _, _} -> ok
+    after 100 -> ok
+    end,
     process_flag(trap_exit, false).
 
 t_connack_assigned_clienid(_) ->
@@ -493,6 +500,9 @@ t_publish_wildtopic(_) ->
     ok = emqtt:publish(Client1, Topic, <<"error topic">>),
     ?assertEqual(144, receive_disconnect_reasoncode()),
 
+    receive {'EXIT', _, _} -> ok
+    after 100 -> ok
+    end,
     process_flag(trap_exit, false).
 
 t_publish_payload_format_indicator(_) ->
@@ -523,6 +533,10 @@ t_publish_topic_alias(_) ->
     ok = emqtt:publish(Client2, <<"">>, #{'Topic-Alias' => 233}, <<"Topic-Alias">>, [{qos, ?QOS_0}]),
     ?assertEqual(2, length(receive_messages(2))),   %% [MQTT-3.3.2-12]
     ok = emqtt:disconnect(Client2),
+
+    receive {'EXIT', _, _} -> ok
+    after 100 -> ok
+    end,
     process_flag(trap_exit, false).
     
 t_publish_response_topic(_) ->
@@ -534,6 +548,9 @@ t_publish_response_topic(_) ->
     ok = emqtt:publish(Client1, Topic, #{'Response-Topic' => nth(1, ?WILD_TOPICS)}, <<"Response-Topic">>, [{qos, ?QOS_0}]),
     ?assertEqual(130, receive_disconnect_reasoncode()),  %% [MQTT-3.3.2-14]
 
+    receive {'EXIT', _, _} -> ok
+    after 100 -> ok
+    end,
     process_flag(trap_exit, false).
 
 t_publish_properties(_) ->
