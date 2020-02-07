@@ -40,22 +40,30 @@
           , decode/2
           ]}).
 
--spec(encode(jsx:json_term()) -> jsx:json_text()).
+-type(encode_options() :: jiffy:encode_options()).
+-type(decode_options() :: jiffy:decode_options()).
+
+-type(json_text() :: iolist() | binary()).
+-type(json_term() :: jiffy:jiffy_decode_result()).
+
+-export_type([json_text/0, json_term/0]).
+-export_type([decode_options/0, encode_options/0]).
+
+-spec(encode(json_term()) -> json_text()).
 encode(Term) ->
-    jsx:encode(Term).
+    encode(Term, []).
 
--spec(encode(jsx:json_term(), jsx_to_json:config())
-      -> jsx:json_text()).
+-spec(encode(json_term(), encode_options()) -> json_text()).
 encode(Term, Opts) ->
-    jsx:encode(Term, Opts).
+    jiffy:encode(to_ejson(Term), Opts).
 
--spec(safe_encode(jsx:json_term())
-      -> {ok, jsx:json_text()} | {error, Reason :: term()}).
+-spec(safe_encode(json_term())
+      -> {ok, json_text()} | {error, Reason :: term()}).
 safe_encode(Term) ->
     safe_encode(Term, []).
 
--spec(safe_encode(jsx:json_term(), jsx_to_json:config())
-      -> {ok, jsx:json_text()} | {error, Reason :: term()}).
+-spec(safe_encode(json_term(), encode_options())
+      -> {ok, json_text()} | {error, Reason :: term()}).
 safe_encode(Term, Opts) ->
     try encode(Term, Opts) of
         Json -> {ok, Json}
@@ -64,22 +72,20 @@ safe_encode(Term, Opts) ->
             {error, Reason}
     end.
 
--spec(decode(jsx:json_text()) -> jsx:json_term()).
-decode(Json) ->
-    jsx:decode(Json).
+-spec(decode(json_text()) -> json_term()).
+decode(Json) -> decode(Json, []).
 
--spec(decode(jsx:json_text(), jsx_to_json:config())
-      -> jsx:json_term()).
+-spec(decode(json_text(), decode_options()) -> json_term()).
 decode(Json, Opts) ->
-    jsx:decode(Json, Opts).
+    from_ejson(jiffy:decode(Json, Opts)).
 
--spec(safe_decode(jsx:json_text())
-      -> {ok, jsx:json_term()} | {error, Reason :: term()}).
+-spec(safe_decode(json_text())
+      -> {ok, json_term()} | {error, Reason :: term()}).
 safe_decode(Json) ->
     safe_decode(Json, []).
 
--spec(safe_decode(jsx:json_text(), jsx_to_json:config())
-      -> {ok, jsx:json_term()} | {error, Reason :: term()}).
+-spec(safe_decode(json_text(), decode_options())
+      -> {ok, json_term()} | {error, Reason :: term()}).
 safe_decode(Json, Opts) ->
     try decode(Json, Opts) of
         Term -> {ok, Term}
@@ -87,4 +93,28 @@ safe_decode(Json, Opts) ->
         error:Reason ->
             {error, Reason}
     end.
+
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
+-compile({inline,
+          [ to_ejson/1
+          , from_ejson/1
+          ]}).
+
+to_ejson([[{_,_}]|_] = L) ->
+    [to_ejson(E) || E <- L];
+to_ejson([{_, _}|_] = L) ->
+    lists:foldl(
+      fun({Name, Value}, Acc) ->
+        Acc#{Name => to_ejson(Value)}
+      end, #{}, L);
+to_ejson(T) -> T.
+
+from_ejson([{_}|_] = L) ->
+    [from_ejson(E) || E <- L];
+from_ejson({L}) ->
+    [{Name, from_ejson(Value)} || {Name, Value} <- L];
+from_ejson(T) -> T.
 

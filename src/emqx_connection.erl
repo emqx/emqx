@@ -136,10 +136,10 @@ info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
 info(active_n, #state{active_n = ActiveN}) ->
     ActiveN;
-info(stats_timer, #state{stats_timer = Stats_timer}) ->
-    Stats_timer;
-info(limit_timer, #state{limit_timer = Limit_timer}) ->
-    Limit_timer;
+info(stats_timer, #state{stats_timer = StatsTimer}) ->
+    StatsTimer;
+info(limit_timer, #state{limit_timer = LimitTimer}) ->
+    LimitTimer;
 info(limiter, #state{limiter = Limiter}) ->
     maybe_apply(fun emqx_limiter:info/1, Limiter).
 
