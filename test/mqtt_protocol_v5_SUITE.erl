@@ -463,18 +463,6 @@ t_connack_assigned_clienid(_) ->
 %% Publish
 %%--------------------------------------------------------------------
 
-%% TODO: [MQTT-3.3.1-5] [MQTT-3.3.1-6] [MQTT-3.3.1-7] [MQTT-3.3.1-8] [MQTT-3.3.1-9] [MQTT-3.3.1-10] [MQTT-3.3.1-11]
-% t_publish_retain_message(_) ->
-%     Topic = nth(1, ?TOPICS),
-
-%     {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
-%     {ok, _} = emqtt:connect(Client1),
-%     {ok, _} = emqtt:publish(Client1, Topic, #{}, <<"retained message">>, [{qos, ?QOS_1}, {retain, true}]),
-%     {ok, _, [2]} = emqtt:subscribe(Client1, Topic, 2),
-
-%     Msg = receive_messages(1),
-%     ct:print("===========~p~n",[Msg]).
-
 t_publish_rap(_) ->
     Topic = nth(1, ?TOPICS),
 
@@ -518,9 +506,6 @@ t_publish_payload_format_indicator(_) ->
     [Msg1 | _] = receive_messages(1),
     ?assertEqual(Properties, maps:get(properties, Msg1)),   %% [MQTT-3.3.2-6]
     ok = emqtt:disconnect(Client1).
-
-% t_publish_message_expiry_interval(_) ->
-%     TODO: [MQTT-3.3.2-5] [MQTT-3.3.2-5]
 
 t_publish_topic_alias(_) ->
     process_flag(trap_exit, true),
@@ -602,9 +587,6 @@ t_subscribe_no_local(_) ->
     ?assertEqual(1, length(receive_messages(2))),   %% [MQTT-3.8.3-3]
     ok = emqtt:disconnect(Client1).
 
-% t_subscribe_retain_handing(_) ->
-%     TODO
-
 t_subscribe_actions(_) ->
     Topic = nth(1, ?TOPICS),
     Properties = #{'Subscription-Identifier' => 2333},
@@ -616,8 +598,6 @@ t_subscribe_actions(_) ->
     {ok, _} = emqtt:publish(Client1, Topic, <<"t_subscribe_actions">>, 2),
     [Msg1 | _ ] = receive_messages(1),
     ?assertEqual(1, maps:get(qos, Msg1)),   %% [MQTT-3.8.4-3] [MQTT-3.8.4-8]
-
-    %% TODO [MQTT-3.8.4-4]
 
     {ok, _, [2,2]} = emqtt:subscribe(Client1, [{nth(1, ?TOPICS), qos2}, {nth(2, ?TOPICS), qos2}] ), %% [MQTT-3.8.4-5] [MQTT-3.8.4-6] [MQTT-3.8.4-7]
     ok = emqtt:disconnect(Client1).
