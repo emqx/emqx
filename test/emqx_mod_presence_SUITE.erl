@@ -63,17 +63,17 @@ recv_and_check_presence(ClientId, Presence) ->
                  binary:split(Topic, <<"/">>, [global])),
     case Presence of
         <<"connected">> ->
-            ?assertMatch(#{clientid := <<"clientid">>,
-                           username := <<"username">>,
-                           ipaddress := <<"127.0.0.1">>,
-                           proto_name := <<"MQTT">>,
-                           proto_ver := ?MQTT_PROTO_V4,
-                           connack := ?RC_SUCCESS,
-                           clean_start := true}, emqx_json:decode(Payload, [{labels, atom}, return_maps]));
+            ?assertMatch(#{<<"clientid">> := <<"clientid">>,
+                           <<"username">> := <<"username">>,
+                           <<"ipaddress">> := <<"127.0.0.1">>,
+                           <<"proto_name">> := <<"MQTT">>,
+                           <<"proto_ver">> := ?MQTT_PROTO_V4,
+                           <<"connack">> := ?RC_SUCCESS,
+                           <<"clean_start">> := true}, emqx_json:decode(Payload, [return_maps]));
         <<"disconnected">> ->
-            ?assertMatch(#{clientid := <<"clientid">>,
-                           username := <<"username">>,
-                           reason := <<"normal">>}, emqx_json:decode(Payload, [{labels, atom}, return_maps]))
+            ?assertMatch(#{<<"clientid">> := <<"clientid">>,
+                           <<"username">> := <<"username">>,
+                           <<"reason">> := <<"normal">>}, emqx_json:decode(Payload, [return_maps]))
     end.
 
 %%--------------------------------------------------------------------

@@ -93,7 +93,7 @@ t_info(_) ->
                         {'$gen_call', From, info} ->
                             gen_server:reply(From, emqx_connection:info(st()))
                     after
-                        0 -> error("error")
+                        100 -> error("error")
                     end
                 end),
     #{sockinfo := SockInfo} = emqx_connection:info(CPid),
@@ -113,15 +113,15 @@ t_stats(_) ->
                             {'$gen_call', From, stats} ->
                                 gen_server:reply(From, emqx_connection:stats(st()))
                         after
-                            0 -> error("error")
+                            100 -> error("error")
                         end
                     end),
     Stats = emqx_connection:stats(CPid),
     ?assertMatch([{recv_oct,0},
-                    {recv_cnt,0},
-                    {send_oct,0},
-                    {send_cnt,0},
-                    {send_pend,0}| _] , Stats).
+                  {recv_cnt,0},
+                  {send_oct,0},
+                  {send_cnt,0},
+                  {send_pend,0}| _] , Stats).
 
 t_process_msg(_) ->
     with_conn(fun(CPid) -> 
@@ -384,7 +384,7 @@ trap_exit(Pid, Reason) ->
         {'EXIT', Pid, Reason} -> ok;
         {'EXIT', Pid, Other}  -> error({unexpect_exit, Other})
     after
-        0 -> error({expect_exit, Reason})
+        100 -> error({expect_exit, Reason})
     end.
 
 make_frame(Packet) ->
