@@ -53,18 +53,18 @@ t_reload_acl(_) ->
     ?assertEqual(ok, emqx_access_control:reload_acl()).
 
 t_bypass_auth_plugins(_) ->
-    AuthFun = fun(#{zone := internal}, AuthRes) ->
+    AuthFun = fun(#{zone := bypass_zone}, AuthRes) ->
                       {stop, AuthRes#{auth_result => password_error}};
-                 (#{zone := external}, AuthRes) ->
+                 (#{zone := _}, AuthRes) ->
                       {stop, AuthRes#{auth_result => success}}
               end,
     ClientInfo = clientinfo(),
-    emqx_zone:set_env(internal, allow_anonymous, true),
-    emqx_zone:set_env(external, allow_anonymous, false),
-    emqx_zone:set_env(internal, bypass_auth_plugins, true),
+    emqx_zone:set_env(bypass_zone, allow_anonymous, true),
+    emqx_zone:set_env(zone, allow_anonymous, false),
+    emqx_zone:set_env(bypass_zone, bypass_auth_plugins, true),
     emqx:hook('client.authenticate', AuthFun, []),
-    ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo#{zone => internal})),
-    ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo#{zone => external})).
+    ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo#{zone => bypass_zone})),
+    ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo)).
 
 %%--------------------------------------------------------------------
 %% Helper functions
