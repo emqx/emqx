@@ -273,6 +273,8 @@ discard_session(ClientId) when is_binary(ClientId) ->
                       try
                           discard_session(ClientId, ChanPid)
                       catch
+                          _:{noproc,_}:_Stk -> ok;
+                          _:{{shutdown,_},_}:_Stk -> ok;
                           _:Error:_Stk ->
                               ?LOG(error, "Failed to discard ~p: ~p", [ChanPid, Error])
                       end
