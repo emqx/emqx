@@ -939,6 +939,12 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc Whether to bypass the authentication step
+{mapping, "zone.$name.bypass_auth_plugins", "emqx.zones", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {translation, "emqx.zones", fun(Conf) ->
   Mapping = fun("publish_limit", Val) ->
                     [L, D] = string:tokens(Val, ", "),
