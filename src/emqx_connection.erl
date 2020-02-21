@@ -617,7 +617,7 @@ ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
         {ok, Limiter1} ->
             State#state{limiter = Limiter1};
         {pause, Time, Limiter1} ->
-            ?LOG(debug, "Pause ~pms due to rate limit", [Time]),
+            ?LOG(warning, "Pause ~pms due to rate limit", [Time]),
             TRef = start_timer(Time, limit_timeout),
             State#state{sockstate   = blocked,
                         limiter     = Limiter1,
