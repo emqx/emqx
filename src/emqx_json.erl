@@ -103,7 +103,7 @@ safe_decode(Json, Opts) ->
           , from_ejson/1
           ]}).
 
-to_ejson([[{_,_}]|_] = L) ->
+to_ejson([[{_,_}|_]|_] = L) ->
     [to_ejson(E) || E <- L];
 to_ejson([{_, _}|_] = L) ->
     lists:foldl(
