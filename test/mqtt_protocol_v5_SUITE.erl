@@ -119,12 +119,17 @@ t_connect_clean_start(_) ->
     {ok, _} = emqtt:connect(Client2),
     ?assertEqual(1, client_info(session_present, Client2)),  %% [MQTT-3.1.2-5]
     ?assertEqual(142, receive_disconnect_reasoncode()),
+    waiting_client_process_exit(Client1),
 
     ok = emqtt:disconnect(Client2),
+    waiting_client_process_exit(Client2),
+
     {ok, Client3} = emqtt:start_link([{clientid, <<"new_client">>},{proto_ver, v5},{clean_start, false}]),
     {ok, _} = emqtt:connect(Client3),
     ?assertEqual(0, client_info(session_present, Client3)),  %% [MQTT-3.1.2-6]
     ok = emqtt:disconnect(Client3),
+    waiting_client_process_exit(Client3),
+
     process_flag(trap_exit, false).
 
 t_connect_will_message(_) ->
