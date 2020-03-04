@@ -287,7 +287,7 @@ handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), Channel = #channel{session = S
     end;
 
 handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
-          Channel = #channel{clientinfo = ClientInfo}) ->
+          Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
     case emqx_packet:check(Packet) of
         ok -> TopicFilters1 = parse_topic_filters(TopicFilters),
               TopicFilters2 = enrich_subid(Properties, TopicFilters1),
@@ -296,7 +296,15 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
                                         TopicFilters2
                                        ),
               {ReasonCodes, NChannel} = process_subscribe(TopicFilters3, Channel),
-              handle_out(suback, {PacketId, ReasonCodes}, NChannel);
+              case emqx_zone:get_env(Zone, acl_deny_action, ignore) =:= disconnect andalso
+                   lists:any(fun(ReasonCode) ->
+                                 ReasonCode =:= ?RC_NOT_AUTHORIZED
+                             end, ReasonCodes) of
+                  true ->
+                      handle_out(disconnect, ?RC_NOT_AUTHORIZED, NChannel);
+                  false ->
+                      handle_out(suback, {PacketId, ReasonCodes}, NChannel)
+              end;
         {error, ReasonCode} ->
             handle_out(disconnect, ReasonCode, Channel)
     end;
@@ -373,7 +381,8 @@ process_connect(ConnPkt = #mqtt_packet_connect{clean_start = CleanStart},
 %% Process Publish
 %%--------------------------------------------------------------------
 
-process_publish(Packet = ?PUBLISH_PACKET(_QoS, Topic, PacketId), Channel) ->
+process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), 
+                Channel = #channel{clientinfo = #{zone := Zone}}) ->
     case pipeline([fun process_alias/2,
                    fun check_pub_alias/2,
                    fun check_pub_acl/2,
@@ -382,6 +391,19 @@ process_publish(Packet = ?PUBLISH_PACKET(_QoS, Topic, PacketId), Channel) ->
         {ok, NPacket, NChannel} ->
             Msg = packet_to_message(NPacket, NChannel),
             do_publish(PacketId, Msg, NChannel);
+        {error, ReasonCode, NChannel} when ReasonCode =:= ?RC_NOT_AUTHORIZED ->
+            ?LOG(warning, "Cannot publish message to ~s due to ~s.",
+                 [Topic, emqx_reason_codes:text(ReasonCode)]),
+            case emqx_zone:get_env(Zone, acl_deny_action, ignore) of
+                ignore ->
+                    case QoS of
+                       ?QOS_0 -> {ok, NChannel};
+                        _ ->
+                           handle_out(puback, {PacketId, ReasonCode}, NChannel) 
+                    end;
+                disconnect ->
+                    handle_out(disconnect, ReasonCode, NChannel)
+            end;
         {error, ReasonCode, NChannel} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s.",
                  [Topic, emqx_reason_codes:text(ReasonCode)]),
