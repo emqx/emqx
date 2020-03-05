@@ -1012,6 +1012,9 @@ maybe_username_as_clientid(_ConnPkt, ClientInfo = #{zone := Zone, username := Us
         false -> ok
     end.
 
+maybe_assign_clientid(_ConnPkt, ClientInfo = #{clientid := ClientId})
+  when ClientId /= undefined ->
+    {ok, ClientInfo};
 maybe_assign_clientid(#mqtt_packet_connect{clientid = <<>>}, ClientInfo) ->
     %% Generate a rand clientId
     {ok, ClientInfo#{clientid => emqx_guid:to_base62(emqx_guid:gen())}};
