@@ -476,13 +476,18 @@ handle_timeout(_TRef, emit_stats, State =
     emqx_cm:set_chan_stats(ClientId, stats(State)),
     {ok, State#state{stats_timer = undefined}};
 
-handle_timeout(TRef, keepalive, State =
-               #state{transport = Transport, socket = Socket}) ->
-    case Transport:getstat(Socket, [recv_oct]) of
-        {ok, [{recv_oct, RecvOct}]} ->
-            handle_timeout(TRef, {keepalive, RecvOct}, State);
-        {error, Reason} ->
-            handle_info({sock_error, Reason}, State)
+handle_timeout(TRef, keepalive, State = #state{transport = Transport,
+                                               socket = Socket,
+                                               channel = Channel})->
+    case emqx_channel:info(conn_state, Channel) of
+        disconnected -> {ok, State};
+        _ ->
+            case Transport:getstat(Socket, [recv_oct]) of
+                {ok, [{recv_oct, RecvOct}]} ->
+                    handle_timeout(TRef, {keepalive, RecvOct}, State);
+                {error, Reason} ->
+                    handle_info({sock_error, Reason}, State)
+            end
     end;
 
 handle_timeout(TRef, Msg, State) ->

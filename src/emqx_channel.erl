@@ -786,6 +786,9 @@ handle_info(Info, Channel) ->
 handle_timeout(_TRef, {keepalive, _StatVal},
                Channel = #channel{keepalive = undefined}) ->
     {ok, Channel};
+handle_timeout(_TRef, {keepalive, _StatVal},
+               Channel = #channel{conn_state = disconnected}) ->
+    {ok, Channel};
 handle_timeout(_TRef, {keepalive, StatVal},
                Channel = #channel{keepalive = Keepalive}) ->
     case emqx_keepalive:check(StatVal, Keepalive) of
@@ -796,6 +799,9 @@ handle_timeout(_TRef, {keepalive, StatVal},
             handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
     end;
 
+handle_timeout(_TRef, retry_delivery,
+               Channel = #channel{conn_state = disconnected}) ->
+    {ok, Channel};
 handle_timeout(_TRef, retry_delivery,
                Channel = #channel{session = Session}) ->
     case emqx_session:retry(Session) of
@@ -809,6 +815,9 @@ handle_timeout(_TRef, retry_delivery,
             handle_out(publish, Publishes, reset_timer(retry_timer, Timeout, NChannel))
     end;
 
+handle_timeout(_TRef, expire_awaiting_rel,
+               Channel = #channel{conn_state = disconnected}) ->
+    {ok, Channel};
 handle_timeout(_TRef, expire_awaiting_rel,
                Channel = #channel{session = Session}) ->
     case emqx_session:expire(awaiting_rel, Session) of
