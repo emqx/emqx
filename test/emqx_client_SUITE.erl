@@ -45,7 +45,8 @@
 all() ->
     [{group, mqttv3},
      {group, mqttv4},
-     {group, mqttv5}
+     {group, mqttv5},
+     {group, others}
     ].
 
 groups() ->
@@ -66,16 +67,25 @@ groups() ->
       ]},
      {mqttv5, [non_parallel_tests],
       [t_basic_with_props_v5
+      ]},
+     {others, [non_parallel_tests],
+      [t_username_as_clientid,
+       t_certcn_as_clientid
       ]}
     ].
 
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
+    emqx_ct_helpers:start_apps([], fun set_special_confs/1),
     Config.
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
+
+set_special_confs(emqx) ->
+    emqx_ct_helpers:change_emqx_opts(ssl_twoway, [{peer_cert_as_username, cn}]);
+set_special_confs(_) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v3
@@ -110,10 +120,7 @@ t_cm_registry(_) ->
     {_, Pid, _, _} = lists:keyfind(registry, 1, Info),
     ignored = gen_server:call(Pid, <<"Unexpected call">>),
     gen_server:cast(Pid, <<"Unexpected cast">>),
-    Pid ! <<"Unexpected info">>,
-    ok = application:stop(mnesia),
-    emqx_ct_helpers:stop_apps([]),
-    emqx_ct_helpers:start_apps([]).
+    Pid ! <<"Unexpected info">>.
 
 t_will_message(_Config) ->
     {ok, C1} = emqtt:start_link([{clean_start, true},
@@ -262,6 +269,23 @@ t_basic(_Opts) ->
     {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
     ?assertEqual(3, length(recv_msgs(3))),
     ok = emqtt:disconnect(C).
+
+t_username_as_clientid(_) ->
+    emqx_zone:set_env(external, use_username_as_clientid, true),
+    Username = <<"usera">>,
+    {ok, C} = emqtt:start_link([{username, Username}]),
+    {ok, _} = emqtt:connect(C),
+    #{clientinfo := #{clientid := Username}} = emqx_cm:get_chan_info(Username),
+    emqtt:disconnect(C).
+
+t_certcn_as_clientid(_) ->
+    CN = <<"0004.novalocal">>,
+    emqx_zone:set_env(external, use_username_as_clientid, true),
+    SslConf = emqx_ct_helpers:client_ssl_twoway(),
+    {ok, C} = emqtt:start_link([{port, 8883}, {ssl, true}, {ssl_opts, SslConf}]),
+    {ok, _} = emqtt:connect(C),
+    #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),
+    emqtt:disconnect(C).
 
 %%--------------------------------------------------------------------
 %% Helper functions
