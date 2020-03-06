@@ -478,8 +478,9 @@ format_variable(#mqtt_packet_publish{topic_name = TopicName,
                                      packet_id  = PacketId}) ->
     io_lib:format("Topic=~s, PacketId=~p", [TopicName, PacketId]);
 
-format_variable(#mqtt_packet_puback{packet_id = PacketId}) ->
-    io_lib:format("PacketId=~p", [PacketId]);
+format_variable(#mqtt_packet_puback{packet_id = PacketId,
+                                    reason_code = ReasonCode}) ->
+    io_lib:format("PacketId=~p, ReasonCode=~p", [PacketId, ReasonCode]);
 
 format_variable(#mqtt_packet_subscribe{packet_id     = PacketId,
                                        topic_filters = TopicFilters}) ->
