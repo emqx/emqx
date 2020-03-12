@@ -36,11 +36,14 @@
 load(Topics) ->
     emqx_hooks:add('client.connected', {?MODULE, on_client_connected, [Topics]}).
 
-on_client_connected(#{clientid := ClientId, username := Username}, _ConnInfo, Topics) ->
+on_client_connected(#{clientid := ClientId, username := Username}, _ConnInfo = #{proto_ver := Proto_ver}, Topics) ->
     Replace = fun(Topic) ->
                       rep(<<"%u">>, Username, rep(<<"%c">>, ClientId, Topic))
               end,
-    TopicFilters = [{Replace(Topic), #{qos => QoS}} || {Topic, QoS} <- Topics],
+    TopicFilters =  case Proto_ver of
+        5 -> [{Replace(Topic), Suboption} || {Topic, Suboption} <- Topics];
+        _ -> [{Replace(Topic), #{qos => Qos}} || {Topic, #{qos := Qos}} <- Topics]
+    end,
     self() ! {subscribe, TopicFilters}.
 
 unload(_) ->

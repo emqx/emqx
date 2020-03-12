@@ -1812,6 +1812,24 @@ end}.
   {validators, ["range:0-2"]}
 ]}.
 
+{mapping, "module.subscription.$id.nl", "emqx.modules", [
+  {default, 0},
+  {datatype, integer},
+  {validators, ["range:0-1"]}
+]}.
+
+{mapping, "module.subscription.$id.rap", "emqx.modules", [
+  {default, 0},
+  {datatype, integer},
+  {validators, ["range:0-1"]}
+]}.
+
+{mapping, "module.subscription.$id.rh", "emqx.modules", [
+  {default, 0},
+  {datatype, integer},
+  {validators, ["range:0-2"]}
+]}.
+
 {mapping, "module.rewrite", "emqx.modules", [
   {default, off},
   {datatype, flag}
@@ -1824,10 +1842,12 @@ end}.
 {translation, "emqx.modules", fun(Conf) ->
   Subscriptions = fun() ->
       List = cuttlefish_variable:filter_by_prefix("module.subscription", Conf),
-      QosList = [Qos || {_, Qos} <- lists:sort([{I, Qos} || {[_,"subscription", I,"qos"], Qos} <- List])],
-      TopicList = [iolist_to_binary(Topic) || {_, Topic} <-
-        lists:sort([{I, Topic} || {[_,"subscription", I, "topic"], Topic} <- List])],
-      lists:zip(TopicList, QosList)
+      TopicList = [{N, Topic}|| {[_,"subscription",N,"topic"], Topic} <- List],
+      [{iolist_to_binary(T), #{ qos => cuttlefish:conf_get("module.subscription." ++ N ++ ".qos", Conf, 0),
+                                nl  => cuttlefish:conf_get("module.subscription." ++ N ++ ".nl", Conf, 0),
+                                rap => cuttlefish:conf_get("module.subscription." ++ N ++ ".rap", Conf, 0),
+                                rh  => cuttlefish:conf_get("module.subscription." ++ N ++ ".rh", Conf, 0)
+                                }} || {N, T} <- TopicList]
   end,
   Rewrites = fun() ->
       Rules = cuttlefish_variable:filter_by_prefix("module.rewrite.rule", Conf),
