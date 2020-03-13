@@ -287,7 +287,7 @@ handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), Channel = #channel{session = S
     end;
 
 handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
-          Channel = #channel{clientinfo = ClientInfo}) ->
+          Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
     case emqx_packet:check(Packet) of
         ok -> TopicFilters1 = parse_topic_filters(TopicFilters),
               TopicFilters2 = enrich_subid(Properties, TopicFilters1),
@@ -296,7 +296,15 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
                                         TopicFilters2
                                        ),
               {ReasonCodes, NChannel} = process_subscribe(TopicFilters3, Channel),
-              handle_out(suback, {PacketId, ReasonCodes}, NChannel);
+              case emqx_zone:get_env(Zone, acl_deny_action, ignore) =:= disconnect andalso
+                   lists:any(fun(ReasonCode) ->
+                                 ReasonCode =:= ?RC_NOT_AUTHORIZED
+                             end, ReasonCodes) of
+                  true ->
+                      handle_out(disconnect, ?RC_NOT_AUTHORIZED, NChannel);
+                  false ->
+                      handle_out(suback, {PacketId, ReasonCodes}, NChannel)
+              end;
         {error, ReasonCode} ->
             handle_out(disconnect, ReasonCode, Channel)
     end;
@@ -373,7 +381,8 @@ process_connect(ConnPkt = #mqtt_packet_connect{clean_start = CleanStart},
 %% Process Publish
 %%--------------------------------------------------------------------
 
-process_publish(Packet = ?PUBLISH_PACKET(_QoS, Topic, PacketId), Channel) ->
+process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), 
+                Channel = #channel{clientinfo = #{zone := Zone}}) ->
     case pipeline([fun process_alias/2,
                    fun check_pub_alias/2,
                    fun check_pub_acl/2,
@@ -382,6 +391,19 @@ process_publish(Packet = ?PUBLISH_PACKET(_QoS, Topic, PacketId), Channel) ->
         {ok, NPacket, NChannel} ->
             Msg = packet_to_message(NPacket, NChannel),
             do_publish(PacketId, Msg, NChannel);
+        {error, ReasonCode, NChannel} when ReasonCode =:= ?RC_NOT_AUTHORIZED ->
+            ?LOG(warning, "Cannot publish message to ~s due to ~s.",
+                 [Topic, emqx_reason_codes:text(ReasonCode)]),
+            case emqx_zone:get_env(Zone, acl_deny_action, ignore) of
+                ignore ->
+                    case QoS of
+                       ?QOS_0 -> {ok, NChannel};
+                        _ ->
+                           handle_out(puback, {PacketId, ReasonCode}, NChannel) 
+                    end;
+                disconnect ->
+                    handle_out(disconnect, ReasonCode, NChannel)
+            end;
         {error, ReasonCode, NChannel} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s.",
                  [Topic, emqx_reason_codes:text(ReasonCode)]),
@@ -786,6 +808,9 @@ handle_info(Info, Channel) ->
 handle_timeout(_TRef, {keepalive, _StatVal},
                Channel = #channel{keepalive = undefined}) ->
     {ok, Channel};
+handle_timeout(_TRef, {keepalive, _StatVal},
+               Channel = #channel{conn_state = disconnected}) ->
+    {ok, Channel};
 handle_timeout(_TRef, {keepalive, StatVal},
                Channel = #channel{keepalive = Keepalive}) ->
     case emqx_keepalive:check(StatVal, Keepalive) of
@@ -796,6 +821,9 @@ handle_timeout(_TRef, {keepalive, StatVal},
             handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
     end;
 
+handle_timeout(_TRef, retry_delivery,
+               Channel = #channel{conn_state = disconnected}) ->
+    {ok, Channel};
 handle_timeout(_TRef, retry_delivery,
                Channel = #channel{session = Session}) ->
     case emqx_session:retry(Session) of
@@ -809,6 +837,9 @@ handle_timeout(_TRef, retry_delivery,
             handle_out(publish, Publishes, reset_timer(retry_timer, Timeout, NChannel))
     end;
 
+handle_timeout(_TRef, expire_awaiting_rel,
+               Channel = #channel{conn_state = disconnected}) ->
+    {ok, Channel};
 handle_timeout(_TRef, expire_awaiting_rel,
                Channel = #channel{session = Session}) ->
     case emqx_session:expire(awaiting_rel, Session) of
@@ -981,6 +1012,9 @@ maybe_username_as_clientid(_ConnPkt, ClientInfo = #{zone := Zone, username := Us
         false -> ok
     end.
 
+maybe_assign_clientid(_ConnPkt, ClientInfo = #{clientid := ClientId})
+  when ClientId /= undefined ->
+    {ok, ClientInfo};
 maybe_assign_clientid(#mqtt_packet_connect{clientid = <<>>}, ClientInfo) ->
     %% Generate a rand clientId
     {ok, ClientInfo#{clientid => emqx_guid:to_base62(emqx_guid:gen())}};
