@@ -65,7 +65,7 @@ cover:
 
 .PHONY: coveralls
 coveralls:
-	@rebar3 coveralls send
+	@rebar3 as test coveralls send
 
 .PHONY: xref
 xref:
