@@ -51,7 +51,7 @@
 
 -spec(encode(json_term()) -> json_text()).
 encode(Term) ->
-    encode(Term, []).
+    encode(Term, [force_utf8]).
 
 -spec(encode(json_term(), encode_options()) -> json_text()).
 encode(Term, Opts) ->
