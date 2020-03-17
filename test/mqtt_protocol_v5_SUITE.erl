@@ -365,6 +365,7 @@ t_connect_will_delay_interval(_) ->
 
 %% [MQTT-3.1.4-3]
 t_connect_duplicate_clientid(_) ->
+    process_flag(trap_exit, true),
     {ok, Client1} = emqtt:start_link([
                                         {clientid, <<"t_connect_duplicate_clientid">>},
                                         {proto_ver, v5}
@@ -375,7 +376,12 @@ t_connect_duplicate_clientid(_) ->
                                         {proto_ver, v5}
                                         ]),
     {ok, _} = emqtt:connect(Client2),
-    ?assertEqual(142, receive_disconnect_reasoncode()).
+    ?assertEqual(142, receive_disconnect_reasoncode()),
+    waiting_client_process_exit(Client1),
+
+    ok = emqtt:disconnect(Client2),
+    waiting_client_process_exit(Client2),
+    process_flag(trap_exit, false).
 
 %%--------------------------------------------------------------------
 %% Connack
