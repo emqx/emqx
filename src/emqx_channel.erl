@@ -1182,14 +1182,22 @@ enrich_connack_caps(AckProps, #channel{conninfo   = #{proto_ver := ?MQTT_PROTO_V
       shared_subscription   := Shared,
       wildcard_subscription := Wildcard
      } = emqx_mqtt_caps:get_caps(Zone),
-    AckProps#{'Maximum-QoS'         => MaxQoS,
-              'Retain-Available'    => flag(Retain),
-              'Maximum-Packet-Size' => MaxPktSize,
-              'Topic-Alias-Maximum' => MaxAlias,
-              'Wildcard-Subscription-Available'   => flag(Wildcard),
-              'Subscription-Identifier-Available' => 1,
-              'Shared-Subscription-Available'     => flag(Shared)
-             };
+    NAckProps = AckProps#{'Retain-Available'    => flag(Retain),
+                          'Maximum-Packet-Size' => MaxPktSize,
+                          'Topic-Alias-Maximum' => MaxAlias,
+                          'Wildcard-Subscription-Available'   => flag(Wildcard),
+                          'Subscription-Identifier-Available' => 1,
+                          'Shared-Subscription-Available'     => flag(Shared)
+                         },
+    %% MQTT 5.0 - 3.2.2.3.4:
+    %% It is a Protocol Error to include Maximum QoS more than once,
+    %% or to have a value other than 0 or 1. If the Maximum QoS is absent,
+    %% the Client uses a Maximum QoS of 2.
+    case MaxQoS =:= 2 of
+        true -> NAckProps;
+        _ -> NAckProps#{'Maximum-QoS' => MaxQoS}
+    end;
+
 enrich_connack_caps(AckProps, _Channel) -> AckProps.
 
 %%--------------------------------------------------------------------
