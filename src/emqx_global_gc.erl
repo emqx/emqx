@@ -94,7 +94,7 @@ ensure_timer(State) ->
 run_gc() -> lists:foreach(fun do_gc/1, processes()).
 
 do_gc(Pid) ->
-    is_waiting(Pid) andalso garbage_collect(Pid, [{type, 'minor'}]).
+    is_waiting(Pid) andalso garbage_collect(Pid).
 
 -compile({inline, [is_waiting/1]}).
 is_waiting(Pid) ->
