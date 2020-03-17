@@ -475,7 +475,7 @@ t_connack_max_qos_allowed(_) ->
 
     {ok, Client5} = emqtt:start_link([{proto_ver, v5}]),
     {ok, Connack5} = emqtt:connect(Client5),
-    ?assertEqual(2, maps:get('Maximum-QoS', Connack5)),  %% [MQTT-3.2.2-9]
+    ?assertEqual(undefined, maps:get('Maximum-QoS', Connack5, undefined)),  %% [MQTT-3.2.2-9]
     ok = emqtt:disconnect(Client5),
     waiting_client_process_exit(Client5),
 
