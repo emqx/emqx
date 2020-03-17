@@ -1182,7 +1182,7 @@ enrich_connack_caps(AckProps, #channel{conninfo   = #{proto_ver := ?MQTT_PROTO_V
       shared_subscription   := Shared,
       wildcard_subscription := Wildcard
      } = emqx_mqtt_caps:get_caps(Zone),
-    AckProps#{'Maximum-QoS'         => MaxQoS,
+    AckProps#{'Maximum-QoS'         => case MaxQoS < 2 of true -> MaxQoS; false -> undefined end,
               'Retain-Available'    => flag(Retain),
               'Maximum-Packet-Size' => MaxPktSize,
               'Topic-Alias-Maximum' => MaxAlias,
