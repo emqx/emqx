@@ -500,7 +500,7 @@ t_packing_alias(_) ->
     {RePacket3, _} = emqx_channel:packing_alias(Packet2, NChannel2),
     ?assertEqual(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"y">>, properties = undefined}}, RePacket3),
 
-    ?assertMatch({#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"z">>}}, _},  emqx_channel:packing_alias({#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"z">>}}, channel()})).
+    ?assertMatch({#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"z">>}}, _},  emqx_channel:packing_alias(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"z">>}}, channel())).
 
 t_check_pub_acl(_) ->
     ok = meck:new(emqx_zone, [passthrough, no_history]),
