@@ -62,7 +62,7 @@ receive_messages(Count, Msgs) ->
             receive_messages(Count-1, [Msg|Msgs]);
         _Other ->
             receive_messages(Count, Msgs)
-    after 100 ->
+    after 1000 ->
         Msgs
     end.
 
@@ -604,6 +604,33 @@ t_publish_overlapping_subscriptions(_) ->
 %%--------------------------------------------------------------------
 %% Subsctibe
 %%--------------------------------------------------------------------
+
+t_subscribe_topic_alias(_) ->
+    Topic1 = nth(1, ?TOPICS),
+    Topic2 = nth(2, ?TOPICS),
+    {ok, Client1} = emqtt:start_link([{proto_ver, v5},
+                                      {properties, #{'Topic-Alias-Maximum' => 1}}    
+                                    ]),
+    {ok, _} = emqtt:connect(Client1),
+    {ok, _, [2]} = emqtt:subscribe(Client1, Topic1, qos2),
+    {ok, _, [2]} = emqtt:subscribe(Client1, Topic2, qos2),
+
+    ok = emqtt:publish(Client1, Topic1, #{}, <<"Topic-Alias">>, [{qos, ?QOS_0}]),
+    [Msg1] = receive_messages(1),
+    ?assertEqual({ok,#{'Topic-Alias' => 1}}, maps:find(properties, Msg1)),
+    ?assertEqual({ok,Topic1}, maps:find(topic, Msg1)),
+
+    ok = emqtt:publish(Client1, Topic1, #{}, <<"Topic-Alias">>, [{qos, ?QOS_0}]),
+    [Msg2] = receive_messages(1),
+    ?assertEqual({ok,#{'Topic-Alias' => 1}}, maps:find(properties, Msg2)),
+    ?assertEqual({ok,<<>>}, maps:find(topic, Msg2)),
+
+    ok = emqtt:publish(Client1, Topic2, #{}, <<"Topic-Alias">>, [{qos, ?QOS_0}]),
+    [Msg3] = receive_messages(1),
+    ?assertEqual({ok,#{}}, maps:find(properties, Msg3)),
+    ?assertEqual({ok,Topic2}, maps:find(topic, Msg3)),
+
+    ok = emqtt:disconnect(Client1).
 
 t_subscribe_no_local(_) ->
     Topic = nth(1, ?TOPICS),
