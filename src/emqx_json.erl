@@ -55,7 +55,7 @@ encode(Term) ->
 
 -spec(encode(json_term(), encode_options()) -> json_text()).
 encode(Term, Opts) ->
-    jiffy:encode(to_ejson(Term), Opts).
+    to_binary(jiffy:encode(to_ejson(Term), Opts)).
 
 -spec(safe_encode(json_term())
       -> {ok, json_text()} | {error, Reason :: term()}).
@@ -117,4 +117,8 @@ from_ejson([{_}|_] = L) ->
 from_ejson({L}) ->
     [{Name, from_ejson(Value)} || {Name, Value} <- L];
 from_ejson(T) -> T.
+
+to_binary(B) when is_binary(B) -> B;
+to_binary(L) when is_list(L) ->
+    iolist_to_binary(L).
 
