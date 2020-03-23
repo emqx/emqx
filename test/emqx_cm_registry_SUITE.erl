@@ -42,26 +42,26 @@ end_per_testcase(_TestCase, Config) ->
     Config.
 
 t_is_enabled(_) ->
-    application:set_env(emqx, enable_channel_registry, false),
+    application:set_env(emqx, enable_session_registry, false),
     ?assertEqual(false, emqx_cm_registry:is_enabled()),
-    application:set_env(emqx, enable_channel_registry, true),
+    application:set_env(emqx, enable_session_registry, true),
     ?assertEqual(true, emqx_cm_registry:is_enabled()).
 
 t_register_unregister_channel(_) ->
     ClientId = <<"clientid">>,
-    application:set_env(emqx, enable_channel_registry, false),
+    application:set_env(emqx, enable_session_registry, false),
     emqx_cm_registry:register_channel(ClientId),
     ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId)),
 
-    application:set_env(emqx, enable_channel_registry, true),
+    application:set_env(emqx, enable_session_registry, true),
     emqx_cm_registry:register_channel(ClientId),
     ?assertEqual([self()], emqx_cm_registry:lookup_channels(ClientId)),
 
-    application:set_env(emqx, enable_channel_registry, false),
+    application:set_env(emqx, enable_session_registry, false),
     emqx_cm_registry:unregister_channel(ClientId),
     ?assertEqual([self()], emqx_cm_registry:lookup_channels(ClientId)),
 
-    application:set_env(emqx, enable_channel_registry, true),
+    application:set_env(emqx, enable_session_registry, true),
     emqx_cm_registry:unregister_channel(ClientId),
     ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId)).
 

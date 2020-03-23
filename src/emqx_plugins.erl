@@ -27,9 +27,9 @@
         , load/1
         , unload/0
         , unload/1
+        , reload/1
         , list/0
         , find_plugin/1
-        , load_expand_plugin/1
         ]).
 
 -ifdef(TEST).
@@ -51,12 +51,6 @@ init() ->
             lists:foreach(fun init_config/1, CfgFiles)
     end.
 
-init_config(CfgFile) ->
-    {ok, [AppsEnv]} = file:consult(CfgFile),
-    lists:foreach(fun({App, Envs}) ->
-                      [application:set_env(App, Par, Val) || {Par, Val} <- Envs]
-                  end, AppsEnv).
-
 %% @doc Load all plugins when the broker started.
 -spec(load() -> list() | {error, term()}).
 load() ->
@@ -67,6 +61,92 @@ load() ->
             ensure_file(File),
             with_loaded_file(File, fun(Names) -> load_plugins(Names, false) end)
     end.
+
+%% @doc Load a Plugin
+-spec(load(atom()) -> ok | {error, term()}).
+load(PluginName) when is_atom(PluginName) ->
+    case {lists:member(PluginName, names(plugin)), lists:member(PluginName, names(started_app))} of
+        {false, _} ->
+            ?LOG(alert, "Plugin ~s not found, cannot load it", [PluginName]),
+            {error, not_found};
+        {_, true} ->
+            ?LOG(notice, "Plugin ~s is already started", [PluginName]),
+            {error, already_started};
+        {_, false} ->
+            try
+                Configs = generate_configs(PluginName),
+                apply_configs(Configs),
+                load_plugin(PluginName, true)
+            catch _ : Error : Stacktrace ->
+                ?LOG(alert, "Plugin ~s load failed with ~p", [PluginName, {Error, Stacktrace}]),
+                {error, parse_config_file_failed}
+            end 
+    end.
+
+%% @doc Unload all plugins before broker stopped.
+-spec(unload() -> list() | {error, term()}).
+unload() ->
+    case emqx:get_env(plugins_loaded_file) of
+        undefined -> ignore;
+        File ->
+            with_loaded_file(File, fun stop_plugins/1)
+    end.
+
+%% @doc UnLoad a Plugin
+-spec(unload(atom()) -> ok | {error, term()}).
+unload(PluginName) when is_atom(PluginName) ->
+    case {lists:member(PluginName, names(plugin)), lists:member(PluginName, names(started_app))} of
+        {false, _} ->
+            ?LOG(error, "Plugin ~s is not found, cannot unload it", [PluginName]),
+            {error, not_found};
+        {_, false} ->
+            ?LOG(error, "Plugin ~s is not started", [PluginName]),
+            {error, not_started};
+        {_, _} ->
+            unload_plugin(PluginName, true)            
+    end.
+
+reload(PluginName) when is_atom(PluginName)->
+    case {lists:member(PluginName, names(plugin)), lists:member(PluginName, names(started_app))} of
+        {false, _} ->
+            ?LOG(error, "Plugin ~s is not found, cannot reload it", [PluginName]),
+            {error, not_found};
+        {_, false} ->
+            load(PluginName);
+        {_, true} ->
+            case unload(PluginName) of
+                ok -> load(PluginName);
+                {error, Reason} -> {error, Reason}
+            end
+    end.
+
+%% @doc List all available plugins
+-spec(list() -> [emqx_types:plugin()]).
+list() ->
+    StartedApps = names(started_app),
+    lists:map(fun({Name, _, [Type| _]}) ->
+        Plugin = plugin(Name, Type),
+        case lists:member(Name, StartedApps) of
+            true  -> Plugin#plugin{active = true};
+            false -> Plugin
+        end
+    end, lists:sort(ekka_boot:all_module_attributes(emqx_plugin))).
+
+find_plugin(Name) ->
+    find_plugin(Name, list()).
+
+find_plugin(Name, Plugins) ->
+    lists:keyfind(Name, 2, Plugins).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+init_config(CfgFile) ->
+    {ok, [AppsEnv]} = file:consult(CfgFile),
+    lists:foreach(fun({App, Envs}) ->
+                      [application:set_env(App, Par, Val) || {Par, Val} <- Envs]
+                  end, AppsEnv).
 
 load_expand_plugins() ->
     case emqx:get_env(expand_plugins_dir) of
@@ -136,60 +216,37 @@ load_plugins(Names, Persistent) ->
         NotFound -> ?LOG(alert, "Cannot find plugins: ~p", [NotFound])
     end,
     NeedToLoad = Names -- NotFound -- names(started_app),
-    [load_plugin(find_plugin(Name, Plugins), Persistent) || Name <- NeedToLoad].
+    lists:foreach(fun(Name) ->
+                      Plugin = find_plugin(Name, Plugins),
+                      load_plugin(Plugin#plugin.name, Persistent)
+                  end, NeedToLoad).
 
-%% @doc Unload all plugins before broker stopped.
--spec(unload() -> list() | {error, term()}).
-unload() ->
-    case emqx:get_env(plugins_loaded_file) of
-        undefined -> ignore;
-        File ->
-            with_loaded_file(File, fun stop_plugins/1)
-    end.
+generate_configs(App) ->
+    Schema = cuttlefish_schema:files([filename:join([code:priv_dir(App), App]) ++ ".schema"]),
+    Conf = cuttlefish_conf:file(filename:join([emqx:get_env(plugins_etc_dir), App]) ++ ".conf"),
+    cuttlefish_generator:map(Schema, Conf).
+
+apply_configs([]) ->
+    ok;
+apply_configs([{App, Config} | More]) ->
+    lists:foreach(fun({Key, _}) -> application:unset_env(App, Key) end, application:get_all_env(App)),
+    lists:foreach(fun({Key, Val}) -> application:set_env(App, Key, Val) end, Config),
+    apply_configs(More).
 
 %% Stop plugins
 stop_plugins(Names) ->
-    [stop_app(App) || App <- Names].
-
-%% @doc List all available plugins
--spec(list() -> [emqx_types:plugin()]).
-list() ->
-    StartedApps = names(started_app),
-    lists:map(fun({Name, _, [Type| _]}) ->
-        Plugin = plugin(Name, Type),
-        case lists:member(Name, StartedApps) of
-            true  -> Plugin#plugin{active = true};
-            false -> Plugin
-        end
-    end, lists:sort(ekka_boot:all_module_attributes(emqx_plugin))).
+    [stop_app(App) || App <- Names],
+    ok.
 
 plugin(AppName, Type) ->
     case application:get_all_key(AppName) of
         {ok, Attrs} ->
-            Ver = proplists:get_value(vsn, Attrs, "0"),
             Descr = proplists:get_value(description, Attrs, ""),
-            #plugin{name = AppName, version = Ver, descr = Descr, type = plugin_type(Type)};
+            #plugin{name = AppName, descr = Descr, type = plugin_type(Type)};
         undefined -> error({plugin_not_found, AppName})
     end.
 
-%% @doc Load a Plugin
--spec(load(atom()) -> ok | {error, term()}).
-load(PluginName) when is_atom(PluginName) ->
-    case lists:member(PluginName, names(started_app)) of
-        true ->
-            ?LOG(notice, "Plugin ~s is already started", [PluginName]),
-            {error, already_started};
-        false ->
-            case find_plugin(PluginName) of
-                false ->
-                    ?LOG(alert, "Plugin ~s not found", [PluginName]),
-                    {error, not_found};
-                Plugin ->
-                    load_plugin(Plugin, true)
-            end
-    end.
-
-load_plugin(#plugin{name = Name}, Persistent) ->
+load_plugin(Name, Persistent) ->
     case load_app(Name) of
         ok ->
             start_app(Name, fun(App) -> plugin_loaded(App, Persistent) end);
@@ -219,26 +276,6 @@ start_app(App, SuccFun) ->
             {error, {ErrApp, Reason}}
     end.
 
-find_plugin(Name) ->
-    find_plugin(Name, list()).
-
-find_plugin(Name, Plugins) ->
-    lists:keyfind(Name, 2, Plugins).
-
-%% @doc UnLoad a Plugin
--spec(unload(atom()) -> ok | {error, term()}).
-unload(PluginName) when is_atom(PluginName) ->
-    case {lists:member(PluginName, names(started_app)), lists:member(PluginName, names(plugin))} of
-        {true, true} ->
-            unload_plugin(PluginName, true);
-        {false, _} ->
-            ?LOG(error, "Plugin ~s is not started", [PluginName]),
-            {error, not_started};
-        {true, false} ->
-            ?LOG(error, "~s is not a plugin, cannot unload it", [PluginName]),
-            {error, not_found}
-    end.
-
 unload_plugin(App, Persistent) ->
     case stop_app(App) of
         ok ->
@@ -257,9 +294,6 @@ stop_app(App) ->
             ?LOG(error, "Stop plugin ~s error: ~p", [App]), {error, Reason}
     end.
 
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
 names(plugin) ->
     names(list());
 
