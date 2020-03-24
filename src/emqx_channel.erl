@@ -699,7 +699,7 @@ do_deliver([Publish], Channel) ->
 do_deliver(Publishes, Channel) when is_list(Publishes) ->
     do_deliver(Publishes, [], Channel).
 
-do_deliver([ Publish | Publishes], Packets, Channel) ->
+do_deliver([Publish | Publishes], Packets, Channel) ->
     {Packet, NChannel} = do_deliver(Publish, Channel),
     do_deliver(Publishes, lists:append(Packet, Packets), NChannel);
 do_deliver([], Packets, Channel) ->
@@ -1102,14 +1102,15 @@ process_alias(_Packet, Channel) -> {ok, Channel}.
 %% Packing Topic Alias
 
 packing_alias(Packet = #mqtt_packet{
-                          variable = #mqtt_packet_publish{topic_name = Topic} = Publish
-                         },
-              Channel = #channel{topic_aliases = TopicAliases, alias_maximum=Limits}) ->
+                            variable = #mqtt_packet_publish{topic_name = Topic} = Publish
+                        },
+              Channel = #channel{topic_aliases = TopicAliases, alias_maximum = Limits}) ->
     case find_alias(outbound, Topic, TopicAliases) of
         {ok, AliasId} -> 
-            NPublish = Publish#mqtt_packet_publish{topic_name = <<>>,
-                                                    properties = #{'Topic-Alias' => AliasId}
-                                                },
+            NPublish = Publish#mqtt_packet_publish{
+                            topic_name = <<>>,
+                            properties = #{'Topic-Alias' => AliasId}
+                            },
             {Packet#mqtt_packet{variable = NPublish}, Channel};
         error ->
             #{outbound := Aliases} = TopicAliases,
@@ -1119,9 +1120,10 @@ packing_alias(Packet = #mqtt_packet{
                 true ->
                     NTopicAliases = save_alias(outbound, AliasId, Topic, TopicAliases),
                     NChannel = Channel#channel{topic_aliases = NTopicAliases},
-                    NPublish = Publish#mqtt_packet_publish{topic_name = Topic,
-                                                    properties = #{'Topic-Alias' => AliasId}
-                                                    },
+                    NPublish = Publish#mqtt_packet_publish{
+                                    topic_name = Topic,
+                                    properties = #{'Topic-Alias' => AliasId}
+                                    },
                     {Packet#mqtt_packet{variable = NPublish}, NChannel};
                 false -> {Packet, Channel}
             end
