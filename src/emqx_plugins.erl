@@ -215,7 +215,12 @@ start_app(App, SuccFun) ->
             SuccFun(App),
             ok;
         {error, {ErrApp, Reason}} ->
-            ?LOG(error, "Load plugin ~s failed, cannot start plugin ~s for ~p", [App, ErrApp, Reason]),
+            case Reason of
+                {bad_return,{_, {'EXIT',{{_,{error,eaddrinuse}, _}}}}} ->
+                    ?LOG(error, "Load plugin ~s failed, cannot start plugin ~s for ~p", [App, ErrApp, "address already in use"]);
+                Reason1 ->
+                    ?LOG(error, "Load plugin ~s failed, cannot start plugin ~s for ~0p", [App, ErrApp, Reason1])
+            end,
             {error, {ErrApp, Reason}}
     end.
 

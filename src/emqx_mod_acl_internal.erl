@@ -101,6 +101,12 @@ rules_from_file(AclFile) ->
             Rules = [emqx_access_rule:compile(Term) || Term <- Terms],
             #{publish   => [Rule || Rule <- Rules, filter(publish, Rule)],
               subscribe => [Rule || Rule <- Rules, filter(subscribe, Rule)]};
+        {error, eacces} ->
+            ?LOG(alert, "Insufficient permissions to read the ~s file", [AclFile]),
+            #{};
+        {error, enoent} ->
+            ?LOG(alert, "The ~s file does not exist", [AclFile]),
+            #{};
         {error, Reason} ->
             ?LOG(alert, "Failed to read ~s: ~p", [AclFile, Reason]),
             #{}
