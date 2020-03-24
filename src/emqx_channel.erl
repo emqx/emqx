@@ -697,13 +697,12 @@ do_deliver([Publish], Channel) ->
     do_deliver(Publish, Channel);
 
 do_deliver(Publishes, Channel) when is_list(Publishes) ->
-    do_deliver(Publishes, [], Channel).
-
-do_deliver([ Publish | Publishes], Packets, Channel) ->
-    {Packet, NChannel} = do_deliver(Publish, Channel),
-    do_deliver(Publishes, lists:append(Packet, Packets), NChannel);
-do_deliver([], Packets, Channel) ->
-    {lists:reverse(Packets), Channel}.
+    {Packets, NChannel} =
+        lists:foldl(fun(Publish, {Acc, Chann}) ->
+            {Packets, NChann} = do_deliver(Publish, Chann),
+            {Packets ++ Acc, NChann}
+        end, {[], Channel}, Publishes),
+    {lists:reverse(Packets), NChannel}.
 
 ignore_local(#message{flags = #{nl := true}, from = ClientId},
              #{clientid := ClientId}) ->
