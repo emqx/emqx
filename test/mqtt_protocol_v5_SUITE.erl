@@ -617,18 +617,18 @@ t_subscribe_topic_alias(_) ->
 
     ok = emqtt:publish(Client1, Topic1, #{}, <<"Topic-Alias">>, [{qos, ?QOS_0}]),
     [Msg1] = receive_messages(1),
-    ?assertEqual({ok,#{'Topic-Alias' => 1}}, maps:find(properties, Msg1)),
-    ?assertEqual({ok,Topic1}, maps:find(topic, Msg1)),
+    ?assertEqual({ok, #{'Topic-Alias' => 1}}, maps:find(properties, Msg1)),
+    ?assertEqual({ok, Topic1}, maps:find(topic, Msg1)),
 
     ok = emqtt:publish(Client1, Topic1, #{}, <<"Topic-Alias">>, [{qos, ?QOS_0}]),
     [Msg2] = receive_messages(1),
-    ?assertEqual({ok,#{'Topic-Alias' => 1}}, maps:find(properties, Msg2)),
-    ?assertEqual({ok,<<>>}, maps:find(topic, Msg2)),
+    ?assertEqual({ok, #{'Topic-Alias' => 1}}, maps:find(properties, Msg2)),
+    ?assertEqual({ok, <<>>}, maps:find(topic, Msg2)),
 
     ok = emqtt:publish(Client1, Topic2, #{}, <<"Topic-Alias">>, [{qos, ?QOS_0}]),
     [Msg3] = receive_messages(1),
-    ?assertEqual({ok,#{}}, maps:find(properties, Msg3)),
-    ?assertEqual({ok,Topic2}, maps:find(topic, Msg3)),
+    ?assertEqual({ok, #{}}, maps:find(properties, Msg3)),
+    ?assertEqual({ok, Topic2}, maps:find(topic, Msg3)),
 
     ok = emqtt:disconnect(Client1).
 
