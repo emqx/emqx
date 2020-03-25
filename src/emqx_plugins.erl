@@ -73,14 +73,7 @@ load(PluginName) when is_atom(PluginName) ->
             ?LOG(notice, "Plugin ~s is already started", [PluginName]),
             {error, already_started};
         {_, false} ->
-            try
-                Configs = generate_configs(PluginName),
-                apply_configs(Configs),
-                load_plugin(PluginName, true)
-            catch _ : Error : Stacktrace ->
-                ?LOG(alert, "Plugin ~s load failed with ~p", [PluginName, {Error, Stacktrace}]),
-                {error, parse_config_file_failed}
-            end 
+            load_plugin(PluginName, true)
     end.
 
 %% @doc Unload all plugins before broker stopped.
@@ -222,9 +215,20 @@ load_plugins(Names, Persistent) ->
                   end, NeedToLoad).
 
 generate_configs(App) ->
-    Schema = cuttlefish_schema:files([filename:join([code:priv_dir(App), App]) ++ ".schema"]),
-    Conf = cuttlefish_conf:file(filename:join([emqx:get_env(plugins_etc_dir), App]) ++ ".conf"),
-    cuttlefish_generator:map(Schema, Conf).
+    ConfigFile = filename:join([emqx:get_env(plugins_etc_dir), App]) ++ ".config",
+    ConfFile = filename:join([emqx:get_env(plugins_etc_dir), App]) ++ ".conf",
+    SchemaFile = filename:join([code:priv_dir(App), App]) ++ ".schema",
+    case {filelib:is_file(ConfigFile), filelib:is_file(ConfFile) andalso filelib:is_file(SchemaFile)} of
+        {true, _} ->
+            {ok, [Configs]} = file:consult(ConfigFile),
+            Configs;
+        {_, true} ->
+            Schema = cuttlefish_schema:files([SchemaFile]),
+            Conf = cuttlefish_conf:file(ConfFile),
+            cuttlefish_generator:map(Schema, Conf);
+        {false, false} ->
+            error(no_avaliable_configuration)
+    end.
 
 apply_configs([]) ->
     ok;
@@ -247,11 +251,18 @@ plugin(AppName, Type) ->
     end.
 
 load_plugin(Name, Persistent) ->
-    case load_app(Name) of
-        ok ->
-            start_app(Name, fun(App) -> plugin_loaded(App, Persistent) end);
-        {error, Error} ->
-            {error, Error}
+    try
+        Configs = generate_configs(Name),
+        apply_configs(Configs),
+        case load_app(Name) of
+            ok ->
+                start_app(Name, fun(App) -> plugin_loaded(App, Persistent) end);
+            {error, Error0} ->
+                {error, Error0}
+        end
+    catch _ : Error : Stacktrace ->
+        ?LOG(alert, "Plugin ~s load failed with ~p", [Name, {Error, Stacktrace}]),
+        {error, parse_config_file_failed}
     end.
 
 load_app(App) ->
