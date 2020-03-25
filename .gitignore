@@ -12,3 +12,4 @@ tmp
 _build/
 rebar.lock
 logs/
+.rebar3
