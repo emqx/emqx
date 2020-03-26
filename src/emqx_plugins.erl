@@ -214,9 +214,6 @@ start_app(App, SuccFun) ->
             ?LOG(info, "Load plugin ~s successfully", [App]),
             SuccFun(App),
             ok;
-        {error, {ErrApp, Reason = {_, {_, {'EXIT',{{badmatch,{error,eaddrinuse}},_}}}}}} ->
-            ?LOG(error, "Load plugin ~s failed, cannot start plugin ~s for the port is occupied", [App, ErrApp]),
-            {error, {ErrApp, Reason}};
         {error, {ErrApp, Reason}} ->
             ?LOG(error, "Load plugin ~s failed, cannot start plugin ~s for ~0p", [App, ErrApp, Reason]),
             {error, {ErrApp, Reason}}
