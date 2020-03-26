@@ -1841,6 +1841,11 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "module.topic_metrics", "emqx.modules", [
+  {default, off},
+  {datatype, flag}
+]}.
+
 {translation, "emqx.modules", fun(Conf) ->
   Subscriptions = fun() ->
       List = cuttlefish_variable:filter_by_prefix("module.subscription", Conf),
@@ -1869,6 +1874,10 @@ end}.
     end,
     case cuttlefish:conf_get("module.rewrite", Conf) of %% Rewrite
         true  -> [{emqx_mod_rewrite, Rewrites()}];
+        false -> []
+    end,
+    case cuttlefish:conf_get("module.topic_metrics", Conf) of %% Rewrite
+        true  -> [{emqx_mod_topic_metrics, []}];
         false -> []
     end
   ])
