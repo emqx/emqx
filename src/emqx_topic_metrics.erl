@@ -178,8 +178,12 @@ handle_call({get_rate, Topic}, _From, State = #state{speeds = Speeds}) ->
             {reply, {error, not_found}, State};
         true ->
             lists:foldl(fun(Metric, Acc) ->
-                            Speed = maps:get({Topic, Metric}, Speeds),
-                            [{Metric, Speed#speed.last} | Acc]
+                            case maps:get({Topic, Metric}, Speeds, undefined) of
+                                undefined ->
+                                    Acc;
+                                #speed{last = Last} ->
+                                    [{Metric, Last} | Acc]
+                            end
                         end, [], ?TOPIC_METRICS)
     end;
 
