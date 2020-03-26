@@ -68,11 +68,12 @@ init([]) ->
     CMSup = child_spec(emqx_cm_sup, supervisor),
     SysSup = child_spec(emqx_sys_sup, supervisor),
     TopicMetricsSup = child_spec(emqx_topic_metrics_sup, supervisor),
+    ModSup = child_spec(emqx_mod_sup, supervisor),
     Childs = [KernelSup] ++
              [RouterSup || emqx_boot:is_enabled(router)] ++
              [BrokerSup || emqx_boot:is_enabled(broker)] ++
              [CMSup || emqx_boot:is_enabled(broker)] ++
-             [SysSup, TopicMetricsSup],
+             [SysSup, TopicMetricsSup, ModSup],
     SupFlags = #{strategy => one_for_all,
                  intensity => 0,
                  period => 1
