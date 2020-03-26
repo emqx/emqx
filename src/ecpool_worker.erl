@@ -177,12 +177,13 @@ connect(#state{mod = Mod, opts = Opts, id = Id}) ->
 
 connopts([], Acc) ->
     Acc;
-connopts([{pool_size, _}|Opts], Acc) ->
+connopts([{Key, _}|Opts], Acc)
+  when Key =:= pool_size;
+       Key =:= pool_type;
+       Key =:= auto_reconnect;
+       Key =:= on_reconnect ->
     connopts(Opts, Acc);
-connopts([{pool_type, _}|Opts], Acc) ->
-    connopts(Opts, Acc);
-connopts([{auto_reconnect, _}|Opts], Acc) ->
-    connopts(Opts, Acc);
+
 connopts([Opt|Opts], Acc) ->
     connopts(Opts, [Opt|Acc]).
 
