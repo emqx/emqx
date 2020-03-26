@@ -214,13 +214,11 @@ start_app(App, SuccFun) ->
             ?LOG(info, "Load plugin ~s successfully", [App]),
             SuccFun(App),
             ok;
+        {error, {ErrApp, Reason = {_, {_, {'EXIT',{{badmatch,{error,eaddrinuse}},_}}}}}} ->
+            ?LOG(error, "Load plugin ~s failed, cannot start plugin ~s for the port is occupied", [App, ErrApp]),
+            {error, {ErrApp, Reason}};
         {error, {ErrApp, Reason}} ->
-            case Reason of
-                {bad_return,{_, {'EXIT',{{_,{error,eaddrinuse}, _}}}}} ->
-                    ?LOG(error, "Load plugin ~s failed, cannot start plugin ~s for ~p", [App, ErrApp, "address already in use"]);
-                Reason1 ->
-                    ?LOG(error, "Load plugin ~s failed, cannot start plugin ~s for ~0p", [App, ErrApp, Reason1])
-            end,
+            ?LOG(error, "Load plugin ~s failed, cannot start plugin ~s for ~0p", [App, ErrApp, Reason]),
             {error, {ErrApp, Reason}}
     end.
 
