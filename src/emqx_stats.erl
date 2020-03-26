@@ -243,7 +243,7 @@ handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Update
                          try UpFun()
                          catch
                              _:Error ->
-                                 ?LOG(error, "Update ~s failed: ~p", [Name, Error])
+                                 ?LOG(error, "Update ~s failed: ~0p", [Name, Error])
                          end,
                          [Update#update{countdown = I} | Acc];
                     (Update = #update{countdown = C}, Acc) ->
@@ -272,6 +272,6 @@ safe_update_element(Key, Val) ->
         true -> true
     catch
         error:badarg ->
-            ?LOG(warning, "Failed to update ~p to ~p", [Key, Val])
+            ?LOG(warning, "Failed to update ~0p to ~0p", [Key, Val])
     end.
 

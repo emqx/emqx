@@ -200,7 +200,7 @@ websocket_init([Req, Opts]) ->
                        ?LOG(error, "Illegal cookie"),
                        undefined;
                    Error:Reason ->
-                       ?LOG(error, "Failed to parse cookie, Error: ~p, Reason ~p",
+                       ?LOG(error, "Failed to parse cookie, Error: ~0p, Reason ~0p",
                             [Error, Reason]),
                        undefined
                end,
@@ -458,7 +458,7 @@ parse_incoming(Data, State = #state{parse_state = ParseState}) ->
             parse_incoming(Rest, postpone({incoming, Packet}, NState))
     catch
         error:Reason:Stk ->
-            ?LOG(error, "~nParse failed for ~p~n~p~nFrame data: ~p",
+            ?LOG(error, "~nParse failed for ~0p~n~0p~nFrame data: ~0p",
                  [Reason, Stk, Data]),
             FrameError = {frame_error, Reason},
             postpone({incoming, FrameError}, State)

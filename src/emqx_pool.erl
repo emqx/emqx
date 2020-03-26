@@ -107,7 +107,7 @@ handle_call(Req, _From, State) ->
 handle_cast({async_submit, Task}, State) ->
     try run(Task)
     catch _:Error:Stacktrace ->
-        ?LOG(error, "Error: ~p, ~p", [Error, Stacktrace])
+        ?LOG(error, "Error: ~0p, ~0p", [Error, Stacktrace])
     end,
     {noreply, State};
 
