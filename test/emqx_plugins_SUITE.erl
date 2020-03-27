@@ -122,11 +122,14 @@ t_load_plugin(_) ->
     ok = meck:expect(application, ensure_all_started, fun(already_loaded_app) -> {error, {already_loaded_app, already_loaded}};
                                                          (error_app) -> {error, error};
                                                          (App) -> {ok, App} end),
-
+    ok = meck:new(emqx_plugins, [unstick, non_strict, passthrough, no_history]),
+    ok = meck:expect(emqx_plugins, generate_configs, fun(_) -> ok end),
+    ok = meck:expect(emqx_plugins, apply_configs, fun(_) -> ok end),
     ?assertMatch({error, _}, emqx_plugins:load_plugin(already_loaded_app, true)),
     ?assertMatch(ok, emqx_plugins:load_plugin(normal, true)),
     ?assertMatch({error,_}, emqx_plugins:load_plugin(error_app, true)),
 
+    ok = meck:unload(emqx_plugins),
     ok = meck:unload(application).
 
 t_unload_plugin(_) ->

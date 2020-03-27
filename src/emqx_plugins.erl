@@ -252,8 +252,8 @@ plugin(AppName, Type) ->
 
 load_plugin(Name, Persistent) ->
     try
-        Configs = generate_configs(Name),
-        apply_configs(Configs),
+        Configs = ?MODULE:generate_configs(Name),
+        ?MODULE:apply_configs(Configs),
         case load_app(Name) of
             ok ->
                 start_app(Name, fun(App) -> plugin_loaded(App, Persistent) end);
