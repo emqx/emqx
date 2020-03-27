@@ -30,6 +30,8 @@
         , reload/1
         , list/0
         , find_plugin/1
+        , generate_configs/1
+        , apply_configs/1
         ]).
 
 -ifdef(TEST).
