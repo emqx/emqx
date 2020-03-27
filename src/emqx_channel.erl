@@ -94,6 +94,8 @@
 
 -type(replies() :: emqx_types:packet() | reply() | [reply()]).
 
+-define(IS_MQTT_V5, #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}).
+
 -define(TIMER_TABLE, #{
           alive_timer  => keepalive,
           retry_timer  => retry_delivery,
@@ -617,16 +619,14 @@ handle_out(pubrel, {PacketId, ReasonCode}, Channel) ->
 handle_out(pubcomp, {PacketId, ReasonCode}, Channel) ->
     {ok, ?PUBCOMP_PACKET(PacketId, ReasonCode), Channel};
 
-handle_out(suback, {PacketId, ReasonCodes},
-           Channel = #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
+handle_out(suback, {PacketId, ReasonCodes}, Channel = ?IS_MQTT_V5) ->
     return_suback(?SUBACK_PACKET(PacketId, ReasonCodes), Channel);
 
 handle_out(suback, {PacketId, ReasonCodes}, Channel) ->
     ReasonCodes1 = [emqx_reason_codes:compat(suback, RC) || RC <- ReasonCodes],
     return_suback(?SUBACK_PACKET(PacketId, ReasonCodes1), Channel);
 
-handle_out(unsuback, {PacketId, ReasonCodes},
-           Channel = #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
+handle_out(unsuback, {PacketId, ReasonCodes}, Channel = ?IS_MQTT_V5) ->
     return_unsuback(?UNSUBACK_PACKET(PacketId, ReasonCodes), Channel);
 
 handle_out(unsuback, {PacketId, _ReasonCodes}, Channel) ->
@@ -636,8 +636,7 @@ handle_out(disconnect, ReasonCode, Channel) when is_integer(ReasonCode) ->
     ReasonName = disconnect_reason(ReasonCode),
     handle_out(disconnect, {ReasonCode, ReasonName}, Channel);
 
-handle_out(disconnect, {ReasonCode, ReasonName}, Channel =
-           #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
+handle_out(disconnect, {ReasonCode, ReasonName}, Channel = ?IS_MQTT_V5) ->
     Packet = ?DISCONNECT_PACKET(ReasonCode),
     {ok, [{outgoing, Packet}, {close, ReasonName}], Channel};
 
@@ -1078,7 +1077,7 @@ process_alias(Packet = #mqtt_packet{
                                                           properties = #{'Topic-Alias' := AliasId}
                                                          } = Publish
                          },
-              Channel = #channel{topic_aliases = TopicAliases}) ->
+              Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases}) ->
     case find_alias(inbound, AliasId, TopicAliases) of
         {ok, Topic} ->
             NPublish = Publish#mqtt_packet_publish{topic_name = Topic},
@@ -1091,7 +1090,7 @@ process_alias(#mqtt_packet{
                                                  properties = #{'Topic-Alias' := AliasId}
                                                 }
                 },
-              Channel = #channel{topic_aliases = TopicAliases}) ->
+              Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases}) ->
     NTopicAliases = save_alias(inbound, AliasId, Topic, TopicAliases),
     {ok, Channel#channel{topic_aliases = NTopicAliases}};
 
@@ -1103,7 +1102,7 @@ process_alias(_Packet, Channel) -> {ok, Channel}.
 packing_alias(Packet = #mqtt_packet{
                             variable = #mqtt_packet_publish{topic_name = Topic} = Publish
                         },
-              Channel = #channel{topic_aliases = TopicAliases, alias_maximum = Limits}) ->
+              Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases, alias_maximum = Limits}) ->
     case find_alias(outbound, Topic, TopicAliases) of
         {ok, AliasId} -> 
             NPublish = Publish#mqtt_packet_publish{
@@ -1202,7 +1201,7 @@ enrich_subid(_Properties, TopicFilters) -> TopicFilters.
 %%--------------------------------------------------------------------
 %% Enrich SubOpts
 
-enrich_subopts(SubOpts, #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
+enrich_subopts(SubOpts, _Channel = ?IS_MQTT_V5) ->
     SubOpts;
 enrich_subopts(SubOpts, #channel{clientinfo = #{zone := Zone, is_bridge := IsBridge}}) ->
     NL = flag(emqx_zone:ignore_loop_deliver(Zone)),
@@ -1211,8 +1210,7 @@ enrich_subopts(SubOpts, #channel{clientinfo = #{zone := Zone, is_bridge := IsBri
 %%--------------------------------------------------------------------
 %% Enrich ConnAck Caps
 
-enrich_connack_caps(AckProps, #channel{conninfo   = #{proto_ver := ?MQTT_PROTO_V5},
-                                       clientinfo = #{zone := Zone}}) ->
+enrich_connack_caps(AckProps, ?IS_MQTT_V5 = #channel{clientinfo = #{zone := Zone}}) ->
     #{max_packet_size       := MaxPktSize,
       max_qos_allowed       := MaxQoS,
       retain_available      := Retain,
@@ -1420,8 +1418,8 @@ shutdown(success, Reply, Packet, Channel) ->
 shutdown(Reason, Reply, Packet, Channel) ->
     {shutdown, Reason, Reply, Packet, Channel}.
 
-disconnect_and_shutdown(Reason, Reply, Channel = #channel{conn_state = connected,
-                                                          conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
+disconnect_and_shutdown(Reason, Reply, Channel = ?IS_MQTT_V5
+                                               = #channel{conn_state = connected}) ->
     shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), Channel);
 
 disconnect_and_shutdown(Reason, Reply, Channel) ->
