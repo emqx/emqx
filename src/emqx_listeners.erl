@@ -51,7 +51,7 @@ start_listener({Proto, ListenOn, Options}) ->
         {ok, _} -> io:format("Start mqtt:~s listener on ~s successfully.~n",
                              [Proto, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to start mqtt:~s listener on ~s - ~p~n!",
+            io:format(standard_error, "Failed to start mqtt:~s listener on ~s - ~0p~n!",
                       [Proto, format(ListenOn), Reason])
     end,
     StartRet.

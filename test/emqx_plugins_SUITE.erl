@@ -24,7 +24,6 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-
 init_per_suite(Config) ->
 
     %% Compile extra plugin code
@@ -55,13 +54,11 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
 t_load(_) ->
-    ?assertEqual([], emqx_plugins:load()),
-    ?assertEqual([], emqx_plugins:unload()),
+    ?assertEqual(ok, emqx_plugins:load()),
+    ?assertEqual(ok, emqx_plugins:unload()),
 
     ?assertEqual({error, not_found}, emqx_plugins:load(not_existed_plugin)),
-    ?assertMatch(ok, emqx_plugins:load(emqx_mini_plugin)),
-    ?assertEqual({error, already_started}, emqx_plugins:load(emqx_mini_plugin)),
-    ?assertEqual(ok, emqx_plugins:unload(emqx_mini_plugin)),
+    ?assertEqual({error, parse_config_file_failed}, emqx_plugins:load(emqx_mini_plugin)),
     ?assertEqual({error, not_started}, emqx_plugins:unload(emqx_mini_plugin)),
 
     application:set_env(emqx, expand_plugins_dir, undefined),
@@ -82,10 +79,10 @@ t_load_expand_plugin(_) ->
     ?assertEqual({error, load_app_fail}, emqx_plugins:load_expand_plugin("./not_existed_path/")).
 
 t_list(_) ->
-    ?assertMatch([{plugin, _, _, _, _, _, _, _, _} | _ ], emqx_plugins:list()).
+    ?assertMatch([{plugin, _, _, _, _, _, _, _} | _ ], emqx_plugins:list()).
 
 t_find_plugin(_) ->
-    ?assertMatch({plugin, emqx_mini_plugin, _, _, _, _, _, _, _}, emqx_plugins:find_plugin(emqx_mini_plugin)).
+    ?assertMatch({plugin, emqx_mini_plugin, _, _, _, _, _, _}, emqx_plugins:find_plugin(emqx_mini_plugin)).
 
 t_plugin_type(_) ->
     ?assertEqual(auth, emqx_plugins:plugin_type(auth)),
@@ -112,7 +109,7 @@ t_plugin(_) ->
         _Error:Reason:_Stacktrace ->
             ?assertEqual({plugin_not_found,not_existed_plugin}, Reason)
     end,
-    ?assertMatch({plugin, emqx_mini_plugin, _, _, _, _, _, _, _}, emqx_plugins:plugin(emqx_mini_plugin, undefined)).
+    ?assertMatch({plugin, emqx_mini_plugin, _, _, _, _, _, _}, emqx_plugins:plugin(emqx_mini_plugin, undefined)).
 
 t_filter_plugins(_) ->
     ?assertEqual([name1, name2], emqx_plugins:filter_plugins([name1, {name2,true}, {name3, false}])).
@@ -120,27 +117,29 @@ t_filter_plugins(_) ->
 t_load_plugin(_) ->
     ok = meck:new(application, [unstick, non_strict, passthrough, no_history]),
     ok = meck:expect(application, load, fun(already_loaded_app) -> {error, {already_loaded, already_loaded_app}};
-                                            (error_app) -> {error, error};
-                                            (_) -> ok end),
+                                           (error_app) -> {error, error};
+                                           (_) -> ok end),
     ok = meck:expect(application, ensure_all_started, fun(already_loaded_app) -> {error, {already_loaded_app, already_loaded}};
-                                                            (error_app) -> {error, error};
-                                                            (App) -> {ok, App} end),
+                                                         (error_app) -> {error, error};
+                                                         (App) -> {ok, App} end),
+    ok = meck:new(emqx_plugins, [unstick, non_strict, passthrough, no_history]),
+    ok = meck:expect(emqx_plugins, generate_configs, fun(_) -> ok end),
+    ok = meck:expect(emqx_plugins, apply_configs, fun(_) -> ok end),
+    ?assertMatch({error, _}, emqx_plugins:load_plugin(already_loaded_app, true)),
+    ?assertMatch(ok, emqx_plugins:load_plugin(normal, true)),
+    ?assertMatch({error,_}, emqx_plugins:load_plugin(error_app, true)),
 
-    ?assertMatch({error, _}, emqx_plugins:load_plugin(#plugin{name = already_loaded_app}, true)),
-    ?assertMatch(ok, emqx_plugins:load_plugin(#plugin{name = normal}, true)),
-    ?assertMatch({error,_}, emqx_plugins:load_plugin(#plugin{name = error_app}, true)),
-
+    ok = meck:unload(emqx_plugins),
     ok = meck:unload(application).
 
 t_unload_plugin(_) ->
     ok = meck:new(application, [unstick, non_strict, passthrough, no_history]),
     ok = meck:expect(application, stop, fun(not_started_app) -> {error, {not_started, not_started_app}};
-                                            (error_app) -> {error, error};
-                                            (_) -> ok end),
+                                           (error_app) -> {error, error};
+                                           (_) -> ok end),
 
     ?assertEqual(ok, emqx_plugins:unload_plugin(not_started_app, true)),
     ?assertEqual(ok, emqx_plugins:unload_plugin(normal, true)),
     ?assertEqual({error,error}, emqx_plugins:unload_plugin(error_app, true)),
 
     ok = meck:unload(application).
-

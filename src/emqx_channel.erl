@@ -68,7 +68,7 @@
           %% MQTT Will Msg
           will_msg :: maybe(emqx_types:message()),
           %% MQTT Topic Aliases
-          topic_aliases :: maybe(map()),
+          topic_aliases :: emqx_types:topic_aliases(),
           %% MQTT Topic Alias Maximum
           alias_maximum :: maybe(map()),
           %% Timers
@@ -93,6 +93,8 @@
                | {close, Reason :: atom()}).
 
 -type(replies() :: emqx_types:packet() | reply() | [reply()]).
+
+-define(IS_MQTT_V5, #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}).
 
 -define(TIMER_TABLE, #{
           alive_timer  => keepalive,
@@ -180,6 +182,9 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
                   },
     #channel{conninfo   = ConnInfo,
              clientinfo = ClientInfo,
+             topic_aliases = #{inbound => #{},
+                               outbound => #{}
+                              },
              timers     = #{},
              conn_state = idle,
              takeover   = false,
@@ -599,8 +604,8 @@ handle_out(publish, [], Channel) ->
     {ok, Channel};
 
 handle_out(publish, Publishes, Channel) ->
-    Packets = do_deliver(Publishes, Channel),
-    {ok, {outgoing, Packets}, Channel};
+    {Packets, NChannel} = do_deliver(Publishes, Channel),
+    {ok, {outgoing, Packets}, NChannel};
 
 handle_out(puback, {PacketId, ReasonCode}, Channel) ->
     {ok, ?PUBACK_PACKET(PacketId, ReasonCode), Channel};
@@ -614,16 +619,14 @@ handle_out(pubrel, {PacketId, ReasonCode}, Channel) ->
 handle_out(pubcomp, {PacketId, ReasonCode}, Channel) ->
     {ok, ?PUBCOMP_PACKET(PacketId, ReasonCode), Channel};
 
-handle_out(suback, {PacketId, ReasonCodes},
-           Channel = #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
+handle_out(suback, {PacketId, ReasonCodes}, Channel = ?IS_MQTT_V5) ->
     return_suback(?SUBACK_PACKET(PacketId, ReasonCodes), Channel);
 
 handle_out(suback, {PacketId, ReasonCodes}, Channel) ->
     ReasonCodes1 = [emqx_reason_codes:compat(suback, RC) || RC <- ReasonCodes],
     return_suback(?SUBACK_PACKET(PacketId, ReasonCodes1), Channel);
 
-handle_out(unsuback, {PacketId, ReasonCodes},
-           Channel = #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
+handle_out(unsuback, {PacketId, ReasonCodes}, Channel = ?IS_MQTT_V5) ->
     return_unsuback(?UNSUBACK_PACKET(PacketId, ReasonCodes), Channel);
 
 handle_out(unsuback, {PacketId, _ReasonCodes}, Channel) ->
@@ -633,8 +636,7 @@ handle_out(disconnect, ReasonCode, Channel) when is_integer(ReasonCode) ->
     ReasonName = disconnect_reason(ReasonCode),
     handle_out(disconnect, {ReasonCode, ReasonName}, Channel);
 
-handle_out(disconnect, {ReasonCode, ReasonName}, Channel =
-           #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
+handle_out(disconnect, {ReasonCode, ReasonName}, Channel = ?IS_MQTT_V5) ->
     Packet = ?DISCONNECT_PACKET(ReasonCode),
     {ok, [{outgoing, Packet}, {close, ReasonName}], Channel};
 
@@ -658,9 +660,9 @@ return_connack(AckPacket, Channel) ->
                                        resuming = false,
                                        pendings = []
                                       },
-            Packets = do_deliver(Publishes, NChannel),
+            {Packets, NChannel1} = do_deliver(Publishes, NChannel),
             Outgoing = [{outgoing, Packets} || length(Packets) > 0],
-            {ok, Replies ++ Outgoing, NChannel}
+            {ok, Replies ++ Outgoing, NChannel1}
     end.
 
 %%--------------------------------------------------------------------
@@ -668,16 +670,16 @@ return_connack(AckPacket, Channel) ->
 %%--------------------------------------------------------------------
 
 %% return list(emqx_types:packet())
-do_deliver({pubrel, PacketId}, _Channel) ->
-    [?PUBREL_PACKET(PacketId, ?RC_SUCCESS)];
+do_deliver({pubrel, PacketId}, Channel) ->
+    {[?PUBREL_PACKET(PacketId, ?RC_SUCCESS)], Channel};
 
-do_deliver({PacketId, Msg}, #channel{clientinfo = ClientInfo =
+do_deliver({PacketId, Msg}, Channel = #channel{clientinfo = ClientInfo =
                                      #{mountpoint := MountPoint}}) ->
     case ignore_local(Msg, ClientInfo) of
         true ->
             ok = emqx_metrics:inc('delivery.dropped'),
             ok = emqx_metrics:inc('delivery.dropped.no_local'),
-            [];
+            {[], Channel};
         false ->
             ok = emqx_metrics:inc('messages.delivered'),
             Msg1 = emqx_hooks:run_fold('message.delivered',
@@ -685,18 +687,21 @@ do_deliver({PacketId, Msg}, #channel{clientinfo = ClientInfo =
                                        emqx_message:update_expiry(Msg)
                                       ),
             Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
-            [emqx_message:to_packet(PacketId, Msg2)]
+            Packet = emqx_message:to_packet(PacketId, Msg2),
+            {NPacket, NChannel} = packing_alias(Packet, Channel),
+            {[NPacket], NChannel}
     end;
 
 do_deliver([Publish], Channel) ->
     do_deliver(Publish, Channel);
 
 do_deliver(Publishes, Channel) when is_list(Publishes) ->
-    lists:reverse(
-      lists:foldl(
-        fun(Publish, Acc) ->
-                lists:append(do_deliver(Publish, Channel), Acc)
-        end, [], Publishes)).
+    {Packets, NChannel} =
+        lists:foldl(fun(Publish, {Acc, Chann}) ->
+            {Packets, NChann} = do_deliver(Publish, Chann),
+            {Packets ++ Acc, NChann}
+        end, {[], Channel}, Publishes),
+    {lists:reverse(Packets), NChannel}.
 
 ignore_local(#message{flags = #{nl := true}, from = ClientId},
              #{clientid := ClientId}) ->
@@ -1072,8 +1077,8 @@ process_alias(Packet = #mqtt_packet{
                                                           properties = #{'Topic-Alias' := AliasId}
                                                          } = Publish
                          },
-              Channel = #channel{topic_aliases = Aliases}) ->
-    case find_alias(AliasId, Aliases) of
+              Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases}) ->
+    case find_alias(inbound, AliasId, TopicAliases) of
         {ok, Topic} ->
             NPublish = Publish#mqtt_packet_publish{topic_name = Topic},
             {ok, Packet#mqtt_packet{variable = NPublish}, Channel};
@@ -1085,11 +1090,43 @@ process_alias(#mqtt_packet{
                                                  properties = #{'Topic-Alias' := AliasId}
                                                 }
                 },
-              Channel = #channel{topic_aliases = Aliases}) ->
-    NAliases = save_alias(AliasId, Topic, Aliases),
-    {ok, Channel#channel{topic_aliases = NAliases}};
+              Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases}) ->
+    NTopicAliases = save_alias(inbound, AliasId, Topic, TopicAliases),
+    {ok, Channel#channel{topic_aliases = NTopicAliases}};
 
 process_alias(_Packet, Channel) -> {ok, Channel}.
+
+%%--------------------------------------------------------------------
+%% Packing Topic Alias
+
+packing_alias(Packet = #mqtt_packet{
+                            variable = #mqtt_packet_publish{topic_name = Topic} = Publish
+                        },
+              Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases, alias_maximum = Limits}) ->
+    case find_alias(outbound, Topic, TopicAliases) of
+        {ok, AliasId} -> 
+            NPublish = Publish#mqtt_packet_publish{
+                            topic_name = <<>>,
+                            properties = #{'Topic-Alias' => AliasId}
+                            },
+            {Packet#mqtt_packet{variable = NPublish}, Channel};
+        error ->
+            #{outbound := Aliases} = TopicAliases,
+            AliasId = maps:size(Aliases) + 1,
+            case (Limits =:= undefined) orelse
+                    (AliasId =< maps:get(outbound, Limits, 0)) of
+                true ->
+                    NTopicAliases = save_alias(outbound, AliasId, Topic, TopicAliases),
+                    NChannel = Channel#channel{topic_aliases = NTopicAliases},
+                    NPublish = Publish#mqtt_packet_publish{
+                                    topic_name = Topic,
+                                    properties = #{'Topic-Alias' => AliasId}
+                                    },
+                    {Packet#mqtt_packet{variable = NPublish}, NChannel};
+                false -> {Packet, Channel}
+            end
+    end;
+packing_alias(Packet, Channel) -> {Packet, Channel}.
 
 %%--------------------------------------------------------------------
 %% Check Pub Alias
@@ -1164,7 +1201,7 @@ enrich_subid(_Properties, TopicFilters) -> TopicFilters.
 %%--------------------------------------------------------------------
 %% Enrich SubOpts
 
-enrich_subopts(SubOpts, #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
+enrich_subopts(SubOpts, _Channel = ?IS_MQTT_V5) ->
     SubOpts;
 enrich_subopts(SubOpts, #channel{clientinfo = #{zone := Zone, is_bridge := IsBridge}}) ->
     NL = flag(emqx_zone:ignore_loop_deliver(Zone)),
@@ -1173,8 +1210,7 @@ enrich_subopts(SubOpts, #channel{clientinfo = #{zone := Zone, is_bridge := IsBri
 %%--------------------------------------------------------------------
 %% Enrich ConnAck Caps
 
-enrich_connack_caps(AckProps, #channel{conninfo   = #{proto_ver := ?MQTT_PROTO_V5},
-                                       clientinfo = #{zone := Zone}}) ->
+enrich_connack_caps(AckProps, ?IS_MQTT_V5 = #channel{clientinfo = #{zone := Zone}}) ->
     #{max_packet_size       := MaxPktSize,
       max_qos_allowed       := MaxQoS,
       retain_available      := Retain,
@@ -1346,16 +1382,21 @@ run_hooks(Name, Args) ->
 run_hooks(Name, Args, Acc) ->
     ok = emqx_metrics:inc(Name), emqx_hooks:run_fold(Name, Args, Acc).
 
--compile({inline, [find_alias/2, save_alias/3]}).
+-compile({inline, [find_alias/3, save_alias/4]}).
 
-find_alias(_AliasId, undefined) -> false;
-find_alias(AliasId, Aliases) ->
-    maps:find(AliasId, Aliases).
+find_alias(_, _ ,undefined) -> false;
+find_alias(inbound, AliasId, _TopicAliases = #{inbound := Aliases}) ->
+    maps:find(AliasId, Aliases);
+find_alias(outbound, Topic, _TopicAliases = #{outbound := Aliases}) ->
+    maps:find(Topic, Aliases).
 
-save_alias(AliasId, Topic, undefined) ->
-    #{AliasId => Topic};
-save_alias(AliasId, Topic, Aliases) ->
-    maps:put(AliasId, Topic, Aliases).
+save_alias(_, _, _, undefined) -> false;
+save_alias(inbound, AliasId, Topic, TopicAliases = #{inbound := Aliases}) ->
+    NAliases = maps:put(AliasId, Topic, Aliases),
+    TopicAliases#{inbound => NAliases};
+save_alias(outbound, AliasId, Topic, TopicAliases = #{outbound := Aliases}) ->
+    NAliases = maps:put(Topic, AliasId, Aliases),
+    TopicAliases#{outbound => NAliases}.
 
 -compile({inline, [reply/2, shutdown/2, shutdown/3, sp/1, flag/1]}).
 
@@ -1377,8 +1418,8 @@ shutdown(success, Reply, Packet, Channel) ->
 shutdown(Reason, Reply, Packet, Channel) ->
     {shutdown, Reason, Reply, Packet, Channel}.
 
-disconnect_and_shutdown(Reason, Reply, Channel = #channel{conn_state = connected,
-                                                          conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
+disconnect_and_shutdown(Reason, Reply, Channel = ?IS_MQTT_V5
+                                               = #channel{conn_state = connected}) ->
     shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), Channel);
 
 disconnect_and_shutdown(Reason, Reply, Channel) ->

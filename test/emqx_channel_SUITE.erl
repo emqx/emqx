@@ -482,9 +482,25 @@ t_auth_connect(_) ->
 
 t_process_alias(_) ->
     Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},
-    Channel = emqx_channel:set_field(topic_aliases, #{1 => <<"t">>}, channel()),
+    Channel = emqx_channel:set_field(topic_aliases, #{inbound => #{1 => <<"t">>}}, channel()),
     {ok, #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"t">>}}, _Chan} =
         emqx_channel:process_alias(#mqtt_packet{variable = Publish}, Channel).
+
+t_packing_alias(_) ->
+    Packet1 = #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"x">>}},
+    Packet2 = #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"y">>}},
+    Channel = emqx_channel:set_field(alias_maximum, #{outbound => 1}, channel()),
+
+    {RePacket1, NChannel1} = emqx_channel:packing_alias(Packet1, Channel),
+    ?assertEqual(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"x">>, properties = #{'Topic-Alias' => 1}}}, RePacket1),
+
+    {RePacket2, NChannel2} = emqx_channel:packing_alias(Packet1, NChannel1),
+    ?assertEqual(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}}}, RePacket2),
+
+    {RePacket3, _} = emqx_channel:packing_alias(Packet2, NChannel2),
+    ?assertEqual(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"y">>, properties = undefined}}, RePacket3),
+
+    ?assertMatch({#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"z">>}}, _},  emqx_channel:packing_alias(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"z">>}}, channel())).
 
 t_check_pub_acl(_) ->
     ok = meck:new(emqx_zone, [passthrough, no_history]),

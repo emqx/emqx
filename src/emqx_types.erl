@@ -47,6 +47,7 @@
              , subopts/0
              , reason_code/0
              , alias_id/0
+             , topic_aliases/0
              , properties/0
              ]).
 
@@ -165,6 +166,8 @@
 -type(reason_code() :: 0..16#FF).
 -type(packet_id() :: 1..16#FFFF).
 -type(alias_id() :: 0..16#FFFF).
+-type(topic_aliases() :: #{inbound => maybe(map()),
+                           outbound => maybe(map())}).
 -type(properties() :: #{atom() => term()}).
 -type(topic_filters() :: list({topic(), subopts()})).
 -type(packet() :: #mqtt_packet{}).
