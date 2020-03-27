@@ -59,8 +59,8 @@ load(_Env) ->
 
 -spec(unload(list()) -> ok).
 unload(_Env) ->
-    emqx_mod_sup:stop_child(?MODULE),
-    emqx:unhook('message.publish', {?MODULE, on_message_publish, []}).
+    emqx:unhook('message.publish', {?MODULE, on_message_publish, []}),
+    emqx_mod_sup:stop_child(?MODULE).
 
 %%--------------------------------------------------------------------
 %% Hooks

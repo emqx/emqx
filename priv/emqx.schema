@@ -1841,6 +1841,11 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "module.topic_metrics", "emqx.modules", [
+  {default, off},
+  {datatype, flag}
+]}.
+
 {mapping, "module.delayed", "emqx.modules", [
   {default, off},
   {datatype, flag}
@@ -1874,6 +1879,10 @@ end}.
     end,
     case cuttlefish:conf_get("module.rewrite", Conf) of %% Rewrite
         true  -> [{emqx_mod_rewrite, Rewrites()}];
+        false -> []
+    end,
+    case cuttlefish:conf_get("module.topic_metrics", Conf) of %% Topic Metrics
+        true  -> [{emqx_mod_topic_metrics, []}];
         false -> []
     end,
     case cuttlefish:conf_get("module.delayed", Conf) of %% Delayed
