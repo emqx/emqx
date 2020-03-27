@@ -99,10 +99,10 @@ load(_Env) ->
     emqx:hook('message.delivered', fun ?MODULE:on_message_delivered/2, []).
 
 unload(_Env) ->
-    emqx_mod_sup:stop_child(?MODULE),
     emqx:unhook('message.publish', fun ?MODULE:on_message_publish/1),
     emqx:unhook('message.dropped', fun ?MODULE:on_message_dropped/3),
-    emqx:unhook('message.delivered', fun ?MODULE:on_message_delivered/2).
+    emqx:unhook('message.delivered', fun ?MODULE:on_message_delivered/2),
+    emqx_mod_sup:stop_child(?MODULE).
 
 on_message_publish(#message{topic = Topic, qos = QoS}) ->
     case is_registered(Topic) of
@@ -367,11 +367,3 @@ calculate_speed(CurVal, #speed{last_v = LastVal, tick = Tick, acc = Acc, samples
                    samples = Speeds ++ [CurSpeed],
                    tick = Tick}
     end.
-
-
-
-
-
-
-
-
