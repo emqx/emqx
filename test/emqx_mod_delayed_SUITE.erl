@@ -65,20 +65,16 @@ t_load_case(_) ->
     ok.
 
 t_delayed_message(_) ->
-    DelayedMsg = emqx_message:make(?MODULE, 1, <<"$delayed/5/publish">>, <<"delayed_m">>),
+    DelayedMsg = emqx_message:make(?MODULE, 1, <<"$delayed/1/publish">>, <<"delayed_m">>),
     ?assertEqual({stop, DelayedMsg#message{topic = <<"publish">>, headers = #{allow_publish => false}}}, on_message_publish(DelayedMsg)),
 
-    Msg = emqx_message:make(?MODULE, 1, <<"publish">>, <<"delayed_m">>),
+    Msg = emqx_message:make(?MODULE, 1, <<"no_delayed_msg">>, <<"no_delayed">>),
     ?assertEqual({ok, Msg}, on_message_publish(Msg)),
 
     [Key] = mnesia:dirty_all_keys(emqx_mod_delayed),
     [#delayed_message{msg = #message{payload = Payload}}] = mnesia:dirty_read({emqx_mod_delayed, Key}),
     ?assertEqual(<<"delayed_m">>, Payload),
-    timer:sleep(6000),
+    timer:sleep(5000),
 
     EmptyKey = mnesia:dirty_all_keys(emqx_mod_delayed),
-    ?assertEqual([], EmptyKey),
-    %%TODO
-    %% ExMsg = emqx_message:make(emqx_mod_delayed_SUITE, 1, <<"$delayed/time/publish">>, <<"delayed_message">>),
-    %% {ok, _} = on_message_publish(ExMsg),
-    ok.
+    ?assertEqual([], EmptyKey).
