@@ -35,6 +35,6 @@ lookup(psk, ClientPSKID, _UserState) ->
             error
     catch
         Except:Error:Stacktrace ->
-          ?LOG(error, "Lookup PSK failed, ~p: ~p", [{Except,Error}, Stacktrace]),
+          ?LOG(error, "Lookup PSK failed, ~0p: ~0p", [{Except,Error}, Stacktrace]),
           error
     end.

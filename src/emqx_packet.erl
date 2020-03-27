@@ -442,7 +442,7 @@ format_variable(undefined, _) ->
 format_variable(Variable, undefined) ->
     format_variable(Variable);
 format_variable(Variable, Payload) ->
-    io_lib:format("~s, Payload=~p", [format_variable(Variable), Payload]).
+    io_lib:format("~s, Payload=~0p", [format_variable(Variable), Payload]).
 
 format_variable(#mqtt_packet_connect{
                  proto_ver    = ProtoVer,
@@ -460,7 +460,7 @@ format_variable(#mqtt_packet_connect{
     Format = "ClientId=~s, ProtoName=~s, ProtoVsn=~p, CleanStart=~s, KeepAlive=~p, Username=~s, Password=~s",
     Args = [ClientId, ProtoName, ProtoVer, CleanStart, KeepAlive, Username, format_password(Password)],
     {Format1, Args1} = if
-                        WillFlag -> {Format ++ ", Will(Q~p, R~p, Topic=~s, Payload=~p)",
+                        WillFlag -> {Format ++ ", Will(Q~p, R~p, Topic=~s, Payload=~0p)",
                                      Args ++ [WillQoS, i(WillRetain), WillTopic, WillPayload]};
                         true -> {Format, Args}
                        end,

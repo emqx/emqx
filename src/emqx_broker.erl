@@ -214,7 +214,7 @@ safe_publish(Msg) when is_record(Msg, message) ->
         publish(Msg)
     catch
         _:Error:Stk->
-            ?LOG(error, "Publish error: ~p~n~s~n~p",
+            ?LOG(error, "Publish error: ~0p~n~s~n~0p",
                  [Error, emqx_message:format(Msg), Stk])
     after
         []

@@ -18,6 +18,11 @@ jobs:
             make eunit
             make ct
             make cover
+        - name: Coveralls
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          run: |
+              make coveralls
         - uses: actions/upload-artifact@v1
           if: always()
           with:
