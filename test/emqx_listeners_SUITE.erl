@@ -21,6 +21,7 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 all() -> emqx_ct:all(?MODULE).
 
@@ -37,7 +38,11 @@ end_per_suite(_Config) ->
 
 t_start_stop_listeners(_) ->
     ok = emqx_listeners:start(),
-    {error, _} = emqx_listeners:start_listener({ws,{"127.0.0.1", 8083}, []}),
+    try
+        emqx_listeners:start_listener({ws,{"127.0.0.1", 8083}, []})
+    catch
+        _:Err -> ?assertEqual(standard_error, Err)
+    end,
     ok = emqx_listeners:stop().
 
 t_restart_listeners(_) ->
