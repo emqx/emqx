@@ -334,6 +334,9 @@ handle_msg({incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
                         },
     handle_incoming(Packet, NState);
 
+handle_msg({incoming, Packet = ?PACKET(?AUTH)}, State) ->
+    handle_incoming(Packet, State);
+
 handle_msg({incoming, ?PACKET(?PINGREQ)}, State) ->
     handle_outgoing(?PACKET(?PINGRESP), State);
 

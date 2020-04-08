@@ -217,9 +217,43 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
                    fun auth_connect/2
                   ], ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel} ->
-            process_connect(NConnPkt, NChannel);
+            #mqtt_packet_connect{properties  = Properties} = NConnPkt,
+            AuthMethod = emqx_mqtt_props:get('Authentication-Method', Properties, undefined),
+            AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
+            case enhanced_auth(AuthMethod, AuthData, NChannel) of
+                {ok, NChannel} -> 
+                    process_connect(ensure_connected(NConnPkt, NChannel));
+                {ok, {ReasonCode, Properties}, NChannel} ->
+                    handle_out(auth, {ReasonCode, Properties}, ensure_connected(NConnPkt, NChannel));
+                {error, ReasonCode} ->
+                    handle_out(connack, {ReasonCode, NConnPkt}, NChannel)
+            end;
         {error, ReasonCode, NChannel} ->
             handle_out(connack, {ReasonCode, ConnPkt}, NChannel)
+    end;
+
+handle_in(?AUTH_PACKET(ReasonCode = ?RC_CONTINUE_AUTHENTICATION, Properties), Channel) ->
+    AuthMethod = emqx_mqtt_props:get('Authentication-Method', Properties, undefined),
+    AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
+    case enhanced_auth(AuthMethod, AuthData, Channel) of
+        {ok, NChannel} -> process_connect(NChannel);
+        {ok,{ReasonCode, Properties}, NChannel} ->
+            handle_out(auth, {ReasonCode, Properties}, NChannel);
+        {error, ReasonCode, NChannel} ->
+            handle_out(connack, {ReasonCode, #{}}, NChannel)
+    end;
+
+
+handle_in(?AUTH_PACKET(?RC_RE_AUTHENTICATE, Properties), Channel) ->
+    AuthMethod = emqx_mqtt_props:get('Authentication-Method', Properties, undefined),
+    AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
+    case enhanced_auth(AuthMethod, AuthData, Channel) of
+        {ok, NChannel} -> 
+            handle_out(auth, {?RC_SUCCESS, Properties}, NChannel);
+        {ok,{ReasonCode, Properties}, NChannel} ->
+            handle_out(auth, {ReasonCode, Properties}, NChannel);
+        {error, ReasonCode, NChannel} ->
+            handle_out(disconnect, ReasonCode, NChannel)
     end;
 
 handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
@@ -362,24 +396,24 @@ handle_in(Packet, Channel) ->
 %% Process Connect
 %%--------------------------------------------------------------------
 
-process_connect(ConnPkt = #mqtt_packet_connect{clean_start = CleanStart},
-                Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
+process_connect(Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
+    #{clean_start := CleanStart} = ConnInfo,
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo) of
         {ok, #{session := Session, present := false}} ->
             NChannel = Channel#channel{session = Session},
-            handle_out(connack, {?RC_SUCCESS, sp(false), ConnPkt}, NChannel);
+            handle_out(connack, {?RC_SUCCESS, sp(false), #{}}, NChannel);
         {ok, #{session := Session, present := true, pendings := Pendings}} ->
             Pendings1 = lists:usort(lists:append(Pendings, emqx_misc:drain_deliver())),
             NChannel = Channel#channel{session  = Session,
                                        resuming = true,
                                        pendings = Pendings1
                                       },
-            handle_out(connack, {?RC_SUCCESS, sp(true), ConnPkt}, NChannel);
+            handle_out(connack, {?RC_SUCCESS, sp(true), #{}}, NChannel);
         {error, client_id_unavailable} ->
-            handle_out(connack, {?RC_CLIENT_IDENTIFIER_NOT_VALID, ConnPkt}, Channel);
+            handle_out(connack, {?RC_CLIENT_IDENTIFIER_NOT_VALID, #{}}, Channel);
         {error, Reason} ->
             ?LOG(error, "Failed to open session due to ~p", [Reason]),
-            handle_out(connack, {?RC_UNSPECIFIED_ERROR, ConnPkt}, Channel)
+            handle_out(connack, {?RC_UNSPECIFIED_ERROR, #{}}, Channel)
     end.
 
 %%--------------------------------------------------------------------
@@ -579,7 +613,7 @@ not_nacked({deliver, _Topic, Msg}) ->
        | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}
        | {shutdown, Reason :: term(), replies(), channel()}).
-handle_out(connack, {?RC_SUCCESS, SP, ConnPkt}, Channel = #channel{conninfo = ConnInfo}) ->
+handle_out(connack, {?RC_SUCCESS, SP, _ConnPkt}, Channel = #channel{conninfo = ConnInfo}) ->
     AckProps = run_fold([fun enrich_connack_caps/2,
                          fun enrich_server_keepalive/2,
                          fun enrich_assigned_clientid/2
@@ -587,8 +621,7 @@ handle_out(connack, {?RC_SUCCESS, SP, ConnPkt}, Channel = #channel{conninfo = Co
     NAckProps = run_hooks('client.connack', [ConnInfo, emqx_reason_codes:name(?RC_SUCCESS)], AckProps),
 
     return_connack(?CONNACK_PACKET(?RC_SUCCESS, SP, NAckProps),
-                   ensure_keepalive(NAckProps,
-                                    ensure_connected(ConnPkt, Channel)));
+                   ensure_keepalive(NAckProps, Channel));
 
 handle_out(connack, {ReasonCode, _ConnPkt}, Channel = #channel{conninfo = ConnInfo}) ->
     Reason = emqx_reason_codes:name(ReasonCode),
@@ -642,6 +675,9 @@ handle_out(disconnect, {ReasonCode, ReasonName}, Channel = ?IS_MQTT_V5) ->
 
 handle_out(disconnect, {_ReasonCode, ReasonName}, Channel) ->
     {ok, {close, ReasonName}, Channel};
+
+handle_out(auth, {ReasonCode, Properties}, Channel) ->
+    {ok, ?AUTH_PACKET(ReasonCode, Properties), Channel};
 
 handle_out(Type, Data, Channel) ->
     ?LOG(error, "Unexpected outgoing: ~s, ~p", [Type, Data]),
@@ -1068,6 +1104,25 @@ auth_connect(#mqtt_packet_connect{clientid  = ClientId,
 
 is_anonymous(#{anonymous := true}) -> true;
 is_anonymous(_AuthResult)          -> false.
+
+%%--------------------------------------------------------------------
+%% Enhanced Authentication
+
+enhanced_auth(AuthMethod, AuthData, Channel) ->
+    case do_auth(AuthMethod, AuthData, Channel) of
+        ok -> {ok, Channel};
+        {ok, NAuthData, NChannel} ->
+            Properties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
+            {ok, {?RC_CONTINUE_AUTHENTICATION, Properties}, NChannel};
+        _Error -> {error, emqx_reason_codes:connack_error(not_authorized)}
+    end.
+
+do_auth(undefined, _AuthData, _Channel) -> 
+    ok;
+do_auth(_AuthMethod, undefined, _Channel) -> 
+    error;
+do_auth(_AuthMethod, _AuthData, _Channel) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Process Topic Alias
