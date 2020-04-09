@@ -49,9 +49,6 @@ t_check_acl(_) ->
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
     ?assertEqual(allow, emqx_access_control:check_acl(clientinfo(), Publish, <<"t">>)).
 
-t_reload_acl(_) ->
-    ?assertEqual(ok, emqx_access_control:reload_acl()).
-
 t_bypass_auth_plugins(_) ->
     AuthFun = fun(#{zone := bypass_zone}, AuthRes) ->
                       {stop, AuthRes#{auth_result => password_error}};

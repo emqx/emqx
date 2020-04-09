@@ -71,20 +71,22 @@ unload(ModuleName) ->
             {error, not_found};
         [{ModuleName, false}] ->
             ?LOG(error, "Module ~s is not started", [ModuleName]),
-            {error, already_started};
+            {error, not_started};
         [{ModuleName, true}] ->
             unload_module(ModuleName, true)
     end.
 
-reload(ModuleName) ->
+reload(emqx_mod_acl_internal) ->
     Modules = emqx:get_env(modules, []),
-    Env = proplists:get_value(ModuleName, Modules, undefined),
-    case ModuleName:reload(Env) of
+    Env = proplists:get_value(emqx_mod_acl_internal, Modules, undefined),
+    case emqx_mod_acl_internal:reload(Env) of
         ok ->
-            ?LOG(info, "Reload ~s module successfully.", [ModuleName]);
+            ?LOG(info, "Reload ~s module successfully.", [emqx_mod_acl_internal]);
         {error, Error} ->
-            ?LOG(error, "Reload module ~s failed, cannot start for ~0p", [ModuleName, Error])
-    end.
+            ?LOG(error, "Reload module ~s failed, cannot start for ~0p", [emqx_mod_acl_internal, Error])
+    end;
+reload(_) ->
+    ignore.
 
 find_module(ModuleName) ->
     ets:lookup(?MODULE, ModuleName).
@@ -94,7 +96,9 @@ filter_module(ModuleNames) ->
 filter_module([], Acc) ->
     Acc;
 filter_module([{ModuleName, true} | ModuleNames], Acc) ->
-    filter_module(ModuleNames, lists:keydelete(ModuleName, 1, Acc)).
+    filter_module(ModuleNames, lists:keydelete(ModuleName, 1, Acc));
+filter_module([{_, false} | ModuleNames], Acc) ->
+    filter_module(ModuleNames, Acc).
 
 load_modules(File) ->
     case file:consult(File) of
@@ -104,8 +108,7 @@ load_modules(File) ->
             end, filter_module(ModuleNames)),
             lists:foreach(fun load_module/1, ModuleNames);
         {error, Error} ->
-            ?LOG(alert, "Failed to read: ~p, error: ~p", [File, Error]),
-            {error, Error}
+            ?LOG(alert, "Failed to read: ~p, error: ~p", [File, Error])
     end.
 
 load_module({ModuleName, true}) ->
@@ -124,7 +127,8 @@ load_module(ModuleName, Persistent) ->
             write_loaded(Persistent),
             ?LOG(info, "Load ~s module successfully.", [ModuleName]);
         {error, Error} ->
-            ?LOG(error, "Load module ~s failed, cannot load for ~0p", [ModuleName, Error])
+            ?LOG(error, "Load module ~s failed, cannot load for ~0p", [ModuleName, Error]),
+            {error, Error}
     end.
 
 unload_modules(File) ->
@@ -132,11 +136,10 @@ unload_modules(File) ->
         {ok, ModuleNames} ->
             lists:foreach(fun unload_module/1, ModuleNames);
         {error, Error} ->
-            ?LOG(alert, "Failed to read: ~p, error: ~p", [File, Error]),
-            {error, Error}
+            ?LOG(alert, "Failed to read: ~p, error: ~p", [File, Error])
     end.
 unload_module({ModuleName, true}) ->
-    emqx_modules:unload_module(ModuleName, false);
+    unload_module(ModuleName, false);
 unload_module({ModuleName, false}) ->
     ets:insert(?MODULE, {ModuleName, false});
 unload_module(ModuleName) ->
