@@ -71,8 +71,6 @@
           topic_aliases :: emqx_types:topic_aliases(),
           %% MQTT Topic Alias Maximum
           alias_maximum :: maybe(map()),
-          %% Authentication Method
-          auth_method :: binary(),
           %% Authentication Data Cache
           auth_cache :: maybe(map()),
           %% Timers
@@ -1122,15 +1120,16 @@ enhanced_auth(?CONNECT_PACKET(#mqtt_packet_connect{
             {error, emqx_reason_codes:connack_error(protocol_error), Channel};
         true ->
             case do_auth(AuthMethod, AuthData, Channel) of
-                {ok, NChannel} -> {ok, NChannel#channel{auth_method = AuthMethod}};
+                {ok, NChannel} -> {ok, NChannel};
                 {continue, NAuthData, NChannel} ->
                     Properties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
-                    {ok, {?RC_CONTINUE_AUTHENTICATION, Properties}, NChannel#channel{auth_method = AuthMethod}};
-                {error, _Reason} -> {error, emqx_reason_codes:connack_error(not_authorized), Channel#channel{auth_method = AuthMethod}}
+                    {ok, {?RC_CONTINUE_AUTHENTICATION, Properties}, NChannel};
+                {error, _Reason} -> {error, emqx_reason_codes:connack_error(not_authorized), Channel}
             end
     end;
 
-enhanced_auth(?AUTH_PACKET(_ReasonCode, Properties), Channel = #channel{auth_method = AuthMethod}) ->
+enhanced_auth(?AUTH_PACKET(_ReasonCode, Properties), Channel = #channel{conninfo = ConnInfo}) ->
+    AuthMethod = maps:get('Authentication-Method', maps:get(conn_props, ConnInfo), undefined),
     NAuthMethod = emqx_mqtt_props:get('Authentication-Method', Properties, undefined),
     AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
     if
