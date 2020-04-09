@@ -28,7 +28,7 @@
         , workers/1
         ]).
 
--export([set_reconnect_callback/2]).
+-export([set_reconnect_callback/2, add_reconnect_callback/2]).
 
 -export_type([ pool_name/0
              , pool_type/0
@@ -81,6 +81,12 @@ get_client(Pool, Key) ->
 -spec(set_reconnect_callback(atom(), reconn_callback()) -> ok).
 set_reconnect_callback(Pool, Callback) ->
     [ecpool_worker:set_reconnect_callback(Worker, Callback)
+     || {_WorkerName, Worker} <- ecpool:workers(Pool)],
+    ok.
+
+-spec(add_reconnect_callback(atom(), reconn_callback()) -> ok).
+add_reconnect_callback(Pool, Callback) ->
+    [ecpool_worker:add_reconnect_callback(Worker, Callback)
      || {_WorkerName, Worker} <- ecpool:workers(Pool)],
     ok.
 

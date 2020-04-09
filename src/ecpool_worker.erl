@@ -24,6 +24,7 @@
 -export([ client/1
         , is_connected/1
         , set_reconnect_callback/2
+        , add_reconnect_callback/2
         ]).
 
 %% gen_server Function Exports
@@ -90,6 +91,10 @@ is_connected(Pid) ->
 set_reconnect_callback(Pid, OnReconnect) ->
     gen_server:cast(Pid, {set_reconn_callbk, OnReconnect}).
 
+-spec(add_reconnect_callback(pid(), ecpool:reconn_callback()) -> ok).
+add_reconnect_callback(Pid, OnReconnect) ->
+    gen_server:cast(Pid, {add_reconn_callbk, OnReconnect}).
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
@@ -129,6 +134,9 @@ handle_call(Req, _From, State) ->
 
 handle_cast({set_reconn_callbk, OnReconnect}, State) ->
     {noreply, State#state{on_reconnect = OnReconnect}};
+
+handle_cast({add_reconn_callbk, OnReconnect}, State = #state{on_reconnect = OnReconnectList}) ->
+    {noreply, State#state{on_reconnect = [OnReconnect | OnReconnectList]}};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -195,6 +203,10 @@ reconnect(Secs, State = #state{client = Client, on_disconnect = Disconnect, supe
 
 handle_reconnect(_, undefined) ->
     ok;
+handle_reconnect(undefined, _) ->
+    ok;
+handle_reconnect(Client, OnReconnectList) when is_list(OnReconnectList) ->
+    [OnReconnect(Client) || OnReconnect <- OnReconnectList];
 handle_reconnect(Client, OnReconnect) ->
     OnReconnect(Client).
 
