@@ -135,8 +135,14 @@ handle_call(Req, _From, State) ->
 handle_cast({set_reconn_callbk, OnReconnect}, State) ->
     {noreply, State#state{on_reconnect = OnReconnect}};
 
-handle_cast({add_reconn_callbk, OnReconnect}, State = #state{on_reconnect = OnReconnectList}) ->
+handle_cast({add_reconn_callbk, OnReconnect}, State = #state{on_reconnect = OnReconnectList}) when is_list(OnReconnectList) ->
     {noreply, State#state{on_reconnect = [OnReconnect | OnReconnectList]}};
+
+handle_cast({add_reconn_callbk, OnReconnect}, State = #state{on_reconnect = undefined}) ->
+    {noreply, State#state{on_reconnect = [OnReconnect]}};
+
+handle_cast({add_reconn_callbk, OnReconnect}, State = #state{on_reconnect = OnReconnect0}) ->
+    {noreply, State#state{on_reconnect = [OnReconnect, OnReconnect0]}};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
