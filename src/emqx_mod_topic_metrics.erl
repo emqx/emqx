@@ -17,6 +17,7 @@
 -module(emqx_mod_topic_metrics).
 
 -behaviour(gen_server).
+-behaviour(emqx_gen_mod).
 
 -include("emqx.hrl").
 -include("logger.hrl").
@@ -26,6 +27,7 @@
 
 -export([ load/1
         , unload/1
+        , description/0
         ]).
 
 -export([ on_message_publish/1
@@ -103,6 +105,9 @@ unload(_Env) ->
     emqx:unhook('message.dropped', fun ?MODULE:on_message_dropped/3),
     emqx:unhook('message.delivered', fun ?MODULE:on_message_delivered/2),
     emqx_mod_sup:stop_child(?MODULE).
+
+description() ->
+    "EMQ X Topic Metrics Module".
 
 on_message_publish(#message{topic = Topic, qos = QoS}) ->
     case is_registered(Topic) of

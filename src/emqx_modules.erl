@@ -20,28 +20,146 @@
 
 -logger_header("[Modules]").
 
--export([ load/0
+-export([ list/0
+        , load/0
+        , load/1
         , unload/0
+        , unload/1
+        , reload/1
+        , load_module/2
         ]).
+
+%% @doc List all available plugins
+-spec(list() -> [{atom(), boolean()}]).
+list() ->
+    ets:tab2list(?MODULE).
 
 %% @doc Load all the extended modules.
 -spec(load() -> ok).
 load() ->
-    ok = emqx_mod_acl_internal:load([]),
-    lists:foreach(fun load/1, modules()).
+    case emqx:get_env(modules_loaded_file) of
+        undefined -> ignore;
+        File ->
+            load_modules(File)
+    end.
 
-load({Mod, Env}) ->
-    ok = Mod:load(Env),
-    ?LOG(info, "Load ~s module successfully.", [Mod]).
-
-modules() -> emqx:get_env(modules, []).
+load(ModuleName) ->
+    case find_module(ModuleName) of
+        [] ->
+            ?LOG(alert, "Module ~s not found, cannot load it", [ModuleName]),
+            {error, not_found};
+        [{ModuleName, true}] ->
+            ?LOG(notice, "Module ~s is already started", [ModuleName]),
+            {error, already_started};
+        [{ModuleName, false}] ->
+            emqx_modules:load_module(ModuleName, true)
+    end.
 
 %% @doc Unload all the extended modules.
 -spec(unload() -> ok).
 unload() ->
-    ok = emqx_mod_acl_internal:unload([]),
-    lists:foreach(fun unload/1, modules()).
+    case emqx:get_env(modules_loaded_file) of
+        undefined -> ignore;
+        File ->
+            unload_modules(File)
+    end.
 
-unload({Mod, Env}) ->
-    Mod:unload(Env).
+unload(ModuleName) ->
+    case find_module(ModuleName) of
+        [] ->
+            ?LOG(alert, "Module ~s not found, cannot load it", [ModuleName]),
+            {error, not_found};
+        [{ModuleName, false}] ->
+            ?LOG(error, "Module ~s is not started", [ModuleName]),
+            {error, already_started};
+        [{ModuleName, true}] ->
+            unload_module(ModuleName, true)
+    end.
 
+reload(ModuleName) ->
+    Modules = emqx:get_env(modules, []),
+    Env = proplists:get_value(ModuleName, Modules, undefined),
+    case ModuleName:reload(Env) of
+        ok ->
+            ?LOG(info, "Reload ~s module successfully.", [ModuleName]);
+        {error, Error} ->
+            ?LOG(error, "Reload module ~s failed, cannot start for ~0p", [ModuleName, Error])
+    end.
+
+find_module(ModuleName) ->
+    ets:lookup(?MODULE, ModuleName).
+
+filter_module(ModuleNames) ->
+    filter_module(ModuleNames, emqx:get_env(modules, [])).
+filter_module([], Acc) ->
+    Acc;
+filter_module([{ModuleName, true} | ModuleNames], Acc) ->
+    filter_module(ModuleNames, lists:keydelete(ModuleName, 1, Acc)).
+
+load_modules(File) ->
+    case file:consult(File) of
+        {ok, ModuleNames} ->
+            lists:foreach(fun({ModuleName, _}) ->
+                ets:insert(?MODULE, {ModuleName, false})
+            end, filter_module(ModuleNames)),
+            lists:foreach(fun load_module/1, ModuleNames);
+        {error, Error} ->
+            ?LOG(alert, "Failed to read: ~p, error: ~p", [File, Error]),
+            {error, Error}
+    end.
+
+load_module({ModuleName, true}) ->
+    emqx_modules:load_module(ModuleName, false);
+load_module({ModuleName, false}) ->
+    ets:insert(?MODULE, {ModuleName, false});
+load_module(ModuleName) ->
+    load_module({ModuleName, true}).
+
+load_module(ModuleName, Persistent) ->
+    Modules = emqx:get_env(modules, []),
+    Env = proplists:get_value(ModuleName, Modules, undefined),
+    case ModuleName:load(Env) of
+        ok ->
+            ets:insert(?MODULE, {ModuleName, true}),
+            write_loaded(Persistent),
+            ?LOG(info, "Load ~s module successfully.", [ModuleName]);
+        {error, Error} ->
+            ?LOG(error, "Load module ~s failed, cannot load for ~0p", [ModuleName, Error])
+    end.
+
+unload_modules(File) ->
+    case file:consult(File) of
+        {ok, ModuleNames} ->
+            lists:foreach(fun unload_module/1, ModuleNames);
+        {error, Error} ->
+            ?LOG(alert, "Failed to read: ~p, error: ~p", [File, Error]),
+            {error, Error}
+    end.
+unload_module({ModuleName, true}) ->
+    emqx_modules:unload_module(ModuleName, false);
+unload_module({ModuleName, false}) ->
+    ets:insert(?MODULE, {ModuleName, false});
+unload_module(ModuleName) ->
+    unload_module({ModuleName, true}).
+
+unload_module(ModuleName, Persistent) ->
+    Modules = emqx:get_env(modules, []),
+    Env = proplists:get_value(ModuleName, Modules, undefined),
+    case ModuleName:unload(Env) of
+        ok ->
+            ets:insert(?MODULE, {ModuleName, false}),
+            write_loaded(Persistent),
+            ?LOG(info, "Unload ~s module successfully.", [ModuleName]);
+        {error, Error} ->
+            ?LOG(error, "Unload module ~s failed, cannot unload for ~0p", [ModuleName, Error])
+    end.
+
+write_loaded(true) ->
+    FilePath = emqx:get_env(modules_loaded_file),
+    case file:write_file(FilePath, [io_lib:format("~p.~n", [Name]) || Name <- list()]) of
+        ok -> ok;
+        {error, Error} ->
+            ?LOG(error, "Write File ~p Error: ~p", [FilePath, Error]),
+            {error, Error}
+    end;
+write_loaded(false) -> ok.

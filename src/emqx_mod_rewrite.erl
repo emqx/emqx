@@ -16,7 +16,7 @@
 
 -module(emqx_mod_rewrite).
 
--behavior(emqx_gen_mod).
+-behaviour(emqx_gen_mod).
 
 -include_lib("emqx.hrl").
 -include_lib("emqx_mqtt.hrl").
@@ -36,6 +36,7 @@
 %% emqx_gen_mod callbacks
 -export([ load/1
         , unload/1
+        , description/0
         ]).
 
 %%--------------------------------------------------------------------
@@ -62,6 +63,8 @@ unload(_) ->
     emqx_hooks:del('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
     emqx_hooks:del('message.publish',    {?MODULE, rewrite_publish}).
 
+description() ->
+    "EMQ X Rewrite Topic Module".
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------

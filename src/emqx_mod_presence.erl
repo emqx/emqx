@@ -26,6 +26,7 @@
 %% emqx_gen_mod callbacks
 -export([ load/1
         , unload/1
+        , description/0
         ]).
 
 -export([ on_client_connected/3
@@ -44,6 +45,8 @@ unload(_Env) ->
     emqx_hooks:del('client.connected',    {?MODULE, on_client_connected}),
     emqx_hooks:del('client.disconnected', {?MODULE, on_client_disconnected}).
 
+description() ->
+    "EMQ X Presence Module".
 %%--------------------------------------------------------------------
 %% Callbacks
 %%--------------------------------------------------------------------

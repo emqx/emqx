@@ -1788,20 +1788,14 @@ end}.
 %% Modules
 %%--------------------------------------------------------------------
 
-{mapping, "module.presence", "emqx.modules", [
-  {default, off},
-  {datatype, flag}
+{mapping, "modules.loaded_file", "emqx.modules_loaded_file", [
+  {datatype, string}
 ]}.
 
 {mapping, "module.presence.qos", "emqx.modules", [
   {default, 1},
   {datatype, integer},
   {validators, ["range:0-2"]}
-]}.
-
-{mapping, "module.subscription", "emqx.modules", [
-  {default, off},
-  {datatype, flag}
 ]}.
 
 {mapping, "module.subscription.$id.topic", "emqx.modules", [
@@ -1832,23 +1826,8 @@ end}.
   {validators, ["range:0-2"]}
 ]}.
 
-{mapping, "module.rewrite", "emqx.modules", [
-  {default, off},
-  {datatype, flag}
-]}.
-
 {mapping, "module.rewrite.rule.$id", "emqx.modules", [
   {datatype, string}
-]}.
-
-{mapping, "module.topic_metrics", "emqx.modules", [
-  {default, off},
-  {datatype, flag}
-]}.
-
-{mapping, "module.delayed", "emqx.modules", [
-  {default, off},
-  {datatype, flag}
 ]}.
 
 {translation, "emqx.modules", fun(Conf) ->
@@ -1869,26 +1848,12 @@ end}.
                 end, Rules)
   end,
   lists:append([
-    case cuttlefish:conf_get("module.presence", Conf) of %% Presence
-        true  -> [{emqx_mod_presence, [{qos, cuttlefish:conf_get("module.presence.qos", Conf, 1)}]}];
-        false -> []
-    end,
-    case cuttlefish:conf_get("module.subscription", Conf) of %% Subscription
-        true  -> [{emqx_mod_subscription, Subscriptions()}];
-        false -> []
-    end,
-    case cuttlefish:conf_get("module.rewrite", Conf) of %% Rewrite
-        true  -> [{emqx_mod_rewrite, Rewrites()}];
-        false -> []
-    end,
-    case cuttlefish:conf_get("module.topic_metrics", Conf) of %% Topic Metrics
-        true  -> [{emqx_mod_topic_metrics, []}];
-        false -> []
-    end,
-    case cuttlefish:conf_get("module.delayed", Conf) of %% Delayed
-        true  -> [{emqx_mod_delayed, []}];
-        false -> []
-    end
+    [{emqx_mod_presence, [{qos, cuttlefish:conf_get("module.presence.qos", Conf, 1)}]}],
+    [{emqx_mod_subscription, Subscriptions()}],
+    [{emqx_mod_rewrite, Rewrites()}],
+    [{emqx_mod_topic_metrics, []}],
+    [{emqx_mod_delayed, []}],
+    [{emqx_mod_acl_internal, []}]
   ])
 end}.
 
