@@ -1310,16 +1310,6 @@ end}.
   {datatype, flag}
 ]}.
 
-{mapping, "listener.ws.$name.proxy_address_header", "emqx.listeners", [
-  {datatype, string},
-  hidden
-]}.
-
-{mapping, "listener.ws.$name.proxy_port_header", "emqx.listeners", [
-  {datatype, string},
-  hidden
-]}.
-
 {mapping, "listener.ws.$name.proxy_protocol", "emqx.listeners", [
   {datatype, flag}
 ]}.
@@ -1465,16 +1455,6 @@ end}.
 
 {mapping, "listener.wss.$name.access.$id", "emqx.listeners", [
   {datatype, string}
-]}.
-
-{mapping, "listener.wss.$name.proxy_address_header", "emqx.listeners", [
-  {datatype, string},
-  hidden
-]}.
-
-{mapping, "listener.wss.$name.proxy_port_header", "emqx.listeners", [
-  {datatype, string},
-  hidden
 ]}.
 
 {mapping, "listener.wss.$name.proxy_protocol", "emqx.listeners", [
@@ -1681,11 +1661,9 @@ end}.
                           {proxy_protocol_timeout, cuttlefish:conf_get(Prefix ++ ".proxy_protocol_timeout", Conf, undefined)},
                           {verify_protocol_header, cuttlefish:conf_get(Prefix ++ ".verify_protocol_header", Conf, undefined)},
                           {peer_cert_as_username, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_username", Conf, undefined)},
-                          {proxy_port_header, cuttlefish:conf_get(Prefix ++ ".proxy_port_header", Conf, undefined)},
                           {compress, cuttlefish:conf_get(Prefix ++ ".compress", Conf, undefined)},
                           {idle_timeout, cuttlefish:conf_get(Prefix ++ ".idle_timeout", Conf, undefined)},
-                          {max_frame_size, cuttlefish:conf_get(Prefix ++ ".max_frame_size", Conf, undefined)},
-                          {proxy_address_header, cuttlefish:conf_get(Prefix ++ ".proxy_address_header", Conf, undefined)} | AccOpts(Prefix)])
+                          {max_frame_size, cuttlefish:conf_get(Prefix ++ ".max_frame_size", Conf, undefined)} | AccOpts(Prefix)])
               end,
     DeflateOpts = fun(Prefix) ->
                       Filter([{level, cuttlefish:conf_get(Prefix ++ ".deflate_opts.level", Conf, undefined)},
