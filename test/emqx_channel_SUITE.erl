@@ -112,6 +112,40 @@ t_handle_in_unexpected_connect_packet(_) ->
     {ok, [{outgoing, Packet}, {close, protocol_error}], Channel} =
         emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), Channel).
 
+t_handle_in_connect_auth_failed(_) ->
+    ConnPkt = #mqtt_packet_connect{
+                                proto_name  = <<"MQTT">>,
+                                proto_ver   = ?MQTT_PROTO_V5,
+                                is_bridge   = false,
+                                clean_start = true,
+                                keepalive   = 30,
+                                properties  = #{
+                                            'Authentication-Method' => "failed_auth_method",
+                                            'Authentication-Data' => <<"failed_auth_data">>
+                                            },
+                                clientid    = <<"clientid">>,
+                                username    = <<"username">>,
+                                password    = <<"passwd">>
+                                },
+    {shutdown, not_authorized, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _Chan} = 
+        emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt), channel(#{conn_state => idle})).
+
+t_handle_in_continue_auth(_) ->
+    Properties = #{
+                'Authentication-Method' => "failed_auth_method",
+                'Authentication-Data' => <<"failed_auth_data">>
+                },
+    {shutdown, not_authorized, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _Chan} =
+        emqx_channel:handle_in(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION,Properties), channel()).
+
+t_handle_in_re_auth(_) ->
+    Properties = #{
+                'Authentication-Method' => "failed_auth_method",
+                'Authentication-Data' => <<"failed_auth_data">>
+                },
+    {ok, [{outgoing, ?DISCONNECT_PACKET(135)}, {close, not_authorized}], Channel} =
+        emqx_channel:handle_in(?AUTH_PACKET(?RC_RE_AUTHENTICATE,Properties), channel()).
+
 t_handle_in_qos0_publish(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Channel = channel(#{conn_state => connected}),
