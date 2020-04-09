@@ -123,28 +123,32 @@ t_handle_in_connect_auth_failed(_) ->
                                             'Authentication-Method' => "failed_auth_method",
                                             'Authentication-Data' => <<"failed_auth_data">>
                                             },
-                                clientid    = <<"clientid">>,
-                                username    = <<"username">>,
-                                password    = <<"passwd">>
+                                clientid    = <<"clientid">>
                                 },
-    {shutdown, not_authorized, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _Chan} = 
-        emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt), channel(#{conn_state => idle})).
+    {shutdown, not_authorized, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _} = 
+        emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt), channel(#{conn_state => idle})),
+    {shutdown, protocol_error, ?CONNACK_PACKET(?RC_PROTOCOL_ERROR), _} = 
+        emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt#mqtt_packet_connect{username = <<"username">>}), channel(#{conn_state => idle})).
 
 t_handle_in_continue_auth(_) ->
     Properties = #{
                 'Authentication-Method' => "failed_auth_method",
                 'Authentication-Data' => <<"failed_auth_data">>
                 },
-    {shutdown, not_authorized, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _Chan} =
-        emqx_channel:handle_in(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION,Properties), channel()).
+    {shutdown, bad_authentication_method, ?CONNACK_PACKET(?RC_BAD_AUTHENTICATION_METHOD), _} =
+        emqx_channel:handle_in(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION,Properties), channel()),
+    {shutdown, not_authorized, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _} =
+        emqx_channel:handle_in(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION,Properties), channel(#{auth_method => "failed_auth_method"})).
 
 t_handle_in_re_auth(_) ->
     Properties = #{
                 'Authentication-Method' => "failed_auth_method",
                 'Authentication-Data' => <<"failed_auth_data">>
                 },
-    {ok, [{outgoing, ?DISCONNECT_PACKET(135)}, {close, not_authorized}], Channel} =
-        emqx_channel:handle_in(?AUTH_PACKET(?RC_RE_AUTHENTICATE,Properties), channel()).
+    {ok, [{outgoing, ?DISCONNECT_PACKET(?RC_BAD_AUTHENTICATION_METHOD)}, {close, bad_authentication_method}], _} =
+        emqx_channel:handle_in(?AUTH_PACKET(?RC_RE_AUTHENTICATE,Properties), channel()),
+    {ok, [{outgoing, ?DISCONNECT_PACKET(?RC_NOT_AUTHORIZED)}, {close, not_authorized}], _} =
+        emqx_channel:handle_in(?AUTH_PACKET(?RC_RE_AUTHENTICATE,Properties), channel(#{auth_method => "failed_auth_method"})).
 
 t_handle_in_qos0_publish(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
