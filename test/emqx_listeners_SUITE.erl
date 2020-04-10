@@ -38,11 +38,7 @@ end_per_suite(_Config) ->
 
 t_start_stop_listeners(_) ->
     ok = emqx_listeners:start(),
-    try
-        emqx_listeners:start_listener({ws,{"127.0.0.1", 8083}, []})
-    catch
-        _:Err -> ?assertEqual(standard_error, Err)
-    end,
+    ?assertException(exit, _, emqx_listeners:start_listener({ws,{"127.0.0.1", 8083}, []})),
     ok = emqx_listeners:stop().
 
 t_restart_listeners(_) ->
