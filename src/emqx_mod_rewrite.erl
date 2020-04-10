@@ -64,7 +64,7 @@ unload(_) ->
     emqx_hooks:del('message.publish',    {?MODULE, rewrite_publish}).
 
 description() ->
-    "EMQ X Rewrite Topic Module".
+    "EMQ X Topic Rewrite Module".
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
