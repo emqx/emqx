@@ -230,20 +230,20 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
                 {ok, {ReasonCode, Properties}, NChannel2} ->
                     handle_out(auth, {ReasonCode, Properties}, NChannel2);
                 {error, ReasonCode, NChannel2} ->
-                    handle_out(connack, {ReasonCode, NConnPkt}, NChannel2)
+                    handle_out(connack, ReasonCode, NChannel2)
             end;
         {error, ReasonCode, NChannel} ->
-            handle_out(connack, {ReasonCode, ConnPkt}, NChannel)
+            handle_out(connack, ReasonCode, NChannel)
     end;
 
 handle_in(Packet = ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, Properties), Channel) ->
     case enhanced_auth(Packet, Channel) of
         {ok, NChannel} ->
             process_connect(ensure_connected(NChannel));
-        {ok,{ReasonCode, Properties}, NChannel} ->
+        {ok, {ReasonCode, Properties}, NChannel} ->
             handle_out(auth, {ReasonCode, Properties}, NChannel);
         {error, ReasonCode, NChannel} ->
-            handle_out(connack, {ReasonCode, #{}}, NChannel)
+            handle_out(connack, ReasonCode, NChannel)
     end;
 
 
@@ -251,7 +251,7 @@ handle_in(Packet = ?AUTH_PACKET(?RC_RE_AUTHENTICATE, Properties), Channel) ->
     case enhanced_auth(Packet, Channel) of
         {ok, NChannel} -> 
             handle_out(auth, {?RC_SUCCESS, Properties}, NChannel);
-        {ok,{ReasonCode, Properties}, NChannel} ->
+        {ok, {ReasonCode, Properties}, NChannel} ->
             handle_out(auth, {ReasonCode, Properties}, NChannel);
         {error, ReasonCode, NChannel} ->
             handle_out(disconnect, ReasonCode, NChannel)
@@ -397,24 +397,23 @@ handle_in(Packet, Channel) ->
 %% Process Connect
 %%--------------------------------------------------------------------
 
-process_connect(Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
-    #{clean_start := CleanStart} = ConnInfo,
+process_connect(Channel = #channel{conninfo = #{clean_start := CleanStart} = ConnInfo, clientinfo = ClientInfo}) ->
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo) of
         {ok, #{session := Session, present := false}} ->
             NChannel = Channel#channel{session = Session},
-            handle_out(connack, {?RC_SUCCESS, sp(false), #{}}, NChannel);
+            handle_out(connack, {?RC_SUCCESS, sp(false)}, NChannel);
         {ok, #{session := Session, present := true, pendings := Pendings}} ->
             Pendings1 = lists:usort(lists:append(Pendings, emqx_misc:drain_deliver())),
             NChannel = Channel#channel{session  = Session,
                                        resuming = true,
                                        pendings = Pendings1
                                       },
-            handle_out(connack, {?RC_SUCCESS, sp(true), #{}}, NChannel);
+            handle_out(connack, {?RC_SUCCESS, sp(true)}, NChannel);
         {error, client_id_unavailable} ->
-            handle_out(connack, {?RC_CLIENT_IDENTIFIER_NOT_VALID, #{}}, Channel);
+            handle_out(connack, ?RC_CLIENT_IDENTIFIER_NOT_VALID, Channel);
         {error, Reason} ->
             ?LOG(error, "Failed to open session due to ~p", [Reason]),
-            handle_out(connack, {?RC_UNSPECIFIED_ERROR, #{}}, Channel)
+            handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
     end.
 
 %%--------------------------------------------------------------------
@@ -614,7 +613,7 @@ not_nacked({deliver, _Topic, Msg}) ->
        | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}
        | {shutdown, Reason :: term(), replies(), channel()}).
-handle_out(connack, {?RC_SUCCESS, SP, _ConnPkt}, Channel = #channel{conninfo = ConnInfo}) ->
+handle_out(connack, {?RC_SUCCESS, SP}, Channel = #channel{conninfo = ConnInfo}) ->
     AckProps = run_fold([fun enrich_connack_caps/2,
                          fun enrich_server_keepalive/2,
                          fun enrich_assigned_clientid/2
@@ -624,7 +623,7 @@ handle_out(connack, {?RC_SUCCESS, SP, _ConnPkt}, Channel = #channel{conninfo = C
     return_connack(?CONNACK_PACKET(?RC_SUCCESS, SP, NAckProps),
                    ensure_keepalive(NAckProps, Channel));
 
-handle_out(connack, {ReasonCode, _ConnPkt}, Channel = #channel{conninfo = ConnInfo}) ->
+handle_out(connack, ReasonCode, Channel = #channel{conninfo = ConnInfo}) ->
     Reason = emqx_reason_codes:name(ReasonCode),
     AckProps = run_hooks('client.connack', [ConnInfo, Reason], emqx_mqtt_props:new()),
     AckPacket = ?CONNACK_PACKET(case maps:get(proto_ver, ConnInfo) of
@@ -1115,10 +1114,10 @@ enhanced_auth(?CONNECT_PACKET(#mqtt_packet_connect{
                                             }), Channel) ->
     AuthMethod = emqx_mqtt_props:get('Authentication-Method', Properties, undefined),
     AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
-    if
-        Username =/= undefined andalso AuthMethod =/= undefined ->
-            {error, emqx_reason_codes:connack_error(protocol_error), Channel};
+    case Username =/= undefined andalso AuthMethod =/= undefined of
         true ->
+            {error, emqx_reason_codes:connack_error(protocol_error), Channel};
+        false ->
             case do_auth(AuthMethod, AuthData, Channel) of
                 {ok, NChannel} -> {ok, NChannel};
                 {continue, NAuthData, NChannel} ->
@@ -1132,10 +1131,10 @@ enhanced_auth(?AUTH_PACKET(_ReasonCode, Properties), Channel = #channel{conninfo
     AuthMethod = maps:get('Authentication-Method', maps:get(conn_props, ConnInfo), undefined),
     NAuthMethod = emqx_mqtt_props:get('Authentication-Method', Properties, undefined),
     AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
-    if
-        NAuthMethod =:= undefined orelse NAuthMethod =/= AuthMethod ->
+    case NAuthMethod =:= undefined orelse NAuthMethod =/= AuthMethod of
+        true ->
             {error, emqx_reason_codes:connack_error(bad_authentication_method), Channel};
-        true -> 
+        false ->
             case do_auth(AuthMethod, AuthData, Channel) of
                 {ok, NChannel} -> {ok, NChannel};
                 {continue, NAuthData, NChannel} ->
@@ -1153,8 +1152,7 @@ do_auth(_AuthMethod, undefined, _Channel) ->
     {error, not_authorized};
 do_auth(AuthMethod, AuthData, Channel = #channel{auth_cache = Cache}) ->
     case do_auth_check(AuthMethod, AuthData, Cache) of
-        {ok, NCache} ->
-            {ok, Channel#channel{auth_cache = NCache}};
+        {ok} -> {ok, Channel#channel{auth_cache = #{}}};
         {continue, Data, NCache} -> {continue, Data, Channel#channel{auth_cache = NCache}};
         {error, Reason} -> {error, Reason}
     end.
@@ -1353,7 +1351,7 @@ enrich_assigned_clientid(AckProps, #channel{conninfo   = ConnInfo,
 %% Ensure connected
 
 ensure_connected(Channel = #channel{conninfo = ConnInfo,
-                                             clientinfo = ClientInfo}) ->
+                                    clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(second)},
     ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
     Channel#channel{conninfo   = NConnInfo,
