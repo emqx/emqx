@@ -44,9 +44,7 @@ end_per_suite(_) ->
 set_special_configs(emqx) ->
     application:set_env(emqx, modules, [{emqx_mod_delayed, []}]),
     application:set_env(emqx, allow_anonymous, false),
-    application:set_env(emqx, enable_acl_cache, false),
-    application:set_env(emqx, plugins_loaded_file,
-                        emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins"));
+    application:set_env(emqx, enable_acl_cache, false);
 set_special_configs(_App) ->
     ok.
 
@@ -55,8 +53,6 @@ set_special_configs(_App) ->
 %%--------------------------------------------------------------------
 
 t_load_case(_) ->
-    ok = emqx_mod_delayed:unload([]),
-    timer:sleep(100),
     UnHooks = emqx_hooks:lookup('message.publish'),
     ?assertEqual([], UnHooks),
     ok = emqx_mod_delayed:load([]),
@@ -65,6 +61,7 @@ t_load_case(_) ->
     ok.
 
 t_delayed_message(_) ->
+    ok = emqx_mod_delayed:load([]),
     DelayedMsg = emqx_message:make(?MODULE, 1, <<"$delayed/1/publish">>, <<"delayed_m">>),
     ?assertEqual({stop, DelayedMsg#message{topic = <<"publish">>, headers = #{allow_publish => false}}}, on_message_publish(DelayedMsg)),
 
@@ -77,4 +74,5 @@ t_delayed_message(_) ->
     timer:sleep(5000),
 
     EmptyKey = mnesia:dirty_all_keys(emqx_mod_delayed),
-    ?assertEqual([], EmptyKey).
+    ?assertEqual([], EmptyKey),
+    ok = emqx_mod_delayed:unload([]).
