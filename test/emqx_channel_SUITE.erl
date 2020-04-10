@@ -123,12 +123,11 @@ t_handle_in_connect_auth_failed(_) ->
                                             'Authentication-Method' => "failed_auth_method",
                                             'Authentication-Data' => <<"failed_auth_data">>
                                             },
-                                clientid    = <<"clientid">>
+                                clientid    = <<"clientid">>,
+                                username    = <<"username">>
                                 },
     {shutdown, not_authorized, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _} = 
-        emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt), channel(#{conn_state => idle})),
-    {shutdown, protocol_error, ?CONNACK_PACKET(?RC_PROTOCOL_ERROR), _} = 
-        emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt#mqtt_packet_connect{username = <<"username">>}), channel(#{conn_state => idle})).
+        emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt), channel(#{conn_state => idle})).
 
 t_handle_in_continue_auth(_) ->
     Properties = #{
