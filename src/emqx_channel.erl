@@ -1132,7 +1132,7 @@ enhanced_auth(?AUTH_PACKET(_ReasonCode, Properties), Channel = #channel{conninfo
     end.
 
 do_enhanced_auth(undefined, undefined, Channel) ->
-    {ok, <<>>, Channel};
+    {ok, #{}, Channel};
 do_enhanced_auth(undefined, _AuthData, Channel) ->
     {error, emqx_reason_codes:connack_error(not_authorized), Channel};
 do_enhanced_auth(_AuthMethod, undefined, Channel) ->
