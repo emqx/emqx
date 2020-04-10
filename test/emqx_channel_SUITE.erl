@@ -324,7 +324,7 @@ t_process_connect(_) ->
                              {ok, #{session => session(), present => false}}
                      end),
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _Chan} =
-        emqx_channel:process_connect(channel(#{conn_state => idle})).
+        emqx_channel:process_connect(#{}, channel(#{conn_state => idle})).
 
 t_process_publish_qos0(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
@@ -384,12 +384,12 @@ t_handle_out_publish_nl(_) ->
 
 t_handle_out_connack_sucess(_) ->
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
-        emqx_channel:handle_out(connack, {?RC_SUCCESS, 0, connpkt()}, channel()),
+        emqx_channel:handle_out(connack, {?RC_SUCCESS, 0, #{}}, channel()),
     ?assertEqual(connected, emqx_channel:info(conn_state, Channel)).
 
 t_handle_out_connack_failure(_) ->
     {shutdown, not_authorized, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _Chan} =
-        emqx_channel:handle_out(connack, {?RC_NOT_AUTHORIZED, connpkt()}, channel()).
+        emqx_channel:handle_out(connack, ?RC_NOT_AUTHORIZED, channel()).
 
 t_handle_out_puback(_) ->
     Channel = channel(#{conn_state => connected}),
