@@ -187,7 +187,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
              topic_aliases = #{inbound => #{},
                                outbound => #{}
                               },
-             auth_cache  = #{},
+             auth_cache = #{},
              timers     = #{},
              conn_state = idle,
              takeover   = false,
@@ -221,7 +221,7 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
                   ], ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
             NChannel1 = NChannel#channel{
-                                        will_msg   = emqx_packet:will_msg(NConnPkt),
+                                        will_msg = emqx_packet:will_msg(NConnPkt),
                                         alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
                                         },
             case enhanced_auth(?CONNECT_PACKET(NConnPkt), NChannel1) of
@@ -1108,16 +1108,16 @@ is_anonymous(_AuthResult)          -> false.
 %% Enhanced Authentication
 
 enhanced_auth(?CONNECT_PACKET(#mqtt_packet_connect{
-                                                username  = Username,
-                                                properties  = Properties
+                                                proto_ver = Protover,
+                                                properties = Properties
                                             }), Channel) ->
-    AuthMethod = emqx_mqtt_props:get('Authentication-Method', Properties, undefined),
-    AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
-    case Username =/= undefined andalso AuthMethod =/= undefined of
-        true ->
-            {error, emqx_reason_codes:connack_error(protocol_error), Channel};
-        false ->
-            do_enhanced_auth(AuthMethod, AuthData, Channel)
+    case Protover of
+        ?MQTT_PROTO_V5 ->
+            AuthMethod = emqx_mqtt_props:get('Authentication-Method', Properties, undefined),
+            AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
+            do_enhanced_auth(AuthMethod, AuthData, Channel);
+        _ ->
+            {ok, #{}, Channel}
     end;
 
 enhanced_auth(?AUTH_PACKET(_ReasonCode, Properties), Channel = #channel{conninfo = ConnInfo}) ->
