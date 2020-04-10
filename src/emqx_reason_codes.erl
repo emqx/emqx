@@ -169,6 +169,7 @@ compat(_Other, _Code) -> undefined.
 frame_error(frame_too_large) -> ?RC_PACKET_TOO_LARGE;
 frame_error(_) -> ?RC_MALFORMED_PACKET.
 
+connack_error(protocol_error) -> ?RC_PROTOCOL_ERROR;
 connack_error(client_identifier_not_valid) -> ?RC_CLIENT_IDENTIFIER_NOT_VALID;
 connack_error(bad_username_or_password) -> ?RC_BAD_USER_NAME_OR_PASSWORD;
 connack_error(bad_clientid_or_password) -> ?RC_BAD_USER_NAME_OR_PASSWORD;
