@@ -1117,16 +1117,7 @@ enhanced_auth(?CONNECT_PACKET(#mqtt_packet_connect{
         true ->
             {error, emqx_reason_codes:connack_error(protocol_error), Channel};
         false ->
-            case do_auth(AuthMethod, AuthData, Channel) of
-                {ok, <<>>, NChannel} -> {ok, #{}, NChannel};
-                {ok, NAuthData, NChannel} ->
-                    NProperties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
-                    {ok, NProperties, NChannel};
-                {continue, NAuthData, NChannel} ->
-                    NProperties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
-                    {continue, NProperties, NChannel};
-                {error, _Reason} -> {error, emqx_reason_codes:connack_error(not_authorized), Channel}
-            end
+            do_enhanced_auth(AuthMethod, AuthData, Channel)
     end;
 
 enhanced_auth(?AUTH_PACKET(_ReasonCode, Properties), Channel = #channel{conninfo = ConnInfo}) ->
@@ -1137,30 +1128,26 @@ enhanced_auth(?AUTH_PACKET(_ReasonCode, Properties), Channel = #channel{conninfo
         true ->
             {error, emqx_reason_codes:connack_error(bad_authentication_method), Channel};
         false ->
-            case do_auth(AuthMethod, AuthData, Channel) of
-                {ok, <<>>, NChannel} -> {ok, <<>>, NChannel};
-                {ok, NAuthData, NChannel} ->
-                    NProperties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
-                    {ok, NProperties, NChannel};
-                {continue, NAuthData, NChannel} ->
-                    NProperties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
-                    {continue, NProperties, NChannel};
-                {error, _Reason} -> {error, emqx_reason_codes:connack_error(not_authorized), Channel}
-            end
+            do_enhanced_auth(AuthMethod, AuthData, Channel)
     end.
 
-do_auth(undefined, undefined, Channel) -> 
+do_enhanced_auth(undefined, undefined, Channel) ->
     {ok, <<>>, Channel};
-do_auth(undefined, _AuthData, _Channel) -> 
-    {error, not_authorized};
-do_auth(_AuthMethod, undefined, _Channel) -> 
-    {error, not_authorized};
-do_auth(AuthMethod, AuthData, Channel = #channel{auth_cache = Cache}) ->
+do_enhanced_auth(undefined, _AuthData, Channel) ->
+    {error, emqx_reason_codes:connack_error(not_authorized), Channel};
+do_enhanced_auth(_AuthMethod, undefined, Channel) ->
+    {error, emqx_reason_codes:connack_error(not_authorized), Channel};
+do_enhanced_auth(AuthMethod, AuthData, Channel = #channel{auth_cache = Cache}) ->
     case do_auth_check(AuthMethod, AuthData, Cache) of
-        ok -> {ok, <<>>, Channel#channel{auth_cache = #{}}};
-        {ok, Data} -> {ok, Data, Channel#channel{auth_cache = #{}}};
-        {continue, Data, NCache} -> {continue, Data, Channel#channel{auth_cache = NCache}};
-        {error, Reason} -> {error, Reason}
+        ok -> {ok, #{}, Channel#channel{auth_cache = #{}}};
+        {ok, NAuthData} ->
+            NProperties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
+            {ok, NProperties, Channel#channel{auth_cache = #{}}};
+        {continue, NAuthData, NCache} ->
+            NProperties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
+            {continue, NProperties, Channel#channel{auth_cache = NCache}};
+        {error, _Reason} ->
+            {error, emqx_reason_codes:connack_error(not_authorized), Channel}
     end.
 
 do_auth_check(_AuthMethod, _AuthData, _AuthDataCache) ->
