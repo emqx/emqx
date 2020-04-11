@@ -44,17 +44,16 @@
 start() ->
     lists:foreach(fun start_listener/1, emqx:get_env(listeners, [])).
 
--spec(start_listener(listener()) -> {ok, pid()} | {error, term()}).
+-spec(start_listener(listener()) -> ok).
 start_listener({Proto, ListenOn, Options}) ->
-    StartRet = start_listener(Proto, ListenOn, Options),
-    case StartRet of
+    case start_listener(Proto, ListenOn, Options) of
         {ok, _} -> io:format("Start mqtt:~s listener on ~s successfully.~n",
                              [Proto, format(ListenOn)]);
         {error, Reason} ->
             io:format(standard_error, "Failed to start mqtt:~s listener on ~s - ~0p~n!",
-                      [Proto, format(ListenOn), Reason])
-    end,
-    StartRet.
+                      [Proto, format(ListenOn), Reason]),
+            error(Reason)
+    end.
 
 %% Start MQTT/TCP listener
 -spec(start_listener(esockd:proto(), esockd:listen_on(), [esockd:option()])
