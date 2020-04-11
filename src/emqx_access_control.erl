@@ -21,7 +21,6 @@
 -export([authenticate/1]).
 
 -export([ check_acl/3
-        , reload_acl/0
         ]).
 
 -type(result() :: #{auth_result := emqx_types:auth_result(),
@@ -66,11 +65,6 @@ do_check_acl(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
         allow  -> allow;
         _Other -> deny
     end.
-
--spec(reload_acl() -> ok | {error, term()}).
-reload_acl() ->
-    emqx_acl_cache:is_enabled() andalso emqx_acl_cache:empty_acl_cache(),
-    emqx_mod_acl_internal:reload_acl().
 
 default_auth_result(Zone) ->
     case emqx_zone:get_env(Zone, allow_anonymous, false) of

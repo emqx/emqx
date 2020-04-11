@@ -24,6 +24,7 @@
 %% emqx_gen_mod callbacks
 -export([ load/1
         , unload/1
+        , description/0
         ]).
 
 %% APIs
@@ -49,6 +50,8 @@ on_client_connected(#{clientid := ClientId, username := Username}, _ConnInfo = #
 unload(_) ->
     emqx_hooks:del('client.connected', {?MODULE, on_client_connected}).
 
+description() ->
+    "EMQ X Subscription Module".
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------

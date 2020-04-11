@@ -19,7 +19,6 @@
 %% ACL callbacks
 -export([ init/1
         , check_acl/2
-        , reload_acl/1
         , description/0
         ]).
 
@@ -28,9 +27,6 @@ init(AclOpts) ->
 
 check_acl({_User, _PubSub, _Topic}, _State) ->
     allow.
-
-reload_acl(_State) ->
-    ok.
 
 description() ->
     "Test ACL Mod".

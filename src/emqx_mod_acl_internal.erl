@@ -24,14 +24,13 @@
 -logger_header("[ACL_INTERNAL]").
 
 %% APIs
--export([ all_rules/0
-        , check_acl/5
-        , reload_acl/0
-        ]).
+-export([check_acl/5]).
 
 %% emqx_gen_mod callbacks
 -export([ load/1
         , unload/1
+        , reload/1
+        , description/0
         ]).
 
 -define(MFA(M, F, A), {M, F, A}).
@@ -44,18 +43,19 @@
 %%--------------------------------------------------------------------
 
 load(_Env) ->
-    Rules = rules_from_file(acl_file()),
+    Rules = rules_from_file(emqx:get_env(acl_file)),
     emqx_hooks:add('client.check_acl', ?MFA(?MODULE, check_acl, [Rules]),  -1).
 
 unload(_Env) ->
-    Rules = rules_from_file(acl_file()),
+    Rules = rules_from_file(emqx:get_env(acl_file)),
     emqx_hooks:del('client.check_acl', ?MFA(?MODULE, check_acl, [Rules])).
 
-%% @doc Read all rules
--spec(all_rules() -> list(emqx_access_rule:rule())).
-all_rules() ->
-    rules_from_file(acl_file()).
+reload(_Env) ->
+    emqx_acl_cache:is_enabled() andalso emqx_acl_cache:empty_acl_cache(),
+    unload([]), load([]).
 
+description() ->
+    "EMQ X Internal ACL Module".
 %%--------------------------------------------------------------------
 %% ACL callbacks
 %%--------------------------------------------------------------------
@@ -71,16 +71,9 @@ check_acl(Client, PubSub, Topic, _AclResult, Rules) ->
         nomatch          -> ok
     end.
 
--spec(reload_acl() -> ok | {error, term()}).
-reload_acl() ->
-    unload([]), load([]).
-
 %%--------------------------------------------------------------------
 %% Internal Functions
 %%--------------------------------------------------------------------
-
-acl_file() -> emqx:get_env(acl_file).
-
 lookup(PubSub, Rules) ->
     maps:get(PubSub, Rules, []).
 
