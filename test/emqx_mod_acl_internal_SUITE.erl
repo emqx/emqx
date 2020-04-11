@@ -33,16 +33,9 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
 t_load_unload(_) ->
-    ?assertEqual({error,already_exists}, emqx_mod_acl_internal:load([])),
     ?assertEqual(ok, emqx_mod_acl_internal:unload([])),
-    ?assertEqual(ok, emqx_mod_acl_internal:load([])).
-
-t_all_rules(_) ->
-    application:set_env(emqx, acl_file, ""),
-    ?assertMatch(#{}, emqx_mod_acl_internal:all_rules()),
-
-    application:set_env(emqx, acl_file, emqx_ct_helpers:deps_path(emqx, "etc/acl.conf")),
-    ?assertMatch(#{publish := _, subscribe := _}, emqx_mod_acl_internal:all_rules()).
+    ?assertEqual(ok, emqx_mod_acl_internal:load([])),
+    ?assertEqual({error,already_exists}, emqx_mod_acl_internal:load([])).
 
 t_check_acl(_) ->
     Rules=#{publish => [{allow,all}], subscribe => [{deny, all}]},
@@ -51,7 +44,7 @@ t_check_acl(_) ->
     ?assertEqual(ok, emqx_mod_acl_internal:check_acl(clientinfo(), connect,  <<"t">>, [], Rules)).
 
 t_reload_acl(_) ->
-    ?assertEqual(ok, emqx_mod_acl_internal:reload_acl()).
+    ?assertEqual(ok, emqx_mod_acl_internal:reload([])).
 
 %%--------------------------------------------------------------------
 %% Helper functions

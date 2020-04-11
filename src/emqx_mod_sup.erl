@@ -58,5 +58,6 @@ stop_child(ChildId) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    ok = emqx_tables:new(emqx_modules, [set, public, {write_concurrency, true}]),
     {ok, {{one_for_one, 10, 100}, []}}.
 

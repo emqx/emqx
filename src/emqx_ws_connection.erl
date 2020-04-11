@@ -191,7 +191,13 @@ init(Req, Opts) ->
     end.
 
 websocket_init([Req, Opts]) ->
-    Peername = cowboy_req:peer(Req),
+    Peername = case proplists:get_bool(proxy_protocol, Opts)
+                    andalso maps:get(proxy_header, Req) of
+                   #{src_address := SrcAddr, src_port := SrcPort} ->
+                       {SrcAddr, SrcPort};
+                   _ ->
+                       cowboy_req:peer(Req)
+               end,
     Sockname = cowboy_req:sock(Req),
     Peercert = cowboy_req:cert(Req),
     WsCookie = try cowboy_req:parse_cookies(Req)

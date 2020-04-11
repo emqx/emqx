@@ -17,6 +17,7 @@
 -module(emqx_mod_delayed).
 
 -behaviour(gen_server).
+-behaviour(emqx_gen_mod).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -24,6 +25,7 @@
 %% emqx_gen_mod callbacks
 -export([ load/1
         , unload/1
+        , description/0
         ]).
 
 -export([ start_link/0
@@ -62,6 +64,8 @@ unload(_Env) ->
     emqx:unhook('message.publish', {?MODULE, on_message_publish, []}),
     emqx_mod_sup:stop_child(?MODULE).
 
+description() ->
+    "EMQ X Delayed Publish Module".
 %%--------------------------------------------------------------------
 %% Hooks
 %%--------------------------------------------------------------------

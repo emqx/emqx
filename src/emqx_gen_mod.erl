@@ -22,6 +22,8 @@
 
 -callback(unload(State :: term()) -> term()).
 
+-callback(description() -> any()).
+
 -else.
 
 -export([behaviour_info/1]).
