@@ -1345,7 +1345,7 @@ enrich_assigned_clientid(AckProps, #channel{conninfo   = ConnInfo,
 
 ensure_connected(Channel = #channel{conninfo = ConnInfo,
                                     clientinfo = ClientInfo}) ->
-    NConnInfo = ConnInfo#{connected_at => erlang:system_time(second)},
+    NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
     Channel#channel{conninfo   = NConnInfo,
                     conn_state = connected
@@ -1422,7 +1422,7 @@ parse_topic_filters(TopicFilters) ->
 
 ensure_disconnected(Reason, Channel = #channel{conninfo = ConnInfo,
                                                clientinfo = ClientInfo}) ->
-    NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(second)},
+    NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo]),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
