@@ -120,7 +120,7 @@ t_handle_in_connect_auth_failed(_) ->
                                 clean_start = true,
                                 keepalive   = 30,
                                 properties  = #{
-                                            'Authentication-Method' => "failed_auth_method",
+                                            'Authentication-Method' => <<"failed_auth_method">>,
                                             'Authentication-Data' => <<"failed_auth_data">>
                                             },
                                 clientid    = <<"clientid">>,
@@ -131,7 +131,7 @@ t_handle_in_connect_auth_failed(_) ->
 
 t_handle_in_continue_auth(_) ->
     Properties = #{
-                'Authentication-Method' => "failed_auth_method",
+                'Authentication-Method' => <<"failed_auth_method">>,
                 'Authentication-Data' => <<"failed_auth_data">>
                 },
     {shutdown, bad_authentication_method, ?CONNACK_PACKET(?RC_BAD_AUTHENTICATION_METHOD), _} =
@@ -141,7 +141,7 @@ t_handle_in_continue_auth(_) ->
 
 t_handle_in_re_auth(_) ->
     Properties = #{
-                'Authentication-Method' => "failed_auth_method",
+                'Authentication-Method' => <<"failed_auth_method">>,
                 'Authentication-Data' => <<"failed_auth_data">>
                 },
     {ok, [{outgoing, ?DISCONNECT_PACKET(?RC_BAD_AUTHENTICATION_METHOD)}, {close, bad_authentication_method}], _} =

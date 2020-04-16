@@ -1138,20 +1138,17 @@ do_enhanced_auth(undefined, _AuthData, Channel) ->
 do_enhanced_auth(_AuthMethod, undefined, Channel) ->
     {error, emqx_reason_codes:connack_error(not_authorized), Channel};
 do_enhanced_auth(AuthMethod, AuthData, Channel = #channel{auth_cache = Cache}) ->
-    case do_auth_check(AuthMethod, AuthData, Cache) of
-        ok -> {ok, #{}, Channel#channel{auth_cache = #{}}};
+    case run_hooks('client.enhanced_authenticate',[AuthMethod, AuthData, Cache]) of
+        {ok, <<>>} -> {ok, #{}, Channel#channel{auth_cache = #{}}};
         {ok, NAuthData} ->
             NProperties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
             {ok, NProperties, Channel#channel{auth_cache = #{}}};
         {continue, NAuthData, NCache} ->
             NProperties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
             {continue, NProperties, Channel#channel{auth_cache = NCache}};
-        {error, _Reason} ->
+        _ ->
             {error, emqx_reason_codes:connack_error(not_authorized), Channel}
     end.
-
-do_auth_check(_AuthMethod, _AuthData, _AuthDataCache) ->
-    {error, not_authorized}. 
 
 %%--------------------------------------------------------------------
 %% Process Topic Alias
