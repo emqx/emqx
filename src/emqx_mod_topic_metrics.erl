@@ -49,6 +49,7 @@
         , unregister/1
         , unregister_all/0
         , is_registered/1
+        , all_registered_topics/0
         ]).
 
 %% gen_server callbacks
@@ -193,6 +194,9 @@ unregister_all() ->
 
 is_registered(Topic) ->
     ets:member(?TAB, Topic).
+
+all_registered_topics() ->
+    [Topic || {Topic, _CRef} <- ets:tab2list(?TAB)].
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
