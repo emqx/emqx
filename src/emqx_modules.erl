@@ -26,6 +26,7 @@
         , unload/0
         , unload/1
         , reload/1
+        , find_module/1
         , load_module/2
         ]).
 

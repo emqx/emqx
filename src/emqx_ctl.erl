@@ -126,7 +126,7 @@ get_commands() ->
 
 help() ->
     print("Usage: ~s~n", [?MODULE]),
-    [begin print("~80..-s~n", [""]), Mod:Cmd(usage) end
+    [begin print("~110..-s~n", [""]), Mod:Cmd(usage) end
      || {_, {Mod, Cmd}, _} <- ets:tab2list(?CMD_TAB)].
 
 -spec(print(io:format()) -> ok).
@@ -165,7 +165,7 @@ format_usage(CmdParams, Desc) ->
     CmdLines = split_cmd(CmdParams),
     DescLines = split_cmd(Desc),
     lists:foldl(fun({CmdStr, DescStr}, Usage) ->
-                        Usage ++ format("~-48s# ~s~n", [CmdStr, DescStr])
+                        Usage ++ format("~-70s# ~s~n", [CmdStr, DescStr])
                 end, "", zip_cmd(CmdLines, DescLines)).
 
 %%--------------------------------------------------------------------

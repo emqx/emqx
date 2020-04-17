@@ -1138,20 +1138,17 @@ do_enhanced_auth(undefined, _AuthData, Channel) ->
 do_enhanced_auth(_AuthMethod, undefined, Channel) ->
     {error, emqx_reason_codes:connack_error(not_authorized), Channel};
 do_enhanced_auth(AuthMethod, AuthData, Channel = #channel{auth_cache = Cache}) ->
-    case do_auth_check(AuthMethod, AuthData, Cache) of
-        ok -> {ok, #{}, Channel#channel{auth_cache = #{}}};
+    case run_hooks('client.enhanced_authenticate',[AuthMethod, AuthData, Cache]) of
+        {ok, <<>>} -> {ok, #{}, Channel#channel{auth_cache = #{}}};
         {ok, NAuthData} ->
             NProperties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
             {ok, NProperties, Channel#channel{auth_cache = #{}}};
         {continue, NAuthData, NCache} ->
             NProperties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
             {continue, NProperties, Channel#channel{auth_cache = NCache}};
-        {error, _Reason} ->
+        _ ->
             {error, emqx_reason_codes:connack_error(not_authorized), Channel}
     end.
-
-do_auth_check(_AuthMethod, _AuthData, _AuthDataCache) ->
-    {error, not_authorized}. 
 
 %%--------------------------------------------------------------------
 %% Process Topic Alias
@@ -1345,7 +1342,7 @@ enrich_assigned_clientid(AckProps, #channel{conninfo   = ConnInfo,
 
 ensure_connected(Channel = #channel{conninfo = ConnInfo,
                                     clientinfo = ClientInfo}) ->
-    NConnInfo = ConnInfo#{connected_at => erlang:system_time(second)},
+    NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
     Channel#channel{conninfo   = NConnInfo,
                     conn_state = connected
@@ -1422,7 +1419,7 @@ parse_topic_filters(TopicFilters) ->
 
 ensure_disconnected(Reason, Channel = #channel{conninfo = ConnInfo,
                                                clientinfo = ClientInfo}) ->
-    NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(second)},
+    NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo]),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
