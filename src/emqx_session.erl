@@ -168,7 +168,7 @@ init(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
              awaiting_rel      = #{},
              max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
              await_rel_timeout = timer:seconds(get_env(Zone, await_rel_timeout, 300)),
-             created_at        = erlang:system_time(second)
+             created_at        = erlang:system_time(millisecond)
             }.
 
 %% @private init mq

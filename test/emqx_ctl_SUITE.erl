@@ -76,24 +76,9 @@ t_print(_) ->
 t_usage(_) ->
     CmdParams1 = "emqx_cmd_1 param1 param2",
     CmdDescr1 = "emqx_cmd_1 is a test command means nothing",
-    Output1 = "emqx_cmd_1 param1 param2                        # emqx_cmd_1 is a test command means nothing\n",
     % - usage/1,2 should return ok
     ok = emqx_ctl:usage([{CmdParams1, CmdDescr1}, {CmdParams1, CmdDescr1}]),
-    ok = emqx_ctl:usage(CmdParams1, CmdDescr1),
-
-    % - check the output of the usage
-    mock_print(),
-    ?assertEqual(Output1, emqx_ctl:usage(CmdParams1, CmdDescr1)),
-    ?assertEqual([Output1, Output1], emqx_ctl:usage([{CmdParams1, CmdDescr1}, {CmdParams1, CmdDescr1}])),
-
-    % - for the commands or descriptions have multi-lines
-    CmdParams2 = "emqx_cmd_2 param1 param2",
-    CmdDescr2 = "emqx_cmd_2 is a test command\nmeans nothing",
-    Output2 = "emqx_cmd_2 param1 param2                        # emqx_cmd_2 is a test command\n"
-            "                                                ""# means nothing\n",
-    ?assertEqual(Output2, emqx_ctl:usage(CmdParams2, CmdDescr2)),
-    ?assertEqual([Output2, Output2], emqx_ctl:usage([{CmdParams2, CmdDescr2}, {CmdParams2, CmdDescr2}])),
-    unmock_print().
+    ok = emqx_ctl:usage(CmdParams1, CmdDescr1).
 
 t_unexpected(_) ->
     with_ctl_server(
