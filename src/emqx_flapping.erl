@@ -109,7 +109,7 @@ init([]) ->
                                          {read_concurrency, true},
                                          {write_concurrency, true}
                                         ]),
-    {ok, #{}, hibernate}.
+    {ok, ensure_timer(#{}), hibernate}.
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
@@ -142,6 +142,12 @@ handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
+handle_info({timeout, TRef, expired_detecting}, State = #{expired_timer := TRef}) ->
+    Timestamp = erlang:system_time(millisecond) - maps:get(duration, get_policy()),
+    MatchSpec = [{{'_', '_', '_', '$1', '_'},[{'<', '$1', Timestamp}], [true]}],
+    ets:select_delete(?FLAPPING_TAB, MatchSpec),
+    {noreply, ensure_timer(State), hibernate};
+
 handle_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
@@ -151,3 +157,8 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+ensure_timer(State) ->
+    Timeout = maps:get(duration, get_policy()),
+    TRef = emqx_misc:start_timer(Timeout, expired_detecting),
+    State#{expired_timer => TRef}.
