@@ -97,7 +97,7 @@ lookup_channels(ClientId) ->
 %% @doc Get all global channels.
 -spec(all_channels() -> [pid()]).
 all_channels() ->
-    Pat = [{#channel{pid = '$1', _ = '_'}, [], ['$1']}],
+    Pat = [{#channel{pid = '$1', _ = '_'}, [{'==', {node, '$1'}, node()}], ['$1']}],
     mnesia:dirty_select(?TAB, Pat).
 
 record(ClientId, ChanPid) ->
