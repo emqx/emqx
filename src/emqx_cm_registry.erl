@@ -34,6 +34,7 @@
         ]).
 
 -export([lookup_channels/1]).
+-export([all_channels/0]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -92,6 +93,12 @@ unregister_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid
 -spec(lookup_channels(emqx_types:clientid()) -> list(pid())).
 lookup_channels(ClientId) ->
     [ChanPid || #channel{pid = ChanPid} <- mnesia:dirty_read(?TAB, ClientId)].
+
+%% @doc Get all global channels.
+-spec(all_channels() -> [pid()]).
+all_channels() ->
+    Pat = [{#channel{pid = '$1', _ = '_'}, [], ['$1']}],
+    mnesia:dirty_select(?TAB, Pat).
 
 record(ClientId, ChanPid) ->
     #channel{chid = ClientId, pid = ChanPid}.

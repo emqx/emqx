@@ -58,6 +58,8 @@
         , lookup_channels/2
         ]).
 
+-export([all_channels/0]).
+
 %% gen_server callbacks
 -export([ init/1
         , handle_call/3
@@ -325,6 +327,16 @@ with_channel(ClientId, Fun) ->
         []    -> undefined;
         [Pid] -> Fun(Pid);
         Pids  -> Fun(lists:last(Pids))
+    end.
+
+%% @doc Get all channels registed.
+all_channels() ->
+    case emqx_cm_registry:is_enabled() of
+        true ->
+            emqx_cm_registry:all_channels();
+        false ->
+            Pat = [{{'_', '$1'}, [], ['$1']}],
+            ets:select(?CHAN_TAB, Pat)
     end.
 
 %% @doc Lookup channels.
