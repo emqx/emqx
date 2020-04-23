@@ -75,3 +75,7 @@ t_cleanup_channels(_) ->
     ct:sleep(100),
     ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId)),
     ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId2)).
+
+t_all_channels(_) ->
+    ?assertEqual(true, is_list(emqx_cm_registry:all_channels())).
+
