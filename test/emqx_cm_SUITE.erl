@@ -133,6 +133,9 @@ t_kick_session(_) ->
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ok = meck:unload(emqx_connection).
 
+t_all_channels(_) ->
+    ?assertEqual(true, is_list(emqx_cm:all_channels())).
+
 t_lock_clientid(_) ->
     {true, _Nodes} = emqx_cm_locker:lock(<<"clientid">>),
     {true, _Nodes} = emqx_cm_locker:lock(<<"clientid">>),

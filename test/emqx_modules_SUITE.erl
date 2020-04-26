@@ -24,11 +24,9 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    
-    emqx_ct_helpers:boot_modules([]),
     emqx_ct_helpers:start_apps([], fun set_sepecial_cfg/1),
     Config.
-    
+
 set_sepecial_cfg(_) ->
     application:set_env(emqx, modules_loaded_file, emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_modules")),
     ok.
