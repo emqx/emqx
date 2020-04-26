@@ -31,13 +31,11 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
-init_per_testcase(_TestCase, Config) ->
-    Config.
+%%--------------------------------------------------------------------
+%% Test cases
+%%--------------------------------------------------------------------
 
-end_per_testcase(_TestCase, Config) ->
-    Config.
-
-t_clean_acl_cache(_Config) ->
+t_clean_acl_cache(_) ->
     {ok, Client} = emqtt:start_link([{clientid, <<"emqx_c">>}]),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
@@ -56,6 +54,58 @@ t_clean_acl_cache(_Config) ->
     erlang:send(ClientPid, clean_acl_cache),
     ?assertEqual(0, length(gen_server:call(ClientPid, list_acl_cache))),
     emqtt:stop(Client).
+
+% optimize??
+t_reload_aclfile_and_cleanall(Config) ->
+
+    RasieMsg = fun() -> Self = self(), #{puback => fun(Msg) -> Self ! {puback, Msg} end,
+                                         disconnected => fun(_) ->  ok end,
+                                         publish => fun(_) -> ok end } end,
+
+    {ok, Client} = emqtt:start_link([{clientid, <<"emqx_c">>}, {proto_ver, v5}, {msg_handler, RasieMsg()}]),
+    {ok, _} = emqtt:connect(Client),
+
+    {ok, PktId} = emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, qos1),
+
+    %% Success publish to broker
+    receive
+        {puback, #{packet_id := PktId, reason_code := Rc}} ->
+            ?assertEqual(16#10, Rc);
+        _ ->
+            ?assert(false)
+    end,
+
+    %% Check acl cache list
+    [ClientPid] = emqx_cm:lookup_channels(<<"emqx_c">>),
+    ?assert(length(gen_server:call(ClientPid, list_acl_cache)) > 0),
+
+    %% Update acl file and reload mod_acl_internal
+    Path = filename:join([testdir(proplists:get_value(data_dir, Config)), "acl2.conf"]),
+    ok = file:write_file(Path, <<"{deny, all}.">>),
+    OldPath = emqx:get_env(acl_file),
+    application:set_env(emqx, acl_file, Path),
+
+    emqx_mod_acl_internal:reload([]),
+
+    ?assert(length(gen_server:call(ClientPid, list_acl_cache)) == 0),
+    {ok, PktId2} = emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, qos1),
+
+    receive
+        {puback, #{packet_id := PktId2, reason_code := Rc2}} ->
+            %% Not authorized
+            ?assertEqual(16#87, Rc2);
+        _ ->
+            ?assert(false)
+    end,
+    application:set_env(emqx, acl_file, OldPath),
+    file:delete(Path),
+    emqx_mod_acl_internal:reload([]),
+    emqtt:stop(Client).
+
+%% @private
+testdir(DataPath) ->
+    Ls = filename:split(DataPath),
+    filename:join(lists:sublist(Ls, 1, length(Ls) - 1)).
 
 % t_cache_k(_) ->
 %     error('TODO').
