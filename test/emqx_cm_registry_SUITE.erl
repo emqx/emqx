@@ -75,3 +75,4 @@ t_cleanup_channels(_) ->
     ct:sleep(100),
     ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId)),
     ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId2)).
+

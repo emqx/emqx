@@ -1138,11 +1138,10 @@ do_enhanced_auth(undefined, _AuthData, Channel) ->
 do_enhanced_auth(_AuthMethod, undefined, Channel) ->
     {error, emqx_reason_codes:connack_error(not_authorized), Channel};
 do_enhanced_auth(AuthMethod, AuthData, Channel = #channel{auth_cache = Cache}) ->
-    case run_hooks('client.enhanced_authenticate',[AuthMethod, AuthData, Cache]) of
-        {ok, <<>>} -> {ok, #{}, Channel#channel{auth_cache = #{}}};
-        {ok, NAuthData} ->
+    case run_hooks('client.enhanced_authenticate',[AuthMethod, AuthData], Cache) of
+        {ok, NAuthData, NCache} ->
             NProperties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
-            {ok, NProperties, Channel#channel{auth_cache = #{}}};
+            {ok, NProperties, Channel#channel{auth_cache = NCache}};
         {continue, NAuthData, NCache} ->
             NProperties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
             {continue, NProperties, Channel#channel{auth_cache = NCache}};

@@ -19,6 +19,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("eunit/include/eunit.hrl").
+
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
@@ -50,7 +52,7 @@ t_detect_check(_) ->
     false = emqx_flapping:detect(ClientInfo),
     false = emqx_banned:check(ClientInfo),
     true = emqx_flapping:detect(ClientInfo),
-    timer:sleep(100),
+    timer:sleep(50),
     true = emqx_banned:check(ClientInfo),
     timer:sleep(3000),
     false = emqx_banned:check(ClientInfo),
@@ -61,3 +63,13 @@ t_detect_check(_) ->
     Pid ! test,
     ok = emqx_flapping:stop().
 
+t_expired_detecting(_) ->
+    ClientInfo = #{zone => external,
+                   clientid => <<"clientid">>,
+                   peerhost => {127,0,0,1}},
+    false = emqx_flapping:detect(ClientInfo),
+    ?assertEqual(true, lists:any(fun({flapping, <<"clientid">>, _, _, _}) -> true;
+                                    (_) -> false end, ets:tab2list(emqx_flapping))),
+    timer:sleep(200),
+    ?assertEqual(true, lists:all(fun({flapping, <<"clientid">>, _, _, _}) -> false;
+                                    (_) -> true end, ets:tab2list(emqx_flapping))).
