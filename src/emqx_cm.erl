@@ -331,13 +331,8 @@ with_channel(ClientId, Fun) ->
 
 %% @doc Get all channels registed.
 all_channels() ->
-    case emqx_cm_registry:is_enabled() of
-        true ->
-            emqx_cm_registry:all_channels();
-        false ->
-            Pat = [{{'_', '$1'}, [], ['$1']}],
-            ets:select(?CHAN_TAB, Pat)
-    end.
+    Pat = [{{'_', '$1'}, [], ['$1']}],
+    ets:select(?CHAN_TAB, Pat).
 
 %% @doc Lookup channels.
 -spec(lookup_channels(emqx_types:clientid()) -> list(chan_pid())).
