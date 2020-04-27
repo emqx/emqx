@@ -128,7 +128,6 @@
                         sockport     := non_neg_integer(),
                         clientid     := clientid(),
                         username     := username(),
-                        peercert     := esockd_peercert:peercert(),
                         is_bridge    := boolean(),
                         is_superuser := boolean(),
                         mountpoint   := maybe(binary()),
@@ -136,6 +135,8 @@
                         password     => maybe(binary()),
                         auth_result  => auth_result(),
                         anonymous    => boolean(),
+                        cn           => binary(),
+                        dn           => binary(),
                         atom()       => term()
                        }).
 -type(clientid() :: binary()|atom()).

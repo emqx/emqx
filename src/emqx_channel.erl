@@ -163,25 +163,20 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
                   sockname := {_Host, SockPort}}, Options) ->
     Zone = proplists:get_value(zone, Options),
     Peercert = maps:get(peercert, ConnInfo, undefined),
-    Username = case peer_cert_as_username(Options) of
-                   cn  -> esockd_peercert:common_name(Peercert);
-                   dn  -> esockd_peercert:subject(Peercert);
-                   crt -> Peercert;
-                   _   -> undefined
-               end,
     Protocol = maps:get(protocol, ConnInfo, mqtt),
     MountPoint = emqx_zone:mountpoint(Zone),
-    ClientInfo = #{zone         => Zone,
-                   protocol     => Protocol,
-                   peerhost     => PeerHost,
-                   sockport     => SockPort,
-                   peercert     => Peercert,
-                   clientid     => undefined,
-                   username     => Username,
-                   mountpoint   => MountPoint,
-                   is_bridge    => false,
-                   is_superuser => false
-                  },
+    ClientInfo = setting_peercert_infos(
+                   Peercert,
+                   #{zone         => Zone,
+                     protocol     => Protocol,
+                     peerhost     => PeerHost,
+                     sockport     => SockPort,
+                     clientid     => undefined,
+                     username     => undefined,
+                     mountpoint   => MountPoint,
+                     is_bridge    => false,
+                     is_superuser => false
+                    }, Options),
     #channel{conninfo   = ConnInfo,
              clientinfo = ClientInfo,
              topic_aliases = #{inbound => #{},
@@ -195,8 +190,21 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
              pendings   = []
             }.
 
-peer_cert_as_username(Options) ->
-    proplists:get_value(peer_cert_as_username, Options).
+setting_peercert_infos(NoSSL, ClientInfo, _Options)
+  when NoSSL =:= nossl;
+       NoSSL =:= undefined ->
+    ClientInfo#{username => undefined};
+
+setting_peercert_infos(Peercert, ClientInfo, Options) ->
+    {DN, CN} = {esockd_peercert:subject(Peercert),
+                esockd_peercert:common_name(Peercert)},
+    Username = case proplists:get_value(peer_cert_as_username, Options) of
+                   cn  -> CN;
+                   dn  -> DN;
+                   crt -> Peercert;
+                   _   -> undefined
+               end,
+    ClientInfo#{username => Username, dn => DN, cn => CN}.
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
@@ -982,10 +990,10 @@ enrich_conninfo(ConnPkt = #mqtt_packet_connect{
                              username    = Username
                             },
                 Channel = #channel{conninfo   = ConnInfo,
-                                   clientinfo = ClientInfo
+                                   clientinfo = #{zone := Zone}
                                   }) ->
-    ExpiryInterval = expiry_interval(ClientInfo, ConnPkt),
-    ReceiveMaximum = receive_maximum(ClientInfo, ConnProps),
+    ExpiryInterval = expiry_interval(Zone, ConnPkt),
+    ReceiveMaximum = receive_maximum(Zone, ConnProps),
     NConnInfo = ConnInfo#{proto_name  => ProtoName,
                           proto_ver   => ProtoVer,
                           clean_start => CleanStart,
@@ -1000,16 +1008,16 @@ enrich_conninfo(ConnPkt = #mqtt_packet_connect{
 
 %% If the Session Expiry Interval is absent the value 0 is used.
 -compile({inline, [expiry_interval/2]}).
-expiry_interval(_ClientInfo, #mqtt_packet_connect{proto_ver  = ?MQTT_PROTO_V5,
-                                                  properties = ConnProps}) ->
+expiry_interval(_Zone, #mqtt_packet_connect{proto_ver  = ?MQTT_PROTO_V5,
+                                            properties = ConnProps}) ->
     emqx_mqtt_props:get('Session-Expiry-Interval', ConnProps, 0);
-expiry_interval(#{zone := Zone}, #mqtt_packet_connect{clean_start = false}) ->
+expiry_interval(Zone, #mqtt_packet_connect{clean_start = false}) ->
     emqx_zone:session_expiry_interval(Zone);
-expiry_interval(_ClientInfo, #mqtt_packet_connect{clean_start = true}) ->
+expiry_interval(_Zone, #mqtt_packet_connect{clean_start = true}) ->
     0.
 
 -compile({inline, [receive_maximum/2]}).
-receive_maximum(#{zone := Zone}, ConnProps) ->
+receive_maximum(Zone, ConnProps) ->
     emqx_mqtt_props:get('Receive-Maximum', ConnProps, emqx_zone:max_inflight(Zone)).
 
 %%--------------------------------------------------------------------
