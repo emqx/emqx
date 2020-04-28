@@ -236,10 +236,15 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
             handle_out(connack, ReasonCode, NChannel)
     end;
 
-handle_in(Packet = ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, _Properties), Channel) ->
+handle_in(Packet = ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, _Properties), Channel = #channel{conn_state = ConnState}) ->
     case enhanced_auth(Packet, Channel) of
         {ok, NProperties, NChannel} ->
-            process_connect(NProperties, ensure_connected(NChannel));
+            case ConnState of
+                connecting ->
+                    process_connect(NProperties, ensure_connected(NChannel));
+                _ ->
+                    handle_out(auth, {?RC_SUCCESS, NProperties}, NChannel)
+            end;
         {continue, NProperties, NChannel} ->
             handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, NProperties}, NChannel);
         {error, NReasonCode, NChannel} ->
