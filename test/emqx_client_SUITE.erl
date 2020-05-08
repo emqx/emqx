@@ -279,7 +279,7 @@ t_username_as_clientid(_) ->
     emqtt:disconnect(C).
 
 t_certcn_as_clientid(_) ->
-    CN = <<"0004.novalocal">>,
+    CN = <<"Client">>,
     emqx_zone:set_env(external, use_username_as_clientid, true),
     SslConf = emqx_ct_helpers:client_ssl_twoway(),
     {ok, C} = emqtt:start_link([{port, 8883}, {ssl, true}, {ssl_opts, SslConf}]),
