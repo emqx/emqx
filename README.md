@@ -8,7 +8,7 @@
 [![Twitter](https://img.shields.io/badge/Twitter-EMQ%20X-1DA1F2?logo=twitter)](https://twitter.com/emqtt)
 
 
-[![We are hiring](https://www.emqx.io/static/img/github_readme_en_bg.png)](https://emqx.io/about/jobs)
+[![We are hiring](https://www.emqx.io/static/img/github_readme_en_bg.png)](https://www.emqx.io/careers)
 
 English | [简体中文](./README-CN.md)
 
