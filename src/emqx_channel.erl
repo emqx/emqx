@@ -896,10 +896,10 @@ handle_timeout(_TRef, expire_awaiting_rel,
 handle_timeout(_TRef, expire_awaiting_rel,
                Channel = #channel{session = Session}) ->
     case emqx_session:expire(awaiting_rel, Session) of
-        {ok, Session} ->
-            {ok, clean_timer(await_timer, Channel#channel{session = Session})};
-        {ok, Timeout, Session} ->
-            {ok, reset_timer(await_timer, Timeout, Channel#channel{session = Session})}
+        {ok, NSession} ->
+            {ok, clean_timer(await_timer, Channel#channel{session = NSession})};
+        {ok, Timeout, NSession} ->
+            {ok, reset_timer(await_timer, Timeout, Channel#channel{session = NSession})}
     end;
 
 handle_timeout(_TRef, expire_session, Channel) ->
