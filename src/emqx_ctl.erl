@@ -130,7 +130,7 @@ help() ->
             print("No commands available, make sure you have plugin emqx_management started.~n");
         Cmds ->
             print("Usage: ~s~n", [?MODULE]),
-            list:foreach(fun({_, {Mod, Cmd}, _}) ->
+            lists:foreach(fun({_, {Mod, Cmd}, _}) ->
                     print("~110..-s~n", [""]), Mod:Cmd(usage)
                 end, Cmds)
     end.
