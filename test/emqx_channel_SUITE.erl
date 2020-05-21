@@ -112,6 +112,12 @@ t_handle_in_unexpected_connect_packet(_) ->
     {ok, [{outgoing, Packet}, {close, protocol_error}], Channel} =
         emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), Channel).
 
+t_handle_in_unexpected_packet(_) ->
+    Channel = emqx_channel:set_field(conn_state, idle, channel()),
+    Packet = ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR),
+    {ok, [{outgoing, Packet}, {close, protocol_error}], Channel} =
+        emqx_channel:handle_in(?PUBLISH_PACKET(?QOS_0), Channel).
+
 t_handle_in_connect_auth_failed(_) ->
     ConnPkt = #mqtt_packet_connect{
                                 proto_name  = <<"MQTT">>,
