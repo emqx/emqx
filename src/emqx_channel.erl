@@ -217,6 +217,9 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
             handle_out(connack, {ReasonCode, ConnPkt}, NChannel)
     end;
 
+handle_in(?PACKET(_), Channel = #channel{conn_state = ConnState}) when ConnState =/= connected ->
+    handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
+
 handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
     case emqx_packet:check(Packet) of
         ok -> process_publish(Packet, Channel);
