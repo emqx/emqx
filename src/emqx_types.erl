@@ -131,6 +131,7 @@
                         is_bridge    := boolean(),
                         is_superuser := boolean(),
                         mountpoint   := maybe(binary()),
+                        topic_prefix := maybe(binary()),
                         ws_cookie    := maybe(list()),
                         password     => maybe(binary()),
                         auth_result  => auth_result(),

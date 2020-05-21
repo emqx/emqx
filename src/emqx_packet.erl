@@ -380,10 +380,11 @@ to_message(ClientInfo, Packet) ->
 %% @doc Transform Publish Packet to Message.
 -spec(to_message(emqx_types:clientinfo(), map(), emqx_ypes:packet())
       -> emqx_types:message()).
-to_message(#{protocol := Protocol,
-             clientid := ClientId,
-             username := Username,
-             peerhost := PeerHost
+to_message(#{protocol     := Protocol,
+             clientid     := ClientId,
+             username     := Username,
+             topic_prefix := TopicPrefix,
+             peerhost     := PeerHost
             }, Headers,
            #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                                                        retain = Retain,
@@ -395,7 +396,7 @@ to_message(#{protocol := Protocol,
                                                        },
                         payload  = Payload
                        }) ->
-    Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
+    Msg = emqx_message:make(ClientId, QoS, emqx_mountpoint:mount(TopicPrefix, Topic), Payload),
     Headers1 = merge_props(Headers#{protocol => Protocol,
                                     username => Username,
                                     peerhost => PeerHost

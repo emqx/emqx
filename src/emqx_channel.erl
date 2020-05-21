@@ -520,10 +520,10 @@ process_subscribe([{TopicFilter, SubOpts}|More], Acc, Channel) ->
     process_subscribe(More, [RC|Acc], NChannel).
 
 do_subscribe(TopicFilter, SubOpts = #{qos := QoS}, Channel =
-             #channel{clientinfo = ClientInfo = #{mountpoint := MountPoint},
+             #channel{clientinfo = ClientInfo = #{mountpoint := MountPoint, topic_prefix := TopicPrefix},
                       session = Session}) ->
     case check_subscribe(TopicFilter, SubOpts, Channel) of
-        ok -> TopicFilter1 = emqx_mountpoint:mount(MountPoint, TopicFilter),
+        ok -> TopicFilter1 = emqx_mountpoint:mount(MountPoint, emqx_mountpoint:mount(TopicPrefix, TopicFilter)),
               SubOpts1 = enrich_subopts(maps:merge(?DEFAULT_SUBOPTS, SubOpts), Channel),
               case emqx_session:subscribe(ClientInfo, TopicFilter1, SubOpts1, Session) of
                   {ok, NSession} ->
@@ -549,9 +549,9 @@ process_unsubscribe([{TopicFilter, SubOpts}|More], Acc, Channel) ->
     process_unsubscribe(More, [RC|Acc], NChannel).
 
 do_unsubscribe(TopicFilter, _SubOpts, Channel =
-               #channel{clientinfo = ClientInfo = #{mountpoint := MountPoint},
+               #channel{clientinfo = ClientInfo = #{mountpoint := MountPoint, topic_prefix := TopicPrefix},
                         session = Session}) ->
-    TopicFilter1 = emqx_mountpoint:mount(MountPoint, TopicFilter),
+    TopicFilter1 = emqx_mountpoint:mount(MountPoint, emqx_mountpoint:mount(TopicPrefix, TopicFilter)),
     case emqx_session:unsubscribe(ClientInfo, TopicFilter1, Session) of
         {ok, NSession} ->
             {?RC_SUCCESS, Channel#channel{session = NSession}};
@@ -722,7 +722,7 @@ do_deliver({pubrel, PacketId}, Channel) ->
     {[?PUBREL_PACKET(PacketId, ?RC_SUCCESS)], Channel};
 
 do_deliver({PacketId, Msg}, Channel = #channel{clientinfo = ClientInfo =
-                                     #{mountpoint := MountPoint}}) ->
+                                     #{mountpoint := MountPoint, topic_prefix := TopicPrefix}}) ->
     case ignore_local(Msg, ClientInfo) of
         true ->
             ok = emqx_metrics:inc('delivery.dropped'),
@@ -734,7 +734,7 @@ do_deliver({PacketId, Msg}, Channel = #channel{clientinfo = ClientInfo =
                                        [ClientInfo],
                                        emqx_message:update_expiry(Msg)
                                       ),
-            Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
+            Msg2 = emqx_mountpoint:unmount(MountPoint, emqx_mountpoint:unmount(TopicPrefix, Msg1)),
             Packet = emqx_message:to_packet(PacketId, Msg2),
             {NPacket, NChannel} = packing_alias(Packet, Channel),
             {[NPacket], NChannel}
