@@ -164,10 +164,12 @@ encode_alarm({AlarmId, #alarm{severity  = Severity,
                            });
 
 encode_alarm({AlarmId, undefined}) ->
-    emqx_json:safe_encode(#{id => maybe_to_binary(AlarmId)});
+    emqx_json:safe_encode(#{id => maybe_to_binary(AlarmId),
+                            desc => #{timestamp => erlang:system_time(second)}});
 encode_alarm({AlarmId, AlarmDesc}) ->
     emqx_json:safe_encode(#{id => maybe_to_binary(AlarmId),
-                            desc => maybe_to_binary(AlarmDesc)
+                            desc => #{summary => maybe_to_binary(AlarmDesc),
+                                      timestamp => erlang:system_time(second)}
                            }).
 
 alarm_msg(Topic, Payload) ->
