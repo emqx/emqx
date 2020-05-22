@@ -114,7 +114,7 @@ handle_event({set_alarm, Alarm = {AlarmId, AlarmDesc}}, State) ->
         {error, Reason} ->
             ?LOG(error, "Failed to encode alarm: ~p", [Reason])
     end,
-    set_alarm_(AlarmId, AlarmDesc),
+    set_alarm_(AlarmId, AlarmDesc, erlang:system_time(second)),
     {ok, State};
 handle_event({clear_alarm, AlarmId}, State) ->
     ?LOG(info, "Clear Alarm: ~p", [AlarmId]),
@@ -187,8 +187,8 @@ maybe_to_binary(Data) when is_binary(Data) ->
 maybe_to_binary(Data) ->
     iolist_to_binary(io_lib:format("~p", [Data])).
 
-set_alarm_(Id, Desc) ->
-    mnesia:dirty_write(?ALARM_TAB, #common_alarm{id = Id, desc = Desc}).
+set_alarm_(Id, Desc, Ts) ->
+    mnesia:dirty_write(?ALARM_TAB, #common_alarm{id = Id, desc = {Desc, Ts}}).
 
 clear_alarm_(Id) ->
     case mnesia:dirty_read(?ALARM_TAB, Id) of
