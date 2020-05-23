@@ -127,7 +127,7 @@ get_commands() ->
 help() ->
     case ets:tab2list(?CMD_TAB) of
         [] ->
-            print("No commands available, make sure you have plugin emqx_management started.~n");
+            print("No commands available.~n");
         Cmds ->
             print("Usage: ~s~n", [?MODULE]),
             lists:foreach(fun({_, {Mod, Cmd}, _}) ->
