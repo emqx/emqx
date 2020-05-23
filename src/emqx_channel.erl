@@ -250,8 +250,10 @@ handle_in(Packet = ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, _Properties), Chann
             case ConnState of
                 connecting ->
                     process_connect(NProperties, ensure_connected(NChannel));
+                connected ->
+                    handle_out(auth, {?RC_SUCCESS, NProperties}, NChannel);
                 _ ->
-                    handle_out(auth, {?RC_SUCCESS, NProperties}, NChannel)
+                    handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel)
             end;
         {continue, NProperties, NChannel} ->
             handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, NProperties}, NChannel);
@@ -259,7 +261,7 @@ handle_in(Packet = ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, _Properties), Chann
             handle_out(connack, NReasonCode, NChannel)
     end;
 
-handle_in(Packet = ?AUTH_PACKET(?RC_RE_AUTHENTICATE, _Properties), Channel) ->
+handle_in(Packet = ?AUTH_PACKET(?RC_RE_AUTHENTICATE, _Properties), Channel = #channel{conn_state = connected}) ->
     case enhanced_auth(Packet, Channel) of
         {ok, NProperties, NChannel} ->
             handle_out(auth, {?RC_SUCCESS, NProperties}, NChannel);
@@ -268,6 +270,9 @@ handle_in(Packet = ?AUTH_PACKET(?RC_RE_AUTHENTICATE, _Properties), Channel) ->
         {error, NReasonCode, NChannel} ->
             handle_out(disconnect, NReasonCode, NChannel)
     end;
+
+handle_in(?PACKET(_), Channel = #channel{conn_state = ConnState}) when ConnState =/= connected ->
+    handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 
 handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
     case emqx_packet:check(Packet) of

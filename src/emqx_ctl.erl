@@ -125,9 +125,15 @@ get_commands() ->
     [{Cmd, M, F} || {{_Seq, Cmd}, {M, F}, _Opts} <- ets:tab2list(?CMD_TAB)].
 
 help() ->
-    print("Usage: ~s~n", [?MODULE]),
-    [begin print("~110..-s~n", [""]), Mod:Cmd(usage) end
-     || {_, {Mod, Cmd}, _} <- ets:tab2list(?CMD_TAB)].
+    case ets:tab2list(?CMD_TAB) of
+        [] ->
+            print("No commands available, make sure you have plugin emqx_management started.~n");
+        Cmds ->
+            print("Usage: ~s~n", [?MODULE]),
+            lists:foreach(fun({_, {Mod, Cmd}, _}) ->
+                    print("~110..-s~n", [""]), Mod:Cmd(usage)
+                end, Cmds)
+    end.
 
 -spec(print(io:format()) -> ok).
 print(Msg) ->
