@@ -15,8 +15,12 @@ jobs:
         - uses: actions/checkout@v1
         - name: Run tests
           run: |
+            make xref
+            rm -f rebar.lock
             make eunit
+            rm -f rebar.lock
             make ct
+            rm -f rebar.lock
             make cover
         - name: Coveralls
           env:
