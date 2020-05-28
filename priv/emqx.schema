@@ -477,9 +477,19 @@ end}.
   {datatype, integer}
 ]}.
 
+{mapping, "log.rotation", "kernel.logger", [
+  {default, on},
+  {datatype, flag}
+]}.
+
 {mapping, "log.rotation.size", "kernel.logger", [
   {default, "10MB"},
   {datatype, bytesize}
+]}.
+
+{mapping, "log.size", "kernel.logger", [
+  {default, infinity},
+  {datatype, [bytesize, atom]}
 ]}.
 
 {mapping, "log.rotation.count", "kernel.logger", [
@@ -489,6 +499,46 @@ end}.
 
 {mapping, "log.$level.file", "kernel.logger", [
   {datatype, file}
+]}.
+
+{mapping, "log.sync_mode_qlen", "kernel.logger", [
+  {default, 100},
+  {datatype, integer}
+]}.
+
+{mapping, "log.drop_mode_qlen", "kernel.logger", [
+  {default, 3000},
+  {datatype, integer}
+]}.
+
+{mapping, "log.flush_qlen", "kernel.logger", [
+  {default, 8000},
+  {datatype, integer}
+]}.
+
+{mapping, "log.overload_kill", "kernel.logger", [
+  {default, on},
+  {datatype, flag}
+]}.
+
+{mapping, "log.overload_kill_mem_size", "kernel.logger", [
+  {default, "30MB"},
+  {datatype, bytesize}
+]}.
+
+{mapping, "log.overload_kill_qlen", "kernel.logger", [
+  {default, 20000},
+  {datatype, integer}
+]}.
+
+{mapping, "log.overload_kill_restart_after", "kernel.logger", [
+  {default, "5s"},
+  {datatype, [{duration, ms}, atom]}
+]}.
+
+{mapping, "log.burst_limit", "kernel.logger", [
+  {default, "disabled"},
+  {datatype, string}
 ]}.
 
 {mapping, "log.sasl", "sasl.sasl_error_logger", [
@@ -521,6 +571,10 @@ end}.
 {translation, "kernel.logger", fun(Conf) ->
     LogTo = cuttlefish:conf_get("log.to", Conf),
     LogLevel = cuttlefish:conf_get("log.level", Conf),
+    LogType = case cuttlefish:conf_get("log.rotation", Conf) of
+                  true -> wrap;
+                  false -> halt
+              end,
     CharsLimit = case cuttlefish:conf_get("log.chars_limit", Conf) of
                      -1 -> unlimited;
                      V -> V
@@ -537,11 +591,37 @@ end}.
                               []}]},
                        msg,"\n"],
                     chars_limit => CharsLimit}},
+    {BustLimitOn, {MaxBurstCount, TimeWindow}} =
+        case string:tokens(cuttlefish:conf_get("log.burst_limit", Conf), ", ") of
+            ["disabled"] -> {false, {20000, 1000}};
+            [Count, Window] ->
+                {true, {list_to_integer(Count),
+                        case cuttlefish_duration:parse(Window, ms) of
+                          Secs when is_integer(Secs) -> Secs;
+                          {error, Reason1} -> error(Reason1)
+                        end}}
+        end,
     FileConf =  fun(Filename) ->
-                  #{type => wrap,
+                  BasicConf =
+                  #{type => LogType,
                     file => filename:join(cuttlefish:conf_get("log.dir", Conf), Filename),
                     max_no_files => cuttlefish:conf_get("log.rotation.count", Conf),
-                    max_no_bytes => cuttlefish:conf_get("log.rotation.size", Conf)}
+                    sync_mode_qlen => cuttlefish:conf_get("log.sync_mode_qlen", Conf),
+                    drop_mode_qlen => cuttlefish:conf_get("log.drop_mode_qlen", Conf),
+                    flush_qlen => cuttlefish:conf_get("log.flush_qlen", Conf),
+                    overload_kill_enable => cuttlefish:conf_get("log.overload_kill", Conf),
+                    overload_kill_qlen => cuttlefish:conf_get("log.overload_kill_qlen", Conf),
+                    overload_kill_mem_size => cuttlefish:conf_get("log.overload_kill_mem_size", Conf),
+                    overload_kill_restart_after => cuttlefish:conf_get("log.overload_kill_restart_after", Conf),
+                    burst_limit_enable => BustLimitOn,
+                    burst_limit_max_count => MaxBurstCount,
+                    burst_limit_window_time => TimeWindow
+                    },
+                  MaxNoBytes = case LogType of
+                    wrap -> cuttlefish:conf_get("log.rotation.size", Conf);
+                    halt -> cuttlefish:conf_get("log.size", Conf)
+                  end,
+                  BasicConf#{max_no_bytes => MaxNoBytes}
                 end,
 
     %% For the default logger that outputs to console
