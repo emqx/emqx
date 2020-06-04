@@ -39,7 +39,7 @@ list() ->
 -spec(load() -> ok).
 load() ->
     case emqx:get_env(modules_loaded_file) of
-        undefined -> ignore;
+        undefined -> ok;
         File ->
             load_modules(File)
     end.

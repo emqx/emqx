@@ -27,9 +27,7 @@
 
 -export([start_link/0]).
 
--export([ register_channel/1
-        , register_channel/2
-        , register_channel/3
+-export([ register_channel/3
         , unregister_channel/1
         ]).
 
@@ -44,6 +42,8 @@
         , get_chan_stats/2
         , set_chan_stats/2
         ]).
+
+-export([get_chann_conn_mod/2]).
 
 -export([ open_session/3
         , discard_session/1
@@ -100,28 +100,29 @@ start_link() ->
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Register a channel.
--spec(register_channel(emqx_types:clientid()) -> ok).
-register_channel(ClientId) ->
-    register_channel(ClientId, self()).
-
-%% @doc Register a channel with pid.
--spec(register_channel(emqx_types:clientid(), chan_pid()) -> ok).
-register_channel(ClientId, ChanPid) when is_pid(ChanPid) ->
-    Chan = {ClientId, ChanPid},
-    true = ets:insert(?CHAN_TAB, Chan),
-    true = ets:insert(?CHAN_CONN_TAB, Chan),
-    ok = emqx_cm_registry:register_channel(Chan),
-    cast({registered, Chan}).
-
 %% @doc Register a channel with info and stats.
 -spec(register_channel(emqx_types:clientid(),
                        emqx_types:infos(),
                        emqx_types:stats()) -> ok).
-register_channel(ClientId, Info, Stats) ->
+register_channel(ClientId, Info = #{conninfo := ConnInfo}, Stats) ->
     Chan = {ClientId, ChanPid = self()},
     true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, Stats}),
-    register_channel(ClientId, ChanPid).
+    register_channel(ClientId, ChanPid, ConnInfo);
+
+%% @private
+%% @doc Register a channel with pid and conn_mod.
+%%
+%% There is a Race-Condition on one node or cluster when many connections
+%% login to Broker with the same clientid. We should register it and save
+%% the conn_mod first for taking up the clientid access right.
+%%
+%% Note that: It should be called on a lock transaction
+register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when is_pid(ChanPid) ->
+    Chan = {ClientId, ChanPid},
+    true = ets:insert(?CHAN_TAB, Chan),
+    true = ets:insert(?CHAN_CONN_TAB, {Chan, ConnMod}),
+    ok = emqx_cm_registry:register_channel(Chan),
+    cast({registered, Chan}).
 
 %% @doc Unregister a channel.
 -spec(unregister_channel(emqx_types:clientid()) -> ok).
@@ -132,7 +133,7 @@ unregister_channel(ClientId) when is_binary(ClientId) ->
 %% @private
 do_unregister_channel(Chan) ->
     ok = emqx_cm_registry:unregister_channel(Chan),
-    true = ets:delete_object(?CHAN_CONN_TAB, Chan),
+    true = ets:delete(?CHAN_CONN_TAB, Chan),
     true = ets:delete(?CHAN_INFO_TAB, Chan),
     ets:delete_object(?CHAN_TAB, Chan).
 
@@ -206,24 +207,29 @@ set_chan_stats(ClientId, ChanPid, Stats) ->
                 pendings => list()}}
        | {error, Reason :: term()}).
 open_session(true, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
+    Self = self(),
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId),
                      Session = create_session(ClientInfo, ConnInfo),
+                     register_channel(ClientId, Self, ConnInfo),
                      {ok, #{session => Session, present => false}}
                  end,
     emqx_cm_locker:trans(ClientId, CleanStart);
 
 open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
+    Self = self(),
     ResumeStart = fun(_) ->
                       case takeover_session(ClientId) of
                           {ok, ConnMod, ChanPid, Session} ->
                               ok = emqx_session:resume(ClientInfo, Session),
                               Pendings = ConnMod:call(ChanPid, {takeover, 'end'}),
+                              register_channel(ClientId, Self, ConnInfo),
                               {ok, #{session  => Session,
                                      present  => true,
                                      pendings => Pendings}};
                           {error, not_found} ->
                               Session = create_session(ClientInfo, ConnInfo),
+                              register_channel(ClientId, Self, ConnInfo),
                               {ok, #{session => Session, present => false}}
                       end
                   end,
@@ -253,8 +259,8 @@ takeover_session(ClientId) ->
     end.
 
 takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
-    case get_chan_info(ClientId, ChanPid) of
-        #{conninfo := #{conn_mod := ConnMod}} ->
+    case get_chann_conn_mod(ClientId, ChanPid) of
+        ConnMod when is_atom(ConnMod) ->
             Session = ConnMod:call(ChanPid, {takeover, 'begin'}),
             {ok, ConnMod, ChanPid, Session};
         undefined ->
@@ -284,8 +290,8 @@ discard_session(ClientId) when is_binary(ClientId) ->
     end.
 
 discard_session(ClientId, ChanPid) when node(ChanPid) == node() ->
-    case get_chan_info(ClientId, ChanPid) of
-        #{conninfo := #{conn_mod := ConnMod}} ->
+    case get_chann_conn_mod(ClientId, ChanPid) of
+        ConnMod when is_atom(ConnMod) ->
             ConnMod:call(ChanPid, discard);
         undefined -> ok
     end;
@@ -417,4 +423,13 @@ update_stats({Tab, Stat, MaxStat}) ->
         undefined -> ok;
         Size -> emqx_stats:setstat(Stat, MaxStat, Size)
     end.
+
+get_chann_conn_mod(ClientId, ChanPid) when node(ChanPid) == node() ->
+    Chan = {ClientId, ChanPid},
+    try [ConnMod] = ets:lookup_element(?CHAN_CONN_TAB, Chan, 2), ConnMod
+    catch
+        error:badarg -> undefined
+    end;
+get_chann_conn_mod(ClientId, ChanPid) ->
+    rpc_call(node(ChanPid), get_chann_conn_mod, [ClientId, ChanPid]).
 

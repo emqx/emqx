@@ -42,6 +42,24 @@ t_new(_) ->
           1 = emqx_metrics:val('metrics.test.total')
       end).
 
+t_ensure(_) ->
+    with_metrics_server(
+      fun() ->
+          ok = emqx_metrics:ensure('metrics.test'),
+          ok = emqx_metrics:ensure('metrics.test'),
+          0 = emqx_metrics:val('metrics.test'),
+          ok = emqx_metrics:inc('metrics.test'),
+          1 = emqx_metrics:val('metrics.test'),
+          ok = emqx_metrics:ensure(counter, 'metrics.test.cnt'),
+          0 = emqx_metrics:val('metrics.test.cnt'),
+          ok = emqx_metrics:inc('metrics.test.cnt'),
+          1 = emqx_metrics:val('metrics.test.cnt'),
+          ok = emqx_metrics:ensure(gauge, 'metrics.test.total'),
+          0 = emqx_metrics:val('metrics.test.total'),
+          ok = emqx_metrics:inc('metrics.test.total'),
+          1 = emqx_metrics:val('metrics.test.total')
+      end).
+
 t_all(_) ->
     with_metrics_server(
       fun() ->

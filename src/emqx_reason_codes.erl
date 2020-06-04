@@ -50,7 +50,7 @@ name(16#11) -> no_subscription_existed;
 name(16#18) -> continue_authentication;
 name(16#19) -> re_authenticate;
 name(16#80) -> unspecified_error;
-name(16#81) -> malformed_Packet;
+name(16#81) -> malformed_packet;
 name(16#82) -> protocol_error;
 name(16#83) -> implementation_specific_error;
 name(16#84) -> unsupported_protocol_version;

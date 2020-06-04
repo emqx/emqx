@@ -30,6 +30,8 @@
 
 -export([ new/1
         , new/2
+        , ensure/1
+        , ensure/2
         , all/0
         ]).
 
@@ -203,6 +205,17 @@ new(gauge, Name) ->
     create(gauge, Name);
 new(counter, Name) ->
     create(counter, Name).
+
+-spec(ensure(metric_name()) -> ok).
+ensure(Name) ->
+    ensure(counter, Name).
+
+-spec(ensure(gauge|counter, metric_name()) -> ok).
+ensure(Type, Name) when Type =:= gauge; Type =:= counter ->
+    case ets:lookup(?TAB, Name) of
+        [] -> create(Type, Name);
+        _ -> ok
+    end.
 
 %% @private
 create(Type, Name) ->
