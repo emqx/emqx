@@ -1189,7 +1189,7 @@ enhanced_auth(?CONNECT_PACKET(#mqtt_packet_connect{
     end;
 
 enhanced_auth(?AUTH_PACKET(_ReasonCode, Properties), Channel = #channel{conninfo = ConnInfo}) ->
-    AuthMethod = maps:get('Authentication-Method', maps:get(conn_props, ConnInfo), undefined),
+    AuthMethod = emqx_mqtt_props:get('Authentication-Method', emqx_mqtt_props:get(conn_props, ConnInfo, #{}), undefined),
     NAuthMethod = emqx_mqtt_props:get('Authentication-Method', Properties, undefined),
     AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
     case NAuthMethod =:= undefined orelse NAuthMethod =/= AuthMethod of
