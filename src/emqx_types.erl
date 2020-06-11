@@ -63,6 +63,9 @@
 
 -export_type([ payload/0
              , message/0
+             , flag/0
+             , flags/0
+             , headers/0
              ]).
 
 -export_type([ deliver/0
@@ -179,6 +182,9 @@
 -type(subscriber() :: {pid(), subid()}).
 -type(payload() :: binary() | iodata()).
 -type(message() :: #message{}).
+-type(flag() :: atom()).
+-type(flags() :: #{flag() := boolean()}).
+-type(headers() :: map()).
 -type(banned() :: #banned{}).
 -type(deliver() :: {deliver, topic(), message()}).
 -type(delivery() :: #delivery{}).

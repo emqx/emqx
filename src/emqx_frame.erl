@@ -307,7 +307,7 @@ parse_packet_id(<<PacketId:16/big, Rest/binary>>) ->
     {PacketId, Rest}.
 
 parse_properties(Bin, Ver) when Ver =/= ?MQTT_PROTO_V5 ->
-    {undefined, Bin};
+    {#{}, Bin};
 %% TODO: version mess?
 parse_properties(<<>>, ?MQTT_PROTO_V5) ->
     {#{}, <<>>};

@@ -63,7 +63,7 @@
         ]).
 
 -export([ subscribe/4
-        , unsubscribe/3
+        , unsubscribe/4
         ]).
 
 -export([ publish/3
@@ -261,13 +261,13 @@ is_subscriptions_full(#session{subscriptions = Subs,
 %% Client -> Broker: UNSUBSCRIBE
 %%--------------------------------------------------------------------
 
--spec(unsubscribe(emqx_types:clientinfo(), emqx_types:topic(), session())
+-spec(unsubscribe(emqx_types:clientinfo(), emqx_types:topic(), emqx_types:subopts(), session())
       -> {ok, session()} | {error, emqx_types:reason_code()}).
-unsubscribe(ClientInfo, TopicFilter, Session = #session{subscriptions = Subs}) ->
+unsubscribe(ClientInfo, TopicFilter, UnSubOpts, Session = #session{subscriptions = Subs}) ->
     case maps:find(TopicFilter, Subs) of
         {ok, SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
-            ok = emqx_hooks:run('session.unsubscribed', [ClientInfo, TopicFilter, SubOpts]),
+            ok = emqx_hooks:run('session.unsubscribed', [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]),
             {ok, Session#session{subscriptions = maps:remove(TopicFilter, Subs)}};
         error ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
@@ -523,7 +523,8 @@ enrich_subopts([{rap, 0}|Opts], Msg = #message{headers = #{retained := true}}, S
 enrich_subopts([{rap, 0}|Opts], Msg, Session) ->
     enrich_subopts(Opts, emqx_message:set_flag(retain, false, Msg), Session);
 enrich_subopts([{subid, SubId}|Opts], Msg, Session) ->
-    Msg1 = emqx_message:set_header('Subscription-Identifier', SubId, Msg),
+    Props = emqx_message:get_header(properties, Msg, #{}),
+    Msg1 = emqx_message:set_header(properties, Props#{'Subscription-Identifier' => SubId}, Msg),
     enrich_subopts(Opts, Msg1, Session).
 
 %%--------------------------------------------------------------------

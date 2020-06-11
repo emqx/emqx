@@ -373,34 +373,26 @@ validate_topic_filters(TopicFilters) ->
               emqx_topic:validate(TopicFilter)
       end, TopicFilters).
 
--spec(to_message(emqx_types:clientinfo(), emqx_ypes:packet()) -> emqx_types:message()).
-to_message(ClientInfo, Packet) ->
-    to_message(ClientInfo, #{}, Packet).
+-spec(to_message(emqx_types:packet(), emqx_types:clientid()) -> emqx_types:message()).
+to_message(Packet, ClientId) ->
+    to_message(Packet, ClientId, #{}).
 
 %% @doc Transform Publish Packet to Message.
--spec(to_message(emqx_types:clientinfo(), map(), emqx_ypes:packet())
-      -> emqx_types:message()).
-to_message(#{protocol := Protocol,
-             clientid := ClientId,
-             username := Username,
-             peerhost := PeerHost
-            }, Headers,
-           #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
-                                                       retain = Retain,
-                                                       qos    = QoS,
-                                                       dup    = Dup
-                                                      },
-                        variable = #mqtt_packet_publish{topic_name = Topic,
-                                                        properties = Props
-                                                       },
-                        payload  = Payload
-                       }) ->
+-spec(to_message(emqx_types:packet(), emqx_types:clientid(), map()) -> emqx_types:message()).
+to_message(#mqtt_packet{
+                header = #mqtt_packet_header{
+                            type   = ?PUBLISH,
+                            retain = Retain,
+                            qos    = QoS,
+                            dup    = Dup},
+                variable = #mqtt_packet_publish{
+                                topic_name = Topic,
+                                properties = Props},
+                payload = Payload
+            }, ClientId, Headers) ->
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
-    Headers1 = merge_props(Headers#{protocol => Protocol,
-                                    username => Username,
-                                    peerhost => PeerHost
-                                   }, Props),
-    Msg#message{flags = #{dup => Dup, retain => Retain}, headers = Headers1}.
+    Msg#message{flags = #{dup => Dup, retain => Retain},
+                headers = Headers#{properties => Props}}.
 
 -spec(will_msg(#mqtt_packet_connect{}) -> emqx_types:message()).
 will_msg(#mqtt_packet_connect{will_flag = false}) ->
@@ -413,13 +405,8 @@ will_msg(#mqtt_packet_connect{clientid     = ClientId,
                               will_props   = Props,
                               will_payload = Payload}) ->
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
-    Headers = merge_props(#{username => Username}, Props),
-    Msg#message{flags = #{dup => false, retain => Retain}, headers = Headers}.
-
-merge_props(Headers, undefined) ->
-    Headers;
-merge_props(Headers, Props) ->
-    maps:merge(Headers, Props).
+    Msg#message{flags = #{dup => false, retain => Retain},
+                headers = #{username => Username, properties => Props}}.
 
 %% @doc Format packet
 -spec(format(emqx_types:packet()) -> iolist()).

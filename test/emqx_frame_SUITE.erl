@@ -141,10 +141,6 @@ prop_serialize_parse_connect() ->
     ?FORALL(Opts = #{version := ProtoVer}, parse_opts(),
             begin
                 ProtoName = proplists:get_value(ProtoVer, ?PROTOCOL_NAMES),
-                DefaultProps = if ProtoVer == ?MQTT_PROTO_V5 ->
-                                      #{};
-                                  true -> undefined
-                               end,
                 Packet = ?CONNECT_PACKET(#mqtt_packet_connect{
                                             proto_name   = ProtoName,
                                             proto_ver    = ProtoVer,
@@ -153,10 +149,10 @@ prop_serialize_parse_connect() ->
                                             will_flag    = true,
                                             will_retain  = true,
                                             will_topic   = <<"will">>,
-                                            will_props   = DefaultProps,
+                                            will_props   = #{},
                                             will_payload = <<"bye">>,
                                             clean_start  = true,
-                                            properties = DefaultProps
+                                            properties = #{}
                                            }),
                 ok == ?assertEqual(Packet, parse_serialize(Packet, Opts))
             end).

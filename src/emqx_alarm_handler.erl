@@ -171,9 +171,10 @@ encode_alarm({AlarmId, AlarmDesc}) ->
                            }).
 
 alarm_msg(Topic, Payload) ->
-    Msg = emqx_message:make(?MODULE, Topic, Payload),
-    emqx_message:set_headers(#{'Content-Type' => <<"application/json">>},
-                             emqx_message:set_flag(sys, Msg)).
+    emqx_message:make(?MODULE, 0, Topic, Payload,
+            #{sys => true},
+            #{properties => #{'Content-Type' => <<"application/json">>}}
+        ).
 
 topic(alert) ->
     emqx_topic:systop(<<"alarms/alert">>);

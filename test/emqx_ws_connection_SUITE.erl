@@ -304,7 +304,7 @@ t_parse_incoming(_) ->
     St = ?ws_conn:parse_incoming(<<48,3>>, st()),
     St1 = ?ws_conn:parse_incoming(<<0,1,116>>, St),
     Packet = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<>>),
-    [{incoming, Packet}] = ?ws_conn:info(postponed, St1).
+    ?assertMatch([{incoming, Packet}], ?ws_conn:info(postponed, St1)).
 
 t_parse_incoming_frame_error(_) ->
     St = ?ws_conn:parse_incoming(<<3,2,1,0>>, st()),
