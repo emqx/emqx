@@ -62,13 +62,15 @@
           %% Message from
           from :: atom() | binary(),
           %% Message flags
-          flags :: #{atom() => boolean()},
-          %% Message headers, or MQTT 5.0 Properties
-          headers :: map(),
+          flags = #{} :: emqx_types:flags(),
+          %% Message headers. May contain any metadata. e.g. the
+          %% protocol version number, username, peerhost or
+          %% the PUBLISH properties (MQTT 5.0).
+          headers = #{} :: emqx_types:headers(),
           %% Topic that the message is published to
-          topic :: binary(),
+          topic :: emqx_types:topic(),
           %% Message Payload
-          payload :: binary(),
+          payload :: emqx_types:payload(),
           %% Timestamp (Unit: millisecond)
           timestamp :: integer()
          }).

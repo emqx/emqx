@@ -279,7 +279,7 @@ t_handle_in_subscribe(_) ->
 
 t_handle_in_unsubscribe(_) ->
     ok = meck:expect(emqx_session, unsubscribe,
-                     fun(_, _, Session) ->
+                     fun(_, _, _, Session) ->
                              {ok, Session}
                      end),
     Channel = channel(#{conn_state => connected}),
@@ -345,12 +345,12 @@ t_process_publish_qos1(_) ->
 t_process_subscribe(_) ->
     ok = meck:expect(emqx_session, subscribe, fun(_, _, _, Session) -> {ok, Session} end),
     TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
-    {[?RC_SUCCESS], _Channel} = emqx_channel:process_subscribe(TopicFilters, channel()).
+    {[?RC_SUCCESS], _Channel} = emqx_channel:process_subscribe(TopicFilters, #{}, channel()).
 
 t_process_unsubscribe(_) ->
-    ok = meck:expect(emqx_session, unsubscribe, fun(_, _, Session) -> {ok, Session} end),
+    ok = meck:expect(emqx_session, unsubscribe, fun(_, _, _, Session) -> {ok, Session} end),
     TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
-    {[?RC_SUCCESS], _Channel} = emqx_channel:process_unsubscribe(TopicFilters, channel()).
+    {[?RC_SUCCESS], _Channel} = emqx_channel:process_unsubscribe(TopicFilters, #{}, channel()).
 
 %%--------------------------------------------------------------------
 %% Test cases for handle_deliver
@@ -465,7 +465,7 @@ t_handle_info_subscribe(_) ->
     {ok, _Chan} = emqx_channel:handle_info({subscribe, topic_filters()}, channel()).
 
 t_handle_info_unsubscribe(_) ->
-    ok = meck:expect(emqx_session, unsubscribe, fun(_, _, Session) -> {ok, Session} end),
+    ok = meck:expect(emqx_session, unsubscribe, fun(_, _, _, Session) -> {ok, Session} end),
     {ok, _Chan} = emqx_channel:handle_info({unsubscribe, topic_filters()}, channel()).
 
 t_handle_info_sock_closed(_) ->
@@ -541,7 +541,7 @@ t_packing_alias(_) ->
     ?assertEqual(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}}}, RePacket2),
 
     {RePacket3, _} = emqx_channel:packing_alias(Packet2, NChannel2),
-    ?assertEqual(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"y">>, properties = undefined}}, RePacket3),
+    ?assertEqual(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"y">>, properties = #{}}}, RePacket3),
 
     ?assertMatch({#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"z">>}}, _},  emqx_channel:packing_alias(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"z">>}}, channel())).
 
@@ -644,7 +644,7 @@ connpkt() ->
        is_bridge   = false,
        clean_start = true,
        keepalive   = 30,
-       properties  = undefined,
+       properties  = #{},
        clientid    = <<"clientid">>,
        username    = <<"username">>,
        password    = <<"passwd">>
