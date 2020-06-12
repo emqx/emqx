@@ -45,6 +45,7 @@
           , session_expiry_interval/1
           , force_gc_policy/1
           , force_shutdown_policy/1
+          , response_information/1
           , get_env/2
           , get_env/3
           ]}).
@@ -72,6 +73,7 @@
         , session_expiry_interval/1
         , force_gc_policy/1
         , force_shutdown_policy/1
+        , response_information/1
         ]).
 
 -export([ init_gc_state/1
@@ -203,6 +205,10 @@ force_gc_policy(Zone) ->
 -spec(force_shutdown_policy(zone()) -> maybe(emqx_oom:opts())).
 force_shutdown_policy(Zone) ->
     get_env(Zone, force_shutdown_policy).
+
+-spec(response_information(zone()) -> string()).
+response_information(Zone) ->
+    get_env(Zone, response_information).
 
 %%--------------------------------------------------------------------
 %% APIs

@@ -662,6 +662,7 @@ not_nacked({deliver, _Topic, Msg}) ->
 handle_out(connack, {?RC_SUCCESS, SP, Props}, Channel = #channel{conninfo = ConnInfo}) ->
     AckProps = run_fold([fun enrich_connack_caps/2,
                          fun enrich_server_keepalive/2,
+                         fun enrich_response_information/2,
                          fun enrich_assigned_clientid/2
                         ], Props, Channel),
     NAckProps = run_hooks('client.connack', [ConnInfo, emqx_reason_codes:name(?RC_SUCCESS)], AckProps),
@@ -1378,6 +1379,16 @@ enrich_server_keepalive(AckProps, #channel{clientinfo = #{zone := Zone}}) ->
     case emqx_zone:server_keepalive(Zone) of
         undefined -> AckProps;
         Keepalive -> AckProps#{'Server-Keep-Alive' => Keepalive}
+    end.
+
+%%--------------------------------------------------------------------
+%% Enrich response information
+
+enrich_response_information(AckProps, #channel{conninfo = #{conn_props := ConnProps},
+                                               clientinfo = #{zone := Zone}}) ->
+    case emqx_mqtt_props:get('Request-Response-Information', ConnProps, 0) of
+        0 -> AckProps;
+        1 -> AckProps#{'Response-Information' => emqx_zone:response_information(Zone)}
     end.
 
 %%--------------------------------------------------------------------

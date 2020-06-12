@@ -392,6 +392,27 @@ t_handle_out_connack_sucess(_) ->
         emqx_channel:handle_out(connack, {?RC_SUCCESS, 0, #{}}, channel()),
     ?assertEqual(connected, emqx_channel:info(conn_state, Channel)).
 
+t_handle_out_connack_response_information(_) ->
+    ok = meck:expect(emqx_cm, open_session,
+                     fun(true, _ClientInfo, _ConnInfo) ->
+                             {ok, #{session => session(), present => false}}
+                     end),
+    ok = meck:expect(emqx_zone, response_information, fun(_) -> test end),
+    IdleChannel = channel(#{conn_state => idle}),
+    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, #{'Response-Information' := test})}], _} =
+        emqx_channel:handle_in(?CONNECT_PACKET(connpkt(#{'Request-Response-Information' => 1})), IdleChannel).
+
+t_handle_out_connack_not_response_information(_) ->
+    ok = meck:expect(emqx_cm, open_session,
+                     fun(true, _ClientInfo, _ConnInfo) ->
+                             {ok, #{session => session(), present => false}}
+                     end),
+    ok = meck:expect(emqx_zone, response_information, fun(_) -> test end),
+    IdleChannel = channel(#{conn_state => idle}),
+    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, AckProps)}], _} =
+        emqx_channel:handle_in(?CONNECT_PACKET(connpkt(#{'Request-Response-Information' => 0})), IdleChannel),
+    ?assertEqual(false, maps:is_key('Response-Information', AckProps)).
+
 t_handle_out_connack_failure(_) ->
     {shutdown, not_authorized, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _Chan} =
         emqx_channel:handle_out(connack, ?RC_NOT_AUTHORIZED, channel()).
@@ -637,14 +658,15 @@ clientinfo(InitProps) ->
 topic_filters() ->
     [{<<"+">>, ?DEFAULT_SUBOPTS}, {<<"#">>, ?DEFAULT_SUBOPTS}].
 
-connpkt() ->
+connpkt() -> connpkt(#{}).
+connpkt(Props) ->
     #mqtt_packet_connect{
        proto_name  = <<"MQTT">>,
        proto_ver   = ?MQTT_PROTO_V4,
        is_bridge   = false,
        clean_start = true,
        keepalive   = 30,
-       properties  = undefined,
+       properties  = Props,
        clientid    = <<"clientid">>,
        username    = <<"username">>,
        password    = <<"passwd">>
