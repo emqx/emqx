@@ -58,7 +58,8 @@ end_per_suite(_Config) ->
                  emqx_session,
                  emqx_broker,
                  emqx_hooks,
-                 emqx_cm
+                 emqx_cm,
+                 emqx_zone
                 ]).
 
 init_per_testcase(_TestCase, Config) ->
