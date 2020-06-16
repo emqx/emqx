@@ -60,12 +60,12 @@
 %%     equal priority values.
 
 -type(hookpoint() :: atom()).
--type(action() :: function() | mfa()).
--type(filter() :: function() | mfa()).
+-type(action() :: function() | {function(), [term()]} | mfargs()).
+-type(filter() :: function() | mfargs()).
 
 -record(callback, {
           action :: action(),
-          filter :: filter(),
+          filter :: maybe(filter()),
           priority :: integer()
          }).
 
@@ -112,7 +112,7 @@ add(HookPoint, Action, Filter, Priority) when is_integer(Priority) ->
     add(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
 
 %% @doc Unregister a callback.
--spec(del(hookpoint(), action()) -> ok).
+-spec(del(hookpoint(), function() | {module(), atom()}) -> ok).
 del(HookPoint, Action) ->
     gen_server:cast(?SERVER, {del, HookPoint, Action}).
 

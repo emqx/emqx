@@ -99,7 +99,7 @@
           node_id        :: trie_node_id(),
           edge_count = 0 :: non_neg_integer(),
           topic          :: binary() | undefined,
-          flags          :: list(atom())
+          flags          :: list(atom()) | undefined
         }).
 
 -record(trie_edge, {
@@ -121,7 +121,8 @@
           severity  :: notice | warning | error | critical,
           title     :: iolist(),
           summary   :: iolist(),
-          timestamp :: erlang:timestamp()
+          %% Timestamp (Unit: millisecond)
+          timestamp :: integer() | undefined
         }).
 
 %%--------------------------------------------------------------------
@@ -130,11 +131,11 @@
 
 -record(plugin, {
           name           :: atom(),
-          dir            :: string(),
+          dir            :: string() | undefined,
           descr          :: string(),
-          vendor         :: string(),
+          vendor         :: string() | undefined,
           active = false :: boolean(),
-          info           :: map(),
+          info   = #{}   :: map(),
           type           :: atom()
         }).
 

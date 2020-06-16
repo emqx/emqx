@@ -159,7 +159,7 @@ format(Msg) ->
 format(Format, Args) ->
     lists:flatten(io_lib:format(Format, Args)).
 
--spec(format_usage([cmd_usage()]) -> ok).
+-spec(format_usage([cmd_usage()]) -> [string()]).
 format_usage(UsageList) ->
     lists:map(
         fun({CmdParams, Desc}) ->

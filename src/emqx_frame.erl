@@ -42,10 +42,10 @@
                      version => emqx_types:version()
                     }).
 
--opaque(parse_state() :: {none, options()} | cont_fun()).
+-type(parse_state() :: {none, options()} | cont_fun()).
 
--opaque(parse_result() :: {more, cont_fun()}
-                        | {ok, emqx_types:packet(), binary(), parse_state()}).
+-type(parse_result() :: {more, cont_fun()}
+                      | {ok, emqx_types:packet(), binary(), parse_state()}).
 
 -type(cont_fun() :: fun((binary()) -> parse_result())).
 
@@ -58,6 +58,8 @@
           max_size    => ?MAX_PACKET_SIZE,
           version     => ?MQTT_PROTO_V4
          }).
+
+-dialyzer({no_match, [serialize_utf8_string/2]}).
 
 %%--------------------------------------------------------------------
 %% Init Parse State

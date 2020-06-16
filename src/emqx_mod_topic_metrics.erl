@@ -97,14 +97,14 @@
 
 load(_Env) ->
     emqx_mod_sup:start_child(?MODULE, worker),
-    emqx:hook('message.publish', fun ?MODULE:on_message_publish/1, []),
-    emqx:hook('message.dropped', fun ?MODULE:on_message_dropped/3, []),
-    emqx:hook('message.delivered', fun ?MODULE:on_message_delivered/2, []).
+    emqx:hook('message.publish',   {?MODULE, on_message_publish, []}),
+    emqx:hook('message.dropped',   {?MODULE, on_message_dropped, []}),
+    emqx:hook('message.delivered', {?MODULE, on_message_delivered, []}).
 
 unload(_Env) ->
-    emqx:unhook('message.publish', fun ?MODULE:on_message_publish/1),
-    emqx:unhook('message.dropped', fun ?MODULE:on_message_dropped/3),
-    emqx:unhook('message.delivered', fun ?MODULE:on_message_delivered/2),
+    emqx:unhook('message.publish',   {?MODULE, on_message_publish}),
+    emqx:unhook('message.dropped',   {?MODULE, on_message_dropped}),
+    emqx:unhook('message.delivered', {?MODULE, on_message_delivered}),
     emqx_mod_sup:stop_child(?MODULE).
 
 description() ->

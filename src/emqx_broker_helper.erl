@@ -75,7 +75,7 @@ register_sub(SubPid, SubId) when is_pid(SubPid) ->
 lookup_subid(SubPid) when is_pid(SubPid) ->
     emqx_tables:lookup_value(?SUBMON, SubPid).
 
--spec(lookup_subpid(emqx_types:subid()) -> pid()).
+-spec(lookup_subpid(emqx_types:subid()) -> maybe(pid())).
 lookup_subpid(SubId) ->
     emqx_tables:lookup_value(?SUBID, SubId).
 

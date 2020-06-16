@@ -144,9 +144,6 @@ handle_info({timeout, Timer, check}, State = #{timer := Timer,
     NState =
     case emqx_vm:cpu_util() of %% TODO: should be improved?
         0 -> State#{timer := undefined};
-        {error, Reason} ->
-            ?LOG(error, "Failed to get cpu utilization: ~p", [Reason]),
-            ensure_check_timer(State);
         Busy when Busy / 100 >= CPUHighWatermark ->
             alarm_handler:set_alarm({cpu_high_watermark, Busy}),
             ensure_check_timer(State#{is_cpu_alarm_set := true});

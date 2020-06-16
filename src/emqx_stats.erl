@@ -58,7 +58,7 @@
 -record(update, {name, countdown, interval, func}).
 
 -record(state, {
-          timer   :: reference(),
+          timer   :: maybe(reference()),
           updates :: [#update{}],
           tick_ms :: timeout()
          }).
@@ -159,7 +159,7 @@ setstat(Stat, Val) when is_integer(Val) ->
 
 %% @doc Set stats with max value.
 -spec(setstat(Stat :: atom(), MaxStat :: atom(),
-              Val :: pos_integer()) -> boolean()).
+              Val :: pos_integer()) -> ok).
 setstat(Stat, MaxStat, Val) when is_integer(Val) ->
     cast({setstat, Stat, MaxStat, Val}).
 

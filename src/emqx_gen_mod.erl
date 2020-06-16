@@ -16,21 +16,8 @@
 
 -module(emqx_gen_mod).
 
--ifdef(use_specs).
-
 -callback(load(Opts :: any()) -> ok | {error, term()}).
 
 -callback(unload(State :: term()) -> term()).
 
 -callback(description() -> any()).
-
--else.
-
--export([behaviour_info/1]).
-
-behaviour_info(callbacks) ->
-    [{load, 1}, {unload, 1}];
-behaviour_info(_Other) ->
-    undefined.
-
--endif.

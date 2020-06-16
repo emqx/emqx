@@ -18,8 +18,8 @@
 
 -behavior(gen_server).
 
--include("logger.hrl").
 -include("types.hrl").
+-include("logger.hrl").
 
 -logger_header("[SYSMON]").
 
@@ -171,9 +171,11 @@ handle_partition_event({partition, {healed, _Node}}) ->
 
 suppress(Key, SuccFun, State = #{events := Events}) ->
     case lists:member(Key, Events) of
-        true  -> {noreply, State};
-        false -> SuccFun(),
-                 {noreply, State#{events := [Key|Events]}}
+        true ->
+            {noreply, State};
+        false ->
+            SuccFun(),
+            {noreply, State#{events := [Key|Events]}}
     end.
 
 procinfo(Pid) ->

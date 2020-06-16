@@ -19,6 +19,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("types.hrl").
 -include("logger.hrl").
 
 -logger_header("[SYS]").
@@ -53,20 +54,12 @@
 -import(emqx_topic, [systop/1]).
 -import(emqx_misc, [start_timer/2]).
 
--type(timeref() :: reference()).
-
--type(tickeref() :: reference()).
-
--type(version() :: string()).
-
--type(sysdescr() :: string()).
-
 -record(state,
         { start_time :: erlang:timestamp()
-        , heartbeat  :: timeref()
-        , ticker     :: tickeref()
-        , version    :: version()
-        , sysdescr   :: sysdescr()
+        , heartbeat  :: maybe(reference())
+        , ticker     :: maybe(reference())
+        , version    :: binary()
+        , sysdescr   :: binary()
         }).
 
 -define(APP, emqx).
