@@ -71,8 +71,9 @@
                        }).
 
 -spec(check_pub(emqx_types:zone(),
-                #{qos => emqx_types:qos(),
-                  retain => boolean()})
+                #{qos := emqx_types:qos(),
+                  retain := boolean(),
+                  topic := emqx_topic:topic()})
       -> ok_or_error(emqx_types:reason_code())).
 check_pub(Zone, Flags) when is_map(Flags) ->
     do_check_pub(case maps:take(topic, Flags) of

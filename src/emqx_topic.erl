@@ -43,7 +43,7 @@
 -type(topic() :: binary()).
 -type(word() :: '' | '+' | '#' | binary()).
 -type(words() :: list(word())).
--opaque(triple() :: {root | binary(), word(), binary()}).
+-type(triple() :: {root | binary(), word(), binary()}).
 
 -define(MAX_TOPIC_LEN, 4096).
 
@@ -184,6 +184,7 @@ word(<<"#">>) -> '#';
 word(Bin)     -> Bin.
 
 %% @doc '$SYS' Topic.
+-spec(systop(atom()|string()|binary()) -> topic()).
 systop(Name) when is_atom(Name); is_list(Name) ->
     iolist_to_binary(lists:concat(["$SYS/brokers/", node(), "/", Name]));
 systop(Name) when is_binary(Name) ->

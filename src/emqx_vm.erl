@@ -48,12 +48,12 @@
         , get_port_info/1
         ]).
 
+-export([cpu_util/0]).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
-
--export([cpu_util/0]).
 
 -define(UTIL_ALLOCATORS, [temp_alloc,
                           eheap_alloc,
@@ -408,9 +408,6 @@ port_info(PortTerm, specific) ->
                     []
             end,
     {specific, Props};
-port_info(PortTerm, Keys) when is_list(Keys) ->
-    Port = transform_port(PortTerm),
-    [erlang:port_info(Port, Key) || Key <- Keys];
 port_info(PortTerm, Key) when is_atom(Key) ->
     Port = transform_port(PortTerm),
     erlang:port_info(Port, Key).

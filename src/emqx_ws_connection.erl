@@ -63,7 +63,7 @@
           %% Simulate the active_n opt
           active_n :: pos_integer(),
           %% Limiter
-          limiter :: emqx_limiter:limiter(),
+          limiter :: maybe(emqx_limiter:limiter()),
           %% Limit Timer
           limit_timer :: maybe(reference()),
           %% Parse State
@@ -81,7 +81,7 @@
           %% Idle Timeout
           idle_timeout :: timeout(),
           %% Idle Timer
-          idle_timer :: reference()
+          idle_timer :: maybe(reference())
         }).
 
 -type(state() :: #state{}).
@@ -94,6 +94,9 @@
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 
 -define(ENABLED(X), (X =/= undefined)).
+
+-dialyzer({no_match, [info/2]}).
+-dialyzer({nowarn_function, [websocket_init/1]}).
 
 %%--------------------------------------------------------------------
 %% Info, Stats

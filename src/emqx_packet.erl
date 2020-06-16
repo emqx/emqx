@@ -484,10 +484,11 @@ format_variable(#mqtt_packet_suback{packet_id = PacketId,
 format_variable(#mqtt_packet_unsuback{packet_id = PacketId}) ->
     io_lib:format("PacketId=~p", [PacketId]);
 
-format_variable(PacketId) when is_integer(PacketId) ->
-    io_lib:format("PacketId=~p", [PacketId]);
+format_variable(#mqtt_packet_auth{reason_code = ReasonCode}) ->
+    io_lib:format("ReasonCode=~p", [ReasonCode]);
 
-format_variable(undefined) -> undefined.
+format_variable(PacketId) when is_integer(PacketId) ->
+    io_lib:format("PacketId=~p", [PacketId]).
 
 format_password(undefined) -> undefined;
 format_password(_Password) -> '******'.

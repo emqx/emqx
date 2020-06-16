@@ -123,7 +123,7 @@
           created_at :: pos_integer()
          }).
 
--opaque(session() :: #session{}).
+-type(session() :: #session{}).
 
 -type(publish() :: {maybe(emqx_types:packet_id()), emqx_types:message()}).
 
@@ -151,6 +151,7 @@
                     ]).
 
 -define(DEFAULT_BATCH_N, 1000).
+
 
 %%--------------------------------------------------------------------
 %% Init a Session
@@ -616,19 +617,16 @@ resume(ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = 
 
 -spec(replay(session()) -> {ok, replies(), session()}).
 replay(Session = #session{inflight = Inflight}) ->
-    Pubs = replay(Inflight),
+    Pubs = lists:map(fun({PacketId, {pubrel, _Ts}}) ->
+                             {pubrel, PacketId};
+                        ({PacketId, {Msg, _Ts}}) ->
+                             {PacketId, emqx_message:set_flag(dup, true, Msg)}
+                     end, emqx_inflight:to_list(Inflight)),
     case dequeue(Session) of
         {ok, NSession} -> {ok, Pubs, NSession};
         {ok, More, NSession} ->
             {ok, lists:append(Pubs, More), NSession}
-    end;
-
-replay(Inflight) ->
-    lists:map(fun({PacketId, {pubrel, _Ts}}) ->
-                      {pubrel, PacketId};
-                 ({PacketId, {Msg, _Ts}}) ->
-                      {PacketId, emqx_message:set_flag(dup, true, Msg)}
-              end, emqx_inflight:to_list(Inflight)).
+    end.
 
 -spec(terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok).
 terminate(ClientInfo, discarded, Session) ->

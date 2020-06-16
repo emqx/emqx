@@ -136,7 +136,7 @@
                         is_bridge    := boolean(),
                         is_superuser := boolean(),
                         mountpoint   := maybe(binary()),
-                        ws_cookie    := maybe(list()),
+                        ws_cookie    => maybe(list()),
                         password     => maybe(binary()),
                         auth_result  => auth_result(),
                         anonymous    => boolean(),
@@ -201,7 +201,7 @@
 -type(caps() :: emqx_mqtt_caps:caps()).
 -type(attrs() :: #{atom() => term()}).
 -type(infos() :: #{atom() => term()}).
--type(stats() :: #{atom() => non_neg_integer()|stats()}).
+-type(stats() :: [{atom(), term()}]).
 
 -type(oom_policy() :: #{message_queue_len => non_neg_integer(),
                         max_heap_size => non_neg_integer()

@@ -14,6 +14,10 @@ RUN_NODE_NAME = emqxdebug@127.0.0.1
 .PHONY: all
 all: compile
 
+.PHONY: dialyzer
+dialyzer:
+	@rebar3 dialyzer
+
 .PHONY: tests
 tests: eunit ct
 

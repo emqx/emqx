@@ -38,6 +38,11 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
+
+-dialyzer({no_match, [ plugin_loaded/2
+                     , plugin_unloaded/2
+                     ]}).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------

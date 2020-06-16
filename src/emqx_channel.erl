@@ -62,9 +62,9 @@
           %% MQTT ClientInfo
           clientinfo :: emqx_types:clientinfo(),
           %% MQTT Session
-          session :: emqx_session:session(),
+          session :: maybe(emqx_session:session()),
           %% Keepalive
-          keepalive :: emqx_keepalive:keepalive(),
+          keepalive :: maybe(emqx_keepalive:keepalive()),
           %% MQTT Will Msg
           will_msg :: maybe(emqx_types:message()),
           %% MQTT Topic Aliases
@@ -107,6 +107,8 @@
          }).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
+
+-dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
@@ -818,7 +820,8 @@ return_unsuback(Packet, Channel) ->
 
 -spec(handle_call(Req :: term(), channel())
       -> {reply, Reply :: term(), channel()}
-       | {shutdown, Reason :: term(), Reply :: term(), channel()}).
+       | {shutdown, Reason :: term(), Reply :: term(), channel()}
+       | {shutdown, Reason :: term(), Reply :: term(), emqx_types:packet(), channel()}).
 handle_call(kick, Channel) ->
     Channel1 = ensure_disconnected(kicked, Channel),
     disconnect_and_shutdown(kicked, ok, Channel1);
@@ -936,9 +939,6 @@ handle_timeout(_TRef, retry_delivery,
     case emqx_session:retry(Session) of
         {ok, NSession} ->
             {ok, clean_timer(retry_timer, Channel#channel{session = NSession})};
-        {ok, Publishes, NSession} ->
-            NChannel = Channel#channel{session = NSession},
-            handle_out(publish, Publishes, reset_timer(retry_timer, NChannel));
         {ok, Publishes, Timeout, NSession} ->
             NChannel = Channel#channel{session = NSession},
             handle_out(publish, Publishes, reset_timer(retry_timer, Timeout, NChannel))
@@ -1013,6 +1013,7 @@ interval(will_timer, #channel{will_msg = WillMsg}) ->
 %% Terminate
 %%--------------------------------------------------------------------
 
+-spec(terminate(any(), channel()) -> ok).
 terminate(_, #channel{conn_state = idle}) -> ok;
 terminate(normal, Channel) ->
     run_terminate_hook(normal, Channel);

@@ -103,6 +103,13 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
+-dialyzer({no_match, [info/2]}).
+-dialyzer({nowarn_function, [ init/4
+                            , init_state/3
+                            , run_loop/2
+                            , system_terminate/4
+                            ]}).
+
 -spec(start_link(esockd:transport(), esockd:socket(), proplists:proplist())
       -> {ok, pid()}).
 start_link(Transport, Socket, Options) ->

@@ -278,7 +278,7 @@ to_map(#message{
      }.
 
 %% @doc Message to tuple list
--spec(to_list(emqx_types:message()) -> map()).
+-spec(to_list(emqx_types:message()) -> list()).
 to_list(Msg) ->
     lists:zip(record_info(fields, message), tl(tuple_to_list(Msg))).
 
@@ -290,8 +290,6 @@ format(#message{id = Id, qos = QoS, topic = Topic, from = From, flags = Flags, h
     io_lib:format("Message(Id=~s, QoS=~w, Topic=~s, From=~p, Flags=~s, Headers=~s)",
                   [Id, QoS, Topic, From, format(flags, Flags), format(headers, Headers)]).
 
-format(_, undefined) ->
-    "";
 format(flags, Flags) ->
     io_lib:format("~p", [[Flag || {Flag, true} <- maps:to_list(Flags)]]);
 format(headers, Headers) ->
