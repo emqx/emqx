@@ -15,12 +15,11 @@ jobs:
         - uses: actions/checkout@v1
         - name: Code dialyzer
           run: |
+            make xref
             make dialyzer
             rm -f rebar.lock
         - name: Run tests
           run: |
-            make xref
-            rm -f rebar.lock
             make eunit
             rm -f rebar.lock
             make ct

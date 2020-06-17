@@ -14,48 +14,46 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_psk_SUITE).
 
--compile(export_all).
--compile(nowarn_export_all).
+-module(prop_emqx_psk).
 
 -include_lib("proper/include/proper.hrl").
--include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+-define(ALL(Vars, Types, Exprs),
+        ?SETUP(fun() ->
+            State = do_setup(),
+            fun() -> do_teardown(State) end
+         end, ?FORALL(Vars, Types, Exprs))).
 
-t_lookup(_) ->
-    ok = load(),
-    ok = emqx_logger:set_log_level(emergency),
-    Opts = [{to_file, user}, {numtests, 10}],
-    ?assert(proper:quickcheck(prop_lookup(), Opts)),
-    ok = unload(),
-    ok = emqx_logger:set_log_level(error).
+%%--------------------------------------------------------------------
+%% Properties
+%%--------------------------------------------------------------------
 
 prop_lookup() ->
-    ?FORALL({ClientPSKID, UserState},
-            {client_pskid(), user_state()},
-            begin
-                case emqx_psk:lookup(psk, ClientPSKID, UserState) of
-                    {ok, _Result} -> true;
-                    error -> true;
-                    _Other -> false
-                end
-            end).
+    ?ALL({ClientPSKID, UserState},
+         {client_pskid(), user_state()},
+         begin
+             case emqx_psk:lookup(psk, ClientPSKID, UserState) of
+                 {ok, _Result} -> true;
+                 error -> true;
+                 _Other -> false
+             end
+         end).
 
 %%--------------------------------------------------------------------
 %% Helper
 %%--------------------------------------------------------------------
 
-load() ->
+do_setup() ->
+    ok = emqx_logger:set_log_level(emergency),
     ok = meck:new(emqx_hooks, [passthrough, no_history]),
     ok = meck:expect(emqx_hooks, run_fold,
                     fun('tls_handshake.psk_lookup', [ClientPSKID], not_found) ->
                             unicode:characters_to_binary(ClientPSKID)
                     end).
 
-unload() ->
+do_teardown(_) ->
+    ok = emqx_logger:set_log_level(error),
     ok = meck:unload(emqx_hooks).
 
 %%--------------------------------------------------------------------
@@ -65,3 +63,4 @@ unload() ->
 client_pskid() -> oneof([string(), integer(), [1, [-1]]]).
 
 user_state() -> term().
+
