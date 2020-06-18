@@ -26,7 +26,6 @@
         [ wildcard/1
         , match/2
         , validate/1
-        , triples/1
         , prepend/2
         , join/1
         , words/1
@@ -143,18 +142,7 @@ t_sigle_level_validate(_) ->
     true = validate({filter, <<"sport/+/player1">>}),
     ok = ?catch_error(topic_invalid_char, validate({filter, <<"sport+">>})).
 
-t_triples(_) ->
-    Triples = [{root,<<"a">>,<<"a">>},
-               {<<"a">>,<<"b">>,<<"a/b">>},
-               {<<"a/b">>,<<"c">>,<<"a/b/c">>}],
-    ?assertEqual(Triples, triples(<<"a/b/c">>)).
-
-t_triples_perf(_) ->
-    Topic = <<"/abkc/19383/192939/akakdkkdkak/xxxyyuya/akakak">>,
-    ok = bench('triples/1', fun emqx_topic:triples/1, [Topic]).
-
 t_prepend(_) ->
-    ?assertEqual(<<"a/b/c">>, prepend(root, <<"a/b/c">>)),
     ?assertEqual(<<"ab">>, prepend(undefined, <<"ab">>)),
     ?assertEqual(<<"a/b">>, prepend(<<>>, <<"a/b">>)),
     ?assertEqual(<<"x/a/b">>, prepend("x/", <<"a/b">>)),

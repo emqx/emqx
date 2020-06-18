@@ -21,7 +21,6 @@
         , validate/1
         , validate/2
         , levels/1
-        , triples/1
         , tokens/1
         , words/1
         , wildcard/1
@@ -36,14 +35,12 @@
 -export_type([ group/0
              , topic/0
              , word/0
-             , triple/0
              ]).
 
 -type(group() :: binary()).
 -type(topic() :: binary()).
 -type(word() :: '' | '+' | '#' | binary()).
 -type(words() :: list(word())).
--type(triple() :: {root | binary(), word(), binary()}).
 
 -define(MAX_TOPIC_LEN, 4096).
 
@@ -129,32 +126,15 @@ validate3(<<C/utf8, _Rest/binary>>) when C == $#; C == $+; C == 0 ->
 validate3(<<_/utf8, Rest/binary>>) ->
     validate3(Rest).
 
-%% @doc Topic to triples.
--spec(triples(topic()) -> list(triple())).
-triples(Topic) when is_binary(Topic) ->
-    triples(words(Topic), root, []).
-
-triples([], _Parent, Acc) ->
-    lists:reverse(Acc);
-triples([W|Words], Parent, Acc) ->
-    Node = join(Parent, W),
-    triples(Words, Node, [{Parent, W, Node}|Acc]).
-
-join(root, W) ->
-    bin(W);
-join(Parent, W) ->
-    <<(bin(Parent))/binary, $/, (bin(W))/binary>>.
-
 %% @doc Prepend a topic prefix.
 %% Ensured to have only one / between prefix and suffix.
-prepend(root, W) -> bin(W);
 prepend(undefined, W) -> bin(W);
 prepend(<<>>, W) -> bin(W);
 prepend(Parent0, W) ->
     Parent = bin(Parent0),
     case binary:last(Parent) of
         $/ -> <<Parent/binary, (bin(W))/binary>>;
-        _ -> join(Parent, W)
+        _ -> <<Parent/binary, $/, (bin(W))/binary>>
     end.
 
 bin('')  -> <<>>;

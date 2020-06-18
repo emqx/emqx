@@ -33,6 +33,13 @@
 
 -export([empty/0]).
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
+-type(triple() :: {root | binary(), emqx_topic:word(), binary()}).
+
 %% Mnesia tables
 -define(TRIE_TAB, emqx_trie).
 -define(TRIE_NODE_TAB, emqx_trie_node).
@@ -80,7 +87,7 @@ insert(Topic) when is_binary(Topic) ->
             write_trie_node(TrieNode#trie_node{topic = Topic});
         [] ->
             %% Add trie path
-            ok = lists:foreach(fun add_path/1, emqx_topic:triples(Topic)),
+            ok = lists:foreach(fun add_path/1, triples(Topic)),
             %% Add last node
             write_trie_node(#trie_node{node_id = Topic, topic = Topic})
     end.
@@ -102,7 +109,7 @@ delete(Topic) when is_binary(Topic) ->
     case mnesia:wread({?TRIE_NODE_TAB, Topic}) of
         [#trie_node{edge_count = 0}] ->
             ok = mnesia:delete({?TRIE_NODE_TAB, Topic}),
-            delete_path(lists:reverse(emqx_topic:triples(Topic)));
+            delete_path(lists:reverse(triples(Topic)));
         [TrieNode] ->
             write_trie_node(TrieNode#trie_node{topic = undefined});
         [] -> ok
@@ -116,6 +123,22 @@ empty() ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%% @doc Topic to triples.
+-spec(triples(emqx_topic:topic()) -> list(triple())).
+triples(Topic) when is_binary(Topic) ->
+    triples(emqx_topic:words(Topic), root, []).
+
+triples([], _Parent, Acc) ->
+    lists:reverse(Acc);
+triples([W|Words], Parent, Acc) ->
+    Node = join(Parent, W),
+    triples(Words, Node, [{Parent, W, Node}|Acc]).
+
+join(root, W) ->
+    emqx_topic:join([W]);
+join(Parent, W) ->
+    emqx_topic:join([Parent, W]).
 
 %% @private
 %% @doc Add a path to the trie.

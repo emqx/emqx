@@ -141,6 +141,12 @@ t_delete3(_) ->
           end,
     ?assertEqual({atomic, {[], []}}, trans(Fun)).
 
+t_triples(_) ->
+    Triples = [{root,<<"a">>,<<"a">>},
+               {<<"a">>,<<"b">>,<<"a/b">>},
+               {<<"a/b">>,<<"c">>,<<"a/b/c">>}],
+    ?assertEqual(Triples, emqx_trie:triples(<<"a/b/c">>)).
+
 clear_tables() ->
     lists:foreach(fun mnesia:clear_table/1, ?TRIE_TABS).
 
