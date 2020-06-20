@@ -62,13 +62,15 @@
           %% Message from
           from :: atom() | binary(),
           %% Message flags
-          flags :: #{atom() => boolean()},
-          %% Message headers, or MQTT 5.0 Properties
-          headers :: map(),
+          flags = #{} :: emqx_types:flags(),
+          %% Message headers. May contain any metadata. e.g. the
+          %% protocol version number, username, peerhost or
+          %% the PUBLISH properties (MQTT 5.0).
+          headers = #{} :: emqx_types:headers(),
           %% Topic that the message is published to
-          topic :: binary(),
+          topic :: emqx_types:topic(),
           %% Message Payload
-          payload :: binary(),
+          payload :: emqx_types:payload(),
           %% Timestamp (Unit: millisecond)
           timestamp :: integer()
          }).
@@ -97,7 +99,7 @@
           node_id        :: trie_node_id(),
           edge_count = 0 :: non_neg_integer(),
           topic          :: binary() | undefined,
-          flags          :: list(atom())
+          flags          :: list(atom()) | undefined
         }).
 
 -record(trie_edge, {
@@ -119,7 +121,8 @@
           severity  :: notice | warning | error | critical,
           title     :: iolist(),
           summary   :: iolist(),
-          timestamp :: erlang:timestamp()
+          %% Timestamp (Unit: millisecond)
+          timestamp :: integer() | undefined
         }).
 
 %%--------------------------------------------------------------------
@@ -128,11 +131,11 @@
 
 -record(plugin, {
           name           :: atom(),
-          dir            :: string(),
+          dir            :: string() | undefined,
           descr          :: string(),
-          vendor         :: string(),
+          vendor         :: string() | undefined,
           active = false :: boolean(),
-          info           :: map(),
+          info   = #{}   :: map(),
           type           :: atom()
         }).
 

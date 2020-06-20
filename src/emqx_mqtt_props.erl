@@ -128,24 +128,21 @@ name(16#29) -> 'Subscription-Identifier-Available';
 name(16#2A) -> 'Shared-Subscription-Available';
 name(Id)    -> error({unsupported_property, Id}).
 
--spec(filter(emqx_types:packet_type(), emqx_types:properties()|list())
+-spec(filter(emqx_types:packet_type(), emqx_types:properties())
       -> emqx_types:properties()).
-filter(PacketType, Props) when is_map(Props) ->
-    maps:from_list(filter(PacketType, maps:to_list(Props)));
-
-filter(PacketType, Props) when ?CONNECT =< PacketType,
-                               PacketType =< ?AUTH,
-                               is_list(Props) ->
-    Filter = fun(Name) ->
-                 case maps:find(id(Name), ?PROPS_TABLE) of
-                     {ok, {Name, _Type, 'ALL'}} ->
-                         true;
-                     {ok, {Name, _Type, AllowedTypes}} ->
-                         lists:member(PacketType, AllowedTypes);
-                     error -> false
-                 end
-             end,
-    [Prop || Prop = {Name, _} <- Props, Filter(Name)].
+filter(PacketType, Props) when is_map(Props),
+                               PacketType >= ?CONNECT,
+                               PacketType =< ?AUTH ->
+    F = fun(Name, _) ->
+            case maps:find(id(Name), ?PROPS_TABLE) of
+                {ok, {Name, _Type, 'ALL'}} ->
+                    true;
+                {ok, {Name, _Type, AllowedTypes}} ->
+                    lists:member(PacketType, AllowedTypes);
+                error -> false
+            end
+        end,
+    maps:filter(F, Props).
 
 -spec(validate(emqx_types:properties()) -> ok).
 validate(Props) when is_map(Props) ->

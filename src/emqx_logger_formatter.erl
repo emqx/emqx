@@ -253,9 +253,7 @@ format_time(SysTime,#{})
     {Date, _Time = {H, Mi, S}} = calendar:system_time_to_local_time(SysTime, microsecond),
     format_time({Date, {H, Mi, S, Ms}}).
 format_time({{Y, M, D}, {H, Mi, S, Ms}}) ->
-    io_lib:format("~b-~2..0b-~2..0b ~2..0b:~2..0b:~2..0b.~3..0b", [Y, M, D, H, Mi, S, Ms]);
-format_time({{Y, M, D}, {H, Mi, S}}) ->
-    io_lib:format("~b-~2..0b-~2..0b ~2..0b:~2..0b:~2..0b", [Y, M, D, H, Mi, S]).
+    io_lib:format("~b-~2..0b-~2..0b ~2..0b:~2..0b:~2..0b.~3..0b", [Y, M, D, H, Mi, S, Ms]).
 
 format_mfa({M,F,A},_) when is_atom(M), is_atom(F), is_integer(A) ->
     atom_to_list(M)++":"++atom_to_list(F)++"/"++integer_to_list(A);

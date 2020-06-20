@@ -219,9 +219,9 @@
           will_qos     = ?QOS_0,
           will_retain  = false,
           keepalive    = 0,
-          properties   = undefined,
+          properties   = #{},
           clientid     = <<>>,
-          will_props   = undefined,
+          will_props   = #{},
           will_topic   = undefined,
           will_payload = undefined,
           username     = undefined,
@@ -231,53 +231,53 @@
 -record(mqtt_packet_connack, {
           ack_flags,
           reason_code,
-          properties
+          properties = #{}
         }).
 
 -record(mqtt_packet_publish, {
           topic_name,
           packet_id,
-          properties
+          properties = #{}
         }).
 
 -record(mqtt_packet_puback, {
           packet_id,
           reason_code,
-          properties
+          properties = #{}
         }).
 
 -record(mqtt_packet_subscribe, {
           packet_id,
-          properties,
+          properties = #{},
           topic_filters
         }).
 
 -record(mqtt_packet_suback, {
           packet_id,
-          properties,
+          properties = #{},
           reason_codes
         }).
 
 -record(mqtt_packet_unsubscribe, {
           packet_id,
-          properties,
+          properties = #{},
           topic_filters
         }).
 
 -record(mqtt_packet_unsuback, {
           packet_id,
-          properties,
+          properties = #{},
           reason_codes
         }).
 
 -record(mqtt_packet_disconnect, {
           reason_code,
-          properties
+          properties = #{}
         }).
 
 -record(mqtt_packet_auth, {
           reason_code,
-          properties
+          properties = #{}
         }).
 
 %%--------------------------------------------------------------------

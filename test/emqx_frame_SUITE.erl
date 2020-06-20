@@ -20,13 +20,9 @@
 -compile(nowarn_export_all).
 
 -include("emqx_mqtt.hrl").
--include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_ct_helpers/include/emqx_ct.hrl").
-
-%%-define(PROPTEST(F), ?assert(proper:quickcheck(F()))).
--define(PROPTEST(F), ?assert(proper:quickcheck(F(), [{to_file, user}]))).
 
 all() ->
     [{group, parse},
@@ -49,8 +45,7 @@ groups() ->
        t_parse_frame_too_large
       ]},
      {connect, [parallel],
-      [t_serialize_parse_connect,
-       t_serialize_parse_v3_connect,
+      [t_serialize_parse_v3_connect,
        t_serialize_parse_v4_connect,
        t_serialize_parse_v5_connect,
        t_serialize_parse_connect_without_clientid,
@@ -133,33 +128,6 @@ t_parse_frame_too_large(_) ->
     ?catch_error(frame_too_large, parse_serialize(Packet, #{max_size => 256})),
     ?catch_error(frame_too_large, parse_serialize(Packet, #{max_size => 512})),
     ?assertEqual(Packet, parse_serialize(Packet, #{max_size => 2048, version => ?MQTT_PROTO_V4})).
-
-t_serialize_parse_connect(_) ->
-    ?PROPTEST(prop_serialize_parse_connect).
-
-prop_serialize_parse_connect() ->
-    ?FORALL(Opts = #{version := ProtoVer}, parse_opts(),
-            begin
-                ProtoName = proplists:get_value(ProtoVer, ?PROTOCOL_NAMES),
-                DefaultProps = if ProtoVer == ?MQTT_PROTO_V5 ->
-                                      #{};
-                                  true -> undefined
-                               end,
-                Packet = ?CONNECT_PACKET(#mqtt_packet_connect{
-                                            proto_name   = ProtoName,
-                                            proto_ver    = ProtoVer,
-                                            clientid     = <<"clientId">>,
-                                            will_qos     = ?QOS_1,
-                                            will_flag    = true,
-                                            will_retain  = true,
-                                            will_topic   = <<"will">>,
-                                            will_props   = DefaultProps,
-                                            will_payload = <<"bye">>,
-                                            clean_start  = true,
-                                            properties = DefaultProps
-                                           }),
-                ok == ?assertEqual(Packet, parse_serialize(Packet, Opts))
-            end).
 
 t_serialize_parse_v3_connect(_) ->
     Bin = <<16,37,0,6,77,81,73,115,100,112,3,2,0,60,0,23,109,111,115,
@@ -533,9 +501,6 @@ t_serialize_parse_auth_v5(_) ->
     ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})),
     ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5,
                                                    strict_mode => true})).
-
-parse_opts() ->
-    ?LET(PropList, [{strict_mode, boolean()}, {version, range(4,5)}], maps:from_list(PropList)).
 
 parse_serialize(Packet) ->
     parse_serialize(Packet, #{strict_mode => true}).

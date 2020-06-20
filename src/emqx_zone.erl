@@ -182,7 +182,7 @@ enable_flapping_detect(Zone) ->
 ignore_loop_deliver(Zone) ->
     get_env(Zone, ignore_loop_deliver, false).
 
--spec(server_keepalive(zone()) -> pos_integer()).
+-spec(server_keepalive(zone()) -> maybe(pos_integer())).
 server_keepalive(Zone) ->
     get_env(Zone, server_keepalive).
 

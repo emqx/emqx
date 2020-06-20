@@ -107,7 +107,7 @@ start_link() ->
 register_channel(ClientId, Info = #{conninfo := ConnInfo}, Stats) ->
     Chan = {ClientId, ChanPid = self()},
     true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, Stats}),
-    register_channel(ClientId, ChanPid, ConnInfo);
+    register_channel_(ClientId, ChanPid, ConnInfo).
 
 %% @private
 %% @doc Register a channel with pid and conn_mod.
@@ -117,7 +117,7 @@ register_channel(ClientId, Info = #{conninfo := ConnInfo}, Stats) ->
 %% the conn_mod first for taking up the clientid access right.
 %%
 %% Note that: It should be called on a lock transaction
-register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when is_pid(ChanPid) ->
+register_channel_(ClientId, ChanPid, #{conn_mod := ConnMod}) when is_pid(ChanPid) ->
     Chan = {ClientId, ChanPid},
     true = ets:insert(?CHAN_TAB, Chan),
     true = ets:insert(?CHAN_CONN_TAB, {Chan, ConnMod}),
@@ -211,7 +211,7 @@ open_session(true, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId),
                      Session = create_session(ClientInfo, ConnInfo),
-                     register_channel(ClientId, Self, ConnInfo),
+                     register_channel_(ClientId, Self, ConnInfo),
                      {ok, #{session => Session, present => false}}
                  end,
     emqx_cm_locker:trans(ClientId, CleanStart);
@@ -223,13 +223,13 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                           {ok, ConnMod, ChanPid, Session} ->
                               ok = emqx_session:resume(ClientInfo, Session),
                               Pendings = ConnMod:call(ChanPid, {takeover, 'end'}),
-                              register_channel(ClientId, Self, ConnInfo),
+                              register_channel_(ClientId, Self, ConnInfo),
                               {ok, #{session  => Session,
                                      present  => true,
                                      pendings => Pendings}};
                           {error, not_found} ->
                               Session = create_session(ClientInfo, ConnInfo),
-                              register_channel(ClientId, Self, ConnInfo),
+                              register_channel_(ClientId, Self, ConnInfo),
                               {ok, #{session => Session, present => false}}
                       end
                   end,
@@ -243,7 +243,8 @@ create_session(ClientInfo, ConnInfo) ->
 
 %% @doc Try to takeover a session.
 -spec(takeover_session(emqx_types:clientid())
-      -> {ok, emqx_session:session()} | {error, Reason :: term()}).
+      -> {error, term()}
+       | {ok, atom(), pid(), emqx_session:session()}).
 takeover_session(ClientId) ->
     case lookup_channels(ClientId) of
         [] -> {error, not_found};

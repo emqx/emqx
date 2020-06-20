@@ -221,7 +221,7 @@ trans([{eof, L} | AST], LogHeader, ResAST) ->
 trans([{attribute, _, module, _Mod} = M | AST], Header, ResAST) ->
     trans(AST, Header, [export_header_fun(), M | ResAST]);
 trans([{attribute, _, logger_header, Header} | AST], _, ResAST) ->
-    io_lib:printable_list(Header) orelse error({invalid_string, Header}),
+    io_lib:printable_list(Header) orelse erlang:error({invalid_string, Header}),
     trans(AST, Header, ResAST);
 trans([F | AST], LogHeader, ResAST) ->
     trans(AST, LogHeader, [F | ResAST]).

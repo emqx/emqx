@@ -22,3 +22,5 @@
 
 -type(ok_or_error(Value, Reason) :: {ok, Value} | {error, Reason}).
 
+-type(mfargs() :: {module(), atom(), [term()]}).
+

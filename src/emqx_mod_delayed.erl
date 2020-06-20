@@ -61,7 +61,7 @@ load(_Env) ->
 
 -spec(unload(list()) -> ok).
 unload(_Env) ->
-    emqx:unhook('message.publish', {?MODULE, on_message_publish, []}),
+    emqx:unhook('message.publish', {?MODULE, on_message_publish}),
     emqx_mod_sup:stop_child(?MODULE).
 
 description() ->
@@ -83,20 +83,12 @@ on_message_publish(Msg = #message{id = Id, topic = <<"$delayed/", Topic/binary>>
                     end
             end,
     PubMsg = Msg#message{topic = Topic1},
-    Headers = case PubMsg#message.headers of
-        undefined -> #{};
-        Headers0 -> Headers0
-    end,
-    ok = store(#delayed_message{key = {PubAt, delayed_mid(Id)}, msg = PubMsg}),
+    Headers = PubMsg#message.headers,
+    ok = store(#delayed_message{key = {PubAt, Id}, msg = PubMsg}),
     {stop, PubMsg#message{headers = Headers#{allow_publish => false}}};
 
 on_message_publish(Msg) ->
     {ok, Msg}.
-
-%% @private
-delayed_mid(undefined) ->
-    emqx_guid:gen();
-delayed_mid(MsgId) -> MsgId.
 
 %%--------------------------------------------------------------------
 %% Start delayed publish server

@@ -63,7 +63,7 @@
         ]).
 
 -export([ subscribe/4
-        , unsubscribe/3
+        , unsubscribe/4
         ]).
 
 -export([ publish/3
@@ -123,7 +123,7 @@
           created_at :: pos_integer()
          }).
 
--opaque(session() :: #session{}).
+-type(session() :: #session{}).
 
 -type(publish() :: {maybe(emqx_types:packet_id()), emqx_types:message()}).
 
@@ -151,6 +151,7 @@
                     ]).
 
 -define(DEFAULT_BATCH_N, 1000).
+
 
 %%--------------------------------------------------------------------
 %% Init a Session
@@ -261,13 +262,13 @@ is_subscriptions_full(#session{subscriptions = Subs,
 %% Client -> Broker: UNSUBSCRIBE
 %%--------------------------------------------------------------------
 
--spec(unsubscribe(emqx_types:clientinfo(), emqx_types:topic(), session())
+-spec(unsubscribe(emqx_types:clientinfo(), emqx_types:topic(), emqx_types:subopts(), session())
       -> {ok, session()} | {error, emqx_types:reason_code()}).
-unsubscribe(ClientInfo, TopicFilter, Session = #session{subscriptions = Subs}) ->
+unsubscribe(ClientInfo, TopicFilter, UnSubOpts, Session = #session{subscriptions = Subs}) ->
     case maps:find(TopicFilter, Subs) of
         {ok, SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
-            ok = emqx_hooks:run('session.unsubscribed', [ClientInfo, TopicFilter, SubOpts]),
+            ok = emqx_hooks:run('session.unsubscribed', [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]),
             {ok, Session#session{subscriptions = maps:remove(TopicFilter, Subs)}};
         error ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
@@ -523,7 +524,8 @@ enrich_subopts([{rap, 0}|Opts], Msg = #message{headers = #{retained := true}}, S
 enrich_subopts([{rap, 0}|Opts], Msg, Session) ->
     enrich_subopts(Opts, emqx_message:set_flag(retain, false, Msg), Session);
 enrich_subopts([{subid, SubId}|Opts], Msg, Session) ->
-    Msg1 = emqx_message:set_header('Subscription-Identifier', SubId, Msg),
+    Props = emqx_message:get_header(properties, Msg, #{}),
+    Msg1 = emqx_message:set_header(properties, Props#{'Subscription-Identifier' => SubId}, Msg),
     enrich_subopts(Opts, Msg1, Session).
 
 %%--------------------------------------------------------------------
@@ -615,19 +617,16 @@ resume(ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = 
 
 -spec(replay(session()) -> {ok, replies(), session()}).
 replay(Session = #session{inflight = Inflight}) ->
-    Pubs = replay(Inflight),
+    Pubs = lists:map(fun({PacketId, {pubrel, _Ts}}) ->
+                             {pubrel, PacketId};
+                        ({PacketId, {Msg, _Ts}}) ->
+                             {PacketId, emqx_message:set_flag(dup, true, Msg)}
+                     end, emqx_inflight:to_list(Inflight)),
     case dequeue(Session) of
         {ok, NSession} -> {ok, Pubs, NSession};
         {ok, More, NSession} ->
             {ok, lists:append(Pubs, More), NSession}
-    end;
-
-replay(Inflight) ->
-    lists:map(fun({PacketId, {pubrel, _Ts}}) ->
-                      {pubrel, PacketId};
-                 ({PacketId, {Msg, _Ts}}) ->
-                      {PacketId, emqx_message:set_flag(dup, true, Msg)}
-              end, emqx_inflight:to_list(Inflight)).
+    end.
 
 -spec(terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok).
 terminate(ClientInfo, discarded, Session) ->
