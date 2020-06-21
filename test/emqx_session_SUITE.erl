@@ -20,7 +20,6 @@
 -compile(nowarn_export_all).
 
 -include("emqx_mqtt.hrl").
--include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() -> emqx_ct:all(?MODULE).
@@ -116,9 +115,9 @@ t_is_subscriptions_full_true(_) ->
 t_unsubscribe(_) ->
     ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
     Session = session(#{subscriptions => #{<<"#">> => subopts()}}),
-    {ok, Session1} = emqx_session:unsubscribe(clientinfo(), <<"#">>, Session),
+    {ok, Session1} = emqx_session:unsubscribe(clientinfo(), <<"#">>, #{}, Session),
     {error, ?RC_NO_SUBSCRIPTION_EXISTED} =
-        emqx_session:unsubscribe(clientinfo(), <<"#">>, Session1).
+        emqx_session:unsubscribe(clientinfo(), <<"#">>, #{}, Session1).
 
 t_publish_qos0(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),

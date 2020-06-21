@@ -103,16 +103,13 @@ safe_decode(Json, Opts) ->
           , from_ejson/1
           ]}).
 
-to_ejson([[{_,_}|_]|_] = L) ->
-    [to_ejson(E) || E <- L];
 to_ejson([{_, _}|_] = L) ->
-    lists:foldl(
-      fun({Name, Value}, Acc) ->
-        Acc#{Name => to_ejson(Value)}
-      end, #{}, L);
+    {[{K, to_ejson(V)} || {K, V} <- L ]};
+to_ejson(L) when is_list(L) ->
+    [to_ejson(E) || E <- L];
 to_ejson(T) -> T.
 
-from_ejson([{_}|_] = L) ->
+from_ejson(L) when is_list(L) ->
     [from_ejson(E) || E <- L];
 from_ejson({L}) ->
     [{Name, from_ejson(Value)} || {Name, Value} <- L];

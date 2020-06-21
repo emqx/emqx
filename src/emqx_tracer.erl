@@ -57,6 +57,8 @@
         L =:= info orelse
         L =:= debug).
 
+-dialyzer({nowarn_function, [install_trace_handler/3]}).
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -68,7 +70,7 @@ trace(publish, #message{from = From, topic = Topic, payload = Payload})
     emqx_logger:info(#{topic => Topic, mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY} }, "PUBLISH to ~s: ~0p", [Topic, Payload]).
 
 %% @doc Start to trace clientid or topic.
--spec(start_trace(trace_who(), logger:level(), string()) -> ok | {error, term()}).
+-spec(start_trace(trace_who(), logger:level() | all, string()) -> ok | {error, term()}).
 start_trace(Who, all, LogFile) ->
     start_trace(Who, debug, LogFile);
 start_trace(Who, Level, LogFile) ->

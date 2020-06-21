@@ -62,11 +62,17 @@ maybe_apply(_Fun, undefined) -> undefined;
 maybe_apply(Fun, Arg) when is_function(Fun) ->
     erlang:apply(Fun, [Arg]).
 
--spec(compose(list(F)) -> G when F :: fun((any()) -> any()),
-                                 G :: fun((any()) -> any())).
+-spec(compose(list(F)) -> G
+  when F :: fun((any()) -> any()),
+       G :: fun((any()) -> any())).
 compose([F|More]) -> compose(F, More).
 
--spec(compose(fun((X) -> Y), fun((Y) -> Z)) -> fun((X) -> Z)).
+-spec(compose(F, G|[Gs]) -> C
+  when F :: fun((X1) -> X2),
+       G :: fun((X2) -> X3),
+       Gs :: [fun((Xn) -> Xn1)],
+       C :: fun((X1) -> Xm),
+       X3 :: any(), Xn :: any(), Xn1 :: any(), Xm :: any()).
 compose(F, G) when is_function(G) -> fun(X) -> G(F(X)) end;
 compose(F, [G]) -> compose(F, G);
 compose(F, [G|More]) -> compose(compose(F, G), More).

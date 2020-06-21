@@ -33,8 +33,6 @@
         , description/0
         ]).
 
--define(MFA(M, F, A), {M, F, A}).
-
 -type(acl_rules() :: #{publish   => [emqx_access_rule:rule()],
                        subscribe => [emqx_access_rule:rule()]}).
 
@@ -44,11 +42,10 @@
 
 load(_Env) ->
     Rules = rules_from_file(emqx:get_env(acl_file)),
-    emqx_hooks:add('client.check_acl', ?MFA(?MODULE, check_acl, [Rules]),  -1).
+    emqx_hooks:add('client.check_acl', {?MODULE, check_acl, [Rules]},  -1).
 
 unload(_Env) ->
-    Rules = rules_from_file(emqx:get_env(acl_file)),
-    emqx_hooks:del('client.check_acl', ?MFA(?MODULE, check_acl, [Rules])).
+    emqx_hooks:del('client.check_acl', {?MODULE, check_acl}).
 
 reload(_Env) ->
     emqx_acl_cache:is_enabled() andalso (

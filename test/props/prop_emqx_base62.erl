@@ -14,24 +14,14 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_base62_SUITE).
-
--compile(export_all).
--compile(nowarn_export_all).
+-module(prop_emqx_base62).
 
 -include_lib("proper/include/proper.hrl").
--include_lib("eunit/include/eunit.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+%%--------------------------------------------------------------------
+%% Properties
+%%--------------------------------------------------------------------
 
-t_proper_base62(_) ->
-    Opts = [{numtests, 100}, {to_file, user}],
-    ?assert(proper:quickcheck(prop_symmetric(), Opts)),
-    ?assert(proper:quickcheck(prop_size(), Opts)).
-
-%%%%%%%%%%%%%%%%%%
-%%% Properties %%%
-%%%%%%%%%%%%%%%%%%
 prop_symmetric() ->
     ?FORALL(Data, raw_data(),
         begin
@@ -46,9 +36,10 @@ prop_size() ->
              base62_size(Data, Encoded)
          end).
 
-%%%%%%%%%%%%%%%
-%%% Helpers %%%
-%%%%%%%%%%%%%%%
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
 to_binary(Data) when is_list(Data) ->
     unicode:characters_to_binary(Data);
 to_binary(Data) when is_integer(Data) ->
@@ -73,7 +64,9 @@ base62_size(Data, Encoded) ->
             EncodedSize >= RangeStart andalso EncodedSize =< RangeEnd
     end.
 
-%%%%%%%%%%%%%%%%%%
-%%% Generators %%%
-%%%%%%%%%%%%%%%%%%
-raw_data() -> oneof([integer(), string(), binary()]).
+%%--------------------------------------------------------------------
+%% Generators
+%%--------------------------------------------------------------------
+
+raw_data() ->
+    oneof([integer(), string(), binary()]).

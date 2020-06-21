@@ -59,12 +59,18 @@ t_subopts(_) ->
     ?assertEqual(undefined, emqx_broker:get_subopts(<<"clientid">>, <<"topic">>)),
     emqx_broker:subscribe(<<"topic">>, <<"clientid">>, #{qos => 1}),
     timer:sleep(200),
-    ?assertEqual(#{qos => 1, subid => <<"clientid">>}, emqx_broker:get_subopts(self(), <<"topic">>)),
-    ?assertEqual(#{qos => 1, subid => <<"clientid">>}, emqx_broker:get_subopts(<<"clientid">>,<<"topic">>)),
+    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
+                 emqx_broker:get_subopts(self(), <<"topic">>)),
+    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
+                 emqx_broker:get_subopts(<<"clientid">>,<<"topic">>)),
+
     emqx_broker:subscribe(<<"topic">>, <<"clientid">>, #{qos => 2}),
-    ?assertEqual(#{qos => 2, subid => <<"clientid">>}, emqx_broker:get_subopts(self(), <<"topic">>)),
-    ?assertEqual(true, emqx_broker:set_subopts(<<"topic">>, #{qos => 2})),
-    ?assertEqual(#{qos => 2, subid => <<"clientid">>}, emqx_broker:get_subopts(self(), <<"topic">>)),
+    ?assertEqual(#{nl => 0, qos => 2, rap => 0, rh => 0, subid => <<"clientid">>},
+                 emqx_broker:get_subopts(self(), <<"topic">>)),
+
+    ?assertEqual(true, emqx_broker:set_subopts(<<"topic">>, #{qos => 0})),
+    ?assertEqual(#{nl => 0, qos => 0, rap => 0, rh => 0, subid => <<"clientid">>},
+                 emqx_broker:get_subopts(self(), <<"topic">>)),
     emqx_broker:unsubscribe(<<"topic">>).
 
 t_topics(_) ->
@@ -91,9 +97,9 @@ t_subscribers(_) ->
 t_subscriptions(_) ->
     emqx_broker:subscribe(<<"topic">>, <<"clientid">>, #{qos => 1}),
     ok = timer:sleep(100),
-    ?assertEqual(#{qos => 1, subid => <<"clientid">>},
+    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
                  proplists:get_value(<<"topic">>, emqx_broker:subscriptions(self()))),
-    ?assertEqual(#{qos => 1, subid => <<"clientid">>},
+    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
                  proplists:get_value(<<"topic">>, emqx_broker:subscriptions(<<"clientid">>))),
     emqx_broker:unsubscribe(<<"topic">>).
 

@@ -18,6 +18,8 @@
 
 -behaviour(supervisor).
 
+-include("types.hrl").
+
 -export([spec/1, spec/2]).
 
 -export([ start_link/0
@@ -46,12 +48,12 @@ spec(ChildId, Args) ->
 start_link() ->
     start_link(?POOL, random, {?POOL, start_link, []}).
 
--spec(start_link(atom() | tuple(), atom(), mfa())
+-spec(start_link(atom() | tuple(), atom(), mfargs())
       -> {ok, pid()} | {error, term()}).
 start_link(Pool, Type, MFA) ->
     start_link(Pool, Type, emqx_vm:schedulers(), MFA).
 
--spec(start_link(atom() | tuple(), atom(), pos_integer(), mfa())
+-spec(start_link(atom() | tuple(), atom(), pos_integer(), mfargs())
       -> {ok, pid()} | {error, term()}).
 start_link(Pool, Type, Size, MFA) ->
     supervisor:start_link(?MODULE, [Pool, Type, Size, MFA]).

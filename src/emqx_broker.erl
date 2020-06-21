@@ -21,6 +21,7 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include("emqx_mqtt.hrl").
 
 -logger_header("[Broker]").
 
@@ -118,12 +119,13 @@ subscribe(Topic) when is_binary(Topic) ->
 
 -spec(subscribe(emqx_topic:topic(), emqx_types:subid() | emqx_types:subopts()) -> ok).
 subscribe(Topic, SubId) when is_binary(Topic), ?is_subid(SubId) ->
-    subscribe(Topic, SubId, #{qos => 0});
+    subscribe(Topic, SubId, ?DEFAULT_SUBOPTS);
 subscribe(Topic, SubOpts) when is_binary(Topic), is_map(SubOpts) ->
     subscribe(Topic, undefined, SubOpts).
 
 -spec(subscribe(emqx_topic:topic(), emqx_types:subid(), emqx_types:subopts()) -> ok).
-subscribe(Topic, SubId, SubOpts) when is_binary(Topic), ?is_subid(SubId), is_map(SubOpts) ->
+subscribe(Topic, SubId, SubOpts0) when is_binary(Topic), ?is_subid(SubId), is_map(SubOpts0) ->
+    SubOpts = maps:merge(?DEFAULT_SUBOPTS, SubOpts0),
     case ets:member(?SUBOPTION, {SubPid = self(), Topic}) of
         false -> %% New
             ok = emqx_broker_helper:register_sub(SubPid, SubId),
@@ -215,9 +217,8 @@ safe_publish(Msg) when is_record(Msg, message) ->
     catch
         _:Error:Stk->
             ?LOG(error, "Publish error: ~0p~n~s~n~0p",
-                 [Error, emqx_message:format(Msg), Stk])
-    after
-        []
+                 [Error, emqx_message:format(Msg), Stk]),
+            []
     end.
 
 -compile({inline, [delivery/1]}).
@@ -283,7 +284,7 @@ forward(Node, To, Delivery, sync) ->
 dispatch(Topic, #delivery{message = Msg}) ->
     case subscribers(Topic) of
         [] -> ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
-              ok = inc_dropped_cnt(Topic),
+              ok = inc_dropped_cnt(Msg),
               {error, no_subscribers};
         [Sub] -> %% optimize?
             dispatch(Sub, Topic, Msg);
@@ -322,7 +323,8 @@ inc_dropped_cnt(Msg) ->
     end.
 
 -compile({inline, [subscribers/1]}).
--spec(subscribers(emqx_topic:topic()) -> [pid()]).
+-spec(subscribers(emqx_topic:topic() | {shard, emqx_topic:topic(), non_neg_integer()})
+      -> [pid()]).
 subscribers(Topic) when is_binary(Topic) ->
     lookup_value(?SUBSCRIBER, Topic, []);
 subscribers(Shard = {shard, _Topic, _I})  ->
@@ -367,7 +369,7 @@ subscriptions(SubId) ->
         undefined -> []
     end.
 
--spec(subscribed(pid(), emqx_topic:topic()) -> boolean()).
+-spec(subscribed(pid() | emqx_types:subid(), emqx_topic:topic()) -> boolean()).
 subscribed(SubPid, Topic) when is_pid(SubPid) ->
     ets:member(?SUBOPTION, {SubPid, Topic});
 subscribed(SubId, Topic) when ?is_subid(SubId) ->

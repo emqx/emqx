@@ -101,7 +101,7 @@
           q          = ?PQUEUE:new()      :: pq()
          }).
 
--opaque(mqueue() :: #mqueue{}).
+-type(mqueue() :: #mqueue{}).
 
 -spec(init(options()) -> mqueue()).
 init(Opts = #{max_len := MaxLen0, store_qos0 := QoS_0}) ->

@@ -146,7 +146,7 @@ unsubscribe(Topic) ->
 -spec(topics() -> list(emqx_topic:topic())).
 topics() -> emqx_router:topics().
 
--spec(subscribers(emqx_topic:topic() | string()) -> list(emqx_types:subscriber())).
+-spec(subscribers(emqx_topic:topic() | string()) -> [pid()]).
 subscribers(Topic) ->
     emqx_broker:subscribers(iolist_to_binary(Topic)).
 
@@ -168,7 +168,9 @@ subscribed(SubId, Topic) when is_atom(SubId); is_binary(SubId) ->
 hook(HookPoint, Action) ->
     emqx_hooks:add(HookPoint, Action).
 
--spec(hook(emqx_hooks:hookpoint(), emqx_hooks:action(), emqx_hooks:filter() | integer())
+-spec(hook(emqx_hooks:hookpoint(),
+           emqx_hooks:action(),
+           emqx_hooks:filter() | integer() | list())
       -> ok | {error, already_exists}).
 hook(HookPoint, Action, Priority) when is_integer(Priority) ->
     emqx_hooks:add(HookPoint, Action, Priority);
@@ -182,7 +184,7 @@ hook(HookPoint, Action, InitArgs) when is_list(InitArgs) ->
 hook(HookPoint, Action, Filter, Priority) ->
     emqx_hooks:add(HookPoint, Action, Filter, Priority).
 
--spec(unhook(emqx_hooks:hookpoint(), emqx_hooks:action()) -> ok).
+-spec(unhook(emqx_hooks:hookpoint(), function() | {module(), atom()}) -> ok).
 unhook(HookPoint, Action) ->
     emqx_hooks:del(HookPoint, Action).
 

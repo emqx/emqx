@@ -71,6 +71,14 @@ coveralls:
 xref:
 	@rebar3 xref
 
+.PHONY: dialyzer
+dialyzer:
+	@rebar3 dialyzer
+
+.PHONY: proper
+proper:
+	@rebar3 proper -d test/props -c
+
 .PHONY: deps
 deps:
 	@rebar3 get-deps

@@ -805,6 +805,11 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc Specify the response information returned to the client
+{mapping, "mqtt.response_information", "emqx.response_information", [
+  {datatype, string}
+]}.
+
 %%--------------------------------------------------------------------
 %% Zones
 %%--------------------------------------------------------------------
@@ -1019,6 +1024,11 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc Specify the response information returned to the client
+{mapping, "zone.$name.response_information", "emqx.zones", [
+  {datatype, string}
+]}.
+
 %% @doc Whether to bypass the authentication step
 {mapping, "zone.$name.bypass_auth_plugins", "emqx.zones", [
   {default, false},
@@ -1079,6 +1089,8 @@ end}.
                     end;
                ("mountpoint", Val) ->	
                    {mountpoint, iolist_to_binary(Val)};
+               ("response_information", Val) ->
+                   {response_information, iolist_to_binary(Val)};
                (Opt, Val) ->
                     {list_to_atom(Opt), Val}
             end,

@@ -86,7 +86,7 @@ t_clean_dup(_) ->
     ?assertNot(emqx_message:get_flag(dup, Msg2)).
 
 t_get_set_flags(_) ->
-    Msg = #message{id = <<"id">>, qos = ?QOS_1, flags = undefined},
+    Msg = #message{id = <<"id">>, qos = ?QOS_1},
     Msg1 = emqx_message:set_flags(#{retain => true}, Msg),
     ?assertEqual(#{retain => true}, emqx_message:get_flags(Msg1)),
     Msg2 = emqx_message:set_flags(#{dup => true}, Msg1),
@@ -109,7 +109,7 @@ t_get_set_flag(_) ->
     Msg6 = emqx_message:set_flags(#{dup => true, retain => true}, Msg5),
     ?assert(emqx_message:get_flag(dup, Msg6)),
     ?assert(emqx_message:get_flag(retain, Msg6)),
-    Msg7 = #message{id = <<"id">>, qos = ?QOS_1, flags = undefined},
+    Msg7 = #message{id = <<"id">>, qos = ?QOS_1},
     Msg8 = emqx_message:set_flag(retain, Msg7),
     Msg9 = emqx_message:set_flag(retain, true, Msg7),
     ?assertEqual(#{retain => true}, emqx_message:get_flags(Msg8)),
@@ -135,7 +135,7 @@ t_get_set_header(_) ->
     ?assertEqual(#{b => 2, c => 3}, emqx_message:get_headers(Msg4)).
 
 t_undefined_headers(_) ->
-    Msg = #message{id = <<"id">>, qos = ?QOS_0, headers = undefined},
+    Msg = #message{id = <<"id">>, qos = ?QOS_0},
     Msg1 = emqx_message:set_headers(#{a => 1, b => 2}, Msg),
     ?assertEqual(1, emqx_message:get_header(a, Msg1)),
     Msg2 = emqx_message:set_header(c, 3, Msg),
@@ -144,14 +144,14 @@ t_undefined_headers(_) ->
 t_format(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
     io:format("~s~n", [emqx_message:format(Msg)]),
-    Msg1 = emqx_message:set_header('Subscription-Identifier', 1,
+    Msg1 = emqx_message:set_header(properties, #{'Subscription-Identifier' => 1},
                                    emqx_message:set_flag(dup, Msg)),
     io:format("~s~n", [emqx_message:format(Msg1)]).
 
 t_is_expired(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
     ?assertNot(emqx_message:is_expired(Msg)),
-    Msg1 = emqx_message:set_headers(#{'Message-Expiry-Interval' => 1}, Msg),
+    Msg1 = emqx_message:set_headers(#{properties => #{'Message-Expiry-Interval' => 1}}, Msg),
     timer:sleep(500),
     ?assertNot(emqx_message:is_expired(Msg1)),
     timer:sleep(600),
@@ -159,7 +159,8 @@ t_is_expired(_) ->
     timer:sleep(1000),
     Msg = emqx_message:update_expiry(Msg),
     Msg2 = emqx_message:update_expiry(Msg1),
-    ?assertEqual(1, emqx_message:get_header('Message-Expiry-Interval', Msg2)).
+    Props = emqx_message:get_header(properties, Msg2),
+    ?assertEqual(1, maps:get('Message-Expiry-Interval', Props)).
 
 % t_to_list(_) ->
 %     error('TODO').
@@ -172,7 +173,7 @@ t_to_packet(_) ->
                                                      },
                        variable = #mqtt_packet_publish{topic_name = <<"topic">>,
                                                        packet_id  = 10,
-                                                       properties = undefined
+                                                       properties = #{}
                                                       },
                        payload  = <<"payload">>
                       },
@@ -193,7 +194,7 @@ t_to_packet_with_props(_) ->
                        payload  = <<"payload">>
                       },
     Msg = emqx_message:make(<<"clientid">>, ?QOS_0, <<"topic">>, <<"payload">>),
-    Msg1 = emqx_message:set_header('Subscription-Identifier', 1, Msg),
+    Msg1 = emqx_message:set_header(properties, #{'Subscription-Identifier' => 1}, Msg),
     ?assertEqual(Pkt, emqx_message:to_packet(10, Msg1)).
 
 t_to_map(_) ->
@@ -201,8 +202,8 @@ t_to_map(_) ->
     List = [{id, emqx_message:id(Msg)},
             {qos, ?QOS_1},
             {from, <<"clientid">>},
-            {flags, undefined},
-            {headers, undefined},
+            {flags, #{}},
+            {headers, #{}},
             {topic, <<"topic">>},
             {payload, <<"payload">>},
             {timestamp, emqx_message:timestamp(Msg)}],

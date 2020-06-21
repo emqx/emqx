@@ -85,7 +85,6 @@ t_connect_info(_) ->
                                    will_retain = true,
                                    will_qos = ?QOS_2,
                                    will_topic = <<"topic">>,
-                                   will_props = undefined,
                                    will_payload = <<"payload">>
                                   },
     ?assertEqual(<<"MQTT">>, emqx_packet:info(proto_name, ConnPkt)),
@@ -96,9 +95,9 @@ t_connect_info(_) ->
     ?assertEqual(?QOS_2, emqx_packet:info(will_qos, ConnPkt)),
     ?assertEqual(true, emqx_packet:info(will_retain, ConnPkt)),
     ?assertEqual(0, emqx_packet:info(keepalive, ConnPkt)),
-    ?assertEqual(undefined, emqx_packet:info(properties, ConnPkt)),
+    ?assertEqual(#{}, emqx_packet:info(properties, ConnPkt)),
     ?assertEqual(<<"clientid">>, emqx_packet:info(clientid, ConnPkt)),
-    ?assertEqual(undefined, emqx_packet:info(will_props, ConnPkt)),
+    ?assertEqual(#{}, emqx_packet:info(will_props, ConnPkt)),
     ?assertEqual(<<"topic">>, emqx_packet:info(will_topic, ConnPkt)),
     ?assertEqual(<<"payload">>, emqx_packet:info(will_payload, ConnPkt)),
     ?assertEqual(<<"username">>, emqx_packet:info(username, ConnPkt)),
@@ -108,54 +107,54 @@ t_connack_info(_) ->
     AckPkt = #mqtt_packet_connack{ack_flags = 0, reason_code = 0},
     ?assertEqual(0, emqx_packet:info(ack_flags, AckPkt)),
     ?assertEqual(0, emqx_packet:info(reason_code, AckPkt)),
-    ?assertEqual(undefined, emqx_packet:info(properties, AckPkt)).
+    ?assertEqual(#{}, emqx_packet:info(properties, AckPkt)).
 
 t_publish_info(_) ->
     PubPkt = #mqtt_packet_publish{topic_name = <<"t">>, packet_id = 1},
     ?assertEqual(1, emqx_packet:info(packet_id, PubPkt)),
     ?assertEqual(<<"t">>, emqx_packet:info(topic_name, PubPkt)),
-    ?assertEqual(undefined, emqx_packet:info(properties, PubPkt)).
+    ?assertEqual(#{}, emqx_packet:info(properties, PubPkt)).
 
 t_puback_info(_) ->
     AckPkt = #mqtt_packet_puback{packet_id = 1, reason_code = 0},
     ?assertEqual(1, emqx_packet:info(packet_id, AckPkt)),
     ?assertEqual(0, emqx_packet:info(reason_code, AckPkt)),
-    ?assertEqual(undefined, emqx_packet:info(properties, AckPkt)).
+    ?assertEqual(#{}, emqx_packet:info(properties, AckPkt)).
 
 t_subscribe_info(_) ->
     TopicFilters = [{<<"t/#">>, #{}}],
     SubPkt = #mqtt_packet_subscribe{packet_id = 1, topic_filters = TopicFilters},
     ?assertEqual(1, emqx_packet:info(packet_id, SubPkt)),
-    ?assertEqual(undefined, emqx_packet:info(properties, SubPkt)),
+    ?assertEqual(#{}, emqx_packet:info(properties, SubPkt)),
     ?assertEqual(TopicFilters, emqx_packet:info(topic_filters, SubPkt)).
 
 t_suback_info(_) ->
     SubackPkt = #mqtt_packet_suback{packet_id = 1, reason_codes = [0]},
     ?assertEqual(1, emqx_packet:info(packet_id, SubackPkt)),
-    ?assertEqual(undefined, emqx_packet:info(properties, SubackPkt)),
+    ?assertEqual(#{}, emqx_packet:info(properties, SubackPkt)),
     ?assertEqual([0], emqx_packet:info(reason_codes, SubackPkt)).
 
 t_unsubscribe_info(_) ->
     UnsubPkt = #mqtt_packet_unsubscribe{packet_id = 1, topic_filters = [<<"t/#">>]},
     ?assertEqual(1, emqx_packet:info(packet_id, UnsubPkt)),
-    ?assertEqual(undefined, emqx_packet:info(properties, UnsubPkt)),
+    ?assertEqual(#{}, emqx_packet:info(properties, UnsubPkt)),
     ?assertEqual([<<"t/#">>], emqx_packet:info(topic_filters, UnsubPkt)).
 
 t_unsuback_info(_) ->
     AckPkt = #mqtt_packet_unsuback{packet_id = 1, reason_codes = [0]},
     ?assertEqual(1, emqx_packet:info(packet_id, AckPkt)),
     ?assertEqual([0], emqx_packet:info(reason_codes, AckPkt)),
-    ?assertEqual(undefined, emqx_packet:info(properties, AckPkt)).
+    ?assertEqual(#{}, emqx_packet:info(properties, AckPkt)).
 
 t_disconnect_info(_) ->
     DisconnPkt = #mqtt_packet_disconnect{reason_code = 0},
     ?assertEqual(0, emqx_packet:info(reason_code, DisconnPkt)),
-    ?assertEqual(undefined, emqx_packet:info(properties, DisconnPkt)).
+    ?assertEqual(#{}, emqx_packet:info(properties, DisconnPkt)).
 
 t_auth_info(_) ->
     AuthPkt = #mqtt_packet_auth{reason_code = 0},
     ?assertEqual(0, emqx_packet:info(reason_code, AuthPkt)),
-    ?assertEqual(undefined, emqx_packet:info(properties, AuthPkt)).
+    ?assertEqual(#{}, emqx_packet:info(properties, AuthPkt)).
 
 t_set_props(_) ->
     Pkts = [#mqtt_packet_connect{}, #mqtt_packet_connack{}, #mqtt_packet_publish{},
@@ -245,6 +244,7 @@ t_from_to_message(_) ->
     ExpectedMsg1 = emqx_message:set_flags(#{dup => false, retain => false}, ExpectedMsg),
     ExpectedMsg2 = emqx_message:set_headers(#{peerhost => {127,0,0,1},
                                               protocol => mqtt,
+                                              properties => #{},
                                               username => <<"test">>
                                              }, ExpectedMsg1),
     Pkt = #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
@@ -255,10 +255,10 @@ t_from_to_message(_) ->
                                                        packet_id  = 10,
                                                        properties = #{}},
                        payload = <<"payload">>},
-    MsgFromPkt = emqx_packet:to_message(#{protocol => mqtt,
-                                          clientid => <<"clientid">>,
-                                          username => <<"test">>,
-                                          peerhost => {127,0,0,1}}, Pkt),
+    MsgFromPkt = emqx_packet:to_message(Pkt, <<"clientid">>,
+                    #{protocol => mqtt,
+                      username => <<"test">>,
+                      peerhost => {127,0,0,1}}),
     ?assertEqual(ExpectedMsg2, MsgFromPkt#message{id = emqx_message:id(ExpectedMsg),
                                                   timestamp = emqx_message:timestamp(ExpectedMsg)
                                                  }).
@@ -283,7 +283,6 @@ t_will_msg(_) ->
                                will_retain = true,
                                will_qos = ?QOS_2,
                                will_topic = <<"topic">>,
-                               will_props = undefined,
                                will_payload = <<"payload">>
                               },
     Msg2 = emqx_packet:will_msg(Pkt2),
@@ -297,7 +296,6 @@ t_format(_) ->
                                                                              will_retain = true,
                                                                              will_qos = ?QOS_2,
                                                                              will_topic = <<"topic">>,
-                                                                             will_props = undefined,
                                                                              will_payload = <<"payload">>}))]),
     io:format("~s", [emqx_packet:format(?CONNECT_PACKET(#mqtt_packet_connect{password = password}))]),
     io:format("~s", [emqx_packet:format(?CONNACK_PACKET(?CONNACK_SERVER))]),
