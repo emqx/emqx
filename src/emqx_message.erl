@@ -250,10 +250,20 @@ to_packet(PacketId, Msg = #message{qos = QoS, headers = Headers,
                                                },
                  variable = #mqtt_packet_publish{topic_name = Topic,
                                                  packet_id  = PacketId,
-                                                 properties = maps:get(properties, Headers, #{})
+                                                 properties = filter_pub_props(maps:get(properties, Headers, #{}))
                                                 },
                  payload  = Payload
                 }.
+
+filter_pub_props(Props) ->
+    maps:with(['Payload-Format-Indicator',
+               'Message-Expiry-Interval',
+               'Response-Topic',
+               'Correlation-Data',
+               'User-Property',
+               'Subscription-Identifier',
+               'Content-Type'
+              ], Props).
 
 %% @doc Message to map
 -spec(to_map(emqx_types:message()) -> map()).
