@@ -182,7 +182,7 @@ do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
     case mnesia:dirty_read(?TAB, Key) of
         [] -> ok;
         [#delayed_message{msg = Msg}] ->
-            emqx_pool:async_submit(fun emqx_broker:publish/1, [Msg])
+            emqx_pool:async_submit(fun emqx:publish/1, [Msg])
     end,
     do_publish(mnesia:dirty_next(?TAB, Key), Now, [Key|Acc]).
 
