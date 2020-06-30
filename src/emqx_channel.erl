@@ -535,22 +535,19 @@ process_subscribe([], _SubProps, Channel, Acc) ->
     {lists:reverse(Acc), Channel};
 
 process_subscribe([{TopicFilter, SubOpts}|More], SubProps, Channel, Acc) ->
-    case check_subscribe(TopicFilter, SubOpts, Channel) of
-        ok ->
-            {RC, NChannel} = do_subscribe(TopicFilter, SubOpts, Channel, Acc),
-            process_subscribe(More, SubProps, NChannel, [RC|Acc]);
-        {error, RC} -> {RC, Channel}
-    end.
+    {RC, NChannel} = do_subscribe(TopicFilter, SubOpts#{sub_props => SubProps}, Channel),
+    process_subscribe(More, SubProps, NChannel, [RC|Acc]).
 
 do_subscribe(TopicFilter, SubOpts = #{qos := QoS}, Channel =
-    #channel{clientinfo = ClientInfo = #{mountpoint := MountPoint}, session = Session}, ChannelAcc) ->
-    TopicFilter1 = emqx_mountpoint:mount(MountPoint, TopicFilter),
-    SubOpts1 = enrich_subopts(maps:merge(?DEFAULT_SUBOPTS, SubOpts), ChannelAcc),
-    case emqx_session:subscribe(ClientInfo, TopicFilter1, SubOpts1, Session) of
-        {ok, NSession} ->
-            {QoS, Channel#channel{session = NSession}};
-        {error, RC} -> {RC, Channel}
-    end.
+             #channel{clientinfo = ClientInfo = #{mountpoint := MountPoint},
+                      session = Session}) ->
+        NTopicFilter = emqx_mountpoint:mount(MountPoint, TopicFilter),
+        NSubOpts = enrich_subopts(maps:merge(?DEFAULT_SUBOPTS, SubOpts), Channel),
+        case emqx_session:subscribe(ClientInfo, NTopicFilter, NSubOpts, Session) of
+                    {ok, NSession} ->
+                        {QoS, Channel#channel{session = NSession}};
+                    {error, RC} -> {RC, Channel}
+        end.
 
 %%--------------------------------------------------------------------
 %% Process Unsubscribe
@@ -827,10 +824,15 @@ handle_call(Req, Channel) ->
       -> ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}).
 
 handle_info({subscribe, TopicFilters}, Channel ) ->
-    {_RC, NChannel} = lists:foldl(fun({TopicFilter, SubOpts}, ChannelAcc) ->
-                                    do_subscribe(TopicFilter, SubOpts, Channel, ChannelAcc)
-                                  end, {[], Channel},
-                                parse_topic_filters(TopicFilters)),
+    {_RC, NChannel} = lists:foldl(
+        fun({TopicFilter, SubOpts = #{qos := QoS}}, {Rcs, ChannelAcc}) ->
+            case do_subscribe(TopicFilter, SubOpts, ChannelAcc) of
+            {ok, NSession} ->
+                {Rcs ++ [QoS], ChannelAcc#channel{session = NSession}};
+            {error, ReasonCode} ->
+                {Rcs ++ [ReasonCode], ChannelAcc}
+            end
+        end, {[], Channel},parse_topic_filters(TopicFilters)),
     {ok, NChannel};
 
 handle_info({unsubscribe, TopicFilters}, Channel) ->
