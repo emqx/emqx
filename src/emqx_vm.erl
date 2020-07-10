@@ -22,6 +22,7 @@
         , get_system_info/0
         , get_system_info/1
         , get_memory/0
+        , get_memory/2
         , mem_info/0
         , loads/0
         ]).
@@ -241,32 +242,47 @@ scheduler_usage_diff(First, Last) ->
               end, lists:zip(lists:sort(First), lists:sort(Last))).
 
 get_memory()->
-    [{Key, get_memory(Key, current)} || Key <- [used, allocated, unused, usage]] ++ erlang:memory().
+    get_memory_once(current) ++ erlang:memory().
+
+get_memory(Ks, Keyword) when is_list(Ks) ->
+    Ms = get_memory_once(Keyword) ++ erlang:memory(),
+    [M || M = {K, _} <- Ms, lists:member(K, Ks)];
 
 get_memory(used, Keyword) ->
     lists:sum(lists:map(fun({_, Prop}) ->
                     container_size(Prop, Keyword, blocks_size)
             end, util_alloc()));
+
 get_memory(allocated, Keyword) ->
-    lists:sum(lists:map(fun({_, Prop})->
+    lists:sum(lists:map(fun({_, Prop}) ->
                     container_size(Prop, Keyword, carriers_size)
             end, util_alloc()));
+
 get_memory(unused, Keyword) ->
-    get_memory(allocated, Keyword) - get_memory(used, Keyword);
+    Ms = get_memory_once(Keyword),
+    proplists:get_value(allocated, Ms) - proplists:get_value(used, Ms);
+
 get_memory(usage, Keyword) ->
-    get_memory(used, Keyword) / get_memory(allocated, Keyword).
+    Ms = get_memory_once(Keyword),
+    proplists:get_value(used, Ms) / proplists:get_value(allocated, Ms).
+
+%% @private A more quickly function to calculate memory
+get_memory_once(Keyword) ->
+    Calc = fun({_, Prop}, {N1, N2}) ->
+               {N1 + container_size(Prop, Keyword, blocks_size),
+                N2 + container_size(Prop, Keyword, carriers_size)}
+           end,
+    {Used, Allocated} = lists:foldl(Calc, {0, 0}, util_alloc()),
+    [{used, Used},
+     {allocated, Allocated},
+     {unused, Allocated - Used},
+     {usage, Used / Allocated}].
 
 util_alloc()->
     alloc(?UTIL_ALLOCATORS).
 
-alloc()->
-    {_Mem, Allocs} = snapshot_int(),
-    Allocs.
 alloc(Type) ->
-    [{{T, Instance}, Props} || {{T, Instance}, Props} <- alloc(), lists:member(T, Type)].
-
-snapshot_int() ->
-    {erlang:memory(), allocators()}.
+    [{{T, Instance}, Props} || {{T, Instance}, Props} <- allocators(), lists:member(T, Type)].
 
 allocators() ->
     UtilAllocators = erlang:system_info(alloc_util_allocators),
