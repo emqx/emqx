@@ -51,21 +51,8 @@
 %% Callback
 %%--------------------------------------------------------------------
 
--ifdef(use_specs).
-
 -callback(connect(ConnOpts :: list())
           -> {ok, pid()} | {error, Reason :: term()}).
-
--else.
-
--export([behaviour_info/1]).
-
-behaviour_info(callbacks) ->
-    [{connect, 1}];
-behaviour_info(_Other) ->
-    undefined.
-
--endif.
 
 %%--------------------------------------------------------------------
 %% API
