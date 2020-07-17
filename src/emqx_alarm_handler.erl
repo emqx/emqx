@@ -105,7 +105,7 @@ init(_) ->
     {ok, []}.
 
 handle_event({set_alarm, {AlarmId, AlarmDesc = #alarm{timestamp = undefined}}}, State) ->
-    handle_event({set_alarm, {AlarmId, AlarmDesc#alarm{timestamp = erlang:system_time(millisecond)}}}, State);
+    handle_event({set_alarm, {AlarmId, AlarmDesc#alarm{timestamp = erlang:system_time(second)}}}, State);
 handle_event({set_alarm, Alarm = {AlarmId, AlarmDesc}}, State) ->
     ?LOG(warning, "New Alarm: ~p, Alarm Info: ~p", [AlarmId, AlarmDesc]),
     case encode_alarm(Alarm) of
@@ -114,7 +114,7 @@ handle_event({set_alarm, Alarm = {AlarmId, AlarmDesc}}, State) ->
         {error, Reason} ->
             ?LOG(error, "Failed to encode alarm: ~p", [Reason])
     end,
-    set_alarm_(AlarmId, AlarmDesc),
+    set_alarm_(AlarmId, AlarmDesc, erlang:system_time(second)),
     {ok, State};
 handle_event({clear_alarm, AlarmId}, State) ->
     ?LOG(info, "Clear Alarm: ~p", [AlarmId]),
@@ -164,10 +164,12 @@ encode_alarm({AlarmId, #alarm{severity  = Severity,
                            });
 
 encode_alarm({AlarmId, undefined}) ->
-    emqx_json:safe_encode(#{id => maybe_to_binary(AlarmId)});
+    emqx_json:safe_encode(#{id => maybe_to_binary(AlarmId),
+                            desc => #{timestamp => erlang:system_time(second)}});
 encode_alarm({AlarmId, AlarmDesc}) ->
     emqx_json:safe_encode(#{id => maybe_to_binary(AlarmId),
-                            desc => maybe_to_binary(AlarmDesc)
+                            desc => #{summary => maybe_to_binary(AlarmDesc),
+                                      timestamp => erlang:system_time(second)}
                            }).
 
 alarm_msg(Topic, Payload) ->
@@ -185,8 +187,8 @@ maybe_to_binary(Data) when is_binary(Data) ->
 maybe_to_binary(Data) ->
     iolist_to_binary(io_lib:format("~p", [Data])).
 
-set_alarm_(Id, Desc) ->
-    mnesia:dirty_write(?ALARM_TAB, #common_alarm{id = Id, desc = Desc}).
+set_alarm_(Id, Desc, Ts) ->
+    mnesia:dirty_write(?ALARM_TAB, #common_alarm{id = Id, desc = {Desc, Ts}}).
 
 clear_alarm_(Id) ->
     case mnesia:dirty_read(?ALARM_TAB, Id) of
@@ -199,5 +201,5 @@ clear_alarm_(Id) ->
 set_alarm_history(Id, Desc) ->
     His = #alarm_history{id = Id,
                          desc = Desc,
-                         clear_at = erlang:system_time(millisecond)},
+                         clear_at = erlang:system_time(second)},
     mnesia:dirty_write(?ALARM_HISTORY_TAB, His).
