@@ -193,6 +193,7 @@ t_batch_subscribe(_) ->
              ?RC_NO_SUBSCRIPTION_EXISTED]} = emqtt:unsubscribe(Client, [<<"t1">>,
                                                                         <<"t2">>,
                                                                         <<"t3">>]),
+    file:delete(TempAcl),
     emqtt:disconnect(Client).
 
 t_connect_will_retain(_) ->
@@ -253,7 +254,7 @@ t_connect_limit_timeout(_) ->
                                                             end),
 
     Topic = nth(1, ?TOPICS),
-    emqx_zone:set_env(external, publish_limit, {2.0, 3}),
+    emqx_zone:set_env(external, publish_limit, {3, 5}),
 
     {ok, Client} = emqtt:start_link([{proto_ver, v5},{keepalive, 60}]),
     {ok, _} = emqtt:connect(Client),
@@ -263,11 +264,11 @@ t_connect_limit_timeout(_) ->
     ok = emqtt:publish(Client, Topic, <<"t_shared_subscriptions_client_terminates_when_qos_eq_2">>, 0),
     ok = emqtt:publish(Client, Topic, <<"t_shared_subscriptions_client_terminates_when_qos_eq_2">>, 0),
     ok = emqtt:publish(Client, Topic, <<"t_shared_subscriptions_client_terminates_when_qos_eq_2">>, 0),
-    ok = emqtt:publish(Client, Topic, <<"t_shared_subscriptions_client_terminates_when_qos_eq_2">>, 0),
     timer:sleep(200),
     ?assert(is_reference(emqx_connection:info(limit_timer, sys:get_state(ClientPid)))),
 
     ok = emqtt:disconnect(Client),
+    emqx_zone:set_env(external, publish_limit, undefined),
     meck:unload(proplists).
 
 t_connect_emit_stats_timeout(_) ->
