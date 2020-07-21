@@ -112,7 +112,7 @@ t_info(_) ->
      } = SockInfo.
 
 t_info_limiter(_) ->
-    St = st(#{limiter => emqx_limiter:init([])}),
+    St = st(#{limiter => emqx_limiter:init(external, [])}),
     ?assertEqual(undefined, ?ws_conn:info(limiter, St)).
 
 t_info_channel(_) ->
@@ -291,9 +291,7 @@ t_handle_timeout_emit_stats(_) ->
     ?assertEqual(undefined, ?ws_conn:info(stats_timer, St)).
 
 t_ensure_rate_limit(_) ->
-    Limiter = emqx_limiter:init([{pub_limit, {1, 10}},
-                                 {rate_limit, {100, 1000}}
-                                ]),
+    Limiter = emqx_limiter:init(external, {1, 10}, {100, 1000}, []),
     St = st(#{limiter => Limiter}),
     St1 = ?ws_conn:ensure_rate_limit(#{cnt => 0, oct => 0}, St),
     St2 = ?ws_conn:ensure_rate_limit(#{cnt => 11, oct => 1200}, St1),

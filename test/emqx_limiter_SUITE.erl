@@ -21,38 +21,57 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+%%--------------------------------------------------------------------
+%% Setups
+%%--------------------------------------------------------------------
+
 all() -> emqx_ct:all(?MODULE).
 
-init_per_testcase(_TestCase, Config) ->
-    Config.
+init_per_testcase(_, Cfg) ->
+    {ok, _} = esockd_limiter:start_link(),
+    Cfg.
 
-end_per_testcase(_TestCase, _Config) ->
-    ok.
+end_per_testcase(_, _) ->
+    esockd_limiter:stop().
 
-t_info(_) ->
-    #{pub_limit := #{rate   := 1,
-                     burst  := 10,
-                     tokens := 10
-                    },
-      rate_limit := #{rate   := 100,
-                      burst  := 1000,
-                      tokens := 1000
-                     }
-     } = emqx_limiter:info(limiter()).
+%%--------------------------------------------------------------------
+%% Cases
+%%--------------------------------------------------------------------
 
-t_check(_) ->
-    lists:foreach(fun(I) ->
-                          {ok, Limiter} = emqx_limiter:check(#{cnt => I, oct => I*100}, limiter()),
-                          #{pub_limit  := #{tokens := Cnt},
-                            rate_limit := #{tokens := Oct}
-                           } = emqx_limiter:info(Limiter),
-                          ?assertEqual({10 - I, 1000 - I*100}, {Cnt, Oct})
-                  end, lists:seq(1, 10)).
+t_init(_) ->
+    Cap1 = 1000, Intv1 = 10,
+    Cap2 = 2000, Intv2 = 15,
+    undefined = emqx_limiter:init(external, undefined, undefined, []),
+    ?assertEqual(emqx_limiter:init(external, undefined, undefined, [{conn_messages_in, {Cap1, Intv1}},
+                                                                    {conn_bytes_in, {Cap2, Intv2}}]),
+                 emqx_limiter:init(external, {Cap1, Intv1}, {Cap2, Intv2}, [])),
+    #{conn_bytes_in := #{capacity := Cap2, interval := Intv2, tokens := Cap2 }} =
+        emqx_limiter:info(
+          emqx_limiter:init(external, undefined, {Cap1, Intv1}, [{conn_bytes_in, {Cap2, Intv2}}])).
 
-t_check_pause(_) ->
-    {pause, 1000, _} = emqx_limiter:check(#{cnt => 11, oct => 2000}, limiter()),
-    {pause, 2000, _} = emqx_limiter:check(#{cnt => 10, oct => 1200}, limiter()).
+t_check_conn(_) ->
+    Limiter = emqx_limiter:init(external, [{conn_bytes_in, {100, 1}}]),
 
-limiter() ->
-    emqx_limiter:init([{pub_limit, {1, 10}}, {rate_limit, {100, 1000}}]).
+    {ok, Limiter2} = emqx_limiter:check(#{cnt => 0, oct => 1}, Limiter),
+    #{conn_bytes_in := #{tokens := 99}} = emqx_limiter:info(Limiter2),
+
+    {pause, 10, Limiter3} = emqx_limiter:check(#{cnt => 0, oct => 100}, Limiter),
+    #{conn_bytes_in := #{tokens := 0}} = emqx_limiter:info(Limiter3),
+
+    {pause, 100000, Limiter4} = emqx_limiter:check(#{cnt => 0, oct => 10000}, Limiter3),
+    #{conn_bytes_in := #{tokens := 0}} = emqx_limiter:info(Limiter4).
+
+t_check_overall(_) ->
+    Limiter = emqx_limiter:init(external, [{overall_bytes_in, {100, 1}}]),
+
+    {ok, Limiter2} = emqx_limiter:check(#{cnt => 0, oct => 1}, Limiter),
+    #{overall_bytes_in := #{tokens := 99}} = emqx_limiter:info(Limiter2),
+
+    %% XXX: P = 1/r = 1/100 * 1000 = 10ms ?
+    {pause, 1000, Limiter3} = emqx_limiter:check(#{cnt => 0, oct => 100}, Limiter),
+    #{overall_bytes_in := #{tokens := 0}} = emqx_limiter:info(Limiter2),
+
+    %% XXX: P = 10000/r = 10000/100 * 1000 = 100s ?
+    {pause, 1000, Limiter4} = emqx_limiter:check(#{cnt => 0, oct => 10000}, Limiter3),
+    #{overall_bytes_in := #{tokens := 0}} = emqx_limiter:info(Limiter4).
 
