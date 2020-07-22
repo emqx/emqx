@@ -540,6 +540,7 @@ process_subscribe([{TopicFilter, SubOpts}|More], SubProps, Channel, Acc) ->
             {RC, NChannel} = do_subscribe(TopicFilter, SubOpts#{sub_props => SubProps}, Channel),
             process_subscribe(More, SubProps, NChannel, [RC|Acc]);
         {error, RC} ->
+            ?LOG(warning, "Cannot subscribe ~s due to ~s.", [TopicFilter, emqx_reason_codes:text(RC)]),
             process_subscribe(More, SubProps, Channel, [RC|Acc])
     end.
 
@@ -552,6 +553,7 @@ do_subscribe(TopicFilter, SubOpts = #{qos := QoS}, Channel =
         {ok, NSession} ->
             {QoS, Channel#channel{session = NSession}};
         {error, RC} ->
+            ?LOG(warning, "Cannot subscribe ~s due to ~s.", [TopicFilter, emqx_reason_codes:text(RC)]),
             {RC, Channel}
     end.
 
