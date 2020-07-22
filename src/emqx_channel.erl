@@ -522,6 +522,10 @@ process_subscribe([], Acc, Channel) ->
 
 process_subscribe([{TopicFilter, SubOpts}|More], Acc, Channel) ->
     {RC, NChannel} = do_subscribe(TopicFilter, SubOpts, Channel),
+    case RC > ?RC_GRANTED_QOS_2 of
+        false -> ok;
+        true -> ?LOG(warning, "Cannot subscribe ~s due to ~s.", [TopicFilter, emqx_reason_codes:text(RC)])
+    end,
     process_subscribe(More, [RC|Acc], NChannel).
 
 do_subscribe(TopicFilter, SubOpts = #{qos := QoS}, Channel =
