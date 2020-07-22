@@ -28,7 +28,7 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_testcase(_, Cfg) ->
-    {ok, _} = esockd_limiter:start_link(),
+    _ = esockd_limiter:start_link(),
     Cfg.
 
 end_per_testcase(_, _) ->
