@@ -1212,14 +1212,17 @@ process_alias(_Packet, Channel) -> {ok, Channel}.
 %% Packing Topic Alias
 
 packing_alias(Packet = #mqtt_packet{
-                            variable = #mqtt_packet_publish{topic_name = Topic} = Publish
+                            variable = #mqtt_packet_publish{
+                                          topic_name = Topic,
+                                          properties = Prop
+                                         } = Publish
                         },
               Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases, alias_maximum = Limits}) ->
     case find_alias(outbound, Topic, TopicAliases) of
-        {ok, AliasId} ->
+        {ok, AliasId} -> 
             NPublish = Publish#mqtt_packet_publish{
                             topic_name = <<>>,
-                            properties = #{'Topic-Alias' => AliasId}
+                            properties = maps:merge(Prop, #{'Topic-Alias' => AliasId})
                             },
             {Packet#mqtt_packet{variable = NPublish}, Channel};
         error ->
@@ -1232,7 +1235,7 @@ packing_alias(Packet = #mqtt_packet{
                     NChannel = Channel#channel{topic_aliases = NTopicAliases},
                     NPublish = Publish#mqtt_packet_publish{
                                     topic_name = Topic,
-                                    properties = #{'Topic-Alias' => AliasId}
+                                    properties = maps:merge(Prop, #{'Topic-Alias' => AliasId})
                                     },
                     {Packet#mqtt_packet{variable = NPublish}, NChannel};
                 false -> {Packet, Channel}
