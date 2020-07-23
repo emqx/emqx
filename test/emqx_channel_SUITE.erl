@@ -532,15 +532,29 @@ t_process_alias(_) ->
         emqx_channel:process_alias(#mqtt_packet{variable = Publish}, Channel).
 
 t_packing_alias(_) ->
-    Packet1 = #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"x">>}},
+    Packet1 = #mqtt_packet{variable = #mqtt_packet_publish{
+                                         topic_name = <<"x">>,
+                                         properties = #{'User-Property' => [{<<"k">>, <<"v">>}]}
+                                        }},
     Packet2 = #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"y">>}},
     Channel = emqx_channel:set_field(alias_maximum, #{outbound => 1}, channel()),
 
     {RePacket1, NChannel1} = emqx_channel:packing_alias(Packet1, Channel),
-    ?assertEqual(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"x">>, properties = #{'Topic-Alias' => 1}}}, RePacket1),
+    ?assertEqual(#mqtt_packet{variable = #mqtt_packet_publish{
+                                            topic_name = <<"x">>,
+                                            properties = #{
+                                                'Topic-Alias' => 1,
+                                                'User-Property' => [{<<"k">>, <<"v">>}]
+                                             }
+                                           }}, RePacket1),
 
     {RePacket2, NChannel2} = emqx_channel:packing_alias(Packet1, NChannel1),
-    ?assertEqual(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}}}, RePacket2),
+    ?assertEqual(#mqtt_packet{variable = #mqtt_packet_publish{
+                                            topic_name = <<>>,
+                                            properties = #{
+                                                'Topic-Alias' => 1,
+                                                'User-Property' => [{<<"k">>, <<"v">>}]
+                                             }}}, RePacket2),
 
     {RePacket3, _} = emqx_channel:packing_alias(Packet2, NChannel2),
     ?assertEqual(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"y">>, properties = undefined}}, RePacket3),
