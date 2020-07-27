@@ -75,11 +75,10 @@ call(Req) ->
 %%--------------------------------------------------------------------
 
 init([Opts]) ->
-    {ok, ensure_check_timer(#{check_interval => proplists:get_value(check_interval, Opts, 30),
-                              process_high_watermark => proplists:get_value(process_high_watermark, Opts, 0.70),
-                              process_low_watermark => proplists:get_value(process_low_watermark, Opts, 0.50),
-                              timer => undefined,
-                              is_process_alarm_set => false})}.
+    {ok, ensure_check_timer(#{check_interval => proplists:get_value(check_interval, Opts),
+                              process_high_watermark => proplists:get_value(process_high_watermark, Opts),
+                              process_low_watermark => proplists:get_value(process_low_watermark, Opts),
+                              timer => undefined})}.
 
 handle_call(get_check_interval, _From, State) ->
     {reply, maps:get(check_interval, State, undefined), State};
@@ -110,22 +109,19 @@ handle_cast(Msg, State) ->
 handle_info({timeout, Timer, check},
             State = #{timer := Timer,
                       process_high_watermark := ProcHighWatermark,
-                      process_low_watermark := ProcLowWatermark,
-                      is_process_alarm_set := IsProcessAlarmSet}) ->
+                      process_low_watermark := ProcLowWatermark}) ->
     ProcessCount = erlang:system_info(process_count),
-    NState = case ProcessCount / erlang:system_info(process_limit) of
-                 Percent when Percent >= ProcHighWatermark ->
-                     alarm_handler:set_alarm({too_many_processes, ProcessCount}),
-                     State#{is_process_alarm_set := true};
-                 Percent when Percent < ProcLowWatermark ->
-                     case IsProcessAlarmSet of
-                         true -> alarm_handler:clear_alarm(too_many_processes);
-                         false -> ok
-                     end,
-                     State#{is_process_alarm_set := false};
-                 _Precent -> State
-             end,
-    {noreply, ensure_check_timer(NState)};
+    case ProcessCount / erlang:system_info(process_limit) * 100 of
+        Percent when Percent >= ProcHighWatermark ->
+            emqx_alarm:activate(too_many_processes, #{count => ProcessCount,
+                                                      high_watermark => ProcHighWatermark,
+                                                      low_watermark => ProcLowWatermark});
+        Percent when Percent < ProcLowWatermark ->
+            emqx_alarm:deactivate(too_many_processes);
+        _Precent ->
+            ok
+    end,
+    {noreply, ensure_check_timer(State)};
 
 handle_info(Info, State) ->
     ?LOG(error, "[VM_MON] Unexpected info: ~p", [Info]),
@@ -143,4 +139,3 @@ code_change(_OldVsn, State, _Extra) ->
 
 ensure_check_timer(State = #{check_interval := Interval}) ->
     State#{timer := emqx_misc:start_timer(timer:seconds(Interval), check)}.
-

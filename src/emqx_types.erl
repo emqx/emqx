@@ -78,8 +78,7 @@
              , route_entry/0
              ]).
 
--export_type([ alarm/0
-             , plugin/0
+-export_type([ plugin/0
              , banned/0
              , command/0
              ]).
@@ -194,7 +193,6 @@
 -type(route() :: #route{}).
 -type(sub_group() :: tuple() | binary()).
 -type(route_entry() :: {topic(), node()} | {topic, sub_group()}).
--type(alarm() :: #alarm{}).
 -type(plugin() :: #plugin{}).
 -type(command() :: #command{}).
 

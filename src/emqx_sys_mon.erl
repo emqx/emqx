@@ -165,9 +165,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 handle_partition_event({partition, {occurred, Node}}) ->
-    alarm_handler:set_alarm({partitioned, Node});
+    emqx_alarm:activate(partition, #{occurred => Node});
 handle_partition_event({partition, {healed, _Node}}) ->
-    alarm_handler:clear_alarm(partitioned).
+    emqx_alarm:deactivate(partition).
 
 suppress(Key, SuccFun, State = #{events := Events}) ->
     case lists:member(Key, Events) of

@@ -2066,7 +2066,7 @@ end}.
 
 {translation, "emqx.os_mon", fun(Conf) ->
     Configs = cuttlefish_variable:filter_by_prefix("os_mon", Conf),
-    [{list_to_atom(Name), Value} || {[_, Name], Value} <- Configs]
+    [{list_to_atom(Name), Value * 100} || {[_, Name], Value} <- Configs]
 end}.
 
 %%--------------------------------------------------------------------
@@ -2089,5 +2089,5 @@ end}.
 
 {translation, "emqx.vm_mon", fun(Conf) ->
     Configs = cuttlefish_variable:filter_by_prefix("vm_mon", Conf),
-    [{list_to_atom(Name), Value} || {[_, Name], Value} <- Configs]
+    [{list_to_atom(Name), Value * 100} || {[_, Name], Value} <- Configs]
 end}.
