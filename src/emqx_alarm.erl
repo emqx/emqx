@@ -265,14 +265,16 @@ normalize(#alarm{name = Name,
       deactivate_at => DeactivateAt,
       activated => Activated}.
 
-normalize_message(high_system_memory_usage, _Details) ->
-    list_to_binary(io_lib:format("System memory usage is higher than ~p%", [emqx_os_mon:get_sysmem_high_watermark()]));
-normalize_message(high_process_memory_usage, _Details) ->
-    list_to_binary(io_lib:format("Process memory usage is higher than ~p%", [emqx_os_mon:get_procmem_high_watermark()]));
+normalize_message(high_system_memory_usage, #{high_watermark := HighWatermark}) ->
+    list_to_binary(io_lib:format("System memory usage is higher than ~p%", [HighWatermark]));
+normalize_message(high_process_memory_usage, #{high_watermark := HighWatermark}) ->
+    list_to_binary(io_lib:format("Process memory usage is higher than ~p%", [HighWatermark]));
 normalize_message(high_cpu_usage, #{usage := Usage}) ->
     list_to_binary(io_lib:format("~p% cpu usage", [Usage]));
-normalize_message(too_many_processes, #{high_watermark := HightWatermark}) ->
-    list_to_binary(io_lib:format("High_watermark: ~p%", [HightWatermark]));
+normalize_message(too_many_processes, #{high_watermark := HighWatermark}) ->
+    list_to_binary(io_lib:format("High watermark: ~p%", [HighWatermark]));
+normalize_message(partition, #{occurred := Node}) ->
+    list_to_binary(io_lib:format("Partition occurs at node ~s", [Node]));
 normalize_message(_Name, _UnknownDetails) ->
-    <<"Unknown">>.
+    <<"Unknown alarm">>.
 
