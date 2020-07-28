@@ -130,7 +130,6 @@ handle_cast({detected, #flapping{clientid   = ClientId,
                              reason = <<"flapping is detected">>,
                              at     = Now,
                              until  = Now + Interval},
-            alarm_handler:set_alarm({{flapping_detected, ClientId}, Banned}),
             emqx_banned:create(Banned);
         false ->
             ?LOG(warning, "~s(~s) disconnected ~w times in ~wms",
