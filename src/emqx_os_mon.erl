@@ -83,13 +83,13 @@ set_mem_check_interval(Seconds) ->
     memsup:set_check_interval(Seconds div 60).
 
 get_sysmem_high_watermark() ->
-    memsup:get_sysmem_high_watermark() / 100.
+    memsup:get_sysmem_high_watermark().
 
 set_sysmem_high_watermark(Float) ->
     memsup:set_sysmem_high_watermark(Float).
 
 get_procmem_high_watermark() ->
-    memsup:get_procmem_high_watermark() / 100.
+    memsup:get_procmem_high_watermark().
 
 set_procmem_high_watermark(Float) ->
     memsup:set_procmem_high_watermark(Float).
@@ -102,14 +102,10 @@ call(Req) ->
 %%--------------------------------------------------------------------
 
 init([Opts]) ->
-    set_mem_check_interval(proplists:get_value(mem_check_interval, Opts, 60)),
-    set_sysmem_high_watermark(proplists:get_value(sysmem_high_watermark, Opts, 0.70)),
-    set_procmem_high_watermark(proplists:get_value(procmem_high_watermark, Opts, 0.05)),
-    {ok, ensure_check_timer(#{cpu_high_watermark => proplists:get_value(cpu_high_watermark, Opts, 0.80),
-                              cpu_low_watermark => proplists:get_value(cpu_low_watermark, Opts, 0.60),
-                              cpu_check_interval => proplists:get_value(cpu_check_interval, Opts, 60),
-                              timer => undefined,
-                              is_cpu_alarm_set => false})}.
+    {ok, ensure_check_timer(#{cpu_high_watermark => proplists:get_value(cpu_high_watermark, Opts),
+                              cpu_low_watermark => proplists:get_value(cpu_low_watermark, Opts),
+                              cpu_check_interval => proplists:get_value(cpu_check_interval, Opts),
+                              timer => undefined})}.
 
 handle_call(get_cpu_check_interval, _From, State) ->
     {reply, maps:get(cpu_check_interval, State, undefined), State};
@@ -139,21 +135,21 @@ handle_cast(Msg, State) ->
 
 handle_info({timeout, Timer, check}, State = #{timer := Timer,
                                                cpu_high_watermark := CPUHighWatermark,
-                                               cpu_low_watermark := CPULowWatermark,
-                                               is_cpu_alarm_set := IsCPUAlarmSet}) ->
+                                               cpu_low_watermark := CPULowWatermark}) ->
     NState =
     case emqx_vm:cpu_util() of %% TODO: should be improved?
-        0 -> State#{timer := undefined};
+        0 ->
+            State#{timer := undefined};
         Busy when Busy / 100 >= CPUHighWatermark ->
-            alarm_handler:set_alarm({cpu_high_watermark, Busy}),
-            ensure_check_timer(State#{is_cpu_alarm_set := true});
-        Busy when Busy / 100 < CPULowWatermark ->
-            case IsCPUAlarmSet of
-                true  -> alarm_handler:clear_alarm(cpu_high_watermark);
-                false -> ok
-            end,
-            ensure_check_timer(State#{is_cpu_alarm_set := false});
-        _Busy -> ensure_check_timer(State)
+            emqx_alarm:activate(high_cpu_usage, #{usage => Busy,
+                                                  high_watermark => CPUHighWatermark,
+                                                  low_watermark => CPULowWatermark}),
+            ensure_check_timer(State);
+        Busy when Busy / 100 =< CPULowWatermark ->
+            emqx_alarm:deactivate(high_cpu_usage),
+            ensure_check_timer(State);
+        _Busy ->
+            ensure_check_timer(State)
     end,
     {noreply, NState};
 
