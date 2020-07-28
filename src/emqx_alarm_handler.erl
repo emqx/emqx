@@ -57,11 +57,12 @@ init(_) ->
     {ok, []}.
 
 handle_event({set_alarm, {system_memory_high_watermark, []}}, State) -> 
-    emqx_alarm:activate(high_system_memory_usage, #{}),
+    emqx_alarm:activate(high_system_memory_usage, #{high_watermark => emqx_os_mon:get_sysmem_high_watermark()}),
     {ok, State};
 
 handle_event({set_alarm, {process_memory_high_watermark, Pid}}, State) -> 
-    emqx_alarm:activate(high_process_memory_usage, #{pid => Pid}),
+    emqx_alarm:activate(high_process_memory_usage, #{pid => Pid,
+                                                     high_watermark => emqx_os_mon:get_procmem_high_watermark()}),
     {ok, State};
 
 handle_event({clear_alarm, system_memory_high_watermark}, State) -> 
