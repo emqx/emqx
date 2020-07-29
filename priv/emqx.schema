@@ -2065,8 +2065,12 @@ end}.
 ]}.
 
 {translation, "emqx.os_mon", fun(Conf) ->
-    Configs = cuttlefish_variable:filter_by_prefix("os_mon", Conf),
-    [{list_to_atom(Name), Value * 100} || {[_, Name], Value} <- Configs]
+    [{cpu_check_interval, cuttlefish:conf_get("os_mon.cpu_check_interval", Conf)},
+     {cpu_high_watermark, cuttlefish:conf_get("os_mon.cpu_high_watermark", Conf) * 100},
+     {cpu_low_watermark, cuttlefish:conf_get("os_mon.cpu_low_watermark", Conf) * 100},
+     {mem_check_interval, cuttlefish:conf_get("os_mon.mem_check_interval", Conf)},
+     {sysmem_high_watermark, cuttlefish:conf_get("os_mon.sysmem_high_watermark", Conf) * 100},
+     {procmem_high_watermark, cuttlefish:conf_get("os_mon.procmem_high_watermark", Conf) * 100}]
 end}.
 
 %%--------------------------------------------------------------------
@@ -2088,6 +2092,31 @@ end}.
 ]}.
 
 {translation, "emqx.vm_mon", fun(Conf) ->
-    Configs = cuttlefish_variable:filter_by_prefix("vm_mon", Conf),
-    [{list_to_atom(Name), Value * 100} || {[_, Name], Value} <- Configs]
+    [{check_interval, cuttlefish:conf_get("vm_mon.check_interval", Conf)},
+     {process_high_watermark, cuttlefish:conf_get("vm_mon.process_high_watermark", Conf) * 100},
+     {process_low_watermark, cuttlefish:conf_get("vm_mon.process_low_watermark", Conf) * 100}]
+end}.
+
+%%--------------------------------------------------------------------
+%% Alarm
+%%--------------------------------------------------------------------
+{mapping, "alarm.actions", "emqx.alarm", [
+  {default, "log,publish"},
+  {datatype, string}
+]}.
+
+{mapping, "alarm.size_limit", "emqx.alarm", [
+  {default, 1000},
+  {datatype, integer}
+]}.
+
+{mapping, "alarm.validity_period", "emqx.alarm", [
+  {default, "24h"},
+  {datatype, {duration, s}}
+]}.
+
+{translation, "emqx.alarm", fun(Conf) ->
+    [{actions, [list_to_atom(Action) || Action <- string:tokens(cuttlefish:conf_get("alarm.actions", Conf), ",")]},
+     {size_limit, cuttlefish:conf_get("alarm.size_limit", Conf)},
+     {validity_period, cuttlefish:conf_get("alarm.validity_period", Conf)}]
 end}.
