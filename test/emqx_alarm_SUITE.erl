@@ -33,6 +33,38 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
+init_per_testcase(t_size_limit, Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([],
+        fun(emqx) ->
+            application:set_env(emqx, alarm, [{actions, [log,publish]},
+                                              {size_limit, 2},
+                                              {validity_period, 3600}]),
+            ok;
+           (_) ->
+            ok
+        end),
+    Config;
+init_per_testcase(t_validity_period, Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([],
+        fun(emqx) ->
+            application:set_env(emqx, alarm, [{actions, [log,publish]},
+                                              {size_limit, 1000},
+                                              {validity_period, 1}]),
+            ok;
+           (_) ->
+            ok
+        end),
+    Config;
+init_per_testcase(_, Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([]),
+    Config.
+
+end_per_testcase(_, _Config) ->
+    emqx_ct_helpers:stop_apps([]).
+
 t_alarm(_) ->
     ok = emqx_alarm:activate(unknown_alarm),
     {error, already_existed} = emqx_alarm:activate(unknown_alarm),
@@ -58,6 +90,29 @@ t_deactivate_all_alarms(_) ->
 
     emqx_alarm:delete_all_deactivated_alarms(),
     ?assertEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))).
+
+t_size_limit(_) ->
+    ok = emqx_alarm:activate(a),
+    ok = emqx_alarm:deactivate(a),
+    ok = emqx_alarm:activate(b),
+    ok = emqx_alarm:deactivate(b),
+    ?assertNotEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))),
+    ?assertNotEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))),
+    ok = emqx_alarm:activate(c),
+    ok = emqx_alarm:deactivate(c),
+    ?assertNotEqual({error, not_found}, get_alarm(c, emqx_alarm:get_alarms(deactivated))),
+    ?assertEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))),
+    emqx_alarm:delete_all_deactivated_alarms().
+
+t_validity_period(_) ->
+    ok = emqx_alarm:activate(a),
+    ok = emqx_alarm:deactivate(a),
+    dbg:tracer(),
+    dbg:p(all, c),
+    dbg:tpl(emqx_alarm, delete_expired_deactivated_alarms, cx),
+    ?assertNotEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))),
+    ct:sleep(2000),
+    ?assertEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))).
 
 get_alarm(Name, [Alarm = #{name := Name} | _More]) ->
     Alarm;
