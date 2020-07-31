@@ -18,55 +18,137 @@
 
 -include("types.hrl").
 
--export([init/1, info/1, check/2]).
-
--import(emqx_misc, [maybe_apply/2]).
+-export([ init/2
+        , init/4 %% XXX: Compatible with before 4.2 version
+        , info/1
+        , check/2
+        ]).
 
 -record(limiter, {
-          %% Publish Limit
-          pub_limit :: maybe(esockd_rate_limit:bucket()),
-          %% Rate Limit
-          rate_limit :: maybe(esockd_rate_limit:bucket())
+          %% Zone
+          zone :: emqx_zone:zone(),
+          %% All checkers
+          checkers :: [checker()]
          }).
+
+-type(checker() :: #{ name     := name()
+                    , capacity := non_neg_integer()
+                    , interval := non_neg_integer()
+                    , consumer := function() | esockd_rate_limit:bucket()
+                    }).
+
+-type(name() :: conn_bytes_in
+              | conn_messages_in
+              | overall_bytes_in
+              | overall_messages_in
+              ).
+
+-type(spec() :: {name(), esockd_rate_limit:config()}).
+
+-type(specs() :: [spec()]).
+
+-type(info() :: #{name() :=
+                  #{tokens   := non_neg_integer(),
+                    capacity := non_neg_integer(),
+                    interval := non_neg_integer()}}).
 
 -type(limiter() :: #limiter{}).
 
--export_type([limiter/0]).
+%%--------------------------------------------------------------------
+%% APIs
+%%--------------------------------------------------------------------
 
--define(ENABLED(Rl), (Rl =/= undefined)).
+-spec(init(emqx_zone:zone(),
+           maybe(esockd_rate_limit:config()),
+           maybe(esockd_rate_limit:config()), specs())
+     -> maybe(limiter())).
+init(Zone, PubLimit, BytesIn, RateLimit) ->
+    Merged = maps:merge(#{conn_messages_in => PubLimit,
+                          conn_bytes_in => BytesIn}, maps:from_list(RateLimit)),
+    Filtered = maps:filter(fun(_, V) -> V /= undefined end, Merged),
+    init(Zone, maps:to_list(Filtered)).
 
--spec(init(proplists:proplist()) -> maybe(limiter())).
-init(Options) ->
-    Pl = proplists:get_value(pub_limit, Options),
-    Rl = proplists:get_value(rate_limit, Options),
-    case ?ENABLED(Pl) or ?ENABLED(Rl) of
-        true  -> #limiter{pub_limit  = init_limit(Pl),
-                          rate_limit = init_limit(Rl)
-                         };
-        false -> undefined
+-spec(init(emqx_zone:zone(), specs()) -> maybe(limiter())).
+init(_Zone, []) ->
+    undefined;
+init(Zone, Specs) ->
+    #limiter{zone = Zone, checkers = [do_init_checker(Zone, Spec) || Spec <- Specs]}.
+
+%% @private
+do_init_checker(Zone, {Name, {Capacity, Interval}}) ->
+    Ck = #{name => Name, capacity => Capacity, interval => Interval},
+    case is_overall_limiter(Name) of
+        true ->
+            case catch esockd_limiter:lookup({Zone, Name}) of
+                _Info when is_map(_Info) ->
+                    ignore;
+                _ ->
+                    esockd_limiter:create({Zone, Name}, Capacity, Interval)
+            end,
+            Ck#{consumer => fun(I) -> esockd_limiter:consume({Zone, Name}, I) end};
+        _ ->
+            Ck#{consumer => esockd_rate_limit:new(Capacity / Interval, Capacity)}
     end.
 
-init_limit(Rl) ->
-    maybe_apply(fun esockd_rate_limit:new/1, Rl).
+-spec(info(limiter()) -> info()).
+info(#limiter{zone = Zone, checkers = Cks}) ->
+    maps:from_list([get_info(Zone, Ck) || Ck <- Cks]).
 
-info(#limiter{pub_limit = Pl, rate_limit = Rl}) ->
-    #{pub_limit => info(Pl), rate_limit => info(Rl)};
-
-info(Rl) ->
-    maybe_apply(fun esockd_rate_limit:info/1, Rl).
-
-check(#{cnt := Cnt, oct := Oct}, Limiter = #limiter{pub_limit  = Pl,
-                                                    rate_limit = Rl}) ->
-    do_check([{#limiter.pub_limit, Cnt, Pl} || ?ENABLED(Pl)] ++
-             [{#limiter.rate_limit, Oct, Rl} || ?ENABLED(Rl)], Limiter).
-
-do_check([], Limiter) ->
-    {ok, Limiter};
-do_check([{Pos, Cnt, Rl}|More], Limiter) ->
-    case esockd_rate_limit:check(Cnt, Rl) of
-        {0, Rl1} ->
-            do_check(More, setelement(Pos, Limiter, Rl1));
-        {Pause, Rl1} ->
-            {pause, Pause, setelement(Pos, Limiter, Rl1)}
+-spec(check(#{cnt := Cnt :: non_neg_integer(),
+              oct := Oct :: non_neg_integer()},
+            Limiter :: limiter())
+      -> {ok, NLimiter :: limiter()}
+       | {pause, MilliSecs :: non_neg_integer(), NLimiter :: limiter()}).
+check(#{cnt := Cnt, oct := Oct}, Limiter = #limiter{checkers = Cks}) ->
+    {Pauses, NCks} = do_check(Cnt, Oct, Cks, [], []),
+    case lists:max(Pauses) of
+        I when I > 0 ->
+            {pause, I, Limiter#limiter{checkers = NCks}};
+        _ ->
+            {ok, Limiter#limiter{checkers = NCks}}
     end.
+
+%% @private
+do_check(_, _, [], Pauses, NCks) ->
+    {Pauses, lists:reverse(NCks)};
+do_check(Pubs, Bytes, [Ck|More], Pauses, Acc) ->
+    {I, NConsumer} = consume(Pubs, Bytes, Ck),
+    do_check(Pubs, Bytes, More, [I|Pauses], [Ck#{consumer := NConsumer}|Acc]).
+
+%%--------------------------------------------------------------------
+%% Internal funcs
+%%--------------------------------------------------------------------
+
+consume(Pubs, Bytes, #{name := Name, consumer := Cons}) ->
+    Tokens = case is_message_limiter(Name) of true -> Pubs; _ -> Bytes end,
+    case Tokens =:= 0 of
+        true ->
+            {0, Cons};
+        _ ->
+            case is_overall_limiter(Name) of
+                true ->
+                    {_, Intv} = Cons(Tokens),
+                    {Intv, Cons};
+                _ ->
+                    esockd_rate_limit:check(Tokens, Cons)
+            end
+    end.
+
+get_info(Zone, #{name := Name, capacity := Cap,
+                 interval := Intv, consumer := Cons}) ->
+    Info = case is_overall_limiter(Name) of
+               true -> esockd_limiter:lookup({Zone, Name});
+               _ -> esockd_rate_limit:info(Cons)
+           end,
+    {Name, #{capacity => Cap,
+             interval => Intv,
+             tokens => maps:get(tokens, Info)}}.
+
+is_overall_limiter(overall_bytes_in) -> true;
+is_overall_limiter(overall_messages_in) -> true;
+is_overall_limiter(_) -> false.
+
+is_message_limiter(conn_messages_in) -> true;
+is_message_limiter(overall_messages_in) -> true;
+is_message_limiter(_) -> false.
 

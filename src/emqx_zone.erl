@@ -28,6 +28,7 @@
 -compile({inline,
           [ idle_timeout/1
           , publish_limit/1
+          , ratelimit/1
           , mqtt_frame_options/1
           , mqtt_strict_mode/1
           , max_packet_size/1
@@ -55,7 +56,9 @@
 
 %% Zone Option API
 -export([ idle_timeout/1
+        %% XXX: Dedeprecated at v4.2
         , publish_limit/1
+        , ratelimit/1
         , mqtt_frame_options/1
         , mqtt_strict_mode/1
         , max_packet_size/1
@@ -136,6 +139,10 @@ idle_timeout(Zone) ->
 -spec(publish_limit(zone()) -> maybe(esockd_rate_limit:config())).
 publish_limit(Zone) ->
     get_env(Zone, publish_limit).
+
+-spec(ratelimit(zone()) -> [emqx_limiter:specs()]).
+ratelimit(Zone) ->
+    get_env(Zone, ratelimit, []).
 
 -spec(mqtt_frame_options(zone()) -> emqx_frame:options()).
 mqtt_frame_options(Zone) ->

@@ -104,7 +104,7 @@ t_info(_) ->
                     socktype := tcp}, SockInfo).
 
 t_info_limiter(_) ->
-    St = st(#{limiter => emqx_limiter:init([])}),
+    St = st(#{limiter => emqx_limiter:init(external, [])}),
     ?assertEqual(undefined, emqx_connection:info(limiter, St)).
 
 t_stats(_) ->
@@ -279,11 +279,11 @@ t_ensure_rate_limit(_) ->
     State = emqx_connection:ensure_rate_limit(#{}, st(#{limiter => undefined})),
     ?assertEqual(undefined, emqx_connection:info(limiter, State)),
 
-    ok = meck:expect(emqx_limiter, check, fun(_, _) -> {ok, emqx_limiter:init([])} end),
+    ok = meck:expect(emqx_limiter, check, fun(_, _) -> {ok, emqx_limiter:init(external, [])} end),
     State1 = emqx_connection:ensure_rate_limit(#{}, st(#{limiter => #{}})),
     ?assertEqual(undefined, emqx_connection:info(limiter, State1)),
 
-    ok = meck:expect(emqx_limiter, check, fun(_, _) -> {pause, 3000, emqx_limiter:init([])} end),
+    ok = meck:expect(emqx_limiter, check, fun(_, _) -> {pause, 3000, emqx_limiter:init(external, [])} end),
     State2 = emqx_connection:ensure_rate_limit(#{}, st(#{limiter => #{}})),
     ?assertEqual(undefined, emqx_connection:info(limiter, State2)),
     ?assertEqual(blocked, emqx_connection:info(sockstate, State2)).
