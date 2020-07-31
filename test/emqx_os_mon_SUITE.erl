@@ -70,30 +70,3 @@ t_api(_) ->
     gen_server:stop(emqx_os_mon),
     ok.
 
-t_timeout(_) ->
-    ok = meck:new(emqx_vm),
-
-    ok = meck:expect(emqx_vm, cpu_util, fun() -> 0 end),
-    {ok, _} = emqx_os_mon:start_link([{cpu_check_interval, 1}]),
-    timer:sleep(1500),
-    gen_server:stop(emqx_os_mon),
-
-    ok = meck:expect(emqx_vm, cpu_util, fun() -> {error, test_case} end),
-    {ok, _} = emqx_os_mon:start_link([{cpu_check_interval, 1}]),
-    timer:sleep(1500),
-    gen_server:stop(emqx_os_mon),
-
-    ok = meck:expect(emqx_vm, cpu_util, fun() -> 90 end),
-    {ok, _} = emqx_os_mon:start_link([{cpu_check_interval, 1},
-                                      {cpu_high_watermark, 0.80},
-                                      {cpu_low_watermark, 0.60}]),
-    timer:sleep(1500),
-
-    emqx_os_mon:set_cpu_high_watermark(1.00),
-    timer:sleep(1500),
-
-    emqx_os_mon:set_cpu_low_watermark(0.95),
-    timer:sleep(1500),
-
-    gen_server:stop(emqx_os_mon),
-    ok = meck:unload(emqx_vm).

@@ -323,8 +323,8 @@ normalize_message(high_process_memory_usage, #{high_watermark := HighWatermark})
     list_to_binary(io_lib:format("Process memory usage is higher than ~p%", [HighWatermark]));
 normalize_message(high_cpu_usage, #{usage := Usage}) ->
     list_to_binary(io_lib:format("~p% cpu usage", [Usage]));
-normalize_message(too_many_processes, #{high_watermark := HighWatermark}) ->
-    list_to_binary(io_lib:format("High watermark: ~p%", [HighWatermark]));
+normalize_message(too_many_processes, #{usage := Usage}) ->
+    list_to_binary(io_lib:format("~p% process usage", [Usage]));
 normalize_message(partition, #{occurred := Node}) ->
     list_to_binary(io_lib:format("Partition occurs at node ~s", [Node]));
 normalize_message(_Name, _UnknownDetails) ->

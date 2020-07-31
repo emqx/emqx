@@ -25,14 +25,6 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-init_per_suite(Config) ->
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
-    Config.
-
-end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
-
 init_per_testcase(t_size_limit, Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([],
@@ -107,9 +99,6 @@ t_size_limit(_) ->
 t_validity_period(_) ->
     ok = emqx_alarm:activate(a),
     ok = emqx_alarm:deactivate(a),
-    dbg:tracer(),
-    dbg:p(all, c),
-    dbg:tpl(emqx_alarm, delete_expired_deactivated_alarms, cx),
     ?assertNotEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))),
     ct:sleep(2000),
     ?assertEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))).

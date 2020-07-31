@@ -79,20 +79,22 @@ set_cpu_low_watermark(Float) ->
 get_mem_check_interval() ->
     memsup:get_check_interval() div 1000.
 
-set_mem_check_interval(Seconds) ->
+set_mem_check_interval(Seconds) when Seconds < 60 ->
+    memsup:set_check_interval(1);
+set_mem_check_interval(Seconds) -> 
     memsup:set_check_interval(Seconds div 60).
 
 get_sysmem_high_watermark() ->
     memsup:get_sysmem_high_watermark().
 
 set_sysmem_high_watermark(Float) ->
-    memsup:set_sysmem_high_watermark(Float).
+    memsup:set_sysmem_high_watermark(Float / 100).
 
 get_procmem_high_watermark() ->
     memsup:get_procmem_high_watermark().
 
 set_procmem_high_watermark(Float) ->
-    memsup:set_procmem_high_watermark(Float).
+    memsup:set_procmem_high_watermark(Float / 100).
 
 call(Req) ->
     gen_server:call(?OS_MON, Req, infinity).
@@ -102,6 +104,9 @@ call(Req) ->
 %%--------------------------------------------------------------------
 
 init([Opts]) ->
+    set_mem_check_interval(proplists:get_value(mem_check_interval, Opts)),
+    set_sysmem_high_watermark(proplists:get_value(sysmem_high_watermark, Opts)),
+    set_procmem_high_watermark(proplists:get_value(procmem_high_watermark, Opts)),
     {ok, ensure_check_timer(#{cpu_high_watermark => proplists:get_value(cpu_high_watermark, Opts),
                               cpu_low_watermark => proplists:get_value(cpu_low_watermark, Opts),
                               cpu_check_interval => proplists:get_value(cpu_check_interval, Opts),
