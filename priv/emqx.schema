@@ -2157,3 +2157,11 @@ end}.
      {size_limit, cuttlefish:conf_get("alarm.size_limit", Conf)},
      {validity_period, cuttlefish:conf_get("alarm.validity_period", Conf)}]
 end}.
+
+%%--------------------------------------------------------------------
+%% Telemetry
+%%--------------------------------------------------------------------
+{mapping, "telemetry.enabled", "emqx.telemetry.enabled", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
