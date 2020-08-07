@@ -38,13 +38,8 @@
 
 -export([ enable/0
         , disable/0
-        , os_info/0
-        , license/0
-        , uptime/0
-        , emqx_version/0
-        , otp_version/0
-        , generate_uuid/0
-        % , get_uuid/0
+        , get_uuid/0
+        , get_telemetry/0
         ]).
 
 -import(proplists, [ get_value/2
@@ -64,7 +59,11 @@
 
           enabled :: boolean(),
 
+          url :: string(),
+
           report_interval :: non_neg_integer(),
+
+          http_opts :: httpc:http_options(),
 
           timer = undefined :: undefined | reference()
         }).
@@ -93,6 +92,12 @@ enable() ->
 disable() ->
     gen_server:call(?MODULE, disable).
 
+get_uuid() ->
+    gen_server:call(?MODULE, get_uuid).
+
+get_telemetry() ->
+    gen_server:call(?MODULE, get_telemetry).
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
@@ -104,33 +109,39 @@ init([Opts]) ->
               {local_content, true},
               {record_name, telemetry},
               {attributes, record_info(fields, telemetry)}]),
-    case mnesia:dirty_read(?TELEMETRY, ?UNIQUE_ID) of
-        [] ->
-            Enabled = get_value(enabled, Opts),
-            UUID = generate_uuid(),
-            mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
-                                                      uuid = UUID,
-                                                      enabled = Enabled}),
-            {ok, ensure_report_timer(#state{report_interval = timer:hours(7 * 24),
-                                            uuid = UUID,
-                                            enabled = Enabled})};
-        [#telemetry{uuid = UUID, enabled = Enabled} | _] ->
-            {ok, ensure_report_timer(#state{report_interval = timer:hours(7 * 24),
-                                            uuid = UUID,
-                                            enabled = Enabled})}
-    end.
+    State = #state{url = get_value(url, Opts),
+                   report_interval = timer:seconds(get_value(report_interval, Opts)),
+                   http_opts = get_value(http_opts, Opts)},
+    NState = case mnesia:dirty_read(?TELEMETRY, ?UNIQUE_ID) of
+                 [] ->
+                     Enabled = get_value(enabled, Opts),
+                     UUID = generate_uuid(),
+                     mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
+                                                               uuid = UUID,
+                                                               enabled = Enabled}),
+                     State#state{enabled = Enabled, uuid = UUID};
+                 [#telemetry{uuid = UUID, enabled = Enabled} | _] ->
+                     State#state{enabled = Enabled, uuid = UUID}
+             end,
+    {ok, ensure_first_report_timer(timer:seconds(1), NState)}.
 
 handle_call(enable, _From, State = #state{uuid = UUID}) ->
     mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
                                               uuid = UUID,
                                               enabled = true}),
-    {reply, ensure_report_timer(State#state{enabled = true})};
+    {reply, ok, ensure_report_timer(State#state{enabled = true})};
 
 handle_call(disable, _From, State = #state{uuid = UUID}) ->
     mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
                                               uuid = UUID,
                                               enabled = false}),
-    {reply, State#state{enabled = false}};
+    {reply, ok, State#state{enabled = false}};
+
+handle_call(get_uuid, _From, State = #state{uuid = UUID}) ->
+    {reply, {ok, UUID}, State};
+
+handle_call(get_telemetry, _From, State) ->
+    {reply, {ok, get_telemetry(State)}, State};
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
@@ -143,17 +154,8 @@ handle_cast(Msg, State) ->
 handle_info({timeout, TRef, time_to_report_telemetry_data}, State = #state{timer = TRef,
                                                                            enabled = false}) ->
     {noreply, State};
-handle_info({timeout, TRef, time_to_report_telemetry_data}, State = #state{timer = TRef,
-                                                                           uuid = UUID}) ->
-    OSInfo = os_info(),
-    [{emqx_version, emqx_version()},
-     {license, license()},
-     {os_name, get_value(os_name, OSInfo)},
-     {os_version, get_value(os_version, OSInfo)},
-     {otp_version, otp_version()},
-     {up_time, uptime()},
-     {uuid, UUID}],
-    
+handle_info({timeout, TRef, time_to_report_telemetry_data}, State = #state{timer = TRef}) ->
+    report_telemetry(State),
     {noreply, ensure_report_timer(State)};
 
 handle_info(Info, State) ->
@@ -170,6 +172,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+ensure_first_report_timer(FirstReportInterval, State) ->
+    State#state{timer = emqx_misc:start_timer(FirstReportInterval, time_to_report_telemetry_data)}.
+
 ensure_report_timer(State = #state{report_interval = ReportInterval}) ->
     State#state{timer = emqx_misc:start_timer(ReportInterval, time_to_report_telemetry_data)}.
 
@@ -180,14 +185,14 @@ emqx_version() ->
 license() ->
     case application:get_key(emqx, description) of
         {ok, "EMQ X Broker"} ->
-            [{edition, "community"}];
+            [{edition, <<"community">>}];
         {ok, "EMQ X Enterprise"} ->
             case erlang:function_exported(emqx_license_mgr, info, 0) of
                 false ->
-                    [{edition, "enterprise"}];
+                    [{edition, <<"enterprise">>}];
                 true ->
                     LicenseInfo = emqx_license_mgr:info(),
-                    [{edition, "enterprise"},
+                    [{edition, <<"enterprise">>},
                      {kind, get_value(type, LicenseInfo)}]
             end
     end.
@@ -239,6 +244,20 @@ otp_version() ->
 uptime() ->
     element(1, erlang:statistics(wall_clock)).
 
+node_list() ->
+    Nodes = lists:delete(node(), ekka_mnesia:running_nodes()),
+    lists:foldl(fun(Node, Acc) ->
+                    case rpc:call(Node, ?MODULE, get_uuid, []) of
+                        {badrpc, _Reason} ->
+                            Acc;
+                        UUID ->
+                            [{Node, UUID} | Acc]
+                    end
+                end, [], Nodes).
+
+node_name() ->
+    node().
+
 generate_uuid() ->
     MicroSeconds = erlang:system_time(microsecond),
     Timestamp = MicroSeconds * 10 + ?GREGORIAN_EPOCH_OFFSET,
@@ -249,3 +268,52 @@ generate_uuid() ->
     <<NClockSeq:16>> = <<1:1, 0:1, ClockSeq:14>>,
     <<Node:48>> = <<First:7, 1:1, Last:40>>,
     list_to_binary(io_lib:format("~.16B-~.16B-~.16B-~.16B-~.16B", [TimeLow, TimeMid, NTimeHigh, NClockSeq, Node])).
+
+get_telemetry(#state{uuid = UUID}) ->
+    OSInfo = os_info(),
+    [{emqx_version, bin(emqx_version())},
+     {license, license()},
+     {os_name, bin(get_value(os_name, OSInfo))},
+     {os_version, bin(get_value(os_version, OSInfo))},
+     {otp_version, bin(otp_version())},
+     {up_time, uptime()},
+     {uuid, UUID},
+     {node, node_name()},
+     {nodes, node_list()}].
+
+report_telemetry(State = #state{url = URL,
+                                http_opts = HTTPOpts}) ->
+    Data = get_telemetry(State),
+    case emqx_json:safe_encode(Data) of
+        {ok, Bin} ->
+            case httpc_request(post, URL, [], [], Bin, HTTPOpts) of
+                {ok, {{_, 204, _}, _, _}} ->
+                    ?LOG(debug, "Report ~p successfully", [Bin]);
+                {ok, {{_, StatusCode, ReasonPhrase}, _, Body}} ->
+                    ?LOG(error, "Report ~p failed due to ~p ~s(~s)", [Bin, StatusCode, ReasonPhrase, Body]);
+                {error, Reason} ->
+                    ?LOG(error, "Report ~p failed due to ~p", [Bin, Reason])
+            end;
+        {error, Reason} ->
+            ?LOG(error, "Encode ~p failed due to ~p", [Data, Reason])
+    end.
+
+httpc_request(Method, URL, QueryParams, Headers, Body, HTTPOptions) ->
+    NewURL = append_query_params_to_url(URL, QueryParams),
+    httpc:request(Method, {NewURL, Headers, "application/json", Body}, HTTPOptions, []).
+
+append_query_params_to_url(URL, []) ->
+    URL;
+append_query_params_to_url(URL, QueryParams) ->
+    do_append_query_params_to_url(URL ++ "?", QueryParams).
+
+do_append_query_params_to_url(URL, [{K, V}]) ->
+    URL ++ http_uri:encode(K) ++ "=" ++ http_uri:encode(V);
+do_append_query_params_to_url(URL, [{K, V} | More]) ->
+    NewURL = URL ++ http_uri:encode(K) ++ "=" ++ http_uri:encode(V) ++ "&",
+    do_append_query_params_to_url(NewURL, More).
+
+bin(L) when is_list(L) ->
+    list_to_binary(L);
+bin(B) when is_binary(B) ->
+    B.
