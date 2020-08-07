@@ -1861,15 +1861,22 @@ end}.
               end,
 
     TcpListeners = fun(Type, Name) ->
-                       Prefix = string:join(["listener", Type, Name], "."),
-                       case cuttlefish:conf_get(Prefix, Conf, undefined) of
-                           undefined -> [];
-                           ListenOn  ->
-                               [{Atom(Type), ListenOn, [{deflate_options, DeflateOpts(Prefix)},
-                                                        {tcp_options, TcpOpts(Prefix)} | LisOpts(Prefix)]}]
-                       end
+                      Prefix = string:join(["listener", Type, Name], "."),
+                      ListenOnN = case cuttlefish:conf_get(Prefix, Conf, undefined) of
+                          undefined -> [];
+                          ListenOn  ->
+                              case ListenOn of
+                                  {Ip, Port} ->
+                                          case inet:parse_address(Ip) of
+                                              {ok ,R} -> {R, Port};
+                                              _ -> {Ip, Port}
+                                          end;
+                                  Other -> Other
+                              end
+                      end,
+                      [{Atom(Type), ListenOnN, [{deflate_options, DeflateOpts(Prefix)},
+                                              {tcp_options, TcpOpts(Prefix)} | LisOpts(Prefix)]}]
                    end,
-
     SslListeners = fun(Type, Name) ->
                        Prefix = string:join(["listener", Type, Name], "."),
                        case cuttlefish:conf_get(Prefix, Conf, undefined) of
