@@ -252,7 +252,7 @@ t_dispatch(_) ->
     Topic = <<"foo">>,
     ?assertEqual({error, no_subscribers}, emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})),
     emqx:subscribe(Topic, #{qos => 2, share => <<"group1">>}),
-    ?assertEqual(ok, emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})).
+    ?assertEqual({ok, 1}, emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})).
 
 % t_unsubscribe(_) ->
 %     error('TODO').

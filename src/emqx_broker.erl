@@ -282,37 +282,31 @@ forward(Node, To, Delivery, sync) ->
 
 -spec(dispatch(emqx_topic:topic(), emqx_types:delivery()) -> emqx_types:deliver_result()).
 dispatch(Topic, #delivery{message = Msg}) ->
-    case subscribers(Topic) of
-        [] -> ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
-              ok = inc_dropped_cnt(Msg),
-              {error, no_subscribers};
-        [Sub] -> %% optimize?
-            dispatch(Sub, Topic, Msg);
-        Subs  -> lists:foldl(
-                   fun(Sub, Res) ->
-                           case dispatch(Sub, Topic, Msg) of
-                               ok -> Res;
-                               Err -> Err
-                           end
-                   end, ok, Subs)
+    DispN = lists:foldl(
+                fun(Sub, N) ->
+                    N + dispatch(Sub, Topic, Msg)
+                end, 0, subscribers(Topic)),
+    case DispN of
+        0 ->
+            ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
+            ok = inc_dropped_cnt(Msg),
+            {error, no_subscribers};
+        _ ->
+            {ok, DispN}
     end.
 
 dispatch(SubPid, Topic, Msg) when is_pid(SubPid) ->
     case erlang:is_process_alive(SubPid) of
         true ->
-            SubPid ! {deliver, Topic, Msg},
-            ok;
-        false -> {error, subscriber_die}
+            SubPid ! {deliver, Topic, Msg}, 1;
+        false -> 0
     end;
 
 dispatch({shard, I}, Topic, Msg) ->
     lists:foldl(
-        fun(SubPid, Res) ->
-            case dispatch(SubPid, Topic, Msg) of
-                ok -> Res;
-                Err -> Err
-            end
-        end, ok, subscribers({shard, Topic, I})).
+        fun(SubPid, N) ->
+            N + dispatch(SubPid, Topic, Msg)
+        end, 0, subscribers({shard, Topic, I})).
 
 -compile({inline, [inc_dropped_cnt/1]}).
 inc_dropped_cnt(Msg) ->
