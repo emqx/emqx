@@ -181,9 +181,15 @@
 -type(subscriber() :: {pid(), subid()}).
 -type(payload() :: binary() | iodata()).
 -type(message() :: #message{}).
--type(flag() :: atom()).
+-type(flag() :: sys | dup | retain | atom()).
 -type(flags() :: #{flag() := boolean()}).
--type(headers() :: map()).
+-type(headers() :: #{proto_ver => ver(),
+                     protocol => protocol(),
+                     username => username(),
+                     peerhost => peerhost(),
+                     properties => properties(),
+                     atom() => term()}).
+
 -type(banned() :: #banned{}).
 -type(deliver() :: {deliver, topic(), message()}).
 -type(delivery() :: #delivery{}).
