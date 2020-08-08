@@ -62,16 +62,16 @@ t_check_conn(_) ->
     #{conn_bytes_in := #{tokens := 0}} = emqx_limiter:info(Limiter4).
 
 t_check_overall(_) ->
-    Limiter = emqx_limiter:init(external, [{overall_bytes_in, {100, 1}}]),
+    Limiter = emqx_limiter:init(external, [{overall_messages_routing, {100, 1}}]),
 
-    {ok, Limiter2} = emqx_limiter:check(#{cnt => 0, oct => 1}, Limiter),
-    #{overall_bytes_in := #{tokens := 99}} = emqx_limiter:info(Limiter2),
+    {ok, Limiter2} = emqx_limiter:check(#{cnt => 1, oct => 0}, Limiter),
+    #{overall_messages_routing := #{tokens := 99}} = emqx_limiter:info(Limiter2),
 
     %% XXX: P = 1/r = 1/100 * 1000 = 10ms ?
-    {pause, 1000, Limiter3} = emqx_limiter:check(#{cnt => 0, oct => 100}, Limiter),
-    #{overall_bytes_in := #{tokens := 0}} = emqx_limiter:info(Limiter2),
+    {pause, _, Limiter3} = emqx_limiter:check(#{cnt => 100, oct => 0}, Limiter),
+    #{overall_messages_routing := #{tokens := 0}} = emqx_limiter:info(Limiter2),
 
     %% XXX: P = 10000/r = 10000/100 * 1000 = 100s ?
-    {pause, 1000, Limiter4} = emqx_limiter:check(#{cnt => 0, oct => 10000}, Limiter3),
-    #{overall_bytes_in := #{tokens := 0}} = emqx_limiter:info(Limiter4).
+    {pause, _, Limiter4} = emqx_limiter:check(#{cnt => 10000, oct => 0}, Limiter3),
+    #{overall_messages_routing := #{tokens := 0}} = emqx_limiter:info(Limiter4).
 

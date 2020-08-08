@@ -47,6 +47,7 @@
           , force_gc_policy/1
           , force_shutdown_policy/1
           , response_information/1
+          , quota_policy/1
           , get_env/2
           , get_env/3
           ]}).
@@ -77,6 +78,7 @@
         , force_gc_policy/1
         , force_shutdown_policy/1
         , response_information/1
+        , quota_policy/1
         ]).
 
 -export([ init_gc_state/1
@@ -216,6 +218,10 @@ force_shutdown_policy(Zone) ->
 -spec(response_information(zone()) -> string()).
 response_information(Zone) ->
     get_env(Zone, response_information).
+
+-spec(quota_policy(zone()) -> emqx_quota:policy()).
+quota_policy(Zone) ->
+    get_env(Zone, quota, []).
 
 %%--------------------------------------------------------------------
 %% APIs
