@@ -992,19 +992,15 @@ end}.
   {default, off}
 ]}.
 
-{mapping, "zone.$name.conn_rate_limit.messages_in", "emqx.zones", [
+{mapping, "zone.$name.rate_limit.messages_in", "emqx.zones", [
   {datatype, string}
 ]}.
 
-{mapping, "zone.$name.conn_rate_limit.bytes_in", "emqx.zones", [
+{mapping, "zone.$name.rate_limit.bytes_in", "emqx.zones", [
   {datatype, string}
 ]}.
 
-{mapping, "zone.$name.overall_rate_limit.messages_in", "emqx.zones", [
-  {datatype, string}
-]}.
-
-{mapping, "zone.$name.overall_rate_limit.bytes_in", "emqx.zones", [
+{mapping, "zone.$name.quota.routing.messages", "emqx.zones", [
   {datatype, string}
 ]}.
 
@@ -1113,14 +1109,19 @@ end}.
                    {mountpoint, iolist_to_binary(Val)};
                (["response_information"], Val) ->
                    {response_information, iolist_to_binary(Val)};
-               (["conn_rate_limit", "messages_in"], Val) ->
+               (["rate_limit", "conn_messages_in"], Val) ->
                     {ratelimit, {conn_messages_in, Ratelimit(Val)}};
-               (["conn_rate_limit", "bytes_in"], Val) ->
+               (["rate_limit", "conn_bytes_in"], Val) ->
                     {ratelimit, {conn_bytes_in, Ratelimit(Val)}};
-               (["overall_rate_limit", "messages_in"], Val) ->
-                    {ratelimit, {overall_messages_in, Ratelimit(Val)}};
-               (["overall_rate_limit", "bytes_in"], Val) ->
-                    {ratelimit, {overall_bytes_in, Ratelimit(Val)}};
+               (["quota", "routing", "messages"], Val) ->
+                    Policy = case string:tokens(Val, "|") of
+                                 [T] ->
+                                     [{conn_messages_routing, Ratelimit(T)}];
+                                 [T1, T2] ->
+                                     [{conn_messages_routing, Ratelimit(T1)},
+                                      {overall_messages_routing, Ratelimit(T2)}]
+                             end,
+                    {quota, Policy};
                ([Opt], Val) ->
                     {list_to_atom(Opt), Val}
             end,

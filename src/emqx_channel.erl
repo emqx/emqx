@@ -73,6 +73,8 @@
           alias_maximum :: maybe(map()),
           %% Authentication Data Cache
           auth_cache :: maybe(map()),
+          %% Quota checkers
+          quota :: maybe(emqx_limiter:limiter()),
           %% Timers
           timers :: #{atom() => disabled | maybe(reference())},
           %% Conn State
@@ -103,7 +105,8 @@
           retry_timer  => retry_delivery,
           await_timer  => expire_awaiting_rel,
           expire_timer => expire_session,
-          will_timer   => will_message
+          will_timer   => will_message,
+          quota_timer  => reset_quota_flag
          }).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
@@ -167,6 +170,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Protocol = maps:get(protocol, ConnInfo, mqtt),
     MountPoint = emqx_zone:mountpoint(Zone),
+    QuotaPolicy = emqx_zone:quota_policy(Zone),
     ClientInfo = setting_peercert_infos(
                    Peercert,
                    #{zone         => Zone,
@@ -185,6 +189,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
                                outbound => #{}
                               },
              auth_cache = #{},
+             quota      = emqx_limiter:init(Zone, QuotaPolicy),
              timers     = #{},
              conn_state = idle,
              takeover   = false,
@@ -441,7 +446,8 @@ process_connect(AckProps, Channel = #channel{conninfo = #{clean_start := CleanSt
 
 process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
                 Channel = #channel{clientinfo = #{zone := Zone}}) ->
-    case pipeline([fun process_alias/2,
+    case pipeline([fun check_quota_exceeded/2,
+                   fun process_alias/2,
                    fun check_pub_alias/2,
                    fun check_pub_acl/2,
                    fun check_pub_caps/2
@@ -449,23 +455,35 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
         {ok, NPacket, NChannel} ->
             Msg = packet_to_message(NPacket, NChannel),
             do_publish(PacketId, Msg, NChannel);
-        {error, ReasonCode, NChannel} when ReasonCode =:= ?RC_NOT_AUTHORIZED ->
+        {error, Rc = ?RC_NOT_AUTHORIZED, NChannel} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s.",
-                 [Topic, emqx_reason_codes:text(ReasonCode)]),
+                 [Topic, emqx_reason_codes:text(Rc)]),
             case emqx_zone:get_env(Zone, acl_deny_action, ignore) of
                 ignore ->
                     case QoS of
                        ?QOS_0 -> {ok, NChannel};
                         _ ->
-                           handle_out(puback, {PacketId, ReasonCode}, NChannel)
+                           handle_out(puback, {PacketId, Rc}, NChannel)
                     end;
                 disconnect ->
-                    handle_out(disconnect, ReasonCode, NChannel)
+                    handle_out(disconnect, Rc, NChannel)
             end;
-        {error, ReasonCode, NChannel} ->
+        {error, Rc = ?RC_QUOTA_EXCEEDED, NChannel} ->
+            ?LOG(warning, "Cannot publish messages to ~s due to ~s.",
+                 [Topic, emqx_reason_codes:text(Rc)]),
+            case QoS of
+                ?QOS_0 ->
+                    ok = emqx_metrics:inc('packets.publish.dropped'),
+                    {ok, NChannel};
+                ?QOS_1 ->
+                    handle_out(puback, {PacketId, Rc}, NChannel);
+                ?QOS_2 ->
+                    handle_out(pubrec, {PacketId, Rc}, NChannel)
+            end;
+        {error, Rc, NChannel} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s.",
-                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-            handle_out(disconnect, ReasonCode, NChannel)
+                 [Topic, emqx_reason_codes:text(Rc)]),
+            handle_out(disconnect, Rc, NChannel)
     end.
 
 packet_to_message(Packet, #channel{
@@ -487,22 +505,24 @@ packet_to_message(Packet, #channel{
               peerhost => PeerHost})).
 
 do_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel) ->
-    _ = emqx_broker:publish(Msg),
-    {ok, Channel};
+    Result = emqx_broker:publish(Msg),
+    NChannel = ensure_quota(Result, Channel),
+    {ok, NChannel};
 
 do_publish(PacketId, Msg = #message{qos = ?QOS_1}, Channel) ->
-    Results = emqx_broker:publish(Msg),
-    RC = puback_reason_code(Results),
-    handle_out(puback, {PacketId, RC}, Channel);
+    PubRes = emqx_broker:publish(Msg),
+    RC = puback_reason_code(PubRes),
+    NChannel = ensure_quota(PubRes, Channel),
+    handle_out(puback, {PacketId, RC}, NChannel);
 
 do_publish(PacketId, Msg = #message{qos = ?QOS_2},
            Channel = #channel{session = Session}) ->
     case emqx_session:publish(PacketId, Msg, Session) of
-        {ok, Results, NSession} ->
-            RC = puback_reason_code(Results),
-            NChannel = Channel#channel{session = NSession},
-            NChannel1 = ensure_timer(await_timer, NChannel),
-            handle_out(pubrec, {PacketId, RC}, NChannel1);
+        {ok, PubRes, NSession} ->
+            RC = puback_reason_code(PubRes),
+            NChannel1 = ensure_timer(await_timer, Channel#channel{session = NSession}),
+            NChannel2 = ensure_quota(PubRes, NChannel1),
+            handle_out(pubrec, {PacketId, RC}, NChannel2);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ok = emqx_metrics:inc('packets.publish.inuse'),
             handle_out(pubrec, {PacketId, RC}, Channel);
@@ -511,6 +531,21 @@ do_publish(PacketId, Msg = #message{qos = ?QOS_2},
                  "due to awaiting_rel is full.", [PacketId]),
             ok = emqx_metrics:inc('packets.publish.dropped'),
             handle_out(pubrec, {PacketId, RC}, Channel)
+    end.
+
+ensure_quota(_, Channel = #channel{quota = undefined}) ->
+    Channel;
+ensure_quota(PubRes, Channel = #channel{quota = Limiter}) ->
+    Cnt = lists:foldl(
+              fun({_, _, ok}, N) -> N + 1;
+                 ({_, _, {ok, I}}, N) -> N + I;
+                 (_, N) -> N
+              end, 1, PubRes),
+    case emqx_limiter:check(#{cnt => Cnt, oct => 0}, Limiter) of
+        {ok, NLimiter} ->
+            Channel#channel{quota = NLimiter};
+        {pause, Intv, NLimiter} ->
+            ensure_timer(quota_timer, Intv, Channel#channel{quota = NLimiter})
     end.
 
 -compile({inline, [puback_reason_code/1]}).
@@ -927,6 +962,9 @@ handle_timeout(_TRef, will_message, Channel = #channel{will_msg = WillMsg}) ->
     (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
     {ok, clean_timer(will_timer, Channel#channel{will_msg = undefined})};
 
+handle_timeout(_TRef, reset_quota_flag, Channel) ->
+    {ok, clean_timer(quota_timer, Channel)};
+
 handle_timeout(_TRef, Msg, Channel) ->
     ?LOG(error, "Unexpected timeout: ~p~n", [Msg]),
     {ok, Channel}.
@@ -1242,6 +1280,15 @@ packing_alias(Packet = #mqtt_packet{
             end
     end;
 packing_alias(Packet, Channel) -> {Packet, Channel}.
+
+%%--------------------------------------------------------------------
+%% Check quota state
+
+check_quota_exceeded(_, #channel{timers = Timers}) ->
+    case maps:get(quota_timer, Timers, undefined) of
+        undefined -> ok;
+        _ -> {error, ?RC_QUOTA_EXCEEDED}
+    end.
 
 %%--------------------------------------------------------------------
 %% Check Pub Alias

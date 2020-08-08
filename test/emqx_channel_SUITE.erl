@@ -171,7 +171,7 @@ t_handle_in_qos1_publish(_) ->
         emqx_channel:handle_in(Publish, channel(#{conn_state => connected})).
 
 t_handle_in_qos2_publish(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, 1}] end),
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 1}}] end),
     Channel = channel(#{conn_state => connected, session => session()}),
     Publish1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
     {ok, ?PUBREC_PACKET(1, ?RC_SUCCESS), Channel1} =
@@ -354,6 +354,57 @@ t_process_unsubscribe(_) ->
     ok = meck:expect(emqx_session, unsubscribe, fun(_, _, _, Session) -> {ok, Session} end),
     TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
     {[?RC_SUCCESS], _Channel} = emqx_channel:process_unsubscribe(TopicFilters, #{}, channel()).
+
+t_quota_qos0(_) ->
+    esockd_limiter:start_link(), Cnter = counters:new(1, []),
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
+    ok = meck:expect(emqx_metrics, inc, fun('packets.publish.dropped') -> counters:add(Cnter, 1, 1) end),
+    ok = meck:expect(emqx_metrics, val, fun('packets.publish.dropped') -> counters:get(Cnter, 1) end),
+    Chann = channel(#{conn_state => connected, quota => quota()}),
+    Pub = ?PUBLISH_PACKET(?QOS_0, <<"topic">>, undefined, <<"payload">>),
+
+    M1 = emqx_metrics:val('packets.publish.dropped'),
+    {ok, Chann1} = emqx_channel:handle_in(Pub, Chann),
+    {ok, Chann2} = emqx_channel:handle_in(Pub, Chann1),
+    M1 = emqx_metrics:val('packets.publish.dropped') - 1,
+    {ok, Chann3} = emqx_channel:handle_timeout(ref, reset_quota_flag, Chann2),
+    {ok, _} = emqx_channel:handle_in(Pub, Chann3),
+    M1 = emqx_metrics:val('packets.publish.dropped') - 1,
+
+    ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
+    ok = meck:expect(emqx_metrics, inc, fun(_, _) -> ok end),
+    esockd_limiter:stop().
+
+t_quota_qos1(_) ->
+    esockd_limiter:start_link(),
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
+    Chann = channel(#{conn_state => connected, quota => quota()}),
+    Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
+    %% Quota per connections
+    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub, Chann),
+    {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), Chann2} = emqx_channel:handle_in(Pub, Chann1),
+    {ok, Chann3} = emqx_channel:handle_timeout(ref, reset_quota_flag, Chann2),
+    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann4} = emqx_channel:handle_in(Pub, Chann3),
+    %% Quota in overall
+    {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub, Chann4),
+    esockd_limiter:stop().
+
+t_quota_qos2(_) ->
+    esockd_limiter:start_link(),
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
+    Chann = channel(#{conn_state => connected, quota => quota()}),
+    Pub1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
+    Pub2 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 2, <<"payload">>),
+    Pub3 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 3, <<"payload">>),
+    Pub4 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 4, <<"payload">>),
+    %% Quota per connections
+    {ok, ?PUBREC_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub1, Chann),
+    {ok, ?PUBREC_PACKET(2, ?RC_QUOTA_EXCEEDED), Chann2} = emqx_channel:handle_in(Pub2, Chann1),
+    {ok, Chann3} = emqx_channel:handle_timeout(ref, reset_quota_flag, Chann2),
+    {ok, ?PUBREC_PACKET(3, ?RC_SUCCESS), Chann4} = emqx_channel:handle_in(Pub3, Chann3),
+    %% Quota in overall
+    {ok, ?PUBREC_PACKET(4, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub4, Chann4),
+    esockd_limiter:stop().
 
 %%--------------------------------------------------------------------
 %% Test cases for handle_deliver
@@ -696,4 +747,9 @@ session(InitFields) when is_map(InitFields) ->
               end,
               emqx_session:init(#{zone => channel}, #{receive_maximum => 0}),
               InitFields).
+
+%% conn: 5/s; overall: 10/s
+quota() ->
+    emqx_limiter:init(zone, [{conn_messages_routing, {5, 1}},
+                             {overall_messages_routing, {10, 1}}]).
 

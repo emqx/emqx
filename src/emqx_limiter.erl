@@ -14,6 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% Ratelimit or Quota checker
 -module(emqx_limiter).
 
 -include("types.hrl").
@@ -27,7 +28,7 @@
 -record(limiter, {
           %% Zone
           zone :: emqx_zone:zone(),
-          %% All checkers
+          %% Checkers
           checkers :: [checker()]
          }).
 
@@ -39,8 +40,8 @@
 
 -type(name() :: conn_bytes_in
               | conn_messages_in
-              | overall_bytes_in
-              | overall_messages_in
+              | conn_messages_routing
+              | overall_messages_routing
               ).
 
 -type(spec() :: {name(), esockd_rate_limit:config()}).
@@ -62,9 +63,9 @@
            maybe(esockd_rate_limit:config()),
            maybe(esockd_rate_limit:config()), specs())
      -> maybe(limiter())).
-init(Zone, PubLimit, BytesIn, RateLimit) ->
+init(Zone, PubLimit, BytesIn, Specs) ->
     Merged = maps:merge(#{conn_messages_in => PubLimit,
-                          conn_bytes_in => BytesIn}, maps:from_list(RateLimit)),
+                          conn_bytes_in => BytesIn}, maps:from_list(Specs)),
     Filtered = maps:filter(fun(_, V) -> V /= undefined end, Merged),
     init(Zone, maps:to_list(Filtered)).
 
@@ -144,11 +145,10 @@ get_info(Zone, #{name := Name, capacity := Cap,
              interval => Intv,
              tokens => maps:get(tokens, Info)}}.
 
-is_overall_limiter(overall_bytes_in) -> true;
-is_overall_limiter(overall_messages_in) -> true;
+is_overall_limiter(overall_messages_routing) -> true;
 is_overall_limiter(_) -> false.
 
 is_message_limiter(conn_messages_in) -> true;
-is_message_limiter(overall_messages_in) -> true;
+is_message_limiter(conn_messages_routing) -> true;
+is_message_limiter(overall_messages_routing) -> true;
 is_message_limiter(_) -> false.
-

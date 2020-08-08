@@ -193,7 +193,7 @@
 -type(banned() :: #banned{}).
 -type(deliver() :: {deliver, topic(), message()}).
 -type(delivery() :: #delivery{}).
--type(deliver_result() :: ok | {error, term()}).
+-type(deliver_result() :: ok | {ok, non_neg_integer()} | {error, term()}).
 -type(publish_result() :: [{node(), topic(), deliver_result()} |
                            {share, topic(), deliver_result()}]).
 -type(route() :: #route{}).
