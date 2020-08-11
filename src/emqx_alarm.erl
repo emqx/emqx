@@ -23,6 +23,12 @@
 
 -logger_header("[Alarm Handler]").
 
+%% Mnesia bootstrap
+-export([mnesia/1]).
+
+-boot_mnesia({mnesia, [boot]}).
+-copy_mnesia({mnesia, [copy]}).
+
 -export([ start_link/1
         , stop/0
         ]).
@@ -89,6 +95,27 @@
 -endif.
 
 %%--------------------------------------------------------------------
+%% Mnesia bootstrap
+%%--------------------------------------------------------------------
+
+mnesia(boot) ->
+    ok = ekka_mnesia:create_table(?ACTIVATED_ALARM,
+             [{type, set},
+              {disc_copies, [node()]},
+              {local_content, true},
+              {record_name, activated_alarm},
+              {attributes, record_info(fields, activated_alarm)}]),
+    ok = ekka_mnesia:create_table(?DEACTIVATED_ALARM,
+             [{type, ordered_set},
+              {disc_copies, [node()]},
+              {local_content, true},
+              {record_name, deactivated_alarm},
+              {attributes, record_info(fields, deactivated_alarm)}]);
+mnesia(copy) ->
+    ok = ekka_mnesia:copy_table(?ACTIVATED_ALARM),
+    ok = ekka_mnesia:copy_table(?DEACTIVATED_ALARM).
+
+%%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
@@ -130,18 +157,6 @@ init([]) ->
     Opts = [{actions, [log, publish]}],
     init([Opts]);
 init([Opts]) ->
-    ok = ekka_mnesia:create_table(?ACTIVATED_ALARM,
-             [{type, set},
-              {disc_copies, [node()]},
-              {local_content, true},
-              {record_name, activated_alarm},
-              {attributes, record_info(fields, activated_alarm)}]),
-    ok = ekka_mnesia:create_table(?DEACTIVATED_ALARM,
-             [{type, ordered_set},
-              {disc_copies, [node()]},
-              {local_content, true},
-              {record_name, deactivated_alarm},
-              {attributes, record_info(fields, deactivated_alarm)}]),
     deactivate_all_alarms(),
     Actions = proplists:get_value(actions, Opts),
     SizeLimit = proplists:get_value(size_limit, Opts),
