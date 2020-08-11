@@ -22,6 +22,12 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+%% Mnesia bootstrap
+-export([mnesia/1]).
+
+-boot_mnesia({mnesia, [boot]}).
+-copy_mnesia({mnesia, [copy]}).
+
 %% emqx_gen_mod callbacks
 -export([ load/1
         , unload/1
@@ -49,6 +55,20 @@
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 -define(MAX_INTERVAL, 4294967).
+
+%%--------------------------------------------------------------------
+%% Mnesia bootstrap
+%%--------------------------------------------------------------------
+
+mnesia(boot) ->
+    ok = ekka_mnesia:create_table(?TAB, [
+                {type, ordered_set},
+                {disc_copies, [node()]},
+                {local_content, true},
+                {record_name, delayed_message},
+                {attributes, record_info(fields, delayed_message)}]);
+mnesia(copy) ->
+    ok = ekka_mnesia:copy_table(?TAB, disc_copies).
 
 %%--------------------------------------------------------------------
 %% Load/Unload
@@ -107,13 +127,6 @@ store(DelayedMsg) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ok = ekka_mnesia:create_table(?TAB, [
-                {type, ordered_set},
-                {disc_copies, [node()]},
-                {local_content, true},
-                {record_name, delayed_message},
-                {attributes, record_info(fields, delayed_message)}]),
-    ok = ekka_mnesia:copy_table(?TAB, disc_copies),
     {ok, ensure_publish_timer(#{timer => undefined, publish_at => 0})}.
 
 handle_call({store, DelayedMsg = #delayed_message{key = Key}}, _From, State) ->
