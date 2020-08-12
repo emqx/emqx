@@ -23,6 +23,12 @@
 
 -logger_header("[Telemetry]").
 
+%% Mnesia bootstrap
+-export([mnesia/1]).
+
+-boot_mnesia({mnesia, [boot]}).
+-copy_mnesia({mnesia, [copy]}).
+
 -export([ start_link/1
         , stop/0
         ]).
@@ -41,6 +47,11 @@
         , get_uuid/0
         , get_telemetry/0
         ]).
+
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
 
 -import(proplists, [ get_value/2
                    , get_value/3
@@ -75,6 +86,20 @@
 -define(UNIQUE_ID, 9527).
 
 -define(TELEMETRY, emqx_telemetry).
+
+%%--------------------------------------------------------------------
+%% Mnesia bootstrap
+%%--------------------------------------------------------------------
+
+mnesia(boot) ->
+    ok = ekka_mnesia:create_table(?TELEMETRY,
+             [{type, set},
+              {disc_copies, [node()]},
+              {local_content, true},
+              {record_name, telemetry},
+              {attributes, record_info(fields, telemetry)}]);
+mnesia(copy) ->
+    ok = ekka_mnesia:copy_table(?TELEMETRY, disc_copies).
 
 %%--------------------------------------------------------------------
 %% API
@@ -244,19 +269,41 @@ otp_version() ->
 uptime() ->
     element(1, erlang:statistics(wall_clock)).
 
-node_list() ->
+nodes_uuid() ->
     Nodes = lists:delete(node(), ekka_mnesia:running_nodes()),
     lists:foldl(fun(Node, Acc) ->
                     case rpc:call(Node, ?MODULE, get_uuid, []) of
                         {badrpc, _Reason} ->
                             Acc;
                         UUID ->
-                            [{Node, UUID} | Acc]
+                            [UUID | Acc]
                     end
                 end, [], Nodes).
 
-node_name() ->
-    node().
+active_plugins() ->
+    lists:foldl(fun(#plugin{name = Name, active = Active}, Acc) ->
+                        case Active of
+                            true -> [Name | Acc];
+                            false -> Acc
+                        end
+                    end, [], emqx_plugins:list()).
+
+active_modules() ->
+    lists:foldl(fun({Name, Persistent}, Acc) ->
+                    case Persistent of
+                        true -> [Name | Acc];
+                        false -> Acc
+                    end
+                end, [], emqx_modules:list()).
+
+num_clients() ->
+    emqx_stats:getstat('connections.count').
+
+messages_sent() ->
+    emqx_metrics:val('messages.sent').
+
+messages_received() ->
+    emqx_metrics:val('messages.received').
 
 generate_uuid() ->
     MicroSeconds = erlang:system_time(microsecond),
@@ -278,8 +325,12 @@ get_telemetry(#state{uuid = UUID}) ->
      {otp_version, bin(otp_version())},
      {up_time, uptime()},
      {uuid, UUID},
-     {node, node_name()},
-     {nodes, node_list()}].
+     {nodes_uuid, nodes_uuid()},
+     {active_plugins, active_plugins()},
+     {active_modules, active_modules()},
+     {num_clients, num_clients()},
+     {messages_received, messages_received()},
+     {messages_sent, messages_sent()}].
 
 report_telemetry(State = #state{url = URL,
                                 http_opts = HTTPOpts}) ->

@@ -2211,17 +2211,17 @@ end}.
              ],
   SSLOpts = Filter(SSLOpts0),
   URLWithoutScheme = lists:foldl(fun(Scheme, Acc) ->
-                                   [NewURL | _] = string:tokens(Acc, Scheme),
+                                   [NewURL | _] = binary:split(Acc, Scheme, [global, trim_all]),
                                    NewURL
                                  end,
-                                 cuttlefish:conf_get("telemetry.url", Conf),
-                                 ["http://", "https://"]),
+                                 list_to_binary(cuttlefish:conf_get("telemetry.url", Conf)),
+                                 [<<"http://">>, <<"https://">>]),
   HTTPSEnabled = cuttlefish:conf_get("telemetry.https.enabled", Conf),
   Scheme = case HTTPSEnabled of
              true -> "https://";
              false -> "http://"
            end,
-  URL = Scheme ++ URLWithoutScheme,
+  URL = Scheme ++ binary_to_list(URLWithoutScheme),
   HTTPOpts = case HTTPSEnabled of
                true -> [{ssl, SSLOpts}];
                false -> []
