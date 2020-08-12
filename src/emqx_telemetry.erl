@@ -216,7 +216,7 @@ license() ->
                 false ->
                     [{edition, <<"enterprise">>}];
                 true ->
-                    LicenseInfo = emqx_license_mgr:info(),
+                    LicenseInfo = erlang:apply(emqx_license_mgr, info, []),
                     [{edition, <<"enterprise">>},
                      {kind, get_value(type, LicenseInfo)}]
             end
