@@ -56,9 +56,9 @@ t_get_telemetry(_) ->
 
 t_enable(_) ->
     ok = emqx_telemetry:enable(),
-    {state, _, true, _, _, _, _} = sys:get_state(emqx_telemetry),
+    ?assertEqual(true, emqx_telemetry:is_enabled()),
     ok = emqx_telemetry:disable(),
-    {state, _, false, _, _, _, _} = sys:get_state(emqx_telemetry).
+    ?assertEqual(false, emqx_telemetry:is_enabled()).
 
 bin(L) when is_list(L) ->
     list_to_binary(L);

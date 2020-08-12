@@ -44,6 +44,7 @@
 
 -export([ enable/0
         , disable/0
+        , is_enabled/0
         , get_uuid/0
         , get_telemetry/0
         ]).
@@ -117,6 +118,9 @@ enable() ->
 disable() ->
     gen_server:call(?MODULE, disable).
 
+is_enabled() ->
+    gen_server:call(?MODULE, is_enabled).
+
 get_uuid() ->
     gen_server:call(?MODULE, get_uuid).
 
@@ -161,6 +165,9 @@ handle_call(disable, _From, State = #state{uuid = UUID}) ->
                                               uuid = UUID,
                                               enabled = false}),
     {reply, ok, State#state{enabled = false}};
+
+handle_call(is_enabled, _From, State = #state{enabled = Enabled}) ->
+    {reply, Enabled, State};
 
 handle_call(get_uuid, _From, State = #state{uuid = UUID}) ->
     {reply, {ok, UUID}, State};
