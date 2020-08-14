@@ -2165,3 +2165,28 @@ end}.
      {size_limit, cuttlefish:conf_get("alarm.size_limit", Conf)},
      {validity_period, cuttlefish:conf_get("alarm.validity_period", Conf)}]
 end}.
+
+%%--------------------------------------------------------------------
+%% Telemetry
+%%--------------------------------------------------------------------
+{mapping, "telemetry.enabled", "emqx.telemetry", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "telemetry.url", "emqx.telemetry", [
+  {default, "https://telemetry-emqx-io.bigpar.vercel.app/api/telemetry"},
+  {datatype, string}
+]}.
+
+{mapping, "telemetry.report_interval", "emqx.telemetry", [
+  {default, "7d"},
+  {datatype, {duration, s}}
+]}.
+
+{translation, "emqx.telemetry", fun(Conf) ->
+  [ {enabled,         cuttlefish:conf_get("telemetry.enabled", Conf)}
+  , {url,             cuttlefish:conf_get("telemetry.url", Conf)}
+  , {report_interval, cuttlefish:conf_get("telemetry.report_interval", Conf)}
+  ]
+end}.
