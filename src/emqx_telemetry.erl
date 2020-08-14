@@ -361,8 +361,18 @@ report_telemetry(State = #state{url = URL}) ->
 httpc_request(Method, URL, Headers, Body) ->
     httpc:request(Method, {URL, Headers, "application/json", Body}, [], []).
 
+ignore_lib_apps(Apps) ->
+    LibApps = [kernel, stdlib, sasl, appmon, eldap, erts,
+               syntax_tools, ssl, crypto, mnesia, os_mon,
+               inets, goldrush, gproc, runtime_tools,
+               snmp, otp_mibs, public_key, asn1, ssh, hipe,
+               common_test, observer, webtool, xmerl, tools,
+               test_server, compiler, debugger, eunit, et,
+               wx],
+    [AppName || {AppName, _, _} <- Apps, not lists:member(AppName, LibApps)].
+
 search_license_callback() ->
-    search_license_callback(ekka_boot:ignore_lib_apps(application:loaded_applications()), []).
+    search_license_callback(ignore_lib_apps(application:loaded_applications()), []).
 
 search_license_callback([], []) ->
     {error, not_found};
