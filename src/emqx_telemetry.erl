@@ -75,8 +75,6 @@
 
           report_interval :: non_neg_integer(),
 
-          http_opts :: httpc:http_options(),
-
           timer = undefined :: undefined | reference()
         }).
 
@@ -139,8 +137,7 @@ init([Opts]) ->
               {record_name, telemetry},
               {attributes, record_info(fields, telemetry)}]),
     State = #state{url = get_value(url, Opts),
-                   report_interval = timer:seconds(get_value(report_interval, Opts)),
-                   http_opts = get_value(http_opts, Opts)},
+                   report_interval = timer:seconds(get_value(report_interval, Opts))},
     NState = case mnesia:dirty_read(?TELEMETRY, ?UNIQUE_ID) of
                  [] ->
                      Enabled = get_value(enabled, Opts),
@@ -219,13 +216,16 @@ license() ->
         {ok, "EMQ X Broker"} ->
             [{edition, <<"community">>}];
         {ok, "EMQ X Enterprise"} ->
-            case erlang:function_exported(emqx_license_mgr, info, 0) of
-                false ->
+            case search_license_callback() of
+                {error, not_found} ->
                     [{edition, <<"enterprise">>}];
-                true ->
-                    LicenseInfo = erlang:apply(emqx_license_mgr, info, []),
-                    [{edition, <<"enterprise">>},
-                     {kind, get_value(type, LicenseInfo)}]
+                {M, F} ->
+                    case erlang:function_exported(M, F, 0) of
+                        true ->
+                            erlang:apply(M, F, []);
+                        false ->
+                           [{edition, <<"enterprise">>}] 
+                    end
             end
     end.
 
@@ -339,13 +339,13 @@ get_telemetry(#state{uuid = UUID}) ->
      {messages_received, messages_received()},
      {messages_sent, messages_sent()}].
 
-report_telemetry(State = #state{url = URL,
-                                http_opts = HTTPOpts}) ->
+report_telemetry(State = #state{url = URL}) ->
     Data = get_telemetry(State),
     case emqx_json:safe_encode(Data) of
         {ok, Bin} ->
-            case httpc_request(post, URL, [], [], Bin, HTTPOpts) of
-                {ok, {{_, 204, _}, _, _}} ->
+            case httpc_request(post, URL, [], [], Bin) of
+                {ok, {{_, StatusCode, _}, _, _}}
+                  when StatusCode =:= 200 orelse StatusCode =:= 204 ->
                     ?LOG(debug, "Report ~p successfully", [Bin]);
                 {ok, {{_, StatusCode, ReasonPhrase}, _, Body}} ->
                     ?LOG(error, "Report ~p failed due to ~p ~s(~s)", [Bin, StatusCode, ReasonPhrase, Body]);
@@ -356,9 +356,9 @@ report_telemetry(State = #state{url = URL,
             ?LOG(error, "Encode ~p failed due to ~p", [Data, Reason])
     end.
 
-httpc_request(Method, URL, QueryParams, Headers, Body, HTTPOptions) ->
+httpc_request(Method, URL, QueryParams, Headers, Body) ->
     NewURL = append_query_params_to_url(URL, QueryParams),
-    httpc:request(Method, {NewURL, Headers, "application/json", Body}, HTTPOptions, []).
+    httpc:request(Method, {NewURL, Headers, "application/json", Body}, [], []).
 
 append_query_params_to_url(URL, []) ->
     URL;
@@ -370,6 +370,40 @@ do_append_query_params_to_url(URL, [{K, V}]) ->
 do_append_query_params_to_url(URL, [{K, V} | More]) ->
     NewURL = URL ++ http_uri:encode(K) ++ "=" ++ http_uri:encode(V) ++ "&",
     do_append_query_params_to_url(NewURL, More).
+
+ignore_lib_apps(Apps) ->
+    LibApps = [kernel, stdlib, sasl, appmon, eldap, erts,
+               syntax_tools, ssl, crypto, mnesia, os_mon,
+               inets, goldrush, gproc, runtime_tools,
+               snmp, otp_mibs, public_key, asn1, ssh, hipe,
+               common_test, observer, webtool, xmerl, tools,
+               test_server, compiler, debugger, eunit, et,
+               wx],
+    [AppName || {AppName, _, _} <- Apps, not lists:member(AppName, LibApps)].
+
+search_license_callback() ->
+    search_license_callback(ignore_lib_apps(application:loaded_applications()), []).
+
+search_license_callback([], []) ->
+    {error, not_found};
+search_license_callback([], [Callback | _]) ->
+    Callback;
+search_license_callback([App | More], Acc) ->
+    {ok, Modules} = application:get_key(App, modules),
+    Callbacks = lists:foldl(fun(Module, AccIn) ->
+                                case proplists:get_value(license_callback, module_attributes(Module), undefined) of
+                                    undefined -> AccIn;
+                                    [Callback | _] -> [{Module, Callback} | AccIn]
+                                end
+                            end, [], Modules),
+    search_license_callback(More, Acc ++ Callbacks).
+
+module_attributes(Module) ->
+    try Module:module_info(attributes)
+    catch
+        error:undef -> [];
+        error:Reason -> error(Reason)
+    end.
 
 bin(L) when is_list(L) ->
     list_to_binary(L);

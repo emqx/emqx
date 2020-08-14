@@ -2162,12 +2162,12 @@ end}.
 %% Telemetry
 %%--------------------------------------------------------------------
 {mapping, "telemetry.enabled", "emqx.telemetry", [
-  {default, true},
+  {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
 
 {mapping, "telemetry.url", "emqx.telemetry", [
-  {default, "www.emqx.io/api/telemetry/emqx"},
+  {default, "telemetry-emqx-io.bigpar.vercel.app/api/telemetry"},
   {datatype, string}
 ]}.
 
@@ -2176,62 +2176,17 @@ end}.
   {datatype, {duration, s}}
 ]}.
 
-{mapping, "telemetry.https.enabled", "emqx.telemetry", [
-  {default, false},
-  {datatype, {enum, [true, false]}}
-]}.
-
-{mapping, "telemetry.https.tls_versions", "emqx.telemetry", [
-  {datatype, string}
-]}.
-
-{mapping, "telemetry.https.keyfile", "emqx.telemetry", [
-  {datatype, string}
-]}.
-
-{mapping, "telemetry.https.certfile", "emqx.telemetry", [
-  {datatype, string}
-]}.
-
-{mapping, "telemetry.https.cacertfile", "emqx.telemetry", [
-  {datatype, string}
-]}.
-
-{mapping, "telemetry.https.ciphers", "emqx.telemetry", [
-  {datatype, string}
-]}.
-
 {translation, "emqx.telemetry", fun(Conf) ->
-  Filter = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
-  SSLOpts0 = [ {versions,   cuttlefish:conf_get("telemetry.https.tls_versions", Conf, undefined)}
-             , {keyfile,    cuttlefish:conf_get("telemetry.https.keyfile", Conf, undefined)}
-             , {certfile,   cuttlefish:conf_get("telemetry.https.certfile", Conf, undefined)}
-             , {cacertfile, cuttlefish:conf_get("telemetry.https.cacertfile", Conf, undefined)}
-             , {ciphers,    cuttlefish:conf_get("telemetry.https.ciphers", Conf, undefined)}
-             ],
-  SSLOpts = Filter(SSLOpts0),
   URLWithoutScheme = lists:foldl(fun(Scheme, Acc) ->
                                    [NewURL | _] = binary:split(Acc, Scheme, [global, trim_all]),
                                    NewURL
                                  end,
                                  list_to_binary(cuttlefish:conf_get("telemetry.url", Conf)),
                                  [<<"http://">>, <<"https://">>]),
-  HTTPSEnabled = cuttlefish:conf_get("telemetry.https.enabled", Conf),
-  Scheme = case HTTPSEnabled of
-             true -> "https://";
-             false -> "http://"
-           end,
+  Scheme = "https://",
   URL = Scheme ++ binary_to_list(URLWithoutScheme),
-  HTTPOpts = case HTTPSEnabled of
-               true -> [{ssl, SSLOpts}];
-               false -> []
-             end,
   [ {enabled,         cuttlefish:conf_get("telemetry.enabled", Conf)}
   , {url,             URL}
   , {report_interval, cuttlefish:conf_get("telemetry.report_interval", Conf)}
-  , {http_opts,       [{ssl, case HTTPSEnabled of
-                               true -> SSLOpts;
-                               false -> []
-                             end}]}
   ]
 end}.
