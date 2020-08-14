@@ -2175,3 +2175,10 @@ end}.
   {default, "7d"},
   {datatype, {duration, s}}
 ]}.
+
+{translation, "emqx.telemetry", fun(Conf) ->
+  [ {enabled,         cuttlefish:conf_get("telemetry.enabled", Conf)}
+  , {url,             cuttlefish:conf_get("telemetry.url", Conf)}
+  , {report_interval, cuttlefish:conf_get("telemetry.report_interval", Conf)}
+  ]
+end}.
