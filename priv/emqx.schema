@@ -2167,7 +2167,7 @@ end}.
 ]}.
 
 {mapping, "telemetry.url", "emqx.telemetry", [
-  {default, "telemetry-emqx-io.bigpar.vercel.app/api/telemetry"},
+  {default, "https://telemetry-emqx-io.bigpar.vercel.app/api/telemetry"},
   {datatype, string}
 ]}.
 
@@ -2175,18 +2175,3 @@ end}.
   {default, "7d"},
   {datatype, {duration, s}}
 ]}.
-
-{translation, "emqx.telemetry", fun(Conf) ->
-  URLWithoutScheme = lists:foldl(fun(Scheme, Acc) ->
-                                   [NewURL | _] = binary:split(Acc, Scheme, [global, trim_all]),
-                                   NewURL
-                                 end,
-                                 list_to_binary(cuttlefish:conf_get("telemetry.url", Conf)),
-                                 [<<"http://">>, <<"https://">>]),
-  Scheme = "https://",
-  URL = Scheme ++ binary_to_list(URLWithoutScheme),
-  [ {enabled,         cuttlefish:conf_get("telemetry.enabled", Conf)}
-  , {url,             URL}
-  , {report_interval, cuttlefish:conf_get("telemetry.report_interval", Conf)}
-  ]
-end}.
