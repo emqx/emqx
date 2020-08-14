@@ -132,12 +132,6 @@ get_telemetry() ->
 %%--------------------------------------------------------------------
 
 init([Opts]) ->
-    ok = ekka_mnesia:create_table(?TELEMETRY,
-             [{type, set},
-              {disc_copies, [node()]},
-              {local_content, true},
-              {record_name, telemetry},
-              {attributes, record_info(fields, telemetry)}]),
     State = #state{url = get_value(url, Opts),
                    report_interval = timer:seconds(get_value(report_interval, Opts))},
     NState = case mnesia:dirty_read(?TELEMETRY, ?UNIQUE_ID) of
@@ -248,12 +242,16 @@ os_info() ->
                         Access when Access =:= read orelse Access =:= read_write ->
                             OSInfo = lists:foldl(fun(Line, Acc) ->
                                                      [Var, Value] = string:tokens(Line, "="),
-                                                     [{Var, Value} | Acc]
+                                                     NValue = case Value of
+                                                                  _ when is_list(Value) ->
+                                                                      lists:nth(1, string:tokens(Value, "\""));
+                                                                  _ ->
+                                                                      Value
+                                                              end,
+                                                     [{Var, NValue} | Acc]
                                                  end, [], string:tokens(os:cmd("cat /etc/os-release"), "\n")),
-                            ?LOG(error, "OSInfo: ~p~n", [OSInfo]),
-                            ?LOG(error, "CAT: ~p~n", [os:cmd("cat /etc/os-release")]),
-                            [{os_name, get_value("NAME", OSInfo),
-                              os_version, get_value("VERSION", OSInfo, get_value("VERSION_ID", OSInfo))}];
+                            [{os_name, get_value("NAME", OSInfo)},
+                             {os_version, get_value("VERSION", OSInfo, get_value("VERSION_ID", OSInfo))}];
                         _ ->
                             [{os_name, "Unknown"},
                              {os_version, "Unknown"}]

@@ -40,9 +40,8 @@ t_uuid(_) ->
     {ok, UUID2} = emqx_telemetry:get_uuid(),
     emqx_telemetry:stop(),
     emqx_telemetry:start_link([{enabled, true},
-                               {url, "www.emqx.io/api/telemetry/emqx"},
-                               {report_interval, 7 * 24 * 60 * 60},
-                               {http_opts, [{ssl, []}]}]),
+                               {url, "https://telemetry-emqx-io.bigpar.vercel.app/api/telemetry"},
+                               {report_interval, 7 * 24 * 60 * 60}]),
     {ok, UUID3} = emqx_telemetry:get_uuid(),
     ?assertEqual(UUID2, UUID3).
 
