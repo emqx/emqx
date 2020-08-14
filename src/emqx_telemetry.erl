@@ -21,6 +21,8 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
+ -include_lib("kernel/include/file.hrl").
+
 -logger_header("[Telemetry]").
 
 %% Mnesia bootstrap
@@ -67,13 +69,13 @@
         }).
 
 -record(state, {
-          uuid :: binary(),
+          uuid :: undefined | binary(),
 
-          enabled :: boolean(),
+          enabled :: undefined | boolean(),
 
           url :: string(),
 
-          report_interval :: non_neg_integer(),
+          report_interval :: undefined | non_neg_integer(),
 
           timer = undefined :: undefined | reference()
         }).
@@ -238,11 +240,11 @@ os_info() ->
              {os_version, Version}];
         {unix, _} ->
             case file:read_file_info("/etc/os-release") of
-                {error, enonet} ->
+                {error, _} ->
                     [{os_name, "Unknown"},
                      {os_version, "Unknown"}];
                 {ok, FileInfo} ->
-                    case get_value(FileInfo, access) of
+                    case FileInfo#file_info.access of
                         Access when Access =:= read orelse Access =:= read_write ->
                             OSInfo = lists:foldl(fun(Line, Acc) ->
                                                      [Var, Value] = string:tokens(Line, "="),
@@ -343,7 +345,7 @@ report_telemetry(State = #state{url = URL}) ->
     Data = get_telemetry(State),
     case emqx_json:safe_encode(Data) of
         {ok, Bin} ->
-            case httpc_request(post, URL, [], [], Bin) of
+            case httpc_request(post, URL, [], Bin) of
                 {ok, {{_, StatusCode, _}, _, _}}
                   when StatusCode =:= 200 orelse StatusCode =:= 204 ->
                     ?LOG(debug, "Report ~p successfully", [Bin]);
@@ -356,20 +358,8 @@ report_telemetry(State = #state{url = URL}) ->
             ?LOG(error, "Encode ~p failed due to ~p", [Data, Reason])
     end.
 
-httpc_request(Method, URL, QueryParams, Headers, Body) ->
-    NewURL = append_query_params_to_url(URL, QueryParams),
-    httpc:request(Method, {NewURL, Headers, "application/json", Body}, [], []).
-
-append_query_params_to_url(URL, []) ->
-    URL;
-append_query_params_to_url(URL, QueryParams) ->
-    do_append_query_params_to_url(URL ++ "?", QueryParams).
-
-do_append_query_params_to_url(URL, [{K, V}]) ->
-    URL ++ http_uri:encode(K) ++ "=" ++ http_uri:encode(V);
-do_append_query_params_to_url(URL, [{K, V} | More]) ->
-    NewURL = URL ++ http_uri:encode(K) ++ "=" ++ http_uri:encode(V) ++ "&",
-    do_append_query_params_to_url(NewURL, More).
+httpc_request(Method, URL, Headers, Body) ->
+    httpc:request(Method, {URL, Headers, "application/json", Body}, [], []).
 
 ignore_lib_apps(Apps) ->
     LibApps = [kernel, stdlib, sasl, appmon, eldap, erts,
