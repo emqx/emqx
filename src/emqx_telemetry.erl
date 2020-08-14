@@ -250,6 +250,8 @@ os_info() ->
                                                      [Var, Value] = string:tokens(Line, "="),
                                                      [{Var, Value} | Acc]
                                                  end, [], string:tokens(os:cmd("cat /etc/os-release"), "\n")),
+                            ?LOG(error, "OSInfo: ~p~n", [OSInfo]),
+                            ?LOG(error, "CAT: ~p~n", [os:cmd("cat /etc/os-release")]),
                             [{os_name, get_value("NAME", OSInfo),
                               os_version, get_value("VERSION", OSInfo, get_value("VERSION_ID", OSInfo))}];
                         _ ->
