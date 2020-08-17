@@ -532,7 +532,7 @@ handle_outgoing(Packets, State = #state{active_n = ActiveN, mqtt_piggyback = MQT
              end,
     
     {case MQTTPiggyback of
-         single -> {binary, IoData};
+         single -> [{binary, IoData}];
          multiple -> lists:map(fun(Bin) -> {binary, Bin} end, IoData)
      end,
      ensure_stats_timer(NState)}.
