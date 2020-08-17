@@ -1540,6 +1540,12 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.ws.$name.mqtt_piggyback", "emqx.listeners", [
+  {datatype, {enum, [single, multiple]}},
+  {default, multiple},
+  hidden
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT/WebSocket/SSL Listeners
 
@@ -1743,7 +1749,11 @@ end}.
   hidden
 ]}.
 
-
+{mapping, "listener.wss.$name.mqtt_piggyback", "emqx.listeners", [
+  {datatype, {enum, [single, multiple]}},
+  {default, multiple},
+  hidden
+]}.
 
 {translation, "emqx.listeners", fun(Conf) ->
 
@@ -1793,7 +1803,8 @@ end}.
                           {peer_cert_as_username, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_username", Conf, undefined)},
                           {compress, cuttlefish:conf_get(Prefix ++ ".compress", Conf, undefined)},
                           {idle_timeout, cuttlefish:conf_get(Prefix ++ ".idle_timeout", Conf, undefined)},
-                          {max_frame_size, cuttlefish:conf_get(Prefix ++ ".max_frame_size", Conf, undefined)} | AccOpts(Prefix)])
+                          {max_frame_size, cuttlefish:conf_get(Prefix ++ ".max_frame_size", Conf, undefined)},
+                          {mqtt_piggyback, cuttlefish:conf_get(Prefix ++ ".mqtt_piggyback", Conf, undefined)} | AccOpts(Prefix)])
               end,
     DeflateOpts = fun(Prefix) ->
                       Filter([{level, cuttlefish:conf_get(Prefix ++ ".deflate_opts.level", Conf, undefined)},
