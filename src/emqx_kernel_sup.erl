@@ -32,7 +32,6 @@ init([]) ->
            child_spec(emqx_hooks, worker),
            child_spec(emqx_stats, worker),
            child_spec(emqx_metrics, worker),
-           child_spec(emqx_telemetry, worker, [config(telemetry)]),
            child_spec(emqx_ctl, worker),
            child_spec(emqx_zone, worker)]}}.
 
@@ -56,5 +55,3 @@ child_spec(M, supervisor, Args) ->
       type     => supervisor,
       modules  => [M]
      }.
-
-config(Name) -> emqx:get_env(Name, []).
