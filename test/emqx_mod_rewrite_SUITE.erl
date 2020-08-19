@@ -22,8 +22,8 @@
 -include("emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(RULES, [{rewrite,<<"x/#">>,<<"^x/y/(.+)$">>,<<"z/y/$1">>},
-                {rewrite,<<"y/+/z/#">>,<<"^y/(.+)/z/(.+)$">>,<<"y/z/$2">>}
+-define(RULES, [{rewrite, pub, <<"x/#">>,<<"^x/y/(.+)$">>,<<"z/y/$1">>},
+                {rewrite, sub, <<"y/+/z/#">>,<<"^y/(.+)/z/(.+)$">>,<<"y/z/$2">>}
                ]).
 
 all() -> emqx_ct:all(?MODULE).
@@ -43,33 +43,43 @@ t_mod_rewrite(_Config) ->
     ok = emqx_mod_rewrite:load(?RULES),
     {ok, C} = emqtt:start_link([{clientid, <<"rewrite_client">>}]),
     {ok, _} = emqtt:connect(C),
-    OrigTopics = [<<"x/y/2">>, <<"x/1/2">>, <<"y/a/z/b">>, <<"y/def">>],
-    DestTopics = [<<"z/y/2">>, <<"x/1/2">>, <<"y/z/b">>, <<"y/def">>],
-    %% Subscribe
-    {ok, _Props, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- OrigTopics]),
+    PubOrigTopics = [<<"x/y/2">>, <<"x/1/2">>],
+    PubDestTopics = [<<"z/y/2">>, <<"x/1/2">>],
+    SubOrigTopics = [<<"y/a/z/b">>, <<"y/def">>],
+    SubDestTopics = [<<"y/z/b">>, <<"y/def">>],
+    %% Sub Rules
+    {ok, _Props, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- SubOrigTopics]),
     timer:sleep(100),
     Subscriptions = emqx_broker:subscriptions(<<"rewrite_client">>),
-    ?assertEqual(DestTopics, [Topic || {Topic, _SubOpts} <- Subscriptions]),
-    %% Publish
-    RecvTopics = [begin
+    ?assertEqual(SubDestTopics, [Topic || {Topic, _SubOpts} <- Subscriptions]),
+    RecvTopics1 = [begin
                       ok = emqtt:publish(C, Topic, <<"payload">>),
                       {ok, #{topic := RecvTopic}} = receive_publish(100),
                       RecvTopic
-                  end || Topic <- OrigTopics],
-    ?assertEqual(DestTopics, RecvTopics),
-    %% Unsubscribe
-    {ok, _, _} = emqtt:unsubscribe(C, OrigTopics),
+                  end || Topic <- SubDestTopics],
+    ?assertEqual(SubDestTopics, RecvTopics1),
+    {ok, _, _} = emqtt:unsubscribe(C, SubOrigTopics),
     timer:sleep(100),
     ?assertEqual([], emqx_broker:subscriptions(<<"rewrite_client">>)),
+    %% Pub Rules
+    {ok, _Props, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- PubDestTopics]),
+    RecvTopics2 = [begin
+                      ok = emqtt:publish(C, Topic, <<"payload">>),
+                      {ok, #{topic := RecvTopic}} = receive_publish(100),
+                      RecvTopic
+                  end || Topic <- PubOrigTopics],
+    ?assertEqual(PubDestTopics, RecvTopics2),
+    {ok, _, _} = emqtt:unsubscribe(C, PubDestTopics),
+
     ok = emqtt:disconnect(C),
     ok = emqx_mod_rewrite:unload(?RULES).
 
 t_rewrite_rule(_Config) ->
-    Rules = emqx_mod_rewrite:compile(?RULES),
-    ?assertEqual(<<"z/y/2">>, emqx_mod_rewrite:match_and_rewrite(<<"x/y/2">>, Rules)),
-    ?assertEqual(<<"x/1/2">>, emqx_mod_rewrite:match_and_rewrite(<<"x/1/2">>, Rules)),
-    ?assertEqual(<<"y/z/b">>, emqx_mod_rewrite:match_and_rewrite(<<"y/a/z/b">>, Rules)),
-    ?assertEqual(<<"y/def">>, emqx_mod_rewrite:match_and_rewrite(<<"y/def">>, Rules)).
+    {PubRules, SubRules} = emqx_mod_rewrite:compile(?RULES),
+    ?assertEqual(<<"z/y/2">>, emqx_mod_rewrite:match_and_rewrite(<<"x/y/2">>, PubRules)),
+    ?assertEqual(<<"x/1/2">>, emqx_mod_rewrite:match_and_rewrite(<<"x/1/2">>, PubRules)),
+    ?assertEqual(<<"y/z/b">>, emqx_mod_rewrite:match_and_rewrite(<<"y/a/z/b">>, SubRules)),
+    ?assertEqual(<<"y/def">>, emqx_mod_rewrite:match_and_rewrite(<<"y/def">>, SubRules)).
 
 %%--------------------------------------------------------------------
 %% Internal functions

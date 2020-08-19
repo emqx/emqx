@@ -1945,6 +1945,14 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "module.rewrite.pub.rule.$id", "emqx.modules", [
+  {datatype, string}
+]}.
+
+{mapping, "module.rewrite.sub.rule.$id", "emqx.modules", [
+  {datatype, string}
+]}.
+
 {translation, "emqx.modules", fun(Conf) ->
   Subscriptions = fun() ->
       List = cuttlefish_variable:filter_by_prefix("module.subscription", Conf),
@@ -1957,10 +1965,16 @@ end}.
   end,
   Rewrites = fun() ->
       Rules = cuttlefish_variable:filter_by_prefix("module.rewrite.rule", Conf),
-      lists:map(fun({[_, "rewrite", "rule", I], Rule}) ->
+      PubRules = cuttlefish_variable:filter_by_prefix("module.rewrite.pub.rule", Conf),
+      SubRules = cuttlefish_variable:filter_by_prefix("module.rewrite.sub.rule", Conf),
+      TotalRules = lists:append(
+                     [ {["module", "rewrite", "pub", "rule", I], Rule} || {["module", "rewrite", "rule", I], Rule} <- Rules] ++ PubRules,
+                     [ {["module", "rewrite", "sub", "rule", I], Rule} || {["module", "rewrite", "rule", I], Rule} <- Rules] ++ SubRules
+                    ),
+      lists:map(fun({[_, "rewrite", PubOrSub, "rule", I], Rule}) ->
                     [Topic, Re, Dest] = string:tokens(Rule, " "),
-                    {rewrite, list_to_binary(Topic), list_to_binary(Re), list_to_binary(Dest)}
-                end, Rules)
+                    {rewrite, list_to_atom(PubOrSub), list_to_binary(Topic), list_to_binary(Re), list_to_binary(Dest)}
+                end, TotalRules)
   end,
   lists:append([
     [{emqx_mod_presence, [{qos, cuttlefish:conf_get("module.presence.qos", Conf, 1)}]}],
