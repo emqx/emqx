@@ -247,7 +247,10 @@ handle_call({unregister, Topic}, _From, State = #state{speeds = Speeds}) ->
             {reply, ok, State};
         true ->
             ok = delete_counters(Topic),
-            {reply, ok, State#state{speeds = maps:remove(Topic, Speeds)}}
+            NSpeeds = lists:foldl(fun(Metric, Acc) ->
+                                      maps:remove({Topic, Metric}, Acc)
+                                  end, Speeds, ?TOPIC_METRICS),
+            {reply, ok, State#state{speeds = NSpeeds}}
     end;
 
 handle_call({get_rate, Topic, Metric}, _From, State = #state{speeds = Speeds}) ->
@@ -271,7 +274,7 @@ handle_info(ticking, State = #state{speeds = Speeds}) ->
     NSpeeds = maps:map(
             fun({Topic, Metric}, Speed) ->
                 case val(Topic, Metric) of
-                    {error, topic_not_found} -> maps:remove(Topic, Speeds);
+                    {error, topic_not_found} -> maps:remove({Topic, Metric}, Speeds);
                     Val -> calculate_speed(Val, Speed)
                 end
             end, Speeds),
