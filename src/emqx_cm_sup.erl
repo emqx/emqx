@@ -32,6 +32,12 @@ init([]) ->
                shutdown => 1000,
                type => worker,
                modules => [emqx_banned]},
+    DummyTopics = #{id => dummy_topics,
+                    start => {emqx_dummy_topics, start_link, []},
+                    restart => permanent,
+                    shutdown => 1000,
+                    type => worker,
+                    modules => [emqx_dummy_topics]},
     Flapping = #{id => flapping,
                  start => {emqx_flapping, start_link, []},
                  restart => permanent,
@@ -66,5 +72,5 @@ init([]) ->
                  intensity => 100,
                  period => 10
                 },
-    {ok, {SupFlags, [Banned, Flapping, Locker, Registry, Manager]}}.
+    {ok, {SupFlags, [Banned, DummyTopics, Flapping, Locker, Registry, Manager]}}.
 

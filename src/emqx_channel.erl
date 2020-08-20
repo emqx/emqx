@@ -504,8 +504,9 @@ packet_to_message(Packet, #channel{
               username => Username,
               peerhost => PeerHost})).
 
-do_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel) ->
-    Result = emqx_broker:publish(Msg),
+do_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel = #channel{
+                     clientinfo = #{zone := Zone}}) ->
+    Result = emqx_broker:publish(emqx_message:set_header(zone, Zone, Msg)),
     NChannel = ensure_quota(Result, Channel),
     {ok, NChannel};
 

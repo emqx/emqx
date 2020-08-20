@@ -37,6 +37,7 @@
           , stats_timer/1
           , enable_stats/1
           , enable_acl/1
+          , enable_dummy_topics/1
           , enable_ban/1
           , enable_flapping_detect/1
           , ignore_loop_deliver/1
@@ -68,6 +69,7 @@
         , stats_timer/1
         , enable_stats/1
         , enable_acl/1
+        , enable_dummy_topics/1
         , enable_ban/1
         , enable_flapping_detect/1
         , ignore_loop_deliver/1
@@ -178,6 +180,10 @@ enable_stats(Zone) ->
 -spec(enable_acl(zone()) -> boolean()).
 enable_acl(Zone) ->
     get_env(Zone, enable_acl, true).
+
+-spec(enable_dummy_topics(zone()) -> boolean()).
+enable_dummy_topics(Zone) ->
+    get_env(Zone, enable_dummy_topics, false).
 
 -spec(enable_ban(zone()) -> boolean()).
 enable_ban(Zone) ->

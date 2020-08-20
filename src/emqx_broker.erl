@@ -205,8 +205,14 @@ publish(Msg) when is_record(Msg, message) ->
         #message{headers = #{allow_publish := false}} ->
             ?LOG(notice, "Stop publishing: ~s", [emqx_message:format(Msg)]),
             [];
-        Msg1 = #message{topic = Topic} ->
-            route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1))
+        Msg1 = #message{topic = Topic, headers = Headers} ->
+            case is_dummy_topic(Topic, Headers) of
+                true ->
+                    ?LOG(debug, "Ignoring message on dummy topic: ~s", [emqx_message:format(Msg)]),
+                    [];
+                false ->
+                    route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1))
+            end
     end.
 
 %% Called internally
@@ -498,3 +504,10 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+is_dummy_topic(Topic, Headers) ->
+    case maps:find(zone, Headers) of
+        {ok, Zone} ->
+            emqx_zone:enable_dummy_topics(Zone)
+                andalso emqx_dummy_topics:match(Topic);
+        error -> false
+    end.

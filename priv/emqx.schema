@@ -828,6 +828,12 @@ end}.
   {datatype, {enum, [allow, deny]}}
 ]}.
 
+%%
+{mapping, "zone.$name.enable_dummy_topics", "emqx.zones", [
+  {default, off},
+  {datatype, flag}
+]}.
+
 %% @doc Enable ACL check.
 {mapping, "zone.$name.enable_acl", "emqx.zones", [
   {default, off},

@@ -79,6 +79,7 @@ start() ->
     %% Check OS
     %% Check VM
     %% Check Mnesia
+    io:format("emqx starting..."),
     application:ensure_all_started(?APP).
 
 -spec(restart(string()) -> ok).
