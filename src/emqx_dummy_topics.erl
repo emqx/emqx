@@ -25,15 +25,21 @@
 -copy_mnesia({mnesia, [copy]}).
 
 %% APIs
+-export([ start_link/0
+        , stop/0
+        ]).
+
 -export([ match/1
+        , match/2
         , add/1
         , del/1
         , list/0
         , has/1
         ]).
 
-%% API functions
--export([start_link/0]).
+%% export for debug
+-export([ get_trie/0
+        ]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -52,6 +58,8 @@
 
 -define(TIRE, {?MODULE, trie}).
 -define(TOPICS, ?MODULE).
+
+-define(TIMEOUT, 5000).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -77,17 +85,24 @@ mnesia(copy) ->
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+stop() ->
+    gen_server:stop(?MODULE).
+
 -spec match(emqx_types:topic()) -> boolean().
 match(Topic) ->
-    trie_match(Topic, get_trie()).
+    has(Topic) orelse trie_match(Topic, get_trie(), #{'special_$' => true}).
+
+-spec match(emqx_types:topic(), no_special_leading_dollar) -> boolean().
+match(Topic, no_special_leading_dollar) ->
+    has(Topic) orelse trie_match(Topic, get_trie(), #{'special_$' => false}).
 
 -spec add(emqx_types:topic()) -> ok.
 add(Topic) ->
-    gen_server:cast(?MODULE, {add_topic, Topic}).
+    gen_server:call(?MODULE, {add_topic, Topic}, ?TIMEOUT).
 
 -spec del(emqx_types:topic()) -> ok.
 del(Topic) ->
-    gen_server:cast(?MODULE, {del_topic, Topic}).
+    gen_server:call(?MODULE, {del_topic, Topic}, ?TIMEOUT).
 
 -spec list() -> [emqx_types:topic()].
 list() ->
@@ -107,22 +122,20 @@ init([]) ->
     ok = init_trie(),
     {ok, #state{}}.
 
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
-
-handle_cast({add_topic, Topic}, State) ->
+handle_call({add_topic, Topic}, _From, State) ->
     ok = mnesia:dirty_write(?TOPICS,
             #dummy_topics{
                 topic = Topic,
                 created_at = erlang:system_time(millisecond)
             }),
-    ok = set_trie(trie_add(Topic, get_trie())),
-    {noreply, State};
+    {reply, set_trie(trie_add(Topic, get_trie())), State};
 
-handle_cast({del_topic, Topic}, State) ->
-    true = mnesia:dirty_delete(?TOPICS, Topic),
-    ok = set_trie(trie_del(Topic, get_trie())),
-    {noreply, State};
+handle_call({del_topic, Topic}, _From, State) ->
+    ok = mnesia:dirty_delete(?TOPICS, Topic),
+    {reply, set_trie(trie_del(Topic, get_trie())), State};
+
+handle_call(_Request, _From, State) ->
+    {reply, ok, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -131,6 +144,8 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    persistent_term:erase(?TIRE),
+    mnesia:clear_table(?TOPICS),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -149,6 +164,14 @@ init_trie() ->
 new_trie() ->
     #{counters => nil}.
 
+%% Trie is only for match topics WITH wildcards, that is, '+' and '#'.
+%% We use persistent_term for the trie implementation as the user would
+%% unlikely add/delete dummy topics too frequently using APIs/CLIs.
+%%
+%% persistent_term lookup (using get/1), is done in constant time and
+%% without taking any locks, and the term is not copied to the heap
+%% (as is the case with terms stored in ETS tables).
+%%
 get_trie() ->
     persistent_term:get(?TIRE).
 
@@ -178,15 +201,29 @@ do_trie_del([W | Words], Trie = #{counters := Cnt}) when is_map(Cnt) ->
             Trie2#{counters => maps:remove(W, Cnt)};
         N ->
             Trie#{W => do_trie_del(Words, SubTrie),
-                  counters => N - 1}
+                  counters => Cnt#{W => (N - 1)}}
     end;
 do_trie_del([], Trie) ->
     Trie.
 
-trie_match(_Topic, #{counters := nil}) ->
+trie_match(_Topic, #{counters := nil}, _) ->
     false;
-trie_match(Topic, Trie) ->
-    do_trie_match(emqx_topic:words(Topic), Trie).
+trie_match(Topic, Trie, #{'special_$' := false}) ->
+    do_trie_match(emqx_topic:words(Topic), Trie);
+trie_match(Topic, Trie, #{'special_$' := true}) ->
+    %% https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901246
+    %% ## 4.7.2  Topics beginning with $
+    %% The Server MUST NOT match Topic Filters starting with a wildcard
+    %% character (# or +) with Topic Names beginning with a $ character.
+    case emqx_topic:words(Topic) of
+        [<<$$, _/binary>> = W | Words] ->
+            case maps:find(W, Trie) of
+                {ok, SubTrie} -> do_trie_match(Words, SubTrie);
+                error -> false
+            end;
+        Words ->
+            do_trie_match(Words, Trie)
+    end.
 
 do_trie_match([], #{counters := nil}) ->
     true;
@@ -196,11 +233,20 @@ do_trie_match([], _Trie) ->
     false;
 do_trie_match(_Words, #{counters := nil}) ->
     false;
-do_trie_match([W | Words], Trie = #{counters := Cnt}) when is_map(Cnt) ->
+do_trie_match([W | Words], Trie) ->
+    case match_w(W, Trie) of
+        ok -> true;
+        {ok, SubTrie} -> do_trie_match(Words, SubTrie);
+        error -> false
+    end.
+
+match_w(W, Trie) ->
     case maps:find(W, Trie) of
-        error -> false;
-        {ok, SubTrie} ->
-            do_trie_match(Words, SubTrie)
+        {ok, _} when W == '#' -> ok;
+        {ok, _} = Res -> Res;
+        error when W == '#' -> match_w('+', Trie);
+        error when W == '+' -> error;
+        error -> match_w('#', Trie)
     end.
 
 %%%===================================================================
