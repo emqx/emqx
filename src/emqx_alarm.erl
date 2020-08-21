@@ -289,10 +289,10 @@ delete_expired_deactivated_alarms(ActivatedAt, Checkpoint) ->
 do_actions(_, _, []) ->
     ok;
 do_actions(activate, Alarm = #activated_alarm{name = Name, message = Message}, [log | More]) ->
-    ?LOG(warning, "Alarm ~p is activated, ~s", [Name, Message]),
+    ?LOG(warning, "Alarm ~s is activated, ~s", [Name, Message]),
     do_actions(activate, Alarm, More);
 do_actions(deactivate, Alarm = #deactivated_alarm{name = Name}, [log | More]) ->
-    ?LOG(warning, "Alarm ~p is deactivated", [Name]),
+    ?LOG(warning, "Alarm ~s is deactivated", [Name]),
     do_actions(deactivate, Alarm, More);
 do_actions(Operation, Alarm, [publish | More]) ->
     Topic = topic(Operation),
@@ -342,6 +342,11 @@ normalize_message(too_many_processes, #{usage := Usage}) ->
     list_to_binary(io_lib:format("~p% process usage", [Usage]));
 normalize_message(partition, #{occurred := Node}) ->
     list_to_binary(io_lib:format("Partition occurs at node ~s", [Node]));
+normalize_message(partition, #{occurred := Node}) ->
+    list_to_binary(io_lib:format("Partition occurs at node ~s", [Node]));
+normalize_message(ResourceDown = <<"resource", _/binary>>, _) ->
+    [_, Type, ID, _] = binary:split(ResourceDown, <<"/">>, [global, trim_all]),
+    list_to_binary(io_lib:format("Resource ~s(~s) is down", [Type, ID]));
 normalize_message(_Name, _UnknownDetails) ->
     <<"Unknown alarm">>.
 
