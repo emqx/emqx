@@ -39,6 +39,10 @@
         , from_base62/1
         ]).
 
+-define(TAG_VERSION, 131).
+-define(PID_EXT, 103).
+-define(NEW_PID_EXT, 88).
+
 -define(MAX_SEQ, 16#FFFF).
 
 -type(guid() :: <<_:128>>).
@@ -77,17 +81,28 @@ npid() ->
       NodeD16, NodeD17, NodeD18, NodeD19, NodeD20>> =
       crypto:hash(sha, erlang:list_to_binary(erlang:atom_to_list(node()))),
 
-    % later, when the pid format changes, handle the different format
-    ExternalTermFormatVersion = 131,
-    PidExtType = 103,
-    <<ExternalTermFormatVersion:8,
-      PidExtType:8,
-      PidBin/binary>> = erlang:term_to_binary(self()),
-    % 72 bits for the Erlang pid
+    PidBin =
+        case erlang:term_to_binary(self()) of
+            <<?TAG_VERSION, ?PID_EXT, B/binary>> ->
+                binary:part(B, erlang:byte_size(B), -9);
+            % format supported in Erlang/OTP 19.0-rc1
+            % required for Erlang/OTP 23.0 (and Erlang/OTP 22.0-rc2)
+            <<?TAG_VERSION, ?NEW_PID_EXT, B/binary>> ->
+                binary:part(B, erlang:byte_size(B), -12)
+        end,
+
+    % 72/86 bits for the Erlang pid
     <<PidID1:8, PidID2:8, PidID3:8, PidID4:8, % ID (Node specific, 15 bits)
       PidSR1:8, PidSR2:8, PidSR3:8, PidSR4:8, % Serial (extra uniqueness)
-      PidCR1:8                       % Node Creation Count
-      >> = binary:part(PidBin, erlang:byte_size(PidBin), -9),
+      PidCreation/binary                      % Node Creation Count
+      >> = PidBin,
+
+    PidCR1 = case PidCreation of
+                 <<D1>> ->
+                     D1;
+                 <<D1, D2, D3, D4>> ->
+                     D1 bxor D2 bxor D3 bxor D4
+             end,
 
     % reduce the 160 bit NodeData checksum to 16 bits
     NodeByte1 = ((((((((NodeD01 bxor NodeD02)
