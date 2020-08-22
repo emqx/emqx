@@ -44,10 +44,10 @@
 %%--------------------------------------------------------------------
 
 load(RawRules) ->
-    Rules = compile(RawRules),
-    emqx_hooks:add('client.subscribe',   {?MODULE, rewrite_subscribe, [Rules]}),
-    emqx_hooks:add('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [Rules]}),
-    emqx_hooks:add('message.publish',    {?MODULE, rewrite_publish, [Rules]}).
+    {PubRules, SubRules} = compile(RawRules),
+    emqx_hooks:add('client.subscribe',   {?MODULE, rewrite_subscribe, [SubRules]}),
+    emqx_hooks:add('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}),
+    emqx_hooks:add('message.publish',    {?MODULE, rewrite_publish, [PubRules]}).
 
 rewrite_subscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
     {ok, [{match_and_rewrite(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
@@ -70,10 +70,15 @@ description() ->
 %%--------------------------------------------------------------------
 
 compile(Rules) ->
-    lists:map(fun({rewrite, Topic, Re, Dest}) ->
-                  {ok, MP} = re:compile(Re),
-                  {rewrite, Topic, MP, Dest}
-              end, Rules).
+    PubRules = [ begin
+                     {ok, MP} = re:compile(Re),
+                     {rewrite, Topic, MP, Dest}
+                 end || {rewrite, pub, Topic, Re, Dest}<- Rules ],
+    SubRules = [ begin
+                     {ok, MP} = re:compile(Re),
+                     {rewrite, Topic, MP, Dest}
+                 end || {rewrite, sub, Topic, Re, Dest}<- Rules ],
+    {PubRules, SubRules}.
 
 match_and_rewrite(Topic, []) ->
     Topic;
