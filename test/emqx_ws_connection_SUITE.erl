@@ -319,8 +319,9 @@ t_handle_outgoing(_) ->
     Packets = [?PUBLISH_PACKET(?QOS_1, <<"t1">>, 1, <<"payload">>),
                ?PUBLISH_PACKET(?QOS_2, <<"t2">>, 2, <<"payload">>)
               ],
-    {{binary, IoData}, _St} = ?ws_conn:handle_outgoing(Packets, st()),
-    ?assert(is_binary(iolist_to_binary(IoData))).
+    {[{binary, IoData1}, {binary, IoData2}], _St} = ?ws_conn:handle_outgoing(Packets, st()),
+    ?assert(is_binary(iolist_to_binary(IoData1))),
+    ?assert(is_binary(iolist_to_binary(IoData2))).
 
 t_run_gc(_) ->
     GcSt = emqx_gc:init(#{count => 10, bytes => 100}),
