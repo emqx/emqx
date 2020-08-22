@@ -342,8 +342,7 @@ normalize_message(too_many_processes, #{usage := Usage}) ->
     list_to_binary(io_lib:format("~p% process usage", [Usage]));
 normalize_message(partition, #{occurred := Node}) ->
     list_to_binary(io_lib:format("Partition occurs at node ~s", [Node]));
-normalize_message(ResourceDown = <<"resource", _/binary>>, _) ->
-    [_, Type, ID, _] = binary:split(ResourceDown, <<"/">>, [global, trim_all]),
+normalize_message(<<"resource", _/binary>>, #{type := Type, id := ID}) ->
     list_to_binary(io_lib:format("Resource ~s(~s) is down", [Type, ID]));
 normalize_message(_Name, _UnknownDetails) ->
     <<"Unknown alarm">>.
