@@ -97,7 +97,7 @@ stop_trace(Who) ->
 %% @doc Lookup all traces
 -spec(lookup_traces() -> [{Who :: trace_who(), LogFile :: string()}]).
 lookup_traces() ->
-    lists:foldl(fun filter_traces/2, [], emqx_logger:get_log_handlers()).
+    lists:foldl(fun filter_traces/2, [], emqx_logger:get_log_handlers(started)).
 
 install_trace_handler(Who, Level, LogFile) ->
     case logger:add_handler(handler_id(Who), logger_disk_log_h,
@@ -125,7 +125,7 @@ uninstall_trance_handler(Who) ->
             {error, Reason}
     end.
 
-filter_traces({Id, Level, Dst}, Acc) ->
+filter_traces(#{id := Id, level := Level, dst := Dst}, Acc) ->
     case atom_to_list(Id) of
         ?TOPIC_TRACE_ID(T)->
             [{?TOPIC_TRACE(T), {Level,Dst}} | Acc];
