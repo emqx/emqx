@@ -260,11 +260,11 @@ takeover_session(ClientId) ->
 
 takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chann_conn_mod(ClientId, ChanPid) of
+        undefined ->
+            {error, not_found};
         ConnMod when is_atom(ConnMod) ->
             Session = ConnMod:call(ChanPid, {takeover, 'begin'}),
-            {ok, ConnMod, ChanPid, Session};
-        undefined ->
-            {error, not_found}
+            {ok, ConnMod, ChanPid, Session}
     end;
 
 takeover_session(ClientId, ChanPid) ->
@@ -291,9 +291,9 @@ discard_session(ClientId) when is_binary(ClientId) ->
 
 discard_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chann_conn_mod(ClientId, ChanPid) of
+        undefined -> ok;
         ConnMod when is_atom(ConnMod) ->
-            ConnMod:call(ChanPid, discard);
-        undefined -> ok
+            ConnMod:call(ChanPid, discard)
     end;
 
 discard_session(ClientId, ChanPid) ->
