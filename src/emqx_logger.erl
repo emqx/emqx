@@ -48,6 +48,7 @@
 
 -export([ get_primary_log_level/0
         , get_log_handlers/0
+        , get_log_handlers/1
         , get_log_handler/1
         ]).
 
@@ -60,6 +61,8 @@
 -type(peername_str() :: list()).
 -type(logger_dst() :: file:filename() | console | unknown).
 -type(logger_handler_info() :: {logger:handler_id(), logger:level(), logger_dst()}).
+
+-define(stopped_handlers, {?MODULE, stopped_handlers}).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -151,8 +154,12 @@ set_primary_log_level(Level) ->
 
 -spec(get_log_handlers() -> [logger_handler_info()]).
 get_log_handlers() ->
-    [log_hanlder_info(Conf, started) || Conf <- logger:get_handler_config()]
-    ++
+    get_log_handlers(started) ++ get_log_handlers(stopped).
+
+-spec(get_log_handlers(started | stopped) -> [logger_handler_info()]).
+get_log_handlers(started) ->
+    [log_hanlder_info(Conf, started) || Conf <- logger:get_handler_config()];
+get_log_handlers(stopped) ->
     [log_hanlder_info(Conf, stopped) || Conf <- list_stopped_handler_config()].
 
 -spec(get_log_handler(logger:handler_id()) -> logger_handler_info()).
@@ -163,7 +170,7 @@ get_log_handler(HandlerId) ->
         {error, _} ->
             case read_stopped_handler_config(HandlerId) of
                 error -> {error, {not_found, HandlerId}};
-                Conf -> log_hanlder_info(Conf, stopped)
+                {ok, Conf} -> log_hanlder_info(Conf, stopped)
             end
     end.
 
@@ -174,8 +181,11 @@ start_log_handler(HandlerId) ->
         false ->
             case read_stopped_handler_config(HandlerId) of
                 error -> {error, {not_found, HandlerId}};
-                Conf = #{module := Mod} ->
-                    logger:add_handler(HandlerId, Mod, Conf)
+                {ok, Conf = #{module := Mod}} ->
+                    case logger:add_handler(HandlerId, Mod, Conf) of
+                        ok -> remove_stopped_handler_config(HandlerId);
+                        {error, _} = Error -> Error
+                    end
             end
     end.
 
@@ -183,8 +193,10 @@ start_log_handler(HandlerId) ->
 stop_log_handler(HandlerId) ->
     case logger:get_handler_config(HandlerId) of
         {ok, Conf} ->
-            save_stopped_handler_config(HandlerId, Conf),
-            logger:remove_handler(HandlerId);
+            case logger:remove_handler(HandlerId) of
+                ok -> save_stopped_handler_config(HandlerId, Conf);
+                Error -> Error
+            end;
         {error, _} ->
             {error, {not_started, HandlerId}}
     end.
@@ -196,7 +208,7 @@ set_log_handler_level(HandlerId, Level) ->
         {error, _} ->
             case read_stopped_handler_config(HandlerId) of
                 error -> {error, {not_found, HandlerId}};
-                Conf ->
+                {ok, Conf} ->
                     save_stopped_handler_config(HandlerId, Conf#{level => Level})
             end
     end.
@@ -240,7 +252,7 @@ log_hanlder_info(#{id := Id, level := Level, module := _OtherModule}, Status) ->
 set_all_log_handlers_level(Level) ->
     set_all_log_handlers_level(get_log_handlers(), Level, []).
 
-set_all_log_handlers_level([{ID, Level, _Dst} | List], NewLevel, ChangeHistory) ->
+set_all_log_handlers_level([#{id := ID, level := Level} | List], NewLevel, ChangeHistory) ->
     case set_log_handler_level(ID, NewLevel) of
         ok -> set_all_log_handlers_level(List, NewLevel, [{ID, Level} | ChangeHistory]);
         {error, Error} ->
@@ -251,21 +263,36 @@ set_all_log_handlers_level([], _NewLevel, _NewHanlder) ->
     ok.
 
 rollback([{ID, Level} | List]) ->
-    emqx_logger:set_log_handler_level(ID, Level),
+    set_log_handler_level(ID, Level),
     rollback(List);
 rollback([]) -> ok.
 
 save_stopped_handler_config(HandlerId, Config) ->
-    persistent_term:put({?MODULE, config}, #{HandlerId => Config}).
+    case persistent_term:get(?stopped_handlers, undefined) of
+        undefined ->
+            persistent_term:put(?stopped_handlers, #{HandlerId => Config});
+        ConfList ->
+            persistent_term:put(?stopped_handlers, ConfList#{HandlerId => Config})
+    end.
 read_stopped_handler_config(HandlerId) ->
-    case persistent_term:get({?MODULE, config}, undefined) of
+    case persistent_term:get(?stopped_handlers, undefined) of
         undefined -> error;
-        Conf -> maps:find(HandlerId, Conf)
+        ConfList -> maps:find(HandlerId, ConfList)
+    end.
+remove_stopped_handler_config(HandlerId) ->
+    case persistent_term:get(?stopped_handlers, undefined) of
+        undefined -> ok;
+        ConfList ->
+            case maps:find(HandlerId, ConfList) of
+                error -> ok;
+                {ok, _} ->
+                    persistent_term:put(?stopped_handlers, maps:remove(HandlerId, ConfList))
+            end
     end.
 list_stopped_handler_config() ->
-    case persistent_term:get({?MODULE, config}, undefined) of
-        undefined -> error;
-        Conf -> maps:to_list(Conf)
+    case persistent_term:get(?stopped_handlers, undefined) of
+        undefined -> [];
+        ConfList -> maps:values(ConfList)
     end.
 
 %% @doc The following parse-transforms stripped off the module attribute named
