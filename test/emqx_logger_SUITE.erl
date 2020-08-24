@@ -23,6 +23,7 @@
 
 -define(LOGGER, emqx_logger).
 -define(a, "a").
+-define(SUPPORTED_LEVELS, [emergency, alert, critical, error, warning, notice, info, debug]).
 
 -define(PARSE_TRANS_TEST_CODE,
         "-module(mytest).\n"
@@ -83,21 +84,53 @@ t_get_log_handlers(_) ->
     ?assertMatch([_|_], ?LOGGER:get_log_handlers()).
 
 t_get_log_handler(_) ->
-    [{HandlerId, _, _} | _ ] = ?LOGGER:get_log_handlers(),
-    ?assertMatch({HandlerId, _, _}, ?LOGGER:get_log_handler(HandlerId)).
+    [?assertMatch(#{id := Id}, ?LOGGER:get_log_handler(Id))
+     || #{id := Id} <- ?LOGGER:get_log_handlers()].
 
 t_set_log_handler_level(_) ->
-    [{HandlerId, _, _} | _ ] = ?LOGGER:get_log_handlers(),
-    Level = debug,
-    ?LOGGER:set_log_handler_level(HandlerId, Level),
-    ?assertMatch({HandlerId, Level, _}, ?LOGGER:get_log_handler(HandlerId)).
+    [begin
+        ?LOGGER:set_log_handler_level(Id, Level),
+        ?assertMatch(#{id := Id, level := Level}, ?LOGGER:get_log_handler(Id))
+     end || #{id := Id} <- ?LOGGER:get_log_handlers(),
+            Level <- ?SUPPORTED_LEVELS],
+    ?LOGGER:set_log_level(warning).
 
 t_set_log_level(_) ->
     ?assertMatch({error, _Error}, ?LOGGER:set_log_level(for_test)),
-    ?assertEqual(ok, ?LOGGER:set_log_level(debug)).
+    ?assertEqual(ok, ?LOGGER:set_log_level(debug)),
+    ?assertEqual(ok, ?LOGGER:set_log_level(warning)).
 
 t_set_all_log_handlers_level(_) ->
     ?assertMatch({error, _Error}, ?LOGGER:set_all_log_handlers_level(for_test)).
+
+t_start_stop_log_handler(_) ->
+    io:format("====== started: ~p~n", [?LOGGER:get_log_handlers(started)]),
+    io:format("====== stopped: ~p~n", [?LOGGER:get_log_handlers(stopped)]),
+    StartedN = length(?LOGGER:get_log_handlers(started)),
+    StoppedN = length(?LOGGER:get_log_handlers(stopped)),
+    [begin
+        io:format("------ stopping : ~p~n", [Id]),
+        ok = ?LOGGER:stop_log_handler(Id),
+        ?assertEqual(StartedN - 1, length(?LOGGER:get_log_handlers(started))),
+        ?assertEqual(StoppedN + 1, length(?LOGGER:get_log_handlers(stopped))),
+        io:format("------ starting : ~p~n", [Id]),
+        ok = ?LOGGER:start_log_handler(Id),
+        ?assertEqual(StartedN, length(?LOGGER:get_log_handlers(started))),
+        ?assertEqual(StoppedN, length(?LOGGER:get_log_handlers(stopped)))
+     end || #{id := Id} <- ?LOGGER:get_log_handlers(started)].
+
+t_start_stop_log_handler2(_) ->
+    %% start a handler that is already started returns ok
+    [begin
+        ok = ?LOGGER:start_log_handler(Id)
+     end || #{id := Id} <- ?LOGGER:get_log_handlers(started)],
+    %% stop a no exists handler returns {not_started, Id}
+    ?assertMatch({error, {not_started, invalid_handler_id}},
+                 ?LOGGER:stop_log_handler(invalid_handler_id)),
+    %% stop a handler that is already stopped retuns {not_started, Id}
+    ok = ?LOGGER:stop_log_handler(default),
+    ?assertMatch({error, {not_started, default}},
+                 ?LOGGER:stop_log_handler(default)).
 
 t_parse_transform(_) ->
     {ok, Toks, _EndLine} = erl_scan:string(?PARSE_TRANS_TEST_CODE),
