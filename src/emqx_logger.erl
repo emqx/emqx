@@ -60,7 +60,12 @@
 
 -type(peername_str() :: list()).
 -type(logger_dst() :: file:filename() | console | unknown).
--type(logger_handler_info() :: {logger:handler_id(), logger:level(), logger_dst()}).
+-type(logger_handler_info() :: #{
+        id := logger:handler_id(),
+        level := logger:level(),
+        dst := logger_dst(),
+        status := started | stopped
+      }).
 
 -define(stopped_handlers, {?MODULE, stopped_handlers}).
 
