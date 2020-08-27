@@ -348,6 +348,11 @@ end}.
   {datatype, integer}
 ]}.
 
+{mapping, "rpc.port_discovery", "gen_rpc.port_discovery", [
+  {default, stateless},
+  {datatype, {enum, [manual, stateless]}}
+]}.
+
 %% RPC server port.
 {mapping, "rpc.tcp_server_port", "gen_rpc.tcp_server_port", [
   {default, 5369},
