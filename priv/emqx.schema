@@ -997,15 +997,19 @@ end}.
   {default, off}
 ]}.
 
-{mapping, "zone.$name.rate_limit.messages_in", "emqx.zones", [
+{mapping, "zone.$name.rate_limit.conn_messages_in", "emqx.zones", [
   {datatype, string}
 ]}.
 
-{mapping, "zone.$name.rate_limit.bytes_in", "emqx.zones", [
+{mapping, "zone.$name.rate_limit.conn_bytes_in", "emqx.zones", [
   {datatype, string}
 ]}.
 
-{mapping, "zone.$name.quota.routing.messages", "emqx.zones", [
+{mapping, "zone.$name.quota.conn_messages_routing", "emqx.zones", [
+  {datatype, string}
+]}.
+
+{mapping, "zone.$name.quota.overall_messages_routing", "emqx.zones", [
   {datatype, string}
 ]}.
 
@@ -1115,18 +1119,13 @@ end}.
                (["response_information"], Val) ->
                    {response_information, iolist_to_binary(Val)};
                (["rate_limit", "conn_messages_in"], Val) ->
-                    {ratelimit, {conn_messages_in, Ratelimit(Val)}};
+                   {ratelimit, {conn_messages_in, Ratelimit(Val)}};
                (["rate_limit", "conn_bytes_in"], Val) ->
-                    {ratelimit, {conn_bytes_in, Ratelimit(Val)}};
-               (["quota", "routing", "messages"], Val) ->
-                    Policy = case string:tokens(Val, "|") of
-                                 [T] ->
-                                     [{conn_messages_routing, Ratelimit(T)}];
-                                 [T1, T2] ->
-                                     [{conn_messages_routing, Ratelimit(T1)},
-                                      {overall_messages_routing, Ratelimit(T2)}]
-                             end,
-                    {quota, Policy};
+                   {ratelimit, {conn_bytes_in, Ratelimit(Val)}};
+               (["quota", "conn_messages_routing"], Val) ->
+                   {quota, {conn_messages_routing, Ratelimit(Val)}};
+               (["quota", "overall_messages_routing"], Val) ->
+                   {quota, {overall_messages_routing, Ratelimit(Val)}};
                ([Opt], Val) ->
                     {list_to_atom(Opt), Val}
             end,
@@ -1137,9 +1136,10 @@ end}.
               maps:update_with(list_to_atom(Name),
                                fun(Opts) ->
                                    case NVal of
-                                       {ratelimit, Rl} ->
-                                           Rls = proplists:get_value(ratelimit, Opts, []),
-                                           lists:keystore(ratelimit, 1, Opts, {ratelimit, [Rl|Rls]});
+                                       {Key, Rl} when Key == ratelimit;
+                                                      Key == quota ->
+                                           Rls = proplists:get_value(Key, Opts, []),
+                                           lists:keystore(Key, 1, Opts, {Key, [Rl|Rls]});
                                        _ ->
                                            [NVal|Opts]
                                    end
