@@ -354,6 +354,11 @@ handle_call(From, stats, State) ->
     gen_server:reply(From, stats(State)),
     return(State);
 
+handle_call(_From, {ratelimit, Policy}, State = #state{channel = Channel}) ->
+    Zone = emqx_channel:info(zone, Channel),
+    Limiter = emqx_limiter:init(Zone, Policy),
+    {reply, ok, State#state{limiter = Limiter}};
+
 handle_call(From, Req, State = #state{channel = Channel}) ->
     case emqx_channel:handle_call(Req, Channel) of
         {reply, Reply, NChannel} ->

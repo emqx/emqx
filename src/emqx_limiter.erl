@@ -44,9 +44,7 @@
               | overall_messages_routing
               ).
 
--type(spec() :: {name(), esockd_rate_limit:config()}).
-
--type(specs() :: [spec()]).
+-type(policy() :: [{name(), esockd_rate_limit:config()}]).
 
 -type(info() :: #{name() :=
                   #{tokens   := non_neg_integer(),
@@ -61,7 +59,7 @@
 
 -spec(init(emqx_zone:zone(),
            maybe(esockd_rate_limit:config()),
-           maybe(esockd_rate_limit:config()), specs())
+           maybe(esockd_rate_limit:config()), policy())
      -> maybe(limiter())).
 init(Zone, PubLimit, BytesIn, Specs) ->
     Merged = maps:merge(#{conn_messages_in => PubLimit,
@@ -69,7 +67,7 @@ init(Zone, PubLimit, BytesIn, Specs) ->
     Filtered = maps:filter(fun(_, V) -> V /= undefined end, Merged),
     init(Zone, maps:to_list(Filtered)).
 
--spec(init(emqx_zone:zone(), specs()) -> maybe(limiter())).
+-spec(init(emqx_zone:zone(), policy()) -> maybe(limiter())).
 init(_Zone, []) ->
     undefined;
 init(Zone, Specs) ->
