@@ -220,7 +220,9 @@ t_handle_call(_) ->
     St = st(),
     ?assertMatch({ok, _St}, emqx_connection:handle_msg({event, undefined}, St)),
     ?assertMatch({reply, _Info, _NSt}, emqx_connection:handle_call(self(), info, St)),
-    ?assertMatch({reply, _Stats, _NSt }, emqx_connection:handle_call(self(), stats, St)),
+    ?assertMatch({reply, _Stats, _NSt}, emqx_connection:handle_call(self(), stats, St)),
+    ?assertMatch({reply, ok, _NSt}, emqx_connection:handle_call(self(), {ratelimit, []}, St)),
+    ?assertMatch({reply, ok, _NSt}, emqx_connection:handle_call(self(), {ratelimit, [{conn_messages_in, {100, 1}}]}, St)),
     ?assertEqual({reply, ignored, St}, emqx_connection:handle_call(self(), for_testing, St)),
     ?assertMatch({stop, {shutdown,kicked}, ok, _NSt}, emqx_connection:handle_call(self(), kick, St)).
 

@@ -106,7 +106,7 @@
           await_timer  => expire_awaiting_rel,
           expire_timer => expire_session,
           will_timer   => will_message,
-          quota_timer  => reset_quota_flag
+          quota_timer  => expire_quota_limit
          }).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
@@ -855,6 +855,11 @@ handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
 handle_call(list_acl_cache, Channel) ->
     {reply, emqx_acl_cache:list_acl_cache(), Channel};
 
+handle_call({quota, Policy}, Channel) ->
+    Zone = info(zone, Channel),
+    Quota = emqx_limiter:init(Zone, Policy),
+    reply(ok, Channel#channel{quota = Quota});
+
 handle_call(Req, Channel) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     reply(ignored, Channel).
@@ -962,7 +967,7 @@ handle_timeout(_TRef, will_message, Channel = #channel{will_msg = WillMsg}) ->
     (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
     {ok, clean_timer(will_timer, Channel#channel{will_msg = undefined})};
 
-handle_timeout(_TRef, reset_quota_flag, Channel) ->
+handle_timeout(_TRef, expire_quota_limit, Channel) ->
     {ok, clean_timer(quota_timer, Channel)};
 
 handle_timeout(_TRef, Msg, Channel) ->

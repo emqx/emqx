@@ -367,7 +367,7 @@ t_quota_qos0(_) ->
     {ok, Chann1} = emqx_channel:handle_in(Pub, Chann),
     {ok, Chann2} = emqx_channel:handle_in(Pub, Chann1),
     M1 = emqx_metrics:val('packets.publish.dropped') - 1,
-    {ok, Chann3} = emqx_channel:handle_timeout(ref, reset_quota_flag, Chann2),
+    {ok, Chann3} = emqx_channel:handle_timeout(ref, expire_quota_limit, Chann2),
     {ok, _} = emqx_channel:handle_in(Pub, Chann3),
     M1 = emqx_metrics:val('packets.publish.dropped') - 1,
 
@@ -383,7 +383,7 @@ t_quota_qos1(_) ->
     %% Quota per connections
     {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub, Chann),
     {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), Chann2} = emqx_channel:handle_in(Pub, Chann1),
-    {ok, Chann3} = emqx_channel:handle_timeout(ref, reset_quota_flag, Chann2),
+    {ok, Chann3} = emqx_channel:handle_timeout(ref, expire_quota_limit, Chann2),
     {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann4} = emqx_channel:handle_in(Pub, Chann3),
     %% Quota in overall
     {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub, Chann4),
@@ -400,7 +400,7 @@ t_quota_qos2(_) ->
     %% Quota per connections
     {ok, ?PUBREC_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub1, Chann),
     {ok, ?PUBREC_PACKET(2, ?RC_QUOTA_EXCEEDED), Chann2} = emqx_channel:handle_in(Pub2, Chann1),
-    {ok, Chann3} = emqx_channel:handle_timeout(ref, reset_quota_flag, Chann2),
+    {ok, Chann3} = emqx_channel:handle_timeout(ref, expire_quota_limit, Chann2),
     {ok, ?PUBREC_PACKET(3, ?RC_SUCCESS), Chann4} = emqx_channel:handle_in(Pub3, Chann3),
     %% Quota in overall
     {ok, ?PUBREC_PACKET(4, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub4, Chann4),
@@ -527,6 +527,9 @@ t_handle_call_takeover_end(_) ->
     ok = meck:expect(emqx_session, takeover, fun(_) -> ok end),
     {shutdown, takeovered, [], _, _Chan} =
         emqx_channel:handle_call({takeover, 'end'}, channel()).
+
+t_handle_call_quota(_) ->
+    {reply, ok, _Chan} = emqx_channel:handle_call({quota, [{conn_messages_routing, {100,1}}]}, channel()).
 
 t_handle_call_unexpected(_) ->
     {reply, ignored, _Chan} = emqx_channel:handle_call(unexpected_req, channel()).
