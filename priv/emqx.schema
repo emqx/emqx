@@ -1969,7 +1969,7 @@ end}.
   {datatype, string}
 ]}.
 
-{translation, "emqx.modules", fun(Conf) ->
+{translation, "emqx.modules", fun(Conf, _, Conf1) ->
   Subscriptions = fun() ->
       List = cuttlefish_variable:filter_by_prefix("module.subscription", Conf),
       TopicList = [{N, Topic}|| {[_,"subscription",N,"topic"], Topic} <- List],
@@ -1998,7 +1998,7 @@ end}.
     [{emqx_mod_rewrite, Rewrites()}],
     [{emqx_mod_topic_metrics, []}],
     [{emqx_mod_delayed, []}],
-    [{emqx_mod_acl_internal, []}]
+    [{emqx_mod_acl_internal, [{acl_file, cuttlefish:conf_get("acl_file", Conf1)}]}]
   ])
 end}.
 
