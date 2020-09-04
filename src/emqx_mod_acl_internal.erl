@@ -40,19 +40,19 @@
 %% API
 %%--------------------------------------------------------------------
 
-load(_Env) ->
-    Rules = rules_from_file(emqx:get_env(acl_file)),
+load(Env) ->
+    Rules = rules_from_file(proplists:get_value(acl_file, Env)),
     emqx_hooks:add('client.check_acl', {?MODULE, check_acl, [Rules]},  -1).
 
 unload(_Env) ->
     emqx_hooks:del('client.check_acl', {?MODULE, check_acl}).
 
-reload(_Env) ->
+reload(Env) ->
     emqx_acl_cache:is_enabled() andalso (
         lists:foreach(
             fun(Pid) -> erlang:send(Pid, clean_acl_cache) end,
         emqx_cm:all_channels())),
-    unload([]), load([]).
+    unload(Env), load(Env).
 
 description() ->
     "EMQ X Internal ACL Module".
