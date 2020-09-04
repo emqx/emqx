@@ -878,8 +878,11 @@ handle_info({subscribe, TopicFilters}, Channel ) ->
         end, {[], Channel}, parse_topic_filters(TopicFilters)),
     {ok, NChannel};
 
-handle_info({unsubscribe, TopicFilters}, Channel) ->
-    {_RC, NChannel} = process_unsubscribe(TopicFilters, #{}, Channel),
+handle_info({unsubscribe, TopicFilters}, Channel = #channel{clientinfo = #{mountpoint := MountPoint}}) ->
+    %% The function called from HTTP APIs, so the TopicFilters has mounted.
+    NTopicFilters = [{emqx_mountpoint:unmount(MountPoint, TopicFilter), UnSubOpts}
+                      || {TopicFilter, UnSubOpts} <- TopicFilters],
+    {_RC, NChannel} = process_unsubscribe(NTopicFilters, #{}, Channel),
     {ok, NChannel};
 
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = idle}) ->
