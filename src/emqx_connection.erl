@@ -91,7 +91,9 @@
           %% Idle Timeout
           idle_timeout :: integer(),
           %% Idle Timer
-          idle_timer :: maybe(reference())
+          idle_timer :: maybe(reference()),
+          %% upgrade testing
+          descr :: string()
         }).
 
 -type(state() :: #state{}).
@@ -441,8 +443,12 @@ system_continue(Parent, _Debug, State) ->
 system_terminate(Reason, _Parent, _Debug, State) ->
     terminate(Reason, State).
 
-system_code_change(State, _Mod, _OldVsn, _Extra) ->
-    {ok, State}.
+system_code_change(State, _Mod, {down,ToVsn}, Extra) ->
+    io:format("downgrading to ~p --- ~p~n", [ToVsn, {State, _Mod, Extra}]),
+    {ok, list_to_tuple(lists:droplast(tuple_to_list(State)))};
+system_code_change(State, _Mod, FromVsn, Extra) ->
+    io:format("upgrading from ~p --- ~p~n", [FromVsn, {State, _Mod, Extra}]),
+    {ok, erlang:append_element(State, Extra)}.
 
 system_get_state(State) -> {ok, State}.
 
@@ -480,7 +486,8 @@ handle_timeout(_TRef, limit_timeout, State) ->
     handle_info(activate_socket, NState);
 
 handle_timeout(_TRef, emit_stats, State =
-               #state{channel = Channel}) ->
+               #state{channel = Channel, descr = Descr}) ->
+    io:format("==== description: ~p~n", [Descr]),
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
     {ok, State#state{stats_timer = undefined}};

@@ -1,0 +1,4 @@
+{"4.2.1",
+ [{"4.2.0", [{update, emqx_connection, {advanced, "hello, 4.2.1"}}]}],
+ [{"4.2.0", [{update, emqx_connection, {advanced, "Oh no, 4.2.0"}}]}]
+}.
