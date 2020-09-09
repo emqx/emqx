@@ -60,7 +60,7 @@ encode(Term, Opts) ->
 -spec(safe_encode(json_term())
       -> {ok, json_text()} | {error, Reason :: term()}).
 safe_encode(Term) ->
-    safe_encode(Term, []).
+    safe_encode(Term, [force_utf8]).
 
 -spec(safe_encode(json_term(), encode_options())
       -> {ok, json_text()} | {error, Reason :: term()}).
