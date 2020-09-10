@@ -24,9 +24,9 @@ get_vsn(_Conf) ->
   Tags = string:tokens(os:cmd(io_lib:format("git tag -l \"v*\" --points-at ~s", [LatestTagCommitId])), "\n"),
   LatestTag = lists:last(lists:sort(SortFun, Tags)),
   Branch = case os:getenv("GITHUB_RUN_ID") of
-                  false -> os:cmd("git branch | grep -e '^*' | cut -d' ' -f 2") -- "\n";
-                  _ -> re:replace(os:getenv("GITHUB_REF"), "^refs/heads/|^refs/tags/", "", [global, {return ,list}])
-          end,
+        false -> os:cmd("git branch | grep -e '^*' | cut -d' ' -f 2") -- "\n";
+        _ -> re:replace(os:getenv("GITHUB_REF"), "^refs/heads/|^refs/tags/", "", [global, {return ,list}])
+  end,
   GitRef =  case re:run(Branch, "master|^dev/|^hotfix/", [{capture, none}]) of
                 match -> {branch, Branch};
                 _ -> {tag, LatestTag}
@@ -56,7 +56,6 @@ render(Config) ->
 render_entry(Entry, PlcHdlrs, Config) when is_tuple(Entry) ->
     list_to_tuple(render_entry(tuple_to_list(Entry), PlcHdlrs, Config));
 render_entry(Entry, PlcHdlrs, Config) when is_list(Entry) ->
-    io:format("render_entry: ~p~n", [Entry]),
     lists:foldl(fun(Item, Acc) ->
             case render_item(Item, PlcHdlrs, Config) of
                 {var, Fun} when is_function(Fun) ->

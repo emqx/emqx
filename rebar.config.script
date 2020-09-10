@@ -21,8 +21,6 @@ Forms = [case erl_parse:parse_form(Ts) of
 {ok, 'rebar.config.mod', BinCode} = compile:forms(Forms),
 {module, _} = code:load_binary('rebar.config.mod', "nofile", BinCode),
 
-io:format("==== 'rebar.config.mod' loaded~n", []),
-
 %% load the plugins:
 %%
 %% TODO: get user plugins from a text file, fetch it and compile
@@ -31,6 +29,5 @@ io:format("==== 'rebar.config.mod' loaded~n", []),
 
 
 CONFIG_R = 'rebar.config.mod':render(CONFIG),
-io:format("==== config: ~p ~n", [CONFIG_R]),
 file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- CONFIG_R]),
 CONFIG_R.
