@@ -1,0 +1,36 @@
+%%-*- mode: erlang -*-
+
+%% load the helper module:
+
+SplitToksAtDot = fun SpFun(AllToks) ->
+    case lists:splitwith(fun({dot,_}) -> false; (_) -> true end, AllToks) of
+        {Toks, [{dot,_}=Dot]}      -> [Toks ++ [Dot]];
+        {Toks, [{dot,_}=Dot | Tl]} -> [Toks ++ [Dot] | SpFun(Tl)]
+    end
+end,
+{ok, TextCode} = file:read_file("rebar.config.mod"),
+{ok, Toks, _EndLine} = erl_scan:string(binary_to_list(TextCode)),
+FormToks = SplitToksAtDot(Toks),
+Forms = [case erl_parse:parse_form(Ts) of
+                {ok, Form} ->
+                    Form;
+                {error, Reason} ->
+                    erlang:error({erl_parse_failed, Reason})
+            end
+            || Ts <- FormToks],
+{ok, 'rebar.config.mod', BinCode} = compile:forms(Forms),
+{module, _} = code:load_binary('rebar.config.mod', "nofile", BinCode),
+
+io:format("==== 'rebar.config.mod' loaded~n", []),
+
+%% load the plugins:
+%%
+%% TODO: get user plugins from a text file, fetch it and compile
+
+%% render the rebar.config by evaluating the placeholders:
+
+
+CONFIG_R = 'rebar.config.mod':render(CONFIG),
+io:format("==== config: ~p ~n", [CONFIG_R]),
+file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- CONFIG_R]),
+CONFIG_R.
