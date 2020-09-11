@@ -24,7 +24,9 @@
 -logger_header("[ACL_INTERNAL]").
 
 %% APIs
--export([check_acl/5]).
+-export([ check_acl/5
+        , rules_from_file/1
+        ]).
 
 %% emqx_gen_mod callbacks
 -export([ load/1
