@@ -18,3 +18,12 @@ _build
 rebar3.crashdump
 *~
 rebar.config.rendered
+bbmustache/
+etc/gen.emqx.conf
+compile_commands.json
+cuttlefish
+xrefr
+erlang.mk
+*.coverdata
+etc/emqx.conf.rendered
+Mnesia.*/

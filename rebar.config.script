@@ -18,16 +18,19 @@ Forms = [case erl_parse:parse_form(Ts) of
                     erlang:error({erl_parse_failed, Reason})
             end
             || Ts <- FormToks],
-{ok, 'rebar.config.mod', BinCode} = compile:forms(Forms),
-{module, _} = code:load_binary('rebar.config.mod', "nofile", BinCode),
 
-%% load the plugins:
-%%
-%% TODO: get user plugins from a text file, fetch it and compile
+case compile:forms(Forms, [verbose,report_errors,report_warnings,return_errors]) of
+    {ok, 'rebar.config.mod', BinCode} ->
+        {module, _} = code:load_binary('rebar.config.mod', "nofile", BinCode),
+        %% load the plugins here:
+        %%
+        %% TODO: get user plugins from a text file, fetch it and compile
 
-%% render the rebar.config by evaluating the placeholders:
+        %% render the rebar.config by evaluating the placeholders:
 
-
-CONFIG_R = 'rebar.config.mod':render(CONFIG),
-file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- CONFIG_R]),
-CONFIG_R.
+        CONFIG_R = 'rebar.config.mod':render(CONFIG),
+        file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- CONFIG_R]),
+        CONFIG_R;
+    Error ->
+        io:format("[error] compile:forms/2 failed: ~p~n", [Error])
+end.

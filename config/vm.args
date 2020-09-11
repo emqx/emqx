@@ -1,6 +1,0 @@
--sname emqx
-
--setcookie emqx_cookie
-
-+K true
-+A30
