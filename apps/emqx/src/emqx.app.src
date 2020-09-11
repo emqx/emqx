@@ -1,15 +1,16 @@
 {application, emqx,
- [{description, "An OTP application"},
-  {vsn, "0.1.0"},
-  {registered, []},
-  {mod, {emqx_app, []}},
-  {applications,
-   [kernel,
-    stdlib
-   ]},
-  {env,[]},
+ [{description, "EMQ X Broker"},
+  {id, "emqx"},
+  {vsn, "git"},
   {modules, []},
-
-  {licenses, ["Apache 2.0"]},
-  {links, []}
- ]}.
+  {registered, []},
+  {applications, [kernel,stdlib,gproc,gen_rpc,esockd,cowboy,
+                  sasl,os_mon]},
+  {mod, {emqx_app,[]}},
+  {env, []},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx/emqx"}
+          ]}
+]}.

@@ -14,60 +14,53 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_app).
 
--behaviour(application).
+-module(prop_emqx_psk).
 
--export([ start/2
-        , stop/1
-        ]).
+-include_lib("proper/include/proper.hrl").
 
--define(APP, emqx).
-
-%%--------------------------------------------------------------------
-%% Application callbacks
-%%--------------------------------------------------------------------
-
-start(_Type, _Args) ->
-    print_banner(),
-    ekka:start(),
-    {ok, Sup} = emqx_sup:start_link(),
-    ok = emqx_modules:load(),
-    ok = emqx_plugins:init(),
-    emqx_plugins:load(),
-    emqx_boot:is_enabled(listeners)
-      andalso (ok = emqx_listeners:start()),
-    start_autocluster(),
-    register(emqx, self()),
-    emqx_alarm_handler:load(),
-    print_vsn(),
-    {ok, Sup}.
-
--spec(stop(State :: term()) -> term()).
-stop(_State) ->
-    emqx_alarm_handler:unload(),
-    emqx_boot:is_enabled(listeners)
-      andalso emqx_listeners:stop(),
-    emqx_modules:unload().
+-define(ALL(Vars, Types, Exprs),
+        ?SETUP(fun() ->
+            State = do_setup(),
+            fun() -> do_teardown(State) end
+         end, ?FORALL(Vars, Types, Exprs))).
 
 %%--------------------------------------------------------------------
-%% Print Banner
+%% Properties
 %%--------------------------------------------------------------------
 
-print_banner() ->
-    io:format("Starting ~s on node ~s~n", [?APP, node()]).
-
-print_vsn() ->
-    {ok, Descr} = application:get_key(description),
-    {ok, Vsn} = application:get_key(vsn),
-    io:format("~s ~s is running now!~n", [Descr, Vsn]).
+prop_lookup() ->
+    ?ALL({ClientPSKID, UserState},
+         {client_pskid(), user_state()},
+         begin
+             case emqx_psk:lookup(psk, ClientPSKID, UserState) of
+                 {ok, _Result} -> true;
+                 error -> true;
+                 _Other -> false
+             end
+         end).
 
 %%--------------------------------------------------------------------
-%% Autocluster
+%% Helper
 %%--------------------------------------------------------------------
 
-start_autocluster() ->
-    ekka:callback(prepare, fun emqx:shutdown/1),
-    ekka:callback(reboot,  fun emqx:reboot/0),
-    ekka:autocluster(?APP).
+do_setup() ->
+    ok = emqx_logger:set_log_level(emergency),
+    ok = meck:new(emqx_hooks, [passthrough, no_history]),
+    ok = meck:expect(emqx_hooks, run_fold,
+                    fun('tls_handshake.psk_lookup', [ClientPSKID], not_found) ->
+                            unicode:characters_to_binary(ClientPSKID)
+                    end).
+
+do_teardown(_) ->
+    ok = emqx_logger:set_log_level(error),
+    ok = meck:unload(emqx_hooks).
+
+%%--------------------------------------------------------------------
+%% Generator
+%%--------------------------------------------------------------------
+
+client_pskid() -> oneof([string(), integer(), [1, [-1]]]).
+
+user_state() -> term().
 
