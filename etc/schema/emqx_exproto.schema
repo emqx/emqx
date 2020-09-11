@@ -1,0 +1,314 @@
+%% -*-: erlang -*-
+%%--------------------------------------------------------------------
+%% Listeners
+%%--------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% TCP Listeners
+
+{mapping, "exproto.listener.$proto", "emqx_exproto.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "exproto.listener.$proto.driver", "emqx_exproto.listeners", [
+  {datatype, {enum, [python3, java]}}
+]}.
+
+{mapping, "exproto.listener.$proto.driver_search_path", "emqx_exproto.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "exproto.listener.$proto.driver_callback_module", "emqx_exproto.listeners", [
+  {default, "main"},
+  {datatype, string}
+]}.
+
+{mapping, "exproto.listener.$proto.acceptors", "emqx_exproto.listeners", [
+  {default, 8},
+  {datatype, integer}
+]}.
+
+{mapping, "exproto.listener.$proto.max_connections", "emqx_exproto.listeners", [
+  {default, 1024},
+  {datatype, integer}
+]}.
+
+{mapping, "exproto.listener.$proto.max_conn_rate", "emqx_exproto.listeners", [
+  {datatype, integer}
+]}.
+
+{mapping, "exproto.listener.$proto.active_n", "emqx_exproto.listeners", [
+  {default, 100},
+  {datatype, integer}
+]}.
+
+{mapping, "exproto.listener.$proto.idle_timeout", "emqx_exproto.listeners", [
+  {default, "30s"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "exproto.listener.$proto.access.$id", "emqx_exproto.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "exproto.listener.$proto.proxy_protocol", "emqx_exproto.listeners", [
+  {datatype, flag}
+]}.
+
+{mapping, "exproto.listener.$proto.proxy_protocol_timeout", "emqx_exproto.listeners", [
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "exproto.listener.$proto.backlog", "emqx_exproto.listeners", [
+  {datatype, integer},
+  {default, 1024}
+]}.
+
+{mapping, "exproto.listener.$proto.send_timeout", "emqx_exproto.listeners", [
+  {datatype, {duration, ms}},
+  {default, "15s"}
+]}.
+
+{mapping, "exproto.listener.$proto.send_timeout_close", "emqx_exproto.listeners", [
+  {datatype, flag},
+  {default, on}
+]}.
+
+{mapping, "exproto.listener.$proto.recbuf", "emqx_exproto.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "exproto.listener.$proto.sndbuf", "emqx_exproto.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "exproto.listener.$proto.buffer", "emqx_exproto.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "exproto.listener.$proto.tune_buffer", "emqx_exproto.listeners", [
+  {datatype, flag},
+  hidden
+]}.
+
+{mapping, "exproto.listener.$proto.nodelay", "emqx_exproto.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+{mapping, "exproto.listener.$proto.reuseaddr", "emqx_exproto.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+%%--------------------------------------------------------------------
+%% TLS Options
+
+{mapping, "exproto.listener.$proto.tls_versions", "emqx_exproto.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "exproto.listener.$proto.ciphers", "emqx_exproto.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "exproto.listener.$proto.psk_ciphers", "emqx_exproto.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "exproto.listener.$proto.dhfile", "emqx_exproto.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "exproto.listener.$proto.keyfile", "emqx_exproto.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "exproto.listener.$proto.certfile", "emqx_exproto.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "exproto.listener.$proto.cacertfile", "emqx_exproto.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "exproto.listener.$proto.verify", "emqx_exproto.listeners", [
+  {datatype, atom}
+]}.
+
+{mapping, "exproto.listener.$proto.fail_if_no_peer_cert", "emqx_exproto.listeners", [
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "exproto.listener.$proto.secure_renegotiate", "emqx_exproto.listeners", [
+  {datatype, flag}
+]}.
+
+{mapping, "exproto.listener.$proto.reuse_sessions", "emqx_exproto.listeners", [
+  {default, on},
+  {datatype, flag}
+]}.
+
+{mapping, "exproto.listener.$proto.honor_cipher_order", "emqx_exproto.listeners", [
+  {datatype, flag}
+]}.
+
+{translation, "emqx_exproto.listeners", fun(Conf) ->
+
+    Filter = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
+
+    Atom = fun(undefined) -> undefined; (S) -> list_to_atom(S) end,
+
+    Access = fun(S) ->
+                 [A, CIDR] = string:tokens(S, " "),
+                 {list_to_atom(A), case CIDR of "all" -> all; _ -> CIDR end}
+             end,
+
+    AccOpts = fun(Prefix) ->
+                  case cuttlefish_variable:filter_by_prefix(Prefix ++ ".access", Conf) of
+                      [] -> [];
+                      Rules -> [{access_rules, [Access(Rule) || {_, Rule} <- Rules]}]
+                  end
+              end,
+
+    RateLimit = fun(undefined) ->
+                        undefined;
+                   (Val) ->
+                        [L, D] = string:tokens(Val, ", "),
+                        Limit = case cuttlefish_bytesize:parse(L) of
+                                    Sz when is_integer(Sz) -> Sz;
+                                    {error, Reason} -> error(Reason)
+                                end,
+                        Duration = case cuttlefish_duration:parse(D, s) of
+                                       Secs when is_integer(Secs) -> Secs;
+                                       {error, Reason1} -> error(Reason1)
+                                   end,
+                        Rate = Limit / Duration,
+                        {Rate, Limit}
+                end,
+
+    DriverOpts = fun(Prefix) ->
+                     [{driver,
+                       Filter([{type, cuttlefish:conf_get(Prefix ++ ".driver", Conf)},
+                               {path, cuttlefish:conf_get(Prefix ++ ".driver_search_path", Conf)},
+                               {cbm, Atom(cuttlefish:conf_get(Prefix ++ ".driver_callback_module", Conf))}
+                              ])
+                      }]
+                 end,
+
+    ConnOpts = fun(Prefix) ->
+                   Filter([{active_n, cuttlefish:conf_get(Prefix ++ ".active_n", Conf, undefined)},
+                           {idle_timeout, cuttlefish:conf_get(Prefix ++ ".idle_timeout", Conf, undefined)}])
+               end,
+
+    LisOpts = fun(Prefix) ->
+                  Filter([{acceptors, cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
+                          {max_connections, cuttlefish:conf_get(Prefix ++ ".max_connections", Conf)},
+                          {max_conn_rate, cuttlefish:conf_get(Prefix ++ ".max_conn_rate", Conf, undefined)},
+                          {tune_buffer, cuttlefish:conf_get(Prefix ++ ".tune_buffer", Conf, undefined)},
+                          {proxy_protocol, cuttlefish:conf_get(Prefix ++ ".proxy_protocol", Conf, undefined)},
+                          {proxy_protocol_timeout, cuttlefish:conf_get(Prefix ++ ".proxy_protocol_timeout", Conf, undefined)} | AccOpts(Prefix)])
+              end,
+
+    TcpOpts = fun(Prefix) ->
+                  Filter([{backlog, cuttlefish:conf_get(Prefix ++ ".backlog", Conf, undefined)},
+                          {send_timeout, cuttlefish:conf_get(Prefix ++ ".send_timeout", Conf, undefined)},
+                          {send_timeout_close, cuttlefish:conf_get(Prefix ++ ".send_timeout_close", Conf, undefined)},
+                          {recbuf,  cuttlefish:conf_get(Prefix ++ ".recbuf", Conf, undefined)},
+                          {sndbuf,  cuttlefish:conf_get(Prefix ++ ".sndbuf", Conf, undefined)},
+                          {buffer,  cuttlefish:conf_get(Prefix ++ ".buffer", Conf, undefined)},
+                          {nodelay, cuttlefish:conf_get(Prefix ++ ".nodelay", Conf, true)},
+                          {reuseaddr, cuttlefish:conf_get(Prefix ++ ".reuseaddr", Conf, undefined)}])
+              end,
+    SplitFun = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
+    MapPSKCiphers = fun(PSKCiphers) ->
+                      lists:map(
+                          fun("PSK-AES128-CBC-SHA") -> {psk, aes_128_cbc, sha};
+                             ("PSK-AES256-CBC-SHA") -> {psk, aes_256_cbc, sha};
+                             ("PSK-3DES-EDE-CBC-SHA") -> {psk, '3des_ede_cbc', sha};
+                             ("PSK-RC4-SHA") -> {psk, rc4_128, sha}
+                          end, PSKCiphers)
+                    end,
+    SslOpts = fun(Prefix) ->
+                  Versions = case SplitFun(cuttlefish:conf_get(Prefix ++ ".tls_versions", Conf, undefined)) of
+                                undefined -> undefined;
+                                L -> [list_to_atom(V) || V <- L]
+                            end,
+                  TLSCiphers = cuttlefish:conf_get(Prefix++".ciphers", Conf, undefined),
+                  PSKCiphers = cuttlefish:conf_get(Prefix++".psk_ciphers", Conf, undefined),
+                  Ciphers =
+                    case {TLSCiphers, PSKCiphers} of
+                      {undefined, undefined} ->
+                        cuttlefish:invalid(Prefix++".ciphers or "++Prefix++".psk_ciphers is absent");
+                      {TLSCiphers, undefined} ->
+                        SplitFun(TLSCiphers);
+                      {undefined, PSKCiphers} ->
+                        MapPSKCiphers(SplitFun(PSKCiphers));
+                      {_TLSCiphers, _PSKCiphers} ->
+                        cuttlefish:invalid(Prefix++".ciphers and "++Prefix++".psk_ciphers cannot be configured at the same time")
+                    end,
+                  UserLookupFun =
+                    case PSKCiphers of
+                      undefined -> undefined;
+                      _ -> {fun emqx_psk:lookup/3, <<>>}
+                    end,
+                  Filter([{versions, Versions},
+                          {ciphers, Ciphers},
+                          {user_lookup_fun, UserLookupFun},
+                          %{handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf, undefined)},
+                          {dhfile, cuttlefish:conf_get(Prefix ++ ".dhfile", Conf, undefined)},
+                          {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
+                          {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
+                          {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
+                          {verify,     cuttlefish:conf_get(Prefix ++ ".verify", Conf, undefined)},
+                          {fail_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ ".fail_if_no_peer_cert", Conf, undefined)},
+                          {secure_renegotiate, cuttlefish:conf_get(Prefix ++ ".secure_renegotiate", Conf, undefined)},
+                          {reuse_sessions, cuttlefish:conf_get(Prefix ++ ".reuse_sessions", Conf, undefined)},
+                          {honor_cipher_order, cuttlefish:conf_get(Prefix ++ ".honor_cipher_order", Conf, undefined)}])
+              end,
+
+    UdpOpts = fun(Prefix) ->
+                  Filter([{recbuf,  cuttlefish:conf_get(Prefix ++ ".recbuf", Conf, undefined)},
+                          {sndbuf,  cuttlefish:conf_get(Prefix ++ ".sndbuf", Conf, undefined)},
+                          {buffer,  cuttlefish:conf_get(Prefix ++ ".buffer", Conf, undefined)},
+                          {reuseaddr, cuttlefish:conf_get(Prefix ++ ".reuseaddr", Conf, undefined)}])
+              end,
+
+    ParseListenOn = fun(ListenOn) ->
+                        case string:tokens(ListenOn, "://") of
+                            [Port] -> {tcp, list_to_integer(Port)};
+                            [T, Ip, Port]
+                              when T =:= "tcp"; T =:= "ssl";
+                                   T =:= "udp"; T =:= "dtls" ->
+                                {Atom(T), {Ip, list_to_integer(Port)}}
+                        end
+                    end,
+
+    Listeners = fun(Proto) ->
+                    Prefix = string:join(["exproto","listener", Proto], "."),
+                    Opts = DriverOpts(Prefix) ++ ConnOpts(Prefix) ++ LisOpts(Prefix),
+                    case cuttlefish:conf_get(Prefix, Conf, undefined) of
+                        undefined -> [];
+                        ListenOn0 ->
+                            case ParseListenOn(ListenOn0) of
+                                {tcp, ListenOn} ->
+                                    [{Proto, tcp, ListenOn, [{tcp_options, TcpOpts(Prefix)} | Opts]}];
+                                {ssl, ListenOn} ->
+                                    [{Proto, ssl, ListenOn, [{tcp_options, TcpOpts(Prefix)},
+                                                             {ssl_options, SslOpts(Prefix)} | Opts]}];
+                                {udp, ListenOn} ->
+                                    [{Proto, udp, ListenOn, [{udp_options, UdpOpts(Prefix)} | Opts]}];
+                                {dtls, ListenOn} ->
+                                    [{Proto, dtls, ListenOn, [{udp_options, UdpOpts(Prefix)},
+                                                              {dtls_options, SslOpts(Prefix)} | Opts]}];
+                                {_, _} ->
+                                    cuttlefish:invalid("Not supported listener type")
+                            end
+                    end
+                end,
+    lists:flatten([Listeners(Proto) || {[_, "listener", Proto], ListenOn}
+                                   <- cuttlefish_variable:filter_by_prefix("exproto.listener", Conf)])
+end}.

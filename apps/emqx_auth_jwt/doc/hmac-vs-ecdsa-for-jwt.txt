@@ -1,0 +1,3 @@
+
+https://crypto.stackexchange.com/questions/30657/hmac-vs-ecdsa-for-jwt
+

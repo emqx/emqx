@@ -17,10 +17,10 @@
 %% MQTT/TCP|TLS Connection
 -module(emqx_connection).
 
--include("emqx.hrl").
--include("emqx_mqtt.hrl").
--include("logger.hrl").
--include("types.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx_libs/include/emqx_mqtt.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx_libs/include/types.hrl").
 
 -logger_header("[MQTT]").
 

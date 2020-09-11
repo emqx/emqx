@@ -16,7 +16,7 @@
 
 -module(emqx_trie).
 
--include("emqx.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).

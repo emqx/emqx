@@ -18,8 +18,8 @@
 
 -behaviour(emqx_gen_mod).
 
--include("emqx.hrl").
--include("logger.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
 
 -logger_header("[Presence]").
 

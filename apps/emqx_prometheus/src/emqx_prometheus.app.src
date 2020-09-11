@@ -1,0 +1,14 @@
+{application, emqx_prometheus,
+ [{description, "Prometheus for EMQ X"},
+  {vsn, "git"},
+  {modules, []},
+  {registered, [emqx_prometheus_sup]},
+  {applications, [kernel,stdlib,prometheus,emqx_libs]},
+  {mod, {emqx_prometheus_app,[]}},
+  {env, []},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx/emqx-prometheus"}
+          ]}
+ ]}.

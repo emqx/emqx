@@ -1,0 +1,34 @@
+version: '3'
+
+services:
+  erlang:
+    image: erlang:22.3
+    volumes:
+      - ./:/emqx_auth_mysql
+    networks:
+      - emqx_bridge
+    depends_on:
+      - mysql_server
+    tty: true
+
+  mysql_server:
+    image: mysql:${MYSQL_TAG}
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: public
+      MYSQL_DATABASE: mqtt
+    networks:
+      - emqx_bridge
+    command:
+      --bind-address "::"
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+      --explicit_defaults_for_timestamp=true
+      --lower_case_table_names=1
+      --max_allowed_packet=128M
+      --skip-symbolic-links
+
+networks:
+  emqx_bridge:
+    driver: bridge

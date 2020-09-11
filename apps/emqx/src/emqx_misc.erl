@@ -18,8 +18,8 @@
 
 -compile(inline).
 
--include("types.hrl").
--include("logger.hrl").
+-include_lib("emqx_libs/include/types.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
 
 -export([ merge_opts/2
         , maybe_apply/2

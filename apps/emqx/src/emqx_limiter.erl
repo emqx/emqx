@@ -17,7 +17,7 @@
 %% Ratelimit or Quota checker
 -module(emqx_limiter).
 
--include("types.hrl").
+-include_lib("emqx_libs/include/types.hrl").
 
 -export([ init/2
         , init/4 %% XXX: Compatible with before 4.2 version

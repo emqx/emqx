@@ -16,8 +16,8 @@
 
 -module(emqx_frame).
 
--include("emqx.hrl").
--include("emqx_mqtt.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx_libs/include/emqx_mqtt.hrl").
 
 -export([ initial_parse_state/0
         , initial_parse_state/1

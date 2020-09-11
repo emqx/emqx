@@ -1,0 +1,26 @@
+%%-*- mode: erlang -*-
+%% emqx_auth_clientid config mapping
+
+{mapping, "auth.client.password_hash", "emqx_auth_clientid.password_hash", [
+  {default, sha256},
+  {datatype, {enum, [plain, md5, sha, sha256]}}
+]}.
+
+{mapping, "auth.client.$id.clientid", "emqx_auth_clientid.client_list", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.client.$id.password", "emqx_auth_clientid.client_list", [
+  {datatype, string}
+]}.
+
+{translation, "emqx_auth_clientid.client_list", fun(Conf) ->
+  ClientList = cuttlefish_variable:filter_by_prefix("auth.client", Conf),
+  lists:foldl(
+       fun({["auth", "client", Id, "clientid"], ClientId}, AccIn) ->
+        [{ClientId, cuttlefish:conf_get("auth.client." ++ Id ++ ".password", Conf)} | AccIn];
+       (_, AccIn) ->
+        AccIn
+       end, [], ClientList)
+end}.
+

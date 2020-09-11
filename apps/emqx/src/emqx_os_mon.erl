@@ -18,7 +18,7 @@
 
 -behaviour(gen_server).
 
--include("logger.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
 
 -logger_header("[OS_MON]").
 
@@ -47,7 +47,7 @@
         , code_change/3
         ]).
 
--include("emqx.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
 
 -define(OS_MON, ?MODULE).
 

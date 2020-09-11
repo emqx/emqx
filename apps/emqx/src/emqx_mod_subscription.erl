@@ -18,8 +18,8 @@
 
 -behaviour(emqx_gen_mod).
 
--include_lib("emqx.hrl").
--include_lib("emqx_mqtt.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx_libs/include/emqx_mqtt.hrl").
 
 %% emqx_gen_mod callbacks
 -export([ load/1

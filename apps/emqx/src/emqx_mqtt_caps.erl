@@ -17,8 +17,8 @@
 %% @doc MQTTv5 Capabilities
 -module(emqx_mqtt_caps).
 
--include("emqx_mqtt.hrl").
--include("types.hrl").
+-include_lib("emqx_libs/include/emqx_mqtt.hrl").
+-include_lib("emqx_libs/include/types.hrl").
 
 -export([ check_pub/2
         , check_sub/3

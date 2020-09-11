@@ -1,0 +1,14 @@
+{application, emqx_rule_engine,
+ [{description, "EMQ X Rule Engine"},
+  {vsn, "git"},
+  {modules, []},
+  {registered, [emqx_rule_engine_sup, emqx_rule_registry]},
+  {applications, [kernel,stdlib,rulesql,getopt,emqx_libs]},
+  {mod, {emqx_rule_engine_app, []}},
+  {env, []},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx/emqx-rule-engine"}
+          ]}
+ ]}.

@@ -16,8 +16,8 @@
 
 -module(emqx_cm_locker).
 
--include("emqx.hrl").
--include("types.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx_libs/include/types.hrl").
 
 -export([start_link/0]).
 
