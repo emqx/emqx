@@ -1,36 +1,18 @@
 %%-*- mode: erlang -*-
 
-%% load the helper module:
-
-SplitToksAtDot = fun SpFun(AllToks) ->
-    case lists:splitwith(fun({dot,_}) -> false; (_) -> true end, AllToks) of
-        {Toks, [{dot,_}=Dot]}      -> [Toks ++ [Dot]];
-        {Toks, [{dot,_}=Dot | Tl]} -> [Toks ++ [Dot] | SpFun(Tl)]
-    end
-end,
-{ok, TextCode} = file:read_file("rebar.config.mod"),
-{ok, Toks, _EndLine} = erl_scan:string(binary_to_list(TextCode)),
-FormToks = SplitToksAtDot(Toks),
-Forms = [case erl_parse:parse_form(Ts) of
-                {ok, Form} ->
-                    Form;
-                {error, Reason} ->
-                    erlang:error({erl_parse_failed, Reason})
-            end
-            || Ts <- FormToks],
-
-case compile:forms(Forms, [verbose,report_errors,report_warnings,return_errors]) of
-    {ok, 'rebar.config.mod', BinCode} ->
-        {module, _} = code:load_binary('rebar.config.mod', "nofile", BinCode),
-        %% load the plugins here:
-        %%
-        %% TODO: get user plugins from a text file, fetch it and compile
-
-        %% render the rebar.config by evaluating the placeholders:
-
-        CONFIG_R = 'rebar.config.mod':render(CONFIG),
-        file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- CONFIG_R]),
-        CONFIG_R;
+%% load the helper modules:
+CompileOpts = [verbose,report_errors,report_warnings,return_errors,binary],
+[case compile:file(ModFile, CompileOpts) of
+    {ok, Mod, BinCode} ->
+        {module, _} = code:load_binary(Mod, ModFile, BinCode);
     Error ->
-        io:format("[error] compile:forms/2 failed: ~p~n", [Error])
-end.
+        io:format("[error] compile:file(~p) failed: ~p~n", [ModFile, Error])
+ end || ModFile <- filelib:wildcard("mods/*.erl")],
+
+%% TODO: load the plugins here:
+%% get user plugins from a text file, fetch it and compile
+
+%% render the rebar.config by evaluating the placeholders:
+CONFIG_R = mod_config_template:render(CONFIG),
+file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- CONFIG_R]),
+CONFIG_R.
