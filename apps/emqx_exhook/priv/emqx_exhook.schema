@@ -1,43 +1,33 @@
 %%-*- mode: erlang -*-
 
-{mapping, "exhook.drivers", "emqx_exhook.drivers", [
+{mapping, "exhook.service.url", "emqx_exhook.service", [
   {datatype, string}
 ]}.
 
-{mapping, "exhook.drivers.$name.$key", "emqx_exhook.drivers", [
+{mapping, "exhook.service.opts.cacertfile", "emqx_exhook.service", [
   {datatype, string}
 ]}.
 
-{translation, "emqx_exhook.drivers", fun(Conf) ->
+{mapping, "exhook.service.opts.certfile", "emqx_exhook.service", [
+  {datatype, string}
+]}.
+
+{mapping, "exhook.service.opts.ketfile", "emqx_exhook.service", [
+  {datatype, string}
+]}.
+
+{translation, "emqx_exhook.service", fun(Conf) ->
 
     Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
 
-    Duration = fun(S) ->
-                   case cuttlefish_duration:parse(S, ms) of
-                       Ms when is_integer(Ms) -> Ms;
-                       {error, R} -> error(R)
-                   end
-               end,
-    Integer = fun(S) -> list_to_integer(S) end,
-
-    Atom = fun(S) -> list_to_atom(S) end,
-
-    Python = fun(Prefix) ->
-               [{init_module, Atom(cuttlefish:conf_get(Prefix ++ ".init_module", Conf, "main"))}, %% dirver
-                {python_path, cuttlefish:conf_get(Prefix ++ ".path", Conf, undefined)},
-                {call_timeout, Duration(cuttlefish:conf_get(Prefix ++ ".call_timeout", Conf, "5s"))}]
-            end,
-
-    Java = fun(Prefix) ->
-             [{init_module, Atom(cuttlefish:conf_get(Prefix ++ ".init_module", Conf, "Main"))}, %% dirver
-              {java_path, cuttlefish:conf_get(Prefix ++ ".path", Conf, undefined)},
-              {call_timeout, Duration(cuttlefish:conf_get(Prefix ++ ".call_timeout", Conf, "5s"))}]
-           end,
-
-    Options = fun(python) -> Filter(Python("exhook.drivers.python"));
-                 (python3) -> Filter(Python("exhook.drivers.python3"));
-                 (java) -> Filter(Java("exhook.drivers.java"));
-                 (_) -> error(not_supported_drivers_type)
-              end,
-    [{Atom(Name), Options(Atom(Name))} || Name <- string:tokens(cuttlefish:conf_get("exhook.drivers", Conf), ",")]
+    case http_uri:parse(cuttlefish:conf_get("exhook.service.url", Conf)) of
+        {error, Reason} ->
+            error({invalid_uri, Reason});
+        {ok, {Scheme, _Username, Host, Port, _Path, _Qs}} ->
+            Options = Filter(
+                        [{keyfile, cuttlefish:conf_get("exhook.service.opts.keyfile", Conf, undefined)},
+                         {certfile, cuttlefish:conf_get("exhook.service.opts.certfile", Conf, undefined)},
+                         {cacertfile, cuttlefish:conf_get("exhook.service.opts.cacertfile", Conf, undefined)}]),
+            [{Scheme, Host, Port, Options}]
+    end
 end}.

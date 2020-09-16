@@ -1,6 +1,6 @@
-# emqx_extension_hook
+# emqx_exhook
 
-The `emqx_extension_hook` extremly enhance the extensibility for EMQ X. It allow using an others programming language to mount the hooks intead of erlang.
+The `emqx_exhook` extremly enhance the extensibility for EMQ X. It allow using an others programming language to mount the hooks intead of erlang.
 
 ## Feature
 

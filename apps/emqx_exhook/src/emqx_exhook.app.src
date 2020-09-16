@@ -4,7 +4,7 @@
   {modules, []},
   {registered, []},
   {mod, {emqx_exhook_app, []}},
-  {applications, [kernel, stdlib, ecpool, erlport, emqx_libs]},
+  {applications, [kernel, stdlib, emqx_libs]},
   {env,[]},
   {licenses, ["Apache-2.0"]},
   {maintainers, ["EMQ X Team <contact@emqx.io>"]},
