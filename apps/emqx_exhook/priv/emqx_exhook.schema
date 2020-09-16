@@ -1,14 +1,14 @@
 %%-*- mode: erlang -*-
 
-{mapping, "exhook.drivers", "emqx_extension_hook.drivers", [
+{mapping, "exhook.drivers", "emqx_exhook.drivers", [
   {datatype, string}
 ]}.
 
-{mapping, "exhook.drivers.$name.$key", "emqx_extension_hook.drivers", [
+{mapping, "exhook.drivers.$name.$key", "emqx_exhook.drivers", [
   {datatype, string}
 ]}.
 
-{translation, "emqx_extension_hook.drivers", fun(Conf) ->
+{translation, "emqx_exhook.drivers", fun(Conf) ->
 
     Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
 

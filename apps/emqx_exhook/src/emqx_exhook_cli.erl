@@ -14,16 +14,16 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_extension_hook_cli).
+-module(emqx_exhook_cli).
 
--include("emqx_extension_hook.hrl").
+-include("emqx_exhook.hrl").
 
 -export([cli/1]).
 
 cli(["drivers", "list"]) ->
     if_enabled(fun() ->
-        Drivers = emqx_extension_hook:list(),
-        [emqx_ctl:print("Driver(~s)~n", [emqx_extension_hook_driver:format(Driver)]) || Driver <- Drivers]
+        Drivers = emqx_exhook:list(),
+        [emqx_ctl:print("Driver(~s)~n", [emqx_exhook_driver:format(Driver)]) || Driver <- Drivers]
     end);
 
 cli(["drivers", "enable", Name0]) ->
@@ -33,13 +33,13 @@ cli(["drivers", "enable", Name0]) ->
             undefined ->
                 emqx_ctl:print("not_found~n");
             Opts ->
-                print(emqx_extension_hook:enable(Name, Opts))
+                print(emqx_exhook:enable(Name, Opts))
         end
     end);
 
 cli(["drivers", "disable", Name]) ->
     if_enabled(fun() ->
-        print(emqx_extension_hook:disable(list_to_atom(Name)))
+        print(emqx_exhook:disable(list_to_atom(Name)))
     end);
 
 cli(["drivers", "stats"]) ->
@@ -69,7 +69,7 @@ if_enabled(Fun) ->
     end.
 
 hint() ->
-    emqx_ctl:print("Please './bin/emqx_ctl plugins load emqx_extension_hook' first.~n").
+    emqx_ctl:print("Please './bin/emqx_ctl plugins load emqx_exhook' first.~n").
 
 stats() ->
     lists:foldr(fun({K, N}, Acc) ->

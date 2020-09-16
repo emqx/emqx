@@ -1,0 +1,12 @@
+{application, emqx_exhook,
+ [{description, "EMQ X Extension for Hook"},
+  {vsn, "git"},
+  {modules, []},
+  {registered, []},
+  {mod, {emqx_exhook_app, []}},
+  {applications, [kernel, stdlib, ecpool, erlport, emqx_libs]},
+  {env,[]},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"}]}
+ ]}.

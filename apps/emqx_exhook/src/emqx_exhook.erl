@@ -14,9 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_extension_hook).
+-module(emqx_exhook).
 
--include("emqx_extension_hook.hrl").
+-include("emqx_exhook.hrl").
 -include_lib("emqx_libs/include/logger.hrl").
 
 -logger_header("[ExHook]").
@@ -36,7 +36,7 @@
 %% Mgmt APIs
 %%--------------------------------------------------------------------
 
--spec list() -> [emqx_extension_hook_driver:driver()].
+-spec list() -> [emqx_exhook_driver:driver()].
 list() ->
     [state(Name) || Name <- running()].
 
@@ -46,7 +46,7 @@ enable(Name, Opts) ->
         true ->
             {error, already_started};
         _ ->
-            case emqx_extension_hook_driver:load(Name, Opts) of
+            case emqx_exhook_driver:load(Name, Opts) of
                 {ok, DriverState} ->
                     save(Name, DriverState);
                 {error, Reason} ->
@@ -60,7 +60,7 @@ disable(Name) ->
     case state(Name) of
         undefined -> {error, not_running};
         Driver ->
-            ok = emqx_extension_hook_driver:unload(Driver),
+            ok = emqx_exhook_driver:unload(Driver),
             unsave(Name)
     end.
 
@@ -79,7 +79,7 @@ cast(Name, Args) ->
 cast(_, _, []) ->
     ok;
 cast(Name, Args, [DriverName|More]) ->
-    emqx_extension_hook_driver:run_hook(Name, Args, state(DriverName)),
+    emqx_exhook_driver:run_hook(Name, Args, state(DriverName)),
     cast(Name, Args, More).
 
 -spec call_fold(atom(), list(), term(), function()) -> ok | {stop, term()}.
@@ -90,7 +90,7 @@ call_fold(_, _, _, _, []) ->
     ok;
 call_fold(Name, InfoArgs, AccArg, Validator, [NameDriver|More]) ->
     Driver = state(NameDriver),
-    case emqx_extension_hook_driver:run_hook_fold(Name, InfoArgs, AccArg, Driver) of
+    case emqx_exhook_driver:run_hook_fold(Name, InfoArgs, AccArg, Driver) of
         ok         -> call_fold(Name, InfoArgs, AccArg, Validator, More);
         {error, _} -> call_fold(Name, InfoArgs, AccArg, Validator, More);
         {ok, NAcc} ->
@@ -99,7 +99,7 @@ call_fold(Name, InfoArgs, AccArg, Validator, [NameDriver|More]) ->
                     {stop, NAcc};
                 _ ->
                     ?LOG(error, "Got invalid return type for calling ~p on ~p",
-                         [Name, emqx_extension_hook_driver:name(Driver)]),
+                         [Name, emqx_exhook_driver:name(Driver)]),
                     call_fold(Name, InfoArgs, AccArg, Validator, More)
             end
     end.

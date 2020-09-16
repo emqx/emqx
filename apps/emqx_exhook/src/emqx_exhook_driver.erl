@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_extension_hook_driver).
+-module(emqx_exhook_driver).
 
 -include_lib("emqx_libs/include/logger.hrl").
 
@@ -95,14 +95,14 @@ load(Name, Opts0) ->
         false -> {error, not_found_initial_module};
         {value, {_,InitM}, Opts} ->
             Spec = pool_spec(Name, Opts),
-            {ok, _} = emqx_extension_hook_sup:start_driver_pool(Spec),
+            {ok, _} = emqx_exhook_sup:start_driver_pool(Spec),
             do_init(Name, InitM)
     end.
 
 -spec unload(driver()) -> ok.
 unload(#driver{name = Name, init = InitM}) ->
     do_deinit(Name, InitM),
-    emqx_extension_hook_sup:stop_driver_pool(Name).
+    emqx_exhook_sup:stop_driver_pool(Name).
 
 do_deinit(Name, InitM) ->
     _ = raw_call(type(Name), Name, InitM, 'deinit', []),
@@ -123,7 +123,7 @@ do_init(Name, InitM) ->
                          hookspec = NHookSpec,
                          incfun = incfun(Prefix) }};
         {error, Reason} ->
-            emqx_extension_hook_sup:stop_driver_pool(Name),
+            emqx_exhook_sup:stop_driver_pool(Name),
             {error, Reason}
     end.
 

@@ -14,11 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_extension_hook_app).
+-module(emqx_exhook_app).
 
 -behaviour(application).
 
--include("emqx_extension_hook.hrl").
+-include("emqx_exhook.hrl").
 
 -emqx_plugin(?MODULE).
 
@@ -32,7 +32,7 @@
 %%--------------------------------------------------------------------
 
 start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqx_extension_hook_sup:start_link(),
+    {ok, Sup} = emqx_exhook_sup:start_link(),
 
     %% Load all dirvers
     load_all_drivers(),
@@ -41,7 +41,7 @@ start(_StartType, _StartArgs) ->
     load_exhooks(),
 
     %% Register CLI
-    emqx_ctl:register_command(exhook, {emqx_extension_hook_cli, cli}, []),
+    emqx_ctl:register_command(exhook, {emqx_exhook_cli, cli}, []),
     {ok, Sup}.
 
 prep_stop(State) ->
@@ -63,11 +63,11 @@ load_all_drivers() ->
 load_all_drivers([]) ->
     ok;
 load_all_drivers([{Name, Opts}|Drivers]) ->
-    ok = emqx_extension_hook:enable(Name, Opts),
+    ok = emqx_exhook:enable(Name, Opts),
     load_all_drivers(Drivers).
 
 unload_all_drivers() ->
-    emqx_extension_hook:disable_all().
+    emqx_exhook:disable_all().
 
 %%--------------------------------------------------------------------
 %% Exhooks

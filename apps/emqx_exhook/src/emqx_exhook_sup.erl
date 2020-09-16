@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_extension_hook_sup).
+-module(emqx_exhook_sup).
 
 -behaviour(supervisor).
 

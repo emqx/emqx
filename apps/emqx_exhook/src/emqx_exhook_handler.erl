@@ -14,9 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_extension_hook_handler).
+-module(emqx_exhook_handler).
 
--include("emqx_extension_hook.hrl").
+-include("emqx_exhook.hrl").
 -include_lib("emqx_libs/include/emqx.hrl").
 -include_lib("emqx_libs/include/logger.hrl").
 
@@ -50,7 +50,7 @@
         , stringfy/1
         ]).
 
--import(emqx_extension_hook,
+-import(emqx_exhook,
         [ cast/2
         , call_fold/4
         ]).
