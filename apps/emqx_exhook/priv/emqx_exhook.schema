@@ -1,33 +1,29 @@
 %%-*- mode: erlang -*-
 
-{mapping, "exhook.service.url", "emqx_exhook.service", [
+{mapping, "exhook.service.$name.url", "emqx_exhook.services", [
   {datatype, string}
 ]}.
 
-{mapping, "exhook.service.opts.cacertfile", "emqx_exhook.service", [
+{mapping, "exhook.service.$name.ssl.cacertfile", "emqx_exhook.services", [
   {datatype, string}
 ]}.
 
-{mapping, "exhook.service.opts.certfile", "emqx_exhook.service", [
+{mapping, "exhook.service.$name.ssl.certfile", "emqx_exhook.services", [
   {datatype, string}
 ]}.
 
-{mapping, "exhook.service.opts.ketfile", "emqx_exhook.service", [
+{mapping, "exhook.service.$name.ssl.ketfile", "emqx_exhook.services", [
   {datatype, string}
 ]}.
 
-{translation, "emqx_exhook.service", fun(Conf) ->
-
-    Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
-
-    case http_uri:parse(cuttlefish:conf_get("exhook.service.url", Conf)) of
-        {error, Reason} ->
-            error({invalid_uri, Reason});
-        {ok, {Scheme, _Username, Host, Port, _Path, _Qs}} ->
-            Options = Filter(
-                        [{keyfile, cuttlefish:conf_get("exhook.service.opts.keyfile", Conf, undefined)},
-                         {certfile, cuttlefish:conf_get("exhook.service.opts.certfile", Conf, undefined)},
-                         {cacertfile, cuttlefish:conf_get("exhook.service.opts.cacertfile", Conf, undefined)}]),
-            [{Scheme, Host, Port, Options}]
-    end
+{translation, "emqx_exhook.services", fun(Conf) ->
+  [{default,
+    [{scheme, http},
+     {host, "127.0.0.1"},
+     {port, 9001},
+     {ssl_options,
+       [{certfile, "etc/certs/client-cert.pem"},
+        {keyfile, "etc/certs/client-key.pem"},
+        {cacertfile, "etc/certs/cacert.pem"}]}]
+   }]
 end}.

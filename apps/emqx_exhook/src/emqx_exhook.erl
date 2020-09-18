@@ -36,9 +36,9 @@
 %% Mgmt APIs
 %%--------------------------------------------------------------------
 
--spec list() -> [emqx_exhook_driver:driver()].
+-spec list() -> [emqx_exhook_service:service()].
 list() ->
-    [state(Name) || Name <- running()].
+    [service(Name) || Name <- running()].
 
 -spec enable(atom(), list()) -> ok | {error, term()}.
 enable(Name, Opts) ->
@@ -46,21 +46,21 @@ enable(Name, Opts) ->
         true ->
             {error, already_started};
         _ ->
-            case emqx_exhook_driver:load(Name, Opts) of
-                {ok, DriverState} ->
-                    save(Name, DriverState);
+            case emqx_exhook_service:load(Name, Opts) of
+                {ok, ServiceState} ->
+                    save(Name, ServiceState);
                 {error, Reason} ->
-                    ?LOG(error, "Load driver ~p failed: ~p", [Name, Reason]),
+                    ?LOG(error, "Load service ~p failed: ~p", [Name, Reason]),
                     {error, Reason}
             end
     end.
 
 -spec disable(atom()) -> ok | {error, term()}.
 disable(Name) ->
-    case state(Name) of
+    case service(Name) of
         undefined -> {error, not_running};
-        Driver ->
-            ok = emqx_exhook_driver:unload(Driver),
+        Service ->
+            ok = emqx_exhook_service:unload(Service),
             unsave(Name)
     end.
 
@@ -72,46 +72,45 @@ disable_all() ->
 %% Dispatch APIs
 %%----------------------------------------------------------
 
--spec cast(atom(), list()) -> ok.
-cast(Name, Args) ->
-    cast(Name, Args, running()).
+-spec cast(atom(), map()) -> ok.
+cast(Hookpoint, Req) ->
+    cast(Hookpoint, Req, running()).
 
 cast(_, _, []) ->
     ok;
-cast(Name, Args, [DriverName|More]) ->
-    emqx_exhook_driver:run_hook(Name, Args, state(DriverName)),
-    cast(Name, Args, More).
+cast(Hookpoint, Req, [ServiceName|More]) ->
+    %% XXX: Need a real asynchronous running
+    _ = emqx_exhook_service:call(Hookpoint, Req, service(ServiceName)),
+    cast(Hookpoint, Req, More).
 
--spec call_fold(atom(), list(), term(), function()) -> ok | {stop, term()}.
-call_fold(Name, InfoArgs, AccArg, Validator) ->
-    call_fold(Name, InfoArgs, AccArg, Validator, running()).
+-spec call_fold(atom(), term(), function())
+  -> {ok, term()}
+   | {stop, term()}.
+call_fold(Hookpoint, Req, AccFun) ->
+    call_fold(Hookpoint, Req, AccFun, running()).
 
-call_fold(_, _, _, _, []) ->
-    ok;
-call_fold(Name, InfoArgs, AccArg, Validator, [NameDriver|More]) ->
-    Driver = state(NameDriver),
-    case emqx_exhook_driver:run_hook_fold(Name, InfoArgs, AccArg, Driver) of
-        ok         -> call_fold(Name, InfoArgs, AccArg, Validator, More);
-        {error, _} -> call_fold(Name, InfoArgs, AccArg, Validator, More);
-        {ok, NAcc} ->
-            case Validator(NAcc) of
-                true ->
-                    {stop, NAcc};
-                _ ->
-                    ?LOG(error, "Got invalid return type for calling ~p on ~p",
-                         [Name, emqx_exhook_driver:name(Driver)]),
-                    call_fold(Name, InfoArgs, AccArg, Validator, More)
-            end
+call_fold(_, Req, _, []) ->
+    {ok, Req};
+call_fold(Hookpoint, Req, AccFun, [ServiceName|More]) ->
+    case emqx_exhook_service:call(Hookpoint, Req, service(ServiceName)) of
+        {ok, Resp} ->
+            case AccFun(Req, Resp) of
+                {stop, NReq} -> {stop, NReq};
+                {ok, NReq} -> call_fold(Hookpoint, NReq, AccFun, More);
+                ignore -> call_fold(Hookpoint, Req, AccFun, More)
+            end;
+        _ ->
+            call_fold(Hookpoint, Req, AccFun, More)
     end.
 
 %%----------------------------------------------------------
 %% Storage
 
 -compile({inline, [save/2]}).
-save(Name, DriverState) ->
+save(Name, ServiceState) ->
     Saved = persistent_term:get(?APP, []),
     persistent_term:put(?APP, lists:reverse([Name | Saved])),
-    persistent_term:put({?APP, Name}, DriverState).
+    persistent_term:put({?APP, Name}, ServiceState).
 
 -compile({inline, [unsave/1]}).
 unsave(Name) ->
@@ -128,9 +127,10 @@ unsave(Name) ->
 running() ->
     persistent_term:get(?APP, []).
 
--compile({inline, [state/1]}).
-state(Name) ->
+-compile({inline, [service/1]}).
+service(Name) ->
     case catch persistent_term:get({?APP, Name}) of
         {'EXIT', {badarg,_}} -> undefined;
-        State -> State
+        Service -> Service
     end.
+

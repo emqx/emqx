@@ -35,7 +35,7 @@ start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_exhook_sup:start_link(),
 
     %% Load all dirvers
-    load_all_drivers(),
+    load_all_services(),
 
     %% Register all hooks
     load_exhooks(),
@@ -47,7 +47,7 @@ start(_StartType, _StartArgs) ->
 prep_stop(State) ->
     emqx_ctl:unregister_command(exhook),
     unload_exhooks(),
-    unload_all_drivers(),
+    unload_all_services(),
     State.
 
 stop(_State) ->
@@ -57,16 +57,16 @@ stop(_State) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-load_all_drivers() ->
-    load_all_drivers(application:get_env(?APP, drivers, [])).
+load_all_services() ->
+    load_all_services(application:get_env(?APP, services, [])).
 
-load_all_drivers([]) ->
+load_all_services([]) ->
     ok;
-load_all_drivers([{Name, Opts}|Drivers]) ->
+load_all_services([{Name, Opts}|Drivers]) ->
     ok = emqx_exhook:enable(Name, Opts),
-    load_all_drivers(Drivers).
+    load_all_services(Drivers).
 
-unload_all_drivers() ->
+unload_all_services() ->
     emqx_exhook:disable_all().
 
 %%--------------------------------------------------------------------

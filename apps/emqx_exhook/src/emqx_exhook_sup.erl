@@ -22,8 +22,8 @@
         , init/1
         ]).
 
--export([ start_driver_pool/1
-        , stop_driver_pool/1
+-export([ start_service_channel/3
+        , stop_service_channel/1
         ]).
 
 %%--------------------------------------------------------------------
@@ -40,11 +40,18 @@ init([]) ->
 %% APIs
 %%--------------------------------------------------------------------
 
--spec start_driver_pool(map()) -> {ok, pid()} | {error, term()}.
-start_driver_pool(Spec) ->
+-spec start_service_channel(
+        atom(),
+        [grpcbox_channel:endpoint()],
+        grpcbox_channel:options()) -> {ok, pid()} | {error, term()}.
+start_service_channel(Name, Endpoints, Options) ->
+    Spec = #{id => Name,
+             start => {grpcbox_channel, start_link, [Name, Endpoints, Options]},
+             type => worker},
     supervisor:start_child(?MODULE, Spec).
 
--spec stop_driver_pool(atom()) -> ok.
-stop_driver_pool(Name) ->
+-spec stop_service_channel(atom()) -> ok.
+stop_service_channel(Name) ->
     ok = supervisor:terminate_child(?MODULE, Name),
     ok = supervisor:delete_child(?MODULE, Name).
+

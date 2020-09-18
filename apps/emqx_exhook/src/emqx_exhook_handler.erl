@@ -44,15 +44,12 @@
 
 %% Utils
 -export([ message/1
-        , validator/1
-        , assign_to_message/2
-        , clientinfo/1
         , stringfy/1
         ]).
 
 -import(emqx_exhook,
         [ cast/2
-        , call_fold/4
+        , call_fold/3
         ]).
 
 -exhooks([ {'client.connect',      {?MODULE, on_client_connect,       []}}
@@ -76,118 +73,164 @@
 %% Clients
 %%--------------------------------------------------------------------
 
-on_client_connect(ConnInfo, _Props) ->
-    cast('client_connect', [conninfo(ConnInfo), props(_Props)]).
+on_client_connect(ConnInfo, Props) ->
+    Req = #{conninfo => conninfo(ConnInfo),
+            props => properties(Props)
+           },
+    cast('client.connect', Req).
 
-on_client_connack(ConnInfo, Rc, _Props) ->
-    cast('client_connack', [conninfo(ConnInfo), Rc, props(_Props)]).
+on_client_connack(ConnInfo, Rc, Props) ->
+    Req = #{conninfo => conninfo(ConnInfo),
+            result_code => stringfy(Rc),
+            props => properties(Props)},
+    cast('client.connack', Req).
 
 on_client_connected(ClientInfo, _ConnInfo) ->
-    cast('client_connected', [clientinfo(ClientInfo)]).
+    Req = #{clientinfo => clientinfo(ClientInfo)},
+    cast('client.connected', Req).
 
 on_client_disconnected(ClientInfo, {shutdown, Reason}, ConnInfo) when is_atom(Reason) ->
     on_client_disconnected(ClientInfo, Reason, ConnInfo);
 on_client_disconnected(ClientInfo, Reason, _ConnInfo) ->
-    cast('client_disconnected', [clientinfo(ClientInfo), stringfy(Reason)]).
+    Req = #{clientinfo => clientinfo(ClientInfo),
+            reason => stringfy(Reason)
+           },
+    cast('client.disconnected', Req).
 
 on_client_authenticate(ClientInfo, AuthResult) ->
-    AccArg = maps:get(auth_result, AuthResult, undefined) == success,
-    Name   = 'client_authenticate',
-    case call_fold(Name, [clientinfo(ClientInfo)], AccArg, validator(Name)) of
-        {stop, Bool} when is_boolean(Bool) ->
+    Bool = maps:get(auth_result, AuthResult, undefined) == success,
+    Req = #{clientinfo => clientinfo(ClientInfo),
+            result => Bool
+           },
+
+    case call_fold('client.authenticate', Req,
+                   fun merge_responsed_bool/2) of
+        {StopOrOk, #{result := Bool}} when is_boolean(Bool) ->
             Result = case Bool of true -> success; _ -> not_authorized end,
-            {stop, AuthResult#{auth_result => Result, anonymous => false}};
+            {StopOrOk, AuthResult#{auth_result => Result, anonymous => false}};
         _ ->
             {ok, AuthResult}
     end.
 
 on_client_check_acl(ClientInfo, PubSub, Topic, Result) ->
-    AccArg = Result == allow,
-    Name   = 'client_check_acl',
-    case call_fold(Name, [clientinfo(ClientInfo), PubSub, Topic], AccArg, validator(Name)) of
-        {stop, Bool} when is_boolean(Bool) ->
+    Bool = Result == allow,
+    Type = case PubSub of
+               publish -> 'PUBLISH';
+               subscribe -> 'SUBSCRIBE'
+           end,
+    Req = #{clientinfo => clientinfo(ClientInfo),
+            type => Type,
+            topic => Topic,
+            result => Bool
+           },
+    case call_fold('client.check_acl', Req,
+                   fun merge_responsed_bool/2) of
+        {StopOrOk, #{result := Bool}} when is_boolean(Bool) ->
             NResult = case Bool of true -> allow; _ -> deny end,
-            {stop, NResult};
+            {StopOrOk, NResult};
         _ -> {ok, Result}
     end.
 
 on_client_subscribe(ClientInfo, Props, TopicFilters) ->
-    cast('client_subscribe', [clientinfo(ClientInfo), props(Props), topicfilters(TopicFilters)]).
+    Req = #{clientinfo => clientinfo(ClientInfo),
+            props => properties(Props),
+            topic_filters => topicfilters(TopicFilters)
+           },
+    cast('client_subscribe', Req).
 
-on_client_unsubscribe(Clientinfo, Props, TopicFilters) ->
-    cast('client_unsubscribe', [clientinfo(Clientinfo), props(Props), topicfilters(TopicFilters)]).
+on_client_unsubscribe(ClientInfo, Props, TopicFilters) ->
+    Req = #{clientinfo => clientinfo(ClientInfo),
+            props => properties(Props),
+            topic_filters => topicfilters(TopicFilters)
+           },
+    cast('client_unsubscribe', Req).
 
 %%--------------------------------------------------------------------
 %% Session
 %%--------------------------------------------------------------------
 
 on_session_created(ClientInfo, _SessInfo) ->
-    cast('session_created', [clientinfo(ClientInfo)]).
+    Req = #{clientinfo => clientinfo(ClientInfo)},
+    cast('session.created', Req).
 
-on_session_subscribed(Clientinfo, Topic, SubOpts) ->
-    cast('session_subscribed', [clientinfo(Clientinfo), Topic, props(SubOpts)]).
+on_session_subscribed(ClientInfo, Topic, SubOpts) ->
+    Req = #{clientinfo => clientinfo(ClientInfo),
+            topic => Topic,
+            subopts => maps:with([qos, share, rh, rap, nl], SubOpts)
+           },
+    cast('session.subscribed', Req).
 
 on_session_unsubscribed(ClientInfo, Topic, _SubOpts) ->
-    cast('session_unsubscribed', [clientinfo(ClientInfo), Topic]).
+    Req = #{clientinfo => clientinfo(ClientInfo),
+            topic => Topic
+           },
+    cast('session.unsubscribed', Req).
 
 on_session_resumed(ClientInfo, _SessInfo) ->
-    cast('session_resumed', [clientinfo(ClientInfo)]).
+    Req = #{clientinfo => clientinfo(ClientInfo)},
+    cast('session.resumed', Req).
 
 on_session_discarded(ClientInfo, _SessInfo) ->
-    cast('session_discarded', [clientinfo(ClientInfo)]).
+    Req = #{clientinfo => clientinfo(ClientInfo)},
+    cast('session.discarded', Req).
 
 on_session_takeovered(ClientInfo, _SessInfo) ->
-    cast('session_takeovered', [clientinfo(ClientInfo)]).
+    Req = #{clientinfo => clientinfo(ClientInfo)},
+    cast('session.takeovered', Req).
 
 on_session_terminated(ClientInfo, Reason, _SessInfo) ->
-    cast('session_terminated', [clientinfo(ClientInfo), stringfy(Reason)]).
+    Req = #{clientinfo => clientinfo(ClientInfo),
+            reason => stringfy(Reason)},
+    cast('session.terminated', Req).
 
 %%--------------------------------------------------------------------
 %% Types
 
-props(undefined) -> [];
-props(M) when is_map(M) -> maps:to_list(M).
+properties(undefined) -> [];
+properties(M) when is_map(M) ->
+    maps:fold(fun(K, V, Acc) ->
+        [#{name => stringfy(K),
+           value => stringfy(V)} | Acc]
+    end, [], M).
 
 conninfo(_ConnInfo =
-         #{clientid := ClientId, username := Username, peername := {Peerhost, _},
-           sockname := {_, SockPort}, proto_name := ProtoName, proto_ver := ProtoVer,
-           keepalive := Keepalive}) ->
-    [{node, node()},
-     {clientid, ClientId},
-     {username, maybe(Username)},
-     {peerhost, ntoa(Peerhost)},
-     {sockport, SockPort},
-     {proto_name, ProtoName},
-     {proto_ver, ProtoVer},
-     {keepalive, Keepalive}].
+           #{clientid := ClientId, username := Username, peername := {Peerhost, _},
+             sockname := {_, SockPort}, proto_name := ProtoName, proto_ver := ProtoVer,
+             keepalive := Keepalive}) ->
+    #{node => stringfy(node()),
+      clientid => ClientId,
+      username => maybe(Username),
+      peerhost => ntoa(Peerhost),
+      sockport => SockPort,
+      proto_name => ProtoName,
+      proto_ver => stringfy(ProtoVer),
+      keepalive => Keepalive}.
 
 clientinfo(ClientInfo =
-           #{clientid := ClientId, username := Username, peerhost := PeerHost,
-             sockport := SockPort, protocol := Protocol, mountpoint := Mountpoiont}) ->
-    [{node, node()},
-     {clientid, ClientId},
-     {username, maybe(Username)},
-     {password, maybe(maps:get(password, ClientInfo, undefined))},
-     {peerhost, ntoa(PeerHost)},
-     {sockport, SockPort},
-     {protocol, Protocol},
-     {mountpoint, maybe(Mountpoiont)},
-     {is_superuser, maps:get(is_superuser, ClientInfo, false)},
-     {anonymous, maps:get(anonymous, ClientInfo, true)}].
+            #{clientid := ClientId, username := Username, peerhost := PeerHost,
+              sockport := SockPort, protocol := Protocol, mountpoint := Mountpoiont}) ->
+    #{node => stringfy(node()),
+      clientid => ClientId,
+      username => maybe(Username),
+      password => maybe(maps:get(password, ClientInfo, undefined)),
+      peerhost => ntoa(PeerHost),
+      sockport => SockPort,
+      protocol => stringfy(Protocol),
+      mountpoint => maybe(Mountpoiont),
+      is_superuser => maps:get(is_superuser, ClientInfo, false),
+      anonymous => maps:get(anonymous, ClientInfo, true)}.
 
 message(#message{id = Id, qos = Qos, from = From, topic = Topic, payload = Payload, timestamp = Ts}) ->
-    [{node, node()},
-     {id, hexstr(Id)},
-     {qos, Qos},
-     {from, From},
-     {topic, Topic},
-     {payload, Payload},
-     {timestamp, Ts}].
+    #{node => stringfy(node()),
+      id => hexstr(Id),
+      qos => Qos,
+      from => stringfy(From),
+      topic => Topic,
+      payload => Payload,
+      timestamp => Ts}.
 
-topicfilters(Tfs = [{_, _}|_]) ->
-    [{Topic, Qos} || {Topic, #{qos := Qos}} <- Tfs];
-topicfilters(Tfs) ->
-    Tfs.
+topicfilters(Tfs) when is_list(Tfs) ->
+    [#{name => Topic, qos => Qos} || {Topic, #{qos := Qos}} <- Tfs].
 
 ntoa({0,0,0,0,0,16#ffff,AB,CD}) ->
     list_to_binary(inet_parse:ntoa({AB bsr 8, AB rem 256, CD bsr 8, CD rem 256}));
@@ -209,41 +252,20 @@ hexstr(B) ->
     iolist_to_binary([io_lib:format("~2.16.0B", [X]) || X <- binary_to_list(B)]).
 
 %%--------------------------------------------------------------------
-%% Validator funcs
+%% Acc funcs
 
-validator(Name) ->
-    fun(V) -> validate_acc_arg(Name, V) end.
-
-validate_acc_arg('client_authenticate', V) when is_boolean(V) -> true;
-validate_acc_arg('client_check_acl',    V) when is_boolean(V) -> true;
-validate_acc_arg('message_publish',     V) when is_list(V) -> validate_msg(V, true);
-validate_acc_arg(_,                     _) -> false.
-
-validate_msg([], Bool) ->
-    Bool;
-validate_msg(_, false) ->
-    false;
-validate_msg([{topic, T} | More], _) ->
-    validate_msg(More, is_binary(T));
-validate_msg([{payload, P} | More], _) ->
-    validate_msg(More, is_binary(P));
-validate_msg([{qos, Q} | More], _) ->
-    validate_msg(More, Q =< 2 andalso Q >= 0);
-validate_msg([{timestamp, T} | More], _) ->
-    validate_msg(More, is_integer(T));
-validate_msg([_ | More], _) ->
-    validate_msg(More, true).
-
-%%--------------------------------------------------------------------
-%% Misc
-
-assign_to_message([], Message) ->
-    Message;
-assign_to_message([{topic, Topic}|More], Message) ->
-    assign_to_message(More, Message#message{topic = Topic});
-assign_to_message([{qos, Qos}|More], Message) ->
-    assign_to_message(More, Message#message{qos = Qos});
-assign_to_message([{payload, Payload}|More], Message) ->
-    assign_to_message(More, Message#message{payload = Payload});
-assign_to_message([_|More], Message) ->
-    assign_to_message(More, Message).
+%% see exhook.proto
+merge_responsed_bool(Req, Resp = #{type := Type, value := Value})
+  when is_boolean(Value) ->
+    NReq = Req#{result => Value},
+    case Type of
+        'CONTINUE' -> {ok, NReq};
+        'STOP_AND_RETURN' -> {stop, NReq};
+        _ ->
+            ?LOG(warning, "Unknown responsed type ~p in ~p, ignore it",
+                           [Type, Resp]),
+            {ok, Req}
+    end;
+merge_responsed_bool(_Req, Resp) ->
+    ?LOG(warning, "Unknown responsed value ~0p to merge to callback chain", [Resp]),
+    ignore.
