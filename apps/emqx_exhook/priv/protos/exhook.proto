@@ -18,7 +18,7 @@ syntax = "proto3";
 
 package emqx.exhook.v1;
 
-service ExHook {
+service HooksProvider {
 
   rpc Init(InitialRequest) returns (InitialResponse) {};
 

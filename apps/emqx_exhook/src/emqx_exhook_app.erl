@@ -63,7 +63,7 @@ load_all_services() ->
 load_all_services([]) ->
     ok;
 load_all_services([{Name, Opts}|Drivers]) ->
-    ok = emqx_exhook:enable(Name, Opts),
+    _ = emqx_exhook:enable(Name, Opts),
     load_all_services(Drivers).
 
 unload_all_services() ->

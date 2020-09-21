@@ -20,7 +20,7 @@
 
 -logger_header("[ExHook Service]").
 
--define(PB_CLIENT_MOD, emqx_exhook_v_1_ex_hook_client).
+-define(PB_CLIENT_MOD, emqx_exhook_v_1_hooks_provider_client).
 
 %% Load/Unload
 -export([ load/2
@@ -100,13 +100,13 @@ channel_opts(Opts) ->
     SslOpts = case Scheme of
                   https -> proplists:get_value(ssl_options, Opts, []);
                   _ -> []
-              end, 
+              end,
     {[{Scheme, Host, Port, SslOpts}], maps:from_list(Options)}.
 
 -spec unload(service()) -> ok.
 unload(#service{name = Name}) ->
-    do_deinit(Name),
-    emqx_exhook_sup:stop_service_pool(Name).
+    _ = do_deinit(Name),
+    emqx_exhook_sup:stop_service_channel(Name).
 
 do_deinit(Name) ->
     _ = do_call(Name, 'deinit', []),
@@ -119,7 +119,7 @@ do_init(ChannName) ->
             try
                 {ok, resovle_hookspec(maps:get(hooks, InitialResp, []))}
             catch _:Reason:Stk ->
-                ?LOG(error, "try to init ~p failed, reason: ~p, stacktrace: ~p",
+                ?LOG(error, "try to init ~p failed, reason: ~p, stacktrace: ~0p",
                              [ChannName, Reason, Stk]),
                 {error, Reason}
             end;
@@ -150,8 +150,8 @@ resovle_hookspec(HookSpecs) when is_list(HookSpecs) ->
     end, #{}, HookSpecs).
 
 ensure_metrics(Prefix, HookSpecs) ->
-    Keys = [list_to_atom(Prefix ++ atom_to_list(Hookname))
-            || {Hookname, _} <- HookSpecs],
+    Keys = [list_to_atom(Prefix ++ atom_to_list(Hookpoint))
+            || Hookpoint <- maps:keys(HookSpecs)],
     lists:foreach(fun emqx_metrics:ensure/1, Keys).
 
 incfun(Prefix) ->
@@ -173,7 +173,7 @@ name(#service{name = Name}) ->
   -> ignore
    | {ok, Resp :: term()}
    | {error, term()}.
-call(Hookpoint, Req, #service{hookspec = Hooks, incfun = IncFun}) ->
+call(Hookpoint, Req, #service{name = ChannName, hookspec = Hooks, incfun = IncFun}) ->
     GrpcFunc = hk2func(Hookpoint),
     case maps:get(Hookpoint, Hooks, undefined) of
         undefined -> ignore;
@@ -188,7 +188,7 @@ call(Hookpoint, Req, #service{hookspec = Hooks, incfun = IncFun}) ->
                 false -> ignore;
                 _ ->
                     IncFun(Hookpoint),
-                    do_call(Hookpoint, GrpcFunc, Req)
+                    do_call(ChannName, GrpcFunc, Req)
             end
     end.
 
@@ -201,19 +201,21 @@ match_topic_filter(TopicName, TopicFilter) ->
 -spec do_call(atom(), atom(), map()) -> {ok, map()} | {error, term()}.
 do_call(ChannName, Fun, Req) ->
     Options = #{channel => ChannName},
-
-    ?LOG(debug, "Call ~p:~p(~p, ~p)", [?PB_CLIENT_MOD, Fun, Req, Options]),
-
+    ?LOG(debug, "Call ~0p:~0p(~0p, ~0p)", [?PB_CLIENT_MOD, Fun, Req, Options]),
     case catch apply(?PB_CLIENT_MOD, Fun, [Req, Options]) of
         {ok, Resp, _Metadata} ->
             ?LOG(debug, "Response {ok, ~0p, ~0p}", [Resp, _Metadata]),
             {ok, Resp};
+        {error, {Code, Msg}, _Metadata} ->
+            ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) response errcode: ~0p, errmsg: ~0p",
+                        [?PB_CLIENT_MOD, Fun, Req, Options, Code, Msg]),
+            {error, {Code, Msg}};
         {error, Reason} ->
-            ?LOG(error, "CALL ~p:~p(~p, ~p) error: ~0p",
+            ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) error: ~0p",
                         [?PB_CLIENT_MOD, Fun, Req, Options, Reason]),
             {error, Reason};
         {'EXIT', Reason, Stk} ->
-            ?LOG(error, "CALL ~p:~p(~p, ~p) throw an exception: ~0p, stacktrace: ~p",
+            ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) throw an exception: ~0p, stacktrace: ~p",
                         [?PB_CLIENT_MOD, Fun, Req, Options, Reason, Stk]),
             {error, Reason}
     end.

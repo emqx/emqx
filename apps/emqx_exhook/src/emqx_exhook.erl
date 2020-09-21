@@ -29,7 +29,7 @@
         ]).
 
 -export([ cast/2
-        , call_fold/4
+        , call_fold/3
         ]).
 
 %%--------------------------------------------------------------------
@@ -96,8 +96,7 @@ call_fold(Hookpoint, Req, AccFun, [ServiceName|More]) ->
         {ok, Resp} ->
             case AccFun(Req, Resp) of
                 {stop, NReq} -> {stop, NReq};
-                {ok, NReq} -> call_fold(Hookpoint, NReq, AccFun, More);
-                ignore -> call_fold(Hookpoint, Req, AccFun, More)
+                {ok, NReq} -> call_fold(Hookpoint, NReq, AccFun, More)
             end;
         _ ->
             call_fold(Hookpoint, Req, AccFun, More)

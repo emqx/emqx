@@ -136,14 +136,14 @@ on_client_subscribe(ClientInfo, Props, TopicFilters) ->
             props => properties(Props),
             topic_filters => topicfilters(TopicFilters)
            },
-    cast('client_subscribe', Req).
+    cast('client.subscribe', Req).
 
 on_client_unsubscribe(ClientInfo, Props, TopicFilters) ->
     Req = #{clientinfo => clientinfo(ClientInfo),
             props => properties(Props),
             topic_filters => topicfilters(TopicFilters)
            },
-    cast('client_unsubscribe', Req).
+    cast('client.unsubscribe', Req).
 
 %%--------------------------------------------------------------------
 %% Session
@@ -243,6 +243,8 @@ maybe(B) -> B.
 %% @private
 stringfy(Term) when is_binary(Term) ->
     Term;
+stringfy(Term) when is_integer(Term) ->
+    integer_to_binary(Term);
 stringfy(Term) when is_atom(Term) ->
     atom_to_binary(Term, utf8);
 stringfy(Term) when is_tuple(Term) ->
@@ -255,17 +257,15 @@ hexstr(B) ->
 %% Acc funcs
 
 %% see exhook.proto
-merge_responsed_bool(Req, Resp = #{type := Type, value := Value})
-  when is_boolean(Value) ->
-    NReq = Req#{result => Value},
+merge_responsed_bool(Req, #{type := 'IGNORE'}) ->
+    {ok, Req};
+merge_responsed_bool(Req, Resp = #{type := Type, value := {bool_result, NewBool}})
+  when is_boolean(NewBool) ->
+    NReq = Req#{result => NewBool},
     case Type of
         'CONTINUE' -> {ok, NReq};
-        'STOP_AND_RETURN' -> {stop, NReq};
-        _ ->
-            ?LOG(warning, "Unknown responsed type ~p in ~p, ignore it",
-                           [Type, Resp]),
-            {ok, Req}
+        'STOP_AND_RETURN' -> {stop, NReq}
     end;
-merge_responsed_bool(_Req, Resp) ->
+merge_responsed_bool(Req, Resp) ->
     ?LOG(warning, "Unknown responsed value ~0p to merge to callback chain", [Resp]),
-    ignore.
+    {ok, Req}.

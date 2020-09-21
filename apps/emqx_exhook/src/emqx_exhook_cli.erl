@@ -20,16 +20,16 @@
 
 -export([cli/1]).
 
-cli(["drivers", "list"]) ->
+cli(["service", "list"]) ->
     if_enabled(fun() ->
-        Drivers = emqx_exhook:list(),
-        [emqx_ctl:print("Driver(~s)~n", [emqx_exhook_driver:format(Driver)]) || Driver <- Drivers]
+        Services = emqx_exhook:list(),
+        [emqx_ctl:print("Service(~s)~n", [emqx_exhook_service:format(Service)]) || Service <- Services]
     end);
 
-cli(["drivers", "enable", Name0]) ->
+cli(["service", "enable", Name0]) ->
     if_enabled(fun() ->
         Name = list_to_atom(Name0),
-        case proplists:get_value(Name, application:get_env(?APP, drivers, [])) of
+        case proplists:get_value(Name, application:get_env(?APP, services, [])) of
             undefined ->
                 emqx_ctl:print("not_found~n");
             Opts ->
@@ -37,21 +37,21 @@ cli(["drivers", "enable", Name0]) ->
         end
     end);
 
-cli(["drivers", "disable", Name]) ->
+cli(["service", "disable", Name]) ->
     if_enabled(fun() ->
         print(emqx_exhook:disable(list_to_atom(Name)))
     end);
 
-cli(["drivers", "stats"]) ->
+cli(["service", "stats"]) ->
     if_enabled(fun() ->
         [emqx_ctl:print("~-35s:~w~n", [Name, N]) || {Name, N} <- stats()]
     end);
 
 cli(_) ->
-    emqx_ctl:usage([{"exhook drivers list", "List all running drivers"},
-                    {"exhook drivers enable <Name>", "Enable a driver with configurations"},
-                    {"exhook drivers disable <Name>", "Disable a driver"},
-                    {"exhook drivers stats", "Print drivers statistic"}]).
+    emqx_ctl:usage([{"exhook service list", "List all running service"},
+                    {"exhook service enable <Name>", "Enable a service with configurations"},
+                    {"exhook service disable <Name>", "Disable a service"},
+                    {"exhook service stats", "Print service statistic"}]).
 
 print(ok) ->
     emqx_ctl:print("ok~n");
@@ -72,9 +72,9 @@ hint() ->
     emqx_ctl:print("Please './bin/emqx_ctl plugins load emqx_exhook' first.~n").
 
 stats() ->
-    lists:foldr(fun({K, N}, Acc) ->
+    lists:usort(lists:foldr(fun({K, N}, Acc) ->
         case atom_to_list(K) of
             "exhook." ++ Key -> [{Key, N}|Acc];
             _ -> Acc
         end
-    end, [], emqx_metrics:all()).
+    end, [], emqx_metrics:all())).

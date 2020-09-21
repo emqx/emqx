@@ -48,10 +48,31 @@ start_service_channel(Name, Endpoints, Options) ->
     Spec = #{id => Name,
              start => {grpcbox_channel, start_link, [Name, Endpoints, Options]},
              type => worker},
-    supervisor:start_child(?MODULE, Spec).
+    case supervisor:start_child(?MODULE, Spec) of
+        {ok, Pid} ->
+            wait_ready(Name, {ok, Pid});
+        {error, {already_started, Pid}} ->
+            wait_ready(Name, {ok, Pid});
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 -spec stop_service_channel(atom()) -> ok.
 stop_service_channel(Name) ->
     ok = supervisor:terminate_child(?MODULE, Name),
     ok = supervisor:delete_child(?MODULE, Name).
+
+%% @private
+wait_ready(Name, Ret) ->
+    wait_ready(1500, Name, Ret).
+
+wait_ready(0, _, _) ->
+    {error, waiting_ready_timeout};
+wait_ready(Num, Name, Ret) ->
+    case grpcbox_channel:is_ready(Name) of
+        true -> Ret;
+        _ ->
+            timer:sleep(10),
+            wait_ready(Num-1, Name, Ret)
+    end.
 
