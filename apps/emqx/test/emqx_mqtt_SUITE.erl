@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include("emqx.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 

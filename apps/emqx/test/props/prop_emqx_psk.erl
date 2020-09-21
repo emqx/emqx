@@ -14,7 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-
 -module(prop_emqx_psk).
 
 -include_lib("proper/include/proper.hrl").
@@ -63,4 +62,3 @@ do_teardown(_) ->
 client_pskid() -> oneof([string(), integer(), [1, [-1]]]).
 
 user_state() -> term().
-

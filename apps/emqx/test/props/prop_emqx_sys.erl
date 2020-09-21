@@ -129,4 +129,3 @@ postcondition(_State, {call, _Mod, _Fun, _Args}, _Res) ->
 next_state(State, _Res, {call, _Mod, _Fun, _Args}) ->
     NewState = State,
     NewState.
-
