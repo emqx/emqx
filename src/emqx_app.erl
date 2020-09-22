@@ -32,12 +32,12 @@ start(_Type, _Args) ->
     print_banner(),
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),
+    start_autocluster(),
+    emqx_boot:is_enabled(listeners)
+      andalso (ok = emqx_listeners:start()),
     ok = emqx_modules:load(),
     ok = emqx_plugins:init(),
     emqx_plugins:load(),
-    emqx_boot:is_enabled(listeners)
-      andalso (ok = emqx_listeners:start()),
-    start_autocluster(),
     register(emqx, self()),
     emqx_alarm_handler:load(),
     print_vsn(),
