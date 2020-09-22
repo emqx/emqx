@@ -665,4 +665,3 @@ stop(Reason, State) ->
 
 stop(Reason, Reply, State) ->
     {stop, Reason, Reply, State}.
-

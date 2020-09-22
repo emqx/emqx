@@ -41,8 +41,8 @@
 -export_type([channel/0]).
 
 -record(channel, {
-          %% Driver name
-          driver :: atom(),
+          %% Adapter name
+          adapter :: atom(),
           %% Conn info
           conninfo :: emqx_types:conninfo(),
           %% Client info from `register` function
@@ -52,9 +52,7 @@
           %% Connection state
           conn_state :: conn_state(),
           %% Subscription
-          subscriptions = #{},
-          %% Driver level state
-          state :: any()
+          subscriptions = #{}
          }).
 
 -opaque(channel() :: #channel{}).
@@ -81,6 +79,8 @@
          awaiting_rel_cnt,
          awaiting_rel_max
         ]).
+
+-define(CONN_ADAPTER_MOD, emqx_exproto_v_1_connection_protocol_adapter_client).
 
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
@@ -131,13 +131,12 @@ stats(#channel{subscriptions = Subs}) ->
 
 -spec(init(emqx_exproto_types:conninfo(), proplists:proplist()) -> channel()).
 init(ConnInfo, Options) ->
-    Driver = proplists:get_value(driver, Options),
-    case cb_init(ConnInfo, Driver) of
-            {ok, DState} ->
+    Adapter = proplists:get_value(adapter, Options),
+    case cb_init(ConnInfo, Adapter) of
+            ok ->
                 NConnInfo = default_conninfo(ConnInfo),
                 ClientInfo = default_clientinfo(ConnInfo),
-                #channel{driver = Driver,
-                         state = DState,
+                #channel{adapter = Adapter,
                          conninfo = NConnInfo,
                          clientinfo = ClientInfo,
                          conn_state = connected};
@@ -199,11 +198,13 @@ handle_cast({send, Data}, Channel) ->
 handle_cast(close, Channel) ->
     {ok, [{close, normal}], Channel};
 
-handle_cast({register, ClientInfo}, Channel = #channel{registered = true}) ->
+handle_cast({register, ClientInfo, _Password}, Channel = #channel{registered = true}) ->
     ?WARN("Duplicated register command, dropped ~p", [ClientInfo]),
     {ok, Channel};
-handle_cast({register, ClientInfo0}, Channel = #channel{conninfo = ConnInfo,
-                                                        clientinfo = ClientInfo}) ->
+handle_cast({register, ClientInfo0, Password},
+            Channel = #channel{conninfo = ConnInfo,
+                               clientinfo = ClientInfo}) ->
+    %% FIXME: authenticate
     ClientInfo1 = maybe_assign_clientid(ClientInfo0),
     NConnInfo = enrich_conninfo(ClientInfo1, ConnInfo),
     NClientInfo = enrich_clientinfo(ClientInfo1, ClientInfo),
@@ -224,8 +225,12 @@ handle_cast({subscribe, TopicFilter, Qos}, Channel) ->
 handle_cast({unsubscribe, TopicFilter}, Channel) ->
     do_unsubscribe([{TopicFilter, #{}}], Channel);
 
-handle_cast({publish, Msg}, Channel) ->
-    emqx:publish(enrich_msg(Msg, Channel)),
+handle_cast({publish, Topic, Qos, Payload},
+            Channel = #channel{clientinfo = #{clientid := From,
+                                              mountpoint := Mountpoint}}) ->
+    Msg = emqx_message:make(From, Qos, Topic, Payload),
+    NMsg = emqx_mountpoint:mount(Mountpoint, Msg),
+    emqx:publish(NMsg),
     {ok, Channel};
 
 handle_cast(Req, Channel) ->
@@ -292,35 +297,62 @@ parse_topic_filters(TopicFilters) ->
     lists:map(fun emqx_topic:parse/1, TopicFilters).
 
 %%--------------------------------------------------------------------
-%% Cbs for driver
+%% Cbs for Adapter
 %%--------------------------------------------------------------------
 
-cb_init(ConnInfo, Driver) ->
-    Args = [self(), emqx_exproto_types:serialize(conninfo, ConnInfo)],
-    emqx_exproto_driver_mngr:call(Driver, {'init', Args}).
-
-cb_received(Data, Channel = #channel{state = DState}) ->
-    Args = [self(), Data, DState],
-    do_call_cb('received', Args, Channel).
-
-cb_terminated(Reason, Channel = #channel{state = DState}) ->
-    Args = [self(), stringfy(Reason), DState],
-    do_call_cb('terminated', Args, Channel).
-
-cb_deliver(Delivers, Channel = #channel{state = DState}) ->
-    Msgs = [emqx_exproto_types:serialize(message, Msg) || {_, _, Msg} <- Delivers],
-    Args = [self(), Msgs, DState],
-    do_call_cb('deliver', Args, Channel).
-
 %% @private
-do_call_cb(Fun, Args, Channel = #channel{driver = D}) ->
-    case emqx_exproto_driver_mngr:call(D, {Fun, Args}) of
-        ok ->
-            {ok, Channel};
-        {ok, NDState} ->
-            {ok, Channel#channel{state = NDState}};
+do_call(Fun, Req0, Adapter) ->
+    Req = Req0#{conn => pid_to_list(self())},
+    Options = #{channel => Adapter},
+    ?LOG(debug, "Call ~0p:~0p(~0p, ~0p)", [?CONN_ADAPTER_MOD, Fun, Req, Options]),
+    case catch apply(?CONN_ADAPTER_MOD, Fun, [Req, Options]) of
+        {ok, Resp, _Metadata} ->
+            ?LOG(debug, "Response {ok, ~0p, ~0p}", [Resp, _Metadata]),
+            {ok, Resp};
+        {error, {Code, Msg}, _Metadata} ->
+            ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) response errcode: ~0p, errmsg: ~0p",
+                        [?CONN_ADAPTER_MOD, Fun, Req, Options, Code, Msg]),
+            {error, {Code, Msg}};
         {error, Reason} ->
+            ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) error: ~0p",
+                        [?CONN_ADAPTER_MOD, Fun, Req, Options, Reason]),
+            {error, Reason};
+        {'EXIT', Reason, Stk} ->
+            ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) throw an exception: ~0p, stacktrace: ~p",
+                        [?CONN_ADAPTER_MOD, Fun, Req, Options, Reason, Stk]),
             {error, Reason}
+    end.
+
+cb_init(ConnInfo, Adapter) ->
+    Req = #{conninfo => emqx_exproto_types:serialize(conninfo, ConnInfo)},
+    case do_call('OnCreatedSocket', Req, Adapter) of
+        {ok, #{result := true}} -> ok;
+        {ok, _} -> {error, <<"OnCreatedSocket return false">>};
+        {error, Reason} -> {error, Reason}
+    end.
+
+cb_received(Data, Channel = #channel{adapter = Adapter}) ->
+    Req = #{bytes => Data},
+    case do_call('OnReceivedBytes', Req, Adapter) of
+        {ok, #{result := true}} -> {ok, Channel};
+        {ok, _} -> {error, <<"OnReceivedBytes return false">>};
+        {error, Reason} -> {error, Reason}
+    end.
+
+cb_terminated(Reason, Channel = #channel{adapter = Adapter}) ->
+    Req = #{reason => stringfy(Reason)},
+    case do_call('OnSocketClosed', Req, Adapter) of
+        {ok, _} -> {ok, Channel};
+        {error, Reason} -> {error, Reason}
+    end.
+
+cb_deliver(Delivers, Channel = #channel{adapter = Adapter}) ->
+    Msgs = [emqx_exproto_types:serialize(message, Msg) || {_, _, Msg} <- Delivers],
+    Req = #{messages => Msgs},
+    case do_call('OnRecviedMessages', Req, Adapter) of
+        {ok, #{result := true}} -> {ok, Channel};
+        {ok, _} -> {error, <<"OnRecviedMessages return false">>};
+        {error, Reason} -> {error, Reason}
     end.
 
 %%--------------------------------------------------------------------
@@ -333,13 +365,6 @@ maybe_assign_clientid(ClientInfo) ->
             ClientInfo#{clientid => emqx_guid:to_base62(emqx_guid:gen())};
         _ ->
             ClientInfo
-    end.
-
-enrich_msg(Msg, #channel{clientinfo = ClientInfo = #{mountpoint := Mountpoint}}) ->
-    NMsg = emqx_mountpoint:mount(Mountpoint, Msg),
-    case maps:get(clientid, ClientInfo, undefined) of
-        undefined -> NMsg;
-        ClientId -> NMsg#message{from = ClientId}
     end.
 
 enrich_conninfo(InClientInfo, ConnInfo) ->
@@ -363,12 +388,12 @@ default_conninfo(ConnInfo) ->
               expiry_interval => 0}.
 
 default_clientinfo(#{peername := {PeerHost, _},
-                      sockname := {_, SockPort}}) ->
+                     sockname := {_, SockPort}}) ->
     #{zone         => undefined,
       protocol     => undefined,
       peerhost     => PeerHost,
       sockport     => SockPort,
-      clientid     => default_clientid(),
+      clientid     => undefined,
       username     => undefined,
       is_bridge    => false,
       is_superuser => false,
@@ -381,6 +406,3 @@ lowcase_atom(undefined) ->
     undefined;
 lowcase_atom(S) ->
     binary_to_atom(string:lowercase(S), utf8).
-
-default_clientid() ->
-    <<"exproto_client_", (list_to_binary(pid_to_list(self())))/binary>>.

@@ -16,24 +16,18 @@
 
 -module(emqx_exproto).
 
--compile({no_auto_import, [register/1]}).
-
 -include("emqx_exproto.hrl").
 
 -export([ start_listeners/0
         , stop_listeners/0
+        , start_listener/4
+        , stop_listener/4
         ]).
 
-%% APIs: Connection level
--export([ send/2
-        , close/1
-        ]).
-
-%% APIs: Protocol/Session level
--export([ register/2
-        , publish/2
-        , subscribe/3
-        , unsubscribe/2
+-export([ start_services/0
+        , stop_serviers/0
+        , start_service/1
+        , stop_servier/1
         ]).
 
 %%--------------------------------------------------------------------
@@ -48,61 +42,39 @@ start_listeners() ->
 stop_listeners() ->
     lists:foreach(fun stop_listener/1, application:get_env(?APP, listeners, [])).
 
-%%--------------------------------------------------------------------
-%% APIs - Connection level
-%%--------------------------------------------------------------------
+-spec(start_services() -> ok).
+start_services() ->
+    lists:forearch(fun start_service/1, application:get_env(?APP, services, [])).
 
--spec(send(pid(), binary()) -> ok).
-send(Conn, Data) when is_pid(Conn), is_binary(Data) ->
-    emqx_exproto_conn:cast(Conn, {send, Data}).
-
--spec(close(pid()) -> ok).
-close(Conn) when is_pid(Conn) ->
-    emqx_exproto_conn:cast(Conn, close).
-
-%%--------------------------------------------------------------------
-%% APIs - Protocol/Session level
-%%--------------------------------------------------------------------
-
--spec(register(pid(), list()) -> ok | {error, any()}).
-register(Conn, ClientInfo0) ->
-    case emqx_exproto_types:parse(clientinfo, ClientInfo0) of
-        {error, Reason} ->
-            {error, Reason};
-        ClientInfo ->
-            emqx_exproto_conn:cast(Conn, {register, ClientInfo})
-    end.
-
--spec(publish(pid(), list()) -> ok | {error, any()}).
-publish(Conn, Msg0) when is_pid(Conn), is_list(Msg0) ->
-    case emqx_exproto_types:parse(message, Msg0) of
-        {error, Reason} ->
-            {error, Reason};
-        Msg ->
-            emqx_exproto_conn:cast(Conn, {publish, Msg})
-    end.
-
--spec(subscribe(pid(), binary(), emqx_types:qos()) -> ok | {error, any()}).
-subscribe(Conn, Topic, Qos)
-  when is_pid(Conn), is_binary(Topic),
-       (Qos =:= 0 orelse Qos =:= 1 orelse Qos =:= 2) ->
-    emqx_exproto_conn:cast(Conn, {subscribe, Topic, Qos}).
-
--spec(unsubscribe(pid(), binary()) -> ok | {error, any()}).
-unsubscribe(Conn, Topic)
-  when is_pid(Conn), is_binary(Topic) ->
-    emqx_exproto_conn:cast(Conn, {unsubscribe, Topic}).
+-spec(stop_serviers() -> ok).
+stop_serviers() ->
+    lists:forearch(fun stop_servier/1, application:get_env(?APP, services, [])).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
+start_service({Name, Port, SSLOptions}) ->
+    case emqx_exproto_sup:start_grpc_server(Name, Port, SSLOptions) of
+        {ok, _} ->
+            io:format("Start ~s gRPC service on ~w successfully.~n",
+                      [Name, Port]);
+        {error, Reason} ->
+            io:format(standard_error, "Failed to start ~s gRPC service on ~w - ~0p~n!",
+                      [Name, Port, Reason]),
+            error({failed_start_service, Reason})
+    end.
+
+stop_servier({Name, _Port, _SSLOptions}) ->
+    emqx_exproto_sup:stop_grpc_server(Name).
+
 start_listener({Proto, LisType, ListenOn, Opts}) ->
     Name = name(Proto, LisType),
-    {value, {_, DriverOpts}, LisOpts} = lists:keytake(driver, 1, Opts),
-    case emqx_exproto_driver_mngr:ensure_driver(Name, DriverOpts) of
-        {ok, _DriverPid}->
-            case start_listener(LisType, Name, ListenOn, [{driver, Name} |LisOpts]) of
+    {value, {_, CallbackOpts}, LisOpts} = lists:keytake(adapter, 1, Opts),
+    {Endpoints, ChannelOptions} = adapter_opts(CallbackOpts),
+    case emqx_exproto_sup:start_grpc_client_channel(Name, Endpoints, ChannelOptions) of
+        {ok, _ClientChannelPid}->
+            case start_listener(LisType, Name, ListenOn, [{adapter, Name} |LisOpts]) of
                 {ok, _} ->
                     io:format("Start ~s listener on ~s successfully.~n",
                               [Name, format(ListenOn)]);
@@ -112,7 +84,7 @@ start_listener({Proto, LisType, ListenOn, Opts}) ->
                     error(Reason)
             end;
         {error, Reason} ->
-            io:format(standard_error, "Failed to start ~s's driver - ~0p~n!",
+            io:format(standard_error, "Failed to start ~s's protocol adapter - ~0p~n!",
                       [Name, Reason]),
             error(Reason)
     end.
@@ -176,3 +148,15 @@ merge_udp_default(Opts) ->
         false ->
             [{udp_options, ?UDP_SOCKOPTS} | Opts]
     end.
+
+%% @private
+adapter_opts(Opts) ->
+    Scheme = proplists:get_value(scheme, Opts),
+    Host = proplists:get_value(host, Opts),
+    Port = proplists:get_value(port, Opts),
+    Options = proplists:get_value(options, Opts, []),
+    SslOpts = case Scheme of
+                   https -> proplists:get_value(ssl_options, Opts, []);
+                   _ -> []
+               end,
+     {[{Scheme, Host, Port, SslOpts}], maps:from_list(Options)}.

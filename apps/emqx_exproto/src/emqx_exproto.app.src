@@ -4,11 +4,9 @@
   {modules, []},
   {registered, []},
   {mod, {emqx_exproto_app, []}},
-  {applications, [kernel, stdlib, erlport,emqx_libs]},
+  {applications, [kernel,stdlib,emqx_libs,grpcbox]},
   {env,[]},
   {licenses, ["Apache-2.0"]},
   {maintainers, ["EMQ X Team <contact@emqx.io>"]},
-  {links, [{"Homepage", "https://emqx.io/"},
-           {"Github", "https://github.com/emqx/emqx-extension-proto"}
-          ]}
+  {links, [{"Homepage", "https://emqx.io/"}]}
  ]}.

@@ -1,0 +1,214 @@
+//------------------------------------------------------------------------------
+// Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//------------------------------------------------------------------------------
+
+syntax = "proto3";
+
+package emqx.exproto.v1;
+
+// The Broker side serivce. It provides a set of APIs to
+// handle a protcol access
+service ConnectionEntity {
+
+  // -- socket layer
+
+  rpc Send(SendBytesRequest) returns (BoolResult) {};
+
+  rpc Close(CloseSocketRequest) returns (BoolResult) {};
+
+  // -- protocol layer
+
+  rpc Authenticate(AuthenticateRequest) returns (BoolResult) {};
+
+  //rpc Register(RegisterRequest) returns (BoolResult) {};
+
+  // -- pub/sub layer
+
+  rpc Publish(PublishRequest) returns (BoolResult) {};
+
+  rpc Subscribe(SubscribeRequest) returns (BoolResult) {};
+
+  rpc Unsubscribe(UnsubscribeRequest) returns (BoolResult) {};
+}
+
+service ConnectionProtocolAdapter {
+
+  // -- socket layer
+
+  rpc OnCreatedSocket(CreatedSocketRequest) returns (BoolResult) {};
+
+  rpc OnReceivedBytes(ReceivedBytesRequest) returns (BoolResult) {};
+
+  rpc OnSocketClosed(SocketClosedRequest) returns (EmptySuccess) {};
+
+  // -- pub/sub layer
+
+  rpc OnRecviedMessages(ReceivedMessagesRequest) returns (BoolResult) {};
+}
+
+message EmptySuccess { }
+
+message BoolResult {
+
+  bool result = 1;
+}
+
+message SendBytesRequest {
+
+  string conn = 1;
+
+  bytes bytes = 2;
+}
+
+message CloseSocketRequest {
+
+  string conn = 1;
+}
+
+message AuthenticateRequest {
+
+  string conn = 1;
+
+  ClientInfo clientinfo = 2;
+
+  string password = 3;
+}
+
+message PublishRequest {
+
+  string conn = 1;
+
+  string topic = 2;
+
+  uint32 qos = 3;
+
+  bytes payload = 4;
+}
+
+message SubscribeRequest {
+
+  string conn = 1;
+
+  string topic = 2;
+
+  uint32 qos = 3;
+}
+
+message UnsubscribeRequest {
+
+  string conn = 1;
+
+  string topic = 2;
+}
+
+message CreatedSocketRequest {
+
+  string conn = 1;
+
+  ConnInfo conninfo = 2;
+}
+
+message ReceivedBytesRequest {
+
+  string conn = 1;
+
+  bytes bytes = 2;
+}
+
+message SocketClosedRequest {
+
+  string conn = 1;
+
+  string reason = 2;
+}
+
+message ReceivedMessagesRequest {
+
+  string conn = 1;
+
+  repeated Message messages = 2;
+}
+
+//--------------------------------------------------------------------
+// Basic data types
+//--------------------------------------------------------------------
+
+message ConnInfo {
+
+  SocketType socktype = 1;
+
+  Address peername = 2;
+
+  Address sockname = 3;
+
+  optional CertificateInfo peercert = 4;
+}
+
+enum SocketType {
+
+  TCP = 1;
+
+  SSL = 2;
+
+  UDP = 3;
+
+  DTLS = 4;
+}
+
+message Address {
+
+  string host = 1;
+
+  uint32 port = 2;
+}
+
+message CertificateInfo {
+
+  string cn = 1;
+
+  string dn = 2;
+}
+
+message ClientInfo {
+
+  string proto_name = 1;
+
+  string proto_ver = 2;
+
+  string clientid = 3;
+
+  string username = 4;
+
+  string mountpoint = 5;
+
+  uint32 keepalive = 6;
+}
+
+message Message {
+
+  string node = 1;
+
+  string id = 2;
+
+  uint32 qos = 3;
+
+  string from = 4;
+
+  string topic = 5;
+
+  bytes  payload = 6;
+
+  uint64 timestamp = 7;
+}
