@@ -357,6 +357,9 @@ handle_msg({'$gen_call', From, Req}, State) ->
         {reply, Reply, NState} ->
             gen_server:reply(From, Reply),
             {ok, NState};
+        {reply, Reply, Msgs, NState} ->
+            gen_server:reply(From, Reply),
+            {ok, next_msgs(Msgs), NState};
         {stop, Reason, Reply, NState} ->
             gen_server:reply(From, Reply),
             stop(Reason, NState)
@@ -419,7 +422,7 @@ handle_msg({close, Reason}, State) ->
     ?LOG(debug, "Force to close the socket due to ~p", [Reason]),
     handle_info({sock_closed, Reason}, close_socket(State));
 
-handle_msg({event, registered}, State = #state{channel = Channel}) ->
+handle_msg({event, authorized}, State = #state{channel = Channel}) ->
     ClientId = emqx_exproto_channel:info(clientid, Channel),
     emqx_cm:register_channel(ClientId, info(State), stats(State));
 
@@ -480,6 +483,8 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
     case emqx_exproto_channel:handle_call(Req, Channel) of
         {reply, Reply, NChannel} ->
             {reply, Reply, State#state{channel = NChannel}};
+        {reply, Reply, Replies, NChannel} ->
+            {ok, Reply, Replies, State#state{channel = NChannel}};
         {shutdown, Reason, Reply, NChannel} ->
             shutdown(Reason, Reply, State#state{channel = NChannel})
     end.

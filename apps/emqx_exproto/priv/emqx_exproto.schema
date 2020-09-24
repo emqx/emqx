@@ -1,7 +1,7 @@
 %% -*-: erlang -*-
+
 %%--------------------------------------------------------------------
-%% Listeners
-%%--------------------------------------------------------------------
+%% Services
 
 {mapping, "exproto.service.http.port", "emqx_exproto.services", [
   {datatype, integer}
@@ -42,7 +42,7 @@
 end}.
 
 %%--------------------------------------------------------------------
-%% TCP Listeners
+%% Listeners
 
 {mapping, "exproto.listener.$proto", "emqx_exproto.listeners", [
   {datatype, string}
@@ -231,21 +231,23 @@ end}.
                         {Rate, Limit}
                 end,
 
-    CallbackOpts = fun(Prefix) ->
-                       case http_uri:parse(cuttlefish:conf_get(Prefix ++ ".proto_adapter_url", Conf)) of
-                           {ok, {http, _, Host, Port, _, _}} ->
-                               [{scheme, Scheme}, {host, Host}, {port, Port}];
-                           {ok, {https, _, Host, Port, _, _}} -> ->
-                               [{scheme, Scheme}, {host, Host}, {port, Port},
-                                {ssl_options,
-                                  Filter([{certfile, cuttlefish:conf_get(Prefix ++ ".proto_adapter_certfile", Conf)},
-                                          {keyfile, cuttlefish:conf_get(Prefix ++ ".proto_adapter_keyfile", Conf)},
-                                          {cacertfile, cuttlefish:conf_get(Prefix ++ ".proto_adapter_cacertfile", Conf)}
-                                         ])}];
-                           _ ->
-                               error(invaild_proto_adapter_url)
-                       end
-                   end,
+    AdapterOpts = fun(Prefix) ->
+                      Opts =
+                      case http_uri:parse(cuttlefish:conf_get(Prefix ++ ".proto_adapter_url", Conf)) of
+                          {ok, {http, _, Host, Port, _, _}} ->
+                              [{scheme, http}, {host, Host}, {port, Port}];
+                          {ok, {https, _, Host, Port, _, _}} ->
+                              [{scheme, https}, {host, Host}, {port, Port},
+                               {ssl_options,
+                                 Filter([{certfile, cuttlefish:conf_get(Prefix ++ ".proto_adapter_certfile", Conf)},
+                                         {keyfile, cuttlefish:conf_get(Prefix ++ ".proto_adapter_keyfile", Conf)},
+                                         {cacertfile, cuttlefish:conf_get(Prefix ++ ".proto_adapter_cacertfile", Conf)}
+                                        ])}];
+                          _ ->
+                              error(invaild_proto_adapter_url)
+                      end,
+                      [{adapter, Opts}]
+                  end,
 
     ConnOpts = fun(Prefix) ->
                    Filter([{active_n, cuttlefish:conf_get(Prefix ++ ".active_n", Conf, undefined)},
@@ -337,7 +339,7 @@ end}.
 
     Listeners = fun(Proto) ->
                     Prefix = string:join(["exproto","listener", Proto], "."),
-                    Opts = CallbackOpts(Prefix) ++ ConnOpts(Prefix) ++ LisOpts(Prefix),
+                    Opts = AdapterOpts(Prefix) ++ ConnOpts(Prefix) ++ LisOpts(Prefix),
                     case cuttlefish:conf_get(Prefix, Conf, undefined) of
                         undefined -> [];
                         ListenOn0 ->

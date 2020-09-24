@@ -55,7 +55,7 @@ service ConnectionProtocolAdapter {
 
   // -- pub/sub layer
 
-  rpc OnRecviedMessages(ReceivedMessagesRequest) returns (BoolResult) {};
+  rpc OnReceivedMessages(ReceivedMessagesRequest) returns (BoolResult) {};
 }
 
 message EmptySuccess { }

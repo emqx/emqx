@@ -48,7 +48,7 @@
           %% Client info from `register` function
           clientinfo :: maybe(map()),
           %% Registered
-          registered = false :: boolean(),
+          authorized = false :: boolean(),
           %% Connection state
           conn_state :: conn_state(),
           %% Subscription
@@ -180,7 +180,67 @@ handle_timeout(_TRef, Msg, Channel) ->
 
 -spec(handle_call(any(), channel())
      -> {reply, Reply :: term(), channel()}
+      | {reply, Reply :: term(), replies(), channel()}
       | {shutdown, Reason :: term(), Reply :: term(), channel()}).
+
+handle_call({send, Data}, Channel) ->
+    {reply, ok, [{outgoing, Data}], Channel};
+
+handle_call(close, Channel) ->
+    {reply, ok, [{close, normal}], Channel};
+
+handle_call({auth, ClientInfo, _Password}, Channel = #channel{authorized = true}) ->
+    ?WARN("Duplicated authorized command, dropped ~p", [ClientInfo]),
+    {ok, {error, already_authorized}, Channel};
+handle_call({auth, ClientInfo0, Password},
+            Channel = #channel{conninfo = ConnInfo,
+                               clientinfo = ClientInfo}) ->
+    ClientInfo1 = maybe_assign_clientid(ClientInfo0),
+    ClientInfo2 = enrich_clientinfo(ClientInfo1, ClientInfo),
+    NConnInfo = enrich_conninfo(ClientInfo2, ConnInfo),
+
+    Channel1 = Channel#channel{conninfo = NConnInfo,
+                               clientinfo = ClientInfo2},
+
+    #{clientid := ClientId, username := Username} = ClientInfo2,
+
+    case emqx_access_control:authenticate(ClientInfo2#{password => Password}) of
+        {ok, AuthResult} ->
+            is_anonymous(AuthResult) andalso
+                emqx_metrics:inc('client.auth.anonymous'),
+            NClientInfo = maps:merge(ClientInfo, AuthResult),
+            NChannel = Channel1#channel{authorized = true,
+                                        clientinfo = NClientInfo},
+            case emqx_cm:open_session(true, NClientInfo, NConnInfo) of
+                {ok, _Session} ->
+                    {reply, ok, [{event, authorized}], NChannel};
+                {error, Reason} ->
+                    ?LOG(warning, "Client ~s (Username: '~s') open session failed for ~0p",
+                         [ClientId, Username, Reason]),
+                    {shutdown, Reason, {error, Reason}, NChannel}
+            end;
+        {error, Reason} ->
+            ?LOG(warning, "Client ~s (Username: '~s') login failed for ~0p",
+                 [ClientId, Username, Reason]),
+            {shutdown, Reason, {error, Reason}, Channel1}
+    end;
+
+handle_call({subscribe, TopicFilter, Qos}, Channel) ->
+    {ok, NChannel} = do_subscribe([{TopicFilter, #{qos => Qos}}], Channel),
+    {reply, ok, NChannel};
+
+handle_call({unsubscribe, TopicFilter}, Channel) ->
+    {ok, NChannel} = do_unsubscribe([{TopicFilter, #{}}], Channel),
+    {reply, ok, NChannel};
+
+handle_call({publish, Topic, Qos, Payload},
+            Channel = #channel{clientinfo = #{clientid := From,
+                                              mountpoint := Mountpoint}}) ->
+    Msg = emqx_message:make(From, Qos, Topic, Payload),
+    NMsg = emqx_mountpoint:mount(Mountpoint, Msg),
+    emqx:publish(NMsg),
+    {reply, ok, Channel};
+
 handle_call(kick, Channel) ->
     {shutdown, kicked, ok, Channel};
 
@@ -192,47 +252,6 @@ handle_call(Req, Channel) ->
      -> {ok, channel()}
       | {ok, replies(), channel()}
       | {shutdown, Reason :: term(), channel()}).
-handle_cast({send, Data}, Channel) ->
-    {ok, [{outgoing, Data}], Channel};
-
-handle_cast(close, Channel) ->
-    {ok, [{close, normal}], Channel};
-
-handle_cast({register, ClientInfo, _Password}, Channel = #channel{registered = true}) ->
-    ?WARN("Duplicated register command, dropped ~p", [ClientInfo]),
-    {ok, Channel};
-handle_cast({register, ClientInfo0, Password},
-            Channel = #channel{conninfo = ConnInfo,
-                               clientinfo = ClientInfo}) ->
-    %% FIXME: authenticate
-    ClientInfo1 = maybe_assign_clientid(ClientInfo0),
-    NConnInfo = enrich_conninfo(ClientInfo1, ConnInfo),
-    NClientInfo = enrich_clientinfo(ClientInfo1, ClientInfo),
-    case emqx_cm:open_session(true, NClientInfo, NConnInfo) of
-        {ok, _Session} ->
-            NChannel = Channel#channel{registered = true,
-                                       conninfo = NConnInfo,
-                                       clientinfo = NClientInfo},
-            {ok, [{event, registered}], NChannel};
-        {error, Reason} ->
-            ?ERROR("Register failed, reason: ~p", [Reason]),
-            {shutdown, Reason, {error, Reason}, Channel}
-    end;
-
-handle_cast({subscribe, TopicFilter, Qos}, Channel) ->
-    do_subscribe([{TopicFilter, #{qos => Qos}}], Channel);
-
-handle_cast({unsubscribe, TopicFilter}, Channel) ->
-    do_unsubscribe([{TopicFilter, #{}}], Channel);
-
-handle_cast({publish, Topic, Qos, Payload},
-            Channel = #channel{clientinfo = #{clientid := From,
-                                              mountpoint := Mountpoint}}) ->
-    Msg = emqx_message:make(From, Qos, Topic, Payload),
-    NMsg = emqx_mountpoint:mount(Mountpoint, Msg),
-    emqx:publish(NMsg),
-    {ok, Channel};
-
 handle_cast(Req, Channel) ->
     ?WARN("Unexpected call: ~p", [Req]),
     {ok, Channel}.
@@ -255,6 +274,9 @@ handle_info(Info, Channel) ->
 -spec(terminate(any(), channel()) -> ok).
 terminate(Reason, Channel) ->
     cb_terminated(Reason, Channel), ok.
+
+is_anonymous(#{anonymous := true}) -> true;
+is_anonymous(_AuthResult)          -> false.
 
 %%--------------------------------------------------------------------
 %% Sub/UnSub
@@ -325,7 +347,7 @@ do_call(Fun, Req0, Adapter) ->
 
 cb_init(ConnInfo, Adapter) ->
     Req = #{conninfo => emqx_exproto_types:serialize(conninfo, ConnInfo)},
-    case do_call('OnCreatedSocket', Req, Adapter) of
+    case do_call('on_created_socket', Req, Adapter) of
         {ok, #{result := true}} -> ok;
         {ok, _} -> {error, <<"OnCreatedSocket return false">>};
         {error, Reason} -> {error, Reason}
@@ -333,15 +355,15 @@ cb_init(ConnInfo, Adapter) ->
 
 cb_received(Data, Channel = #channel{adapter = Adapter}) ->
     Req = #{bytes => Data},
-    case do_call('OnReceivedBytes', Req, Adapter) of
+    case do_call('on_received_bytes', Req, Adapter) of
         {ok, #{result := true}} -> {ok, Channel};
-        {ok, _} -> {error, <<"OnReceivedBytes return false">>};
+        {ok, _} -> {error, <<"on_received_bytes return false">>};
         {error, Reason} -> {error, Reason}
     end.
 
 cb_terminated(Reason, Channel = #channel{adapter = Adapter}) ->
     Req = #{reason => stringfy(Reason)},
-    case do_call('OnSocketClosed', Req, Adapter) of
+    case do_call('on_socket_closed', Req, Adapter) of
         {ok, _} -> {ok, Channel};
         {error, Reason} -> {error, Reason}
     end.
@@ -349,7 +371,7 @@ cb_terminated(Reason, Channel = #channel{adapter = Adapter}) ->
 cb_deliver(Delivers, Channel = #channel{adapter = Adapter}) ->
     Msgs = [emqx_exproto_types:serialize(message, Msg) || {_, _, Msg} <- Delivers],
     Req = #{messages => Msgs},
-    case do_call('OnRecviedMessages', Req, Adapter) of
+    case do_call('on_received_messages', Req, Adapter) of
         {ok, #{result := true}} -> {ok, Channel};
         {ok, _} -> {error, <<"OnRecviedMessages return false">>};
         {error, Reason} -> {error, Reason}
@@ -389,7 +411,7 @@ default_conninfo(ConnInfo) ->
 
 default_clientinfo(#{peername := {PeerHost, _},
                      sockname := {_, SockPort}}) ->
-    #{zone         => undefined,
+    #{zone         => external,
       protocol     => undefined,
       peerhost     => PeerHost,
       sockport     => SockPort,

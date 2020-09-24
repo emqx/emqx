@@ -35,13 +35,13 @@
 -spec send(ctx:ctx(), emqx_exproto_pb:send_bytes_request()) ->
     {ok, emqx_exproto_pb:bool_result(), ctx:ctx()} | grpcbox_stream:grpc_error_response().
 send(Ctx, #{conn := ConnStr, bytes := Bytes}) ->
-    emqx_exproto_conn:cast(to_pid(ConnStr), {send, Bytes}),
+    emqx_exproto_conn:call(to_pid(ConnStr), {send, Bytes}),
     {ok, #{result => true}, Ctx}.
 
 -spec close(ctx:ctx(), emqx_exproto_pb:close_socket_request()) ->
     {ok, emqx_exproto_pb:bool_result(), ctx:ctx()} | grpcbox_stream:grpc_error_response().
 close(Ctx, #{conn := ConnStr}) ->
-    emqx_exproto_conn:cast(to_pid(ConnStr), close),
+    emqx_exproto_conn:call(to_pid(ConnStr), close),
     {ok, #{result => true}, Ctx}.
 
 -spec authenticate(ctx:ctx(), emqx_exproto_pb:authenticate_request()) ->
@@ -51,7 +51,7 @@ authenticate(Ctx, #{conn := ConnStr, password := Password, clientinfo := ClientI
         {error, Reason} -> {error, Reason};
         ClientInfo ->
             %% FIXME: Return the auth-result
-            emqx_exproto_conn:cast(to_pid(ConnStr), {register, ClientInfo, Password}),
+            emqx_exproto_conn:call(to_pid(ConnStr), {register, ClientInfo, Password}),
             {ok, #{result => true}, Ctx}
     end.
 
@@ -60,7 +60,7 @@ authenticate(Ctx, #{conn := ConnStr, password := Password, clientinfo := ClientI
 publish(Ctx, #{conn := ConnStr, topic := Topic, qos := Qos, payload := Payload})
   when is_binary(Topic), is_binary(Payload),
        (Qos =:= 0 orelse Qos =:= 1 orelse Qos =:= 2) ->
-    emqx_exproto_conn:cast(to_pid(ConnStr), {publish, Topic, Qos, Payload}),
+    emqx_exproto_conn:call(to_pid(ConnStr), {publish, Topic, Qos, Payload}),
     {ok, #{result => true}, Ctx}.
 
 -spec subscribe(ctx:ctx(), emqx_exproto_pb:subscribe_request()) ->
@@ -68,14 +68,14 @@ publish(Ctx, #{conn := ConnStr, topic := Topic, qos := Qos, payload := Payload})
 subscribe(Ctx, #{conn := ConnStr, topic := Topic, qos := Qos})
   when is_binary(Topic),
        (Qos =:= 0 orelse Qos =:= 1 orelse Qos =:= 2) ->
-    emqx_exproto_conn:cast(to_pid(ConnStr), {subscribe, Topic, Qos}),
+    emqx_exproto_conn:call(to_pid(ConnStr), {subscribe, Topic, Qos}),
     {ok, #{result => true}, Ctx}.
 
 -spec unsubscribe(ctx:ctx(), emqx_exproto_pb:unsubscribe_request()) ->
     {ok, emqx_exproto_pb:bool_result(), ctx:ctx()} | grpcbox_stream:grpc_error_response().
 unsubscribe(Ctx, #{conn := Conn, topic := Topic})
   when is_binary(Topic) ->
-    emqx_exproto_conn:cast(to_pid(Conn), {unsubscribe, Topic}),
+    emqx_exproto_conn:call(to_pid(Conn), {unsubscribe, Topic}),
     {ok, #{result => true}, Ctx}.
 
 %%--------------------------------------------------------------------

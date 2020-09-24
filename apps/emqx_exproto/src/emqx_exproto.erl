@@ -44,11 +44,11 @@ stop_listeners() ->
 
 -spec(start_services() -> ok).
 start_services() ->
-    lists:forearch(fun start_service/1, application:get_env(?APP, services, [])).
+    lists:foreach(fun start_service/1, application:get_env(?APP, services, [])).
 
 -spec(stop_serviers() -> ok).
 stop_serviers() ->
-    lists:forearch(fun stop_servier/1, application:get_env(?APP, services, [])).
+    lists:foreach(fun stop_servier/1, application:get_env(?APP, services, [])).
 
 %%--------------------------------------------------------------------
 %% Internal functions
