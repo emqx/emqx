@@ -60,7 +60,7 @@ lock(ClientId, Piggyback) ->
 unlock(ClientId) ->
     ekka_locker:release(?MODULE, ClientId, strategy()).
 
--spec(strategy() -> local | one | quorum | all).
+-spec(strategy() -> local | leader | quorum | all).
 strategy() ->
     emqx:get_env(session_locking_strategy, quorum).
 
