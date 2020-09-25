@@ -689,12 +689,6 @@ end}.
   {datatype, {enum, [allow, deny]}}
 ]}.
 
-%% @doc Default ACL file.
-{mapping, "acl_file", "emqx.acl_file", [
-  {datatype, string},
-  hidden
-]}.
-
 %% @doc Enable ACL cache for publish.
 {mapping, "enable_acl_cache", "emqx.enable_acl_cache", [
   {default, on},
@@ -1913,93 +1907,6 @@ end}.
                   [SslListeners(Type, Name) || {["listener", Type, Name], ListenOn}
                                                <- cuttlefish_variable:filter_by_prefix("listener.ssl", Conf)
                                                ++ cuttlefish_variable:filter_by_prefix("listener.wss", Conf)])
-end}.
-
-%%--------------------------------------------------------------------
-%% Modules
-%%--------------------------------------------------------------------
-
-{mapping, "modules.loaded_file", "emqx.modules_loaded_file", [
-  {datatype, string}
-]}.
-
-{mapping, "module.presence.qos", "emqx.modules", [
-  {default, 1},
-  {datatype, integer},
-  {validators, ["range:0-2"]}
-]}.
-
-{mapping, "module.subscription.$id.topic", "emqx.modules", [
-  {datatype, string}
-]}.
-
-{mapping, "module.subscription.$id.qos", "emqx.modules", [
-  {default, 1},
-  {datatype, integer},
-  {validators, ["range:0-2"]}
-]}.
-
-{mapping, "module.subscription.$id.nl", "emqx.modules", [
-  {default, 0},
-  {datatype, integer},
-  {validators, ["range:0-1"]}
-]}.
-
-{mapping, "module.subscription.$id.rap", "emqx.modules", [
-  {default, 0},
-  {datatype, integer},
-  {validators, ["range:0-1"]}
-]}.
-
-{mapping, "module.subscription.$id.rh", "emqx.modules", [
-  {default, 0},
-  {datatype, integer},
-  {validators, ["range:0-2"]}
-]}.
-
-{mapping, "module.rewrite.rule.$id", "emqx.modules", [
-  {datatype, string}
-]}.
-
-{mapping, "module.rewrite.pub.rule.$id", "emqx.modules", [
-  {datatype, string}
-]}.
-
-{mapping, "module.rewrite.sub.rule.$id", "emqx.modules", [
-  {datatype, string}
-]}.
-
-{translation, "emqx.modules", fun(Conf, _, Conf1) ->
-  Subscriptions = fun() ->
-      List = cuttlefish_variable:filter_by_prefix("module.subscription", Conf),
-      TopicList = [{N, Topic}|| {[_,"subscription",N,"topic"], Topic} <- List],
-      [{iolist_to_binary(T), #{ qos => cuttlefish:conf_get("module.subscription." ++ N ++ ".qos", Conf, 0),
-                                nl  => cuttlefish:conf_get("module.subscription." ++ N ++ ".nl", Conf, 0),
-                                rap => cuttlefish:conf_get("module.subscription." ++ N ++ ".rap", Conf, 0),
-                                rh  => cuttlefish:conf_get("module.subscription." ++ N ++ ".rh", Conf, 0)
-                                }} || {N, T} <- TopicList]
-  end,
-  Rewrites = fun() ->
-      Rules = cuttlefish_variable:filter_by_prefix("module.rewrite.rule", Conf),
-      PubRules = cuttlefish_variable:filter_by_prefix("module.rewrite.pub.rule", Conf),
-      SubRules = cuttlefish_variable:filter_by_prefix("module.rewrite.sub.rule", Conf),
-      TotalRules = lists:append(
-                     [ {["module", "rewrite", "pub", "rule", I], Rule} || {["module", "rewrite", "rule", I], Rule} <- Rules] ++ PubRules,
-                     [ {["module", "rewrite", "sub", "rule", I], Rule} || {["module", "rewrite", "rule", I], Rule} <- Rules] ++ SubRules
-                    ),
-      lists:map(fun({[_, "rewrite", PubOrSub, "rule", I], Rule}) ->
-                    [Topic, Re, Dest] = string:tokens(Rule, " "),
-                    {rewrite, list_to_atom(PubOrSub), list_to_binary(Topic), list_to_binary(Re), list_to_binary(Dest)}
-                end, TotalRules)
-  end,
-  lists:append([
-    [{emqx_mod_presence, [{qos, cuttlefish:conf_get("module.presence.qos", Conf, 1)}]}],
-    [{emqx_mod_subscription, Subscriptions()}],
-    [{emqx_mod_rewrite, Rewrites()}],
-    [{emqx_mod_topic_metrics, []}],
-    [{emqx_mod_delayed, []}],
-    [{emqx_mod_acl_internal, [{acl_file, cuttlefish:conf_get("acl_file", Conf1)}]}]
-  ])
 end}.
 
 %%-------------------------------------------------------------------

@@ -35,7 +35,6 @@ start(_Type, _Args) ->
     start_autocluster(),
     emqx_boot:is_enabled(listeners)
       andalso (ok = emqx_listeners:start()),
-    ok = emqx_modules:load(),
     ok = emqx_plugins:init(),
     emqx_plugins:load(),
     register(emqx, self()),
@@ -47,8 +46,7 @@ start(_Type, _Args) ->
 stop(_State) ->
     emqx_alarm_handler:unload(),
     emqx_boot:is_enabled(listeners)
-      andalso emqx_listeners:stop(),
-    emqx_modules:unload().
+      andalso emqx_listeners:stop().
 
 %%--------------------------------------------------------------------
 %% Print Banner
