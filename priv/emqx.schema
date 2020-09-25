@@ -1545,6 +1545,10 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.ws.$name.peer_cert_as_username", "emqx.listeners", [
+  {datatype, {enum, [cn, dn, crt]}}
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT/WebSocket/SSL Listeners
 
@@ -1667,6 +1671,9 @@ end}.
 ]}.
 
 {mapping, "listener.wss.$name.cacertfile", "emqx.listeners", [
+  {datatype, string}
+]}.
+{mapping, "listener.wss.$name.dhfile", "emqx.listeners", [
   {datatype, string}
 ]}.
 
