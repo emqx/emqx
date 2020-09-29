@@ -4,7 +4,7 @@
   [
     {"4.2.0", [
       {load_module, emqx_session, brutal_purge, soft_purge, []},
-      {load_module, emqx_channel, brutal_purge, soft_purge, [emqx_session]},
+      {load_module, emqx_channel, brutal_purge, soft_purge, [emqx_session]}
     ]}
   ],
 
@@ -12,7 +12,7 @@
   [
     {"4.2.0", [
       {load_module, emqx_session, brutal_purge, soft_purge, []},
-      {load_module, emqx_channel, brutal_purge, soft_purge, [emqx_session]},
+      {load_module, emqx_channel, brutal_purge, soft_purge, [emqx_session]}
     ]}
   ]
 
