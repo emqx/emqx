@@ -1,0 +1,19 @@
+{"4.2.1",  % Current version
+
+  % Upgrade from
+  [
+    {"4.2.0", [
+      {load_module, emqx_session, brutal_purge, soft_purge, []},
+      {load_module, emqx_channel, brutal_purge, soft_purge, [emqx_session]},
+    ]}
+  ],
+
+  % Downgrade to
+  [
+    {"4.2.0", [
+      {load_module, emqx_session, brutal_purge, soft_purge, []},
+      {load_module, emqx_channel, brutal_purge, soft_purge, [emqx_session]},
+    ]}
+  ]
+
+}.
