@@ -436,21 +436,11 @@ deliver([Msg | More], Acc, Session) ->
         {ok, [Publish], Session1} ->
             deliver(More, [Publish|Acc], Session1)
     end.
-    
-deliver_msg(Msg, Session) ->
-    case ignore_local(Msg) of
-        true ->
-            ok = emqx_metrics:inc('delivery.dropped'),
-            ok = emqx_metrics:inc('delivery.dropped.no_local'),
-            {ok, Session};
-        false ->
-            do_deliver_msg(Msg, Session)
-    end.
 
-do_deliver_msg(Msg = #message{qos = ?QOS_0}, Session) ->
+deliver_msg(Msg = #message{qos = ?QOS_0}, Session) ->
     {ok, [{undefined, maybe_ack(Msg)}], Session};
 
-do_deliver_msg(Msg = #message{qos = QoS}, Session =
+deliver_msg(Msg = #message{qos = QoS}, Session =
             #session{next_pkt_id = PacketId, inflight = Inflight})
     when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
     case emqx_inflight:is_full(Inflight) of
@@ -465,11 +455,6 @@ do_deliver_msg(Msg = #message{qos = QoS}, Session =
             Session1 = await(PacketId, Msg, Session),
             {ok, [Publish], next_pkt_id(Session1)}
     end.
-
-ignore_local(#message{flags = #{nl := true}, from = ClientId, headers = #{self := ClientId}}) ->
-    true;
-ignore_local(_Msg) ->
-    false.
 
 -spec(enqueue(list(emqx_types:deliver())|emqx_types:message(),
               session()) -> session()).

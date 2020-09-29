@@ -650,18 +650,19 @@ maybe_update_expiry_interval(_Properties, Channel) -> Channel.
 handle_deliver(Delivers, Channel = #channel{conn_state = disconnected,
                                             session    = Session,
                                             clientinfo = #{clientid := ClientId}}) ->
-    NSession = emqx_session:enqueue(add_self_clientid(maybe_nack(Delivers), ClientId), Session),
+    NSession = emqx_session:enqueue(ignore_local(maybe_nack(Delivers), ClientId, Session), Session),
     {ok, Channel#channel{session = NSession}};
 
 handle_deliver(Delivers, Channel = #channel{takeover = true,
                                             pendings = Pendings,
+                                            session = Session,
                                             clientinfo = #{clientid := ClientId}}) ->
-    NPendings = lists:append(Pendings, add_self_clientid(maybe_nack(Delivers), ClientId)),
+    NPendings = lists:append(Pendings, ignore_local(maybe_nack(Delivers), ClientId, Session)),
     {ok, Channel#channel{pendings = NPendings}};
 
 handle_deliver(Delivers, Channel = #channel{session = Session,
                                             clientinfo = #{clientid := ClientId}}) ->
-    case emqx_session:deliver(add_self_clientid(Delivers, ClientId), Session) of
+    case emqx_session:deliver(ignore_local(Delivers, ClientId, Session), Session) of
         {ok, Publishes, NSession} ->
             NChannel = Channel#channel{session = NSession},
             handle_out(publish, Publishes, ensure_timer(retry_timer, NChannel));
@@ -669,10 +670,18 @@ handle_deliver(Delivers, Channel = #channel{session = Session,
             {ok, Channel#channel{session = NSession}}
     end.
 
-add_self_clientid(Delivers, ClientId) ->
-    lists:map(fun({deliver, Topic, Msg}) ->
-                  {deliver, Topic, emqx_message:set_header(self, ClientId, Msg)}
-              end, Delivers).
+ignore_local(Delivers, Subscriber, Session) ->
+    Subs = emqx_session:info(subscriptions, Session),
+    lists:dropwhile(fun({deliver, Topic, #message{from = Publisher}}) ->
+                        case maps:find(Topic, Subs) of
+                            {ok, #{nl := 1}} when Subscriber =:= Publisher ->
+                                ok = emqx_metrics:inc('delivery.dropped'),
+                                ok = emqx_metrics:inc('delivery.dropped.no_local'),
+                                true;
+                            _ ->
+                                false
+                        end
+                    end, Delivers).
 
 %% Nack delivers from shared subscription
 maybe_nack(Delivers) ->
