@@ -1026,6 +1026,7 @@ end}.
 %% of queued MQTT messages of QoS 1 and 2.
 %% Zero or negative is to disable.
 {mapping, "zone.$name.force_shutdown_policy", "emqx.zones", [
+  {default, "default"},
   {datatype, string}
 ]}.
 
@@ -1082,6 +1083,17 @@ end}.
                                          count => list_to_integer(Count)}
                                end,
                     {force_gc_policy, GcPolicy};
+               (["force_shutdown_policy"], "default") ->
+                    {DefaultLen, DefaultSize} =
+                        case WordSize = erlang:system_info(wordsize) of
+                            8 -> % arch_64
+                                {10000, cuttlefish_bytesize:parse("32MB")};
+                            4 -> % arch_32
+                                {10000, cuttlefish_bytesize:parse("16MB")}
+                        end,
+                    {force_shutdown_policy, #{message_queue_len => DefaultLen,
+                                              max_heap_size => DefaultSize div WordSize
+                                             }};
                (["force_shutdown_policy"], Val) ->
                     [Len, Siz] = string:tokens(Val, "| "),
                     MaxSiz = case WordSize = erlang:system_info(wordsize) of
