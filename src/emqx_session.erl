@@ -429,7 +429,7 @@ deliver(Delivers, Session) ->
 deliver([], Publishes, Session) ->
     {ok, lists:reverse(Publishes), Session};
 
-deliver([Msg|More], Acc, Session) ->
+deliver([Msg | More], Acc, Session) ->
     case deliver_msg(Msg, Session) of
         {ok, Session1} ->
             deliver(More, Acc, Session1);
