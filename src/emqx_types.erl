@@ -121,6 +121,7 @@
                       conn_props := properties(),
                       connected := boolean(),
                       connected_at := non_neg_integer(),
+                      disconnected_at => non_neg_integer(),
                       keepalive := 0..16#FFFF,
                       receive_maximum := non_neg_integer(),
                       expiry_interval := non_neg_integer(),

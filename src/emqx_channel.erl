@@ -648,23 +648,40 @@ maybe_update_expiry_interval(_Properties, Channel) -> Channel.
 -spec(handle_deliver(list(emqx_types:deliver()), channel())
       -> {ok, channel()} | {ok, replies(), channel()}).
 handle_deliver(Delivers, Channel = #channel{conn_state = disconnected,
-                                            session    = Session}) ->
-    NSession = emqx_session:enqueue(maybe_nack(Delivers), Session),
+                                            session    = Session,
+                                            clientinfo = #{clientid := ClientId}}) ->
+    NSession = emqx_session:enqueue(ignore_local(maybe_nack(Delivers), ClientId, Session), Session),
     {ok, Channel#channel{session = NSession}};
 
 handle_deliver(Delivers, Channel = #channel{takeover = true,
-                                            pendings = Pendings}) ->
-    NPendings = lists:append(Pendings, maybe_nack(Delivers)),
+                                            pendings = Pendings,
+                                            session = Session,
+                                            clientinfo = #{clientid := ClientId}}) ->
+    NPendings = lists:append(Pendings, ignore_local(maybe_nack(Delivers), ClientId, Session)),
     {ok, Channel#channel{pendings = NPendings}};
 
-handle_deliver(Delivers, Channel = #channel{session = Session}) ->
-    case emqx_session:deliver(Delivers, Session) of
+handle_deliver(Delivers, Channel = #channel{session = Session,
+                                            clientinfo = #{clientid := ClientId}}) ->
+    case emqx_session:deliver(ignore_local(Delivers, ClientId, Session), Session) of
         {ok, Publishes, NSession} ->
             NChannel = Channel#channel{session = NSession},
             handle_out(publish, Publishes, ensure_timer(retry_timer, NChannel));
         {ok, NSession} ->
             {ok, Channel#channel{session = NSession}}
     end.
+
+ignore_local(Delivers, Subscriber, Session) ->
+    Subs = emqx_session:info(subscriptions, Session),
+    lists:dropwhile(fun({deliver, Topic, #message{from = Publisher}}) ->
+                        case maps:find(Topic, Subs) of
+                            {ok, #{nl := 1}} when Subscriber =:= Publisher ->
+                                ok = emqx_metrics:inc('delivery.dropped'),
+                                ok = emqx_metrics:inc('delivery.dropped.no_local'),
+                                true;
+                            _ ->
+                                false
+                        end
+                    end, Delivers).
 
 %% Nack delivers from shared subscription
 maybe_nack(Delivers) ->
@@ -782,22 +799,15 @@ do_deliver({pubrel, PacketId}, Channel) ->
 
 do_deliver({PacketId, Msg}, Channel = #channel{clientinfo = ClientInfo =
                                      #{mountpoint := MountPoint}}) ->
-    case ignore_local(Msg, ClientInfo) of
-        true ->
-            ok = emqx_metrics:inc('delivery.dropped'),
-            ok = emqx_metrics:inc('delivery.dropped.no_local'),
-            {[], Channel};
-        false ->
-            ok = emqx_metrics:inc('messages.delivered'),
-            Msg1 = emqx_hooks:run_fold('message.delivered',
-                                       [ClientInfo],
-                                       emqx_message:update_expiry(Msg)
-                                      ),
-            Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
-            Packet = emqx_message:to_packet(PacketId, Msg2),
-            {NPacket, NChannel} = packing_alias(Packet, Channel),
-            {[NPacket], NChannel}
-    end;
+    ok = emqx_metrics:inc('messages.delivered'),
+    Msg1 = emqx_hooks:run_fold('message.delivered',
+                                [ClientInfo],
+                                emqx_message:update_expiry(Msg)
+                                ),
+    Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
+    Packet = emqx_message:to_packet(PacketId, Msg2),
+    {NPacket, NChannel} = packing_alias(Packet, Channel),
+    {[NPacket], NChannel};
 
 do_deliver([Publish], Channel) ->
     do_deliver(Publish, Channel);
@@ -809,11 +819,6 @@ do_deliver(Publishes, Channel) when is_list(Publishes) ->
             {Packets ++ Acc, NChann}
         end, {[], Channel}, Publishes),
     {lists:reverse(Packets), NChannel}.
-
-ignore_local(#message{flags = #{nl := true}, from = ClientId},
-             #{clientid := ClientId}) ->
-    true;
-ignore_local(_Msg, _ClientInfo) -> false.
 
 %%--------------------------------------------------------------------
 %% Handle out suback
