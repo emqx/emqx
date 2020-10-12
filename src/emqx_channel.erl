@@ -183,8 +183,9 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
                      is_bridge    => false,
                      is_superuser => false
                     }, Options),
-    #channel{conninfo   = ConnInfo,
-             clientinfo = ClientInfo,
+    {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo),
+    #channel{conninfo   = NConnInfo,
+             clientinfo = NClientInfo,
              topic_aliases = #{inbound => #{},
                                outbound => #{}
                               },
@@ -212,6 +213,14 @@ setting_peercert_infos(Peercert, ClientInfo, Options) ->
                    _   -> undefined
                end,
     ClientInfo#{username => Username, dn => DN, cn => CN}.
+
+take_ws_cookie(ClientInfo, ConnInfo) ->
+    case maps:take(ws_cookie, ConnInfo) of
+        {WsCookie, NConnInfo} ->
+            {ClientInfo#{ws_cookie => WsCookie}, NConnInfo};
+        _ ->
+            {ClientInfo, ConnInfo}
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
