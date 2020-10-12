@@ -687,6 +687,18 @@ t_terminate(_) ->
     ok = emqx_channel:terminate(sock_error, channel(#{conn_state => connected})),
     ok = emqx_channel:terminate({shutdown, kicked}, channel(#{conn_state => connected})).
 
+t_ws_cookie_init(_) ->
+    WsCookie = [{<<"session_id">>, <<"xyz">>}],
+    ConnInfo = #{socktype => ws,
+                 peername => {{127,0,0,1}, 3456},
+                 sockname => {{127,0,0,1}, 1883},
+                 peercert => nossl,
+                 conn_mod => emqx_ws_connection,
+                 ws_cookie => WsCookie
+                },
+    Channel = emqx_channel:init(ConnInfo, [{zone, zone}]),
+    ?assertMatch(#{ws_cookie := WsCookie}, emqx_channel:info(clientinfo, Channel)).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
