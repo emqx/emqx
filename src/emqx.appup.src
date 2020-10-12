@@ -5,8 +5,11 @@
         4 -> % arch_32
             {1000, cuttlefish_bytesize:parse("32MB")}
     end,
-{"4.2.1",
+{"4.2.2",
   [
+    {"4.2.1", [
+      {load_module, emqx_channel, brutal_purge, soft_purge, []}
+    ]},
     {"4.2.0", [
       {load_module, emqx_channel, brutal_purge, soft_purge, []},
       {apply, {application, set_env,
@@ -16,6 +19,9 @@
     ]}
   ],
   [
+    {"4.2.1", [
+      {load_module, emqx_channel, brutal_purge, soft_purge, []}
+    ]},
     {"4.2.0", [
       {load_module, emqx_channel, brutal_purge, soft_purge, []}
     ]}
