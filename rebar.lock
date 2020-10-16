@@ -1,8 +1,14 @@
 {"1.1.0",
-[{<<"bson">>,
+[{<<"acceptor_pool">>,{pkg,<<"acceptor_pool">>,<<"1.0.0">>},1},
+ {<<"bcrypt">>,
+  {git,"https://github.com/emqx/erlang-bcrypt.git",
+       {ref,"dc2ba66acf2332c111362d01137746eefecc5e90"}},
+  0},
+ {<<"bson">>,
   {git,"https://github.com/comtihon/bson-erlang.git",
        {ref,"14308ab927cfa69324742c3de720578094e0bb19"}},
   1},
+ {<<"chatterbox">>,{pkg,<<"ts_chatterbox">>,<<"0.9.1">>},1},
  {<<"cowboy">>,
   {git,"https://github.com/emqx/cowboy",
        {ref,"3b6bdaf4f2e3c5b793a0c3cada2c3b74c3d5e885"}},
@@ -11,6 +17,7 @@
   {git,"https://github.com/ninenines/cowlib",
        {ref,"c6553f8308a2ca5dcd69d845f0a7d098c40c3363"}},
   1},
+ {<<"ctx">>,{pkg,<<"ctx">>,<<"0.5.0">>},1},
  {<<"cuttlefish">>,
   {git,"https://github.com/emqx/cuttlefish",
        {ref,"dd28ae9173c56406794daa56e19d7b5f7b6ebbf0"}},
@@ -64,10 +71,15 @@
   {git,"https://github.com/uwiger/gproc",
        {ref,"ce7397809aca0d6eb3aac6db65953752e47fb511"}},
   0},
+ {<<"grpcbox">>,
+  {git,"https://github.com/tsloughter/grpcbox",
+       {ref,"11865a9cf345b54b7d13e6a661ab865786288eea"}},
+  0},
  {<<"gun">>,
   {git,"https://github.com/ninenines/gun",
        {ref,"e7dd9f227e46979d8073e71c683395a809b78cb4"}},
   1},
+ {<<"hpack">>,{pkg,<<"hpack_erl">>,<<"0.2.3">>},2},
  {<<"jiffy">>,
   {git,"https://github.com/emqx/jiffy",
        {ref,"baa1f4e750ae3c5c9e54f9c2e52280b7fc24a8d9"}},
@@ -134,5 +146,9 @@
   1}]}.
 [
 {pkg_hash,[
- {<<"getopt">>, <<"C73A9FA687B217F2FF79F68A3B637711BB1936E712B521D8CE466B29CBF7808A">>}]}
+ {<<"acceptor_pool">>, <<"43C20D2ACAE35F0C2BCD64F9D2BDE267E459F0F3FD23DAB26485BF518C281B21">>},
+ {<<"chatterbox">>, <<"843557EE729B04B3C1BDAC33FB162DAEFDBF4F7AE0AF0BDC055FB16E91E057E3">>},
+ {<<"ctx">>, <<"78E0F16712E12D707A7F34277381B8E193D7C71EAA24D37330DC02477C09EDA5">>},
+ {<<"getopt">>, <<"C73A9FA687B217F2FF79F68A3B637711BB1936E712B521D8CE466B29CBF7808A">>},
+ {<<"hpack">>, <<"17670F83FF984AE6CD74B1C456EDDE906D27FF013740EE4D9EFAA4F1BF999633">>}]}
 ].

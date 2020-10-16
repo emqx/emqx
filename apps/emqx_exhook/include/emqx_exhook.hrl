@@ -14,9 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--ifndef(EMQX_EXTENSION_HOOK_HRL).
--define(EMQX_EXTENSION_HOOK_HRL, true).
+-ifndef(EMQX_EXHOOK_HRL).
+-define(EMQX_EXHOOK_HRL, true).
 
--define(APP, emqx_extension_hook).
+-define(APP, emqx_exhook).
 
 -endif.

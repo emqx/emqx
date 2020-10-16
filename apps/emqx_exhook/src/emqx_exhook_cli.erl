@@ -14,44 +14,44 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_extension_hook_cli).
+-module(emqx_exhook_cli).
 
--include("emqx_extension_hook.hrl").
+-include("emqx_exhook.hrl").
 
 -export([cli/1]).
 
-cli(["drivers", "list"]) ->
+cli(["server", "list"]) ->
     if_enabled(fun() ->
-        Drivers = emqx_extension_hook:list(),
-        [emqx_ctl:print("Driver(~s)~n", [emqx_extension_hook_driver:format(Driver)]) || Driver <- Drivers]
+        Services = emqx_exhook:list(),
+        [emqx_ctl:print("HookServer(~s)~n", [emqx_exhook_server:format(Service)]) || Service <- Services]
     end);
 
-cli(["drivers", "enable", Name0]) ->
+cli(["server", "enable", Name0]) ->
     if_enabled(fun() ->
         Name = list_to_atom(Name0),
-        case proplists:get_value(Name, application:get_env(?APP, drivers, [])) of
+        case proplists:get_value(Name, application:get_env(?APP, servers, [])) of
             undefined ->
                 emqx_ctl:print("not_found~n");
             Opts ->
-                print(emqx_extension_hook:enable(Name, Opts))
+                print(emqx_exhook:enable(Name, Opts))
         end
     end);
 
-cli(["drivers", "disable", Name]) ->
+cli(["server", "disable", Name]) ->
     if_enabled(fun() ->
-        print(emqx_extension_hook:disable(list_to_atom(Name)))
+        print(emqx_exhook:disable(list_to_atom(Name)))
     end);
 
-cli(["drivers", "stats"]) ->
+cli(["server", "stats"]) ->
     if_enabled(fun() ->
         [emqx_ctl:print("~-35s:~w~n", [Name, N]) || {Name, N} <- stats()]
     end);
 
 cli(_) ->
-    emqx_ctl:usage([{"exhook drivers list", "List all running drivers"},
-                    {"exhook drivers enable <Name>", "Enable a driver with configurations"},
-                    {"exhook drivers disable <Name>", "Disable a driver"},
-                    {"exhook drivers stats", "Print drivers statistic"}]).
+    emqx_ctl:usage([{"exhook server list", "List all running exhook server"},
+                    {"exhook server enable <Name>", "Enable a exhook server in the configuration"},
+                    {"exhook server disable <Name>", "Disable a exhook server"},
+                    {"exhook server stats", "Print exhook server statistic"}]).
 
 print(ok) ->
     emqx_ctl:print("ok~n");
@@ -69,12 +69,12 @@ if_enabled(Fun) ->
     end.
 
 hint() ->
-    emqx_ctl:print("Please './bin/emqx_ctl plugins load emqx_extension_hook' first.~n").
+    emqx_ctl:print("Please './bin/emqx_ctl plugins load emqx_exhook' first.~n").
 
 stats() ->
-    lists:foldr(fun({K, N}, Acc) ->
+    lists:usort(lists:foldr(fun({K, N}, Acc) ->
         case atom_to_list(K) of
             "exhook." ++ Key -> [{Key, N}|Acc];
             _ -> Acc
         end
-    end, [], emqx_metrics:all()).
+    end, [], emqx_metrics:all())).
