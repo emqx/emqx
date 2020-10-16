@@ -17,6 +17,18 @@ default: $(REBAR) $(PROFILE)
 .PHONY: all
 all: $(REBAR) $(PROFILES)
 
+.PHONY: xref
+xref:
+	$(REBAR) xref
+
+.PHONY: ct
+ct:
+	$(REBAR) ct
+
+.PHONY: dialyzer
+dialyzer:
+	$(REBAR) dialyzer
+
 .PHONY: distclean
 distclean:
 	@rm -rf _build
