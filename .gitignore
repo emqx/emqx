@@ -27,4 +27,4 @@ erlang.mk
 *.coverdata
 etc/emqx.conf.rendered
 Mnesia.*/
-.DS_Store
+*.DS_Store
