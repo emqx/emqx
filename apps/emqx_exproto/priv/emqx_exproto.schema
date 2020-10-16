@@ -1,25 +1,66 @@
 %% -*-: erlang -*-
-%%--------------------------------------------------------------------
-%% Listeners
-%%--------------------------------------------------------------------
 
 %%--------------------------------------------------------------------
-%% TCP Listeners
+%% Services
+
+{mapping, "exproto.server.http.port", "emqx_exproto.servers", [
+  {datatype, integer}
+]}.
+
+{mapping, "exproto.server.https.port", "emqx_exproto.servers", [
+  {datatype, integer}
+]}.
+
+{mapping, "exproto.server.https.cacertfile", "emqx_exproto.servers", [
+  {datatype, string}
+]}.
+
+{mapping, "exproto.server.https.certfile", "emqx_exproto.servers", [
+  {datatype, string}
+]}.
+
+{mapping, "exproto.server.https.keyfile", "emqx_exproto.servers", [
+  {datatype, string}
+]}.
+
+{translation, "emqx_exproto.servers", fun(Conf) ->
+    Filter = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
+    Http = case cuttlefish:conf_get("exproto.server.http.port", Conf, undefined) of
+               undefined -> [];
+               P1 -> [{http, P1, []}]
+           end,
+    Https = case cuttlefish:conf_get("exproto.server.https.port", Conf, undefined) of
+                undefined -> [];
+                P2 ->
+                    [{https, P2,
+                        Filter([{ssl, true},
+                                {certfile, cuttlefish:conf_get("exproto.server.https.certfile", Conf)},
+                                {keyfile, cuttlefish:conf_get("exproto.server.https.keyfile", Conf)},
+                                {cacertfile, cuttlefish:conf_get("exproto.server.https.cacertfile", Conf)}])}]
+            end,
+    Http ++ Https
+end}.
+
+%%--------------------------------------------------------------------
+%% Listeners
 
 {mapping, "exproto.listener.$proto", "emqx_exproto.listeners", [
   {datatype, string}
 ]}.
 
-{mapping, "exproto.listener.$proto.driver", "emqx_exproto.listeners", [
-  {datatype, {enum, [python3, java]}}
-]}.
-
-{mapping, "exproto.listener.$proto.driver_search_path", "emqx_exproto.listeners", [
+{mapping, "exproto.listener.$proto.connection_handler_url", "emqx_exproto.listeners", [
   {datatype, string}
 ]}.
 
-{mapping, "exproto.listener.$proto.driver_callback_module", "emqx_exproto.listeners", [
-  {default, "main"},
+{mapping, "exproto.listener.$proto.connection_handler_certfile", "emqx_exproto.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "exproto.listener.$proto.connection_handler_cacertfile", "emqx_exproto.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "exproto.listener.$proto.connection_handler_keyfile", "emqx_exproto.listeners", [
   {datatype, string}
 ]}.
 
@@ -190,14 +231,23 @@
                         {Rate, Limit}
                 end,
 
-    DriverOpts = fun(Prefix) ->
-                     [{driver,
-                       Filter([{type, cuttlefish:conf_get(Prefix ++ ".driver", Conf)},
-                               {path, cuttlefish:conf_get(Prefix ++ ".driver_search_path", Conf)},
-                               {cbm, Atom(cuttlefish:conf_get(Prefix ++ ".driver_callback_module", Conf))}
-                              ])
-                      }]
-                 end,
+    HandlerOpts = fun(Prefix) ->
+                      Opts =
+                      case http_uri:parse(cuttlefish:conf_get(Prefix ++ ".connection_handler_url", Conf)) of
+                          {ok, {http, _, Host, Port, _, _}} ->
+                              [{scheme, http}, {host, Host}, {port, Port}];
+                          {ok, {https, _, Host, Port, _, _}} ->
+                              [{scheme, https}, {host, Host}, {port, Port},
+                               {ssl_options,
+                                 Filter([{certfile, cuttlefish:conf_get(Prefix ++ ".connection_handler_certfile", Conf)},
+                                         {keyfile, cuttlefish:conf_get(Prefix ++ ".connection_handler_keyfile", Conf)},
+                                         {cacertfile, cuttlefish:conf_get(Prefix ++ ".connection_handler_cacertfile", Conf)}
+                                        ])}];
+                          _ ->
+                              error(invaild_connection_handler_url)
+                      end,
+                      [{handler, Opts}]
+                  end,
 
     ConnOpts = fun(Prefix) ->
                    Filter([{active_n, cuttlefish:conf_get(Prefix ++ ".active_n", Conf, undefined)},
@@ -289,7 +339,7 @@
 
     Listeners = fun(Proto) ->
                     Prefix = string:join(["exproto","listener", Proto], "."),
-                    Opts = DriverOpts(Prefix) ++ ConnOpts(Prefix) ++ LisOpts(Prefix),
+                    Opts = HandlerOpts(Prefix) ++ ConnOpts(Prefix) ++ LisOpts(Prefix),
                     case cuttlefish:conf_get(Prefix, Conf, undefined) of
                         undefined -> [];
                         ListenOn0 ->

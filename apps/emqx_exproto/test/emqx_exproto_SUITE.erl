@@ -19,7 +19,20 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx_libs/include/emqx.hrl").
+-import(emqx_exproto_echo_svr,
+        [ frame_connect/2
+        , frame_connack/1
+        , frame_publish/3
+        , frame_puback/1
+        , frame_subscribe/2
+        , frame_suback/1
+        , frame_unsubscribe/1
+        , frame_unsuback/1
+        , frame_disconnect/0
+        ]).
+
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(TCPOPTS, [binary, {active, false}]).
 -define(DTLSOPTS, [binary, {active, false}, {protocol, dtls}]).
@@ -37,47 +50,37 @@ groups() ->
 
 %% @private
 metrics() ->
-    [ list_to_atom(X ++ "_" ++ Y)
-      || X <- ["python3", "java"], Y <- ["tcp", "ssl", "udp", "dtls"]].
+    [tcp, ssl, udp, dtls].
 
-init_per_group(GrpName, Config) ->
-    [Lang, LisType] = [list_to_atom(X) || X <- string:tokens(atom_to_list(GrpName), "_")],
-    put(grpname, {Lang, LisType}),
+init_per_group(GrpName, Cfg) ->
+    put(grpname, GrpName),
+    Svrs = emqx_exproto_echo_svr:start(),
     emqx_ct_helpers:start_apps([emqx_exproto], fun set_sepecial_cfg/1),
-    [{driver_type, Lang},
-     {listener_type, LisType} | Config].
+    emqx_logger:set_log_level(debug),
+    [{servers, Svrs}, {listener_type, GrpName} | Cfg].
 
-end_per_group(_, _) ->
-    emqx_ct_helpers:stop_apps([emqx_exproto]).
+end_per_group(_, Cfg) ->
+    emqx_ct_helpers:stop_apps([emqx_exproto]),
+    emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
 set_sepecial_cfg(emqx_exproto) ->
-    {Lang, LisType} = get(grpname),
-    Path = emqx_ct_helpers:deps_path(emqx_exproto, "example/"),
+    LisType = get(grpname),
     Listeners = application:get_env(emqx_exproto, listeners, []),
-    Driver = compile(Lang, Path),
     SockOpts = socketopts(LisType),
     UpgradeOpts = fun(Opts) ->
-                      Opts1 = lists:keydelete(driver, 1, Opts),
-                      Opts2 = lists:keydelete(tcp_options, 1, Opts1),
+                      Opts2 = lists:keydelete(tcp_options, 1, Opts),
                       Opts3 = lists:keydelete(ssl_options, 1, Opts2),
                       Opts4 = lists:keydelete(udp_options, 1, Opts3),
                       Opts5 = lists:keydelete(dtls_options, 1, Opts4),
-                      Driver ++ SockOpts ++ Opts5
+                      SockOpts ++ Opts5
                   end,
     NListeners = [{Proto, LisType, LisOn, UpgradeOpts(Opts)}
                   || {Proto, _Type, LisOn, Opts} <- Listeners],
     application:set_env(emqx_exproto, listeners, NListeners);
-set_sepecial_cfg(_App) ->
+set_sepecial_cfg(emqx) ->
+    application:set_env(emqx, allow_anonymous, true),
+    application:set_env(emqx, enable_acl_cache, false),
     ok.
-
-compile(java, Path) ->
-    ErlPortJar = emqx_ct_helpers:deps_path(erlport, "priv/java/_pkgs/erlport.jar"),
-    ct:pal(os:cmd(lists:concat(["cd ", Path, " && ",
-                                "rm -rf Main.class State.class && ",
-                                "javac -cp ", ErlPortJar, " Main.java"]))),
-    [{driver, [{type, java}, {path, Path}, {cbm, 'Main'}]}];
-compile(python3, Path) ->
-    [{driver, [{type, python3}, {path, Path}, {cbm, main}]}].
 
 %%--------------------------------------------------------------------
 %% Tests cases
@@ -86,23 +89,262 @@ compile(python3, Path) ->
 t_start_stop(_) ->
     ok.
 
-t_echo(Cfg) ->
+t_mountpoint_echo(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
-    Bin = rand_bytes(),
-
     Sock = open(SockType),
 
-    send(Sock, Bin),
+    Client = #{proto_name => <<"demo">>,
+               proto_ver => <<"v0.1">>,
+               clientid => <<"test_client_1">>,
+               mountpoint => <<"ct/">>
+              },
+    Password = <<"123456">>,
 
-    {ok, Bin} = recv(Sock, byte_size(Bin), 5000),
+    ConnBin = frame_connect(Client, Password),
+    ConnAckBin = frame_connack(0),
 
-    %% pubsub echo
-    emqx:subscribe(<<"t/#">>),
-    emqx:publish(emqx_message:make(<<"t/dn">>, <<"echo">>)),
-    First = receive {_, _, X} -> X#message.payload end,
-    First = receive {_, _, Y} -> Y#message.payload end,
+    send(Sock, ConnBin),
+    {ok, ConnAckBin} = recv(Sock, 5000),
 
+    SubBin = frame_subscribe(<<"t/#">>, 1),
+    SubAckBin = frame_suback(0),
+
+    send(Sock, SubBin),
+    {ok, SubAckBin} = recv(Sock, 5000),
+
+    emqx:publish(emqx_message:make(<<"ct/t/dn">>, <<"echo">>)),
+    PubBin1 = frame_publish(<<"t/dn">>, 0, <<"echo">>),
+    {ok, PubBin1} = recv(Sock, 5000),
+
+    PubBin2 = frame_publish(<<"t/up">>, 0, <<"echo">>),
+    PubAckBin = frame_puback(0),
+
+    emqx:subscribe(<<"ct/t/up">>),
+
+    send(Sock, PubBin2),
+    {ok, PubAckBin} = recv(Sock, 5000),
+
+    receive
+        {deliver, _, _} -> ok
+    after 1000 ->
+          error(echo_not_running)
+    end,
     close(Sock).
+
+t_auth_deny(Cfg) ->
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    Client = #{proto_name => <<"demo">>,
+               proto_ver => <<"v0.1">>,
+               clientid => <<"test_client_1">>
+              },
+    Password = <<"123456">>,
+
+    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_access_control, authenticate,
+                     fun(_) -> {error, ?RC_NOT_AUTHORIZED} end),
+
+    ConnBin = frame_connect(Client, Password),
+    ConnAckBin = frame_connack(1),
+
+    send(Sock, ConnBin),
+    {ok, ConnAckBin} = recv(Sock, 5000),
+
+    SockType =/= udp andalso begin
+        {error, closed} = recv(Sock, 5000)
+    end,
+    meck:unload([emqx_access_control]).
+
+t_acl_deny(Cfg) ->
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    Client = #{proto_name => <<"demo">>,
+               proto_ver => <<"v0.1">>,
+               clientid => <<"test_client_1">>
+              },
+    Password = <<"123456">>,
+
+    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_access_control, check_acl, fun(_, _, _) -> deny end),
+
+    ConnBin = frame_connect(Client, Password),
+    ConnAckBin = frame_connack(0),
+
+    send(Sock, ConnBin),
+    {ok, ConnAckBin} = recv(Sock, 5000),
+
+    SubBin = frame_subscribe(<<"t/#">>, 1),
+    SubAckBin = frame_suback(1),
+
+    send(Sock, SubBin),
+    {ok, SubAckBin} = recv(Sock, 5000),
+
+    emqx:publish(emqx_message:make(<<"t/dn">>, <<"echo">>)),
+
+    PubBin = frame_publish(<<"t/dn">>, 0, <<"echo">>),
+    PubBinFailedAck = frame_puback(1),
+    PubBinSuccesAck = frame_puback(0),
+
+    send(Sock, PubBin),
+    {ok, PubBinFailedAck} = recv(Sock, 5000),
+
+    meck:unload([emqx_access_control]),
+
+    send(Sock, PubBin),
+    {ok, PubBinSuccesAck} = recv(Sock, 5000),
+    close(Sock).
+
+t_keepalive_timeout(Cfg) ->
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    Client = #{proto_name => <<"demo">>,
+               proto_ver => <<"v0.1">>,
+               clientid => <<"test_client_1">>,
+               keepalive => 2
+              },
+    Password = <<"123456">>,
+
+    ConnBin = frame_connect(Client, Password),
+    ConnAckBin = frame_connack(0),
+
+    send(Sock, ConnBin),
+    {ok, ConnAckBin} = recv(Sock, 5000),
+
+    DisconnectBin = frame_disconnect(),
+    {ok, DisconnectBin} = recv(Sock, 10000),
+
+    SockType =/= udp andalso begin
+        {error, closed} = recv(Sock, 5000)
+    end, ok.
+
+t_hook_connected_disconnected(Cfg) ->
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    Client = #{proto_name => <<"demo">>,
+               proto_ver => <<"v0.1">>,
+               clientid => <<"test_client_1">>
+              },
+    Password = <<"123456">>,
+
+    ConnBin = frame_connect(Client, Password),
+    ConnAckBin = frame_connack(0),
+
+    Parent = self(),
+    HookFun1 = fun(_, _) -> Parent ! connected, ok end,
+    HookFun2 = fun(_, _, _) -> Parent ! disconnected, ok end,
+    emqx:hook('client.connected', HookFun1),
+    emqx:hook('client.disconnected', HookFun2),
+
+
+    send(Sock, ConnBin),
+    {ok, ConnAckBin} = recv(Sock, 5000),
+
+    receive
+        connected -> ok
+    after 1000 ->
+        error(hook_is_not_running)
+    end,
+
+    DisconnectBin = frame_disconnect(),
+    send(Sock, DisconnectBin),
+
+    receive
+        disconnected -> ok
+    after 1000 ->
+        error(hook_is_not_running)
+    end,
+
+    SockType =/= udp andalso begin
+        {error, closed} = recv(Sock, 5000)
+    end,
+    emqx:unhook('client.connected', HookFun1),
+    emqx:unhook('client.disconnected', HookFun2).
+
+t_hook_session_subscribed_unsubscribed(Cfg) ->
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    Client = #{proto_name => <<"demo">>,
+               proto_ver => <<"v0.1">>,
+               clientid => <<"test_client_1">>
+              },
+    Password = <<"123456">>,
+
+    ConnBin = frame_connect(Client, Password),
+    ConnAckBin = frame_connack(0),
+
+    send(Sock, ConnBin),
+    {ok, ConnAckBin} = recv(Sock, 5000),
+
+    Parent = self(),
+    HookFun1 = fun(_, _, _) -> Parent ! subscribed, ok end,
+    HookFun2 = fun(_, _, _) -> Parent ! unsubscribed, ok end,
+    emqx:hook('session.subscribed', HookFun1),
+    emqx:hook('session.unsubscribed', HookFun2),
+
+    SubBin = frame_subscribe(<<"t/#">>, 1),
+    SubAckBin = frame_suback(0),
+
+    send(Sock, SubBin),
+    {ok, SubAckBin} = recv(Sock, 5000),
+
+    receive
+        subscribed -> ok
+    after 1000 ->
+        error(hook_is_not_running)
+    end,
+
+    UnsubBin = frame_unsubscribe(<<"t/#">>),
+    UnsubAckBin = frame_unsuback(0),
+
+    send(Sock, UnsubBin),
+    {ok, UnsubAckBin} = recv(Sock, 5000),
+
+    receive
+        unsubscribed -> ok
+    after 1000 ->
+        error(hook_is_not_running)
+    end,
+
+    close(Sock),
+    emqx:unhook('session.subscribed', HookFun1),
+    emqx:unhook('session.unsubscribed', HookFun2).
+
+t_hook_message_delivered(Cfg) ->
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    Client = #{proto_name => <<"demo">>,
+               proto_ver => <<"v0.1">>,
+               clientid => <<"test_client_1">>
+              },
+    Password = <<"123456">>,
+
+    ConnBin = frame_connect(Client, Password),
+    ConnAckBin = frame_connack(0),
+
+    send(Sock, ConnBin),
+    {ok, ConnAckBin} = recv(Sock, 5000),
+
+    SubBin = frame_subscribe(<<"t/#">>, 1),
+    SubAckBin = frame_suback(0),
+
+    send(Sock, SubBin),
+    {ok, SubAckBin} = recv(Sock, 5000),
+
+    HookFun1 = fun(_, Msg) -> {ok, Msg#message{payload = <<"2">>}} end,
+    emqx:hook('message.delivered', HookFun1),
+
+    emqx:publish(emqx_message:make(<<"t/dn">>, <<"1">>)),
+    PubBin1 = frame_publish(<<"t/dn">>, 0, <<"2">>),
+    {ok, PubBin1} = recv(Sock, 5000),
+
+    close(Sock),
+    emqx:unhook('message.delivered', HookFun1).
 
 %%--------------------------------------------------------------------
 %% Utils
@@ -137,15 +379,15 @@ send({ssl, Sock}, Bin) ->
 send({dtls, Sock}, Bin) ->
     ssl:send(Sock, Bin).
 
-recv({tcp, Sock}, Size, Ts) ->
-    gen_tcp:recv(Sock, Size, Ts);
-recv({udp, Sock}, Size, Ts) ->
-    {ok, {_, _, Bin}} = gen_udp:recv(Sock, Size, Ts),
+recv({tcp, Sock}, Ts) ->
+    gen_tcp:recv(Sock, 0, Ts);
+recv({udp, Sock}, Ts) ->
+    {ok, {_, _, Bin}} = gen_udp:recv(Sock, 0, Ts),
     {ok, Bin};
-recv({ssl, Sock}, Size, Ts) ->
-    ssl:recv(Sock, Size, Ts);
-recv({dtls, Sock}, Size, Ts) ->
-    ssl:recv(Sock, Size, Ts).
+recv({ssl, Sock}, Ts) ->
+    ssl:recv(Sock, 0, Ts);
+recv({dtls, Sock}, Ts) ->
+    ssl:recv(Sock, 0, Ts).
 
 close({tcp, Sock}) ->
     gen_tcp:close(Sock);
