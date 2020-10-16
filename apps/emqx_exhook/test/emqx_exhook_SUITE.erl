@@ -29,10 +29,12 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
+    _ = emqx_exhook_demo_svr:start(),
     emqx_ct_helpers:start_apps([emqx_exhook], fun set_special_cfgs/1),
     Cfg.
 
-end_per_suite(_) ->
+end_per_suite(Cfg) ->
+    emqx_exhook_demo_svr:stop(),
     emqx_ct_helpers:stop_apps([emqx_exhook]).
 
 set_special_cfgs(emqx) ->
@@ -41,12 +43,11 @@ set_special_cfgs(emqx) ->
     application:set_env(emqx, plugins_loaded_file,
                         emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins"));
 set_special_cfgs(emqx_exhook) ->
-    %% TODO:
     ok.
 
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
 
-t_module_type(_) ->
+t_hooks(Cfg) ->
     ok.

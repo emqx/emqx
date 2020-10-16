@@ -20,11 +20,18 @@
 
 -include("emqx_exhook.hrl").
 
--emqx_plugin(?MODULE).
+-emqx_plugin(extension).
 
 -export([ start/2
         , stop/1
         , prep_stop/1
+        ]).
+
+%% Internal export
+-export([ load_server/2
+        , unload_server/1
+        , load_exhooks/0
+        , unload_exhooks/0
         ]).
 
 %%--------------------------------------------------------------------
@@ -35,7 +42,7 @@ start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_exhook_sup:start_link(),
 
     %% Load all dirvers
-    load_all_services(),
+    load_all_servers(),
 
     %% Register all hooks
     load_exhooks(),
@@ -47,7 +54,7 @@ start(_StartType, _StartArgs) ->
 prep_stop(State) ->
     emqx_ctl:unregister_command(exhook),
     unload_exhooks(),
-    unload_all_services(),
+    unload_all_servers(),
     State.
 
 stop(_State) ->
@@ -57,17 +64,19 @@ stop(_State) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-load_all_services() ->
-    load_all_services(application:get_env(?APP, services, [])).
+load_all_servers() ->
+    lists:foreach(fun({Name, Options}) ->
+        load_server(Name, Options)
+    end, application:get_env(?APP, servers, [])).
 
-load_all_services([]) ->
-    ok;
-load_all_services([{Name, Opts}|Drivers]) ->
-    _ = emqx_exhook:enable(Name, Opts),
-    load_all_services(Drivers).
-
-unload_all_services() ->
+unload_all_servers() ->
     emqx_exhook:disable_all().
+
+load_server(Name, Options) ->
+    emqx_exhook:enable(Name, Options).
+
+unload_server(Name) ->
+    emqx_exhook:disable(Name).
 
 %%--------------------------------------------------------------------
 %% Exhooks

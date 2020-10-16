@@ -14,13 +14,13 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_exhook_service).
+-module(emqx_exhook_server).
 
 -include_lib("emqx_libs/include/logger.hrl").
 
--logger_header("[ExHook Service]").
+-logger_header("[ExHook Svr]").
 
--define(PB_CLIENT_MOD, emqx_exhook_v_1_hooks_provider_client).
+-define(PB_CLIENT_MOD, emqx_exhook_v_1_hook_provider_client).
 
 %% Load/Unload
 -export([ load/2
@@ -35,17 +35,21 @@
         , format/1
         ]).
 
--record(service, {
-          %% Service name (equal to grpcbox client channel name)
-          name :: service_name(),
+-record(server, {
+          %% Server name (equal to grpcbox client channel name)
+          name :: server_name(),
+          %% The server started options
+          options :: list(),
+          %% gRPC channel pid
+          channel :: pid(),
           %% Registered hook names and options
           hookspec :: #{hookpoint() => map()},
           %% Metric fun
           incfun :: function()
        }).
 
--type service_name() :: atom().
--type service() :: #service{}.
+-type server_name() :: atom().
+-type server() :: #server{}.
 
 -type hookpoint() :: 'client.connect'
                    | 'client.connack'
@@ -67,23 +71,29 @@
                    | 'message.acked'
                    | 'message.dropped'.
 
--export_type([service/0]).
+-export_type([server/0]).
 
 %%--------------------------------------------------------------------
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
 
--spec load(atom(), list()) -> {ok, service()} | {error, term()} .
+-spec load(atom(), list()) -> {ok, server()} | {error, term()} .
 load(Name, Opts0) ->
     {Endpoints, Options} = channel_opts(Opts0),
-    case emqx_exhook_sup:start_service_channel(Name, Endpoints, Options) of
-        {ok, _Pid} ->
+    StartFun = case proplists:get_bool(inplace, Opts0) of
+                   true -> start_grpc_client_channel_inplace;
+                   _ -> start_grpc_client_channel
+               end,
+    case emqx_exhook_sup:StartFun(Name, Endpoints, Options) of
+        {ok, ChannPid} ->
             case do_init(Name) of
                 {ok, HookSpecs} ->
                     %% Reigster metrics
-                    Prefix = "exhook." ++ atom_to_list(Name) ++ ".",
+                    Prefix = lists:flatten(io_lib:format("exhook.~s.", [Name])),
                     ensure_metrics(Prefix, HookSpecs),
-                    {ok, #service{name = Name,
+                    {ok, #server{name = Name,
+                                  options = Opts0,
+                                  channel = ChannPid,
                                   hookspec = HookSpecs,
                                   incfun = incfun(Prefix) }};
                 {error, _} = E -> E
@@ -103,18 +113,22 @@ channel_opts(Opts) ->
               end,
     {[{Scheme, Host, Port, SslOpts}], maps:from_list(Options)}.
 
--spec unload(service()) -> ok.
-unload(#service{name = Name}) ->
+-spec unload(server()) -> ok.
+unload(#server{name = Name, channel = ChannPid, options = Options}) ->
     _ = do_deinit(Name),
-    emqx_exhook_sup:stop_service_channel(Name).
+    {StopFun, Args} = case proplists:get_bool(inplace, Options) of
+                          true -> {stop_grpc_client_channel_inplace, [ChannPid]};
+                          _ -> {stop_grpc_client_channel, [Name]}
+                      end,
+    apply(emqx_exhook_sup, StopFun, Args).
 
 do_deinit(Name) ->
-    _ = do_call(Name, 'deinit', []),
+    _ = do_call(Name, 'on_provider_unloaded', #{}),
     ok.
 
 do_init(ChannName) ->
     Req = #{broker => maps:from_list(emqx_sys:info())},
-    case do_call(ChannName, 'init', Req) of
+    case do_call(ChannName, 'on_provider_loaded', Req) of
         {ok, InitialResp} ->
             try
                 {ok, resovle_hookspec(maps:get(hooks, InitialResp, []))}
@@ -159,21 +173,21 @@ incfun(Prefix) ->
         emqx_metrics:inc(list_to_atom(Prefix ++ atom_to_list(Name)))
     end.
 
-format(#service{name = Name, hookspec = Hooks}) ->
+format(#server{name = Name, hookspec = Hooks}) ->
     io_lib:format("name=~p, hooks=~0p", [Name, Hooks]).
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
-name(#service{name = Name}) ->
+name(#server{name = Name}) ->
     Name.
 
--spec call(hookpoint(), map(), service())
+-spec call(hookpoint(), map(), server())
   -> ignore
    | {ok, Resp :: term()}
    | {error, term()}.
-call(Hookpoint, Req, #service{name = ChannName, hookspec = Hooks, incfun = IncFun}) ->
+call(Hookpoint, Req, #server{name = ChannName, hookspec = Hooks, incfun = IncFun}) ->
     GrpcFunc = hk2func(Hookpoint),
     case maps:get(Hookpoint, Hooks, undefined) of
         undefined -> ignore;

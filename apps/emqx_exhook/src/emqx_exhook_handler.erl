@@ -45,6 +45,10 @@
 %% Utils
 -export([ message/1
         , stringfy/1
+        , merge_responsed_bool/2
+        , merge_responsed_message/2
+        , assign_to_message/2
+        , clientinfo/1
         ]).
 
 -import(emqx_exhook,
@@ -89,8 +93,6 @@ on_client_connected(ClientInfo, _ConnInfo) ->
     Req = #{clientinfo => clientinfo(ClientInfo)},
     cast('client.connected', Req).
 
-on_client_disconnected(ClientInfo, {shutdown, Reason}, ConnInfo) when is_atom(Reason) ->
-    on_client_disconnected(ClientInfo, Reason, ConnInfo);
 on_client_disconnected(ClientInfo, Reason, _ConnInfo) ->
     Req = #{clientinfo => clientinfo(ClientInfo),
             reason => stringfy(Reason)
@@ -229,6 +231,9 @@ message(#message{id = Id, qos = Qos, from = From, topic = Topic, payload = Paylo
       payload => Payload,
       timestamp => Ts}.
 
+assign_to_message(#{qos := Qos, topic := Topic, payload := Payload}, Message) ->
+    Message#message{qos = Qos, topic = Topic, payload = Payload}.
+
 topicfilters(Tfs) when is_list(Tfs) ->
     [#{name => Topic, qos => Qos} || {Topic, #{qos := Qos}} <- Tfs].
 
@@ -237,7 +242,7 @@ ntoa({0,0,0,0,0,16#ffff,AB,CD}) ->
 ntoa(IP) ->
     list_to_binary(inet_parse:ntoa(IP)).
 
-maybe(undefined) -> <<"">>;
+maybe(undefined) -> <<>>;
 maybe(B) -> B.
 
 %% @private
@@ -247,8 +252,8 @@ stringfy(Term) when is_integer(Term) ->
     integer_to_binary(Term);
 stringfy(Term) when is_atom(Term) ->
     atom_to_binary(Term, utf8);
-stringfy(Term) when is_tuple(Term) ->
-    iolist_to_binary(io_lib:format("~p", [Term])).
+stringfy(Term) ->
+    unicode:characters_to_binary((io_lib:format("~0p", [Term]))).
 
 hexstr(B) ->
     iolist_to_binary([io_lib:format("~2.16.0B", [X]) || X <- binary_to_list(B)]).
@@ -259,7 +264,7 @@ hexstr(B) ->
 %% see exhook.proto
 merge_responsed_bool(Req, #{type := 'IGNORE'}) ->
     {ok, Req};
-merge_responsed_bool(Req, Resp = #{type := Type, value := {bool_result, NewBool}})
+merge_responsed_bool(Req, #{type := Type, value := {bool_result, NewBool}})
   when is_boolean(NewBool) ->
     NReq = Req#{result => NewBool},
     case Type of
@@ -267,5 +272,17 @@ merge_responsed_bool(Req, Resp = #{type := Type, value := {bool_result, NewBool}
         'STOP_AND_RETURN' -> {stop, NReq}
     end;
 merge_responsed_bool(Req, Resp) ->
+    ?LOG(warning, "Unknown responsed value ~0p to merge to callback chain", [Resp]),
+    {ok, Req}.
+
+merge_responsed_message(Req, #{type := 'IGNORE'}) ->
+    {ok, Req};
+merge_responsed_message(Req, #{type := Type, value := {message, NMessage}}) ->
+    NReq = Req#{message => NMessage},
+    case Type of
+        'CONTINUE' -> {ok, NReq};
+        'STOP_AND_RETURN' -> {stop, NReq}
+    end;
+merge_responsed_message(Req, Resp) ->
     ?LOG(warning, "Unknown responsed value ~0p to merge to callback chain", [Resp]),
     {ok, Req}.

@@ -36,35 +36,35 @@
 %% Mgmt APIs
 %%--------------------------------------------------------------------
 
--spec list() -> [emqx_exhook_service:service()].
+-spec list() -> [emqx_exhook_server:server()].
 list() ->
-    [service(Name) || Name <- running()].
+    [server(Name) || Name <- running()].
 
--spec enable(atom(), list()) -> ok | {error, term()}.
+-spec enable(atom()|string(), list()) -> ok | {error, term()}.
 enable(Name, Opts) ->
     case lists:member(Name, running()) of
         true ->
             {error, already_started};
         _ ->
-            case emqx_exhook_service:load(Name, Opts) of
+            case emqx_exhook_server:load(Name, Opts) of
                 {ok, ServiceState} ->
                     save(Name, ServiceState);
                 {error, Reason} ->
-                    ?LOG(error, "Load service ~p failed: ~p", [Name, Reason]),
+                    ?LOG(error, "Load server ~p failed: ~p", [Name, Reason]),
                     {error, Reason}
             end
     end.
 
--spec disable(atom()) -> ok | {error, term()}.
+-spec disable(atom()|string()) -> ok | {error, term()}.
 disable(Name) ->
-    case service(Name) of
+    case server(Name) of
         undefined -> {error, not_running};
         Service ->
-            ok = emqx_exhook_service:unload(Service),
+            ok = emqx_exhook_server:unload(Service),
             unsave(Name)
     end.
 
--spec disable_all() -> [atom()].
+-spec disable_all() -> [term()].
 disable_all() ->
     [begin disable(Name), Name end || Name <- running()].
 
@@ -80,7 +80,7 @@ cast(_, _, []) ->
     ok;
 cast(Hookpoint, Req, [ServiceName|More]) ->
     %% XXX: Need a real asynchronous running
-    _ = emqx_exhook_service:call(Hookpoint, Req, service(ServiceName)),
+    _ = emqx_exhook_server:call(Hookpoint, Req, server(ServiceName)),
     cast(Hookpoint, Req, More).
 
 -spec call_fold(atom(), term(), function())
@@ -92,7 +92,7 @@ call_fold(Hookpoint, Req, AccFun) ->
 call_fold(_, Req, _, []) ->
     {ok, Req};
 call_fold(Hookpoint, Req, AccFun, [ServiceName|More]) ->
-    case emqx_exhook_service:call(Hookpoint, Req, service(ServiceName)) of
+    case emqx_exhook_server:call(Hookpoint, Req, server(ServiceName)) of
         {ok, Resp} ->
             case AccFun(Req, Resp) of
                 {stop, NReq} -> {stop, NReq};
@@ -126,10 +126,9 @@ unsave(Name) ->
 running() ->
     persistent_term:get(?APP, []).
 
--compile({inline, [service/1]}).
-service(Name) ->
+-compile({inline, [server/1]}).
+server(Name) ->
     case catch persistent_term:get({?APP, Name}) of
         {'EXIT', {badarg,_}} -> undefined;
         Service -> Service
     end.
-

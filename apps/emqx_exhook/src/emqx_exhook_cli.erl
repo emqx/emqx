@@ -20,16 +20,16 @@
 
 -export([cli/1]).
 
-cli(["service", "list"]) ->
+cli(["server", "list"]) ->
     if_enabled(fun() ->
         Services = emqx_exhook:list(),
-        [emqx_ctl:print("Service(~s)~n", [emqx_exhook_service:format(Service)]) || Service <- Services]
+        [emqx_ctl:print("HookServer(~s)~n", [emqx_exhook_server:format(Service)]) || Service <- Services]
     end);
 
-cli(["service", "enable", Name0]) ->
+cli(["server", "enable", Name0]) ->
     if_enabled(fun() ->
         Name = list_to_atom(Name0),
-        case proplists:get_value(Name, application:get_env(?APP, services, [])) of
+        case proplists:get_value(Name, application:get_env(?APP, servers, [])) of
             undefined ->
                 emqx_ctl:print("not_found~n");
             Opts ->
@@ -37,21 +37,21 @@ cli(["service", "enable", Name0]) ->
         end
     end);
 
-cli(["service", "disable", Name]) ->
+cli(["server", "disable", Name]) ->
     if_enabled(fun() ->
         print(emqx_exhook:disable(list_to_atom(Name)))
     end);
 
-cli(["service", "stats"]) ->
+cli(["server", "stats"]) ->
     if_enabled(fun() ->
         [emqx_ctl:print("~-35s:~w~n", [Name, N]) || {Name, N} <- stats()]
     end);
 
 cli(_) ->
-    emqx_ctl:usage([{"exhook service list", "List all running service"},
-                    {"exhook service enable <Name>", "Enable a service with configurations"},
-                    {"exhook service disable <Name>", "Disable a service"},
-                    {"exhook service stats", "Print service statistic"}]).
+    emqx_ctl:usage([{"exhook server list", "List all running exhook server"},
+                    {"exhook server enable <Name>", "Enable a exhook server in the configuration"},
+                    {"exhook server disable <Name>", "Disable a exhook server"},
+                    {"exhook server stats", "Print exhook server statistic"}]).
 
 print(ok) ->
     emqx_ctl:print("ok~n");
