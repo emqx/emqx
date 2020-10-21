@@ -278,7 +278,7 @@ handle_info(ticking, State = #state{speeds = Speeds}) ->
                     Val -> calculate_speed(Val, Speed)
                 end
             end, Speeds),
-    erlang:send_after(timer:seconds(5), self(), ticking),
+    erlang:send_after(timer:seconds(?TICKING_INTERVAL), self(), ticking),
     {noreply, State#state{speeds = NSpeeds}};
 
 handle_info(Info, State) ->
@@ -363,7 +363,7 @@ calculate_speed(CurVal, #speed{last_v = LastVal, tick = Tick, acc = Acc, samples
     CurSpeed = (CurVal - LastVal) / ?TICKING_INTERVAL,
 
     %% calculate the average speed in last 5 seconds
-    case Tick =< 5 of
+    case Tick < 5 of
         true ->
             Acc1 = Acc + CurSpeed,
             #speed{last = Acc1 / Tick,
