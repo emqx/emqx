@@ -27,6 +27,7 @@
         , decode/2
         ]).
 
+%% copied jiffy/readme
 %%--------------------------------------------------------------------
 %% Erlang                     JSON              Erlang
 %% -------------------------------------------------------------------
@@ -45,10 +46,27 @@
 %% {[{foo, bar}]}             -> {"foo": "bar"} -> {[{<<"foo">>, <<"bar">>}]}
 %% {[{<<"foo">>, <<"bar">>}]} -> {"foo": "bar"} -> {[{<<"foo">>, <<"bar">>}]}
 %% #{<<"foo">> => <<"bar">>}  -> {"foo": "bar"} -> #{<<"foo">> => <<"bar">>}
+%%--------------------------------------------------------------------
+
+%% but in emqx_json, we use the jsx style for it:
+%%--------------------------------------------------------------------
+%% Erlang                     JSON              Erlang
+%% -------------------------------------------------------------------
 %%
-%% Extension:
-%% [{<<"foo">>, <<"bar">>}]   -> {"foo": "bar"} -> [{<<"foo">>, <<"bar">>}]
-%%
+%% null                       -> null           -> null
+%% true                       -> true           -> true
+%% false                      -> false          -> false
+%% "hi"                       -> [104, 105]     -> [104, 105]
+%% <<"hi">>                   -> "hi"           -> <<"hi">>
+%% hi                         -> "hi"           -> <<"hi">>
+%% 1                          -> 1              -> 1
+%% 1.25                       -> 1.25           -> 1.25
+%% []                         -> []             -> []
+%% [true, 1.0]                -> [true, 1.0]    -> [true, 1.0]
+%m [{}]                       -> {}             -> [{}]
+%a [{<<"foo">>, <<"bar">>}]   -> {"foo": "bar"} -> [{<<"foo">>, <<"bar">>}]
+%% #{<<"foo">> => <<"bar">>}  -> {"foo": "bar"} -> #{<<"foo">> => <<"bar">>}
+%m #{<<"foo">> => [{}]}       NOT SUPPORT
 %%--------------------------------------------------------------------
 
 all() -> emqx_ct:all(?MODULE).
@@ -63,9 +81,8 @@ t_decode_encode(_) ->
     1.25 = decode(encode(1.25)),
     [] = decode(encode([])),
     [true, 1] = decode(encode([true, 1])),
-    [] = decode(encode({[]})),
-    [{<<"foo">>, <<"bar">>}] = decode(encode({[{foo, bar}]})),
-    [{<<"foo">>, <<"bar">>}] = decode(encode({[{<<"foo">>, <<"bar">>}]})),
+    [{}] = decode(encode([{}])),
+    [{<<"foo">>, <<"bar">>}] = decode(encode([{foo, bar}])),
     [{<<"foo">>, <<"bar">>}] = decode(encode([{<<"foo">>, <<"bar">>}])),
     [[{<<"foo">>, <<"bar">>}]] = decode(encode([[{<<"foo">>, <<"bar">>}]])),
     [[{<<"foo">>, <<"bar">>},
@@ -92,10 +109,10 @@ t_safe_decode_encode(_) ->
     1.25 = safe_encode_decode(1.25),
     [] = safe_encode_decode([]),
     [true, 1] = safe_encode_decode([true, 1]),
-    [] = safe_encode_decode({[]}),
-    [{<<"foo">>, <<"bar">>}] = safe_encode_decode({[{foo, bar}]}),
-    [{<<"foo">>, <<"bar">>}] = safe_encode_decode({[{<<"foo">>, <<"bar">>}]}),
+    [{}] = decode(encode([{}])),
+    [{<<"foo">>, <<"bar">>}] = safe_encode_decode([{foo, bar}]),
     [{<<"foo">>, <<"bar">>}] = safe_encode_decode([{<<"foo">>, <<"bar">>}]),
+    [[{<<"foo">>, <<"bar">>}]] = safe_encode_decode([[{<<"foo">>, <<"bar">>}]]),
     {ok, Json} = emqx_json:safe_encode(#{<<"foo">> => <<"bar">>}),
     {ok, #{<<"foo">> := <<"bar">>}} = emqx_json:safe_decode(Json, [return_maps]).
 
@@ -105,4 +122,3 @@ safe_encode_decode(Term) ->
         {ok, {NTerm}} -> NTerm;
         {ok, NTerm}   -> NTerm
     end.
-
