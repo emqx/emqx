@@ -103,6 +103,8 @@ safe_decode(Json, Opts) ->
           , from_ejson/1
           ]}).
 
+to_ejson([{}]) ->
+    {[]};
 to_ejson([{_, _}|_] = L) ->
     {[{K, to_ejson(V)} || {K, V} <- L ]};
 to_ejson(L) when is_list(L) ->
@@ -111,6 +113,8 @@ to_ejson(T) -> T.
 
 from_ejson(L) when is_list(L) ->
     [from_ejson(E) || E <- L];
+from_ejson({[]}) ->
+    [{}];
 from_ejson({L}) ->
     [{Name, from_ejson(Value)} || {Name, Value} <- L];
 from_ejson(T) -> T.
@@ -118,4 +122,3 @@ from_ejson(T) -> T.
 to_binary(B) when is_binary(B) -> B;
 to_binary(L) when is_list(L) ->
     iolist_to_binary(L).
-
