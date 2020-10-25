@@ -79,6 +79,10 @@
 
 -define(TICKING_INTERVAL, 1).
 
+-define(SHORT_WINDOW_SIZE, 5).
+-define(MEDIUM_WINDOW_SIZE, 60).
+-define(LONG_WINDOW_SIZE, 300).
+
 -record(speed, {
             last = 0 :: number(),
             tick = 1 :: number(),
@@ -362,21 +366,37 @@ calculate_speed(CurVal, #speed{last_v = LastVal, tick = Tick, acc = Acc, samples
     %% calculate the current speed based on the last value of the counter
     CurSpeed = (CurVal - LastVal) / ?TICKING_INTERVAL,
 
-    %% calculate the average speed in last 5 seconds
-    case Tick < 5 of
-        true ->
+    %% calculate the average speed for all window sizes (in seconds)
+    if
+        Tick =< ?SHORT_WINDOW_SIZE ->
             Acc1 = Acc + CurSpeed,
             #speed{last = Acc1 / Tick,
-                   last_v = CurVal,
-                   acc = Acc1,
-                   samples = Samples ++ [CurSpeed],
-                   tick = Tick + 1};
-        false ->
+                last_v = CurVal,
+                acc = Acc1,
+                samples = Samples ++ [CurSpeed],
+                tick = Tick + 1};
+
+        Tick =< ?MEDIUM_WINDOW_SIZE ->
+            Acc1 = Acc + CurSpeed,
+            #speed{last = Acc1 / Tick,
+                last_v = CurVal,
+                acc = Acc1,
+                samples = Samples ++ [CurSpeed],
+                tick = Tick + 1};
+
+        Tick =< ?LONG_WINDOW_SIZE ->
+            Acc1 = Acc + CurSpeed,
+            #speed{last = Acc1 / Tick,
+                last_v = CurVal,
+                acc = Acc1,
+                samples = Samples ++ [CurSpeed],
+                tick = Tick + 1};
+        true ->
             [FirstSpeed | Speeds] = Samples,
             Acc1 =  Acc + CurSpeed - FirstSpeed,
             #speed{last = Acc1 / Tick,
-                   last_v = CurVal,
-                   acc = Acc1,
-                   samples = Speeds ++ [CurSpeed],
-                   tick = Tick}
+                last_v = CurVal,
+                acc = Acc1,
+                samples = Speeds ++ [CurSpeed],
+                tick = Tick}
     end.
