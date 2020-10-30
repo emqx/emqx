@@ -52,5 +52,9 @@ else
 endif
 	$(REBAR) as $(@:deps-%=%) get-deps
 
+.PHONY: xref
+xref:
+	$(REBAR) xref
+
 include packages.mk
 include docker.mk
