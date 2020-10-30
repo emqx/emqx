@@ -1,4 +1,4 @@
-REBAR = $(CURDIR)/rebar3
+REBAR = ./rebar3
 
 PROFILE ?= emqx
 PROFILES := emqx emqx-edge
