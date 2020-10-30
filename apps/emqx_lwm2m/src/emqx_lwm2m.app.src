@@ -1,0 +1,7 @@
+{application,emqx_lwm2m,
+             [{description,"EMQ X LwM2M Gateway"},
+              {vsn,"git"},
+              {modules,[]},
+              {registered,[emqx_lwm2m_sup]},
+              {applications,[kernel,stdlib,lwm2m_coap,emqx_libs]},
+              {mod,{emqx_lwm2m_app,[]}}]}.

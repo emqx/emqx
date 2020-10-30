@@ -1,0 +1,14 @@
+{application, emqx_auth_mnesia,
+ [{description, "EMQ X Authentication with Mnesia"},
+  {vsn, "git"},
+  {modules, []},
+  {registered, []},
+  {applications, [kernel,stdlib,mnesia,emqx_libs]},
+  {mod, {emqx_auth_mnesia_app,[]}},
+  {env, []},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx/emqx-auth-mnesia"}
+          ]}
+ ]}.

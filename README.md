@@ -41,9 +41,9 @@ Get the binary package of the corresponding OS from [EMQ X Download](https://www
 The *EMQ X* broker requires Erlang/OTP R21+ to build since 3.0 release.
 
 ```
-git clone -b v4.0.0 https://github.com/emqx/emqx-rel.git
+git clone https://github.com/emqx/emqx.git
 
-cd emqx-rel && make
+cd emqx && make
 
 cd _build/emqx/rel/emqx && ./bin/emqx console
 
