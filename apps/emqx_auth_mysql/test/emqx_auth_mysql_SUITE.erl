@@ -21,7 +21,7 @@
 
 -define(APP, emqx_auth_mysql).
 
--include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 

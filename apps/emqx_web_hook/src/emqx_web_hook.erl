@@ -16,8 +16,8 @@
 
 -module(emqx_web_hook).
 
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
 
 -define(APP, emqx_web_hook).
 

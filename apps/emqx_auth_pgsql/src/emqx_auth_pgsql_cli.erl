@@ -20,8 +20,8 @@
 
 -include("emqx_auth_pgsql.hrl").
 
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
 
 -export([connect/1]).
 -export([parse_query/2]).

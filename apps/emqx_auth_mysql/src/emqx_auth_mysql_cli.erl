@@ -19,8 +19,8 @@
 -behaviour(ecpool_worker).
 
 -include("emqx_auth_mysql.hrl").
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
 
 -export([ parse_query/1
         , connect/1

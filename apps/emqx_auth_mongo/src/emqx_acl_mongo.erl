@@ -17,8 +17,8 @@
 -module(emqx_acl_mongo).
 
 -include("emqx_auth_mongo.hrl").
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
 
 %% ACL callbacks
 -export([ register_metrics/0

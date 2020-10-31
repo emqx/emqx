@@ -17,7 +17,7 @@
 -module(emqx_rule_engine).
 
 -include("rule_engine.hrl").
--include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
 
 -export([ load_providers/0
         , load_provider/1
