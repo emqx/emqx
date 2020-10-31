@@ -18,7 +18,7 @@
 
 -export([start_link/4, stop/1]).
 
--include("emqx_mqtt.hrl").
+-include_lib("emqx_libs/include/emqx_mqtt.hrl").
 
 -type qos() :: emqx_mqtt_types:qos_name() | emqx_mqtt_types:qos().
 -type topic() :: emqx_topic:topic().

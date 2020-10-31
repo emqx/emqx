@@ -18,9 +18,9 @@
 
 -behavior(gen_server).
 
--include("logger.hrl").
--include("types.hrl").
--include("emqx_mqtt.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx_libs/include/types.hrl").
+-include_lib("emqx_libs/include/emqx_mqtt.hrl").
 
 -logger_header("[Metrics]").
 

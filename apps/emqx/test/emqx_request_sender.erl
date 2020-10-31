@@ -18,7 +18,7 @@
 
 -export([start_link/3, stop/1, send/6]).
 
--include("emqx_mqtt.hrl").
+-include_lib("emqx_libs/include/emqx_mqtt.hrl").
 
 start_link(ResponseTopic, QoS, Options0) ->
     Parent = self(),

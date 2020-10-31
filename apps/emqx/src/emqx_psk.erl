@@ -16,7 +16,7 @@
 
 -module(emqx_psk).
 
--include("logger.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
 
 -logger_header("[PSK]").
 

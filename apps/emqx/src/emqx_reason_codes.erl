@@ -17,7 +17,7 @@
 %% @doc MQTT5 reason codes
 -module(emqx_reason_codes).
 
--include("emqx_mqtt.hrl").
+-include_lib("emqx_libs/include/emqx_mqtt.hrl").
 
 -export([ name/1
         , name/2

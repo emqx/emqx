@@ -16,7 +16,7 @@
 
 -module(emqx_acl_cache).
 
--include("emqx.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
 
 -export([ list_acl_cache/0
         , get_acl_cache/2

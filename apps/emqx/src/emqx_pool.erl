@@ -18,8 +18,8 @@
 
 -behaviour(gen_server).
 
--include("logger.hrl").
--include("types.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx_libs/include/types.hrl").
 
 -logger_header("[Pool]").
 

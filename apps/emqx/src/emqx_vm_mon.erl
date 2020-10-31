@@ -18,7 +18,7 @@
 
 -behaviour(gen_server).
 
--include("logger.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
 
 %% APIs
 -export([start_link/1]).

@@ -49,9 +49,9 @@
 
 -module(emqx_mqueue).
 
--include("emqx.hrl").
--include("types.hrl").
--include("emqx_mqtt.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx_libs/include/types.hrl").
+-include_lib("emqx_libs/include/emqx_mqtt.hrl").
 
 -export([ init/1
         , info/1

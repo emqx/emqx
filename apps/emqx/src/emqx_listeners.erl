@@ -17,7 +17,7 @@
 %% @doc Start/Stop MQTT listeners.
 -module(emqx_listeners).
 
--include("emqx_mqtt.hrl").
+-include_lib("emqx_libs/include/emqx_mqtt.hrl").
 
 %% APIs
 -export([ start/0

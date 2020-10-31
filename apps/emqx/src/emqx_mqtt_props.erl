@@ -17,7 +17,7 @@
 %% @doc MQTT5 Properties
 -module(emqx_mqtt_props).
 
--include("emqx_mqtt.hrl").
+-include_lib("emqx_libs/include/emqx_mqtt.hrl").
 
 -export([ id/1
         , name/1

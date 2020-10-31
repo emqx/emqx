@@ -18,9 +18,9 @@
 
 -behaviour(gen_server).
 
--include("emqx.hrl").
--include("types.hrl").
--include("logger.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx_libs/include/types.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
 
 -logger_header("[SYS]").
 

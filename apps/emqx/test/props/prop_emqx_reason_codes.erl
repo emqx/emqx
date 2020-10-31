@@ -16,7 +16,7 @@
 
 -module(prop_emqx_reason_codes).
 
--include("emqx_mqtt.hrl").
+-include_lib("emqx_libs/include/emqx_mqtt.hrl").
 -include_lib("proper/include/proper.hrl").
 
 %%--------------------------------------------------------------------

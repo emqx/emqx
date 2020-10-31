@@ -16,8 +16,8 @@
 
 -module(emqx_plugins).
 
--include("emqx.hrl").
--include("logger.hrl").
+-include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
 
 -logger_header("[Plugins]").
 
@@ -234,7 +234,7 @@ generate_configs(App) ->
             Conf = cuttlefish_conf:file(ConfFile),
             cuttlefish_generator:map(Schema, Conf);
         {false, false} ->
-            error(no_avaliable_configuration)
+            error({config_not_found, {ConfigFile, ConfFile, SchemaFile}})
     end.
 
 apply_configs([]) ->

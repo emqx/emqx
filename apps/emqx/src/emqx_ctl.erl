@@ -18,8 +18,8 @@
 
 -behaviour(gen_server).
 
--include("types.hrl").
--include("logger.hrl").
+-include_lib("emqx_libs/include/types.hrl").
+-include_lib("emqx_libs/include/logger.hrl").
 
 -logger_header("[Ctl]").
 
