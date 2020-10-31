@@ -1,0 +1,35 @@
+%%-*- mode: erlang -*-
+%% emqx_auth_mnesia config mapping
+
+{mapping, "auth.mnesia.as", "emqx_auth_mnesia.as", [
+  {default, username},
+  {datatype, {enum, [username, clientid]}}
+]}.
+
+{mapping, "auth.mnesia.password_hash", "emqx_auth_mnesia.password_hash", [
+  {default, sha256},
+  {datatype, {enum, [plain, md5, sha, sha256]}}
+]}.
+
+{mapping, "auth.mnesia.$id.login", "emqx_auth_mnesia.userlist", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.mnesia.$id.password", "emqx_auth_mnesia.userlist", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.mnesia.$id.is_superuser", "emqx_auth_mnesia.userlist", [
+  {default, false},
+  {datatype, {enum, [false, true]}}
+]}.
+
+{translation, "emqx_auth_mnesia.userlist", fun(Conf) ->
+  Userlist = cuttlefish_variable:filter_by_prefix("auth.mnesia", Conf),
+  lists:foldl(
+    fun({["auth", "mnesia", Id, "login"], Username}, AccIn) ->
+        [{Username, cuttlefish:conf_get("auth.mnesia." ++ Id ++ ".password", Conf), cuttlefish:conf_get("auth.mnesia." ++ Id ++ ".is_superuser", Conf)} | AccIn];
+       (_, AccIn) ->
+        AccIn
+       end, [], Userlist)
+end}.
