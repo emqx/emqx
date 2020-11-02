@@ -43,6 +43,7 @@
 -export([ inc/2
         , inc/3
         , val/2
+        , rate/2
         , metrics/1
         , register/1
         , unregister/1
@@ -51,9 +52,8 @@
         , all_registered_topics/0
         ]).
 
-%% Exposed for test only.
--export([ rate/2
-        ]).
+%% stats.
+-export([ rates/2 ]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -82,10 +82,14 @@
 
 -define(TICKING_INTERVAL, 1).
 -define(SPEED_AVERAGE_WINDOW_SIZE, 5).
+-define(SPEED_MEDIUM_WINDOW_SIZE, 60).
+-define(SPEED_LONG_WINDOW_SIZE, 300).
 
 -record(speed, {
             last = 0 :: number(),
-            last_v = 0 :: number()
+            last_v = 0 :: number(),
+            last_medium = 0 :: number(),
+            last_long = 0 :: number()
         }).
 
 -record(state, {
@@ -181,7 +185,15 @@ val(Topic, Metric) ->
     end.
 
 rate(Topic, Metric) ->
-    gen_server:call(?MODULE, {get_rate, Topic, Metric}).
+    case rates(Topic, Metric) of
+        #{short := Last} ->
+            Last;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+rates(Topic, Metric) ->
+    gen_server:call(?MODULE, {get_rates, Topic, Metric}).
 
 metrics(Topic) ->
     case ets:lookup(?TAB, Topic) of
@@ -254,7 +266,7 @@ handle_call({unregister, Topic}, _From, State = #state{speeds = Speeds}) ->
             {reply, ok, State#state{speeds = NSpeeds}}
     end;
 
-handle_call({get_rate, Topic, Metric}, _From, State = #state{speeds = Speeds}) ->
+handle_call({get_rates, Topic, Metric}, _From, State = #state{speeds = Speeds}) ->
     case is_registered(Topic) of
         false ->
             {reply, {error, topic_not_found}, State};
@@ -262,8 +274,8 @@ handle_call({get_rate, Topic, Metric}, _From, State = #state{speeds = Speeds}) -
             case maps:get({Topic, Metric}, Speeds, undefined) of
                 undefined ->
                     {reply, {error, invalid_metric}, State};
-                #speed{last = Last} ->
-                    {reply, Last, State}
+                #speed{last = Short, last_medium = Medium, last_long = Long}  ->
+                    {reply, #{ short => Short, medium => Medium, long => Long }, State}
             end
     end.
 
@@ -360,14 +372,28 @@ number_of_registered_topics() ->
     proplists:get_value(size, ets:info(?TAB)).
 
 calculate_speed(CurVal, #speed{last = Last,
-                               last_v = LastVal
-                              }) ->
+    last_v = LastVal,
+    last_medium = LastMedium,
+    last_long = LastLong
+}) ->
     %% calculate the current speed based on the last value of the counter
     CurSpeed = (CurVal - LastVal) / ?TICKING_INTERVAL,
-    #speed{last = mma(?SPEED_AVERAGE_WINDOW_SIZE, Last, CurSpeed),
-           last_v = CurVal
-          }.
+    #speed{
+        last_v = CurVal,
+        last = short_mma(Last, CurSpeed),
+        last_medium = medium_mma(LastMedium, CurSpeed),
+        last_long = long_mma(LastLong, CurSpeed)
+    }.
 
 %% Modified Moving Average ref: https://en.wikipedia.org/wiki/Moving_average
 mma(WindowSize, LastSpeed, CurSpeed) ->
-  (LastSpeed * (WindowSize - 1) + CurSpeed) / WindowSize.
+    (LastSpeed * (WindowSize - 1) + CurSpeed) / WindowSize.
+
+short_mma(LastSpeed, CurSpeed) ->
+    mma(?SPEED_AVERAGE_WINDOW_SIZE, LastSpeed, CurSpeed).
+
+medium_mma(LastSpeed, CurSpeed) ->
+    mma(?SPEED_MEDIUM_WINDOW_SIZE, LastSpeed, CurSpeed).
+
+long_mma(LastSpeed, CurSpeed) ->
+    mma(?SPEED_LONG_WINDOW_SIZE, LastSpeed, CurSpeed).
