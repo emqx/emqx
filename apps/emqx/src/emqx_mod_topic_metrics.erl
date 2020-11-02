@@ -43,13 +43,16 @@
 -export([ inc/2
         , inc/3
         , val/2
-        , rate/2
         , metrics/1
         , register/1
         , unregister/1
         , unregister_all/0
         , is_registered/1
         , all_registered_topics/0
+        ]).
+
+%% Exposed for test only.
+-export([ rate/2
         ]).
 
 %% gen_server callbacks
@@ -78,13 +81,11 @@
         ]).
 
 -define(TICKING_INTERVAL, 1).
+-define(SPEED_AVERAGE_WINDOW_SIZE, 5).
 
 -record(speed, {
             last = 0 :: number(),
-            tick = 1 :: number(),
-            last_v = 0 :: number(),
-            acc = 0 :: number(),
-            samples = [] :: list()
+            last_v = 0 :: number()
         }).
 
 -record(state, {
@@ -358,25 +359,15 @@ counters_size() ->
 number_of_registered_topics() ->
     proplists:get_value(size, ets:info(?TAB)).
 
-calculate_speed(CurVal, #speed{last_v = LastVal, tick = Tick, acc = Acc, samples = Samples}) ->
+calculate_speed(CurVal, #speed{last = Last,
+                               last_v = LastVal
+                              }) ->
     %% calculate the current speed based on the last value of the counter
     CurSpeed = (CurVal - LastVal) / ?TICKING_INTERVAL,
+    #speed{last = mma(?SPEED_AVERAGE_WINDOW_SIZE, Last, CurSpeed),
+           last_v = CurVal
+          }.
 
-    %% calculate the average speed in last 5 seconds
-    case Tick < 5 of
-        true ->
-            Acc1 = Acc + CurSpeed,
-            #speed{last = Acc1 / Tick,
-                   last_v = CurVal,
-                   acc = Acc1,
-                   samples = Samples ++ [CurSpeed],
-                   tick = Tick + 1};
-        false ->
-            [FirstSpeed | Speeds] = Samples,
-            Acc1 =  Acc + CurSpeed - FirstSpeed,
-            #speed{last = Acc1 / Tick,
-                   last_v = CurVal,
-                   acc = Acc1,
-                   samples = Speeds ++ [CurSpeed],
-                   tick = Tick}
-    end.
+%% Modified Moving Average ref: https://en.wikipedia.org/wiki/Moving_average
+mma(WindowSize, LastSpeed, CurSpeed) ->
+  (LastSpeed * (WindowSize - 1) + CurSpeed) / WindowSize.
