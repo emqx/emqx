@@ -20,6 +20,11 @@
         , encode/1
         ]).
 
+
+-ifdef(TEST).
+-export([binary_to_hex_string/1]).
+-endif.
+
 -include("emqx_lwm2m.hrl").
 
 -define(LOG(Level, Format, Args), logger:Level("LWM2M-TLV: " ++ Format, Args)).
