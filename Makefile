@@ -19,14 +19,6 @@ ensure-rebar3:
 
 $(REBAR): ensure-rebar3
 
-.PHONY: xref
-xref:
-	$(REBAR) xref
-
-.PHONY: dialyzer
-dialyzer:
-	$(REBAR) dialyzer
-
 .PHONY: distclean
 distclean:
 	@rm -rf _build
@@ -67,8 +59,12 @@ endif
 	$(REBAR) as $(@:deps-%=%) get-deps
 
 .PHONY: xref
-xref:
+xref: $(REBAR)
 	$(REBAR) as test xref
+
+.PHONY: dialyzer
+dialyzer: $(REBAR)
+	$(REBAR) as test dialyzer
 
 include packages.mk
 include docker.mk
