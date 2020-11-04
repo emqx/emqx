@@ -59,7 +59,7 @@ init() ->
     end.
 
 %% @doc Load all plugins when the broker started.
--spec(load() -> list() | {error, term()}).
+-spec(load() -> ok | ignore | {error, term()}).
 load() ->
     load_expand_plugins(),
     case emqx:get_env(plugins_loaded_file) of
@@ -103,7 +103,7 @@ unload(PluginName) when is_atom(PluginName) ->
             ?LOG(error, "Plugin ~s is not started", [PluginName]),
             {error, not_started};
         {_, _} ->
-            unload_plugin(PluginName, true)            
+            unload_plugin(PluginName, true)
     end.
 
 reload(PluginName) when is_atom(PluginName)->
