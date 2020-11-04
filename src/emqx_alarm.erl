@@ -165,6 +165,10 @@ init([Opts]) ->
                                     size_limit = SizeLimit,
                                     validity_period = ValidityPeriod})}.
 
+%% suppress dialyzer warning due to dirty read/write race condition.
+%% TODO: change from dirty_read/write to transactional.
+%% TODO: handle mnesia write errors.
+-dialyzer([{nowarn_function, [handle_call/3]}]).
 handle_call({activate_alarm, Name, Details}, _From, State = #state{actions = Actions}) ->
     case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
         [#activated_alarm{name = Name}] ->
@@ -211,7 +215,7 @@ handle_call({deactivate_alarm, Name}, _From, State = #state{actions = Actions,
     end;
 
 handle_call(delete_all_deactivated_alarms, _From, State) ->
-    mnesia:clear_table(?DEACTIVATED_ALARM),
+    clear_table(?DEACTIVATED_ALARM),
     {reply, ok, State};
 
 handle_call({get_alarms, all}, _From, State) ->
@@ -266,7 +270,17 @@ deactivate_all_alarms() ->
                                                             message = Message,
                                                             deactivate_at = erlang:system_time(microsecond)})
                   end, ets:tab2list(?ACTIVATED_ALARM)),
-    mnesia:clear_table(?ACTIVATED_ALARM).
+    clear_table(?ACTIVATED_ALARM).
+
+%% Delete all records from the given table, ignore result.
+clear_table(TableName) ->
+    case mnesia:clear_table(TableName) of
+        {aborted, Reason} ->
+            ?LOG(warning, "Faile to clear table ~p reason: ~p",
+                 [TableName, Reason]);
+        {atomic, ok} ->
+            ok
+    end.
 
 ensure_delete_timer(State = #state{validity_period = ValidityPeriod}) ->
     State#state{timer = emqx_misc:start_timer(ValidityPeriod div 1, delete_expired_deactivated_alarm)}.
@@ -299,7 +313,8 @@ do_actions(Operation, Alarm, [publish | More]) ->
     {ok, Payload} = encode_to_json(Alarm),
     Message = emqx_message:make(?MODULE, 0, Topic, Payload, #{sys => true},
                   #{properties => #{'Content-Type' => <<"application/json">>}}),
-    emqx_broker:safe_publish(Message),
+    %% TODO log failed publishes
+    _ = emqx_broker:safe_publish(Message),
     do_actions(Operation, Alarm, More).
 
 encode_to_json(Alarm) ->
