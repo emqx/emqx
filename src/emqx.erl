@@ -86,7 +86,7 @@ restart(ConfFile) ->
     reload_config(ConfFile),
     shutdown(),
     ok = application:stop(mnesia),
-    application:start(mnesia),
+    _ = application:start(mnesia),
     reboot().
 
 %% @doc Stop emqx application.
@@ -205,8 +205,8 @@ shutdown() ->
 
 shutdown(Reason) ->
     ?LOG(critical, "emqx shutdown for ~s", [Reason]),
-    emqx_alarm_handler:unload(),
-    emqx_plugins:unload(),
+    _ = emqx_alarm_handler:unload(),
+    _ = emqx_plugins:unload(),
     lists:foreach(fun application:stop/1, [emqx, ekka, cowboy, ranch, esockd, gproc]).
 
 reboot() ->
