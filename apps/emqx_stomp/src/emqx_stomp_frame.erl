@@ -87,7 +87,11 @@
 
 -define(IS_ESC(Ch), Ch == ?CR; Ch == ?LF; Ch == ?BSL; Ch == ?COLON).
 
--record(parser_state, {cmd, headers = [], hdname, acc = <<>>, limit}).
+-record(parser_state, {cmd,
+                       headers = [],
+                       hdname,
+                       acc = <<>> :: binary(),
+                       limit}).
 
 -record(frame_limit, {max_header_num, max_header_length, max_body_length}).
 

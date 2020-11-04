@@ -24,7 +24,7 @@
 %% STOMP Frame
 %%--------------------------------------------------------------------
 
--record(stomp_frame, {command, headers = [], body = <<>> :: iolist()}).
+-record(stomp_frame, {command, headers = [], body = <<>> :: iodata()}).
 
 -type(stomp_frame() :: #stomp_frame{}).
 
