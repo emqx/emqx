@@ -40,11 +40,13 @@
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
+-spec start_child(supervisor:child_spec()) -> ok.
 start_child(ChildSpec) when is_map(ChildSpec) ->
-    supervisor:start_child(?MODULE, ChildSpec).
+    assert_started(supervisor:start_child(?MODULE, ChildSpec)).
 
+-spec start_child(atom(), atom()) -> ok.
 start_child(Mod, Type) when is_atom(Mod) andalso is_atom(Type) ->
-    supervisor:start_child(?MODULE, ?CHILD(Mod, Type)).
+    assert_started(supervisor:start_child(?MODULE, ?CHILD(Mod, Type))).
 
 -spec(stop_child(any()) -> ok | {error, term()}).
 stop_child(ChildId) ->
@@ -60,4 +62,13 @@ stop_child(ChildId) ->
 init([]) ->
     ok = emqx_tables:new(emqx_modules, [set, public, {write_concurrency, true}]),
     {ok, {{one_for_one, 10, 100}, []}}.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+assert_started({ok, _Pid}) -> ok;
+assert_started({ok, _Pid, _Info}) -> ok;
+assert_started({error, {already_tarted, _Pid}}) -> ok;
+assert_started({error, Reason}) -> erlang:error(Reason).
 
