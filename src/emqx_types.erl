@@ -148,7 +148,8 @@
 -type(username() :: maybe(binary())).
 -type(password() :: maybe(binary())).
 -type(peerhost() :: inet:ip_address()).
--type(peername() :: {inet:ip_address(), inet:port_number()}).
+-type(peername() :: {inet:ip_address(), inet:port_number()}
+                  | inet:returned_non_ip_address()).
 -type(protocol() :: mqtt | 'mqtt-sn' | coap | lwm2m | stomp | none | atom()).
 -type(auth_result() :: success
                      | client_identifier_not_valid
