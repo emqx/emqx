@@ -125,7 +125,7 @@ load_module(ModuleName, Persistent) ->
     case ModuleName:load(Env) of
         ok ->
             ets:insert(?MODULE, {ModuleName, true}),
-            write_loaded(Persistent),
+            ok = write_loaded(Persistent),
             ?LOG(info, "Load ~s module successfully.", [ModuleName]);
         {error, Error} ->
             ?LOG(error, "Load module ~s failed, cannot load for ~0p", [ModuleName, Error]),
@@ -152,7 +152,7 @@ unload_module(ModuleName, Persistent) ->
     case ModuleName:unload(Env) of
         ok ->
             ets:insert(?MODULE, {ModuleName, false}),
-            write_loaded(Persistent),
+            ok = write_loaded(Persistent),
             ?LOG(info, "Unload ~s module successfully.", [ModuleName]);
         {error, Error} ->
             ?LOG(error, "Unload module ~s failed, cannot unload for ~0p", [ModuleName, Error])
@@ -164,6 +164,6 @@ write_loaded(true) ->
         ok -> ok;
         {error, Error} ->
             ?LOG(error, "Write File ~p Error: ~p", [FilePath, Error]),
-            {error, Error}
+            ok
     end;
 write_loaded(false) -> ok.
