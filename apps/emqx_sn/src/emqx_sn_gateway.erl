@@ -947,7 +947,7 @@ do_publish_will(#state{will_msg = WillMsg, clientid = ClientId}) ->
                                                           qos = QoS, retain = Retain},
                            variable = #mqtt_packet_publish{topic_name = Topic, packet_id = 1000},
                            payload  = Payload},
-    emqx_broker:publish(emqx_packet:to_message(Publish, ClientId)),
+    _ = emqx_broker:publish(emqx_packet:to_message(Publish, ClientId)),
     ok.
 
 do_puback(TopicId, MsgId, ReturnCode, _StateName,
