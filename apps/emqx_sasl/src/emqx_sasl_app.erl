@@ -30,7 +30,7 @@
 
 start(_Type, _Args) ->
     ok = emqx_sasl:init(),
-    emqx_sasl:load(),
+    _ = emqx_sasl:load(),
     emqx_sasl_cli:load(),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 

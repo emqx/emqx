@@ -209,7 +209,7 @@ idle(cast, {incoming, ?SN_PUBLISH_MSG(#mqtt_sn_flags{qos = ?QOS_NEG1,
             emqx_broker:publish(Msg);
         false ->
             ok
-    end;
+    end,
     ?LOG(debug, "Client id=~p receives a publish with QoS=-1 in idle mode!", [ClientId], State),
     {keep_state_and_data, State#state.idle_timeout};
 
