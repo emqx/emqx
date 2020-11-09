@@ -103,6 +103,9 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
+-define(ALARM_TCP_CONGEST(Channel),
+        list_to_binary(io_lib:format("mqtt_conn/congested/~s", [emqx_channel:info(clientid, Channel)]))).
+
 -dialyzer({no_match, [info/2]}).
 -dialyzer({nowarn_function, [ init/4
                             , init_state/3
@@ -594,16 +597,28 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
 %% Send data
 
 -spec(send(iodata(), state()) -> ok).
-send(IoData, #state{transport = Transport, socket = Socket}) ->
+send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) ->
     Oct = iolist_size(IoData),
     ok = emqx_metrics:inc('bytes.sent', Oct),
     emqx_pd:inc_counter(outgoing_bytes, Oct),
-    case Transport:async_send(Socket, IoData) of
+    may_warn_congestion(Socket, Channel),
+    case Transport:async_send(Socket, IoData, [nosuspend]) of
         ok -> ok;
         Error = {error, _Reason} ->
             %% Send an inet_reply to postpone handling the error
             self() ! {inet_reply, Socket, Error},
             ok
+    end.
+
+may_warn_congestion(Socket, Channel) ->
+    case inet:getstat(Socket, [send_pend]) of
+        {ok, [{send_pend, N}]} when N > 0 ->
+            %%lists:keyfind(send_pend, 1, Stat)
+            {ok, Stat} = inet:getstat(Socket, [recv_cnt, recv_oct, send_cnt, send_oct]),
+            {ok, Opts} = inet:getopts(Socket, [high_watermark,high_msgq_watermark, sndbuf, recbuf, buffer]),
+            emqx_alarm:activate(?ALARM_TCP_CONGEST(Channel), Stat ++ Opts);
+        _ ->
+            emqx_alarm:deactivate(?ALARM_TCP_CONGEST(Channel))
     end.
 
 %%--------------------------------------------------------------------
@@ -621,7 +636,7 @@ handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
     end;
 
 handle_info({sock_error, Reason}, State) ->
-    ?LOG(debug, "Socket error: ~p", [Reason]),
+    Reason =/= closed andalso ?LOG(error, "Socket error: ~p", [Reason]),
     handle_info({sock_closed, Reason}, close_socket(State));
 
 handle_info(Info, State) ->
