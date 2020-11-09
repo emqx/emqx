@@ -611,14 +611,18 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
     end.
 
 may_warn_congestion(Socket, Channel) ->
+    Congested = erlang:get(conn_congested),
     case inet:getstat(Socket, [send_pend]) of
-        {ok, [{send_pend, N}]} when N > 0 ->
-            %%lists:keyfind(send_pend, 1, Stat)
+        {ok, [{send_pend, N}]} when N > 0, Congested =/= true ->
             {ok, Stat} = inet:getstat(Socket, [recv_cnt, recv_oct, send_cnt, send_oct]),
             {ok, Opts} = inet:getopts(Socket, [high_watermark,high_msgq_watermark, sndbuf, recbuf, buffer]),
-            emqx_alarm:activate(?ALARM_TCP_CONGEST(Channel), Stat ++ Opts);
+            erlang:put(conn_congested, true),
+            emqx_alarm:activate(?ALARM_TCP_CONGEST(Channel), maps:from_list(Stat++Opts));
+        _ when Congested =/= false ->
+            erlang:put(conn_congested, false),
+            emqx_alarm:deactivate(?ALARM_TCP_CONGEST(Channel));
         _ ->
-            emqx_alarm:deactivate(?ALARM_TCP_CONGEST(Channel))
+            ok
     end.
 
 %%--------------------------------------------------------------------
