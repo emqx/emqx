@@ -49,7 +49,7 @@ apply_rules([], _Input) ->
 apply_rules([#rule{enabled = false}|More], Input) ->
     apply_rules(More, Input);
 apply_rules([Rule = #rule{id = RuleID}|More], Input) ->
-    try apply_rule(Rule, Input)
+    try apply_rule_discard_result(Rule, Input)
     catch
         %% ignore the errors if select or match failed
         _:{select_and_transform_error, Error} ->
@@ -69,6 +69,13 @@ apply_rules([Rule = #rule{id = RuleID}|More], Input) ->
                  [RuleID, Error, StkTrace])
     end,
     apply_rules(More, Input).
+
+apply_rule_discard_result(Rule, Input) ->
+    %% TODO check if below two clauses are ok to discard:
+    %% {'error','nomatch'}
+    %% {'ok',[any()]}
+    _ = apply_rule(Rule, Input),
+    ok.
 
 apply_rule(Rule = #rule{id = RuleID}, Input) ->
     clear_rule_payload(),
@@ -160,6 +167,7 @@ select_and_collect([Field|More], Input, {Output, LastKV}) ->
         {nested_put(Key, Val, Output), LastKV}).
 
 %% Filter each item got from FOREACH
+-dialyzer({nowarn_function, filter_collection/4}).
 filter_collection(Input, InCase, DoEach, {CollKey, CollVal}) ->
     lists:filtermap(
         fun(Item) ->
