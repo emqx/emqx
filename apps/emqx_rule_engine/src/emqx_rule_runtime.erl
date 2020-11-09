@@ -291,11 +291,11 @@ wait_action_on(Id, RetryN) ->
 
 handle_action_failure(continue, Id, Fallbacks, Selected, Envs, Reason) ->
     ?LOG(error, "Take action ~p failed, continue next action, reason: ~0p", [Id, Reason]),
-    take_actions(Fallbacks, Selected, Envs, continue),
+    _ = take_actions(Fallbacks, Selected, Envs, continue),
     failed;
 handle_action_failure(stop, Id, Fallbacks, Selected, Envs, Reason) ->
     ?LOG(error, "Take action ~p failed, skip all actions, reason: ~0p", [Id, Reason]),
-    take_actions(Fallbacks, Selected, Envs, continue),
+    _ = take_actions(Fallbacks, Selected, Envs, continue),
     error({take_action_failed, {Id, Reason}}).
 
 eval({path, [{key, <<"payload">>} | Path]}, #{payload := Payload}) ->
