@@ -60,7 +60,7 @@
         { id :: action_instance_id()
         , name :: action_name()
         , fallbacks :: list(#action_instance{})
-        , args :: #{atom() => term()} %% the args got from API for initializing action_instance
+        , args :: #{binary() => term()} %% the args got from API for initializing action_instance
         }).
 
 -record(rule,
