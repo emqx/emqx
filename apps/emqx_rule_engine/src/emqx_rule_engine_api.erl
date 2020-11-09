@@ -22,6 +22,9 @@
 
 -import(minirest,  [return/1]).
 
+%% A lot of case clause no_match:es from rule_events.hrl
+-dialyzer(no_match).
+
 -rest_api(#{name   => create_rule,
             method => 'POST',
             path   => "/rules/",
