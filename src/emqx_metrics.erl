@@ -21,6 +21,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
+-include("emqx.hrl").
 
 -logger_header("[Metrics]").
 
@@ -49,7 +50,8 @@
         ]).
 
 %% Inc received/sent metrics
--export([ inc_recv/1
+-export([ inc_msg/1
+        , inc_recv/1
         , inc_sent/1
         ]).
 
@@ -312,6 +314,15 @@ update_counter(Name, Value) ->
 %%--------------------------------------------------------------------
 %% Inc received/sent metrics
 %%--------------------------------------------------------------------
+
+-spec(inc_msg(emqx_types:massage()) -> ok).
+inc_msg(Msg) ->
+    case Msg#message.qos of
+        0 -> inc('messages.qos0.received');
+        1 -> inc('messages.qos1.received');
+        2 -> inc('messages.qos2.received')
+    end,
+    inc('messages.received').
 
 %% @doc Inc packets received.
 -spec(inc_recv(emqx_types:packet()) -> ok).
