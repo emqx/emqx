@@ -6,14 +6,19 @@
         4 -> % arch_32
             {1000, cuttlefish_bytesize:parse("32MB")}
     end,
-{"4.2.2",
+{"4.2.3",
   [
+    {"4.2.2", [
+      {load_module, emqx_metrics, brutal_purge, soft_purge, []}
+    ]},
     {"4.2.1", [
+      {load_module, emqx_metrics, brutal_purge, soft_purge, []},
       {load_module, emqx_channel, brutal_purge, soft_purge, []},
       {load_module, emqx_mod_topic_metrics, brutal_purge, soft_purge, []},
       {load_module, emqx_json, brutal_purge, soft_purge, []}
     ]},
     {"4.2.0", [
+      {load_module, emqx_metrics, brutal_purge, soft_purge, []},
       {load_module, emqx_channel, brutal_purge, soft_purge, []},
       {load_module, emqx_mod_topic_metrics, brutal_purge, soft_purge, []},
       {load_module, emqx_json, brutal_purge, soft_purge, []},
@@ -24,12 +29,17 @@
     ]}
   ],
   [
+    {"4.2.2", [
+      {load_module, emqx_metrics, brutal_purge, soft_purge, []}
+    ]},
     {"4.2.1", [
+      {load_module, emqx_metrics, brutal_purge, soft_purge, []}
       {load_module, emqx_channel, brutal_purge, soft_purge, []},
       {load_module, emqx_mod_topic_metrics, brutal_purge, soft_purge, []},
       {load_module, emqx_json, brutal_purge, soft_purge, []}
     ]},
     {"4.2.0", [
+      {load_module, emqx_metrics, brutal_purge, soft_purge, []}
       {load_module, emqx_channel, brutal_purge, soft_purge, []},
       {load_module, emqx_mod_topic_metrics, brutal_purge, soft_purge, []},
       {load_module, emqx_json, brutal_purge, soft_purge, []}
