@@ -99,7 +99,7 @@
 
 -record(state, {
             metric_ids = sets:new(),
-            rule_speeds :: #{rule_id() => #rule_speed{}},
+            rule_speeds :: undefined | #{rule_id() => #rule_speed{}},
             overall_rule_speed :: #rule_speed{}
         }).
 
