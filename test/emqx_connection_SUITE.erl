@@ -65,6 +65,7 @@ end_per_suite(_Config) ->
     ok = meck:unload(emqx_pd),
     ok = meck:unload(emqx_metrics),
     ok = meck:unload(emqx_hooks),
+    ok = meck:unload(emqx_alarm),
     ok.
 
 init_per_testcase(_TestCase, Config) ->
