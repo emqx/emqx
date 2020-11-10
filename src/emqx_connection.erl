@@ -431,6 +431,7 @@ handle_msg(Msg, State) ->
 
 terminate(Reason, State = #state{channel = Channel}) ->
     ?LOG(debug, "Terminated due to ~p", [Reason]),
+    emqx_alarm:deactivate(?ALARM_TCP_CONGEST(Channel));
     emqx_channel:terminate(Reason, Channel),
     close_socket(State),
     exit(Reason).
@@ -601,7 +602,7 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
     Oct = iolist_size(IoData),
     ok = emqx_metrics:inc('bytes.sent', Oct),
     emqx_pd:inc_counter(outgoing_bytes, Oct),
-    may_warn_congestion(Socket, Channel),
+    maybe_warn_congestion(Socket, Channel),
     case Transport:async_send(Socket, IoData, [nosuspend]) of
         ok -> ok;
         Error = {error, _Reason} ->
@@ -610,20 +611,35 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
             ok
     end.
 
-may_warn_congestion(Socket, Channel) ->
-    Congested = erlang:get(conn_congested),
-    case inet:getstat(Socket, [send_pend]) of
-        {ok, [{send_pend, N}]} when N > 0, Congested =/= true ->
+maybe_warn_congestion(Socket, Channel) ->
+    IsCongestAlarmSet = is_congestion_alarm_set(),
+    case is_congested(Socket) of
+        true when not IsCongestAlarmSet ->
             {ok, Stat} = inet:getstat(Socket, [recv_cnt, recv_oct, send_cnt, send_oct]),
             {ok, Opts} = inet:getopts(Socket, [high_watermark,high_msgq_watermark, sndbuf, recbuf, buffer]),
-            erlang:put(conn_congested, true),
+            ok = set_congestion_alarm(),
             emqx_alarm:activate(?ALARM_TCP_CONGEST(Channel), maps:from_list(Stat++Opts));
-        _ when Congested =/= false ->
-            erlang:put(conn_congested, false),
+        false when IsCongestAlarmSet ->
+            ok = clear_congestion_alarm(),
             emqx_alarm:deactivate(?ALARM_TCP_CONGEST(Channel));
-        _ ->
-            ok
+        _ -> ok
+    end
+
+is_congested(Socket) ->
+    case inet:getstat(Socket, [send_pend]) of
+        {ok, [{send_pend, N}]} when N > 0 -> true;
+        _ -> false
     end.
+
+is_congestion_alarm_set() ->
+    case erlang:get(conn_congested) of
+        true -> true;
+        _ -> false;
+    end.
+set_congestion_alarm() ->
+    erlang:put(conn_congested, true), ok.
+clear_congestion_alarm() ->
+    erlang:put(conn_congested, false), ok.
 
 %%--------------------------------------------------------------------
 %% Handle Info
