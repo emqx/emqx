@@ -314,7 +314,7 @@ update_counter(Name, Value) ->
 %% Inc received/sent metrics
 %%--------------------------------------------------------------------
 
--spec(inc_msg(emqx_types:massage() -> ok)).
+-spec(inc_msg(emqx_types:massage()) -> ok).
 inc_msg(Msg) ->
     case maps:get(qos, Msg) of
         0 -> inc('messages.qos0.received');
