@@ -431,7 +431,7 @@ handle_msg(Msg, State) ->
 
 terminate(Reason, State = #state{channel = Channel}) ->
     ?LOG(debug, "Terminated due to ~p", [Reason]),
-    emqx_alarm:deactivate(?ALARM_TCP_CONGEST(Channel));
+    emqx_alarm:deactivate(?ALARM_TCP_CONGEST(Channel)),
     emqx_channel:terminate(Reason, Channel),
     close_socket(State),
     exit(Reason).
@@ -623,7 +623,7 @@ maybe_warn_congestion(Socket, Channel) ->
             ok = clear_congestion_alarm(),
             emqx_alarm:deactivate(?ALARM_TCP_CONGEST(Channel));
         _ -> ok
-    end
+    end.
 
 is_congested(Socket) ->
     case inet:getstat(Socket, [send_pend]) of
@@ -634,7 +634,7 @@ is_congested(Socket) ->
 is_congestion_alarm_set() ->
     case erlang:get(conn_congested) of
         true -> true;
-        _ -> false;
+        _ -> false
     end.
 set_congestion_alarm() ->
     erlang:put(conn_congested, true), ok.

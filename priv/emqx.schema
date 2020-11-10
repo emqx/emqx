@@ -1240,7 +1240,7 @@ end}.
 
 {mapping, "listener.tcp.$name.high_watermark", "emqx.listeners", [
   {datatype, bytesize},
-  hidden
+  {default, "1MB"}
 ]}.
 
 {mapping, "listener.tcp.$name.tune_buffer", "emqx.listeners", [
@@ -1337,7 +1337,7 @@ end}.
 
 {mapping, "listener.ssl.$name.high_watermark", "emqx.listeners", [
   {datatype, bytesize},
-  hidden
+  {default, "1MB"}
 ]}.
 
 {mapping, "listener.ssl.$name.tune_buffer", "emqx.listeners", [
