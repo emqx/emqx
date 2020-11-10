@@ -56,9 +56,10 @@
 -endif.
 
 load(Env) ->
-    [emqx_hooks:add(HookPoint, {?MODULE, hook_fun(HookPoint), [hook_conf(HookPoint, Env)]})
-     || HookPoint <- ?SUPPORTED_HOOK],
-    ok.
+    lists:foreach(
+      fun(HookPoint) ->
+              ok = emqx_hooks:put(HookPoint, {?MODULE, hook_fun(HookPoint), [hook_conf(HookPoint, Env)]})
+      end, ?SUPPORTED_HOOK).
 
 unload(_Env) ->
     [emqx_hooks:del(HookPoint, {?MODULE, hook_fun(HookPoint)})
@@ -291,7 +292,8 @@ may_publish_and_apply(EventName, GenEventMsg, #{enabled := true, qos := QoS}) ->
     EventMsg = GenEventMsg(),
     case emqx_json:safe_encode(EventMsg) of
         {ok, Payload} ->
-            emqx_broker:safe_publish(make_msg(QoS, EventTopic, Payload));
+            _ = emqx_broker:safe_publish(make_msg(QoS, EventTopic, Payload)),
+            ok;
         {error, _Reason} ->
             ?LOG(error, "Failed to encode event msg for ~p, msg: ~p", [EventName, EventMsg])
     end,
