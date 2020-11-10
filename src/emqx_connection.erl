@@ -602,7 +602,7 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
     Oct = iolist_size(IoData),
     ok = emqx_metrics:inc('bytes.sent', Oct),
     emqx_pd:inc_counter(outgoing_bytes, Oct),
-    maybe_warn_congestion(Socket, Channel),
+    maybe_warn_congestion(Socket, Transport, Channel),
     case Transport:async_send(Socket, IoData, [nosuspend]) of
         ok -> ok;
         Error = {error, _Reason} ->
@@ -611,12 +611,12 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
             ok
     end.
 
-maybe_warn_congestion(Socket, Channel) ->
+maybe_warn_congestion(Socket, Transport, Channel) ->
     IsCongestAlarmSet = is_congestion_alarm_set(),
-    case is_congested(Socket) of
+    case is_congested(Socket, Transport) of
         true when not IsCongestAlarmSet ->
-            {ok, Stat} = inet:getstat(Socket, [recv_cnt, recv_oct, send_cnt, send_oct]),
-            {ok, Opts} = inet:getopts(Socket, [high_watermark,high_msgq_watermark, sndbuf, recbuf, buffer]),
+            {ok, Stat} = Transport:getstat(Socket, [recv_cnt, recv_oct, send_cnt, send_oct]),
+            {ok, Opts} = Transport:getopts(Socket, [high_watermark,high_msgq_watermark, sndbuf, recbuf, buffer]),
             ok = set_congestion_alarm(),
             emqx_alarm:activate(?ALARM_TCP_CONGEST(Channel), maps:from_list(Stat++Opts));
         false when IsCongestAlarmSet ->
@@ -625,8 +625,8 @@ maybe_warn_congestion(Socket, Channel) ->
         _ -> ok
     end.
 
-is_congested(Socket) ->
-    case inet:getstat(Socket, [send_pend]) of
+is_congested(Socket, Transport) ->
+    case Transport:getstat(Socket, [send_pend]) of
         {ok, [{send_pend, N}]} when N > 0 -> true;
         _ -> false
     end.

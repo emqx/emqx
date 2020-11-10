@@ -52,6 +52,9 @@ init_per_suite(Config) ->
 
     ok = meck:expect(emqx_channel, ensure_disconnected, fun(_, Channel) -> Channel end),
 
+    ok = meck:expect(emqx_alarm, activate, fun(_, _) -> ok end),
+    ok = meck:expect(emqx_alarm, deactivate, fun(_) -> ok end),
+
     Config.
 
 end_per_suite(_Config) ->
@@ -77,6 +80,7 @@ init_per_testcase(_TestCase, Config) ->
                                                       {ok, [{K, 0} || K <- Options]}
                                               end),
     ok = meck:expect(emqx_transport, async_send, fun(_Sock, _Data) -> ok end),
+    ok = meck:expect(emqx_transport, async_send, fun(_Sock, _Data, _Opts) -> ok end),
     ok = meck:expect(emqx_transport, fast_close, fun(_Sock) -> ok end),
     Config.
 
