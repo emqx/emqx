@@ -154,6 +154,7 @@ module_attributes(Module) ->
 %% APIs for rules and resources
 %%------------------------------------------------------------------------------
 
+-dialyzer([{nowarn_function, create_rule/1}]).
 -spec(create_rule(#{}) -> {ok, rule()} | no_return()).
 create_rule(Params = #{rawsql := Sql, actions := Actions}) ->
     case emqx_rule_sqlparser:parse_select(Sql) of
@@ -178,7 +179,7 @@ create_rule(Params = #{rawsql := Sql, actions := Actions}) ->
         Error -> error(Error)
     end.
 
--spec(update_rule(#{}) -> {ok, rule()} | no_return()).
+-spec(update_rule(#{id := binary(), _=>_}) -> {ok, rule()} | no_return()).
 update_rule(Params = #{id := RuleId}) ->
     case emqx_rule_registry:get_rule(RuleId) of
         {ok, Rule0} ->
@@ -364,8 +365,7 @@ with_resource_params(Args = #{<<"$resource">> := ResId}) ->
     end;
 with_resource_params(Args) -> Args.
 
-may_update_rule_params(Rule, Params) when map_size(Params) =:= 0 ->
-    Rule;
+-dialyzer([{nowarn_function, may_update_rule_params/2}]).
 may_update_rule_params(Rule, Params = #{rawsql := SQL}) ->
     case emqx_rule_sqlparser:parse_select(SQL) of
         {ok, Select} ->
