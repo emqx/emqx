@@ -104,7 +104,8 @@
 -define(ENABLED(X), (X =/= undefined)).
 
 -define(ALARM_TCP_CONGEST(Channel),
-        list_to_binary(io_lib:format("mqtt_conn/congested/~s", [emqx_channel:info(clientid, Channel)]))).
+        list_to_binary(io_lib:format("mqtt_conn/congested/~s/~s", [emqx_channel:info(clientid, Channel), maps:get(username, emqx_channel:info(clientinfo, Channel), <<"undefined">>)]))).
+
 
 -dialyzer({no_match, [info/2]}).
 -dialyzer({nowarn_function, [ init/4
