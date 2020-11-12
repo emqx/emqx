@@ -151,16 +151,16 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, heartbeat}, State = #state{heartbeat = TRef}) ->
-    publish(uptime, iolist_to_binary(uptime(State))),
-    publish(datetime, iolist_to_binary(datetime())),
+    _ = publish(uptime, iolist_to_binary(uptime(State))),
+    _ = publish(datetime, iolist_to_binary(datetime())),
     {noreply, heartbeat(State)};
 
 handle_info({timeout, TRef, tick}, State = #state{ticker = TRef, version = Version, sysdescr = Descr}) ->
-    publish(version, Version),
-    publish(sysdescr, Descr),
-    publish(brokers, ekka_mnesia:running_nodes()),
-    publish(stats, emqx_stats:getstats()),
-    publish(metrics, emqx_metrics:all()),
+    _ = publish(version, Version),
+    _ = publish(sysdescr, Descr),
+    _ = publish(brokers, ekka_mnesia:running_nodes()),
+    _ = publish(stats, emqx_stats:getstats()),
+    _ = publish(metrics, emqx_metrics:all()),
     {noreply, tick(State), hibernate};
 
 handle_info(Info, State) ->
