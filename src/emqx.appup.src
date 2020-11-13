@@ -33,13 +33,13 @@
       {load_module, emqx_metrics, brutal_purge, soft_purge, []}
     ]},
     {"4.2.1", [
-      {load_module, emqx_metrics, brutal_purge, soft_purge, []}
+      {load_module, emqx_metrics, brutal_purge, soft_purge, []},
       {load_module, emqx_channel, brutal_purge, soft_purge, []},
       {load_module, emqx_mod_topic_metrics, brutal_purge, soft_purge, []},
       {load_module, emqx_json, brutal_purge, soft_purge, []}
     ]},
     {"4.2.0", [
-      {load_module, emqx_metrics, brutal_purge, soft_purge, []}
+      {load_module, emqx_metrics, brutal_purge, soft_purge, []},
       {load_module, emqx_channel, brutal_purge, soft_purge, []},
       {load_module, emqx_mod_topic_metrics, brutal_purge, soft_purge, []},
       {load_module, emqx_json, brutal_purge, soft_purge, []}
