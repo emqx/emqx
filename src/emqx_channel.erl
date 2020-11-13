@@ -131,6 +131,20 @@ info(zone, #channel{clientinfo = #{zone := Zone}}) ->
     Zone;
 info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
     ClientId;
+info(username, #channel{clientinfo = #{username := Username}}) ->
+    Username;
+info(socktype, #channel{conninfo = #{socktype := SockType}}) ->
+    SockType;
+info(peername, #channel{conninfo = #{peername := Peername}}) ->
+    Peername;
+info(sockname, #channel{conninfo = #{sockname := Sockname}}) ->
+    Sockname;
+info(proto_name, #channel{conninfo = #{proto_name := ProtoName}}) ->
+    ProtoName;
+info(proto_ver, #channel{conninfo = #{proto_ver := ProtoVer}}) ->
+    ProtoVer;
+info(connected_at, #channel{conninfo = #{connected_at := ConnectedAt}}) ->
+    ConnectedAt;
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
 info(session, #channel{session = Session}) ->
