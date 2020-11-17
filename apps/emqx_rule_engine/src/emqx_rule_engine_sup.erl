@@ -31,8 +31,8 @@ start_link() ->
 
 init([]) ->
     Opts = [public, named_table, set, {read_concurrency, true}],
-    ets:new(?ACTION_INST_PARAMS_TAB, [{keypos, #action_instance_params.id}|Opts]),
-    ets:new(?RES_PARAMS_TAB, [{keypos, #resource_params.id}|Opts]),
+    _ = ets:new(?ACTION_INST_PARAMS_TAB, [{keypos, #action_instance_params.id}|Opts]),
+    _ = ets:new(?RES_PARAMS_TAB, [{keypos, #resource_params.id}|Opts]),
     Registry = #{id => emqx_rule_registry,
                  start => {emqx_rule_registry, start_link, []},
                  restart => permanent,
