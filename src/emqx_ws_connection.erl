@@ -386,7 +386,7 @@ handle_info({close, Reason}, State) ->
 
 handle_info({event, connected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    ok = emqx_cm:register_channel(ClientId, info(State), stats(State)),
+    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
     return(State);
 
 handle_info({event, disconnected}, State = #state{channel = Channel}) ->
