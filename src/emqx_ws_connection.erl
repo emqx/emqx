@@ -568,16 +568,16 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
           ]}).
 
 inc_recv_stats(Cnt, Oct) ->
-    _ = emqx_pd:inc_counter(incoming_bytes, Oct),
-    _ = emqx_pd:inc_counter(recv_cnt, Cnt),
-    _ = emqx_pd:inc_counter(recv_oct, Oct),
+    inc_counter(incoming_bytes, Oct),
+    inc_counter(recv_cnt, Cnt),
+    inc_counter(recv_oct, Oct),
     emqx_metrics:inc('bytes.received', Oct).
 
 inc_incoming_stats(Packet = ?PACKET(Type)) ->
     _ = emqx_pd:inc_counter(recv_pkt, 1),
     if Type == ?PUBLISH ->
-           _ = emqx_pd:inc_counter(recv_msg, 1),
-           _ = emqx_pd:inc_counter(incoming_pubs, 1);
+           inc_counter(recv_msg, 1),
+           inc_counter(incoming_pubs, 1);
        true -> ok
     end,
     emqx_metrics:inc_recv(Packet).
@@ -585,18 +585,21 @@ inc_incoming_stats(Packet = ?PACKET(Type)) ->
 inc_outgoing_stats(Packet = ?PACKET(Type)) ->
     _ = emqx_pd:inc_counter(send_pkt, 1),
     if Type == ?PUBLISH ->
-           _ = emqx_pd:inc_counter(send_msg, 1),
-           _ = emqx_pd:inc_counter(outgoing_pubs, 1);
+           inc_counter(send_msg, 1),
+           inc_counter(outgoing_pubs, 1);
        true -> ok
     end,
     emqx_metrics:inc_sent(Packet).
 
 inc_sent_stats(Cnt, Oct) ->
-    _ = emqx_pd:inc_counter(outgoing_bytes, Oct),
-    _ = emqx_pd:inc_counter(send_cnt, Cnt),
-    _ = emqx_pd:inc_counter(send_oct, Oct),
+    inc_counter(outgoing_bytes, Oct),
+    inc_counter(send_cnt, Cnt),
+    inc_counter(send_oct, Oct),
     emqx_metrics:inc('bytes.sent', Oct).
 
+inc_counter(Name, Value) ->
+    _ = emqx_pd:inc_counter(Name, Value),
+    ok.
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
