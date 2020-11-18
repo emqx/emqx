@@ -82,7 +82,7 @@
         { id :: resource_id()
         , type :: resource_type_name()
         , config :: #{} %% the configs got from API for initializing resource
-        , created_at :: erlang:timestamp()
+        , created_at :: integer() %% epoch in millisecond precision
         , description :: binary()
         }).
 
