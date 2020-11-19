@@ -16,6 +16,8 @@
 
 -module(ecpool).
 
+-include("ecpool.hrl").
+
 -export([ pool_spec/4
         , start_pool/3
         , start_sup_pool/3
@@ -24,6 +26,7 @@
         , get_client/2
         , with_client/2
         , with_client/3
+        , with_client/4
         , name/1
         , workers/1
         ]).
@@ -91,21 +94,33 @@ add_reconnect_callback(Pool, Callback) ->
     ok.
 
 %% @doc Call the fun with client/connection
--spec(with_client(atom(), fun((Client :: pid()) -> any())) -> no_return()).
-with_client(Pool, Fun) when is_atom(Pool) ->
-    with_worker(gproc_pool:pick_worker(name(Pool)), Fun).
+-spec(with_client(atom(), action()) -> any()).
+with_client(Pool, Action) when is_atom(Pool) ->
+    with_client(Pool, Action, direct).
 
-%% @doc Call the fun with client/connection
--spec(with_client(atom(), any(), fun((Client :: pid()) -> term())) -> no_return()).
-with_client(Pool, Key, Fun) when is_atom(Pool) ->
-    with_worker(gproc_pool:pick_worker(name(Pool), Key), Fun).
+-spec(with_client(atom(), action() | term(), action() | exec_mode()) -> any()).
+with_client(Pool, Key, Action) when is_atom(Pool), is_function(Action) ->
+    with_client(Pool, Key, Action, direct);
 
--spec(with_worker(Worker :: pid(), fun((Client :: pid()) -> any())) -> no_return()).
-with_worker(Worker, Fun) ->
+with_client(Pool, Action, Mode) when is_atom(Pool), is_function(Action) ->
+    with_worker(gproc_pool:pick_worker(name(Pool)), Action, Mode).
+
+-spec(with_client(atom(), any(), fun((Client :: pid()) -> term()), exec_mode()) -> any()).
+with_client(Pool, Key, Action, Mode) when is_atom(Pool) ->
+    with_worker(gproc_pool:pick_worker(name(Pool), Key), Action, Mode).
+
+-spec with_worker(pid(), action(), exec_mode()) -> any().
+with_worker(Worker, Action, direct) ->
     case ecpool_worker:client(Worker) of
-        {ok, Client}    -> Fun(Client);
+        {ok, Client} -> Action(Client);
         {error, Reason} -> {error, Reason}
-    end.
+    end;
+with_worker(Worker, Action, relay) ->
+    ecpool_worker:exec(Worker, Action);
+with_worker(Worker, Action, relay_async) ->
+    ecpool_worker:exec_async(Worker, Action);
+with_worker(Worker, Action, {relay_async, CallbackFun}) ->
+    ecpool_worker:exec_async(Worker, Action, CallbackFun).
 
 %% @doc Pool workers
 workers(Pool) ->

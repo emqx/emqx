@@ -49,11 +49,14 @@ groups() ->
        t_start_sup_pool,
        t_restart_client,
        t_reconnect_client,
+       t_client_exec_hash,
+       t_client_exec_random,
        t_multiprocess_client,
        t_multiprocess_client_not_restart
       ]}].
 
 init_per_suite(Config) ->
+    {ok, _} = application:ensure_all_started(gproc),
     {ok, _} = application:ensure_all_started(ecpool),
     Config.
 
@@ -161,3 +164,48 @@ t_multiprocess_client_not_restart(_Config) ->
     [begin
         ?assertEqual(false, ecpool_worker:is_connected(Worker))
      end || {_WorkerName, Worker} <- ecpool:workers(?POOL)].
+
+t_client_exec_hash(_Config) ->
+    Opts = [{pool_size, 5}, {pool_type, hash}, {auto_reconnect, false}],
+    {ok, Pid1} = ecpool:start_pool(abc, test_client, Opts),
+    ct:pal("----- pid: ~p", [is_process_alive(Pid1)]),
+    ?assertEqual(4, ecpool:with_client(abc, <<"abc">>, fun(Client) ->
+                        test_client:plus(Client, 1, 3)
+                    end, direct)),
+    From = self(),
+    Callback = fun(Result) -> From ! {result, Result} end,
+    ?assertEqual(4, ecpool:with_client(abc, <<"abc">>, fun(Client) ->
+                        test_client:plus(Client, 1, 3)
+                    end, relay)),
+    ?assertEqual(ok, ecpool:with_client(abc, <<"abc">>, fun(Client) ->
+                        test_client:plus(Client, 1, 3)
+                    end, relay_async)),
+    ?assertEqual(ok, ecpool:with_client(abc, <<"abc">>, fun(Client) ->
+                        test_client:plus(Client, 1, 3)
+                    end, {relay_async, Callback})),
+    receive
+        {result, 4} -> ok;
+        R2 -> ct:fail({unexpected_result, R2})
+    end,
+    ecpool:stop_sup_pool(abc).
+
+t_client_exec_random(_Config) ->
+    ecpool:start_pool(?POOL, test_client, ?POOL_OPTS),
+    ?assertEqual(4, ecpool:with_client(?POOL, fun(Client) ->
+                        test_client:plus(Client, 1, 3)
+                    end, direct)),
+    ?assertEqual(4, ecpool:with_client(?POOL, fun(Client) ->
+                        test_client:plus(Client, 1, 3)
+                    end, relay)),
+    ?assertEqual(ok, ecpool:with_client(?POOL, fun(Client) ->
+                        test_client:plus(Client, 1, 3)
+                    end, relay_async)),
+    From = self(),
+    Callback = fun(Result) -> From ! {result, Result} end,
+    ?assertEqual(ok, ecpool:with_client(?POOL, fun(Client) ->
+                        test_client:plus(Client, 1, 3)
+                    end, {relay_async, Callback})),
+    receive
+        {result, 4} -> ok;
+        R1 -> ct:fail({unexpected_result, R1})
+    end.
