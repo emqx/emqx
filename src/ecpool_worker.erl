@@ -234,6 +234,6 @@ connect_internal(State) ->
         {error, Error} ->
             {error, Error}
     catch
-        _C:Reason -> {error, Reason}
+        _C:Reason:ST -> {error, {Reason, ST}}
     end.
 
