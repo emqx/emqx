@@ -25,7 +25,7 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_psk_file_sup:start_link(),
-    emqx_psk_file:load(
+    _ = emqx_psk_file:load(
         application:get_all_env(emqx_psk_file)),
     {ok, Sup}.
 
