@@ -147,7 +147,7 @@ do_load(FileName) ->
                     error;
                 {Ret1, St1} ->
                     ?LOG(debug, "Register lua script ~p", [FileName]),
-                    do_register_hooks(Ret1, FileName, St1),
+                    _ = do_register_hooks(Ret1, FileName, St1),
                     {FileName, St1};
                 Other ->
                     ?LOG(error, "Failed to load lua script ~p, register_hook() raise exception ~p", [FileName, Other]),
