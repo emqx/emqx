@@ -30,11 +30,11 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_auth_ldap_sup:start_link(),
-    if_enabled([device_dn, match_objectclass,
+    _ = if_enabled([device_dn, match_objectclass,
                 username_attr, password_attr,
                 filters, custom_base_dn, bind_as_user],
                fun load_auth_hook/1),
-    if_enabled([device_dn, match_objectclass,
+    _ = if_enabled([device_dn, match_objectclass,
                 username_attr, password_attr,
                 filters, custom_base_dn, bind_as_user],
                fun load_acl_hook/1),
@@ -60,8 +60,7 @@ load_acl_hook(DeviceDn) ->
 
 if_enabled(Cfgs, Fun) ->
     case get_env(Cfgs) of
-        {ok, InitArgs} -> Fun(InitArgs);
-        [] -> ok
+        {ok, InitArgs} -> Fun(InitArgs)
     end.
 
 get_env(Cfgs) ->
