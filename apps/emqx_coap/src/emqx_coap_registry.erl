@@ -86,8 +86,8 @@ stop() ->
 %% ------------------------------------------------------------------
 
 init([]) ->
-    ets:new(?RESPONSE_TAB, [set, named_table, protected]),
-    ets:new(?RESPONSE_REF_TAB, [set, named_table, protected]),
+    _ = ets:new(?RESPONSE_TAB, [set, named_table, protected]),
+    _ = ets:new(?RESPONSE_REF_TAB, [set, named_table, protected]),
     {ok, #state{}}.
 
 handle_call({register_name, Name, Pid}, _From, State) ->
