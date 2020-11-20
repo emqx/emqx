@@ -68,13 +68,8 @@ do_update_user(User = #emqx_user{login = Login}) ->
 -spec(lookup_user(tuple()) -> list()).
 lookup_user(undefined) -> [];
 lookup_user(Login) ->
-    case mnesia:dirty_read(?TABLE, Login) of
-        {error, Reason} ->
-            ?LOG(error, "[Mnesia] do_check_user error: ~p~n", [Reason]),
-            [];
-        Re ->
-            lists:sort(fun comparing/2, Re)
-    end.
+    Re = mnesia:dirty_read(?TABLE, Login),
+    lists:sort(fun comparing/2, Re).
 
 %% @doc Remove user
 -spec(remove_user(tuple()) -> ok | {error, any()}).
@@ -88,7 +83,6 @@ all_users() -> mnesia:dirty_all_keys(?TABLE).
 all_users(clientid) ->
     MatchSpec = ets:fun2ms(fun({?TABLE, {clientid, Clientid}, Password, CreatedAt}) -> {?TABLE, {clientid, Clientid}, Password, CreatedAt} end),
     lists:sort(fun comparing/2, ets:select(?TABLE, MatchSpec));
-
 all_users(username) ->
     MatchSpec = ets:fun2ms(fun({?TABLE, {username, Username}, Password, CreatedAt}) -> {?TABLE, {username, Username}, Password, CreatedAt} end),
     lists:sort(fun comparing/2, ets:select(?TABLE, MatchSpec)).
