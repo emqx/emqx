@@ -37,7 +37,7 @@ load(Env) ->
     ets:new(?TAB, [set, named_table, {keypos, #psk_entry.psk_id}]),
     {ok, PskFile} = file:open(get_value(path, Env), [read, raw, binary, read_ahead]),
     preload_psks(PskFile, bin(get_value(delimiter, Env))),
-    file:close(PskFile),
+    _ = file:close(PskFile),
     emqx:hook('tls_handshake.psk_lookup', fun ?MODULE:on_psk_lookup/2, []).
 
 %% Called when the plugin application stop
