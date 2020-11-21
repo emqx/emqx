@@ -16,12 +16,17 @@
 
 -module(ecpool_worker).
 
+-include("ecpool.hrl").
+
 -behaviour(gen_server).
 
 -export([start_link/4]).
 
 %% API Function Exports
 -export([ client/1
+        , exec/2
+        , exec_async/2
+        , exec_async/3
         , is_connected/1
         , set_reconnect_callback/2
         , add_reconnect_callback/2
@@ -69,6 +74,18 @@ start_link(Pool, Id, Mod, Opts) ->
 client(Pid) ->
     gen_server:call(Pid, client, infinity).
 
+-spec(exec(pid(), action()) -> Result :: any() | {error, Reason :: term()}).
+exec(Pid, Action) ->
+    gen_server:call(Pid, {exec, Action}, infinity).
+
+-spec(exec_async(pid(), action()) -> Result :: any() | {error, Reason :: term()}).
+exec_async(Pid, Action) ->
+    gen_server:call(Pid, {exec_async, Action}).
+
+-spec(exec_async(pid(), action(), callback()) -> Result :: any() | {error, Reason :: term()}).
+exec_async(Pid, Action, Callback) ->
+    gen_server:call(Pid, {exec_async, Action, Callback}).
+
 %% @doc Is client connected?
 -spec(is_connected(pid()) -> boolean()).
 is_connected(Pid) ->
@@ -114,6 +131,19 @@ handle_call(client, _From, State = #state{client = undefined}) ->
 
 handle_call(client, _From, State = #state{client = Client}) ->
     {reply, {ok, Client}, State};
+
+handle_call({exec, Action}, _From, State = #state{client = Client}) ->
+    {reply, safe_exec(Action, Client), State};
+
+handle_call({exec_async, Action}, From, State = #state{client = Client}) ->
+    gen_server:reply(From, ok),
+    _ = safe_exec(Action, Client),
+    {noreply, State};
+
+handle_call({exec_async, Action, Callback}, From, State = #state{client = Client}) ->
+    gen_server:reply(From, ok),
+    _ = Callback(safe_exec(Action, Client)),
+    {noreply, State};
 
 handle_call(Req, _From, State) ->
     logger:error("[PoolWorker] unexpected call: ~p", [Req]),
@@ -221,6 +251,14 @@ connect_internal(State) ->
         {error, Error} ->
             {error, Error}
     catch
-        _C:Reason -> {error, Reason}
+        _C:Reason:ST -> {error, {Reason, ST}}
     end.
 
+safe_exec(Action, Client) when is_pid(Client) ->
+    try Action(Client)
+    catch E:R:ST ->
+        logger:error("[PoolWorker] safe_exec failed: ~p", [{E,R,ST}]),
+        {error, {exec_failed, E, R}}
+    end;
+safe_exec(_Action, undefined) ->
+    {error, worker_disconnected}.

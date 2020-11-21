@@ -22,8 +22,9 @@
 
 -define(SERVER, ?MODULE).
 
--export([connect/1,
-         stop/2
+-export([ connect/1
+        , plus/3
+        , stop/2
         ]).
 
 -export([init/1,
@@ -44,6 +45,9 @@ connect(Opts) ->
             gen_server:start_link(?MODULE, [Opts], [])
     end.
 
+plus(Pid, L, R) ->
+    gen_server:call(Pid, {plus, L, R}).
+
 stop(Pid, Reason) ->
     gen_server:call(Pid, {stop, Reason}).
 
@@ -56,6 +60,9 @@ init(Args) ->
 
 handle_call({stop, Reason}, _From, State) ->
     {stop, Reason, ok, State};
+
+handle_call({plus, L, R}, _From, State) ->
+    {reply, L + R, State};
 
 handle_call(_Req, _From, State) ->
     {reply, ok, State}.

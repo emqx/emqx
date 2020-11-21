@@ -1,0 +1,3 @@
+-type callback() :: fun((any()) -> any()).
+-type action() :: fun((pid()) -> any()).
+-type exec_mode() :: relay | relay_async | {relay_async, callback()} | direct.

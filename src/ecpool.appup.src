@@ -1,0 +1,14 @@
+{"0.4.3",
+  [
+    {"0.4.2", [
+      {load_module, ecpool, brutal_purge, soft_purge, [ecpool_worker]},
+      {load_module, ecpool_worker, brutal_purge, soft_purge, []}
+    ]}
+  ],
+  [
+    {"0.4.2", [
+      {load_module, ecpool, brutal_purge, soft_purge, [ecpool_worker]},
+      {load_module, ecpool_worker, brutal_purge, soft_purge, []}
+    ]}
+  ]
+}.
