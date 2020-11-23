@@ -20,7 +20,6 @@ eunit.coverdata
 test/ct.cover.spec
 ct.coverdata
 .idea/
-data/
 _build
 .rebar3
 rebar3.crashdump
