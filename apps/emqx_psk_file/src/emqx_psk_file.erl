@@ -34,7 +34,7 @@
 
 %% Called when the plugin application start
 load(Env) ->
-    ets:new(?TAB, [set, named_table, {keypos, #psk_entry.psk_id}]),
+    _ = ets:new(?TAB, [set, named_table, {keypos, #psk_entry.psk_id}]),
     {ok, PskFile} = file:open(get_value(path, Env), [read, raw, binary, read_ahead]),
     preload_psks(PskFile, bin(get_value(delimiter, Env))),
     _ = file:close(PskFile),
