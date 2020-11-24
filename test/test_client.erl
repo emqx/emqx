@@ -24,6 +24,7 @@
 
 -export([ connect/1
         , plus/3
+        , callback/2
         , stop/2
         ]).
 
@@ -47,6 +48,9 @@ connect(Opts) ->
 
 plus(Pid, L, R) ->
     gen_server:call(Pid, {plus, L, R}).
+
+callback(Result, SendTo) ->
+    SendTo ! {result, Result}.
 
 stop(Pid, Reason) ->
     gen_server:call(Pid, {stop, Reason}).

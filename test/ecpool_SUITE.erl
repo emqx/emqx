@@ -50,7 +50,9 @@ groups() ->
        t_restart_client,
        t_reconnect_client,
        t_client_exec_hash,
+       t_client_exec2_hash,
        t_client_exec_random,
+       t_client_exec2_random,
        t_multiprocess_client,
        t_multiprocess_client_not_restart
       ]}].
@@ -171,18 +173,23 @@ t_client_exec_hash(_Config) ->
     ct:pal("----- pid: ~p", [is_process_alive(Pid1)]),
     ?assertEqual(4, ecpool:with_client(abc, <<"abc">>, fun(Client) ->
                         test_client:plus(Client, 1, 3)
-                    end, direct)),
-    From = self(),
-    Callback = fun(Result) -> From ! {result, Result} end,
-    ?assertEqual(4, ecpool:with_client(abc, <<"abc">>, fun(Client) ->
+                    end)),
+    ?assertEqual(4, ecpool:with_client(abc, 2, fun(Client) ->
                         test_client:plus(Client, 1, 3)
-                    end, relay)),
-    ?assertEqual(ok, ecpool:with_client(abc, <<"abc">>, fun(Client) ->
-                        test_client:plus(Client, 1, 3)
-                    end, relay_async)),
-    ?assertEqual(ok, ecpool:with_client(abc, <<"abc">>, fun(Client) ->
-                        test_client:plus(Client, 1, 3)
-                    end, {relay_async, Callback})),
+                    end)),
+    ecpool:stop_sup_pool(abc).
+
+t_client_exec2_hash(_Config) ->
+    Action = {test_client, plus, [1,3]},
+    Opts = [{pool_size, 5}, {pool_type, hash}, {auto_reconnect, false}],
+    {ok, Pid1} = ecpool:start_pool(abc, test_client, Opts),
+    ct:pal("----- pid: ~p", [is_process_alive(Pid1)]),
+    ?assertEqual(4, ecpool:pick_and_do({abc, <<"abc">>}, Action, no_handover)),
+    ?assertEqual(4, ecpool:pick_and_do({abc, 3}, Action, no_handover)),
+    Callback = {test_client, callback, [self()]},
+    ?assertEqual(4, ecpool:pick_and_do({abc, <<"abc">>}, Action, handover)),
+    ?assertEqual(ok, ecpool:pick_and_do({abc, 1}, Action, handover_async)),
+    ?assertEqual(ok, ecpool:pick_and_do({abc, <<"abc">>}, Action, {handover_async, Callback})),
     receive
         {result, 4} -> ok;
         R2 -> ct:fail({unexpected_result, R2})
@@ -193,18 +200,16 @@ t_client_exec_random(_Config) ->
     ecpool:start_pool(?POOL, test_client, ?POOL_OPTS),
     ?assertEqual(4, ecpool:with_client(?POOL, fun(Client) ->
                         test_client:plus(Client, 1, 3)
-                    end, direct)),
-    ?assertEqual(4, ecpool:with_client(?POOL, fun(Client) ->
-                        test_client:plus(Client, 1, 3)
-                    end, relay)),
-    ?assertEqual(ok, ecpool:with_client(?POOL, fun(Client) ->
-                        test_client:plus(Client, 1, 3)
-                    end, relay_async)),
-    From = self(),
-    Callback = fun(Result) -> From ! {result, Result} end,
-    ?assertEqual(ok, ecpool:with_client(?POOL, fun(Client) ->
-                        test_client:plus(Client, 1, 3)
-                    end, {relay_async, Callback})),
+                    end)).
+
+t_client_exec2_random(_Config) ->
+    Action = {test_client, plus, [1,3]},
+    ecpool:start_pool(?POOL, test_client, ?POOL_OPTS),
+    ?assertEqual(4, ecpool:pick_and_do(?POOL, Action, no_handover)),
+    ?assertEqual(4, ecpool:pick_and_do(?POOL, Action, handover)),
+    ?assertEqual(ok, ecpool:pick_and_do(?POOL, Action, handover_async)),
+    Callback = {test_client, callback, [self()]},
+    ?assertEqual(ok, ecpool:pick_and_do(?POOL, Action, {handover_async, Callback})),
     receive
         {result, 4} -> ok;
         R1 -> ct:fail({unexpected_result, R1})
