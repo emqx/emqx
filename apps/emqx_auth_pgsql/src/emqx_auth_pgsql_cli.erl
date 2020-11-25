@@ -29,6 +29,8 @@
         , equery/3
         ]).
 
+-type client_info() :: #{username:=_, clientid:=_, peerhost:=_, _=>_}.
+
 %%--------------------------------------------------------------------
 %% Avoid SQL Injection: Parse SQL to Parameter Query.
 %%--------------------------------------------------------------------
@@ -104,9 +106,11 @@ conn_opts([Opt = {ssl_opts, _}|Opts], Acc) ->
 conn_opts([_Opt|Opts], Acc) ->
     conn_opts(Opts, Acc).
 
+-spec(equery(atom(), string() | epgsql:statement(), Parameters::[any()]) -> {ok, ColumnsDescription :: [any()], RowsValues :: [any()]} | {error, any()} ).
 equery(Pool, Sql, Params) ->
     ecpool:with_client(Pool, fun(C) -> epgsql:prepared_query(C, Sql, Params) end).
 
+-spec(equery(atom(), string() | epgsql:statement(), Parameters::[any()], client_info()) ->  {ok, ColumnsDescription :: [any()], RowsValues :: [any()]} | {error, any()} ).
 equery(Pool, Sql, Params, ClientInfo) ->
     ecpool:with_client(Pool, fun(C) -> epgsql:prepared_query(C, Sql, replvar(Params, ClientInfo)) end).
 
