@@ -1,4 +1,4 @@
-{"0.5.0",
+{<<"0\.5\..+">>,
   [
     {"0.4.2", [
       {load_module, ecpool_worker, brutal_purge, soft_purge, []},
