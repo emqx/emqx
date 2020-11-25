@@ -84,12 +84,12 @@ add_reconnect_callback(Pool, Callback) ->
 %%   to avoid applying action failure with 'badfun'.
 %%
 %% @doc Call the fun with client/connection
--spec(with_client(atom(), fun((Client :: pid()) -> any())) -> no_return()).
+-spec(with_client(atom(), fun((Client :: pid()) -> any())) -> any()).
 with_client(Pool, Fun) when is_atom(Pool) ->
     with_worker(gproc_pool:pick_worker(name(Pool)), Fun, no_handover).
 
 %% @doc Call the fun with client/connection
--spec(with_client(atom(), any(), fun((Client :: pid()) -> term())) -> no_return()).
+-spec(with_client(atom(), any(), fun((Client :: pid()) -> term())) -> any()).
 with_client(Pool, Key, Fun) when is_atom(Pool) ->
     with_worker(gproc_pool:pick_worker(name(Pool), Key), Fun, no_handover).
 
