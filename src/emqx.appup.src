@@ -1,11 +1,6 @@
 {"4.2.2",
  [
-   {"4.2.1", [
-     {load_module, emqx_alarm, brutal_purge, soft_purge, []},
-     {load_module, emqx_connection, brutal_purge, soft_purge, [emqx_channel]},
-     {load_module, emqx_channel, brutal_purge, soft_purge, []},
-     {load_module, emqx_metrics, brutal_purge, soft_purge, []}
-   ]},
+   {"4.2.1", []},
    {"4.2.0", [
      {load_module, emqx_alarm, brutal_purge, soft_purge, []},
      {load_module, emqx_connection, brutal_purge, soft_purge, [emqx_channel]},
@@ -14,12 +9,7 @@
    ]}
  ],
  [
-   {"4.2.1", [
-     {load_module, emqx_alarm, brutal_purge, soft_purge, []},
-     {load_module, emqx_connection, brutal_purge, soft_purge, [emqx_channel]},
-     {load_module, emqx_channel, brutal_purge, soft_purge, []},
-     {load_module, emqx_metrics, brutal_purge, soft_purge, []}
-   ]},
+   {"4.2.1", []},
    {"4.2.0", [
      {load_module, emqx_alarm, brutal_purge, soft_purge, []},
      {load_module, emqx_connection, brutal_purge, soft_purge, [emqx_channel]},
