@@ -102,10 +102,17 @@ relx_apps(ReleaseType) ->
     , emqx
     , {mnesia, load}
     , {ekka, load}
+    | rocksdb_apps()
     ]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
     ++ relx_apps_per_rel(ReleaseType)
     ++ [{N, load} || N <- relx_plugin_apps(ReleaseType)].
+
+rocksdb_apps() ->
+    [ rocksdb
+    , sext
+    , {mnesia_rocksdb, load}
+    ].
 
 relx_apps_per_rel(cloud) ->
     [ {observer, load}
