@@ -416,7 +416,7 @@ log(["primary-level"]) ->
     emqx_ctl:print("~s~n", [Level]);
 
 log(["primary-level", Level]) ->
-    emqx_logger:set_primary_log_level(list_to_atom(Level)),
+    _ = emqx_logger:set_primary_log_level(list_to_atom(Level)),
     emqx_ctl:print("~s~n", [emqx_logger:get_primary_log_level()]);
 
 log(["handlers", "list"]) ->

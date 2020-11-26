@@ -251,7 +251,7 @@ insert_resource_into_object_instance([ResourceId], Value, Acc) ->
     ?LOG(debug, "insert_resource_into_object_instance2() ResourceId=~p, Value=~p, Acc=~p", [ResourceId, Value, Acc]),
     NewMap = #{tlv_resource_with_value=>integer(ResourceId), value=>Value},
     case find_resource(ResourceId, Acc) of
-        undeinfed ->
+        undefined ->
             Acc ++ [NewMap];
         Resource ->
             Acc2 = lists:delete(Resource, Acc),
@@ -262,7 +262,7 @@ insert_resource_instance_into_resource(ResourceInstanceId, Value, Acc) ->
     ?LOG(debug, "insert_resource_instance_into_resource() ResourceInstanceId=~p, Value=~p, Acc=~p", [ResourceInstanceId, Value, Acc]),
     NewMap = #{tlv_resource_instance=>integer(ResourceInstanceId), value=>Value},
     case find_resource_instance(ResourceInstanceId, Acc) of
-        undeinfed ->
+        undefined ->
             Acc ++ [NewMap];
         Resource ->
             Acc2 = lists:delete(Resource, Acc),
