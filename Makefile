@@ -4,13 +4,6 @@ PROFILE ?= emqx
 PROFILES := emqx emqx-edge
 PKG_PROFILES := emqx-pkg emqx-edge-pkg
 
-export DEFAULT_VSN ?= $(shell ./get-lastest-tag.escript)
-ifneq ($(shell echo $(DEFAULT_VSN) | grep -oE "^[ev0-9]+\.[0-9]+(\.[0-9]+)?"),)
-	export PKG_VSN := $(patsubst v%,%,$(patsubst e%,%,$(DEFAULT_VSN)))
-else
-	export PKG_VSN := $(patsubst v%,%,$(DEFAULT_VSN))
-endif
-
 .PHONY: default
 default: $(REBAR) $(PROFILE)
 
