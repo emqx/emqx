@@ -34,3 +34,4 @@ Mnesia.*/
 *.DS_Store
 _checkouts
 rebar.config.rendered
+/rebar3

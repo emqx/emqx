@@ -1,4 +1,5 @@
-REBAR = $(CURDIR)/rebar3
+REBAR_VERSION = 3.13.2-emqx-1
+REBAR = ./rebar3
 
 PROFILE ?= emqx
 PROFILES := emqx emqx-edge
@@ -9,6 +10,12 @@ default: $(REBAR) $(PROFILE)
 
 .PHONY: all
 all: $(REBAR) $(PROFILES)
+
+.PHONY: ensure-rebar3
+ensure-rebar3:
+	@./ensure-rebar3.sh $(REBAR_VERSION)
+
+$(REBAR): ensure-rebar3
 
 .PHONY: distclean
 distclean:
@@ -27,11 +34,15 @@ endif
 $(PROFILES:%=build-%): $(REBAR)
 	$(REBAR) as $(@:build-%=%) compile
 
+# rebar clean
 .PHONY: clean $(PROFILES:%=clean-%)
-clean: $(PROFILES:%=clean-%)
+clean: $(PROFILES:%=clean-%) clean-stamps
 $(PROFILES:%=clean-%): $(REBAR)
-	@rm -rf _build/$(@:clean-%=%)
-	@rm -rf _build/$(@:clean-%=%)+test
+	$(REBAR) as $(@:clean-%=%) clean
+
+.PHONY: clean-stamps
+clean-stamps:
+	find -L _build -name '.stamp' -type f | xargs rm -f
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%) $(PKG_PROFILES:%=deps-%)
