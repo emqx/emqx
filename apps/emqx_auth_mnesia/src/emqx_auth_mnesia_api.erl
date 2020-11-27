@@ -145,7 +145,7 @@ do_add_clientid(Params) ->
     Password = urldecode(get_value(<<"password">>, Params)),
     Login = {clientid, Clientid},
     case validate([login, password], [Login, Password]) of
-        ok -> 
+        ok ->
             emqx_auth_mnesia_cli:add_user(Login, Password);
         Err -> Err
     end.
@@ -221,7 +221,9 @@ paginate(Tables, MatchSpec, Params, ComparingFun, RowFun) ->
     Limit = limit(Params),
     Cursor = qlc:cursor(Qh),
     case Page > 1 of
-        true  -> qlc:next_answers(Cursor, (Page - 1) * Limit);
+        true  ->
+            _ = qlc:next_answers(Cursor, (Page - 1) * Limit),
+            ok;
         false -> ok
     end,
     Rows = qlc:next_answers(Cursor, Limit),

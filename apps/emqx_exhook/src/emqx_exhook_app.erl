@@ -54,7 +54,7 @@ start(_StartType, _StartArgs) ->
 prep_stop(State) ->
     emqx_ctl:unregister_command(exhook),
     _ = unload_exhooks(),
-    _ = unload_all_servers(),
+    ok = unload_all_servers(),
     State.
 
 stop(_State) ->
