@@ -32,3 +32,6 @@ xrefr
 etc/emqx.conf.rendered
 Mnesia.*/
 *.DS_Store
+_checkouts
+rebar.config.rendered
+/rebar3

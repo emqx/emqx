@@ -6,7 +6,7 @@
 
 get_vsn(_Conf) ->
   PkgVsn = case os:getenv("PKG_VSN") of
-    false -> error({env_undefined, "PKG_VSN"});
+    false -> os:cmd("git describe --tags");
     Vsn -> Vsn
   end,
   re:replace(PkgVsn, "v", "", [{return ,list}]).

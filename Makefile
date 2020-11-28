@@ -1,21 +1,21 @@
-REBAR = $(CURDIR)/rebar3
+REBAR_VERSION = 3.13.2-emqx-1
+REBAR = ./rebar3
 
 PROFILE ?= emqx
 PROFILES := emqx emqx-edge
 PKG_PROFILES := emqx-pkg emqx-edge-pkg
-
-export DEFAULT_VSN ?= $(shell ./get-lastest-tag.escript)
-ifneq ($(shell echo $(DEFAULT_VSN) | grep -oE "^[ev0-9]+\.[0-9]+(\.[0-9]+)?"),)
-	export PKG_VSN := $(patsubst v%,%,$(patsubst e%,%,$(DEFAULT_VSN)))
-else
-	export PKG_VSN := $(patsubst v%,%,$(DEFAULT_VSN))
-endif
 
 .PHONY: default
 default: $(REBAR) $(PROFILE)
 
 .PHONY: all
 all: $(REBAR) $(PROFILES)
+
+.PHONY: ensure-rebar3
+ensure-rebar3:
+	@./ensure-rebar3.sh $(REBAR_VERSION)
+
+$(REBAR): ensure-rebar3
 
 .PHONY: distclean
 distclean:
@@ -34,11 +34,15 @@ endif
 $(PROFILES:%=build-%): $(REBAR)
 	$(REBAR) as $(@:build-%=%) compile
 
+# rebar clean
 .PHONY: clean $(PROFILES:%=clean-%)
-clean: $(PROFILES:%=clean-%)
+clean: $(PROFILES:%=clean-%) clean-stamps
 $(PROFILES:%=clean-%): $(REBAR)
-	@rm -rf _build/$(@:clean-%=%)
-	@rm -rf _build/$(@:clean-%=%)+test
+	$(REBAR) as $(@:clean-%=%) clean
+
+.PHONY: clean-stamps
+clean-stamps:
+	find -L _build -name '.stamp' -type f | xargs rm -f
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%) $(PKG_PROFILES:%=deps-%)
