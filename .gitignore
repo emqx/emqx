@@ -41,3 +41,4 @@ erlang.mk
 *.coverdata
 etc/emqx.conf.rendered
 Mnesia.*/
+.stamp
