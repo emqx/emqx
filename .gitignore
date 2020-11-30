@@ -42,3 +42,4 @@ erlang.mk
 etc/emqx.conf.rendered
 Mnesia.*/
 elvis
+.stamp

@@ -1368,6 +1368,11 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
+{mapping, "listener.ssl.$name.depth", "emqx.listeners", [
+  {default, 10},
+  {datatype, integer}
+]}.
+
 {mapping, "listener.ssl.$name.dhfile", "emqx.listeners", [
   {datatype, string}
 ]}.
@@ -1878,6 +1883,7 @@ end}.
                           {ciphers, Ciphers},
                           {user_lookup_fun, UserLookupFun},
                           {handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf, undefined)},
+                          {depth, cuttlefish:conf_get(Prefix ++ ".depth", Conf, undefined)},
                           {dhfile, cuttlefish:conf_get(Prefix ++ ".dhfile", Conf, undefined)},
                           {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
                           {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
