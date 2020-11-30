@@ -4,8 +4,9 @@ set -euo pipefail
 
 VERSION="$1"
 
+DOWNLOAD_URL='https://github.com/emqx/rebar3/releases/download'
 download() {
-    curl -L "https://s3-us-west-2.amazonaws.com/packages.emqx/rebar/rebar3-${VERSION}" -o ./rebar3
+    curl -L "${DOWNLOAD_URL}/${VERSION}/rebar3" -o ./rebar3
 }
 
 version() {
