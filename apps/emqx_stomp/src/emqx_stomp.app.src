@@ -1,6 +1,6 @@
 {application, emqx_stomp,
  [{description, "EMQ X Stomp Protocol Plugin"},
-  {vsn, "git"},
+  {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_stomp_sup]},
   {applications, [kernel,stdlib,emqx_libs]},

@@ -1,6 +1,6 @@
 {application, emqx_coap,
  [{description, "EMQ X CoAP Gateway"},
-  {vsn, "git"},
+  {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},
   {applications, [kernel,stdlib,gen_coap,emqx_libs]},

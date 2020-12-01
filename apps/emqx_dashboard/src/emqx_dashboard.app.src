@@ -1,6 +1,6 @@
 {application, emqx_dashboard,
  [{description, "EMQ X Web Dashboard"},
-  {vsn, "git"},
+  {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_dashboard_sup]},
   {applications, [kernel,stdlib,mnesia,minirest,emqx_libs]},

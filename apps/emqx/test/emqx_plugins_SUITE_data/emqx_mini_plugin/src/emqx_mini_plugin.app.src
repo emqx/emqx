@@ -1,6 +1,6 @@
 {application, emqx_mini_plugin,
  [{description, "An EMQ X plugin for testcase"},
-  {vsn, "git"},
+  {vsn, "0.1"},
   {modules, []},
   {registered, []},
   {mod, {emqx_mini_plugin_app, []}},

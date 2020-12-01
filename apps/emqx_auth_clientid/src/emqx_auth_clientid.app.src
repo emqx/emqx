@@ -1,6 +1,6 @@
 {application, emqx_auth_clientid,
  [{description, "EMQ X Authentication with ClientId/Password"},
-  {vsn, "git"},
+  {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_auth_clientid_sup]},
   {applications, [kernel,stdlib,minirest,emqx_passwd,emqx_libs]},
