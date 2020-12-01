@@ -52,7 +52,7 @@
 
 -record(state, {
           %% TCP/SSL/UDP/DTLS Wrapped Socket
-          socket :: esockd:socket(),
+          socket :: {esockd_transport, esockd:socket()} | {udp, _, _},
           %% Peername of the connection
           peername :: emqx_types:peername(),
           %% Sockname of the connection
