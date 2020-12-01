@@ -4,12 +4,17 @@ set -euo pipefail
 
 VERSION="$1"
 
+DOWNLOAD_URL='https://github.com/emqx/rebar3/releases/download'
+
 download() {
-    curl -L "https://s3-us-west-2.amazonaws.com/packages.emqx/rebar/rebar3-${VERSION}" -o ./rebar3
+    curl -L "${DOWNLOAD_URL}/${VERSION}/rebar3" -o ./rebar3
 }
 
+# get the version number from the second line of the escript
+# because command `rebar3 -v` tries to load rebar.config
+# which is slow and may print some logs
 version() {
-    ./rebar3 -v | grep -v '===' | grep 'rebar.*Erlang' | awk '{print $2}'
+    head -n 2 ./rebar3 | tail -n 1 | tr ' ' '\n' | grep -E '^.+-emqx-.+'
 }
 
 if [ -f 'rebar3' ] && [ "$(version)" == "$VERSION" ]; then
