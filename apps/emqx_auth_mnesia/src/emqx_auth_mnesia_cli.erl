@@ -156,18 +156,11 @@ auth_username_cli(["add", Username, Password]) ->
         {error, Reason} -> emqx_ctl:print("Error: ~p~n", [Reason])
     end;
 
-<<<<<<< HEAD
 auth_username_cli(["update", Username, NewPassword]) ->
     case update_user({username, iolist_to_binary(Username)}, iolist_to_binary(NewPassword)) of
         ok -> emqx_ctl:print("ok~n");
         {error, Reason} -> emqx_ctl:print("Error: ~p~n", [Reason])
     end;
-=======
-acl_cli(["del", Login, Topic])->
-    ok = remove_acl(iolist_to_binary(Login), iolist_to_binary(Topic)),
-    emqx_ctl:print("ok~n");
->>>>>>> bb37bac5... Umbrella fix build (#5)
-
 auth_username_cli(["del", Username]) ->
     case  remove_user({username, iolist_to_binary(Username)}) of
         ok -> emqx_ctl:print("ok~n");

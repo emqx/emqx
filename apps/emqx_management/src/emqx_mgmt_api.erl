@@ -37,7 +37,9 @@ paginate(Tables, Params, RowFun) ->
     Limit = limit(Params),
     Cursor = qlc:cursor(Qh),
     case Page > 1 of
-        true  -> qlc:next_answers(Cursor, (Page - 1) * Limit);
+        true  ->
+            _ = qlc:next_answers(Cursor, (Page - 1) * Limit),
+            ok;
         false -> ok
     end,
     Rows = qlc:next_answers(Cursor, Limit),

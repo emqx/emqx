@@ -451,8 +451,8 @@ handle_msg(Msg, State) ->
 
 terminate(Reason, State = #state{channel = Channel}) ->
     ?LOG(debug, "Terminated due to ~p", [Reason]),
-    emqx_exproto_channel:terminate(Reason, Channel),
-    close_socket(State),
+    _ = emqx_exproto_channel:terminate(Reason, Channel),
+    _ = close_socket(State),
     exit(Reason).
 
 %%--------------------------------------------------------------------

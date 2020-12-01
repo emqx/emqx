@@ -64,9 +64,6 @@ connect(Opts) ->
         {ok, C} ->
             conn_post(C),
             {ok, C};
-        {error, Reason = econnrefused} ->
-            ?LOG(error, "[Postgres] Can't connect to Postgres server: Connection refused."),
-            {error, Reason};
         {error, Reason = invalid_authorization_specification} ->
             ?LOG(error, "[Postgres] Can't connect to Postgres server: Invalid authorization specification."),
             {error, Reason};
