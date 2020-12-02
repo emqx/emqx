@@ -1,6 +1,6 @@
 {application, emqx_auth_pgsql,
  [{description, "EMQ X Authentication/ACL with PostgreSQL"},
-  {vsn, "git"},
+  {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_auth_pgsql_sup]},
   {applications, [kernel,stdlib,epgsql,ecpool,emqx_passwd,emqx_libs]},

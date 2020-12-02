@@ -1,6 +1,6 @@
 {application, emqx_auth_mongo,
  [{description, "EMQ X Authentication/ACL with MongoDB"},
-  {vsn, "git"},
+  {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_auth_mongo_sup]},
   {applications, [kernel,stdlib,mongodb,ecpool,emqx_passwd,emqx_libs]},

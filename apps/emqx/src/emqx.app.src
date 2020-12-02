@@ -1,7 +1,7 @@
 {application, emqx,
  [{description, "EMQ X Broker"},
   {id, "emqx"},
-  {vsn, "git"},
+  {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},
   {applications, [kernel,stdlib,gproc,gen_rpc,esockd,cowboy,sasl,os_mon,emqx_libs]},

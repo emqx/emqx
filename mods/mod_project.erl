@@ -9,7 +9,8 @@ get_vsn(_Conf) ->
     false -> os:cmd("git describe --tags");
     Vsn -> Vsn
   end,
-  re:replace(PkgVsn, "v", "", [{return ,list}]).
+  Vsn2 = re:replace(PkgVsn, "v", "", [{return ,list}]),
+  re:replace(Vsn2, "\n", "", [{return ,list}]).
 
 coveralls_configs(_Config) ->
     case {os:getenv("GITHUB_ACTIONS"), os:getenv("GITHUB_TOKEN")} of

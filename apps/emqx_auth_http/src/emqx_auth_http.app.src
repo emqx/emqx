@@ -1,6 +1,6 @@
 {application, emqx_auth_http,
  [{description, "EMQ X Authentication/ACL with HTTP API"},
-  {vsn, "git"},
+  {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_auth_http_sup]},
   {applications, [kernel,stdlib,emqx_libs]},

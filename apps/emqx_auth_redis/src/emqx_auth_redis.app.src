@@ -1,6 +1,6 @@
 {application, emqx_auth_redis,
  [{description, "EMQ X Authentication/ACL with Redis"},
-  {vsn, "git"},
+  {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_auth_redis_sup]},
   {applications, [kernel,stdlib,eredis,eredis_cluster,ecpool,emqx_passwd,emqx_libs]},

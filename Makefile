@@ -5,6 +5,8 @@ PROFILE ?= emqx
 PROFILES := emqx emqx-edge
 PKG_PROFILES := emqx-pkg emqx-edge-pkg
 
+export REBAR_GIT_CLONE_OPTIONS=--depth=1
+
 .PHONY: default
 default: $(REBAR) $(PROFILE)
 
