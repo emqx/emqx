@@ -14,5 +14,5 @@ CompileOpts = [verbose,report_errors,report_warnings,return_errors,binary],
 
 %% render the rebar.config by evaluating the placeholders:
 CONFIG_R = mod_config_template:render(CONFIG),
-file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- CONFIG_R]),
+%file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- CONFIG_R]),
 CONFIG_R.
