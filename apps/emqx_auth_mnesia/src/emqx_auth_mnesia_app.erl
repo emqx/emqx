@@ -34,8 +34,10 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_auth_mnesia_sup:start_link(),
-    emqx_ctl:register_command('mqtt-user', {emqx_auth_mnesia_cli, auth_cli}, []),
-    emqx_ctl:register_command('mqtt-acl', {emqx_auth_mnesia_cli, acl_cli}, []),
+    emqx_ctl:register_command(clientid, {emqx_auth_mnesia_cli, auth_clientid_cli}, []),
+    emqx_ctl:register_command(username, {emqx_auth_mnesia_cli, auth_username_cli}, []),
+    emqx_ctl:register_command(user, {emqx_auth_mnesia_cli, auth_username_cli}, []),
+    emqx_ctl:register_command(acl, {emqx_acl_mnesia_cli, cli}, []),
     load_auth_hook(),
     load_acl_hook(),
     {ok, Sup}.
@@ -43,28 +45,26 @@ start(_StartType, _StartArgs) ->
 prep_stop(State) ->
     emqx:unhook('client.authenticate', fun emqx_auth_mnesia:check/3),
     emqx:unhook('client.check_acl', fun emqx_acl_mnesia:check_acl/5),
-    emqx_ctl:unregister_command('mqtt-user'),
-    emqx_ctl:unregister_command('mqtt-acl'),
+    emqx_ctl:unregister_command(clientid),
+    emqx_ctl:unregister_command(username),
+    emqx_ctl:unregister_command(user),
+    emqx_ctl:unregister_command(acl),
     State.
 
 stop(_State) ->
     ok.
 
 load_auth_hook() ->
-    DefaultUsers = application:get_env(?APP, userlist, []),
-    ok = emqx_auth_mnesia:init(DefaultUsers),
+    ClientidList = application:get_env(?APP, clientid_list, []),
+    UsernameList = application:get_env(?APP, username_list, []),
+    ok = emqx_auth_mnesia:init(#{clientid_list => ClientidList, username_list => UsernameList}),
     ok = emqx_auth_mnesia:register_metrics(),
     Params = #{
-            hash_type => application:get_env(emqx_auth_mnesia, hash_type, sha256),
-            key_as => application:get_env(emqx_auth_mnesia, as, username)
+            hash_type => application:get_env(emqx_auth_mnesia, hash_type, sha256)
             },
     emqx:hook('client.authenticate', fun emqx_auth_mnesia:check/3, [Params]).
 
 load_acl_hook() ->
     ok = emqx_acl_mnesia:init(),
     ok = emqx_acl_mnesia:register_metrics(),
-    Params = #{
-            key_as => application:get_env(emqx_auth_mnesia, as, username)
-            },
-    emqx:hook('client.check_acl', fun emqx_acl_mnesia:check_acl/5, [Params]).
-
+    emqx:hook('client.check_acl', fun emqx_acl_mnesia:check_acl/5, [#{}]).

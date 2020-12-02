@@ -1,9 +1,9 @@
 {application, emqx_auth_mnesia,
  [{description, "EMQ X Authentication with Mnesia"},
-  {vsn, "5.0.0"}, % strict semver, bump manually!
+  {vsn, "4.3.0"}, % strict semver, bump manually
   {modules, []},
   {registered, []},
-  {applications, [kernel,stdlib,mnesia,emqx_libs]},
+  {applications, [kernel,stdlib,mnesia]},
   {mod, {emqx_auth_mnesia_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},

@@ -1,34 +1,42 @@
 %%-*- mode: erlang -*-
 %% emqx_auth_mnesia config mapping
 
-{mapping, "auth.mnesia.as", "emqx_auth_mnesia.as", [
-  {default, username},
-  {datatype, {enum, [username, clientid]}}
-]}.
-
 {mapping, "auth.mnesia.password_hash", "emqx_auth_mnesia.password_hash", [
   {default, sha256},
-  {datatype, {enum, [plain, md5, sha, sha256]}}
+  {datatype, {enum, [plain, md5, sha, sha256, sha512]}}
 ]}.
 
-{mapping, "auth.mnesia.$id.login", "emqx_auth_mnesia.userlist", [
+{mapping, "auth.client.$id.clientid", "emqx_auth_mnesia.clientid_list", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.mnesia.$id.password", "emqx_auth_mnesia.userlist", [
+{mapping, "auth.client.$id.password", "emqx_auth_mnesia.clientid_list", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.mnesia.$id.is_superuser", "emqx_auth_mnesia.userlist", [
-  {default, false},
-  {datatype, {enum, [false, true]}}
-]}.
-
-{translation, "emqx_auth_mnesia.userlist", fun(Conf) ->
-  Userlist = cuttlefish_variable:filter_by_prefix("auth.mnesia", Conf),
+{translation, "emqx_auth_mnesia.clientid_list", fun(Conf) ->
+  ClientList = cuttlefish_variable:filter_by_prefix("auth.client", Conf),
   lists:foldl(
-    fun({["auth", "mnesia", Id, "login"], Username}, AccIn) ->
-        [{Username, cuttlefish:conf_get("auth.mnesia." ++ Id ++ ".password", Conf), cuttlefish:conf_get("auth.mnesia." ++ Id ++ ".is_superuser", Conf)} | AccIn];
+       fun({["auth", "client", Id, "clientid"], ClientId}, AccIn) ->
+        [{ClientId, cuttlefish:conf_get("auth.client." ++ Id ++ ".password", Conf)} | AccIn];
+       (_, AccIn) ->
+        AccIn
+       end, [], ClientList)
+end}.
+
+{mapping, "auth.user.$id.username", "emqx_auth_mnesia.username_list", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.user.$id.password", "emqx_auth_mnesia.username_list", [
+  {datatype, string}
+]}.
+
+{translation, "emqx_auth_mnesia.username_list", fun(Conf) ->
+  Userlist = cuttlefish_variable:filter_by_prefix("auth.user", Conf),
+  lists:foldl(
+    fun({["auth", "user", Id, "username"], Username}, AccIn) ->
+        [{Username, cuttlefish:conf_get("auth.user." ++ Id ++ ".password", Conf)} | AccIn];
        (_, AccIn) ->
         AccIn
        end, [], Userlist)
