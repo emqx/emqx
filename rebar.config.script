@@ -7,7 +7,7 @@ CompileOpts = [verbose,report_errors,report_warnings,return_errors,binary],
         {module, _} = code:load_binary(Mod, ModFile, BinCode);
     Error ->
         io:format("[error] compile:file(~p) failed: ~p~n", [ModFile, Error])
- end || ModFile <- filelib:wildcard("mods/*.erl")],
+ end || ModFile <- filelib:wildcard("**/mods/mod_*.erl")],
 
 %% TODO: load the plugins here:
 %% get user plugins from a text file, fetch it and compile
