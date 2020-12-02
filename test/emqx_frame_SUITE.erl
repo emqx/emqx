@@ -26,6 +26,7 @@
 
 all() ->
     [{group, parse},
+     {group, parse2},
      {group, connect},
      {group, connack},
      {group, publish},
@@ -44,6 +45,8 @@ groups() ->
       [t_parse_cont,
        t_parse_frame_too_large
       ]},
+     {parse2, [parallel],
+      [t_parse_cont2]},
      {connect, [parallel],
       [t_serialize_parse_v3_connect,
        t_serialize_parse_v4_connect,
@@ -128,6 +131,16 @@ t_parse_frame_too_large(_) ->
     ?catch_error(frame_too_large, parse_serialize(Packet, #{max_size => 256})),
     ?catch_error(frame_too_large, parse_serialize(Packet, #{max_size => 512})),
     ?assertEqual(Packet, parse_serialize(Packet, #{max_size => 2048, version => ?MQTT_PROTO_V4})).
+
+t_parse_cont2(_) ->
+    Packet = ?CONNECT_PACKET(#mqtt_packet_connect{}),
+    ParseState = emqx_frame:initial_parse_state(),
+    <<HdrBin:1/binary, LenBin:1/binary, RestBin/binary>> = serialize_to_binary(Packet),
+    {more, ContParse} = emqx_frame:parse2(<<>>, ParseState),
+    {more, ContParse1} = emqx_frame:parse2(HdrBin, ContParse),
+    {more, ContParse2} = emqx_frame:parse2(LenBin, ContParse1),
+    {more, ContParse3} = emqx_frame:parse2(<<>>, ContParse2),
+    {ok, Packet, <<>>, _} = emqx_frame:parse2(RestBin, ContParse3).
 
 t_serialize_parse_v3_connect(_) ->
     Bin = <<16,37,0,6,77,81,73,115,100,112,3,2,0,60,0,23,109,111,115,
@@ -509,7 +522,7 @@ parse_serialize(Packet, Opts) when is_map(Opts) ->
     Ver = maps:get(version, Opts, ?MQTT_PROTO_V4),
     Bin = iolist_to_binary(emqx_frame:serialize(Packet, Ver)),
     ParseState = emqx_frame:initial_parse_state(Opts),
-    {ok, NPacket, <<>>, _} = emqx_frame:parse(Bin, ParseState),
+    {ok, NPacket, <<>>, _} = emqx_frame:parse2(Bin, ParseState),
     NPacket.
 
 serialize_to_binary(Packet) ->
