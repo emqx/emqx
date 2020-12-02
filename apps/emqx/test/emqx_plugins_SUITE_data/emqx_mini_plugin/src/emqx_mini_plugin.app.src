@@ -1,0 +1,14 @@
+{application, emqx_mini_plugin,
+ [{description, "An EMQ X plugin for testcase"},
+  {vsn, "0.1"},
+  {modules, []},
+  {registered, []},
+  {mod, {emqx_mini_plugin_app, []}},
+  {applications,
+   [kernel,
+    stdlib
+   ]},
+  {env,[]},
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.

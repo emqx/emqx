@@ -1,0 +1,14 @@
+{application, emqx_libs,
+ [{description, "EMQ X library"},
+  {vsn, "5.0"},
+  {registered, []},
+  {applications,
+   [kernel,
+    stdlib
+   ]},
+  {env,[]},
+  {modules, []},
+  {licenses, ["Apache 2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, []}
+ ]}.

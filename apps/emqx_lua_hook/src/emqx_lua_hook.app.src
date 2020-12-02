@@ -1,0 +1,14 @@
+{application, emqx_lua_hook,
+ [{description, "EMQ X Lua Hooks"},
+  {vsn, "5.0.0"}, % strict semver, bump manually!
+  {modules, []},
+  {registered, []},
+  {applications, [kernel,stdlib,emqx_libs]},
+  {mod, {emqx_lua_hook_app,[]}},
+  {env,[]},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx/emqx-lua-hook"}
+          ]}
+ ]}.

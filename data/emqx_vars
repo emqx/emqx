@@ -1,0 +1,22 @@
+######################################################################
+## NOTE: Do NOT replace this file during release upgrade.
+##       Update the vars to the end of this file instead.
+######################################################################
+## constants from relx template
+REL_VSN="{{ rel_vsn }}"
+ERTS_VSN="{{ erts_vsn }}"
+ERL_OPTS="{{ erl_opts }}"
+RUNNER_ROOT_DIR="{{ runner_root_dir }}"
+RUNNER_BIN_DIR="{{ runner_bin_dir }}"
+RUNNER_LOG_DIR="{{ runner_log_dir }}"
+RUNNER_LIB_DIR="{{ runner_lib_dir }}"
+RUNNER_ETC_DIR="{{ runner_etc_dir }}"
+RUNNER_DATA_DIR="{{ runner_data_dir }}"
+RUNNER_USER="{{ runner_user }}"
+EMQX_DISCR="{{ emqx_description }}"
+
+## computed vars
+REL_NAME="emqx"
+ERTS_PATH=$RUNNER_ROOT_DIR/erts-$ERTS_VSN/bin
+
+## updated vars here

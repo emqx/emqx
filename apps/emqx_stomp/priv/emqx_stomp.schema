@@ -1,0 +1,149 @@
+%%-*- mode: erlang -*-
+%% emqx_stomp config mapping
+
+{mapping, "stomp.listener", "emqx_stomp.listener", [
+  {default, 61613},
+  {datatype, [integer, ip]}
+]}.
+
+{mapping, "stomp.listener.acceptors", "emqx_stomp.listener", [
+  {default, 4},
+  {datatype, integer}
+]}.
+
+{mapping, "stomp.listener.max_connections", "emqx_stomp.listener", [
+  {default, 512},
+  {datatype, integer}
+]}.
+
+{mapping, "stomp.listener.ssl", "emqx_stomp.listener", [
+  {datatype, flag},
+  {default, off}
+]}.
+
+{mapping, "stomp.listener.tls_versions", "emqx_stomp.listener", [
+  {datatype, string}
+]}.
+
+{mapping, "stomp.listener.handshake_timeout", "emqx_stomp.listener", [
+  {default, "15s"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "stomp.listener.dhfile", "emqx_stomp.listener", [
+  {datatype, string}
+]}.
+
+{mapping, "stomp.listener.keyfile", "emqx_stomp.listener", [
+  {datatype, string}
+]}.
+
+{mapping, "stomp.listener.certfile", "emqx_stomp.listener", [
+  {datatype, string}
+]}.
+
+{mapping, "stomp.listener.cacertfile", "emqx_stomp.listener", [
+  {datatype, string}
+]}.
+
+{mapping, "stomp.listener.verify", "emqx_stomp.listener", [
+  {datatype, string}
+]}.
+
+{mapping, "stomp.listener.fail_if_no_peer_cert", "emqx_stomp.listener", [
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "stomp.listener.ciphers", "emqx_stomp.listener", [
+  {datatype, string}
+]}.
+
+{mapping, "stomp.listener.secure_renegotiate", "emqx_stomp.listener", [
+  {datatype, flag}
+]}.
+
+{mapping, "stomp.listener.reuse_sessions", "emqx_stomp.listener", [
+  {default, on},
+  {datatype, flag}
+]}.
+
+{mapping, "stomp.listener.honor_cipher_order", "emqx_stomp.listener", [
+  {datatype, flag}
+]}.
+
+{translation, "emqx_stomp.listener", fun(Conf) ->
+  Port = cuttlefish:conf_get("stomp.listener", Conf),
+  Acceptors = cuttlefish:conf_get("stomp.listener.acceptors", Conf),
+  MaxConnections = cuttlefish:conf_get("stomp.listener.max_connections", Conf),
+  Filter = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
+  SplitFun = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
+  SslOpts = fun(Prefix) ->
+               Versions = case SplitFun(cuttlefish:conf_get(Prefix ++ ".tls_versions", Conf, undefined)) of
+                              undefined -> undefined;
+                              L -> [list_to_atom(V) || V <- L]
+                          end,
+                Filter([{versions, Versions},
+                        {ciphers, SplitFun(cuttlefish:conf_get(Prefix ++ ".ciphers", Conf, undefined))},
+                        {handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf, undefined)},
+                        {dhfile, cuttlefish:conf_get(Prefix ++ ".dhfile", Conf, undefined)},
+                        {keyfile, cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
+                        {certfile, cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
+                        {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
+                        {verify, cuttlefish:conf_get(Prefix ++ ".verify", Conf, undefined)},
+                        {fail_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ ".fail_if_no_peer_cert", Conf, undefined)},
+                        {secure_renegotiate, cuttlefish:conf_get(Prefix ++ ".secure_renegotiate", Conf, undefined)},
+                        {reuse_sessions, cuttlefish:conf_get(Prefix ++ ".reuse_sessions", Conf, undefined)},
+                        {honor_cipher_order, cuttlefish:conf_get(Prefix ++ ".honor_cipher_order", Conf, undefined)}])
+            end,
+  Opts = [{acceptors, Acceptors}, {max_connections, MaxConnections}],
+  {Port, case cuttlefish:conf_get("stomp.listener.ssl", Conf) of
+             true  ->
+                 [{sslopts, SslOpts("stomp.listener")} | Opts];
+             false ->
+                 Opts
+         end}
+end}.
+
+{mapping, "stomp.default_user.login", "emqx_stomp.default_user", [
+  {default, "guest"},
+  {datatype, string}
+]}.
+
+{mapping, "stomp.default_user.passcode", "emqx_stomp.default_user", [
+  {default, "guest"},
+  {datatype, string}
+]}.
+
+{translation, "emqx_stomp.default_user", fun(Conf) ->
+  Login = cuttlefish:conf_get("stomp.default_user.login", Conf),
+  Passcode = cuttlefish:conf_get("stomp.default_user.passcode", Conf),
+  [{login, Login}, {passcode, Passcode}]
+end}.
+
+{mapping, "stomp.allow_anonymous", "emqx_stomp.allow_anonymous", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "stomp.frame.max_headers", "emqx_stomp.frame", [
+  {default, 10},
+  {datatype, integer}
+]}.
+
+{mapping, "stomp.frame.max_header_length", "emqx_stomp.frame", [
+  {default, 1024},
+  {datatype, integer}
+]}.
+
+{mapping, "stomp.frame.max_body_length", "emqx_stomp.frame", [
+  {default, 8192},
+  {datatype, integer}
+]}.
+
+{translation, "emqx_stomp.frame", fun(Conf) ->
+  MaxHeaders = cuttlefish:conf_get("stomp.frame.max_headers", Conf),
+  MaxHeaderLength = cuttlefish:conf_get("stomp.frame.max_header_length", Conf),
+  MaxBodyLength = cuttlefish:conf_get("stomp.frame.max_body_length", Conf),
+  [{max_headers, MaxHeaders}, {max_header_length, MaxHeaderLength}, {max_body_length, MaxBodyLength}]
+end}.
+

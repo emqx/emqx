@@ -1,0 +1,26 @@
+%%-*- mode: erlang -*-
+%% emqx_auth_username config mapping
+
+{mapping, "auth.user.password_hash", "emqx_auth_username.password_hash", [
+  {default, sha256},
+  {datatype, {enum, [plain, md5, sha, sha256]}}
+]}.
+
+{mapping, "auth.user.$id.username", "emqx_auth_username.userlist", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.user.$id.password", "emqx_auth_username.userlist", [
+  {datatype, string}
+]}.
+
+{translation, "emqx_auth_username.userlist", fun(Conf) ->
+  Userlist = cuttlefish_variable:filter_by_prefix("auth.user", Conf),
+  lists:foldl(
+    fun({["auth", "user", Id, "username"], Username}, AccIn) ->
+        [{Username, cuttlefish:conf_get("auth.user." ++ Id ++ ".password", Conf)} | AccIn];
+       (_, AccIn) ->
+        AccIn
+       end, [], Userlist)
+end}.
+
