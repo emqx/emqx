@@ -35,7 +35,7 @@
 -type(checker() :: #{ name     := name()
                     , capacity := non_neg_integer()
                     , interval := non_neg_integer()
-                    , consumer := function() | esockd_rate_limit:bucket()
+                    , consumer := esockd_rate_limit:bucket() | emqx_zone:zone()
                     }).
 
 -type(name() :: conn_bytes_in
@@ -84,7 +84,7 @@ do_init_checker(Zone, {Name, {Capacity, Interval}}) ->
                 _ ->
                     esockd_limiter:create({Zone, Name}, Capacity, Interval)
             end,
-            Ck#{consumer => fun(I) -> esockd_limiter:consume({Zone, Name}, I) end};
+            Ck#{consumer => Zone};
         _ ->
             Ck#{consumer => esockd_rate_limit:new(Capacity / Interval, Capacity)}
     end.
@@ -126,7 +126,13 @@ consume(Pubs, Bytes, #{name := Name, consumer := Cons}) ->
         _ ->
             case is_overall_limiter(Name) of
                 true ->
-                    {_, Intv} = Cons(Tokens),
+                    {_, Intv} = case erlang:is_function(Cons) of
+                        true -> %% Compatible with hot-upgrade from e4.2.0, e4.2.1.
+                                %% It should be removed after 4.3.0
+                            {env, [Zone|_]} = erlang:fun_info(Cons, env),
+                            esockd_limiter:consume({Zone, Name}, Tokens);
+                        _ -> esockd_limiter:consume({Cons, Name}, Tokens)
+                    end,
                     {Intv, Cons};
                 _ ->
                     esockd_rate_limit:check(Tokens, Cons)
