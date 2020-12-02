@@ -128,13 +128,7 @@ consume(Pubs, Bytes, #{name := Name, consumer := Cons}) ->
         _ ->
             case is_overall_limiter(Name) of
                 true ->
-                    {_, Intv} = case erlang:is_function(Cons) of
-                        true -> %% Compatible with hot-upgrade from e4.2.0, e4.2.1.
-                                %% It should be removed after 4.3.0
-                            {env, [Zone|_]} = erlang:fun_info(Cons, env),
-                            esockd_limiter:consume({Zone, Name}, Tokens);
-                        _ -> esockd_limiter:consume({Cons, Name}, Tokens)
-                    end,
+                    {_, Intv} = esockd_limiter:consume({Cons, Name}, Tokens),
                     {Intv, Cons};
                 _ ->
                     esockd_rate_limit:check(Tokens, Cons)

@@ -27,27 +27,16 @@
         , parse/2
         , serialize_fun/0
         , serialize_fun/1
-        , serialize/1
-        , serialize/2
-        ]).
-
-%% The new version APIs to avoid saving
-%% anonymous func
--export([ parse2/1
-        , parse2/2
         , serialize_opts/0
         , serialize_opts/1
         , serialize_pkt/2
+        , serialize/1
+        , serialize/2
         ]).
 
 -export_type([ options/0
              , parse_state/0
              , parse_result/0
-             , serialize_fun/0
-             ]).
-
--export_type([ parse_state2/0
-             , parse_result2/0
              , serialize_opts/0
              ]).
 
@@ -56,16 +45,10 @@
                      version => emqx_types:version()
                     }).
 
--type(parse_state() :: {none, options()} | cont_fun()).
--type(parse_state2() :: {none, options()} | {cont_state(), options()}).
+-type(parse_state() :: {none, options()} | {cont_state(), options()}).
 
--type(parse_result() :: {more, cont_fun()}
+-type(parse_result() :: {more, parse_state()}
                       | {ok, emqx_types:packet(), binary(), parse_state()}).
-
--type(parse_result2() :: {more, parse_state()}
-                       | {ok, emqx_types:packet(), binary(), parse_state()}).
-
--type(cont_fun() :: fun((binary()) -> parse_result())).
 
 -type(cont_state() :: {Stage :: len | body,
                        State ::  #{hdr := #mqtt_packet_header{},
@@ -73,8 +56,6 @@
                                    rest => binary()
                                   }
                       }).
-
--type(serialize_fun() :: fun((emqx_types:packet()) -> iodata())).
 
 -type(serialize_opts() :: options()).
 
@@ -108,96 +89,13 @@ merge_opts(Options) ->
 %% Parse MQTT Frame
 %%--------------------------------------------------------------------
 
--spec(parse2(binary()) -> parse_result2()).
-parse2(Bin) ->
-    parse2(Bin, initial_parse_state()).
-
--spec(parse2(binary(), parse_state()) -> parse_result2()).
-parse2(<<>>, {none, Options}) ->
-    {more, {none, Options}};
-parse2(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>,
-      {none, Options = #{strict_mode := StrictMode}}) ->
-    %% Validate header if strict mode.
-    StrictMode andalso validate_header(Type, Dup, QoS, Retain),
-    Header = #mqtt_packet_header{type   = Type,
-                                 dup    = bool(Dup),
-                                 qos    = QoS,
-                                 retain = bool(Retain)
-                                },
-    Header1 = case fixqos(Type, QoS) of
-                  QoS      -> Header;
-                  FixedQoS -> Header#mqtt_packet_header{qos = FixedQoS}
-              end,
-    parse_remaining_len2(Rest, Header1, Options);
-
-parse2(Bin, {{len, #{hdr := Header,
-                    len := {Multiplier, Length}}
-             }, Options}) when is_binary(Bin) ->
-    parse_remaining_len2(Bin, Header, Multiplier, Length, Options);
-parse2(Bin, {{body, #{hdr := Header,
-                     len := Length,
-                     rest := Rest}
-             }, Options}) when is_binary(Bin) ->
-    parse_frame2(<<Rest/binary, Bin/binary>>, Header, Length, Options).
-
-parse_remaining_len2(<<>>, Header, Options) ->
-    {more, {{len, #{hdr => Header, len => {1, 0}}}, Options}};
-parse_remaining_len2(Rest, Header, Options) ->
-    parse_remaining_len2(Rest, Header, 1, 0, Options).
-
-parse_remaining_len2(_Bin, _Header, _Multiplier, Length, #{max_size := MaxSize})
-  when Length > MaxSize ->
-    error(frame_too_large);
-parse_remaining_len2(<<>>, Header, Multiplier, Length, Options) ->
-    {more, {{len, #{hdr => Header, len => {Multiplier, Length}}}, Options}};
-%% Match DISCONNECT without payload
-parse_remaining_len2(<<0:8, Rest/binary>>, Header = #mqtt_packet_header{type = ?DISCONNECT}, 1, 0, Options) ->
-    Packet = packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}),
-    {ok, Packet, Rest, ?none(Options)};
-%% Match PINGREQ.
-parse_remaining_len2(<<0:8, Rest/binary>>, Header, 1, 0, Options) ->
-    parse_frame2(Rest, Header, 0, Options);
-%% Match PUBACK, PUBREC, PUBREL, PUBCOMP, UNSUBACK...
-parse_remaining_len2(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, Options) ->
-    parse_frame2(Rest, Header, 2, Options);
-parse_remaining_len2(<<1:1, Len:7, Rest/binary>>, Header, Multiplier, Value, Options) ->
-    parse_remaining_len2(Rest, Header, Multiplier * ?HIGHBIT, Value + Len * Multiplier, Options);
-parse_remaining_len2(<<0:1, Len:7, Rest/binary>>, Header, Multiplier, Value,
-                    Options = #{max_size := MaxSize}) ->
-    FrameLen = Value + Len * Multiplier,
-    if
-        FrameLen > MaxSize -> error(frame_too_large);
-        true -> parse_frame2(Rest, Header, FrameLen, Options)
-    end.
-
-parse_frame2(Bin, Header, 0, Options) ->
-    {ok, packet(Header), Bin, ?none(Options)};
-
-parse_frame2(Bin, Header, Length, Options) ->
-    case Bin of
-        <<FrameBin:Length/binary, Rest/binary>> ->
-            case parse_packet(Header, FrameBin, Options) of
-                {Variable, Payload} ->
-                    {ok, packet(Header, Variable, Payload), Rest, ?none(Options)};
-                Variable = #mqtt_packet_connect{proto_ver = Ver} ->
-                    {ok, packet(Header, Variable), Rest, ?none(Options#{version := Ver})};
-                Variable ->
-                    {ok, packet(Header, Variable), Rest, ?none(Options)}
-            end;
-        TooShortBin ->
-            {more, {{body, #{hdr => Header, len => Length, rest => TooShortBin}}, Options}}
-    end.
-
-%% Deprecated parse funcs
-%% It should be removed after 4.2.x
-
 -spec(parse(binary()) -> parse_result()).
 parse(Bin) ->
     parse(Bin, initial_parse_state()).
 
 -spec(parse(binary(), parse_state()) -> parse_result()).
 parse(<<>>, {none, Options}) ->
-    {more, fun(Bin) -> parse(Bin, {none, Options}) end};
+    {more, {none, Options}};
 parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>,
       {none, Options = #{strict_mode := StrictMode}}) ->
     %% Validate header if strict mode.
@@ -212,11 +110,19 @@ parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>,
                   FixedQoS -> Header#mqtt_packet_header{qos = FixedQoS}
               end,
     parse_remaining_len(Rest, Header1, Options);
-parse(Bin, Cont) when is_binary(Bin), is_function(Cont) ->
-    Cont(Bin).
+
+parse(Bin, {{len, #{hdr := Header,
+                    len := {Multiplier, Length}}
+             }, Options}) when is_binary(Bin) ->
+    parse_remaining_len(Bin, Header, Multiplier, Length, Options);
+parse(Bin, {{body, #{hdr := Header,
+                     len := Length,
+                     rest := Rest}
+             }, Options}) when is_binary(Bin) ->
+    parse_frame(<<Rest/binary, Bin/binary>>, Header, Length, Options).
 
 parse_remaining_len(<<>>, Header, Options) ->
-    {more, fun(Bin) -> parse_remaining_len(Bin, Header, Options) end};
+    {more, {{len, #{hdr => Header, len => {1, 0}}}, Options}};
 parse_remaining_len(Rest, Header, Options) ->
     parse_remaining_len(Rest, Header, 1, 0, Options).
 
@@ -224,7 +130,7 @@ parse_remaining_len(_Bin, _Header, _Multiplier, Length, #{max_size := MaxSize})
   when Length > MaxSize ->
     error(frame_too_large);
 parse_remaining_len(<<>>, Header, Multiplier, Length, Options) ->
-    {more, fun(Bin) -> parse_remaining_len(Bin, Header, Multiplier, Length, Options) end};
+    {more, {{len, #{hdr => Header, len => {Multiplier, Length}}}, Options}};
 %% Match DISCONNECT without payload
 parse_remaining_len(<<0:8, Rest/binary>>, Header = #mqtt_packet_header{type = ?DISCONNECT}, 1, 0, Options) ->
     Packet = packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}),
@@ -260,9 +166,7 @@ parse_frame(Bin, Header, Length, Options) ->
                     {ok, packet(Header, Variable), Rest, ?none(Options)}
             end;
         TooShortBin ->
-            {more, fun(BinMore) ->
-                           parse_frame(<<TooShortBin/binary, BinMore/binary>>, Header, Length, Options)
-                   end}
+            {more, {{body, #{hdr => Header, len => Length, rest => TooShortBin}}, Options}}
     end.
 
 -compile({inline, [packet/1, packet/2, packet/3]}).
@@ -870,4 +774,3 @@ fixqos(?PUBREL, 0)      -> 1;
 fixqos(?SUBSCRIBE, 0)   -> 1;
 fixqos(?UNSUBSCRIBE, 0) -> 1;
 fixqos(_Type, QoS)      -> QoS.
-
