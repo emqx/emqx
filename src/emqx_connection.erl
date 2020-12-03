@@ -119,6 +119,7 @@
                             , init_state/3
                             , run_loop/2
                             , system_terminate/4
+                            , system_code_change/4
                             ]}).
 
 -spec(start_link(esockd:transport(), esockd:socket(), proplists:proplist())
