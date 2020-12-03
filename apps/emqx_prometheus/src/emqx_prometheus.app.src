@@ -1,6 +1,6 @@
 {application, emqx_prometheus,
  [{description, "Prometheus for EMQ X"},
-  {vsn, "5.0.0"}, % strict semver, bump manually!
+  {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_prometheus_sup]},
   {applications, [kernel,stdlib,prometheus,emqx_libs]},

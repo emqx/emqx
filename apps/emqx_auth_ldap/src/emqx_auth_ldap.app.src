@@ -1,6 +1,6 @@
 {application, emqx_auth_ldap,
  [{description, "EMQ X Authentication/ACL with LDAP"},
-  {vsn, "5.0.0"}, % strict semver, bump manually!
+  {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_auth_ldap_sup,emqx_libs]},
   {applications, [kernel,stdlib,eldap2,ecpool,emqx_passwd,emqx_libs]},

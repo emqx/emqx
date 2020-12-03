@@ -1,6 +1,6 @@
 {application, emqx_exhook,
  [{description, "EMQ X Extension for Hook"},
-  {vsn, "5.0.0"}, % strict semver, bump manually!
+  {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},
   {mod, {emqx_exhook_app, []}},

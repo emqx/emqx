@@ -1,6 +1,6 @@
 {application, emqx_auth_jwt,
  [{description, "EMQ X Authentication with JWT"},
-  {vsn, "5.0.0"}, % strict semver, bump manually!
+  {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_auth_jwt_sup]},
   {applications, [kernel,stdlib,jwerl,emqx_libs]},

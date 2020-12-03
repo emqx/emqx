@@ -1,6 +1,6 @@
 {application, emqx_sasl,
  [{description, "EMQ X SASL"},
-  {vsn, "5.0.0"}, % strict semver, bump manually!
+  {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_sasl_sup]},
   {applications, [kernel,stdlib,pbkdf2,emqx_libs]},
