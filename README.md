@@ -32,7 +32,7 @@ docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p
 
 Get the binary package of the corresponding OS from [EMQ X Download](https://www.emqx.io/downloads) page.
 
-- [Single Node Install](https://docs.emqx.io/broker/latest/en/getting-started/installation.html)
+- [Single Node Install](https://docs.emqx.io/broker/latest/en/getting-started/install.html)
 - [Multi Node Install](https://docs.emqx.io/broker/latest/en/advanced/cluster.html)
 
 
