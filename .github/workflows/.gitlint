@@ -1,0 +1,119 @@
+# Edit this file as you like.
+#
+# All these sections are optional. Each section with the exception of [general] represents
+# one rule and each key in it is an option for that specific rule.
+#
+# Rules and sections can be referenced by their full name or by id. For example
+# section "[body-max-line-length]" could also be written as "[B1]". Full section names are
+# used in here for clarity.
+#
+[general]
+# Ignore certain rules, this example uses both full name and id
+ignore=title-trailing-punctuation, T1, T2, T3, T4, T5, T6, T8, B1, B2, B3, B4, B5, B6, B7, B8
+
+# verbosity should be a value between 1 and 3, the commandline -v flags take precedence over this
+# verbosity = 2
+
+# By default gitlint will ignore merge, revert, fixup and squash commits.
+# ignore-merge-commits=true
+# ignore-revert-commits=true
+# ignore-fixup-commits=true
+# ignore-squash-commits=true
+
+# Ignore any data send to gitlint via stdin
+# ignore-stdin=true
+
+# Fetch additional meta-data from the local repository when manually passing a
+# commit message to gitlint via stdin or --commit-msg. Disabled by default.
+# staged=true
+
+# Enable debug mode (prints more output). Disabled by default.
+# debug=true
+
+# Enable community contributed rules
+# See http://jorisroovers.github.io/gitlint/contrib_rules for details
+# contrib=contrib-title-conventional-commits,CC1
+
+# Set the extra-path where gitlint will search for user defined rules
+# See http://jorisroovers.github.io/gitlint/user_defined_rules for details
+# extra-path=examples/
+
+# This is an example of how to configure the "title-max-length" rule and
+# set the line-length it enforces to 80
+# [title-max-length]
+# line-length=50
+
+# Conversely, you can also enforce minimal length of a title with the
+# "title-min-length" rule:
+# [title-min-length]
+# min-length=5
+
+# [title-must-not-contain-word]
+# Comma-separated list of words that should not occur in the title. Matching is case
+# insensitive. It's fine if the keyword occurs as part of a larger word (so "WIPING"
+# will not cause a violation, but "WIP: my title" will.
+# words=wip
+
+[title-match-regex]
+# python-style regex that the commit-msg title must match
+# Note that the regex can contradict with other rules if not used correctly
+# (e.g. title-must-not-contain-word).
+regex=^(feat|fix|docs|style|refactor|test|chore|perf)\(.+\): .+
+
+# [body-max-line-length]
+# line-length=72
+
+# [body-min-length]
+# min-length=5
+
+# [body-is-missing]
+# Whether to ignore this rule on merge commits (which typically only have a title)
+# default = True
+# ignore-merge-commits=false
+
+# [body-changed-file-mention]
+# List of files that need to be explicitly mentioned in the body when they are changed
+# This is useful for when developers often erroneously edit certain files or git submodules.
+# By specifying this rule, developers can only change the file when they explicitly reference
+# it in the commit message.
+# files=gitlint/rules.py,README.md
+
+# [body-match-regex]
+# python-style regex that the commit-msg body must match.
+# E.g. body must end in My-Commit-Tag: foo
+# regex=My-Commit-Tag: foo$
+
+# [author-valid-email]
+# python-style regex that the commit author email address must match.
+# For example, use the following regex if you only want to allow email addresses from foo.com
+# regex=[^@]+@foo.com
+
+[ignore-by-title]
+# Ignore certain rules for commits of which the title matches a regex
+# E.g. Match commit titles that start with "Release"
+# regex=^Release(.*)
+
+# Ignore certain rules, you can reference them by their id or by their full name
+# Use 'all' to ignore all rules
+# ignore=T1,body-min-length
+
+[ignore-by-body]
+# Ignore certain rules for commits of which the body has a line that matches a regex
+# E.g. Match bodies that have a line that that contain "release"
+# regex=(.*)release(.*)
+#
+# Ignore certain rules, you can reference them by their id or by their full name
+# Use 'all' to ignore all rules
+# ignore=T1,body-min-length
+
+# [ignore-body-lines]
+# Ignore certain lines in a commit body that match a regex.
+# E.g. Ignore all lines that start with 'Co-Authored-By'
+# regex=^Co-Authored-By
+
+# This is a contrib rule - a community contributed rule. These are disabled by default.
+# You need to explicitly enable them one-by-one by adding them to the "contrib" option
+# under [general] section above.
+# [contrib-title-conventional-commits]
+# Specify allowed commit types. For details see: https://www.conventionalcommits.org/
+# types = bugfix,user-story,epic
