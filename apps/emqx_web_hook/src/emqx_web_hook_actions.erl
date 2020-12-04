@@ -17,8 +17,8 @@
 %% Define the default actions.
 -module(emqx_web_hook_actions).
 
--include_lib("emqx_libs/include/emqx.hrl").
--include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -define(RESOURCE_TYPE_WEBHOOK, 'web_hook').
 -define(RESOURCE_CONFIG_SPEC, #{

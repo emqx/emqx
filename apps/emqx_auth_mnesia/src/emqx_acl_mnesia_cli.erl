@@ -17,7 +17,7 @@
 -module(emqx_acl_mnesia_cli).
 
 -include("emqx_auth_mnesia.hrl").
--include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 -define(TABLE, emqx_acl).
 

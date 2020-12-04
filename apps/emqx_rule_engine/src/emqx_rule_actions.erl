@@ -18,8 +18,8 @@
 -module(emqx_rule_actions).
 
 -include("rule_engine.hrl").
--include_lib("emqx_libs/include/emqx.hrl").
--include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -define(REPUBLISH_PARAMS_SPEC, #{
             target_topic => #{

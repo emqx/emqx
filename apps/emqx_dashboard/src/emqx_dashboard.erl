@@ -16,8 +16,8 @@
 
 -module(emqx_dashboard).
 
--include_lib("emqx_libs/include/emqx.hrl").
--include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -import(proplists, [get_value/3]).
 

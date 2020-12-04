@@ -20,7 +20,7 @@
 -behavior(emqx_exproto_v_1_connection_adapter_bhvr).
 
 -include("emqx_exproto.hrl").
--include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -logger_header("[ExProto gServer]").
 

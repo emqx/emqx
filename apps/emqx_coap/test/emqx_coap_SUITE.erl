@@ -21,7 +21,7 @@
 
 -include_lib("gen_coap/include/coap.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 -define(LOGT(Format, Args), ct:pal(Format, Args)).
 

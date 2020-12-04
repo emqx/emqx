@@ -18,8 +18,8 @@
 
 -include("emqx_mgmt.hrl").
 
--include_lib("emqx_libs/include/emqx_mqtt.hrl").
--include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 -import(minirest, [ return/0
                   , return/1

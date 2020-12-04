@@ -17,10 +17,10 @@
 -module(emqx_exproto_channel).
 
 -include("emqx_exproto.hrl").
--include_lib("emqx_libs/include/emqx.hrl").
--include_lib("emqx_libs/include/emqx_mqtt.hrl").
--include_lib("emqx_libs/include/types.hrl").
--include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/types.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -logger_header("[ExProto Channel]").
 

@@ -30,7 +30,7 @@
 -type(topic() :: emqx_topic:topic()).
 -type(qos() :: emqx_mqtt_types:qos()).
 
--include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -logger_header("[Bridge Connect]").
 

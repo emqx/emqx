@@ -18,9 +18,9 @@
 
 -include("emqx_lwm2m.hrl").
 
--include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
--include_lib("emqx_libs/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 %% API.
 -export([ send_ul_data/3

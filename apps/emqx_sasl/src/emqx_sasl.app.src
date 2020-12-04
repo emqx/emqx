@@ -3,7 +3,7 @@
   {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_sasl_sup]},
-  {applications, [kernel,stdlib,pbkdf2,emqx_libs]},
+  {applications, [kernel,stdlib,pbkdf2,emqx]},
   {mod, {emqx_sasl_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},

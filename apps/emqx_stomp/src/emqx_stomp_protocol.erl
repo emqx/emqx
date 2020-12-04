@@ -18,8 +18,8 @@
 -module(emqx_stomp_protocol).
 
 -include("emqx_stomp.hrl").
--include_lib("emqx_libs/include/emqx.hrl").
--include_lib("emqx_libs/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -import(proplists, [get_value/2, get_value/3]).
 

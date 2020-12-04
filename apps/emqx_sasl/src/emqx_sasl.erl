@@ -16,7 +16,7 @@
 
 -module(emqx_sasl).
 
--include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([ load/0
         , unload/0

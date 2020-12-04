@@ -18,8 +18,8 @@
 -behaviour(emqx_bridge_connect).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx_libs/include/emqx.hrl").
--include_lib("emqx_libs/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(BRIDGE_NAME, test).
 -define(BRIDGE_REG_NAME, emqx_bridge_worker_test).

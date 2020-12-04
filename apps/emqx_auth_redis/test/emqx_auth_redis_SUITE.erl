@@ -18,7 +18,7 @@
 
 -compile(export_all).
 
--include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 -include_lib("common_test/include/ct.hrl").
 

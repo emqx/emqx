@@ -17,8 +17,8 @@
 -module(emqx_lua_script).
 
 -include("emqx_lua_hook.hrl").
--include_lib("emqx_libs/include/emqx.hrl").
--include_lib("emqx_libs/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -export([ register_on_message_publish/2
         , register_on_client_connected/2

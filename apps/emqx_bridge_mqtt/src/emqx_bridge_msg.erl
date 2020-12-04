@@ -27,7 +27,7 @@
 
 -export_type([msg/0]).
 
--include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 -include_lib("emqx_bridge_mqtt/include/emqx_bridge_mqtt.hrl").
 -include_lib("emqtt/include/emqtt.hrl").

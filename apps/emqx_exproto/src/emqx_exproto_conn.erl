@@ -17,8 +17,8 @@
 %% TCP/TLS/UDP/DTLS Connection
 -module(emqx_exproto_conn).
 
--include_lib("emqx_libs/include/types.hrl").
--include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx/include/types.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -logger_header("[ExProto Conn]").
 

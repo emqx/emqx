@@ -18,7 +18,7 @@
 -behaviour(supervisor).
 
 -include("emqx_bridge_mqtt.hrl").
--include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -logger_header("[Bridge]").
 

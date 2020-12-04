@@ -22,7 +22,7 @@
 
 -define(APP, emqx_auth_pgsql).
 
--include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 

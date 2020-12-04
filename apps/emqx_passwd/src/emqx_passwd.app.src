@@ -3,7 +3,7 @@
   {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, ['emqx_passwd']},
   {registered, []},
-  {applications, [kernel,stdlib,ssl,pbkdf2,bcrypt]},
+  {applications, [kernel,stdlib,ssl,pbkdf2,bcrypt,emqx]},
   {env, []},
   {licenses, ["Apache-2.0"]},
   {maintainers, ["EMQ X Team <contact@emqx.io>"]},

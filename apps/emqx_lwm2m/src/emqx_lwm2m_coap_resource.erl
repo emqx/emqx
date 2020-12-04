@@ -16,9 +16,9 @@
 
 -module(emqx_lwm2m_coap_resource).
 
--include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
--include_lib("emqx_libs/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -include_lib("lwm2m_coap/include/coap.hrl").
 

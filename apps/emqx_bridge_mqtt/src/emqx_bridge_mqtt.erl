@@ -31,8 +31,8 @@
         , ensure_unsubscribed/2
         ]).
 
--include_lib("emqx_libs/include/logger.hrl").
--include_lib("emqx_libs/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(ACK_REF(ClientPid, PktId), {ClientPid, PktId}).
 

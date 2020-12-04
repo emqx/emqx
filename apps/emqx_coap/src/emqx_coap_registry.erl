@@ -19,7 +19,7 @@
 -author("Feng Lee <feng@emqx.io>").
 
 -include("emqx_coap.hrl").
--include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -logger_header("[CoAP-Registry]").
 

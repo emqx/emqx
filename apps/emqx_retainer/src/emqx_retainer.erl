@@ -19,8 +19,8 @@
 -behaviour(gen_server).
 
 -include("emqx_retainer.hrl").
--include_lib("emqx_libs/include/emqx.hrl").
--include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -logger_header("[Retainer]").

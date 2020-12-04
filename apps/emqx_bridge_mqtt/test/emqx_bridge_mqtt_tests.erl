@@ -17,7 +17,7 @@
 -module(emqx_bridge_mqtt_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx_libs/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 send_and_ack_test() ->
     %% delegate from gen_rpc to rpc for unit test

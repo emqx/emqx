@@ -16,7 +16,7 @@
 
 -module(emqx_mgmt_api_routes).
 
--include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 -import(minirest, [return/1]).
 

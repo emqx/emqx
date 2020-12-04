@@ -16,7 +16,7 @@
 
 -include("rule_engine.hrl").
 -include("rule_events.hrl").
--include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([ test/1
         ]).

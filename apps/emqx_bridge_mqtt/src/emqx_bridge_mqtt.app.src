@@ -3,7 +3,7 @@
   {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},
-  {applications, [kernel,stdlib,replayq,emqtt,emqx_libs]},
+  {applications, [kernel,stdlib,replayq,emqtt,emqx]},
   {mod, {emqx_bridge_mqtt_app, []}},
   {env, []},
   {licenses, ["Apache-2.0"]},

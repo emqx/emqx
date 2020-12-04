@@ -25,7 +25,7 @@
 
 -export([init/2]).
 
--include_lib("emqx_libs/include/emqx.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 -define(APP, emqx_management).
 -define(EXCEPT_PLUGIN, [emqx_dashboard]).

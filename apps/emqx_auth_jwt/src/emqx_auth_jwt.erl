@@ -16,8 +16,8 @@
 
 -module(emqx_auth_jwt).
 
--include_lib("emqx_libs/include/emqx.hrl").
--include_lib("emqx_libs/include/logger.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -logger_header("[JWT]").
 
