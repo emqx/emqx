@@ -1,0 +1,34 @@
+name: Run gitlint
+
+on: [pull_request]
+
+jobs:
+  run_gitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@master
+      - name: Install gitlint
+        run: |
+          sudo apt-get update
+          sudo apt install gitlint
+      - name: Run gitlint
+        run: |
+          pr_number=$(echo $GITHUB_REF | awk 'BEGIN { FS = "/" } ; { print $3 }')
+          messages=$(curl "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/commits")
+          len=$(echo $messages | jq length)
+          result=true
+          for i in $( seq 0 $(($len - 1)) ); do
+            message=$(echo $messages | jq -r .[$i].commit.message)
+            echo commit message: $message
+            status=0
+            echo $message | gitlint -C ./.github/workflows/.gitlint || status=$?
+            if [ $status -ne 0 ]; then
+              result=false
+            fi
+          done
+          if ! ${result} ; then
+            echo "Some of the commit messages are not structured as The Conventional Commits specification. Please check CONTRIBUTING.md for our process on PR."
+            exit 1
+          fi
+          echo "success"
