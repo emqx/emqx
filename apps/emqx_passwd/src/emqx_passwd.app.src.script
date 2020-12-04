@@ -1,0 +1,14 @@
+%%-*- mode: erlang -*-
+%% .app.src.script
+
+Config = case os:type() =:= {win32, nt} orelse os:getenv("EMQX_DESC") =:= "EMQ X Edge" of
+    true  ->
+        [begin
+            Applications0 = proplists:get_value(applications, AppConf),
+            Applications = Applications0 -- [bcrypt],
+            AppConf0 = lists:keystore(applications, 1, AppConf, {applications, Applications}),
+            {application, App, AppConf0}
+        end || Conf = {application, App, AppConf} <- CONFIG];
+    false ->
+        CONFIG
+end.

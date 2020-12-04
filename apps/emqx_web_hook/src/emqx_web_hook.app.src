@@ -1,0 +1,14 @@
+{application, emqx_web_hook,
+ [{description, "EMQ X WebHook Plugin"},
+  {vsn, "git"},
+  {modules, []},
+  {registered, [emqx_web_hook_sup]},
+  {applications, [kernel,stdlib]},
+  {mod, {emqx_web_hook_app,[]}},
+  {env, []},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx/emqx-web-hook"}
+          ]}
+ ]}.

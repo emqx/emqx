@@ -1,0 +1,30 @@
+{"4.2.3",
+ [
+   {"4.2.0", [
+     {load_module, emqx_sasl_api, brutal_purge, soft_purge, []},
+     {load_module, emqx_sasl_cli, brutal_purge, soft_purge, []}
+   ]},
+   {"4.2.1", [
+     {load_module, emqx_sasl_api, brutal_purge, soft_purge, []},
+     {load_module, emqx_sasl_cli, brutal_purge, soft_purge, []}
+   ]},
+   {"4.2.2", [
+     {load_module, emqx_sasl_api, brutal_purge, soft_purge, []},
+     {load_module, emqx_sasl_cli, brutal_purge, soft_purge, []}
+   ]}
+ ],
+ [
+   {"4.2.0", [
+     {load_module, emqx_sasl_api, brutal_purge, soft_purge, []},
+     {load_module, emqx_sasl_cli, brutal_purge, soft_purge, []}
+   ]},
+   {"4.2.1", [
+     {load_module, emqx_sasl_api, brutal_purge, soft_purge, []},
+     {load_module, emqx_sasl_cli, brutal_purge, soft_purge, []}
+   ]},
+   {"4.2.2", [
+     {load_module, emqx_sasl_api, brutal_purge, soft_purge, []},
+     {load_module, emqx_sasl_cli, brutal_purge, soft_purge, []}
+   ]}
+ ]
+}.

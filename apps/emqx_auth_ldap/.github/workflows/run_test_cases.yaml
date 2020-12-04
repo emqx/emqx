@@ -1,0 +1,49 @@
+name: Run test cases
+
+on: [push, pull_request]
+
+jobs:
+    run_test_cases:
+        runs-on: ubuntu-latest
+
+        strategy:
+            matrix:
+                network_type:
+                    - ipv4
+                    - ipv6
+
+        steps:
+            - name: install docker-compose
+              run: |
+                sudo curl -L "https://github.com/docker/compose/releases/download/1.25.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+                sudo chmod +x /usr/local/bin/docker-compose
+            - uses: actions/checkout@v1
+            - name: prepare
+              env:
+                  NETWORK_TYPE: ${{ matrix.network_type }}
+              run: |
+                set -e -x -u
+                cp ./emqx.io.ldif ./emqx.schema ./.ci/emqx-ldap
+                cp ./test/certs/* ./.ci/emqx-ldap
+                docker-compose -f ./.ci/docker-compose.yml -p tests build
+                if [ "$NETWORK_TYPE" = "ipv6" ];then docker network create --driver bridge --ipv6 --subnet fd15:555::/64  tests_emqx_bridge --attachable; fi
+                docker-compose -f ./.ci/docker-compose.yml -p tests up -d
+                if [ "$NETWORK_TYPE" != "ipv6" ];then
+                    docker exec -i tests_erlang_1 sh -c "sed -i '/auth.ldap.servers/c auth.ldap.servers = ldap_server' ./emqx_auth_ldap/etc/emqx_auth_ldap.conf"
+                else
+                    ipv6_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' $(docker ps -a -f name=tests_ldap_server_1 -q))
+                    docker exec -i $(docker ps -a -f name=tests_erlang_1 -q) sh -c "sed -i '/auth.ldap.servers/c auth.ldap.servers = $ipv6_address' /emqx_auth_ldap/etc/emqx_auth_ldap.conf"
+                fi
+            - name: run test cases
+              run: |
+                set -e -x -u
+                docker exec -i tests_erlang_1 sh -c "make -C /emqx_auth_ldap xref"
+                docker exec -i tests_erlang_1 sh -c "make -C /emqx_auth_ldap eunit"
+                docker exec -i tests_erlang_1 sh -c "make -C /emqx_auth_ldap ct"
+                docker exec -i tests_erlang_1 sh -c "make -C /emqx_auth_ldap cover"
+            - uses: actions/upload-artifact@v1
+              if: failure()
+              with:
+                name: logs_${{ matrix.network_type }}
+                path: _build/test/logs
+

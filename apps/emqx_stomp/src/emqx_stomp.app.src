@@ -1,0 +1,14 @@
+{application, emqx_stomp,
+ [{description, "EMQ X Stomp Protocol Plugin"},
+  {vsn, "git"},
+  {modules, []},
+  {registered, [emqx_stomp_sup]},
+  {applications, [kernel,stdlib]},
+  {mod, {emqx_stomp,[]}},
+  {env, []},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx/emqx-stomp"}
+          ]}
+ ]}.

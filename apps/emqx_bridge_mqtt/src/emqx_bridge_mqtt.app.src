@@ -1,0 +1,14 @@
+{application, emqx_bridge_mqtt,
+ [{description, "EMQ X Bridge to MQTT Broker"},
+  {vsn, "git"},
+  {modules, []},
+  {registered, []},
+  {applications, [kernel,stdlib,replayq,emqtt]},
+  {mod, {emqx_bridge_mqtt_app, []}},
+  {env, []},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx/emqx-bridge-mqtt"}
+          ]}
+ ]}.

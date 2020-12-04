@@ -1,0 +1,14 @@
+{application, emqx_exproto,
+ [{description, "EMQ X Extension for Protocol"},
+  {vsn, "git"},
+  {modules, []},
+  {registered, []},
+  {mod, {emqx_exproto_app, []}},
+  {applications, [kernel, stdlib, erlport]},
+  {env,[]},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx/emqx-extension-proto"}
+          ]}
+ ]}.

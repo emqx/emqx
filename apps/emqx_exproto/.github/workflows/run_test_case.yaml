@@ -1,0 +1,38 @@
+name: Run test case
+
+on: [push, pull_request]
+
+jobs:
+
+    run_test_case:
+
+        runs-on: ubuntu-latest
+
+        container:
+            image: erlang:22.3
+
+        steps:
+        - uses: actions/checkout@v1
+        - uses: actions/setup-java@v1
+          with:
+            java-version: '8.0.x'
+            java-package: jdk
+        - name: Code dialyzer
+          run: |
+            make xref
+            make dialyzer
+        - name: Run tests
+          run: |
+            make eunit
+            make ct
+            make cover
+            #- name: Coveralls
+            #  env:
+            #    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            #  run: |
+            #      make coveralls
+        - uses: actions/upload-artifact@v1
+          if: always()
+          with:
+            name: logs
+            path: _build/test/logs

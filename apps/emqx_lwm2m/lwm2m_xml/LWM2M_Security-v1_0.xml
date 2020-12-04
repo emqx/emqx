@@ -1,0 +1,225 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+FILE INFORMATION
+
+OMA Permanent Document
+   File: OMA-SUP-XML_LWM2M_Security-V1_0-20170208-A
+   Type: xml
+
+Public Reachable Information
+   Path: http://www.openmobilealliance.org/tech/profiles
+   Name: LWM2M_Security-v1_0.xml
+
+NORMATIVE INFORMATION
+
+  Information about this file can be found in the latest revision of
+
+    OMA-TS-LightweightM2M-V1_0
+
+  This is available at http://www.openmobilealliance.org/
+
+  Send comments to technical-comments@mail.openmobilealliance.org
+
+CHANGE HISTORY
+
+08022017 Status changed to Approved by TP, TP Ref # OMA-TP-2017-0009-INP_LightweightM2M-V1_0_ERP_for_Final_Approval
+	
+LEGAL DISCLAIMER
+
+  Copyright 2017 Open Mobile Alliance All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions
+  are met:
+
+  1. Redistributions of source code must retain the above copyright
+  notice, this list of conditions and the following disclaimer.
+  2. Redistributions in binary form must reproduce the above copyright
+  notice, this list of conditions and the following disclaimer in the
+  documentation and/or other materials provided with the distribution.
+  3. Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived
+  from this software without specific prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+  COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  POSSIBILITY OF SUCH DAMAGE.
+
+  The above license is used as a license under copyright only.  Please
+  reference the OMA IPR Policy for patent licensing terms:
+  http://www.openmobilealliance.org/ipr.html
+-->
+
+<LWM2M xmlns:xsi = "http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://openmobilealliance.org/tech/profiles/LWM2M.xsd" >
+  <Object ObjectType="MODefinition">
+		<Name>LWM2M Security</Name>
+		<Description1><![CDATA[This LwM2M Object provides the keying material of a LwM2M Client appropriate to access a specified LwM2M Server. One Object Instance SHOULD address a LwM2M Bootstrap-Server.
+These LwM2M Object Resources MUST only be changed by a LwM2M Bootstrap-Server or Bootstrap from Smartcard and MUST NOT be accessible by any other LwM2M Server.]]></Description1>
+		<ObjectID>0</ObjectID>
+		<ObjectURN>urn:oma:lwm2m:oma:0</ObjectURN>
+		<MultipleInstances>Multiple</MultipleInstances>
+		<Mandatory>Mandatory</Mandatory>
+		<Resources>
+			<Item ID="0">
+				<Name>LWM2M  Server URI</Name>
+        <Operations></Operations>
+        <MultipleInstances>Single</MultipleInstances>
+				<Mandatory>Mandatory</Mandatory>
+				<Type>String</Type>
+				<RangeEnumeration>0-255 bytes</RangeEnumeration>
+				<Units></Units>
+				<Description><![CDATA[Uniquely identifies the LwM2M Server or LwM2M Bootstrap-Server. The format of the CoAP URI is defined in Section 6 of RFC 7252.]]></Description>
+			</Item>
+			<Item ID="1">
+				<Name>Bootstrap-Server</Name>
+        <Operations></Operations>
+        <MultipleInstances>Single</MultipleInstances>
+				<Mandatory>Mandatory</Mandatory>
+				<Type>Boolean</Type>
+				<RangeEnumeration></RangeEnumeration>
+				<Units></Units>
+				<Description><![CDATA[Determines if the current instance concerns a LwM2M Bootstrap-Server (true) or a standard LwM2M Server (false)]]></Description>
+			</Item>
+			<Item ID="2">
+				<Name>Security Mode</Name>
+        <Operations></Operations>
+        <MultipleInstances>Single</MultipleInstances>
+				<Mandatory>Mandatory</Mandatory>
+				<Type>Integer</Type>
+				<RangeEnumeration>0-4</RangeEnumeration>
+				<Units></Units>
+				<Description><![CDATA[Determines which UDP payload security mode is used
+0: Pre-Shared Key mode
+1: Raw Public Key mode
+2: Certificate mode
+3: NoSec mode
+4: Certificate mode with EST]]></Description>
+			</Item>
+			<Item ID="3">
+				<Name>Public Key or Identity</Name>
+        <Operations></Operations>
+        <MultipleInstances>Single</MultipleInstances>
+				<Mandatory>Mandatory</Mandatory>
+				<Type>Opaque</Type>
+				<RangeEnumeration></RangeEnumeration>
+				<Units></Units>
+				<Description><![CDATA[Stores the LwM2M Client’s Certificate (Certificate mode), public key (RPK mode) or PSK Identity (PSK mode). The format is defined in Section E.1.1 of the LwM2M version 1.0 specification.]]></Description>
+			</Item>
+			<Item ID="4">
+				<Name>Server Public Key</Name>
+        <Operations></Operations>
+        <MultipleInstances>Single</MultipleInstances>
+				<Mandatory>Mandatory</Mandatory>
+				<Type>Opaque</Type>
+				<RangeEnumeration></RangeEnumeration>
+				<Units></Units>
+				<Description><![CDATA[Stores the LwM2M Server’s or LwM2M Bootstrap-Server’s Certificate (Certificate mode), public key (RPK mode). The format is defined in Section E.1.1 of the LwM2M version 1.0 specification.]]></Description>
+			</Item>
+			<Item ID="5">
+				<Name>Secret Key</Name>
+        <Operations></Operations>
+        <MultipleInstances>Single</MultipleInstances>
+				<Mandatory>Mandatory</Mandatory>
+				<Type>Opaque</Type>
+				<RangeEnumeration></RangeEnumeration>
+				<Units></Units>
+				<Description><![CDATA[Stores the secret key or private key of the security mode. The format of the keying material is defined by the security mode in Section E.1.1 of the LwM2M version 1.0 specification. This Resource MUST only be changed by a bootstrap-server and MUST NOT be readable by any server.]]></Description>
+			</Item>
+			<Item ID="6">
+				<Name>SMS Security Mode</Name>
+        <Operations></Operations>
+        <MultipleInstances>Single</MultipleInstances>
+				<Mandatory>Optional</Mandatory>
+				<Type>Integer</Type>
+				<RangeEnumeration>0-255</RangeEnumeration>
+				<Units></Units>
+				<Description><![CDATA[Determines which SMS security mode is used (see section 7.2 of the LwM2M version 1.0 specification)
+0: Reserved for future use
+1: DTLS mode (Device terminated) PSK mode assumed
+2: Secure Packet Structure mode (Smartcard terminated)
+3: NoSec mode
+4: Reserved mode (DTLS mode with multiplexing Security Association support)
+5-203 : Reserved for future use
+204-255: Proprietary modes]]></Description>
+			</Item>
+			<Item ID="7">
+				<Name>SMS Binding Key Parameters</Name>
+        <Operations></Operations>
+        <MultipleInstances>Single</MultipleInstances>
+				<Mandatory>Optional</Mandatory>
+				<Type>Opaque</Type>
+				<RangeEnumeration>6 bytes</RangeEnumeration>
+				<Units></Units>
+				<Description><![CDATA[Stores the KIc, KID, SPI and TAR. The format is defined in Section E.1.2 of the LwM2M version 1.0 specification.]]></Description>
+			</Item>
+			<Item ID="8">
+				<Name>SMS Binding Secret Key(s)</Name>
+        <Operations></Operations>
+        <MultipleInstances>Single</MultipleInstances>
+				<Mandatory>Optional</Mandatory>
+				<Type>Opaque</Type>
+				<RangeEnumeration>16-32-48 bytes</RangeEnumeration>
+				<Units></Units>
+				<Description><![CDATA[Stores the values of the key(s) for the SMS binding. 
+This resource MUST only be changed by a bootstrap-server and MUST NOT be readable by any server.]]></Description>
+			</Item>
+			<Item ID="9">
+				<Name>LwM2M Server SMS Number</Name>
+        <Operations></Operations>
+        <MultipleInstances>Single</MultipleInstances>
+				<Mandatory>Optional</Mandatory>
+				<Type>String</Type>
+				<RangeEnumeration></RangeEnumeration>
+				<Units></Units>
+				<Description><![CDATA[MSISDN used by the LwM2M Client to send messages to the LwM2M Server via the SMS binding. 
+The LwM2M Client SHALL silently ignore any SMS originated from unknown MSISDN]]></Description>
+			</Item>
+			<Item ID="10">
+				<Name>Short Server ID</Name>
+        <Operations></Operations>
+        <MultipleInstances>Single</MultipleInstances>
+				<Mandatory>Optional</Mandatory>
+				<Type>Integer</Type>
+				<RangeEnumeration>1-65534</RangeEnumeration>
+				<Units></Units>
+				<Description><![CDATA[This identifier uniquely identifies each LwM2M Server configured for the LwM2M Client.
+This Resource MUST be set when the Bootstrap-Server Resource has false value.
+Specific ID:0 and ID:65535 values MUST NOT be used for identifying the LwM2M Server (Section 6.3 of the LwM2M version 1.0 specification).]]></Description>
+			</Item>
+			<Item ID="11">
+				<Name>Client Hold Off Time</Name>
+        <Operations></Operations>
+        <MultipleInstances>Single</MultipleInstances>
+				<Mandatory>Optional</Mandatory>
+				<Type>Integer</Type>
+				<RangeEnumeration></RangeEnumeration>
+				<Units>s</Units>
+				<Description><![CDATA[Relevant information for a Bootstrap-Server only.
+The number of seconds to wait before initiating a Client Initiated Bootstrap once the LwM2M Client has determined it should initiate this bootstrap mode.
+In case client initiated bootstrap is supported by the LwM2M Client, this resource MUST be supported.]]></Description>
+			</Item>
+			<Item ID="12">
+				<Name>Bootstrap-Server Account Timeout</Name>
+        <Operations></Operations>
+        <MultipleInstances>Single</MultipleInstances>
+				<Mandatory>Optional</Mandatory>
+				<Type>Integer</Type>
+				<RangeEnumeration></RangeEnumeration>
+				<Units>s</Units>
+				<Description><![CDATA[The LwM2M Client MUST purge the LwM2M Bootstrap-Server Account after the timeout value given by this resource. The lowest timeout value is 1.
+If the value is set to 0, or if this resource is not instantiated, the Bootstrap-Server Account lifetime is infinite.]]></Description>
+			</Item>
+		</Resources>
+			<Description2><![CDATA[]]></Description2>
+	</Object>
+</LWM2M>

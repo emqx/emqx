@@ -1,0 +1,36 @@
+%% -*-: erlang -*-
+
+{"4.2.3",
+ [
+   {"4.2.2", [
+     {load_module, emqx_web_hook_actions, brutal_purge, soft_purge, []},
+     {apply, {emqx_rule_engine, load_providers, []}}
+   ]},
+   {"4.2.1", [
+     {load_module, emqx_web_hook, brutal_purge, soft_purge, []},
+     {load_module, emqx_web_hook_actions, brutal_purge, soft_purge, [emqx_rule_engine]},
+     {apply, {emqx_rule_engine, load_providers, []}}
+   ]},
+   {"4.2.0", [
+     {load_module, emqx_web_hook, brutal_purge, soft_purge, []},
+     {load_module, emqx_web_hook_actions, brutal_purge, soft_purge, [emqx_rule_engine]},
+     {apply, {emqx_rule_engine, load_providers, []}}
+   ]}
+ ],
+ [
+   {"4.2.2", [
+     {load_module, emqx_web_hook_actions, brutal_purge, soft_purge, []},
+     {apply, {emqx_rule_engine, load_providers, []}}
+   ]},
+   {"4.2.1", [
+     {load_module, emqx_web_hook, brutal_purge, soft_purge, []},
+     {load_module, emqx_web_hook_actions, brutal_purge, soft_purge, [emqx_rule_engine]},
+     {apply, {emqx_rule_engine, load_providers, []}}
+   ]},
+   {"4.2.0", [
+     {load_module, emqx_web_hook, brutal_purge, soft_purge, []},
+     {load_module, emqx_web_hook_actions, brutal_purge, soft_purge, [emqx_rule_engine]},
+     {apply, {emqx_rule_engine, load_providers, []}}
+   ]}
+ ]
+}.

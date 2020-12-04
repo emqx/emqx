@@ -1,0 +1,26 @@
+name: Run test cases
+
+on: [push, pull_request]
+
+jobs:    
+    run_test_cases:
+        runs-on: ubuntu-latest
+            
+        steps:
+            - uses: actions/checkout@v1
+            - name: run test cases
+              run: |
+                docker network create --driver bridge --ipv6 --subnet fd15:555::/64  tests_emqx_bridge
+                docker run -i \
+                  --network tests_emqx_bridge \
+                  -v $(pwd):/emqx_auth_http \
+                  erlang:22.3 \
+                  bash -c "make -C /emqx_auth_http xref
+                  make -C /emqx_auth_http eunit  
+                  make -C /emqx_auth_http ct
+                  make -C /emqx_auth_http cover"
+            - uses: actions/upload-artifact@v1
+              if: failure()
+              with:
+                name: logs
+                path: _build/test/logs

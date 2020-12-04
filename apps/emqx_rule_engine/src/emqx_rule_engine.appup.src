@@ -1,0 +1,44 @@
+%% -*-: erlang -*-
+
+{"4.2.3",
+ [
+   {"4.2.0", [
+     {load_module, emqx_rule_events, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_funcs, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_maps, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_engine, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_actions, brutal_purge, soft_purge, []}
+   ]},
+   {"4.2.1", [
+     {load_module, emqx_rule_funcs, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_maps, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_engine, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_actions, brutal_purge, soft_purge, []}
+   ]},
+   {"4.2.2", [
+     {load_module, emqx_rule_funcs, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_engine, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_actions, brutal_purge, soft_purge, []}
+   ]}
+ ],
+ [
+   {"4.2.0", [
+     {load_module, emqx_rule_events, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_funcs, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_maps, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_engine, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_actions, brutal_purge, soft_purge, []}
+   ]},
+   {"4.2.1", [
+     {load_module, emqx_rule_funcs, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_maps, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_engine, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_actions, brutal_purge, soft_purge, []}
+   ]},
+   {"4.2.2", [
+     {load_module, emqx_rule_actions, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_engine, brutal_purge, soft_purge, []},
+     {load_module, emqx_rule_funcs, brutal_purge, soft_purge, []}
+   ]}
+ ]
+}.

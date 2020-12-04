@@ -1,0 +1,14 @@
+{application, emqx_telemetry,
+ [{description, "EMQ X Telemetry"},
+  {vsn, "git"},
+  {modules, []},
+  {registered, [emqx_telemetry_sup]},
+  {applications, [kernel,stdlib]},
+  {mod, {emqx_telemetry_app,[]}},
+  {env, []},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx/emqx-telemetry"}
+          ]}
+ ]}.
