@@ -175,7 +175,7 @@ t_serialize_parse_v5_connect(_) ->
                   'Content-Type'             => <<"text/json">>,
                   'Response-Topic'           => <<"topic">>,
                   'Correlation-Data'         => <<"correlateid">>,
-                  'User-Property'            => [{<<"k">>, <<"v">>}]
+                  'User-Property'            => [#{key => <<"k">>, value => <<"v">>}]
                  },
     Packet = ?CONNECT_PACKET(
                 #mqtt_packet_connect{proto_name   = <<"MQTT">>,
@@ -431,7 +431,7 @@ t_serialize_parse_suback(_) ->
 
 t_serialize_parse_suback_v5(_) ->
     Packet = ?SUBACK_PACKET(1, #{'Reason-String' => <<"success">>,
-                                 'User-Property' => [{<<"key">>, <<"value">>}]},
+                                 'User-Property' => [#{key => <<"key">>, value => <<"value">>}]},
                             [?QOS_0, ?QOS_1, 128]),
     ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
@@ -452,7 +452,7 @@ t_serialize_parse_unsubscribe(_) ->
     ?catch_error(bad_packet_id, parse_serialize(?UNSUBSCRIBE_PACKET(0, [<<"TopicA">>]))).
 
 t_serialize_parse_unsubscribe_v5(_) ->
-    Props = #{'User-Property' => [{<<"key">>, <<"val">>}]},
+    Props = #{'User-Property' => [#{key => <<"key">>, value => <<"val">>}]},
     Packet = ?UNSUBSCRIBE_PACKET(10, Props, [<<"Topic1">>, <<"Topic2">>]),
     ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
@@ -462,7 +462,7 @@ t_serialize_parse_unsuback(_) ->
 
 t_serialize_parse_unsuback_v5(_) ->
     Packet = ?UNSUBACK_PACKET(10, #{'Reason-String' => <<"Not authorized">>,
-                                    'User-Property' => [{<<"key">>, <<"val">>}]},
+                                    'User-Property' => [#{key => <<"key">>, value => <<"val">>}]},
                               [16#87, 16#87, 16#87]),
     ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
@@ -495,8 +495,8 @@ t_serialize_parse_auth_v5(_) ->
                           #{'Authentication-Method' => <<"oauth2">>,
                             'Authentication-Data' => <<"3zekkd">>,
                             'Reason-String' => <<"success">>,
-                            'User-Property' => [{<<"key1">>, <<"val1">>},
-                                                {<<"key2">>, <<"val2">>}]
+                            'User-Property' => [#{key => <<"key1">>, value => <<"val1">>},
+                                                #{key => <<"key2">>, value => <<"val2">>}]
                            }),
     ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})),
     ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5,

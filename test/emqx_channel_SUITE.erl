@@ -611,8 +611,12 @@ t_process_alias(_) ->
 t_packing_alias(_) ->
     Packet1 = #mqtt_packet{variable = #mqtt_packet_publish{
                                          topic_name = <<"x">>,
-                                         properties = #{'User-Property' => [{<<"k">>, <<"v">>}]}
-                                        }},
+                                         properties = #{
+                                            'User-Property' => [#{
+                                                key => <<"k">>,
+                                                value => <<"v">>
+                                            }]
+                                        }}},
     Packet2 = #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"y">>}},
     Channel = emqx_channel:set_field(alias_maximum, #{outbound => 1}, channel()),
 
@@ -621,7 +625,10 @@ t_packing_alias(_) ->
                                             topic_name = <<"x">>,
                                             properties = #{
                                                 'Topic-Alias' => 1,
-                                                'User-Property' => [{<<"k">>, <<"v">>}]
+                                                'User-Property' => [#{
+                                                    key => <<"k">>,
+                                                    value => <<"v">>
+                                                }]
                                              }
                                            }}, RePacket1),
 
@@ -630,7 +637,10 @@ t_packing_alias(_) ->
                                             topic_name = <<>>,
                                             properties = #{
                                                 'Topic-Alias' => 1,
-                                                'User-Property' => [{<<"k">>, <<"v">>}]
+                                                'User-Property' => [#{
+                                                    key => <<"k">>,
+                                                    value => <<"v">>
+                                                }]
                                              }}}, RePacket2),
 
     {RePacket3, _} = emqx_channel:packing_alias(Packet2, NChannel2),

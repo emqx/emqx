@@ -66,8 +66,8 @@ t_validate(_) ->
 t_validate_value(_) ->
     ok = emqx_mqtt_props:validate(#{'Correlation-Data' => <<"correlation-id">>}),
     ok = emqx_mqtt_props:validate(#{'Reason-String' => <<"Unknown Reason">>}),
-    ok = emqx_mqtt_props:validate(#{'User-Property' => {<<"Prop">>, <<"Val">>}}),
-    ok = emqx_mqtt_props:validate(#{'User-Property' => [{<<"Prop">>, <<"Val">>}]}),
+    ok = emqx_mqtt_props:validate(#{'User-Property' => #{key => <<"Prop">>, value => <<"Val">>}}),
+    ok = emqx_mqtt_props:validate(#{'User-Property' => [#{key => <<"Prop">>, value => <<"Val">>}]}),
     ?catch_error({bad_property_value, {'Payload-Format-Indicator', 16#FFFF}},
                  emqx_mqtt_props:validate(#{'Payload-Format-Indicator' => 16#FFFF})),
     ?catch_error({bad_property_value, {'Server-Keep-Alive', 16#FFFFFF}},

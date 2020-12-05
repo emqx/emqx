@@ -411,7 +411,7 @@ parse_reason_codes(Bin) ->
 
 parse_utf8_pair(<<Len1:16/big, Key:Len1/binary,
                   Len2:16/big, Val:Len2/binary, Rest/binary>>) ->
-    {{Key, Val}, Rest}.
+    {#{key => Key, value => Val}, Rest}.
 
 parse_utf8_string(Bin, false) ->
     {undefined, Bin};
@@ -637,11 +637,11 @@ serialize_property('Maximum-QoS', Val) ->
     <<16#24, Val>>;
 serialize_property('Retain-Available', Val) ->
     <<16#25, Val>>;
-serialize_property('User-Property', {Key, Val}) ->
+serialize_property('User-Property', #{key := Key, value := Val}) ->
     <<16#26, (serialize_utf8_pair({Key, Val}))/binary>>;
 serialize_property('User-Property', Props) when is_list(Props) ->
-    << <<(serialize_property('User-Property', {Key, Val}))/binary>>
-       || {Key, Val} <- Props >>;
+    << <<(serialize_property('User-Property', #{key => Key, value => Val}))/binary>>
+       || #{key := Key, value := Val} <- Props >>;
 serialize_property('Maximum-Packet-Size', Val) ->
     <<16#27, Val:32/big>>;
 serialize_property('Wildcard-Subscription-Available', Val) ->

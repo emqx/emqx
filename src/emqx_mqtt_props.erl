@@ -165,7 +165,7 @@ validate_value('Four-Byte-Integer', Val) ->
     is_integer(Val) andalso 0 =< Val andalso Val =< 16#FFFFFFFF;
 validate_value('Variable-Byte-Integer', Val) ->
     is_integer(Val) andalso 0 =< Val andalso Val =< 16#7FFFFFFF;
-validate_value('UTF8-String-Pair', {Name, Val}) ->
+validate_value('UTF8-String-Pair', #{key := Name, value := Val}) ->
     validate_value('UTF8-Encoded-String', Name)
         andalso validate_value('UTF8-Encoded-String', Val);
 validate_value('UTF8-String-Pair', Pairs) when is_list(Pairs) ->
