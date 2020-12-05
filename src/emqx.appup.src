@@ -7,19 +7,19 @@
      {load_module, emqx_channel, brutal_purge, soft_purge, []},
      {load_module, emqx_metrics, brutal_purge, soft_purge, []},
      {load_module, emqx_limiter, brutal_purge, soft_purge, []},
-     {suspend, [emqx_connection, emqx_ws_connection]},
+     {suspend, [esockd_acceptor,emqx_connection, emqx_ws_connection]},
      {load_module, emqx_frame, brutal_purge, soft_purge, []},
      {update, emqx_connection, {advanced, []}},
      {update, emqx_ws_connection, {advanced, []}},
-     {resume, [emqx_connection, emqx_ws_connection]}
+     {resume, [esockd_acceptor,emqx_connection, emqx_ws_connection]}
    ]},
    {"4.2.1", [
      {load_module, emqx_limiter, brutal_purge, soft_purge, []},
-     {suspend, [emqx_connection, emqx_ws_connection]},
+     {suspend, [esockd_acceptor, emqx_connection, emqx_ws_connection]},
      {load_module, emqx_frame, brutal_purge, soft_purge, []},
      {update, emqx_connection, {advanced, []}},
      {update, emqx_ws_connection, {advanced, []}},
-     {resume, [emqx_connection, emqx_ws_connection]}
+     {resume, [esockd_acceptor, emqx_connection, emqx_ws_connection]}
    ]},
    {<<".*">>, []}
  ],
@@ -29,19 +29,19 @@
      {load_module, emqx_channel, brutal_purge, soft_purge, []},
      {load_module, emqx_metrics, brutal_purge, soft_purge, []},
      {load_module, emqx_limiter, brutal_purge, soft_purge, []},
-     {suspend, [emqx_connection, emqx_ws_connection]},
+     {suspend, [esockd_acceptor, emqx_connection, emqx_ws_connection]},
      {load_module, emqx_frame, brutal_purge, soft_purge, []},
      {update, emqx_connection, {advanced, []}},
      {update, emqx_ws_connection, {advanced, []}},
-     {resume, [emqx_connection, emqx_ws_connection]}
+     {resume, [esockd_acceptor, emqx_connection, emqx_ws_connection]}
    ]},
    {"4.2.1", [
      {load_module, emqx_limiter, brutal_purge, soft_purge, []},
-     {suspend, [emqx_connection, emqx_ws_connection]},
+     {suspend, [esockd_acceptor, emqx_connection, emqx_ws_connection]},
      {load_module, emqx_frame, brutal_purge, soft_purge, []},
      {update, emqx_connection, {advanced, []}},
      {update, emqx_ws_connection, {advanced, []}},
-     {resume, [emqx_connection, emqx_ws_connection]}
+     {resume, [esockd_acceptor, emqx_connection, emqx_ws_connection]}
    ]},
    {<<".*">>, []}
  ]
