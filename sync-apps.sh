@@ -8,7 +8,6 @@ apps=(
 "emqx_auth_http"
 "emqx_auth_jwt"
 "emqx_auth_ldap"
-"emqx_auth_mnesia"
 "emqx_auth_mongo"
 "emqx_auth_mysql"
 "emqx_auth_pgsql"
@@ -57,6 +56,7 @@ download_zip() {
 
 default_vsn="dev/v4.3.0"
 download_zip "emqx_passwd" "v1.1.1"
+download_zip "emqx_auth_mnesia" "e4.2.2"
 for app in ${apps[@]}; do
     download_zip "$app" "$default_vsn"
 done
@@ -79,17 +79,22 @@ extract_zip(){
 }
 
 extract_zip "emqx_passwd" "v1.1.1" "1.1.1"
+extract_zip "emqx_auth_mnesia" "e4.2.2" "e4.2.2"
 for app in ${apps[@]}; do
     extract_zip "$app" "$default_vsn"
 done
 
 cleanup_app(){
     local app="$1"
-    rm -f "apps/$app/Makefile"
-    rm -f "apps/$app/rebar.config.script"
+    pushd "apps/$app"
+    rm -f Makefile rebar.config.script
+    rm -rf ".github" ".ci"
+    rm -rf src/*.app.src.script
+    rm -rf src/*.appup.src
+    popd
 }
 
-apps+=( "emqx_passwd" )
+apps+=( "emqx_passwd" "emqx_auth_mnesia" )
 for app in ${apps[@]}; do
     cleanup_app $app
 done

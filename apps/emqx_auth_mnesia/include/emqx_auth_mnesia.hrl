@@ -1,17 +1,20 @@
 -define(APP, emqx_auth_mnesia).
 
+-type(login():: {clientid, binary()}
+              | {username, binary()}).
+
 -record(emqx_user, {
-        login,
-        password,
-        is_superuser
-    }).
+          login :: login(),
+          password :: binary(),
+          created_at :: integer()
+        }).
 
 -record(emqx_acl, {
-        login,
-        topic,
-        action,
-        allow
-    }).
+          filter:: {login() | all, emqx_topic:topic()},
+          action :: pub | sub | pubsub,
+          access :: allow | deny,
+          created_at :: integer()
+         }).
 
 -record(auth_metrics, {
         success = 'client.auth.success',

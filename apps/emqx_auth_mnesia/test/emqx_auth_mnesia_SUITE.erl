@@ -2,10 +2,7 @@
 %% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
+%% you may not use this file except in compliance with the License.  %% You may obtain a copy of the License at %% %%     http://www.apache.org/licenses/LICENSE-2.0
 %%
 %% Unless required by applicable law or agreed to in writing, software
 %% distributed under the License is distributed on an "AS IS" BASIS,
@@ -32,6 +29,12 @@
 -define(HOST, "http://127.0.0.1:8081/").
 -define(API_VERSION, "v4").
 -define(BASE_PATH, "api").
+
+-define(TABLE, emqx_user).
+-define(CLIENTID,  <<"clientid_for_ct">>).
+-define(USERNAME,  <<"username_for_ct">>).
+-define(PASSWORD,  <<"password">>).
+-define(NPASSWORD, <<"new_password">>).
 
 all() ->
     emqx_ct:all(?MODULE).
@@ -81,143 +84,166 @@ set_special_configs(_App) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_check_as_username(_Config) ->
+t_management(_Config) ->
     clean_all_users(),
 
-    ok = emqx_auth_mnesia_cli:add_user(<<"test_username">>, <<"password">>, true),
-    {error, existed} = emqx_auth_mnesia_cli:add_user(<<"test_username">>, <<"password">>, true),
+    ok = emqx_auth_mnesia_cli:add_user({username,?USERNAME}, ?PASSWORD),
+    {error, existed} = emqx_auth_mnesia_cli:add_user({username,?USERNAME}, ?PASSWORD),
+    ?assertMatch([{?TABLE, {username, ?USERNAME}, _Password, _InterTime}], emqx_auth_mnesia_cli:all_users(username)),
 
-    ok = emqx_auth_mnesia_cli:update_user(<<"test_username">>, <<"new_password">>, false),
-    {error,noexisted} = emqx_auth_mnesia_cli:update_user(<<"no_existed_user">>, <<"password">>, true),
+    ok = emqx_auth_mnesia_cli:add_user({clientid,?CLIENTID}, ?PASSWORD),
+    {error, existed} = emqx_auth_mnesia_cli:add_user({clientid,?CLIENTID}, ?PASSWORD),
+    ?assertMatch([{?TABLE, {clientid, ?CLIENTID}, _Password, _InterTime}], emqx_auth_mnesia_cli:all_users(clientid)),
 
-    [<<"test_username">>] = emqx_auth_mnesia_cli:all_users(),
-    [{emqx_user, <<"test_username">>, _HashedPass, false}] =
-        emqx_auth_mnesia_cli:lookup_user(<<"test_username">>),
+    ?assertEqual(2,length(emqx_auth_mnesia_cli:all_users())),
 
-    User1 = #{username => <<"test_username">>,
-              password => <<"new_password">>,
+    ok = emqx_auth_mnesia_cli:update_user({username,?USERNAME}, ?NPASSWORD),
+    {error,noexisted} = emqx_auth_mnesia_cli:update_user({username, <<"no_existed_user">>}, ?PASSWORD),
+
+    ok = emqx_auth_mnesia_cli:update_user({clientid,?CLIENTID}, ?NPASSWORD),
+    {error,noexisted} = emqx_auth_mnesia_cli:update_user({clientid, <<"no_existed_user">>}, ?PASSWORD),
+
+    
+    ?assertMatch([{?TABLE, {username, ?USERNAME}, _Password, _InterTime}], emqx_auth_mnesia_cli:lookup_user({username, ?USERNAME})),
+    ?assertMatch([{?TABLE, {clientid, ?CLIENTID}, _Password, _InterTime}], emqx_auth_mnesia_cli:lookup_user({clientid, ?CLIENTID})),
+
+    User1 = #{username => ?USERNAME,
+              clientid => undefined,
+              password => ?NPASSWORD,
               zone     => external},
 
-    {ok, #{is_superuser := false, 
-           auth_result := success,
+    {ok, #{auth_result := success,
            anonymous := false}} = emqx_access_control:authenticate(User1),
 
     {error,password_error} = emqx_access_control:authenticate(User1#{password => <<"error_password">>}),
 
-    ok = emqx_auth_mnesia_cli:remove_user(<<"test_username">>),
+    ok = emqx_auth_mnesia_cli:remove_user({username,?USERNAME}),
     {ok, #{auth_result := success,
-           anonymous := true }} = emqx_access_control:authenticate(User1).
+           anonymous := true }} = emqx_access_control:authenticate(User1),
 
-t_check_as_clientid(_Config) ->
-    clean_all_users(),
-
-    ok = emqx_auth_mnesia_cli:add_user(<<"test_clientid">>, <<"password">>, false),
-    {error, existed} = emqx_auth_mnesia_cli:add_user(<<"test_clientid">>, <<"password">>, false),
-
-    ok = emqx_auth_mnesia_cli:update_user(<<"test_clientid">>, <<"new_password">>, true),
-    {error,noexisted} = emqx_auth_mnesia_cli:update_user(<<"no_existed_user">>, <<"password">>, true),
-
-    [<<"test_clientid">>] = emqx_auth_mnesia_cli:all_users(),
-    [{emqx_user, <<"test_clientid">>, _HashedPass, true}] =
-    emqx_auth_mnesia_cli:lookup_user(<<"test_clientid">>),
-
-    User1 = #{clientid => <<"test_clientid">>,
-              password => <<"new_password">>,
+    User2 = #{clientid => ?CLIENTID,
+              password => ?NPASSWORD,
               zone     => external},
 
-    {ok, #{is_superuser := true, 
-           auth_result := success,
-           anonymous := false}} = emqx_access_control:authenticate(User1),
-
-    {error,password_error} = emqx_access_control:authenticate(User1#{password => <<"error_password">>}),
-
-    ok = emqx_auth_mnesia_cli:remove_user(<<"test_clientid">>),
     {ok, #{auth_result := success,
-           anonymous := true }} = emqx_access_control:authenticate(User1).
+           anonymous := false}} = emqx_access_control:authenticate(User2),
 
-t_rest_api(_Config) ->
+    {error,password_error} = emqx_access_control:authenticate(User2#{password => <<"error_password">>}),
+
+    ok = emqx_auth_mnesia_cli:remove_user({clientid,?CLIENTID}),
+    {ok, #{auth_result := success,
+           anonymous := true }} = emqx_access_control:authenticate(User2),
+
+    [] = emqx_auth_mnesia_cli:all_users().
+
+t_auth_clientid_cli(_) ->
     clean_all_users(),
 
-    {ok, Result1} = request_http_rest_list(),
+    HashType = application:get_env(emqx_auth_mnesia, password_hash, sha256),
+
+    emqx_auth_mnesia_cli:auth_clientid_cli(["add", ?CLIENTID, ?PASSWORD]),
+    [{_, {clientid, ?CLIENTID}, <<Salt:4/binary, Hash/binary>>, _}] = emqx_auth_mnesia_cli:lookup_user({clientid, ?CLIENTID}),
+    ?assertEqual(Hash, emqx_passwd:hash(HashType, <<Salt/binary, ?PASSWORD/binary>>)),
+
+    emqx_auth_mnesia_cli:auth_clientid_cli(["update", ?CLIENTID, ?NPASSWORD]),
+    [{_, {clientid, ?CLIENTID}, <<Salt1:4/binary, Hash1/binary>>, _}] = emqx_auth_mnesia_cli:lookup_user({clientid, ?CLIENTID}),
+    ?assertEqual(Hash1, emqx_passwd:hash(HashType, <<Salt1/binary, ?NPASSWORD/binary>>)),
+
+    emqx_auth_mnesia_cli:auth_clientid_cli(["del", ?CLIENTID]),
+    ?assertEqual([], emqx_auth_mnesia_cli:lookup_user(?CLIENTID)),
+
+    emqx_auth_mnesia_cli:auth_clientid_cli(["add", "user1", "pass1"]),
+    emqx_auth_mnesia_cli:auth_clientid_cli(["add", "user2", "pass2"]),
+    ?assertEqual(2, length(emqx_auth_mnesia_cli:auth_clientid_cli(["list"]))),
+
+    emqx_auth_mnesia_cli:auth_clientid_cli(usage).
+
+t_auth_username_cli(_) ->
+    clean_all_users(),
+
+    HashType = application:get_env(emqx_auth_mnesia, password_hash, sha256),
+
+    emqx_auth_mnesia_cli:auth_username_cli(["add", ?USERNAME, ?PASSWORD]),
+    [{_, {username, ?USERNAME}, <<Salt:4/binary, Hash/binary>>, _}] = emqx_auth_mnesia_cli:lookup_user({username, ?USERNAME}),
+    ?assertEqual(Hash, emqx_passwd:hash(HashType, <<Salt/binary, ?PASSWORD/binary>>)),
+
+    emqx_auth_mnesia_cli:auth_username_cli(["update", ?USERNAME, ?NPASSWORD]),
+    [{_, {username, ?USERNAME}, <<Salt1:4/binary, Hash1/binary>>, _}] = emqx_auth_mnesia_cli:lookup_user({username, ?USERNAME}),
+    ?assertEqual(Hash1, emqx_passwd:hash(HashType, <<Salt1/binary, ?NPASSWORD/binary>>)),
+
+    emqx_auth_mnesia_cli:auth_username_cli(["del", ?USERNAME]),
+    ?assertEqual([], emqx_auth_mnesia_cli:lookup_user(?USERNAME)),
+
+    emqx_auth_mnesia_cli:auth_username_cli(["add", "user1", "pass1"]),
+    emqx_auth_mnesia_cli:auth_username_cli(["add", "user2", "pass2"]),
+    ?assertEqual(2, length(emqx_auth_mnesia_cli:auth_username_cli(["list"]))),
+
+    emqx_auth_mnesia_cli:auth_username_cli(usage).
+
+
+t_clientid_rest_api(_Config) ->
+    clean_all_users(),
+
+    {ok, Result1} = request_http_rest_list(["auth_clientid"]),
     [] = get_http_data(Result1),
 
-    Params = #{<<"login">> => <<"test_username">>, <<"password">> => <<"password">>, <<"is_superuser">> => true},
-    {ok, _} = request_http_rest_add(Params),
+    Params1 = #{<<"clientid">> => ?CLIENTID, <<"password">> => ?PASSWORD},
+    {ok, _} = request_http_rest_add(["auth_clientid"], Params1),
 
-    Params1 = [
-                #{<<"login">> => <<"test_username">>, <<"password">> => <<"password">>, <<"is_superuser">> => true},
-                #{<<"login">> => <<"test_username/1">>, <<"password">> => <<"password">>, <<"is_superuser">> => error_format},
-                #{<<"login">> => <<"test_username/2">>, <<"password">> => <<"password">>, <<"is_superuser">> => true}
-                ],
-    {ok, Result2} = request_http_rest_add(Params1),
-    #{
-        <<"test_username">> := <<"{error,existed}">>,
-        <<"test_username/1">> := <<"{error,is_superuser}">>,
-        <<"test_username/2">> := <<"ok">>
-        } = get_http_data(Result2),
+    Params2 = #{<<"clientid">> => ?CLIENTID, <<"password">> => ?NPASSWORD},
+    {ok, _} = request_http_rest_update(["auth_clientid/" ++ binary_to_list(?CLIENTID)], Params2),
+ 
+    {ok, Result2} = request_http_rest_lookup(["auth_clientid/" ++ binary_to_list(?CLIENTID)]),
+    ?assertMatch(#{<<"clientid">> := ?CLIENTID}, get_http_data(Result2)),
 
-    {ok, Result3} = request_http_rest_lookup(<<"test_username">>),
-    #{<<"login">> := <<"test_username">>, <<"is_superuser">> := true} = get_http_data(Result3),
+    Params3 = [ #{<<"clientid">> => ?CLIENTID, <<"password">> => ?PASSWORD}
+              , #{<<"clientid">> => <<"clientid1">>, <<"password">> => ?PASSWORD}
+              , #{<<"clientid">> => <<"clientid2">>, <<"password">> => ?PASSWORD}
+              ],
+    {ok, Result3} = request_http_rest_add(["auth_clientid"], Params3),
+    ?assertMatch(#{ ?CLIENTID := <<"{error,existed}">>
+                  , <<"clientid1">> := <<"ok">>
+                  , <<"clientid2">> := <<"ok">>
+                  }, get_http_data(Result3)),
 
-    {ok, _} = request_http_rest_update(<<"test_username">>, <<"new_password">>, error_format),
-    {ok, _} = request_http_rest_update(<<"error_username">>, <<"new_password">>, false),
+    {ok, Result4} = request_http_rest_list(["auth_clientid"]),
+    ?assertEqual(3, length(get_http_data(Result4))),
 
-    {ok, _} = request_http_rest_update(<<"test_username">>, <<"new_password">>, false),
-    {ok, Result4} = request_http_rest_lookup(<<"test_username">>),
-    #{<<"login">> := <<"test_username">>, <<"is_superuser">> := false} = get_http_data(Result4),
+    {ok, _} = request_http_rest_delete(["auth_clientid/" ++ binary_to_list(?CLIENTID)]),
+    {ok, Result5} = request_http_rest_lookup(["auth_clientid/" ++ binary_to_list(?CLIENTID)]),
+    ?assertMatch(#{}, get_http_data(Result5)).
 
-    User1 = #{username => <<"test_username">>,
-        password => <<"new_password">>,
-        zone     => external},
-
-    {ok, #{is_superuser := false, 
-        auth_result := success,
-        anonymous := false}} = emqx_access_control:authenticate(User1),
-
-    {ok, _} = request_http_rest_delete(<<"test_username">>),
-    {ok, #{auth_result := success,
-           anonymous := true }} = emqx_access_control:authenticate(User1).
-
-t_run_command(_) ->
-    clean_all_users(),
-    ?assertEqual(ok, emqx_ctl:run_command(["mqtt-user", "add", "TestUser", "Password", false])),
-    ?assertMatch([{emqx_user, <<"TestUser">>, _, false}], emqx_auth_mnesia_cli:lookup_user(<<"TestUser">>)),
-
-    ?assertEqual(ok, emqx_ctl:run_command(["mqtt-user", "update", "TestUser", "NewPassword", true])),
-    ?assertMatch([{emqx_user, <<"TestUser">>, _, true}], emqx_auth_mnesia_cli:lookup_user(<<"TestUser">>)),
-
-    ?assertEqual(ok, emqx_ctl:run_command(["mqtt-user", "del", "TestUser"])),
-    ?assertMatch([], emqx_auth_mnesia_cli:lookup_user(<<"TestUser">>)),
-
-    ?assertEqual(ok, emqx_ctl:run_command(["mqtt-user", "show", "TestUser"])),
-    ?assertEqual(ok, emqx_ctl:run_command(["mqtt-user", "list"])),
-    ?assertEqual(ok, emqx_ctl:run_command(["mqtt-user"])).
-
-t_cli(_) ->
-    meck:new(emqx_ctl, [non_strict, passthrough]),
-    meck:expect(emqx_ctl, print, fun(Arg) -> emqx_ctl:format(Arg) end),
-    meck:expect(emqx_ctl, print, fun(Msg, Arg) -> emqx_ctl:format(Msg, Arg) end),
-    meck:expect(emqx_ctl, usage, fun(Usages) -> emqx_ctl:format_usage(Usages) end),
-    meck:expect(emqx_ctl, usage, fun(Cmd, Descr) -> emqx_ctl:format_usage(Cmd, Descr) end),
-
+t_username_rest_api(_Config) ->
     clean_all_users(),
 
-    ?assertMatch({match, _}, re:run(emqx_auth_mnesia_cli:auth_cli(["add", "TestUser", "Password", true]), "ok")),
-    ?assertMatch({match, _}, re:run(emqx_auth_mnesia_cli:auth_cli(["add", "TestUser", "Password", true]), "Error")),
+    {ok, Result1} = request_http_rest_list(["auth_username"]),
+    [] = get_http_data(Result1),
 
-    ?assertMatch({match, _}, re:run(emqx_auth_mnesia_cli:auth_cli(["update", "NoExisted", "Password", false]), "Error")),
-    ?assertMatch({match, _}, re:run(emqx_auth_mnesia_cli:auth_cli(["update", "TestUser", "Password", false]), "ok")),
+    Params1 = #{<<"username">> => ?USERNAME, <<"password">> => ?PASSWORD},
+    {ok, _} = request_http_rest_add(["auth_username"], Params1),
 
-    ?assertMatch(["User(login = <<\"TestUser\">> is_super = false)\n"], emqx_auth_mnesia_cli:auth_cli(["show", "TestUser"])),
-    ?assertMatch(["User(login = <<\"TestUser\">>)\n"], emqx_auth_mnesia_cli:auth_cli(["list"])),
+    Params2 = #{<<"username">> => ?USERNAME, <<"password">> => ?NPASSWORD},
+    {ok, _} = request_http_rest_update(["auth_username/" ++ binary_to_list(?USERNAME)], Params2),
 
-    ?assertMatch({match, _}, re:run(emqx_auth_mnesia_cli:auth_cli(["del", "TestUser"]), "ok")),
-    ?assertMatch([], emqx_auth_mnesia_cli:auth_cli(["show", "TestUser"])),
-    ?assertMatch([], emqx_auth_mnesia_cli:auth_cli(["list"])),
+    {ok, Result2} = request_http_rest_lookup(["auth_username/" ++ binary_to_list(?USERNAME)]),
+    ?assertMatch(#{<<"username">> := ?USERNAME}, get_http_data(Result2)),
 
-    ?assertMatch({match, _}, re:run(emqx_auth_mnesia_cli:auth_cli([]), "mqtt-user")),
+    Params3 = [ #{<<"username">> => ?USERNAME, <<"password">> => ?PASSWORD}
+              , #{<<"username">> => <<"username1">>, <<"password">> => ?PASSWORD}
+              , #{<<"username">> => <<"username2">>, <<"password">> => ?PASSWORD}
+              ],
+    {ok, Result3} = request_http_rest_add(["auth_username"], Params3),
+    ?assertMatch(#{ ?USERNAME := <<"{error,existed}">>
+                  , <<"username1">> := <<"ok">>
+                  , <<"username2">> := <<"ok">>
+                  }, get_http_data(Result3)),
 
-    meck:unload(emqx_ctl).
+    {ok, Result4} = request_http_rest_list(["auth_username"]),
+    ?assertEqual(3, length(get_http_data(Result4))),
+
+    {ok, _} = request_http_rest_delete(["auth_username/" ++ binary_to_list(?USERNAME)]),
+    {ok, Result5} = request_http_rest_lookup(["auth_username/" ++ binary_to_list(?USERNAME)]),
+    ?assertMatch(#{}, get_http_data(Result5)).
 
 %%------------------------------------------------------------------------------
 %% Helpers
@@ -231,18 +257,17 @@ clean_all_users() ->
 %% HTTP Request
 %%--------------------------------------------------------------------
 
-request_http_rest_list() ->
-    request_api(get, uri(), default_auth_header()).
+request_http_rest_list(Path) ->
+    request_api(get, uri(Path), default_auth_header()).
 
-request_http_rest_lookup(Login) ->
-    request_api(get, uri([Login]), default_auth_header()).
+request_http_rest_lookup(Path) ->
+    request_api(get, uri([Path]), default_auth_header()).
 
-request_http_rest_add(Params) ->
-    request_api(post, uri(), [], default_auth_header(), Params).
+request_http_rest_add(Path, Params) ->
+    request_api(post, uri(Path), [], default_auth_header(), Params).
 
-request_http_rest_update(Login, Password, IsSuperuser) ->
-    Params = #{<<"password">> => Password, <<"is_superuser">> => IsSuperuser},
-    request_api(put, uri([Login]), [], default_auth_header(), Params).
+request_http_rest_update(Path, Params) ->
+    request_api(put, uri([Path]), [], default_auth_header(), Params).
 
 request_http_rest_delete(Login) ->
     request_api(delete, uri([Login]), default_auth_header()).
@@ -250,7 +275,7 @@ request_http_rest_delete(Login) ->
 uri() -> uri([]).
 uri(Parts) when is_list(Parts) ->
     NParts = [b2l(E) || E <- Parts],
-    ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION, "mqtt_user"| NParts]).
+    ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION | NParts]).
 
 %% @private
 b2l(B) when is_binary(B) ->
