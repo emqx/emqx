@@ -457,7 +457,9 @@ do_subscribe(ClientId, TopicTables) ->
     end.
 
 %%TODO: ???
-publish(Msg) -> emqx:publish(Msg).
+publish(Msg) ->
+    emqx_metrics:inc_msg(Msg),
+    emqx:publish(Msg).
 
 unsubscribe(ClientId, Topic) ->
     unsubscribe(ekka_mnesia:running_nodes(), ClientId, Topic).

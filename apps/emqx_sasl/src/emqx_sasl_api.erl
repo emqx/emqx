@@ -92,8 +92,8 @@ get(_Bindings, #{<<"mechanism">> := Mechanism0,
     case Mechanism of
         <<"SCRAM-SHA-1">> ->
             case emqx_sasl_scram:lookup(Username) of
-                {ok, AuthInfo} ->
-                    return({ok, AuthInfo});
+                {ok, AuthInfo = #{salt := Salt}} ->
+                    return({ok, AuthInfo#{salt => base64:decode(Salt)}});
                 {error, Reason} ->
                     return({error, Reason})
             end;

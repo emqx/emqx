@@ -134,35 +134,37 @@ on_action_create_republish(Id, #{<<"target_topic">> := TargetTopic, <<"target_qo
         (Selected, _Envs = #{qos := QoS, flags := Flags, timestamp := Timestamp}) ->
             ?LOG(debug, "[republish] republish to: ~p, Payload: ~p",
                 [TargetTopic, Selected]),
-            emqx_broker:safe_publish(
-                emqx_message:set_headers(
-                  #{republish_by => Id},
-                  #message{
-                    id = emqx_guid:gen(),
-                    qos = if TargetQoS =:= -1 -> QoS; true -> TargetQoS end,
-                    from = Id,
-                    flags = Flags,
-                    topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
-                    payload = emqx_rule_utils:proc_tmpl(PayloadTks, Selected),
-                    timestamp = Timestamp
-                 })
-            );
+            increase_and_publish(
+              #message{
+                id = emqx_guid:gen(),
+                qos = if TargetQoS =:= -1 -> QoS; true -> TargetQoS end,
+                from = Id,
+                flags = Flags,
+                headers = #{republish_by => Id},
+                topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
+                payload = emqx_rule_utils:proc_tmpl(PayloadTks, Selected),
+                timestamp = Timestamp
+              });
         %% in case this is not a "message.publish" request
         (Selected, _Envs) ->
             ?LOG(debug, "[republish] republish to: ~p, Payload: ~p",
                 [TargetTopic, Selected]),
-            emqx_broker:safe_publish(
-                #message{
-                    id = emqx_guid:gen(),
-                    qos = if TargetQoS =:= -1 -> 0; true -> TargetQoS end,
-                    from = Id,
-                    flags = #{dup => false, retain => false},
-                    headers = #{republish_by => Id},
-                    topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
-                    payload = emqx_rule_utils:proc_tmpl(PayloadTks, Selected),
-                    timestamp = erlang:system_time(millisecond)
-                })
+            increase_and_publish(
+              #message{
+                 id = emqx_guid:gen(),
+                 qos = if TargetQoS =:= -1 -> 0; true -> TargetQoS end,
+                 from = Id,
+                 flags = #{dup => false, retain => false},
+                 headers = #{republish_by => Id},
+                 topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
+                 payload = emqx_rule_utils:proc_tmpl(PayloadTks, Selected),
+                 timestamp = erlang:system_time(millisecond)
+              })
     end.
+
+increase_and_publish(Msg) ->
+    emqx_metrics:inc_msg(Msg),
+    emqx_broker:safe_publish(Msg).
 
 on_action_do_nothing(_, _) ->
     fun(_, _) -> ok end.

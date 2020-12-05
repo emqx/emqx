@@ -24,14 +24,13 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_exproto_sup:start_link(),
-    emqx_exproto:start_servers(),
     emqx_exproto:start_listeners(),
     {ok, Sup}.
 
 prep_stop(State) ->
-    emqx_exproto:stop_servers(),
     emqx_exproto:stop_listeners(),
     State.
 
 stop(_State) ->
     ok.
+

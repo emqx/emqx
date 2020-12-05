@@ -70,7 +70,7 @@ cli(["scram", "lookup", Username0]) ->
                 salt := Salt,
                 iteration_count := IterationCount}} ->
             emqx_ctl:print("Username: ~s, Stored Key: ~s, Server Key: ~s, Salt: ~s, Iteration Count: ~p~n",
-                            [Username, StoredKey, ServerKey, Salt, IterationCount]);
+                            [Username, StoredKey, ServerKey, base64:decode(Salt), IterationCount]);
         {error, not_found} ->
             emqx_ctl:print("Authentication information not found~n")
     end;

@@ -2,115 +2,254 @@
 
 ## 动机
 
-在 EMQ X Broker v4.1-v4.2 中，我们发布了 2 个插件来扩展 emqx 的编程能力：
+增强系统的扩展性。包含的目的有：
 
-1. `emqx-extension-hook` 提供了使用 Java, Python 向 Broker 挂载钩子的功能
-2. `emqx-exproto` 提供了使用 Java，Python 编写用户自定义协议接入插件的功能
+- 完全支持各种钩子，能够根据其返回值修改 EMQ X 或者 Client 的行为。
+  - 例如 `auth/acl`：可以查询数据库或者执行某种算法校验操作权限。然后返回 `false` 表示 `认证/ACL` 失败。
+  - 例如 `message.publish`：可以解析 `消息/主题` 并将其存储至数据库中。
 
-但在后续的支持中发现许多难以处理的问题：
+- 支持多种语言的扩展；并包含该语言的示例程序。
+  - python
+  - webhook
+  - Java
+  - Lua
+  - c，go，.....
+- 热操作
+  - 允许在插件运行过程中，添加和移除 `Driver`。
 
-1. 有大量的编程语言需要支持，需要编写和维护如 Go, JavaScript, Lua.. 等语言的驱动。
-2. `erlport` 使用的操作系统的管道进行通信，这让用户代码只能部署在和 emqx 同一个操作系统上。部署方式受到了极大的限制。
-3. 用户程序的启动参数直接打包到 Broker 中，导致用户开发无法实时的进行调试，单步跟踪等。
-4. `erlport` 会占用 `stdin` `stdout`。
+- 需要 CLI ，甚至 API 来管理 `Driver`
 
-因此，我们计划重构这部分的实现，其中主要的内容是：
-1. 使用 `gRPC` 替换 `erlport`。
-2. 将 `emqx-extension-hook` 重命名为 `emqx-exhook`
-
-
-旧版本的设计参考：[emqx-extension-hook design in v4.2.0](https://github.com/emqx/emqx-exhook/blob/v4.2.0/docs/design.md)
+注：`message` 类钩子仅包括在企业版中。
 
 ## 设计
 
 架构如下：
 
 ```
-  EMQ X                                    
-+========================+                 +========+==========+
-|    ExHook              |                 |        |          |
-|   +----------------+   |      gRPC       | gRPC   |  User's  |
-|   |   gRPC Client  | ------------------> | Server |  Codes   |
-|   +----------------+   |    (HTTP/2)     |        |          |
-|                        |                 |        |          |
-+========================+                 +========+==========+
-```
-
-`emqx-exhook` 通过 gRPC 的方式向用户部署的 gRPC 服务发送钩子的请求，并处理其返回的值。
-
-
-和 emqx 原生的钩子一致，emqx-exhook 也支持链式的方式计算和返回：
-
-<img src="https://docs.emqx.net/broker/latest/cn/advanced/assets/chain_of_responsiblity.png" style="zoom:50%;" />
-
-### gRPC 服务示例
-
-用户需要实现的方法，和数据类型的定义在 `priv/protos/exhook.proto` 文件中。例如，其支持的接口有：
-
-```protobuff
-syntax = "proto3";
-
-package emqx.exhook.v1;
-
-service HookProvider {
-
-  rpc OnProviderLoaded(ProviderLoadedRequest) returns (LoadedResponse) {};
-
-  rpc OnProviderUnloaded(ProviderUnloadedRequest) returns (EmptySuccess) {};
-
-  rpc OnClientConnect(ClientConnectRequest) returns (EmptySuccess) {};
-
-  rpc OnClientConnack(ClientConnackRequest) returns (EmptySuccess) {};
-
-  rpc OnClientConnected(ClientConnectedRequest) returns (EmptySuccess) {};
-
-  rpc OnClientDisconnected(ClientDisconnectedRequest) returns (EmptySuccess) {};
-
-  rpc OnClientAuthenticate(ClientAuthenticateRequest) returns (ValuedResponse) {};
-
-  rpc OnClientCheckAcl(ClientCheckAclRequest) returns (ValuedResponse) {};
-
-  rpc OnClientSubscribe(ClientSubscribeRequest) returns (EmptySuccess) {};
-
-  rpc OnClientUnsubscribe(ClientUnsubscribeRequest) returns (EmptySuccess) {};
-
-  rpc OnSessionCreated(SessionCreatedRequest) returns (EmptySuccess) {};
-
-  rpc OnSessionSubscribed(SessionSubscribedRequest) returns (EmptySuccess) {};
-
-  rpc OnSessionUnsubscribed(SessionUnsubscribedRequest) returns (EmptySuccess) {};
-
-  rpc OnSessionResumed(SessionResumedRequest) returns (EmptySuccess) {};
-
-  rpc OnSessionDiscarded(SessionDiscardedRequest) returns (EmptySuccess) {};
-
-  rpc OnSessionTakeovered(SessionTakeoveredRequest) returns (EmptySuccess) {};
-
-  rpc OnSessionTerminated(SessionTerminatedRequest) returns (EmptySuccess) {};
-
-  rpc OnMessagePublish(MessagePublishRequest) returns (ValuedResponse) {};
-
-  rpc OnMessageDelivered(MessageDeliveredRequest) returns (EmptySuccess) {};
-
-  rpc OnMessageDropped(MessageDroppedRequest) returns (EmptySuccess) {};
-
-  rpc OnMessageAcked(MessageAckedRequest) returns (EmptySuccess) {};
-}
+ EMQ X                                      Third-party Runtimes
++========================+                 +====================+
+|    Extension           |                 |                    |
+|   +----------------+   |     Hooks       |  Python scripts /  |
+|   |    Drivers     | ------------------> |  Java Classes   /  |
+|   +----------------+   |     (pipe)      |  Others ...        |
+|                        |                 |                    |
++========================+                 +====================+
 ```
 
 ### 配置文件示例
 
-```
-## 配置 gRPC 服务地址 (HTTP)
-##
-## s1 为服务器的名称
-exhook.server.s1.url = http://127.0.0.1:9001
+#### 驱动 配置
 
-## 配置 gRPC 服务地址 (HTTPS)
+```properties
+## Driver type
 ##
-## s2 为服务器名称
-exhook.server.s2.url = https://127.0.0.1:9002
-exhook.server.s2.cacertfile = ca.pem
-exhook.server.s2.certfile = cert.pem
-exhook.server.s2.keyfile = key.pem
+## Exmaples:
+##   - python3                   --- 仅配置 python3
+##   - python3, java, webhook    --- 配置多个 Driver
+exhook.dirvers = python3, java, webhook
+
+## --- 具体 driver 的配置详情
+
+## Python
+exhook.dirvers.python3.path = data/extension/python
+exhook.dirvers.python3.call_timeout = 5s
+exhook.dirvers.python3.pool_size = 8
+
+## java
+exhook.drivers.java.path = data/extension/java
+...
+```
+
+#### 钩子配置
+
+钩子支持配置在配置文件中，例如：
+
+```properties
+exhook.rule.python3.client.connected = {"module": "client", "callback": "on_client_connected"}
+exhook.rule.python3.message.publish  = {"module": "client", "callback": "on_client_connected", "topics": ["#", "t/#"]}
+```
+
+***已废弃！！（冗余）***
+
+
+###  驱动抽象
+
+#### APIs
+
+| 方法名                   | 说明     | 入参   | 返回   |
+| ------------------------ | -------- | ------ | ------ |
+| `init`                   | 初始化   | -      | 见下表 |
+| `deinit`                 | 销毁     | -      | -      |
+| `xxx `*(由init函数定义)* | 钩子回调 | 见下表 | 见下表 |
+
+
+
+##### init 函数规格
+
+```erlang
+%% init 函数
+%% HookSpec 			: 为用户在脚本中的 初始化函数指定的；他会与配置文件中的内容作为默认值，进行合并
+%%          			  该参数的目的，用于 EMQ X 判断需要执行哪些 Hook 和 如何执行 Hook
+%% State    			: 为用户自己管理的数据内容，EMQ X 不关心它，只来回透传
+init() -> {HookSpec, State}.
+
+%% 例如：
+{[{client_connect, callback_m(), callback_f(),#{}, {}}]}
+
+%%--------------------------------------------------------------
+%% Type Defines
+
+-tpye hook_spec() :: [{hookname(), callback_m(), callback_f(), hook_opts()}].
+
+-tpye state :: any().
+
+-type hookname() :: client_connect
+                  | client_connack
+                  | client_connected
+                  | client_disconnected
+                  | client_authenticate
+                  | client_check_acl
+                  | client_subscribe
+                  | client_unsubscribe
+                  | session_created
+                  | session_subscribed
+                  | session_unsubscribed
+                  | session_resumed
+                  | session_discarded      %% TODO: Should squash to `terminated` ?
+                  | session_takeovered     %% TODO: Should squash to `terminated` ?
+                  | session_terminated
+                  | message_publish
+                  | message_delivered
+                  | message_acked
+                  | message_dropped.
+
+-type callback_m() :: atom().          -- 回调的模块名称；python 为脚本文件名称；java 为类名；webhook 为 URI 地址
+
+-type callback_f() :: atom().          -- 回调的方法名称；python，java 等为方法名；webhook 为资源地址
+
+-tpye hook_opts() :: [{hook_key(), any()}].  -- 配置项；配置该项钩子的行为
+
+-type hook_key() :: topics | ...
+```
+
+
+
+##### deinit 函数规格
+
+``` erlang
+%% deinit 函数；不关心返回的任何内容
+deinit() -> any().
+```
+
+
+
+##### 回调函数规格
+
+| 钩子                 | 入参                                                  | 返回      |
+| -------------------- | ----------------------------------------------------- | --------- |
+| client_connect       | `connifno`<br />`props`                               | -         |
+| client_connack       | `connifno`<br />`rc`<br />`props`                     | -         |
+| client_connected     | `clientinfo`<br />                                    | -         |
+| client_disconnected  | `clientinfo`<br />`reason`                            | -         |
+| client_authenticate  | `clientinfo`<br />`result`                            | `result`  |
+| client_check_acl     | `clientinfo`<br />`pubsub`<br />`topic`<br />`result` | `result`  |
+| client_subscribe     | `clientinfo`<br />`props`<br />`topicfilters`         | -         |
+| client_unsubscribe   | `clientinfo`<br />`props`<br />`topicfilters`         | -         |
+| session_created      | `clientinfo`                                          | -         |
+| session_subscribed   | `clientinfo`<br />`topic`<br />`subopts`              | -         |
+| session_unsubscribed | `clientinfo`<br />`topic`                             | -         |
+| session_resumed      | `clientinfo`                                          | -         |
+| session_discared     | `clientinfo`                                          | -         |
+| session_takeovered   | `clientinfo`                                          | -         |
+| session_terminated   | `clientinfo`<br />`reason`                            | -         |
+| message_publish      | `messsage`                                            | `message` |
+| message_delivered    | `clientinfo`<br />`message`                           | -         |
+| message_dropped      | `message`                                             | -         |
+| message_acked        | `clientinfo`<br />`message`                           | -         |
+
+
+
+上表中包含数据格式为：
+
+```erlang
+-type conninfo :: [ {node, atom()}
+                  , {clientid, binary()}
+                  , {username, binary()}
+                  , {peerhost, binary()}
+							    , {sockport, integer()}
+                  , {proto_name, binary()}
+                  , {proto_ver, integer()}
+                  , {keepalive, integer()}
+								  ].
+
+-type clientinfo :: [ {node, atom()}
+                    , {clientid, binary()}
+                    , {username, binary()}
+                    , {password, binary()}
+                    , {peerhost, binary()}
+							      , {sockport, integer()}
+                    , {protocol, binary()}
+                    , {mountpoint, binary()}
+                    , {is_superuser, boolean()}
+                    , {anonymous, boolean()}
+								    ].
+
+-type message :: [ {node, atom()}
+                 , {id, binary()}
+                 , {qos, integer()}
+                 , {from, binary()}
+                 , {topic, binary()}
+                 , {payload, binary()}
+                 , {timestamp, integer()}
+                 ].
+
+-type rc :: binary().
+-type props :: [{key(), value()}]
+
+-type topics :: [topic()].
+-type topic :: binary().
+-type pubsub :: publish | subscribe.
+-type result :: true | false.
+```
+
+
+
+### 统计
+
+在驱动运行过程中，应有对每种钩子调用计数，例如：
+
+```
+exhook.python3.check_acl               10
+```
+
+
+
+### 管理
+
+**CLI 示例：**
+
+
+
+**列出所有的驱动**
+
+```
+./bin/emqx_ctl exhook dirvers list
+Drivers(xxx=yyy)
+Drivers(aaa=bbb)
+```
+
+
+
+**开关驱动**
+
+```
+./bin/emqx_ctl exhook drivers enable python3
+ok
+
+./bin/emqx_ctl exhook drivers disable python3
+ok
+
+./bin/emqx_ctl exhook drivers stats
+python3.client_connect     123
+webhook.check_acl          20
 ```

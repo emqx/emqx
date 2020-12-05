@@ -22,27 +22,40 @@
 
 -define(RESOURCE_TYPE_WEBHOOK, 'web_hook').
 -define(RESOURCE_CONFIG_SPEC, #{
-            url => #{type => string,
+            url => #{order => 1,
+                     type => string,
                      format => url,
                      required => true,
                      title => #{en => <<"Request URL">>,
                                 zh => <<"请求 URL"/utf8>>},
                      description => #{en => <<"Request URL">>,
                                       zh => <<"请求 URL"/utf8>>}},
-            headers => #{type => object,
-                         schema => #{},
-                         default => #{},
-                         title => #{en => <<"Request Header">>,
-                                    zh => <<"请求头"/utf8>>},
-                         description => #{en => <<"Request Header">>,
-                                          zh => <<"请求头"/utf8>>}},
-            method => #{type => string,
+            method => #{order => 2,
+                        type => string,
                         enum => [<<"PUT">>,<<"POST">>,<<"GET">>,<<"DELETE">>],
                         default => <<"POST">>,
                         title => #{en => <<"Request Method">>,
                                    zh => <<"请求方法"/utf8>>},
-                        description => #{en => <<"Request Method. Note that the payload_template will be discarded in case of GET method">>,
-                                         zh => <<"请求方法。注意：当请求方法为 GET 的时候，payload_template 参数会被忽略"/utf8>>}}
+                        description => #{en => <<"Request Method. \n"
+                                                 "Note that: the Payload Template of Action will be discarded in case of GET method">>,
+                                         zh => <<"请求方法。\n"
+                                                 "注意：当方法为 GET 时，动作中的 '消息内容模板' 参数会被忽略"/utf8>>}},
+            content_type => #{order => 3,
+                              type => string,
+                              enum => [<<"application/json">>,<<"text/plain;charset=UTF-8">>],
+                              default => <<"application/json">>,
+                              title => #{en => <<"Content-Type">>,
+                                         zh => <<"Content-Type"/utf8>>},
+                              description => #{en => <<"The Content-Type of HTTP Request">>,
+                                               zh => <<"HTTP 请求头中的 Content-Type 字段值"/utf8>>}},
+            headers => #{order => 4,
+                         type => object,
+                         schema => #{},
+                         default => #{},
+                         title => #{en => <<"Request Header">>,
+                                    zh => <<"请求头"/utf8>>},
+                         description => #{en => <<"The custom HTTP request headers">>,
+                                          zh => <<"自定义的 HTTP 请求头列表"/utf8>>}}
         }).
 
 -define(ACTION_PARAM_RESOURCE, #{
@@ -57,18 +70,32 @@
 
 -define(ACTION_DATA_SPEC, #{
             '$resource' => ?ACTION_PARAM_RESOURCE,
+            path => #{order => 1,
+                      type => string,
+                      required => false,
+                      default => <<>>,
+                      title => #{en => <<"Path">>,
+                                 zh => <<"Path"/utf8>>},
+                      description => #{en => <<"A path component, variable interpolation from "
+                                               "SQL statement is supported. This value will be "
+                                               "concatenated with Request URL.">>,
+                                       zh => <<"URL 的路径配置，支持使用 ${} 获取规则输出的字段值。\n"
+                                               "例如：${clientid}。该值会与 Request URL 组成一个完整的 URL"/utf8>>}
+                     },
             payload_tmpl => #{
-                order => 1,
+                order => 2,
                 type => string,
                 input => textarea,
                 required => false,
                 default => <<"">>,
                 title => #{en => <<"Payload Template">>,
                            zh => <<"消息内容模板"/utf8>>},
-                description => #{en => <<"The payload template, variable interpolation is supported. If using empty template (default), then the payload will be all the available vars in JOSN format">>,
-                                 zh => <<"消息内容模板，支持变量。若使用空模板（默认），消息内容为 JSON 格式的所有字段"/utf8>>}
-            }
-        }).
+                description => #{en => <<"The payload template, variable interpolation is supported."
+                                         "If using empty template (default), then the payload will "
+                                         "be all the available vars in JSON format">>,
+                                 zh => <<"消息内容模板，支持使用 ${} 获取变量值。"
+                                         "默认消息内容为规则输出的所有字段的 JSON 字符串"/utf8>>}}
+            }).
 
 -resource_type(#{name => ?RESOURCE_TYPE_WEBHOOK,
                  create => on_resource_create,
@@ -139,11 +166,13 @@ on_resource_destroy(_ResId, _Params) ->
 %% An action that forwards publish messages to a remote web server.
 -spec(on_action_create_data_to_webserver(Id::binary(), #{url() := string()}) -> action_fun()).
 on_action_create_data_to_webserver(_Id, Params) ->
-    #{url := Url, headers := Headers, method := Method, payload_tmpl := PayloadTmpl}
+    #{url := Url, headers := Headers, method := Method, content_type := ContentType, payload_tmpl := PayloadTmpl, path := Path}
         = parse_action_params(Params),
     PayloadTks = emqx_rule_utils:preproc_tmpl(PayloadTmpl),
+    PathTks = emqx_rule_utils:preproc_tmpl(Path),
     fun(Selected, _Envs) ->
-        http_request(Url, Headers, Method, format_msg(PayloadTks, Selected))
+        FullUrl = Url ++ emqx_rule_utils:proc_tmpl(PathTks, Selected),
+        http_request(FullUrl, Headers, Method, ContentType, format_msg(PayloadTks, Selected))
     end.
 
 format_msg([], Data) ->
@@ -155,15 +184,15 @@ format_msg(Tokens, Data) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-create_req(get, Url, Headers, _) ->
+create_req(get, Url, Headers, _, _) ->
   {(Url), (Headers)};
 
-create_req(_, Url, Headers, Body) ->
-  {(Url), (Headers), "application/json", (Body)}.
+create_req(_, Url, Headers, ContentType, Body) ->
+  {(Url), (Headers), binary_to_list(ContentType), (Body)}.
 
-http_request(Url, Headers, Method, Params) ->
-  logger:debug("[WebHook Action] ~s to ~s, headers: ~p, body: ~p", [Method, Url, Headers, Params]),
-  case do_http_request(Method, create_req(Method, Url, Headers, Params),
+http_request(Url, Headers, Method, ContentType, Params) ->
+  logger:debug("[WebHook Action] ~s to ~s, headers: ~p, content-type: ~p, body: ~p", [Method, Url, Headers, ContentType, Params]),
+  case do_http_request(Method, create_req(Method, Url, Headers, ContentType, Params),
     [{timeout, 5000}], [], 0) of
     {ok, _} -> ok;
     {error, Reason} ->
@@ -185,7 +214,9 @@ parse_action_params(Params = #{<<"url">> := Url}) ->
         #{url => str(Url),
           headers => headers(maps:get(<<"headers">>, Params, undefined)),
           method => method(maps:get(<<"method">>, Params, <<"POST">>)),
-          payload_tmpl => maps:get(<<"payload_tmpl">>, Params, <<>>)}
+          content_type => maps:get(<<"content_type">>, Params, <<"application/json">>),
+          payload_tmpl => maps:get(<<"payload_tmpl">>, Params, <<>>),
+          path => maps:get(<<"path">>, Params, <<>>)}
     catch _:_ ->
         throw({invalid_params, Params})
     end.

@@ -130,10 +130,18 @@
         ]).
 
 %% Map Funcs
+-export([ map_new/0
+        ]).
+
 -export([ map_get/2
         , map_get/3
         , map_put/3
-        , map_new/0
+        ]).
+
+%% For backword compatibility
+-export([ mget/2
+        , mget/3
+        , mput/3
         ]).
 
 %% Array Funcs
@@ -225,7 +233,7 @@ payload() ->
 
 payload(Path) ->
     fun(#{payload := Payload}) when erlang:is_map(Payload) ->
-            emqx_rule_maps:nested_get(map_path(Path), Payload);
+            map_get(Path, Payload);
        (_) -> undefined
     end.
 
@@ -599,6 +607,15 @@ map_get(Key, Map) ->
     map_get(Key, Map, undefined).
 
 map_get(Key, Map, Default) ->
+    emqx_rule_maps:nested_get(map_path(Key), Map, Default).
+
+map_put(Key, Val, Map) ->
+    emqx_rule_maps:nested_put(map_path(Key), Val, Map).
+
+mget(Key, Map) ->
+    mget(Key, Map, undefined).
+
+mget(Key, Map, Default) ->
     case maps:find(Key, Map) of
         {ok, Val} -> Val;
         error when is_atom(Key) ->
@@ -622,7 +639,7 @@ map_get(Key, Map, Default) ->
             Default
     end.
 
-map_put(Key, Val, Map) ->
+mput(Key, Val, Map) ->
     case maps:find(Key, Map) of
         {ok, _} -> maps:put(Key, Val, Map);
         error when is_atom(Key) ->

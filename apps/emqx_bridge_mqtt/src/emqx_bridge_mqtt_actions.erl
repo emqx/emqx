@@ -556,7 +556,7 @@
                         default => <<"">>,
                         title => #{en => <<"Payload Template">>,
                                    zh => <<"消息内容模板"/utf8>>},
-                        description => #{en => <<"The payload template, variable interpolation is supported. If using empty template (default), then the payload will be all the available vars in JOSN format">>,
+                        description => #{en => <<"The payload template, variable interpolation is supported. If using empty template (default), then the payload will be all the available vars in JSON format">>,
                                          zh => <<"消息内容模板，支持变量。若使用空模板（默认），消息内容为 JSON 格式的所有字段"/utf8>>}
                     }
         },

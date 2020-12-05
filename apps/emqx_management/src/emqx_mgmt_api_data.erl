@@ -70,6 +70,10 @@
         , delete/2
         ]).
 
+-export([ get_list_exported/0
+        , do_import/1
+        ]).
+
 export(_Bindings, _Params) ->
     Rules = emqx_mgmt:export_rules(),
     Resources = emqx_mgmt:export_resources(),
@@ -97,8 +101,11 @@ export(_Bindings, _Params) ->
             {auth_username, AuthUsername},
             {auth_mnesia, AuthMnesia},
             {acl_mnesia, AclMnesia},
-            {schemas, Schemas}],
+            {schemas, Schemas}
+           ],
+
     Bin = emqx_json:encode(Data),
+    ok = filelib:ensure_dir(NFilename),
     case file:write_file(NFilename, Bin) of
         ok ->
             case file:read_file_info(NFilename) of
@@ -106,7 +113,9 @@ export(_Bindings, _Params) ->
                     CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S]),
                     return({ok, [{filename, list_to_binary(Filename)},
                                  {size, Size},
-                                 {created_at, list_to_binary(CreatedAt)}]});
+                                 {created_at, list_to_binary(CreatedAt)},
+                                 {node, node()}
+                                ]});
                 {error, Reason} ->
                     return({error, Reason})
             end;
@@ -115,66 +124,86 @@ export(_Bindings, _Params) ->
     end.
 
 list_exported(_Bindings, _Params) ->
+    List = [ rpc:call(Node, ?MODULE, get_list_exported, []) || Node <- ekka_mnesia:running_nodes() ],
+    NList = lists:map(fun({_, FileInfo}) -> FileInfo end, lists:keysort(1, lists:append(List))),
+    return({ok, NList}).
+
+get_list_exported() ->
     Dir = emqx:get_env(data_dir),
     {ok, Files} = file:list_dir_all(Dir),
-    List = lists:foldl(fun(File, Acc) ->
-                           case filename:extension(File) =:= ".json" of
-                               true ->
-                                   FullFile = filename:join([Dir, File]),
-                                   case file:read_file_info(FullFile) of
-                                       {ok, #file_info{size = Size, ctime = CTime = {{Y, M, D}, {H, MM, S}}}} ->
-                                           CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S]),
-                                           Seconds = calendar:datetime_to_gregorian_seconds(CTime),
-                                           [{Seconds, [{filename, list_to_binary(File)},
-                                                       {size, Size},
-                                                       {created_at, list_to_binary(CreatedAt)}]} | Acc];
-                                       {error, Reason} ->
-                                           logger:error("Read file info of ~s failed with: ~p", [File, Reason]),
-                                           Acc
-                                   end;
-                               false ->
-                                   Acc
-                           end
-                       end, [], Files),
-    NList = lists:map(fun({_, FileInfo}) -> FileInfo end, lists:keysort(1, List)),
-    return({ok, NList}).
+    lists:foldl(
+        fun(File, Acc) ->
+            case filename:extension(File) =:= ".json" of
+                true ->
+                    FullFile = filename:join([Dir, File]),
+                    case file:read_file_info(FullFile) of
+                        {ok, #file_info{size = Size, ctime = CTime = {{Y, M, D}, {H, MM, S}}}} ->
+                            CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S]),
+                            Seconds = calendar:datetime_to_gregorian_seconds(CTime),
+                            [{Seconds, [{filename, list_to_binary(File)},
+                                        {size, Size},
+                                        {created_at, list_to_binary(CreatedAt)},
+                                        {node, node()}
+                                       ]} | Acc];
+                        {error, Reason} ->
+                            logger:error("Read file info of ~s failed with: ~p", [File, Reason]),
+                            Acc
+                    end;
+                false -> Acc
+            end
+        end, [], Files).
 
 import(_Bindings, Params) ->
     case proplists:get_value(<<"filename">>, Params) of
         undefined ->
             return({error, missing_required_params});
         Filename ->
-            FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
-            case file:read_file(FullFilename) of
-                {ok, Json} ->
-                    Data = emqx_json:decode(Json, [return_maps]),
-                    Version = emqx_mgmt:to_version(maps:get(<<"version">>, Data)),
-                    case lists:member(Version, ?VERSIONS) of
-                        true  ->
-                            try
-                                emqx_mgmt:import_resources(maps:get(<<"resources">>, Data, [])),
-                                emqx_mgmt:import_rules(maps:get(<<"rules">>, Data, [])),
-                                emqx_mgmt:import_blacklist(maps:get(<<"blacklist">>, Data, [])),
-                                emqx_mgmt:import_applications(maps:get(<<"apps">>, Data, [])),
-                                emqx_mgmt:import_users(maps:get(<<"users">>, Data, [])),
-                                emqx_mgmt:import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
-                                emqx_mgmt:import_auth_username(maps:get(<<"auth_username">>, Data, [])),
-                                emqx_mgmt:import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, [])),
-                                emqx_mgmt:import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, [])),
-                                emqx_mgmt:import_schemas(maps:get(<<"schemas">>, Data, [])),
-                                logger:debug("The emqx data has been imported successfully"),
-                                return()
-                            catch Class:Reason:Stack ->
-                                logger:error("The emqx data import failed: ~0p", [{Class,Reason,Stack}]),
-                                return({error, import_failed})
-                            end;
-                        false ->
-                            logger:error("Unsupported version: ~p", [Version]),
-                            return({error, unsupported_version})
+            Result = case proplists:get_value(<<"node">>, Params) of
+                undefined -> do_import(Filename);
+                Node ->
+                    case lists:member(Node,
+                          [ erlang:atom_to_binary(N, utf8) || N <- ekka_mnesia:running_nodes() ]
+                         ) of
+                        true -> rpc:call(erlang:binary_to_atom(Node, utf8), ?MODULE, do_import, [Filename]);
+                        false -> return({error, no_existent_node})
+                    end
+            end,
+            return(Result)
+    end.
+
+do_import(Filename) ->
+    FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
+    case file:read_file(FullFilename) of
+        {ok, Json} ->
+            Data = emqx_json:decode(Json, [return_maps]),
+            Version = emqx_mgmt:to_version(maps:get(<<"version">>, Data)),
+            case lists:member(Version, ?VERSIONS) of
+                true  ->
+                    try
+                        emqx_mgmt:import_confs(maps:get(<<"configs">>, Data, []), maps:get(<<"listeners_state">>, Data, [])),
+                        emqx_mgmt:import_resources(maps:get(<<"resources">>, Data, [])),
+                        emqx_mgmt:import_rules(maps:get(<<"rules">>, Data, [])),
+                        emqx_mgmt:import_blacklist(maps:get(<<"blacklist">>, Data, [])),
+                        emqx_mgmt:import_applications(maps:get(<<"apps">>, Data, [])),
+                        emqx_mgmt:import_users(maps:get(<<"users">>, Data, [])),
+                        emqx_mgmt:import_modules(maps:get(<<"modules">>, Data, [])),
+                        emqx_mgmt:import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
+                        emqx_mgmt:import_auth_username(maps:get(<<"auth_username">>, Data, [])),
+                        emqx_mgmt:import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, []), Version),
+                        emqx_mgmt:import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, []), Version),
+                        emqx_mgmt:import_schemas(maps:get(<<"schemas">>, Data, [])),
+                        logger:debug("The emqx data has been imported successfully"),
+                        ok
+                    catch Class:Reason:Stack ->
+                        logger:error("The emqx data import failed: ~0p", [{Class,Reason,Stack}]),
+                        {error, import_failed}
                     end;
-                {error, Reason} ->
-                    return({error, Reason})
-            end
+                false ->
+                    logger:error("Unsupported version: ~p", [Version]),
+                    {error, unsupported_version}
+            end;
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 download(#{filename := Filename}, _Params) ->
@@ -195,7 +224,7 @@ do_upload(_Bindings, #{<<"filename">> := Filename,
     FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
     case file:write_file(FullFilename, Bin) of
         ok ->
-            return();
+            return({ok, [{node, node()}]});
         {error, Reason} ->
             return({error, Reason})
     end;

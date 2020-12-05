@@ -25,7 +25,7 @@
 -type(params_spec() :: #{atom() => term()}).
 -type(params() :: #{binary() => term()}).
 
--define(DATA_TYPES, [string, number, float, boolean, object, array]).
+-define(DATA_TYPES, [string, number, float, boolean, object, array, file]).
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -68,6 +68,8 @@ do_validate_param(Val, Spec = #{type := Type}) ->
     end,
     validate_type(Val, Type, Spec).
 
+validate_type(Val, file, _Spec) ->
+    ok = validate_file(Val);
 validate_type(Val, string, Spec) ->
     ok = validate_string(Val, reg_exp(maps:get(format, Spec, any)));
 validate_type(Val, number, Spec) ->
@@ -109,6 +111,9 @@ validate_object(Val, Schema) ->
 validate_boolean(true) -> ok;
 validate_boolean(false) -> ok;
 validate_boolean(Val) -> error({invalid_data_type, {boolean, Val}}).
+
+validate_file(Val) when is_binary(Val) -> ok;
+validate_file(Val) -> error({invalid_data_type, {file, Val}}).
 
 reg_exp(url) -> "^https?://\\w+(\.\\w+)*(:[0-9]+)?";
 reg_exp(topic) -> "^/?(\\w|\\#|\\+)+(/?(\\w|\\#|\\+))*/?$";

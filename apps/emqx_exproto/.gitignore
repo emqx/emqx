@@ -1,5 +1,0 @@
-src/emqx_exproto_pb.erl
-src/emqx_exproto_v_1_connection_adapter_bhvr.erl
-src/emqx_exproto_v_1_connection_adapter_client.erl
-src/emqx_exproto_v_1_connection_handler_bhvr.erl
-src/emqx_exproto_v_1_connection_handler_client.erl

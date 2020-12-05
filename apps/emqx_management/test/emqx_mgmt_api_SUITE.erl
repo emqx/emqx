@@ -53,7 +53,8 @@ groups() ->
        acl_cache,
        pubsub,
        routes_and_subscriptions,
-       stats]}].
+       stats,
+       data]}].
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([emqx, emqx_management, emqx_reloader]),
@@ -64,6 +65,36 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_reloader, emqx_management, emqx]),
     ekka_mnesia:ensure_stopped().
+
+init_per_testcase(data, Config) ->
+    ok = emqx_dashboard_admin:mnesia(boot),
+    application:ensure_all_started(emqx_dahboard),
+    ok = emqx_rule_registry:mnesia(boot),
+    application:ensure_all_started(emqx_rule_engine),
+
+    meck:new(emqx_sys, [passthrough, no_history]),
+    meck:expect(emqx_sys, version, 0,
+                fun() ->
+                  Tag =os:cmd("git describe --abbrev=0 --tags") -- "\n",
+                  re:replace(Tag, "[v|e]", "", [{return ,list}])
+                end),
+
+    Config;
+
+init_per_testcase(_, Config) ->
+    Config.
+
+stop_pre_testcase(data, _Config) ->
+    application:stop(emqx_dahboard),
+    application:stop(emqx_rule_engine),
+    application:stop(emqx_modules),
+    application:stop(emqx_schema_registry),
+    application:stop(emqx_conf),
+    meck:unload(emqx_sys),
+    ok;
+
+stop_pre_testcase(_, _Config) ->
+    ok.
 
 get(Key, ResponseBody) ->
    maps:get(Key, jiffy:decode(list_to_binary(ResponseBody), [return_maps])).
@@ -432,6 +463,10 @@ acl_cache(_) ->
     ok = emqtt:disconnect(C1).
 
 pubsub(_) ->
+    Qos1Received = emqx_metrics:val('messages.qos1.received'),
+    Qos2Received = emqx_metrics:val('messages.qos2.received'),
+    Received = emqx_metrics:val('messages.received'),
+
     ClientId = <<"client1">>,
     Options = #{clientid => ClientId,
                 proto_ver => 5},
@@ -532,7 +567,11 @@ pubsub(_) ->
     {ok, Data3} = request_api(post, api_path(["mqtt/unsubscribe_batch"]), [], auth_header_(), Body3),
     loop(maps:get(<<"data">>, jiffy:decode(list_to_binary(Data3), [return_maps]))),
 
-    ok = emqtt:disconnect(C1).
+    ok = emqtt:disconnect(C1),
+
+    ?assertEqual(2, emqx_metrics:val('messages.qos1.received') - Qos1Received),
+    ?assertEqual(2, emqx_metrics:val('messages.qos2.received') - Qos2Received),
+    ?assertEqual(4, emqx_metrics:val('messages.received') - Received).
 
 loop([]) -> [];
 
@@ -595,6 +634,17 @@ stats(_) ->
     {ok, Return} = request_api(get, api_path(["nodes", atom_to_list(node()), "stats"]), auth_header_()),
     ?assertEqual(<<"undefined">>, get(<<"message">>, Return)),
     meck:unload(emqx_mgmt).
+
+data(_) ->
+    {ok, Data} = request_api(post, api_path(["data","export"]), [], auth_header_(), [#{}]),
+    #{<<"filename">> := Filename, <<"node">> := Node} = emqx_ct_http:get_http_data(Data),
+    {ok, DataList} = request_api(get, api_path(["data","export"]), auth_header_()),
+    ?assertEqual(true, lists:member(emqx_ct_http:get_http_data(Data), emqx_ct_http:get_http_data(DataList))),
+
+    ?assertMatch({ok, _}, request_api(post, api_path(["data","import"]), [], auth_header_(), #{<<"filename">> => Filename, <<"node">> => Node})),
+    ?assertMatch({ok, _}, request_api(post, api_path(["data","import"]), [], auth_header_(), #{<<"filename">> => Filename})),
+
+    ok.
 
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).

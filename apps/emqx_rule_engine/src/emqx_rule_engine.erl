@@ -420,7 +420,7 @@ action_instance_id(ActionName) ->
     iolist_to_binary([atom_to_list(ActionName), "_", integer_to_list(erlang:system_time())]).
 
 cluster_call(Func, Args) ->
-    case rpc:multicall([node() | nodes()], ?MODULE, Func, Args, 5000) of
+    case rpc:multicall(ekka_mnesia:running_nodes(), ?MODULE, Func, Args, 5000) of
         {ResL, []} ->
             case lists:filter(fun(ok) -> false; (_) -> true end, ResL) of
                 [] -> ok;

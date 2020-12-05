@@ -173,10 +173,8 @@ esockd_wait({esockd_transport, Sock}) ->
         R = {error, _} -> R
     end.
 
-esockd_close({udp, _SockPid, _Sock}) ->
-    %% nothing to do for udp socket
-    %%gen_udp:close(Sock);
-    ok;
+esockd_close({udp, _SockPid, Sock}) ->
+    gen_udp:close(Sock);
 esockd_close({esockd_transport, Sock}) ->
     esockd_transport:fast_close(Sock).
 
@@ -359,9 +357,6 @@ handle_msg({'$gen_call', From, Req}, State) ->
         {reply, Reply, NState} ->
             gen_server:reply(From, Reply),
             {ok, NState};
-        {reply, Reply, Msgs, NState} ->
-            gen_server:reply(From, Reply),
-            {ok, next_msgs(Msgs), NState};
         {stop, Reason, Reply, NState} ->
             gen_server:reply(From, Reply),
             stop(Reason, NState)
@@ -424,16 +419,16 @@ handle_msg({close, Reason}, State) ->
     ?LOG(debug, "Force to close the socket due to ~p", [Reason]),
     handle_info({sock_closed, Reason}, close_socket(State));
 
-handle_msg({event, connected}, State = #state{channel = Channel}) ->
+handle_msg({event, registered}, State = #state{channel = Channel}) ->
     ClientId = emqx_exproto_channel:info(clientid, Channel),
     emqx_cm:register_channel(ClientId, info(State), stats(State));
 
-handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
-    ClientId = emqx_exproto_channel:info(clientid, Channel),
-    emqx_cm:set_chan_info(ClientId, info(State)),
-    emqx_cm:connection_closed(ClientId),
-    {ok, State};
-
+%handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
+%    ClientId = emqx_exproto_channel:info(clientid, Channel),
+%    emqx_cm:set_chan_info(ClientId, info(State)),
+%    emqx_cm:connection_closed(ClientId),
+%    {ok, State};
+%
 %handle_msg({event, _Other}, State = #state{channel = Channel}) ->
 %    ClientId = emqx_exproto_channel:info(clientid, Channel),
 %    emqx_cm:set_chan_info(ClientId, info(State)),
@@ -485,8 +480,6 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
     case emqx_exproto_channel:handle_call(Req, Channel) of
         {reply, Reply, NChannel} ->
             {reply, Reply, State#state{channel = NChannel}};
-        {reply, Reply, Replies, NChannel} ->
-            {reply, Reply, Replies, State#state{channel = NChannel}};
         {shutdown, Reason, Reply, NChannel} ->
             shutdown(Reason, Reply, State#state{channel = NChannel})
     end.
@@ -502,18 +495,7 @@ handle_timeout(_TRef, limit_timeout, State) ->
                          limit_timer = undefined
                         },
     handle_info(activate_socket, NState);
-handle_timeout(TRef, keepalive, State = #state{socket = Socket,
-                                               channel = Channel})->
-    case emqx_exproto_channel:info(conn_state, Channel) of
-        disconnected -> {ok, State};
-        _ ->
-            case esockd_getstat(Socket, [recv_oct]) of
-                {ok, [{recv_oct, RecvOct}]} ->
-                    handle_timeout(TRef, {keepalive, RecvOct}, State);
-                {error, Reason} ->
-                    handle_info({sock_error, Reason}, State)
-            end
-    end;
+
 handle_timeout(_TRef, emit_stats, State =
                #state{channel = Channel}) ->
     ClientId = emqx_exproto_channel:info(clientid, Channel),
@@ -683,3 +665,4 @@ stop(Reason, State) ->
 
 stop(Reason, Reply, State) ->
     {stop, Reason, Reply, State}.
+

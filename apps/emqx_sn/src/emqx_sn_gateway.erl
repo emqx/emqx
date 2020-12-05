@@ -201,8 +201,7 @@ idle(cast, {incoming, ?SN_PUBLISH_MSG(#mqtt_sn_flags{qos = ?QOS_NEG1,
                         emqx_sn_registry:lookup_topic(Registry, ClientId, TopicId);
                     true  -> <<TopicId:16>>
                 end,
-    Msg = emqx_message:make({?NEG_QOS_CLIENT_ID, State#state.username},
-                            ?QOS_0, TopicName, Data),
+    Msg = emqx_message:make(?NEG_QOS_CLIENT_ID, ?QOS_0, TopicName, Data),
     (TopicName =/= undefined) andalso emqx_broker:publish(Msg),
     ?LOG(debug, "Client id=~p receives a publish with QoS=-1 in idle mode!", [ClientId], State),
     {keep_state_and_data, State#state.idle_timeout};
@@ -942,14 +941,13 @@ do_publish_will(#state{will_msg = #will_msg{payload = undefined}}) ->
     ok;
 do_publish_will(#state{will_msg = #will_msg{topic = undefined}}) ->
     ok;
-do_publish_will(#state{channel = Channel, will_msg = WillMsg}) ->
+do_publish_will(#state{will_msg = WillMsg, clientid = ClientId}) ->
     #will_msg{qos = QoS, retain = Retain, topic = Topic, payload = Payload} = WillMsg,
     Publish = #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBLISH, dup = false,
                                                           qos = QoS, retain = Retain},
                            variable = #mqtt_packet_publish{topic_name = Topic, packet_id = 1000},
                            payload  = Payload},
-    ClientInfo = emqx_channel:info(clientinfo, Channel),
-    emqx_broker:publish(emqx_packet:to_message(ClientInfo, Publish)),
+    emqx_broker:publish(emqx_packet:to_message(Publish, ClientId)),
     ok.
 
 do_puback(TopicId, MsgId, ReturnCode, _StateName,

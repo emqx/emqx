@@ -585,6 +585,7 @@ data(["export"]) ->
             {auth_mnesia, AuthMnesia},
             {acl_mnesia, AclMnesia},
             {schemas, Schemas}],
+    ok = filelib:ensure_dir(NFilename),
     case file:write_file(NFilename, emqx_json:encode(Data)) of
         ok ->
             emqx_ctl:print("The emqx data has been successfully exported to ~s.~n", [NFilename]);

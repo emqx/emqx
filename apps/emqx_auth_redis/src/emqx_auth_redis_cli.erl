@@ -41,13 +41,13 @@ connect(Opts) ->
             eredis_sentinel:start_link(get_value(servers, Opts)),
             "sentinel:" ++ Sentinel
     end,
-    case eredis:start_link(
-                    Host,
-                    get_value(port, Opts, 6379),
-                    get_value(database, Opts),
-                    get_value(password, Opts),
-                    no_reconnect
-                ) of
+    case eredis:start_link(Host,
+                           get_value(port, Opts, 6379),
+                           get_value(database, Opts, 0),
+                           get_value(password, Opts, ""),
+                           3000,
+                           5000,
+                           get_value(options, Opts, [])) of
             {ok, Pid} -> {ok, Pid};
             {error, Reason = {connection_error, _}} ->
                 ?LOG(error, "[Redis] Can't connect to Redis server: Connection refused."),

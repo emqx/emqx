@@ -1,9 +1,9 @@
 {application, emqx_passwd,
  [{description, "Password Hash Library for EMQ X Broker"},
-  {vsn, "4.3.0"}, % strict semver, bump manually!
+  {vsn, "0.1.1"}, % strict semver, bump manually!
   {modules, ['emqx_passwd']},
   {registered, []},
-  {applications, [kernel,stdlib,ssl,pbkdf2,bcrypt,emqx]},
+  {applications, [kernel,stdlib,ssl,pbkdf2,emqx]},
   {env, []},
   {licenses, ["Apache-2.0"]},
   {maintainers, ["EMQ X Team <contact@emqx.io>"]},

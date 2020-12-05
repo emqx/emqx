@@ -33,6 +33,40 @@
   hidden
 ]}.
 
+{mapping, "auth.redis.ssl", "emqx_auth_redis.options", [
+  {default, off},
+  {datatype, flag}
+]}.
+
+{mapping, "auth.redis.cafile", "emqx_auth_redis.options", [
+  {default, ""},
+  {datatype, string}
+]}.
+
+{mapping, "auth.redis.certfile", "emqx_auth_redis.options", [
+  {default, ""},
+  {datatype, string}
+]}.
+
+{mapping, "auth.redis.keyfile", "emqx_auth_redis.options", [
+  {default, ""},
+  {datatype, string}
+]}.
+
+{translation, "emqx_auth_redis.options", fun(Conf) ->
+   Ssl = cuttlefish:conf_get("auth.redis.ssl", Conf, false),
+   case Ssl of
+       true ->
+            CA = cuttlefish:conf_get("auth.redis.cafile", Conf),
+            Cert = cuttlefish:conf_get("auth.redis.certfile", Conf),
+            Key = cuttlefish:conf_get("auth.redis.keyfile", Conf),
+            [{options, [{ssl_options, [{cacertfile, CA},
+                                       {certfile, Cert},
+                                       {keyfile, Key}]}]}];
+       _ -> [{options, []}]
+   end
+end}.
+
 {translation, "emqx_auth_redis.server", fun(Conf) ->
   Fun = fun(S) ->
     case string:split(S, ":", trailing) of
@@ -103,4 +137,3 @@ end}.
     _                -> plain
   end
 end}.
-

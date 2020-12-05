@@ -51,7 +51,7 @@ groups() ->
       ]},
      {actions, [],
       [t_inspect_action
-     %,t_republish_action
+      ,t_republish_action
       ]},
      {api, [],
       [t_crud_rule_api,
@@ -325,12 +325,14 @@ t_inspect_action(_Config) ->
     ok.
 
 t_republish_action(_Config) ->
+    Qos0Received = emqx_metrics:val('messages.qos0.received'),
+    Received = emqx_metrics:val('messages.received'),
     ok = emqx_rule_engine:load_providers(),
     {ok, #rule{id = Id, for = [<<"t1">>]}} =
         emqx_rule_engine:create_rule(
                     #{rawsql => <<"select topic, payload, qos from \"t1\"">>,
                       actions => [#{name => 'republish',
-                                    args => #{<<"target_topic">> => <<"t1">>,
+                                    args => #{<<"target_topic">> => <<"t2">>,
                                               <<"target_qos">> => -1,
                                               <<"payload_tmpl">> => <<"${payload}">>}}],
                       description => <<"builtin-republish-rule">>}),
@@ -347,6 +349,8 @@ t_republish_action(_Config) ->
     end,
     emqtt:stop(Client),
     emqx_rule_registry:remove_rule(Id),
+    ?assertEqual(2, emqx_metrics:val('messages.qos0.received') - Qos0Received ),
+    ?assertEqual(2, emqx_metrics:val('messages.received') - Received),
     ok.
 
 %%------------------------------------------------------------------------------
