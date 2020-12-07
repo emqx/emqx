@@ -28,42 +28,55 @@
 
 -define(APP, emqx_auth_jwt).
 
--define(JWT_ACTION, {emqx_auth_jwt, check, [auth_env()]}).
-
 start(_Type, _Args) ->
-    ok = emqx_auth_jwt:register_metrics(),
-    emqx:hook('client.authenticate', ?JWT_ACTION),
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    {ok, Sup} = supervisor:start_link({local, ?MODULE}, ?MODULE, []),
 
-stop(_State) ->
-    emqx:unhook('client.authenticate', ?JWT_ACTION).
+    {ok, Pid} = start_auth_server(jwks_svr_options()),
+    ok = emqx_auth_jwt:register_metrics(),
+
+    AuthEnv0 = auth_env(),
+    AuthEnv1 = AuthEnv0#{pid => Pid},
+
+    emqx:hook('client.authenticate', {emqx_auth_jwt, check, [AuthEnv1]}),
+    {ok, Sup, AuthEnv1}.
+
+stop(AuthEnv) ->
+    emqx:unhook('client.authenticate', {emqx_auth_jwt, check, [AuthEnv]}).
 
 %%--------------------------------------------------------------------
 %% Dummy supervisor
 %%--------------------------------------------------------------------
 
 init([]) ->
-    {ok, { {one_for_all, 1, 10}, []} }.
+    {ok, {{one_for_all, 1, 10}, []}}.
+
+start_auth_server(Options) ->
+    Spec = #{id => jwt_svr,
+             start => {emqx_auth_jwt_svr, start_link, [Options]},
+             restart => permanent,
+             shutdown => brutal_kill,
+             type => worker,
+             modules => [emqx_auth_jwt_svr]},
+    supervisor:start_child(?MODULE, Spec).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
 auth_env() ->
-    #{secret     => env(secret, undefined),
-      from       => env(from, password),
-      pubkey     => read_pubkey(),
-      checklists => env(verify_claims, []),
-      opts       => env(jwerl_opts, #{})
+    Checklists = [{atom_to_binary(K, utf8), V}
+                  || {K, V} <- env(verify_claims, [])],
+    #{ from => env(from, password)
+     , checklists => Checklists
      }.
 
-read_pubkey() ->
-    case env(pubkey, undefined) of
-        undefined  -> undefined;
-        Path ->
-            {ok, PubKey} = file:read_file(Path), PubKey
-    end.
+jwks_svr_options() ->
+    [{K, V} || {K, V}
+             <- [{secret, env(secret, undefined)},
+                 {pubkey, env(pubkey, undefined)},
+                 {jwks_addr, env(jwks, undefined)},
+                 {interval, env(refresh_interval, undefined)}],
+             V /= undefined].
 
 env(Key, Default) ->
     application:get_env(?APP, Key, Default).
-

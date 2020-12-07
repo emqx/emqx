@@ -111,7 +111,8 @@
 -record(action_instance_params,
         { id :: action_instance_id()
         , params :: #{} %% the params got after initializing the action
-        , apply :: fun((Data::map(), Envs::map()) -> any()) %% the func got after initializing the action
+        , apply :: fun((Data::map(), Envs::map()) -> any())
+                 | {M::module(), F::atom(), Args::list()} %% the func got after initializing the action
         }).
 
 %% Arithmetic operators

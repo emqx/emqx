@@ -35,7 +35,7 @@ pool_spec(Server) ->
     Options = application:get_env(?APP, options, []),
     case proplists:get_value(type, Server) of
         cluster ->
-            eredis_cluster:start_pool(?APP, Server ++ Options),
+            {ok, _} = eredis_cluster:start_pool(?APP, Server ++ Options),
             [];
         _ ->
             [ecpool:pool_spec(?APP, ?APP, emqx_auth_redis_cli, Server ++ Options)]

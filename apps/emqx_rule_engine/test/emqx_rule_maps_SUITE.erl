@@ -43,9 +43,6 @@ t_nested_put_map(_) ->
     ?assertEqual(#{a => 1}, nested_put(?path([a]), 1, #{})),
     ?assertEqual(#{a => a}, nested_put(?path([a]), a, #{})),
     ?assertEqual(#{a => 1}, nested_put(?path([a]), 1, not_map)),
-    ?assertMatch(#{payload := #{<<"msg">> := <<"v">>}},
-        nested_put(?path([<<"payload">>, <<"msg">>]), <<"v">>,
-                   #{payload => <<"{\n  \"msg\": \"hello\"\n}">>})),
     ?assertEqual(#{a => #{b => b}}, nested_put(?path([a,b]), b, #{})),
     ?assertEqual(#{a => #{b => #{c => c}}}, nested_put(?path([a,b,c]), c, #{})),
     ?assertEqual(#{<<"k">> => v1}, nested_put(?path([k]), v1, #{<<"k">> => v0})),
@@ -94,9 +91,6 @@ t_nested_put_mix_map_index(_) ->
 
 t_nested_get_map(_) ->
     ?assertEqual(undefined, nested_get(?path([a]), not_map)),
-    ?assertEqual(<<"hello">>, nested_get(?path([msg]), <<"{\n  \"msg\": \"hello\"\n}">>)),
-    ?assertEqual(<<"hello">>, nested_get(?path([<<"msg">>]), <<"{\n  \"msg\": \"hello\"\n}">>)),
-    ?assertEqual(<<"hello">>, nested_get(?path([<<"payload">>, <<"msg">>]), #{payload => <<"{\n  \"msg\": \"hello\"\n}">>})),
     ?assertEqual(#{a => 1}, nested_get(?path([]), #{a => 1})),
     ?assertEqual(#{b => c}, nested_get(?path([a]), #{a => #{b => c}})),
     ?assertEqual(undefined, nested_get(?path([a,b,c]), not_map)),

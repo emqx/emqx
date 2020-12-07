@@ -3,7 +3,7 @@
   {vsn, "git"},
   {modules, []},
   {registered, [emqx_auth_jwt_sup]},
-  {applications, [kernel,stdlib,jwerl]},
+  {applications, [kernel,stdlib,jose]},
   {mod, {emqx_auth_jwt_app, []}},
   {env, []},
   {licenses, ["Apache-2.0"]},

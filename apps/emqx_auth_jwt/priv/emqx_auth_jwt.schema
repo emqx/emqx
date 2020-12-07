@@ -4,6 +4,14 @@
   {datatype, string}
 ]}.
 
+{mapping, "auth.jwt.jwks", "emqx_auth_jwt.jwks", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.jwt.jwks.refresh_interval", "emqx_auth_jwt.refresh_interval", [
+  {datatype, {duration, ms}}
+]}.
+
 {mapping, "auth.jwt.from", "emqx_auth_jwt.from", [
   {default, password},
   {datatype, atom}
@@ -11,6 +19,11 @@
 
 {mapping, "auth.jwt.pubkey", "emqx_auth_jwt.pubkey", [
   {datatype, string}
+]}.
+
+{mapping, "auth.jwt.signature_format", "emqx_auth_jwt.jwerl_opts", [
+  {default, "der"},
+  {datatype, {enum, [raw, der]}}
 ]}.
 
 {mapping, "auth.jwt.verify_claims", "emqx_auth_jwt.verify_claims", [
@@ -33,16 +46,4 @@
                       Acc
               end, [], cuttlefish_variable:filter_by_prefix("auth.jwt.verify_claims", Conf))
    end
-end}.
-
-{mapping, "auth.jwt.signature_format", "emqx_auth_jwt.jwerl_opts", [
-  {default, "der"},
-  {datatype, {enum, [raw, der]}}
-]}.
-
-{translation, "emqx_auth_jwt.jwerl_opts", fun(Conf) ->
-    Filter = fun(L) -> [I || I <- L, I /= undefined] end,
-    maps:from_list(Filter(
-        [{raw, cuttlefish:conf_get("auth.jwt.signature_format", Conf) == raw}]
-    ))
 end}.

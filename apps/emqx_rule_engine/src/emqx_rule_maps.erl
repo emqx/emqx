@@ -28,19 +28,17 @@
 nested_get(Key, Data) ->
     nested_get(Key, Data, undefined).
 
-nested_get({var, Key}, Data, Default) when is_map(Data) orelse is_list(Data) ->
+nested_get({var, Key}, Data, Default) ->
     general_map_get({key, Key}, Data, Data, Default);
 nested_get({path, Path}, Data, Default) when is_map(Data) orelse is_list(Data),
                                              is_list(Path) ->
     do_nested_get(Path, Data, Data, Default);
-nested_get(Key, JsonStr, Default) when is_binary(JsonStr) ->
-    try emqx_json:decode(JsonStr, [return_maps]) of
+nested_get(Key, Data, Default) when not is_map(Data) ->
+    try emqx_json:decode(Data, [return_maps]) of
         Json -> nested_get(Key, Json, Default)
     catch
         _:_ -> Default
-    end;
-nested_get(_Key, _InvalidData, Default) ->
-    Default.
+    end.
 
 do_nested_get([Key|More], Data, OrgData, Default) ->
     case general_map_get(Key, Data, OrgData, undefined) of
@@ -83,12 +81,6 @@ general_map_put(Key, Val, Map, OrgData) ->
             (_) -> do_put(Key, Val, Map, OrgData)
         end).
 
-general_find(Key, JsonStr, _OrgData, Handler) when is_binary(JsonStr) ->
-    try emqx_json:decode(JsonStr, [return_maps]) of
-        Json -> general_find(Key, Json, _OrgData, Handler)
-    catch
-        _:_ -> Handler(not_found)
-    end;
 general_find({key, Key}, Map, _OrgData, Handler) when is_map(Map) ->
     case maps:find(Key, Map) of
         {ok, Val} -> Handler({found, {{key, Key}, Val}});

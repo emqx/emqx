@@ -14,9 +14,21 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--ifndef(EMQX_EXTENSION_HOOK_HRL).
--define(EMQX_EXTENSION_HOOK_HRL, true).
+-module(emqx_rule_locker).
 
--define(APP, emqx_extension_hook).
+-export([start_link/0]).
 
--endif.
+-export([ lock/1
+        , unlock/1
+        ]).
+
+start_link() ->
+    ekka_locker:start_link(?MODULE).
+
+-spec(lock(binary()) -> ekka_locker:lock_result()).
+lock(Id) ->
+    ekka_locker:acquire(?MODULE, Id, local).
+
+-spec(unlock(binary()) -> {boolean(), [node()]}).
+unlock(Id) ->
+    ekka_locker:release(?MODULE, Id, local).

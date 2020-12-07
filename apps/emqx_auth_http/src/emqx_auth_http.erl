@@ -25,7 +25,7 @@
 -logger_header("[Auth http]").
 
 -import(emqx_auth_http_cli,
-        [ request/8
+        [ request/6
         , feedvar/2
         ]).
 
@@ -41,28 +41,26 @@ register_metrics() ->
 
 check(ClientInfo, AuthResult, #{auth_req   := AuthReq,
                                 super_req  := SuperReq,
-                                http_opts  := HttpOpts,
-                                retry_opts := RetryOpts,
-                                headers    := Headers}) ->
-    case authenticate(AuthReq, ClientInfo, Headers, HttpOpts, RetryOpts) of
-        {ok, 200, "ignore"} ->
+                                pool_name  := PoolName}) ->
+    case authenticate(PoolName, AuthReq, ClientInfo) of
+        {ok, 200, <<"ignore">>} ->
             emqx_metrics:inc(?AUTH_METRICS(ignore)), ok;
         {ok, 200, Body}  ->
             emqx_metrics:inc(?AUTH_METRICS(success)),
-            IsSuperuser = is_superuser(SuperReq, ClientInfo, Headers, HttpOpts, RetryOpts),
+            IsSuperuser = is_superuser(PoolName, SuperReq, ClientInfo),
             {stop, AuthResult#{is_superuser => IsSuperuser,
                                 auth_result => success,
                                 anonymous   => false,
                                 mountpoint  => mountpoint(Body, ClientInfo)}};
         {ok, Code, _Body} ->
-            ?LOG(error, "Deny connection from url: ~s, response http code: ~p",
-                 [AuthReq#http_request.url, Code]),
+            ?LOG(error, "Deny connection from path: ~s, response http code: ~p",
+                 [AuthReq#http_request.path, Code]),
             emqx_metrics:inc(?AUTH_METRICS(failure)),
             {stop, AuthResult#{auth_result => http_to_connack_error(Code),
                                anonymous   => false}};
         {error, Error} ->
-            ?LOG(error, "Request auth url: ~s, error: ~p",
-                 [AuthReq#http_request.url, Error]),
+            ?LOG(error, "Request auth path: ~s, error: ~p",
+                 [AuthReq#http_request.path, Error]),
             emqx_metrics:inc(?AUTH_METRICS(failure)),
             %%FIXME later: server_unavailable is not right.
             {stop, AuthResult#{auth_result => server_unavailable,
@@ -75,32 +73,30 @@ description() -> "Authentication by HTTP API".
 %% Requests
 %%--------------------------------------------------------------------
 
-authenticate(#http_request{url = Url,
-                           method = Method,
-                           content_type = ContentType,
-                           params = Params,
-                           options = Options},
-             ClientInfo, HttpHeaders, HttpOpts, RetryOpts) ->
-   request(Method, ContentType, Url, feedvar(Params, ClientInfo), HttpHeaders, HttpOpts, Options, RetryOpts).
+authenticate(PoolName, #http_request{path = Path,
+                                     method = Method,
+                                     headers = Headers,
+                                     params = Params,
+                                     request_timeout = RequestTimeout}, ClientInfo) ->
+   request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), RequestTimeout).
 
--spec(is_superuser(maybe(#http_request{}), emqx_types:client(), list(), list(), list()) -> boolean()).
-is_superuser(undefined, _ClientInfo, _HttpHeaders, _HttpOpts, _RetryOpts) ->
+-spec(is_superuser(atom(), maybe(#http_request{}), emqx_types:client()) -> boolean()).
+is_superuser(_PoolName, undefined, _ClientInfo) ->
     false;
-is_superuser(#http_request{url = Url,
-                           method = Method,
-                           content_type = ContentType,
-                           params = Params,
-                           options = Options},
-             ClientInfo, HttpHeaders, HttpOpts, RetryOpts) ->
-    case request(Method, ContentType, Url, feedvar(Params, ClientInfo), HttpHeaders, HttpOpts, Options, RetryOpts) of
+is_superuser(PoolName, #http_request{path = Path,
+                                     method = Method,
+                                     headers = Headers,
+                                     params = Params,
+                                     request_timeout = RequestTimeout}, ClientInfo) ->
+    case request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), RequestTimeout) of
         {ok, 200, _Body}   -> true;
         {ok, _Code, _Body} -> false;
-        {error, Error}     -> ?LOG(error, "Request superuser url ~s, error: ~p", [Url, Error]),
+        {error, Error}     -> ?LOG(error, "Request superuser path ~s, error: ~p", [Path, Error]),
                               false
     end.
 
 mountpoint(Body, #{mountpoint := Mountpoint}) ->
-    case emqx_json:safe_decode(iolist_to_binary(Body), [return_maps]) of
+    case emqx_json:safe_decode(Body, [return_maps]) of
         {error, _} -> Mountpoint;
         {ok, Json} when is_map(Json) ->
             maps:get(<<"mountpoint">>, Json, Mountpoint);

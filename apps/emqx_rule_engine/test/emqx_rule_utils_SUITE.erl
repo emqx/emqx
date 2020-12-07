@@ -25,13 +25,6 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-t_preproc_sql(_) ->
-    Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
-    {PrepareStatement, GetPrepareParams} = emqx_rule_utils:preproc_sql(<<"a:${a},b:${b},c:${c},d:${d}">>, '?'),
-    ?assertEqual(<<"a:?,b:?,c:?,d:?">>, PrepareStatement),
-    ?assertEqual([<<"1">>,1,1.0,<<"{\"d1\":\"hi\"}">>],
-                 GetPrepareParams(Selected)).
-
 t_http_connectivity(_) ->
     {ok, Socket} = gen_tcp:listen(?PORT, []),
     ok = emqx_rule_utils:http_connectivity("http://127.0.0.1:"++emqx_rule_utils:str(?PORT), 1000),
@@ -84,3 +77,36 @@ t_proc_tmpl(_) ->
     Tks = emqx_rule_utils:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d}">>),
     ?assertEqual(<<"a:1,b:1,c:1.0,d:{\"d1\":\"hi\"}">>,
                  emqx_rule_utils:proc_tmpl(Tks, Selected)).
+
+t_proc_tmpl1(_) ->
+    Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
+    Tks = emqx_rule_utils:preproc_tmpl(<<"a:$a,b:b},c:{c},d:${d">>),
+    ?assertEqual(<<"a:$a,b:b},c:{c},d:${d">>,
+                 emqx_rule_utils:proc_tmpl(Tks, Selected)).
+
+t_proc_cmd(_) ->
+    Selected = #{v0 => <<"x">>, v1 => <<"1">>, v2 => #{d1 => <<"hi">>}},
+    Tks = emqx_rule_utils:preproc_cmd(<<"hset name a:${v0} ${v1} b ${v2} ">>),
+    ?assertEqual([<<"hset">>, <<"name">>,
+                  <<"a:x">>, <<"1">>,
+                  <<"b">>, <<"{\"d1\":\"hi\"}">>],
+                 emqx_rule_utils:proc_cmd(Tks, Selected)).
+
+t_preproc_sql(_) ->
+    Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
+    {PrepareStatement, ParamsTokens} = emqx_rule_utils:preproc_sql(<<"a:${a},b:${b},c:${c},d:${d}">>, '?'),
+    ?assertEqual(<<"a:?,b:?,c:?,d:?">>, PrepareStatement),
+    ?assertEqual([<<"1">>,1,1.0,<<"{\"d1\":\"hi\"}">>],
+                 emqx_rule_utils:proc_sql(ParamsTokens, Selected)).
+
+t_preproc_sql1(_) ->
+    Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
+    {PrepareStatement, ParamsTokens} = emqx_rule_utils:preproc_sql(<<"a:${a},b:${b},c:${c},d:${d}">>, '$n'),
+    ?assertEqual(<<"a:$1,b:$2,c:$3,d:$4">>, PrepareStatement),
+    ?assertEqual([<<"1">>,1,1.0,<<"{\"d1\":\"hi\"}">>],
+                 emqx_rule_utils:proc_sql(ParamsTokens, Selected)).
+t_preproc_sql2(_) ->
+    Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
+    {PrepareStatement, ParamsTokens} = emqx_rule_utils:preproc_sql(<<"a:$a,b:b},c:{c},d:${d">>, '?'),
+    ?assertEqual(<<"a:$a,b:b},c:{c},d:${d">>, PrepareStatement),
+    ?assertEqual([], emqx_rule_utils:proc_sql(ParamsTokens, Selected)).

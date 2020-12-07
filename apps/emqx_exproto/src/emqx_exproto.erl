@@ -16,24 +16,20 @@
 
 -module(emqx_exproto).
 
--compile({no_auto_import, [register/1]}).
-
 -include("emqx_exproto.hrl").
 
 -export([ start_listeners/0
         , stop_listeners/0
+        , start_listener/1
+        , start_listener/4
+        , stop_listener/4
+        , stop_listener/1
         ]).
 
-%% APIs: Connection level
--export([ send/2
-        , close/1
-        ]).
-
-%% APIs: Protocol/Session level
--export([ register/2
-        , publish/2
-        , subscribe/3
-        , unsubscribe/2
+-export([ start_servers/0
+        , stop_servers/0
+        , start_server/1
+        , stop_server/1
         ]).
 
 %%--------------------------------------------------------------------
@@ -42,78 +38,71 @@
 
 -spec(start_listeners() -> ok).
 start_listeners() ->
-    lists:foreach(fun start_listener/1, application:get_env(?APP, listeners, [])).
+    Listeners = application:get_env(?APP, listeners, []),
+    NListeners = [start_connection_handler_instance(Listener)
+                  || Listener <- Listeners],
+    lists:foreach(fun start_listener/1, NListeners).
 
 -spec(stop_listeners() -> ok).
 stop_listeners() ->
-    lists:foreach(fun stop_listener/1, application:get_env(?APP, listeners, [])).
+    Listeners = application:get_env(?APP, listeners, []),
+    lists:foreach(fun stop_connection_handler_instance/1, Listeners),
+    lists:foreach(fun stop_listener/1, Listeners).
 
-%%--------------------------------------------------------------------
-%% APIs - Connection level
-%%--------------------------------------------------------------------
+-spec(start_servers() -> ok).
+start_servers() ->
+    lists:foreach(fun start_server/1, application:get_env(?APP, servers, [])).
 
--spec(send(pid(), binary()) -> ok).
-send(Conn, Data) when is_pid(Conn), is_binary(Data) ->
-    emqx_exproto_conn:cast(Conn, {send, Data}).
-
--spec(close(pid()) -> ok).
-close(Conn) when is_pid(Conn) ->
-    emqx_exproto_conn:cast(Conn, close).
-
-%%--------------------------------------------------------------------
-%% APIs - Protocol/Session level
-%%--------------------------------------------------------------------
-
--spec(register(pid(), list()) -> ok | {error, any()}).
-register(Conn, ClientInfo0) ->
-    case emqx_exproto_types:parse(clientinfo, ClientInfo0) of
-        {error, Reason} ->
-            {error, Reason};
-        ClientInfo ->
-            emqx_exproto_conn:cast(Conn, {register, ClientInfo})
-    end.
-
--spec(publish(pid(), list()) -> ok | {error, any()}).
-publish(Conn, Msg0) when is_pid(Conn), is_list(Msg0) ->
-    case emqx_exproto_types:parse(message, Msg0) of
-        {error, Reason} ->
-            {error, Reason};
-        Msg ->
-            emqx_exproto_conn:cast(Conn, {publish, Msg})
-    end.
-
--spec(subscribe(pid(), binary(), emqx_types:qos()) -> ok | {error, any()}).
-subscribe(Conn, Topic, Qos)
-  when is_pid(Conn), is_binary(Topic),
-       (Qos =:= 0 orelse Qos =:= 1 orelse Qos =:= 2) ->
-    emqx_exproto_conn:cast(Conn, {subscribe, Topic, Qos}).
-
--spec(unsubscribe(pid(), binary()) -> ok | {error, any()}).
-unsubscribe(Conn, Topic)
-  when is_pid(Conn), is_binary(Topic) ->
-    emqx_exproto_conn:cast(Conn, {unsubscribe, Topic}).
+-spec(stop_servers() -> ok).
+stop_servers() ->
+    lists:foreach(fun stop_server/1, application:get_env(?APP, servers, [])).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
+start_connection_handler_instance({_Proto, _LisType, _ListenOn, Opts}) ->
+    Name = name(_Proto, _LisType),
+    {value, {_, HandlerOpts}, LisOpts} = lists:keytake(handler, 1, Opts),
+    {SvrAddr, ChannelOptions} = handler_opts(HandlerOpts),
+    case emqx_exproto_sup:start_grpc_client_channel(Name, SvrAddr, ChannelOptions) of
+        {ok, _ClientChannelPid} ->
+            {_Proto, _LisType, _ListenOn, [{handler, Name} | LisOpts]};
+        {error, Reason} ->
+            io:format(standard_error, "Failed to start ~s's connection handler - ~0p~n!",
+                      [Name, Reason]),
+            error(Reason)
+    end.
+
+stop_connection_handler_instance({_Proto, _LisType, _ListenOn, _Opts}) ->
+    Name = name(_Proto, _LisType),
+    _ = emqx_exproto_sup:stop_grpc_client_channel(Name),
+    ok.
+
+start_server({Name, Port, SSLOptions}) ->
+    case emqx_exproto_sup:start_grpc_server(Name, Port, SSLOptions) of
+        {ok, _} ->
+            io:format("Start ~s gRPC server on ~w successfully.~n",
+                      [Name, Port]);
+        {error, Reason} ->
+            io:format(standard_error, "Failed to start ~s gRPC server on ~w - ~0p~n!",
+                      [Name, Port, Reason]),
+            error({failed_start_server, Reason})
+    end.
+
+stop_server({Name, Port, _SSLOptions}) ->
+    ok = emqx_exproto_sup:stop_grpc_server(Name),
+    io:format("Stop ~s gRPC server on ~w successfully.~n", [Name, Port]).
+
 start_listener({Proto, LisType, ListenOn, Opts}) ->
     Name = name(Proto, LisType),
-    {value, {_, DriverOpts}, LisOpts} = lists:keytake(driver, 1, Opts),
-    case emqx_exproto_driver_mngr:ensure_driver(Name, DriverOpts) of
-        {ok, _DriverPid}->
-            case start_listener(LisType, Name, ListenOn, [{driver, Name} |LisOpts]) of
-                {ok, _} ->
-                    io:format("Start ~s listener on ~s successfully.~n",
-                              [Name, format(ListenOn)]);
-                {error, Reason} ->
-                    io:format(standard_error, "Failed to start ~s listener on ~s - ~0p~n!",
-                              [Name, format(ListenOn), Reason]),
-                    error(Reason)
-            end;
+    case start_listener(LisType, Name, ListenOn, Opts) of
+        {ok, _} ->
+            io:format("Start ~s listener on ~s successfully.~n",
+                      [Name, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to start ~s's driver - ~0p~n!",
-                      [Name, Reason]),
+            io:format(standard_error, "Failed to start ~s listener on ~s - ~0p~n!",
+                      [Name, format(ListenOn), Reason]),
             error(Reason)
     end.
 
@@ -137,11 +126,11 @@ start_listener(dtls, Name, ListenOn, LisOpts) ->
 
 stop_listener({Proto, LisType, ListenOn, Opts}) ->
     Name = name(Proto, LisType),
-    _ = emqx_exproto_driver_mngr:stop_driver(Name),
     StopRet = stop_listener(LisType, Name, ListenOn, Opts),
     case StopRet of
-        ok -> io:format("Stop ~s listener on ~s successfully.~n",
-                        [Name, format(ListenOn)]);
+        ok ->
+            io:format("Stop ~s listener on ~s successfully.~n",
+                      [Name, format(ListenOn)]);
         {error, Reason} ->
             io:format(standard_error, "Failed to stop ~s listener on ~s - ~p~n.",
                       [Name, format(ListenOn), Reason])
@@ -157,8 +146,12 @@ name(Proto, LisType) ->
     list_to_atom(lists:flatten(io_lib:format("~s:~s", [Proto, LisType]))).
 
 %% @private
+format(Port) when is_integer(Port) ->
+    io_lib:format("0.0.0.0:~w", [Port]);
 format({Addr, Port}) when is_list(Addr) ->
-    io_lib:format("~s:~w", [Addr, Port]).
+    io_lib:format("~s:~w", [Addr, Port]);
+format({Addr, Port}) when is_tuple(Addr) ->
+    io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
 
 %% @private
 merge_tcp_default(Opts) ->
@@ -176,3 +169,19 @@ merge_udp_default(Opts) ->
         false ->
             [{udp_options, ?UDP_SOCKOPTS} | Opts]
     end.
+
+%% @private
+handler_opts(Opts) ->
+    Scheme = proplists:get_value(scheme, Opts),
+    Host = proplists:get_value(host, Opts),
+    Port = proplists:get_value(port, Opts),
+    SvrAddr = lists:flatten(io_lib:format("~s://~s:~w", [Scheme, Host, Port])),
+    ClientOpts = case Scheme of
+                     https ->
+                         SslOpts = lists:keydelete(ssl, 1, proplists:get_value(ssl_options, Opts, [])),
+                         #{gun_opts =>
+                           #{transport => ssl,
+                             transport_opts => SslOpts}};
+                     _ -> #{}
+                 end,
+    {SvrAddr, ClientOpts}.

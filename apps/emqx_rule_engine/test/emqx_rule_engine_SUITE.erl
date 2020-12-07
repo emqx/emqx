@@ -349,7 +349,7 @@ t_republish_action(_Config) ->
     end,
     emqtt:stop(Client),
     emqx_rule_registry:remove_rule(Id),
-    ?assertEqual(2, emqx_metrics:val('messages.qos0.received') - Qos0Received ),
+    ?assertEqual(2, emqx_metrics:val('messages.qos0.received') - Qos0Received),
     ?assertEqual(2, emqx_metrics:val('messages.received') - Received),
     ok.
 
@@ -358,13 +358,14 @@ t_republish_action(_Config) ->
 %%------------------------------------------------------------------------------
 
 t_crud_rule_api(_Config) ->
-    {ok, #{code := 0, data := Rule = #{id := RuleID}}} =
+    {ok, #{code := 0, data := Rule}} =
         emqx_rule_engine_api:create_rule(#{},
                 [{<<"name">>, <<"debug-rule">>},
                  {<<"rawsql">>, <<"select * from \"t/a\"">>},
                  {<<"actions">>, [[{<<"name">>,<<"inspect">>},
                                    {<<"params">>,[{<<"arg1">>,1}]}]]},
                  {<<"description">>, <<"debug rule">>}]),
+    RuleID = maps:get(id, Rule),
     %ct:pal("RCreated : ~p", [Rule]),
 
     {ok, #{code := 0, data := Rules}} = emqx_rule_engine_api:list_rules(#{},[]),
@@ -378,10 +379,10 @@ t_crud_rule_api(_Config) ->
     {ok, #{code := 0, data := Rule2}} = emqx_rule_engine_api:update_rule(#{id => RuleID},
                 [{<<"rawsql">>, <<"select * from \"t/b\"">>}]),
 
-    {ok, #{code := 0, data := Rule3 = #{rawsql := SQL}}} = emqx_rule_engine_api:show_rule(#{id => RuleID}, []),
+    {ok, #{code := 0, data := Rule3}} = emqx_rule_engine_api:show_rule(#{id => RuleID}, []),
     %ct:pal("RShow : ~p", [Rule1]),
     ?assertEqual(Rule3, Rule2),
-    ?assertEqual(<<"select * from \"t/b\"">>, SQL),
+    ?assertEqual(<<"select * from \"t/b\"">>, maps:get(rawsql, Rule3)),
 
     {ok, #{code := 0, data := Rule4}} = emqx_rule_engine_api:update_rule(#{id => RuleID},
                 [{<<"actions">>,
@@ -396,17 +397,16 @@ t_crud_rule_api(_Config) ->
                     ]]
                  }]),
 
-    {ok, #{code := 0, data := Rule5 = #{actions := Actions}}}
-        = emqx_rule_engine_api:show_rule(#{id => RuleID}, []),
+    {ok, #{code := 0, data := Rule5}} = emqx_rule_engine_api:show_rule(#{id => RuleID}, []),
     %ct:pal("RShow : ~p", [Rule1]),
     ?assertEqual(Rule5, Rule4),
-    ?assertMatch([#{name := republish }], Actions),
+    ?assertMatch([#{name := republish }], maps:get(actions, Rule5)),
 
     ?assertMatch({ok, #{code := 0}}, emqx_rule_engine_api:delete_rule(#{id => RuleID}, [])),
 
     NotFound = emqx_rule_engine_api:show_rule(#{id => RuleID}, []),
     %ct:pal("Show After Deleted: ~p", [NotFound]),
-    ?assertMatch({ok, #{code := 404, message := _}}, NotFound),
+    ?assertMatch({ok, #{code := 404, message := _Message}}, NotFound),
     ok.
 
 t_list_actions_api(_Config) ->
@@ -416,27 +416,27 @@ t_list_actions_api(_Config) ->
     ok.
 
 t_show_action_api(_Config) ->
-    ?assertMatch({ok, #{code := 0, data := #{name := 'inspect'}}},
-                 emqx_rule_engine_api:show_action(#{name => 'inspect'},[])),
+    {ok, #{code := 0, data := Actions}} = emqx_rule_engine_api:show_action(#{name => 'inspect'},[]),
+    ?assertEqual('inspect', maps:get(name, Actions)),
     ok.
 
 t_crud_resources_api(_Config) ->
-    {ok, #{code := 0, data := #{id := ResId}}} =
+    {ok, #{code := 0, data := Resources1}} =
         emqx_rule_engine_api:create_resource(#{},
             [{<<"name">>, <<"Simple Resource">>},
              {<<"type">>, <<"built_in">>},
              {<<"config">>, [{<<"a">>, 1}]},
              {<<"description">>, <<"Simple Resource">>}]),
+    ResId = maps:get(id, Resources1),
     {ok, #{code := 0, data := Resources}} = emqx_rule_engine_api:list_resources(#{},[]),
     ?assert(length(Resources) > 0),
 
-    ?assertMatch({ok, #{code := 0, data := #{id := ResId}}},
-                 emqx_rule_engine_api:show_resource(#{id => ResId},[])),
+    {ok, #{code := 0, data := Resources2}} = emqx_rule_engine_api:show_resource(#{id => ResId},[]),
+    ?assertEqual(ResId, maps:get(id, Resources2)),
 
     ?assertMatch({ok, #{code := 0}}, emqx_rule_engine_api:delete_resource(#{id => ResId},#{})),
 
-    ?assertMatch({ok, #{code := 404}},
-                 emqx_rule_engine_api:show_resource(#{id => ResId},[])),
+    ?assertMatch({ok, #{code := 404}}, emqx_rule_engine_api:show_resource(#{id => ResId},[])),
     ok.
 
 t_list_resource_types_api(_Config) ->
@@ -445,9 +445,9 @@ t_list_resource_types_api(_Config) ->
     ok.
 
 t_show_resource_type_api(_Config) ->
-    RShow = emqx_rule_engine_api:show_resource_type(#{name => 'built_in'},[]),
+    {ok, #{code := 0, data := RShow}} = emqx_rule_engine_api:show_resource_type(#{name => 'built_in'},[]),
     %ct:pal("RShow : ~p", [RShow]),
-    ?assertMatch({ok, #{code := 0, data := #{name := built_in}} }, RShow),
+    ?assertEqual(built_in, maps:get(name, RShow)),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -565,6 +565,7 @@ t_add_get_remove_rule(_Config) ->
     ok.
 
 t_add_get_remove_rules(_Config) ->
+    emqx_rule_registry:remove_rules(emqx_rule_registry:get_rules()),
     ok = emqx_rule_registry:add_rules(
             [make_simple_rule(<<"rule-debug-1">>),
              make_simple_rule(<<"rule-debug-2">>)]),
@@ -800,6 +801,29 @@ message_dropped(Client) ->
     ok.
 message_acked(_Client) ->
     verify_event('message.acked'),
+    ok.
+
+t_mfa_action(_Config) ->
+    ok = emqx_rule_registry:add_action(
+            #action{name = 'mfa-action', app = ?APP,
+                    module = ?MODULE, on_create = mfa_action,
+                    types=[], params_spec = #{},
+                    title = #{en => <<"MFA callback action">>},
+                    description = #{en => <<"MFA callback action">>}}),
+    SQL = "SELECT * FROM \"t1\"",
+    {ok, #rule{id = Id}} = emqx_rule_engine:create_rule(
+                    #{id => <<"rule:t_mfa_action">>,
+                      rawsql => SQL,
+                      actions => [#{id => <<"action:mfa-test">>, name => 'mfa-action', args => #{}}],
+                      description => <<"Debug rule">>}),
+    {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
+    {ok, _} = emqtt:connect(Client),
+    emqtt:publish(Client, <<"t1">>, <<"{\"id\": 1, \"name\": \"ha\"}">>, 0),
+    emqtt:stop(Client),
+    ct:sleep(500),
+    ?assertEqual(1, persistent_term:get(<<"action:mfa-test">>, 0)),
+    emqx_rule_registry:remove_rule(Id),
+    emqx_rule_registry:remove_action('mfa-action'),
     ok.
 
 t_match_atom_and_binary(_Config) ->
@@ -1974,6 +1998,14 @@ hook_metrics_action(_Id, _Params) ->
         ct:pal("applying hook_metrics_action: ~p", [Data]),
         ets:insert(events_record_tab, {EventName, Data})
     end.
+
+mfa_action(Id, _Params) ->
+    persistent_term:put(Id, 0),
+    {?MODULE, mfa_action_do, [Id]}.
+
+mfa_action_do(_Data, _Envs, K) ->
+    persistent_term:put(K, 1).
+
 crash_action(_Id, _Params) ->
     fun(Data, _Envs) ->
         ct:pal("applying crash action, Data: ~p", [Data]),
@@ -2252,7 +2284,7 @@ start_apps() ->
     [start_apps(App, SchemaFile, ConfigFile) ||
         {App, SchemaFile, ConfigFile}
             <- [{emqx, deps_path(emqx, "priv/emqx.schema"),
-                       deps_path(emqx, "etc/emqx.conf")},
+                       deps_path(emqx, "etc/gen.emqx.conf")},
                 {emqx_rule_engine, local_path("priv/emqx_rule_engine.schema"),
                                    local_path("etc/emqx_rule_engine.conf")}]].
 

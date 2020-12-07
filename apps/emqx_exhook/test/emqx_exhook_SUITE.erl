@@ -14,37 +14,40 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_extension_hook_sup).
+-module(emqx_exhook_SUITE).
 
--behaviour(supervisor).
+-compile(export_all).
+-compile(nowarn_export_all).
 
--export([ start_link/0
-        , init/1
-        ]).
-
--export([ start_driver_pool/1
-        , stop_driver_pool/1
-        ]).
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 %%--------------------------------------------------------------------
-%%  Supervisor APIs & Callbacks
+%% Setups
 %%--------------------------------------------------------------------
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+all() -> emqx_ct:all(?MODULE).
 
-init([]) ->
-    {ok, {{one_for_one, 10, 100}, []}}.
+init_per_suite(Cfg) ->
+    _ = emqx_exhook_demo_svr:start(),
+    emqx_ct_helpers:start_apps([emqx_exhook], fun set_special_cfgs/1),
+    Cfg.
+
+end_per_suite(_Cfg) ->
+    emqx_ct_helpers:stop_apps([emqx_exhook]),
+    emqx_exhook_demo_svr:stop().
+
+set_special_cfgs(emqx) ->
+    application:set_env(emqx, allow_anonymous, false),
+    application:set_env(emqx, enable_acl_cache, false),
+    application:set_env(emqx, plugins_loaded_file,
+                        emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins"));
+set_special_cfgs(emqx_exhook) ->
+    ok.
 
 %%--------------------------------------------------------------------
-%% APIs
+%% Test cases
 %%--------------------------------------------------------------------
 
--spec start_driver_pool(map()) -> {ok, pid()} | {error, term()}.
-start_driver_pool(Spec) ->
-    supervisor:start_child(?MODULE, Spec).
-
--spec stop_driver_pool(atom()) -> ok.
-stop_driver_pool(Name) ->
-    ok = supervisor:terminate_child(?MODULE, Name),
-    ok = supervisor:delete_child(?MODULE, Name).
+t_hooks(_Cfg) ->
+    ok.

@@ -2,7 +2,7 @@ name: Run test cases
 
 on: [push, pull_request]
 
-jobs:    
+jobs:
     run_test_cases:
         runs-on: ubuntu-latest
 
@@ -11,21 +11,18 @@ jobs:
 
         steps:
             - uses: actions/checkout@v1
-            - uses: actions/setup-java@v1
-              with:
-                java-version: '8.0.x'
-                java-package: jdk
-            - name: run test cases
+            - name: Code dialyzer
               run: |
-                make eunit  
+                make xref
+                make dialyzer
+            - name: Run test cases
+              run: |
+                make eunit
+                make proper
                 make ct
                 make cover
             - uses: actions/upload-artifact@v1
-              if: always()
+              if: failure()
               with:
                 name: logs
                 path: _build/test/logs
-            - uses: actions/upload-artifact@v1
-              with:
-                name: cover
-                path: _build/test/cover

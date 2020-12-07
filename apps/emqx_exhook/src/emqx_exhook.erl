@@ -14,9 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_extension_hook).
+-module(emqx_exhook).
 
--include("emqx_extension_hook.hrl").
+-include("emqx_exhook.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -logger_header("[ExHook]").
@@ -29,42 +29,42 @@
         ]).
 
 -export([ cast/2
-        , call_fold/4
+        , call_fold/3
         ]).
 
 %%--------------------------------------------------------------------
 %% Mgmt APIs
 %%--------------------------------------------------------------------
 
--spec list() -> [emqx_extension_hook_driver:driver()].
+-spec list() -> [emqx_exhook_server:server()].
 list() ->
-    [state(Name) || Name <- running()].
+    [server(Name) || Name <- running()].
 
--spec enable(atom(), list()) -> ok | {error, term()}.
+-spec enable(atom()|string(), list()) -> ok | {error, term()}.
 enable(Name, Opts) ->
     case lists:member(Name, running()) of
         true ->
             {error, already_started};
         _ ->
-            case emqx_extension_hook_driver:load(Name, Opts) of
-                {ok, DriverState} ->
-                    save(Name, DriverState);
+            case emqx_exhook_server:load(Name, Opts) of
+                {ok, ServiceState} ->
+                    save(Name, ServiceState);
                 {error, Reason} ->
-                    ?LOG(error, "Load driver ~p failed: ~p", [Name, Reason]),
+                    ?LOG(error, "Load server ~p failed: ~p", [Name, Reason]),
                     {error, Reason}
             end
     end.
 
--spec disable(atom()) -> ok | {error, term()}.
+-spec disable(atom()|string()) -> ok | {error, term()}.
 disable(Name) ->
-    case state(Name) of
+    case server(Name) of
         undefined -> {error, not_running};
-        Driver ->
-            ok = emqx_extension_hook_driver:unload(Driver),
+        Service ->
+            ok = emqx_exhook_server:unload(Service),
             unsave(Name)
     end.
 
--spec disable_all() -> [atom()].
+-spec disable_all() -> [term()].
 disable_all() ->
     [begin disable(Name), Name end || Name <- running()].
 
@@ -72,46 +72,44 @@ disable_all() ->
 %% Dispatch APIs
 %%----------------------------------------------------------
 
--spec cast(atom(), list()) -> ok.
-cast(Name, Args) ->
-    cast(Name, Args, running()).
+-spec cast(atom(), map()) -> ok.
+cast(Hookpoint, Req) ->
+    cast(Hookpoint, Req, running()).
 
 cast(_, _, []) ->
     ok;
-cast(Name, Args, [DriverName|More]) ->
-    emqx_extension_hook_driver:run_hook(Name, Args, state(DriverName)),
-    cast(Name, Args, More).
+cast(Hookpoint, Req, [ServiceName|More]) ->
+    %% XXX: Need a real asynchronous running
+    _ = emqx_exhook_server:call(Hookpoint, Req, server(ServiceName)),
+    cast(Hookpoint, Req, More).
 
--spec call_fold(atom(), list(), term(), function()) -> ok | {stop, term()}.
-call_fold(Name, InfoArgs, AccArg, Validator) ->
-    call_fold(Name, InfoArgs, AccArg, Validator, running()).
+-spec call_fold(atom(), term(), function())
+  -> {ok, term()}
+   | {stop, term()}.
+call_fold(Hookpoint, Req, AccFun) ->
+    call_fold(Hookpoint, Req, AccFun, running()).
 
-call_fold(_, _, _, _, []) ->
-    ok;
-call_fold(Name, InfoArgs, AccArg, Validator, [NameDriver|More]) ->
-    Driver = state(NameDriver),
-    case emqx_extension_hook_driver:run_hook_fold(Name, InfoArgs, AccArg, Driver) of
-        ok         -> call_fold(Name, InfoArgs, AccArg, Validator, More);
-        {error, _} -> call_fold(Name, InfoArgs, AccArg, Validator, More);
-        {ok, NAcc} ->
-            case Validator(NAcc) of
-                true ->
-                    {stop, NAcc};
-                _ ->
-                    ?LOG(error, "Got invalid return type for calling ~p on ~p",
-                         [Name, emqx_extension_hook_driver:name(Driver)]),
-                    call_fold(Name, InfoArgs, AccArg, Validator, More)
-            end
+call_fold(_, Req, _, []) ->
+    {ok, Req};
+call_fold(Hookpoint, Req, AccFun, [ServiceName|More]) ->
+    case emqx_exhook_server:call(Hookpoint, Req, server(ServiceName)) of
+        {ok, Resp} ->
+            case AccFun(Req, Resp) of
+                {stop, NReq} -> {stop, NReq};
+                {ok, NReq} -> call_fold(Hookpoint, NReq, AccFun, More)
+            end;
+        _ ->
+            call_fold(Hookpoint, Req, AccFun, More)
     end.
 
 %%----------------------------------------------------------
 %% Storage
 
 -compile({inline, [save/2]}).
-save(Name, DriverState) ->
+save(Name, ServiceState) ->
     Saved = persistent_term:get(?APP, []),
     persistent_term:put(?APP, lists:reverse([Name | Saved])),
-    persistent_term:put({?APP, Name}, DriverState).
+    persistent_term:put({?APP, Name}, ServiceState).
 
 -compile({inline, [unsave/1]}).
 unsave(Name) ->
@@ -128,9 +126,9 @@ unsave(Name) ->
 running() ->
     persistent_term:get(?APP, []).
 
--compile({inline, [state/1]}).
-state(Name) ->
+-compile({inline, [server/1]}).
+server(Name) ->
     case catch persistent_term:get({?APP, Name}) of
         {'EXIT', {badarg,_}} -> undefined;
-        State -> State
+        Service -> Service
     end.

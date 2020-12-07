@@ -25,7 +25,7 @@
 -type(params_spec() :: #{atom() => term()}).
 -type(params() :: #{binary() => term()}).
 
--define(DATA_TYPES, [string, number, float, boolean, object, array, file]).
+-define(DATA_TYPES, [string, password, number, float, boolean, object, array, file, cfgselect]).
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -72,12 +72,16 @@ validate_type(Val, file, _Spec) ->
     ok = validate_file(Val);
 validate_type(Val, string, Spec) ->
     ok = validate_string(Val, reg_exp(maps:get(format, Spec, any)));
+validate_type(Val, password, Spec) ->
+    ok = validate_string(Val, reg_exp(maps:get(format, Spec, any)));
 validate_type(Val, number, Spec) ->
     ok = validate_number(Val, maps:get(range, Spec, any));
 validate_type(Val, boolean, _Spec) ->
     ok = validate_boolean(Val);
 validate_type(Val, array, Spec) ->
     [do_validate_param(V, maps:get(items, Spec)) || V <- Val],
+    ok;
+validate_type(_Val, cfgselect, _Spec) ->
     ok;
 validate_type(Val, object, Spec) ->
     ok = validate_object(Val, maps:get(schema, Spec, any)).
@@ -112,6 +116,8 @@ validate_boolean(true) -> ok;
 validate_boolean(false) -> ok;
 validate_boolean(Val) -> error({invalid_data_type, {boolean, Val}}).
 
+validate_file(Val) when is_map(Val) -> ok;
+validate_file(Val) when is_list(Val) -> ok;
 validate_file(Val) when is_binary(Val) -> ok;
 validate_file(Val) -> error({invalid_data_type, {file, Val}}).
 

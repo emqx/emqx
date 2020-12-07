@@ -25,3 +25,4 @@ rebar3.crashdump
 etc/emqx_auth_jwt.conf.rendered
 .rebar3/
 *.swp
+Mnesia.nonode@nohost/

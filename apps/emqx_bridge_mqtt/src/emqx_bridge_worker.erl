@@ -16,7 +16,7 @@
 
 %% @doc Bridge works in two layers (1) batching layer (2) transport layer
 %% The `bridge' batching layer collects local messages in batches and sends over
-%% to remote MQTT node/cluster via `connetion' transport layer.
+%% to remote MQTT node/cluster via `connection' transport layer.
 %% In case `REMOTE' is also an EMQX node, `connection' is recommended to be
 %% the `gen_rpc' based implementation `emqx_bridge_rpc'. Otherwise `connection'
 %% has to be `emqx_bridge_mqtt'.
@@ -97,6 +97,9 @@
         , ensure_subscription_present/3
         , ensure_subscription_absent/2
         ]).
+
+%% Internal
+-export([msg_marshaller/1]).
 
 -export_type([ config/0
              , batch/0
@@ -232,13 +235,10 @@ init(Config) ->
     State = init_opts(Config),
     Topics = [iolist_to_binary(T) || T <- Forwards],
     Subs = check_subscriptions(Subscriptions),
-    ConnectConfig = get_conn_cfg(Config),
-    ConnectFun = fun(SubsX) ->
-        emqx_bridge_connect:start(ConnectModule, ConnectConfig#{subscriptions => SubsX})
-    end,
+    ConnectCfg = get_conn_cfg(Config),
     self() ! idle,
     {ok, idle, State#{connect_module => ConnectModule,
-                      connect_fun => ConnectFun,
+                      connect_cfg => ConnectCfg,
                       forwards => Topics,
                       subscriptions => Subs,
                       replayq => Queue
@@ -276,7 +276,7 @@ open_replayq(Config) ->
         false -> #{dir => Dir, seg_bytes => SegBytes, max_total_size => MaxTotalSize}
     end,
     replayq:open(QueueConfig#{sizer => fun emqx_bridge_msg:estimate_size/1,
-                              marshaller => fun msg_marshaller/1}).
+                              marshaller => fun ?MODULE:msg_marshaller/1}).
 
 check_subscriptions(Subscriptions) ->
     lists:map(fun({Topic, QoS}) ->
@@ -433,10 +433,11 @@ is_topic_present(Topic, Topics) ->
 
 do_connect(#{forwards := Forwards,
              subscriptions := Subs,
-             connect_fun := ConnectFun,
+             connect_module := ConnectModule,
+             connect_cfg := ConnectCfg,
              name := Name} = State) ->
     ok = subscribe_local_topics(Forwards, Name),
-    case ConnectFun(Subs) of
+    case emqx_bridge_connect:start(ConnectModule, ConnectCfg#{subscriptions => Subs}) of
         {ok, Conn} ->
             ?LOG(info, "Bridge ~p is connecting......", [Name]),
             {ok, eval_bridge_handler(State#{connection => Conn}, connected)};
