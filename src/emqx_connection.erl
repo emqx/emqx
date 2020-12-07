@@ -104,7 +104,16 @@
 -define(ENABLED(X), (X =/= undefined)).
 
 -define(ALARM_TCP_CONGEST(Channel),
-         list_to_binary(io_lib:format("mqtt_conn/congested/~s", [emqx_channel:info(clientid, Channel)]))).
+        list_to_binary(io_lib:format("mqtt_conn/congested/~s/~s",
+            [emqx_channel:info(clientid, Channel),
+             emqx_channel:info(username, Channel)]))).
+
+-define(ALARM_CONN_INFO_KEYS, [
+    socktype, sockname, peername,
+    clientid, username, proto_name, proto_ver, connected_at
+]).
+-define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
+-define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
 
 -dialyzer({no_match, [info/2]}).
 -dialyzer({nowarn_function, [ init/4
@@ -616,10 +625,9 @@ maybe_warn_congestion(Socket, Transport, Channel) ->
     IsCongestAlarmSet = is_congestion_alarm_set(),
     case is_congested(Socket, Transport) of
         true when not IsCongestAlarmSet ->
-            {ok, Stat} = Transport:getstat(Socket, [recv_cnt, recv_oct, send_cnt, send_oct]),
-            {ok, Opts} = Transport:getopts(Socket, [high_watermark,high_msgq_watermark, sndbuf, recbuf, buffer]),
             ok = set_congestion_alarm(),
-            emqx_alarm:activate(?ALARM_TCP_CONGEST(Channel), maps:from_list(Stat++Opts));
+            emqx_alarm:activate(?ALARM_TCP_CONGEST(Channel),
+                tcp_congestion_alarm_details(Socket, Transport, Channel));
         false when IsCongestAlarmSet ->
             ok = clear_congestion_alarm(),
             emqx_alarm:deactivate(?ALARM_TCP_CONGEST(Channel));
@@ -641,6 +649,19 @@ set_congestion_alarm() ->
     erlang:put(conn_congested, true), ok.
 clear_congestion_alarm() ->
     erlang:put(conn_congested, false), ok.
+
+tcp_congestion_alarm_details(Socket, Transport, Channel) ->
+    {ok, Stat} = Transport:getstat(Socket, ?ALARM_SOCK_STATS_KEYS),
+    {ok, Opts} = Transport:getopts(Socket, ?ALARM_SOCK_OPTS_KEYS),
+    SockInfo = maps:from_list(Stat ++ Opts),
+    ConnInfo = maps:from_list([conn_info(Key, Channel) || Key <- ?ALARM_CONN_INFO_KEYS]),
+    maps:merge(ConnInfo, SockInfo).
+
+conn_info(Key, Channel) when Key =:= sockname; Key =:= peername ->
+    {IPStr, Port} = emqx_channel:info(Key, Channel),
+    {Key, iolist_to_binary([inet:ntoa(IPStr),":",integer_to_list(Port)])};
+conn_info(Key, Channel) ->
+    {Key, emqx_channel:info(Key, Channel)}.
 
 %%--------------------------------------------------------------------
 %% Handle Info
