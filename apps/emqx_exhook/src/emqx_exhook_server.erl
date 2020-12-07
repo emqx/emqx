@@ -36,7 +36,7 @@
         ]).
 
 -record(server, {
-          %% Server name (equal to grpcbox client channel name)
+          %% Server name (equal to grpc client channel name)
           name :: server_name(),
           %% The server started options
           options :: list(),
@@ -44,11 +44,11 @@
           channel :: pid(),
           %% Registered hook names and options
           hookspec :: #{hookpoint() => map()},
-          %% Metric fun
-          incfun :: function()
+          %% Metrcis name prefix
+          prefix :: list()
        }).
 
--type server_name() :: atom().
+-type server_name() :: string().
 -type server() :: #server{}.
 
 -type hookpoint() :: 'client.connect'
@@ -73,54 +73,63 @@
 
 -export_type([server/0]).
 
+-dialyzer({nowarn_function, [inc_metrics/2]}).
+
 %%--------------------------------------------------------------------
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
 
 -spec load(atom(), list()) -> {ok, server()} | {error, term()} .
-load(Name, Opts0) ->
-    {Endpoints, Options} = channel_opts(Opts0),
-    StartFun = case proplists:get_bool(inplace, Opts0) of
-                   true -> start_grpc_client_channel_inplace;
-                   _ -> start_grpc_client_channel
-               end,
-    case emqx_exhook_sup:StartFun(Name, Endpoints, Options) of
-        {ok, ChannPid} ->
+load(Name0, Opts0) ->
+    Name = prefix(Name0),
+    {SvrAddr, ClientOpts} = channel_opts(Opts0),
+    case emqx_exhook_sup:start_grpc_client_channel(Name, SvrAddr, ClientOpts) of
+        {ok, _ChannPoolPid} ->
             case do_init(Name) of
                 {ok, HookSpecs} ->
                     %% Reigster metrics
                     Prefix = lists:flatten(io_lib:format("exhook.~s.", [Name])),
                     ensure_metrics(Prefix, HookSpecs),
                     {ok, #server{name = Name,
-                                  options = Opts0,
-                                  channel = ChannPid,
-                                  hookspec = HookSpecs,
-                                  incfun = incfun(Prefix) }};
-                {error, _} = E -> E
+                                 options = Opts0,
+                                 channel = _ChannPoolPid,
+                                 hookspec = HookSpecs,
+                                 prefix = Prefix }};
+                {error, _} = E ->
+                    emqx_exhook_sup:stop_grpc_client_channel(Name), E
             end;
         {error, _} = E -> E
     end.
+
+%% @private
+prefix(Name) when is_atom(Name) ->
+    "exhook:" ++ atom_to_list(Name);
+prefix(Name) when is_binary(Name) ->
+    "exhook:" ++ binary_to_list(Name);
+prefix(Name) when is_list(Name) ->
+    "exhook:" ++ Name.
 
 %% @private
 channel_opts(Opts) ->
     Scheme = proplists:get_value(scheme, Opts),
     Host = proplists:get_value(host, Opts),
     Port = proplists:get_value(port, Opts),
-    Options = proplists:get_value(options, Opts, []),
-    SslOpts = case Scheme of
-                  https -> proplists:get_value(ssl_options, Opts, []);
-                  _ -> []
-              end,
-    {[{Scheme, Host, Port, SslOpts}], maps:from_list(Options)}.
+    SvrAddr = lists:flatten(io_lib:format("~s://~s:~w", [Scheme, Host, Port])),
+    ClientOpts = case Scheme of
+                     https ->
+                         SslOpts = lists:keydelete(ssl, 1, proplists:get_value(ssl_options, Opts, [])),
+                         #{gun_opts =>
+                           #{transport => ssl,
+                             transport_opts => SslOpts}};
+                     _ -> #{}
+                 end,
+    {SvrAddr, ClientOpts}.
 
 -spec unload(server()) -> ok.
-unload(#server{name = Name, channel = ChannPid, options = Options}) ->
+unload(#server{name = Name}) ->
     _ = do_deinit(Name),
-    {StopFun, Args} = case proplists:get_bool(inplace, Options) of
-                          true -> {stop_grpc_client_channel_inplace, [ChannPid]};
-                          _ -> {stop_grpc_client_channel, [Name]}
-                      end,
-    apply(emqx_exhook_sup, StopFun, Args).
+    _ = emqx_exhook_sup:stop_grpc_client_channel(Name),
+    ok.
 
 do_deinit(Name) ->
     _ = do_call(Name, 'on_provider_unloaded', #{}),
@@ -168,11 +177,6 @@ ensure_metrics(Prefix, HookSpecs) ->
             || Hookpoint <- maps:keys(HookSpecs)],
     lists:foreach(fun emqx_metrics:ensure/1, Keys).
 
-incfun(Prefix) ->
-    fun(Name) ->
-        emqx_metrics:inc(list_to_atom(Prefix ++ atom_to_list(Name)))
-    end.
-
 format(#server{name = Name, hookspec = Hooks}) ->
     io_lib:format("name=~p, hooks=~0p", [Name, Hooks]).
 
@@ -187,7 +191,7 @@ name(#server{name = Name}) ->
   -> ignore
    | {ok, Resp :: term()}
    | {error, term()}.
-call(Hookpoint, Req, #server{name = ChannName, hookspec = Hooks, incfun = IncFun}) ->
+call(Hookpoint, Req, #server{name = ChannName, hookspec = Hooks, prefix = Prefix}) ->
     GrpcFunc = hk2func(Hookpoint),
     case maps:get(Hookpoint, Hooks, undefined) of
         undefined -> ignore;
@@ -201,10 +205,18 @@ call(Hookpoint, Req, #server{name = ChannName, hookspec = Hooks, incfun = IncFun
             case NeedCall of
                 false -> ignore;
                 _ ->
-                    IncFun(Hookpoint),
+                    inc_metrics(Prefix, Hookpoint),
                     do_call(ChannName, GrpcFunc, Req)
             end
     end.
+
+%% @private
+inc_metrics(IncFun, Name) when is_function(IncFun) ->
+    %% BACKW: e4.2.0-e4.2.2
+    {env, [Prefix|_]} = erlang:fun_info(IncFun, env),
+    inc_metrics(Prefix, Name);
+inc_metrics(Prefix, Name) when is_list(Prefix) ->
+    emqx_metrics:inc(list_to_atom(Prefix ++ atom_to_list(Name))).
 
 -compile({inline, [match_topic_filter/2]}).
 match_topic_filter(_, []) ->
@@ -212,7 +224,7 @@ match_topic_filter(_, []) ->
 match_topic_filter(TopicName, TopicFilter) ->
     lists:any(fun(F) -> emqx_topic:match(TopicName, F) end, TopicFilter).
 
--spec do_call(atom(), atom(), map()) -> {ok, map()} | {error, term()}.
+-spec do_call(string(), atom(), map()) -> {ok, map()} | {error, term()}.
 do_call(ChannName, Fun, Req) ->
     Options = #{channel => ChannName},
     ?LOG(debug, "Call ~0p:~0p(~0p, ~0p)", [?PB_CLIENT_MOD, Fun, Req, Options]),
@@ -228,8 +240,8 @@ do_call(ChannName, Fun, Req) ->
             ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) error: ~0p",
                         [?PB_CLIENT_MOD, Fun, Req, Options, Reason]),
             {error, Reason};
-        {'EXIT', Reason, Stk} ->
-            ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) throw an exception: ~0p, stacktrace: ~p",
+        {'EXIT', {Reason, Stk}} ->
+            ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) throw an exception: ~0p, stacktrace: ~0p",
                         [?PB_CLIENT_MOD, Fun, Req, Options, Reason, Stk]),
             {error, Reason}
     end.

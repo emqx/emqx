@@ -1,10 +1,10 @@
 {application, emqx_exhook,
  [{description, "EMQ X Extension for Hook"},
-  {vsn, "4.3.0"}, % strict semver, bump manually!
+  {vsn, "git"},
   {modules, []},
   {registered, []},
   {mod, {emqx_exhook_app, []}},
-  {applications, [kernel,stdlib,emqx]},
+  {applications, [kernel,stdlib,grpc]},
   {env,[]},
   {licenses, ["Apache-2.0"]},
   {maintainers, ["EMQ X Team <contact@emqx.io>"]},

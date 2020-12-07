@@ -25,14 +25,38 @@
         , stop/0
         ]).
 
+-export([ get_rules_matched/1
+        , get_actions_taken/1
+        , get_actions_success/1
+        , get_actions_error/1
+        , get_actions_exception/1
+        , get_actions_retry/1
+        ]).
+
+-export([ inc_rules_matched/1
+        , inc_rules_matched/2
+        , inc_actions_taken/1
+        , inc_actions_taken/2
+        , inc_actions_success/1
+        , inc_actions_success/2
+        , inc_actions_error/1
+        , inc_actions_error/2
+        , inc_actions_exception/1
+        , inc_actions_exception/2
+        , inc_actions_retry/1
+        , inc_actions_retry/2
+        ]).
+
 -export([ inc/2
         , inc/3
         , get/2
         , get_overall/1
         , get_rule_speed/1
         , get_overall_rule_speed/0
-        , create/1
-        , clear/1
+        , create_rule_metrics/1
+        , create_metrics/1
+        , clear_rule_metrics/1
+        , clear_metrics/1
         , overall_metrics/0
         ]).
 
@@ -45,6 +69,7 @@
         , handle_call/3
         , handle_info/2
         , handle_cast/2
+        , code_change/3
         , terminate/2
         ]).
 
@@ -81,16 +106,20 @@
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
--spec(create(rule_id()) -> Ref :: reference()).
-create(<<"rule:", _/binary>> = Id) ->
-    gen_server:call(?MODULE, {create_rule_metrics, Id});
-create(Id) ->
+-spec(create_rule_metrics(rule_id()) -> Ref :: reference()).
+create_rule_metrics(Id) ->
+    gen_server:call(?MODULE, {create_rule_metrics, Id}).
+
+-spec(create_metrics(rule_id()) -> Ref :: reference()).
+create_metrics(Id) ->
     gen_server:call(?MODULE, {create_metrics, Id}).
 
--spec(clear(rule_id()) -> ok).
-clear(<<"rule:", _/binary>> = Id) ->
-    gen_server:call(?MODULE, {delete_rule_metrics, Id});
-clear(Id) ->
+-spec(clear_rule_metrics(rule_id()) -> ok).
+clear_rule_metrics(Id) ->
+    gen_server:call(?MODULE, {delete_rule_metrics, Id}).
+
+-spec(clear_metrics(rule_id()) -> ok).
+clear_metrics(Id) ->
     gen_server:call(?MODULE, {delete_metrics, Id}).
 
 -spec(get(rule_id(), atom()) -> number()).
@@ -115,7 +144,7 @@ get_overall_rule_speed() ->
 -spec(get_rule_metrics(rule_id()) -> map()).
 get_rule_metrics(Id) ->
     #{max := Max, current := Current, last5m := Last5M} = get_rule_speed(Id),
-    #{matched => get(Id, 'rules.matched'),
+    #{matched => get_rules_matched(Id),
       speed => Current,
       speed_max => Max,
       speed_last5m => Last5M
@@ -123,25 +152,69 @@ get_rule_metrics(Id) ->
 
 -spec(get_action_metrics(action_instance_id()) -> map()).
 get_action_metrics(Id) ->
-    #{success => get(Id, 'actions.success'),
-      failed => get(Id, 'actions.failure')
+    #{success => get_actions_success(Id),
+      failed => get_actions_error(Id) + get_actions_exception(Id),
+      taken => get_actions_taken(Id)
      }.
 
 -spec(inc(rule_id(), atom()) -> ok).
 inc(Id, Metric) ->
     inc(Id, Metric, 1).
 inc(Id, Metric, Val) ->
-    case couters_ref(Id) of
-        not_found ->
-            counters:add(create(Id), metrics_idx(Metric), Val);
-        Ref ->
-            counters:add(Ref, metrics_idx(Metric), Val)
-    end,
+    counters:add(couters_ref(Id), metrics_idx(Metric), Val),
     inc_overall(Metric, Val).
 
 -spec(inc_overall(rule_id(), atom()) -> ok).
 inc_overall(Metric, Val) ->
     emqx_metrics:inc(Metric, Val).
+
+inc_rules_matched(Id) ->
+    inc_rules_matched(Id, 1).
+inc_rules_matched(Id, Val) ->
+    inc(Id, 'rules.matched', Val).
+
+inc_actions_taken(Id) ->
+    inc_actions_taken(Id, 1).
+inc_actions_taken(Id, Val) ->
+    inc(Id, 'actions.taken', Val).
+
+inc_actions_success(Id) ->
+    inc_actions_success(Id, 1).
+inc_actions_success(Id, Val) ->
+    inc(Id, 'actions.success', Val).
+
+inc_actions_error(Id) ->
+    inc_actions_error(Id, 1).
+inc_actions_error(Id, Val) ->
+    inc(Id, 'actions.error', Val).
+
+inc_actions_exception(Id) ->
+    inc_actions_exception(Id, 1).
+inc_actions_exception(Id, Val) ->
+    inc(Id, 'actions.exception', Val).
+
+inc_actions_retry(Id) ->
+    inc_actions_retry(Id, 1).
+inc_actions_retry(Id, Val) ->
+    inc(Id, 'actions.retry', Val).
+
+get_rules_matched(Id) ->
+    get(Id, 'rules.matched').
+
+get_actions_taken(Id) ->
+    get(Id, 'actions.taken').
+
+get_actions_success(Id) ->
+    get(Id, 'actions.success').
+
+get_actions_error(Id) ->
+    get(Id, 'actions.error').
+
+get_actions_exception(Id) ->
+    get(Id, 'actions.exception').
+
+get_actions_retry(Id) ->
+    get(Id, 'actions.retry').
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -205,7 +278,7 @@ handle_info(ticking, State = #state{rule_speeds = RuleSpeeds0,
                                        overall_rule_speed = OverallRuleSpeed0}) ->
     RuleSpeeds = maps:map(
                     fun(Id, RuleSpeed) ->
-                        calculate_speed(get(Id, 'rules.matched'), RuleSpeed)
+                        calculate_speed(get_rules_matched(Id), RuleSpeed)
                     end, RuleSpeeds0),
     OverallRuleSpeed = calculate_speed(get_overall('rules.matched'), OverallRuleSpeed0),
     async_refresh_resource_status(),
@@ -215,6 +288,50 @@ handle_info(ticking, State = #state{rule_speeds = RuleSpeeds0,
 
 handle_info(_Info, State) ->
     {noreply, State}.
+
+code_change({down, Vsn}, State = #state{metric_ids = MIDs}, _Extra)
+        when Vsn =:= "4.2.0";
+             Vsn =:= "4.2.1" ->
+    emqx_metrics:ensure('actions.failure'),
+    emqx_metrics:set('actions.failure',
+                     emqx_metrics:val('actions.error')
+                     + emqx_metrics:val('actions.exception')),
+    [begin
+        Matched = get_rules_matched(Id),
+        Succ = get_actions_success(Id),
+        Error = get_actions_error(Id),
+        Except = get_actions_exception(Id),
+        ok = delete_counters(Id),
+        ok = create_counters(Id),
+        inc_rules_matched(Id, Matched),
+        inc_actions_success(Id, Succ),
+        inc_actions_error(Id, Error + Except)
+    end || Id <- sets:to_list(MIDs)],
+    {ok, State};
+
+code_change(Vsn, State = #state{metric_ids = MIDs}, _Extra)
+        when Vsn =:= "4.2.0";
+             Vsn =:= "4.2.1" ->
+    [emqx_metrics:ensure(Name)
+     || Name <-
+        ['actions.error', 'actions.taken',
+         'actions.exception', 'actions.retry'
+        ]],
+    emqx_metrics:set('actions.error', emqx_metrics:val('actions.failure')),
+    [begin
+        Matched = get_rules_matched(Id),
+        Succ = get_actions_success(Id),
+        Error = get_actions_error(Id),
+        ok = delete_counters(Id),
+        ok = create_counters(Id),
+        inc_rules_matched(Id, Matched),
+        inc_actions_success(Id, Succ),
+        inc_actions_error(Id, Error)
+    end || Id <- sets:to_list(MIDs)],
+    {ok, State};
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
 
 terminate(_Reason, #state{metric_ids = MIDs}) ->
     [delete_counters(Id) || Id <- sets:to_list(MIDs)],
@@ -231,9 +348,12 @@ async_refresh_resource_status() ->
     spawn(emqx_rule_engine, refresh_resource_status, []).
 
 create_counters(Id) ->
-    CRef = counters:new(max_counters_size(), [write_concurrency]),
-    ok = persistent_term:put(?CRefID(Id), CRef),
-    CRef.
+    case couters_ref(Id) of
+        not_found ->
+            ok = persistent_term:put(?CRefID(Id),
+                    counters:new(max_counters_size(), [write_concurrency]));
+        _Ref -> ok
+    end.
 
 delete_counters(Id) ->
     persistent_term:erase(?CRefID(Id)),
@@ -287,12 +407,21 @@ precision(Float, N) ->
 %% Metrics Definitions
 %%------------------------------------------------------------------------------
 
-max_counters_size() -> 4.
+max_counters_size() -> 7.
 
-metrics_idx('rules.matched') ->      1;
-metrics_idx('actions.success') ->   2;
-metrics_idx('actions.failure') ->   3;
-metrics_idx(_) ->                   4.
+metrics_idx('rules.matched') ->       1;
+metrics_idx('actions.success') ->     2;
+metrics_idx('actions.error') ->       3;
+metrics_idx('actions.taken') ->       4;
+metrics_idx('actions.exception') ->   5;
+metrics_idx('actions.retry') ->       6;
+metrics_idx(_) ->                     7.
 
 overall_metrics() ->
-    ['rules.matched', 'actions.success', 'actions.failure'].
+    [ 'rules.matched'
+    , 'actions.success'
+    , 'actions.error'
+    , 'actions.taken'
+    , 'actions.exception'
+    , 'actions.retry'
+    ].

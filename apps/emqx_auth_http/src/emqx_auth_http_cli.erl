@@ -16,7 +16,9 @@
 
 -module(emqx_auth_http_cli).
 
--export([ request/8
+-include("emqx_auth_http.hrl").
+
+-export([ request/6
         , feedvar/2
         , feedvar/3
         ]).
@@ -25,36 +27,25 @@
 %% HTTP Request
 %%--------------------------------------------------------------------
 
-request(get, _ContentType, Url, Params, HttpHeaders, HttpOpts, Options, RetryOpts) ->
-    Req = {Url ++ "?" ++ cow_qs:qs(bin_kw(Params)), HttpHeaders},
-    reply(request_(get, Req, [{autoredirect, true} | HttpOpts], Options, RetryOpts));
+request(PoolName, get, Path, Headers, Params, Timeout) ->
+    NewPath = Path ++ "?" ++ cow_qs:qs(bin_kw(Params)),
+    reply(emqx_http_client:request(get, PoolName, {NewPath, Headers}, Timeout));
 
-request(post, 'x-www-form-urlencoded', Url, Params, HttpHeaders, HttpOpts, Options, RetryOpts) ->
-    Req = {Url, HttpHeaders, "application/x-www-form-urlencoded", cow_qs:qs(bin_kw(Params))},
-    reply(request_(post, Req, [{autoredirect, true} | HttpOpts], Options, RetryOpts));
+request(PoolName, post, Path, Headers, Params, Timeout) ->
+    Body = case proplists:get_value(<<"content_type">>, Headers) of
+               <<"application/x-www-form-urlencoded">> ->
+                   cow_qs:qs(bin_kw(Params));
+               <<"application/json">> -> 
+                   emqx_json:encode(bin_kw(Params))
+           end,
+    reply(emqx_http_client:request(post, PoolName, {Path, Headers, Body}, Timeout)).
 
-request(post, json, Url, Params, HttpHeaders, HttpOpts, Options, RetryOpts) ->
-    Req = {Url, HttpHeaders, "application/json", emqx_json:encode(bin_kw(Params))},
-    reply(request_(post, Req, [{autoredirect, true} | HttpOpts], Options, RetryOpts)).
-
-request_(Method, Req, HTTPOpts, Opts, RetryOpts = #{times := Times,
-                                                    interval := Interval,
-                                                    backoff := BackOff}) ->
-    case httpc:request(Method, Req, HTTPOpts, Opts) of
-        {error, _Reason} when Times > 0 ->
-            timer:sleep(trunc(Interval)),
-            RetryOpts1 = RetryOpts#{times := Times - 1,
-                                    interval := Interval * BackOff},
-            request_(Method, Req, HTTPOpts, Opts, RetryOpts1);
-        Other -> Other
-    end.
-
-reply({ok, {{_, Code, _}, _Headers, Body}}) ->
-    {ok, Code, Body};
-reply({ok, Code, Body}) ->
-    {ok, Code, Body};
-reply({error, Error}) ->
-    {error, Error}.
+reply({ok, StatusCode, _Headers}) ->
+    {ok, StatusCode, <<>>};
+reply({ok, StatusCode, _Headers, Body}) ->
+    {ok, StatusCode, Body};
+reply({error, Reason}) ->
+    {error, Reason}.
 
 %% TODO: move this conversion to cuttlefish config and schema
 bin_kw(KeywordList) when is_list(KeywordList) ->

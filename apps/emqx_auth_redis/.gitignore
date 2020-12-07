@@ -22,3 +22,5 @@ erlang.mk
 .rebar3/
 *.swp
 rebar.lock
+/.idea/
+.DS_Store

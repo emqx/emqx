@@ -33,9 +33,9 @@ init_per_suite(Cfg) ->
     emqx_ct_helpers:start_apps([emqx_exhook], fun set_special_cfgs/1),
     Cfg.
 
-end_per_suite(Cfg) ->
-    emqx_exhook_demo_svr:stop(),
-    emqx_ct_helpers:stop_apps([emqx_exhook]).
+end_per_suite(_Cfg) ->
+    emqx_ct_helpers:stop_apps([emqx_exhook]),
+    emqx_exhook_demo_svr:stop().
 
 set_special_cfgs(emqx) ->
     application:set_env(emqx, allow_anonymous, false),
@@ -49,5 +49,5 @@ set_special_cfgs(emqx_exhook) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-t_hooks(Cfg) ->
+t_hooks(_Cfg) ->
     ok.

@@ -26,10 +26,6 @@
         , stop_grpc_client_channel/1
         ]).
 
--export([ start_grpc_client_channel_inplace/3
-        , stop_grpc_client_channel_inplace/1
-        ]).
-
 %%--------------------------------------------------------------------
 %%  Supervisor APIs & Callbacks
 %%--------------------------------------------------------------------
@@ -45,30 +41,19 @@ init([]) ->
 %%--------------------------------------------------------------------
 
 -spec start_grpc_client_channel(
-        atom() | string(),
-        [grpcbox_channel:endpoint()],
-        grpcbox_channel:options()) -> {ok, pid()} | {error, term()}.
-start_grpc_client_channel(Name, Endpoints, Options0) ->
-    Options = Options0#{sync_start => true},
-    Spec = #{id => Name,
-             start => {grpcbox_channel, start_link, [Name, Endpoints, Options]},
-             type => worker},
+        string(),
+        uri_string:uri_string(),
+        grpc_client:options()) -> {ok, pid()} | {error, term()}.
+start_grpc_client_channel(Name, SvrAddr, Options) ->
+    grpc_client_sup:create_channel_pool(Name, SvrAddr, Options).
 
-    supervisor:start_child(?MODULE, Spec).
-
--spec stop_grpc_client_channel(atom()) -> ok.
+-spec stop_grpc_client_channel(string()) -> ok.
 stop_grpc_client_channel(Name) ->
-    ok = supervisor:terminate_child(?MODULE, Name),
-    ok = supervisor:delete_child(?MODULE, Name).
-
--spec start_grpc_client_channel_inplace(
-        atom() | string(),
-        [grpcbox_channel:endpoint()],
-        grpcbox_channel:options()) -> {ok, pid()} | {error, term()}.
-start_grpc_client_channel_inplace(Name, Endpoints, Options0) ->
-    Options = Options0#{sync_start => true},
-    grpcbox_channel_sup:start_child(Name, Endpoints, Options).
-
--spec stop_grpc_client_channel_inplace(pid()) -> ok.
-stop_grpc_client_channel_inplace(Pid) ->
-    ok = supervisor:terminate_child(grpcbox_channel_sup, Pid).
+    %% Avoid crash due to hot-upgrade had unloaded
+    %% grpc application
+    try
+        grpc_client_sup:stop_channel_pool(Name)
+    catch
+        _:_:_ ->
+            ok
+    end.

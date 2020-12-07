@@ -103,12 +103,3 @@ select_from(#select{from = From}) ->
 select_where(#select{where = Where}) ->
     Where.
 
-fixed_columns() ->
-    ?COLUMNS('message.publish') ++
-    ?COLUMNS('message.acked') ++
-    ?COLUMNS('message.dropped') ++
-    ?COLUMNS('client.connected') ++
-    ?COLUMNS('client.disconnected') ++
-    ?COLUMNS('session.subscribed') ++
-    ?COLUMNS('session.unsubscribed') ++
-    [<<"item">>].

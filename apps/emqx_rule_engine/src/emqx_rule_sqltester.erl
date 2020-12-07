@@ -44,6 +44,8 @@ test(#{<<"rawsql">> := Sql, <<"ctx">> := Context}) ->
 test_rule(Sql, Select, Context, EventTopics) ->
     RuleId = iolist_to_binary(["test_rule", emqx_rule_id:gen()]),
     ActInstId = iolist_to_binary(["test_action", emqx_rule_id:gen()]),
+    ok = emqx_rule_metrics:create_rule_metrics(RuleId),
+    ok = emqx_rule_metrics:create_metrics(ActInstId),
     Rule = #rule{
         id = RuleId,
         rawsql = Sql,
@@ -63,7 +65,10 @@ test_rule(Sql, Select, Context, EventTopics) ->
                 #action_instance_params{id = ActInstId,
                                         params = #{},
                                         apply = sql_test_action()}),
-        emqx_rule_runtime:apply_rule(Rule, FullContext)
+        R = emqx_rule_runtime:apply_rule(Rule, FullContext),
+        emqx_rule_metrics:clear_rule_metrics(RuleId),
+        emqx_rule_metrics:clear_metrics(ActInstId),
+        R
     of
         {ok, Data} -> {ok, flatten(Data)};
         {error, nomatch} -> {error, nomatch}

@@ -19,6 +19,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_rule_engine/include/rule_actions.hrl").
 
 -define(RESOURCE_TYPE_WEBHOOK, 'web_hook').
 -define(RESOURCE_CONFIG_SPEC, #{
@@ -132,6 +133,7 @@
         ]).
 
 -export([ on_action_create_data_to_webserver/2
+        , on_action_data_to_webserver/2
         ]).
 
 %%------------------------------------------------------------------------------
@@ -165,15 +167,25 @@ on_resource_destroy(_ResId, _Params) ->
 
 %% An action that forwards publish messages to a remote web server.
 -spec(on_action_create_data_to_webserver(Id::binary(), #{url() := string()}) -> action_fun()).
-on_action_create_data_to_webserver(_Id, Params) ->
+on_action_create_data_to_webserver(Id, Params) ->
     #{url := Url, headers := Headers, method := Method, content_type := ContentType, payload_tmpl := PayloadTmpl, path := Path}
         = parse_action_params(Params),
-    PayloadTks = emqx_rule_utils:preproc_tmpl(PayloadTmpl),
     PathTks = emqx_rule_utils:preproc_tmpl(Path),
-    fun(Selected, _Envs) ->
-        FullUrl = Url ++ emqx_rule_utils:proc_tmpl(PathTks, Selected),
-        http_request(FullUrl, Headers, Method, ContentType, format_msg(PayloadTks, Selected))
-    end.
+    PayloadTks = emqx_rule_utils:preproc_tmpl(PayloadTmpl),
+    Params.
+
+on_action_data_to_webserver(Selected, _Envs =
+                            #{?BINDING_KEYS := #{
+                                'Id' := Id,
+                                'Url' := Url,
+                                'Headers' := Headers,
+                                'Method' := Method,
+                                'ContentType' := ContentType,
+                                'PathTks' := PathTks,
+                                'PayloadTks' := PayloadTks
+                            }}) ->
+    FullUrl = Url ++ emqx_rule_utils:proc_tmpl(PathTks, Selected),
+    http_request(Id, FullUrl, Headers, Method, ContentType, format_msg(PayloadTks, Selected)).
 
 format_msg([], Data) ->
     emqx_json:encode(Data);
@@ -190,14 +202,15 @@ create_req(get, Url, Headers, _, _) ->
 create_req(_, Url, Headers, ContentType, Body) ->
   {(Url), (Headers), binary_to_list(ContentType), (Body)}.
 
-http_request(Url, Headers, Method, ContentType, Params) ->
+http_request(ActId, Url, Headers, Method, ContentType, Params) ->
   logger:debug("[WebHook Action] ~s to ~s, headers: ~p, content-type: ~p, body: ~p", [Method, Url, Headers, ContentType, Params]),
   case do_http_request(Method, create_req(Method, Url, Headers, ContentType, Params),
     [{timeout, 5000}], [], 0) of
-    {ok, _} -> ok;
+    {ok, _} ->
+          emqx_rule_metrics:inc_actions_success(ActId);
     {error, Reason} ->
       logger:error("[WebHook Action] HTTP request error: ~p", [Reason]),
-      error({http_request_error, Reason})
+      emqx_rule_metrics:inc_actions_error(ActId)
   end.
 
 do_http_request(Method, Req, HTTPOpts, Opts, Times) ->

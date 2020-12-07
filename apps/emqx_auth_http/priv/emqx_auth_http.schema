@@ -11,7 +11,7 @@
 
 {mapping, "auth.http.auth_req.content_type", "emqx_auth_http.auth_req", [
   {default, 'x-www-form-urlencoded'},
-  {datatype, {enum, [json, 'x-www-form-urlencoded']}}
+  {datatype, {enum, ['json', 'x-www-form-urlencoded']}}
 ]}.
 
 {mapping, "auth.http.auth_req.params", "emqx_auth_http.auth_req", [
@@ -25,7 +25,7 @@
       Params = cuttlefish:conf_get("auth.http.auth_req.params", Conf),
       [{url, Url},
       {method, cuttlefish:conf_get("auth.http.auth_req.method", Conf)},
-      {content_type, cuttlefish:conf_get("auth.http.auth_req.content_type", Conf)},
+      {content_type, list_to_binary("application/" ++ atom_to_list(cuttlefish:conf_get("auth.http.auth_req.content_type", Conf)))},
       {params, [list_to_tuple(string:tokens(S, "=")) || S <- string:tokens(Params, ",")]}]
   end
 end}.
@@ -41,7 +41,7 @@ end}.
 
 {mapping, "auth.http.super_req.content_type", "emqx_auth_http.super_req", [
   {default, 'x-www-form-urlencoded'},
-  {datatype, {enum, [json, 'x-www-form-urlencoded']}}
+  {datatype, {enum, ['json', 'x-www-form-urlencoded']}}
 ]}.
 
 {mapping, "auth.http.super_req.params", "emqx_auth_http.super_req", [
@@ -53,7 +53,7 @@ end}.
     undefined -> cuttlefish:unset();
     Url -> Params = cuttlefish:conf_get("auth.http.super_req.params", Conf),
            [{url, Url}, {method, cuttlefish:conf_get("auth.http.super_req.method", Conf)},
-            {content_type, cuttlefish:conf_get("auth.http.super_req.content_type", Conf)},
+            {content_type, list_to_binary("application/" ++ atom_to_list(cuttlefish:conf_get("auth.http.super_req.content_type", Conf)))},
             {params, [list_to_tuple(string:tokens(S, "=")) || S <- string:tokens(Params, ",")]}]
   end
 end}.
@@ -70,7 +70,7 @@ end}.
 
 {mapping, "auth.http.acl_req.content_type", "emqx_auth_http.acl_req", [
   {default, 'x-www-form-urlencoded'},
-  {datatype, {enum, [json, 'x-www-form-urlencoded']}}
+  {datatype, {enum, ['json', 'x-www-form-urlencoded']}}
 ]}.
 
 {mapping, "auth.http.acl_req.params", "emqx_auth_http.acl_req", [
@@ -81,34 +81,56 @@ end}.
   case cuttlefish:conf_get("auth.http.acl_req", Conf, undefined) of
     undefined -> cuttlefish:unset();
     Url -> Params = cuttlefish:conf_get("auth.http.acl_req.params", Conf),
-           [{url, Url}, {method, cuttlefish:conf_get("auth.http.acl_req.method", Conf)},
-            {content_type, cuttlefish:conf_get("auth.http.acl_req.content_type", Conf)},
+           [{url, Url},
+            {method, cuttlefish:conf_get("auth.http.acl_req.method", Conf)},
+            {content_type, list_to_binary("application/" ++ atom_to_list(cuttlefish:conf_get("auth.http.acl_req.content_type", Conf)))},
             {params, [list_to_tuple(string:tokens(S, "=")) || S <- string:tokens(Params, ",")]}]
   end
 end}.
 
-{mapping, "auth.http.request.timeout", "emqx_auth_http.http_opts", [
-  {default, 0},
+{mapping, "auth.http.request.timeout", "emqx_auth_http.request_timeout", [
+  {default, "5s"},
   {datatype, [integer, {duration, ms}]}
 ]}.
 
-{mapping, "auth.http.request.connect_timeout", "emqx_auth_http.http_opts", [
+{mapping, "auth.http.pool_size", "emqx_auth_http.pool_opts", [
+  {default, 8},
+  {datatype, integer}
+]}.
+
+{mapping, "auth.http.request.connect_timeout", "emqx_auth_http.pool_opts", [
+  {default, "5s"},
   {datatype, [integer, {duration, ms}]}
 ]}.
 
-{mapping, "auth.http.ssl.cacertfile", "emqx_auth_http.http_opts", [
+{mapping, "auth.http.ssl.cacertfile", "emqx_auth_http.pool_opts", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.http.ssl.certfile", "emqx_auth_http.http_opts", [
+{mapping, "auth.http.ssl.certfile", "emqx_auth_http.pool_opts", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.http.ssl.keyfile", "emqx_auth_http.http_opts", [
+{mapping, "auth.http.ssl.keyfile", "emqx_auth_http.pool_opts", [
   {datatype, string}
 ]}.
 
-{translation, "emqx_auth_http.http_opts", fun(Conf) ->
+{mapping, "auth.http.request.retry_times", "emqx_auth_http.pool_opts", [
+  {default, 5},
+  {datatype, integer}
+]}.
+
+{mapping, "auth.http.request.retry_interval", "emqx_auth_http.pool_opts", [
+  {default, "1s"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "auth.http.request.retry_backoff", "emqx_auth_http.pool_opts", [
+  {default, 2.0},
+  {datatype, float}
+]}.
+
+{translation, "emqx_auth_http.pool_opts", fun(Conf) ->
   Filter = fun(L) -> [{K, V} || {K, V} <- L, V =/= undefined] end,
   InfinityFun = fun(0) -> infinity;
                    (Duration) -> Duration
@@ -116,8 +138,10 @@ end}.
   SslOpts = Filter([{cacertfile, cuttlefish:conf_get("auth.http.ssl.cacertfile", Conf, undefined)},
                     {certfile, cuttlefish:conf_get("auth.http.ssl.certfile", Conf, undefined)},
                     {keyfile, cuttlefish:conf_get("auth.http.ssl.keyfile", Conf, undefined)}]),
-  Opts = [{timeout, InfinityFun(cuttlefish:conf_get("auth.http.request.timeout", Conf))},
-          {connect_timeout, InfinityFun(cuttlefish:conf_get("auth.http.request.connect_timeout", Conf, undefined))}],
+  Opts = [{pool_size, cuttlefish:conf_get("auth.http.pool_size", Conf)},
+          {connect_timeout, InfinityFun(cuttlefish:conf_get("auth.http.request.connect_timeout", Conf))},
+          {retry, cuttlefish:conf_get("auth.http.request.retry_times", Conf)},
+          {retry_timeout, cuttlefish:conf_get("auth.http.request.retry_interval", Conf)}],
   case SslOpts of
       [] -> Filter(Opts);
       _  ->
@@ -131,26 +155,6 @@ end}.
   end
 end}.
 
-{mapping, "auth.http.request.retry_times", "emqx_auth_http.retry_opts", [
-  {default, 3},
-  {datatype, integer}
-]}.
-
-{mapping, "auth.http.request.retry_interval", "emqx_auth_http.retry_opts", [
-  {default, "1s"},
-  {datatype, {duration, ms}}
-]}.
-
-{mapping, "auth.http.request.retry_backoff", "emqx_auth_http.retry_opts", [
-  {default, 2.0},
-  {datatype, float}
-]}.
-
-{translation, "emqx_auth_http.retry_opts", fun(Conf) ->
-  [{times, cuttlefish:conf_get("auth.http.request.retry_times", Conf)},
-   {interval, cuttlefish:conf_get("auth.http.request.retry_interval", Conf)},
-   {backoff, cuttlefish:conf_get("auth.http.request.retry_backoff", Conf)}]
-end}.
 
 {mapping, "auth.http.header.$field", "emqx_auth_http.headers", [
   {datatype, string}

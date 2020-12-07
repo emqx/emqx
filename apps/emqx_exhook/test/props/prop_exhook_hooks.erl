@@ -490,6 +490,7 @@ pubsub_to_enum(subscribe) -> 'SUBSCRIBE'.
 do_setup() ->
     _ = emqx_exhook_demo_svr:start(),
     emqx_ct_helpers:start_apps([emqx_exhook], fun set_special_cfgs/1),
+    emqx_logger:set_log_level(warning),
     %% waiting first loaded event
     {'on_provider_loaded', _} = emqx_exhook_demo_svr:take(),
     ok.
@@ -499,6 +500,7 @@ do_teardown(_) ->
     %% waiting last unloaded event
     {'on_provider_unloaded', _} = emqx_exhook_demo_svr:take(),
     _ = emqx_exhook_demo_svr:stop(),
+    timer:sleep(2000),
     ok.
 
 set_special_cfgs(emqx) ->

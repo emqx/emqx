@@ -46,77 +46,31 @@ register_metrics() ->
 %% Authentication callbacks
 %%--------------------------------------------------------------------
 
-check(ClientInfo, AuthResult, Env = #{from := From, checklists := Checklists}) ->
+check(ClientInfo, AuthResult, #{pid := Pid,
+                                from := From,
+                                checklists := Checklists}) ->
     case maps:find(From, ClientInfo) of
         error ->
-            ok = emqx_metrics:inc(?AUTH_METRICS(ignore)),
-            {ok, AuthResult#{auth_result => token_undefined, anonymous => false}};
+            ok = emqx_metrics:inc(?AUTH_METRICS(ignore));
+        {ok, undefined} ->
+            ok = emqx_metrics:inc(?AUTH_METRICS(ignore));
         {ok, Token} ->
-            try jwerl:header(Token) of
-                Headers ->
-                    case verify_token(Headers, Token, Env) of
-                        {ok, Claims} ->
-                            {stop, maps:merge(AuthResult, verify_claims(Checklists, Claims, ClientInfo))};
-                        {error, Reason} ->
-                            ok = emqx_metrics:inc(?AUTH_METRICS(failure)),
-                            {stop, AuthResult#{auth_result => Reason, anonymous => false}}
-                    end
-            catch
-                _Error:Reason ->
-                    ?LOG(error, "Check token error: ~p", [Reason]),
-                    emqx_metrics:inc(?AUTH_METRICS(ignore))
+            case emqx_auth_jwt_svr:verify(Pid, Token) of
+                {error, not_found} ->
+                    ok = emqx_metrics:inc(?AUTH_METRICS(ignore));
+                {error, not_token} ->
+                    ok = emqx_metrics:inc(?AUTH_METRICS(ignore));
+                {error, Reason} ->
+                    ok = emqx_metrics:inc(?AUTH_METRICS(failure)),
+                    {stop, AuthResult#{auth_result => Reason, anonymous => false}};
+                {ok, Claims} ->
+                    {stop, maps:merge(AuthResult, verify_claims(Checklists, Claims, ClientInfo))}
             end
     end.
 
 description() -> "Authentication with JWT".
 
-%%--------------------------------------------------------------------
-%% Verify Token
-%%--------------------------------------------------------------------
-
-verify_token(#{alg := <<"HS", _/binary>>}, _Token, #{secret := undefined}) ->
-    {error, hmac_secret_undefined};
-verify_token(#{alg := Alg = <<"HS", _/binary>>}, Token, #{secret := Secret, opts := Opts}) ->
-    verify_token2(Alg, Token, Secret, Opts);
-
-verify_token(#{alg := <<"RS", _/binary>>}, _Token, #{pubkey := undefined}) ->
-    {error, rsa_pubkey_undefined};
-verify_token(#{alg := Alg = <<"RS", _/binary>>}, Token, #{pubkey := PubKey, opts := Opts}) ->
-    verify_token2(Alg, Token, PubKey, Opts);
-
-verify_token(#{alg := <<"ES", _/binary>>}, _Token, #{pubkey := undefined}) ->
-    {error, ecdsa_pubkey_undefined};
-verify_token(#{alg := Alg = <<"ES", _/binary>>}, Token, #{pubkey := PubKey, opts := Opts}) ->
-    verify_token2(Alg, Token, PubKey, Opts);
-
-verify_token(Header, _Token, _Env) ->
-    ?LOG(error, "Unsupported token algorithm: ~p", [Header]),
-    {error, token_unsupported}.
-
-verify_token2(Alg, Token, SecretOrKey, Opts) ->
-    try jwerl:verify(Token, decode_algo(Alg), SecretOrKey, #{}, Opts) of
-        {ok, Claims}  ->
-            {ok, Claims};
-        {error, Reason} ->
-            {error, Reason}
-    catch
-        _Error:Reason ->
-            {error, Reason}
-    end.
-
-decode_algo(<<"HS256">>) -> hs256;
-decode_algo(<<"HS384">>) -> hs384;
-decode_algo(<<"HS512">>) -> hs512;
-decode_algo(<<"RS256">>) -> rs256;
-decode_algo(<<"RS384">>) -> rs384;
-decode_algo(<<"RS512">>) -> rs512;
-decode_algo(<<"ES256">>) -> es256;
-decode_algo(<<"ES384">>) -> es384;
-decode_algo(<<"ES512">>) -> es512;
-decode_algo(<<"none">>)  -> none;
-decode_algo(Alg) -> throw({error, {unsupported_algorithm, Alg}}).
-
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Verify Claims
 %%--------------------------------------------------------------------
 
@@ -143,4 +97,3 @@ feedvar(Checklists, #{username := Username, clientid := ClientId}) ->
                  ({K, <<"%c">>}) -> {K, ClientId};
                  ({K, Expected}) -> {K, Expected}
               end, Checklists).
-

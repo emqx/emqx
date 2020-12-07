@@ -20,6 +20,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_rule_engine/include/rule_actions.hrl").
 
 -import(emqx_rule_utils, [str/1]).
 
@@ -33,7 +34,9 @@
 
 -export([subscriptions/1]).
 
--export([on_action_create_data_to_mqtt_broker/2]).
+-export([ on_action_create_data_to_mqtt_broker/2
+        , on_action_data_to_mqtt_broker/2
+        ]).
 
 -define(RESOURCE_TYPE_MQTT, 'bridge_mqtt').
 -define(RESOURCE_TYPE_MQTT_SUB, 'bridge_mqtt_sub').
@@ -625,32 +628,42 @@ on_resource_destroy(ResId, #{<<"pool">> := PoolName}) ->
                 error({{?RESOURCE_TYPE_MQTT, ResId}, destroy_failed})
         end.
 
-on_action_create_data_to_mqtt_broker(_Id, #{<<"pool">> := PoolName,
-                                            <<"forward_topic">> := ForwardTopic,
-                                            <<"payload_tmpl">> := PayloadTmpl}) ->
+on_action_create_data_to_mqtt_broker(ActId, Opts = #{<<"pool">> := PoolName,
+                                                     <<"forward_topic">> := ForwardTopic,
+                                                     <<"payload_tmpl">> := PayloadTmpl}) ->
     ?LOG(info, "Initiating Action ~p.", [?FUNCTION_NAME]),
     PayloadTks = emqx_rule_utils:preproc_tmpl(PayloadTmpl),
     TopicTks = case ForwardTopic == <<"">> of
         true -> undefined;
         false -> emqx_rule_utils:preproc_tmpl(ForwardTopic)
     end,
-    fun(Msg, _Env = #{id := Id, clientid := From, flags := Flags,
-                      topic := Topic, timestamp := TimeStamp, qos := QoS}) ->
-            Topic1 = case TopicTks =:= undefined of
-                true -> Topic;
-                false -> emqx_rule_utils:proc_tmpl(TopicTks, Msg)
-            end,
-            BrokerMsg = #message{id = Id,
-                                 qos = QoS,
-                                 from = From,
-                                 flags = Flags,
-                                 topic = Topic1,
-                                 payload = format_data(PayloadTks, Msg),
-                                 timestamp = TimeStamp},
-            ecpool:with_client(PoolName, fun(BridgePid) ->
-                                             BridgePid ! {deliver, rule_engine, BrokerMsg}
-                                         end)
-    end.
+    Opts.
+
+on_action_data_to_mqtt_broker(Msg, _Env =
+                              #{id := Id, clientid := From, flags := Flags,
+                                topic := Topic, timestamp := TimeStamp, qos := QoS,
+                                ?BINDING_KEYS := #{
+                                    'ActId' := ActId,
+                                    'PoolName' := PoolName,
+                                    'TopicTks' := TopicTks,
+                                    'PayloadTks' := PayloadTks
+                                }}) ->
+    Topic1 = case TopicTks =:= undefined of
+        true -> Topic;
+        false -> emqx_rule_utils:proc_tmpl(TopicTks, Msg)
+    end,
+    BrokerMsg = #message{id = Id,
+                         qos = QoS,
+                         from = From,
+                         flags = Flags,
+                         topic = Topic1,
+                         payload = format_data(PayloadTks, Msg),
+                         timestamp = TimeStamp},
+    ecpool:with_client(PoolName,
+      fun(BridgePid) ->
+        BridgePid ! {deliver, rule_engine, BrokerMsg}
+      end),
+    emqx_rule_metrics:inc_actions_success(ActId).
 
 format_data([], Msg) ->
     emqx_json:encode(Msg);

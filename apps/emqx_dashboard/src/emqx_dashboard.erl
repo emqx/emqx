@@ -25,6 +25,11 @@
         , stop_listeners/0
         ]).
 
+%% for minirest
+-export([ filter/1
+        , is_authorized/1
+        ]).
+
 -define(APP, ?MODULE).
 
 %%--------------------------------------------------------------------
@@ -81,7 +86,9 @@ listener_name(Proto) ->
 
 http_handlers() ->
     Plugins = lists:map(fun(Plugin) -> Plugin#plugin.name end, emqx_plugins:list()),
-    [{"/api/v4/", minirest:handler(#{apps => Plugins, filter => fun filter/1}),[{authorization, fun is_authorized/1}]}].
+    [{"/api/v4/",
+      minirest:handler(#{apps => Plugins, filter => fun ?MODULE:filter/1}),
+      [{authorization, fun ?MODULE:is_authorized/1}]}].
 
 %%--------------------------------------------------------------------
 %% Basic Authorization

@@ -22,6 +22,8 @@
 
 -export([start_link/0]).
 
+-export([start_locker/0]).
+
 -export([init/1]).
 
 start_link() ->
@@ -45,3 +47,11 @@ init([]) ->
                 modules => [emqx_rule_metrics]},
     {ok, {{one_for_all, 10, 100}, [Registry, Metrics]}}.
 
+start_locker() ->
+    Locker = #{id => emqx_rule_locker,
+               start => {emqx_rule_locker, start_link, []},
+               restart => permanent,
+               shutdown => 5000,
+               type => worker,
+               modules => [emqx_rule_locker]},
+    supervisor:start_child(?MODULE, Locker).

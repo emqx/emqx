@@ -31,6 +31,12 @@
         , ensure_unsubscribed/2
         ]).
 
+%% callbacks for emqtt
+-export([ handle_puback/2
+        , handle_publish/2
+        , handle_disconnected/2
+        ]).
+
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
@@ -134,23 +140,23 @@ send(#{client_pid := ClientPid} = Conn, [Msg | Rest], _PktId) ->
     end.
 
 
-handle_puback(Parent, #{packet_id := PktId, reason_code := RC})
+handle_puback(#{packet_id := PktId, reason_code := RC}, Parent)
   when RC =:= ?RC_SUCCESS;
        RC =:= ?RC_NO_MATCHING_SUBSCRIBERS ->
     Parent ! {batch_ack, PktId}, ok;
-handle_puback(_Parent, #{packet_id := PktId, reason_code := RC}) ->
+handle_puback(#{packet_id := PktId, reason_code := RC}, _Parent) ->
     ?LOG(warning, "Publish ~p to remote node falied, reason_code: ~p", [PktId, RC]).
 
 handle_publish(Msg, Mountpoint) ->
     emqx_broker:publish(emqx_bridge_msg:to_broker_msg(Msg, Mountpoint)).
 
-handle_disconnected(Parent, Reason) ->
+handle_disconnected(Reason, Parent) ->
     Parent ! {disconnected, self(), Reason}.
 
 make_hdlr(Parent, Mountpoint) ->
-    #{puback => fun(Ack) -> handle_puback(Parent, Ack) end,
-      publish => fun(Msg) -> handle_publish(Msg, Mountpoint) end,
-      disconnected => fun(Reason) -> handle_disconnected(Parent, Reason) end
+    #{puback => {fun ?MODULE:handle_puback/2, [Parent]},
+      publish => {fun ?MODULE:handle_publish/2, [Mountpoint]},
+      disconnected => {fun ?MODULE:handle_disconnected/2, [Parent]}
      }.
 
 subscribe_remote_topics(ClientPid, Subscriptions) ->

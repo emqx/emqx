@@ -71,57 +71,68 @@
 %%--------------------------------------------------------------------
 
 start() ->
-    application:ensure_all_started(grpcbox),
+    application:ensure_all_started(grpc),
     [start_channel(), start_server()].
 
 start_channel() ->
-    grpcbox_channel_sup:start_child(ct_test_channel, [{http, "localhost", 9100, []}], #{}).
+    grpc_client_sup:create_channel_pool(ct_test_channel, "http://127.0.0.1:9100", #{}).
 
 start_server() ->
-    grpcbox:start_server(?HTTP).
+    Services = #{protos => [emqx_exproto_pb],
+                 services => #{'emqx.exproto.v1.ConnectionHandler' => ?MODULE}
+                },
+    Options = [],
+    grpc:start_server(?MODULE, 9001, Services, Options).
 
-stop([ChannPid, SvrPid]) ->
-    supervisor:terminate_child(grpcbox_channel_sup, ChannPid),
-    supervisor:terminate_child(grpcbox_services_simple_sup, SvrPid).
+stop([_ChannPid, _SvrPid]) ->
+    grpc:stop_server(?MODULE),
+    grpc_client_sup:stop_channel_pool(ct_test_channel).
 
 %%--------------------------------------------------------------------
 %% Protocol Adapter callbacks
 %%--------------------------------------------------------------------
 
--spec on_socket_created(ctx:ctx(), emqx_exproto_pb:created_socket_request()) ->
-    {ok, emqx_exproto_pb:empty_success(), ctx:ctx()} | grpcbox_stream:grpc_error_response().
-on_socket_created(Ctx, Req) ->
+-spec on_socket_created(emqx_exproto_pb:socket_created_request(), grpc:metadata())
+    -> {ok, emqx_exproto_pb:empty_success(), grpc:metadata()}
+     | {error, grpc_cowboy_h:error_response()}.
+on_socket_created(Req, Md) ->
     io:format("~p: ~0p~n", [?FUNCTION_NAME, Req]),
-    {ok, #{}, Ctx}.
+    {ok, #{}, Md}.
 
--spec on_received_bytes(ctx:ctx(), emqx_exproto_pb:received_bytes_request()) ->
-    {ok, emqx_exproto_pb:empty_success(), ctx:ctx()} | grpcbox_stream:grpc_error_response().
-on_received_bytes(Ctx, Req = #{conn := Conn, bytes := Bytes}) ->
+-spec on_socket_closed(emqx_exproto_pb:socket_closed_request(), grpc:metadata())
+    -> {ok, emqx_exproto_pb:empty_success(), grpc:metadata()}
+     | {error, grpc_cowboy_h:error_response()}.
+on_socket_closed(Req, Md) ->
+    io:format("~p: ~0p~n", [?FUNCTION_NAME, Req]),
+    {ok, #{}, Md}.
+
+-spec on_received_bytes(emqx_exproto_pb:received_bytes_request(), grpc:metadata())
+    -> {ok, emqx_exproto_pb:empty_success(), grpc:metadata()}
+     | {error, grpc_cowboy_h:error_response()}.
+on_received_bytes(Req = #{conn := Conn, bytes := Bytes}, Md) ->
     io:format("~p: ~0p~n", [?FUNCTION_NAME, Req]),
     #{<<"type">> := Type} = Params = emqx_json:decode(Bytes, [return_maps]),
     _ = handle_in(Conn, Type, Params),
-    {ok, #{}, Ctx}.
+    {ok, #{}, Md}.
 
--spec on_socket_closed(ctx:ctx(), emqx_exproto_pb:socket_closed_request()) ->
-    {ok, emqx_exproto_pb:empty_success(), ctx:ctx()} | grpcbox_stream:grpc_error_response().
-on_socket_closed(Ctx, Req) ->
-    io:format("~p: ~0p~n", [?FUNCTION_NAME, Req]),
-    {ok, #{}, Ctx}.
-
-on_timer_timeout(Ctx, Req = #{conn := Conn, type := 'KEEPALIVE'}) ->
+-spec on_timer_timeout(emqx_exproto_pb:timer_timeout_request(), grpc:metadata())
+    -> {ok, emqx_exproto_pb:empty_success(), grpc:metadata()}
+     | {error, grpc_cowboy_h:error_response()}.
+on_timer_timeout(Req = #{conn := Conn, type := 'KEEPALIVE'}, Md) ->
     io:format("~p: ~0p~n", [?FUNCTION_NAME, Req]),
     handle_out(Conn, ?TYPE_DISCONNECT),
     ?close(#{conn => Conn}),
-    {ok, #{}, Ctx}.
+    {ok, #{}, Md}.
 
--spec on_received_messages(ctx:ctx(), emqx_exproto_pb:received_messages_request()) ->
-    {ok, emqx_exproto_pb:empty_success(), ctx:ctx()} | grpcbox_stream:grpc_error_response().
-on_received_messages(Ctx, Req = #{conn := Conn, messages := Messages}) ->
+-spec on_received_messages(emqx_exproto_pb:received_messages_request(), grpc:metadata())
+    -> {ok, emqx_exproto_pb:empty_success(), grpc:metadata()}
+     | {error, grpc_cowboy_h:error_response()}.
+on_received_messages(Req = #{conn := Conn, messages := Messages}, Md) ->
     io:format("~p: ~0p~n", [?FUNCTION_NAME, Req]),
     lists:foreach(fun(Message) ->
         handle_out(Conn, ?TYPE_PUBLISH, Message)
     end, Messages),
-    {ok, #{}, Ctx}.
+    {ok, #{}, Md}.
 
 %%--------------------------------------------------------------------
 %% The Protocol Example:

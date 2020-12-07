@@ -297,7 +297,17 @@ do_create_resource(Create, Params) ->
     end.
 
 list_resources(#{}, _Params) ->
-    return_all(emqx_rule_registry:get_resources()).
+    Data0 = lists:foldr(fun maybe_record_to_map/2, [], emqx_rule_registry:get_resources()),
+    Data = lists:map(fun(Res = #{id := Id}) ->
+               Status = lists:all(fun(Node) ->
+                            case emqx_rpc:call(Node, emqx_rule_registry, find_resource_params, [Id]) of
+                                {ok, #resource_params{status = #{is_alive := true}}} -> true;
+                                _ -> false
+                            end
+                        end, ekka_mnesia:running_nodes()),
+               maps:put(status, Status, Res)
+           end, Data0),
+    return({ok, Data}).
 
 list_resources_by_type(#{type := Type}, _Params) ->
     return_all(emqx_rule_registry:get_resources_by_type(Type)).
@@ -309,7 +319,7 @@ show_resource(#{id := Id}, _Params) ->
                 [begin
                     {ok, St} = rpc:call(Node, emqx_rule_engine, get_resource_status, [Id]),
                     maps:put(node, Node, St)
-                end || Node <- [node()| nodes()]],
+                end || Node <- ekka_mnesia:running_nodes()],
             return({ok, maps:put(status, Status, record_to_map(R))});
         not_found ->
             return({error, 404, <<"Not Found">>})
@@ -538,8 +548,8 @@ sort_by(Pos, TplList) ->
 
 get_rule_metrics(Id) ->
     [maps:put(node, Node, rpc:call(Node, emqx_rule_metrics, get_rule_metrics, [Id]))
-     || Node <- [node()| nodes()]].
+     || Node <- ekka_mnesia:running_nodes()].
 
 get_action_metrics(Id) ->
     [maps:put(node, Node, rpc:call(Node, emqx_rule_metrics, get_action_metrics, [Id]))
-     || Node <- [node()| nodes()]].
+     || Node <- ekka_mnesia:running_nodes()].

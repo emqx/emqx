@@ -18,6 +18,7 @@
 -module(emqx_rule_actions).
 
 -include("rule_engine.hrl").
+-include("rule_actions.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -47,7 +48,7 @@
                 order => 3,
                 type => string,
                 input => textarea,
-                required => true,
+                required => false,
                 default => <<"${payload}">>,
                 title => #{en => <<"Payload Template">>,
                            zh => <<"消息内容模板"/utf8>>},
@@ -84,7 +85,7 @@
                category => debug,
                for => '$any',
                types => [],
-               create => on_action_do_nothing,
+               create => on_action_create_do_nothing,
                params => #{},
                title => #{en => <<"Do Nothing (debug)">>,
                           zh => <<"空动作 (调试)"/utf8>>},
@@ -92,79 +93,120 @@
                                 zh => <<"此动作什么都不做，并且不会失败 (用以调试)"/utf8>>}
               }).
 
--type(action_fun() :: fun((SelectedData::map(), Envs::map()) -> Result::any())).
-
--export_type([action_fun/0]).
-
 -export([on_resource_create/2]).
 
+%% callbacks for rule engine
 -export([ on_action_create_inspect/2
         , on_action_create_republish/2
+        , on_action_create_do_nothing/2
+        ]).
+
+-export([ on_action_inspect/2
+        , on_action_republish/2
         , on_action_do_nothing/2
         ]).
 
-%%------------------------------------------------------------------------------
-%% Default actions for the Rule Engine
-%%------------------------------------------------------------------------------
 
 -spec(on_resource_create(binary(), map()) -> map()).
 on_resource_create(_Name, Conf) ->
     Conf.
 
--spec(on_action_create_inspect(action_instance_id(), Params :: map()) -> action_fun()).
-on_action_create_inspect(_Id, Params) ->
-    fun(Selected, Envs) ->
-        io:format("[inspect]~n"
-                  "\tSelected Data: ~p~n"
-                  "\tEnvs: ~p~n"
-                  "\tAction Init Params: ~p~n", [Selected, Envs, Params])
-    end.
+%%------------------------------------------------------------------------------
+%% Action 'inspect'
+%%------------------------------------------------------------------------------
+-spec on_action_create_inspect(action_instance_id(), Params :: map())
+    -> NewParams :: map().
+on_action_create_inspect(Id, Params) ->
+    Params.
 
-%% A Demo Action.
--spec(on_action_create_republish(action_instance_id(), #{binary() := emqx_topic:topic()})
-      -> action_fun()).
-on_action_create_republish(Id, #{<<"target_topic">> := TargetTopic, <<"target_qos">> := TargetQoS, <<"payload_tmpl">> := PayloadTmpl}) ->
+-spec on_action_inspect(selected_data(), env_vars()) -> any().
+on_action_inspect(Selected, Envs) ->
+    io:format("[inspect]~n"
+              "\tSelected Data: ~p~n"
+              "\tEnvs: ~p~n"
+              "\tAction Init Params: ~p~n", [Selected, Envs, ?bound_v('Params', Envs)]),
+    emqx_rule_metrics:inc_actions_success(?bound_v('Id', Envs)).
+
+
+%%------------------------------------------------------------------------------
+%% Action 'republish'
+%%------------------------------------------------------------------------------
+-spec on_action_create_republish(action_instance_id(), Params :: map())
+      -> NewParams :: map().
+on_action_create_republish(Id, Params = #{
+        <<"target_topic">> := TargetTopic,
+        <<"target_qos">> := TargetQoS,
+        <<"payload_tmpl">> := PayloadTmpl
+       }) ->
     TopicTks = emqx_rule_utils:preproc_tmpl(TargetTopic),
     PayloadTks = emqx_rule_utils:preproc_tmpl(PayloadTmpl),
-    fun (_Selected, Envs = #{headers := #{republish_by := ActId},
-                             topic := Topic}) when ActId =:= Id ->
-            ?LOG(error, "[republish] recursively republish detected, msg topic: ~p, target topic: ~p",
-                 [Topic, TargetTopic]),
-            error({recursive_republish, Envs});
-        (Selected, _Envs = #{qos := QoS, flags := Flags, timestamp := Timestamp}) ->
-            ?LOG(debug, "[republish] republish to: ~p, Payload: ~p",
-                [TargetTopic, Selected]),
-            increase_and_publish(
-              #message{
-                id = emqx_guid:gen(),
-                qos = if TargetQoS =:= -1 -> QoS; true -> TargetQoS end,
-                from = Id,
-                flags = Flags,
-                headers = #{republish_by => Id},
-                topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
-                payload = emqx_rule_utils:proc_tmpl(PayloadTks, Selected),
-                timestamp = Timestamp
-              });
-        %% in case this is not a "message.publish" request
-        (Selected, _Envs) ->
-            ?LOG(debug, "[republish] republish to: ~p, Payload: ~p",
-                [TargetTopic, Selected]),
-            increase_and_publish(
-              #message{
-                 id = emqx_guid:gen(),
-                 qos = if TargetQoS =:= -1 -> 0; true -> TargetQoS end,
-                 from = Id,
-                 flags = #{dup => false, retain => false},
-                 headers = #{republish_by => Id},
-                 topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
-                 payload = emqx_rule_utils:proc_tmpl(PayloadTks, Selected),
-                 timestamp = erlang:system_time(millisecond)
-              })
-    end.
+    Params.
 
-increase_and_publish(Msg) ->
-    emqx_metrics:inc_msg(Msg),
-    emqx_broker:safe_publish(Msg).
+-spec on_action_republish(selected_data(), env_vars()) -> any().
+on_action_republish(_Selected, Envs = #{
+            topic := Topic,
+            headers := #{republish_by := ActId},
+            ?BINDING_KEYS := #{'Id' := ActId}
+        }) ->
+    ?LOG(error, "[republish] recursively republish detected, msg topic: ~p, target topic: ~p",
+        [Topic, ?bound_v('TargetTopic', Envs)]),
+    emqx_rule_metrics:inc_actions_error(?bound_v('Id', Envs));
 
-on_action_do_nothing(_, _) ->
-    fun(_, _) -> ok end.
+on_action_republish(Selected, _Envs = #{
+            qos := QoS, flags := Flags, timestamp := Timestamp,
+            ?BINDING_KEYS := #{
+                'Id' := ActId,
+                'TargetTopic' := TargetTopic,
+                'TargetQoS' := TargetQoS,
+                'TopicTks' := TopicTks,
+                'PayloadTks' := PayloadTks
+            }}) ->
+    ?LOG(debug, "[republish] republish to: ~p, Payload: ~p",
+        [TargetTopic, Selected]),
+    increase_and_publish(ActId,
+        #message{
+            id = emqx_guid:gen(),
+            qos = if TargetQoS =:= -1 -> QoS; true -> TargetQoS end,
+            from = ActId,
+            flags = Flags,
+            headers = #{republish_by => ActId},
+            topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
+            payload = emqx_rule_utils:proc_tmpl(PayloadTks, Selected),
+            timestamp = Timestamp
+        });
+
+%% in case this is not a "message.publish" request
+on_action_republish(Selected, _Envs = #{
+            ?BINDING_KEYS := #{
+                'Id' := ActId,
+                'TargetTopic' := TargetTopic,
+                'TargetQoS' := TargetQoS,
+                'TopicTks' := TopicTks,
+                'PayloadTks' := PayloadTks
+            }}) ->
+    ?LOG(debug, "[republish] republish to: ~p, Payload: ~p",
+        [TargetTopic, Selected]),
+    increase_and_publish(ActId,
+        #message{
+            id = emqx_guid:gen(),
+            qos = if TargetQoS =:= -1 -> 0; true -> TargetQoS end,
+            from = ActId,
+            flags = #{dup => false, retain => false},
+            headers = #{republish_by => ActId},
+            topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
+            payload = emqx_rule_utils:proc_tmpl(PayloadTks, Selected),
+            timestamp = erlang:system_time(millisecond)
+        }).
+
+increase_and_publish(ActId, Msg) ->
+    emqx_broker:safe_publish(Msg),
+    emqx_rule_metrics:inc_actions_success(ActId),
+    emqx_metrics:inc_msg(Msg).
+
+-spec on_action_create_do_nothing(action_instance_id(), Params :: map())
+      -> NewParams :: map().
+on_action_create_do_nothing(ActId, Params) when is_binary(ActId) ->
+    Params.
+
+on_action_do_nothing(Selected, Envs) when is_map(Selected) ->
+    emqx_rule_metrics:inc_actions_success(?bound_v('ActId', Envs)).

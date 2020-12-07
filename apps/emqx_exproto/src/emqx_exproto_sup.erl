@@ -20,17 +20,64 @@
 
 -export([start_link/0]).
 
+-export([ start_grpc_server/3
+        , stop_grpc_server/1
+        , start_grpc_client_channel/3
+        , stop_grpc_client_channel/1
+        ]).
+
 -export([init/1]).
+
+%%--------------------------------------------------------------------
+%% APIs
+%%--------------------------------------------------------------------
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-init([]) ->
-    DriverMngr = #{id => driver_mngr,
-                   start => {emqx_exproto_driver_mngr, start_link, []},
-                   restart => permanent,
-                   shutdown => 5000,
-                   type => worker,
-                   modules => [emqx_exproto_driver_mngr]},
-    {ok, {{one_for_all, 10, 5}, [DriverMngr]}}.
+-spec start_grpc_server(atom(), inet:port_number(), list())
+  -> {ok, pid()} | {error, term()}.
+start_grpc_server(Name, Port, SSLOptions) ->
+    Services = #{protos => [emqx_exproto_pb],
+                 services => #{'emqx.exproto.v1.ConnectionAdapter' => emqx_exproto_gsvr}
+                },
+    Options = case SSLOptions of
+                  [] -> [];
+                  _ ->
+                      [{ssl_options, lists:keydelete(ssl, 1, SSLOptions)}]
+              end,
+    grpc:start_server(prefix(Name), Port, Services, Options).
 
+-spec stop_grpc_server(atom()) -> ok.
+stop_grpc_server(Name) ->
+    grpc:stop_server(prefix(Name)).
+
+-spec start_grpc_client_channel(
+        atom(),
+        uri_string:uri_string(),
+        grpc_client:grpc_opts()) -> {ok, pid()} | {error, term()}.
+start_grpc_client_channel(Name, SvrAddr, ClientOpts) ->
+    grpc_client_sup:create_channel_pool(Name, SvrAddr, ClientOpts).
+
+-spec stop_grpc_client_channel(atom()) -> ok.
+stop_grpc_client_channel(Name) ->
+    grpc_client_sup:stop_channel_pool(Name).
+
+%% @private
+prefix(Name) when is_atom(Name) ->
+    "exproto:" ++ atom_to_list(Name);
+prefix(Name) when is_binary(Name) ->
+    "exproto:" ++ binary_to_list(Name);
+prefix(Name) when is_list(Name) ->
+    "exproto:" ++ Name.
+
+%%--------------------------------------------------------------------
+%% Supervisor callbacks
+%%--------------------------------------------------------------------
+
+init([]) ->
+    %% gRPC Client Pool
+    PoolSize = emqx_vm:schedulers() * 2,
+    Pool = emqx_pool_sup:spec([exproto_gcli_pool, hash, PoolSize,
+                               {emqx_exproto_gcli, start_link, []}]),
+    {ok, {{one_for_one, 10, 5}, [Pool]}}.
