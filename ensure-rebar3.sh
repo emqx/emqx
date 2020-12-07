@@ -1,6 +1,7 @@
-#!/bin/bash
+#!/bin/sh
 
-set -euo pipefail
+#set -euo pipefail
+set -eu
 
 VERSION="$1"
 
@@ -17,7 +18,7 @@ version() {
     head -n 2 ./rebar3 | tail -n 1 | tr ' ' '\n' | grep -E '^.+-emqx-.+'
 }
 
-if [ -f 'rebar3' ] && [ "$(version)" == "$VERSION" ]; then
+if [ -f 'rebar3' ] && [ "$(version)" = "$VERSION" ]; then
     exit 0
 fi
 
