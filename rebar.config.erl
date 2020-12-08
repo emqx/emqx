@@ -2,7 +2,8 @@
 
 -export([do/2]).
 
-do(_Dir, CONFIG) ->
+do(Dir, CONFIG) ->
+    ok = compile_and_load_pase_transforms(Dir),
     dump(deps(CONFIG) ++ config()).
 
 bcrypt() ->
@@ -174,7 +175,7 @@ env(Name, Default) ->
 
 get_vsn() ->
     PkgVsn = case env("PKG_VSN", false) of
-                 false -> os:cmd("git describe --tags");
+                 false -> os:cmd("git describe --tags --always");
                  Vsn -> Vsn
              end,
     Vsn2 = re:replace(PkgVsn, "v", "", [{return ,list}]),
@@ -192,3 +193,17 @@ provide_bcrypt_dep() ->
 
 provide_bcrypt_release(ReleaseType) ->
     provide_bcrypt_dep() andalso ReleaseType =:= cloud.
+
+%% this is a silly but working patch.
+%% rebar3 does not handle umberella project's cross-app parse_transform well
+compile_and_load_pase_transforms(Dir) ->
+    PtFiles =
+        [ "apps/emqx_rule_engine/src/emqx_rule_actions_trans.erl"
+        ],
+    CompileOpts = [verbose,report_errors,report_warnings,return_errors,debug_info],
+    lists:foreach(fun(PtFile) -> {ok, _Mod} = compile:file(path(Dir, PtFile), CompileOpts) end, PtFiles).
+
+path(Dir, Path) -> str(filename:join([Dir, Path])).
+
+str(L) when is_list(L) -> L;
+str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
