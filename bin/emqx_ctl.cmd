@@ -4,7 +4,7 @@
 
 :: Set variables that describe the release
 @set rel_name=emqx
-@set rel_vsn={{ rel_vsn }}
+@set rel_vsn={{ release_version }}
 @set erts_vsn={{ erts_vsn }}
 @set erl_opts={{ erl_opts }}
 

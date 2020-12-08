@@ -49,6 +49,7 @@ profiles() ->
 relx(Profile) ->
     Vsn = get_vsn(),
     [ {include_src,false}
+    , {include_erts, true}
     , {extended_start_script,false}
     , {generate_start_script,false}
     , {sys_config,false}
@@ -144,15 +145,15 @@ relx_overlay(ReleaseType) ->
     , {copy,"bin/*","bin/"}
     , {template,"etc/*.conf","etc/"}
     , {template,"etc/emqx.d/*.conf","etc/emqx.d/"}
-    , {copy,"priv/emqx.schema","releases/{{rel_vsn}}/"}
+    , {copy,"priv/emqx.schema","releases/{{release_version}}/"}
     , {copy, "etc/certs","etc/"}
-    , {copy,"bin/emqx.cmd","bin/emqx.cmd-{{rel_vsn}}"}
-    , {copy,"bin/emqx_ctl.cmd","bin/emqx_ctl.cmd-{{rel_vsn}}"}
-    , {copy,"bin/emqx","bin/emqx-{{rel_vsn}}"}
-    , {copy,"bin/emqx_ctl","bin/emqx_ctl-{{rel_vsn}}"}
-    , {copy,"bin/install_upgrade.escript", "bin/install_upgrade.escript-{{rel_vsn}}"}
-    , {copy,"bin/nodetool","bin/nodetool-{{rel_vsn}}"}
-    , {copy,"_build/default/lib/cuttlefish/cuttlefish","bin/cuttlefish-{{rel_vsn}}"}
+    , {copy,"bin/emqx.cmd","bin/emqx.cmd-{{release_version}}"}
+    , {copy,"bin/emqx_ctl.cmd","bin/emqx_ctl.cmd-{{release_version}}"}
+    , {copy,"bin/emqx","bin/emqx-{{release_version}}"}
+    , {copy,"bin/emqx_ctl","bin/emqx_ctl-{{release_version}}"}
+    , {copy,"bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"}
+    , {copy,"bin/nodetool","bin/nodetool-{{release_version}}"}
+    , {copy,"_build/default/lib/cuttlefish/cuttlefish","bin/cuttlefish-{{release_version}}"}
     ] ++ do_relx_overlay(ReleaseType).
 
 do_relx_overlay(cloud) ->
@@ -164,8 +165,15 @@ do_relx_overlay(edge) ->
     , {template,"etc/emqx_edge.d/vm.args.edge","etc/vm.args"}
     ].
 
+env(Name, Default) ->
+    case os:getenv(Name) of
+        "" -> Default;
+        false -> Default;
+        Value -> Value
+    end.
+
 get_vsn() ->
-    PkgVsn = case os:getenv("PKG_VSN") of
+    PkgVsn = case env("PKG_VSN", false) of
                  false -> os:cmd("git describe --tags");
                  Vsn -> Vsn
              end,
