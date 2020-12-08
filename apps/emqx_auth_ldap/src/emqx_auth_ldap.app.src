@@ -3,7 +3,7 @@
   {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_auth_ldap_sup]},
-  {applications, [kernel,stdlib,eldap2,ecpool,emqx_passwd]},
+  {applications, [kernel,stdlib,eldap2,ecpool]},
   {mod, {emqx_auth_ldap_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},

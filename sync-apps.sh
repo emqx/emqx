@@ -55,7 +55,6 @@ download_zip() {
 }
 
 default_vsn="dev/v4.3.0"
-download_zip "emqx_passwd" "v1.1.1"
 download_zip "emqx_auth_mnesia" "e4.2.2"
 for app in ${apps[@]}; do
     download_zip "$app" "$default_vsn"
@@ -78,7 +77,6 @@ extract_zip(){
     mv "apps/${repo}-${vsn}/" "apps/$app/"
 }
 
-extract_zip "emqx_passwd" "v1.1.1" "1.1.1"
 extract_zip "emqx_auth_mnesia" "e4.2.2" "e4.2.2"
 for app in ${apps[@]}; do
     extract_zip "$app" "$default_vsn"
@@ -94,7 +92,7 @@ cleanup_app(){
     popd
 }
 
-apps+=( "emqx_passwd" "emqx_auth_mnesia" )
+apps+=( "emqx_auth_mnesia" )
 for app in ${apps[@]}; do
     cleanup_app $app
 done

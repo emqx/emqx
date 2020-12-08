@@ -3,7 +3,7 @@
   {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_auth_pgsql_sup]},
-  {applications, [kernel,stdlib,epgsql,ecpool,emqx_passwd]},
+  {applications, [kernel,stdlib,epgsql,ecpool,emqx]},
   {mod, {emqx_auth_pgsql_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},

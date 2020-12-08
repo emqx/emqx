@@ -3,7 +3,7 @@
   {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_auth_mysql_sup]},
-  {applications, [kernel,stdlib,mysql,ecpool,emqx_passwd]},
+  {applications, [kernel,stdlib,mysql,ecpool]},
   {mod, {emqx_auth_mysql_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},

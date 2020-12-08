@@ -3,7 +3,18 @@
 -export([do/2]).
 
 do(_Dir, CONFIG) ->
-    maybe_dump(CONFIG ++ config()).
+    dump(deps(CONFIG) ++ config()).
+
+bcrypt() ->
+    {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
+
+deps(Config) ->
+    {deps, OldDpes} = lists:keyfind(deps, 1, Config),
+    MoreDeps = case provide_bcrypt_dep() of
+        true -> [bcrypt()];
+        false -> []
+    end,
+    lists:keystore(deps, 1, Config, {deps, OldDpes ++ MoreDeps}).
 
 config() ->
     [ {plugins, plugins()}
@@ -22,11 +33,17 @@ test_deps() ->
     ].
 
 profiles() ->
-    [ {'emqx',          [{relx, relx('emqx')}]}
-    , {'emqx-pkg',      [{relx, relx('emqx-pkg')}]}
-    , {'emqx-edge',     [{relx, relx('emqx-edge')}]}
-    , {'emqx-edge-pkg', [{relx, relx('emqx-edge-pkg')}]}
-    , {test,            [{deps, test_deps()}, {erl_opts, [debug_info]}]}
+    [ {'emqx',          [ {relx, relx('emqx')}
+                        ]}
+    , {'emqx-pkg',      [ {relx, relx('emqx-pkg')}
+                        ]}
+    , {'emqx-edge',     [ {relx, relx('emqx-edge')}
+                        ]}
+    , {'emqx-edge-pkg', [ {relx, relx('emqx-edge-pkg')}
+                        ]}
+    , {test,            [ {deps, test_deps()}
+                        , {erl_opts, [debug_info]}
+                        ]}
     ].
 
 relx(Profile) ->
@@ -91,7 +108,7 @@ relx_apps(ReleaseType) ->
     , {emqx_rule_engine, load}
     , {emqx_sasl, load}
     , {emqx_telemetry, load}
-    ] ++ do_relx_apps(ReleaseType).
+    ] ++ do_relx_apps(ReleaseType) ++ [bcrypt || provide_bcrypt_release(ReleaseType)].
 
 do_relx_apps(cloud) ->
     [ {emqx_lwm2m, load}
@@ -155,10 +172,15 @@ get_vsn() ->
     Vsn2 = re:replace(PkgVsn, "v", "", [{return ,list}]),
     re:replace(Vsn2, "\n", "", [{return ,list}]).
 
-maybe_dump(Config) ->
-    case os:getenv("DEBUG") of
-        "" -> ok;
-        false -> ok;
-        _ -> file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- Config])
-    end,
+dump(Config) ->
+    file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- Config]),
     Config.
+
+provide_bcrypt_dep() ->
+    case os:type() of
+        {win32, _} -> false;
+        _ -> true
+    end.
+
+provide_bcrypt_release(ReleaseType) ->
+    provide_bcrypt_dep() andalso ReleaseType =:= cloud.

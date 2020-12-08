@@ -28,4 +28,3 @@ t_hash(_) ->
     _ = emqx_passwd:hash(sha256, Password),
     _ = emqx_passwd:hash(bcrypt, {Salt, Password}),
     _ = emqx_passwd:hash(pbkdf2, {Salt, Password, sha256, 1000, 20}).
-
