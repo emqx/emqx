@@ -35,3 +35,4 @@ Mnesia.*/
 _checkouts
 rebar.config.rendered
 /rebar3
+rebar.lock

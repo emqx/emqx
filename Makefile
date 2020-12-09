@@ -19,6 +19,14 @@ ensure-rebar3:
 
 $(REBAR): ensure-rebar3
 
+.PHONY: xref
+xref:
+	$(REBAR) xref
+
+.PHONY: dialyzer
+dialyzer:
+	$(REBAR) dialyzer
+
 .PHONY: distclean
 distclean:
 	@rm -rf _build
