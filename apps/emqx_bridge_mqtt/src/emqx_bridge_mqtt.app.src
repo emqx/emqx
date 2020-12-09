@@ -1,0 +1,14 @@
+{application, emqx_bridge_mqtt,
+ [{description, "EMQ X Bridge to MQTT Broker"},
+  {vsn, "4.3.0"}, % strict semver, bump manually!
+  {modules, []},
+  {registered, []},
+  {applications, [kernel,stdlib,replayq,emqtt,emqx]},
+  {mod, {emqx_bridge_mqtt_app, []}},
+  {env, []},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx/emqx-bridge-mqtt"}
+          ]}
+ ]}.

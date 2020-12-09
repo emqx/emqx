@@ -1,0 +1,14 @@
+{application, emqx_sasl,
+ [{description, "EMQ X SASL"},
+  {vsn, "4.3.0"}, % strict semver, bump manually!
+  {modules, []},
+  {registered, [emqx_sasl_sup]},
+  {applications, [kernel,stdlib,pbkdf2,emqx]},
+  {mod, {emqx_sasl_app,[]}},
+  {env, []},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx/emqx-sasl"}
+          ]}
+ ]}.

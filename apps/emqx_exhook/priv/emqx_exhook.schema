@@ -1,0 +1,38 @@
+%%-*- mode: erlang -*-
+
+{mapping, "exhook.server.$name.url", "emqx_exhook.servers", [
+  {datatype, string}
+]}.
+
+{mapping, "exhook.server.$name.ssl.cacertfile", "emqx_exhook.servers", [
+  {datatype, string}
+]}.
+
+{mapping, "exhook.server.$name.ssl.certfile", "emqx_exhook.servers", [
+  {datatype, string}
+]}.
+
+{mapping, "exhook.server.$name.ssl.keyfile", "emqx_exhook.servers", [
+  {datatype, string}
+]}.
+
+{translation, "emqx_exhook.servers", fun(Conf) ->
+  Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
+  ServerOptions = fun(Prefix) ->
+                      case http_uri:parse(cuttlefish:conf_get(Prefix ++ ".url", Conf)) of
+                          {ok, {http, _, Host, Port, _, _}} ->
+                              [{scheme, http}, {host, Host}, {port, Port}];
+                          {ok, {https, _, Host, Port, _, _}} ->
+                              [{scheme, https}, {host, Host}, {port, Port},
+                               {ssl_options,
+                                 Filter([{ssl, true},
+                                         {certfile, cuttlefish:conf_get(Prefix ++ ".ssl.certfile", Conf)},
+                                         {keyfile, cuttlefish:conf_get(Prefix ++ ".ssl.keyfile", Conf)},
+                                         {cacertfile, cuttlefish:conf_get(Prefix ++ ".ssl.cacertfile", Conf)}
+                                        ])}];
+                          _ -> error(invalid_server_options)
+                      end
+                  end,
+  [{list_to_atom(Name), ServerOptions("exhook.server." ++ Name)}
+   || {["exhook", "server", Name, "url"], _} <- cuttlefish_variable:filter_by_prefix("exhook.server", Conf)]
+end}.

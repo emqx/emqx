@@ -1,0 +1,49 @@
+%%-*- mode: erlang -*-
+
+{mapping, "auth.jwt.secret", "emqx_auth_jwt.secret", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.jwt.jwks", "emqx_auth_jwt.jwks", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.jwt.jwks.refresh_interval", "emqx_auth_jwt.refresh_interval", [
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "auth.jwt.from", "emqx_auth_jwt.from", [
+  {default, password},
+  {datatype, atom}
+]}.
+
+{mapping, "auth.jwt.pubkey", "emqx_auth_jwt.pubkey", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.jwt.signature_format", "emqx_auth_jwt.jwerl_opts", [
+  {default, "der"},
+  {datatype, {enum, [raw, der]}}
+]}.
+
+{mapping, "auth.jwt.verify_claims", "emqx_auth_jwt.verify_claims", [
+  {default, off},
+  {datatype, flag}
+]}.
+
+{mapping, "auth.jwt.verify_claims.$name", "emqx_auth_jwt.verify_claims", [
+  {datatype, string}
+]}.
+
+{translation, "emqx_auth_jwt.verify_claims", fun(Conf) ->
+    case cuttlefish:conf_get("auth.jwt.verify_claims", Conf) of
+        false -> cuttlefish:unset();
+        true ->
+            lists:foldr(
+              fun({["auth","jwt","verify_claims", Name], Value}, Acc) ->
+                      [{list_to_atom(Name), list_to_binary(Value)} | Acc];
+                 ({["auth","jwt","verify_claims"], _Value}, Acc) ->
+                      Acc
+              end, [], cuttlefish_variable:filter_by_prefix("auth.jwt.verify_claims", Conf))
+   end
+end}.
