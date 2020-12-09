@@ -1,0 +1,20 @@
+%% -*-: erlang -*-
+%% emqx_prometheus config
+
+{mapping, "prometheus.push.gateway.server", "emqx_prometheus.push_gateway", [
+  {datatype, string}
+]}.
+
+{mapping, "prometheus.interval", "emqx_prometheus.interval", [
+  {default, 5000},
+  {datatype, integer}
+]}.
+
+{mapping, "prometheus.collector.$name", "prometheus.collectors", [
+  {datatype, atom}
+]}.
+
+{translation, "prometheus.collectors", fun(Conf) ->
+  Collectors = cuttlefish_variable:filter_by_prefix("prometheus.collector", Conf),
+  lists:map(fun({_, Collector}) -> Collector end, Collectors)
+end}.

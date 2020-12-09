@@ -1,0 +1,207 @@
+%% -*-: erlang -*-
+
+{mapping, "lwm2m.bind.udp.$number", "emqx_lwm2m.bind_udp", [
+  {datatype, ip},
+  {default, "0.0.0.0:5683"}
+]}.
+
+{mapping, "lwm2m.bind.dtls.$number", "emqx_lwm2m.bind_dtls", [
+  {datatype, ip},
+  {default, "0.0.0.0:5684"}
+]}.
+
+{mapping, "lwm2m.lifetime_min", "emqx_lwm2m.lifetime_min", [
+  {datatype, {duration, s}},
+  {default, 0}
+]}.
+
+{mapping, "lwm2m.lifetime_max", "emqx_lwm2m.lifetime_max", [
+  {datatype, {duration, s}},
+  {default, 315360000} %% 10 years
+]}.
+
+{mapping, "lwm2m.qmode_time_window", "emqx_lwm2m.qmode_time_window", [
+  {datatype, integer},
+  {default, 0}
+]}.
+
+{mapping, "lwm2m.auto_observe", "emqx_lwm2m.auto_observe", [
+  {datatype, flag},
+  {default, off}
+]}.
+
+{mapping, "lwm2m.lb", "emqx_lwm2m.options", [
+  {datatype, atom},
+  {default, undefined}
+]}.
+
+{mapping, "lwm2m.opts.$name", "emqx_lwm2m.options", [
+  {datatype, bytesize}
+]}.
+
+{translation, "emqx_lwm2m.bind_udp", fun(Conf) ->
+  Options = cuttlefish_variable:filter_by_prefix("lwm2m.bind.udp", Conf),
+  lists:map(fun({_, Bind}) ->
+    {Ip, Port} = cuttlefish_datatypes:from_string(Bind, ip),
+    Opts = case inet:parse_address(Ip) of
+             {ok, {_,_,_,_} = Address} ->
+               [inet, {ip, Address}];
+             {ok, {_,_,_,_,_,_,_,_} = Address} ->
+               [inet6, {ip, Address}]
+           end,
+    {Port, Opts}
+  end, Options)
+end}.
+
+{translation, "emqx_lwm2m.bind_dtls", fun(Conf) ->
+  Options = cuttlefish_variable:filter_by_prefix("lwm2m.bind.dtls", Conf),
+  lists:map(fun({_, Bind}) ->
+    {Ip, Port} = cuttlefish_datatypes:from_string(Bind, ip),
+    Opts = case inet:parse_address(Ip) of
+             {ok, {_,_,_,_} = Address} ->
+               [inet, {ip, Address}];
+             {ok, {_,_,_,_,_,_,_,_} = Address} ->
+               [inet6, {ip, Address}]
+           end,
+    {Port, Opts}
+  end, Options)
+end}.
+
+{translation, "emqx_lwm2m.options", fun(Conf) ->
+  Options = cuttlefish_variable:filter_by_prefix("lwm2m.opts", Conf),
+  Opts = lists:map(fun({[_,_, Key], Value}) ->
+    {list_to_atom(Key), Value}
+  end, Options),
+
+  case cuttlefish:conf_get("lwm2m.lb", Conf, undefined) of
+      undefined -> ignore;
+      _ ->
+          cuttlefish:warn("The 'lwm2m.lb' option has removed from v4.2.0!")
+  end,
+
+  Opts
+end}.
+
+{mapping, "lwm2m.mountpoint", "emqx_lwm2m.mountpoint", [
+  {datatype, string},
+  {default, ""}
+]}.
+
+{mapping, "lwm2m.topics.command", "emqx_lwm2m.topics", [
+  {datatype, string},
+  {default, "lwm2m/%e/dn/#"}
+]}.
+
+{mapping, "lwm2m.topics.response", "emqx_lwm2m.topics", [
+  {datatype, string},
+  {default, "lwm2m/%e/up/resp"}
+]}.
+
+{mapping, "lwm2m.topics.notify", "emqx_lwm2m.topics", [
+  {datatype, string},
+  {default, "lwm2m/%e/up/notify"}
+]}.
+
+{mapping, "lwm2m.topics.register", "emqx_lwm2m.topics", [
+  {datatype, string},
+  {default, "lwm2m/%e/up/resp"}
+]}.
+
+{mapping, "lwm2m.topics.update", "emqx_lwm2m.topics", [
+  {datatype, string},
+  {default, "lwm2m/%e/up/resp"}
+]}.
+
+{translation, "emqx_lwm2m.topics", fun(Conf) ->
+  Topics = cuttlefish_variable:filter_by_prefix("lwm2m.topics", Conf),
+  Opts = lists:map(fun({[_,_, Key], Value}) ->
+              {list_to_atom(Key), Value}
+            end, Topics),
+  Opts
+end}.
+
+{mapping, "lwm2m.xml_dir", "emqx_lwm2m.xml_dir", [
+  {datatype, string}
+]}.
+
+%% Plan to remove v5.0-alpha.1, please use lwm2m.dtls_opts.keyfile instead
+{mapping, "lwm2m.keyfile", "emqx_lwm2m.dtls_opts", [
+  {datatype, string}
+]}.
+
+%% Plan to remove v5.0-alpha.1, please use lwm2m.dtls_opts.certfile instead
+{mapping, "lwm2m.certfile", "emqx_lwm2m.dtls_opts", [
+  {datatype, string}
+]}.
+
+{mapping, "lwm2m.dtls.keyfile", "emqx_lwm2m.dtls_opts", [
+  {datatype, string}
+]}.
+
+{mapping, "lwm2m.dtls.certfile", "emqx_lwm2m.dtls_opts", [
+  {datatype, string}
+]}.
+
+{mapping, "lwm2m.dtls.verify", "emqx_lwm2m.dtls_opts", [
+  {default, verify_none},
+  {datatype, {enum, [verify_none, verify_peer]}}
+]}.
+
+{mapping, "lwm2m.dtls.cacertfile", "emqx_lwm2m.dtls_opts", [
+  {datatype, string}
+]}.
+
+{mapping, "lwm2m.dtls.fail_if_no_peer_cert", "emqx_lwm2m.dtls_opts", [
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "lwm2m.dtls.ciphers", "emqx_lwm2m.dtls_opts", [
+  {datatype, string}
+]}.
+
+{mapping, "lwm2m.dtls.psk_ciphers", "emqx_lwm2m.dtls_opts", [
+  {datatype, string}
+]}.
+
+{translation, "emqx_lwm2m.dtls_opts", fun(Conf) ->
+  Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
+
+  %% compatible with before v4.2
+  %% It plan to remove at v5.0-alpha.1
+  OldKey = cuttlefish:conf_get("lwm2m.keyfile", Conf, undefined),
+  OldCert = cuttlefish:conf_get("lwm2m.certfile", Conf, undefined),
+
+  %% Ciphers
+  SplitFun = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
+  Ciphers =
+      case cuttlefish:conf_get("lwm2m.dtls.ciphers", Conf, undefined) of
+          undefined ->
+              [];
+          C ->
+              [{ciphers, SplitFun(C)}]
+      end,
+  PskCiphers =
+      case cuttlefish:conf_get("lwm2m.dtls.psk_ciphers", Conf, undefined) of
+          undefined ->
+              [];
+          C2 ->
+              Psk = lists:map(fun("PSK-AES128-CBC-SHA") -> {psk, aes_128_cbc, sha};
+                                     ("PSK-AES256-CBC-SHA") -> {psk, aes_256_cbc, sha};
+                                     ("PSK-3DES-EDE-CBC-SHA") -> {psk, '3des_ede_cbc', sha};
+                                     ("PSK-RC4-SHA") -> {psk, rc4_128, sha}
+                                  end, SplitFun(C2)),
+              [{ciphers, Psk}, {user_lookup_fun, {fun emqx_psk:lookup/3, <<>>}}]
+      end,
+  Ciphers /= []
+      andalso PskCiphers /= []
+         andalso cuttlefish:invalid("The 'lwm2m.dtls.ciphers' and 'lwm2m.dtls.psk_ciphers' cannot exist simultaneously."),
+
+  NCiphers = Ciphers ++ PskCiphers,
+
+  Filter([{verify, cuttlefish:conf_get("lwm2m.dtls.verify", Conf, undefined)},
+          {keyfile, cuttlefish:conf_get("lwm2m.dtls.keyfile", Conf, OldKey)},
+          {certfile, cuttlefish:conf_get("lwm2m.dtls.certfile", Conf, OldCert)},
+          {cacertfile, cuttlefish:conf_get("lwm2m.dtls.cacertfile", Conf, undefined)},
+          {fail_if_no_peer_cert, cuttlefish:conf_get("lwm2m.dtls.fail_if_no_peer_cert", Conf, undefined)} | NCiphers])
+end}.
+
