@@ -19,88 +19,74 @@
 
 -include("emqx_stomp.hrl").
 
--export([ start_link/2
-        , stop/1
-        ]).
-
-%% callback
 -export([ init/1
-        , loop/3
+        , check/3
+        , info/1
+        , interval/2
         ]).
 
--define(MAX_REPEATS, 1).
+-record(heartbeater, {interval, statval, repeat}).
 
--record(heartbeater, {name, cycle, tref, val, statfun, action, repeat = 0}).
+-type name() :: incoming | outgoing.
 
-start_link({0, _, _}, {0, _, _}) ->
-    {ok, none};
+-type heartbeat() :: #{incoming => #heartbeater{},
+                       outgoing => #heartbeater{}
+                      }.
 
-start_link(Incoming, Outgoing) ->
-    Params = [self(), Incoming, Outgoing],
-    {ok, spawn_link(?MODULE, init, [Params])}.
 
-stop(Pid) ->
-    Pid ! stop.
+%%--------------------------------------------------------------------
+%% APIs
+%%--------------------------------------------------------------------
 
-init([Parent, Incoming, Outgoing]) ->
-    loop(Parent, heartbeater(incomming, Incoming), heartbeater(outgoing,  Outgoing)).
+-spec init({non_neg_integer(), non_neg_integer()}) -> heartbeat().
+init({0, 0}) ->
+    #{};
+init({Cx, Cy}) ->
+    maps:filter(fun(_, V) -> V /= undefined end,
+      #{incoming => heartbeater(Cx),
+        outgoing => heartbeater(Cy)
+       }).
 
-heartbeater(_, {0, _, _}) ->
+heartbeater(0) ->
     undefined;
+heartbeater(I) ->
+    #heartbeater{
+       interval = I,
+       statval = 0,
+       repeat = 0
+      }.
 
-heartbeater(InOut, {Cycle, StatFun, ActionFun}) ->
-    {ok, Val} = StatFun(),
-    #heartbeater{name = InOut, cycle = Cycle,
-                 tref = timer(InOut, Cycle),
-                 val = Val, statfun = StatFun,
-                 action = ActionFun}.
-
-loop(Parent, Incomming, Outgoing) ->
-    receive
-        {heartbeat, incomming} ->
-            #heartbeater{val = LastVal, statfun = StatFun,
-                         action = Action, repeat = Repeat} = Incomming,
-            case StatFun() of
-                {ok, Val} ->
-                    if Val =/= LastVal ->
-                           hibernate([Parent, resume(Incomming, Val), Outgoing]);
-                       Repeat < ?MAX_REPEATS ->
-                           hibernate([Parent, resume(Incomming, Val, Repeat+1), Outgoing]);
-                       true ->
-                           Action()
-                    end;
-                {error, Error} -> %% einval
-                    exit({shutdown, Error})
-            end;
-        {heartbeat, outgoing}  ->
-            #heartbeater{val = LastVal, statfun = StatFun, action = Action} = Outgoing,
-            case StatFun() of
-                {ok, Val} ->
-                    if Val =:= LastVal ->
-                           Action(), {ok, NewVal} = StatFun(),
-                           hibernate([Parent, Incomming, resume(Outgoing, NewVal)]);
-                       true ->
-                           hibernate([Parent, Incomming, resume(Outgoing, Val)])
-                    end;
-                {error, Error} -> %% einval
-                    exit({shutdown, Error})
-            end;
-        stop ->
-            ok;
-        _Other ->
-            loop(Parent, Incomming, Outgoing)
+-spec check(name(), pos_integer(), heartbeat())
+    -> {ok, heartbeat()}
+     | {error, timeout}.
+check(Name, NewVal, HrtBt) ->
+    HrtBter = maps:get(Name, HrtBt),
+    case check(NewVal, HrtBter) of
+        {error, _} = R -> R;
+        {ok, NHrtBter} ->
+            {ok, HrtBt#{Name => NHrtBter}}
     end.
 
-resume(Hb, NewVal) ->
-    resume(Hb, NewVal, 0).
-resume(Hb = #heartbeater{name = InOut, cycle = Cycle}, NewVal, Repeat) ->
-    Hb#heartbeater{tref = timer(InOut, Cycle), val = NewVal, repeat = Repeat}.
+check(NewVal, HrtBter = #heartbeater{statval = OldVal,
+                                     repeat = Repeat}) ->
+    if
+        NewVal =/= OldVal ->
+            {ok, HrtBter#heartbeater{statval = NewVal, repeat = 0}};
+        Repeat < 1 ->
+            {ok, HrtBter#heartbeater{repeat = Repeat + 1}};
+        true -> {error, timeout}
+    end.
 
-timer(_InOut, 0) ->
-    undefined;
-timer(InOut, Cycle) ->
-    erlang:send_after(Cycle, self(), {heartbeat, InOut}).
+-spec info(heartbeat()) -> map().
+info(HrtBt) ->
+    maps:map(fun(_, #heartbeater{interval = Intv,
+                                 statval = Val,
+                                 repeat = Repeat}) ->
+            #{interval => Intv, statval => Val, repeat => Repeat}
+             end, HrtBt).
 
-hibernate(Args) ->
-    erlang:hibernate(?MODULE, loop, Args).
-
+interval(Type, HrtBt) ->
+    case maps:get(Type, HrtBt, undefined) of
+        undefined -> undefined;
+        #heartbeater{interval = Intv} -> Intv
+    end.
