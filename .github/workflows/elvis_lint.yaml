@@ -1,0 +1,13 @@
+name: Elvis Linter
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - run: |
+          echo "$GITHUB_BASE_REF"
+          echo "$GITHUB_HEAD_REF"
+           ./elvis-check.sh $GITHUB_BASE_REF $GITHUB_HEAD_REF
