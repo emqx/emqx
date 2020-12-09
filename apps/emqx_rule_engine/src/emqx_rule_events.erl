@@ -360,6 +360,12 @@ printable_maps(Headers) ->
         fun (K, V0, AccIn) when K =:= peerhost; K =:= peername; K =:= sockname ->
                 AccIn#{K => ntoa(V0)};
             ('User-Property', V0, AccIn) when is_list(V0) ->
-                AccIn#{'User-Property' => maps:from_list(V0)};
+                AccIn#{
+                    'User-Property' => maps:from_list(V0),
+                    'User-Property-Pairs' => [#{
+                        key => Key,
+                        value => Value
+                     } || {Key, Value} <- V0]
+                };
             (K, V0, AccIn) -> AccIn#{K => V0}
         end, #{}, Headers).
