@@ -191,7 +191,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
-    gropc:disconnect_worker(Pool, {Pool, Id}),
+    gproc_pool:disconnect_worker(Pool, {Pool, Id}),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
