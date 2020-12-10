@@ -250,7 +250,7 @@ take_action(#action_instance{id = Id, name = ActName, fallbacks = Fallbacks} = A
         error:{badfun, _Func}:_ST ->
             %?LOG(warning, "Action ~p maybe outdated, refresh it and try again."
             %              "Func: ~p~nST:~0p", [Id, Func, ST]),
-            trans_action_on(Id, fun() ->
+            _ = trans_action_on(Id, fun() ->
                 emqx_rule_engine:refresh_actions([ActInst])
             end, 5000),
             emqx_rule_metrics:inc_actions_retry(Id),
