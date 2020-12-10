@@ -78,6 +78,10 @@
         , bitxor/2
         , bitsl/2
         , bitsr/2
+        , bitsize/1
+        , subbits/2
+        , subbits/3
+        , subbits/6
         ]).
 
 %% Data Type Convertion
@@ -233,7 +237,7 @@ payload() ->
 
 payload(Path) ->
     fun(#{payload := Payload}) when erlang:is_map(Payload) ->
-            emqx_rule_maps:nested_get(map_path(Path), Payload);
+            map_get(Path, Payload);
        (_) -> undefined
     end.
 
@@ -400,6 +404,74 @@ bitsl(X, I) when is_integer(X), is_integer(I) ->
 
 bitsr(X, I) when is_integer(X), is_integer(I) ->
     X bsr I.
+
+bitsize(Bits) when is_bitstring(Bits) ->
+    bit_size(Bits).
+
+subbits(Bits, Len) when is_integer(Len), is_bitstring(Bits) ->
+    subbits(Bits, 1, Len).
+
+subbits(Bits, Start, Len) when is_integer(Start), is_integer(Len), is_bitstring(Bits) ->
+    get_subbits(Bits, Start, Len, <<"integer">>, <<"unsigned">>, <<"big">>).
+
+subbits(Bits, Start, Len, Type, Signedness, Endianness) when is_integer(Start), is_integer(Len), is_bitstring(Bits) ->
+    get_subbits(Bits, Start, Len, Type, Signedness, Endianness).
+
+get_subbits(Bits, Start, Len, Type, Signedness, Endianness) ->
+    Begin = Start - 1,
+    case Bits of
+        <<_:Begin, Rem/bits>> when Rem =/= <<>> ->
+            Sz = bit_size(Rem),
+            do_get_subbits(Rem, Sz, Len, Type, Signedness, Endianness);
+        _ -> undefined
+    end.
+
+-define(match_bits(Bits0, Pattern, ElesePattern),
+    case Bits0 of
+        Pattern ->
+            SubBits;
+        ElesePattern ->
+            SubBits
+    end).
+do_get_subbits(Bits, Sz, Len, <<"integer">>, <<"unsigned">>, <<"big">>) ->
+    ?match_bits(Bits, <<SubBits:Len/integer-unsigned-big-unit:1, _/bits>>,
+                      <<SubBits:Sz/integer-unsigned-big-unit:1>>);
+do_get_subbits(Bits, Sz, Len, <<"float">>, <<"unsigned">>, <<"big">>) ->
+    ?match_bits(Bits, <<SubBits:Len/float-unsigned-big-unit:1, _/bits>>,
+                      <<SubBits:Sz/float-unsigned-big-unit:1>>);
+do_get_subbits(Bits, Sz, Len, <<"bits">>, <<"unsigned">>, <<"big">>) ->
+    ?match_bits(Bits, <<SubBits:Len/bits-unsigned-big-unit:1, _/bits>>,
+                      <<SubBits:Sz/bits-unsigned-big-unit:1>>);
+
+do_get_subbits(Bits, Sz, Len, <<"integer">>, <<"signed">>, <<"big">>) ->
+    ?match_bits(Bits, <<SubBits:Len/integer-signed-big-unit:1, _/bits>>,
+                      <<SubBits:Sz/integer-signed-big-unit:1>>);
+do_get_subbits(Bits, Sz, Len, <<"float">>, <<"signed">>, <<"big">>) ->
+    ?match_bits(Bits, <<SubBits:Len/float-signed-big-unit:1, _/bits>>,
+                      <<SubBits:Sz/float-signed-big-unit:1>>);
+do_get_subbits(Bits, Sz, Len, <<"bits">>, <<"signed">>, <<"big">>) ->
+    ?match_bits(Bits, <<SubBits:Len/bits-signed-big-unit:1, _/bits>>,
+                      <<SubBits:Sz/bits-signed-big-unit:1>>);
+
+do_get_subbits(Bits, Sz, Len, <<"integer">>, <<"unsigned">>, <<"little">>) ->
+    ?match_bits(Bits, <<SubBits:Len/integer-unsigned-little-unit:1, _/bits>>,
+                      <<SubBits:Sz/integer-unsigned-little-unit:1>>);
+do_get_subbits(Bits, Sz, Len, <<"float">>, <<"unsigned">>, <<"little">>) ->
+    ?match_bits(Bits, <<SubBits:Len/float-unsigned-little-unit:1, _/bits>>,
+                      <<SubBits:Sz/float-unsigned-little-unit:1>>);
+do_get_subbits(Bits, Sz, Len, <<"bits">>, <<"unsigned">>, <<"little">>) ->
+    ?match_bits(Bits, <<SubBits:Len/bits-unsigned-little-unit:1, _/bits>>,
+                      <<SubBits:Sz/bits-unsigned-little-unit:1>>);
+
+do_get_subbits(Bits, Sz, Len, <<"integer">>, <<"signed">>, <<"little">>) ->
+    ?match_bits(Bits, <<SubBits:Len/integer-signed-little-unit:1, _/bits>>,
+                      <<SubBits:Sz/integer-signed-little-unit:1>>);
+do_get_subbits(Bits, Sz, Len, <<"float">>, <<"signed">>, <<"little">>) ->
+    ?match_bits(Bits, <<SubBits:Len/float-signed-little-unit:1, _/bits>>,
+                      <<SubBits:Sz/float-signed-little-unit:1>>);
+do_get_subbits(Bits, Sz, Len, <<"bits">>, <<"signed">>, <<"little">>) ->
+    ?match_bits(Bits, <<SubBits:Len/bits-signed-little-unit:1, _/bits>>,
+                      <<SubBits:Sz/bits-signed-little-unit:1>>).
 
 %%------------------------------------------------------------------------------
 %% Data Type Convertion Funcs
@@ -607,52 +679,10 @@ map_get(Key, Map) ->
     map_get(Key, Map, undefined).
 
 map_get(Key, Map, Default) ->
-    case maps:find(Key, Map) of
-        {ok, Val} -> Val;
-        error when is_atom(Key) ->
-            %% the map may have an equivalent binary-form key
-            BinKey = emqx_rule_utils:bin(Key),
-            case maps:find(BinKey, Map) of
-                {ok, Val} -> Val;
-                error -> Default
-            end;
-        error when is_binary(Key) ->
-            try %% the map may have an equivalent atom-form key
-                AtomKey = list_to_existing_atom(binary_to_list(Key)),
-                case maps:find(AtomKey, Map) of
-                    {ok, Val} -> Val;
-                    error -> Default
-                end
-            catch error:badarg ->
-                Default
-            end;
-        error ->
-            Default
-    end.
+    emqx_rule_maps:nested_get(map_path(Key), Map, Default).
 
 map_put(Key, Val, Map) ->
-    case maps:find(Key, Map) of
-        {ok, _} -> maps:put(Key, Val, Map);
-        error when is_atom(Key) ->
-            %% the map may have an equivalent binary-form key
-            BinKey = emqx_rule_utils:bin(Key),
-            case maps:find(BinKey, Map) of
-                {ok, _} -> maps:put(BinKey, Val, Map);
-                error -> maps:put(Key, Val, Map)
-            end;
-        error when is_binary(Key) ->
-            try %% the map may have an equivalent atom-form key
-                AtomKey = list_to_existing_atom(binary_to_list(Key)),
-                case maps:find(AtomKey, Map) of
-                    {ok, _} -> maps:put(AtomKey, Val, Map);
-                    error -> maps:put(Key, Val, Map)
-                end
-            catch error:badarg ->
-                maps:put(Key, Val, Map)
-            end;
-        error ->
-            maps:put(Key, Val, Map)
-    end.
+    emqx_rule_maps:nested_put(map_path(Key), Val, Map).
 
 mget(Key, Map) ->
     mget(Key, Map, undefined).
