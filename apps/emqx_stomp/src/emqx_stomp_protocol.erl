@@ -38,7 +38,7 @@
         , timeout/3
         ]).
 
--record(stomp_proto, {
+-record(pstate, {
           peername,
           heartfun,
           sendfun,
@@ -58,7 +58,7 @@
           outgoing_timer => outgoing
         }).
 
--type(stomp_proto() :: #stomp_proto{}).
+-type(pstate() :: #pstate{}).
 
 %% @doc Init protocol
 init(#{peername := Peername,
@@ -66,14 +66,14 @@ init(#{peername := Peername,
        heartfun := HeartFun}, Env) ->
     AllowAnonymous = get_value(allow_anonymous, Env, false),
     DefaultUser = get_value(default_user, Env),
-	#stomp_proto{peername = Peername,
+	#pstate{peername = Peername,
                  heartfun = HeartFun,
                  sendfun = SendFun,
                  timers = #{},
                  allow_anonymous = AllowAnonymous,
                  default_user = DefaultUser}.
 
-info(#stomp_proto{connected     = Connected,
+info(#pstate{connected     = Connected,
                   proto_ver     = ProtoVer,
                   proto_name    = ProtoName,
                   heart_beats   = Heartbeats,
@@ -86,23 +86,25 @@ info(#stomp_proto{connected     = Connected,
      {login, Login},
      {subscriptions, Subscriptions}].
 
--spec(received(stomp_frame(), stomp_proto())
-    -> {ok, stomp_proto()}
-     | {error, any(), stomp_proto()}
-     | {stop, any(), stomp_proto()}).
+-spec(received(stomp_frame(), pstate())
+    -> {ok, pstate()}
+     | {error, any(), pstate()}
+     | {stop, any(), pstate()}).
 received(Frame = #stomp_frame{command = <<"STOMP">>}, State) ->
     received(Frame#stomp_frame{command = <<"CONNECT">>}, State);
 
 received(#stomp_frame{command = <<"CONNECT">>, headers = Headers},
-         State = #stomp_proto{connected = false, allow_anonymous = AllowAnonymous, default_user = DefaultUser}) ->
+         State = #pstate{connected = false, allow_anonymous = AllowAnonymous, default_user = DefaultUser}) ->
     case negotiate_version(header(<<"accept-version">>, Headers)) of
         {ok, Version} ->
             Login = header(<<"login">>, Headers),
             Passc = header(<<"passcode">>, Headers),
             case check_login(Login, Passc, AllowAnonymous, DefaultUser) of
                 true ->
+                    emqx_logger:set_metadata_clientid(Login),
+
                     Heartbeats = parse_heartbeats(header(<<"heart-beat">>, Headers, <<"0,0">>)),
-                    NState = start_heartbeart_timer(Heartbeats, State#stomp_proto{connected = true,
+                    NState = start_heartbeart_timer(Heartbeats, State#pstate{connected = true,
                                                                                   proto_ver = Version, login = Login}),
                     send(connected_frame([{<<"version">>, Version},
                                           {<<"heart-beat">>, reverse_heartbeats(Heartbeats)}]), NState);
@@ -116,7 +118,7 @@ received(#stomp_frame{command = <<"CONNECT">>, headers = Headers},
             {error, unsupported_version, State}
     end;
 
-received(#stomp_frame{command = <<"CONNECT">>}, State = #stomp_proto{connected = true}) ->
+received(#stomp_frame{command = <<"CONNECT">>}, State = #pstate{connected = true}) ->
     {error, unexpected_connect, State};
 
 received(#stomp_frame{command = <<"SEND">>, headers = Headers, body = Body}, State) ->
@@ -134,7 +136,7 @@ received(#stomp_frame{command = <<"SEND">>, headers = Headers, body = Body}, Sta
     end;
 
 received(#stomp_frame{command = <<"SUBSCRIBE">>, headers = Headers},
-            State = #stomp_proto{subscriptions = Subscriptions}) ->
+            State = #pstate{subscriptions = Subscriptions}) ->
     Id    = header(<<"id">>, Headers),
     Topic = header(<<"destination">>, Headers),
     Ack   = header(<<"ack">>, Headers, <<"auto">>),
@@ -143,18 +145,18 @@ received(#stomp_frame{command = <<"SUBSCRIBE">>, headers = Headers},
                            {ok, State};
                        false ->
                            emqx_broker:subscribe(Topic),
-                           {ok, State#stomp_proto{subscriptions = [{Id, Topic, Ack}|Subscriptions]}}
+                           {ok, State#pstate{subscriptions = [{Id, Topic, Ack}|Subscriptions]}}
                    end,
     maybe_send_receipt(receipt_id(Headers), State1);
 
 received(#stomp_frame{command = <<"UNSUBSCRIBE">>, headers = Headers},
-            State = #stomp_proto{subscriptions = Subscriptions}) ->
+            State = #pstate{subscriptions = Subscriptions}) ->
     Id = header(<<"id">>, Headers),
 
     {ok, State1} = case lists:keyfind(Id, 1, Subscriptions) of
                        {Id, Topic, _Ack} ->
                            ok = emqx_broker:unsubscribe(Topic),
-                           {ok, State#stomp_proto{subscriptions = lists:keydelete(Id, 1, Subscriptions)}};
+                           {ok, State#pstate{subscriptions = lists:keydelete(Id, 1, Subscriptions)}};
                        false ->
                            {ok, State}
                    end,
@@ -238,7 +240,7 @@ received(#stomp_frame{command = <<"DISCONNECT">>, headers = Headers}, State) ->
     {stop, normal, State}.
 
 send(Msg = #message{topic = Topic, headers = Headers, payload = Payload},
-     State = #stomp_proto{subscriptions = Subscriptions}) ->
+     State = #pstate{subscriptions = Subscriptions}) ->
     case lists:keyfind(Topic, 2, Subscriptions) of
         {Id, Topic, Ack} ->
             Headers0 = [{<<"subscription">>, Id},
@@ -260,7 +262,7 @@ send(Msg = #message{topic = Topic, headers = Headers, payload = Payload},
             {error, dropped, State}
     end;
 
-send(Frame, State = #stomp_proto{sendfun = {Fun, Args}}) ->
+send(Frame, State = #pstate{sendfun = {Fun, Args}}) ->
     ?LOG(info, "SEND Frame: ~s", [emqx_stomp_frame:format(Frame)]),
     Data = emqx_stomp_frame:serialize(Frame),
     ?LOG(debug, "SEND ~p", [Data]),
@@ -271,23 +273,23 @@ shutdown(_Reason, _State) ->
     ok.
 
 timeout(_TRef, {incoming, NewVal},
-        State = #stomp_proto{heart_beats = HrtBt}) ->
+        State = #pstate{heart_beats = HrtBt}) ->
     case emqx_stomp_heartbeat:check(incoming, NewVal, HrtBt) of
         {error, timeout} ->
             {shutdown, heartbeat_timeout, State};
         {ok, NHrtBt} ->
-            {ok, reset_timer(incoming_timer, State#stomp_proto{heart_beats = NHrtBt})}
+            {ok, reset_timer(incoming_timer, State#pstate{heart_beats = NHrtBt})}
     end;
 
 timeout(_TRef, {outgoing, NewVal},
-        State = #stomp_proto{heart_beats = HrtBt,
+        State = #pstate{heart_beats = HrtBt,
                              heartfun = {Fun, Args}}) ->
     case emqx_stomp_heartbeat:check(outgoing, NewVal, HrtBt) of
         {error, timeout} ->
             _ = erlang:apply(Fun, Args),
             {ok, State};
         {ok, NHrtBt} ->
-            {ok, reset_timer(outgoing_timer, State#stomp_proto{heart_beats = NHrtBt})}
+            {ok, reset_timer(outgoing_timer, State#pstate{heart_beats = NHrtBt})}
     end.
 
 negotiate_version(undefined) ->
@@ -396,7 +398,7 @@ reverse_heartbeats({Cx, Cy}) ->
 start_heartbeart_timer(Heartbeats, State) ->
     ensure_timer(
       [incoming_timer, outgoing_timer],
-      State#stomp_proto{heart_beats = emqx_stomp_heartbeat:init(Heartbeats)}).
+      State#pstate{heart_beats = emqx_stomp_heartbeat:init(Heartbeats)}).
 
 %%--------------------------------------------------------------------
 %% Timer
@@ -406,7 +408,7 @@ ensure_timer([Name], State) ->
 ensure_timer([Name | Rest], State) ->
     ensure_timer(Rest, ensure_timer(Name, State));
 
-ensure_timer(Name, State = #stomp_proto{timers = Timers}) ->
+ensure_timer(Name, State = #pstate{timers = Timers}) ->
     TRef = maps:get(Name, Timers, undefined),
     Time = interval(Name, State),
     case TRef == undefined andalso is_integer(Time) andalso Time > 0 of
@@ -414,10 +416,10 @@ ensure_timer(Name, State = #stomp_proto{timers = Timers}) ->
         false -> State %% Timer disabled or exists
     end.
 
-ensure_timer(Name, Time, State = #stomp_proto{timers = Timers}) ->
+ensure_timer(Name, Time, State = #pstate{timers = Timers}) ->
     Msg = maps:get(Name, ?TIMER_TABLE),
     TRef = emqx_misc:start_timer(Time, Msg),
-    State#stomp_proto{timers = Timers#{Name => TRef}}.
+    State#pstate{timers = Timers#{Name => TRef}}.
 
 reset_timer(Name, State) ->
     ensure_timer(Name, clean_timer(Name, State)).
@@ -425,10 +427,10 @@ reset_timer(Name, State) ->
 reset_timer(Name, Time, State) ->
     ensure_timer(Name, Time, clean_timer(Name, State)).
 
-clean_timer(Name, State = #stomp_proto{timers = Timers}) ->
-    State#stomp_proto{timers = maps:remove(Name, Timers)}.
+clean_timer(Name, State = #pstate{timers = Timers}) ->
+    State#pstate{timers = maps:remove(Name, Timers)}.
 
-interval(incoming_timer, #stomp_proto{heart_beats = HrtBt}) ->
+interval(incoming_timer, #pstate{heart_beats = HrtBt}) ->
     emqx_stomp_heartbeat:interval(incoming, HrtBt);
-interval(outgoing_timer, #stomp_proto{heart_beats = HrtBt}) ->
+interval(outgoing_timer, #pstate{heart_beats = HrtBt}) ->
     emqx_stomp_heartbeat:interval(outgoing, HrtBt).
