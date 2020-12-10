@@ -1,4 +1,4 @@
-REBAR_VERSION = 3.14.3-emqx-1
+REBAR_VERSION = 3.14.3-emqx-2
 REBAR = ./rebar3
 
 PROFILE ?= emqx
