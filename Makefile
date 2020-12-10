@@ -38,13 +38,9 @@ $(PROFILES:%=build-%): $(REBAR)
 
 # rebar clean
 .PHONY: clean $(PROFILES:%=clean-%)
-clean: $(PROFILES:%=clean-%) clean-stamps
+clean: $(PROFILES:%=clean-%)
 $(PROFILES:%=clean-%): $(REBAR)
 	$(REBAR) as $(@:clean-%=%) clean
-
-.PHONY: clean-stamps
-clean-stamps:
-	find -L _build -name '.stamp' -type f | xargs rm -f
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%) $(PKG_PROFILES:%=deps-%)
