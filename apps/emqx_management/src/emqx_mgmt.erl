@@ -128,7 +128,6 @@
         , export_auth_username/0
         , export_auth_mnesia/0
         , export_acl_mnesia/0
-        , export_schemas/0
         , import_rules/1
         , import_resources/1
         , import_blacklist/1
@@ -138,7 +137,6 @@
         , import_auth_username/1
         , import_auth_mnesia/1
         , import_acl_mnesia/1
-        , import_schemas/1
         , to_version/1
         ]).
 
@@ -679,13 +677,6 @@ export_acl_mnesia() ->
                         end, [], ets:tab2list(emqx_acl))
     end.
 
-export_schemas() ->
-    case ets:info(emqx_schema) of
-        undefined -> [];
-        _ ->
-            [emqx_schema_api:format_schema(Schema) || Schema <- emqx_schema_registry:get_all_schemas()]
-    end.
-
 import_rules(Rules) ->
     lists:foreach(fun(#{<<"id">> := RuleId,
                         <<"rawsql">> := RawSQL,
@@ -788,17 +779,11 @@ import_auth_mnesia(Auths) ->
 import_acl_mnesia(Acls) ->
     case ets:info(emqx_acl) of
         undefined -> ok;
-        _ -> 
+        _ ->
             [ mnesia:dirty_write({emqx_acl ,Login, Topic, Action, Allow}) || #{<<"login">> := Login, 
                                                                                <<"topic">> := Topic,
                                                                                <<"action">> := Action,
                                                                                <<"allow">> := Allow} <- Acls ]
-    end.
-
-import_schemas(Schemas) -> 
-    case ets:info(emqx_schema) of
-        undefined -> ok;
-        _ -> [emqx_schema_registry:add_schema(emqx_schema_api:make_schema_params(Schema)) || Schema <- Schemas]
     end.
 
 any_to_atom(L) when is_list(L) -> list_to_atom(L);

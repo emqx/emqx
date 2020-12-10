@@ -28,7 +28,6 @@ plugins() ->
 
 test_deps() ->
     [ {bbmustache, "1.10.0"}
-    , {emqtt, {git, "https://github.com/emqx/emqtt", {tag, "1.2.0"}}}
     , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.0"}}}
     , meck
     ].
