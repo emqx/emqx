@@ -127,10 +127,6 @@ handle_info(timeout, State) ->
 handle_info({shutdown, Reason}, State) ->
     shutdown(Reason, State);
 
-handle_info({transaction, {timeout, Id}}, State) ->
-    emqx_stomp_transaction:timeout(Id),
-    noreply(State);
-
 handle_info({timeout, TRef, TMsg}, State) when TMsg =:= incoming;
                                                TMsg =:= outgoing ->
 
@@ -144,6 +140,9 @@ handle_info({timeout, TRef, TMsg}, State) when TMsg =:= incoming;
         {error, Reason} ->
             shutdown({sock_error, Reason}, State)
     end;
+
+handle_info({timeout, TRef, TMsg}, State) ->
+    with_proto(timeout, [TRef, TMsg], State);
 
 handle_info({'EXIT', HbProc, Error}, State = #state{heartbeat = HbProc}) ->
     stop(Error, State);
