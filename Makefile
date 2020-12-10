@@ -20,11 +20,11 @@ ensure-rebar3:
 $(REBAR): ensure-rebar3
 
 .PHONY: xref
-xref:
+xref: $(REBAR)
 	$(REBAR) xref
 
 .PHONY: dialyzer
-dialyzer:
+dialyzer: $(REBAR)
 	$(REBAR) dialyzer
 
 .PHONY: distclean
