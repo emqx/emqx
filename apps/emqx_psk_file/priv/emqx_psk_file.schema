@@ -1,0 +1,10 @@
+%%-*- mode: erlang -*-
+%% emqx_psk_file config mapping
+
+{mapping, "psk.file.path", "emqx_psk_file.path", [
+  {datatype, string}
+]}.
+
+{mapping, "psk.file.delimiter", "emqx_psk_file.delimiter", [
+  {datatype, string}
+]}.

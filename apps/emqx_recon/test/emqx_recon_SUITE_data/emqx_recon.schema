@@ -1,0 +1,8 @@
+%%-*- mode: erlang -*-
+%% emqx_recon config mapping
+
+{mapping, "recon.gc_interval", "emqx_recon.gc_interval", [
+  {default, "5m"},
+  {datatype, {duration, ms}}
+]}.
+

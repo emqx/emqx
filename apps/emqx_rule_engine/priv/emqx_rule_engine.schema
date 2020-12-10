@@ -1,0 +1,61 @@
+%%-*- mode: erlang -*-
+%% emqx_rule_engine config mapping
+
+{mapping, "rule_engine.ignore_sys_message", "emqx_rule_engine.ignore_sys_message", [
+  {default, on},
+  {datatype, flag}
+]}.
+
+{mapping, "rule_engine.events.$name", "emqx_rule_engine.events", [
+  {default, "off, qos1"},
+  {datatype, string}
+]}.
+
+{translation, "emqx_rule_engine.events", fun(Conf) ->
+  SupportedHooks =
+    [ 'client.connected'
+    , 'client.disconnected'
+    , 'session.subscribed'
+    , 'session.unsubscribed'
+    , 'message.delivered'
+    , 'message.acked'
+    , 'message.dropped'
+    ],
+
+  HookPoint = fun(Event) ->
+    case string:split(Event, "_") of
+        [Prefix, Name] ->
+            Point = list_to_atom(lists:append([Prefix, ".", Name])),
+            case lists:member(Point, SupportedHooks) of
+                true -> Point;
+                false -> error({unsupported_event, Event})
+            end;
+        [_] ->
+            error({invalid_event, Event})
+    end
+  end,
+
+  QoS = fun ("qos"++Level = QoSLevel) ->
+              case list_to_integer(Level) of
+                QoSL when QoSL =:= 0; QoSL =:= 1; QoSL =:= 2 ->
+                  QoSL;
+                _ ->
+                  error({invalid_qos_level, QoSLevel})
+              end;
+            (QoSLevel) ->
+              error({invalid_qos, QoSLevel})
+        end,
+
+  lists:foldl(
+    fun({EE=[_,"events",EvtName], Val}, Acc) ->
+          case string:split(string:trim(Val), ",", all) of
+            ["on"++_, Snd] ->
+              [{HookPoint(EvtName), on, QoS(string:trim(Snd))} | Acc];
+            ["on"++_] ->
+              [{HookPoint(EvtName), on, 1} | Acc];
+            [_] ->
+              Acc
+          end;
+        ({_, _}, Acc) -> Acc
+    end, [], cuttlefish_variable:filter_by_prefix("rule_engine.events", Conf))
+end}.

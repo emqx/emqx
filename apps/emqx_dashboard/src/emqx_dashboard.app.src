@@ -1,0 +1,14 @@
+{application, emqx_dashboard,
+ [{description, "EMQ X Web Dashboard"},
+  {vsn, "4.3.0"}, % strict semver, bump manually!
+  {modules, []},
+  {registered, [emqx_dashboard_sup]},
+  {applications, [kernel,stdlib,mnesia,minirest,emqx]},
+  {mod, {emqx_dashboard_app,[]}},
+  {env, []},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx/emqx-dashboard"}
+          ]}
+ ]}.

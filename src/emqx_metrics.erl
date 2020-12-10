@@ -18,10 +18,10 @@
 
 -behavior(gen_server).
 
+-include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
--include("emqx.hrl").
 
 -logger_header("[Metrics]").
 

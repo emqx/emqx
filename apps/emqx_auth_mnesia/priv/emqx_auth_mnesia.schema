@@ -1,0 +1,43 @@
+%%-*- mode: erlang -*-
+%% emqx_auth_mnesia config mapping
+
+{mapping, "auth.mnesia.password_hash", "emqx_auth_mnesia.password_hash", [
+  {default, sha256},
+  {datatype, {enum, [plain, md5, sha, sha256, sha512]}}
+]}.
+
+{mapping, "auth.client.$id.clientid", "emqx_auth_mnesia.clientid_list", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.client.$id.password", "emqx_auth_mnesia.clientid_list", [
+  {datatype, string}
+]}.
+
+{translation, "emqx_auth_mnesia.clientid_list", fun(Conf) ->
+  ClientList = cuttlefish_variable:filter_by_prefix("auth.client", Conf),
+  lists:foldl(
+       fun({["auth", "client", Id, "clientid"], ClientId}, AccIn) ->
+        [{ClientId, cuttlefish:conf_get("auth.client." ++ Id ++ ".password", Conf)} | AccIn];
+       (_, AccIn) ->
+        AccIn
+       end, [], ClientList)
+end}.
+
+{mapping, "auth.user.$id.username", "emqx_auth_mnesia.username_list", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.user.$id.password", "emqx_auth_mnesia.username_list", [
+  {datatype, string}
+]}.
+
+{translation, "emqx_auth_mnesia.username_list", fun(Conf) ->
+  Userlist = cuttlefish_variable:filter_by_prefix("auth.user", Conf),
+  lists:foldl(
+    fun({["auth", "user", Id, "username"], Username}, AccIn) ->
+        [{Username, cuttlefish:conf_get("auth.user." ++ Id ++ ".password", Conf)} | AccIn];
+       (_, AccIn) ->
+        AccIn
+       end, [], Userlist)
+end}.

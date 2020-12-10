@@ -1,0 +1,292 @@
+%%-*- mode: erlang -*-
+%% emqx_auth_mongo config mapping
+
+{mapping, "auth.mongo.type", "emqx_auth_mongo.server", [
+  {default, single},
+  {datatype, {enum, [single, unknown, sharded, rs]}}
+]}.
+
+{mapping, "auth.mongo.rs_set_name", "emqx_auth_mongo.server", [
+  {default, "mqtt"},
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.server", "emqx_auth_mongo.server", [
+  {default, "127.0.0.1:27017"},
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.pool", "emqx_auth_mongo.server", [
+  {default, 8},
+  {datatype, integer}
+]}.
+
+{mapping, "auth.mongo.login", "emqx_auth_mongo.server", [
+  {default, ""},
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.password", "emqx_auth_mongo.server", [
+  {default, ""},
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.database", "emqx_auth_mongo.server", [
+  {default, "mqtt"},
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.auth_source", "emqx_auth_mongo.server", [
+  {default, "mqtt"},
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.ssl", "emqx_auth_mongo.server", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "auth.mongo.ssl_opts.keyfile", "emqx_auth_mongo.server", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.ssl_opts.certfile", "emqx_auth_mongo.server", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.ssl_opts.cacertfile", "emqx_auth_mongo.server", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.w_mode", "emqx_auth_mongo.server", [
+  {default, undef},
+  {datatype, {enum, [safe, unsafe, undef]}}
+]}.
+
+{mapping, "auth.mongo.r_mode", "emqx_auth_mongo.server", [
+  {default, undef},
+  {datatype, {enum, [master, slave_ok, undef]}}
+]}.
+
+{mapping, "auth.mongo.topology.$name", "emqx_auth_mongo.server", [
+  {datatype, integer}
+]}.
+
+{translation, "emqx_auth_mongo.server", fun(Conf) ->
+  H = cuttlefish:conf_get("auth.mongo.server", Conf),
+  Hosts = string:tokens(H, ","),
+  Type0 = cuttlefish:conf_get("auth.mongo.type", Conf),
+  Pool = cuttlefish:conf_get("auth.mongo.pool", Conf),
+  Login = cuttlefish:conf_get("auth.mongo.login", Conf),
+  Passwd = cuttlefish:conf_get("auth.mongo.password", Conf),
+  DB = cuttlefish:conf_get("auth.mongo.database", Conf),
+  AuthSrc = cuttlefish:conf_get("auth.mongo.auth_source", Conf),
+  R = cuttlefish:conf_get("auth.mongo.w_mode", Conf),
+  W = cuttlefish:conf_get("auth.mongo.r_mode", Conf),
+  Login0 = case Login =:= [] of
+    true -> [];
+    false -> [{login, list_to_binary(Login)}]
+  end,
+  Passwd0 = case Passwd =:= [] of
+    true -> [];
+    false -> [{password, list_to_binary(Passwd)}]
+  end,
+  W0 = case W =:= undef of
+    true -> [];
+    false -> [{w_mode, W}]
+  end,
+  R0 = case R =:= undef  of
+    true -> [];
+    false -> [{r_mode, R}]
+  end,
+  Ssl = case cuttlefish:conf_get("auth.mongo.ssl", Conf) of
+    true ->
+      Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
+      SslOpts = fun(Prefix) ->
+                    Filter([{keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
+                            {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
+                            {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)}])
+                end,
+      [{ssl, true}, {ssl_opts, SslOpts("auth.mongo.ssl_opts")}];
+    false ->
+      []
+  end,
+  WorkerOptions = [{database, list_to_binary(DB)}, {auth_source, list_to_binary(AuthSrc)}]
+                    ++ Login0 ++ Passwd0 ++ W0 ++ R0 ++ Ssl,
+
+  Vars = cuttlefish_variable:fuzzy_matches(["auth", "mongo", "topology", "$name"], Conf),
+  Options = lists:map(fun({_, Name}) ->
+    Name2 = case Name of
+      "local_threshold_ms"          -> "localThresholdMS";
+      "connect_timeout_ms"          -> "connectTimeoutMS";
+      "socket_timeout_ms"           -> "socketTimeoutMS";
+      "server_selection_timeout_ms" -> "serverSelectionTimeoutMS";
+      "wait_queue_timeout_ms"       -> "waitQueueTimeoutMS";
+      "heartbeat_frequency_ms"      -> "heartbeatFrequencyMS";
+      "min_heartbeat_frequency_ms"  -> "minHeartbeatFrequencyMS";
+      _ -> Name
+    end,
+    {list_to_atom(Name2), cuttlefish:conf_get("auth.mongo.topology."++Name, Conf)}
+  end, Vars),
+
+  Type = case Type0 =:= rs of
+    true -> {Type0, list_to_binary(cuttlefish:conf_get("auth.mongo.rs_set_name", Conf))};
+    false -> Type0
+  end,
+  [{type, Type},
+   {hosts, Hosts},
+   {options, Options},
+   {worker_options, WorkerOptions},
+   {auto_reconnect, 1},
+   {pool_size, Pool}]
+end}.
+
+%% The mongodb operation timeout is specified by the value of `cursor_timeout` from application config,
+%% or `infinity` if `cursor_timeout` not specified
+{mapping, "auth.mongo.query_timeout", "mongodb.cursor_timeout", [
+  {datatype, string}
+]}.
+
+{translation, "mongodb.cursor_timeout", fun(Conf) ->
+  case cuttlefish:conf_get("auth.mongo.query_timeout", Conf, undefined) of
+      undefined -> infinity;
+      Duration ->
+          case cuttlefish_duration:parse(Duration, ms) of
+              {error, Reason} -> error(Reason);
+              Ms when is_integer(Ms) -> Ms
+          end
+  end
+end}.
+
+{mapping, "auth.mongo.auth_query.collection", "emqx_auth_mongo.auth_query", [
+  {default, "mqtt_user"},
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.auth_query.password_field", "emqx_auth_mongo.auth_query", [
+  {default, "password"},
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.auth_query.password_hash", "emqx_auth_mongo.auth_query", [
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.auth_query.selector", "emqx_auth_mongo.auth_query", [
+  {default, ""},
+  {datatype, string}
+]}.
+
+{translation, "emqx_auth_mongo.auth_query", fun(Conf) ->
+  case cuttlefish:conf_get("auth.mongo.auth_query.collection", Conf) of
+    undefined -> cuttlefish:unset();
+    Collection ->
+      PasswordField = cuttlefish:conf_get("auth.mongo.auth_query.password_field", Conf),
+      PasswordHash = cuttlefish:conf_get("auth.mongo.auth_query.password_hash", Conf),
+      SelectorStr = cuttlefish:conf_get("auth.mongo.auth_query.selector", Conf),
+      SelectorList =
+          lists:map(fun(Selector) ->
+                  case string:tokens(Selector, "=") of
+                      [Field, Val] -> {list_to_binary(Field), list_to_binary(Val)};
+                      _ -> {<<"username">>, <<"%u">>}
+                  end
+              end, string:tokens(SelectorStr, ", ")),
+
+      PasswordFields = [list_to_binary(Field) || Field <- string:tokens(PasswordField, ",")],
+      HashValue =
+        case string:tokens(PasswordHash, ",") of
+              [Hash]           -> list_to_atom(Hash);
+              [Prefix, Suffix] -> {list_to_atom(Prefix), list_to_atom(Suffix)};
+              [Hash, MacFun, Iterations, Dklen] -> {list_to_atom(Hash), list_to_atom(MacFun), list_to_integer(Iterations), list_to_integer(Dklen)};
+              _                -> plain
+        end,
+      [{collection, Collection},
+       {password_field, PasswordFields},
+       {password_hash, HashValue},
+       {selector, SelectorList}]
+    end
+end}.
+
+{mapping, "auth.mongo.super_query", "emqx_auth_mongo.super_query", [
+  {default, off},
+  {datatype, flag}
+]}.
+
+{mapping, "auth.mongo.super_query.collection", "emqx_auth_mongo.super_query", [
+  {default, "mqtt_user"},
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.super_query.super_field", "emqx_auth_mongo.super_query", [
+  {default, "is_superuser"},
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.super_query.selector", "emqx_auth_mongo.super_query", [
+  {default, ""},
+  {datatype, string}
+]}.
+
+{translation, "emqx_auth_mongo.super_query", fun(Conf) ->
+  case cuttlefish:conf_get("auth.mongo.super_query.collection", Conf) of
+    undefined -> cuttlefish:unset();
+    Collection  ->
+      SuperField = cuttlefish:conf_get("auth.mongo.super_query.super_field", Conf),
+      SelectorStr = cuttlefish:conf_get("auth.mongo.super_query.selector", Conf),
+      SelectorList =
+          lists:map(fun(Selector) ->
+                  case string:tokens(Selector, "=") of
+                      [Field, Val] -> {list_to_binary(Field), list_to_binary(Val)};
+                      _ -> {<<"username">>, <<"%u">>}
+                  end
+              end, string:tokens(SelectorStr, ", ")),
+      [{collection, Collection}, {super_field, SuperField}, {selector, SelectorList}]
+  end
+end}.
+
+{mapping, "auth.mongo.acl_query", "emqx_auth_mongo.acl_query", [
+  {default, off},
+  {datatype, flag}
+]}.
+
+{mapping, "auth.mongo.acl_query.collection", "emqx_auth_mongo.acl_query", [
+  {default, "mqtt_user"},
+  {datatype, string}
+]}.
+
+{mapping, "auth.mongo.acl_query.selector", "emqx_auth_mongo.acl_query", [
+  {default, ""},
+  {datatype, string}
+]}.
+{mapping, "auth.mongo.acl_query.selector.$id", "emqx_auth_mongo.acl_query", [
+  {default, ""},
+  {datatype, string}
+]}.
+
+{translation, "emqx_auth_mongo.acl_query", fun(Conf) ->
+  case cuttlefish:conf_get("auth.mongo.acl_query.collection", Conf) of
+    undefined -> cuttlefish:unset();
+    Collection  ->
+      SelectorStrList =
+        lists:map(
+            fun
+                ({["auth","mongo","acl_query","selector"], ConfEntry}) ->
+                    ConfEntry;
+                ({["auth","mongo","acl_query","selector", _], ConfEntry}) ->
+                    ConfEntry
+            end,
+            cuttlefish_variable:filter_by_prefix("auth.mongo.acl_query.selector", Conf)),
+      SelectorListList =
+          lists:map(
+            fun(SelectorStr) ->
+                lists:map(fun(Selector) ->
+                        case string:tokens(Selector, "=") of
+                            [Field, Val] -> {list_to_binary(Field), list_to_binary(Val)};
+                            _ -> {<<"username">>, <<"%u">>}
+                        end
+                    end, string:tokens(SelectorStr, ", "))
+            end,
+            SelectorStrList),
+      [{collection, Collection}, {selector, SelectorListList}]
+  end
+end}.

@@ -18,8 +18,8 @@
 
 -behaviour(emqx_gen_mod).
 
--include_lib("emqx.hrl").
--include_lib("emqx_mqtt.hrl").
+-include("emqx.hrl").
+-include("emqx_mqtt.hrl").
 
 -ifdef(TEST).
 -export([ compile/1
