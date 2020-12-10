@@ -265,14 +265,6 @@ limit(Params) ->
 %% Interval Funcs
 %%------------------------------------------------------------------------------
 
-format({?TABLE, {clientid, ClientId}, Password, _InterTime}) ->
-    #{clientid => ClientId,
-      password => Password};
-
-format({?TABLE, {username, Username}, Password, _InterTime}) ->
-    #{username => Username,
-      password => Password};
-
 format([{?TABLE, {clientid, ClientId}, Password, _InterTime}]) ->
     #{clientid => ClientId,
       password => Password};
