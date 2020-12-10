@@ -32,7 +32,6 @@ endif
 .PHONY: $(PROFILES:%=relup-%)
 $(PROFILES:%=relup-%): $(REBAR)
 ifneq ($(OS),Windows_NT)
-	@ln -snf _build/$(@:relup-%=%)/lib
 	@if [ ! -z $$(ls | grep -E "$(@:relup-%=%)-$(SYSTEM)-(.*)-$$(uname -m).zip" | head -1 ) ]; then \
 		mkdir -p tmp/relup_packages/$(@:relup-%=%); \
 		cp $(@:relup-%=%)-$(SYSTEM)-*-$$(uname -m).zip tmp/relup_packages/$(@:relup-%=%); \
@@ -42,9 +41,6 @@ endif
 
 .PHONY: $(PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar)
 $(PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar): $(REBAR)
-ifneq ($(OS),Windows_NT)
-	@ln -snf _build/$(subst -tar,,$(@))/lib
-endif
 ifneq ($(shell echo $(@) |grep edge),)
 	export EMQX_DESC="EMQ X Edge"
 else
