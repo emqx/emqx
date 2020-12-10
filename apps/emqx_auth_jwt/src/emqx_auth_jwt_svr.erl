@@ -176,7 +176,7 @@ reset_timer(State = #state{intv = Intv}) ->
 cancel_timer(State = #state{tref = undefined}) ->
     State;
 cancel_timer(State = #state{tref = TRef}) ->
-    erlang:cancel_timer(TRef),
+    _ = erlang:cancel_timer(TRef),
     State#state{tref = undefined}.
 
 do_verify(_JwsCompated, []) ->
