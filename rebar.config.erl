@@ -45,6 +45,8 @@ profiles() ->
     , {'emqx-edge-pkg', [ {relx, relx('emqx-edge-pkg')}
                         , {erl_opts, [no_debug_info]}
                         ]}
+    , {check,           [ {erl_opts, [debug_info]}
+                        ]}
     , {test,            [ {deps, test_deps()}
                         , {erl_opts, [debug_info]}
                         ]}

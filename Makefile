@@ -2,7 +2,7 @@ REBAR_VERSION = 3.14.3-emqx-1
 REBAR = ./rebar3
 
 PROFILE ?= emqx
-PROFILES := emqx emqx-edge
+PROFILES := emqx emqx-edge check test
 PKG_PROFILES := emqx-pkg emqx-edge-pkg
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
@@ -56,11 +56,11 @@ endif
 
 .PHONY: xref
 xref: $(REBAR)
-	$(REBAR) as test xref
+	$(REBAR) as check xref
 
 .PHONY: dialyzer
 dialyzer: $(REBAR)
-	$(REBAR) as test dialyzer
+	$(REBAR) as check dialyzer
 
 include packages.mk
 include docker.mk
