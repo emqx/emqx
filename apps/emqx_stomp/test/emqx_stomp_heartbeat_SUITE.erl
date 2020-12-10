@@ -51,3 +51,9 @@ t_info(_) ->
     HrtBt = emqx_stomp_heartbeat:init({100, 100}),
     #{incoming := _,
       outgoing := _} = emqx_stomp_heartbeat:info(HrtBt).
+
+t_interval(_) ->
+    HrtBt = emqx_stomp_heartbeat:init({1, 0}),
+    1 = emqx_stomp_heartbeat:interval(incoming, HrtBt),
+    undefined = emqx_stomp_heartbeat:interval(outgoing, HrtBt).
+
