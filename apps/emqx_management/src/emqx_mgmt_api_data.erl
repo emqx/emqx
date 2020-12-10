@@ -84,6 +84,7 @@ export(_Bindings, _Params) ->
     AuthUsername = emqx_mgmt:export_auth_username(),
     AuthMnesia = emqx_mgmt:export_auth_mnesia(),
     AclMnesia = emqx_mgmt:export_acl_mnesia(),
+    Schemas = emqx_mgmt:export_schemas(),
     Seconds = erlang:system_time(second),
     {{Y, M, D}, {H, MM, S}} = emqx_mgmt_util:datetime(Seconds),
     Filename = io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]),
@@ -99,7 +100,8 @@ export(_Bindings, _Params) ->
             {auth_clientid, AuthClientid},
             {auth_username, AuthUsername},
             {auth_mnesia, AuthMnesia},
-            {acl_mnesia, AclMnesia}
+            {acl_mnesia, AclMnesia},
+            {schemas, Schemas}
            ],
 
     Bin = emqx_json:encode(Data),
@@ -178,19 +180,20 @@ do_import(Filename) ->
             case lists:member(Version, ?VERSIONS) of
                 true  ->
                     try
-                        %emqx_mgmt:import_confs(maps:get(<<"configs">>, Data, []), maps:get(<<"listeners_state">>, Data, [])),
+                        emqx_mgmt:import_confs(maps:get(<<"configs">>, Data, []), maps:get(<<"listeners_state">>, Data, [])),
                         emqx_mgmt:import_resources(maps:get(<<"resources">>, Data, [])),
                         emqx_mgmt:import_rules(maps:get(<<"rules">>, Data, [])),
                         emqx_mgmt:import_blacklist(maps:get(<<"blacklist">>, Data, [])),
                         emqx_mgmt:import_applications(maps:get(<<"apps">>, Data, [])),
                         emqx_mgmt:import_users(maps:get(<<"users">>, Data, [])),
-                        %emqx_mgmt:import_modules(maps:get(<<"modules">>, Data, [])),
+                        emqx_mgmt:import_modules(maps:get(<<"modules">>, Data, [])),
                         emqx_mgmt:import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
                         emqx_mgmt:import_auth_username(maps:get(<<"auth_username">>, Data, [])),
-                        %emqx_mgmt:import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, []), Version),
-                        %emqx_mgmt:import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, []), Version),
+                        emqx_mgmt:import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, []), Version),
+                        emqx_mgmt:import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, []), Version),
+                        emqx_mgmt:import_schemas(maps:get(<<"schemas">>, Data, [])),
                         logger:debug("The emqx data has been imported successfully"),
-                        error({not_implemented, [import_confs,import_modules,import_auth_mnesia,import_acl_mnesia]})
+                        ok
                     catch Class:Reason:Stack ->
                         logger:error("The emqx data import failed: ~0p", [{Class,Reason,Stack}]),
                         {error, import_failed}
