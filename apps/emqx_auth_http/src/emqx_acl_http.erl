@@ -36,6 +36,7 @@
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
+    io:format("testing"),
     lists:foreach(fun emqx_metrics:ensure/1, ?ACL_METRICS).
 
 %%--------------------------------------------------------------------
