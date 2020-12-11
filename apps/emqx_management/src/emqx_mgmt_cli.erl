@@ -563,11 +563,8 @@ data(["export"]) ->
     Blacklist = emqx_mgmt:export_blacklist(),
     Apps = emqx_mgmt:export_applications(),
     Users = emqx_mgmt:export_users(),
-    AuthClientID = emqx_mgmt:export_auth_clientid(),
-    AuthUsername = emqx_mgmt:export_auth_username(),
     AuthMnesia = emqx_mgmt:export_auth_mnesia(),
     AclMnesia = emqx_mgmt:export_acl_mnesia(),
-    Schemas = emqx_mgmt:export_schemas(),
     Seconds = erlang:system_time(second),
     {{Y, M, D}, {H, MM, S}} = emqx_mgmt_util:datetime(Seconds),
     Filename = io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]),
@@ -580,11 +577,8 @@ data(["export"]) ->
             {blacklist, Blacklist},
             {apps, Apps},
             {users, Users},
-            {auth_clientid, AuthClientID},
-            {auth_username, AuthUsername},
             {auth_mnesia, AuthMnesia},
-            {acl_mnesia, AclMnesia},
-            {schemas, Schemas}],
+            {acl_mnesia, AclMnesia}],
     ok = filelib:ensure_dir(NFilename),
     case file:write_file(NFilename, emqx_json:encode(Data)) of
         ok ->
@@ -608,9 +602,8 @@ data(["import", Filename]) ->
                         emqx_mgmt:import_users(maps:get(<<"users">>, Data, [])),
                         _ = emqx_mgmt:import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
                         _ = emqx_mgmt:import_auth_username(maps:get(<<"auth_username">>, Data, [])),
-                        _ = emqx_mgmt:import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, [])),
-                        _ = emqx_mgmt:import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, [])),
-                        _ = emqx_mgmt:import_schemas(maps:get(<<"schemas">>, Data, [])),
+                        _ = emqx_mgmt:import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, []), Version),
+                        _ = emqx_mgmt:import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, []), Version),
                         emqx_ctl:print("The emqx data has been imported successfully.~n")
                     catch Class:Reason:Stack ->
                         emqx_ctl:print("The emqx data import failed due: ~0p~n", [{Class,Reason,Stack}])

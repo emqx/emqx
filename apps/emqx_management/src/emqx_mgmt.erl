@@ -124,21 +124,17 @@
         , export_blacklist/0
         , export_applications/0
         , export_users/0
-        , export_auth_clientid/0
-        , export_auth_username/0
         , export_auth_mnesia/0
         , export_acl_mnesia/0
-        , export_schemas/0
         , import_rules/1
         , import_resources/1
         , import_blacklist/1
         , import_applications/1
         , import_users/1
-        , import_auth_clientid/1
-        , import_auth_username/1
-        , import_auth_mnesia/1
-        , import_acl_mnesia/1
-        , import_schemas/1
+        , import_auth_clientid/1 %% BACKW: 4.1.x
+        , import_auth_username/1 %% BACKW: 4.1.x
+        , import_auth_mnesia/2
+        , import_acl_mnesia/2
         , to_version/1
         ]).
 
@@ -612,78 +608,59 @@ export_rules() ->
                end, emqx_rule_registry:get_rules()).
 
 export_resources() ->
-    lists:foldl(fun({_, Id, Type, Config, CreatedAt, Desc}, Acc) ->
+    lists:map(fun({_, Id, Type, Config, CreatedAt, Desc}) ->
                     NCreatedAt = case CreatedAt of
                                      undefined -> null;
                                      _ -> CreatedAt
                                  end,
-                    [[{id, Id},
-                      {type, Type},
-                      {config, maps:to_list(Config)},
-                      {created_at, NCreatedAt},
-                      {description, Desc}] | Acc]
-               end, [], emqx_rule_registry:get_resources()).
+                    [{id, Id},
+                     {type, Type},
+                     {config, maps:to_list(Config)},
+                     {created_at, NCreatedAt},
+                     {description, Desc}]
+               end, emqx_rule_registry:get_resources()).
 
 export_blacklist() ->
-    lists:foldl(fun(#banned{who = Who, by = By, reason = Reason, at = At, until = Until}, Acc) ->
+    lists:map(fun(#banned{who = Who, by = By, reason = Reason, at = At, until = Until}) ->
                     NWho = case Who of
                                {peerhost, Peerhost} -> {peerhost, inet:ntoa(Peerhost)};
                                _ -> Who
                            end,
-                    [[{who, [NWho]}, {by, By}, {reason, Reason}, {at, At}, {until, Until}] | Acc]
-                end, [], ets:tab2list(emqx_banned)).
+                    [{who, [NWho]}, {by, By}, {reason, Reason}, {at, At}, {until, Until}]
+                end, ets:tab2list(emqx_banned)).
 
 export_applications() ->
-    lists:foldl(fun({_, AppID, AppSecret, Name, Desc, Status, Expired}, Acc) ->
-                    [[{id, AppID}, {secret, AppSecret}, {name, Name}, {desc, Desc}, {status, Status}, {expired, Expired}] | Acc]
-                end, [], ets:tab2list(mqtt_app)).
+    lists:map(fun({_, AppID, AppSecret, Name, Desc, Status, Expired}) ->
+                    [{id, AppID}, {secret, AppSecret}, {name, Name}, {desc, Desc}, {status, Status}, {expired, Expired}]
+                end, ets:tab2list(mqtt_app)).
 
 export_users() ->
-    lists:foldl(fun({_, Username, Password, Tags}, Acc) ->
-                    [[{username, Username}, {password, base64:encode(Password)}, {tags, Tags}] | Acc]
-                end, [], ets:tab2list(mqtt_admin)).
-
-export_auth_clientid() ->
-    case ets:info(emqx_auth_clientid) of
-        undefined -> [];
-        _ ->
-            lists:foldl(fun({_, ClientId, Password}, Acc) ->
-                            [[{clientid, ClientId}, {password, Password}] | Acc]
-                        end, [], ets:tab2list(emqx_auth_clientid))
-    end.
-
-export_auth_username() ->
-    case ets:info(emqx_auth_username) of
-        undefined -> [];
-        _ ->
-            lists:foldl(fun({_, Username, Password}, Acc) ->
-                            [[{username, Username}, {password, Password}] | Acc]
-                        end, [], ets:tab2list(emqx_auth_username))
-    end.
+    lists:map(fun({_, Username, Password, Tags}) ->
+                    [{username, Username}, {password, base64:encode(Password)}, {tags, Tags}]
+                end, ets:tab2list(mqtt_admin)).
 
 export_auth_mnesia() ->
     case ets:info(emqx_user) of
         undefined -> [];
         _ ->
-            lists:foldl(fun({_, Login, Password, IsSuperuser}, Acc) ->
-                            [[{login, Login}, {password, Password}, {is_superuser, IsSuperuser}] | Acc]
-                        end, [], ets:tab2list(emqx_user))
+            lists:map(fun({_, {Type, Login}, Password, CreatedAt}) ->
+                            [{login, Login}, {type, Type}, {password, base64:encode(Password)}, {created_at, CreatedAt}]
+                        end, ets:tab2list(emqx_user))
     end.
 
 export_acl_mnesia() ->
     case ets:info(emqx_acl) of
         undefined -> [];
         _ ->
-            lists:foldl(fun({_, Login, Topic, Action, Allow}, Acc) ->
-                            [[{login, Login}, {topic, Topic}, {action, Action}, {allow, Allow}] | Acc]
-                        end, [], ets:tab2list(emqx_acl))
-    end.
-
-export_schemas() ->
-    case ets:info(emqx_schema) of
-        undefined -> [];
-        _ ->
-            [emqx_schema_api:format_schema(Schema) || Schema <- emqx_schema_registry:get_all_schemas()]
+            lists:map(fun({_, Filter, Action, Access, CreatedAt}) ->
+                            Filter1 = case Filter of
+                                {{Type, TypeValue}, Topic} ->
+                                    [{type, Type}, {type_value, TypeValue}, {topic, Topic}];
+                                {Type, Topic} ->
+                                    [{type, Type}, {topic, Topic}]
+                            end,
+                            Filter1 ++ [{action, Action}, {access, Access}, {created_at, CreatedAt}]
+                        end, ets:tab2list(emqx_acl))
     end.
 
 import_rules(Rules) ->
@@ -761,44 +738,80 @@ import_users(Users) ->
                   end, Users).
 
 import_auth_clientid(Lists) ->
-    case ets:info(emqx_auth_clientid) of
-        undefined -> ok;
-        _ ->
-            [ mnesia:dirty_write({emqx_auth_clientid, ClientId, Password}) || #{<<"clientid">> := ClientId,
-                                                                               <<"password">> := Password} <- Lists ]
-    end.
-
-import_auth_username(Lists) ->
-    case ets:info(emqx_auth_username) of
-        undefined -> ok;
-        _ ->
-            [ mnesia:dirty_write({emqx_auth_username, Username, Password}) || #{<<"username">> := Username,
-                                                                               <<"password">> := Password} <- Lists ]
-    end.
-
-import_auth_mnesia(Auths) ->
     case ets:info(emqx_user) of
         undefined -> ok;
         _ ->
-            [ mnesia:dirty_write({emqx_user, Login, Password, IsSuperuser}) || #{<<"login">> := Login,
-                                                                                 <<"password">> := Password,
-                                                                                 <<"is_superuser">> := IsSuperuser} <- Auths ]
+            [ mnesia:dirty_write({emqx_user, {clientid, Clientid}, base64:decode(Password), erlang:system_time(millisecond)})
+              || #{<<"clientid">> := Clientid, <<"password">> := Password} <- Lists ]
     end.
 
-import_acl_mnesia(Acls) ->
+import_auth_username(Lists) ->
+    case ets:info(emqx_user) of
+        undefined -> ok;
+        _ ->
+            [ mnesia:dirty_write({emqx_user, {username, Username}, base64:decode(Password), erlang:system_time(millisecond)})
+              || #{<<"username">> := Username, <<"password">> := Password} <- Lists ]
+    end.
+
+import_auth_mnesia(Auths, FromVersion) when FromVersion =:= "4.0" orelse
+                                            FromVersion =:= "4.1" ->
+    case ets:info(emqx_user) of
+        undefined -> ok;
+        _ ->
+            CreatedAt = erlang:system_time(millisecond),
+            [ begin
+                mnesia:dirty_write({emqx_user, {username, Login}, base64:decode(Password), CreatedAt})
+              end
+              || #{<<"login">> := Login,
+                   <<"password">> := Password} <- Auths ]
+
+    end;
+
+import_auth_mnesia(Auths, _) ->
+    case ets:info(emqx_user) of
+        undefined -> ok;
+        _ ->
+            [ mnesia:dirty_write({emqx_user, {any_to_atom(Type), Login}, base64:decode(Password), CreatedAt})
+              || #{<<"login">> := Login,
+                   <<"type">> := Type,
+                   <<"password">> := Password,
+                   <<"created_at">> := CreatedAt } <- Auths ]
+    end.
+
+import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.0" orelse
+                                          FromVersion =:= "4.1" ->
     case ets:info(emqx_acl) of
         undefined -> ok;
         _ ->
-            [ mnesia:dirty_write({emqx_acl ,Login, Topic, Action, Allow}) || #{<<"login">> := Login,
-                                                                               <<"topic">> := Topic,
-                                                                               <<"action">> := Action,
-                                                                               <<"allow">> := Allow} <- Acls ]
-    end.
+            CreatedAt = erlang:system_time(millisecond),
+            [begin
+                 Allow1 = case any_to_atom(Allow) of
+                              true -> allow;
+                              false -> deny
+                          end,
+                 mnesia:dirty_write({emqx_acl, {{username, Login}, Topic}, any_to_atom(Action), Allow1, CreatedAt})
+             end || #{<<"login">> := Login,
+                      <<"topic">> := Topic,
+                      <<"allow">> := Allow,
+                      <<"action">> := Action} <- Acls]
+    end;
 
-import_schemas(Schemas) ->
-    case ets:info(emqx_schema) of
+import_acl_mnesia(Acls, _) ->
+    case ets:info(emqx_acl) of
         undefined -> ok;
-        _ -> [emqx_schema_registry:add_schema(emqx_schema_api:make_schema_params(Schema)) || Schema <- Schemas]
+        _ ->
+            [ begin
+              Filter = case maps:get(<<"type_value">>, Map, undefined) of
+                  undefined ->
+                      {any_to_atom(maps:get(<<"type">>, Map)), maps:get(<<"topic">>, Map)};
+                  Value ->
+                      {{any_to_atom(maps:get(<<"type">>, Map)), Value}, maps:get(<<"topic">>, Map)}
+              end,
+              mnesia:dirty_write({emqx_acl ,Filter, any_to_atom(Action), any_to_atom(Access), CreatedAt})
+              end
+              || Map = #{<<"action">> := Action,
+                         <<"access">> := Access,
+                         <<"created_at">> := CreatedAt} <- Acls ]
     end.
 
 any_to_atom(L) when is_list(L) -> list_to_atom(L);

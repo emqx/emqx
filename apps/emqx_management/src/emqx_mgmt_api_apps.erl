@@ -70,13 +70,13 @@ add_app(_Bindings, Params) ->
     Expired = get_value(<<"expired">>, Params),
     case emqx_mgmt_auth:add_app(AppId, Name, Secret, Desc, Status, Expired) of
         {ok, AppSecret} -> return({ok, #{secret => AppSecret}});
-        {error, Reason} -> return({error, ?ERROR2, Reason})
+        {error, Reason} -> return({error, Reason})
     end.
 
 del_app(#{appid := AppId}, _Params) ->
     case emqx_mgmt_auth:del_app(AppId) of
         ok -> return();
-        {error, Reason} -> return({error, ?ERROR2, Reason})
+        {error, Reason} -> return({error, Reason})
     end.
 
 list_apps(_Bindings, _Params) ->
@@ -102,7 +102,7 @@ update_app(#{appid := AppId}, Params) ->
     Expired = get_value(<<"expired">>, Params),
     case emqx_mgmt_auth:update_app(AppId, Name, Desc, Status, Expired) of
         ok -> return();
-        {error, Reason} -> return({error, ?ERROR2, Reason})
+        {error, Reason} -> return({error, Reason})
     end.
 
 format({AppId, _AppSecret, Name, Desc, Status, Expired}) ->
