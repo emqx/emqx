@@ -16,6 +16,7 @@
 
 -module(emqx_passwd_SUITE).
 
+-compile(nowarn_export_all).
 -compile(export_all).
 
 all() -> [t_hash].

@@ -124,39 +124,6 @@ manual_start_stop_test() ->
     emqx_bridge_worker:ensure_stopped(?BRIDGE_REG_NAME),
     emqx_metrics:stop().
 
-%% Feed messages to bridge
-sender_loop(_Pid, [], _) -> exit(normal);
-sender_loop(Pid, [Num | Rest], Interval) ->
-    random_sleep(Interval),
-    Pid ! {deliver, dummy, make_msg(Num)},
-    sender_loop(Pid, Rest, Interval).
-
-%% Feed acknowledgments to bridge
-receiver_loop(_Pid, [], _) -> ok;
-receiver_loop(Pid, Nums, Interval) ->
-    receive
-        {batch, BatchRef, Batch} ->
-            Rest = match_nums(Batch, Nums),
-            random_sleep(Interval),
-            emqx_bridge_worker:handle_ack(Pid, BatchRef),
-            receiver_loop(Pid, Rest, Interval)
-    end.
-
-random_sleep(MaxInterval) ->
-    case rand:uniform(MaxInterval) - 1 of
-        0 -> ok;
-        T -> timer:sleep(T)
-    end.
-
-match_nums([], Rest) -> Rest;
-match_nums([#message{payload = P} | Rest], Nums) ->
-    I = binary_to_integer(P),
-    case Nums of
-        [I | NumsLeft] -> match_nums(Rest, NumsLeft);
-        [J | _] when J > I -> match_nums(Rest, Nums); %% allow retry
-        _ -> error([{received, I}, {expecting, Nums}])
-    end.
-
 make_config(Ref, TestPid, Result) ->
     #{test_pid => TestPid,
       test_ref => Ref,
@@ -165,8 +132,3 @@ make_config(Ref, TestPid, Result) ->
       connect_result => Result,
       start_type => auto
      }.
-
-make_msg(I) ->
-    Payload = integer_to_binary(I),
-    emqx_message:make(<<"test/topic">>, Payload).
-
