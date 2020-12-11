@@ -42,9 +42,10 @@ t_init(_) ->
     Cap1 = 1000, Intv1 = 10,
     Cap2 = 2000, Intv2 = 15,
     undefined = emqx_limiter:init(external, undefined, undefined, []),
-    ?assertEqual(emqx_limiter:init(external, undefined, undefined, [{conn_messages_in, {Cap1, Intv1}},
-                                                                    {conn_bytes_in, {Cap2, Intv2}}]),
-                 emqx_limiter:init(external, {Cap1, Intv1}, {Cap2, Intv2}, [])),
+    #{conn_bytes_in := #{capacity := Cap2, interval := Intv2, tokens := Cap2},
+      conn_messages_in := #{capacity := Cap1, interval := Intv1, tokens := Cap1 }} =
+        emqx_limiter:info(
+          emqx_limiter:init(external, {Cap1, Intv1}, {Cap2, Intv2}, [])),
     #{conn_bytes_in := #{capacity := Cap2, interval := Intv2, tokens := Cap2 }} =
         emqx_limiter:info(
           emqx_limiter:init(external, undefined, {Cap1, Intv1}, [{conn_bytes_in, {Cap2, Intv2}}])).
