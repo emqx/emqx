@@ -23,6 +23,9 @@ $(REBAR): ensure-rebar3
 distclean:
 	@rm -rf _build
 
+ct: $(REBAR)
+	$(REBAR) ct
+
 .PHONY: $(PROFILES)
 $(PROFILES:%=%): $(REBAR)
 ifneq ($(shell echo $(@) |grep edge),)

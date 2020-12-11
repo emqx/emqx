@@ -48,7 +48,7 @@ profiles() ->
     , {check,           [ {erl_opts, [debug_info]}
                         ]}
     , {test,            [ {deps, test_deps()}
-                        , {erl_opts, [debug_info]}
+                        , {erl_opts, [debug_info] ++ erl_opts_i()}
                         ]}
     ].
 
@@ -212,3 +212,6 @@ path(Dir, Path) -> str(filename:join([Dir, Path])).
 
 str(L) when is_list(L) -> L;
 str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
+
+erl_opts_i() ->
+    [{i, Dir}  || Dir <- filelib:wildcard("apps/**/include")].
