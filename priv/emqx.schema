@@ -1244,6 +1244,11 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.tcp.$name.high_watermark", "emqx.listeners", [
+   {datatype, bytesize},
+   {default, "1MB"}
+ ]}.
+
 {mapping, "listener.tcp.$name.tune_buffer", "emqx.listeners", [
   {datatype, flag},
   hidden
@@ -1336,6 +1341,11 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.ssl.$name.high_watermark", "emqx.listeners", [
+   {datatype, bytesize},
+   {default, "1MB"}
+ ]}.
+
 {mapping, "listener.ssl.$name.tune_buffer", "emqx.listeners", [
   {datatype, flag},
   hidden
@@ -1366,6 +1376,11 @@ end}.
 {mapping, "listener.ssl.$name.handshake_timeout", "emqx.listeners", [
   {default, "15s"},
   {datatype, {duration, ms}}
+]}.
+
+{mapping, "listener.ssl.$name.depth", "emqx.listeners", [
+  {default, 10},
+  {datatype, integer}
 ]}.
 
 {mapping, "listener.ssl.$name.dhfile", "emqx.listeners", [
@@ -1839,6 +1854,7 @@ end}.
                           {recbuf,  cuttlefish:conf_get(Prefix ++ ".recbuf", Conf, undefined)},
                           {sndbuf,  cuttlefish:conf_get(Prefix ++ ".sndbuf", Conf, undefined)},
                           {buffer,  cuttlefish:conf_get(Prefix ++ ".buffer", Conf, undefined)},
+                          {high_watermark,  cuttlefish:conf_get(Prefix ++ ".high_watermark", Conf, undefined)},
                           {nodelay, cuttlefish:conf_get(Prefix ++ ".nodelay", Conf, true)},
                           {reuseaddr, cuttlefish:conf_get(Prefix ++ ".reuseaddr", Conf, undefined)}])
               end,
@@ -1878,6 +1894,7 @@ end}.
                           {ciphers, Ciphers},
                           {user_lookup_fun, UserLookupFun},
                           {handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf, undefined)},
+                          {depth, cuttlefish:conf_get(Prefix ++ ".depth", Conf, undefined)},
                           {dhfile, cuttlefish:conf_get(Prefix ++ ".dhfile", Conf, undefined)},
                           {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
                           {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},

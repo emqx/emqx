@@ -25,7 +25,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include("emqx.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
