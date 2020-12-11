@@ -1,0 +1,26 @@
+version: '3'
+
+services:
+  erlang:
+    image: erlang:22.1
+    volumes:
+      - ../:/emqx_auth_ldap
+    networks:
+      - emqx_bridge
+    depends_on:
+      - ldap_server
+    tty: true
+
+  ldap_server:
+    build: ./emqx-ldap
+    image: emqx-ldap:1.0
+    restart: always
+    ports:
+      - 389:389
+      - 636:636
+    networks:
+      - emqx_bridge
+
+networks:
+  emqx_bridge:
+    driver: bridge

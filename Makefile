@@ -1,4 +1,4 @@
-REBAR_VERSION = 3.14.3-emqx-1
+REBAR_VERSION = 3.14.3-emqx-2
 REBAR = ./rebar3
 
 PROFILE ?= emqx
@@ -18,14 +18,6 @@ ensure-rebar3:
 	@./ensure-rebar3.sh $(REBAR_VERSION)
 
 $(REBAR): ensure-rebar3
-
-.PHONY: xref
-xref: $(REBAR)
-	$(REBAR) xref
-
-.PHONY: dialyzer
-dialyzer: $(REBAR)
-	$(REBAR) dialyzer
 
 .PHONY: distclean
 distclean:
@@ -65,6 +57,14 @@ else
 	export EMQX_DESC="EMQ X Broker"
 endif
 	$(REBAR) as $(@:deps-%=%) get-deps
+
+.PHONY: xref
+xref: $(REBAR)
+	$(REBAR) as check xref
+
+.PHONY: dialyzer
+dialyzer: $(REBAR)
+	$(REBAR) as check dialyzer
 
 include packages.mk
 include docker.mk
