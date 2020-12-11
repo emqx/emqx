@@ -174,18 +174,15 @@ do_import(Filename) ->
             case lists:member(Version, ?VERSIONS) of
                 true  ->
                     try
-                        %emqx_mgmt:import_confs(maps:get(<<"configs">>, Data, []), maps:get(<<"listeners_state">>, Data, [])),
                         emqx_mgmt:import_resources(maps:get(<<"resources">>, Data, [])),
                         emqx_mgmt:import_rules(maps:get(<<"rules">>, Data, [])),
                         emqx_mgmt:import_blacklist(maps:get(<<"blacklist">>, Data, [])),
                         emqx_mgmt:import_applications(maps:get(<<"apps">>, Data, [])),
                         emqx_mgmt:import_users(maps:get(<<"users">>, Data, [])),
-                        %emqx_mgmt:import_modules(maps:get(<<"modules">>, Data, [])),
                         _ = emqx_mgmt:import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
                         _ = emqx_mgmt:import_auth_username(maps:get(<<"auth_username">>, Data, [])),
                         _ = emqx_mgmt:import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, []), Version),
                         _ = emqx_mgmt:import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, []), Version),
-                        %_ = emqx_mgmt:import_schemas(maps:get(<<"schemas">>, Data, [])),
                         logger:debug("The emqx data has been imported successfully"),
                         ok
                     catch Class:Reason:Stack ->
