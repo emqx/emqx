@@ -19,10 +19,6 @@ ensure-rebar3:
 
 $(REBAR): ensure-rebar3
 
-.PHONY: distclean
-distclean:
-	@rm -rf _build
-
 ct: $(REBAR)
 	$(REBAR) ct
 
