@@ -2103,7 +2103,7 @@ failure_action(_Id, _Params) ->
 crash_action(_Id, _Params) ->
     fun(Data, _Envs) ->
         ct:pal("applying crash action, Data: ~p", [Data]),
-        1/0
+        error(crash)
     end.
 
 init_plus_by_one_action() ->

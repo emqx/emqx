@@ -16,6 +16,7 @@
 
 -module(emqx_auth_redis_SUITE).
 
+-compile(nowarn_export_all).
 -compile(export_all).
 
 -include_lib("emqx/include/emqx.hrl").

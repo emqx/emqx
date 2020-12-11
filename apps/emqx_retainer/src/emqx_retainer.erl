@@ -177,7 +177,7 @@ handle_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{stats_timer = TRef1, expiry_timer = TRef2} = State) ->
+terminate(_Reason, #state{stats_timer = TRef1, expiry_timer = TRef2}) ->
     _ = timer:cancel(TRef1),
     _ = timer:cancel(TRef2),
     ok.
