@@ -53,16 +53,16 @@ groups() ->
        ]}].
 
 apps() ->
-    [emqx, emqx_management, emqx_reloader].
+    [emqx, emqx_management, emqx_auth_mnesia].
 
 init_per_suite(Config) ->
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
-    emqx_ct_helpers:start_apps([emqx_management, emqx_reloader]),
+    emqx_ct_helpers:start_apps([emqx_management, emqx_auth_mnesia]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_management, emqx_reloader, emqx]).
+    emqx_ct_helpers:stop_apps([emqx_management, emqx_auth_mnesia]).
 
 t_app(_Config) ->
     {ok, AppSecret} = emqx_mgmt_auth:add_app(<<"app_id">>, <<"app_name">>),
@@ -106,7 +106,8 @@ t_log_cmd(_) ->
                          ?assertEqual(Level++"\n", emqx_mgmt_cli:log(["handlers", "set-level",
                                                                       atom_to_list(Id), Level]))
                       end, ?LOG_LEVELS)
-        || #{id := Id} <- emqx_logger:get_log_handlers()].
+        || #{id := Id} <- emqx_logger:get_log_handlers()],
+    meck:unload().
 
 t_mgmt_cmd(_) ->
     ct:pal("start testing the mgmt command"),
@@ -118,12 +119,14 @@ t_mgmt_cmd(_) ->
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:mgmt(["lookup", "emqx_appid"]), "app_id:")),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:mgmt(["update", "emqx_appid", "ts"]), "update successfully")),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:mgmt(["delete", "emqx_appid"]), "ok")),
-    ok = emqx_mgmt_cli:mgmt(["list"]).
+    ok = emqx_mgmt_cli:mgmt(["list"]),
+    meck:unload().
 
 t_status_cmd(_) ->
     ct:pal("start testing status command"),
     print_mock(),
-    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:status([]), "is running")).
+    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:status([]), "is running")),
+    meck:unload().
 
 t_broker_cmd(_) ->
     ct:pal("start testing the broker command"),
@@ -131,7 +134,8 @@ t_broker_cmd(_) ->
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:broker([]), "sysdescr")),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:broker(["stats"]), "subscriptions.shared")),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:broker(["metrics"]), "bytes.sent")),
-    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:broker([undefined]), "broker")).
+    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:broker([undefined]), "broker")),
+    meck:unload().
 
 t_clients_cmd(_) ->
     ct:pal("start testing the client command"),
@@ -164,7 +168,8 @@ t_clients_cmd(_) ->
     {binary, Bin} = rfc6455_client:recv(WS),
     {ok, Connack, <<>>, _} = raw_recv_pase(Bin),
     timer:sleep(300),
-    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:clients(["show", "client13"]), "client13")).
+    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:clients(["show", "client13"]), "client13")),
+    meck:unload().
     % emqx_mgmt_cli:clients(["kick", "client13"]),
     % timer:sleep(500),
     % ?assertMatch({match, _}, re:run(emqx_mgmt_cli:clients(["show", "client13"]), "Not Found")).
@@ -183,7 +188,8 @@ t_vm_cmd(_) ->
     [?assertMatch({match, _}, re:run(Result, "memory"))|| Result <- emqx_mgmt_cli:vm(["memory"])],
     [?assertMatch({match, _}, re:run(Result, "process")) || Result <- emqx_mgmt_cli:vm(["process"])],
     [?assertMatch({match, _}, re:run(Result, "io")) || Result <- emqx_mgmt_cli:vm(["io"])],
-    [?assertMatch({match, _}, re:run(Result, "ports")) || Result <- emqx_mgmt_cli:vm(["ports"])].
+    [?assertMatch({match, _}, re:run(Result, "ports")) || Result <- emqx_mgmt_cli:vm(["ports"])],
+    meck:unload().
 
 t_trace_cmd(_) ->
     ct:pal("start testing the trace command"),
@@ -203,7 +209,8 @@ t_trace_cmd(_) ->
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:trace(["start", "topic", "a/b/c", "log/clientid_trace.log"]), "successfully")),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:trace(["stop", "topic", "a/b/c"]), "successfully")),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:trace(["start", "topic", "a/b/c", "log/clientid_trace.log", "error"]), "successfully")),
-    logger:set_primary_config(level, error).
+    logger:set_primary_config(level, error),
+    meck:unload().
 
 t_router_cmd(_) ->
     ct:pal("start testing the router command"),
@@ -222,7 +229,8 @@ t_router_cmd(_) ->
     emqtt:connect(T1),
     emqtt:subscribe(T1, <<"a/b/c/d">>),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:routes(["list"]), "a/b/c | a/b/c")),
-    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:routes(["show", "a/b/c"]), "a/b/c")).
+    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:routes(["show", "a/b/c"]), "a/b/c")),
+    meck:unload().
 
 t_subscriptions_cmd(_) ->
     ct:pal("Start testing the subscriptions command"),
@@ -237,12 +245,14 @@ t_subscriptions_cmd(_) ->
     [?assertMatch({match, _} , re:run(Result, "b/b/c"))
      || Result <- emqx_mgmt_cli:subscriptions(["show", <<"client">>])],
     ?assertEqual(emqx_mgmt_cli:subscriptions(["add", "client", "b/b/c", "0"]), "ok~n"),
-    ?assertEqual(emqx_mgmt_cli:subscriptions(["del", "client", "b/b/c"]), "ok~n").
+    ?assertEqual(emqx_mgmt_cli:subscriptions(["del", "client", "b/b/c"]), "ok~n"),
+    meck:unload().
 
 t_listeners_cmd(_) ->
     print_mock(),
     ?assertEqual(emqx_mgmt_cli:listeners([]), ok),
-    ?assertEqual(emqx_mgmt_cli:listeners(["stop", "wss", "8084"]), "Stop wss listener on 8084 successfully.\n").
+    ?assertEqual(emqx_mgmt_cli:listeners(["stop", "wss", "8084"]), "Stop wss listener on 8084 successfully.\n"),
+    meck:unload().
 
 t_plugins_cmd(_) ->
     print_mock(),
@@ -251,9 +261,10 @@ t_plugins_cmd(_) ->
     meck:expect(emqx_plugins, unload, fun(_) -> ok end),
     meck:expect(emqx_plugins, reload, fun(_) -> ok end),
     ?assertEqual(emqx_mgmt_cli:plugins(["list"]), ok),
-    ?assertEqual(emqx_mgmt_cli:plugins(["unload", "emqx_reloader"]), "Plugin emqx_reloader unloaded successfully.\n"),
-    ?assertEqual(emqx_mgmt_cli:plugins(["load", "emqx_reloader"]),"Plugin emqx_reloader loaded successfully.\n"),
-    ?assertEqual(emqx_mgmt_cli:plugins(["unload", "emqx_management"]), "Plugin emqx_management can not be unloaded.~n").
+    ?assertEqual(emqx_mgmt_cli:plugins(["unload", "emqx_auth_mnesia"]), "Plugin emqx_auth_mnesia unloaded successfully.\n"),
+    ?assertEqual(emqx_mgmt_cli:plugins(["load", "emqx_auth_mnesia"]),"Plugin emqx_auth_mnesia loaded successfully.\n"),
+    ?assertEqual(emqx_mgmt_cli:plugins(["unload", "emqx_management"]), "Plugin emqx_management can not be unloaded.~n"),
+    meck:unload().
 
 t_modules_cmd(_) ->
     print_mock(),
@@ -263,7 +274,8 @@ t_modules_cmd(_) ->
     meck:expect(emqx_modules, reload, fun(_) -> ok end),
     ?assertEqual(emqx_mgmt_cli:modules(["list"]), ok),
     ?assertEqual(emqx_mgmt_cli:modules(["load", "emqx_mod_presence"]),"Module emqx_mod_presence loaded successfully.\n"),
-    ?assertEqual(emqx_mgmt_cli:modules(["unload", "emqx_mod_presence"]), "Module emqx_mod_presence unloaded successfully.\n").
+    ?assertEqual(emqx_mgmt_cli:modules(["unload", "emqx_mod_presence"]), "Module emqx_mod_presence unloaded successfully.\n"),
+    meck:unload().
 
 t_cli(_) ->
     print_mock(),
@@ -278,7 +290,8 @@ t_cli(_) ->
     [?assertMatch({match, _}, re:run(Value, "vm")) || Value <- emqx_mgmt_cli:vm([""])],
     [?assertMatch({match, _}, re:run(Value, "mnesia")) || Value <- emqx_mgmt_cli:mnesia([""])],
     [?assertMatch({match, _}, re:run(Value, "trace")) || Value <- emqx_mgmt_cli:trace([""])],
-    [?assertMatch({match, _}, re:run(Value, "mgmt")) || Value <- emqx_mgmt_cli:mgmt([""])].
+    [?assertMatch({match, _}, re:run(Value, "mgmt")) || Value <- emqx_mgmt_cli:mgmt([""])],
+    meck:unload().
 
 print_mock() ->
     meck:new(emqx_ctl, [non_strict, passthrough]),

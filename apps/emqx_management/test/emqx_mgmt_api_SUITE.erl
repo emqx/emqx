@@ -23,8 +23,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
-
--include("emqx_mgmt.hrl").
+-include_lib("emqx_management/include/emqx_mgmt.hrl").
 
 -define(CONTENT_TYPE, "application/x-www-form-urlencoded").
 
@@ -57,13 +56,13 @@ groups() ->
        data]}].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx, emqx_management, emqx_reloader]),
+    emqx_ct_helpers:start_apps([emqx, emqx_management, emqx_auth_mnesia]),
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_reloader, emqx_management, emqx]),
+    emqx_ct_helpers:stop_apps([emqx_auth_mnesia, emqx_management, emqx]),
     ekka_mnesia:ensure_stopped().
 
 init_per_testcase(data, Config) ->
@@ -154,11 +153,11 @@ apps(_) ->
                                auth_header_(), #{<<"app_id">> => AppId,
                                                  <<"name">> => <<"test">>,
                                                  <<"status">> => true}),
-    ?assertEqual(?ERROR2, get(<<"code">>, Error1)),
+    ?assertMatch(<<"undefined">>, get(<<"message">>, Error1)),
 
     meck:expect(emqx_mgmt_auth, del_app, 1, fun(_) -> {error, undefined} end),
     {ok, Error2} = request_api(delete, api_path(["apps", binary_to_list(AppId)]), auth_header_()),
-    ?assertEqual(?ERROR2, get(<<"code">>, Error2)),
+    ?assertMatch(<<"undefined">>, get(<<"message">>, Error2)),
     meck:unload(emqx_mgmt_auth),
 
     {ok, NoApp} = request_api(get, api_path(["apps", binary_to_list(AppId)]), auth_header_()),
@@ -329,54 +328,54 @@ nodes(_) ->
 plugins(_) ->
     {ok, Plugins1} = request_api(get, api_path(["plugins"]), auth_header_()),
     [Plugins11] = filter(get(<<"data">>, Plugins1), <<"node">>, atom_to_binary(node(), utf8)),
-    [Plugin1] = filter(maps:get(<<"plugins">>, Plugins11), <<"name">>, <<"emqx_reloader">>),
-    ?assertEqual(<<"emqx_reloader">>, maps:get(<<"name">>, Plugin1)),
+    [Plugin1] = filter(maps:get(<<"plugins">>, Plugins11), <<"name">>, <<"emqx_auth_mnesia">>),
+    ?assertEqual(<<"emqx_auth_mnesia">>, maps:get(<<"name">>, Plugin1)),
     ?assertEqual(true, maps:get(<<"active">>, Plugin1)),
 
     {ok, _} = request_api(put,
                           api_path(["plugins",
-                                    atom_to_list(emqx_reloader),
+                                    atom_to_list(emqx_auth_mnesia),
                                     "unload"]),
                           auth_header_()),
     {ok, Error1} = request_api(put,
                                api_path(["plugins",
-                                         atom_to_list(emqx_reloader),
+                                         atom_to_list(emqx_auth_mnesia),
                                          "unload"]),
                                auth_header_()),
     ?assertEqual(<<"not_started">>, get(<<"message">>, Error1)),
     {ok, Plugins2} = request_api(get,
                                  api_path(["nodes", atom_to_list(node()), "plugins"]),
                                  auth_header_()),
-    [Plugin2] = filter(get(<<"data">>, Plugins2), <<"name">>, <<"emqx_reloader">>),
-    ?assertEqual(<<"emqx_reloader">>, maps:get(<<"name">>, Plugin2)),
+    [Plugin2] = filter(get(<<"data">>, Plugins2), <<"name">>, <<"emqx_auth_mnesia">>),
+    ?assertEqual(<<"emqx_auth_mnesia">>, maps:get(<<"name">>, Plugin2)),
     ?assertEqual(false, maps:get(<<"active">>, Plugin2)),
 
     {ok, _} = request_api(put,
                           api_path(["nodes",
                                     atom_to_list(node()),
                                     "plugins",
-                                    atom_to_list(emqx_reloader),
+                                    atom_to_list(emqx_auth_mnesia),
                                     "load"]),
                           auth_header_()),
     {ok, Plugins3} = request_api(get,
                                  api_path(["nodes", atom_to_list(node()), "plugins"]),
                                  auth_header_()),
-    [Plugin3] = filter(get(<<"data">>, Plugins3), <<"name">>, <<"emqx_reloader">>),
-    ?assertEqual(<<"emqx_reloader">>, maps:get(<<"name">>, Plugin3)),
+    [Plugin3] = filter(get(<<"data">>, Plugins3), <<"name">>, <<"emqx_auth_mnesia">>),
+    ?assertEqual(<<"emqx_auth_mnesia">>, maps:get(<<"name">>, Plugin3)),
     ?assertEqual(false, maps:get(<<"active">>, Plugin3)),
 
     {ok, _} = request_api(put,
                           api_path(["nodes",
                                     atom_to_list(node()),
                                     "plugins",
-                                    atom_to_list(emqx_reloader),
+                                    atom_to_list(emqx_auth_mnesia),
                                     "unload"]),
                           auth_header_()),
     {ok, Error2} = request_api(put,
                                api_path(["nodes",
                                          atom_to_list(node()),
                                          "plugins",
-                                         atom_to_list(emqx_reloader),
+                                         atom_to_list(emqx_auth_mnesia),
                                          "unload"]),
                                auth_header_()),
     ?assertEqual(<<"not_started">>, get(<<"message">>, Error2)).

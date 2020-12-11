@@ -600,52 +600,52 @@ delete_banned(Who) ->
 
 export_rules() ->
     lists:map(fun({_, RuleId, _, RawSQL, _, _, _, _, _, _, Actions, Enabled, Desc}) ->
-                    [{id, RuleId},
-                      {rawsql, RawSQL},
-                      {actions, actions_to_prop_list(Actions)},
-                      {enabled, Enabled},
-                      {description, Desc}]
-               end, emqx_rule_registry:get_rules()).
+                   [{id, RuleId},
+                     {rawsql, RawSQL},
+                     {actions, actions_to_prop_list(Actions)},
+                     {enabled, Enabled},
+                     {description, Desc}]
+              end, emqx_rule_registry:get_rules()).
 
 export_resources() ->
     lists:map(fun({_, Id, Type, Config, CreatedAt, Desc}) ->
-                    NCreatedAt = case CreatedAt of
-                                     undefined -> null;
-                                     _ -> CreatedAt
-                                 end,
-                    [{id, Id},
-                     {type, Type},
-                     {config, maps:to_list(Config)},
-                     {created_at, NCreatedAt},
-                     {description, Desc}]
-               end, emqx_rule_registry:get_resources()).
+                   NCreatedAt = case CreatedAt of
+                                    undefined -> null;
+                                    _ -> CreatedAt
+                                end,
+                   [{id, Id},
+                    {type, Type},
+                    {config, maps:to_list(Config)},
+                    {created_at, NCreatedAt},
+                    {description, Desc}]
+              end, emqx_rule_registry:get_resources()).
 
 export_blacklist() ->
     lists:map(fun(#banned{who = Who, by = By, reason = Reason, at = At, until = Until}) ->
-                    NWho = case Who of
-                               {peerhost, Peerhost} -> {peerhost, inet:ntoa(Peerhost)};
-                               _ -> Who
-                           end,
-                    [{who, [NWho]}, {by, By}, {reason, Reason}, {at, At}, {until, Until}]
-                end, ets:tab2list(emqx_banned)).
+                  NWho = case Who of
+                             {peerhost, Peerhost} -> {peerhost, inet:ntoa(Peerhost)};
+                             _ -> Who
+                         end,
+                  [{who, [NWho]}, {by, By}, {reason, Reason}, {at, At}, {until, Until}]
+              end, ets:tab2list(emqx_banned)).
 
 export_applications() ->
     lists:map(fun({_, AppID, AppSecret, Name, Desc, Status, Expired}) ->
-                    [{id, AppID}, {secret, AppSecret}, {name, Name}, {desc, Desc}, {status, Status}, {expired, Expired}]
-                end, ets:tab2list(mqtt_app)).
+                  [{id, AppID}, {secret, AppSecret}, {name, Name}, {desc, Desc}, {status, Status}, {expired, Expired}]
+              end, ets:tab2list(mqtt_app)).
 
 export_users() ->
     lists:map(fun({_, Username, Password, Tags}) ->
-                    [{username, Username}, {password, base64:encode(Password)}, {tags, Tags}]
-                end, ets:tab2list(mqtt_admin)).
+                  [{username, Username}, {password, base64:encode(Password)}, {tags, Tags}]
+              end, ets:tab2list(mqtt_admin)).
 
 export_auth_mnesia() ->
     case ets:info(emqx_user) of
         undefined -> [];
         _ ->
             lists:map(fun({_, {Type, Login}, Password, CreatedAt}) ->
-                            [{login, Login}, {type, Type}, {password, base64:encode(Password)}, {created_at, CreatedAt}]
-                        end, ets:tab2list(emqx_user))
+                          [{login, Login}, {type, Type}, {password, base64:encode(Password)}, {created_at, CreatedAt}]
+                      end, ets:tab2list(emqx_user))
     end.
 
 export_acl_mnesia() ->
@@ -653,14 +653,14 @@ export_acl_mnesia() ->
         undefined -> [];
         _ ->
             lists:map(fun({_, Filter, Action, Access, CreatedAt}) ->
-                            Filter1 = case Filter of
-                                {{Type, TypeValue}, Topic} ->
-                                    [{type, Type}, {type_value, TypeValue}, {topic, Topic}];
-                                {Type, Topic} ->
-                                    [{type, Type}, {topic, Topic}]
-                            end,
-                            Filter1 ++ [{action, Action}, {access, Access}, {created_at, CreatedAt}]
-                        end, ets:tab2list(emqx_acl))
+                          Filter1 = case Filter of
+                              {{Type, TypeValue}, Topic} ->
+                                  [{type, Type}, {type_value, TypeValue}, {topic, Topic}];
+                              {Type, Topic} ->
+                                  [{type, Type}, {topic, Topic}]
+                          end,
+                          Filter1 ++ [{action, Action}, {access, Access}, {created_at, CreatedAt}]
+                      end, ets:tab2list(emqx_acl))
     end.
 
 import_rules(Rules) ->
