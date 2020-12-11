@@ -2,7 +2,7 @@ REBAR_VERSION = 3.14.3-emqx-2
 REBAR = ./rebar3
 
 PROFILE ?= emqx
-PROFILES := emqx emqx-edge
+PROFILES := emqx emqx-edge check test
 PKG_PROFILES := emqx-pkg emqx-edge-pkg
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
@@ -38,13 +38,9 @@ $(PROFILES:%=build-%): $(REBAR)
 
 # rebar clean
 .PHONY: clean $(PROFILES:%=clean-%)
-clean: $(PROFILES:%=clean-%) clean-stamps
+clean: $(PROFILES:%=clean-%)
 $(PROFILES:%=clean-%): $(REBAR)
 	$(REBAR) as $(@:clean-%=%) clean
-
-.PHONY: clean-stamps
-clean-stamps:
-	find -L _build -name '.stamp' -type f | xargs rm -f
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%) $(PKG_PROFILES:%=deps-%)

@@ -34,12 +34,18 @@ test_deps() ->
 
 profiles() ->
     [ {'emqx',          [ {relx, relx('emqx')}
+                        , {erl_opts, [no_debug_info]}
                         ]}
     , {'emqx-pkg',      [ {relx, relx('emqx-pkg')}
+                        , {erl_opts, [no_debug_info]}
                         ]}
     , {'emqx-edge',     [ {relx, relx('emqx-edge')}
+                        , {erl_opts, [no_debug_info]}
                         ]}
     , {'emqx-edge-pkg', [ {relx, relx('emqx-edge-pkg')}
+                        , {erl_opts, [no_debug_info]}
+                        ]}
+    , {check,           [ {erl_opts, [debug_info]}
                         ]}
     , {test,            [ {deps, test_deps()}
                         , {erl_opts, [debug_info]}

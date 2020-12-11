@@ -37,9 +37,9 @@ init(#{clientid_list := ClientidList, username_list := UsernameList}) ->
             {disc_copies, [node()]},
             {attributes, record_info(fields, emqx_user)},
             {storage_properties, [{ets, [{read_concurrency, true}]}]}]),
-    [ add_default_user({{clientid, iolist_to_binary(Clientid)}, iolist_to_binary(Password)})
+    _ = [ add_default_user({{clientid, iolist_to_binary(Clientid)}, iolist_to_binary(Password)})
       || {Clientid, Password} <- ClientidList],
-    [ add_default_user({{username, iolist_to_binary(Username)}, iolist_to_binary(Password)})
+    _ = [ add_default_user({{username, iolist_to_binary(Username)}, iolist_to_binary(Password)})
       || {Username, Password} <- UsernameList],
     ok = ekka_mnesia:copy_table(emqx_user, disc_copies).
 
@@ -59,7 +59,7 @@ check(ClientInfo = #{ clientid := Clientid
                               ({?TABLE, {username, X }, Password, InterTime}) when X =:= Username andalso X =/= undefined -> Password
                            end),
     case ets:select(?TABLE, MatchSpec) of
-        [] -> 
+        [] ->
             emqx_metrics:inc(?AUTH_METRICS(ignore)),
             ok;
         List ->

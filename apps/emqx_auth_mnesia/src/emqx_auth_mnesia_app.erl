@@ -38,8 +38,8 @@ start(_StartType, _StartArgs) ->
     emqx_ctl:register_command(username, {emqx_auth_mnesia_cli, auth_username_cli}, []),
     emqx_ctl:register_command(user, {emqx_auth_mnesia_cli, auth_username_cli}, []),
     emqx_ctl:register_command(acl, {emqx_acl_mnesia_cli, cli}, []),
-    load_auth_hook(),
-    load_acl_hook(),
+    _ = load_auth_hook(),
+    _ = load_acl_hook(),
     {ok, Sup}.
 
 prep_stop(State) ->

@@ -113,18 +113,18 @@
                       peername := peername(),
                       peercert := nossl | undefined | esockd_peercert:peercert(),
                       conn_mod := module(),
-                      proto_name := binary(),
-                      proto_ver := ver(),
-                      clean_start := boolean(),
-                      clientid := clientid(),
-                      username := username(),
-                      conn_props := properties(),
-                      connected := boolean(),
-                      connected_at := non_neg_integer(),
+                      proto_name => binary(),
+                      proto_ver => ver(),
+                      clean_start => boolean(),
+                      clientid => clientid(),
+                      username => username(),
+                      conn_props => properties(),
+                      connected => boolean(),
+                      connected_at => non_neg_integer(),
                       disconnected_at => non_neg_integer(),
-                      keepalive := 0..16#FFFF,
-                      receive_maximum := non_neg_integer(),
-                      expiry_interval := non_neg_integer(),
+                      keepalive => 0..16#FFFF,
+                      receive_maximum => non_neg_integer(),
+                      expiry_interval => non_neg_integer(),
                       atom() => term()
                      }).
 -type(clientinfo() :: #{zone         := zone(),
@@ -148,7 +148,8 @@
 -type(username() :: maybe(binary())).
 -type(password() :: maybe(binary())).
 -type(peerhost() :: inet:ip_address()).
--type(peername() :: {inet:ip_address(), inet:port_number()}).
+-type(peername() :: {inet:ip_address(), inet:port_number()}
+                  | inet:returned_non_ip_address()).
 -type(protocol() :: mqtt | 'mqtt-sn' | coap | lwm2m | stomp | none | atom()).
 -type(auth_result() :: success
                      | client_identifier_not_valid

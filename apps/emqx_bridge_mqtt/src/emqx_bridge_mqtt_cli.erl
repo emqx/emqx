@@ -56,16 +56,12 @@ cli(["forwards", Name]) ->
             end, emqx_bridge_worker:get_forwards(Name));
 
 cli(["add-forward", Name, Topic]) ->
-    case emqx_bridge_worker:ensure_forward_present(Name, iolist_to_binary(Topic)) of
-        ok -> emqx_ctl:print("Add-forward topic successfully.~n");
-        {error, Reason} -> emqx_ctl:print("Add-forward failed reason: ~p.~n", [Reason])
-    end;
+    ok = emqx_bridge_worker:ensure_forward_present(Name, iolist_to_binary(Topic)),
+    emqx_ctl:print("Add-forward topic successfully.~n");
 
 cli(["del-forward", Name, Topic]) ->
-    case emqx_bridge_worker:ensure_forward_absent(Name, iolist_to_binary(Topic)) of
-        ok -> emqx_ctl:print("Del-forward topic successfully.~n");
-        {error, Reason} -> emqx_ctl:print("Del-forward failed reason: ~p.~n", [Reason])
-    end;
+    ok = emqx_bridge_worker:ensure_forward_absent(Name, iolist_to_binary(Topic)),
+    emqx_ctl:print("Del-forward topic successfully.~n");
 
 cli(["subscriptions", Name]) ->
     foreach(fun({Topic, Qos}) ->
@@ -79,10 +75,8 @@ cli(["add-subscription", Name, Topic, Qos]) ->
     end;
 
 cli(["del-subscription", Name, Topic]) ->
-    case emqx_bridge_worker:ensure_subscription_absent(Name, Topic) of
-        ok -> emqx_ctl:print("Del-subscription topic successfully.~n");
-        {error, Reason} -> emqx_ctl:print("Del-subscription failed reason: ~p.~n", [Reason])
-    end;
+    ok = emqx_bridge_worker:ensure_subscription_absent(Name, Topic),
+    emqx_ctl:print("Del-subscription topic successfully.~n");
 
 cli(_) ->
     emqx_ctl:usage([{"bridges list",           "List bridges"},

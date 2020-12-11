@@ -45,7 +45,7 @@ start(_StartType, _StartArgs) ->
     load_all_servers(),
 
     %% Register all hooks
-    load_exhooks(),
+    _ = load_exhooks(),
 
     %% Register CLI
     emqx_ctl:register_command(exhook, {emqx_exhook_cli, cli}, []),
@@ -53,8 +53,8 @@ start(_StartType, _StartArgs) ->
 
 prep_stop(State) ->
     emqx_ctl:unregister_command(exhook),
-    unload_exhooks(),
-    unload_all_servers(),
+    _ = unload_exhooks(),
+    ok = unload_all_servers(),
     State.
 
 stop(_State) ->

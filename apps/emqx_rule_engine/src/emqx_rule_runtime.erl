@@ -49,7 +49,7 @@ apply_rules([], _Input) ->
 apply_rules([#rule{enabled = false}|More], Input) ->
     apply_rules(More, Input);
 apply_rules([Rule = #rule{id = RuleID}|More], Input) ->
-    try apply_rule(Rule, Input)
+    try apply_rule_discard_result(Rule, Input)
     catch
         %% ignore the errors if select or match failed
         _:{select_and_transform_error, Error} ->
@@ -69,6 +69,13 @@ apply_rules([Rule = #rule{id = RuleID}|More], Input) ->
                  [RuleID, Error, StkTrace])
     end,
     apply_rules(More, Input).
+
+apply_rule_discard_result(Rule, Input) ->
+    %% TODO check if below two clauses are ok to discard:
+    %% {'error','nomatch'}
+    %% {'ok',[any()]}
+    _ = apply_rule(Rule, Input),
+    ok.
 
 apply_rule(Rule = #rule{id = RuleID}, Input) ->
     clear_rule_payload(),
@@ -160,6 +167,7 @@ select_and_collect([Field|More], Input, {Output, LastKV}) ->
         {nested_put(Key, Val, Output), LastKV}).
 
 %% Filter each item got from FOREACH
+-dialyzer({nowarn_function, filter_collection/4}).
 filter_collection(Input, InCase, DoEach, {CollKey, CollVal}) ->
     lists:filtermap(
         fun(Item) ->
@@ -242,7 +250,7 @@ take_action(#action_instance{id = Id, name = ActName, fallbacks = Fallbacks} = A
         error:{badfun, _Func}:_ST ->
             %?LOG(warning, "Action ~p maybe outdated, refresh it and try again."
             %              "Func: ~p~nST:~0p", [Id, Func, ST]),
-            trans_action_on(Id, fun() ->
+            _ = trans_action_on(Id, fun() ->
                 emqx_rule_engine:refresh_actions([ActInst])
             end, 5000),
             emqx_rule_metrics:inc_actions_retry(Id),
@@ -291,11 +299,11 @@ wait_action_on(Id, RetryN) ->
 
 handle_action_failure(continue, Id, Fallbacks, Selected, Envs, Reason) ->
     ?LOG(error, "Take action ~p failed, continue next action, reason: ~0p", [Id, Reason]),
-    take_actions(Fallbacks, Selected, Envs, continue),
+    _ = take_actions(Fallbacks, Selected, Envs, continue),
     failed;
 handle_action_failure(stop, Id, Fallbacks, Selected, Envs, Reason) ->
     ?LOG(error, "Take action ~p failed, skip all actions, reason: ~0p", [Id, Reason]),
-    take_actions(Fallbacks, Selected, Envs, continue),
+    _ = take_actions(Fallbacks, Selected, Envs, continue),
     error({take_action_failed, {Id, Reason}}).
 
 eval({path, [{key, <<"payload">>} | Path]}, #{payload := Payload}) ->

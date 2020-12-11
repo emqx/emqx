@@ -30,7 +30,7 @@
 
 start(_Type, _Args) ->
     Pid = emqx_lwm2m_sup:start_link(),
-    lwm2m_coap_server:start_registry(),
+    _ = lwm2m_coap_server:start_registry(),
     lwm2m_coap_server_registry:add_handler([<<"rd">>], emqx_lwm2m_coap_resource, undefined),
     emqx_lwm2m_coap_server:start(application:get_all_env(?APP)),
     Pid.

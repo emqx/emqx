@@ -102,14 +102,14 @@
 
 load(_Env) ->
     emqx_mod_sup:start_child(?MODULE, worker),
-    emqx:hook('message.publish',   {?MODULE, on_message_publish, []}),
-    emqx:hook('message.dropped',   {?MODULE, on_message_dropped, []}),
-    emqx:hook('message.delivered', {?MODULE, on_message_delivered, []}).
+    emqx_hooks:put('message.publish',   {?MODULE, on_message_publish, []}),
+    emqx_hooks:put('message.dropped',   {?MODULE, on_message_dropped, []}),
+    emqx_hooks:put('message.delivered', {?MODULE, on_message_delivered, []}).
 
 unload(_Env) ->
-    emqx:unhook('message.publish',   {?MODULE, on_message_publish}),
-    emqx:unhook('message.dropped',   {?MODULE, on_message_dropped}),
-    emqx:unhook('message.delivered', {?MODULE, on_message_delivered}),
+    emqx_hooks:del('message.publish',   {?MODULE, on_message_publish}),
+    emqx_hooks:del('message.dropped',   {?MODULE, on_message_dropped}),
+    emqx_hooks:del('message.delivered', {?MODULE, on_message_delivered}),
     emqx_mod_sup:stop_child(?MODULE).
 
 description() ->
@@ -118,7 +118,7 @@ description() ->
 on_message_publish(#message{topic = Topic, qos = QoS}) ->
     case is_registered(Topic) of
         true ->
-            inc(Topic, 'messages.in'),
+            try_inc(Topic, 'messages.in'),
             case QoS of
                 ?QOS_0 -> inc(Topic, 'messages.qos0.in');
                 ?QOS_1 -> inc(Topic, 'messages.qos1.in');
@@ -131,7 +131,7 @@ on_message_publish(#message{topic = Topic, qos = QoS}) ->
 on_message_delivered(_, #message{topic = Topic, qos = QoS}) ->
     case is_registered(Topic) of
         true ->
-            inc(Topic, 'messages.out'),
+            try_inc(Topic, 'messages.out'),
             case QoS of
                 ?QOS_0 -> inc(Topic, 'messages.qos0.out');
                 ?QOS_1 -> inc(Topic, 'messages.qos1.out');
@@ -154,6 +154,10 @@ start_link() ->
 
 stop() ->
     gen_server:stop(?MODULE).
+
+try_inc(Topic, Metric) ->
+    _ = inc(Topic, Metric),
+    ok.
 
 inc(Topic, Metric) ->
     inc(Topic, Metric, 1).

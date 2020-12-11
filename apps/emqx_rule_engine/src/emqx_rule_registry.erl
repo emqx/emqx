@@ -166,6 +166,10 @@ start_link() ->
 get_rules() ->
     get_all_records(?RULE_TAB).
 
+%% TODO: emqx_rule_utils:can_topic_match_oneof(Topic::any(), For::atom())
+%% will never return since it differs in the 2nd argument from the success
+%% typing arguments: (any(), [binary() | ['' | '#' | '+' | binary()]])
+-dialyzer([{nowarn_function, get_rules_for/1}]).
 -spec(get_rules_for(Topic :: binary()) -> list(emqx_rule_engine:rule())).
 get_rules_for(Topic) ->
     [Rule || Rule = #rule{for = For} <- get_rules(),
@@ -329,9 +333,10 @@ remove_resource_params(ResId) ->
 
 %% @private
 delete_resource(ResId) ->
-    [[ResId =:= ResId1 andalso throw({dependency_exists, {rule, Id}})
-        || #action_instance{args = #{<<"$resource">> := ResId1}} <- Actions]
-            || #rule{id = Id, actions = Actions} <- get_rules()],
+    %% TODO, change to foreache:s
+    _ = [[ResId =:= ResId1 andalso throw({dependency_exists, {rule, Id}})
+            || #action_instance{args = #{<<"$resource">> := ResId1}} <- Actions]
+                || #rule{id = Id, actions = Actions} <- get_rules()],
     mnesia:delete(?RES_TAB, ResId, write).
 
 %% @private

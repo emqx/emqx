@@ -33,7 +33,7 @@
     logger:Level("LWM2M-TIMER: " ++ Format, Args)).
 
 cancel_timer(#timer_state{tref = TRef}) when is_reference(TRef) ->
-    erlang:cancel_timer(TRef), ok.
+    _ = erlang:cancel_timer(TRef), ok.
 
 refresh_timer(State=#timer_state{interval = Interval, message = Msg}) ->
     cancel_timer(State), start_timer(Interval, Msg).

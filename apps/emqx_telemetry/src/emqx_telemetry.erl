@@ -132,6 +132,12 @@ get_telemetry() ->
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
+%% This is to suppress dialyzer warnings for mnesia:dirty_write and
+%% dirty_read race condition. Given that the init function is not evaluated
+%% concurrently in one node, it should be free of race condition.
+%% Given the chance of having two nodes bootstraping with the write
+%% is very small, it should be safe to ignore.
+-dialyzer([{nowarn_function, [init/1]}]).
 init([Opts]) ->
     State = #state{url = get_value(url, Opts),
                    report_interval = timer:seconds(get_value(report_interval, Opts))},

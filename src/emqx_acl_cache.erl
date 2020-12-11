@@ -107,9 +107,7 @@ put_acl_cache(PubSub, Topic, AclResult) ->
 %% delete all the acl entries
 -spec(empty_acl_cache() -> ok).
 empty_acl_cache() ->
-    map_acl_cache(fun({CacheK, _CacheV}) ->
-            erlang:erase(CacheK)
-        end),
+    foreach_acl_cache(fun({CacheK, _CacheV}) -> erlang:erase(CacheK) end),
     set_cache_size(0),
     keys_queue_set(queue:new()).
 
@@ -139,9 +137,13 @@ get_cache_size() ->
 
 dump_acl_cache() ->
     map_acl_cache(fun(Cache) -> Cache end).
+
 map_acl_cache(Fun) ->
     [Fun(R) || R = {{SubPub, _T}, _Acl} <- get(), SubPub =:= publish
                                            orelse SubPub =:= subscribe].
+foreach_acl_cache(Fun) ->
+    _ = map_acl_cache(Fun),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Internal functions

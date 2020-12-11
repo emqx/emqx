@@ -77,14 +77,17 @@ unload(ModuleName) ->
             unload_module(ModuleName, true)
     end.
 
+-spec(reload(module()) -> ok | ignore | {error, any()}).
 reload(emqx_mod_acl_internal) ->
     Modules = emqx:get_env(modules, []),
     Env = proplists:get_value(emqx_mod_acl_internal, Modules, undefined),
     case emqx_mod_acl_internal:reload(Env) of
         ok ->
-            ?LOG(info, "Reload ~s module successfully.", [emqx_mod_acl_internal]);
+            ?LOG(info, "Reload ~s module successfully.", [emqx_mod_acl_internal]),
+            ok;
         {error, Error} ->
-            ?LOG(error, "Reload module ~s failed, cannot start for ~0p", [emqx_mod_acl_internal, Error])
+            ?LOG(error, "Reload module ~s failed, cannot start for ~0p", [emqx_mod_acl_internal, Error]),
+            {error, Error}
     end;
 reload(_) ->
     ignore.
@@ -125,7 +128,7 @@ load_module(ModuleName, Persistent) ->
     case ModuleName:load(Env) of
         ok ->
             ets:insert(?MODULE, {ModuleName, true}),
-            write_loaded(Persistent),
+            ok = write_loaded(Persistent),
             ?LOG(info, "Load ~s module successfully.", [ModuleName]);
         {error, Error} ->
             ?LOG(error, "Load module ~s failed, cannot load for ~0p", [ModuleName, Error]),
@@ -152,7 +155,7 @@ unload_module(ModuleName, Persistent) ->
     case ModuleName:unload(Env) of
         ok ->
             ets:insert(?MODULE, {ModuleName, false}),
-            write_loaded(Persistent),
+            ok = write_loaded(Persistent),
             ?LOG(info, "Unload ~s module successfully.", [ModuleName]);
         {error, Error} ->
             ?LOG(error, "Unload module ~s failed, cannot unload for ~0p", [ModuleName, Error])
@@ -164,6 +167,6 @@ write_loaded(true) ->
         ok -> ok;
         {error, Error} ->
             ?LOG(error, "Write File ~p Error: ~p", [FilePath, Error]),
-            {error, Error}
+            ok
     end;
 write_loaded(false) -> ok.

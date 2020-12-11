@@ -55,7 +55,7 @@ start_link(Opts) ->
 %%--------------------------------------------------------------------
 
 init([Opts]) ->
-    erlang:system_monitor(self(), parse_opt(Opts)),
+    _ = erlang:system_monitor(self(), parse_opt(Opts)),
     emqx_logger:set_proc_metadata(#{sysmon => true}),
 
     %% Monitor cluster partition event
@@ -174,7 +174,7 @@ suppress(Key, SuccFun, State = #{events := Events}) ->
         true ->
             {noreply, State};
         false ->
-            SuccFun(),
+            _ = SuccFun(),
             {noreply, State#{events := [Key|Events]}}
     end.
 

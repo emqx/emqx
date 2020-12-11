@@ -82,8 +82,6 @@ description() -> "Authentication with MongoDB".
 %%--------------------------------------------------------------------
 %% Is Superuser?
 %%--------------------------------------------------------------------
-
--spec(is_superuser(string(), maybe(#superquery{}), emqx_types:clientinfo()) -> boolean()).
 is_superuser(_Pool, undefined, _ClientInfo) ->
     false;
 is_superuser(Pool, #superquery{collection = Coll, field = Field, selector = Selector}, ClientInfo) ->

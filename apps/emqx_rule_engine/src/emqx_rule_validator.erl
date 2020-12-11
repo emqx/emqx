@@ -31,24 +31,30 @@
 %% APIs
 %%------------------------------------------------------------------------------
 
-%% Validate the params according the spec and return a new spec.
-%% Note that this function will throw out exceptions in case of
-%% validation failure.
--spec(validate_params(params(), params_spec()) -> params()).
+%% Validate the params according the spec.
+%% Note that this function throws exception in case of validation failure.
+-spec(validate_params(params(), params_spec()) -> ok).
 validate_params(Params, ParamsSepc) ->
-    maps:map(fun(Name, Spec) ->
+    F = fun(Name, Spec) ->
             do_validate_param(Name, Spec, Params)
-        end, ParamsSepc),
-    ok.
+        end,
+    map_foreach(F, ParamsSepc).
 
 -spec(validate_spec(params_spec()) -> ok).
-validate_spec(ParamsSepc) ->
-    maps:map(fun do_validate_spec/2, ParamsSepc),
-    ok.
+validate_spec(ParamsSepc) -> map_foreach(fun do_validate_spec/2, ParamsSepc).
 
 %%------------------------------------------------------------------------------
 %% Internal Functions
 %%------------------------------------------------------------------------------
+
+map_foreach(Fun, Map) ->
+    Iterator = maps:iterator(Map),
+    map_foreach_loop(Fun, maps:next(Iterator)).
+
+map_foreach_loop(_Fun, none) -> ok;
+map_foreach_loop(Fun, {Key, Value, Iterator}) ->
+    _ = Fun(Key, Value),
+    map_foreach_loop(Fun, maps:next(Iterator)).
 
 do_validate_param(Name, Spec = #{required := true}, Params) ->
     find_field(Name, Params,
@@ -171,5 +177,5 @@ do_find_field([F | Fields], Spec, Func) ->
     end.
 
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
-bin(Str) when is_list(Str) -> atom_to_list(Str);
+bin(Str) when is_list(Str) -> iolist_to_binary(Str);
 bin(Bin) when is_binary(Bin) -> Bin.

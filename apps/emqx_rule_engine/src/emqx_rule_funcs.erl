@@ -515,25 +515,28 @@ sprintf_s(Format, Args) when is_list(Args) ->
     erlang:iolist_to_binary(io_lib:format(binary_to_list(Format), Args)).
 
 pad(S, Len) when is_binary(S), is_integer(Len) ->
-   iolist_to_binary(string:pad(S, Len, trailing)).
+    iolist_to_binary(string:pad(S, Len, trailing)).
 
 pad(S, Len, <<"trailing">>) when is_binary(S), is_integer(Len) ->
-   iolist_to_binary(string:pad(S, Len, trailing));
+    iolist_to_binary(string:pad(S, Len, trailing));
 
 pad(S, Len, <<"both">>) when is_binary(S), is_integer(Len) ->
-   iolist_to_binary(string:pad(S, Len, both));
+    iolist_to_binary(string:pad(S, Len, both));
 
 pad(S, Len, <<"leading">>) when is_binary(S), is_integer(Len) ->
-   iolist_to_binary(string:pad(S, Len, leading)).
+    iolist_to_binary(string:pad(S, Len, leading)).
 
 pad(S, Len, <<"trailing">>, Char) when is_binary(S), is_integer(Len), is_binary(Char) ->
-   iolist_to_binary(string:pad(S, Len, trailing, Char));
+    Chars = unicode:characters_to_list(Char, utf8),
+    iolist_to_binary(string:pad(S, Len, trailing, Chars));
 
 pad(S, Len, <<"both">>, Char) when is_binary(S), is_integer(Len), is_binary(Char) ->
-   iolist_to_binary(string:pad(S, Len, both, Char));
+    Chars = unicode:characters_to_list(Char, utf8),
+    iolist_to_binary(string:pad(S, Len, both, Chars));
 
 pad(S, Len, <<"leading">>, Char) when is_binary(S), is_integer(Len), is_binary(Char) ->
-   iolist_to_binary(string:pad(S, Len, leading, Char)).
+    Chars = unicode:characters_to_list(Char, utf8),
+    iolist_to_binary(string:pad(S, Len, leading, Chars)).
 
 replace(SrcStr, P, RepStr) when is_binary(SrcStr), is_binary(P), is_binary(RepStr) ->
     iolist_to_binary(string:replace(SrcStr, P, RepStr, all)).

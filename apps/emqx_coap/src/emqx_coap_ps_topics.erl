@@ -104,7 +104,7 @@ lookup_topic_payload(Topic) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ets:new(?COAP_TOPIC_TABLE, [set, named_table, protected]),
+    _ = ets:new(?COAP_TOPIC_TABLE, [set, named_table, protected]),
     ?LOG(debug, "Create the coap_topic table", []),
     {ok, #state{}}.
 

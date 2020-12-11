@@ -64,9 +64,9 @@ disable(Name) ->
             unsave(Name)
     end.
 
--spec disable_all() -> [term()].
+-spec disable_all() -> ok.
 disable_all() ->
-    [begin disable(Name), Name end || Name <- running()].
+    lists:foreach(fun disable/1, running()).
 
 %%----------------------------------------------------------
 %% Dispatch APIs

@@ -36,8 +36,8 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_auth_mysql_sup:start_link(),
-    if_enabled(auth_query, fun load_auth_hook/1),
-    if_enabled(acl_query,  fun load_acl_hook/1),
+    _ = if_enabled(auth_query, fun load_auth_hook/1),
+    _ = if_enabled(acl_query,  fun load_acl_hook/1),
 
     {ok, Sup}.
 

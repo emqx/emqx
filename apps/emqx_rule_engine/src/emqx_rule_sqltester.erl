@@ -21,24 +21,30 @@
 -export([ test/1
         ]).
 
+%% Dialyzer gives up on the generated code.
+%% probably due to stack depth, or inlines.
+-dialyzer({nowarn_function, [test/1,
+                             test_rule/4,
+                             flatten/1,
+                             sql_test_action/0,
+                             fill_default_values/2
+                             ]}).
+
 -spec(test(#{}) -> {ok, Result::map()} | no_return()).
 test(#{<<"rawsql">> := Sql, <<"ctx">> := Context}) ->
-    case emqx_rule_sqlparser:parse_select(Sql) of
-        {ok, Select} ->
-            InTopic = maps:get(<<"topic">>, Context, <<>>),
-            EventTopics = emqx_rule_sqlparser:select_from(Select),
-            case lists:all(fun is_publish_topic/1, EventTopics) of
-                true ->
-                    %% test if the topic matches the topic filters in the rule
-                    case emqx_rule_utils:can_topic_match_oneof(InTopic, EventTopics) of
-                        true -> test_rule(Sql, Select, Context, EventTopics);
-                        false -> {error, nomatch}
-                    end;
-                false ->
-                    %% the rule is for both publish and events, test it directly
-                    test_rule(Sql, Select, Context, EventTopics)
+    {ok, Select} = emqx_rule_sqlparser:parse_select(Sql),
+    InTopic = maps:get(<<"topic">>, Context, <<>>),
+    EventTopics = emqx_rule_sqlparser:select_from(Select),
+    case lists:all(fun is_publish_topic/1, EventTopics) of
+        true ->
+            %% test if the topic matches the topic filters in the rule
+            case emqx_rule_utils:can_topic_match_oneof(InTopic, EventTopics) of
+                true -> test_rule(Sql, Select, Context, EventTopics);
+                false -> {error, nomatch}
             end;
-        Error -> error(Error)
+        false ->
+            %% the rule is for both publish and events, test it directly
+            test_rule(Sql, Select, Context, EventTopics)
     end.
 
 test_rule(Sql, Select, Context, EventTopics) ->

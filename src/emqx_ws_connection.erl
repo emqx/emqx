@@ -63,7 +63,7 @@
           %% Simulate the active_n opt
           active_n :: pos_integer(),
           %% MQTT Piggyback
-          mqtt_piggyback :: single | multiple, 
+          mqtt_piggyback :: single | multiple,
           %% Limiter
           limiter :: maybe(emqx_limiter:limiter()),
           %% Limit Timer
@@ -535,7 +535,7 @@ handle_outgoing(Packets, State = #state{active_n = ActiveN, mqtt_piggyback = MQT
                      postpone({check_gc, Stats}, State);
                  false -> State
              end,
-    
+
     {case MQTTPiggyback of
          single -> [{binary, IoData}];
          multiple -> lists:map(fun(Bin) -> {binary, Bin} end, IoData)
@@ -568,35 +568,38 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
           ]}).
 
 inc_recv_stats(Cnt, Oct) ->
-    emqx_pd:inc_counter(incoming_bytes, Oct),
-    emqx_pd:inc_counter(recv_cnt, Cnt),
-    emqx_pd:inc_counter(recv_oct, Oct),
+    inc_counter(incoming_bytes, Oct),
+    inc_counter(recv_cnt, Cnt),
+    inc_counter(recv_oct, Oct),
     emqx_metrics:inc('bytes.received', Oct).
 
 inc_incoming_stats(Packet = ?PACKET(Type)) ->
-    emqx_pd:inc_counter(recv_pkt, 1),
+    _ = emqx_pd:inc_counter(recv_pkt, 1),
     if Type == ?PUBLISH ->
-           emqx_pd:inc_counter(recv_msg, 1),
-           emqx_pd:inc_counter(incoming_pubs, 1);
+           inc_counter(recv_msg, 1),
+           inc_counter(incoming_pubs, 1);
        true -> ok
     end,
     emqx_metrics:inc_recv(Packet).
 
 inc_outgoing_stats(Packet = ?PACKET(Type)) ->
-    emqx_pd:inc_counter(send_pkt, 1),
+    _ = emqx_pd:inc_counter(send_pkt, 1),
     if Type == ?PUBLISH ->
-           emqx_pd:inc_counter(send_msg, 1),
-           emqx_pd:inc_counter(outgoing_pubs, 1);
+           inc_counter(send_msg, 1),
+           inc_counter(outgoing_pubs, 1);
        true -> ok
     end,
     emqx_metrics:inc_sent(Packet).
 
 inc_sent_stats(Cnt, Oct) ->
-    emqx_pd:inc_counter(outgoing_bytes, Oct),
-    emqx_pd:inc_counter(send_cnt, Cnt),
-    emqx_pd:inc_counter(send_oct, Oct),
+    inc_counter(outgoing_bytes, Oct),
+    inc_counter(send_cnt, Cnt),
+    inc_counter(send_oct, Oct),
     emqx_metrics:inc('bytes.sent', Oct).
 
+inc_counter(Name, Value) ->
+    _ = emqx_pd:inc_counter(Name, Value),
+    ok.
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------

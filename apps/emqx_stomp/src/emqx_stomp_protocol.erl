@@ -99,12 +99,12 @@ received(#stomp_frame{command = <<"CONNECT">>, headers = Headers},
                     send(connected_frame([{<<"version">>, Version},
                                           {<<"heart-beat">>, reverse_heartbeats(Heartbeats)}]), NewState);
                 false ->
-                    send(error_frame(undefined, <<"Login or passcode error!">>), State),
+                    _ = send(error_frame(undefined, <<"Login or passcode error!">>), State),
                     {error, login_or_passcode_error, State}
              end;
         {error, Msg} ->
-            send(error_frame([{<<"version">>, <<"1.0,1.1,1.2">>},
-                              {<<"content-type">>, <<"text/plain">>}], undefined, Msg), State),
+            _ = send(error_frame([{<<"version">>, <<"1.0,1.1,1.2">>},
+                                  {<<"content-type">>, <<"text/plain">>}], undefined, Msg), State),
             {error, unsupported_version, State}
     end;
 
@@ -114,10 +114,9 @@ received(#stomp_frame{command = <<"CONNECT">>}, State = #stomp_proto{connected =
 received(#stomp_frame{command = <<"SEND">>, headers = Headers, body = Body}, State) ->
     Topic = header(<<"destination">>, Headers),
     Action = fun(State0) ->
-                 maybe_send_receipt(receipt_id(Headers), State0),
-                 emqx_broker:publish(
-                     make_mqtt_message(Topic, Headers, iolist_to_binary(Body))
-                 ),
+                 _ = maybe_send_receipt(receipt_id(Headers), State0),
+                 _ = emqx_broker:publish(
+                       make_mqtt_message(Topic, Headers, iolist_to_binary(Body))),
                  State0
              end,
     case header(<<"transaction">>, Headers) of
@@ -160,7 +159,7 @@ received(#stomp_frame{command = <<"UNSUBSCRIBE">>, headers = Headers},
 received(#stomp_frame{command = <<"ACK">>, headers = Headers}, State) ->
     Id = header(<<"id">>, Headers),
     Action = fun(State0) -> 
-                 maybe_send_receipt(receipt_id(Headers), State0),
+                 _ = maybe_send_receipt(receipt_id(Headers), State0),
                  ack(Id, State0) 
              end,
     case header(<<"transaction">>, Headers) of
@@ -176,7 +175,7 @@ received(#stomp_frame{command = <<"ACK">>, headers = Headers}, State) ->
 received(#stomp_frame{command = <<"NACK">>, headers = Headers}, State) ->
     Id = header(<<"id">>, Headers),
     Action = fun(State0) -> 
-                 maybe_send_receipt(receipt_id(Headers), State0),
+                 _ = maybe_send_receipt(receipt_id(Headers), State0),
                  nack(Id, State0) 
              end,
     case header(<<"transaction">>, Headers) of
@@ -226,7 +225,7 @@ received(#stomp_frame{command = <<"ABORT">>, headers = Headers}, State) ->
     end;
 
 received(#stomp_frame{command = <<"DISCONNECT">>, headers = Headers}, State) ->
-    maybe_send_receipt(receipt_id(Headers), State),
+    _ = maybe_send_receipt(receipt_id(Headers), State),
     {stop, normal, State}.
 
 send(Msg = #message{topic = Topic, headers = Headers, payload = Payload},

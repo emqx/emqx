@@ -38,8 +38,8 @@
 -endif.
 
 load(Env) ->
-    emqx_hooks:add('client.connected',    {?MODULE, on_client_connected, [Env]}),
-    emqx_hooks:add('client.disconnected', {?MODULE, on_client_disconnected, [Env]}).
+    emqx_hooks:put('client.connected',    {?MODULE, on_client_connected, [Env]}),
+    emqx_hooks:put('client.disconnected', {?MODULE, on_client_disconnected, [Env]}).
 
 unload(_Env) ->
     emqx_hooks:del('client.connected',    {?MODULE, on_client_connected}),

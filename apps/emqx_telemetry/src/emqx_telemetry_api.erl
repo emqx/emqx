@@ -103,7 +103,7 @@ get_data(_Bindings, _Params) ->
     return(get_telemetry_data()).
 
 enable_telemetry() ->
-    [enable_telemetry(Node) || Node <- ekka_mnesia:running_nodes()], ok.
+    lists:foreach(fun enable_telemetry/1, ekka_mnesia:running_nodes()).
 
 enable_telemetry(Node) when Node =:= node() ->
     emqx_telemetry:enable();
@@ -111,7 +111,7 @@ enable_telemetry(Node) ->
     rpc_call(Node, ?MODULE, enable_telemetry, [Node]).
 
 disable_telemetry() ->
-    [disable_telemetry(Node) || Node <- ekka_mnesia:running_nodes()], ok.
+    lists:foreach(fun disable_telemetry/1, ekka_mnesia:running_nodes()).
 
 disable_telemetry(Node) when Node =:= node() ->
     emqx_telemetry:disable();

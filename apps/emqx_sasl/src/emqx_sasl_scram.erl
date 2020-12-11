@@ -217,12 +217,8 @@ nonce() ->
     base64:encode([$a + rand:uniform(26) || _ <- lists:seq(1, 10)]).
 
 pbkdf2_sha_1(Password, Salt, IterationCount) ->
-    case pbkdf2:pbkdf2(sha, Password, Salt, IterationCount) of
-        {ok, Bin} ->
-            pbkdf2:to_hex(Bin);
-        {error, Reason} ->
-            error(Reason)
-    end.
+    {ok, Bin} = pbkdf2:pbkdf2(sha, Password, Salt, IterationCount),
+    pbkdf2:to_hex(Bin).
 
 -if(?OTP_RELEASE >= 23).
 hmac(Key, Data) ->

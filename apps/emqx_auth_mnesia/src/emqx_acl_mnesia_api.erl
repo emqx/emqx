@@ -151,7 +151,7 @@ do_add(Params) ->
     Action = urldecode(get_value(<<"action">>, Params)),
     Access = urldecode(get_value(<<"access">>, Params)),
     Re = case validate([login, topic, action, access], [Login, Topic, Action, Access]) of
-        ok -> 
+        ok ->
             emqx_acl_mnesia_cli:add_acl(Login, Topic, erlang:binary_to_atom(Action, utf8), erlang:binary_to_atom(Access, utf8));
         Err -> Err
     end,
@@ -163,7 +163,7 @@ do_add(Params) ->
                      all -> #{all => '$all'};
                      _ -> maps:from_list([Login])
                    end).
-    
+
 delete(#{clientid := Clientid, topic := Topic}, _) ->
     return(emqx_acl_mnesia_cli:remove_acl({clientid, urldecode(Clientid)}, urldecode(Topic)));
 delete(#{username := Username, topic := Topic}, _) ->
@@ -201,12 +201,6 @@ do_validation(login, {clientid, V}) when is_binary(V)
     true;
 do_validation(login, {username, V}) when is_binary(V)
                      andalso byte_size(V) > 0->
-    true;
-do_validation(clientid, V) when is_binary(V)
-                     andalso byte_size(V) > 0 ->
-    true;
-do_validation(username, V) when is_binary(V)
-                     andalso byte_size(V) > 0 ->
     true;
 do_validation(topic, V) when is_binary(V)
                      andalso byte_size(V) > 0 ->

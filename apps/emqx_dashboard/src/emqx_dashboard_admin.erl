@@ -137,7 +137,7 @@ change_password_hash(Username, PasswordHash) ->
 
 update_pwd(Username, Fun) ->
     Trans = fun() ->
-                    User = 
+                    User =
                     case lookup_user(Username) of
                     [Admin] -> Admin;
                     [] ->
@@ -180,7 +180,7 @@ check(Username, Password) ->
 
 init([]) ->
     %% Add default admin user
-    add_default_user(binenv(default_user_username), binenv(default_user_passwd)),
+    _ = add_default_user(binenv(default_user_username), binenv(default_user_passwd)),
     {ok, state}.
 
 handle_call(_Req, _From, State) ->
@@ -210,7 +210,7 @@ md5_hash(SaltBin, Password) ->
     erlang:md5(<<SaltBin/binary, Password/binary>>).
 
 salt() ->
-    emqx_misc:rand_seed(),
+    _ = emqx_misc:rand_seed(),
     Salt = rand:uniform(16#ffffffff),
     <<Salt:32>>.
 

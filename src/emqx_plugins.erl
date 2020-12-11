@@ -59,13 +59,13 @@ init() ->
     end.
 
 %% @doc Load all plugins when the broker started.
--spec(load() -> list() | {error, term()}).
+-spec(load() -> ok | ignore | {error, term()}).
 load() ->
     load_expand_plugins(),
     case emqx:get_env(plugins_loaded_file) of
         undefined -> ignore; %% No plugins available
         File ->
-            ensure_file(File),
+            _ = ensure_file(File),
             with_loaded_file(File, fun(Names) -> load_plugins(Names, false) end)
     end.
 
@@ -103,7 +103,7 @@ unload(PluginName) when is_atom(PluginName) ->
             ?LOG(error, "Plugin ~s is not started", [PluginName]),
             {error, not_started};
         {_, _} ->
-            unload_plugin(PluginName, true)            
+            unload_plugin(PluginName, true)
     end.
 
 reload(PluginName) when is_atom(PluginName)->
@@ -165,7 +165,7 @@ load_expand_plugins() ->
 load_expand_plugin(PluginDir) ->
     init_expand_plugin_config(PluginDir),
     Ebin = filename:join([PluginDir, "ebin"]),
-    code:add_patha(Ebin),
+    _ = code:add_patha(Ebin),
     Modules = filelib:wildcard(filename:join([Ebin, "*.beam"])),
     lists:foreach(fun(Mod) ->
         Module = list_to_atom(filename:basename(Mod, ".beam")),
@@ -246,7 +246,7 @@ apply_configs([{App, Config} | More]) ->
 
 %% Stop plugins
 stop_plugins(Names) ->
-    [stop_app(App) || App <- Names],
+    _ = [stop_app(App) || App <- Names],
     ok.
 
 plugin(AppName, Type) ->
@@ -287,7 +287,7 @@ start_app(App, SuccFun) ->
         {ok, Started} ->
             ?LOG(info, "Started plugins: ~p", [Started]),
             ?LOG(info, "Load plugin ~s successfully", [App]),
-            SuccFun(App),
+            _ = SuccFun(App),
             ok;
         {error, {ErrApp, Reason}} ->
             ?LOG(error, "Load plugin ~s failed, cannot start plugin ~s for ~0p", [App, ErrApp, Reason]),
@@ -297,7 +297,7 @@ start_app(App, SuccFun) ->
 unload_plugin(App, Persistent) ->
     case stop_app(App) of
         ok ->
-            plugin_unloaded(App, Persistent), ok;
+            _ = plugin_unloaded(App, Persistent), ok;
         {error, Reason} ->
             {error, Reason}
     end.
