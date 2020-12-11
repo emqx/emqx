@@ -86,7 +86,7 @@ cleanup_app(){
     local app="$1"
     pushd "apps/$app"
     rm -f Makefile rebar.config.script LICENSE src/*.app.src.script src/*.appup.src
-    rm -rf ".github" ".ci"
+    rm -rf ".github"
     # restore rebar.config and app.src
     git checkout rebar.config
     git checkout src/*.app.src
