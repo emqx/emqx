@@ -6,8 +6,9 @@
         4 -> % arch_32
             {1000, cuttlefish_bytesize:parse("32MB")}
     end,
-{"4.2.3",
+{VSN,
   [
+    {<<".*">>, []},
     {"4.2.2", [
       {load_module, emqx_metrics, brutal_purge, soft_purge, []}
     ]},
@@ -29,6 +30,7 @@
     ]}
   ],
   [
+    {<<".*">>, []},
     {"4.2.2", [
       {load_module, emqx_metrics, brutal_purge, soft_purge, []}
     ]},
