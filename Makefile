@@ -1,5 +1,6 @@
 REBAR_VERSION = 3.14.3-emqx-2
 REBAR = ./rebar3
+export PKG_VSN ?= $(shell git describe --tags --always)
 
 PROFILE ?= emqx
 PROFILES := emqx emqx-edge check test
