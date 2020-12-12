@@ -3,7 +3,7 @@
   {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_prometheus_sup]},
-  {applications, [kernel,stdlib,prometheus,emqx]},
+  {applications, [kernel,stdlib,prometheus]},
   {mod, {emqx_prometheus_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},

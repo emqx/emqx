@@ -3,7 +3,7 @@
   {vsn, "4.3.0"}, % strict semver, bump manually
   {modules, []},
   {registered, []},
-  {applications, [kernel,stdlib,mnesia,emqx]},
+  {applications, [kernel,stdlib,mnesia]},
   {mod, {emqx_auth_mnesia_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},
