@@ -31,12 +31,14 @@ endif
 
 .PHONY: $(PROFILES:%=relup-%)
 $(PROFILES:%=relup-%): $(REBAR)
+ifneq ($(RELUP_BASE_VERSIONS),)
 ifneq ($(OS),Windows_NT)
 	@if [ ! -z $$(ls | grep -E "$(@:relup-%=%)-$(SYSTEM)-(.*)-$$(uname -m).zip" | head -1 ) ]; then \
 		mkdir -p tmp/relup_packages/$(@:relup-%=%); \
 		cp $(@:relup-%=%)-$(SYSTEM)-*-$$(uname -m).zip tmp/relup_packages/$(@:relup-%=%); \
 	fi
-	$(REBAR) as $(@:relup-%=%) relup
+	$(REBAR) as $(@:relup-%=%) relup --relname emqx --relvsn $(PKG_VSN) --upfrom $(RELUP_BASE_VERSIONS)
+endif
 endif
 
 .PHONY: $(PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar)
