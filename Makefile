@@ -22,6 +22,11 @@ ensure-rebar3:
 
 $(REBAR): ensure-rebar3
 
+.PHONY: eunit
+eunit: $(REBAR)
+	$(REBAR) eunit
+
+.PHONY: ct
 ct: $(REBAR)
 	$(REBAR) ct
 
