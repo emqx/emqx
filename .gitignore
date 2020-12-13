@@ -36,3 +36,5 @@ _checkouts
 rebar.config.rendered
 /rebar3
 rebar.lock
+tmp/
+_packages
