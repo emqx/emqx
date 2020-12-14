@@ -70,7 +70,8 @@
 
 -include("emqx_stomp.hrl").
 
--export([ parser/1
+-export([ init_parer_state/1
+        , parse/2
         , serialize/1
         ]).
 
@@ -95,14 +96,18 @@
 
 -record(frame_limit, {max_header_num, max_header_length, max_body_length}).
 
--type(parser() :: fun((binary()) -> {ok, stomp_frame(), binary()}
-                                  | {more, parser()}
-                                  | {error, any()})).
+-type(result() :: {ok, stomp_frame(), binary()}
+                | {more, parser()}
+                | {error, any()}).
+
+-type(parser() :: #{phase := none | command | headers | hdname | hdvalue | body,
+                    pre => binary(),
+                    state := #parser_state{}}).
 
 %% @doc Initialize a parser
--spec parser([proplists:property()]) -> parser().
-parser(Opts) ->
-    fun(Bin) -> parse(none, Bin, #parser_state{limit = limit(Opts)}) end.
+-spec init_parer_state([proplists:property()]) -> parser().
+init_parer_state(Opts) ->
+    #{phase => none, state => #parser_state{limit = limit(Opts)}}.
 
 limit(Opts) ->
     #frame_limit{max_header_num     = g(max_header_num,    Opts, ?MAX_HEADER_NUM),
@@ -112,29 +117,31 @@ limit(Opts) ->
 g(Key, Opts, Val) ->
     proplists:get_value(Key, Opts, Val).
 
-%% @doc Parse frame
--spec(parse(Phase :: atom(), binary(), #parser_state{}) ->
-    {ok, stomp_frame(), binary()} | {more, parser()} | {error, any()}).
-parse(none, <<>>, State) ->
-    {more, fun(Bin) -> parse(none, Bin, State) end};
-parse(none, <<?LF, Bin/binary>>, State) ->
-    parse(none, Bin, State);
-parse(none, Bin, State) ->
-    parse(command, Bin, State);
+-spec parse(binary(), parser()) -> result().
+parse(<<>>, Parser) ->
+    {more, Parser};
 
-parse(Phase, <<>>, State) ->
-    {more, fun(Bin) -> parse(Phase, Bin, State) end};
-parse(Phase, <<?CR>>, State) ->
-    {more, fun(Bin) -> parse(Phase, <<?CR, Bin/binary>>, State) end};
-parse(Phase, <<?CR, ?LF, Rest/binary>>, State) ->
+parse(Bytes, #{phase := body, len := Len, state := State}) ->
+    parse(body, Bytes, State, Len);
+
+parse(Bytes, Parser = #{pre := Pre}) ->
+    parse(<<Pre/binary, Bytes/binary>>, maps:without([pre], Parser));
+parse(<<?CR, ?LF, Rest/binary>>, #{phase := Phase, state := State}) ->
     parse(Phase, <<?LF, Rest/binary>>, State);
-parse(_Phase, <<?CR, _Ch:8, _Rest/binary>>, _State) ->
+parse(<<?CR>>, Parser) ->
+    {more, Parser#{pre => <<?CR>>}};
+parse(<<?CR, _Ch:8, _Rest/binary>>, _Parser) ->
     {error, linefeed_expected};
-parse(Phase, <<?BSL>>, State) when Phase =:= hdname; Phase =:= hdvalue ->
-    {more, fun(Bin) -> parse(Phase, <<?BSL, Bin/binary>>, State) end};
-parse(Phase, <<?BSL, Ch:8, Rest/binary>>, State) when Phase =:= hdname; Phase =:= hdvalue ->
+
+parse(<<?BSL>>, Parser = #{phase := Phase}) when Phase =:= hdname; Phase =:= hdvalue ->
+    {more, Parser#{pre => <<?BSL>>}};
+parse(<<?BSL, Ch:8, Rest/binary>>, #{phase := Phase, state := State}) when Phase =:= hdname; Phase =:= hdvalue ->
     parse(Phase, Rest, acc(unescape(Ch), State));
 
+parse(Bytes, #{phase := none, state := State}) ->
+    parse(command, Bytes, State).
+
+%% @private
 parse(command, <<?LF, Rest/binary>>, State = #parser_state{acc = Acc}) ->
     parse(headers, Rest, State#parser_state{cmd = Acc, acc = <<>>});
 parse(command, <<Ch:8, Rest/binary>>, State) ->
@@ -157,20 +164,21 @@ parse(hdvalue, <<?LF, Rest/binary>>, State = #parser_state{headers = Headers, hd
 parse(hdvalue, <<Ch:8, Rest/binary>>, State) ->
     parse(hdvalue, Rest, acc(Ch, State)).
 
+%% @private
 parse(body, <<>>, State, Length) ->
-    {more, fun(Bin) -> parse(body, Bin, State, Length) end};
+    {more, #{phase => body, length => Length, state => State}};
 parse(body, Bin, State, none) ->
     case binary:split(Bin, <<?NULL>>) of
         [Chunk, Rest] ->
             {ok, new_frame(acc(Chunk, State)), Rest};
         [Chunk] ->
-            {more, fun(More) -> parse(body, More, acc(Chunk, State), none) end}
+            {more, #{phase => body, length => none, state => acc(Chunk, State)}}
     end;
 parse(body, Bin, State, Len) when byte_size(Bin) >= (Len+1) ->
     <<Chunk:Len/binary, ?NULL, Rest/binary>> = Bin,
     {ok, new_frame(acc(Chunk, State)), Rest};
 parse(body, Bin, State, Len) ->
-    {more, fun(More) -> parse(body, More, acc(Bin, State), Len - byte_size(Bin)) end}.
+    {more, #{phase => body, length => Len - byte_size(Bin), state => acc(Bin, State)}}.
 
 add_header(Name, Value, Headers) ->
     case lists:keyfind(Name, 1, Headers) of
