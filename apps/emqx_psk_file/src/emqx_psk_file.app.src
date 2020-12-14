@@ -3,7 +3,7 @@
   {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules,[]},
   {registered,[emqx_psk_file_sup]},
-  {applications,[kernel,stdlib,emqx]},
+  {applications,[kernel,stdlib]},
   {mod,{emqx_psk_file_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},

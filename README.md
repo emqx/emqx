@@ -55,12 +55,15 @@ For earlier versions, release has to be built from another repo.
 git clone https://github.com/emqx/emqx-rel.git
 cd emqx-rel
 make
-_build/emqx/rel/emqx/bin console
+_build/emqx/rel/emqx/bin/emqx console
 ```
 
 ## Quick Start
 
-```
+If emqx is built from source, `cd _buid/emqx/rel/emqx`.
+Or change to the installation root directory if emqx is installed from a release package.
+
+```bash
 # Start emqx
 ./bin/emqx start
 
@@ -72,6 +75,24 @@ _build/emqx/rel/emqx/bin console
 ```
 
 To view the dashboard after running, use your browser to open: http://localhost:18083
+
+## Test
+
+### To test everything in one go
+
+```
+make eunit ct
+```
+
+### To run subset of the common tests
+
+examples
+
+```bash
+./rebar3 ct --dir test,apps/emqx_sn,apps/emqx_coap
+./rebar3 ct --suite test/emqx_SUITE.erl,apps/emqx_auth_http/test/emqx_auth_http_SUITE.erl
+./rebar3 ct --suite test/emqx_SUITE.erl --testcase t_restart
+```
 
 ## FAQ
 

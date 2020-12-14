@@ -33,17 +33,17 @@ test_deps() ->
     ].
 
 profiles() ->
-    [ {'emqx',          [ {relx, relx('emqx')}
-                        , {erl_opts, [no_debug_info]}
+    [ {'emqx',          [ {erl_opts, [no_debug_info]}
+                        , {relx, relx('emqx')}
                         ]}
-    , {'emqx-pkg',      [ {relx, relx('emqx-pkg')}
-                        , {erl_opts, [no_debug_info]}
+    , {'emqx-pkg',      [ {erl_opts, [no_debug_info]}
+                        , {relx, relx('emqx-pkg')}
                         ]}
-    , {'emqx-edge',     [ {relx, relx('emqx-edge')}
-                        , {erl_opts, [no_debug_info]}
+    , {'emqx-edge',     [ {erl_opts, [no_debug_info]}
+                        , {relx, relx('emqx-edge')}
                         ]}
-    , {'emqx-edge-pkg', [ {relx, relx('emqx-edge-pkg')}
-                        , {erl_opts, [no_debug_info]}
+    , {'emqx-edge-pkg', [ {erl_opts, [no_debug_info]}
+                        , {relx, relx('emqx-edge-pkg')}
                         ]}
     , {check,           [ {erl_opts, [debug_info]}
                         ]}
@@ -99,47 +99,56 @@ relx_apps(ReleaseType) ->
     , emqx
     , {mnesia, load}
     , {ekka, load}
-    , {emqx_retainer, load}
-    , {emqx_management, load}
-    , {emqx_dashboard, load}
-    , {emqx_bridge_mqtt, load}
-    , {emqx_sn, load}
-    , {emqx_coap, load}
-    , {emqx_stomp, load}
-    , {emqx_auth_http, load}
-    , {emqx_auth_mysql, load}
-    , {emqx_auth_jwt, load}
-    , {emqx_auth_mnesia, load}
-    , {emqx_web_hook, load}
-    , {emqx_recon, load}
-    , {emqx_rule_engine, load}
-    , {emqx_sasl, load}
-    , {emqx_telemetry, load}
-    ] ++ do_relx_apps(ReleaseType) ++ [bcrypt || provide_bcrypt_release(ReleaseType)].
+    ]
+    ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
+    ++ relx_apps_per_rel(ReleaseType)
+    ++ [{N, load} || N <- relx_plugin_apps(ReleaseType)].
 
-do_relx_apps(cloud) ->
-    [ {emqx_lwm2m, load}
-    , {emqx_auth_ldap, load}
-    , {emqx_auth_pgsql, load}
-    , {emqx_auth_redis, load}
-    , {emqx_auth_mongo, load}
-    , {emqx_lua_hook, load}
-    , {emqx_exhook, load}
-    , {emqx_exproto, load}
-    , {emqx_prometheus, load}
-    , {emqx_psk_file, load}
-    , {emqx_plugin_template, load}
-    , {observer, load}
+relx_apps_per_rel(cloud) ->
+    [ {observer, load}
     , luerl
     , xmerl
     ];
-do_relx_apps(_) ->
+relx_apps_per_rel(edge) ->
+    [].
+
+relx_plugin_apps(ReleaseType) ->
+    [ emqx_retainer
+    , emqx_management
+    , emqx_dashboard
+    , emqx_bridge_mqtt
+    , emqx_sn
+    , emqx_coap
+    , emqx_stomp
+    , emqx_auth_http
+    , emqx_auth_mysql
+    , emqx_auth_jwt
+    , emqx_auth_mnesia
+    , emqx_web_hook
+    , emqx_recon
+    , emqx_rule_engine
+    , emqx_sasl
+    , emqx_telemetry
+    ] ++ relx_plugin_apps_per_rel(ReleaseType).
+
+relx_plugin_apps_per_rel(cloud) ->
+    [ emqx_lwm2m
+    , emqx_auth_ldap
+    , emqx_auth_pgsql
+    , emqx_auth_redis
+    , emqx_auth_mongo
+    , emqx_lua_hook
+    , emqx_exhook
+    , emqx_exproto
+    , emqx_prometheus
+    , emqx_psk_file
+    , emqx_plugin_template
+    ];
+relx_plugin_apps_per_rel(edge) ->
     [].
 
 relx_overlay(ReleaseType) ->
-    [ {mkdir,"etc/"}
-    , {mkdir,"etc/emqx.d/"}
-    , {mkdir,"log/"}
+    [ {mkdir,"log/"}
     , {mkdir,"data/"}
     , {mkdir,"data/mnesia"}
     , {mkdir,"data/configs"}
@@ -147,29 +156,68 @@ relx_overlay(ReleaseType) ->
     , {template, "data/loaded_plugins.tmpl", "data/loaded_plugins"}
     , {template, "data/loaded_modules.tmpl", "data/loaded_modules"}
     , {template,"data/emqx_vars","releases/emqx_vars"}
-    , {copy,"_build/default/lib/cuttlefish/cuttlefish","bin/"}
-    , {copy,"bin/*","bin/"}
-    , {template,"etc/*.conf","etc/"}
-    , {template,"etc/emqx.d/*.conf","etc/emqx.d/"}
-    , {copy,"priv/emqx.schema","releases/{{release_version}}/"}
-    , {copy, "etc/certs","etc/"}
-    , {copy,"bin/emqx.cmd","bin/emqx.cmd-{{release_version}}"}
-    , {copy,"bin/emqx_ctl.cmd","bin/emqx_ctl.cmd-{{release_version}}"}
-    , {copy,"bin/emqx","bin/emqx-{{release_version}}"}
-    , {copy,"bin/emqx_ctl","bin/emqx_ctl-{{release_version}}"}
-    , {copy,"bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"}
+    , {copy,"bin/emqx","bin/emqx"}
+    , {copy,"bin/emqx_ctl","bin/emqx_ctl"}
+    , {copy,"bin/install_upgrade.escript", "bin/install_upgrade.escript"}
+    , {copy,"bin/emqx","bin/emqx-{{release_version}}"} %% for relup
+    , {copy,"bin/emqx_ctl","bin/emqx_ctl-{{release_version}}"} %% for relup
+    , {copy,"bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"} %% for relup
+    , {template,"bin/emqx.cmd","bin/emqx.cmd"}
+    , {template,"bin/emqx_ctl.cmd","bin/emqx_ctl.cmd"}
+    , {copy,"bin/nodetool","bin/nodetool"}
     , {copy,"bin/nodetool","bin/nodetool-{{release_version}}"}
+    , {copy,"_build/default/lib/cuttlefish/cuttlefish","bin/cuttlefish"}
     , {copy,"_build/default/lib/cuttlefish/cuttlefish","bin/cuttlefish-{{release_version}}"}
-    ] ++ do_relx_overlay(ReleaseType).
+    , {copy,"priv/emqx.schema","releases/{{release_version}}/"}
+    ] ++ etc_overlay(ReleaseType).
 
-do_relx_overlay(cloud) ->
-    [ {template,"etc/emqx_cloud.d/*.conf","etc/emqx.d/"}
-    , {template,"etc/emqx_cloud.d/vm.args","etc/vm.args"}
+etc_overlay(ReleaseType) ->
+    PluginApps = relx_plugin_apps(ReleaseType),
+    Templates = emqx_etc_overlay(ReleaseType) ++
+                lists:append([plugin_etc_overlays(App) || App <- PluginApps]),
+    [ {mkdir, "etc/"}
+    , {mkdir, "etc/plugins"}
+    , {copy, "{{base_dir}}/lib/emqx/etc/certs","etc/"}
+    ] ++
+    lists:map(
+      fun({From, To}) -> {template, From, To};
+         (FromTo)     -> {template, FromTo, FromTo}
+      end, Templates)
+    ++ extra_overlay(ReleaseType).
+
+extra_overlay(cloud) ->
+    [ {copy,"{{base_dir}}/lib/emqx_lwm2m/lwm2m_xml","etc/"}
+    , {copy, "{{base_dir}}/lib/emqx_psk_file/etc/psk.txt", "etc/psk.txt"}
     ];
-do_relx_overlay(edge) ->
-    [ {template,"etc/emqx_edge.d/*.conf","etc/emqx.d/"}
-    , {template,"etc/emqx_edge.d/vm.args.edge","etc/vm.args"}
+extra_overlay(edge) ->
+    [].
+emqx_etc_overlay(cloud) ->
+    emqx_etc_overlay_common() ++
+    [ {"etc/emqx_cloud.d/vm.args","etc/vm.args"}
+    ];
+emqx_etc_overlay(edge) ->
+    emqx_etc_overlay_common() ++
+    [ {"etc/emqx_edge.d/vm.args","etc/vm.args"}
     ].
+
+emqx_etc_overlay_common() ->
+    ["etc/acl.conf", "etc/emqx.conf", "etc/ssl_dist.conf",
+     %% TODO: check why it has to end with .paho
+     %% and why it is put to etc/plugins dir
+     {"etc/acl.conf.paho", "etc/plugins/acl.conf.paho"}].
+
+plugin_etc_overlays(App0) ->
+    App = atom_to_list(App0),
+    ConfFiles = find_conf_files(App),
+    %% NOTE: not filename:join here since relx translates it for windows
+    [{"{{base_dir}}/lib/"++ App ++"/etc/" ++ F, "etc/plugins/" ++ F}
+     || F <- ConfFiles].
+
+%% NOTE: for apps fetched as rebar dependency (there is so far no such an app)
+%% the overlay should be hand-coded but not to rely on build-time wildcards.
+find_conf_files(App) ->
+    Dir = filename:join(["apps", App, "etc"]),
+    filelib:wildcard("*.conf", Dir).
 
 env(Name, Default) ->
     case os:getenv(Name) of
