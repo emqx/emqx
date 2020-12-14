@@ -65,23 +65,26 @@ relx(Profile) ->
 do_relx('emqx', Vsn) ->
     [ {release, {emqx, Vsn}, relx_apps(cloud)}
     , {overlay, relx_overlay(cloud)}
-    , {overlay_vars,["vars/vars-cloud.config","vars/vars-bin.config"]}
+    , {overlay_vars, overlay_vars(["vars/vars-cloud.config","vars/vars-bin.config"])}
     ];
 do_relx('emqx-pkg', Vsn) ->
     [ {release, {emqx, Vsn}, relx_apps(cloud)}
     , {overlay, relx_overlay(cloud)}
-    , {overlay_vars,["vars/vars-cloud.config","vars/vars-pkg.config"]}
+    , {overlay_vars, overlay_vars(["vars/vars-cloud.config","vars/vars-pkg.config"])}
     ];
 do_relx('emqx-edge', Vsn) ->
     [ {release, {emqx, Vsn}, relx_apps(edge)}
     , {overlay, relx_overlay(edge)}
-    , {overlay_vars,["vars/vars-edge.config","vars/vars-bin.config"]}
+    , {overlay_vars, overlay_vars(["vars/vars-edge.config","vars/vars-bin.config"])}
     ];
 do_relx('emqx-edge-pkg', Vsn) ->
     [ {release, {emqx, Vsn}, relx_apps(edge)}
     , {overlay, relx_overlay(edge)}
-    , {overlay_vars,["vars/vars-edge.config","vars/vars-pkg.config"]}
+    , {overlay_vars, overlay_vars(["vars/vars-edge.config","vars/vars-pkg.config"])}
     ].
+
+overlay_vars(Files) ->
+    [{built_on_arch, rebar_utils:get_arch()} | Files].
 
 relx_apps(ReleaseType) ->
     [ kernel
@@ -177,6 +180,7 @@ etc_overlay(ReleaseType) ->
                 lists:append([plugin_etc_overlays(App) || App <- PluginApps]),
     [ {mkdir, "etc/"}
     , {mkdir, "etc/plugins"}
+    , {template, "etc/BUILT_ON", "releases/{{release_version}}/BUILT_ON"}
     , {copy, "{{base_dir}}/lib/emqx/etc/certs","etc/"}
     ] ++
     lists:map(
