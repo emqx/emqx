@@ -1,0 +1,393 @@
+name: Cross build packages
+
+on:
+  pull_request:
+  push:
+    tags:
+      - v*
+
+jobs:
+  windows:
+    runs-on: windows-2019
+
+    steps:
+    - uses: actions/checkout@v1
+    - uses: ilammy/msvc-dev-cmd@v1
+    - uses: gleam-lang/setup-erlang@v1.1.0
+      id: install_erlang
+      with:
+        otp-version: 22.3
+    - name: build
+      run: |
+        #     set-executionpolicy remotesigned -s cu
+        #     iex (new-object net.webclient).downloadstring('https://get.scoop.sh')
+        #     # $env:path + ";" + $env:USERPROFILE + "\scoop\shims" + ';C:\Program Files\erl10.4\bin'
+        #     [environment]::SetEnvironmentvariable("Path", ";" + $env:USERPROFILE + "\scoop\shims")
+        #     [environment]::SetEnvironmentvariable("Path", ';C:\Program Files\erl10.4\bin')
+        #     scoop bucket add extras https://github.com/lukesampson/scoop-extras.git
+        #     scoop update
+        #     scoop install sudo curl vcredist2013
+
+        $env:PATH = "${{ steps.install_erlang.outputs.erlpath }}\bin;$env:PATH"
+
+        $version = $( "${{ github.ref }}" -replace "^(.*)/(.*)/" )
+        if ($version -match "^v[0-9]+\.[0-9]+(\.[0-9]+)?") {
+          $regex = "[0-9]+\.[0-9]+(-alpha|-beta|-rc)?\.[0-9]"
+          $pkg_name = "emqx-windows-$([regex]::matches($version, $regex).value).zip"
+          }
+        else {
+          $pkg_name = "emqx-windows-$($version -replace '/').zip"
+          }
+
+        make deps-emqx || cat rebar3.crashdump
+        $rebar3 = $env:USERPROFILE + "\rebar3"
+        (New-Object System.Net.WebClient).DownloadFile('https://s3.amazonaws.com/rebar3/rebar3', $rebar3)
+        cd _build/emqx/lib/jiffy/
+        escript $rebar3 compile
+        cd ../../../../
+
+        make emqx
+        mkdir -p _packages/emqx
+        Compress-Archive -Path _build/emqx/rel/emqx -DestinationPath _build/emqx/rel/$pkg_name
+        mv _build/emqx/rel/$pkg_name _packages/emqx
+        Get-FileHash -Path "_packages/emqx/$pkg_name" | Format-List | grep 'Hash' | awk '{print $3}'  > _packages/emqx/$pkg_name.sha256
+    - name: run emqx
+      run: |
+        ./_build/emqx/rel/emqx/bin/emqx start
+        ./_build/emqx/rel/emqx/bin/emqx stop
+        ./_build/emqx/rel/emqx/bin/emqx install
+        ./_build/emqx/rel/emqx/bin/emqx uninstall
+    - uses: actions/upload-artifact@v1
+      with:
+        name: emqx
+        path: ./_packages/emqx/.
+
+  mac:
+    runs-on: macos-10.15
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: prepare
+      run: |
+        brew install curl zip unzip gnu-sed kerl unixodbc freetds
+        echo "/usr/local/bin" >> $GITHUB_PATH
+        git config --global credential.helper store
+    - name: build erlang
+      run: |
+        kerl build 22.3.4.13
+        kerl install 22.3.4.13 $HOME/.kerl/22.3.4.13
+    - name: build
+      run: |
+        . $HOME/.kerl/22.3.4.13/activate
+        make emqx-pkg
+    - name: test
+      run: |
+        pkg_name=$(basename _packages/emqx/emqx-macos-*.zip)
+        unzip _packages/emqx/$pkg_name
+        ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
+        ./emqx/bin/emqx_ctl status
+        ./emqx/bin/emqx stop
+        rm -rf emqx
+        openssl dgst -sha256 ./_packages/emqx/$pkg_name | awk '{print $2}'  > ./_packages/emqx/$pkg_name.sha256
+    - uses: actions/upload-artifact@v1
+      with:
+        name: emqx
+        path: ./_packages/emqx/.
+
+  linux:
+    runs-on: ubuntu-20.04
+
+    strategy:
+      matrix:
+        os: 
+        - ubuntu20.04
+        - ubuntu18.04
+        - ubuntu16.04
+        - debian10
+        - debian9
+        - opensuse
+        - centos8
+        - centos7
+        - centos6
+        - raspbian10
+        - raspbian9
+
+    steps:
+    - name: prepare docker
+      run: |
+        mkdir -p $HOME/.docker
+        echo '{ "experimental": "enabled" }' | tee $HOME/.docker/config.json
+        echo '{ "experimental": true, "storage-driver": "overlay2", "max-concurrent-downloads": 50, "max-concurrent-uploads": 50}' | sudo tee /etc/docker/daemon.json
+        sudo systemctl restart docker
+        docker info
+        docker buildx create --use --name mybuild
+        docker run --rm --privileged tonistiigi/binfmt --install all
+    - uses: actions/checkout@v1
+    - name: get deps
+      run: |
+        docker run -i --rm \
+            -e GITHUB_RUN_ID=$GITHUB_RUN_ID \
+            -e GITHUB_REF=$GITHUB_REF \
+            -v $(pwd):/emqx \
+            -w /emqx \
+            emqx/build-env:erl22.3-debian10 \
+            bash -c "make deps-all"
+    - name: downloads emqx zip packages
+      env:
+        SYSTEM: ${{ matrix.os }}
+      run: |
+        set -e -u -x
+        version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
+        if [ "$(echo $version | grep -oE "^[ev0-9]+\.[0-9]+\.[1-9]?")" = "$version" ]; then
+           tags=$(git tag -l "$(echo $version | grep -oE "^[ev0-9]+\.[0-9]").*" |grep -v "$version")
+           for tag in ${tags[@]};do
+             for arch in x86_64 aarch64; do
+                mkdir -p tmp/relup_packages/emqx
+                cd tmp/relup_packages/emqx
+                if [ ! -z "$(echo  $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://packages.emqx.io/emqx-ce/v${tag#[e|v]}/emqx-$SYSTEM-${tag#[e|v]}-$arch.zip) | grep -oE "^[23]+")" ];then
+                  wget https://www.emqx.io/downloads/broker/v${tag#[e|v]}/emqx-$SYSTEM-${tag#[e|v]}-$arch.zip
+                  wget https://www.emqx.io/downloads/broker/v${tag#[e|v]}/emqx-$SYSTEM-${tag#[e|v]}-$arch.zip.sha256
+                  echo "$(cat emqx-$SYSTEM-${tag#[e|v]}-$arch.zip.sha256) emqx-$SYSTEM-${tag#[e|v]}-$arch.zip" | sha256sum -c || exit 1
+                fi
+                cd -
+
+                mkdir -p tmp/relup_packages/emqx-edge
+                cd tmp/relup_packages/emqx-edge
+                if [ ! -z "$(echo  $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://packages.emqx.io/emqx-edge/v${tag#[e|v]}/emqx-edge-$SYSTEM-${tag#[e|v]}-$arch.zip) | grep -oE "^[23]+")" ];then
+                  wget https://www.emqx.io/downloads/edge/v${tag#[e|v]}/emqx-edge-$SYSTEM-${tag#[e|v]}-$arch.zip
+                  wget https://www.emqx.io/downloads/edge/v${tag#[e|v]}/emqx-edge-$SYSTEM-${tag#[e|v]}-$arch.zip.sha256
+                  echo "$(cat emqx-edge-$SYSTEM-${tag#[e|v]}-$arch.zip.sha256) emqx-edge-$SYSTEM-${tag#[e|v]}-$arch.zip" | sha256sum -c || exit 1
+                fi
+                cd -
+             done
+           done
+        fi
+    - name: build emqx packages on amd64
+      env: 
+        ERL_OTP: erl22.3
+        SYSTEM: ${{ matrix.os }}
+      if: matrix.os != 'raspbian9' && matrix.os != 'raspbian10'
+      run: |
+        set -e -u -x
+        for EMQX in emqx emqx-edge; do
+          docker buildx build --no-cache \
+            --platform=linux/amd64 \
+            -t cross_build_emqx_for_$SYSTEM \
+            -f .ci/build_packages/Dockerfile \
+            --build-arg BUILD_FROM=emqx/build-env:$ERL_OTP-$SYSTEM \
+            --build-arg EMQX_NAME=${EMQX} \
+            --output type=tar,dest=/tmp/cross-build-$EMQX-for-$SYSTEM.tar .
+
+          mkdir -p /tmp/packages/$EMQX
+          tar -xvf /tmp/cross-build-$EMQX-for-$SYSTEM.tar --wildcards emqx/_packages/$EMQX/*
+          mv emqx/_packages/$EMQX/* /tmp/packages/$EMQX/
+          rm -rf /tmp/cross-build-$EMQX-for-$SYSTEM.tar
+
+          docker rm -f $(docker ps -a -q)
+          docker volume prune -f
+        done
+    - name: build emqx packages on arm64
+      if: matrix.os != 'centos6'
+      env:
+        ERL_OTP: erl22.3
+        SYSTEM: ${{ matrix.os }}
+      run: |
+        set -e -u -x
+        for EMQX in emqx emqx-edge; do
+          if [ "$EMQX" == "emqx" ] && [ ! -z $( echo $SYSTEM | grep -o raspbian) ];then
+            continue
+          fi
+
+          docker buildx build --no-cache \
+            --platform=linux/arm64 \
+            -t cross_build_emqx_for_$SYSTEM \
+            -f .ci/build_packages/Dockerfile \
+            --build-arg BUILD_FROM=emqx/build-env:$ERL_OTP-$SYSTEM \
+            --build-arg EMQX_NAME=${EMQX} \
+            --output type=tar,dest=/tmp/cross-build-$EMQX-for-$SYSTEM.tar . || df -h
+
+          mkdir -p /tmp/packages/$EMQX
+          tar -xvf /tmp/cross-build-$EMQX-for-$SYSTEM.tar --wildcards emqx/_packages/$EMQX/*
+          mv emqx/_packages/$EMQX/* /tmp/packages/$EMQX/
+          rm -rf /tmp/cross-build-$EMQX-for-$SYSTEM.tar
+
+          docker rm -f $(docker ps -a -q)
+          docker volume prune -f
+        done
+    - name: create sha256
+      run: |
+        if [ -d /tmp/packages/emqx ]; then
+          cd /tmp/packages/emqx
+            for var in $(ls emqx-* ); do
+              bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"
+            done
+          cd -
+        fi
+        if [ -d /tmp/packages/emqx-edge ]; then
+          cd /tmp/packages/emqx-edge
+            for var in $(ls emqx-edge-* ); do
+              bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"
+            done
+          cd -
+        fi
+    - uses: actions/upload-artifact@v1
+      if: matrix.os != 'raspbian9' && matrix.os != 'raspbian10'
+      with:
+        name: emqx
+        path: /tmp/packages/emqx/.
+    - uses: actions/upload-artifact@v1
+      with:
+        name: emqx-edge
+        path: /tmp/packages/emqx-edge/.
+
+  docker:
+    runs-on: ubuntu-20.04
+
+    strategy:
+      matrix:
+        arch:
+          - [amd64, x86_64]
+          - [arm64v8, aarch64]
+          - [arm32v7, arm]
+          - [i386, i386]
+          - [s390x, s390x]
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: get deps
+      run: |
+        docker run -i --rm \
+            -e GITHUB_RUN_ID=$GITHUB_RUN_ID \
+            -e GITHUB_REF=$GITHUB_REF \
+            -v $(pwd):/emqx \
+            -w /emqx \
+            emqx/build-env:erl22.3-alpine-amd64 \
+            sh -c "make deps-emqx"
+    - name: build emqx docker image
+      env:
+        ARCH: ${{ matrix.arch[0] }}
+        QEMU_ARCH: ${{ matrix.arch[1] }}
+      run: |
+        sudo docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
+        sudo TARGET=emqx/emqx ARCH=$ARCH QEMU_ARCH=$QEMU_ARCH  make docker
+        cd _packages/emqx && for var in $(ls emqx-docker-* ); do sudo bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"; done && cd -
+
+        sudo TARGET=emqx/emqx-edge ARCH=$ARCH QEMU_ARCH=$QEMU_ARCH  make docker
+        cd _packages/emqx-edge && for var in $(ls emqx-edge-docker-* ); do sudo bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"; done && cd -
+    - name: docker test
+      if: matrix.arch[0] == 'amd64'
+      run: |
+        sudo TARGET=emqx/emqx PAHO_BRANCH="develop-4.0" make -C .ci/paho_tests cluster_test
+        sudo TARGET=emqx/emqx-edge PAHO_BRANCH="develop-4.0" make -C .ci/paho_tests cluster_test
+    - uses: actions/upload-artifact@v1
+      with:
+        name: emqx
+        path: ./_packages/emqx/.
+    - uses: actions/upload-artifact@v1
+      with:
+        name: emqx-edge
+        path: ./_packages/emqx-edge/.
+
+  upload:
+    runs-on: ubuntu-20.04
+
+    needs: [windows, mac, linux, docker]
+
+
+    steps:
+    - uses: actions/download-artifact@v2
+      with:
+        name: emqx
+        path: ./_packages/emqx
+    - uses: actions/download-artifact@v2
+      with:
+        name: emqx-edge
+        path: ./_packages/emqx-edge
+    - name: install dos2unix
+      run: sudo apt-get update && sudo apt install -y dos2unix
+    - name: get packages
+      run: |
+        set -e -x -u
+        for EMQX in emqx emqx-edge; do
+          cd _packages/$EMQX
+          for var in $( ls |grep emqx |grep -v sha256); do
+            dos2unix $var.sha256
+            echo "$(cat $var.sha256) $var" | sha256sum -c || exit 1
+          done
+          cd -
+        done
+    - name: upload aws s3
+      if: contains(github.ref, 'refs/tags/')
+      run: |
+        set -e -x -u
+        version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
+        curl "https://d1vvhvl2y92vvt.cloudfront.net/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+        unzip awscliv2.zip
+        sudo ./aws/install
+        aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws configure set default.region us-west-2
+
+        aws s3 cp --recursive _packages/emqx s3://packages.emqx/emqx-ce/$version
+        aws s3 cp --recursive _packages/emqx-edge s3://packages.emqx/emqx-edge/$version
+        aws cloudfront create-invalidation --distribution-id E170YEULGLT8XB --paths "/emqx-ce/$version/*,/emqx-edge/$version/*"
+
+        mkdir packages
+        mv _packages/emqx/* packages
+        mv _packages/emqx-edge/* packages
+    - uses: actions/checkout@v2
+      with:
+        path: emqx
+    - name: update to github and emqx.io
+      if: contains(github.ref, 'refs/tags/')
+      run: |
+        set -e -x -u
+        version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
+        cd packages
+        for var in $(ls); do
+          ../emqx/.ci/build_packages/upload_github_release_asset.sh owner=emqx repo=emqx tag=$version filename=$var github_api_token=$(echo ${{ secrets.AccessToken }})
+          sleep 1
+        done
+        curl -w %{http_code} \
+             --insecure \
+             -H "Content-Type: application/json" \
+             -H "token: ${{ secrets.EMQX_IO_TOKEN }}" \
+             -X POST \
+             -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${version}\" }" \
+             ${{ secrets.EMQX_IO_RELEASE_API }}
+    - name: push docker image to docker hub
+      if: contains(github.ref, 'refs/tags/')
+      run: |
+        set -e -x -u
+        version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
+        sudo make -C emqx docker-prepare
+        cd packages && for var in $(ls |grep docker |grep -v sha256); do unzip $var; sudo docker load < ${var%.*}; rm -f ${var%.*}; done && cd -
+        echo ${{ secrets.DOCKER_HUB_TOKEN }} |sudo docker login -u ${{ secrets.DOCKER_HUB_USER }} --password-stdin
+        sudo TARGET=emqx/emqx make -C emqx docker-push
+        sudo TARGET=emqx/emqx make -C emqx docker-manifest-list
+        sudo TARGET=emqx/emqx-edge make -C emqx docker-push
+        sudo TARGET=emqx/emqx-edge make -C emqx docker-manifest-list
+    - name: update repo.emqx.io
+      if: contains(github.ref, 'refs/tags/')
+      run: |
+        set -e -x -u
+        version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
+        curl \
+          -H "Authorization: token ${{ secrets.AccessToken }}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          -X POST \
+          -d "{\"ref\":\"v1.0.0\",\"inputs\":{\"version\": \"${version}\", \"emqx_ce\": \"true\"}}" \
+          https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_repos.yaml/dispatches
+    - uses: geekyeggo/delete-artifact@v1
+      with:
+        name: emqx
+    - uses: geekyeggo/delete-artifact@v1
+      with:
+        name: emqx-edge
+    # - name: update homebrew packages
+    #   run: |
+    #     version=$(echo ${{ github.ref }} | sed -r  "s .*/.*/(.*) \1 g")
+    #     if [ ! -z $(echo $version | grep -oE "v[0-9]+\.[0-9]+(\.[0-9]+)?") ] && [ -z $(echo $version | grep -oE "(alpha|beta|rc)\.[0-9]") ]; then
+    #       curl -H "Authorization: token ${{ secrets.AccessToken }}" -H "Accept: application/vnd.github.everest-preview+json" -H "Content-Type: application/json" -X POST -d "{\"event_type\":\"update_homebrew\",\"client_payload\":{\"version\": \"$version\"}}" https://api.github.com/repos/emqx/emqx-packages-docker/dispatches
+    #     fi

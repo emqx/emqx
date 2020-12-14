@@ -1,5 +1,5 @@
-REBAR_VERSION = 3.14.3-emqx-2
-REBAR = ./rebar3
+REBAR_VERSION = 3.14.3-emqx-3
+REBAR = $(CURDIR)/rebar3
 export PKG_VSN ?= $(shell git describe --tags --always)
 # comma separated versions
 export RELUP_BASE_VERSIONS ?=
@@ -9,6 +9,7 @@ PROFILES := emqx emqx-edge check test
 PKG_PROFILES := emqx-pkg emqx-edge-pkg
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
+export PKG_VSN := $(patsubst v%,%,$(shell git describe --tags --always))
 
 .PHONY: default
 default: $(REBAR) $(PROFILE)
@@ -18,7 +19,7 @@ all: $(REBAR) $(PROFILES)
 
 .PHONY: ensure-rebar3
 ensure-rebar3:
-	@./ensure-rebar3.sh $(REBAR_VERSION)
+	$(CURDIR)/ensure-rebar3.sh $(REBAR_VERSION)
 
 $(REBAR): ensure-rebar3
 
