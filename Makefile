@@ -1,8 +1,11 @@
-REBAR_VERSION = 3.14.3-emqx-1
+REBAR_VERSION = 3.14.3-emqx-2
 REBAR = ./rebar3
+export PKG_VSN ?= $(shell git describe --tags --always)
+# comma separated versions
+export RELUP_BASE_VERSIONS ?=
 
 PROFILE ?= emqx
-PROFILES := emqx emqx-edge
+PROFILES := emqx emqx-edge check test
 PKG_PROFILES := emqx-pkg emqx-edge-pkg
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
@@ -19,17 +22,13 @@ ensure-rebar3:
 
 $(REBAR): ensure-rebar3
 
-.PHONY: xref
-xref:
-	$(REBAR) xref
+.PHONY: eunit
+eunit: $(REBAR)
+	$(REBAR) eunit
 
-.PHONY: dialyzer
-dialyzer:
-	$(REBAR) dialyzer
-
-.PHONY: distclean
-distclean:
-	@rm -rf _build
+.PHONY: ct
+ct: $(REBAR)
+	$(REBAR) ct
 
 .PHONY: $(PROFILES)
 $(PROFILES:%=%): $(REBAR)
@@ -46,13 +45,9 @@ $(PROFILES:%=build-%): $(REBAR)
 
 # rebar clean
 .PHONY: clean $(PROFILES:%=clean-%)
-clean: $(PROFILES:%=clean-%) clean-stamps
+clean: $(PROFILES:%=clean-%)
 $(PROFILES:%=clean-%): $(REBAR)
 	$(REBAR) as $(@:clean-%=%) clean
-
-.PHONY: clean-stamps
-clean-stamps:
-	find -L _build -name '.stamp' -type f | xargs rm -f
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%) $(PKG_PROFILES:%=deps-%)
@@ -65,6 +60,14 @@ else
 	export EMQX_DESC="EMQ X Broker"
 endif
 	$(REBAR) as $(@:deps-%=%) get-deps
+
+.PHONY: xref
+xref: $(REBAR)
+	$(REBAR) as check xref
+
+.PHONY: dialyzer
+dialyzer: $(REBAR)
+	$(REBAR) as check dialyzer
 
 include packages.mk
 include docker.mk

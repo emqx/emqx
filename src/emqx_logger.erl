@@ -268,7 +268,7 @@ set_all_log_handlers_level([], _NewLevel, _NewHanlder) ->
     ok.
 
 rollback([{ID, Level} | List]) ->
-    set_log_handler_level(ID, Level),
+    _ = set_log_handler_level(ID, Level),
     rollback(List);
 rollback([]) -> ok.
 

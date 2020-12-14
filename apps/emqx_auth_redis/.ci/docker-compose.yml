@@ -1,0 +1,25 @@
+version: '3'
+
+services:
+  erlang:
+    image: erlang:22.3
+    volumes:
+      - ../:/emqx_auth_redis    
+    networks:
+      - emqx_bridge
+    depends_on:
+      - redis_server
+    tty: true
+
+  redis_server:
+    image: redis:${REDIS_TAG}
+    command:
+        - redis-server
+        - "--bind 0.0.0.0 ::"
+    restart: always
+    networks:
+      - emqx_bridge
+
+networks:
+  emqx_bridge:
+    driver: bridge

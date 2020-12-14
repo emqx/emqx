@@ -417,13 +417,13 @@ t_case01_subscribe(_Config) ->
     ?LOGT("observer get Notif=~p", [Notif]),
     {coap_notify, _, _, {ok,content}, #coap_content{payload = PayloadRecv}} = Notif,
 
-    ?_assertEqual(Payload, PayloadRecv),
+    ?assertEqual(Payload, PayloadRecv),
 
     %% GET to read the publish message of the topic
     Reply1 = er_coap_client:request(get, Uri1),
     ?LOGT("Reply=~p", [Reply1]),
     {ok,content, #coap_content{max_age = MaxAgeLeft,payload = <<"123">>}} = Reply1,
-    ?_assertEqual(true, MaxAgeLeft<60),
+    ?assertEqual(true, MaxAgeLeft<60),
 
     er_coap_observer:stop(Pid),
     {ok, deleted, #coap_content{}} = er_coap_client:request(delete, Uri1).
@@ -515,7 +515,7 @@ t_case01_read(_Config) ->
     Reply1 = er_coap_client:request(get, Uri),
     ?LOGT("Reply=~p", [Reply1]),
     {ok,content, #coap_content{max_age = MaxAgeLeft,payload = Payload}} = Reply1,
-    ?_assertEqual(true, MaxAgeLeft<60),
+    ?assertEqual(true, MaxAgeLeft<60),
 
     {ok, deleted, #coap_content{}} = er_coap_client:request(delete, Uri).
 

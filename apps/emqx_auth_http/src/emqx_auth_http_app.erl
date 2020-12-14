@@ -36,8 +36,8 @@ start(_StartType, _StartArgs) ->
         ok ->
             {ok, PoolOpts} = application:get_env(?APP, pool_opts),
             {ok, Sup} = emqx_http_client_sup:start_link(?APP, ssl(inet(PoolOpts))),
-            with_env(auth_req, fun load_auth_hook/1),
-            with_env(acl_req,  fun load_acl_hook/1),
+            _ = with_env(auth_req, fun load_auth_hook/1),
+            _ = with_env(acl_req,  fun load_acl_hook/1),
             {ok, Sup};
         {error, Reason} ->
             {error, Reason}
@@ -119,7 +119,7 @@ translate_env() ->
                             #{host := Host0,
                               port := Port,
                               path := Path} = uri_string:parse(list_to_binary(URL)),
-                            {ok, Host} = inet:parse_address(binary_to_list(Host0)),
+                            Host = get_addr(binary_to_list(Host0)),
                             [{Name, {Host, Port, binary_to_list(Path)}} | Acc]
                     end
                 end, [], [acl_req, auth_req, super_req]),
@@ -145,3 +145,16 @@ same_host_and_port([{_, {Host, Port, _}}, URL = {_, {Host, Port, _}} | Rest]) ->
     same_host_and_port([URL | Rest]);
 same_host_and_port(_) ->
     false.
+
+get_addr(Hostname) ->
+    case inet:parse_address(Hostname) of
+        {ok, {_,_,_,_} = Addr} -> Addr;
+        {ok, {_,_,_,_,_,_,_,_} = Addr} -> Addr;
+        {error, einval} ->
+            case inet:getaddr(Hostname, inet) of
+                 {error, _} ->
+                     {ok, Addr} = inet:getaddr(Hostname, inet6),
+                     Addr;
+                 {ok, Addr} -> Addr
+            end
+    end.

@@ -84,7 +84,7 @@ t_observe(_Config) ->
     Notif = receive_notification(),
     ?LOGT("observer get Notif=~p", [Notif]),
     {coap_notify, _, _, {ok,content}, #coap_content{payload = PayloadRecv}} = Notif,
-    ?_assertEqual(Payload, PayloadRecv),
+    ?assertEqual(Payload, PayloadRecv),
 
     er_coap_observer:stop(Pid),
     timer:sleep(100),
@@ -107,7 +107,7 @@ t_observe_wildcard(_Config) ->
     Notif = receive_notification(),
     ?LOGT("observer get Notif=~p", [Notif]),
     {coap_notify, _, _, {ok,content}, #coap_content{payload = PayloadRecv}} = Notif,
-    ?_assertEqual(Payload, PayloadRecv),
+    ?assertEqual(Payload, PayloadRecv),
 
     er_coap_observer:stop(Pid),
     timer:sleep(100),
@@ -133,7 +133,7 @@ t_observe_pub(_Config) ->
     Notif2 = receive_notification(),
     ?LOGT("observer get Notif2=~p", [Notif2]),
     {coap_notify, _, _, {ok,content}, #coap_content{payload = PayloadRecv2}} = Notif2,
-    ?_assertEqual(Payload2, PayloadRecv2),
+    ?assertEqual(Payload2, PayloadRecv2),
 
     Topic3 = <<"j/b">>, Payload3 = <<"ET629">>,
     TopicStr3 = http_uri:encode(binary_to_list(Topic3)),
@@ -144,7 +144,7 @@ t_observe_pub(_Config) ->
     Notif3 = receive_notification(),
     ?LOGT("observer get Notif3=~p", [Notif3]),
     {coap_notify, _, _, {ok,content}, #coap_content{payload = PayloadRecv3}} = Notif3,
-    ?_assertEqual(Payload3, PayloadRecv3),
+    ?assertEqual(Payload3, PayloadRecv3),
 
     er_coap_observer:stop(Pid).
 
@@ -172,14 +172,14 @@ t_one_clientid_sub_2_topics(_Config) ->
     Notif1 = receive_notification(),
     ?LOGT("observer 1 get Notif=~p", [Notif1]),
     {coap_notify, _, _, {ok,content}, #coap_content{payload = PayloadRecv1}} = Notif1,
-    ?_assertEqual(Payload1, PayloadRecv1),
+    ?assertEqual(Payload1, PayloadRecv1),
 
     emqx:publish(emqx_message:make(Topic2, Payload2)),
 
     Notif2 = receive_notification(),
     ?LOGT("observer 2 get Notif=~p", [Notif2]),
     {coap_notify, _, _, {ok,content}, #coap_content{payload = PayloadRecv2}} = Notif2,
-    ?_assertEqual(Payload2, PayloadRecv2),
+    ?assertEqual(Payload2, PayloadRecv2),
 
     er_coap_observer:stop(Pid1),
     er_coap_observer:stop(Pid2).

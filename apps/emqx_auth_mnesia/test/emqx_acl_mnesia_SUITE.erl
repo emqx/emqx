@@ -16,6 +16,7 @@
 
 -module(emqx_acl_mnesia_SUITE).
 
+-compile(nowarn_export_all).
 -compile(export_all).
 
 -include("emqx_auth_mnesia.hrl").

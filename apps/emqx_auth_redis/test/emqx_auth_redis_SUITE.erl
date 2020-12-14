@@ -16,6 +16,7 @@
 
 -module(emqx_auth_redis_SUITE).
 
+-compile(nowarn_export_all).
 -compile(export_all).
 
 -include_lib("emqx/include/emqx.hrl").
@@ -69,21 +70,18 @@ set_special_configs(_App) ->
     ok.
 
 init_redis_rows() ->
-    {ok, Connection} = ?POOL(?APP),
     %% Users
-    [eredis:q(Connection, ["HMSET", Key|FiledValue]) || {Key, FiledValue} <- ?INIT_AUTH],
-
+    [q(["HMSET", Key|FiledValue]) || {Key, FiledValue} <- ?INIT_AUTH],
     %% ACLs
     emqx_modules:load_module(emqx_mod_acl_internal, false),
-    Result = [eredis:q(Connection, ["HSET", Key, Filed, Value]) || {Key, Filed, Value} <- ?INIT_ACL],
+    Result = [q(["HSET", Key, Filed, Value]) || {Key, Filed, Value} <- ?INIT_ACL],
     ct:pal("redis init result: ~p~n", [Result]).
 
 deinit_redis_rows() ->
-    {ok, Connection} = ?POOL(?APP),
     AuthKeys = [Key || {Key, _Filed, _Value} <- ?INIT_AUTH],
     AclKeys = [Key || {Key, _Value} <- ?INIT_ACL],
-    eredis:q(Connection, ["DEL" | AuthKeys]),
-    eredis:q(Connection, ["DEL" | AclKeys]).
+    q(["DEL" | AuthKeys]),
+    q(["DEL" | AclKeys]).
 
 %%--------------------------------------------------------------------
 %% Cases
@@ -121,9 +119,8 @@ t_check_auth(_) ->
     {error, _} = emqx_access_control:authenticate(Bcrypt#{password => <<"password">>}).
 
 t_check_auth_hget(_) ->
-    {ok, Connection} = ?POOL(?APP),
-    eredis:q(Connection, ["HSET", "mqtt_user:hset", "password", "hset"]),
-    eredis:q(Connection, ["HSET", "mqtt_user:hset", "is_superuser", "1"]),
+    q(["HSET", "mqtt_user:hset", "password", "hset"]),
+    q(["HSET", "mqtt_user:hset", "is_superuser", "1"]),
     reload([{password_hash, plain}, {auth_cmd, "HGET mqtt_user:%u password"}]),
     Hset = #{clientid => <<"hset">>, username => <<"hset">>, zone => external},
     {ok, #{is_superuser := true}} = emqx_access_control:authenticate(Hset#{password => <<"hset">>}).
@@ -164,6 +161,16 @@ t_acl_super(_) ->
     end,
     emqtt:disconnect(C).
 
+t_check_cluster_connection(_) ->
+    ?assertMatch({error, _Reason}, reload([{server, [{type,cluster},
+                                           {pool_size,8},
+                                           {auto_reconnect,1},
+                                           {database,0},
+                                           {password,[]},
+                                           {sentinel,[]},
+                                           {servers,[{"wrong",6379},{"wrong",6380},{"wrong",6381}]}]}])).
+
+
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
@@ -172,3 +179,13 @@ reload(Config) when is_list(Config) ->
     application:stop(?APP),
     [application:set_env(?APP, K, V) || {K, V} <- Config],
     application:start(?APP).
+
+q(Cmd) ->
+    {ok, Server} = application:get_env(?APP, server),
+    case proplists:get_value(type, Server) of
+        single ->
+            {ok, Connection} = ?POOL(?APP),
+            eredis:q(Connection, Cmd);
+        cluster ->
+            eredis_cluster:q(emqx_auth_redis, Cmd)
+    end.

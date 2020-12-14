@@ -186,6 +186,5 @@ replvar([Key|More], Options) ->
 
 %% ${node} => node()
 feedvar(clientid, ClientId, _) ->
-    iolist_to_binary(re:replace(ClientId, "\\${node}", atom_to_list(node())));
-feedvar(_, Val, _) ->
-    Val.
+    iolist_to_binary(re:replace(ClientId, "\\${node}", atom_to_list(node()))).
+

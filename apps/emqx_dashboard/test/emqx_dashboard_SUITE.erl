@@ -16,6 +16,7 @@
 
 -module(emqx_dashboard_SUITE).
 
+-compile(nowarn_export_all).
 -compile(export_all).
 
 -import(emqx_ct_http,

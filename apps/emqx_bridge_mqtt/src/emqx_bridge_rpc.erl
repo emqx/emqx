@@ -33,6 +33,7 @@
 
 -type ack_ref() :: emqx_bridge_worker:ack_ref().
 -type batch() :: emqx_bridge_worker:batch().
+-type node_or_tuple() :: atom() | {atom(), term()}.
 
 -define(HEARTBEAT_INTERVAL, timer:seconds(1)).
 
@@ -61,7 +62,7 @@ stop(#{client_pid := Pid}) when is_pid(Pid) ->
     ok.
 
 %% @doc Callback for `emqx_bridge_connect' behaviour
--spec send(node(), batch()) -> {ok, ack_ref()} | {error, any()}.
+-spec send(#{address:=node_or_tuple(), _=>_}, batch()) -> {ok, ack_ref()} | {error, any()}.
 send(#{address := Remote}, Batch) ->
     case ?RPC:call(Remote, ?MODULE, handle_send, [Batch]) of
         ok ->

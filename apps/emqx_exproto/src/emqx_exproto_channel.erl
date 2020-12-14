@@ -331,7 +331,7 @@ handle_call({publish, Topic, Qos, Payload},
         _ ->
             Msg = emqx_message:make(From, Qos, Topic, Payload),
             NMsg = emqx_mountpoint:mount(Mountpoint, Msg),
-            emqx:publish(NMsg),
+            _ = emqx:publish(NMsg),
             {reply, ok, Channel}
     end;
 

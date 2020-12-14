@@ -7,10 +7,10 @@ jobs:
     run_test_case:
 
         runs-on: ubuntu-latest
-      
+
         container:
             image: erlang:22.1
-      
+
         steps:
         - uses: actions/checkout@v1
         - name: Code dialyzer

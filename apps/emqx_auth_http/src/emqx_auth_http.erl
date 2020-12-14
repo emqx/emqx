@@ -29,6 +29,10 @@
         , feedvar/2
         ]).
 
+-type http_request() :: #http_request{method::'get' | 'post',params::[any()]}.
+%-type http_opts() :: #{clientid:=_, peerhost:=_, protocol:=_, _=>_}.
+%-type retry_opts() :: #{backoff:=_, interval:=_, times:=_, _=>_}.
+
 %% Callbacks
 -export([ register_metrics/0
         , check/3
@@ -80,7 +84,7 @@ authenticate(PoolName, #http_request{path = Path,
                                      request_timeout = RequestTimeout}, ClientInfo) ->
    request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), RequestTimeout).
 
--spec(is_superuser(atom(), maybe(#http_request{}), emqx_types:client()) -> boolean()).
+-spec(is_superuser(atom(), maybe(http_request()), emqx_types:client()) -> boolean()).
 is_superuser(_PoolName, undefined, _ClientInfo) ->
     false;
 is_superuser(PoolName, #http_request{path = Path,

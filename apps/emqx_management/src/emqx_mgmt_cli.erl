@@ -416,7 +416,7 @@ log(["primary-level"]) ->
     emqx_ctl:print("~s~n", [Level]);
 
 log(["primary-level", Level]) ->
-    emqx_logger:set_primary_log_level(list_to_atom(Level)),
+    _ = emqx_logger:set_primary_log_level(list_to_atom(Level)),
     emqx_ctl:print("~s~n", [emqx_logger:get_primary_log_level()]);
 
 log(["handlers", "list"]) ->
@@ -606,11 +606,11 @@ data(["import", Filename]) ->
                         emqx_mgmt:import_blacklist(maps:get(<<"blacklist">>, Data, [])),
                         emqx_mgmt:import_applications(maps:get(<<"apps">>, Data, [])),
                         emqx_mgmt:import_users(maps:get(<<"users">>, Data, [])),
-                        emqx_mgmt:import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
-                        emqx_mgmt:import_auth_username(maps:get(<<"auth_username">>, Data, [])),
-                        emqx_mgmt:import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, [])),
-                        emqx_mgmt:import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, [])),
-                        emqx_mgmt:import_schemas(maps:get(<<"schemas">>, Data, [])),
+                        _ = emqx_mgmt:import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
+                        _ = emqx_mgmt:import_auth_username(maps:get(<<"auth_username">>, Data, [])),
+                        _ = emqx_mgmt:import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, [])),
+                        _ = emqx_mgmt:import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, [])),
+                        _ = emqx_mgmt:import_schemas(maps:get(<<"schemas">>, Data, [])),
                         emqx_ctl:print("The emqx data has been imported successfully.~n")
                     catch Class:Reason:Stack ->
                         emqx_ctl:print("The emqx data import failed due: ~0p~n", [{Class,Reason,Stack}])

@@ -111,7 +111,7 @@ deactivate(_Bindings, Params) ->
     do_deactivate(Node, Name).
 
 delete_deactivated(Bindings, _Params) when map_size(Bindings) == 0 ->
-    emqx_mgmt:delete_all_deactivated_alarms(),
+    _ = emqx_mgmt:delete_all_deactivated_alarms(),
     {ok, #{code => ?SUCCESS}};
 
 delete_deactivated(#{node := Node}, _Params) ->

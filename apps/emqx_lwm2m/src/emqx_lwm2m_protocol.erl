@@ -109,7 +109,7 @@ post_init(Lwm2mState = #lwm2m_state{endpoint_name = _EndpointName,
     Topic = downlink_topic(<<"register">>, Lwm2mState),
     subscribe(Topic, Lwm2mState),
     %% - report the registration info
-    send_to_broker(<<"register">>, #{<<"data">> => RegInfo}, Lwm2mState),
+    _ = send_to_broker(<<"register">>, #{<<"data">> => RegInfo}, Lwm2mState),
     Lwm2mState#lwm2m_state{mqtt_topic = Topic}.
 
 update_reg_info(NewRegInfo, Lwm2mState=#lwm2m_state{life_timer = LifeTimer, register_info = RegInfo,
@@ -124,7 +124,7 @@ update_reg_info(NewRegInfo, Lwm2mState=#lwm2m_state{life_timer = LifeTimer, regi
     end,
 
     %% - flush cached donwlink commands
-    flush_cached_downlink_messages(CoapPid),
+    _ = flush_cached_downlink_messages(CoapPid),
 
     %% - update the life timer
     UpdatedLifeTimer = emqx_lwm2m_timer:refresh_timer(
@@ -136,16 +136,16 @@ update_reg_info(NewRegInfo, Lwm2mState=#lwm2m_state{life_timer = LifeTimer, regi
 
 replace_reg_info(NewRegInfo, Lwm2mState=#lwm2m_state{life_timer = LifeTimer,
                                                      coap_pid = CoapPid}) ->
-    send_to_broker(<<"register">>, #{<<"data">> => NewRegInfo}, Lwm2mState),
+    _ = send_to_broker(<<"register">>, #{<<"data">> => NewRegInfo}, Lwm2mState),
 
     %% - flush cached donwlink commands
-    flush_cached_downlink_messages(CoapPid),
+    _ = flush_cached_downlink_messages(CoapPid),
 
     %% - update the life timer
     UpdatedLifeTimer = emqx_lwm2m_timer:refresh_timer(
                             maps:get(<<"lt">>, NewRegInfo), LifeTimer),
 
-    send_auto_observe(CoapPid, NewRegInfo),
+    _ = send_auto_observe(CoapPid, NewRegInfo),
 
     ?LOG(debug, "Replace RegInfo to: ~p", [NewRegInfo]),
     Lwm2mState#lwm2m_state{life_timer = UpdatedLifeTimer,
@@ -153,13 +153,13 @@ replace_reg_info(NewRegInfo, Lwm2mState=#lwm2m_state{life_timer = LifeTimer,
 
 send_ul_data(_EventType, <<>>, _Lwm2mState) -> ok;
 send_ul_data(EventType, Payload, Lwm2mState=#lwm2m_state{coap_pid = CoapPid}) ->
-    send_to_broker(EventType, Payload, Lwm2mState),
-    flush_cached_downlink_messages(CoapPid),
+    _ = send_to_broker(EventType, Payload, Lwm2mState),
+    _ = flush_cached_downlink_messages(CoapPid),
     Lwm2mState.
 
 auto_observe(Lwm2mState = #lwm2m_state{register_info = RegInfo,
                                        coap_pid = CoapPid}) ->
-    send_auto_observe(CoapPid, RegInfo),
+    _ = send_auto_observe(CoapPid, RegInfo),
     Lwm2mState.
 
 deliver(#message{topic = Topic, payload = Payload}, Lwm2mState = #lwm2m_state{coap_pid = CoapPid, register_info = RegInfo, started_at = StartedAt}) ->
@@ -297,7 +297,7 @@ observe_object(AlternatePath, ObjectPath, CoapPid) ->
 do_deliver_to_coap_slowly(CoapPid, CoapRequestList, Interval) ->
     erlang:spawn(fun() ->
         lists:foreach(fun({CoapRequest, Ref}) ->
-                do_deliver_to_coap(CoapPid, CoapRequest, Ref),
+                _ = do_deliver_to_coap(CoapPid, CoapRequest, Ref),
                 timer:sleep(Interval)
             end, lists:reverse(CoapRequestList))
         end).

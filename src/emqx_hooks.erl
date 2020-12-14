@@ -31,6 +31,7 @@
 -export([ add/2
         , add/3
         , add/4
+        , put/2
         , del/2
         , run/2
         , run_fold/3
@@ -110,6 +111,14 @@ add(HookPoint, Action, Priority) when is_integer(Priority) ->
       -> ok_or_error(already_exists)).
 add(HookPoint, Action, Filter, Priority) when is_integer(Priority) ->
     add(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
+
+%% @doc Like add/2, it register a callback, discard 'already_exists' error.
+-spec(put(hookpoint(), action() | #callback{}) -> ok).
+put(HookPoint, Callback) ->
+    case add(HookPoint, Callback) of
+        ok -> ok;
+        {error, already_exists} -> ok
+    end.
 
 %% @doc Unregister a callback.
 -spec(del(hookpoint(), function() | {module(), atom()}) -> ok).

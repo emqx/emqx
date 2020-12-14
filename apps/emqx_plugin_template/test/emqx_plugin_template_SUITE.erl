@@ -16,6 +16,7 @@
 
 -module(emqx_plugin_template_SUITE).
 
+-compile(nowarn_export_all).
 -compile(export_all).
 
 all() -> [].

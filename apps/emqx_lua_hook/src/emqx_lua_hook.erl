@@ -147,7 +147,7 @@ do_load(FileName) ->
                     error;
                 {Ret1, St1} ->
                     ?LOG(debug, "Register lua script ~p", [FileName]),
-                    do_register_hooks(Ret1, FileName, St1),
+                    _ = do_register_hooks(Ret1, FileName, St1),
                     {FileName, St1};
                 Other ->
                     ?LOG(error, "Failed to load lua script ~p, register_hook() raise exception ~p", [FileName, Other]),
@@ -184,7 +184,7 @@ do_register(Hook, ScriptName, _St) ->
 do_register_hooks([], _ScriptName, _St) ->
     ok;
 do_register_hooks([H|T], ScriptName, St) ->
-    do_register(H, ScriptName, St),
+    _ = do_register(H, ScriptName, St),
     do_register_hooks(T, ScriptName, St);
 do_register_hooks(Hook = <<$o, $n, _Rest/binary>>, ScriptName, St) ->
     do_register(Hook, ScriptName, St);

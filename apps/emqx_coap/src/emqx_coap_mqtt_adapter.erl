@@ -136,7 +136,7 @@ handle_call({unsubscribe, Topic, _CoapPid}, _From, State=#state{sub_topics = Top
     {reply, ok, State#state{sub_topics = NewTopics}, hibernate};
 
 handle_call({publish, Topic, Payload}, _From, State) ->
-    chann_publish(Topic, Payload, State),
+    _ = chann_publish(Topic, Payload, State),
     {reply, ok, State};
 
 handle_call(info, _From, State) ->
@@ -233,10 +233,6 @@ do_deliver({Topic, Payload}, Subscribers) ->
     %% handle PUBLISH packet from broker
     ?LOG(debug, "deliver message from broker Topic=~p, Payload=~p", [Topic, Payload]),
     deliver_to_coap(Topic, Payload, Subscribers),
-    ok;
-
-do_deliver(Pkt, _Subscribers) ->
-    ?LOG(warning, "unknown packet type to deliver, pkt=~p,", [Pkt]),
     ok.
 
 deliver_to_coap(_TopicName, _Payload, []) ->

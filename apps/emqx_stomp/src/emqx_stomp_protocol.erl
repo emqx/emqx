@@ -120,12 +120,12 @@ received(#stomp_frame{command = <<"CONNECT">>, headers = Headers},
                     send(connected_frame([{<<"version">>, Version},
                                           {<<"heart-beat">>, reverse_heartbeats(Heartbeats)}]), NState);
                 false ->
-                    send(error_frame(undefined, <<"Login or passcode error!">>), State),
+                    _ = send(error_frame(undefined, <<"Login or passcode error!">>), State),
                     {error, login_or_passcode_error, State}
              end;
         {error, Msg} ->
-            send(error_frame([{<<"version">>, <<"1.0,1.1,1.2">>},
-                              {<<"content-type">>, <<"text/plain">>}], undefined, Msg), State),
+            _ = send(error_frame([{<<"version">>, <<"1.0,1.1,1.2">>},
+                                  {<<"content-type">>, <<"text/plain">>}], undefined, Msg), State),
             {error, unsupported_version, State}
     end;
 
@@ -236,7 +236,7 @@ received(#stomp_frame{command = <<"ABORT">>, headers = Headers},
     end;
 
 received(#stomp_frame{command = <<"DISCONNECT">>, headers = Headers}, State) ->
-    maybe_send_receipt(receipt_id(Headers), State),
+    _ = maybe_send_receipt(receipt_id(Headers), State),
     {stop, normal, State}.
 
 send(Msg = #message{topic = Topic, headers = Headers, payload = Payload},
@@ -469,4 +469,3 @@ interval(outgoing_timer, #pstate{heart_beats = HrtBt}) ->
     emqx_stomp_heartbeat:interval(outgoing, HrtBt);
 interval(clean_trans_timer, _) ->
     ?TRANS_TIMEOUT.
-

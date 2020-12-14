@@ -99,18 +99,18 @@
 
 -record(state, {
             metric_ids = sets:new(),
-            rule_speeds :: #{rule_id() => #rule_speed{}},
+            rule_speeds :: undefined | #{rule_id() => #rule_speed{}},
             overall_rule_speed :: #rule_speed{}
         }).
 
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
--spec(create_rule_metrics(rule_id()) -> Ref :: reference()).
+-spec(create_rule_metrics(rule_id()) -> Ref :: counters:counters_ref()).
 create_rule_metrics(Id) ->
     gen_server:call(?MODULE, {create_rule_metrics, Id}).
 
--spec(create_metrics(rule_id()) -> Ref :: reference()).
+-spec(create_metrics(rule_id()) -> Ref :: counters:counters_ref()).
 create_metrics(Id) ->
     gen_server:call(?MODULE, {create_metrics, Id}).
 
@@ -133,7 +133,7 @@ get(Id, Metric) ->
 get_overall(Metric) ->
     emqx_metrics:val(Metric).
 
--spec(get_rule_speed(atom()) -> map()).
+-spec(get_rule_speed(rule_id()) -> map()).
 get_rule_speed(Id) ->
     gen_server:call(?MODULE, {get_rule_speed, Id}).
 
@@ -157,14 +157,16 @@ get_action_metrics(Id) ->
       taken => get_actions_taken(Id)
      }.
 
--spec(inc(rule_id(), atom()) -> ok).
+-spec inc(rule_id(), atom()) -> ok.
 inc(Id, Metric) ->
     inc(Id, Metric, 1).
+
+-spec inc(rule_id(), atom(), pos_integer()) -> ok.
 inc(Id, Metric, Val) ->
     counters:add(couters_ref(Id), metrics_idx(Metric), Val),
     inc_overall(Metric, Val).
 
--spec(inc_overall(rule_id(), atom()) -> ok).
+-spec(inc_overall(atom(), pos_integer()) -> ok).
 inc_overall(Metric, Val) ->
     emqx_metrics:inc(Metric, Val).
 

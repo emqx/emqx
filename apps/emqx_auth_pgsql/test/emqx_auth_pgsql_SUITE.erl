@@ -16,6 +16,7 @@
 
 -module(emqx_auth_pgsql_SUITE).
 
+-compile(nowarn_export_all).
 -compile(export_all).
 
 -define(POOL, emqx_auth_pgsql).

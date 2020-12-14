@@ -24,3 +24,5 @@ erlang.mk
 rebar.lock
 /.idea/
 .DS_Store
+/.ci/redis/nodes.*.conf
+/.ci/redis/*.log

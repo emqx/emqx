@@ -82,15 +82,19 @@ description() -> "Authentication with MongoDB".
 %%--------------------------------------------------------------------
 %% Is Superuser?
 %%--------------------------------------------------------------------
-
--spec(is_superuser(string(), maybe(#superquery{}), emqx_types:clientinfo()) -> boolean()).
 is_superuser(_Pool, undefined, _ClientInfo) ->
     false;
 is_superuser(Pool, #superquery{collection = Coll, field = Field, selector = Selector}, ClientInfo) ->
-    Row = query(Pool, Coll, maps:from_list(replvars(Selector, ClientInfo))),
-    case maps:get(Field, Row, false) of
-        true   -> true;
-        _False -> false
+    case query(Pool, Coll, maps:from_list(replvars(Selector, ClientInfo))) of
+        undefined -> false;
+        {error, Reason} ->
+            ?LOG(error, "[MongoDB] Can't connect to MongoDB server: ~0p", [Reason]),
+            false;
+        Row ->
+            case maps:get(Field, Row, false) of
+                true   -> true;
+                _False -> false
+            end
     end.
 
 replvars(VarList, ClientInfo) ->

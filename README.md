@@ -40,18 +40,30 @@ Get the binary package of the corresponding OS from [EMQ X Download](https://www
 
 The *EMQ X* broker requires Erlang/OTP R21+ to build since 3.0 release.
 
+For 4.3 and later versions.
+
+```bash
+git clone https://github.com/emqx/emqx.git
+cd emqx
+make
+_build/emqx/rel/emqx/bin console
 ```
-git clone -b v4.0.0 https://github.com/emqx/emqx-rel.git
 
-cd emqx-rel && make
+For earlier versions, release has to be built from another repo.
 
-cd _build/emqx/rel/emqx && ./bin/emqx console
-
+```bash
+git clone https://github.com/emqx/emqx-rel.git
+cd emqx-rel
+make
+_build/emqx/rel/emqx/bin/emqx console
 ```
 
 ## Quick Start
 
-```
+If emqx is built from source, `cd _buid/emqx/rel/emqx`.
+Or change to the installation root directory if emqx is installed from a release package.
+
+```bash
 # Start emqx
 ./bin/emqx start
 
@@ -63,6 +75,24 @@ cd _build/emqx/rel/emqx && ./bin/emqx console
 ```
 
 To view the dashboard after running, use your browser to open: http://localhost:18083
+
+## Test
+
+### To test everything in one go
+
+```
+make eunit ct
+```
+
+### To run subset of the common tests
+
+examples
+
+```bash
+./rebar3 ct --dir test,apps/emqx_sn,apps/emqx_coap
+./rebar3 ct --suite test/emqx_SUITE.erl,apps/emqx_auth_http/test/emqx_auth_http_SUITE.erl
+./rebar3 ct --suite test/emqx_SUITE.erl --testcase t_restart
+```
 
 ## FAQ
 

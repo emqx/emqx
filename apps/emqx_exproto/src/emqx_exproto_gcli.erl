@@ -74,22 +74,24 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({rpc, Fun, Req, Options, From}, State) ->
-    case catch apply(?CONN_ADAPTER_MOD, Fun, [Req, Options]) of
-        {ok, Resp, _Metadata} ->
-            ?LOG(debug, "~p got {ok, ~0p, ~0p}", [Fun, Resp, _Metadata]),
-            reply(From, Fun, {ok, Resp});
-        {error, {Code, Msg}, _Metadata} ->
-            ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) response errcode: ~0p, errmsg: ~0p",
+    try
+        case apply(?CONN_ADAPTER_MOD, Fun, [Req, Options]) of
+            {ok, Resp, _Metadata} ->
+                ?LOG(debug, "~p got {ok, ~0p, ~0p}", [Fun, Resp, _Metadata]),
+                reply(From, Fun, {ok, Resp});
+            {error, {Code, Msg}, _Metadata} ->
+                ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) response errcode: ~0p, errmsg: ~0p",
                         [?CONN_ADAPTER_MOD, Fun, Req, Options, Code, Msg]),
-            reply(From, Fun, {error, {Code, Msg}});
-        {error, Reason} ->
-            ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) error: ~0p",
+                reply(From, Fun, {error, {Code, Msg}});
+            {error, Reason} ->
+                ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) error: ~0p",
                         [?CONN_ADAPTER_MOD, Fun, Req, Options, Reason]),
-            reply(From, Fun, {error, Reason});
-        {'EXIT', {Reason, Stk}} ->
-            ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) throw an exception: ~0p, stacktrace: ~0p",
-                        [?CONN_ADAPTER_MOD, Fun, Req, Options, Reason, Stk]),
-            reply(From, Fun, {error, Reason})
+                reply(From, Fun, {error, Reason})
+        end
+    catch _ : Rsn : Stk ->
+        ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) throw an exception: ~0p, stacktrace: ~0p",
+             [?CONN_ADAPTER_MOD, Fun, Req, Options, Rsn, Stk]),
+        reply(From, Fun, {error, Rsn})
     end,
     {noreply, State}.
 
@@ -107,4 +109,5 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 reply(Pid, Fun, Result) ->
-    Pid ! {hreply, Fun, Result}.
+    Pid ! {hreply, Fun, Result},
+    ok.

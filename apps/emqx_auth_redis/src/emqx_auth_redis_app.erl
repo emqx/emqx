@@ -28,8 +28,8 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_auth_redis_sup:start_link(),
-    if_cmd_enabled(auth_cmd, fun load_auth_hook/1),
-    if_cmd_enabled(acl_cmd,  fun load_acl_hook/1),
+    _ = if_cmd_enabled(auth_cmd, fun load_auth_hook/1),
+    _ = if_cmd_enabled(acl_cmd,  fun load_acl_hook/1),
     {ok, Sup}.
 
 stop(_State) ->

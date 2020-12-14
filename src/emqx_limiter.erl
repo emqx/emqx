@@ -35,7 +35,7 @@
 -type(checker() :: #{ name     := name()
                     , capacity := non_neg_integer()
                     , interval := non_neg_integer()
-                    , consumer := function() | esockd_rate_limit:bucket()
+                    , consumer := esockd_rate_limit:bucket() | emqx_zone:zone()
                     }).
 
 -type(name() :: conn_bytes_in
@@ -52,6 +52,8 @@
                     interval := non_neg_integer()}}).
 
 -type(limiter() :: #limiter{}).
+
+-dialyzer({nowarn_function, [consume/3]}).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -84,7 +86,7 @@ do_init_checker(Zone, {Name, {Capacity, Interval}}) ->
                 _ ->
                     esockd_limiter:create({Zone, Name}, Capacity, Interval)
             end,
-            Ck#{consumer => fun(I) -> esockd_limiter:consume({Zone, Name}, I) end};
+            Ck#{consumer => Zone};
         _ ->
             Ck#{consumer => esockd_rate_limit:new(Capacity / Interval, Capacity)}
     end.
@@ -126,7 +128,7 @@ consume(Pubs, Bytes, #{name := Name, consumer := Cons}) ->
         _ ->
             case is_overall_limiter(Name) of
                 true ->
-                    {_, Intv} = Cons(Tokens),
+                    {_, Intv} = esockd_limiter:consume({Cons, Name}, Tokens),
                     {Intv, Cons};
                 _ ->
                     esockd_rate_limit:check(Tokens, Cons)

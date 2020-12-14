@@ -3,7 +3,7 @@
   {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_rule_engine_sup, emqx_rule_registry]},
-  {applications, [kernel,stdlib,rulesql,getopt,emqx]},
+  {applications, [kernel,stdlib,rulesql,getopt]},
   {mod, {emqx_rule_engine_app, []}},
   {env, []},
   {licenses, ["Apache-2.0"]},

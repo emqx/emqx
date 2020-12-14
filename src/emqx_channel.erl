@@ -131,6 +131,20 @@ info(zone, #channel{clientinfo = #{zone := Zone}}) ->
     Zone;
 info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
     ClientId;
+info(username, #channel{clientinfo = #{username := Username}}) ->
+    Username;
+info(socktype, #channel{conninfo = #{socktype := SockType}}) ->
+    SockType;
+info(peername, #channel{conninfo = #{peername := Peername}}) ->
+    Peername;
+info(sockname, #channel{conninfo = #{sockname := Sockname}}) ->
+    Sockname;
+info(proto_name, #channel{conninfo = #{proto_name := ProtoName}}) ->
+    ProtoName;
+info(proto_ver, #channel{conninfo = #{proto_ver := ProtoVer}}) ->
+    ProtoVer;
+info(connected_at, #channel{conninfo = #{connected_at := ConnectedAt}}) ->
+    ConnectedAt;
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
 info(session, #channel{session = Session}) ->
@@ -1540,15 +1554,20 @@ mabye_publish_will_msg(Channel = #channel{will_msg = undefined}) ->
     Channel;
 mabye_publish_will_msg(Channel = #channel{will_msg = WillMsg}) ->
     case will_delay_interval(WillMsg) of
-        0 -> publish_will_msg(WillMsg),
-             Channel#channel{will_msg = undefined};
-        I -> ensure_timer(will_timer, timer:seconds(I), Channel)
+        0 ->
+            ok = publish_will_msg(WillMsg),
+            Channel#channel{will_msg = undefined};
+        I ->
+            ensure_timer(will_timer, timer:seconds(I), Channel)
     end.
 
 will_delay_interval(WillMsg) ->
     maps:get('Will-Delay-Interval', emqx_message:get_header(properties, WillMsg), 0).
 
-publish_will_msg(Msg) -> emqx_broker:publish(Msg).
+publish_will_msg(Msg) ->
+    %% TODO check if we should discard result here
+    _ = emqx_broker:publish(Msg),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Disconnect Reason

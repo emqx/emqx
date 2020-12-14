@@ -80,7 +80,7 @@ t_get_port_info(_Config) ->
     {ok, Sock} = gen_tcp:connect("localhost", 5678, [binary, {packet, 0}]),
     emqx_vm:get_port_info(),
     ok = gen_tcp:close(Sock),
-    [Port | _] = erlang:ports().
+    [_Port | _] = erlang:ports().
 
 t_transform_port(_Config) ->
     [Port | _] = erlang:ports(),

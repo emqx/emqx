@@ -63,15 +63,15 @@
           %% Simulate the active_n opt
           active_n :: pos_integer(),
           %% MQTT Piggyback
-          mqtt_piggyback :: single | multiple, 
+          mqtt_piggyback :: single | multiple,
           %% Limiter
           limiter :: maybe(emqx_limiter:limiter()),
           %% Limit Timer
           limit_timer :: maybe(reference()),
           %% Parse State
           parse_state :: emqx_frame:parse_state(),
-          %% Serialize Fun
-          serialize :: emqx_frame:serialize_fun(),
+          %% Serialize options
+          serialize :: emqx_frame:serialize_opts(),
           %% Channel
           channel :: emqx_channel:channel(),
           %% GC State
@@ -231,7 +231,7 @@ websocket_init([Req, Opts]) ->
     MQTTPiggyback = proplists:get_value(mqtt_piggyback, Opts, multiple),
     FrameOpts = emqx_zone:mqtt_frame_options(Zone),
     ParseState = emqx_frame:initial_parse_state(FrameOpts),
-    Serialize = emqx_frame:serialize_fun(),
+    Serialize = emqx_frame:serialize_opts(),
     Channel = emqx_channel:init(ConnInfo, Opts),
     GcState = emqx_zone:init_gc_state(Zone),
     StatsTimer = emqx_zone:stats_timer(Zone),
@@ -292,7 +292,7 @@ websocket_info({cast, Msg}, State) ->
     handle_info(Msg, State);
 
 websocket_info({incoming, Packet = ?CONNECT_PACKET(ConnPkt)}, State) ->
-    Serialize = emqx_frame:serialize_fun(ConnPkt),
+    Serialize = emqx_frame:serialize_opts(ConnPkt),
     NState = State#state{serialize = Serialize},
     handle_incoming(Packet, cancel_idle_timer(NState));
 
@@ -535,7 +535,7 @@ handle_outgoing(Packets, State = #state{active_n = ActiveN, mqtt_piggyback = MQT
                      postpone({check_gc, Stats}, State);
                  false -> State
              end,
-    
+
     {case MQTTPiggyback of
          single -> [{binary, IoData}];
          multiple -> lists:map(fun(Bin) -> {binary, Bin} end, IoData)
@@ -544,7 +544,7 @@ handle_outgoing(Packets, State = #state{active_n = ActiveN, mqtt_piggyback = MQT
 
 serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
     fun(Packet) ->
-        case Serialize(Packet) of
+        case emqx_frame:serialize_pkt(Packet, Serialize) of
             <<>> -> ?LOG(warning, "~s is discarded due to the frame is too large.",
                          [emqx_packet:format(Packet)]),
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),
@@ -568,35 +568,38 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
           ]}).
 
 inc_recv_stats(Cnt, Oct) ->
-    emqx_pd:inc_counter(incoming_bytes, Oct),
-    emqx_pd:inc_counter(recv_cnt, Cnt),
-    emqx_pd:inc_counter(recv_oct, Oct),
+    inc_counter(incoming_bytes, Oct),
+    inc_counter(recv_cnt, Cnt),
+    inc_counter(recv_oct, Oct),
     emqx_metrics:inc('bytes.received', Oct).
 
 inc_incoming_stats(Packet = ?PACKET(Type)) ->
-    emqx_pd:inc_counter(recv_pkt, 1),
+    _ = emqx_pd:inc_counter(recv_pkt, 1),
     if Type == ?PUBLISH ->
-           emqx_pd:inc_counter(recv_msg, 1),
-           emqx_pd:inc_counter(incoming_pubs, 1);
+           inc_counter(recv_msg, 1),
+           inc_counter(incoming_pubs, 1);
        true -> ok
     end,
     emqx_metrics:inc_recv(Packet).
 
 inc_outgoing_stats(Packet = ?PACKET(Type)) ->
-    emqx_pd:inc_counter(send_pkt, 1),
+    _ = emqx_pd:inc_counter(send_pkt, 1),
     if Type == ?PUBLISH ->
-           emqx_pd:inc_counter(send_msg, 1),
-           emqx_pd:inc_counter(outgoing_pubs, 1);
+           inc_counter(send_msg, 1),
+           inc_counter(outgoing_pubs, 1);
        true -> ok
     end,
     emqx_metrics:inc_sent(Packet).
 
 inc_sent_stats(Cnt, Oct) ->
-    emqx_pd:inc_counter(outgoing_bytes, Oct),
-    emqx_pd:inc_counter(send_cnt, Cnt),
-    emqx_pd:inc_counter(send_oct, Oct),
+    inc_counter(outgoing_bytes, Oct),
+    inc_counter(send_cnt, Cnt),
+    inc_counter(send_oct, Oct),
     emqx_metrics:inc('bytes.sent', Oct).
 
+inc_counter(Name, Value) ->
+    _ = emqx_pd:inc_counter(Name, Value),
+    ok.
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------

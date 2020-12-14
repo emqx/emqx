@@ -52,25 +52,25 @@
 
 %% Called when the plugin application start
 load(Env) ->
-    emqx:hook('client.connect',      {?MODULE, on_client_connect, [Env]}),
-    emqx:hook('client.connack',      {?MODULE, on_client_connack, [Env]}),
-    emqx:hook('client.connected',    {?MODULE, on_client_connected, [Env]}),
-    emqx:hook('client.disconnected', {?MODULE, on_client_disconnected, [Env]}),
-    emqx:hook('client.authenticate', {?MODULE, on_client_authenticate, [Env]}),
-    emqx:hook('client.check_acl',    {?MODULE, on_client_check_acl, [Env]}),
-    emqx:hook('client.subscribe',    {?MODULE, on_client_subscribe, [Env]}),
-    emqx:hook('client.unsubscribe',  {?MODULE, on_client_unsubscribe, [Env]}),
-    emqx:hook('session.created',     {?MODULE, on_session_created, [Env]}),
-    emqx:hook('session.subscribed',  {?MODULE, on_session_subscribed, [Env]}),
-    emqx:hook('session.unsubscribed',{?MODULE, on_session_unsubscribed, [Env]}),
-    emqx:hook('session.resumed',     {?MODULE, on_session_resumed, [Env]}),
-    emqx:hook('session.discarded',   {?MODULE, on_session_discarded, [Env]}),
-    emqx:hook('session.takeovered',  {?MODULE, on_session_takeovered, [Env]}),
-    emqx:hook('session.terminated',  {?MODULE, on_session_terminated, [Env]}),
-    emqx:hook('message.publish',     {?MODULE, on_message_publish, [Env]}),
-    emqx:hook('message.delivered',   {?MODULE, on_message_delivered, [Env]}),
-    emqx:hook('message.acked',       {?MODULE, on_message_acked, [Env]}),
-    emqx:hook('message.dropped',     {?MODULE, on_message_dropped, [Env]}).
+    hook('client.connect',      {?MODULE, on_client_connect, [Env]}),
+    hook('client.connack',      {?MODULE, on_client_connack, [Env]}),
+    hook('client.connected',    {?MODULE, on_client_connected, [Env]}),
+    hook('client.disconnected', {?MODULE, on_client_disconnected, [Env]}),
+    hook('client.authenticate', {?MODULE, on_client_authenticate, [Env]}),
+    hook('client.check_acl',    {?MODULE, on_client_check_acl, [Env]}),
+    hook('client.subscribe',    {?MODULE, on_client_subscribe, [Env]}),
+    hook('client.unsubscribe',  {?MODULE, on_client_unsubscribe, [Env]}),
+    hook('session.created',     {?MODULE, on_session_created, [Env]}),
+    hook('session.subscribed',  {?MODULE, on_session_subscribed, [Env]}),
+    hook('session.unsubscribed',{?MODULE, on_session_unsubscribed, [Env]}),
+    hook('session.resumed',     {?MODULE, on_session_resumed, [Env]}),
+    hook('session.discarded',   {?MODULE, on_session_discarded, [Env]}),
+    hook('session.takeovered',  {?MODULE, on_session_takeovered, [Env]}),
+    hook('session.terminated',  {?MODULE, on_session_terminated, [Env]}),
+    hook('message.publish',     {?MODULE, on_message_publish, [Env]}),
+    hook('message.delivered',   {?MODULE, on_message_delivered, [Env]}),
+    hook('message.acked',       {?MODULE, on_message_acked, [Env]}),
+    hook('message.dropped',     {?MODULE, on_message_dropped, [Env]}).
 
 %%--------------------------------------------------------------------
 %% Client Lifecircle Hooks
@@ -186,3 +186,8 @@ unload() ->
     emqx:unhook('message.acked',       {?MODULE, on_message_acked}),
     emqx:unhook('message.dropped',     {?MODULE, on_message_dropped}).
 
+hook(Name, MFA) ->
+    case emqx:hook(Name, MFA) of
+        ok -> ok;
+        {error, already_exists} -> ok
+    end.
