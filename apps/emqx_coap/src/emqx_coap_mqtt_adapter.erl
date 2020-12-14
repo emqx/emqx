@@ -115,8 +115,12 @@ init({ClientId, Username, Password, Channel}) ->
 
             run_hooks('client.connected', [clientinfo(State), conninfo(State)]),
 
-            erlang:send_after(?ALIVE_INTERVAL, self(), check_alive),
-            emqx_cm:register_channel(ClientId, info(State), stats(State)),
+            Self = self(),
+            erlang:send_after(?ALIVE_INTERVAL, Self, check_alive),
+            _ = emqx_cm_locker:trans(ClientId, fun(_) ->
+                emqx_cm:register_channel(ClientId, Self, conninfo(State))
+            end),
+            emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
             {ok, State};
         {error, Reason} ->
             ?LOG(debug, "authentication faild: ~p", [Reason]),

@@ -94,7 +94,10 @@ init(CoapPid, EndpointName, Peername = {_Peerhost, _Port}, RegInfo = #{<<"lt">> 
             erlang:send(CoapPid, post_init),
             erlang:send_after(2000, CoapPid, auto_observe),
 
-            emqx_cm:register_channel(EndpointName, info(Lwm2mState1), stats(Lwm2mState1)),
+            _ = emqx_cm_locker:trans(EndpointName, fun(_) ->
+                emqx_cm:register_channel(EndpointName, CoapPid, conninfo(Lwm2mState1))
+            end),
+            emqx_cm:insert_channel_info(EndpointName, info(Lwm2mState1), stats(Lwm2mState1)),
 
             {ok, Lwm2mState1#lwm2m_state{life_timer = emqx_lwm2m_timer:start_timer(LifeTime, {life_timer, expired})}};
         {error, Error} ->

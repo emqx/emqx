@@ -101,12 +101,12 @@ start_link() ->
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Insert the channel info and stats to emqx_channel table
+%% @doc Insert/Update the channel info and stats to emqx_channel table
 -spec(insert_channel_info(emqx_types:clientid(),
                           emqx_types:infos(),
                           emqx_types:stats()) -> ok).
-insert_channel_info(ClientId, Info = #{conninfo := ConnInfo}, Stats) ->
-    Chan = {ClientId, ChanPid = self()},
+insert_channel_info(ClientId, Info, Stats) ->
+    Chan = {ClientId, self()},
     true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, Stats}),
     ok.
 
