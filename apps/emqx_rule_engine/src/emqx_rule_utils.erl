@@ -122,10 +122,12 @@ proc_cmd(Tokens, Data, Opts) ->
 
 %% preprocess SQL with place holders
 -spec(preproc_sql(Sql::binary()) -> {prepare_statement(), prepare_params()}).
+-dialyzer({nowarn_function,preproc_sql/1}).
 preproc_sql(Sql) ->
     preproc_sql(Sql, '?').
 
 -spec(preproc_sql(Sql::binary(), ReplaceWith :: '?' | '$n') -> {prepare_statement(), prepare_params()}).
+-dialyzer({nowarn_function,preproc_sql/2}).
 preproc_sql(Sql, ReplaceWith) ->
     case re:run(Sql, ?EX_PLACE_HOLDER, [{capture, all_but_first, binary}, global]) of
         {match, PlaceHolders} ->
