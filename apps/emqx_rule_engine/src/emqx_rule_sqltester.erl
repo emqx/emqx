@@ -26,7 +26,8 @@
                              test_rule/4,
                              flatten/1,
                              sql_test_action/0,
-                             fill_default_values/2
+                             fill_default_values/2,
+                             envs_examp/1
                              ]}).
 
 -spec(test(#{}) -> {ok, Result::map()} | no_return()).

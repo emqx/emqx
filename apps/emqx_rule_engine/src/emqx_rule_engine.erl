@@ -147,8 +147,7 @@ find_attrs(App, Def) ->
 module_attributes(Module) ->
     try Module:module_info(attributes)
     catch
-        error:undef -> [];
-        error:Reason -> error(Reason)
+        error:undef -> []
     end.
 
 %%------------------------------------------------------------------------------
@@ -156,7 +155,7 @@ module_attributes(Module) ->
 %%------------------------------------------------------------------------------
 
 -dialyzer([{nowarn_function, [create_rule/1, rule_id/0]}]).
--spec(create_rule(#{}) -> {ok, rule()} | {error, term()} | no_return()).
+-spec create_rule(map()) -> {ok, rule()} | {error, term()} | no_return().
 create_rule(Params = #{rawsql := Sql, actions := Actions}) ->
     case emqx_rule_sqlparser:parse_select(Sql) of
         {ok, Select} ->

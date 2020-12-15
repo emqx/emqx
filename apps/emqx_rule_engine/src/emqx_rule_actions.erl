@@ -115,7 +115,7 @@ on_resource_create(_Name, Conf) ->
 %%------------------------------------------------------------------------------
 -spec on_action_create_inspect(action_instance_id(), Params :: map())
     -> {bindings(), NewParams :: map()}.
-on_action_create_inspect(_Id, Params) ->
+on_action_create_inspect(Id, Params) ->
     Params.
 
 -spec on_action_inspect(selected_data(), env_vars()) -> any().

@@ -203,6 +203,7 @@ test_rule_sql(Params) ->
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
+-dialyzer([{nowarn_function, [do_create_rule/1]}]).
 do_create_rule(Params) ->
     try emqx_rule_engine:create_rule(parse_rule_params(Params)) of
         {ok, Rule} -> return({ok, record_to_map(Rule)});
@@ -228,9 +229,7 @@ update_rule(#{id := Id}, Params) ->
     try emqx_rule_engine:update_rule(parse_rule_params(Params, #{id => Id})) of
         {ok, Rule} -> return({ok, record_to_map(Rule)});
         {error, {not_found, RuleId}} ->
-            return({error, 400, ?ERR_NO_RULE(RuleId)});
-        {error, Error} ->
-            return({error, 400, ?ERR_BADARGS(Error)})
+            return({error, 400, ?ERR_NO_RULE(RuleId)})
     catch
         throw:{action_not_found, ActionName} ->
             return({error, 400, ?ERR_NO_ACTION(ActionName)});
@@ -262,7 +261,9 @@ delete_rule(#{id := Id}, _Params) ->
 %%------------------------------------------------------------------------------
 
 list_actions(#{}, _Params) ->
-    return_all(emqx_rule_registry:get_actions()).
+    return_all(
+        sort_by_title(action,
+            emqx_rule_registry:get_actions())).
 
 show_action(#{name := Name}, _Params) ->
     reply_with(fun emqx_rule_registry:find_action/1, Name).

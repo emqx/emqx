@@ -26,6 +26,7 @@
 
 -define(APP, emqx_rule_engine).
 
+-spec start(term(), term()) -> {ok, pid()} | no_return().
 start(_Type, _Args) ->
     {ok, Sup} = emqx_rule_engine_sup:start_link(),
     _ = emqx_rule_engine_sup:start_locker(),

@@ -389,7 +389,7 @@ event_info_session_unsubscribed() ->
     ).
 
 event_info_common(Event, {TitleEN, TitleZH}, {DescrEN, DescrZH}, SqlExam) ->
-    #{event => Event,
+    #{event => event_topic(Event),
       title => #{en => TitleEN, zh => TitleZH},
       description => #{en => DescrEN, zh => DescrZH},
       test_columns => test_columns(Event),
@@ -592,7 +592,8 @@ event_topic('session.subscribed') -> <<"$events/session_subscribed">>;
 event_topic('session.unsubscribed') -> <<"$events/session_unsubscribed">>;
 event_topic('message.delivered') -> <<"$events/message_delivered">>;
 event_topic('message.acked') -> <<"$events/message_acked">>;
-event_topic('message.dropped') -> <<"$events/message_dropped">>.
+event_topic('message.dropped') -> <<"$events/message_dropped">>;
+event_topic('message.publish') -> <<"$events/message_publish">>.
 
 printable_maps(undefined) -> #{};
 printable_maps(Headers) ->
