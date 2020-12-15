@@ -1,0 +1,200 @@
+name: Functional Verification Tests
+
+on:
+  push:
+    tags:
+      - v*
+  release:
+    types:
+      - published
+  pull_request:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [run_actions]
+
+jobs:
+    docker_test:
+        runs-on: ubuntu-20.04
+
+        steps:
+        - uses: actions/checkout@v1
+        - name: make emqx image
+          run: TARGET=emqx/emqx make docker
+        - name: run emqx
+          timeout-minutes: 5
+          run: |
+            set -e -u -x
+            docker-compose -f .ci/fvt_tests/docker-compose.yaml up -d
+            while [ "$(docker inspect -f '{{ .State.Health.Status}}' node1.emqx.io)" != "healthy" ] || [ "$(docker inspect -f '{{ .State.Health.Status}}' node2.emqx.io)" != "healthy" ]; do
+              if [ $(docker ps -a -f name=fvt_tests_emqx -f status=exited -q | wc -l) -ne 0 ]; then
+                  echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']:emqx stop";
+                  exit;
+              else
+                  echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']:waiting emqx";
+                  sleep 5;
+              fi;
+            done
+        - name: make paho tests
+          run: |
+            docker exec -i paho_client sh -c "apk update && apk add git curl \
+              && git clone -b develop-4.0 https://github.com/emqx/paho.mqtt.testing.git /paho.mqtt.testing \
+              && pip install pytest \
+              && pytest -v /paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host node1.emqx.io \
+              && pytest -v /paho.mqtt.testing/interoperability/test_cluster --host1 node1.emqx.io --host2 node2.emqx.io \
+              && pytest -v /paho.mqtt.testing/interoperability/test_client --host node1.emqx.io"
+
+    helm_test:
+        runs-on: ubuntu-20.04
+
+        steps:
+        - uses: actions/checkout@v1
+        - name: make emqx image
+          run: TARGET=emqx/emqx make docker
+        - name: install k3s
+          env:
+            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
+          run: |
+            sudo sh -c "echo \"127.0.0.1 $(hostname)\" >> /etc/hosts"
+            curl -sfL https://get.k3s.io | sh -
+            sudo chmod 644 /etc/rancher/k3s/k3s.yaml
+            kubectl cluster-info
+        - name: install helm
+          env:
+            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
+          run: |
+            curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+            sudo chmod 700 get_helm.sh
+            sudo ./get_helm.sh
+            helm version
+        - name: run emqx on chart
+          env:
+            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
+          timeout-minutes: 5
+          run: |
+            version=$(./pkg-vsn.sh)
+            sudo docker save emqx/emqx:$version -o emqx.tar.gz
+            sudo k3s ctr image import emqx.tar.gz
+
+            sed -i -r "s/^appVersion: .*$/appVersion: \"${version}\"/g" deploy/charts/emqx/Chart.yaml
+            sed -i -r 's/  pullPolicy: .*$/  pullPolicy: Never/g' deploy/charts/emqx/values.yaml
+
+            helm install emqx --set emqxAclConfig="" --set emqxConfig.EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 deploy/charts/emqx --debug --dry-run
+            helm install emqx --set emqxAclConfig="" --set emqxConfig.EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 deploy/charts/emqx
+
+            while [ "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.replicas}')" \
+              != "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.readyReplicas}')" ]; do
+              echo "==============================";
+              kubectl get pods;
+              echo "==============================";
+              echo "waiting emqx started";
+              sleep 10;
+            done
+        - uses: actions/checkout@v2
+          with:
+            repository: emqx/paho.mqtt.testing
+            ref: develop-4.0
+            path: paho.mqtt.testing
+        - name: install pytest
+          run: |
+            pip install pytest
+            echo "$HOME/.local/bin" >> $GITHUB_PATH
+        - name: run paho test
+          env:
+            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
+          run: |
+            emqx_svc=$(kubectl get svc --namespace default emqx -o jsonpath="{.spec.clusterIP}")
+            emqx1=$(kubectl get pods emqx-1 -o jsonpath='{.status.podIP}')
+            emqx2=$(kubectl get pods emqx-2 -o jsonpath='{.status.podIP}')
+
+            pytest -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host $emqx_svc
+            pytest -v paho.mqtt.testing/interoperability/test_cluster --host1 $emqx1 --host2 $emqx2
+
+    relup_test:
+        runs-on: ubuntu-20.04
+        container: emqx/build-env:erl22.3-ubuntu20.04
+        defaults:
+          run:
+            shell: bash
+        steps:
+        - uses: actions/setup-python@v2
+          with:
+            python-version: '3.8'
+            architecture: 'x64'
+        - uses: actions/checkout@v2
+          with:
+            repository: emqx/paho.mqtt.testing
+            ref: develop-4.0
+            path: paho.mqtt.testing
+        - uses: actions/checkout@v2
+          with:
+            repository: terry-xiaoyu/one_more_emqx
+            ref: master
+            path: one_more_emqx
+        - uses: actions/checkout@v2
+          with:
+            repository: emqx/emqtt-bench
+            ref: master
+            path: emqtt-bench
+        - uses: actions/checkout@v2
+          with:
+            repository: hawk/lux
+            ref: lux-2.4
+            path: lux
+        - uses: actions/checkout@v2
+          with:
+            repository: ${{ github.repository }}
+            path: emqx
+            fetch-depth: 0
+        - name: get version
+          run: |
+            set -e -x -u
+            cd emqx
+            vsn="$(erl -eval '{ok, [{application,emqx, L} | _]} = file:consult("src/emqx.app.src"), {vsn, VSN} = lists:keyfind(vsn,1,L), io:fwrite(VSN), halt().' -noshell)"
+            echo "VSN=$vsn" >> $GITHUB_ENV
+            pre_tag="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
+            old_vsns="$(git tag -l "$pre_tag.[0-9]" | tr "\n" " " | sed "s/$vsn//")"
+            echo "OLD_VSNS=$old_vsns" >> $GITHUB_ENV
+        - name: download emqx
+          run: |
+            set -e -x -u
+            cd emqx
+            old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
+            for old_vsn in ${old_vsns[@]}; do
+              wget https://s3-us-west-2.amazonaws.com/packages.emqx/emqx-ce/v$old_vsn/emqx-ubuntu20.04-${old_vsn}-x86_64.zip
+            done
+        - name: build emqx
+          run: make -C emqx emqx-zip
+        - name: build emqtt-bench
+          run: make -C emqtt-bench
+        - name: build lux
+          run: |
+            set -e -u -x
+            cd lux
+            autoconf
+            ./configure
+            make
+            make install
+        - name: run relup test
+          run: |
+            set -e -x -u
+            if [ -n "$OLD_VSNS" ]; then
+                mkdir -p packages
+                cp emqx/_packages/emqx/*.zip packages
+                cp emqx/*.zip packages
+                lux -v \
+                --timeout 600000 \
+                --var PACKAGE_PATH=$(pwd)/packages \
+                --var BENCH_PATH=$(pwd)/emqtt-bench \
+                --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
+                --var VSN="$VSN" \
+                --var OLD_VSNS="$OLD_VSNS" \
+                emqx/.ci/fvt_tests/relup.lux
+            fi
+        - uses: actions/upload-artifact@v1
+          if: failure()
+          with:
+            name: lux_logs
+            path: lux_logs
+
+
+

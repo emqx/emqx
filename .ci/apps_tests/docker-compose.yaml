@@ -1,0 +1,112 @@
+version: '3'
+
+services:
+  erlang:
+    container_name: erlang
+    image: erlang:22.3
+    depends_on:
+      - mysql_server
+      - redis_server
+      - mongo_server
+      - pgsql_server
+      - ldap_server
+    networks:
+      - emqx_bridge
+    volumes:
+      - ../../.:/emqx
+    working_dir: /emqx
+    tty: true
+
+  mysql_server:
+    container_name: mysql
+    image: mysql:${MYSQL_VSN}
+    restart: always
+    ports:
+      - 3306:3306
+    environment:
+      MYSQL_ROOT_PASSWORD: public
+      MYSQL_DATABASE: mqtt
+    volumes:
+      - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem:/etc/certs/ca-cert.pem
+      - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/server-cert.pem:/etc/certs/server-cert.pem
+      - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/server-key.pem:/etc/certs/server-key.pem
+    command:
+      --bind-address 0.0.0.0
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+      --explicit_defaults_for_timestamp=true
+      --lower_case_table_names=1
+      --max_allowed_packet=128M
+      --skip-symbolic-links
+      --ssl-ca=/etc/certs/ca.pem
+      --ssl-cert=/etc/certs/server-cert.pem
+      --ssl-key=/etc/certs/server-key.pem
+    networks:
+      - emqx_bridge
+
+  redis_server:
+    container_name: redis
+    image: redis:${REDIS_VSN}
+    ports:
+      - 6379:6379
+    command:
+      - redis-server
+      - "--bind 0.0.0.0 ::"
+      - --tls-port 6380
+      - --tls-cert-file /tls/redis.crt
+      - --tls-key-file /tls/redis.key
+      - --tls-ca-cert-file /tls/ca.crt
+    volumes:
+      - ../../apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs:/tls
+    restart: always
+    networks:
+      - emqx_bridge
+
+  mongo_server:
+    container_name: mongo
+    image: mongo:${MONGO_VSN}
+    ports:
+      - 27017:27017
+    restart: always
+    environment:
+      MONGO_INITDB_DATABASE: mqtt
+    volumes:
+        - ../../apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/mongodb.pem/:/etc/certs/mongodb.pem
+    command:
+      --ipv6
+      --bind_ip_all
+      --sslMode requireSSL
+      --sslPEMKeyFile /etc/certs/mongodb.pem
+    networks:
+      - emqx_bridge
+
+  pgsql_server:
+    container_name: pgsql
+    image: postgres:${PGSQL_VSN}
+    ports:
+      - 5432:5432
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: public
+      POSTGRES_USER: root
+      POSTGRES_DB: mqtt
+    networks:
+      - emqx_bridge
+
+  ldap_server:
+    container_name: openldap
+    build:
+      context: ./emqx_ldap
+      args: 
+        LDAP_VSN: ${LDAP_VSN}
+    image: emqx-ldap:1.0
+    ports:
+      - 389:389
+    restart: always
+    networks:
+      - emqx_bridge
+
+networks:
+  emqx_bridge:
+    driver: bridge

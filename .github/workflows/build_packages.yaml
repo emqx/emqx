@@ -1,10 +1,16 @@
 name: Cross build packages
 
 on:
-  pull_request:
   push:
     tags:
       - v*
+  release:
+    types:
+      - published
+  pull_request:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [run_actions]
 
 jobs:
   windows:
@@ -275,11 +281,6 @@ jobs:
 
         sudo TARGET=emqx/emqx-edge ARCH=$ARCH QEMU_ARCH=$QEMU_ARCH  make docker
         cd _packages/emqx-edge && for var in $(ls emqx-edge-docker-* ); do sudo bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"; done && cd -
-    - name: docker test
-      if: matrix.arch[0] == 'amd64'
-      run: |
-        sudo TARGET=emqx/emqx PAHO_BRANCH="develop-4.0" make -C .ci/paho_tests cluster_test
-        sudo TARGET=emqx/emqx-edge PAHO_BRANCH="develop-4.0" make -C .ci/paho_tests cluster_test
     - uses: actions/upload-artifact@v1
       with:
         name: emqx
@@ -340,7 +341,7 @@ jobs:
       with:
         path: emqx
     - name: update to github and emqx.io
-      if: contains(github.ref, 'refs/tags/')
+      if: github.event_name == 'release'
       run: |
         set -e -x -u
         version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
@@ -357,7 +358,7 @@ jobs:
              -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${version}\" }" \
              ${{ secrets.EMQX_IO_RELEASE_API }}
     - name: push docker image to docker hub
-      if: contains(github.ref, 'refs/tags/')
+      if: github.event_name == 'release'
       run: |
         set -e -x -u
         version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
@@ -369,7 +370,7 @@ jobs:
         sudo TARGET=emqx/emqx-edge make -C emqx docker-push
         sudo TARGET=emqx/emqx-edge make -C emqx docker-manifest-list
     - name: update repo.emqx.io
-      if: contains(github.ref, 'refs/tags/')
+      if: github.event_name == 'release'
       run: |
         set -e -x -u
         version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
