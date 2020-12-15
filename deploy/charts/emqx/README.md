@@ -10,7 +10,7 @@ To install the chart with the release name `my-emqx`:
 
 +   From github 
     ```
-    $ git clone https://github.com/emqx/emqx-rel.git
+    $ git clone https://github.com/emqx/emqx.git
     $ cd emqx-rel/deploy/charts/emqx
     $ helm install my-emqx .
     ```
