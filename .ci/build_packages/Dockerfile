@@ -7,6 +7,6 @@ COPY . /emqx
 
 WORKDIR /emqx
 
-RUN sed -i "/^export LC_ALL=.*$/d" Makefile && make ${EMQX_NAME}-pkg || cat rebar3.crashdump
+RUN make ${EMQX_NAME}-pkg || cat rebar3.crashdump
 
 RUN /emqx/.ci/build_packages/tests.sh

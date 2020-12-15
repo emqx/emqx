@@ -17,7 +17,8 @@ RUN apk add --no-cache \
     coreutils \
     bsd-compat-headers \
     libc-dev \
-    libstdc++
+    libstdc++ \
+    bash
 
 COPY . /emqx
 
