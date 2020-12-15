@@ -1,6 +1,6 @@
-REBAR_VERSION = 3.14.3-emqx-2
-REBAR = ./rebar3
-export PKG_VSN ?= $(shell git describe --tags --always)
+REBAR_VERSION = 3.14.3-emqx-3
+REBAR = $(CURDIR)/rebar3
+export PKG_VSN ?= $(shell git describe --tags --match '[0-9]*' 2>/dev/null || git describe --always)
 # comma separated versions
 export RELUP_BASE_VERSIONS ?=
 
@@ -18,7 +18,7 @@ all: $(REBAR) $(PROFILES)
 
 .PHONY: ensure-rebar3
 ensure-rebar3:
-	@./ensure-rebar3.sh $(REBAR_VERSION)
+	$(CURDIR)/ensure-rebar3.sh $(REBAR_VERSION)
 
 $(REBAR): ensure-rebar3
 

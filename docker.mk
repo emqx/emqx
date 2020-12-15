@@ -7,6 +7,7 @@ QEMU_ARCH ?= x86_64
 ARCH ?= amd64
 QEMU_VERSION ?= v5.0.0-2
 OS ?= alpine
+PKG_VSN ?= $(shell git describe --tags --match '[0-9]*')
 
 EMQX_NAME = $(subst emqx/,,$(TARGET))
 ARCH_LIST = amd64 arm64v8 arm32v7 i386 s390x
@@ -40,7 +41,6 @@ docker-build:
 	@echo "DOCKER BUILD: qemu arch - $(QEMU_ARCH)."
 	@echo "DOCKER BUILD: docker repo - $(TARGET) "
 	@echo "DOCKER BUILD: emqx name - $(EMQX_NAME)."
-	@echo "DOCKER BUILD: emqx version - $(EMQX_DEPS_DEFAULT_VSN)."
 
 	## Prepare qemu to build images other then x86_64 on travis
 	@echo "PREPARE: Qemu" \
@@ -53,7 +53,7 @@ docker-build:
 	&& cd -
 
 	@docker build --no-cache \
-		--build-arg EMQX_DEPS_DEFAULT_VSN=$(EMQX_DEPS_DEFAULT_VSN) \
+		--build-arg PKG_VSN=$(PKG_VSN)  \
 		--build-arg BUILD_FROM=emqx/build-env:erl22.3-alpine-$(ARCH)  \
 		--build-arg RUN_FROM=$(ARCH)/alpine:3.11 \
 		--build-arg EMQX_NAME=$(EMQX_NAME) \
