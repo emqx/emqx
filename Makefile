@@ -1,12 +1,12 @@
 REBAR_VERSION = 3.14.3-emqx-3
 REBAR = $(CURDIR)/rebar3
-export PKG_VSN ?= $(shell git describe --tags --match '[0-9]*' 2>/dev/null || git describe --always)
-# comma separated versions
-export RELUP_BASE_VERSIONS ?=
+BUILD = $(CURDIR)/build
+export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 
 PROFILE ?= emqx
-PROFILES := emqx emqx-edge check test
+REL_PROFILES := emqx emqx-edge
 PKG_PROFILES := emqx-pkg emqx-edge-pkg
+PROFILES := $(REL_PROFILES) $(PKG_PROFILES)
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
 
@@ -30,18 +30,14 @@ eunit: $(REBAR)
 ct: $(REBAR)
 	$(REBAR) ct
 
-.PHONY: $(PROFILES)
-$(PROFILES:%=%): $(REBAR)
+.PHONY: $(REL_PROFILES)
+$(REL_PROFILES:%=%): $(REBAR)
 ifneq ($(shell echo $(@) |grep edge),)
 	export EMQX_DESC="EMQ X Edge"
 else
 	export EMQX_DESC="EMQ X Broker"
 endif
 	$(REBAR) as $(@) release
-
-.PHONY: $(PROFILES:%=build-%)
-$(PROFILES:%=build-%): $(REBAR)
-	$(REBAR) as $(@:build-%=%) compile
 
 # rebar clean
 .PHONY: clean $(PROFILES:%=clean-%)
@@ -50,10 +46,10 @@ $(PROFILES:%=clean-%): $(REBAR)
 	$(REBAR) as $(@:clean-%=%) clean
 
 .PHONY: deps-all
-deps-all: $(REBAR) $(PROFILES:%=deps-%) $(PKG_PROFILES:%=deps-%)
+deps-all: $(REBAR) $(PROFILES:%=deps-%)
 
-.PHONY: $(PROFILES:%=deps-%) $(PKG_PROFILES:%=deps-%)
-$(PROFILES:%=deps-%) $(PKG_PROFILES:%=deps-%): $(REBAR)
+.PHONY: $(PROFILES:%=deps-%)
+$(PROFILES:%=deps-%): $(REBAR)
 ifneq ($(shell echo $(@) |grep edge),)
 	export EMQX_DESC="EMQ X Edge"
 else
@@ -69,5 +65,32 @@ xref: $(REBAR)
 dialyzer: $(REBAR)
 	$(REBAR) as check dialyzer
 
-include packages.mk
+.PHONY: $(REL_PROFILES:%=relup-%)
+$(REL_PROFILES:%=relup-%): $(REBAR)
+ifneq ($(OS),Windows_NT)
+	$(BUILD) $(@:relup-%=%) relup
+endif
+
+.PHONY: $(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar)
+$(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar): $(REBAR)
+	$(BUILD) $(subst -tar,,$(@)) tar
+
+## zip targets depend on the corresponding relup and tar artifacts
+.PHONY: $(REL_PROFILES:%=%-zip)
+define gen-zip-target
+$1-zip: relup-$1 $1-tar
+	$(BUILD) $1 zip
+endef
+ALL_ZIPS = $(REL_PROFILES) $(PKG_PROFILES)
+$(foreach zt,$(ALL_ZIPS),$(eval $(call gen-zip-target,$(zt))))
+
+## A pkg target depend on a regular release profile zip to include relup,
+## and also a -pkg suffixed profile tar (without relup) for making deb/rpm package
+.PHONY: $(PKG_PROFILES)
+define gen-pkg-target
+$1: $(subst -pkg,,$1)-zip $1-tar
+	$(BUILD) $1 pkg
+endef
+$(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
+
 include docker.mk

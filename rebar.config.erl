@@ -232,7 +232,7 @@ env(Name, Default) ->
 
 get_vsn() ->
     PkgVsn = case env("PKG_VSN", false) of
-                 false -> os:cmd("git describe --tags --always");
+                 false -> os:cmd("./pkg-vsn.sh");
                  Vsn -> Vsn
              end,
     Vsn2 = re:replace(PkgVsn, "v", "", [{return ,list}]),
