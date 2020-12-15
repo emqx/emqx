@@ -2,7 +2,7 @@
 
 -type selected_data() :: map().
 -type env_vars() :: map().
--type bindings() :: list(#{atom() => term()}).
+-type bindings() :: list({atom(), term()}).
 
 -define(BINDING_KEYS, '__bindings__').
 

@@ -106,11 +106,11 @@
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
--spec(create_rule_metrics(rule_id()) -> Ref :: counters:counters_ref()).
+-spec(create_rule_metrics(rule_id()) -> ok).
 create_rule_metrics(Id) ->
     gen_server:call(?MODULE, {create_rule_metrics, Id}).
 
--spec(create_metrics(rule_id()) -> Ref :: counters:counters_ref()).
+-spec(create_metrics(rule_id()) -> ok).
 create_metrics(Id) ->
     gen_server:call(?MODULE, {create_metrics, Id}).
 

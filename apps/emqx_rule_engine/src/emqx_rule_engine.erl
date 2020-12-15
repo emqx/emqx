@@ -72,7 +72,7 @@
 %% Load all providers .
 -spec(load_providers() -> ok).
 load_providers() ->
-    [load_provider(App) || App <- ignore_lib_apps(application:loaded_applications())],
+    _ = [load_provider(App) || App <- ignore_lib_apps(application:loaded_applications())],
     ok.
 
 -spec(load_provider(App :: atom()) -> ok).
@@ -86,7 +86,7 @@ load_provider(App) when is_atom(App) ->
 %% Load all providers .
 -spec(unload_providers() -> ok).
 unload_providers() ->
-    [unload_provider(App) || App <- ignore_lib_apps(application:loaded_applications())],
+    _ = [unload_provider(App) || App <- ignore_lib_apps(application:loaded_applications())],
     ok.
 
 %% @doc Unload a provider.
@@ -139,7 +139,7 @@ new_resource_type({App, Mod, #{name := Name,
                    description = maps:get(description, Params, ?descr)}.
 
 find_attrs(App, Def) ->
-    [{App, Mod, Attr} || {ok, Modules} <- [application:get_key(App, modules)],
+    _ = [{App, Mod, Attr} || {ok, Modules} <- [application:get_key(App, modules)],
                          Mod <- Modules,
                          {Name, Attrs} <- module_attributes(Mod), Name =:= Def,
                          Attr <- Attrs].
@@ -156,7 +156,7 @@ module_attributes(Module) ->
 %%------------------------------------------------------------------------------
 
 -dialyzer([{nowarn_function, [create_rule/1, rule_id/0]}]).
--spec(create_rule(#{}) -> {ok, rule()} | no_return()).
+-spec(create_rule(#{}) -> {ok, rule()} | {error, term()} | no_return()).
 create_rule(Params = #{rawsql := Sql, actions := Actions}) ->
     case emqx_rule_sqlparser:parse_select(Sql) of
         {ok, Select} ->
@@ -177,7 +177,7 @@ create_rule(Params = #{rawsql := Sql, actions := Actions}) ->
             ok = emqx_rule_registry:add_rule(Rule),
             ok = emqx_rule_metrics:create_rule_metrics(RuleId),
             {ok, Rule};
-        Error -> error(Error)
+        Error -> {error, Error}
     end.
 
 -spec(update_rule(#{id := binary(), _=>_}) -> {ok, rule()} | {error, {not_found, rule_id()}}).
@@ -228,7 +228,7 @@ create_resource(#{type := Type, config := Config} = Params) ->
             {error, {resource_type_not_found, Type}}
     end.
 
--spec(start_resource(resource_id()) -> ok | {error, Reason :: term()}).
+-spec(start_resource(resource_id()) -> ok | {error, Reason :: term()} | no_return()).
 start_resource(ResId) ->
     case emqx_rule_registry:find_resource(ResId) of
         {ok, #resource{type = ResType, config = Config}} ->
@@ -299,6 +299,7 @@ ensure_resource_deleted(ResId) ->
 
 -spec(refresh_resources() -> ok).
 refresh_resources() ->
+    _ =
     [try refresh_resource(Res)
      catch _:Error:ST ->
         logger:critical(
@@ -311,14 +312,16 @@ refresh_resources() ->
     ok.
 
 refresh_resource(Type) when is_atom(Type) ->
+    _ =
     [refresh_resource(Resource)
      || Resource <- emqx_rule_registry:get_resources_by_type(Type)];
 refresh_resource(#resource{id = ResId, config = Config, type = Type}) ->
     {ok, #resource_type{on_create = {M, F}}} = emqx_rule_registry:find_resource_type(Type),
     cluster_call(init_resource, [M, F, ResId, Config]).
 
--spec(refresh_rules() -> ok).
+-spec(refresh_rules() -> no_return()).
 refresh_rules() ->
+    _ =
     [try refresh_rule(Rule)
      catch _:Error:ST ->
         logger:critical(
@@ -349,7 +352,7 @@ refresh_resource_status() ->
 %% Internal Functions
 %%------------------------------------------------------------------------------
 prepare_actions(Actions, NeedInit) ->
-    [prepare_action(Action, NeedInit) || Action <- Actions].
+    _ = [prepare_action(Action, NeedInit) || Action <- Actions].
 
 prepare_action(#{name := Name, args := Args} = Action, NeedInit) ->
     case emqx_rule_registry:find_action(Name) of
@@ -414,7 +417,7 @@ ignore_lib_apps(Apps) ->
                common_test, observer, webtool, xmerl, tools,
                test_server, compiler, debugger, eunit, et,
                wx],
-    [AppName || {AppName, _, _} <- Apps, not lists:member(AppName, LibApps)].
+    _ = [AppName || {AppName, _, _} <- Apps, not lists:member(AppName, LibApps)].
 
 resource_id() ->
     gen_id("resource:", fun emqx_rule_registry:find_resource/1).

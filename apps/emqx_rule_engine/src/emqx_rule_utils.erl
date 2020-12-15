@@ -67,9 +67,7 @@
 
 -type(tmpl_cmd() :: list(tmpl_token())).
 
--type(prepare_statement() :: binary()).
-
--type(prepare_params() :: fun((binary()) -> list())).
+-type(prepare_statement_key() :: binary()).
 
 %% preprocess template string with place holders
 -spec(preproc_tmpl(binary()) -> tmpl_token()).
@@ -94,6 +92,7 @@ put_head(Type, Term, List) ->
 proc_tmpl(Tokens, Data) ->
     proc_tmpl(Tokens, Data, #{return => full_binary}).
 
+-spec(proc_tmpl(tmpl_token(), map(), map()) -> binary() | list()).
 proc_tmpl(Tokens, Data, Opts = #{return := full_binary}) ->
     Trans = maps:get(var_trans, Opts, fun bin/1),
     list_to_binary(
@@ -115,17 +114,20 @@ preproc_cmd(Str) ->
     SubStrList = re:split(Str, ?EX_WITHE_CHARS, [{return,binary},trim]),
     [preproc_tmpl(SubStr) || SubStr <- SubStrList].
 
+-spec(proc_cmd([tmpl_token()], map()) -> binary() | list()).
 proc_cmd(Tokens, Data) ->
     proc_cmd(Tokens, Data, #{return => full_binary}).
+-spec(proc_cmd([tmpl_token()], map(), map()) -> list()).
 proc_cmd(Tokens, Data, Opts) ->
     [proc_tmpl(Tks, Data, Opts) || Tks <- Tokens].
 
 %% preprocess SQL with place holders
--spec(preproc_sql(Sql::binary()) -> {prepare_statement(), prepare_params()}).
+-spec(preproc_sql(Sql::binary()) -> {prepare_statement_key(), tmpl_token()}).
 preproc_sql(Sql) ->
     preproc_sql(Sql, '?').
 
--spec(preproc_sql(Sql::binary(), ReplaceWith :: '?' | '$n') -> {prepare_statement(), prepare_params()}).
+-spec(preproc_sql(Sql::binary(), ReplaceWith :: '?' | '$n')
+    -> {prepare_statement_key(), tmpl_token()}).
 preproc_sql(Sql, ReplaceWith) ->
     case re:run(Sql, ?EX_PLACE_HOLDER, [{capture, all_but_first, binary}, global]) of
         {match, PlaceHolders} ->
@@ -328,5 +330,6 @@ now_ms() ->
     erlang:system_time(millisecond).
 
 can_topic_match_oneof(Topic, Filters) ->
-    MatchedFilters = [Fltr || Fltr <- Filters, emqx_topic:match(Topic, Fltr)],
-    length(MatchedFilters) > 0.
+    lists:any(fun(Fltr) ->
+        emqx_topic:match(Topic, Fltr)
+    end, Filters).

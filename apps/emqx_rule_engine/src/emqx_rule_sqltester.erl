@@ -15,7 +15,6 @@
 -module(emqx_rule_sqltester).
 
 -include("rule_engine.hrl").
--include("rule_events.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -export([ test/1
@@ -96,4 +95,23 @@ sql_test_action() ->
     end.
 
 fill_default_values(Event, Context) ->
-    maps:merge(?EG_ENVS(Event), Context).
+    maps:merge(envs_examp(Event), Context).
+
+envs_examp(<<"$events/", _/binary>> = EVENT_TOPIC) ->
+    EventName = emqx_rule_events:event_name(EVENT_TOPIC),
+    emqx_rule_maps:atom_key_map(
+        maps:from_list(
+            emqx_rule_events:columns_with_exam(EventName)));
+envs_examp(_) ->
+    #{id => emqx_guid:to_hexstr(emqx_guid:gen()),
+      clientid => <<"c_emqx">>,
+      username => <<"u_emqx">>,
+      payload => <<"{\"id\": 1, \"name\": \"ha\"}">>,
+      peerhost => <<"127.0.0.1">>,
+      topic => <<"t/a">>,
+      qos => 1,
+      flags => #{sys => true, event => true},
+      publish_received_at => emqx_rule_utils:now_ms(),
+      timestamp => emqx_rule_utils:now_ms(),
+      node => node()
+    }.

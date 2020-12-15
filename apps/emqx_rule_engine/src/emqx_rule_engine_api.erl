@@ -17,13 +17,9 @@
 -module(emqx_rule_engine_api).
 
 -include("rule_engine.hrl").
--include("rule_events.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -import(minirest,  [return/1]).
-
-%% A lot of case clause no_match:es from rule_events.hrl
--dialyzer(no_match).
 
 -rest_api(#{name   => create_rule,
             method => 'POST',
@@ -209,11 +205,12 @@ test_rule_sql(Params) ->
 
 do_create_rule(Params) ->
     try emqx_rule_engine:create_rule(parse_rule_params(Params)) of
-        {ok, Rule} ->
-            return({ok, record_to_map(Rule)});
-        {error, {action_not_found, ActionName}} ->
-            return({error, 400, ?ERR_NO_ACTION(ActionName)})
+        {ok, Rule} -> return({ok, record_to_map(Rule)});
+        {error, Error} ->
+            return({error, 400, ?ERR_BADARGS(Error)})
     catch
+        throw:{action_not_found, ActionName} ->
+            return({error, 400, ?ERR_NO_ACTION(ActionName)});
         throw:{resource_not_found, ResId} ->
             return({error, 400, ?ERR_NO_RESOURCE(ResId)});
         throw:{invalid_hook, Hook} ->
@@ -229,13 +226,14 @@ do_create_rule(Params) ->
 
 update_rule(#{id := Id}, Params) ->
     try emqx_rule_engine:update_rule(parse_rule_params(Params, #{id => Id})) of
-        {ok, Rule} ->
-            return({ok, record_to_map(Rule)});
+        {ok, Rule} -> return({ok, record_to_map(Rule)});
         {error, {not_found, RuleId}} ->
             return({error, 400, ?ERR_NO_RULE(RuleId)});
-        {error, {action_not_found, ActionName}} ->
-            return({error, 400, ?ERR_NO_ACTION(ActionName)})
+        {error, Error} ->
+            return({error, 400, ?ERR_BADARGS(Error)})
     catch
+        throw:{action_not_found, ActionName} ->
+            return({error, 400, ?ERR_NO_ACTION(ActionName)});
         throw:{resource_not_found, ResId} ->
             return({error, 400, ?ERR_NO_RESOURCE(ResId)});
         throw:{invalid_hook, Hook} ->
@@ -385,7 +383,7 @@ show_resource_type(#{name := Name}, _Params) ->
 %%------------------------------------------------------------------------------
 
 list_events(#{}, _Params) ->
-    return({ok, ?EVENT_INFO}).
+    return({ok, emqx_rule_events:event_info()}).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
