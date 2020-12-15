@@ -457,9 +457,6 @@ ensure_timer(Name, Time, State = #pstate{timers = Timers}) ->
 reset_timer(Name, State) ->
     ensure_timer(Name, clean_timer(Name, State)).
 
-reset_timer(Name, Time, State) ->
-    ensure_timer(Name, Time, clean_timer(Name, State)).
-
 clean_timer(Name, State = #pstate{timers = Timers}) ->
     State#pstate{timers = maps:remove(Name, Timers)}.
 
