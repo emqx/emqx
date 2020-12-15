@@ -19,7 +19,7 @@ RUN apk add --no-cache \
     libc-dev \
     libstdc++
 
-COPY . /emqx-rel
+COPY . /emqx
 
 ARG PKG_VSN
 ARG EMQX_NAME=emqx
