@@ -199,7 +199,7 @@ on_action_republish(Selected, _Envs = #{
         }).
 
 increase_and_publish(ActId, Msg) ->
-    emqx_broker:safe_publish(Msg),
+    _ = emqx_broker:safe_publish(Msg),
     emqx_rule_metrics:inc_actions_success(ActId),
     emqx_metrics:inc_msg(Msg).
 
