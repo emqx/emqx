@@ -7,7 +7,7 @@ QEMU_ARCH ?= x86_64
 ARCH ?= amd64
 QEMU_VERSION ?= v5.0.0-2
 OS ?= alpine
-PKG_VSN ?= $(shell git describe --tags --match '[0-9]*')
+export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 
 EMQX_NAME = $(subst emqx/,,$(TARGET))
 ARCH_LIST = amd64 arm64v8 arm32v7 i386 s390x
