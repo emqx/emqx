@@ -30,6 +30,10 @@ eunit: $(REBAR)
 ct: $(REBAR)
 	$(REBAR) ct
 
+.PHONY: cover
+cover: $(REBAR)
+	$(REBAR) cover
+
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(REBAR)
 ifneq ($(shell echo $(@) |grep edge),)
