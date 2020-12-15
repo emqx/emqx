@@ -6,7 +6,7 @@
 
 + **Where to file issues:**
 
-  https://github.com/emqx/emqx-rel/issues
+  https://github.com/emqx/emqx/issues
 
 + **Supported architectures**
 
