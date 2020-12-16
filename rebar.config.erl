@@ -49,6 +49,7 @@ profiles() ->
                         ]}
     , {test,            [ {deps, test_deps()}
                         , {erl_opts, [debug_info, {parse_transform, mod_vsn}] ++ erl_opts_i()}
+                        , {post_hooks, [{compile, "scripts/render-configs.escript"}]}
                         ]}
     ].
 
