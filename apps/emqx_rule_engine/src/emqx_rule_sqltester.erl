@@ -30,7 +30,7 @@
                              envs_examp/1
                              ]}).
 
--spec(test(#{}) -> {ok, Result::map()} | no_return()).
+-spec(test(#{}) -> {ok, map() | list()} | {error, term()}).
 test(#{<<"rawsql">> := Sql, <<"ctx">> := Context}) ->
     {ok, Select} = emqx_rule_sqlparser:parse_select(Sql),
     InTopic = maps:get(<<"topic">>, Context, <<>>),

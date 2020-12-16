@@ -162,8 +162,7 @@ on_resource_destroy(_ResId, _Params) ->
     ok.
 
 %% An action that forwards publish messages to a remote web server.
--spec(on_action_create_data_to_webserver(Id::binary(), #{url() := string()})
-    -> {bindings(), NewParams :: map()}).
+-spec(on_action_create_data_to_webserver(Id::binary(), #{url() := string()}) -> {bindings(), NewParams :: map()}).
 on_action_create_data_to_webserver(Id, Params) ->
     #{url := Url, headers := Headers, method := Method, content_type := ContentType, payload_tmpl := PayloadTmpl, path := Path}
         = parse_action_params(Params),

@@ -314,7 +314,7 @@ find_resource_params(Id) ->
         [] -> not_found
     end.
 
--spec(remove_resource(emqx_rule_engine:resource() | emqx_rule_engine:resource_id()) -> ok | no_return()).
+-spec(remove_resource(emqx_rule_engine:resource() | emqx_rule_engine:resource_id()) -> ok).
 remove_resource(Resource) when is_record(Resource, resource) ->
     trans(fun delete_resource/1, [Resource#resource.id]);
 

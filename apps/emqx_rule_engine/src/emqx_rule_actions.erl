@@ -113,8 +113,7 @@ on_resource_create(_Name, Conf) ->
 %%------------------------------------------------------------------------------
 %% Action 'inspect'
 %%------------------------------------------------------------------------------
--spec on_action_create_inspect(action_instance_id(), Params :: map())
-    -> {bindings(), NewParams :: map()}.
+-spec on_action_create_inspect(action_instance_id(), Params :: map()) -> {bindings(), NewParams :: map()}.
 on_action_create_inspect(Id, Params) ->
     Params.
 
@@ -130,8 +129,7 @@ on_action_inspect(Selected, Envs) ->
 %%------------------------------------------------------------------------------
 %% Action 'republish'
 %%------------------------------------------------------------------------------
--spec on_action_create_republish(action_instance_id(), Params :: map())
-      -> {bindings(), NewParams :: map()}.
+-spec on_action_create_republish(action_instance_id(), Params :: map()) -> {bindings(), NewParams :: map()}.
 on_action_create_republish(Id, Params = #{
         <<"target_topic">> := TargetTopic,
         <<"target_qos">> := TargetQoS,
@@ -202,8 +200,7 @@ increase_and_publish(ActId, Msg) ->
     emqx_rule_metrics:inc_actions_success(ActId),
     emqx_metrics:inc_msg(Msg).
 
--spec on_action_create_do_nothing(action_instance_id(), Params :: map())
-      -> {bindings(), NewParams :: map()}.
+-spec on_action_create_do_nothing(action_instance_id(), Params :: map()) -> {bindings(), NewParams :: map()}.
 on_action_create_do_nothing(ActId, Params) when is_binary(ActId) ->
     Params.
 
