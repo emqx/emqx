@@ -39,3 +39,4 @@ rebar.lock
 .stamp
 tmp/
 _packages
+elvis

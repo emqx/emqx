@@ -9,7 +9,7 @@
 
 [![最棒的物联网 MQTT 开源团队期待您的加入](https://www.emqx.io/static/img/github_readme_cn_bg.png)](https://www.emqx.io/cn/careers)
 
-[English](./README.md) | 简体中文
+[English](./README.md) | 简体中文 | [日本語](./README-JP.md)
 
 *EMQ X* 是一款完全开源，高度可伸缩，高可用的分布式 MQTT 消息服务器，适用于 IoT、M2M 和移动应用程序，可处理千万级别的并发客户端。
 
