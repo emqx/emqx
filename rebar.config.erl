@@ -33,22 +33,22 @@ test_deps() ->
     ].
 
 profiles() ->
-    [ {'emqx',          [ {erl_opts, [no_debug_info]}
+    [ {'emqx',          [ {erl_opts, [no_debug_info, {parse_transform, mod_vsn}]}
                         , {relx, relx('emqx')}
                         ]}
-    , {'emqx-pkg',      [ {erl_opts, [no_debug_info]}
+    , {'emqx-pkg',      [ {erl_opts, [no_debug_info, {parse_transform, mod_vsn}]}
                         , {relx, relx('emqx-pkg')}
                         ]}
-    , {'emqx-edge',     [ {erl_opts, [no_debug_info]}
+    , {'emqx-edge',     [ {erl_opts, [no_debug_info, {parse_transform, mod_vsn}]}
                         , {relx, relx('emqx-edge')}
                         ]}
-    , {'emqx-edge-pkg', [ {erl_opts, [no_debug_info]}
+    , {'emqx-edge-pkg', [ {erl_opts, [no_debug_info, {parse_transform, mod_vsn}]}
                         , {relx, relx('emqx-edge-pkg')}
                         ]}
-    , {check,           [ {erl_opts, [debug_info]}
+    , {check,           [ {erl_opts, [debug_info, {parse_transform, mod_vsn}]}
                         ]}
     , {test,            [ {deps, test_deps()}
-                        , {erl_opts, [debug_info] ++ erl_opts_i()}
+                        , {erl_opts, [debug_info, {parse_transform, mod_vsn}] ++ erl_opts_i()}
                         ]}
     ].
 
@@ -232,7 +232,7 @@ env(Name, Default) ->
 
 get_vsn() ->
     PkgVsn = case env("PKG_VSN", false) of
-                 false -> os:cmd("git describe --tags --always");
+                 false -> os:cmd("./pkg-vsn.sh");
                  Vsn -> Vsn
              end,
     Vsn2 = re:replace(PkgVsn, "v", "", [{return ,list}]),
@@ -266,4 +266,4 @@ str(L) when is_list(L) -> L;
 str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
 erl_opts_i() ->
-    [{i, Dir}  || Dir <- filelib:wildcard("apps/**/include")].
+    [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "**", "include"]))].

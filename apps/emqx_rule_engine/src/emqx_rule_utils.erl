@@ -128,6 +128,7 @@ preproc_sql(Sql) ->
 
 -spec(preproc_sql(Sql::binary(), ReplaceWith :: '?' | '$n')
     -> {prepare_statement_key(), tmpl_token()}).
+
 preproc_sql(Sql, ReplaceWith) ->
     case re:run(Sql, ?EX_PLACE_HOLDER, [{capture, all_but_first, binary}, global]) of
         {match, PlaceHolders} ->

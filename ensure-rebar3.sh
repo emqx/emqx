@@ -5,6 +5,9 @@ set -eu
 
 VERSION="$1"
 
+# ensure dir
+cd -P -- "$(dirname -- "$0")"
+
 DOWNLOAD_URL='https://github.com/emqx/rebar3/releases/download'
 
 download() {

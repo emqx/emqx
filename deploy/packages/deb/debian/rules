@@ -1,0 +1,65 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+# Sample debian/rules that uses debhelper.
+# This file was originally written by Joey Hess and Craig Small.
+# As a special exception, when this file is copied by dh-make into a
+# dh-make output file, you may use that output file without restriction.
+# This special exception was added by Craig Small in version 0.37 of dh-make.
+
+# modified for node_package by dizzyd@basho.com and jared@basho.com
+
+# Uncomment this to turn on verbose mode.
+export DH_VERBOSE=1
+
+
+## Clear variables that may confound our build of sub-projects; also
+## note that it is necessary to use overlay_vars relative to .. as
+## the generate command EXECUTES in rel/
+build:
+
+clean:
+	dh_clean
+	rm -f build
+	# make clean
+
+## dh_shlibdeps was added to figure out the dependencies on shared libraries
+##   and will populate the ${shlibs:Depends} callout in the control file
+install: build
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+	mkdir -p debian/emqx/usr/lib/emqx
+	mkdir -p debian/emqx/var/lib/emqx
+	mkdir -p debian/emqx/var/run/emqx
+	mkdir -p debian/emqx/var/log/emqx
+	
+	mkdir -p debian/emqx/usr/lib/emqx/bin
+	
+	mkdir -p debian/emqx/etc/emqx
+	mkdir -p debian/emqx/etc/init.d
+	
+	cp bin/* debian/emqx/usr/lib/emqx/bin
+	
+	cp -R lib debian/emqx/usr/lib/emqx
+	cp -R erts*  debian/emqx/usr/lib/emqx
+	cp -R releases debian/emqx/usr/lib/emqx
+	cp -R etc/* debian/emqx/etc/emqx
+	cp -R data/*  debian/emqx/var/lib/emqx
+	install -m755 debian/init.script debian/emqx/etc/init.d/emqx
+	
+	dh_shlibdeps
+
+# We have nothing to do by default.
+binary-indep: install build-stamp
+build-stamp:
+
+# Build architecture-dependent files here.
+binary-arch: install
+	dh_strip -a
+	dh_compress -a
+	dh_installdeb
+	dh_gencontrol
+	dh_builddeb
+
+binary: binary-indep binary-arch

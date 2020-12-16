@@ -1,0 +1,158 @@
+## Default values for emqx.
+## This is a YAML-formatted file.
+## Declare variables to be passed into your templates.
+
+## It is recommended to have odd number of nodes in a cluster, otherwise the emqx cluster cannot be automatically healed in case of net-split.
+replicaCount: 3 
+image:
+  repository: emqx/emqx
+  pullPolicy: IfNotPresent
+  ## Optionally specify an array of imagePullSecrets.
+  ## Secrets must be manually created in the namespace.
+  ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+  ##
+  # pullSecrets:
+  # - myRegistryKeySecretName
+
+persistence:
+  enabled: false
+  size: 20Mi
+  ## If defined, volume.beta.kubernetes.io/storage-class: <storageClass>
+  ## Default: volume.alpha.kubernetes.io/storage-class: default
+  # storageClass: "-"
+  accessMode: ReadWriteOnce
+  ## Existing PersistentVolumeClaims
+  ## The value is evaluated as a template
+  ## So, for example, the name can depend on .Release or .Chart
+  # existingClaim: ""
+
+resources: {}
+  # limits:
+  #   cpu: 500m
+  #   memory: 512Mi
+  # requests:
+  #   cpu: 500m
+  #   memory: 512Mi
+
+# Containers that run before the creation of EMQX containers. They can contain utilities or setup scripts.
+initContainers: {}
+  # - name: mysql-probe
+  #   image: alpine
+  #   command: ["sh", "-c", "for i in $(seq 1 300); do nc -zvw1 mysql 3306 && exit 0 || sleep 3; done; exit 1"]
+
+## EMQX configuration item, see the documentation (https://github.com/emqx/emqx-docker#emq-x-configuration)
+emqxConfig:
+  EMQX_CLUSTER__K8S__APISERVER: "https://kubernetes.default.svc:443"
+  ## The address type is used to extract host from k8s service.
+  ## Value: ip | dns | hostname
+  ## Note：Hostname is only supported after v4.0-rc.2
+  EMQX_CLUSTER__K8S__ADDRESS_TYPE: "hostname"
+  EMQX_CLUSTER__K8S__SUFFIX: "svc.cluster.local"
+  ## if EMQX_CLUSTER__K8S__ADDRESS_TYPE eq dns
+  # EMQX_CLUSTER__K8S__SUFFIX: "pod.cluster.local"
+
+## --------------------------------------------------------------------
+##  [ACL](https://docs.emqx.io/broker/latest/en/advanced/acl-file.html)
+
+##  -type(who() :: all | binary() |
+##                 {ipaddr, esockd_access:cidr()} |
+##                 {client, binary()} |
+##                 {user, binary()}).
+
+##  -type(access() :: subscribe | publish | pubsub).
+
+##  -type(topic() :: binary()).
+
+##  -type(rule() :: {allow, all} |
+##                  {allow, who(), access(), list(topic())} |
+##                  {deny, all} |
+##                  {deny, who(), access(), list(topic())}).
+## --------------------------------------------------------------------
+emqxAclConfig: >
+  {allow, {user, "dashboard"}, subscribe, ["$SYS/#"]}.
+  {allow, {ipaddr, "127.0.0.1"}, pubsub, ["$SYS/#", "#"]}.
+  {deny, all, subscribe, ["$SYS/#", {eq, "#"}]}.
+  {allow, all}.
+
+## EMQX Enterprise Edition requires manual creation of a Secret containing the licensed content. Write the name of Secret to the value of "emqxLicneseSecretName"
+## Example:
+##   kubectl create secret generic emqx-license-secret-name --from-file=/path/to/emqx.lic
+emqxLicneseSecretName:
+
+service:
+  ## Service type
+  ##
+  type: ClusterIP
+  ## Port for MQTT
+  ##
+  mqtt: 1883
+  ## Port for MQTT(SSL) 
+  ##
+  mqttssl: 8883
+  ## Port for mgmt API
+  ##
+  mgmt: 8081
+  ## Port for WebSocket/HTTP
+  ##
+  ws: 8083
+  ## Port for WSS/HTTPS
+  ##
+  wss: 8084
+  ## Port for dashboard
+  ##
+  dashboard: 18083
+  ## Specify the nodePort(s) value for the LoadBalancer and NodePort service types.
+  ## ref: https://kubernetes.io/docs/concepts/services-networking/service/#type-nodeport
+  ##
+  nodePorts:
+    mqtt:
+    mqttssl:
+    mgmt:
+    ws:
+    wss:
+    dashboard:
+  ## Set the LoadBalancer service type to internal only.
+  ## ref: https://kubernetes.io/docs/concepts/services-networking/service/#internal-load-balancer
+  ##
+  # loadBalancerIP:
+  ## Load Balancer sources
+  ## ref: https://kubernetes.io/docs/tasks/access-application-cluster/configure-cloud-provider-firewall/#restrict-access-for-loadbalancer-service
+  ## Example:
+  ## loadBalancerSourceRanges:
+  ## - 10.10.10.0/24
+  ##
+  loadBalancerSourceRanges: []
+  ## Provide any additional annotations which may be required. Evaluated as a template
+  ##
+  annotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+ingress:
+  ## ingress for EMQX Dashboard
+  dashboard:
+    enabled: false
+    annotations: {}
+      # kubernetes.io/ingress.class: nginx
+      # kubernetes.io/tls-acme: "true"
+    path: /
+    hosts:
+    - dashboard.emqx.local
+    tls: []
+
+  ## ingress for EMQX Mgmt API
+  mgmt:
+    enabled: false
+    annotations: {}
+      # kubernetes.io/ingress.class: nginx
+      # kubernetes.io/tls-acme: "true"
+    path: /
+    hosts:
+    - api.emqx.local
+    tls: []
+
+
