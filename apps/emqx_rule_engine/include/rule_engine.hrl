@@ -35,6 +35,8 @@
 
 -type(hook() :: atom() | 'any').
 
+-type(topic() :: binary()).
+
 -type(resource_status() :: #{ alive := boolean()
                             , atom() => binary() | atom() | list(binary()|atom())
                             }).
@@ -65,7 +67,7 @@
 
 -record(rule,
         { id :: rule_id()
-        , for :: hook()
+        , for :: list(topic())
         , rawsql :: binary()
         , is_foreach :: boolean()
         , fields :: list()
@@ -110,9 +112,11 @@
 
 -record(action_instance_params,
         { id :: action_instance_id()
-        , params :: #{} %% the params got after initializing the action
+        %% the params got after initializing the action
+        , params :: #{}
+        %% the Func/Bindings got after initializing the action
         , apply :: fun((Data::map(), Envs::map()) -> any())
-                 | {M::module(), F::atom(), Args::list()} %% the func got after initializing the action
+                 | #{mod := module(), bindings := #{atom() => term()}}
         }).
 
 %% Arithmetic operators

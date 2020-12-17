@@ -2378,7 +2378,7 @@ start_apps() ->
     [start_apps(App, SchemaFile, ConfigFile) ||
         {App, SchemaFile, ConfigFile}
             <- [{emqx, deps_path(emqx, "priv/emqx.schema"),
-                       deps_path(emqx, "etc/gen.emqx.conf")},
+                       deps_path(emqx, "etc/emqx.conf")},
                 {emqx_rule_engine, local_path("priv/emqx_rule_engine.schema"),
                                    local_path("etc/emqx_rule_engine.conf")}]].
 
@@ -2424,6 +2424,7 @@ set_special_configs(_App) ->
     ok.
 
 print_mock() ->
+    catch meck:unload(emqx_ctl),
     meck:new(emqx_ctl, [non_strict, passthrough]),
     meck:expect(emqx_ctl, print, fun(Arg) -> emqx_ctl:format(Arg) end),
     meck:expect(emqx_ctl, print, fun(Msg, Arg) -> emqx_ctl:format(Msg, Arg) end),

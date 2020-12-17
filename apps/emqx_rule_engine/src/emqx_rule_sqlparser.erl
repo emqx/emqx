@@ -17,7 +17,6 @@
 -module(emqx_rule_sqlparser).
 
 -include("rule_engine.hrl").
--include("rule_events.hrl").
 
 -export([parse_select/1]).
 
