@@ -206,8 +206,13 @@ code_change(_OldVsn, State, _Extra) ->
 
 chann_subscribe(Topic, State = #state{clientid = ClientId}) ->
     ?LOG(debug, "subscribe Topic=~p", [Topic]),
-    emqx_broker:subscribe(Topic, ClientId, ?SUBOPTS),
-    emqx_hooks:run('session.subscribed', [clientinfo(State), Topic, ?SUBOPTS]).
+    case emqx_access_control:check_acl(clientinfo(State), subscribe, Topic) of
+        allow ->
+            emqx_broker:subscribe(Topic, ClientId, ?SUBOPTS),
+            emqx_hooks:run('session.subscribed', [clientinfo(State), Topic, ?SUBOPTS]);
+        deny  ->
+            ?LOG(warning, "subscribe to ~p by clientid ~p failed due to acl check.", [Topic, ClientId])
+    end.
 
 chann_unsubscribe(Topic, State) ->
     ?LOG(debug, "unsubscribe Topic=~p", [Topic]),
@@ -215,11 +220,17 @@ chann_unsubscribe(Topic, State) ->
     emqx_broker:unsubscribe(Topic),
     emqx_hooks:run('session.unsubscribed', [clientinfo(State), Topic, Opts]).
 
-chann_publish(Topic, Payload, #state{clientid = ClientId}) ->
+chann_publish(Topic, Payload, State = #state{clientid = ClientId}) ->
     ?LOG(debug, "publish Topic=~p, Payload=~p", [Topic, Payload]),
-    emqx_broker:publish(
-        emqx_message:set_flag(retain, false,
-            emqx_message:make(ClientId, ?QOS_0, Topic, Payload))).
+    case emqx_access_control:check_acl(clientinfo(State), publish, Topic) of
+        allow ->
+            emqx_broker:publish(
+                emqx_message:set_flag(retain, false,
+                                      emqx_message:make(ClientId, ?QOS_0, Topic, Payload)));
+        deny  ->
+            ?LOG(warning, "publish to ~p by clientid ~p failed due to acl check.", [Topic, ClientId])
+    end.
+
 
 %%--------------------------------------------------------------------
 %% Deliver
