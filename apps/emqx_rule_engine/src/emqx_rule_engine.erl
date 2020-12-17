@@ -224,10 +224,10 @@ delete_rule(RuleId) ->
     end.
 
 -spec(create_resource(#{type := _, config := _, _ => _}) -> {ok, resource()} | {error, Reason :: term()}).
-create_resource(#{type := Type, config := Config} = Params) ->
+create_resource(#{type := Type, config := Config0} = Params) ->
     case emqx_rule_registry:find_resource_type(Type) of
         {ok, #resource_type{on_create = {M, F}, params_spec = ParamSpec}} ->
-            ok = emqx_rule_validator:validate_params(Config, ParamSpec),
+            Config = emqx_rule_validator:validate_params(Config0, ParamSpec),
             ResId = maps:get(id, Params, resource_id()),
             Resource = #resource{id = ResId,
                                  type = Type,
@@ -261,10 +261,10 @@ start_resource(ResId) ->
     end.
 
 -spec(test_resource(#{type := _, config := _, _ => _}) -> ok | {error, Reason :: term()}).
-test_resource(#{type := Type, config := Config}) ->
+test_resource(#{type := Type, config := Config0}) ->
     case emqx_rule_registry:find_resource_type(Type) of
         {ok, #resource_type{on_create = {ModC,Create}, on_destroy = {ModD,Destroy}, params_spec = ParamSpec}} ->
-            ok = emqx_rule_validator:validate_params(Config, ParamSpec),
+            Config = emqx_rule_validator:validate_params(Config0, ParamSpec),
             ResId = resource_id(),
             try
                 cluster_call(init_resource, [ModC, Create, ResId, Config]),
@@ -374,10 +374,10 @@ refresh_resource_status() ->
 prepare_actions(Actions, NeedInit) ->
     [prepare_action(Action, NeedInit) || Action <- Actions].
 
-prepare_action(#{name := Name, args := Args} = Action, NeedInit) ->
+prepare_action(#{name := Name, args := Args0} = Action, NeedInit) ->
     case emqx_rule_registry:find_action(Name) of
         {ok, #action{module = Mod, on_create = Create, params_spec = ParamSpec}} ->
-            ok = emqx_rule_validator:validate_params(Args, ParamSpec),
+            Args = emqx_rule_validator:validate_params(Args0, ParamSpec),
             ActionInstId = maps:get(id, Action, action_instance_id(Name)),
             NeedInit andalso cluster_call(init_action, [Mod, Create, ActionInstId, with_resource_params(Args)]),
             #action_instance{
