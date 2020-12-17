@@ -111,11 +111,11 @@ init({ClientId, Username, Password, Channel}) ->
     _ = run_hooks('client.connect', [conninfo(State0)], undefined),
     case emqx_access_control:authenticate(clientinfo(State0)) of
         {ok, _AuthResult} ->
+            ok = emqx_cm:discard_session(ClientId),
+
             _ = run_hooks('client.connack', [conninfo(State0), success], undefined),
 
             State = State0#state{connected_at = erlang:system_time(millisecond)},
-
-            %% TODO: Evict same clientid on other node??
 
             run_hooks('client.connected', [clientinfo(State), conninfo(State)]),
 
@@ -185,6 +185,11 @@ handle_info({shutdown, Error}, State) ->
 handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     ?LOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid]),
     {stop, {shutdown, conflict}, State};
+
+handle_info(discard, State) ->
+    ?LOG(warning, "the connection is discarded. " ++
+                  "possibly there is another client with the same clientid", []),
+    {stop, {shutdown, discarded}, State};
 
 handle_info(kick, State) ->
     ?LOG(info, "Kicked", []),
