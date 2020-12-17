@@ -50,6 +50,8 @@
 
 -record(state, {peername, clientid, username, password, sub_topics = [], connected_at}).
 
+-type(state() :: #state{}).
+
 -define(ALIVE_INTERVAL, 20000).
 
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
@@ -74,8 +76,10 @@ client_pid(ClientId, Username, Password, Channel) ->
 start(ClientId, Username, Password, Channel) ->
     % DO NOT use start_link, since multiple coap_reponsder may have relation with one mqtt adapter,
     % one coap_responder crashes should not make mqtt adapter crash too
-    % And coap_responder is not a system process, it is dangerous to link mqtt adapter to coap_responder
-    gen_server:start({via, emqx_coap_registry, {ClientId, Username, Password}}, ?MODULE, {ClientId, Username, Password, Channel}, []).
+    % And coap_responder is not a system process
+    % it is dangerous to link mqtt adapter to coap_responder
+    gen_server:start({via, emqx_coap_registry, {ClientId, Username, Password}},
+                     ?MODULE, {ClientId, Username, Password, Channel}, []).
 
 stop(Pid) ->
     gen_server:stop(Pid).
@@ -164,7 +168,8 @@ handle_cast(Msg, State) ->
     ?LOG(error, "broker_api unexpected cast ~p", [Msg]),
     {noreply, State, hibernate}.
 
-handle_info({deliver, _Topic, #message{topic = Topic, payload = Payload}}, State = #state{sub_topics = Subscribers}) ->
+handle_info({deliver, _Topic, #message{topic = Topic, payload = Payload}},
+            State = #state{sub_topics = Subscribers}) ->
     deliver([{Topic, Payload}], Subscribers),
     {noreply, State, hibernate};
 
@@ -211,7 +216,8 @@ chann_subscribe(Topic, State = #state{clientid = ClientId}) ->
             emqx_broker:subscribe(Topic, ClientId, ?SUBOPTS),
             emqx_hooks:run('session.subscribed', [clientinfo(State), Topic, ?SUBOPTS]);
         deny  ->
-            ?LOG(warning, "subscribe to ~p by clientid ~p failed due to acl check.", [Topic, ClientId])
+            ?LOG(warning, "subscribe to ~p by clientid ~p failed due to acl check.",
+                 [Topic, ClientId])
     end.
 
 chann_unsubscribe(Topic, State) ->
@@ -228,7 +234,8 @@ chann_publish(Topic, Payload, State = #state{clientid = ClientId}) ->
                 emqx_message:set_flag(retain, false,
                                       emqx_message:make(ClientId, ?QOS_0, Topic, Payload)));
         deny  ->
-            ?LOG(warning, "publish to ~p by clientid ~p failed due to acl check.", [Topic, ClientId])
+            ?LOG(warning, "publish to ~p by clientid ~p failed due to acl check.",
+                 [Topic, ClientId])
     end.
 
 
@@ -253,7 +260,8 @@ deliver_to_coap(TopicName, Payload, [{TopicFilter, {IsWild, CoapPid}}|T]) ->
                     true  -> emqx_topic:match(TopicName, TopicFilter);
                     false -> TopicName =:= TopicFilter
                 end,
-    %?LOG(debug, "deliver_to_coap Matched=~p, CoapPid=~p, TopicName=~p, Payload=~p, T=~p", [Matched, CoapPid, TopicName, Payload, T]),
+    %?LOG(debug, "deliver_to_coap Matched=~p, CoapPid=~p, TopicName=~p, Payload=~p, T=~p",
+    %     [Matched, CoapPid, TopicName, Payload, T]),
     Matched andalso (CoapPid ! {dispatch, TopicName, Payload}),
     deliver_to_coap(TopicName, Payload, T).
 
@@ -278,7 +286,7 @@ info(State) ->
 sockinfo(#state{peername = Peername}) ->
     #{socktype => udp,
       peername => Peername,
-      sockname => {{127,0,0,1}, 5683},    %% FIXME: Sock?
+      sockname => {{127, 0, 0, 1}, 5683},    %% FIXME: Sock?
       sockstate =>  running,
       active_n => 1
      }.
@@ -296,7 +304,7 @@ conninfo(#state{peername = Peername,
                 clientid = ClientId,
                 connected_at = ConnectedAt}) ->
     #{socktype => udp,
-      sockname => {{127,0,0,1}, 5683},
+      sockname => {{127, 0, 0, 1}, 5683},
       peername => Peername,
       peercert => nossl,        %% TODO: dtls
       conn_mod => ?MODULE,
@@ -328,7 +336,7 @@ session_info(#state{sub_topics = SubTopics, connected_at = ConnectedAt}) ->
 
 %% The stats keys copied from emqx_connection:stats/1
 stats(#state{sub_topics = SubTopics}) ->
-    SockStats = [{recv_oct,0}, {recv_cnt,0}, {send_oct,0}, {send_cnt,0}, {send_pend,0}],
+    SockStats = [{recv_oct, 0}, {recv_cnt, 0}, {send_oct, 0}, {send_cnt, 0}, {send_pend, 0}],
     ConnStats = emqx_pd:get_counters(?CONN_STATS),
     ChanStats = [{subscriptions_cnt, length(SubTopics)},
                  {subscriptions_max, length(SubTopics)},
