@@ -101,6 +101,11 @@ t_nested_get_map(_) ->
     ?assertEqual(v1, nested_get(?path([<<"p">>,<<"x">>]), #{p => #{x => v1}})),
     ?assertEqual(c, nested_get(?path([a,b,c]), #{a => #{b => #{c => c}}})).
 
+t_nested_get_map_1(_) ->
+    ?assertEqual(1, nested_get(?path([a]), <<"{\"a\": 1}">>)),
+    ?assertEqual(<<"{\"b\": 1}">>, nested_get(?path([a]), #{a => <<"{\"b\": 1}">>})),
+    ?assertEqual(1, nested_get(?path([a,b]), #{a => <<"{\"b\": 1}">>})).
+
 t_nested_get_index(_) ->
     %% single index get
     ?assertEqual(1, nested_get(?path([{ic,1}]), [1,2,3])),

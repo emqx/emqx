@@ -125,7 +125,8 @@ groups() ->
       [t_events
       ]},
      {bugs, [],
-      [t_sqlparse_payload_as
+      [t_sqlparse_payload_as,
+       t_sqlparse_nested_get
       ]},
      {multi_actions, [],
       [t_sqlselect_multi_actoins_1,
@@ -2007,6 +2008,17 @@ t_sqlparse_payload_as(_Config) ->
             }
         }
     }, Res02).
+
+t_sqlparse_nested_get(_Config) ->
+    Sql = "select payload as p, p.a.b as c "
+          "from \"t/#\" ",
+    ?assertMatch({ok,#{<<"c">> := 0}},
+        emqx_rule_sqltester:test(
+        #{<<"rawsql">> => Sql,
+          <<"ctx">> => #{
+              <<"topic">> => <<"t/1">>,
+              <<"payload">> => <<"{\"a\": {\"b\": 0}}">>
+          }})).
 
 %%------------------------------------------------------------------------------
 %% Internal helpers
