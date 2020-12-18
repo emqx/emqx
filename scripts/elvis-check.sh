@@ -22,8 +22,16 @@ git_diff() {
 }
 
 bad_file_count=0
-for n in $(git_diff); do
-    if ! ./elvis rock "$n"; then
+for file in $(git_diff); do
+    if [ ! -f "$file" ]; then
+        # file is deleted, skip
+        continue
+    fi
+    if [[ $file != *.erl ]]; then
+        # not .erl file
+        continue
+    fi
+    if ! ./elvis rock "$file"; then
         bad_file_count=$(( bad_file_count + 1))
     fi
 done
