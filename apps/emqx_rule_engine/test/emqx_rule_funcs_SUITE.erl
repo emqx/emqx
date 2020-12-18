@@ -495,16 +495,64 @@ t_map_put(_) ->
     ?assertEqual(#{<<"a">> => 1}, apply_func(map_put, [<<"a">>, 1, #{}])),
     ?assertEqual(#{a => 2}, apply_func(map_put, [<<"a">>, 2, #{a => 1}])).
 
- t_mget(_) ->
+t_mget(_) ->
     ?assertEqual(1, apply_func(map_get, [<<"a">>, #{a => 1}])),
     ?assertEqual(1, apply_func(map_get, [<<"a">>, #{<<"a">> => 1}])),
     ?assertEqual(undefined, apply_func(map_get, [<<"a">>, #{}])).
 
- t_mput(_) ->
+t_mput(_) ->
     ?assertEqual(#{<<"a">> => 1}, apply_func(map_put, [<<"a">>, 1, #{}])),
     ?assertEqual(#{<<"a">> => 2}, apply_func(map_put, [<<"a">>, 2, #{<<"a">> => 1}])),
     ?assertEqual(#{a => 2}, apply_func(map_put, [<<"a">>, 2, #{a => 1}])).
 
+t_bitsize(_) ->
+    ?assertEqual(8, apply_func(bitsize, [<<"a">>])),
+    ?assertEqual(4, apply_func(bitsize, [<<15:4>>])).
+
+t_subbits(_) ->
+    ?assertEqual(1, apply_func(subbits, [<<255:8>>, 1])),
+    ?assertEqual(3, apply_func(subbits, [<<255:8>>, 2])),
+    ?assertEqual(7, apply_func(subbits, [<<255:8>>, 3])),
+    ?assertEqual(15, apply_func(subbits, [<<255:8>>, 4])),
+    ?assertEqual(31, apply_func(subbits, [<<255:8>>, 5])),
+    ?assertEqual(63, apply_func(subbits, [<<255:8>>, 6])),
+    ?assertEqual(127, apply_func(subbits, [<<255:8>>, 7])),
+    ?assertEqual(255, apply_func(subbits, [<<255:8>>, 8])).
+
+t_subbits2(_) ->
+    ?assertEqual(1, apply_func(subbits, [<<255:8>>, 1, 1])),
+    ?assertEqual(3, apply_func(subbits, [<<255:8>>, 1, 2])),
+    ?assertEqual(7, apply_func(subbits, [<<255:8>>, 1, 3])),
+    ?assertEqual(15, apply_func(subbits, [<<255:8>>, 1, 4])),
+    ?assertEqual(31, apply_func(subbits, [<<255:8>>, 1, 5])),
+    ?assertEqual(63, apply_func(subbits, [<<255:8>>, 1, 6])),
+    ?assertEqual(127, apply_func(subbits, [<<255:8>>, 1, 7])),
+    ?assertEqual(255, apply_func(subbits, [<<255:8>>, 1, 8])).
+
+t_subbits2_1(_) ->
+    ?assertEqual(1, apply_func(subbits, [<<255:8>>, 2, 1])),
+    ?assertEqual(3, apply_func(subbits, [<<255:8>>, 2, 2])),
+    ?assertEqual(7, apply_func(subbits, [<<255:8>>, 2, 3])),
+    ?assertEqual(15, apply_func(subbits, [<<255:8>>, 2, 4])),
+    ?assertEqual(31, apply_func(subbits, [<<255:8>>, 2, 5])),
+    ?assertEqual(63, apply_func(subbits, [<<255:8>>, 2, 6])),
+    ?assertEqual(127, apply_func(subbits, [<<255:8>>, 2, 7])),
+    ?assertEqual(127, apply_func(subbits, [<<255:8>>, 2, 8])).
+t_subbits2_integer(_) ->
+    ?assertEqual(456, apply_func(subbits, [<<456:32/integer>>, 1, 32, <<"integer">>, <<"signed">>, <<"big">>])),
+    ?assertEqual(-456, apply_func(subbits, [<<-456:32/integer>>, 1, 32, <<"integer">>, <<"signed">>, <<"big">>])).
+
+t_subbits2_float(_) ->
+    R = apply_func(subbits, [<<5.3:64/float>>, 1, 64, <<"float">>, <<"unsigned">>, <<"big">>]),
+    RL = (5.3 - R),
+    ct:pal(";;;;~p", [R]),
+    ?assert( (RL >= 0 andalso RL < 0.0001) orelse (RL =< 0 andalso RL > -0.0001)),
+
+    R2 = apply_func(subbits, [<<-5.3:64/float>>, 1, 64, <<"float">>, <<"signed">>, <<"big">>]),
+
+    RL2 = (5.3 + R2),
+    ct:pal(";;;;~p", [R2]),
+    ?assert( (RL2 >= 0 andalso RL2 < 0.0001) orelse (RL2 =< 0 andalso RL2 > -0.0001)).
 
 %%------------------------------------------------------------------------------
 %% Test cases for Hash funcs
