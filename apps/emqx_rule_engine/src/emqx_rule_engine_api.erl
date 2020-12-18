@@ -268,7 +268,7 @@ list_resources(#{}, _Params) ->
     Data0 = lists:foldr(fun maybe_record_to_map/2, [], emqx_rule_registry:get_resources()),
     Data = lists:map(fun(Res = #{id := Id}) ->
                Status = lists:all(fun(Node) ->
-                            case emqx_rpc:call(Node, emqx_rule_registry, find_resource_params, [Id]) of
+                            case rpc:call(Node, emqx_rule_registry, find_resource_params, [Id]) of
                                 {ok, #resource_params{status = #{is_alive := true}}} -> true;
                                 _ -> false
                             end
