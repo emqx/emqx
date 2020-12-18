@@ -50,7 +50,6 @@
 %%--------------------------------------------------------------------
 
 start(Config = #{address := Address}) ->
-    io:format("start config is ~p", [Config]),
     Parent = self(),
     Mountpoint = maps:get(receive_mountpoint, Config, undefined),
     Handlers = make_hdlr(Parent, Mountpoint),
@@ -93,7 +92,8 @@ ensure_subscribed(#{client_pid := Pid}, Topic, QoS) when is_pid(Pid) ->
         Error -> Error
     end;
 ensure_subscribed(_Conn, _Topic, _QoS) ->
-    %% return ok for now, next re-connect should should call start with new topic added to config
+    %% return ok for now
+    %% next re-connect should should call start with new topic added to config
     ok.
 
 ensure_unsubscribed(#{client_pid := Pid}, Topic) when is_pid(Pid) ->
@@ -102,7 +102,8 @@ ensure_unsubscribed(#{client_pid := Pid}, Topic) when is_pid(Pid) ->
         Error -> Error
     end;
 ensure_unsubscribed(_, _) ->
-    %% return ok for now, next re-connect should should call start with this topic deleted from config
+    %% return ok for now
+    %% next re-connect should should call start with this topic deleted from config
     ok.
 
 safe_stop(Pid, StopF, Timeout) ->
