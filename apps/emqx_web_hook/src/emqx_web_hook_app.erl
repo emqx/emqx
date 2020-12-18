@@ -20,15 +20,96 @@
 
 -emqx_plugin(?MODULE).
 
+-include("emqx_web_hook.hrl").
+
 -export([ start/2
         , stop/1
         ]).
 
 start(_StartType, _StartArgs) ->
+    translate_env(),
     {ok, Sup} = emqx_web_hook_sup:start_link(),
+    {ok, PoolOpts} = application:get_env(?APP, pool_opts),
+    ehttpc_sup:start_pool(?APP, PoolOpts),
     emqx_web_hook:register_metrics(),
     emqx_web_hook:load(),
     {ok, Sup}.
 
 stop(_State) ->
-    emqx_web_hook:unload().
+    emqx_web_hook:unload(),
+    ehttpc_sup:stop_pool(?APP).
+
+add_default_scheme(URL) when is_list(URL) ->
+    add_default_scheme(list_to_binary(URL));
+add_default_scheme(<<"http://", _/binary>> = URL) ->
+    URL;
+add_default_scheme(<<"https://", _/binary>> = URL) ->
+    URL;
+add_default_scheme(URL) ->
+    <<"http://", URL/binary>>.
+
+translate_env() ->
+    {ok, URL} = application:get_env(?APP, url),
+    #{host := Host0,
+      port := Port,
+      path := Path0,
+      scheme := Scheme} = uri_string:parse(binary_to_list(add_default_scheme(URL))),
+    Host = get_addr(Host0),
+    Path = path(Path0),
+    PoolSize = application:get_env(?APP, pool_size, 8),
+    IPv6 = case tuple_size(Host) =:= 8 of
+               true -> [inet6];
+               false -> []
+           end,
+    MoreOpts = case Scheme of
+                   "http" ->
+                       [{transport_opts, IPv6}];
+                   "https" ->
+                       CACertFile = application:get_env(?APP, cacertfile, undefined),
+                       CertFile = application:get_env(?APP, certfile, undefined),
+                       KeyFile = application:get_env(?APP, keyfile, undefined),
+                       {ok, Verify} = application:get_env(?APP, verify),
+                       VerifyType = case Verify of
+                                       true -> verify_peer;
+                                       false -> verify_none
+                                   end,
+                       TLSOpts = lists:filter(fun({_K, V}) when V =:= <<>> ->
+                                                   false;
+                                                   (_) ->
+                                                   true
+                                               end, [{keyfile, KeyFile}, {certfile, CertFile}, {cacertfile, CACertFile}]),
+                       TlsVers = ['tlsv1.2','tlsv1.1',tlsv1],
+                       NTLSOpts = [{verify, VerifyType},
+                                   {versions, TlsVers},
+                                   {ciphers, lists:foldl(fun(TlsVer, Ciphers) ->
+                                                               Ciphers ++ ssl:cipher_suites(all, TlsVer)
+                                                           end, [], TlsVers)} | TLSOpts],
+                       [{transport, ssl}, {transport_opts, NTLSOpts ++ IPv6}]
+                end,
+    PoolOpts = [{host, Host},
+                {port, Port},
+                {pool_size, PoolSize},
+                {pool_type, hash},
+                {connect_timeout, 5000},
+                {retry, 5},
+                {retry_timeout, 1000}] ++ MoreOpts,
+    application:set_env(?APP, path, Path),
+    application:set_env(?APP, pool_opts, PoolOpts).
+
+get_addr(Hostname) ->
+    case inet:parse_address(Hostname) of
+        {ok, {_,_,_,_} = Addr} -> Addr;
+        {ok, {_,_,_,_,_,_,_,_} = Addr} -> Addr;
+        {error, einval} ->
+            case inet:getaddr(Hostname, inet) of
+                 {error, _} ->
+                     {ok, Addr} = inet:getaddr(Hostname, inet6),
+                     Addr;
+                 {ok, Addr} -> Addr
+            end
+    end.
+
+path("") ->
+    "/";
+path(Path) ->
+    Path.
