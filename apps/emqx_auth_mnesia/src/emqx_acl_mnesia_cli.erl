@@ -36,7 +36,8 @@
 %%--------------------------------------------------------------------
 
 %% @doc Add Acls
--spec(add_acl(login() |all, emqx_topic:topic(), pub | sub| pubsub, allow | deny) -> ok | {error, any()}).
+-spec(add_acl(login() |all, emqx_topic:topic(), pub | sub| pubsub, allow | deny) ->
+        ok | {error, any()}).
 add_acl(Login, Topic, Action, Access) ->
     Acls = #?TABLE{
               filter = {Login, Topic},
@@ -51,7 +52,9 @@ add_acl(Login, Topic, Action, Access) ->
 lookup_acl(undefined) -> [];
 lookup_acl(Login) ->
     MatchSpec = ets:fun2ms(fun({?TABLE, {Filter, ACLTopic}, Action, Access, CreatedAt})
-                                 when Filter =:= Login -> {Filter, ACLTopic, Action, Access, CreatedAt} end),
+                                 when Filter =:= Login ->
+                                   {Filter, ACLTopic, Action, Access, CreatedAt}
+                           end),
     lists:sort(fun comparing/2, ets:select(?TABLE, MatchSpec)).
 
 %% @doc Remove acl
@@ -61,71 +64,56 @@ remove_acl(Login, Topic) ->
 
 %% @doc All logins
 -spec(all_acls() -> list()).
-all_acls() -> 
+all_acls() ->
     all_acls(clientid) ++
     all_acls(username) ++
     all_acls(all).
 
-all_acls(clientid) -> 
-    MatchSpec = ets:fun2ms(fun({?TABLE, {{clientid, Clientid}, Topic}, Action, Access, CreatedAt}) -> {{clientid, Clientid}, Topic, Action, Access, CreatedAt} end),
+all_acls(clientid) ->
+    MatchSpec = ets:fun2ms(
+                  fun({?TABLE, {{clientid, Clientid}, Topic}, Action, Access, CreatedAt}) ->
+                          {{clientid, Clientid}, Topic, Action, Access, CreatedAt}
+                  end),
     lists:sort(fun comparing/2, ets:select(?TABLE, MatchSpec));
-all_acls(username) -> 
-    MatchSpec = ets:fun2ms(fun({?TABLE, {{username, Username}, Topic}, Action, Access, CreatedAt}) -> {{username, Username}, Topic, Action, Access, CreatedAt} end),
+all_acls(username) ->
+    MatchSpec = ets:fun2ms(
+                  fun({?TABLE, {{username, Username}, Topic}, Action, Access, CreatedAt}) ->
+                          {{username, Username}, Topic, Action, Access, CreatedAt}
+                  end),
     lists:sort(fun comparing/2, ets:select(?TABLE, MatchSpec));
-all_acls(all) -> 
-    MatchSpec = ets:fun2ms(fun({?TABLE, {all, Topic}, Action, Access, CreatedAt}) -> {all, Topic, Action, Access, CreatedAt} end),
+all_acls(all) ->
+    MatchSpec = ets:fun2ms(
+                  fun({?TABLE, {all, Topic}, Action, Access, CreatedAt}) ->
+                          {all, Topic, Action, Access, CreatedAt}
+                  end
+                 ),
     lists:sort(fun comparing/2, ets:select(?TABLE, MatchSpec)).
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-comparing({_, _, _, _, CreatedAt1},
-          {_, _, _, _, CreatedAt2}) ->
-    CreatedAt1 >= CreatedAt2.
-
-ret({atomic, ok})     -> ok;
-ret({aborted, Error}) -> {error, Error}.
-
-validate(action, "pub") -> true;
-validate(action, "sub") -> true;
-validate(action, "pubsub") -> true;
-validate(access, "allow") -> true;
-validate(access, "deny") -> true;
-validate(_, _) -> false.
 
 %%--------------------------------------------------------------------
 %% ACL Cli
 %%--------------------------------------------------------------------
 
 cli(["list"]) ->
-    [ begin
-        case Filter of
-            {clientid, Clientid} ->
-                emqx_ctl:print("Acl(clientid = ~p topic = ~p action = ~p access = ~p)~n",[Clientid, Topic, Action, Access]);
-            {username, Username} ->
-                emqx_ctl:print("Acl(username = ~p topic = ~p action = ~p access = ~p)~n",[Username, Topic, Action, Access]);
-            all ->
-                emqx_ctl:print("Acl($all topic = ~p action = ~p access = ~p)~n",[Topic, Action, Access])
-        end
-      end || {Filter, Topic, Action, Access, _} <- all_acls()];
+    [print_acl(Acl) || Acl <- all_acls()];
 
 cli(["list", "clientid"]) ->
-    [emqx_ctl:print("Acl(clientid = ~p topic = ~p action = ~p access = ~p)~n",[Clientid, Topic, Action, Access])
-     || {{clientid, Clientid}, Topic, Action, Access, _} <- all_acls(clientid) ];
+    [print_acl(Acl) || Acl <- all_acls(clientid)];
 
 cli(["list", "username"]) ->
-    [emqx_ctl:print("Acl(username = ~p topic = ~p action = ~p access = ~p)~n",[Username, Topic, Action, Access])
-     || {{username, Username}, Topic, Action, Access, _} <- all_acls(username) ];
+    [print_acl(Acl) || Acl <- all_acls(username)];
 
 cli(["list", "_all"]) ->
-    [emqx_ctl:print("Acl($all topic = ~p action = ~p access = ~p)~n",[Topic, Action, Access])
-     || {all, Topic, Action, Access, _} <- all_acls(all) ];
+    [print_acl(Acl) || Acl <- all_acls(all)];
 
 cli(["add", "clientid", Clientid, Topic, Action, Access]) ->
     case validate(action, Action) andalso validate(access, Access) of
         true ->
-            case add_acl({clientid, iolist_to_binary(Clientid)}, iolist_to_binary(Topic), list_to_existing_atom(Action), list_to_existing_atom(Access)) of
+            case add_acl(
+                   {clientid, iolist_to_binary(Clientid)},
+                   iolist_to_binary(Topic),
+                   list_to_existing_atom(Action),
+                   list_to_existing_atom(Access)
+                  ) of
                 ok -> emqx_ctl:print("ok~n");
                 {error, Reason} -> emqx_ctl:print("Error: ~p~n", [Reason])
             end;
@@ -136,7 +124,12 @@ cli(["add", "clientid", Clientid, Topic, Action, Access]) ->
 cli(["add", "username", Username, Topic, Action, Access]) ->
     case validate(action, Action) andalso validate(access, Access) of
         true ->
-            case add_acl({username, iolist_to_binary(Username)}, iolist_to_binary(Topic), list_to_existing_atom(Action), list_to_existing_atom(Access)) of
+            case add_acl(
+                   {username, iolist_to_binary(Username)},
+                   iolist_to_binary(Topic),
+                   list_to_existing_atom(Action),
+                   list_to_existing_atom(Access)
+                  ) of
                 ok -> emqx_ctl:print("ok~n");
                 {error, Reason} -> emqx_ctl:print("Error: ~p~n", [Reason])
             end;
@@ -147,7 +140,12 @@ cli(["add", "username", Username, Topic, Action, Access]) ->
 cli(["add", "_all", Topic, Action, Access]) ->
     case validate(action, Action) andalso validate(access, Access) of
         true ->
-            case add_acl(all, iolist_to_binary(Topic), list_to_existing_atom(Action), list_to_existing_atom(Access)) of
+            case add_acl(
+                   all,
+                   iolist_to_binary(Topic),
+                   list_to_existing_atom(Action),
+                   list_to_existing_atom(Access)
+                  ) of
                 ok -> emqx_ctl:print("ok~n");
                 {error, Reason} -> emqx_ctl:print("Error: ~p~n", [Reason])
             end;
@@ -156,12 +154,10 @@ cli(["add", "_all", Topic, Action, Access]) ->
     end;
 
 cli(["show", "clientid", Clientid]) ->
-    [emqx_ctl:print("Acl(clientid = ~p topic = ~p action = ~p access = ~p)~n",[NClientid, Topic, Action, Access])
-     || {{clientid, NClientid}, Topic, Action, Access, _} <- lookup_acl({clientid, iolist_to_binary(Clientid)}) ];
+    [print_acl(Acl) || Acl <- lookup_acl({clientid, iolist_to_binary(Clientid)})];
 
 cli(["show", "username", Username]) ->
-    [emqx_ctl:print("Acl(username = ~p topic = ~p action = ~p access = ~p)~n",[NUsername, Topic, Action, Access])
-     || {{username, NUsername}, Topic, Action, Access, _} <- lookup_acl({username, iolist_to_binary(Username)}) ];
+    [print_acl(Acl) || Acl <- lookup_acl({username, iolist_to_binary(Username)})];
 
 cli(["del", "clientid", Clientid, Topic])->
     case remove_acl({clientid, iolist_to_binary(Clientid)}, iolist_to_binary(Topic)) of
@@ -182,9 +178,9 @@ cli(["del", "_all", Topic])->
     end;
 
 cli(_) ->
-    emqx_ctl:usage([ {"acl list clientid","List clientid acls"}
-                   , {"acl list username","List username acls"}
-                   , {"acl list _all","List $all acls"}
+    emqx_ctl:usage([ {"acl list clientid", "List clientid acls"}
+                   , {"acl list username", "List username acls"}
+                   , {"acl list _all", "List $all acls"}
                    , {"acl show clientid <Clientid>", "Lookup clientid acl detail"}
                    , {"acl show username <Username>", "Lookup username acl detail"}
                    , {"acl aad clientid <Clientid> <Topic> <Action> <Access>", "Add clientid acl"}
@@ -192,7 +188,39 @@ cli(_) ->
                    , {"acl add _all <Topic> <Action> <Access>", "Add $all acl"}
                    , {"acl del clientid <Clientid> <Topic>", "Delete clientid acl"}
                    , {"acl del username <Username> <Topic>", "Delete username acl"}
-                   , {"acl del _all, <Topic>", "Delete $all acl"}
+                   , {"acl del _all <Topic>", "Delete $all acl"}
                    ]).
 
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
+comparing({_, _, _, _, CreatedAt1},
+          {_, _, _, _, CreatedAt2}) ->
+    CreatedAt1 >= CreatedAt2.
+
+ret({atomic, ok})     -> ok;
+ret({aborted, Error}) -> {error, Error}.
+
+validate(action, "pub") -> true;
+validate(action, "sub") -> true;
+validate(action, "pubsub") -> true;
+validate(access, "allow") -> true;
+validate(access, "deny") -> true;
+validate(_, _) -> false.
+
+print_acl({{clientid, Clientid}, Topic, Action, Access, _}) ->
+    emqx_ctl:print(
+        "Acl(clientid = ~p topic = ~p action = ~p access = ~p)~n",
+        [Clientid, Topic, Action, Access]
+      );
+print_acl({{username, Username}, Topic, Action, Access, _}) ->
+    emqx_ctl:print(
+        "Acl(username = ~p topic = ~p action = ~p access = ~p)~n",
+        [Username, Topic, Action, Access]
+      );
+print_acl({all, Topic, Action, Access, _}) ->
+    emqx_ctl:print(
+        "Acl($all topic = ~p action = ~p access = ~p)~n",
+        [Topic, Action, Access]
+     ).
