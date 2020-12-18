@@ -77,17 +77,17 @@ spec:
     {{- else if eq .Values.service.type "ClusterIP" }}
     nodePort: null
     {{- end }}
-  {{ - if not (empty .Values.service.dashboardtls) }}
+  {{- if not (empty .Values.service.dashboardtls) }}
   - name: dashboardtls
     port: {{ .Values.service.dashboardtls }}
     protocol: TCP
     targetPort: dashboardtls
-    {{ - if and (or (eq .Values.service.type "NodePort") (eq .Values.service.type "LoadBalancer")) (not (empty .Values.service.nodePorts.dashboardtls)) }}
+    {{- if and (or (eq .Values.service.type "NodePort") (eq .Values.service.type "LoadBalancer")) (not (empty .Values.service.nodePorts.dashboardtls)) }}
     nodePort: {{ .Values.service.nodePorts.dashboardtls }}
-    {{ - else if eq .Values.service.type "ClusterIP" }}
+    {{- else if eq .Values.service.type "ClusterIP" }}
     nodePort: null
-    {{ - end }}
-  {{ - end }}
+    {{- end }}
+  {{- end }}
   selector:
     app.kubernetes.io/name: {{ include "emqx.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
