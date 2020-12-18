@@ -34,7 +34,8 @@ groups() ->
         [ t_action
         , t_rule
         , t_clear
-        , t_no_creation
+        , t_no_creation_1
+        , t_no_creation_2
         ]},
     {speed, [sequence],
         [ rule_speed
@@ -60,8 +61,11 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, _Config) ->
     ok.
 
-t_no_creation(_) ->
-    ?assertError(_, emqx_rule_metrics:inc_actions_taken(<<"action:0">>)).
+t_no_creation_1(_) ->
+    ?assertEqual(ok, emqx_rule_metrics:inc_rules_matched(<<"rule1">>)).
+
+t_no_creation_2(_) ->
+    ?assertEqual(ok, emqx_rule_metrics:inc_actions_taken(<<"action:0">>)).
 
 t_action(_) ->
     ?assertEqual(0, emqx_rule_metrics:get_actions_taken(<<"action:1">>)),
