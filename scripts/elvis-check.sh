@@ -31,7 +31,7 @@ for file in $(git_diff); do
         # not .erl file
         continue
     fi
-    if ! ./elvis rock "$file"; then
+    if ! ./elvis rock "$file" -c elvis.config; then
         bad_file_count=$(( bad_file_count + 1))
     fi
 done
