@@ -14,7 +14,7 @@
   {datatype, {enum, [plain, base62, base64]}}
 ]}.
 
-{mapping, "web.hook.ssl.cafile", "emqx_web_hook.cafile", [
+{mapping, "web.hook.ssl.cacertfile", "emqx_web_hook.cacertfile", [
   {datatype, string}
 ]}.
 
