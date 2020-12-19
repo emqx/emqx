@@ -73,9 +73,9 @@ jobs:
         - uses: actions/upload-artifact@v1
           if: failure()
           with:
-            name: logs
+            name: logs_mysql${{ matrix.mysql_vsn }}_reids${{ matrix.redis_vsn }}_mongo${{ matrix.mongo_vsn }}_pgsql${{ matrix.pgsql_vsn }}_ldap${{ matrix.ldap_vsn }}
             path: _build/test/logs
         - uses: actions/upload-artifact@v1
           with:
-            name: cover
+            name: cover_mysql${{ matrix.mysql_vsn }}_reids${{ matrix.redis_vsn }}_mongo${{ matrix.mongo_vsn }}_pgsql${{ matrix.pgsql_vsn }}_ldap${{ matrix.ldap_vsn }}
             path: _build/test/cover
