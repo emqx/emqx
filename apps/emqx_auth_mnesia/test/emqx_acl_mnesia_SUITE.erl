@@ -27,6 +27,7 @@
                       , request_api/5
                       , get_http_data/1
                       , create_default_app/0
+                      , delete_default_app/0
                       , default_auth_header/0
                       ]).
 
@@ -46,6 +47,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
+    delete_default_app(),
     emqx_ct_helpers:stop_apps([emqx_management, emqx_auth_mnesia]).
 
 init_per_testcase(t_check_acl_as_clientid, Config) ->
@@ -123,15 +125,21 @@ t_acl_cli(_Config) ->
     ?assertEqual(0, length(emqx_acl_mnesia_cli:cli(["list"]))),
 
     emqx_acl_mnesia_cli:cli(["add", "clientid", "test_clientid", "topic/A", "pub", "allow"]),
-    ?assertMatch(["Acl(clientid = <<\"test_clientid\">> topic = <<\"topic/A\">> action = pub access = allow)\n"], emqx_acl_mnesia_cli:cli(["show", "clientid", "test_clientid"])),
-    ?assertMatch(["Acl(clientid = <<\"test_clientid\">> topic = <<\"topic/A\">> action = pub access = allow)\n"], emqx_acl_mnesia_cli:cli(["list", "clientid"])),
+    R1 = emqx_ctl:format("Acl(clientid = ~p topic = ~p action = ~p access = ~p)~n",
+                         [<<"test_clientid">>, <<"topic/A">>, pub, allow]),
+    ?assertEqual([R1], emqx_acl_mnesia_cli:cli(["show", "clientid", "test_clientid"])),
+    ?assertEqual([R1], emqx_acl_mnesia_cli:cli(["list", "clientid"])),
 
     emqx_acl_mnesia_cli:cli(["add", "username", "test_username", "topic/B", "sub", "deny"]),
-    ?assertMatch(["Acl(username = <<\"test_username\">> topic = <<\"topic/B\">> action = sub access = deny)\n"], emqx_acl_mnesia_cli:cli(["show", "username", "test_username"])),
-    ?assertMatch(["Acl(username = <<\"test_username\">> topic = <<\"topic/B\">> action = sub access = deny)\n"], emqx_acl_mnesia_cli:cli(["list", "username"])),
+    R2 = emqx_ctl:format("Acl(username = ~p topic = ~p action = ~p access = ~p)~n",
+                         [<<"test_username">>, <<"topic/B">>, sub, deny]),
+    ?assertEqual([R2], emqx_acl_mnesia_cli:cli(["show", "username", "test_username"])),
+    ?assertEqual([R2], emqx_acl_mnesia_cli:cli(["list", "username"])),
 
     emqx_acl_mnesia_cli:cli(["add", "_all", "#", "pubsub", "deny"]),
-    ?assertMatch(["Acl($all topic = <<\"#\">> action = pubsub access = deny)\n"], emqx_acl_mnesia_cli:cli(["list", "_all"])),
+    ?assertMatch(["Acl($all topic = <<\"#\">> action = pubsub access = deny)\n"],
+                 emqx_acl_mnesia_cli:cli(["list", "_all"])
+                ),
     ?assertEqual(3, length(emqx_acl_mnesia_cli:cli(["list"]))),
 
     emqx_acl_mnesia_cli:cli(["del", "clientid", "test_clientid", "topic/A"]),
@@ -144,9 +152,21 @@ t_acl_cli(_Config) ->
 t_rest_api(_Config) ->
     clean_all_acls(),
 
-    Params1 = [#{<<"clientid">> => <<"test_clientid">>, <<"topic">> => <<"topic/A">>, <<"action">> => <<"pub">>, <<"access">> => <<"allow">>},
-               #{<<"clientid">> => <<"test_clientid">>, <<"topic">> => <<"topic/B">>, <<"action">> => <<"sub">>, <<"access">> => <<"allow">>},
-               #{<<"clientid">> => <<"test_clientid">>, <<"topic">> => <<"topic/C">>, <<"action">> => <<"pubsub">>, <<"access">> => <<"deny">>}],
+    Params1 = [#{<<"clientid">> => <<"test_clientid">>,
+                 <<"topic">> => <<"topic/A">>,
+                 <<"action">> => <<"pub">>,
+                 <<"access">> => <<"allow">>
+                },
+               #{<<"clientid">> => <<"test_clientid">>,
+                 <<"topic">> => <<"topic/B">>,
+                 <<"action">> => <<"sub">>,
+                 <<"access">> => <<"allow">>
+                },
+               #{<<"clientid">> => <<"test_clientid">>,
+                 <<"topic">> => <<"topic/C">>,
+                 <<"action">> => <<"pubsub">>,
+                 <<"access">> => <<"deny">>
+                }],
     {ok, _} = request_http_rest_add([], Params1),
     {ok, Re1} = request_http_rest_list(["clientid", "test_clientid"]),
     ?assertMatch(3, length(get_http_data(Re1))),
@@ -156,9 +176,21 @@ t_rest_api(_Config) ->
     {ok, Res1} = request_http_rest_list(["clientid"]),
     ?assertMatch([], get_http_data(Res1)),
 
-    Params2 = [#{<<"username">> => <<"test_username">>, <<"topic">> => <<"topic/A">>, <<"action">> => <<"pub">>, <<"access">> => <<"allow">>},
-               #{<<"username">> => <<"test_username">>, <<"topic">> => <<"topic/B">>, <<"action">> => <<"sub">>, <<"access">> => <<"allow">>},
-               #{<<"username">> => <<"test_username">>, <<"topic">> => <<"topic/C">>, <<"action">> => <<"pubsub">>, <<"access">> => <<"deny">>}],
+    Params2 = [#{<<"username">> => <<"test_username">>,
+                 <<"topic">> => <<"topic/A">>,
+                 <<"action">> => <<"pub">>,
+                 <<"access">> => <<"allow">>
+                },
+               #{<<"username">> => <<"test_username">>,
+                 <<"topic">> => <<"topic/B">>,
+                 <<"action">> => <<"sub">>,
+                 <<"access">> => <<"allow">>
+                },
+               #{<<"username">> => <<"test_username">>,
+                 <<"topic">> => <<"topic/C">>,
+                 <<"action">> => <<"pubsub">>,
+                 <<"access">> => <<"deny">>
+                }],
     {ok, _} = request_http_rest_add([], Params2),
     {ok, Re2} = request_http_rest_list(["username", "test_username"]),
     ?assertMatch(3, length(get_http_data(Re2))),
@@ -168,9 +200,18 @@ t_rest_api(_Config) ->
     {ok, Res2} = request_http_rest_list(["username"]),
     ?assertMatch([], get_http_data(Res2)),
 
-    Params3 = [#{<<"topic">> => <<"topic/A">>, <<"action">> => <<"pub">>, <<"access">> => <<"allow">>},
-               #{<<"topic">> => <<"topic/B">>, <<"action">> => <<"sub">>, <<"access">> => <<"allow">>},
-               #{<<"topic">> => <<"topic/C">>, <<"action">> => <<"pubsub">>, <<"access">> => <<"deny">>}],
+    Params3 = [#{<<"topic">> => <<"topic/A">>,
+                 <<"action">> => <<"pub">>,
+                 <<"access">> => <<"allow">>
+                },
+               #{<<"topic">> => <<"topic/B">>,
+                 <<"action">> => <<"sub">>,
+                 <<"access">> => <<"allow">>
+                },
+               #{<<"topic">> => <<"topic/C">>,
+                 <<"action">> => <<"pubsub">>,
+                 <<"access">> => <<"deny">>
+                }],
     {ok, _} = request_http_rest_add([], Params3),
     {ok, Re3} = request_http_rest_list(["$all"]),
     ?assertMatch(3, length(get_http_data(Re3))),
