@@ -468,7 +468,7 @@ t_show_resource_type_api(_Config) ->
 %%------------------------------------------------------------------------------
 
 t_rules_cli(_Config) ->
-    print_mock(),
+    mock_print(),
     RCreate = emqx_rule_engine_cli:rules(["create",
                                           "select * from \"t1\" where topic='t1'",
                                           "[{\"name\":\"inspect\", \"params\": {\"arg1\": 1}}]",
@@ -500,10 +500,11 @@ t_rules_cli(_Config) ->
     RShow2 = emqx_rule_engine_cli:rules(["show", RuleId]),
     ?assertMatch({match, _}, re:run(RShow2, "Cannot found")),
     %ct:pal("RShow2 : ~p", [RShow2]),
+    unmock_print(),
     ok.
 
 t_actions_cli(_Config) ->
-    print_mock(),
+    mock_print(),
     RList = emqx_rule_engine_cli:actions(["list"]),
     ?assertMatch({match, _}, re:run(RList, "inspect")),
     %ct:pal("RList : ~p", [RList]),
@@ -511,10 +512,11 @@ t_actions_cli(_Config) ->
     RShow = emqx_rule_engine_cli:actions(["show", "inspect"]),
     ?assertMatch({match, _}, re:run(RShow, "inspect")),
     %ct:pal("RShow : ~p", [RShow]),
+    unmock_print(),
     ok.
 
 t_resources_cli(_Config) ->
-    print_mock(),
+    mock_print(),
     RCreate = emqx_rule_engine_cli:resources(["create", "built_in", "{\"a\" : 1}", "-d", "test resource"]),
     ResId = re:replace(re:replace(RCreate, "Resource\s", "", [{return, list}]), "\screated\n", "", [{return, list}]),
 
@@ -536,10 +538,11 @@ t_resources_cli(_Config) ->
     RShow2 = emqx_rule_engine_cli:resources(["show", ResId]),
     ?assertMatch({match, _}, re:run(RShow2, "Cannot found")),
     %ct:pal("RShow2 : ~p", [RShow2]),
+    unmock_print(),
     ok.
 
 t_resource_types_cli(_Config) ->
-    print_mock(),
+    mock_print(),
     RList = emqx_rule_engine_cli:resource_types(["list"]),
     ?assertMatch({match, _}, re:run(RList, "built_in")),
     %ct:pal("RList : ~p", [RList]),
@@ -547,6 +550,7 @@ t_resource_types_cli(_Config) ->
     RShow = emqx_rule_engine_cli:resource_types(["show", "inspect"]),
     ?assertMatch({match, _}, re:run(RShow, "inspect")),
     %ct:pal("RShow : ~p", [RShow]),
+    unmock_print(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -562,7 +566,7 @@ t_topic_func(_Config) ->
 %%------------------------------------------------------------------------------
 
 t_add_get_remove_rule(_Config) ->
-    print_mock(),
+    mock_print(),
     RuleId0 = <<"rule-debug-0">>,
     ok = emqx_rule_registry:add_rule(make_simple_rule(RuleId0)),
     ?assertMatch({ok, #rule{id = RuleId0}}, emqx_rule_registry:get_rule(RuleId0)),
@@ -575,6 +579,7 @@ t_add_get_remove_rule(_Config) ->
     ?assertMatch({ok, #rule{id = RuleId1}}, emqx_rule_registry:get_rule(RuleId1)),
     ok = emqx_rule_registry:remove_rule(Rule1),
     ?assertEqual(not_found, emqx_rule_registry:get_rule(RuleId1)),
+    unmock_print(),
     ok.
 
 t_add_get_remove_rules(_Config) ->
@@ -2435,13 +2440,16 @@ set_special_configs(emqx_rule_engine) ->
 set_special_configs(_App) ->
     ok.
 
-print_mock() ->
+mock_print() ->
     catch meck:unload(emqx_ctl),
     meck:new(emqx_ctl, [non_strict, passthrough]),
     meck:expect(emqx_ctl, print, fun(Arg) -> emqx_ctl:format(Arg) end),
     meck:expect(emqx_ctl, print, fun(Msg, Arg) -> emqx_ctl:format(Msg, Arg) end),
     meck:expect(emqx_ctl, usage, fun(Usages) -> emqx_ctl:format_usage(Usages) end),
     meck:expect(emqx_ctl, usage, fun(Cmd, Descr) -> emqx_ctl:format_usage(Cmd, Descr) end).
+
+unmock_print() ->
+    meck:unload(emqx_ctl).
 
 t_load_providers(_) ->
     error('TODO').

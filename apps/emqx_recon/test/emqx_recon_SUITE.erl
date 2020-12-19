@@ -45,7 +45,7 @@ end_per_suite(_Config) ->
     application:stop(emqx).
 
 cli_memory(_) ->
-    print_mock(),
+    mock_print(),
     Output = emqx_recon_cli:cmd(["memory"]),
     Zip = lists:zip(Output, [ ?output_patterns("usage/current")
                             , ?output_patterns("usage/max")
@@ -58,10 +58,11 @@ cli_memory(_) ->
                             ]),
     %ct:pal("=======~p", [Zip]),
     [?assertMatch({match, _}, re:run(Line, Match, [{capture,all,list}]))
-     || {Line, Match} <- Zip].
+     || {Line, Match} <- Zip],
+    unmock_print().
 
 cli_allocated(_) ->
-    print_mock(),
+    mock_print(),
     Output = emqx_recon_cli:cmd(["allocated"]),
     Zip = lists:zip(Output, [ ?output_patterns("binary_alloc/current")
                             , ?output_patterns("driver_alloc/current")
@@ -84,13 +85,15 @@ cli_allocated(_) ->
                             ]),
     ct:pal("=======~p", [Zip]),
     [?assertMatch({match, _}, re:run(Line, Match, [{capture,all,list}]))
-     || {Line, Match} <- Zip].
+     || {Line, Match} <- Zip],
+    unmock_print().
 
 cli_bin_leak(_) ->
-    print_mock(),
+    mock_print(),
     Output = emqx_recon_cli:cmd(["bin_leak"]),
     [?assertMatch({match, _}, re:run(Line, "current_function", [{capture,all,list}]))
-     || Line <- Output].
+     || Line <- Output],
+    unmock_print().
 
 cli_node_stats(_) ->
     emqx_recon_cli:cmd(["node_stats"]).
@@ -109,9 +112,13 @@ start_apps(App, DataDir) ->
     [application:set_env(App, Par, Value) || {Par, Value} <- Vals],
     application:ensure_all_started(App).
 
-print_mock() ->
+mock_print() ->
+    catch meck:unload(emqx_ctl),
     meck:new(emqx_ctl, [non_strict, passthrough]),
     meck:expect(emqx_ctl, print, fun(Arg) -> emqx_ctl:format(Arg) end),
     meck:expect(emqx_ctl, print, fun(Msg, Arg) -> emqx_ctl:format(Msg, Arg) end),
     meck:expect(emqx_ctl, usage, fun(Usages) -> emqx_ctl:format_usage(Usages) end).
+
+unmock_print() ->
+    meck:unload().
 

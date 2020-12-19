@@ -23,7 +23,8 @@ config() ->
     ].
 
 plugins() ->
-    [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {branch,"master"}}}
+    [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {branch,"master"}}},
+      {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0"}}}
     ].
 
 test_deps() ->
