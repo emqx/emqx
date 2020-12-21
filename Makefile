@@ -1,4 +1,4 @@
-REBAR_VERSION = 3.14.3-emqx-3
+REBAR_VERSION = 3.14.3-emqx-4
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)

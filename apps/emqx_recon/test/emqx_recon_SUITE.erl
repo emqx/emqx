@@ -36,13 +36,11 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    DataDir = proplists:get_value(data_dir, Config),
-    [start_apps(App, DataDir) || App <- [emqx, emqx_recon]],
+    emqx_ct_helpers:start_apps([emqx_recon]),
     Config.
 
 end_per_suite(_Config) ->
-    application:stop(emqx_recon),
-    application:stop(emqx).
+    emqx_ct_helpers:stop_apps([emqx_recon]).
 
 cli_memory(_) ->
     mock_print(),
@@ -103,14 +101,6 @@ cli_remote_load(_) ->
 
 cli_usage(_) ->
     emqx_recon_cli:cmd(["usage"]).
-
-start_apps(App, DataDir) ->
-    Schema = cuttlefish_schema:files([filename:join([DataDir, atom_to_list(App) ++ ".schema"])]),
-    Conf = conf_parse:file(filename:join([DataDir, atom_to_list(App) ++ ".conf"])),
-    NewConfig = cuttlefish_generator:map(Schema, Conf),
-    Vals = proplists:get_value(App, NewConfig),
-    [application:set_env(App, Par, Value) || {Par, Value} <- Vals],
-    application:ensure_all_started(App).
 
 mock_print() ->
     catch meck:unload(emqx_ctl),
