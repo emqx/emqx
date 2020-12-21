@@ -177,7 +177,7 @@
 
 -spec(on_resource_create(binary(), map()) -> map()).
 on_resource_create(ResId, Conf) ->
-    {ok, _} = application:ensure_all_started(ecpool),
+    {ok, _} = application:ensure_all_started(ehttpc),
     Options = pool_opts(Conf),
     PoolName = pool_name(ResId),
     start_resource(ResId, PoolName, Options),
