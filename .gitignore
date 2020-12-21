@@ -40,3 +40,4 @@ rebar.lock
 tmp/
 _packages
 elvis
+emqx_dialyzer_*_plt
