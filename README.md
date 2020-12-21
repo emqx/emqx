@@ -97,6 +97,17 @@ examples
 NOTE: Do *NOT* use full (relative) path to SUITE files like this `--suite apps/emqx_auth_mnesia/test/emqx_acl_mnesia_SUITE.erl`,
 because it will lead to a full copy of `apps` dir into `_buid/test/lib/emqx`.
 
+### Dialyzer
+##### To Analyze all the apps
+```
+make dialyzer
+```
+
+##### To Analyse specific apps, (list of comma separated apps)
+```
+DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
+```
+
 ## FAQ
 
 Visiting [EMQ X FAQ](https://docs.emqx.io/broker/latest/en/faq/faq.html) to get help of common problems.

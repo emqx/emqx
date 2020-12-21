@@ -62,6 +62,17 @@ cd _rel/emqx && ./bin/emqx console
 
 *EMQ X* ブローカーを起動したら、ブラウザで http://localhost:18083 にアクセスしてダッシュボードを表示できます。
 
+### ダイアライザー
+##### すべてのアプリを分析するには
+```
+make dialyzer
+```
+
+##### 特定のアプリを分析するには（アプリのコンマ区切りリスト）
+```
+DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
+```
+
 ## FAQ
 
 よくある質問については、[EMQ X FAQ](https://docs.emqx.io/broker/latest/en/faq/faq.html)にアクセスしてください。
