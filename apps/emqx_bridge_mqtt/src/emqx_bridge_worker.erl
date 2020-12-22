@@ -251,7 +251,7 @@ init_opts(Config) ->
     BridgeHandler = maps:get(bridge_handler, Config, ?NO_BRIDGE_HANDLER),
     Mountpoint = maps:get(forward_mountpoint, Config, undefined),
     ReceiveMountpoint = maps:get(receive_mountpoint, Config, undefined),
-    MaxInflightSize = maps:get(max_inflight_batches, Config, ?DEFAULT_BATCH_SIZE),
+    MaxInflightSize = maps:get(max_inflight, Config, ?DEFAULT_BATCH_SIZE),
     BatchSize = maps:get(batch_size, Config, ?DEFAULT_BATCH_SIZE),
     Name = maps:get(name, Config, undefined),
     #{start_type => StartType,
