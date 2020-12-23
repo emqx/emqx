@@ -78,58 +78,58 @@ t_scram(_) ->
 
     {ok, _} = emqx_sasl:check(AuthMethod, ServerFinal, ClientCache).
 
-t_proto(_) ->
-    process_flag(trap_exit, true),
-
-    Username = <<"username">>,
-    Password = <<"password">>,
-    Salt = <<"emqx">>,
-    AuthMethod = <<"SCRAM-SHA-1">>,
-
-    {ok, Client0} = emqtt:start_link([{clean_start, true},
-                                     {proto_ver, v5},
-                                     {enhanced_auth, #{method => AuthMethod,
-                                                       params => #{username => Username,
-                                                                   password => Password,
-                                                                   salt => Salt}}},
-                                     {connect_timeout, 6000}]),
-    {error,{not_authorized,#{}}} = emqtt:connect(Client0),
-
-    ok = emqx_sasl_scram:add(Username, Password, Salt),
-    {ok, Client1} = emqtt:start_link([{clean_start, true},
-                                     {proto_ver, v5},
-                                     {enhanced_auth, #{method => AuthMethod,
-                                                       params => #{username => Username,
-                                                                   password => Password,
-                                                                   salt => Salt}}},
-                                     {connect_timeout, 6000}]),
-    {ok, _} = emqtt:connect(Client1),
-
-    timer:sleep(200),
-    ok = emqtt:reauthentication(Client1, #{params => #{username => Username,
-                                                       password => Password,
-                                                       salt => Salt}}),
-
-    timer:sleep(200),
-    ErrorFun = fun (_State) -> {ok, <<>>, #{}} end,
-    ok = emqtt:reauthentication(Client1, #{params => #{},function => ErrorFun}),
-    receive
-        {disconnected,ReasonCode2,#{}} ->
-            ?assertEqual(ReasonCode2, 135)
-    after 500 ->
-        error("emqx re-authentication failed")
-    end,
-
-    {ok, Client2} = emqtt:start_link([{clean_start, true},
-                                     {proto_ver, v5},
-                                     {enhanced_auth, #{method => AuthMethod,
-                                                       params => #{},
-                                                       function =>fun (_State) -> {ok, <<>>, #{}} end}},
-                                     {connect_timeout, 6000}]),
-    {error,{not_authorized,#{}}} = emqtt:connect(Client2),
-
-    receive_msg(),
-    process_flag(trap_exit, false).
+%t_proto(_) ->
+%    process_flag(trap_exit, true),
+%
+%    Username = <<"username">>,
+%    Password = <<"password">>,
+%    Salt = <<"emqx">>,
+%    AuthMethod = <<"SCRAM-SHA-1">>,
+%
+%    {ok, Client0} = emqtt:start_link([{clean_start, true},
+%                                     {proto_ver, v5},
+%                                     {enhanced_auth, #{method => AuthMethod,
+%                                                       params => #{username => Username,
+%                                                                   password => Password,
+%                                                                   salt => Salt}}},
+%                                     {connect_timeout, 6000}]),
+%    {error,{not_authorized,#{}}} = emqtt:connect(Client0),
+%
+%    ok = emqx_sasl_scram:add(Username, Password, Salt),
+%    {ok, Client1} = emqtt:start_link([{clean_start, true},
+%                                     {proto_ver, v5},
+%                                     {enhanced_auth, #{method => AuthMethod,
+%                                                       params => #{username => Username,
+%                                                                   password => Password,
+%                                                                   salt => Salt}}},
+%                                     {connect_timeout, 6000}]),
+%    {ok, _} = emqtt:connect(Client1),
+%
+%    timer:sleep(200),
+%    ok = emqtt:reauthentication(Client1, #{params => #{username => Username,
+%                                                       password => Password,
+%                                                       salt => Salt}}),
+%
+%    timer:sleep(200),
+%    ErrorFun = fun (_State) -> {ok, <<>>, #{}} end,
+%    ok = emqtt:reauthentication(Client1, #{params => #{},function => ErrorFun}),
+%    receive
+%        {disconnected,ReasonCode2,#{}} ->
+%            ?assertEqual(ReasonCode2, 135)
+%    after 500 ->
+%        error("emqx re-authentication failed")
+%    end,
+%
+%    {ok, Client2} = emqtt:start_link([{clean_start, true},
+%                                     {proto_ver, v5},
+%                                     {enhanced_auth, #{method => AuthMethod,
+%                                                       params => #{},
+%                                                       function =>fun (_State) -> {ok, <<>>, #{}} end}},
+%                                     {connect_timeout, 6000}]),
+%    {error,{not_authorized,#{}}} = emqtt:connect(Client2),
+%
+%    receive_msg(),
+%    process_flag(trap_exit, false).
 
 receive_msg() ->
     receive
