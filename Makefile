@@ -28,7 +28,7 @@ eunit: $(REBAR)
 
 .PHONY: ct
 ct: $(REBAR)
-	$(REBAR) ct
+	$(REBAR) ct -c -v
 
 .PHONY: cover
 cover: $(REBAR)
