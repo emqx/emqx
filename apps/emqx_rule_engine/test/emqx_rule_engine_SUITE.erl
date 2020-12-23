@@ -744,11 +744,15 @@ get_resource_type() ->
     ?assertMatch({ok, #resource_type{name = <<"resource-type-debug-1">>}}, emqx_rule_registry:find_resource_type(<<"resource-type-debug-1">>)),
     ok.
 get_resource_types() ->
-    ?assert(length(emqx_rule_registry:get_resource_types()) > 0),
+    ResTypes = emqx_rule_registry:get_resource_types(),
+    ct:pal("resource types now: ~p", [ResTypes]),
+    ?assert(length(ResTypes) > 0),
     ok.
 unregister_resource_types_of() ->
+    NumOld = length(emqx_rule_registry:get_resource_types()),
     ok = emqx_rule_registry:unregister_resource_types_of(?APP),
-    ?assertEqual(0, length(emqx_rule_registry:get_resource_types())),
+    NumNow = length(emqx_rule_registry:get_resource_types()),
+    ?assert((NumOld - NumNow) >= 2),
     ok.
 
 %%------------------------------------------------------------------------------
