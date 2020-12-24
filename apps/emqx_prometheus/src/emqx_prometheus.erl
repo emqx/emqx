@@ -124,13 +124,13 @@ collect_mf(_Registry, Callback) ->
     Metrics = emqx_metrics:all(),
     Stats = emqx_stats:getstats(),
     VMData = emqx_vm_data(),
-    [add_collect_family(Name, Stats, Callback, gauge) || Name <- emqx_stats()],
-    [add_collect_family(Name, VMData, Callback, gauge) || Name <- emqx_vm()],
-    [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_packets()],
-    [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_messages()],
-    [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_delivery()],
-    [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_client()],
-    [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_session()],
+    _ = [add_collect_family(Name, Stats, Callback, gauge) || Name <- emqx_stats()],
+    _ = [add_collect_family(Name, VMData, Callback, gauge) || Name <- emqx_vm()],
+    _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_packets()],
+    _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_messages()],
+    _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_delivery()],
+    _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_client()],
+    _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_session()],
     ok.
 
 %% @private
@@ -166,7 +166,7 @@ collect_metrics(Name, Metrics) ->
     emqx_collect(Name, Metrics).
 
 add_collect_family(Name, Data, Callback, Type) ->
-    Callback(create_schema(Name, "",  Data, Type)).
+    Callback(create_schema(Name, <<"">>,  Data, Type)).
 
 create_schema(Name, Help, Data, Type) ->
   create_mf(Name, Help, Type, ?MODULE, Data).
