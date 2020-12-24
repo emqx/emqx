@@ -18,21 +18,21 @@ jobs:
 
         strategy:
           matrix:
-            mysql_vsn: [5.7, 8]
-            redis_vsn: [6]
-            mongo_vsn: [3, 4]
-            pgsql_vsn: [11, 12, 13]
-            ldap_vsn: [2.4.50]
+            mysql_tag: [5.7]
+            redis_tag: [6]
+            mongo_tag: [3, 4]
+            pgsql_tag: [13]
+            ldap_tag: [2.4.50]
 
         steps:
         - uses: actions/checkout@v2
         - name: set up
           env:
-            MYSQL_VSN: ${{ matrix.mysql_vsn }}
-            REDIS_VSN: ${{ matrix.redis_vsn }}
-            MONGO_VSN: ${{ matrix.mongo_vsn }}
-            PGSQL_VSN: ${{ matrix.pgsql_vsn }}
-            LDAP_VSN: ${{ matrix.ldap_vsn }}
+            MYSQL_TAG: ${{ matrix.mysql_tag }}
+            REDIS_TAG: ${{ matrix.redis_tag }}
+            MONGO_TAG: ${{ matrix.mongo_tag }}
+            PGSQL_TAG: ${{ matrix.pgsql_tag }}
+            LDAP_TAG: ${{ matrix.ldap_tag }}
           run: |
             cp -f apps/emqx_auth_ldap/emqx.io.ldif .ci/apps_tests/emqx_ldap/schema
             cp -f apps/emqx_auth_ldap/emqx.schema  .ci/apps_tests/emqx_ldap/schema
@@ -68,9 +68,9 @@ jobs:
         - uses: actions/upload-artifact@v1
           if: failure()
           with:
-            name: logs_mysql${{ matrix.mysql_vsn }}_reids${{ matrix.redis_vsn }}_mongo${{ matrix.mongo_vsn }}_pgsql${{ matrix.pgsql_vsn }}_ldap${{ matrix.ldap_vsn }}
+            name: logs_mysql${{ matrix.mysql_tag }}_reids${{ matrix.redis_tag }}_mongo${{ matrix.mongo_tag }}_pgsql${{ matrix.pgsql_tag }}_ldap${{ matrix.ldap_tag }}
             path: _build/test/logs
         - uses: actions/upload-artifact@v1
           with:
-            name: cover_mysql${{ matrix.mysql_vsn }}_reids${{ matrix.redis_vsn }}_mongo${{ matrix.mongo_vsn }}_pgsql${{ matrix.pgsql_vsn }}_ldap${{ matrix.ldap_vsn }}
+            name: cover_mysql${{ matrix.mysql_tag }}_reids${{ matrix.redis_tag }}_mongo${{ matrix.mongo_tag }}_pgsql${{ matrix.pgsql_tag }}_ldap${{ matrix.ldap_tag }}
             path: _build/test/cover

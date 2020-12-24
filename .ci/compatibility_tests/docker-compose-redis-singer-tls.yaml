@@ -2,19 +2,22 @@ version: '3'
 
 services:
   erlang:
+    container_name: erlang
     image: erlang:22.3
     volumes:
-      - ../:/emqx_auth_redis
+      - ../..:/emqx
     networks:
       - emqx_bridge
     depends_on:
       - redis_server
+    working_dir: /emqx
     tty: true
 
   redis_server:
-    image: redis:6.0.9
+    container_name: redis 
+    image: redis:${REDIS_TAG}
     volumes:
-      - ../test/emqx_auth_redis_SUITE_data/certs:/tls
+      - ../../apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs:/tls
     command:
       - redis-server
       - "--bind 0.0.0.0 ::"
@@ -29,3 +32,12 @@ services:
 networks:
   emqx_bridge:
     driver: bridge
+    name: emqx_bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.100.100.0/24
+          gateway: 172.100.100.1
+        - subnet: 2001:3200:3200::/64
+          gateway: 2001:3200:3200::1

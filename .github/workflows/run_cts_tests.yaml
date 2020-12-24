@@ -1,0 +1,300 @@
+name: Compatibility Test Suite
+
+on:
+  push:
+  release:
+    types:
+      - published
+  pull_request:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [run_actions]
+
+jobs:
+  ldap:
+    runs-on: ubuntu-20.04
+
+    strategy:
+      matrix:
+        ldap_tag:
+        - 2.4.50
+        network_type:
+        - ipv4
+        - ipv6
+
+    steps:
+      - uses: actions/checkout@v1
+      - name: setup
+        env:
+          LDAP_TAG: ${{ matrix.ldap_tag }}
+        run: |
+          cp -f apps/emqx_auth_ldap/emqx.io.ldif .ci/apps_tests/emqx_ldap/schema
+          cp -f apps/emqx_auth_ldap/emqx.schema  .ci/apps_tests/emqx_ldap/schema
+          cp -f apps/emqx_auth_ldap/test/certs/* .ci/apps_tests/emqx_ldap/certs
+          docker-compose -f .ci/apps_tests/docker-compose.yaml build --no-cache
+          docker-compose -f .ci/compatibility_tests/docker-compose-ldap.yaml up -d
+      - name: setup
+        if: matrix.network_type == 'ipv4'
+        run: |
+          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ldap)
+          sed -i "/auth.ldap.servers/c auth.ldap.servers = $server_address" apps/emqx_auth_ldap/etc/emqx_auth_ldap.conf
+      - name: setup
+        if: matrix.network_type == 'ipv6'
+        run: |
+          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' ldap)
+          sed -i "/auth.ldap.servers/c auth.ldap.servers = $server_address" apps/emqx_auth_ldap/etc/emqx_auth_ldap.conf
+      - name: run test cases
+        run: |
+          docker exec -i erlang sh -c "make ensure-rebar3"
+          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_ldap"
+          docker exec -i erlang sh -c "./rebar3 ct    --dir apps/emqx_auth_ldap"
+      - uses: actions/upload-artifact@v1
+        if: failure()
+        with:
+          name: logs_ldap${{ matrix.ldap_tag }}_${{ matrix.network_type }}
+          path: _build/test/logs
+
+  mongo:
+    runs-on: ubuntu-20.04
+
+    strategy:
+      matrix:
+        mongo_tag:
+        - 3
+        - 4
+        network_type:
+        - ipv4
+        - ipv6
+        connect_type:
+        - tls
+        - tcp
+
+    steps:
+      - uses: actions/checkout@v1
+      - name: setup
+        env:
+          MONGO_TAG: ${{ matrix.mongo_tag }}
+        if: matrix.connect_type == 'tls'
+        run: |
+          docker-compose -f .ci/compatibility_tests/docker-compose-mongo-tls.yaml up -d
+          echo 'auth.mongo.ssl = true' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          echo 'auth.mongo.ssl_opts.cacertfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          echo 'auth.mongo.ssl_opts.certfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          echo 'auth.mongo.ssl_opts.keyfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+      - name: setup
+        env:
+          MONGO_TAG: ${{ matrix.mongo_tag }}
+        if: matrix.connect_type == 'tcp'
+        run: docker-compose -f .ci/compatibility_tests/docker-compose-mongo.yaml up -d
+      - name: setup
+        if: matrix.network_type == 'ipv4'
+        run: |
+          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mongo)
+          sed -i "/auth.mongo.server/c auth.mongo.server = $server_address:27017" apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+      - name: setup
+        if: matrix.network_type == 'ipv6'
+        run: |
+          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' mongo)
+          sed -i "/auth.mongo.server/c auth.mongo.server = $server_address:27017" apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+      - name: run test cases
+        run: |
+          docker exec -i erlang sh -c "make ensure-rebar3"
+          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mongo"
+          docker exec -i erlang sh -c "./rebar3 ct    --dir apps/emqx_auth_mongo"
+      - uses: actions/upload-artifact@v1
+        if: failure()
+        with:
+          name: logs_mongo${{ matrix.mongo_tag }}_${{ matrix.network_type }}_${{ matrix.connect_type }}
+          path: _build/test/logs
+
+  mysql:
+    runs-on: ubuntu-20.04
+
+    strategy:
+      matrix:
+        mysql_tag:
+        - 5.7
+        - 8
+        network_type:
+        - ipv4
+        - ipv6
+        connect_type:
+        - tls
+        - tcp
+
+    steps:
+      - uses: actions/checkout@v1
+      - name: setup
+        env:
+          MYSQL_TAG: ${{ matrix.mysql_tag }}
+        if: matrix.connect_type == 'tls'
+        run: |
+          docker-compose -f .ci/compatibility_tests/docker-compose-mysql-tls.yaml up -d
+          echo '\n' >> apps/emqx_auth_mongo/etc/emqx_auth_mysql.conf
+          echo 'auth.mysql.ssl = on' >> apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          echo "auth.mysql.ssl.cafile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem" >> apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          echo "auth.mysql.ssl.certfile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem" >> apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          echo "auth.mysql.ssl.keyfile =  /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-key.pem" >> apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+      - name: setup
+        env:
+          MYSQL_TAG: ${{ matrix.mysql_tag }}
+        if: matrix.connect_type == 'tcp'
+        run: docker-compose -f .ci/compatibility_tests/docker-compose-mysql.yaml up -d
+      - name: setup
+        if: matrix.network_type == 'ipv4'
+        run: |
+          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mysql)
+          sed -i "/auth.mysql.server/c auth.mysql.server = $server_address:3306" apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+      - name: setup
+        if: matrix.network_type == 'ipv6'
+        run: |
+          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' mysql)
+          sed -i "/auth.mysql.server/c auth.mysql.server = $server_address:3306" apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+      - name: run test cases
+        run: |
+          docker exec -i erlang sh -c "make ensure-rebar3"
+          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mysql"
+          docker exec -i erlang sh -c "./rebar3 ct    --dir apps/emqx_auth_mysql"
+      - uses: actions/upload-artifact@v1
+        if: failure()
+        with:
+          name: logs_mysql${{ matrix.mysql_tag }}_${{ matrix.network_type }}_${{ matrix.connect_type }}
+          path: _build/test/logs
+
+  pgsql:
+    runs-on: ubuntu-20.04
+
+    strategy:
+      matrix:
+        pgsql_tag:
+        - 9
+        - 10
+        - 11
+        - 12
+        - 13
+        network_type:
+        - ipv4
+        - ipv6
+        connect_type:
+            # - tls
+        - tcp
+
+    steps:
+      - uses: actions/checkout@v1
+      - name: setup
+        env:
+          PGSQL_TAG: ${{ matrix.pgsql_tag }}
+        if: matrix.connect_type == 'tls'
+        run: |
+          docker-compose -f .ci/compatibility_tests/docker-compose-pgsql-tls.yaml up -d
+          echo '\n' >> apps/emqx_auth_mongo/etc/emqx_auth_pgsql.conf
+          echo 'auth.pgsql.ssl = true' >> apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          echo "auth.pgsql.ssl_opts.cacertfile = /emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/ca.pem" >> apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          echo "auth.pgsql.ssl_opts.certfile = /emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/client-cert.pem" >> apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          echo "auth.pgsql.ssl_opts.keyfile =  /emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/client-key.pem" >> apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+      - name: setup
+        env:
+          PGSQL_TAG: ${{ matrix.pgsql_tag }}
+        if: matrix.connect_type == 'tcp'
+        run: docker-compose -f .ci/compatibility_tests/docker-compose-pgsql.yaml up -d
+      - name: setup
+        if: matrix.network_type == 'ipv4'
+        run: |
+          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pgsql)
+          sed -i "/auth.pgsql.server/c auth.pgsql.server = $server_address:5432" apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+      - name: setup
+        if: matrix.network_type == 'ipv6'
+        run: |
+          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' pgsql)
+          sed -i "/auth.pgsql.server/c auth.pgsql.server = $server_address:5432" apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+      - name: run test cases
+        run: |
+          docker exec -i erlang sh -c "make ensure-rebar3"
+          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_pgsql"
+          docker exec -i erlang sh -c "./rebar3 ct    --dir apps/emqx_auth_pgsql"
+      - uses: actions/upload-artifact@v1
+        if: failure()
+        with:
+          name: logs_pgsql${{ matrix.pgsql_tag }}_${{ matrix.network_type }}_${{ matrix.connect_type }}
+          path: _build/test/logs
+
+  redis:
+    runs-on: ubuntu-20.04
+
+    strategy:
+      matrix:
+        redis_tag:
+        - 5
+        - 6
+        network_type:
+        - ipv4
+        - ipv6
+        connect_type:
+        - tls
+        - tcp
+        node_type:
+        - singer
+        - cluster
+
+    steps:
+      - uses: actions/checkout@v1
+      - name: setup
+        env:
+          REDIS_TAG: ${{ matrix.redis_tag }}
+        if: matrix.connect_type == 'tls' && matrix.redis_tag != '5'
+        run: |
+          set -exu
+          docker-compose -f .ci/compatibility_tests/docker-compose-redis-${{ matrix.node_type }}-tls.yaml up -d
+          echo '\n' >> apps/emqx_auth_mongo/etc/emqx_auth_redis.conf
+          echo 'auth.redis.ssl = on' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          echo 'auth.redis.cafile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/ca.crt' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          echo 'auth.redis.certfile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.crt' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          echo 'auth.redis.keyfile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.key' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+      - name: setup
+        env:
+          REDIS_TAG: ${{ matrix.redis_tag }}
+        if: matrix.connect_type == 'tcp'
+        run: docker-compose -f .ci/compatibility_tests/docker-compose-redis-${{ matrix.node_type }}.yaml up -d
+      - name: get server address
+        if: matrix.connect_type == 'tcp' || (matrix.connect_type == 'tls' && matrix.redis_tag != '5')
+        run: |
+          set -exu
+          ipv4_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' redis)
+          ipv6_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' redis)
+          echo "redis_ipv4_address=$ipv4_address" >> $GITHUB_ENV
+          echo "redis_ipv6_address=$ipv6_address" >> $GITHUB_ENV
+      - name: setup
+        if: matrix.node_type == 'singer' && matrix.connect_type == 'tcp'
+        run: |
+          set -exu
+          sed -i "/auth.redis.server/c auth.redis.server = ${redis_${{ matrix.network_type }}_address}:6379" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+      - name: setup
+        if: matrix.node_type == 'singer' && matrix.connect_type == 'tls' && matrix.redis_tag != '5'
+        run: |
+          set -exu
+          sed -i "/auth.redis.server/c auth.redis.server = ${redis_${{ matrix.network_type }}_address}:6380" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+      - name: setup
+        if: matrix.node_type == 'cluster' && matrix.connect_type == 'tcp'
+        run: |
+          set -exu
+          sed -i "/auth.redis.type/c auth.redis.type = cluster" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          sed -i "/auth.redis.server/c auth.redis.server = ${redis_${{ matrix.network_type }}_address}:7000, ${redis_${{ matrix.network_type }}_address}:7001, ${redis_${{ matrix.network_type }}_address}:7002" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+      - name: setup
+        if: matrix.node_type == 'cluster' && matrix.connect_type == 'tls' && matrix.redis_tag != '5' 
+        run: |
+          set -exu
+          sed -i "/auth.redis.type/c auth.redis.type = cluster" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          sed -i "/auth.redis.server/c auth.redis.server = ${redis_${{ matrix.network_type }}_address}:8000, ${redis_${{ matrix.network_type }}_address}:8001, ${redis_${{ matrix.network_type }}_address}:8002" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+      - name: run test cases
+        if: matrix.connect_type == 'tcp' || (matrix.connect_type == 'tls' && matrix.redis_tag != '5')
+        run: |
+          docker exec -i erlang sh -c "make ensure-rebar3"
+          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_redis"
+          docker exec -i erlang sh -c "./rebar3 ct    --dir apps/emqx_auth_redis"
+      - uses: actions/upload-artifact@v1
+        if: failure()
+        with:
+          name: logs_redis${{ matrix.redis_tag }}_${{ matrix.node_type }}_${{ matrix.network_type }}_${{ matrix.connect_type }}
+          path: _build/test/logs
+
+

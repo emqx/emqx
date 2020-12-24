@@ -2,9 +2,11 @@ version: '3'
 
 services:
   erlang:
+    container_name: erlang
     image: erlang:22.3
     volumes:
-      - ../:/emqx_auth_pgsql
+      - ../../:/emqx
+    working_dir: /emqx
     networks:
       - emqx_bridge
     depends_on:
@@ -12,11 +14,8 @@ services:
     tty: true
 
   pgsql_server:
-    build:
-        context: ./pgsql
-        args:
-            BUILD_FROM: postgres:${PGSQL_TAG}
-    image: emqx-pgsql
+    container_name: pgsql
+    image: postgres:${PGSQL_TAG}
     restart: always
     environment:
       POSTGRES_PASSWORD: public
@@ -28,3 +27,12 @@ services:
 networks:
   emqx_bridge:
     driver: bridge
+    name: emqx_bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.100.100.0/24
+          gateway: 172.100.100.1
+        - subnet: 2001:3200:3200::/64
+          gateway: 2001:3200:3200::1

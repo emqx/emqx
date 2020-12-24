@@ -4,18 +4,20 @@ version: '2.4'
 
 services:
   erlang:
+    container_name: erlang
     image: erlang:22.3
     volumes:
-      - ../:/emqx_auth_redis
+      - ../..:/emqx
     networks:
       - app_net
     depends_on:
       - redis_cluster
+    working_dir: /emqx
     tty: true
 
   redis_cluster:
+    container_name: redis
     image: redis:${REDIS_TAG}
-    container_name: redis-cluster
     volumes:
       - ./redis/:/data/conf
     command: bash -c "/bin/bash /data/conf/redis.sh --node sentinel && while true; do echo 1; sleep 1; done"

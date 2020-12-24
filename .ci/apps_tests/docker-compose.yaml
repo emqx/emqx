@@ -19,7 +19,7 @@ services:
 
   mysql_server:
     container_name: mysql
-    image: mysql:${MYSQL_VSN}
+    image: mysql:${MYSQL_TAG}
     restart: always
     ports:
       - 3306:3306
@@ -47,7 +47,7 @@ services:
 
   redis_server:
     container_name: redis
-    image: redis:${REDIS_VSN}
+    image: redis:${REDIS_TAG}
     ports:
       - 6379:6379
     command:
@@ -65,7 +65,7 @@ services:
 
   mongo_server:
     container_name: mongo
-    image: mongo:${MONGO_VSN}
+    image: mongo:${MONGO_TAG}
     ports:
       - 27017:27017
     restart: always
@@ -83,7 +83,7 @@ services:
 
   pgsql_server:
     container_name: pgsql
-    image: postgres:${PGSQL_VSN}
+    image: postgres:${PGSQL_TAG}
     ports:
       - 5432:5432
     restart: always
@@ -99,7 +99,7 @@ services:
     build:
       context: ./emqx_ldap
       args: 
-        LDAP_VSN: ${LDAP_VSN}
+        LDAP_TAG: ${LDAP_TAG}
     image: emqx-ldap:1.0
     ports:
       - 389:389
