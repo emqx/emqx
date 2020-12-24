@@ -192,7 +192,7 @@ do_register_hooks(Hook, ScriptName, _St) ->
     ?LOG(error, "Discard unknown hook type ~p from ~p", [Hook, ScriptName]).
 
 do_unloadall(Scripts) ->
-    [do_unload(X) || X <- Scripts],
+    lists:foreach(fun do_unload/1, Scripts),
     ok.
 
 do_unload(Script) ->
