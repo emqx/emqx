@@ -40,6 +40,7 @@
         , get_resource_params/1
         , delete_resource/1
         , ensure_resource_deleted/1
+        , update_resource/1
         ]).
 
 -export([ init_resource/4
@@ -308,6 +309,20 @@ delete_resource(ResId) ->
         not_found ->
             {error, {resource_not_found, ResId}}
     end.
+
+update_resource(NewResource) ->
+    #{id := Id,
+      config := Config,
+      type := Type,
+      description := Description,
+      created_at := CreatedAt} = NewResource,
+    R = #resource{id = Id,
+                  config = Config,
+                  type = Type,
+                  description = Description,
+                  created_at = CreatedAt},
+    ok = refresh_resource(R),
+    create_resource(NewResource).
 
 %% @doc Ensure resource deleted. `resource_not_found` error is discarded.
 -spec(ensure_resource_deleted(resource_id()) -> ok).

@@ -86,6 +86,13 @@
             descr  => "Create a resource"
            }).
 
+-rest_api(#{name   => update_resource,
+            method => 'PUT',
+            path   => "/resources/:bin:id",
+            func   => update_resource,
+            descr  => "Update a resource"
+           }).
+
 -rest_api(#{name   => show_resource,
             method => 'GET',
             path   => "/resources/:bin:id",
@@ -159,6 +166,7 @@
         , get_resource_status/2
         , start_resource/2
         , delete_resource/2
+        , update_resource/2
         ]).
 
 -export([ list_resource_types/2
@@ -264,6 +272,7 @@ do_create_resource(Create, Params) ->
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
+
 list_resources(#{}, _Params) ->
     Data0 = lists:foldr(fun maybe_record_to_map/2, [], emqx_rule_registry:get_resources()),
     Data = lists:map(fun(Res = #{id := Id}) ->
@@ -310,6 +319,22 @@ start_resource(#{id := Id}, _Params) ->
         {error, Reason} ->
             ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
             return({error, 400, ?ERR_BADARGS(Reason)})
+    end.
+
+update_resource(#{id := Id}, Params) ->
+    case emqx_rule_registry:find_resource(Id) of
+        {ok, #resource{id = Id, type = Type} = _OldResource} ->
+               Config = maps:get(config, parse_resource_params(Params)),
+               Description = maps:get(description, parse_resource_params(Params)),
+               NewResource = #{id => Id,
+                               config => Config,
+                               type => Type,
+                               description => Description,
+                               created_at => erlang:system_time(millisecond)},
+               emqx_rule_engine:update_resource(NewResource),
+               return(ok);
+        _Other ->
+               return({error, 400, ?ERR_NO_RESOURCE(Id)})
     end.
 
 delete_resource(#{id := Id}, _Params) ->
