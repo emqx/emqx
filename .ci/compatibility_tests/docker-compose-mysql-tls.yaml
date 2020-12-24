@@ -2,9 +2,11 @@ version: '3'
 
 services:
   erlang:
+    container_name: erlang
     image: erlang:22.3
     volumes:
-      - ./:/emqx_auth_mysql
+      - ../../:/emqx
+    working_dir: /emqx
     networks:
       - emqx_bridge
     depends_on:
@@ -12,15 +14,16 @@ services:
     tty: true
 
   mysql_server:
+    container_name: mysql
     image: mysql:${MYSQL_TAG}
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: public
       MYSQL_DATABASE: mqtt
     volumes:
-      - ./test/emqx_auth_mysql_SUITE_data/ca.pem:/etc/certs/ca-cert.pem
-      - ./test/emqx_auth_mysql_SUITE_data/server-cert.pem:/etc/certs/server-cert.pem
-      - ./test/emqx_auth_mysql_SUITE_data/server-key.pem:/etc/certs/server-key.pem
+      - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem:/etc/certs/ca-cert.pem
+      - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/server-cert.pem:/etc/certs/server-cert.pem
+      - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/server-key.pem:/etc/certs/server-key.pem
     networks:
       - emqx_bridge
     command:
@@ -39,3 +42,12 @@ services:
 networks:
   emqx_bridge:
     driver: bridge
+    name: emqx_bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.100.100.0/24
+          gateway: 172.100.100.1
+        - subnet: 2001:3200:3200::/64
+          gateway: 2001:3200:3200::1
