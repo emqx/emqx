@@ -94,7 +94,10 @@ translate_env() ->
                 {retry, 5},
                 {retry_timeout, 1000}] ++ MoreOpts,
     application:set_env(?APP, path, Path),
-    application:set_env(?APP, pool_opts, PoolOpts).
+    application:set_env(?APP, pool_opts, PoolOpts),
+    Headers = application:get_env(?APP, headers, []),
+    NHeaders = set_content_type(Headers),
+    application:set_env(?APP, headers, NHeaders).
 
 get_addr(Hostname) ->
     case inet:parse_address(Hostname) of
@@ -113,3 +116,7 @@ path("") ->
     "/";
 path(Path) ->
     Path.
+
+set_content_type(Headers) ->
+    NHeaders = proplists:delete(<<"Content-Type">>, proplists:delete(<<"content-type">>, Headers)),
+    [{<<"content-type">>, <<"application/json">>} | NHeaders].

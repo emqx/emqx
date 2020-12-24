@@ -28,11 +28,11 @@
 %%--------------------------------------------------------------------
 
 request(PoolName, get, Path, Headers, Params, Timeout) ->
-    NewPath = Path ++ "?" ++ cow_qs:qs(bin_kw(Params)),
+    NewPath = Path ++ "?" ++ binary_to_list(cow_qs:qs(bin_kw(Params))),
     reply(emqx_http_client:request(get, PoolName, {NewPath, Headers}, Timeout));
 
 request(PoolName, post, Path, Headers, Params, Timeout) ->
-    Body = case proplists:get_value(<<"content_type">>, Headers) of
+    Body = case proplists:get_value(<<"content-type">>, Headers) of
                <<"application/x-www-form-urlencoded">> ->
                    cow_qs:qs(bin_kw(Params));
                <<"application/json">> -> 
