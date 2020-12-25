@@ -866,7 +866,11 @@ item(client, {ClientId, ChanPid}) ->
             end,
     ClientInfo = maps:get(clientinfo, Attrs, #{}),
     ConnInfo = maps:get(conninfo, Attrs, #{}),
-    Session = maps:get(session, Attrs, #{}),
+    Session = case maps:get(session, Attrs, #{}) of
+                  undefined -> #{};
+                  _Sess -> _Sess
+              end,
+    SessCreated = maps:get(created_at, Session, maps:get(connected_at, ConnInfo)),
     Connected = case maps:get(conn_state, Attrs) of
                     connected -> true;
                     _ -> false
@@ -889,7 +893,7 @@ item(client, {ClientId, ChanPid}) ->
                  maps:with([clientid, username, mountpoint, is_bridge, zone], ClientInfo),
                  maps:with([clean_start, keepalive, expiry_interval, proto_name,
                             proto_ver, peername, connected_at, disconnected_at], ConnInfo),
-                 maps:with([created_at], Session)]);
+                 #{created_at => SessCreated}]);
 
 item(subscription, {{Topic, ClientId}, Options}) ->
     #{topic => Topic, clientid => ClientId, options => Options};
