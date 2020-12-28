@@ -100,6 +100,10 @@ spec:
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENER__WSS__EXTERNAL | default 8084 }}
           - name: dashboard
             containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP | default 18083 }}
+          {{- if not (empty .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTPS) }}
+          - name: dashboardtls
+            containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTPS }}
+          {{- end }}
           - name: ekka
             containerPort: 4370
           envFrom:
