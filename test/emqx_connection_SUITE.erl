@@ -209,6 +209,7 @@ t_handle_msg_close(_) ->
     
 t_handle_msg_event(_) ->
     ok = meck:expect(emqx_cm, register_channel, fun(_, _, _) -> ok end),
+    ok = meck:expect(emqx_cm, insert_channel_info, fun(_, _, _) -> ok end),
     ok = meck:expect(emqx_cm, set_chan_info, fun(_, _) -> ok end),
     ok = meck:expect(emqx_cm, connection_closed, fun(_) -> ok end),
     ?assertEqual(ok, emqx_connection:handle_msg({event, connected}, st())),
