@@ -1,0 +1,81 @@
+name: Run test case
+
+on:
+  push:
+    tags:
+      - v*
+  release:
+    types:
+      - published
+  pull_request:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [run_actions]
+
+jobs:
+    run_test_case:
+        runs-on: ubuntu-latest
+
+        strategy:
+          matrix:
+            mysql_vsn: [5.7, 8]
+            redis_vsn: [6]
+            mongo_vsn: [3, 4]
+            pgsql_vsn: [11, 12, 13]
+            ldap_vsn: [2.4.50]
+
+        steps:
+        - uses: actions/checkout@v2
+        - name: set up
+          env:
+            MYSQL_VSN: ${{ matrix.mysql_vsn }}
+            REDIS_VSN: ${{ matrix.redis_vsn }}
+            MONGO_VSN: ${{ matrix.mongo_vsn }}
+            PGSQL_VSN: ${{ matrix.pgsql_vsn }}
+            LDAP_VSN: ${{ matrix.ldap_vsn }}
+          run: |
+            cp -f apps/emqx_auth_ldap/emqx.io.ldif .ci/apps_tests/emqx_ldap/schema
+            cp -f apps/emqx_auth_ldap/emqx.schema  .ci/apps_tests/emqx_ldap/schema
+            cp -f apps/emqx_auth_ldap/test/certs/* .ci/apps_tests/emqx_ldap/certs
+            docker-compose -f .ci/apps_tests/docker-compose.yaml build --no-cache
+            docker-compose -f .ci/apps_tests/docker-compose.yaml up -d
+        - name: set config files
+          run: |
+            sed -i "/auth.mysql.server/c auth.mysql.server = mysql_server:3306" apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+            echo 'auth.mysql.ssl = on' >> apps/emqx_auth_redis/etc/emqx_auth_mysql.conf
+            echo "auth.mysql.ssl.cafile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem" >> apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+            echo "auth.mysql.ssl.certfile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem" >> apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+            echo "auth.mysql.ssl.keyfile =  /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-key.pem" >> apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+
+            sed -i "/auth.redis.server/c auth.redis.server = redis_server:6379" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+            echo 'auth.redis.ssl = on' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+            echo 'auth.redis.cafile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/ca.crt' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+            echo 'auth.redis.certfile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.crt' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+            echo 'auth.redis.keyfile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.key' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+
+            sed -i "/auth.mongo.server/c auth.mongo.server = mongo_server:27017" apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+            echo 'auth.mongo.ssl = true' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+            echo 'auth.mongo.ssl_opts.cacertfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+            echo 'auth.mongo.ssl_opts.certfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+            echo 'auth.mongo.ssl_opts.keyfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+
+            sed -i "/auth.pgsql.server/c auth.pgsql.server = pgsql_server:5432" apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+            sed -i "/auth.ldap.servers/c auth.ldap.servers = ldap_server" apps/emqx_auth_ldap/etc/emqx_auth_ldap.conf
+        - name: run tests
+          run: |
+            docker exec -i erlang bash -c "make ct"
+            docker exec -i erlang bash -c "make cover"
+        - name: coveralls
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          run: |
+              make coveralls
+        - uses: actions/upload-artifact@v1
+          if: failure()
+          with:
+            name: logs_mysql${{ matrix.mysql_vsn }}_reids${{ matrix.redis_vsn }}_mongo${{ matrix.mongo_vsn }}_pgsql${{ matrix.pgsql_vsn }}_ldap${{ matrix.ldap_vsn }}
+            path: _build/test/logs
+        - uses: actions/upload-artifact@v1
+          with:
+            name: cover_mysql${{ matrix.mysql_vsn }}_reids${{ matrix.redis_vsn }}_mongo${{ matrix.mongo_vsn }}_pgsql${{ matrix.pgsql_vsn }}_ldap${{ matrix.ldap_vsn }}
+            path: _build/test/cover

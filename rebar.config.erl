@@ -4,7 +4,7 @@
 
 do(Dir, CONFIG) ->
     ok = compile_and_load_pase_transforms(Dir),
-    dump(deps(CONFIG) ++ config()).
+    dump(deps(CONFIG) ++ dialyzer(CONFIG) ++ config()).
 
 bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
@@ -23,32 +23,33 @@ config() ->
     ].
 
 plugins() ->
-    [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {branch,"master"}}}
+    [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {branch,"master"}}},
+      {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0"}}}
     ].
 
 test_deps() ->
     [ {bbmustache, "1.10.0"}
-    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.0"}}}
+    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.2"}}}
     , meck
     ].
 
 profiles() ->
-    [ {'emqx',          [ {erl_opts, [no_debug_info]}
+    [ {'emqx',          [ {erl_opts, [no_debug_info, {parse_transform, mod_vsn}]}
                         , {relx, relx('emqx')}
                         ]}
-    , {'emqx-pkg',      [ {erl_opts, [no_debug_info]}
+    , {'emqx-pkg',      [ {erl_opts, [no_debug_info, {parse_transform, mod_vsn}]}
                         , {relx, relx('emqx-pkg')}
                         ]}
-    , {'emqx-edge',     [ {erl_opts, [no_debug_info]}
+    , {'emqx-edge',     [ {erl_opts, [no_debug_info, {parse_transform, mod_vsn}]}
                         , {relx, relx('emqx-edge')}
                         ]}
-    , {'emqx-edge-pkg', [ {erl_opts, [no_debug_info]}
+    , {'emqx-edge-pkg', [ {erl_opts, [no_debug_info, {parse_transform, mod_vsn}]}
                         , {relx, relx('emqx-edge-pkg')}
                         ]}
-    , {check,           [ {erl_opts, [debug_info]}
+    , {check,           [ {erl_opts, [debug_info, {parse_transform, mod_vsn}]}
                         ]}
     , {test,            [ {deps, test_deps()}
-                        , {erl_opts, [debug_info] ++ erl_opts_i()}
+                        , {erl_opts, [debug_info, {parse_transform, mod_vsn}] ++ erl_opts_i()}
                         ]}
     ].
 
@@ -65,23 +66,26 @@ relx(Profile) ->
 do_relx('emqx', Vsn) ->
     [ {release, {emqx, Vsn}, relx_apps(cloud)}
     , {overlay, relx_overlay(cloud)}
-    , {overlay_vars,["vars/vars-cloud.config","vars/vars-bin.config"]}
+    , {overlay_vars, overlay_vars(["vars/vars-cloud.config","vars/vars-bin.config"])}
     ];
 do_relx('emqx-pkg', Vsn) ->
     [ {release, {emqx, Vsn}, relx_apps(cloud)}
     , {overlay, relx_overlay(cloud)}
-    , {overlay_vars,["vars/vars-cloud.config","vars/vars-pkg.config"]}
+    , {overlay_vars, overlay_vars(["vars/vars-cloud.config","vars/vars-pkg.config"])}
     ];
 do_relx('emqx-edge', Vsn) ->
     [ {release, {emqx, Vsn}, relx_apps(edge)}
     , {overlay, relx_overlay(edge)}
-    , {overlay_vars,["vars/vars-edge.config","vars/vars-bin.config"]}
+    , {overlay_vars, overlay_vars(["vars/vars-edge.config","vars/vars-bin.config"])}
     ];
 do_relx('emqx-edge-pkg', Vsn) ->
     [ {release, {emqx, Vsn}, relx_apps(edge)}
     , {overlay, relx_overlay(edge)}
-    , {overlay_vars,["vars/vars-edge.config","vars/vars-pkg.config"]}
+    , {overlay_vars, overlay_vars(["vars/vars-edge.config","vars/vars-pkg.config"])}
     ].
+
+overlay_vars(Files) ->
+    [{built_on_arch, rebar_utils:get_arch()} | Files].
 
 relx_apps(ReleaseType) ->
     [ kernel
@@ -177,6 +181,7 @@ etc_overlay(ReleaseType) ->
                 lists:append([plugin_etc_overlays(App) || App <- PluginApps]),
     [ {mkdir, "etc/"}
     , {mkdir, "etc/plugins"}
+    , {template, "etc/BUILT_ON", "releases/{{release_version}}/BUILT_ON"}
     , {copy, "{{base_dir}}/lib/emqx/etc/certs","etc/"}
     ] ++
     lists:map(
@@ -228,7 +233,7 @@ env(Name, Default) ->
 
 get_vsn() ->
     PkgVsn = case env("PKG_VSN", false) of
-                 false -> os:cmd("git describe --tags --always");
+                 false -> os:cmd("./pkg-vsn.sh");
                  Vsn -> Vsn
              end,
     Vsn2 = re:replace(PkgVsn, "v", "", [{return ,list}]),
@@ -262,4 +267,34 @@ str(L) when is_list(L) -> L;
 str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
 erl_opts_i() ->
-    [{i, Dir}  || Dir <- filelib:wildcard("apps/**/include")].
+    [{i, "apps"}] ++ [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "**", "include"]))].
+
+dialyzer(Config) ->
+    {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),
+
+    AppsToAnalyse = case os:getenv("DIALYZER_ANALYSE_APP") of
+        false ->
+            [];
+        Value ->
+            [ list_to_atom(App) || App <- string:tokens(Value, ",")]
+    end,
+
+    AppsDir = "apps",
+    AppNames = [emqx | list_dir(AppsDir)],
+
+    KnownApps = [Name ||  Name <- AppsToAnalyse, lists:member(Name, AppNames)],
+    UnknownApps = AppsToAnalyse -- KnownApps,
+    io:format("Unknown Apps ~p ~n", [UnknownApps]),
+
+    AppsToExclude = AppNames -- KnownApps,
+
+    case length(AppsToAnalyse) > 0 of
+        true ->
+            lists:keystore(dialyzer, 1, Config, {dialyzer, OldDialyzerConfig ++ [{exclude_apps, AppsToExclude}]});
+        false ->
+            Config
+    end.
+
+list_dir(Dir) ->
+    {ok, Names} = file:list_dir(Dir),
+    [list_to_atom(Name) || Name <- Names, filelib:is_dir(filename:join([Dir, Name]))].

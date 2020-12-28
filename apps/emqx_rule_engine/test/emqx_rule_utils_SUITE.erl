@@ -110,3 +110,9 @@ t_preproc_sql2(_) ->
     {PrepareStatement, ParamsTokens} = emqx_rule_utils:preproc_sql(<<"a:$a,b:b},c:{c},d:${d">>, '?'),
     ?assertEqual(<<"a:$a,b:b},c:{c},d:${d">>, PrepareStatement),
     ?assertEqual([], emqx_rule_utils:proc_sql(ParamsTokens, Selected)).
+
+t_preproc_sql3(_) ->
+    Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
+    ParamsTokens = emqx_rule_utils:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d}">>),
+    ?assertEqual(<<"a:'1',b:1,c:1.0,d:'{\"d1\":\"hi\"}'">>,
+                 emqx_rule_utils:proc_sql_param_str(ParamsTokens, Selected)).

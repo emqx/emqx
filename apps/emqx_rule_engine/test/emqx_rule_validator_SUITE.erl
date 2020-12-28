@@ -16,16 +16,176 @@
 
 -module(emqx_rule_validator_SUITE).
 
--compile(export_all).
 -compile(nowarn_export_all).
+-compile(export_all).
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(VALID_SPEC,
+    #{
+        string_required => #{
+            type => string,
+            required => true
+        },
+        string_optional_with_default => #{
+            type => string,
+            required => false,
+            default => <<"a/b">>
+        },
+        string_optional_without_default_0 => #{
+            type => string,
+            required => false
+        },
+        string_optional_without_default_1 => #{
+            type => string
+        },
+        type_number => #{
+            type => number,
+            required => true
+        },
+        type_boolean => #{
+            type => boolean,
+            required => true
+        },
+        type_enum_number => #{
+            type => number,
+            enum => [-1, 0, 1, 2],
+            required => true
+        },
+        type_file => #{
+            type => file,
+            required => true
+        },
+        type_object => #{
+            type => object,
+            required => true,
+            schema => #{
+                string_required => #{
+                    type => string,
+                    required => true
+                },
+                type_number => #{
+                    type => number,
+                    required => true
+                }
+            }
+        },
+        type_array => #{
+            type => array,
+            required => true,
+            items => #{
+                type => string,
+                required => true
+            }
+        }
+    }).
+
 all() -> emqx_ct:all(?MODULE).
 
-% t_validate_params(_) ->
-%     error('TODO').
+t_validate_spec_the_complex(_) ->
+    ok = emqx_rule_validator:validate_spec(?VALID_SPEC).
 
-% t_validate_spec(_) ->
-%     error('TODO').
+t_validate_spec_invalid_1(_) ->
+    ?assertThrow({required_field_missing, {type, _}},
+        emqx_rule_validator:validate_spec(#{
+            type_enum_number => #{
+                required => true
+            }
+        })).
 
+t_validate_spec_invalid_2(_) ->
+    ?assertThrow({required_field_missing, {schema, _}},
+        emqx_rule_validator:validate_spec(#{
+            type_enum_number => #{
+                type => object
+            }
+        })).
+
+t_validate_spec_invalid_3(_) ->
+    ?assertThrow({required_field_missing, {items, _}},
+        emqx_rule_validator:validate_spec(#{
+            type_enum_number => #{
+                type => array
+            }
+        })).
+
+t_validate_params_0(_) ->
+    Params = #{<<"eee">> => <<"eee">>},
+    Specs = #{<<"eee">> => #{
+                type => string,
+                required => true
+             }},
+    ?assertEqual(Params,
+        emqx_rule_validator:validate_params(Params, Specs)).
+
+t_validate_params_1(_) ->
+    Params = #{<<"eee">> => 1},
+    Specs = #{<<"eee">> => #{
+                type => string,
+                required => true
+             }},
+    ?assertThrow({invalid_data_type, {string, 1}},
+        emqx_rule_validator:validate_params(Params, Specs)).
+
+t_validate_params_2(_) ->
+    ?assertThrow({required_field_missing, <<"eee">>},
+        emqx_rule_validator:validate_params(
+            #{<<"abc">> => 1},
+            #{<<"eee">> => #{
+                type => string,
+                required => true
+             }})).
+
+t_validate_params_format(_) ->
+    Params = #{<<"eee">> => <<"abc">>},
+    Params1 = #{<<"eee">> => <<"http://abc:8080">>},
+    Params2 = #{<<"eee">> => <<"http://abc">>},
+    Specs = #{<<"eee">> => #{
+                type => string,
+                format => url,
+                required => true
+             }},
+    ?assertThrow({invalid_data_type, {string, <<"abc">>}},
+        emqx_rule_validator:validate_params(Params, Specs)),
+    ?assertEqual(Params1,
+        emqx_rule_validator:validate_params(Params1, Specs)),
+    ?assertEqual(Params2,
+        emqx_rule_validator:validate_params(Params2, Specs)).
+
+t_validate_params_fill_default(_) ->
+    Params = #{<<"abc">> => 1},
+    Specs = #{<<"eee">> => #{
+                type => string,
+                required => false,
+                default => <<"hello">>
+             }},
+    ?assertMatch(#{<<"abc">> := 1, <<"eee">> := <<"hello">>},
+        emqx_rule_validator:validate_params(Params, Specs)).
+
+t_validate_params_the_complex(_) ->
+    Params = #{
+        <<"string_required">> => <<"hello">>,
+        <<"type_number">> => 1,
+        <<"type_boolean">> => true,
+        <<"type_enum_number">> => 2,
+        <<"type_file">> => <<"">>,
+        <<"type_object">> => #{
+            <<"string_required">> => <<"hello2">>,
+            <<"type_number">> => 1.3
+        },
+        <<"type_array">> => [<<"ok">>, <<"no">>]
+    },
+    ?assertMatch(
+        #{  <<"string_required">> := <<"hello">>,
+            <<"string_optional_with_default">> := <<"a/b">>,
+            <<"type_number">> := 1,
+            <<"type_boolean">> := true,
+            <<"type_enum_number">> := 2,
+            <<"type_file">> := <<"">>,
+            <<"type_object">> := #{
+                <<"string_required">> := <<"hello2">>,
+                <<"type_number">> := 1.3
+            },
+            <<"type_array">> := [<<"ok">>, <<"no">>]
+        },
+        emqx_rule_validator:validate_params(Params, ?VALID_SPEC)).

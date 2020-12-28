@@ -26,6 +26,7 @@
         , preproc_sql/1
         , preproc_sql/2
         , proc_sql/2
+        , proc_sql_param_str/2
         ]).
 
 %% type converting
@@ -67,9 +68,7 @@
 
 -type(tmpl_cmd() :: list(tmpl_token())).
 
--type(prepare_statement() :: binary()).
-
--type(prepare_params() :: fun((binary()) -> list())).
+-type(prepare_statement_key() :: binary()).
 
 %% preprocess template string with place holders
 -spec(preproc_tmpl(binary()) -> tmpl_token()).
@@ -94,6 +93,7 @@ put_head(Type, Term, List) ->
 proc_tmpl(Tokens, Data) ->
     proc_tmpl(Tokens, Data, #{return => full_binary}).
 
+-spec(proc_tmpl(tmpl_token(), map(), map()) -> binary() | list()).
 proc_tmpl(Tokens, Data, Opts = #{return := full_binary}) ->
     Trans = maps:get(var_trans, Opts, fun bin/1),
     list_to_binary(
@@ -115,17 +115,21 @@ preproc_cmd(Str) ->
     SubStrList = re:split(Str, ?EX_WITHE_CHARS, [{return,binary},trim]),
     [preproc_tmpl(SubStr) || SubStr <- SubStrList].
 
+-spec(proc_cmd([tmpl_token()], map()) -> binary() | list()).
 proc_cmd(Tokens, Data) ->
     proc_cmd(Tokens, Data, #{return => full_binary}).
+-spec(proc_cmd([tmpl_token()], map(), map()) -> list()).
 proc_cmd(Tokens, Data, Opts) ->
     [proc_tmpl(Tks, Data, Opts) || Tks <- Tokens].
 
 %% preprocess SQL with place holders
--spec(preproc_sql(Sql::binary()) -> {prepare_statement(), prepare_params()}).
+-spec(preproc_sql(Sql::binary()) -> {prepare_statement_key(), tmpl_token()}).
 preproc_sql(Sql) ->
     preproc_sql(Sql, '?').
 
--spec(preproc_sql(Sql::binary(), ReplaceWith :: '?' | '$n') -> {prepare_statement(), prepare_params()}).
+-spec(preproc_sql(Sql::binary(), ReplaceWith :: '?' | '$n')
+    -> {prepare_statement_key(), tmpl_token()}).
+
 preproc_sql(Sql, ReplaceWith) ->
     case re:run(Sql, ?EX_PLACE_HOLDER, [{capture, all_but_first, binary}, global]) of
         {match, PlaceHolders} ->
@@ -138,6 +142,11 @@ preproc_sql(Sql, ReplaceWith) ->
 -spec(proc_sql(tmpl_token(), map()) -> list()).
 proc_sql(Tokens, Data) ->
     proc_tmpl(Tokens, Data, #{return => rawlist, var_trans => fun sql_data/1}).
+
+-spec(proc_sql_param_str(tmpl_token(), map()) -> binary()).
+proc_sql_param_str(Tokens, Data) ->
+    iolist_to_binary(
+      proc_tmpl(Tokens, Data, #{return => rawlist, var_trans => fun quote/1})).
 
 %% backward compatibility for hot upgrading from =< e4.2.1
 get_phld_var(Fun, Data) when is_function(Fun) ->
@@ -228,6 +237,13 @@ sql_data(Num) when is_number(Num) -> Num;
 sql_data(Bool) when is_boolean(Bool) -> Bool;
 sql_data(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 sql_data(Map) when is_map(Map) -> emqx_json:encode(Map).
+
+quote(List) when is_list(List) -> [$', List, $'];
+quote(Bin) when is_binary(Bin) -> [$', Bin, $'];
+quote(Num) when is_number(Num) -> bin(Num);
+quote(Bool) when is_boolean(Bool) -> bin(Bool);
+quote(Atom) when is_atom(Atom) -> [$', atom_to_binary(Atom, utf8), $'];
+quote(Map) when is_map(Map) -> [$', emqx_json:encode(Map), $'].
 
 str(Bin) when is_binary(Bin) -> binary_to_list(Bin);
 str(Num) when is_number(Num) -> number_to_list(Num);
@@ -328,5 +344,6 @@ now_ms() ->
     erlang:system_time(millisecond).
 
 can_topic_match_oneof(Topic, Filters) ->
-    MatchedFilters = [Fltr || Fltr <- Filters, emqx_topic:match(Topic, Fltr)],
-    length(MatchedFilters) > 0.
+    lists:any(fun(Fltr) ->
+        emqx_topic:match(Topic, Fltr)
+    end, Filters).

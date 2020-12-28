@@ -19,7 +19,6 @@
 -behaviour(gen_server).
 
 -include("rule_engine.hrl").
--include("rule_events.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -export([start_link/0]).
@@ -166,14 +165,10 @@ start_link() ->
 get_rules() ->
     get_all_records(?RULE_TAB).
 
-%% TODO: emqx_rule_utils:can_topic_match_oneof(Topic::any(), For::atom())
-%% will never return since it differs in the 2nd argument from the success
-%% typing arguments: (any(), [binary() | ['' | '#' | '+' | binary()]])
--dialyzer([{nowarn_function, get_rules_for/1}]).
 -spec(get_rules_for(Topic :: binary()) -> list(emqx_rule_engine:rule())).
 get_rules_for(Topic) ->
     [Rule || Rule = #rule{for = For} <- get_rules(),
-             Topic =:= For orelse emqx_rule_utils:can_topic_match_oneof(Topic, For)].
+             emqx_rule_utils:can_topic_match_oneof(Topic, For)].
 
 -spec(get_rule(Id :: rule_id()) -> {ok, emqx_rule_engine:rule()} | not_found).
 get_rule(Id) ->
@@ -333,10 +328,14 @@ remove_resource_params(ResId) ->
 
 %% @private
 delete_resource(ResId) ->
-    %% TODO, change to foreache:s
-    _ = [[ResId =:= ResId1 andalso throw({dependency_exists, {rule, Id}})
-            || #action_instance{args = #{<<"$resource">> := ResId1}} <- Actions]
-                || #rule{id = Id, actions = Actions} <- get_rules()],
+    lists:foreach(fun(#rule{id = Id, actions = Actions}) ->
+        lists:foreach(
+            fun (#action_instance{args = #{<<"$resource">> := ResId1}})
+                when ResId =:= ResId1 ->
+                    throw({dependency_exists, {rule, Id}});
+                (_) -> ok
+            end, Actions)
+    end, get_rules()),
     mnesia:delete(?RES_TAB, ResId, write).
 
 %% @private

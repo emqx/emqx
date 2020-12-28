@@ -9,7 +9,7 @@
 
 [![最棒的物联网 MQTT 开源团队期待您的加入](https://www.emqx.io/static/img/github_readme_cn_bg.png)](https://www.emqx.io/cn/careers)
 
-[English](./README.md) | 简体中文
+[English](./README.md) | 简体中文 | [日本語](./README-JP.md)
 
 *EMQ X* 是一款完全开源，高度可伸缩，高可用的分布式 MQTT 消息服务器，适用于 IoT、M2M 和移动应用程序，可处理千万级别的并发客户端。
 
@@ -61,6 +61,17 @@ cd _rel/emqx && ./bin/emqx console
 ```
 
 *EMQ X* 启动，可以使用浏览器访问 http://localhost:18083 来查看 Dashboard。
+
+### 静态分析(Dialyzer)
+##### 分析所有应用程序
+```
+make dialyzer
+```
+
+##### 要分析特定的应用程序，（用逗号分隔的应用程序列表）
+```
+DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
+```
 
 ## FAQ
 

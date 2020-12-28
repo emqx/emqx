@@ -141,7 +141,6 @@ case11(_Config) ->
     Msg = #message{qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
     Ret = emqx_hooks:run_fold('message.delivered', [#{clientid => <<"myclient">>, username => <<"myuser">>}], Msg),
     ?assertEqual(Msg, Ret),
-    emqx_lua_hook:stop(),
     ok = file:delete(ScriptName).
 
 case12(_Config) ->
@@ -203,7 +202,6 @@ case22(_Config) ->
     Msg = #message{qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
     Ret = emqx_hooks:run('message.acked', [#{clientid => <<"myclient">>, username => <<"myuser">>}, Msg]),
     ?assertEqual(ok, Ret),
-    emqx_lua_hook:stop(),
     ok = file:delete(ScriptName).
 
 case31(_Config) ->

@@ -9,7 +9,7 @@
 
 [![The best IoT MQTT open source team looks forward to your joining](https://www.emqx.io/static/img/github_readme_en_bg.png)](https://www.emqx.io/careers)
 
-English | [简体中文](./README-CN.md)
+English | [简体中文](./README-CN.md) | [日本語](./README-JP.md)
 
 *EMQ X* broker is a fully open source, highly scalable, highly available distributed MQTT messaging broker for IoT, M2M and Mobile applications that can handle tens of millions of concurrent clients.
 
@@ -32,7 +32,7 @@ docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p
 
 Get the binary package of the corresponding OS from [EMQ X Download](https://www.emqx.io/downloads) page.
 
-- [Single Node Install](https://docs.emqx.io/broker/latest/en/getting-started/installation.html)
+- [Single Node Install](https://docs.emqx.io/broker/latest/en/getting-started/install.html)
 - [Multi Node Install](https://docs.emqx.io/broker/latest/en/advanced/cluster.html)
 
 
@@ -90,8 +90,22 @@ examples
 
 ```bash
 ./rebar3 ct --dir test,apps/emqx_sn,apps/emqx_coap
-./rebar3 ct --suite test/emqx_SUITE.erl,apps/emqx_auth_http/test/emqx_auth_http_SUITE.erl
-./rebar3 ct --suite test/emqx_SUITE.erl --testcase t_restart
+./rebar3 ct --dir apps/emqx_auth_mnesi --suite emqx_acl_mnesia_SUITE
+./rebar3 ct --dir apps/emqx_auth_mnesi --suite emqx_acl_mnesia_SUITE --case t_rest_api
+```
+
+NOTE: Do *NOT* use full (relative) path to SUITE files like this `--suite apps/emqx_auth_mnesia/test/emqx_acl_mnesia_SUITE.erl`,
+because it will lead to a full copy of `apps` dir into `_buid/test/lib/emqx`.
+
+### Dialyzer
+##### To Analyze all the apps
+```
+make dialyzer
+```
+
+##### To Analyse specific apps, (list of comma separated apps)
+```
+DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 ```
 
 ## FAQ

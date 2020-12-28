@@ -2,7 +2,9 @@
 %% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.  %% You may obtain a copy of the License at %% %%     http://www.apache.org/licenses/LICENSE-2.0
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%% http://www.apache.org/licenses/LICENSE-2.0
 %%
 %% Unless required by applicable law or agreed to in writing, software
 %% distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,6 +26,7 @@
                       , request_api/5
                       , get_http_data/1
                       , create_default_app/0
+                      , delete_default_app/0
                       , default_auth_header/0
                       ]).
 
@@ -49,6 +52,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
+    delete_default_app(),
     emqx_ct_helpers:stop_apps([emqx_management, emqx_auth_mnesia]).
 
 init_per_testcase(t_check_as_clientid, Config) ->
@@ -88,25 +92,36 @@ set_special_configs(_App) ->
 t_management(_Config) ->
     clean_all_users(),
 
-    ok = emqx_auth_mnesia_cli:add_user({username,?USERNAME}, ?PASSWORD),
-    {error, existed} = emqx_auth_mnesia_cli:add_user({username,?USERNAME}, ?PASSWORD),
-    ?assertMatch([{?TABLE, {username, ?USERNAME}, _Password, _InterTime}], emqx_auth_mnesia_cli:all_users(username)),
+    ok = emqx_auth_mnesia_cli:add_user({username, ?USERNAME}, ?PASSWORD),
+    {error, existed} = emqx_auth_mnesia_cli:add_user({username, ?USERNAME}, ?PASSWORD),
+    ?assertMatch([{?TABLE, {username, ?USERNAME}, _, _}],
+                 emqx_auth_mnesia_cli:all_users(username)
+                ),
 
-    ok = emqx_auth_mnesia_cli:add_user({clientid,?CLIENTID}, ?PASSWORD),
-    {error, existed} = emqx_auth_mnesia_cli:add_user({clientid,?CLIENTID}, ?PASSWORD),
-    ?assertMatch([{?TABLE, {clientid, ?CLIENTID}, _Password, _InterTime}], emqx_auth_mnesia_cli:all_users(clientid)),
+    ok = emqx_auth_mnesia_cli:add_user({clientid, ?CLIENTID}, ?PASSWORD),
+    {error, existed} = emqx_auth_mnesia_cli:add_user({clientid, ?CLIENTID}, ?PASSWORD),
+    ?assertMatch([{?TABLE, {clientid, ?CLIENTID}, _, _}],
+                 emqx_auth_mnesia_cli:all_users(clientid)
+                ),
 
-    ?assertEqual(2,length(emqx_auth_mnesia_cli:all_users())),
+    ?assertEqual(2, length(emqx_auth_mnesia_cli:all_users())),
 
-    ok = emqx_auth_mnesia_cli:update_user({username,?USERNAME}, ?NPASSWORD),
-    {error,noexisted} = emqx_auth_mnesia_cli:update_user({username, <<"no_existed_user">>}, ?PASSWORD),
+    ok = emqx_auth_mnesia_cli:update_user({username, ?USERNAME}, ?NPASSWORD),
+    {error, noexisted} = emqx_auth_mnesia_cli:update_user(
+                          {username, <<"no_existed_user">>}, ?PASSWORD
+                         ),
 
-    ok = emqx_auth_mnesia_cli:update_user({clientid,?CLIENTID}, ?NPASSWORD),
-    {error,noexisted} = emqx_auth_mnesia_cli:update_user({clientid, <<"no_existed_user">>}, ?PASSWORD),
+    ok = emqx_auth_mnesia_cli:update_user({clientid, ?CLIENTID}, ?NPASSWORD),
+    {error, noexisted} = emqx_auth_mnesia_cli:update_user(
+                          {clientid, <<"no_existed_user">>}, ?PASSWORD
+                         ),
 
-    
-    ?assertMatch([{?TABLE, {username, ?USERNAME}, _Password, _InterTime}], emqx_auth_mnesia_cli:lookup_user({username, ?USERNAME})),
-    ?assertMatch([{?TABLE, {clientid, ?CLIENTID}, _Password, _InterTime}], emqx_auth_mnesia_cli:lookup_user({clientid, ?CLIENTID})),
+    ?assertMatch([{?TABLE, {username, ?USERNAME}, _, _}],
+                 emqx_auth_mnesia_cli:lookup_user({username, ?USERNAME})
+                ),
+    ?assertMatch([{?TABLE, {clientid, ?CLIENTID}, _, _}],
+                 emqx_auth_mnesia_cli:lookup_user({clientid, ?CLIENTID})
+                ),
 
     User1 = #{username => ?USERNAME,
               clientid => undefined,
@@ -116,9 +131,11 @@ t_management(_Config) ->
     {ok, #{auth_result := success,
            anonymous := false}} = emqx_access_control:authenticate(User1),
 
-    {error,password_error} = emqx_access_control:authenticate(User1#{password => <<"error_password">>}),
+    {error, password_error} = emqx_access_control:authenticate(
+                               User1#{password => <<"error_password">>}
+                              ),
 
-    ok = emqx_auth_mnesia_cli:remove_user({username,?USERNAME}),
+    ok = emqx_auth_mnesia_cli:remove_user({username, ?USERNAME}),
     {ok, #{auth_result := success,
            anonymous := true }} = emqx_access_control:authenticate(User1),
 
@@ -129,9 +146,11 @@ t_management(_Config) ->
     {ok, #{auth_result := success,
            anonymous := false}} = emqx_access_control:authenticate(User2),
 
-    {error,password_error} = emqx_access_control:authenticate(User2#{password => <<"error_password">>}),
+    {error, password_error} = emqx_access_control:authenticate(
+                               User2#{password => <<"error_password">>}
+                              ),
 
-    ok = emqx_auth_mnesia_cli:remove_user({clientid,?CLIENTID}),
+    ok = emqx_auth_mnesia_cli:remove_user({clientid, ?CLIENTID}),
     {ok, #{auth_result := success,
            anonymous := true }} = emqx_access_control:authenticate(User2),
 
@@ -143,11 +162,15 @@ t_auth_clientid_cli(_) ->
     HashType = application:get_env(emqx_auth_mnesia, password_hash, sha256),
 
     emqx_auth_mnesia_cli:auth_clientid_cli(["add", ?CLIENTID, ?PASSWORD]),
-    [{_, {clientid, ?CLIENTID}, <<Salt:4/binary, Hash/binary>>, _}] = emqx_auth_mnesia_cli:lookup_user({clientid, ?CLIENTID}),
+    [{_, {clientid, ?CLIENTID},
+      <<Salt:4/binary, Hash/binary>>,
+      _}] = emqx_auth_mnesia_cli:lookup_user({clientid, ?CLIENTID}),
     ?assertEqual(Hash, emqx_passwd:hash(HashType, <<Salt/binary, ?PASSWORD/binary>>)),
 
     emqx_auth_mnesia_cli:auth_clientid_cli(["update", ?CLIENTID, ?NPASSWORD]),
-    [{_, {clientid, ?CLIENTID}, <<Salt1:4/binary, Hash1/binary>>, _}] = emqx_auth_mnesia_cli:lookup_user({clientid, ?CLIENTID}),
+    [{_, {clientid, ?CLIENTID},
+      <<Salt1:4/binary, Hash1/binary>>,
+      _}] = emqx_auth_mnesia_cli:lookup_user({clientid, ?CLIENTID}),
     ?assertEqual(Hash1, emqx_passwd:hash(HashType, <<Salt1/binary, ?NPASSWORD/binary>>)),
 
     emqx_auth_mnesia_cli:auth_clientid_cli(["del", ?CLIENTID]),
@@ -165,11 +188,15 @@ t_auth_username_cli(_) ->
     HashType = application:get_env(emqx_auth_mnesia, password_hash, sha256),
 
     emqx_auth_mnesia_cli:auth_username_cli(["add", ?USERNAME, ?PASSWORD]),
-    [{_, {username, ?USERNAME}, <<Salt:4/binary, Hash/binary>>, _}] = emqx_auth_mnesia_cli:lookup_user({username, ?USERNAME}),
+    [{_, {username, ?USERNAME},
+      <<Salt:4/binary, Hash/binary>>,
+      _}] = emqx_auth_mnesia_cli:lookup_user({username, ?USERNAME}),
     ?assertEqual(Hash, emqx_passwd:hash(HashType, <<Salt/binary, ?PASSWORD/binary>>)),
 
     emqx_auth_mnesia_cli:auth_username_cli(["update", ?USERNAME, ?NPASSWORD]),
-    [{_, {username, ?USERNAME}, <<Salt1:4/binary, Hash1/binary>>, _}] = emqx_auth_mnesia_cli:lookup_user({username, ?USERNAME}),
+    [{_, {username, ?USERNAME},
+      <<Salt1:4/binary, Hash1/binary>>,
+      _}] = emqx_auth_mnesia_cli:lookup_user({username, ?USERNAME}),
     ?assertEqual(Hash1, emqx_passwd:hash(HashType, <<Salt1/binary, ?NPASSWORD/binary>>)),
 
     emqx_auth_mnesia_cli:auth_username_cli(["del", ?USERNAME]),
@@ -191,10 +218,11 @@ t_clientid_rest_api(_Config) ->
     Params1 = #{<<"clientid">> => ?CLIENTID, <<"password">> => ?PASSWORD},
     {ok, _} = request_http_rest_add(["auth_clientid"], Params1),
 
+    Path =  ["auth_clientid/" ++ binary_to_list(?CLIENTID)],
     Params2 = #{<<"clientid">> => ?CLIENTID, <<"password">> => ?NPASSWORD},
-    {ok, _} = request_http_rest_update(["auth_clientid/" ++ binary_to_list(?CLIENTID)], Params2),
- 
-    {ok, Result2} = request_http_rest_lookup(["auth_clientid/" ++ binary_to_list(?CLIENTID)]),
+    {ok, _} = request_http_rest_update(Path, Params2),
+
+    {ok, Result2} = request_http_rest_lookup(Path),
     ?assertMatch(#{<<"clientid">> := ?CLIENTID}, get_http_data(Result2)),
 
     Params3 = [ #{<<"clientid">> => ?CLIENTID, <<"password">> => ?PASSWORD}
@@ -210,8 +238,8 @@ t_clientid_rest_api(_Config) ->
     {ok, Result4} = request_http_rest_list(["auth_clientid"]),
     ?assertEqual(3, length(get_http_data(Result4))),
 
-    {ok, _} = request_http_rest_delete(["auth_clientid/" ++ binary_to_list(?CLIENTID)]),
-    {ok, Result5} = request_http_rest_lookup(["auth_clientid/" ++ binary_to_list(?CLIENTID)]),
+    {ok, _} = request_http_rest_delete(Path),
+    {ok, Result5} = request_http_rest_lookup(Path),
     ?assertMatch(#{}, get_http_data(Result5)).
 
 t_username_rest_api(_Config) ->
@@ -223,10 +251,11 @@ t_username_rest_api(_Config) ->
     Params1 = #{<<"username">> => ?USERNAME, <<"password">> => ?PASSWORD},
     {ok, _} = request_http_rest_add(["auth_username"], Params1),
 
+    Path =  ["auth_username/" ++ binary_to_list(?USERNAME)],
     Params2 = #{<<"username">> => ?USERNAME, <<"password">> => ?NPASSWORD},
-    {ok, _} = request_http_rest_update(["auth_username/" ++ binary_to_list(?USERNAME)], Params2),
+    {ok, _} = request_http_rest_update(Path, Params2),
 
-    {ok, Result2} = request_http_rest_lookup(["auth_username/" ++ binary_to_list(?USERNAME)]),
+    {ok, Result2} = request_http_rest_lookup(Path),
     ?assertMatch(#{<<"username">> := ?USERNAME}, get_http_data(Result2)),
 
     Params3 = [ #{<<"username">> => ?USERNAME, <<"password">> => ?PASSWORD}
@@ -242,8 +271,8 @@ t_username_rest_api(_Config) ->
     {ok, Result4} = request_http_rest_list(["auth_username"]),
     ?assertEqual(3, length(get_http_data(Result4))),
 
-    {ok, _} = request_http_rest_delete(["auth_username/" ++ binary_to_list(?USERNAME)]),
-    {ok, Result5} = request_http_rest_lookup(["auth_username/" ++ binary_to_list(?USERNAME)]),
+    {ok, _} = request_http_rest_delete(Path),
+    {ok, Result5} = request_http_rest_lookup([Path]),
     ?assertMatch(#{}, get_http_data(Result5)).
 
 %%------------------------------------------------------------------------------

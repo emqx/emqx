@@ -71,9 +71,6 @@ apply_rules([Rule = #rule{id = RuleID}|More], Input) ->
     apply_rules(More, Input).
 
 apply_rule_discard_result(Rule, Input) ->
-    %% TODO check if below two clauses are ok to discard:
-    %% {'error','nomatch'}
-    %% {'ok',[any()]}
     _ = apply_rule(Rule, Input),
     ok.
 

@@ -39,21 +39,23 @@ all() ->
 groups() ->
     [{rest_api,
       [sequence],
-      [alarms,
-       apps,
-       banned,
-       brokers,
-       clients,
-       listeners,
-       metrics,
-       nodes,
-       plugins,
-       modules,
-       acl_cache,
-       pubsub,
-       routes_and_subscriptions,
-       stats,
-       data]}].
+      [ alarms
+      , apps
+      , banned
+      , brokers
+      , clients
+      , listeners
+      , metrics
+      , nodes
+      , plugins
+      , modules
+      , acl_cache
+      , pubsub
+      , routes_and_subscriptions
+      , stats
+      , data
+      ]
+    }].
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([emqx, emqx_management, emqx_auth_mnesia]),
@@ -83,7 +85,7 @@ init_per_testcase(data, Config) ->
 init_per_testcase(_, Config) ->
     Config.
 
-stop_pre_testcase(data, _Config) ->
+end_per_testcase(data, _Config) ->
     application:stop(emqx_dahboard),
     application:stop(emqx_rule_engine),
     application:stop(emqx_modules),
@@ -92,7 +94,7 @@ stop_pre_testcase(data, _Config) ->
     meck:unload(emqx_sys),
     ok;
 
-stop_pre_testcase(_, _Config) ->
+end_per_testcase(_, _Config) ->
     ok.
 
 get(Key, ResponseBody) ->

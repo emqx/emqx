@@ -396,20 +396,20 @@ receipt_id(Headers) ->
 
 handle_recv_send_frame(#stomp_frame{command = <<"SEND">>, headers = Headers, body = Body}, State) ->
     Topic = header(<<"destination">>, Headers),
-    maybe_send_receipt(receipt_id(Headers), State),
-    emqx_broker:publish(
+    _ = maybe_send_receipt(receipt_id(Headers), State),
+    _ = emqx_broker:publish(
         make_mqtt_message(Topic, Headers, iolist_to_binary(Body))
     ),
     State.
 
 handle_recv_ack_frame(#stomp_frame{command = <<"ACK">>, headers = Headers}, State) ->
     Id = header(<<"id">>, Headers),
-    maybe_send_receipt(receipt_id(Headers), State),
+    _ = maybe_send_receipt(receipt_id(Headers), State),
     ack(Id, State).
 
 handle_recv_nack_frame(#stomp_frame{command = <<"NACK">>, headers = Headers}, State) ->
     Id = header(<<"id">>, Headers),
-     maybe_send_receipt(receipt_id(Headers), State),
+     _ = maybe_send_receipt(receipt_id(Headers), State),
      nack(Id, State).
 
 ensure_clean_trans_timer(State = #pstate{transaction = Trans}) ->
@@ -456,9 +456,6 @@ ensure_timer(Name, Time, State = #pstate{timers = Timers}) ->
 
 reset_timer(Name, State) ->
     ensure_timer(Name, clean_timer(Name, State)).
-
-%reset_timer(Name, Time, State) ->
-%    ensure_timer(Name, Time, clean_timer(Name, State)).
 
 clean_timer(Name, State = #pstate{timers = Timers}) ->
     State#pstate{timers = maps:remove(Name, Timers)}.

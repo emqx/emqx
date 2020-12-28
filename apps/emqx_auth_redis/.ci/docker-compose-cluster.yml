@@ -18,7 +18,7 @@ services:
     container_name: redis-cluster
     volumes:
       - ./redis/:/data/conf
-    command: bash -c "/bin/bash /data/conf/redis.sh && while true; do echo 1; sleep 1; done"
+    command: bash -c "/bin/bash /data/conf/redis.sh --node cluster && while true; do echo 1; sleep 1; done"
     networks:
       app_net:
         # Assign a public address. Erlang container cannot find cluster nodes by network-scoped alias (redis_cluster).

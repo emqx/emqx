@@ -1,0 +1,142 @@
+#!/bin/bash
+
+# This script helps to build release artifacts.
+# arg1: profile, e.g. emqx | emqx-edge | emqx-pkg | emqx-edge-pkg
+# arg2: artifact, e.g. tar | relup | zip | pkg
+
+set -euo pipefail
+
+PROFILE="$1"
+ARTIFACT="$2"
+
+# ensure dir
+cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
+
+case "$PROFILE" in
+    emqx-edge*)
+	    export EMQX_DESC="EMQ X Edge"
+        ;;
+    emqx*)
+	    export EMQX_DESC="EMQ X Broker"
+        ;;
+    *)
+        echo "Unknown profile $PROFILE"
+        exit 1
+        ;;
+esac
+
+PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
+export PKG_VSN
+
+if [ "$(uname -s)" = 'Darwin' ]; then
+	SYSTEM=macos
+elif [ "$(uname -s)" = 'Linux' ]; then
+    if grep -q -i 'centos' /etc/*-release; then
+        DIST='centos'
+        VERSION_ID="$(rpm --eval '%{centos_ver}')"
+    else
+        DIST="$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')"
+        VERSION_ID="$(sed -n '/^VERSION_ID=/p' /etc/os-release | sed -r 's/VERSION_ID=(.*)/\1/g' | sed 's/"//g')"
+    fi
+    SYSTEM="$(echo "${DIST}${VERSION_ID}" | sed -r 's/([a-zA-Z]*)-.*/\1/g')"
+fi
+
+##
+## Support RPM and Debian based linux systems
+##
+if [ "$(uname -s)" = 'Linux' ]; then
+    case "${DIST:-}" in
+        ubuntu|debian|raspbian)
+            PKGERDIR='deb'
+            ;;
+        *)
+            PKGERDIR='rpm'
+            ;;
+    esac
+fi
+
+log() {
+    local msg="$1"
+    # rebar3 prints ===>, so we print ===<
+    echo "===< $msg"
+}
+
+make_tar() {
+    ./rebar3 as "$PROFILE" tar
+}
+
+## unzip previous version .zip files to _build/$PROFILE/rel/emqx/releases before making relup
+make_relup() {
+    local releases_dir="_build/$PROFILE/rel/emqx/releases"
+    local releases=()
+    if [ -d "$releases_dir" ]; then
+        while read -r dir; do
+            local version="$(basename "$dir")"
+            # skip current version
+            if [ "$version" != "$PKG_VSN" ]; then
+                releases+=( "$version" )
+            fi
+        done < <(find "_build/$PROFILE/rel/emqx/releases" -maxdepth 1 -name '*.*.*' -type d)
+    fi
+    if [ ${#releases[@]} -eq 0 ]; then
+        log "No previous release found, relup ignored"
+        return 0
+    fi
+    if [ ${#releases[@]} -gt 1 ]; then
+        log "Found more than one previous versions in $releases_dir:"
+        log "${releases[@]}"
+        log "ERROR: So far we can not support multi base-version relup creation"
+        return 1
+    fi
+    local base_version="${releases[0]}"
+    # TODO: comma separate base-versions when supported
+    ./rebar3 as "$PROFILE" relup --relname emqx --relvsn "${PKG_VSN}" --upfrom "$base_version"
+}
+
+## make_zip turns .tar.gz into a .zip with a slightly different name.
+## It assumes the .tar.gz has been built -- relies on Makefile dependency
+make_zip() {
+    tard="/tmp/emqx_untar_${PKG_VSN}"
+    rm -rf "${tard}"
+    mkdir -p "${tard}/emqx"
+    local relpath="_build/${PROFILE}/rel/emqx"
+    local pkgpath="_packages/${PROFILE}"
+    mkdir -p "${pkgpath}"
+    local tarball="${relpath}/emqx-${PKG_VSN}.tar.gz"
+    if [ ! -f "$tarball" ]; then
+        log "ERROR: $tarball is not found"
+    fi
+    local zipball
+    zipball="${pkgpath}/${PROFILE}-${SYSTEM}-${PKG_VSN}-$(uname -m).zip"
+    tar zxf "${tarball}" -C "${tard}/emqx"
+    (cd "${tard}" && zip -qr - emqx) > "${zipball}"
+}
+
+log "building artifact=$ARTIFACT for profile=$PROFILE"
+
+case "$ARTIFACT" in
+    tar)
+        make_tar
+        ;;
+    relup)
+        make_relup
+        ;;
+    zip)
+        make_zip
+        ;;
+    pkg)
+        if [ -z "${PKGERDIR:-}" ]; then
+            # zip should have been built as a Makefile dependency
+            log "Skipped making deb/rpm package for $SYSTEM"
+            exit 0
+        fi
+        # build the tar which is going to be used as the base of deb and rpm packages
+        make_tar
+        make -C "deploy/packages/${PKGERDIR}" clean
+        EMQX_REL="$(pwd)" EMQX_BUILD="${PROFILE}" SYSTEM="${SYSTEM}" make -C "deploy/packages/${PKGERDIR}"
+        ;;
+    *)
+        log "Unknown artifact $ARTIFACT"
+        exit 1
+        ;;
+esac

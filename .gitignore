@@ -36,5 +36,8 @@ _checkouts
 rebar.config.rendered
 /rebar3
 rebar.lock
+.stamp
 tmp/
 _packages
+elvis
+emqx_dialyzer_*_plt
