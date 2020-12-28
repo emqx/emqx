@@ -310,18 +310,16 @@ delete_resource(ResId) ->
             {error, {resource_not_found, ResId}}
     end.
 
-update_resource(NewResource) ->
-    #{id := Id,
-      config := Config,
-      type := Type,
-      description := Description,
-      created_at := CreatedAt} = NewResource,
-    R = #resource{id = Id,
-                  config = Config,
-                  type = Type,
-                  description = Description,
-                  created_at = CreatedAt},
-    ok = refresh_resource(R),
+update_resource(#{id := Id,
+                  config := Config,
+                  type := Type,
+                  description := Description,
+                  created_at := CreatedAt} = NewResource) ->
+    ok = refresh_resource(#resource{id = Id,
+                                    config = Config,
+                                    type = Type,
+                                    description = Description,
+                                    created_at = CreatedAt}),
     create_resource(NewResource).
 
 %% @doc Ensure resource deleted. `resource_not_found` error is discarded.

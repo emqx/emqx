@@ -326,12 +326,11 @@ update_resource(#{id := Id}, Params) ->
         {ok, #resource{id = Id, type = Type} = _OldResource} ->
                Config = maps:get(config, parse_resource_params(Params)),
                Description = maps:get(description, parse_resource_params(Params)),
-               NewResource = #{id => Id,
-                               config => Config,
-                               type => Type,
-                               description => Description,
-                               created_at => erlang:system_time(millisecond)},
-               emqx_rule_engine:update_resource(NewResource),
+               emqx_rule_engine:update_resource(#{id => Id,
+                                                  config => Config,
+                                                  type => Type,
+                                                  description => Description,
+                                                  created_at => erlang:system_time(millisecond)}),
                return(ok);
         _Other ->
                return({error, 400, ?ERR_NO_RESOURCE(Id)})
