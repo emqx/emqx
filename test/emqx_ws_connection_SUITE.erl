@@ -270,6 +270,7 @@ t_handle_info_close(_) ->
 t_handle_info_event(_) ->
     ok = meck:new(emqx_cm, [passthrough, no_history]),
     ok = meck:expect(emqx_cm, register_channel, fun(_,_,_) -> ok end),
+    ok = meck:expect(emqx_cm, insert_channel_info, fun(_,_,_) -> ok end),
     ok = meck:expect(emqx_cm, connection_closed, fun(_) -> true end),
     {ok, _} = ?ws_conn:handle_info({event, connected}, st()),
     {ok, _} = ?ws_conn:handle_info({event, disconnected}, st()),

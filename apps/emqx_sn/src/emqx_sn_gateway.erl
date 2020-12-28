@@ -543,7 +543,7 @@ handle_event(info, asleep_timeout, StateName, State) ->
 
 handle_event(cast, {event, connected}, _StateName, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:register_channel(ClientId, info(State), stats(State)),
+    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
     {keep_state, State};
 
 handle_event(cast, {event, disconnected}, _StateName, State = #state{channel = Channel}) ->
