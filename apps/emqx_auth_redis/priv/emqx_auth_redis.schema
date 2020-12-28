@@ -38,17 +38,17 @@
   {datatype, flag}
 ]}.
 
-{mapping, "auth.redis.cafile", "emqx_auth_redis.options", [
+{mapping, "auth.redis.ssl.cafile", "emqx_auth_redis.options", [
   {default, ""},
   {datatype, string}
 ]}.
 
-{mapping, "auth.redis.certfile", "emqx_auth_redis.options", [
+{mapping, "auth.redis.ssl.certfile", "emqx_auth_redis.options", [
   {default, ""},
   {datatype, string}
 ]}.
 
-{mapping, "auth.redis.keyfile", "emqx_auth_redis.options", [
+{mapping, "auth.redis.ssl.keyfile", "emqx_auth_redis.options", [
   {default, ""},
   {datatype, string}
 ]}.
@@ -57,9 +57,9 @@
    Ssl = cuttlefish:conf_get("auth.redis.ssl", Conf, false),
    case Ssl of
        true ->
-            CA = cuttlefish:conf_get("auth.redis.cafile", Conf),
-            Cert = cuttlefish:conf_get("auth.redis.certfile", Conf),
-            Key = cuttlefish:conf_get("auth.redis.keyfile", Conf),
+            CA = cuttlefish:conf_get("auth.redis.ssl.cafile", Conf),
+            Cert = cuttlefish:conf_get("auth.redis.ssl.certfile", Conf),
+            Key = cuttlefish:conf_get("auth.redis.ssl.keyfile", Conf),
             [{options, [{ssl_options, [{cacertfile, CA},
                                        {certfile, Cert},
                                        {keyfile, Key}]}]}];

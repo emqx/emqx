@@ -31,19 +31,19 @@
 ]}.
 
 {mapping, "auth.pgsql.ssl", "emqx_auth_pgsql.server", [
-  {default, false},
-  {datatype, {enum, [true, false]}}
+  {default, off},
+  {datatype, flag}
 ]}.
 
-{mapping, "auth.pgsql.ssl_opts.keyfile", "emqx_auth_pgsql.server", [
+{mapping, "auth.pgsql.ssl.keyfile", "emqx_auth_pgsql.server", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.pgsql.ssl_opts.certfile", "emqx_auth_pgsql.server", [
+{mapping, "auth.pgsql.ssl.certfile", "emqx_auth_pgsql.server", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.pgsql.ssl_opts.cacertfile", "emqx_auth_pgsql.server", [
+{mapping, "auth.pgsql.ssl.cacertfile", "emqx_auth_pgsql.server", [
   {datatype, string}
 ]}.
 
@@ -85,7 +85,7 @@
    {database, DB},
    {encoding, Encoding},
    {ssl, Ssl},
-   {ssl_opts, SslOpts("auth.pgsql.ssl_opts")}]
+   {ssl_opts, SslOpts("auth.pgsql.ssl")}]
 end}.
 
 {mapping, "auth.pgsql.auth_query", "emqx_auth_pgsql.auth_query", [
