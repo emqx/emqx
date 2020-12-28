@@ -92,7 +92,8 @@ ensure_subscribed(#{client_pid := Pid}, Topic, QoS) when is_pid(Pid) ->
         Error -> Error
     end;
 ensure_subscribed(_Conn, _Topic, _QoS) ->
-    %% return ok for now, next re-connect should should call start with new topic added to config
+    %% return ok for now
+    %% next re-connect should should call start with new topic added to config
     ok.
 
 ensure_unsubscribed(#{client_pid := Pid}, Topic) when is_pid(Pid) ->
@@ -101,7 +102,8 @@ ensure_unsubscribed(#{client_pid := Pid}, Topic) when is_pid(Pid) ->
         Error -> Error
     end;
 ensure_unsubscribed(_, _) ->
-    %% return ok for now, next re-connect should should call start with this topic deleted from config
+    %% return ok for now
+    %% next re-connect should should call start with this topic deleted from config
     ok.
 
 safe_stop(Pid, StopF, Timeout) ->
@@ -172,7 +174,7 @@ subscribe_remote_topics(ClientPid, Subscriptions) ->
 %%--------------------------------------------------------------------
 
 replvar(Options) ->
-    replvar([clientid], Options).
+    replvar([clientid, max_inflight], Options).
 
 replvar([], Options) ->
     Options;
@@ -186,5 +188,11 @@ replvar([Key|More], Options) ->
 
 %% ${node} => node()
 feedvar(clientid, ClientId, _) ->
-    iolist_to_binary(re:replace(ClientId, "\\${node}", atom_to_list(node()))).
+    iolist_to_binary(re:replace(ClientId, "\\${node}", atom_to_list(node())));
+
+feedvar(max_inflight, 0, _) ->
+    infinity;
+
+feedvar(max_inflight, Size, _) ->
+    Size.
 

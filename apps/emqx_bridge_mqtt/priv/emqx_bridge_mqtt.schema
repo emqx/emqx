@@ -103,7 +103,7 @@
   {datatype, {duration, ms}}
 ]}.
 
-{mapping, "bridge.mqtt.$name.max_inflight_size", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge.mqtt.$name.max_inflight", "emqx_bridge_mqtt.bridges", [
    {default, 0},
    {datatype, integer}
  ]}.
