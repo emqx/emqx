@@ -42,7 +42,7 @@
 -type(word() :: '' | '+' | '#' | binary()).
 -type(words() :: list(word())).
 
--define(MAX_TOPIC_LEN, 4096).
+-define(MAX_TOPIC_LEN, 65535).
 
 %%--------------------------------------------------------------------
 %% APIs
