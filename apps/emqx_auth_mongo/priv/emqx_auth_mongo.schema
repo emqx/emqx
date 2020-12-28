@@ -42,19 +42,19 @@
 ]}.
 
 {mapping, "auth.mongo.ssl", "emqx_auth_mongo.server", [
-  {default, false},
-  {datatype, {enum, [true, false]}}
+  {default, off},
+  {datatype, flag}
 ]}.
 
-{mapping, "auth.mongo.ssl_opts.keyfile", "emqx_auth_mongo.server", [
+{mapping, "auth.mongo.ssl.keyfile", "emqx_auth_mongo.server", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.mongo.ssl_opts.certfile", "emqx_auth_mongo.server", [
+{mapping, "auth.mongo.ssl.certfile", "emqx_auth_mongo.server", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.mongo.ssl_opts.cacertfile", "emqx_auth_mongo.server", [
+{mapping, "auth.mongo.ssl.cacertfile", "emqx_auth_mongo.server", [
   {datatype, string}
 ]}.
 
@@ -107,7 +107,7 @@
                             {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
                             {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)}])
                 end,
-      [{ssl, true}, {ssl_opts, SslOpts("auth.mongo.ssl_opts")}];
+      [{ssl, true}, {ssl_opts, SslOpts("auth.mongo.ssl")}];
     false ->
       []
   end,

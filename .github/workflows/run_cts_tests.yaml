@@ -2,6 +2,8 @@ name: Compatibility Test Suite
 
 on:
   push:
+    tags:
+      - v*
   release:
     types:
       - published
@@ -77,10 +79,15 @@ jobs:
         if: matrix.connect_type == 'tls'
         run: |
           docker-compose -f .ci/compatibility_tests/docker-compose-mongo-tls.yaml up -d
-          echo 'auth.mongo.ssl = true' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          echo 'auth.mongo.ssl_opts.cacertfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          echo 'auth.mongo.ssl_opts.certfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          echo 'auth.mongo.ssl_opts.keyfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          echo 'auth.mongo.ssl = on' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          echo 'auth.mongo.ssl.cacertfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          echo 'auth.mongo.ssl.certfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          echo 'auth.mongo.ssl.keyfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+
+          # echo 'auth.mongo.ssl = true' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          # echo 'auth.mongo.ssl_opts.cacertfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          # echo 'auth.mongo.ssl_opts.certfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          # echo 'auth.mongo.ssl_opts.keyfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
       - name: setup
         env:
           MONGO_TAG: ${{ matrix.mongo_tag }}
@@ -247,9 +254,9 @@ jobs:
           docker-compose -f .ci/compatibility_tests/docker-compose-redis-${{ matrix.node_type }}-tls.yaml up -d
           echo '\n' >> apps/emqx_auth_mongo/etc/emqx_auth_redis.conf
           echo 'auth.redis.ssl = on' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
-          echo 'auth.redis.cafile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/ca.crt' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
-          echo 'auth.redis.certfile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.crt' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
-          echo 'auth.redis.keyfile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.key' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          echo 'auth.redis.ssl.cafile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/ca.crt' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          echo 'auth.redis.ssl.certfile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.crt' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          echo 'auth.redis.ssl.keyfile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.key' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
       - name: setup
         env:
           REDIS_TAG: ${{ matrix.redis_tag }}
