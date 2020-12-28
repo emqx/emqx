@@ -28,7 +28,7 @@ eunit: $(REBAR)
 
 .PHONY: ct
 ct: $(REBAR)
-	$(REBAR) ct -c -v
+	$(REBAR) ct --name 'test@127.0.0.1' -c -v
 
 .PHONY: cover
 cover: $(REBAR)
