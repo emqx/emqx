@@ -422,8 +422,7 @@ t_case01_subscribe(_Config) ->
     %% GET to read the publish message of the topic
     Reply1 = er_coap_client:request(get, Uri1),
     ?LOGT("Reply=~p", [Reply1]),
-    {ok,content, #coap_content{max_age = MaxAgeLeft,payload = <<"123">>}} = Reply1,
-    ?assertEqual(true, MaxAgeLeft<60),
+    {ok,content, #coap_content{payload = <<"123">>}} = Reply1,
 
     er_coap_observer:stop(Pid),
     {ok, deleted, #coap_content{}} = er_coap_client:request(delete, Uri1).
@@ -512,10 +511,10 @@ t_case01_read(_Config) ->
     ?assertEqual(<<"42">>, CT1),
 
     %% GET to read the publish message of the topic
+    timer:sleep(1000),
     Reply1 = er_coap_client:request(get, Uri),
     ?LOGT("Reply=~p", [Reply1]),
-    {ok,content, #coap_content{max_age = MaxAgeLeft,payload = Payload}} = Reply1,
-    ?assertEqual(true, MaxAgeLeft<60),
+    {ok,content, #coap_content{payload = Payload}} = Reply1,
 
     {ok, deleted, #coap_content{}} = er_coap_client:request(delete, Uri).
 

@@ -2,9 +2,11 @@ version: '3'
 
 services:
   erlang:
-    image: erlang:22.1
+    container_name: erlang
+    image: erlang:22.3
     volumes:
-      - ./:/emqx_auth_mongo
+      - ../..:/emqx
+    working_dir: /emqx
     networks:
       - emqx_bridge
     depends_on:
@@ -12,20 +14,26 @@ services:
     tty: true
 
   mongo_server:
+    container_name: mongo 
     image: mongo:${MONGO_TAG}
     restart: always
     environment:
       MONGO_INITDB_DATABASE: mqtt
-    volumes:
-        - ./test/emqx_auth_mongo_SUITE_data/mongodb.pem/:/etc/certs/mongodb.pem
     networks:
       - emqx_bridge
     command:
       --ipv6
       --bind_ip_all
-      --sslMode requireSSL
-      --sslPEMKeyFile /etc/certs/mongodb.pem
 
 networks:
   emqx_bridge:
     driver: bridge
+    name: emqx_bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.100.100.0/24
+          gateway: 172.100.100.1
+        - subnet: 2001:3200:3200::/64
+          gateway: 2001:3200:3200::1

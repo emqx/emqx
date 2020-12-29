@@ -35,7 +35,6 @@
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_auth_mnesia_sup:start_link(),
     emqx_ctl:register_command(clientid, {emqx_auth_mnesia_cli, auth_clientid_cli}, []),
-    emqx_ctl:register_command(username, {emqx_auth_mnesia_cli, auth_username_cli}, []),
     emqx_ctl:register_command(user, {emqx_auth_mnesia_cli, auth_username_cli}, []),
     emqx_ctl:register_command(acl, {emqx_acl_mnesia_cli, cli}, []),
     _ = load_auth_hook(),
@@ -46,7 +45,6 @@ prep_stop(State) ->
     emqx:unhook('client.authenticate', fun emqx_auth_mnesia:check/3),
     emqx:unhook('client.check_acl', fun emqx_acl_mnesia:check_acl/5),
     emqx_ctl:unregister_command(clientid),
-    emqx_ctl:unregister_command(username),
     emqx_ctl:unregister_command(user),
     emqx_ctl:unregister_command(acl),
     State.

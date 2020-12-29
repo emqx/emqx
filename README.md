@@ -90,8 +90,22 @@ examples
 
 ```bash
 ./rebar3 ct --dir test,apps/emqx_sn,apps/emqx_coap
-./rebar3 ct --suite test/emqx_SUITE.erl,apps/emqx_auth_http/test/emqx_auth_http_SUITE.erl
-./rebar3 ct --suite test/emqx_SUITE.erl --testcase t_restart
+./rebar3 ct --dir apps/emqx_auth_mnesi --suite emqx_acl_mnesia_SUITE
+./rebar3 ct --dir apps/emqx_auth_mnesi --suite emqx_acl_mnesia_SUITE --case t_rest_api
+```
+
+NOTE: Do *NOT* use full (relative) path to SUITE files like this `--suite apps/emqx_auth_mnesia/test/emqx_acl_mnesia_SUITE.erl`,
+because it will lead to a full copy of `apps` dir into `_buid/test/lib/emqx`.
+
+### Dialyzer
+##### To Analyze all the apps
+```
+make dialyzer
+```
+
+##### To Analyse specific apps, (list of comma separated apps)
+```
+DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 ```
 
 ## FAQ

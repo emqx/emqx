@@ -1,4 +1,4 @@
-REBAR_VERSION = 3.14.3-emqx-3
+REBAR_VERSION = 3.14.3-emqx-4
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
@@ -28,7 +28,7 @@ eunit: $(REBAR)
 
 .PHONY: ct
 ct: $(REBAR)
-	$(REBAR) ct
+	$(REBAR) ct --name 'test@127.0.0.1' -c -v
 
 .PHONY: cover
 cover: $(REBAR)

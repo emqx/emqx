@@ -43,7 +43,11 @@
 %% @doc Add User
 -spec(add_user(tuple(), binary()) -> ok | {error, any()}).
 add_user(Login, Password) ->
-    User = #emqx_user{login = Login, password = encrypted_data(Password), created_at = erlang:system_time(millisecond)},
+    User = #emqx_user{
+              login = Login,
+              password = encrypted_data(Password),
+              created_at = erlang:system_time(millisecond)
+             },
     ret(mnesia:transaction(fun insert_user/1, [User])).
 
 insert_user(User = #emqx_user{login = Login}) ->
@@ -81,10 +85,16 @@ remove_user(Login) ->
 all_users() -> mnesia:dirty_all_keys(?TABLE).
 
 all_users(clientid) ->
-    MatchSpec = ets:fun2ms(fun({?TABLE, {clientid, Clientid}, Password, CreatedAt}) -> {?TABLE, {clientid, Clientid}, Password, CreatedAt} end),
+    MatchSpec = ets:fun2ms(
+                  fun({?TABLE, {clientid, Clientid}, Password, CreatedAt}) ->
+                          {?TABLE, {clientid, Clientid}, Password, CreatedAt}
+                  end),
     lists:sort(fun comparing/2, ets:select(?TABLE, MatchSpec));
 all_users(username) ->
-    MatchSpec = ets:fun2ms(fun({?TABLE, {username, Username}, Password, CreatedAt}) -> {?TABLE, {username, Username}, Password, CreatedAt} end),
+    MatchSpec = ets:fun2ms(
+                  fun({?TABLE, {username, Username}, Password, CreatedAt}) ->
+                          {?TABLE, {username, Username}, Password, CreatedAt}
+                  end),
     lists:sort(fun comparing/2, ets:select(?TABLE, MatchSpec)).
 
 %%--------------------------------------------------------------------
@@ -117,7 +127,9 @@ salt() ->
 %%--------------------------------------------------------------------
 
 auth_clientid_cli(["list"]) ->
-    [emqx_ctl:print("~s~n", [ClientId]) || {?TABLE, {clientid, ClientId}, _Password, _CreatedAt} <- all_users(clientid)];
+    [emqx_ctl:print("~s~n", [ClientId])
+     || {?TABLE, {clientid, ClientId}, _Password, _CreatedAt} <- all_users(clientid)
+    ];
 
 auth_clientid_cli(["add", ClientId, Password]) ->
     case add_user({clientid, iolist_to_binary(ClientId)}, iolist_to_binary(Password)) of
@@ -148,7 +160,9 @@ auth_clientid_cli(_) ->
 %%--------------------------------------------------------------------
 
 auth_username_cli(["list"]) ->
-    [emqx_ctl:print("~s~n", [Username]) || {?TABLE, {username, Username}, _Password, _CreatedAt}<- all_users(username)];
+    [emqx_ctl:print("~s~n", [Username])
+     || {?TABLE, {username, Username}, _Password, _CreatedAt} <- all_users(username)
+    ];
 
 auth_username_cli(["add", Username, Password]) ->
     case add_user({username, iolist_to_binary(Username)}, iolist_to_binary(Password)) of
@@ -168,7 +182,7 @@ auth_username_cli(["del", Username]) ->
     end;
 
 auth_username_cli(_) ->
-    emqx_ctl:usage([{"users list", "List username auth rules"},
-                    {"users add <Username> <Password>", "Add username auth rule"},
-                    {"users update <Username> <NewPassword>", "Update username auth rule"},
-                    {"users del <Username>", "Delete username auth rule"}]).
+    emqx_ctl:usage([{"user list", "List username auth rules"},
+                    {"user add <Username> <Password>", "Add username auth rule"},
+                    {"user update <Username> <NewPassword>", "Update username auth rule"},
+                    {"user del <Username>", "Delete username auth rule"}]).

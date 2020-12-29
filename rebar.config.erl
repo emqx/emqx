@@ -4,7 +4,7 @@
 
 do(Dir, CONFIG) ->
     ok = compile_and_load_pase_transforms(Dir),
-    dump(deps(CONFIG) ++ config()).
+    dump(deps(CONFIG) ++ dialyzer(CONFIG) ++ config()).
 
 bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
@@ -23,12 +23,13 @@ config() ->
     ].
 
 plugins() ->
-    [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {branch,"master"}}}
+    [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {branch,"master"}}},
+      {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0"}}}
     ].
 
 test_deps() ->
     [ {bbmustache, "1.10.0"}
-    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.0"}}}
+    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.2"}}}
     , meck
     ].
 
@@ -266,4 +267,34 @@ str(L) when is_list(L) -> L;
 str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
 erl_opts_i() ->
-    [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "**", "include"]))].
+    [{i, "apps"}] ++ [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "**", "include"]))].
+
+dialyzer(Config) ->
+    {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),
+
+    AppsToAnalyse = case os:getenv("DIALYZER_ANALYSE_APP") of
+        false ->
+            [];
+        Value ->
+            [ list_to_atom(App) || App <- string:tokens(Value, ",")]
+    end,
+
+    AppsDir = "apps",
+    AppNames = [emqx | list_dir(AppsDir)],
+
+    KnownApps = [Name ||  Name <- AppsToAnalyse, lists:member(Name, AppNames)],
+    UnknownApps = AppsToAnalyse -- KnownApps,
+    io:format("Unknown Apps ~p ~n", [UnknownApps]),
+
+    AppsToExclude = AppNames -- KnownApps,
+
+    case length(AppsToAnalyse) > 0 of
+        true ->
+            lists:keystore(dialyzer, 1, Config, {dialyzer, OldDialyzerConfig ++ [{exclude_apps, AppsToExclude}]});
+        false ->
+            Config
+    end.
+
+list_dir(Dir) ->
+    {ok, Names} = file:list_dir(Dir),
+    [list_to_atom(Name) || Name <- Names, filelib:is_dir(filename:join([Dir, Name]))].

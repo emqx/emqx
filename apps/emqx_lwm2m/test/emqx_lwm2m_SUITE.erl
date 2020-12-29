@@ -188,8 +188,8 @@ case01_register(Config) ->
     #coap_message{type = ack, id = RspId3, method = Method3} = test_recv_coap_response(UdpSock),
     {ok,deleted} = Method3,
     MsgId3 = RspId3,
+    timer:sleep(50),
     false = lists:member(SubTopic, test_mqtt_broker:get_subscrbied_topics()).
-
 
 case01_register_additional_opts(Config) ->
     % ----------------------------------------
@@ -236,6 +236,7 @@ case01_register_additional_opts(Config) ->
     #coap_message{type = ack, id = RspId3, method = Method3} = test_recv_coap_response(UdpSock),
     {ok,deleted} = Method3,
     MsgId3 = RspId3,
+    timer:sleep(50),
     false = lists:member(SubTopic, test_mqtt_broker:get_subscrbied_topics()).
 
 case01_register_incorrect_opts(Config) ->
@@ -316,6 +317,7 @@ case01_register_report(Config) ->
     #coap_message{type = ack, id = RspId3, method = Method3} = test_recv_coap_response(UdpSock),
     {ok,deleted} = Method3,
     MsgId3 = RspId3,
+    timer:sleep(50),
     false = lists:member(SubTopic, test_mqtt_broker:get_subscrbied_topics()).
 
 case02_update_deregister(Config) ->
@@ -395,7 +397,7 @@ case02_update_deregister(Config) ->
     {ok,deleted} = Method3,
     MsgId3 = RspId3,
 
-    timer:sleep(100),
+    timer:sleep(50),
     false = lists:member(SubTopic, test_mqtt_broker:get_subscrbied_topics()).
 
 case03_register_wrong_version(Config) ->

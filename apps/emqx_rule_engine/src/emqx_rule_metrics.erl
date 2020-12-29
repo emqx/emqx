@@ -163,7 +163,18 @@ inc(Id, Metric) ->
 
 -spec inc(rule_id(), atom(), pos_integer()) -> ok.
 inc(Id, Metric, Val) ->
-    counters:add(couters_ref(Id), metrics_idx(Metric), Val),
+    case couters_ref(Id) of
+        not_found ->
+            %% this may occur when increasing a counter for
+            %% a rule that was created from a remove node.
+            case atom_to_list(Metric) of
+                "rules." ++ _ -> create_rule_metrics(Id);
+                _ -> create_metrics(Id)
+            end,
+            counters:add(couters_ref(Id), metrics_idx(Metric), Val);
+        Ref ->
+            counters:add(Ref, metrics_idx(Metric), Val)
+    end,
     inc_overall(Metric, Val).
 
 -spec(inc_overall(atom(), pos_integer()) -> ok).

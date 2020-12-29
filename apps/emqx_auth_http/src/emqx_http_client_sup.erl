@@ -43,6 +43,6 @@ pool_size(Opts) ->
 
 stop_pool(Name) ->
     Workers = gproc_pool:defined_workers(Name),
-    [gproc_pool:remove_worker(Name, WokerName) || {WokerName, _, _} <- Workers],
+    _ = [gproc_pool:remove_worker(Name, WokerName) || {WokerName, _, _} <- Workers],
     gproc_pool:delete(Name),
     ok.

@@ -103,8 +103,8 @@ export(_Bindings, _Params) ->
     case file:write_file(NFilename, Bin) of
         ok ->
             case file:read_file_info(NFilename) of
-                {ok, #file_info{size = Size, ctime = {{Y, M, D}, {H, MM, S}}}} ->
-                    CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S]),
+                {ok, #file_info{size = Size, ctime = {{Y0, M0, D0}, {H0, MM0, S0}}}} ->
+                    CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y0, M0, D0, H0, MM0, S0]),
                     return({ok, [{filename, list_to_binary(Filename)},
                                  {size, Size},
                                  {created_at, list_to_binary(CreatedAt)},

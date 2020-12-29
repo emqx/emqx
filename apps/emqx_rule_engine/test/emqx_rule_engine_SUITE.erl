@@ -125,7 +125,8 @@ groups() ->
       [t_events
       ]},
      {bugs, [],
-      [t_sqlparse_payload_as
+      [t_sqlparse_payload_as,
+       t_sqlparse_nested_get
       ]},
      {multi_actions, [],
       [t_sqlselect_multi_actoins_1,
@@ -446,8 +447,17 @@ t_crud_resources_api(_Config) ->
     {ok, #{code := 0, data := Resources2}} = emqx_rule_engine_api:show_resource(#{id => ResId},[]),
     ?assertEqual(ResId, maps:get(id, Resources2)),
 
-    ?assertMatch({ok, #{code := 0}}, emqx_rule_engine_api:delete_resource(#{id => ResId},#{})),
+    {ok, #{code := 0}} = emqx_rule_engine_api:update_resource(#{id => ResId},
+                                                              [{<<"id">>, ResId},
+                                                               {<<"type">>, <<"built_in">>},
+                                                               {<<"config">>, [{<<"a">>, 2}]},
+                                                               {<<"description">>, <<"2">>}]),
+    {ok, #{code := 0, data := Resources3}} = emqx_rule_engine_api:show_resource(#{id => ResId},[]),
+    ?assertEqual(ResId, maps:get(id, Resources3)),
+    ?assertEqual(#{<<"a">> => 2}, maps:get(config, Resources3)),
+    ?assertEqual(<<"2">>, maps:get(description, Resources3)),
 
+    ?assertMatch({ok, #{code := 0}}, emqx_rule_engine_api:delete_resource(#{id => ResId},#{})),
     ?assertMatch({ok, #{code := 404}}, emqx_rule_engine_api:show_resource(#{id => ResId},[])),
     ok.
 
@@ -467,7 +477,7 @@ t_show_resource_type_api(_Config) ->
 %%------------------------------------------------------------------------------
 
 t_rules_cli(_Config) ->
-    print_mock(),
+    mock_print(),
     RCreate = emqx_rule_engine_cli:rules(["create",
                                           "select * from \"t1\" where topic='t1'",
                                           "[{\"name\":\"inspect\", \"params\": {\"arg1\": 1}}]",
@@ -499,10 +509,11 @@ t_rules_cli(_Config) ->
     RShow2 = emqx_rule_engine_cli:rules(["show", RuleId]),
     ?assertMatch({match, _}, re:run(RShow2, "Cannot found")),
     %ct:pal("RShow2 : ~p", [RShow2]),
+    unmock_print(),
     ok.
 
 t_actions_cli(_Config) ->
-    print_mock(),
+    mock_print(),
     RList = emqx_rule_engine_cli:actions(["list"]),
     ?assertMatch({match, _}, re:run(RList, "inspect")),
     %ct:pal("RList : ~p", [RList]),
@@ -510,10 +521,11 @@ t_actions_cli(_Config) ->
     RShow = emqx_rule_engine_cli:actions(["show", "inspect"]),
     ?assertMatch({match, _}, re:run(RShow, "inspect")),
     %ct:pal("RShow : ~p", [RShow]),
+    unmock_print(),
     ok.
 
 t_resources_cli(_Config) ->
-    print_mock(),
+    mock_print(),
     RCreate = emqx_rule_engine_cli:resources(["create", "built_in", "{\"a\" : 1}", "-d", "test resource"]),
     ResId = re:replace(re:replace(RCreate, "Resource\s", "", [{return, list}]), "\screated\n", "", [{return, list}]),
 
@@ -535,10 +547,11 @@ t_resources_cli(_Config) ->
     RShow2 = emqx_rule_engine_cli:resources(["show", ResId]),
     ?assertMatch({match, _}, re:run(RShow2, "Cannot found")),
     %ct:pal("RShow2 : ~p", [RShow2]),
+    unmock_print(),
     ok.
 
 t_resource_types_cli(_Config) ->
-    print_mock(),
+    mock_print(),
     RList = emqx_rule_engine_cli:resource_types(["list"]),
     ?assertMatch({match, _}, re:run(RList, "built_in")),
     %ct:pal("RList : ~p", [RList]),
@@ -546,6 +559,7 @@ t_resource_types_cli(_Config) ->
     RShow = emqx_rule_engine_cli:resource_types(["show", "inspect"]),
     ?assertMatch({match, _}, re:run(RShow, "inspect")),
     %ct:pal("RShow : ~p", [RShow]),
+    unmock_print(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -561,7 +575,7 @@ t_topic_func(_Config) ->
 %%------------------------------------------------------------------------------
 
 t_add_get_remove_rule(_Config) ->
-    print_mock(),
+    mock_print(),
     RuleId0 = <<"rule-debug-0">>,
     ok = emqx_rule_registry:add_rule(make_simple_rule(RuleId0)),
     ?assertMatch({ok, #rule{id = RuleId0}}, emqx_rule_registry:get_rule(RuleId0)),
@@ -574,6 +588,7 @@ t_add_get_remove_rule(_Config) ->
     ?assertMatch({ok, #rule{id = RuleId1}}, emqx_rule_registry:get_rule(RuleId1)),
     ok = emqx_rule_registry:remove_rule(Rule1),
     ?assertEqual(not_found, emqx_rule_registry:get_rule(RuleId1)),
+    unmock_print(),
     ok.
 
 t_add_get_remove_rules(_Config) ->
@@ -738,11 +753,15 @@ get_resource_type() ->
     ?assertMatch({ok, #resource_type{name = <<"resource-type-debug-1">>}}, emqx_rule_registry:find_resource_type(<<"resource-type-debug-1">>)),
     ok.
 get_resource_types() ->
-    ?assert(length(emqx_rule_registry:get_resource_types()) > 0),
+    ResTypes = emqx_rule_registry:get_resource_types(),
+    ct:pal("resource types now: ~p", [ResTypes]),
+    ?assert(length(ResTypes) > 0),
     ok.
 unregister_resource_types_of() ->
+    NumOld = length(emqx_rule_registry:get_resource_types()),
     ok = emqx_rule_registry:unregister_resource_types_of(?APP),
-    ?assertEqual(0, length(emqx_rule_registry:get_resource_types())),
+    NumNow = length(emqx_rule_registry:get_resource_types()),
+    ?assert((NumOld - NumNow) >= 2),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -2008,6 +2027,17 @@ t_sqlparse_payload_as(_Config) ->
         }
     }, Res02).
 
+t_sqlparse_nested_get(_Config) ->
+    Sql = "select payload as p, p.a.b as c "
+          "from \"t/#\" ",
+    ?assertMatch({ok,#{<<"c">> := 0}},
+        emqx_rule_sqltester:test(
+        #{<<"rawsql">> => Sql,
+          <<"ctx">> => #{
+              <<"topic">> => <<"t/1">>,
+              <<"payload">> => <<"{\"a\": {\"b\": 0}}">>
+          }})).
+
 %%------------------------------------------------------------------------------
 %% Internal helpers
 %%------------------------------------------------------------------------------
@@ -2423,13 +2453,16 @@ set_special_configs(emqx_rule_engine) ->
 set_special_configs(_App) ->
     ok.
 
-print_mock() ->
+mock_print() ->
     catch meck:unload(emqx_ctl),
     meck:new(emqx_ctl, [non_strict, passthrough]),
     meck:expect(emqx_ctl, print, fun(Arg) -> emqx_ctl:format(Arg) end),
     meck:expect(emqx_ctl, print, fun(Msg, Arg) -> emqx_ctl:format(Msg, Arg) end),
     meck:expect(emqx_ctl, usage, fun(Usages) -> emqx_ctl:format_usage(Usages) end),
     meck:expect(emqx_ctl, usage, fun(Cmd, Descr) -> emqx_ctl:format_usage(Cmd, Descr) end).
+
+unmock_print() ->
+    meck:unload(emqx_ctl).
 
 t_load_providers(_) ->
     error('TODO').

@@ -62,6 +62,17 @@ cd _rel/emqx && ./bin/emqx console
 
 *EMQ X* 启动，可以使用浏览器访问 http://localhost:18083 来查看 Dashboard。
 
+### 静态分析(Dialyzer)
+##### 分析所有应用程序
+```
+make dialyzer
+```
+
+##### 要分析特定的应用程序，（用逗号分隔的应用程序列表）
+```
+DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
+```
+
 ## FAQ
 
 访问 [EMQ X FAQ](https://docs.emqx.io/broker/latest/cn/faq/faq.html) 以获取常见问题的帮助。

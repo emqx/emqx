@@ -4,7 +4,7 @@ on: [pull_request]
 
 jobs:
   run_gitlint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - name: Checkout source code
         uses: actions/checkout@master

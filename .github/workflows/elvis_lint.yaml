@@ -4,8 +4,8 @@ on: [pull_request]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v1
       - run: |
-          ./elvis-check.sh $GITHUB_BASE_REF
+          ./scripts/elvis-check.sh $GITHUB_BASE_REF
