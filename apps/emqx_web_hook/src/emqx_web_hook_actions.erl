@@ -34,8 +34,24 @@
                 description => #{en => <<"The URL of the server that will receive the Webhook requests.">>,
                                 zh => <<"用于接收 Webhook 请求的服务器的 URL。"/utf8>>}
             },
-            cacertfile => #{
+            connect_timeout => #{
                 order => 2,
+                type => number,
+                default => 5,
+                title => #{en => <<"Connect Timeout">>,
+                           zh => <<"连接超时时间"/utf8>>},
+                description => #{en => <<"Connect Timeout In Seconds">>,
+                                 zh => <<"连接超时时间，单位秒"/utf8>>}},
+            request_timeout => #{
+                order => 3,
+                type => number,
+                default => 5,
+                title => #{en => <<"Request Timeout">>,
+                           zh => <<"请求超时时间时间"/utf8>>},
+                description => #{en => <<"Request Timeout In Seconds">>,
+                                 zh => <<"请求超时时间，单位秒"/utf8>>}},
+            cacertfile => #{
+                order => 4,
                 type => file,
                 default => <<>>,
                 title => #{en => <<"CA Certificate File">>,
@@ -44,7 +60,7 @@
                                  zh => <<"CA 证书文件。"/utf8>>}
             },
             certfile => #{
-                order => 3,
+                order => 5,
                 type => file,
                 default => <<>>,
                 title => #{en => <<"Certificate File">>,
@@ -53,7 +69,7 @@
                                  zh => <<"证书文件。"/utf8>>}
             },
             keyfile => #{
-                order => 4,
+                order => 6,
                 type => file,
                 default => <<>>,
                 title => #{en => <<"Private Key File">>,
@@ -62,7 +78,7 @@
                                  zh => <<"私钥文件。"/utf8>>}
             },
             verify => #{
-                order => 5,
+                order => 7,
                 type => boolean,
                 default => true,
                 title => #{en => <<"Verify">>,
@@ -71,7 +87,7 @@
                                  zh => <<"是否开启对端证书验证。"/utf8>>}
             },
             pool_size => #{
-                order => 6,
+                order => 8,
                 type => number,
                 default => 8,
                 title => #{en => <<"Pool Size">>,
@@ -226,7 +242,8 @@ on_action_create_data_to_webserver(Id, Params) ->
       path := Path,
       headers := Headers,
       body := Body,
-      pool := Pool} = parse_action_params(Params),
+      pool := Pool,
+      request_timeout := RequestTimeout} = parse_action_params(Params),
     BodyTokens = emqx_rule_utils:preproc_tmpl(Body),
     PathTokens = emqx_rule_utils:preproc_tmpl(Path),
     Params.
@@ -238,17 +255,22 @@ on_action_data_to_webserver(Selected, _Envs =
                                 'Headers' := Headers,
                                 'PathTokens' := PathTokens,
                                 'BodyTokens' := BodyTokens,
-                                'Pool' := Pool},
+                                'Pool' := Pool,
+                                'RequestTimeout' := RequestTimeout},
                               clientid := ClientID}) ->
     NBody = format_msg(BodyTokens, Selected),
     NPath = emqx_rule_utils:proc_tmpl(PathTokens, Selected),
     Req = create_req(Method, NPath, Headers, NBody),
-    case ehttpc:request(ehttpc_pool:pick_worker(Pool, ClientID), Method, Req) of
-        {ok, _, _} ->
-            emqx_rule_metrics:inc_actions_success(Id),
+    case ehttpc:request(ehttpc_pool:pick_worker(Pool, ClientID), Method, Req, RequestTimeout) of
+        {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
             ok;
-        {ok, _, _, _} ->
-            emqx_rule_metrics:inc_actions_success(Id),
+        {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+            ok;
+        {ok, StatusCode, _} ->
+            ?LOG(warning, "[WebHook Action] HTTP request failed with status code: ~p", [StatusCode]),
+            ok;
+        {ok, StatusCode, _, _} ->
+            ?LOG(warning, "[WebHook Action] HTTP request failed with status code: ~p", [StatusCode]),
             ok;
         {error, Reason} ->
             ?LOG(error, "[WebHook Action] HTTP request error: ~p", [Reason]),
@@ -277,6 +299,7 @@ parse_action_params(Params = #{<<"url">> := URL}) ->
           path => path(filename:join(CommonPath, maps:get(<<"path">>, Params, <<>>))),
           headers => headers(maps:get(<<"headers">>, Params, undefined)),
           body => maps:get(<<"body">>, Params, <<>>),
+          request_timeout => timer:seconds(maps:get(<<"request_timeout">>, Params, 5)),
           pool => maps:get(<<"pool">>, Params)}
     catch _:_ ->
         throw({invalid_params, Params})
@@ -306,7 +329,8 @@ pool_opts(Params = #{<<"url">> := URL}) ->
       port := Port,
       scheme := Scheme} = uri_string:parse(URL),
     Host = get_addr(binary_to_list(Host0)),
-    PoolSize = maps:get(<<"pool_size">>, Params, 8),
+    PoolSize = maps:get(<<"pool_size">>, Params, 32),
+    ConnectTimeout = timer:seconds(maps:get(<<"connect_timeout">>, Params, 5)),
     IPv6 = case tuple_size(Host) =:= 8 of
                true -> [inet6];
                false -> []
@@ -339,7 +363,7 @@ pool_opts(Params = #{<<"url">> := URL}) ->
      {port, Port},
      {pool_size, PoolSize},
      {pool_type, hash},
-     {connect_timeout, 5000},
+     {connect_timeout, ConnectTimeout},
      {retry, 5},
      {retry_timeout, 1000}] ++ MoreOpts.
 

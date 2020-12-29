@@ -327,10 +327,19 @@ send_http_request(ClientID, Params) ->
     Body = emqx_json:encode(Params),
     ?LOG(debug, "Send to: ~0p, params: ~0s", [Path, Body]),
     case ehttpc:request(ehttpc_pool:pick_worker(?APP, ClientID), post, {Path, Headers, Body}) of
-        {ok, _, _} -> ok;
-        {ok, _, _, _} -> ok;
+        {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+            ok;
+        {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+            ok;
+        {ok, StatusCode, _} ->
+            ?LOG(warning, "HTTP request failed with status code: ~p", [StatusCode]),
+            ok;
+        {ok, StatusCode, _, _} ->
+            ?LOG(warning, "HTTP request failed with status code: ~p", [StatusCode]),
+            ok;
         {error, Reason} ->
-            ?LOG(error, "HTTP request error: ~p", [Reason]), ok
+            ?LOG(error, "HTTP request error: ~p", [Reason]),
+            ok
     end.
 
 parse_rule(Rules) ->

@@ -712,7 +712,9 @@ import_resources_and_rules(Resources, Rules, FromVersion)
                                                   <<"headers">> := Headers,
                                                   <<"method">> := Method,
                                                   <<"url">> := URL}} = Resource, Acc) ->
-                              NConfig = #{<<"cacertfile">> => <<>>,
+                              NConfig = #{<<"connect_timeout">> => 5,
+                                          <<"request_timeout">> => 5,
+                                          <<"cacertfile">> => <<>>,
                                           <<"certfile">> => <<>>,
                                           <<"keyfile">> => <<>>,
                                           <<"pool_size">> => 8,

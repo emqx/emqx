@@ -32,7 +32,7 @@
 ]}.
 
 {mapping, "web.hook.pool_size", "emqx_web_hook.pool_size", [
-  {default, 8},
+  {default, 32},
   {datatype, integer}
 ]}.
 
