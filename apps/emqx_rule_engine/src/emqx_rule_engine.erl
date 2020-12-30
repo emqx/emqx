@@ -483,16 +483,14 @@ cluster_call(Func, Args) ->
    end.
 
 init_resource(Module, OnCreate, ResId, Config) ->
-    try
-        Params = Module:OnCreate(ResId, Config),
-        ResParams = #resource_params{id = ResId,
-                                     params = Params,
-                                     status = #{is_alive => true}},
-        emqx_rule_registry:add_resource_params(ResParams)
-    catch _ : Reason ->
-        start_reinitial_loop(ResId),
-        {error, Reason}
-    end.
+    Params = ?RAISE(Module:OnCreate(ResId, Config),
+                    start_reinitial_loop(ResId),
+                    {{init_resource_failure, node()},
+                     {{Module, OnCreate}, {_REASON_, _ST_}}}),
+    ResParams = #resource_params{id = ResId,
+                                 params = Params,
+                                 status = #{is_alive => true}},
+    emqx_rule_registry:add_resource_params(ResParams).
 
 init_action(Module, OnCreate, ActionInstId, Params) ->
     ok = emqx_rule_metrics:create_metrics(ActionInstId),
@@ -617,14 +615,8 @@ alarm_name_of_resource_down(Type, ResId) ->
     list_to_binary(io_lib:format("resource/~s/~s/down", [Type, ResId])).
 
 start_reinitial_loop(Id) ->
-    _Pid = spawn(fun() -> resource_check(Id) end).
-
-resource_check(Id) ->
-    timer:sleep(60000),
-    case emqx_rule_registry:find_resource_params(Id) of
-        not_found ->
-                ?LOG(warning, "try to re-initialize resource: ~p", [Id]),
-                start_resource(Id);
-        _ ->
-           []
-    end.
+    spawn(fun() ->
+             timer:sleep(60000),
+             ?LOG(warning, "try to re-initialize resource: ~p", [Id]),
+             start_resource(Id)
+          end).
