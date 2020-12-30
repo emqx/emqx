@@ -107,7 +107,10 @@ jobs:
 
     strategy:
       matrix:
-        os: 
+        emqx:
+        - emqx
+        - emqx-edge
+        os:
         - ubuntu20.04
         - ubuntu18.04
         - ubuntu16.04
@@ -119,6 +122,11 @@ jobs:
         - centos6
         - raspbian10
         - raspbian9
+        exclude:
+        - emqx: emqx
+          os: raspbian9
+        - emqx: emqx
+          os: raspbian10
 
     steps:
     - name: prepare docker
@@ -173,55 +181,48 @@ jobs:
     - name: build emqx packages on amd64
       env: 
         ERL_OTP: erl22.3
+        EMQX: ${{ matrix.emqx }}
         SYSTEM: ${{ matrix.os }}
-      if: matrix.os != 'raspbian9' && matrix.os != 'raspbian10'
       run: |
         set -e -u -x
-        for EMQX in emqx emqx-edge; do
-          docker buildx build --no-cache \
-            --platform=linux/amd64 \
-            -t cross_build_emqx_for_$SYSTEM \
-            -f .ci/build_packages/Dockerfile \
-            --build-arg BUILD_FROM=emqx/build-env:$ERL_OTP-$SYSTEM \
-            --build-arg EMQX_NAME=${EMQX} \
-            --output type=tar,dest=/tmp/cross-build-$EMQX-for-$SYSTEM.tar .
+        docker buildx build --no-cache \
+          --platform=linux/amd64 \
+          -t cross_build_emqx_for_$SYSTEM \
+          -f .ci/build_packages/Dockerfile \
+          --build-arg BUILD_FROM=emqx/build-env:$ERL_OTP-$SYSTEM \
+          --build-arg EMQX_NAME=$EMQX \
+          --output type=tar,dest=/tmp/cross-build-$EMQX-for-$SYSTEM.tar .
 
-          mkdir -p /tmp/packages/$EMQX
-          tar -xvf /tmp/cross-build-$EMQX-for-$SYSTEM.tar --wildcards emqx/_packages/$EMQX/*
-          mv emqx/_packages/$EMQX/* /tmp/packages/$EMQX/
-          rm -rf /tmp/cross-build-$EMQX-for-$SYSTEM.tar
+        mkdir -p /tmp/packages/$EMQX
+        tar -xvf /tmp/cross-build-$EMQX-for-$SYSTEM.tar --wildcards emqx/_packages/$EMQX/*
+        mv emqx/_packages/$EMQX/* /tmp/packages/$EMQX/
+        rm -rf /tmp/cross-build-$EMQX-for-$SYSTEM.tar
 
-          docker rm -f $(docker ps -a -q)
-          docker volume prune -f
-        done
+        docker rm -f $(docker ps -a -q)
+        docker volume prune -f
     - name: build emqx packages on arm64
       if: matrix.os != 'centos6' && startsWith(github.ref, 'refs/tags/')
       env:
         ERL_OTP: erl22.3
+        EMQX: ${{ matrix.emqx }}
         SYSTEM: ${{ matrix.os }}
       run: |
         set -e -u -x
-        for EMQX in emqx emqx-edge; do
-          if [ "$EMQX" == "emqx" ] && [ ! -z $( echo $SYSTEM | grep -o raspbian) ];then
-            continue
-          fi
+        docker buildx build --no-cache \
+          --platform=linux/arm64 \
+          -t cross_build_emqx_for_$SYSTEM \
+          -f .ci/build_packages/Dockerfile \
+          --build-arg BUILD_FROM=emqx/build-env:$ERL_OTP-$SYSTEM \
+          --build-arg EMQX_NAME=$EMQX \
+          --output type=tar,dest=/tmp/cross-build-$EMQX-for-$SYSTEM.tar . || df -h
 
-          docker buildx build --no-cache \
-            --platform=linux/arm64 \
-            -t cross_build_emqx_for_$SYSTEM \
-            -f .ci/build_packages/Dockerfile \
-            --build-arg BUILD_FROM=emqx/build-env:$ERL_OTP-$SYSTEM \
-            --build-arg EMQX_NAME=${EMQX} \
-            --output type=tar,dest=/tmp/cross-build-$EMQX-for-$SYSTEM.tar . || df -h
+        mkdir -p /tmp/packages/$EMQX
+        tar -xvf /tmp/cross-build-$EMQX-for-$SYSTEM.tar --wildcards emqx/_packages/$EMQX/*
+        mv emqx/_packages/$EMQX/* /tmp/packages/$EMQX/
+        rm -rf /tmp/cross-build-$EMQX-for-$SYSTEM.tar
 
-          mkdir -p /tmp/packages/$EMQX
-          tar -xvf /tmp/cross-build-$EMQX-for-$SYSTEM.tar --wildcards emqx/_packages/$EMQX/*
-          mv emqx/_packages/$EMQX/* /tmp/packages/$EMQX/
-          rm -rf /tmp/cross-build-$EMQX-for-$SYSTEM.tar
-
-          docker rm -f $(docker ps -a -q)
-          docker volume prune -f
-        done
+        docker rm -f $(docker ps -a -q)
+        docker volume prune -f
     - name: create sha256
       run: |
         if [ -d /tmp/packages/emqx ]; then
