@@ -246,7 +246,7 @@ pick(Strategy, ClientId, Group, Topic, FailedSubs) ->
 do_pick(Strategy, ClientId, Group, Topic, FailedSubs) ->
     All = subscribers(Group, Topic),
     case All -- FailedSubs of
-        [] when FailedSubs =:= [] ->
+        [] when All =:= [] ->
             %% Genuinely no subscriber
             false;
         [] ->
