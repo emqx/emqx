@@ -64,6 +64,7 @@ jobs:
         ./_build/emqx/rel/emqx/bin/emqx install
         ./_build/emqx/rel/emqx/bin/emqx uninstall
     - uses: actions/upload-artifact@v1
+      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: emqx
         path: ./_packages/emqx/.
@@ -96,6 +97,7 @@ jobs:
         rm -rf emqx
         openssl dgst -sha256 ./_packages/emqx/$pkg_name | awk '{print $2}'  > ./_packages/emqx/$pkg_name.sha256
     - uses: actions/upload-artifact@v1
+      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: emqx
         path: ./_packages/emqx/.
@@ -193,7 +195,7 @@ jobs:
           docker volume prune -f
         done
     - name: build emqx packages on arm64
-      if: matrix.os != 'centos6'
+      if: matrix.os != 'centos6' && startsWith(github.ref, 'refs/tags/')
       env:
         ERL_OTP: erl22.3
         SYSTEM: ${{ matrix.os }}
@@ -237,11 +239,12 @@ jobs:
           cd -
         fi
     - uses: actions/upload-artifact@v1
-      if: matrix.os != 'raspbian9' && matrix.os != 'raspbian10'
+      if: startsWith(github.ref, 'refs/tags/') && matrix.os != 'raspbian9' && matrix.os != 'raspbian10'
       with:
         name: emqx
         path: /tmp/packages/emqx/.
     - uses: actions/upload-artifact@v1
+      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: emqx-edge
         path: /tmp/packages/emqx-edge/.
@@ -282,10 +285,12 @@ jobs:
         sudo TARGET=emqx/emqx-edge ARCH=$ARCH QEMU_ARCH=$QEMU_ARCH  make docker
         cd _packages/emqx-edge && for var in $(ls emqx-edge-docker-* ); do sudo bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"; done && cd -
     - uses: actions/upload-artifact@v1
+      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: emqx
         path: ./_packages/emqx/.
     - uses: actions/upload-artifact@v1
+      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: emqx-edge
         path: ./_packages/emqx-edge/.
@@ -295,6 +300,7 @@ jobs:
 
     needs: [windows, mac, linux, docker]
 
+    if: startsWith(github.ref, 'refs/tags/')
 
     steps:
     - uses: actions/download-artifact@v2
@@ -319,7 +325,6 @@ jobs:
           cd -
         done
     - name: upload aws s3
-      if: contains(github.ref, 'refs/tags/')
       run: |
         set -e -x -u
         version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
