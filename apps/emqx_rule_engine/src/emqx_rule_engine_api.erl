@@ -337,8 +337,11 @@ update_resource(#{id := Id}, Params) ->
     end.
 
 delete_resource(#{id := Id}, _Params) ->
-    ok = emqx_rule_engine:ensure_resource_deleted(Id),
-    return(ok).
+    case emqx_rule_engine:delete_resource(Id) of
+        ok -> return(ok);
+        {error, Reason} ->
+            return({error, 400, ?ERR_BADARGS(Reason)})
+    end.
 
 %%------------------------------------------------------------------------------
 %% Resource Types API

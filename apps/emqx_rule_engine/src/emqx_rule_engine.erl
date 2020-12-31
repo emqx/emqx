@@ -39,7 +39,6 @@
         , get_resource_status/1
         , get_resource_params/1
         , delete_resource/1
-        , ensure_resource_deleted/1
         , update_resource/1
         ]).
 
@@ -322,17 +321,15 @@ delete_resource(ResId) ->
         {ok, #resource{type = ResType}} ->
             {ok, #resource_type{on_destroy = {ModD,Destroy}}}
                 = emqx_rule_registry:find_resource_type(ResType),
-            ok = emqx_rule_registry:remove_resource(ResId),
-            cluster_call(clear_resource, [ModD, Destroy, ResId]);
+            try
+                ok = emqx_rule_registry:remove_resource(ResId),
+                cluster_call(clear_resource, [ModD, Destroy, ResId])
+            catch
+                throw:Reason -> {error, Reason}
+            end;
         not_found ->
-            {error, {resource_not_found, ResId}}
+            ok
     end.
-
-%% @doc Ensure resource deleted. `resource_not_found` error is discarded.
--spec(ensure_resource_deleted(resource_id()) -> ok).
-ensure_resource_deleted(ResId) ->
-    _ = delete_resource(ResId),
-    ok.
 
 %%------------------------------------------------------------------------------
 %% Re-establish resources

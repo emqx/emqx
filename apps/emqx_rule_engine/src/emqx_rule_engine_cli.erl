@@ -100,27 +100,21 @@ rules(["show", RuleId]) ->
 
 rules(["create" | Params]) ->
     with_opts(fun({Opts, _}) ->
-                try emqx_rule_engine:create_rule(make_rule(Opts)) of
+                case emqx_rule_engine:create_rule(make_rule(Opts)) of
                     {ok, #rule{id = RuleId}} ->
                         emqx_ctl:print("Rule ~s created~n", [RuleId]);
                     {error, Reason} ->
                         emqx_ctl:print("Invalid options: ~0p~n", [Reason])
-                catch
-                    throw:Error ->
-                        emqx_ctl:print("Invalid options: ~0p~n", [Error])
                 end
               end, Params, ?OPTSPEC_RULES_CREATE, {?FUNCTION_NAME, create});
 
 rules(["update" | Params]) ->
     with_opts(fun({Opts, _}) ->
-                try emqx_rule_engine:update_rule(make_updated_rule(Opts)) of
+                case emqx_rule_engine:update_rule(make_updated_rule(Opts)) of
                     {ok, #rule{id = RuleId}} ->
                         emqx_ctl:print("Rule ~s updated~n", [RuleId]);
                     {error, Reason} ->
                         emqx_ctl:print("Invalid options: ~0p~n", [Reason])
-                catch
-                    throw:Error ->
-                        emqx_ctl:print("Invalid options: ~0p~n", [Error])
                 end
               end, Params, ?OPTSPEC_RULES_UPDATE, {?FUNCTION_NAME, update});
 
@@ -128,7 +122,7 @@ rules(["delete", RuleId]) ->
     ok = emqx_rule_engine:delete_rule(list_to_binary(RuleId)),
     emqx_ctl:print("ok~n");
 
-rules(_usage) ->
+rules(_Usage) ->
     emqx_ctl:usage([{"rules list",          "List all rules"},
                     {"rules show <RuleId>", "Show a rule"},
                     {"rules create", "Create a rule"},
@@ -143,9 +137,10 @@ actions(["list"]) ->
     print_all(get_actions());
 
 actions(["show", ActionId]) ->
-    print_with(fun emqx_rule_registry:find_action/1, ?RAISE(list_to_existing_atom(ActionId), {not_found, ActionId}));
+    print_with(fun emqx_rule_registry:find_action/1,
+        ?RAISE(list_to_existing_atom(ActionId), {not_found, ActionId}));
 
-actions(_usage) ->
+actions(_Usage) ->
     emqx_ctl:usage([{"rule-actions list",            "List actions"},
                     {"rule-actions show <ActionId>", "Show a rule action"}
                     ]).
@@ -155,26 +150,20 @@ actions(_usage) ->
 %%------------------------------------------------------------------------------
 resources(["create" | Params]) ->
     with_opts(fun({Opts, _}) ->
-                try emqx_rule_engine:create_resource(make_resource(Opts)) of
+                case emqx_rule_engine:create_resource(make_resource(Opts)) of
                     {ok, #resource{id = ResId}} ->
                         emqx_ctl:print("Resource ~s created~n", [ResId]);
                     {error, Reason} ->
-                        emqx_ctl:print("Invalid options: ~0p~n", [Reason])
-                catch
-                    throw:Reason ->
                         emqx_ctl:print("Invalid options: ~0p~n", [Reason])
                 end
               end, Params, ?OPTSPEC_RESOURCES_CREATE, {?FUNCTION_NAME, create});
 
 resources(["test" | Params]) ->
     with_opts(fun({Opts, _}) ->
-                try emqx_rule_engine:test_resource(make_resource(Opts)) of
+                case emqx_rule_engine:test_resource(make_resource(Opts)) of
                     ok ->
                         emqx_ctl:print("Test creating resource successfully (dry-run)~n");
                     {error, Reason} ->
-                        emqx_ctl:print("Test creating resource failed: ~0p~n", [Reason])
-                catch
-                    throw:Reason ->
                         emqx_ctl:print("Test creating resource failed: ~0p~n", [Reason])
                 end
               end, Params, ?OPTSPEC_RESOURCES_CREATE, {?FUNCTION_NAME, test});
@@ -192,15 +181,13 @@ resources(["show", ResourceId]) ->
     print_with(fun emqx_rule_registry:find_resource/1, list_to_binary(ResourceId));
 
 resources(["delete", ResourceId]) ->
-    try
-        ok = emqx_rule_engine:delete_resource(list_to_binary(ResourceId)),
-        emqx_ctl:print("ok~n")
-    catch
-        _Error:Reason ->
+    case emqx_rule_engine:delete_resource(list_to_binary(ResourceId)) of
+        ok -> emqx_ctl:print("ok~n");
+        {error, Reason} ->
             emqx_ctl:print("Cannot delete resource as ~0p~n", [Reason])
     end;
 
-resources(_usage) ->
+resources(_Usage) ->
     emqx_ctl:usage([{"resources create", "Create a resource"},
                     {"resources list [-t <ResourceType>]", "List resources"},
                     {"resources show <ResourceId>", "Show a resource"},
@@ -216,7 +203,7 @@ resource_types(["list"]) ->
 resource_types(["show", Name]) ->
     print_with(fun emqx_rule_registry:find_resource_type/1, list_to_atom(Name));
 
-resource_types(_usage) ->
+resource_types(_Usage) ->
     emqx_ctl:usage([{"resource-types list", "List all resource-types"},
                     {"resource-types show <Type>", "Show a resource-type"}
                    ]).
@@ -365,4 +352,4 @@ rmlf(Str) ->
     re:replace(Str, "\n", "", [global]).
 
 untilde(Str) ->
-    re:replace(Str,"~","&&",[{return,list}, global]).
+    re:replace(Str, "~", "&&", [{return, list}, global]).
