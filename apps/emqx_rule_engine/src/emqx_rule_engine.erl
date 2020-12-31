@@ -244,6 +244,24 @@ create_resource(#{type := Type, config := Config0} = Params) ->
             {error, {resource_type_not_found, Type}}
     end.
 
+update_resource(#{id := Id, type := Type, config := NewConfig, description := Description}
+                                               = NewResource) ->
+    case emqx_rule_registry:find_resource_type(Type) of
+        {ok, #resource_type{on_create = {Module, Create},
+                            params_spec = ParamSpec}} ->
+            Config = emqx_rule_validator:validate_params(NewConfig, ParamSpec),
+            delete_resource(Id),
+            emqx_rule_registry:add_resource(#resource{id = Id,
+                                                      config = Config,
+                                                      type = Type,
+                                                      description = Description,
+                                                      created_at = erlang:system_time(millisecond)}),
+            catch cluster_call(init_resource, [Module, Create, Id, Config]),
+            {ok, NewResource};
+        not_found ->
+            {error, {resource_type_not_found, Type}}
+    end.
+
 -spec(start_resource(resource_id()) -> ok | {error, Reason :: term()}).
 start_resource(ResId) ->
     case emqx_rule_registry:find_resource(ResId) of
@@ -312,18 +330,6 @@ delete_resource(ResId) ->
         not_found ->
             ok
     end.
-
-update_resource(#{id := Id,
-                  config := Config,
-                  type := Type,
-                  description := Description,
-                  created_at := CreatedAt} = NewResource) ->
-    ok = refresh_resource(#resource{id = Id,
-                                    config = Config,
-                                    type = Type,
-                                    description = Description,
-                                    created_at = CreatedAt}),
-    create_resource(NewResource).
 
 %%------------------------------------------------------------------------------
 %% Re-establish resources
