@@ -183,6 +183,7 @@ resources(["show", ResourceId]) ->
 resources(["delete", ResourceId]) ->
     case emqx_rule_engine:delete_resource(list_to_binary(ResourceId)) of
         ok -> emqx_ctl:print("ok~n");
+        {error, not_found} -> emqx_ctl:print("ok~n");
         {error, Reason} ->
             emqx_ctl:print("Cannot delete resource as ~0p~n", [Reason])
     end;
