@@ -173,8 +173,8 @@ safe_execute(Fun, Args) ->
     try execute(Fun, Args) of
         Result -> Result
     catch
-        _:Reason:Stacktrace ->
-            ?LOG(error, "Failed to execute ~0p: ~0p", [Fun, {Reason, Stacktrace}]),
+        Error:Reason:Stacktrace ->
+            ?LOG(error, "Failed to execute ~0p: ~0p", [Fun, {Error, Reason, Stacktrace}]),
             ok
     end.
 
