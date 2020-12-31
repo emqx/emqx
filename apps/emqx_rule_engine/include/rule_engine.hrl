@@ -150,7 +150,8 @@
 -define(RAISE(_EXP_, _EXP_ON_FAIL_, _ERROR_),
         fun() ->
             try (_EXP_)
-            catch _EXCLASS_:_REASON_:_ST_ ->
+            catch _EXCLASS_:_EXCPTION_:_ST_ ->
+                _REASON_ = {_EXCLASS_, _EXCPTION_},
                 _EXP_ON_FAIL_,
                 throw(_ERROR_)
             end
