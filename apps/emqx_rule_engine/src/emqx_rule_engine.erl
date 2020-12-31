@@ -616,7 +616,11 @@ alarm_name_of_resource_down(Type, ResId) ->
 
 start_reinitial_loop(Id) ->
     spawn(fun() ->
-             timer:sleep(60000),
-             ?LOG(warning, "try to re-initialize resource: ~p", [Id]),
-             start_resource(Id)
-          end).
+        timer:sleep(60000),
+        case emqx_rule_registry:find_resource(Id) of
+           {ok, _}->
+                ?LOG(warning, "try to re-initialize resource: ~p", [Id]),
+                start_resource(Id);
+           not_found -> ok
+        end
+    end).
