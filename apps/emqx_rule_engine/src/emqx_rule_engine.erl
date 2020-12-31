@@ -489,7 +489,7 @@ init_resource(Module, OnCreate, ResId, Config) ->
     Params = ?RAISE(Module:OnCreate(ResId, Config),
                     start_reinitial_loop(ResId),
                     {{init_resource_failure, node()},
-                     {{Module, OnCreate}, {_REASON_, _ST_}}}),
+                     {{Module, OnCreate}, {_EXCLASS_,_EXCPTION_, _ST_}}}),
     ResParams = #resource_params{id = ResId,
                                  params = Params,
                                  status = #{is_alive => true}},
@@ -497,7 +497,7 @@ init_resource(Module, OnCreate, ResId, Config) ->
 
 init_action(Module, OnCreate, ActionInstId, Params) ->
     ok = emqx_rule_metrics:create_metrics(ActionInstId),
-    case ?RAISE(Module:OnCreate(ActionInstId, Params), {{init_action_failure, node()}, {{Module,OnCreate},{_REASON_,_ST_}}}) of
+    case ?RAISE(Module:OnCreate(ActionInstId, Params), {{init_action_failure, node()}, {{Module,OnCreate},{_EXCLASS_,_EXCPTION_,_ST_}}}) of
         {Apply, NewParams} when is_function(Apply) -> %% BACKW: =< e4.2.2
             ok = emqx_rule_registry:add_action_instance_params(
                 #action_instance_params{id = ActionInstId, params = NewParams, apply = Apply});
@@ -517,7 +517,7 @@ clear_resource(Module, Destroy, ResId) ->
     case emqx_rule_registry:find_resource_params(ResId) of
         {ok, #resource_params{params = Params}} ->
             ?RAISE(Module:Destroy(ResId, Params),
-                   {{destroy_resource_failure, node()}, {{Module, Destroy}, {_REASON_,_ST_}}}),
+                   {{destroy_resource_failure, node()}, {{Module, Destroy}, {_EXCLASS_,_EXCPTION_,_ST_}}}),
             ok = emqx_rule_registry:remove_resource_params(ResId);
         not_found ->
             ok
@@ -546,7 +546,7 @@ clear_action(Module, Destroy, ActionInstId) ->
             case emqx_rule_registry:get_action_instance_params(ActionInstId) of
                 {ok, #action_instance_params{params = Params}} ->
                     ?RAISE(Module:Destroy(ActionInstId, Params),{{destroy_action_failure, node()},
-                                                {{Module, Destroy}, {_REASON_,_ST_}}}),
+                                                {{Module, Destroy}, {_EXCLASS_,_EXCPTION_,_ST_}}}),
                     ok = emqx_rule_registry:remove_action_instance_params(ActionInstId);
                 not_found ->
                     ok

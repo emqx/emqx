@@ -1908,7 +1908,7 @@ t_sqlparse_array_range_1(_Config) ->
     Sql02 = "select "
            "  payload.a[1..4] as c "
            "from \"t/#\" ",
-    ?assertThrow({select_and_transform_error,{{range_get,non_list_data},_}},
+    ?assertThrow({select_and_transform_error, {error,{range_get,non_list_data},_}},
         emqx_rule_sqltester:test(
             #{<<"rawsql">> => Sql02,
                 <<"ctx">> =>
