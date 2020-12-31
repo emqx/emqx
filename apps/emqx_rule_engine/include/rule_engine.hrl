@@ -140,30 +140,16 @@
 -define(is_logical(Op), (Op =:= 'and' orelse Op =:= 'or')).
 
 -define(RAISE(_EXP_, _ERROR_),
-        fun() ->
-            try (_EXP_)
-            catch _EXCLASS_:_REASON_:_ST_ ->
-                throw(_ERROR_)
-            end
-        end()).
+        ?RAISE(_EXP_, _ = do_nothing, _ERROR_)).
 
 -define(RAISE(_EXP_, _EXP_ON_FAIL_, _ERROR_),
         fun() ->
             try (_EXP_)
             catch _EXCLASS_:_EXCPTION_:_ST_ ->
-                _REASON_ = {_EXCLASS_, _EXCPTION_},
                 _EXP_ON_FAIL_,
                 throw(_ERROR_)
             end
         end()).
-
--define(THROW(_EXP_, _ERROR_),
-        begin
-            try (_EXP_)
-            catch _:_ ->
-                throw(_ERROR_)
-            end
-        end).
 
 %% Tables
 -define(RULE_TAB, emqx_rule).
