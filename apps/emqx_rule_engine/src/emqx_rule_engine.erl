@@ -250,7 +250,7 @@ update_resource(#{id := Id, type := Type, config := NewConfig, description := De
         {ok, #resource_type{on_create = {Module, Create},
                             params_spec = ParamSpec}} ->
             Config = emqx_rule_validator:validate_params(NewConfig, ParamSpec),
-            delete_resource(Id),
+            _ = delete_resource(Id),
             emqx_rule_registry:add_resource(#resource{id = Id,
                                                       config = Config,
                                                       type = Type,
