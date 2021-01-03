@@ -196,4 +196,4 @@ do_unloadall(Scripts) ->
     ok.
 
 do_unload(Script) ->
-    emqx_lua_script:unregister_hooks(Script).
+    emqx_lua_script:unregister_hooks(Script), ok.
