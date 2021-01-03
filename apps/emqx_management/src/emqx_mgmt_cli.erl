@@ -420,7 +420,7 @@ log(["primary-level", Level]) ->
     emqx_ctl:print("~s~n", [emqx_logger:get_primary_log_level()]);
 
 log(["handlers", "list"]) ->
-    [emqx_ctl:print("LogHandler(id=~s, level=~s, destination=~s, status=~s)~n", [Id, Level, Dst, Status])
+    _ = [emqx_ctl:print("LogHandler(id=~s, level=~s, destination=~s, status=~s)~n", [Id, Level, Dst, Status])
         || #{id := Id, level := Level, dst := Dst, status := Status} <- emqx_logger:get_log_handlers()],
     ok;
 
