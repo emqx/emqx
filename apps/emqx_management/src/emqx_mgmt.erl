@@ -421,9 +421,9 @@ lookup_subscriptions(Node, ClientId) ->
 %%--------------------------------------------------------------------
 
 list_routes() ->
-    case check_row_limit(emqx_route) of
+    case check_row_limit([emqx_route]) of
         false -> throw(max_row_limit);
-        ok    -> lists:append([ets:tab2list(Tab) || Tab <- emqx_route])
+        ok    -> ets:tab2list(emqx_route)
     end.
 
 lookup_routes(Topic) ->
