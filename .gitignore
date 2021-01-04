@@ -41,3 +41,5 @@ tmp/
 _packages
 elvis
 emqx_dialyzer_*_plt
+apps/emqx_dashboard/priv/www
+dist.zip
