@@ -334,7 +334,7 @@ update_resource(#{id := Id}, Params) ->
                 {ok, #resource{id = Id, type = Type} = _OldResource} ->
                     Config = maps:get(config, ParsedParams),
                     Description = maps:get(description, ParsedParams),
-                    emqx_rule_engine:update_resource(
+                    _ = emqx_rule_engine:update_resource(
                         #{id => Id,
                         config => Config,
                         type => Type,
