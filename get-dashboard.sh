@@ -1,0 +1,27 @@
+#!/bin/sh
+
+#set -euo pipefail
+set -eu
+
+VERSION="$1"
+
+# ensure dir
+cd -P -- "$(dirname -- "$0")"
+
+DOWNLOAD_URL='https://github.com/emqx/emqx-dashboard-frontend/releases/download'
+
+DASHBOARD_PATH='apps/emqx_dashboard/priv'
+
+version() {
+    grep -oE 'github_ref: (.*)' "$DASHBOARD_PATH/www/version" |  sed -r 's|github_ref: refs/tags/(.*)|\1|g'
+}
+
+if [ -d "$DASHBOARD_PATH/www" ] && [ "$(version)" = "$VERSION" ]; then
+    exit 0
+fi
+
+curl -f -L "${DOWNLOAD_URL}/${VERSION}/dist.zip" -o ./dist.zip
+unzip -q ./dist.zip -d "$DASHBOARD_PATH"
+rm -rf "$DASHBOARD_PATH/www"
+mv "$DASHBOARD_PATH/dist" "$DASHBOARD_PATH/www"
+rm -rf dist.zip

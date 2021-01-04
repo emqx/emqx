@@ -1,4 +1,5 @@
 REBAR_VERSION = 3.14.3-emqx-4
+DASHBOARD_VERSION = v4.3.0
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
@@ -22,6 +23,10 @@ ensure-rebar3:
 
 $(REBAR): ensure-rebar3
 
+.PHONY: get-dashboard
+get-dashboard:
+	$(CURDIR)/get-dashboard.sh $(DASHBOARD_VERSION)
+
 .PHONY: eunit
 eunit: $(REBAR)
 	$(REBAR) eunit
@@ -35,7 +40,7 @@ cover: $(REBAR)
 	$(REBAR) cover
 
 .PHONY: $(REL_PROFILES)
-$(REL_PROFILES:%=%): $(REBAR)
+$(REL_PROFILES:%=%): $(REBAR) get-dashboard
 ifneq ($(shell echo $(@) |grep edge),)
 	export EMQX_DESC="EMQ X Edge"
 else
@@ -48,12 +53,13 @@ endif
 clean: $(PROFILES:%=clean-%)
 $(PROFILES:%=clean-%): $(REBAR)
 	$(REBAR) as $(@:clean-%=%) clean
+	rm -rf apps/emqx_dashboard/priv/www
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%)
 
 .PHONY: $(PROFILES:%=deps-%)
-$(PROFILES:%=deps-%): $(REBAR)
+$(PROFILES:%=deps-%): $(REBAR) get-dashboard
 ifneq ($(shell echo $(@) |grep edge),)
 	export EMQX_DESC="EMQ X Edge"
 else
@@ -76,7 +82,7 @@ ifneq ($(OS),Windows_NT)
 endif
 
 .PHONY: $(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar)
-$(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar): $(REBAR)
+$(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar): $(REBAR) get-dashboard
 	$(BUILD) $(subst -tar,,$(@)) tar
 
 ## zip targets depend on the corresponding relup and tar artifacts
