@@ -85,7 +85,7 @@ add_app(AppId, Name) when is_binary(AppId) ->
 add_app(AppId, Name, Desc, Status, Expired) when is_binary(AppId) ->
     add_app(AppId, Name, undefined, Desc, Status, Expired).
 
--spec(add_app(appid(), binary(), binary(), binary(), boolean(), integer() | undefined)
+-spec(add_app(appid(), binary(), binary() | undefined, binary(), boolean(), integer() | undefined)
       -> {ok, appsecret()}
        | {error, term()}).
 add_app(AppId, Name, Secret, Desc, Status, Expired) when is_binary(AppId) ->
@@ -99,11 +99,11 @@ add_app(AppId, Name, Secret, Desc, Status, Expired) when is_binary(AppId) ->
     AddFun = fun() ->
                  case mnesia:wread({mqtt_app, AppId}) of
                      [] -> mnesia:write(App);
-                     _  -> mnesia:abort(alread_existed)
+                     _  -> mnesia:abort(alread_existed), ok
                  end
              end,
     case mnesia:transaction(AddFun) of
-        {atomic, ok} -> {ok, Secret1};
+        {atomic, _} -> {ok, Secret1};
         {aborted, Reason} -> {error, Reason}
     end.
 
@@ -138,7 +138,7 @@ get_appsecret(AppId) when is_binary(AppId) ->
         [] -> undefined
     end.
 
--spec(lookup_app(appid()) -> {{appid(), appsecret(), binary(), binary(), boolean(), integer() | undefined} | undefined}).
+-spec(lookup_app(appid()) -> undefined | {appid(), appsecret(), binary(), binary(), boolean(), integer() | undefined}).
 lookup_app(AppId) when is_binary(AppId) ->
     case mnesia:dirty_read(mqtt_app, AppId) of
         [#mqtt_app{id = AppId,
