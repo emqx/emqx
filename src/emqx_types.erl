@@ -136,7 +136,7 @@
                         is_bridge    := boolean(),
                         is_superuser := boolean(),
                         mountpoint   := maybe(binary()),
-                        ws_cookie    => maybe(list()),
+                        ws_cookie    => wscookie(),
                         password     => maybe(binary()),
                         auth_result  => auth_result(),
                         anonymous    => boolean(),
@@ -150,6 +150,7 @@
 -type(peerhost() :: inet:ip_address()).
 -type(peername() :: {inet:ip_address(), inet:port_number()}
                   | inet:returned_non_ip_address()).
+-type(wscookie() :: [{binary(), binary()}]).
 -type(protocol() :: mqtt | 'mqtt-sn' | coap | lwm2m | stomp | none | atom()).
 -type(auth_result() :: success
                      | client_identifier_not_valid
