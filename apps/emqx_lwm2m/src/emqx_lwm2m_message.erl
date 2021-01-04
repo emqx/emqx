@@ -45,7 +45,7 @@ tlv_to_json(BaseName, TlvData) ->
             TrueBaseName = basename(BaseName, undefined, Id, undefined, 2),
             tlv_level2(TrueBaseName, Value, ObjDefinition, []);
         List3=[#{tlv_object_instance:=_Id}, _|_] ->
-            tlv_level1(ObjectId, List3, ObjDefinition, [])
+            tlv_level1(integer_to_binary(ObjectId), List3, ObjDefinition, [])
     end.
 
 
