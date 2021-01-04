@@ -255,12 +255,18 @@ show_action(#{name := Name}, _Params) ->
 %% Resources API
 %%------------------------------------------------------------------------------
 create_resource(#{}, Params) ->
-    if_test(fun() -> do_create_resource(test_resource, Params) end,
-            fun() -> do_create_resource(create_resource, Params) end,
-            Params).
+    case parse_resource_params(Params) of
+        {ok, ParsedParams} ->
+            if_test(fun() -> do_create_resource(test_resource, ParsedParams) end,
+                    fun() -> do_create_resource(create_resource, ParsedParams) end,
+                    Params);
+        {error, Reason} ->
+            ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
+            return({error, 400, ?ERR_BADARGS(Reason)})
+    end.
 
-do_create_resource(Create, Params) ->
-    case emqx_rule_engine:Create(parse_resource_params(Params)) of
+do_create_resource(Create, ParsedParams) ->
+    case emqx_rule_engine:Create(ParsedParams) of
         ok ->
             return(ok);
         {ok, Resource} ->
@@ -322,23 +328,30 @@ start_resource(#{id := Id}, _Params) ->
     end.
 
 update_resource(#{id := Id}, Params) ->
-    case emqx_rule_registry:find_resource(Id) of
-        {ok, #resource{id = Id, type = Type} = _OldResource} ->
-               Config = maps:get(config, parse_resource_params(Params)),
-               Description = maps:get(description, parse_resource_params(Params)),
-               _ = emqx_rule_engine:update_resource(#{id => Id,
-                                                  config => Config,
-                                                  type => Type,
-                                                  description => Description,
-                                                  created_at => erlang:system_time(millisecond)}),
-               return(ok);
-        _Other ->
-               return({error, 400, ?ERR_NO_RESOURCE(Id)})
+    case parse_resource_params(Params) of
+        {ok, ParsedParams} ->
+            case emqx_rule_registry:find_resource(Id) of
+                {ok, #resource{id = Id, type = Type} = _OldResource} ->
+                    Config = maps:get(config, ParsedParams),
+                    Description = maps:get(description, ParsedParams),
+                    emqx_rule_engine:update_resource(
+                        #{id => Id,
+                        config => Config,
+                        type => Type,
+                        description => Description,
+                        created_at => erlang:system_time(millisecond)}),
+                    return(ok);
+                _Other ->
+                    return({error, 400, ?ERR_NO_RESOURCE(Id)})
+            end;
+        {error, Reason} ->
+            return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
 delete_resource(#{id := Id}, _Params) ->
     case emqx_rule_engine:delete_resource(Id) of
         ok -> return(ok);
+        {error, not_found} -> return(ok);
         {error, Reason} ->
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
@@ -495,13 +508,13 @@ parse_action(Action) ->
 parse_resource_params(Params) ->
     parse_resource_params(Params, #{config => #{}, description => <<"">>}).
 parse_resource_params([], Res) ->
-    Res;
+    {ok, Res};
 parse_resource_params([{<<"id">>, Id} | Params], Res) ->
     parse_resource_params(Params, Res#{id => Id});
 parse_resource_params([{<<"type">>, ResourceType} | Params], Res) ->
     try parse_resource_params(Params, Res#{type => binary_to_existing_atom(ResourceType, utf8)})
     catch error:badarg ->
-        throw({resource_type_not_found, ResourceType})
+        {error, {resource_type_not_found, ResourceType}}
     end;
 parse_resource_params([{<<"config">>, Config} | Params], Res) ->
     parse_resource_params(Params, Res#{config => json_term_to_map(Config)});
