@@ -127,7 +127,7 @@
                       expiry_interval => non_neg_integer(),
                       atom() => term()
                      }).
--type(clientinfo() :: #{zone         := zone(),
+-type(clientinfo() :: #{zone         := maybe(zone()),
                         protocol     := protocol(),
                         peerhost     := peerhost(),
                         sockport     := non_neg_integer(),
