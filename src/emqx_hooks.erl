@@ -121,7 +121,7 @@ put(HookPoint, Callback) ->
     end.
 
 %% @doc Unregister a callback.
--spec(del(hookpoint(), function() | {module(), atom()}) -> ok).
+-spec(del(hookpoint(), action() | {module(), atom()}) -> ok).
 del(HookPoint, Action) ->
     gen_server:cast(?SERVER, {del, HookPoint, Action}).
 
