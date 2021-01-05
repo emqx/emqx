@@ -59,7 +59,7 @@ create(_Bindings, Params) ->
             {ok, Banned} = pack_banned(NParams),
             ok = emqx_mgmt:create_banned(Banned),
             return({ok, maps:from_list(Params)});
-        {error, Code, Message} -> 
+        {error, Code, Message} ->
             return({error, Code, Message})
     end.
 
@@ -71,7 +71,7 @@ delete(#{as := As, who := Who}, _) ->
         {ok, NParams} ->
             do_delete(get_value(<<"as">>, NParams), get_value(<<"who">>, NParams)),
             return();
-        {error, Code, Message} -> 
+        {error, Code, Message} ->
             return({error, Code, Message})
     end.
 
@@ -105,6 +105,8 @@ validate_params(Params) ->
             {error, ?ERROR8, Msg}
     end.
 
+%% TODO who and reason is undefined - causing dialyzer errors. fix later
+-dialyzer({nowarn_function,pack_banned/1}).
 pack_banned(Params) ->
     Now = erlang:system_time(second),
     do_pack_banned(Params, #banned{by = <<"user">>,

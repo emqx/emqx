@@ -147,8 +147,7 @@
           who    :: {clientid,  binary()}
                   | {peerhost, inet:ip_address()}
                   | {username,   binary()}
-                  | {ip_address, inet:ip_address()}
-                  | undefined,
+                  | {ip_address, inet:ip_address()},
           by     :: binary(),
           reason :: binary(),
           at     :: integer(),
