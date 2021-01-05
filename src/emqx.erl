@@ -184,7 +184,7 @@ hook(HookPoint, Action, InitArgs) when is_list(InitArgs) ->
 hook(HookPoint, Action, Filter, Priority) ->
     emqx_hooks:add(HookPoint, Action, Filter, Priority).
 
--spec(unhook(emqx_hooks:hookpoint(), fun() | {atom(), atom()} | {atom(), atom(), [any()]}) -> ok).
+-spec(unhook(emqx_hooks:hookpoint(), emqx_hooks:action() | {module(), atom()}) -> ok).
 unhook(HookPoint, Action) ->
     emqx_hooks:del(HookPoint, Action).
 
