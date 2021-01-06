@@ -113,6 +113,7 @@
 ]).
 -define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
 -define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
+-define(PROC_INFO_KEYS, [message_queue_len, memory, reductions]).
 
 -dialyzer({no_match, [info/2]}).
 -dialyzer({nowarn_function, [ init/4
@@ -710,7 +711,8 @@ tcp_congestion_alarm_details(Socket, Transport, Channel) ->
     {ok, Opts} = Transport:getopts(Socket, ?ALARM_SOCK_OPTS_KEYS),
     SockInfo = maps:from_list(Stat ++ Opts),
     ConnInfo = maps:from_list([conn_info(Key, Channel) || Key <- ?ALARM_CONN_INFO_KEYS]),
-    maps:merge(ConnInfo, SockInfo).
+    BasicInfo = maps:from_list(process_info(self(), ?PROC_INFO_KEYS)),
+    maps:merge(BasicInfo, maps:merge(ConnInfo, SockInfo)).
 
 conn_info(Key, Channel) when Key =:= sockname; Key =:= peername ->
     {IPStr, Port} = emqx_channel:info(Key, Channel),
