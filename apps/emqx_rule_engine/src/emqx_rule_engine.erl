@@ -39,10 +39,11 @@
         , get_resource_status/1
         , get_resource_params/1
         , delete_resource/1
-        , update_resource/1
+        , update_resource/2
         ]).
 
 -export([ init_resource/4
+        , init_resource/5
         , init_action/4
         , clear_resource/3
         , clear_rule/1
@@ -244,24 +245,48 @@ create_resource(#{type := Type, config := Config0} = Params) ->
             {error, {resource_type_not_found, Type}}
     end.
 
-update_resource(#{id := Id, type := Type, config := NewConfig,
-                  description := Description} = NewResource) ->
+-spec(update_resource(resource_id(), map()) -> ok | {error, Reason :: term()}).
+update_resource(Id, NewParams) ->
+    case emqx_rule_registry:find_resource(Id) of
+        {ok, #resource{id = Id,
+                       type = Type,
+                       config = OldConfig,
+                       description = OldDescription} = _OldResource} ->
+                try
+                    do_update_resource(#{id => Id,
+                                        config => case maps:find(<<"config">>, NewParams) of
+                                                       {ok, NewConfig} -> NewConfig;
+                                                       error -> OldConfig
+                                                  end,
+                                        type => Type,
+                                        description => case maps:find(<<"description">>, NewParams) of
+                                                            {ok, NewDescription} -> NewDescription;
+                                                            error -> OldDescription
+                                                       end}),
+                    ok
+                catch _ : Reason ->
+                    {error, Reason}
+                end;
+        _Other ->
+            {error, not_found}
+    end.
+
+do_update_resource(#{id := Id, type := Type, description:= NewDescription, config:= NewConfig}) ->
     case emqx_rule_registry:find_resource_type(Type) of
         {ok, #resource_type{on_create = {Module, Create},
                             params_spec = ParamSpec}} ->
             Config = emqx_rule_validator:validate_params(NewConfig, ParamSpec),
+            cluster_call(init_resource, [Module, Create, Id, Config, true]),
             case delete_resource(Id) of
-                {error, not_found} -> {error, not_found};
-                _ -> %% deletion might fail because of an associted rule.
-                    emqx_rule_registry:add_resource(
-                        #resource{
-                            id = Id,
-                            config = Config,
-                            type = Type,
-                            description = Description,
-                            created_at = erlang:system_time(millisecond)}),
-                    catch cluster_call(init_resource, [Module, Create, Id, Config, true]),
-                    {ok, NewResource}
+                {error, not_found} ->
+                   {error, not_found};
+                _ ->
+                   emqx_rule_registry:add_resource(
+                        #resource{id = Id,
+                                  type = Type,
+                                  config = Config,
+                                  description = NewDescription,
+                                  created_at = erlang:system_time(millisecond)})
             end;
         not_found ->
             {error, {resource_type_not_found, Type}}
@@ -499,7 +524,7 @@ init_resource(Module, OnCreate, ResId, Config, Restart) ->
     Params = ?RAISE(
         Module:OnCreate(ResId, Config),
         Restart andalso
-            timer:apply_after(timer:seconds(60), ?MODULE, do_init_resource,
+            timer:apply_after(timer:seconds(60), ?MODULE, init_resource,
                               [Module, OnCreate, ResId, Config, Restart]),
         {{Module, OnCreate}, {_EXCLASS_, _EXCPTION_, _ST_}}),
     ResParams = #resource_params{id = ResId,
