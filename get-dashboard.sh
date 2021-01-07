@@ -12,8 +12,13 @@ DOWNLOAD_URL='https://github.com/emqx/emqx-dashboard-frontend/releases/download'
 
 DASHBOARD_PATH='apps/emqx_dashboard/priv'
 
+case $(uname) in
+    *Darwin*) SED="sed -E";;
+    *) SED="sed -r";;
+esac
+
 version() {
-    grep -oE 'github_ref: (.*)' "$DASHBOARD_PATH/www/version" |  sed -r 's|github_ref: refs/tags/(.*)|\1|g'
+    grep -oE 'github_ref: (.*)' "$DASHBOARD_PATH/www/version" |  $SED 's|github_ref: refs/tags/(.*)|\1|g'
 }
 
 if [ -d "$DASHBOARD_PATH/www" ] && [ "$(version)" = "$VERSION" ]; then
