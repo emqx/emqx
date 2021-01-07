@@ -103,20 +103,6 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
--define(ALARM_TCP_CONGEST(Channel, Reason),
-        list_to_binary(io_lib:format("mqtt_conn/congested/~s/~s/~s", [emqx_channel:info(clientid, Channel),
-         maps:get(username, emqx_channel:info(clientinfo, Channel), <<"undefined">>),
-         Reason]))).
-
-
--define(ALARM_CONN_INFO_KEYS, [
-    socktype, sockname, peername,
-    clientid, username, proto_name, proto_ver, connected_at
-]).
--define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
--define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
--define(PROC_INFO_KEYS, [message_queue_len, memory, reductions]).
-
 -dialyzer({no_match, [info/2]}).
 -dialyzer({nowarn_function, [ init/4
                             , init_state/3
@@ -391,15 +377,8 @@ handle_msg(Deliver = {deliver, _Topic, _Msg},
            #state{active_n = ActiveN, transport = Transport,
                   socket = Socket, channel = Channel} = State) ->
     Delivers0 = emqx_misc:drain_deliver(ActiveN),
-    case length(Delivers0) of
-        ActiveN ->
-            %% we only alarm it when the process is really "too busy"
-            maybe_cancel_alarm_congestion(Channel, too_many_publish);
-        0 ->
-            %% but we clear the alarm until it is "idle", to avoid sending
-            %% alarms and clears too frequently
-            maybe_alarm_congestion(Socket, Transport, Channel, too_many_publish)
-    end,
+    emqx_congestion:maybe_alarm_too_many_publish(Socket, Transport, Channel,
+        length(Delivers0), ActiveN),
     Delivers = [Deliver|Delivers0],
     with_channel(handle_deliver, [Delivers], State);
 
@@ -454,8 +433,7 @@ handle_msg(Msg, State) ->
 
 terminate(Reason, State = #state{channel = Channel}) ->
     ?LOG(debug, "Terminated due to ~p", [Reason]),
-    maybe_cancel_alarm_congestion(Channel, too_many_publish),
-    maybe_cancel_alarm_congestion(Channel, port_busy),
+    emqx_congestion:cancel_alarms(Channel),
     emqx_channel:terminate(Reason, Channel),
     close_socket(State),
     exit(Reason).
@@ -568,8 +546,8 @@ handle_timeout(_TRef, limit_timeout, State) ->
                         },
     handle_info(activate_socket, NState);
 
-handle_timeout(_TRef, emit_stats, State =
-               #state{channel = Channel}) ->
+handle_timeout(_TRef, emit_stats, State = #state{
+        channel = Channel, transport = Transport, socket = Socket}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
     {ok, State#state{stats_timer = undefined}};
@@ -682,10 +660,7 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
     Oct = iolist_size(IoData),
     ok = emqx_metrics:inc('bytes.sent', Oct),
     emqx_pd:inc_counter(outgoing_bytes, Oct),
-    case is_tcp_congested(Socket, Transport) of
-        true -> maybe_alarm_congestion(Socket, Transport, Channel, port_busy);
-        false -> maybe_cancel_alarm_congestion(Channel, port_busy)
-    end,
+    emqx_congestion:maybe_alarm_port_busy(Socket, Transport, Channel),
     case Transport:async_send(Socket, IoData, [nosuspend]) of
         ok -> ok;
         Error = {error, _Reason} ->
@@ -693,53 +668,6 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
             self() ! {inet_reply, Socket, Error},
             ok
     end.
-
-maybe_alarm_congestion(Socket, Transport, Channel, Reason) ->
-    case is_congestion_alarm_set() of
-        false ->
-            ok = set_congestion_alarm(),
-            emqx_alarm:activate(?ALARM_TCP_CONGEST(Channel, Reason),
-                tcp_congestion_alarm_details(Socket, Transport, Channel));
-        true -> ok
-    end.
-
-maybe_cancel_alarm_congestion(Channel, Reason) ->
-    case is_congestion_alarm_set() of
-        true ->
-            ok = clear_congestion_alarm(),
-            emqx_alarm:deactivate(?ALARM_TCP_CONGEST(Channel, Reason));
-        false -> ok
-    end.
-
-is_tcp_congested(Socket, Transport) ->
-    case Transport:getstat(Socket, [send_pend]) of
-        {ok, [{send_pend, N}]} when N > 0 -> true;
-        _ -> false
-    end.
-
-is_congestion_alarm_set() ->
-    case erlang:get(conn_congested) of
-        true -> true;
-        _ -> false
-    end.
-set_congestion_alarm() ->
-    erlang:put(conn_congested, true), ok.
-clear_congestion_alarm() ->
-    erlang:put(conn_congested, false), ok.
-
-tcp_congestion_alarm_details(Socket, Transport, Channel) ->
-    {ok, Stat} = Transport:getstat(Socket, ?ALARM_SOCK_STATS_KEYS),
-    {ok, Opts} = Transport:getopts(Socket, ?ALARM_SOCK_OPTS_KEYS),
-    SockInfo = maps:from_list(Stat ++ Opts),
-    ConnInfo = maps:from_list([conn_info(Key, Channel) || Key <- ?ALARM_CONN_INFO_KEYS]),
-    BasicInfo = maps:from_list(process_info(self(), ?PROC_INFO_KEYS)),
-    maps:merge(BasicInfo, maps:merge(ConnInfo, SockInfo)).
-
-conn_info(Key, Channel) when Key =:= sockname; Key =:= peername ->
-    {IPStr, Port} = emqx_channel:info(Key, Channel),
-    {Key, iolist_to_binary([inet:ntoa(IPStr),":",integer_to_list(Port)])};
-conn_info(Key, Channel) ->
-    {Key, emqx_channel:info(Key, Channel)}.
 
 %%--------------------------------------------------------------------
 %% Handle Info
