@@ -17,7 +17,9 @@
 -module(emqx_congestion).
 
 -export([ maybe_alarm_port_busy/3
+        , maybe_alarm_port_busy/4
         , maybe_alarm_too_many_publish/5
+        , maybe_alarm_too_many_publish/6
         , cancel_alarms/1
         ]).
 
@@ -33,55 +35,65 @@
 -define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
 -define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
 -define(PROC_INFO_KEYS, [message_queue_len, memory, reductions]).
+-define(ALARM_SENT(REASON), {alarm_sent, REASON}).
+-define(ALL_ALARM_REASONS, [port_busy, too_many_publish]).
+-define(CONFIRM_CLEAR(REASON), {alarm_confirm_clear, REASON}).
+-define(CONFIRM_CLEAR_INTERVAL, 5000).
 
 maybe_alarm_port_busy(Socket, Transport, Channel) ->
+    maybe_alarm_port_busy(Socket, Transport, Channel, false).
+
+maybe_alarm_port_busy(Socket, Transport, Channel, ForceClear) ->
     case is_tcp_congested(Socket, Transport) of
         true -> alarm_congestion(Socket, Transport, Channel, port_busy);
-        false -> cancel_alarm_congestion(Channel, port_busy)
+        false -> cancel_alarm_congestion(Channel, port_busy, ForceClear)
     end.
 
 maybe_alarm_too_many_publish(Socket, Transport, Channel, PubMsgCount,
-        PubMsgCount = MaxBatchSize) when MaxBatchSize > 1 ->
-    %% we only alarm it when the process is really "too busy"
+        MaxBatchSize) ->
+    maybe_alarm_too_many_publish(Socket, Transport, Channel, PubMsgCount,
+        MaxBatchSize, false).
+
+maybe_alarm_too_many_publish(Socket, Transport, Channel, PubMsgCount,
+        PubMsgCount = _MaxBatchSize, _ForceClear) ->
+    %% we only alarm it when the process is "too busy"
     alarm_congestion(Socket, Transport, Channel, too_many_publish);
 maybe_alarm_too_many_publish(_Socket, _Transport, Channel, PubMsgCount,
-        _MaxBatchSize) when PubMsgCount == 1 ->
-    %% but we clear the alarm until it is "idle", to avoid sending
+        _MaxBatchSize, ForceClear) when PubMsgCount == 0 ->
+    %% but we clear the alarm until it is really "idle", to avoid sending
     %% alarms and clears too frequently
-    cancel_alarm_congestion(Channel, too_many_publish);
+    cancel_alarm_congestion(Channel, too_many_publish, ForceClear);
 maybe_alarm_too_many_publish(_Socket, _Transport, _Channel, _PubMsgCount,
-        _MaxBatchSize) ->
+        _MaxBatchSize, _ForceClear) ->
     ok.
 
 cancel_alarms(Channel) ->
-    [cancel_alarm_congestion(Channel, Reason)
-     || Reason <- [port_busy, too_many_publish]].
+    lists:foreach(fun(Reason) ->
+        do_cancel_alarm_congestion(Channel, Reason)
+    end, ?ALL_ALARM_REASONS).
 
 alarm_congestion(Socket, Transport, Channel, Reason) ->
-    case {is_alarm_sent(Reason), is_alarm_confirmed(Reason)} of
-        {false, true} ->
-            ok = mark_alarm_sent(Reason),
-            do_alarm_congestion(Socket, Transport, Channel, Reason);
-        {false, _} ->
-            ok = confirm_alarm_again(Reason);
-        {true, _} -> ok
+    case has_alarm_sent(Reason) of
+        false -> do_alarm_congestion(Socket, Transport, Channel, Reason);
+        true ->
+            %% pretend we have sent an alarm again
+            update_alarm_sent_at(Reason)
     end.
 
-cancel_alarm_congestion(Channel, Reason) ->
-    case is_alarm_sent(Reason) of
-        true ->
-            ok = unmark_alarm_sent(Reason),
-            ok = reset_confirm_counter(Reason),
-            do_cancel_alarm_congestion(Channel, Reason);
-        {false, _} -> ok
+cancel_alarm_congestion(Channel, Reason, ForceClear) ->
+    case is_alarm_allowed_clear(Reason, ForceClear) of
+        true -> do_cancel_alarm_congestion(Channel, Reason);
+        false -> ok
     end.
 
 do_alarm_congestion(Socket, Transport, Channel, Reason) ->
+    ok = update_alarm_sent_at(Reason),
     AlarmDetails = tcp_congestion_alarm_details(Socket, Transport, Channel),
     emqx_alarm:activate(?ALARM_CONN_CONGEST(Channel, Reason), AlarmDetails),
     ok.
 
 do_cancel_alarm_congestion(Channel, Reason) ->
+    ok = remove_alarm_sent_at(Reason),
     emqx_alarm:deactivate(?ALARM_CONN_CONGEST(Channel, Reason)),
     ok.
 
@@ -91,37 +103,39 @@ is_tcp_congested(Socket, Transport) ->
         _ -> false
     end.
 
--define(ALARM_SENT(REASON), {alarm_sent, REASON}).
-is_alarm_sent(Reason) ->
-    case erlang:get(?ALARM_SENT(Reason)) of
-        true -> true;
-        _ -> false
+has_alarm_sent(Reason) ->
+    case get_alarm_sent_at(Reason) of
+        0 -> false;
+        _ -> true
     end.
-mark_alarm_sent(Reason) ->
-    erlang:put(?ALARM_SENT(Reason), true),
+update_alarm_sent_at(Reason) ->
+    erlang:put(?ALARM_SENT(Reason), timenow()),
     ok.
-unmark_alarm_sent(Reason) ->
+remove_alarm_sent_at(Reason) ->
     erlang:erase(?ALARM_SENT(Reason)),
     ok.
+get_alarm_sent_at(Reason) ->
+    case erlang:get(?ALARM_SENT(Reason)) of
+        undefined -> 0;
+        LastSentAt -> LastSentAt
+    end.
 
--define(ALARM_CONFIRMED(REASON), {alarm_confirmed, REASON}).
--define(MAX_ALARM_CONFIRM_COUNT, 3).
-is_alarm_confirmed(Reason) ->
-    case get_alarm_confirm_counter(Reason) of
-        Counter when Counter >= ?MAX_ALARM_CONFIRM_COUNT -> true;
+is_alarm_allowed_clear(Reason, _ForceClear = true) ->
+    has_alarm_sent(Reason);
+is_alarm_allowed_clear(Reason, _ForceClear = false) ->
+    %% only sent clears when the alarm was not triggered in the last
+    %% ?CONFIRM_CLEAR_INTERVAL time
+    case timenow() - get_alarm_sent_at(Reason) of
+        Elapse when Elapse >= ?CONFIRM_CLEAR_INTERVAL -> true;
         _ -> false
     end.
-confirm_alarm_again(Reason) ->
-    erlang:put(?ALARM_CONFIRMED(Reason), get_alarm_confirm_counter(Reason) + 1),
-    ok.
-get_alarm_confirm_counter(Reason) ->
-    case erlang:get(?ALARM_CONFIRMED(Reason)) of
-        Count when is_integer(Count) -> Count;
-        _ -> 0
-    end.
-reset_confirm_counter(Reason) ->
-    erlang:erase(?ALARM_CONFIRMED(Reason)).
 
+timenow() ->
+    erlang:system_time(millisecond).
+
+%%==============================================================================
+%% Alarm message
+%%==============================================================================
 tcp_congestion_alarm_details(Socket, Transport, Channel) ->
     {ok, Stat} = Transport:getstat(Socket, ?ALARM_SOCK_STATS_KEYS),
     {ok, Opts} = Transport:getopts(Socket, ?ALARM_SOCK_OPTS_KEYS),
