@@ -31,6 +31,7 @@
 
 -export([ info/1
         , info/2
+        , set_conn_state/2
         , stats/1
         , caps/1
         ]).
@@ -162,6 +163,9 @@ info(topic_aliases, #channel{topic_aliases = Aliases}) ->
 info(alias_maximum, #channel{alias_maximum = Limits}) ->
     Limits;
 info(timers, #channel{timers = Timers}) -> Timers.
+
+set_conn_state(ConnState, Channel) ->
+    Channel#channel{conn_state = ConnState}.
 
 %% TODO: Add more stats.
 -spec(stats(channel()) -> emqx_types:stats()).

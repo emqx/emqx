@@ -29,8 +29,8 @@
          Reason]))).
 
 -define(ALARM_CONN_INFO_KEYS, [
-    socktype, sockname, peername,
-    clientid, username, proto_name, proto_ver, connected_at
+    socktype, sockname, peername, clientid, username, proto_name, proto_ver,
+    connected_at, conn_state
 ]).
 -define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
 -define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).

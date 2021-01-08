@@ -433,8 +433,9 @@ handle_msg(Msg, State) ->
 
 terminate(Reason, State = #state{channel = Channel}) ->
     ?LOG(debug, "Terminated due to ~p", [Reason]),
-    emqx_congestion:cancel_alarms(Channel),
-    emqx_channel:terminate(Reason, Channel),
+    Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
+    emqx_congestion:cancel_alarms(Channel1),
+    emqx_channel:terminate(Reason, Channel1),
     close_socket(State),
     exit(Reason).
 
