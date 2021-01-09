@@ -37,6 +37,7 @@
 -export([ activate/1
         , activate/2
         , deactivate/1
+        , deactivate/2
         , delete_all_deactivated_alarms/0
         , get_alarms/0
         , get_alarms/1
@@ -132,7 +133,10 @@ activate(Name, Details) ->
     gen_server:call(?MODULE, {activate_alarm, Name, Details}).
 
 deactivate(Name) ->
-    gen_server:call(?MODULE, {deactivate_alarm, Name}).
+    gen_server:call(?MODULE, {deactivate_alarm, Name, no_details}).
+
+deactivate(Name, Details) ->
+    gen_server:call(?MODULE, {deactivate_alarm, Name, Details}).
 
 delete_all_deactivated_alarms() ->
     gen_server:call(?MODULE, delete_all_deactivated_alarms).
@@ -179,34 +183,13 @@ handle_call({activate_alarm, Name, Details}, _From, State = #state{actions = Act
             {reply, ok, State}
     end;
 
-handle_call({deactivate_alarm, Name}, _From, State = #state{actions = Actions,
-                                                            size_limit = SizeLimit}) ->
+handle_call({deactivate_alarm, Name, Details}, _From, State = #state{
+        actions = Actions, size_limit = SizeLimit}) ->
     case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
         [] ->
             {reply, {error, not_found}, State};
-        [#activated_alarm{name = Name,
-                          details = Details,
-                          message = Message,
-                          activate_at = ActivateAt}] ->
-            case SizeLimit > 0 andalso (mnesia:table_info(?DEACTIVATED_ALARM, size) >= SizeLimit) of
-                true ->
-                    case mnesia:dirty_first(?DEACTIVATED_ALARM) of
-                        '$end_of_table' ->
-                            ok;
-                        ActivateAt2 ->
-                            mnesia:dirty_delete(?DEACTIVATED_ALARM, ActivateAt2)
-                    end;
-                false ->
-                    ok
-            end,
-            Alarm = #deactivated_alarm{activate_at = ActivateAt,
-                                       name = Name,
-                                       details = Details,
-                                       message = Message,
-                                       deactivate_at = erlang:system_time(microsecond)},
-            mnesia:dirty_delete(?ACTIVATED_ALARM, Name),
-            mnesia:dirty_write(?DEACTIVATED_ALARM, Alarm),
-            do_actions(deactivate, Alarm, Actions),
+        [Alarm] ->
+            deactivate_alarm(Details, SizeLimit, Actions, Alarm),
             {reply, ok, State}
     end;
 
@@ -254,18 +237,50 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+deactivate_alarm(Details, SizeLimit, Actions, #activated_alarm{
+        activate_at = ActivateAt, name = Name, details = Details0,
+        message = Msg0}) ->
+    case SizeLimit > 0 andalso
+         (mnesia:table_info(?DEACTIVATED_ALARM, size) >= SizeLimit) of
+        true ->
+            case mnesia:dirty_first(?DEACTIVATED_ALARM) of
+                '$end_of_table' -> ok;
+                ActivateAt2 ->
+                    mnesia:dirty_delete(?DEACTIVATED_ALARM, ActivateAt2)
+            end;
+        false -> ok
+    end,
+    HistoryAlarm = make_deactivated_alarm(ActivateAt, Name, Details0, Msg0,
+                        erlang:system_time(microsecond)),
+    DeActAlarm = make_deactivated_alarm(ActivateAt, Name, Details,
+                    normalize_message(Name, Details),
+                    erlang:system_time(microsecond)),
+    mnesia:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
+    mnesia:dirty_delete(?ACTIVATED_ALARM, Name),
+    do_actions(deactivate, DeActAlarm, Actions).
+
+make_deactivated_alarm(ActivateAt, Name, Details, Message, DeActivateAt) ->
+    #deactivated_alarm{
+        activate_at = ActivateAt,
+        name = Name,
+        details = Details,
+        message = Message,
+        deactivate_at = DeActivateAt}.
+
 deactivate_all_alarms() ->
-    lists:foreach(fun(#activated_alarm{name = Name,
-                                       details = Details,
-                                       message = Message,
-                                       activate_at = ActivateAt}) ->
-                      mnesia:dirty_write(?DEACTIVATED_ALARM,
-                                         #deactivated_alarm{activate_at = ActivateAt,
-                                                            name = Name,
-                                                            details = Details,
-                                                            message = Message,
-                                                            deactivate_at = erlang:system_time(microsecond)})
-                  end, ets:tab2list(?ACTIVATED_ALARM)),
+    lists:foreach(
+        fun(#activated_alarm{name = Name,
+                             details = Details,
+                             message = Message,
+                             activate_at = ActivateAt}) ->
+            mnesia:dirty_write(?DEACTIVATED_ALARM,
+                #deactivated_alarm{
+                    activate_at = ActivateAt,
+                    name = Name,
+                    details = Details,
+                    message = Message,
+                    deactivate_at = erlang:system_time(microsecond)})
+        end, ets:tab2list(?ACTIVATED_ALARM)),
     mnesia:clear_table(?ACTIVATED_ALARM).
 
 ensure_delete_timer(State = #state{validity_period = ValidityPeriod}) ->
@@ -332,6 +347,8 @@ normalize(#deactivated_alarm{activate_at = ActivateAt,
       deactivate_at => DeactivateAt,
       activated => false}.
 
+normalize_message(Name, no_details) ->
+    list_to_binary(io_lib:format("~p", [Name]));
 normalize_message(high_system_memory_usage, #{high_watermark := HighWatermark}) ->
     list_to_binary(io_lib:format("System memory usage is higher than ~p%", [HighWatermark]));
 normalize_message(high_process_memory_usage, #{high_watermark := HighWatermark}) ->
@@ -348,4 +365,3 @@ normalize_message(<<"mqtt_conn/congested/", Info/binary>>, _) ->
     list_to_binary(io_lib:format("MQTT connection congested: ~s", [Info]));
 normalize_message(_Name, _UnknownDetails) ->
     <<"Unknown alarm">>.
-
