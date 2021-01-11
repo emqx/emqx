@@ -40,6 +40,8 @@
         , on_received_messages/2
         ]).
 
+-define(LOG(Fmt, Args), io:format(standard_error, Fmt, Args)).
+
 -define(HTTP, #{grpc_opts => #{service_protos => [emqx_exproto_pb],
                                services => #{'emqx.exproto.v1.ConnectionHandler' => ?MODULE}},
                 listen_opts => #{port => 9001,
@@ -48,23 +50,44 @@
                 transport_opts => #{ssl => false}}).
 
 -define(CLIENT, emqx_exproto_v_1_connection_adapter_client).
--define(send(Req), ?CLIENT:send(Req, #{channel => ct_test_channel})).
--define(close(Req), ?CLIENT:close(Req, #{channel => ct_test_channel})).
--define(authenticate(Req), ?CLIENT:authenticate(Req, #{channel => ct_test_channel})).
--define(start_timer(Req), ?CLIENT:start_timer(Req, #{channel => ct_test_channel})).
--define(publish(Req), ?CLIENT:publish(Req, #{channel => ct_test_channel})).
--define(subscribe(Req), ?CLIENT:subscribe(Req, #{channel => ct_test_channel})).
--define(unsubscribe(Req), ?CLIENT:unsubscribe(Req, #{channel => ct_test_channel})).
 
--define(TYPE_CONNECT, 1).
--define(TYPE_CONNACK, 2).
--define(TYPE_PUBLISH, 3).
--define(TYPE_PUBACK, 4).
--define(TYPE_SUBSCRIBE, 5).
--define(TYPE_SUBACK, 6).
+-define(send(Req),         ?CLIENT:send(Req, #{channel => ct_test_channel})).
+-define(close(Req),        ?CLIENT:close(Req, #{channel => ct_test_channel})).
+-define(authenticate(Req), ?CLIENT:authenticate(Req, #{channel => ct_test_channel})).
+-define(start_timer(Req),  ?CLIENT:start_timer(Req, #{channel => ct_test_channel})).
+-define(publish(Req),      ?CLIENT:publish(Req, #{channel => ct_test_channel})).
+-define(subscribe(Req),    ?CLIENT:subscribe(Req, #{channel => ct_test_channel})).
+-define(unsubscribe(Req),  ?CLIENT:unsubscribe(Req, #{channel => ct_test_channel})).
+
+-define(TYPE_CONNECT,     1).
+-define(TYPE_CONNACK,     2).
+-define(TYPE_PUBLISH,     3).
+-define(TYPE_PUBACK,      4).
+-define(TYPE_SUBSCRIBE,   5).
+-define(TYPE_SUBACK,      6).
 -define(TYPE_UNSUBSCRIBE, 7).
--define(TYPE_UNSUBACK, 8).
--define(TYPE_DISCONNECT, 9).
+-define(TYPE_UNSUBACK,    8).
+-define(TYPE_DISCONNECT,  9).
+
+-define(loop_recv_and_reply_empty_success(Stream),
+        ?loop_recv_and_reply_empty_success(Stream, fun(_) -> ok end)).
+
+-define(loop_recv_and_reply_empty_success(Stream, Fun),
+        begin
+            LoopRecv = fun _Lp(_St) ->
+                case grpc_stream:recv(_St) of
+                    {more, _Reqs, _NSt} ->
+                        ?LOG("~p: ~p~n", [?FUNCTION_NAME, _Reqs]),
+                        Fun(_Reqs), _Lp(_NSt);
+                    {eos, _Reqs, _NSt} ->
+                        ?LOG("~p: ~p~n", [?FUNCTION_NAME, _Reqs]),
+                        Fun(_Reqs), _NSt
+                end
+            end,
+            NStream  = LoopRecv(Stream),
+            grpc_stream:reply(NStream, #{}),
+            {ok, NStream}
+        end).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -92,47 +115,53 @@ stop([_ChannPid, _SvrPid]) ->
 %% Protocol Adapter callbacks
 %%--------------------------------------------------------------------
 
--spec on_socket_created(emqx_exproto_pb:socket_created_request(), grpc:metadata())
-    -> {ok, emqx_exproto_pb:empty_success(), grpc:metadata()}
-     | {error, grpc_cowboy_h:error_response()}.
-on_socket_created(Req, Md) ->
-    io:format("~p: ~0p~n", [?FUNCTION_NAME, Req]),
-    {ok, #{}, Md}.
+-spec on_socket_created(grpc_stream:stream(), grpc:metadata())
+    -> {ok, grpc_stream:stream()}.
+on_socket_created(Stream, _Md) ->
+    ?loop_recv_and_reply_empty_success(Stream).
 
--spec on_socket_closed(emqx_exproto_pb:socket_closed_request(), grpc:metadata())
-    -> {ok, emqx_exproto_pb:empty_success(), grpc:metadata()}
-     | {error, grpc_cowboy_h:error_response()}.
-on_socket_closed(Req, Md) ->
-    io:format("~p: ~0p~n", [?FUNCTION_NAME, Req]),
-    {ok, #{}, Md}.
+-spec on_socket_closed(grpc_stream:stream(), grpc:metadata())
+    -> {ok, grpc_stream:stream()}.
+on_socket_closed(Stream, _Md) ->
+    ?loop_recv_and_reply_empty_success(Stream).
 
--spec on_received_bytes(emqx_exproto_pb:received_bytes_request(), grpc:metadata())
-    -> {ok, emqx_exproto_pb:empty_success(), grpc:metadata()}
-     | {error, grpc_cowboy_h:error_response()}.
-on_received_bytes(Req = #{conn := Conn, bytes := Bytes}, Md) ->
-    io:format("~p: ~0p~n", [?FUNCTION_NAME, Req]),
-    #{<<"type">> := Type} = Params = emqx_json:decode(Bytes, [return_maps]),
-    _ = handle_in(Conn, Type, Params),
-    {ok, #{}, Md}.
+-spec on_received_bytes(grpc_stream:stream(), grpc:metadata())
+    -> {ok, grpc_stream:stream()}.
+on_received_bytes(Stream, _Md) ->
+    ?loop_recv_and_reply_empty_success(Stream,
+      fun(Reqs) ->
+        lists:foreach(
+          fun(#{conn := Conn, bytes := Bytes}) ->
+            #{<<"type">> := Type} = Params = emqx_json:decode(Bytes, [return_maps]),
+            _ = handle_in(Conn, Type, Params)
+          end, Reqs)
+      end).
 
--spec on_timer_timeout(emqx_exproto_pb:timer_timeout_request(), grpc:metadata())
-    -> {ok, emqx_exproto_pb:empty_success(), grpc:metadata()}
-     | {error, grpc_cowboy_h:error_response()}.
-on_timer_timeout(Req = #{conn := Conn, type := 'KEEPALIVE'}, Md) ->
-    io:format("~p: ~0p~n", [?FUNCTION_NAME, Req]),
-    handle_out(Conn, ?TYPE_DISCONNECT),
-    ?close(#{conn => Conn}),
-    {ok, #{}, Md}.
+-spec on_timer_timeout(grpc_stream:stream(), grpc:metadata())
+    -> {ok, grpc_stream:stream()}.
+on_timer_timeout(Stream, _Md) ->
+    ?loop_recv_and_reply_empty_success(Stream,
+      fun(Reqs) ->
+        lists:foreach(
+          fun(#{conn := Conn, type := 'KEEPALIVE'}) ->
+            ?LOG("Close this connection ~p due to keepalive timeout", [Conn]),
+            handle_out(Conn, ?TYPE_DISCONNECT),
+            ?close(#{conn => Conn})
+          end, Reqs)
+      end).
 
--spec on_received_messages(emqx_exproto_pb:received_messages_request(), grpc:metadata())
-    -> {ok, emqx_exproto_pb:empty_success(), grpc:metadata()}
-     | {error, grpc_cowboy_h:error_response()}.
-on_received_messages(Req = #{conn := Conn, messages := Messages}, Md) ->
-    io:format("~p: ~0p~n", [?FUNCTION_NAME, Req]),
-    lists:foreach(fun(Message) ->
-        handle_out(Conn, ?TYPE_PUBLISH, Message)
-    end, Messages),
-    {ok, #{}, Md}.
+-spec on_received_messages(grpc_stream:stream(), grpc:metadata())
+    -> {ok, grpc_stream:stream()}.
+on_received_messages(Stream, _Md) ->
+    ?loop_recv_and_reply_empty_success(Stream,
+      fun(Reqs) ->
+        lists:foreach(
+          fun(#{conn := Conn, messages := Messages}) ->
+            lists:foreach(fun(Message) ->
+                handle_out(Conn, ?TYPE_PUBLISH, Message)
+            end, Messages)
+          end, Reqs)
+      end).
 
 %%--------------------------------------------------------------------
 %% The Protocol Example:

@@ -47,17 +47,17 @@ service ConnectionHandler {
 
   // -- socket layer
 
-  rpc OnSocketCreated(SocketCreatedRequest) returns (EmptySuccess) {};
+  rpc OnSocketCreated(stream SocketCreatedRequest) returns (EmptySuccess) {};
 
-  rpc OnSocketClosed(SocketClosedRequest) returns (EmptySuccess) {};
+  rpc OnSocketClosed(stream SocketClosedRequest) returns (EmptySuccess) {};
 
-  rpc OnReceivedBytes(ReceivedBytesRequest) returns (EmptySuccess) {};
+  rpc OnReceivedBytes(stream ReceivedBytesRequest) returns (EmptySuccess) {};
 
   // -- pub/sub layer
 
-  rpc OnTimerTimeout(TimerTimeoutRequest) returns (EmptySuccess) {};
+  rpc OnTimerTimeout(stream TimerTimeoutRequest) returns (EmptySuccess) {};
 
-  rpc OnReceivedMessages(ReceivedMessagesRequest) returns (EmptySuccess) {};
+  rpc OnReceivedMessages(stream ReceivedMessagesRequest) returns (EmptySuccess) {};
 }
 
 message EmptySuccess { }

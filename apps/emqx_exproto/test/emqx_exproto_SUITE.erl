@@ -239,7 +239,6 @@ t_hook_connected_disconnected(Cfg) ->
     emqx:hook('client.connected', HookFun1),
     emqx:hook('client.disconnected', HookFun2),
 
-
     send(Sock, ConnBin),
     {ok, ConnAckBin} = recv(Sock, 5000),
 
