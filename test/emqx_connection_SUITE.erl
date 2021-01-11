@@ -54,6 +54,7 @@ init_per_suite(Config) ->
 
     ok = meck:expect(emqx_alarm, activate, fun(_, _) -> ok end),
     ok = meck:expect(emqx_alarm, deactivate, fun(_) -> ok end),
+    ok = meck:expect(emqx_alarm, deactivate, fun(_, _) -> ok end),
 
     Config.
 
@@ -77,6 +78,9 @@ init_per_testcase(_TestCase, Config) ->
                         (peercert, [sock]) -> undefined
                      end),
     ok = meck:expect(emqx_transport, setopts, fun(_Sock, _Opts) -> ok end),
+    ok = meck:expect(emqx_transport, getopts, fun(_Sock, Options) ->
+                                                      {ok, [{K, 0} || K <- Options]}
+                                              end),
     ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
                                                       {ok, [{K, 0} || K <- Options]}
                                               end),
