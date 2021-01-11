@@ -8,7 +8,7 @@
 
 - 极强的扩展能力。使用 gRPC 作为 RPC 通信框架，支持各个主流编程语言
 - 高吞吐。连接层以完全的异步非阻塞式 I/O 的方式实现
-- 连接层透明。完全的支持 TCP\TLS UDP\DTLS 类型的连接管理，并对上层提供统一个 API
+- 连接层透明。完全的支持 TCP\TLS UDP\DTLS 类型的连接管理，并对上层提供统一的 API 接口
 - 连接层的管理能力。例如，最大连接数，连接和吞吐的速率限制，IP 黑名单 等
 
 ## 架构
@@ -17,7 +17,7 @@
 
 该插件主要需要处理的内容包括：
 
-1.  **连接层：** 该部分主要**维持 Socket 的生命周期，和数据的收发**。它的功能要求包括：
+1.  **连接层：** 该部分主要 **维持 Socket 的生命周期，和数据的收发**。它的功能要求包括：
     - 监听某个端口。当有新的 TCP/UDP 连接到达后，启动一个连接进程，来维持连接的状态。
     - 调用 `OnSocketCreated` 回调。用于通知外部模块**已新建立了一个连接**。
     - 调用 `OnScoektClosed` 回调。用于通知外部模块连接**已关闭**。
@@ -37,7 +37,7 @@
 
 ## 接口设计
 
-从 gRPC 上的逻辑来说，emqx-exproto 会作为客户端向用户的 `ProtocolHandler` 服务发送回调请求。同时，它也会作为服务端向用户提供 `ConnectionAdapter` 服务，以提供 emqx-exproto 各个接口的访问。如图：
+从 gRPC 上的逻辑来说，emqx-exproto 会作为客户端向用户的 `ConnectionHandler` 服务发送回调请求。同时，它也会作为服务端向用户提供 `ConnectionAdapter` 服务，以提供 emqx-exproto 各个接口的访问。如图：
 
 ![Extension Protocol gRPC Arch](images/exproto-grpc-arch.jpg)
 
@@ -78,25 +78,25 @@ service ConnectionHandler {
 
   // -- socket layer
 
-  rpc OnSocketCreated(SocketCreatedRequest) returns (EmptySuccess) {};
+  rpc OnSocketCreated(stream SocketCreatedRequest) returns (EmptySuccess) {};
 
-  rpc OnSocketClosed(SocketClosedRequest) returns (EmptySuccess) {};
+  rpc OnSocketClosed(stream SocketClosedRequest) returns (EmptySuccess) {};
 
-  rpc OnReceivedBytes(ReceivedBytesRequest) returns (EmptySuccess) {};
+  rpc OnReceivedBytes(stream ReceivedBytesRequest) returns (EmptySuccess) {};
 
   // -- pub/sub layer
 
-  rpc OnTimerTimeout(TimerTimeoutRequest) returns (EmptySuccess) {};
+  rpc OnTimerTimeout(stream TimerTimeoutRequest) returns (EmptySuccess) {};
 
-  rpc OnReceivedMessages(ReceivedMessagesRequest) returns (EmptySuccess) {};
+  rpc OnReceivedMessages(stream ReceivedMessagesRequest) returns (EmptySuccess) {};
 }
 ```
 
 ## 配置项设计
 
-1. 以 **监听器( Listener)** 为基础，提供 TCP/UDP 的监听。
+1. 以 **监听器(Listener)** 为基础，提供 TCP/UDP 的监听。
    - Listener 目前仅支持：TCP、TLS、UDP、DTLS。(ws、wss、quic 暂不支持)
-2. 每个监听器，会指定一个 `ProtocolHandler` 的服务地址，用于调用外部模块的接口。
+2. 每个监听器，会指定一个 `ConnectionHandler` 的服务地址，用于调用外部模块的接口。
 3. emqx-exproto 还会监听一个 gRPC 端口用于提供对 `ConnectionAdapter` 服务的访问。
 
 例如：
@@ -117,11 +117,11 @@ exproto.server.https.keyfile = key.pem
 ## 例如，名称为 protoname 协议的 TCP 监听器配置
 exproto.listener.protoname = tcp://0.0.0.0:7993
 
-## ProtocolHandler 服务地址及 https 的证书配置
-exproto.listener.protoname.proto_handler_url = http://127.0.0.1:9001
-#exproto.listener.protoname.proto_handler_certfile =
-#exproto.listener.protoname.proto_handler_cacertfile =
-#exproto.listener.protoname.proto_handler_keyfile =
+## ConnectionHandler 服务地址及 https 的证书配置
+exproto.listener.protoname.connection_handler_url = http://127.0.0.1:9001
+#exproto.listener.protoname.connection_handler_certfile =
+#exproto.listener.protoname.connection_handler_cacertfile =
+#exproto.listener.protoname.connection_handler_keyfile =
 
 # ...
 ```

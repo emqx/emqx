@@ -106,7 +106,7 @@ t_mountpoint_echo(Cfg) ->
     send(Sock, ConnBin),
     {ok, ConnAckBin} = recv(Sock, 5000),
 
-    SubBin = frame_subscribe(<<"t/#">>, 1),
+    SubBin = frame_subscribe(<<"t/dn">>, 1),
     SubAckBin = frame_suback(0),
 
     send(Sock, SubBin),
