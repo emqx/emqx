@@ -47,7 +47,7 @@
 -define(OPTSPEC_RESOURCES_UPDATE,
         [ {id, undefined, undefined, binary, "The resource id. A random resource id will be used if not provided"}
         , {config, $c, "config", {binary, <<"{}">>}, "Config"}
-        , {description, $d, "descr", {binary, <<"''">>}, "Description"}
+        , {description, $d, "descr", {binary, undefined}, "Description"}
         ]).
 
 -define(OPTSPEC_RULES_CREATE,
@@ -213,7 +213,7 @@ resources(_Usage) ->
                     {"resources list [-t <ResourceType>]", "List resources"},
                     {"resources show <ResourceId>", "Show a resource"},
                     {"resources delete <ResourceId>", "Delete a resource"},
-                    {"resources update <ResourceId> [-c [<config>]] [-d [<description>]]", "Update a resource"}
+                    {"resources update <ResourceId> [-c <config>] [-d <description>]", "Update a resource"}
                    ]).
 
 %%------------------------------------------------------------------------------
@@ -325,8 +325,7 @@ make_resource(Opts) ->
 
 make_updated_resource(Opts) ->
     P1 = case maps:find(description, maps:from_list(Opts)) of
-         {ok, <<"''">>} -> #{};
-         {ok, <<"\"\"">>} -> #{};
+         {ok, undefined} -> #{};
          {ok, Value} -> #{<<"description">> => Value};
          error -> #{}
     end,

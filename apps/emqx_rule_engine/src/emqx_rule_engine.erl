@@ -274,22 +274,16 @@ update_resource(Id, NewParams) ->
 do_update_resource(#{id := Id, type := Type, description:= NewDescription, config:= NewConfig}) ->
     case emqx_rule_registry:find_resource_type(Type) of
         {ok, #resource_type{on_create = {Module, Create},
+                            on_destroy = {Module, Destroy},
                             params_spec = ParamSpec}} ->
             Config = emqx_rule_validator:validate_params(NewConfig, ParamSpec),
-            cluster_call(init_resource, [Module, Create, Id, Config, true]),
-            case delete_resource(Id) of
-                {error, not_found} ->
-                   {error, not_found};
-                _ ->
-                   emqx_rule_registry:add_resource(
-                        #resource{id = Id,
-                                  type = Type,
-                                  config = Config,
-                                  description = NewDescription,
-                                  created_at = erlang:system_time(millisecond)})
-            end;
-        not_found ->
-            {error, {resource_type_not_found, Type}}
+            cluster_call(init_resource, [Module, Create, Id, Config]),
+            emqx_rule_registry:add_resource(#resource{id = Id,
+                                                      type = Type,
+                                                      config = Config,
+                                                      description = NewDescription,
+                                                      created_at = erlang:system_time(millisecond)}),
+            cluster_call(clear_resource, [Module, Destroy, Id])
     end.
 
 -spec(start_resource(resource_id()) -> ok | {error, Reason :: term()}).

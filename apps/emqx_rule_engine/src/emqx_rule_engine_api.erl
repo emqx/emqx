@@ -330,8 +330,6 @@ start_resource(#{id := Id}, _Params) ->
 update_resource(#{id := Id}, NewParams) ->
     Maps = maps:from_list(NewParams),
     P1 = case maps:find(<<"description">>, Maps) of
-         {ok, <<"''">>} -> #{};
-         {ok, <<"\"\"">>} -> #{};
          {ok, Value} -> #{<<"description">> => Value};
          error -> #{}
     end,
