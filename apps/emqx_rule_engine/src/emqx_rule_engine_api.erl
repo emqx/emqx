@@ -330,8 +330,8 @@ start_resource(#{id := Id}, _Params) ->
 update_resource(#{id := Id}, NewParams) ->
     Maps = maps:from_list(NewParams),
     P1 = case maps:find(<<"description">>, Maps) of
-         {ok, Value} -> #{<<"description">> => Value};
-         error -> #{}
+            {ok, Value} -> #{<<"description">> => Value};
+            error -> #{}
     end,
     P2 = case maps:find(<<"config">>, Maps) of
             error -> #{};
@@ -345,9 +345,12 @@ update_resource(#{id := Id}, NewParams) ->
         {error, not_found} ->
             ?LOG(error, "resource not found: ~0p", [Id]),
             return({error, 400, list_to_binary("resource not found:" ++ binary_to_list(Id))});
+        {error, {init_resource_failure, _}} ->
+            ?LOG(error, "init resource failure: ~0p", [Id]),
+            return({error, 500, list_to_binary("init resource failure:" ++ binary_to_list(Id))});
         {error, Reason} ->
             ?LOG(error, "update resource failed: ~0p", [Reason]),
-            return({error, 500, <<"internal error, info have been written to logfile!">>})
+            return({error, 500, <<"update resource failed,error info have been written to logfile!">>})
     end.
 
 

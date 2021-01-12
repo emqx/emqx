@@ -46,7 +46,7 @@
 
 -define(OPTSPEC_RESOURCES_UPDATE,
         [ {id, undefined, undefined, binary, "The resource id. A random resource id will be used if not provided"}
-        , {config, $c, "config", {binary, <<"{}">>}, "Config"}
+        , {config, $c, "config", {binary, undefined}, "Config"}
         , {description, $d, "descr", {binary, undefined}, "Description"}
         ]).
 
@@ -325,14 +325,14 @@ make_resource(Opts) ->
 
 make_updated_resource(Opts) ->
     P1 = case maps:find(description, maps:from_list(Opts)) of
-         {ok, undefined} -> #{};
-         {ok, Value} -> #{<<"description">> => Value};
-         error -> #{}
+            error -> #{};
+            {ok, undefined} -> #{};
+            {ok, Value} -> #{<<"description">> => Value}
     end,
     P2 = case maps:find(config, maps:from_list(Opts)) of
             error -> #{};
-            {ok, <<"{}">>} -> #{};
-            {ok, Map} -> #{<<"config">> => ?RAISE(maps:from_list(Map), {invalid_config, Map})}
+            {ok, undefined} -> #{};
+            {ok, Map} -> #{<<"config">> => ?RAISE((emqx_json:decode(Map, [return_maps])), {invalid_config, Map})}
     end,
     maps:merge(P1, P2).
 
