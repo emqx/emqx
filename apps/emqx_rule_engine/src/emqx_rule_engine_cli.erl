@@ -39,7 +39,7 @@
 
 -define(OPTSPEC_RESOURCES_CREATE,
         [ {type, undefined, undefined, atom, "Resource Type"}
-        , {id, $i, "id", {binary, <<"">>}, "The resource id. A random resource id will be used if not provided"}
+        , {id, $i, "id", {binary, <<"">>}, "The resource id"}
         , {config, $c, "config", {binary, <<"{}">>}, "Config"}
         , {descr, $d, "descr", {binary, <<"">>}, "Description"}
         ]).
