@@ -328,18 +328,16 @@ start_resource(#{id := Id}, _Params) ->
     end.
 
 update_resource(#{id := Id}, NewParams) ->
-    Maps = maps:from_list(NewParams),
-    P1 = case maps:find(<<"description">>, Maps) of
-            {ok, Value} -> #{<<"description">> => Value};
-            error -> #{}
+    P1 = case proplists:get_value(<<"description">>, NewParams) of
+            undefined -> #{};
+            Value -> #{<<"description">> => Value}
     end,
-    P2 = case maps:find(<<"config">>, Maps) of
-            error -> #{};
-            {ok, <<"{}">>} -> #{};
-            {ok, Map} -> #{<<"config">> => ?RAISE(maps:from_list(Map), {invalid_config, Map})}
+    P2 = case proplists:get_value(<<"config">>, NewParams) of
+            undefined -> #{};
+            <<"{}">> -> #{};
+            Map -> #{<<"config">> => ?RAISE(maps:from_list(Map), {invalid_config, Map})}
     end,
-    R = emqx_rule_engine:update_resource(Id, maps:merge(P1, P2)),
-    case R of
+    case emqx_rule_engine:update_resource(Id, maps:merge(P1, P2)) of
         ok ->
             return(ok);
         {error, not_found} ->

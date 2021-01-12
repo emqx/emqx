@@ -169,8 +169,7 @@ resources(["update" | Params]) ->
     with_opts(fun({Opts, _}) ->
         Id = maps:get(id, maps:from_list(Opts)),
         Maps = make_updated_resource(Opts),
-        R = emqx_rule_engine:update_resource(Id, Maps),
-        case R of
+        case emqx_rule_engine:update_resource(Id, Maps) of
             ok ->
                 emqx_ctl:print("Resource update successfully~n");
             {error, Reason} ->
@@ -324,15 +323,13 @@ make_resource(Opts) ->
           description => get_value(descr, Opts)}, id, <<"">>, Opts).
 
 make_updated_resource(Opts) ->
-    P1 = case maps:find(description, maps:from_list(Opts)) of
-            error -> #{};
-            {ok, undefined} -> #{};
-            {ok, Value} -> #{<<"description">> => Value}
+    P1 = case proplists:get_value(description, Opts) of
+            undefined -> #{};
+            Value -> #{<<"description">> => Value}
     end,
-    P2 = case maps:find(config, maps:from_list(Opts)) of
-            error -> #{};
-            {ok, undefined} -> #{};
-            {ok, Map} -> #{<<"config">> => ?RAISE((emqx_json:decode(Map, [return_maps])), {invalid_config, Map})}
+    P2 = case proplists:get_value(config, Opts) of
+            undefined -> #{};
+            Map -> #{<<"config">> => ?RAISE((emqx_json:decode(Map, [return_maps])), {invalid_config, Map})}
     end,
     maps:merge(P1, P2).
 
