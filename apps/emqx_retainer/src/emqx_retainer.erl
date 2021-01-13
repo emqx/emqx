@@ -138,7 +138,7 @@ init([Env]) ->
                 {record_name, retained},
                 {attributes, record_info(fields, retained)},
                 {storage_properties, StoreProps}]),
-    ok = ekka_mnesia:copy_table(?TAB),
+    ok = ekka_mnesia:copy_table(?TAB, Copies),
     case mnesia:table_info(?TAB, storage_type) of
         Copies -> ok;
         _Other ->

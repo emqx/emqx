@@ -112,8 +112,8 @@ mnesia(boot) ->
               {record_name, deactivated_alarm},
               {attributes, record_info(fields, deactivated_alarm)}]);
 mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?ACTIVATED_ALARM),
-    ok = ekka_mnesia:copy_table(?DEACTIVATED_ALARM).
+    ok = ekka_mnesia:copy_table(?ACTIVATED_ALARM, disc_copies),
+    ok = ekka_mnesia:copy_table(?DEACTIVATED_ALARM, disc_copies).
 
 %%--------------------------------------------------------------------
 %% API
