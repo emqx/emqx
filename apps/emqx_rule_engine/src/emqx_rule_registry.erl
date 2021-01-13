@@ -131,11 +131,11 @@ mnesia(boot) ->
 
 mnesia(copy) ->
     %% Copy rule table
-    ok = ekka_mnesia:copy_table(?RULE_TAB),
+    ok = ekka_mnesia:copy_table(?RULE_TAB, disc_copies),
     %% Copy rule action table
     ok = ekka_mnesia:copy_table(?ACTION_TAB),
     %% Copy resource table
-    ok = ekka_mnesia:copy_table(?RES_TAB),
+    ok = ekka_mnesia:copy_table(?RES_TAB, disc_copies),
     %% Copy resource type table
     ok = ekka_mnesia:copy_table(?RES_TYPE_TAB).
 
