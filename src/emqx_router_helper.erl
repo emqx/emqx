@@ -68,7 +68,7 @@ mnesia(boot) ->
                 {storage_properties, [{ets, [{read_concurrency, true}]}]}]);
 
 mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?ROUTING_NODE).
+    ok = ekka_mnesia:copy_table(?ROUTING_NODE, ram_copies).
 
 %%--------------------------------------------------------------------
 %% API

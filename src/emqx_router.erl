@@ -83,7 +83,7 @@ mnesia(boot) ->
                 {storage_properties, [{ets, [{read_concurrency, true},
                                              {write_concurrency, true}]}]}]);
 mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?ROUTE_TAB).
+    ok = ekka_mnesia:copy_table(?ROUTE_TAB, ram_copies).
 
 %%--------------------------------------------------------------------
 %% Start a router

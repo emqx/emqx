@@ -69,9 +69,9 @@ mnesia(boot) ->
 
 mnesia(copy) ->
     %% Copy trie table
-    ok = ekka_mnesia:copy_table(?TRIE_TAB),
+    ok = ekka_mnesia:copy_table(?TRIE_TAB, ram_copies),
     %% Copy trie_node table
-    ok = ekka_mnesia:copy_table(?TRIE_NODE_TAB).
+    ok = ekka_mnesia:copy_table(?TRIE_NODE_TAB, ram_copies).
 
 %%--------------------------------------------------------------------
 %% Trie APIs

@@ -84,7 +84,7 @@ mnesia(boot) ->
                 {attributes, record_info(fields, emqx_shared_subscription)}]);
 
 mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TAB).
+    ok = ekka_mnesia:copy_table(?TAB, ram_copies).
 
 %%--------------------------------------------------------------------
 %% API
