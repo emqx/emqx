@@ -128,6 +128,7 @@
         , export_acl_mnesia/0
         , import_rules/1
         , import_resources/1
+        , import_resources_and_rules/3
         , import_blacklist/1
         , import_applications/1
         , import_users/1
@@ -664,40 +665,97 @@ export_acl_mnesia() ->
     end.
 
 import_rules(Rules) ->
-    lists:foreach(fun(#{<<"id">> := RuleId,
-                        <<"rawsql">> := RawSQL,
-                        <<"actions">> := Actions,
-                        <<"enabled">> := Enabled,
-                        <<"description">> := Desc}) ->
-                      Rule = #{
-                        id => RuleId,
-                        rawsql => RawSQL,
-                        actions => map_to_actions(Actions),
-                        enabled => Enabled,
-                        description => Desc
-                      },
-                      try emqx_rule_engine:create_rule(Rule)
-                      catch throw:{resource_not_initialized, _ResId} ->
-                          emqx_rule_engine:create_rule(Rule#{enabled => false})
-                      end
+    lists:foreach(fun(Rule) ->
+                      import_rule(Rule)
                   end, Rules).
 
 import_resources(Reources) ->
-    lists:foreach(fun(#{<<"id">> := Id,
-                        <<"type">> := Type,
-                        <<"config">> := Config,
-                        <<"created_at">> := CreatedAt,
-                        <<"description">> := Desc}) ->
-                      NCreatedAt = case CreatedAt of
-                                       null -> undefined;
-                                       _ -> CreatedAt
-                                   end,
-                      emqx_rule_engine:create_resource(#{id => Id,
-                                                         type => any_to_atom(Type),
-                                                         config => Config,
-                                                         created_at => NCreatedAt,
-                                                         description => Desc})
+    lists:foreach(fun(Resource) ->
+                      import_resource(Resource)
                   end, Reources).
+
+import_rule(#{<<"id">> := RuleId,
+              <<"rawsql">> := RawSQL,
+              <<"actions">> := Actions,
+              <<"enabled">> := Enabled,
+              <<"description">> := Desc}) ->
+    Rule = #{id => RuleId,
+             rawsql => RawSQL,
+             actions => map_to_actions(Actions),
+             enabled => Enabled,
+             description => Desc},
+    try emqx_rule_engine:create_rule(Rule)
+    catch throw:{resource_not_initialized, _ResId} ->
+        emqx_rule_engine:create_rule(Rule#{enabled => false})
+    end.
+
+import_resource(#{<<"id">> := Id,
+                  <<"type">> := Type,
+                  <<"config">> := Config,
+                  <<"created_at">> := CreatedAt,
+                  <<"description">> := Desc}) ->
+    NCreatedAt = case CreatedAt of
+                     null -> undefined;
+                     _ -> CreatedAt
+                 end,
+    emqx_rule_engine:create_resource(#{id => Id,
+                                       type => any_to_atom(Type),
+                                       config => Config,
+                                       created_at => NCreatedAt,
+                                       description => Desc}).
+
+import_resources_and_rules(Resources, Rules, FromVersion)
+  when FromVersion =:= "4.0" orelse FromVersion =:= "4.1" orelse FromVersion =:= "4.2" ->
+    Configs = lists:foldl(fun(#{<<"id">> := ID,
+                                <<"type">> := <<"web_hook">>,
+                                <<"config">> := #{<<"content_type">> := ContentType,
+                                                  <<"headers">> := Headers,
+                                                  <<"method">> := Method,
+                                                  <<"url">> := URL}} = Resource, Acc) ->
+                              NConfig = #{<<"connect_timeout">> => 5,
+                                          <<"request_timeout">> => 5,
+                                          <<"cacertfile">> => <<>>,
+                                          <<"certfile">> => <<>>,
+                                          <<"keyfile">> => <<>>,
+                                          <<"pool_size">> => 8,
+                                          <<"url">> => URL,
+                                          <<"verify">> => true},
+                              NResource = Resource#{<<"config">> := NConfig},
+                              import_resource(NResource),
+                              NHeaders = maps:put(<<"content-type">>, ContentType, Headers),
+                              [{ID, #{headers => NHeaders, method => Method}} | Acc];
+                             (Resource, Acc) ->
+                              import_resource(Resource),
+                              Acc
+                          end, [], Resources),
+    lists:foreach(fun(#{<<"actions">> := Actions} = Rule) ->
+                      NActions = apply_new_config(Actions, Configs),
+                      import_rule(Rule#{<<"actions">> := NActions})
+                  end, Rules);
+import_resources_and_rules(Resources, Rules, _FromVersion) ->
+    import_resources(Resources),
+    import_rules(Rules).
+
+apply_new_config(Actions, Configs) ->
+    apply_new_config(Actions, Configs, []).
+
+apply_new_config([], _Configs, Acc) ->
+    Acc;
+apply_new_config([Action = #{<<"name">> := <<"data_to_webserver">>,
+                             <<"args">> := #{<<"$resource">> := ID,
+                                            <<"path">> := Path,
+                                            <<"payload_tmpl">> := PayloadTmpl}} | More], Configs, Acc) ->
+    case proplists:get_value(ID, Configs, undefined) of
+        undefined ->
+            apply_new_config(More, Configs, [Action | Acc]);
+        #{headers := Headers, method := Method} ->
+            Args = #{<<"$resource">> => ID,
+                     <<"body">> => PayloadTmpl,
+                     <<"headers">> => Headers,
+                     <<"method">> => Method,
+                     <<"path">> => Path},
+            apply_new_config(More, Configs, [Action#{<<"args">> := Args} | Acc])
+    end.
 
 import_blacklist(Blacklist) ->
     lists:foreach(fun(#{<<"who">> := Who,

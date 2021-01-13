@@ -66,13 +66,13 @@ set_special_configs(emqx, _Schmea, _Inet) ->
 set_special_configs(emqx_auth_http, Schema, Inet) ->
     ServerAddr = http_server(Schema, Inet),
 
-    AuthReq = #{method => get,
+    AuthReq = #{method => post,
                 url => ServerAddr ++ "/mqtt/auth",
-                content_type => <<"application/x-www-form-urlencoded">>,
+                content_type => <<"application/json">>,
                 params => [{"clientid", "%c"}, {"username", "%u"}, {"password", "%P"}]},
     SuperReq = #{method => post,
                  url => ServerAddr ++ "/mqtt/superuser",
-                 content_type => <<"application/x-www-form-urlencoded">>,
+                 content_type => <<"application/json">>,
                  params => [{"clientid", "%c"}, {"username", "%u"}]},
     AclReq = #{method => post,
                url => ServerAddr ++ "/mqtt/acl",

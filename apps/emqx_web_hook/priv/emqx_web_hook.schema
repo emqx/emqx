@@ -1,33 +1,39 @@
 %%-*- mode: erlang -*-
 %% EMQ X R3.0 config mapping
 
-{mapping, "web.hook.api.url", "emqx_web_hook.url", [
+{mapping, "web.hook.url", "emqx_web_hook.url", [
   {datatype, string}
 ]}.
 
-{mapping, "web.hook.ssl", "emqx_web.hook.ssl", [
-  {default, off},
-  {datatype, flag}
-]}.
-
-{mapping, "web.hook.ssl.cafile", "emqx_web_hook.ssloptions", [
-  {default, ""},
+{mapping, "web.hook.headers.$name", "emqx_web_hook.headers", [
   {datatype, string}
 ]}.
 
-{mapping, "web.hook.ssl.certfile", "emqx_web_hook.ssloptions", [
-  {default, ""},
+{mapping, "web.hook.body.encoding_of_payload_field", "emqx_web_hook.encoding_of_payload_field", [
+  {default, plain},
+  {datatype, {enum, [plain, base62, base64]}}
+]}.
+
+{mapping, "web.hook.ssl.cacertfile", "emqx_web_hook.cacertfile", [
   {datatype, string}
 ]}.
 
-{mapping, "web.hook.ssl.keyfile", "emqx_web_hook.ssloptions", [
-  {default, ""},
+{mapping, "web.hook.ssl.certfile", "emqx_web_hook.certfile", [
   {datatype, string}
 ]}.
 
-{mapping, "web.hook.encode_payload", "emqx_web_hook.encode_payload", [
-  {default, undefined},
-  {datatype, {enum, [base62, base64]}}
+{mapping, "web.hook.ssl.keyfile", "emqx_web_hook.keyfile", [
+  {datatype, string}
+]}.
+
+{mapping, "web.hook.ssl.verify", "emqx_web_hook.verify", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "web.hook.pool_size", "emqx_web_hook.pool_size", [
+  {default, 32},
+  {datatype, integer}
 ]}.
 
 {mapping, "web.hook.rule.client.connect.$name", "emqx_web_hook.rules", [
@@ -78,10 +84,6 @@
   {datatype, string}
 ]}.
 
-{mapping, "web.hook.headers.$name", "emqx_web_hook.headers", [
-  {datatype, string}
-]}.
-
 {translation, "emqx_web_hook.headers", fun(Conf) ->
   Headers = cuttlefish_variable:filter_by_prefix("web.hook.headers", Conf),
   [{K, V} || {[_, _, _, K], V} <- Headers]
@@ -93,14 +95,4 @@ end}.
     fun({[_, _, _,Name1,Name2, _], Val}) -> 
 	  {lists:concat([Name1,".",Name2]), Val}
 	end, Hooks)
-end}.
-
-{translation, "emqx_web_hook.ssloptions", fun(Conf) ->
-     CA = cuttlefish:conf_get("web.hook.ssl.cafile", Conf),
-     Cert = cuttlefish:conf_get("web.hook.ssl.certfile", Conf),
-     Key = cuttlefish:conf_get("web.hook.ssl.keyfile", Conf),
-     case ((Cert == "") or (Key == "")) of
-          true -> [{cacertfile, CA}];
-          _ -> [{cacertfile, CA}, {certfile, Cert}, {keyfile, Key}]
-     end
 end}.

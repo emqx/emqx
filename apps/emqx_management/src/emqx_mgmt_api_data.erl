@@ -174,8 +174,7 @@ do_import(Filename) ->
             case lists:member(Version, ?VERSIONS) of
                 true  ->
                     try
-                        emqx_mgmt:import_resources(maps:get(<<"resources">>, Data, [])),
-                        emqx_mgmt:import_rules(maps:get(<<"rules">>, Data, [])),
+                        emqx_mgmt:import_resources_and_rules(maps:get(<<"resources">>, Data, []), maps:get(<<"rules">>, Data, []), Version),
                         emqx_mgmt:import_blacklist(maps:get(<<"blacklist">>, Data, [])),
                         emqx_mgmt:import_applications(maps:get(<<"apps">>, Data, [])),
                         emqx_mgmt:import_users(maps:get(<<"users">>, Data, [])),

@@ -94,7 +94,7 @@ on_client_connect(ConnInfo = #{clientid := ClientId, username := Username, peern
               , keepalive => maps:get(keepalive, ConnInfo)
               , proto_ver => maps:get(proto_ver, ConnInfo)
               },
-    send_http_request(Params).
+    send_http_request(ClientId, Params).
 
 %%--------------------------------------------------------------------
 %% Client connack
@@ -111,7 +111,7 @@ on_client_connack(ConnInfo = #{clientid := ClientId, username := Username, peern
               , proto_ver => maps:get(proto_ver, ConnInfo)
               , conn_ack => Rc
               },
-    send_http_request(Params).
+    send_http_request(ClientId, Params).
 
 %%--------------------------------------------------------------------
 %% Client connected
@@ -128,7 +128,7 @@ on_client_connected(#{clientid := ClientId, username := Username, peerhost := Pe
               , proto_ver => maps:get(proto_ver, ConnInfo)
               , connected_at => maps:get(connected_at, ConnInfo)
               },
-    send_http_request(Params).
+    send_http_request(ClientId, Params).
 
 %%--------------------------------------------------------------------
 %% Client disconnected
@@ -145,7 +145,7 @@ on_client_disconnected(#{clientid := ClientId, username := Username}, Reason, Co
               , reason => stringfy(maybe(Reason))
               , disconnected_at => maps:get(disconnected_at, ConnInfo, erlang:system_time(millisecond))
               },
-    send_http_request(Params).
+    send_http_request(ClientId, Params).
 
 %%--------------------------------------------------------------------
 %% Client subscribe
@@ -163,7 +163,7 @@ on_client_subscribe(#{clientid := ClientId, username := Username}, _Properties, 
                     , topic => Topic
                     , opts => Opts
                     },
-          send_http_request(Params)
+          send_http_request(ClientId, Params)
         end, Topic, Filter)
     end, TopicTable).
 
@@ -183,7 +183,7 @@ on_client_unsubscribe(#{clientid := ClientId, username := Username}, _Properties
                     , topic => Topic
                     , opts => Opts
                     },
-          send_http_request(Params)
+          send_http_request(ClientId, Params)
         end, Topic, Filter)
     end, TopicTable).
 
@@ -202,7 +202,7 @@ on_session_subscribed(#{clientid := ClientId, username := Username}, Topic, Opts
                   , topic => Topic
                   , opts => Opts
                   },
-        send_http_request(Params)
+        send_http_request(ClientId, Params)
       end, Topic, Filter).
 
 %%--------------------------------------------------------------------
@@ -219,7 +219,7 @@ on_session_unsubscribed(#{clientid := ClientId, username := Username}, Topic, _O
                   , username => maybe(Username)
                   , topic => Topic
                   },
-        send_http_request(Params)
+        send_http_request(ClientId, Params)
       end, Topic, Filter).
 
 %%--------------------------------------------------------------------
@@ -236,7 +236,7 @@ on_session_terminated(#{clientid := ClientId, username := Username}, Reason, _Se
               , username => maybe(Username)
               , reason => stringfy(maybe(Reason))
               },
-    send_http_request(Params).
+    send_http_request(ClientId, Params).
 
 %%--------------------------------------------------------------------
 %% Message publish
@@ -259,7 +259,7 @@ on_message_publish(Message = #message{topic = Topic}, {Filter}) ->
                   , payload => encode_payload(Message#message.payload)
                   , ts => Message#message.timestamp
                   },
-        send_http_request(Params),
+        send_http_request(FromClientId, Params),
         {ok, Message}
       end, Message, Topic, Filter).
 
@@ -287,7 +287,7 @@ on_message_delivered(#{clientid := ClientId, username := Username},
                 , payload => encode_payload(Message#message.payload)
                 , ts => Message#message.timestamp
                 },
-      send_http_request(Params)
+      send_http_request(ClientId, Params)
     end, Topic, Filter).
 
 %%--------------------------------------------------------------------
@@ -314,35 +314,32 @@ on_message_acked(#{clientid := ClientId, username := Username},
                   , payload => encode_payload(Message#message.payload)
                   , ts => Message#message.timestamp
                   },
-        send_http_request(Params)
+        send_http_request(ClientId, Params)
       end, Topic, Filter).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-send_http_request(Params) ->
-    Params1 = emqx_json:encode(Params),
-    Url = application:get_env(?APP, url, "http://127.0.0.1"),
+send_http_request(ClientID, Params) ->
+    {ok, Path} = application:get_env(?APP, path),
     Headers = application:get_env(?APP, headers, []),
-    ?LOG(debug, "Send to: ~0p, params: ~0s", [Url, Params1]),
-    case request_(post, {Url, Headers, "application/json", Params1}, [{timeout, 5000}], [], 0) of
-        {ok, _} -> ok;
+    Body = emqx_json:encode(Params),
+    ?LOG(debug, "Send to: ~0p, params: ~0s", [Path, Body]),
+    case ehttpc:request(ehttpc_pool:pick_worker(?APP, ClientID), post, {Path, Headers, Body}) of
+        {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+            ok;
+        {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+            ok;
+        {ok, StatusCode, _} ->
+            ?LOG(warning, "HTTP request failed with status code: ~p", [StatusCode]),
+            ok;
+        {ok, StatusCode, _, _} ->
+            ?LOG(warning, "HTTP request failed with status code: ~p", [StatusCode]),
+            ok;
         {error, Reason} ->
-            ?LOG(error, "HTTP request error: ~p", [Reason]), ok
-    end.
-
-request_(Method, Req, HTTPOpts, Opts, Times) ->
-    %% Resend request, when TCP closed by remotely
-    NHttpOpts = case application:get_env(?APP, ssl, false) of
-        true -> [{ssl, application:get_env(?APP, ssloptions, [])} | HTTPOpts];
-        _ -> HTTPOpts
-    end,
-    case httpc:request(Method, Req, NHttpOpts, Opts) of
-        {error, socket_closed_remotely} when Times < 3 ->
-            timer:sleep(trunc(math:pow(10, Times))),
-            request_(Method, Req, HTTPOpts, Opts, Times+1);
-        Other -> Other
+            ?LOG(error, "HTTP request error: ~p", [Reason]),
+            ok
     end.
 
 parse_rule(Rules) ->
@@ -375,11 +372,11 @@ parse_from(Message) ->
     {emqx_message:from(Message), maybe(emqx_message:get_header(username, Message))}.
 
 encode_payload(Payload) ->
-    encode_payload(Payload, application:get_env(?APP, encode_payload, undefined)).
+    encode_payload(Payload, application:get_env(?APP, encoding_of_payload_field, plain)).
 
 encode_payload(Payload, base62) -> emqx_base62:encode(Payload);
 encode_payload(Payload, base64) -> base64:encode(Payload);
-encode_payload(Payload, _) -> Payload.
+encode_payload(Payload, plain) -> Payload.
 
 stringfy(Term) when is_atom(Term); is_binary(Term) ->
     Term;
