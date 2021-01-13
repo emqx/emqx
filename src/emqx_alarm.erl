@@ -55,9 +55,9 @@
           name :: binary() | atom(),
 
           details :: map() | list(),
-    
+
           message :: binary(),
-    
+
           activate_at :: integer()
         }).
 
@@ -67,9 +67,9 @@
           name :: binary() | atom(),
 
           details :: map() | list(),
-    
+
           message :: binary(),
-    
+
           deactivate_at :: integer() | infinity
         }).
 
@@ -83,6 +83,7 @@
           timer = undefined :: undefined | reference()
         }).
 
+-type state() :: #state{}.
 -type action() :: log | publish | event.
 
 -define(ACTIVATED_ALARM, emqx_activated_alarm).
@@ -219,7 +220,9 @@ handle_call(delete_all_deactivated_alarms, _From, State) ->
     {reply, ok, State};
 
 handle_call({get_alarms, all}, _From, State) ->
-    Alarms = [normalize(Alarm) || Alarm <- ets:tab2list(?ACTIVATED_ALARM) ++ ets:tab2list(?DEACTIVATED_ALARM)],
+    Alarms = [normalize(Alarm) ||
+              Alarm <- ets:tab2list(?ACTIVATED_ALARM)
+                    ++ ets:tab2list(?DEACTIVATED_ALARM)],
     {reply, Alarms, State};
 
 handle_call({get_alarms, activated}, _From, State) ->
@@ -259,17 +262,22 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 deactivate_all_alarms() ->
-    lists:foreach(fun(#activated_alarm{name = Name,
-                                       details = Details,
-                                       message = Message,
-                                       activate_at = ActivateAt}) ->
-                      mnesia:dirty_write(?DEACTIVATED_ALARM,
-                                         #deactivated_alarm{activate_at = ActivateAt,
-                                                            name = Name,
-                                                            details = Details,
-                                                            message = Message,
-                                                            deactivate_at = erlang:system_time(microsecond)})
-                  end, ets:tab2list(?ACTIVATED_ALARM)),
+    lists:foreach(
+      fun(#activated_alarm{
+             name = Name,
+             details = Details,
+             message = Message,
+             activate_at = ActivateAt
+            }) ->
+        mnesia:dirty_write(?DEACTIVATED_ALARM,
+                           #deactivated_alarm{
+                              activate_at = ActivateAt,
+                              name = Name,
+                              details = Details,
+                              message = Message,
+                              deactivate_at = erlang:system_time(microsecond)
+                             })
+      end, ets:tab2list(?ACTIVATED_ALARM)),
     clear_table(?ACTIVATED_ALARM).
 
 %% Delete all records from the given table, ignore result.
@@ -283,7 +291,8 @@ clear_table(TableName) ->
     end.
 
 ensure_delete_timer(State = #state{validity_period = ValidityPeriod}) ->
-    State#state{timer = emqx_misc:start_timer(ValidityPeriod div 1, delete_expired_deactivated_alarm)}.
+    TRef = emqx_misc:start_timer(ValidityPeriod, delete_expired_deactivated_alarm),
+    State#state{timer = TRef}.
 
 delete_expired_deactivated_alarms(Checkpoint) ->
     delete_expired_deactivated_alarms(mnesia:dirty_first(?DEACTIVATED_ALARM), Checkpoint).
