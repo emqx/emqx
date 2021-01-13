@@ -567,7 +567,7 @@ get_alarms(Type) ->
     [{Node, get_alarms(Node, Type)} || Node <- ekka_mnesia:running_nodes()].
 
 get_alarms(Node, Type) when Node =:= node() ->
-    emqx_alarm:get_alarms(Type);
+    add_duration_field(emqx_alarm:get_alarms(Type));
 get_alarms(Node, Type) ->
     rpc_call(Node, get_alarms, [Node, Type]).
 
@@ -583,6 +583,17 @@ delete_all_deactivated_alarms(Node) when Node =:= node() ->
     emqx_alarm:delete_all_deactivated_alarms();
 delete_all_deactivated_alarms(Node) ->
     rpc_call(Node, delete_deactivated_alarms, [Node]).
+
+add_duration_field(Alarms) ->
+    Now = erlang:system_time(microsecond),
+    add_duration_field(Alarms, Now, []).
+
+add_duration_field([], _Now, Acc) ->
+    Acc;
+add_duration_field([Alarm = #{activated := true, activate_at := ActivateAt}| Rest], Now, Acc) ->
+    add_duration_field(Rest, Now, [Alarm#{duration => Now - ActivateAt} | Acc]);
+add_duration_field([Alarm = #{activated := false, activate_at := ActivateAt, deactivate_at := DeactivateAt}| Rest], Now, Acc) ->
+    add_duration_field(Rest, Now, [Alarm#{duration => DeactivateAt - ActivateAt} | Acc]).
 
 %%--------------------------------------------------------------------
 %% Banned API
