@@ -108,7 +108,7 @@ init([]) ->
                 {attributes, record_info(fields, channel)},
                 {storage_properties, [{ets, [{read_concurrency, true},
                                              {write_concurrency, true}]}]}]),
-    ok = ekka_mnesia:copy_table(?TAB),
+    ok = ekka_mnesia:copy_table(?TAB, ram_copies),
     ok = ekka:monitor(membership),
     {ok, #{}}.
 
