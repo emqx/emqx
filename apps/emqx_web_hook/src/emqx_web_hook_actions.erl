@@ -89,7 +89,7 @@
             pool_size => #{
                 order => 8,
                 type => number,
-                default => 8,
+                default => 32,
                 title => #{en => <<"Pool Size">>,
                            zh => <<"连接池大小"/utf8>>},
                 description => #{en => <<"Pool Size for HTTP Server.">>,
