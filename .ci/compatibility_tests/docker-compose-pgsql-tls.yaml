@@ -15,21 +15,37 @@ services:
 
   pgsql_server:
     container_name: pgsql
-    image: postgres:${PGSQL_TAG}
+    build:
+        context: ./pgsql
+        args:
+            POSTGRES_USER: postgres
+            BUILD_FROM: postgres:${PGSQL_TAG}
+    image: emqx_pgsql:${PGSQL_TAG}
     restart: always
     environment:
-      POSTGRES_PASSWORD: public
-      POSTGRES_USER: root
-      POSTGRES_DB: mqtt
-    volumes:
-      - ../../apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/pg.conf:/etc/postgresql/postgresql.conf
-      - ../../apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/server-cert.pem:/etc/postgresql/server-cert.pem
-      - ../../apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/server-key.pem:/etc/postgresql/server-key.pem
+        POSTGRES_DB: postgres
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+    ports:
+       - "5432:5432"
     command:
-      - -c
-      - config_file=/etc/postgresql/postgresql.conf
+       - -c
+       - ssl=on
+       - -c
+       - ssl_cert_file=/var/lib/postgresql/server.crt
+       - -c
+       - ssl_key_file=/var/lib/postgresql/server.key
+       - -c
+       - ssl_ca_file=/var/lib/postgresql/root.crt
+       - -c
+       - hba_file=/var/lib/postgresql/pg_hba.conf
+
     networks:
-      - emqx_bridge
+      emqx_bridge:
+        aliases:
+          - "thebrain.ca"
+        ipv4_address: 172.100.100.2
+        ipv6_address: 2001:3200:3200::20
 
 networks:
   emqx_bridge:
@@ -43,3 +59,5 @@ networks:
           gateway: 172.100.100.1
         - subnet: 2001:3200:3200::/64
           gateway: 2001:3200:3200::1
+    driver_opts:
+      com.docker.network.enable_ipv6: "true"
