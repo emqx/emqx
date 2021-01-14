@@ -16,7 +16,8 @@ services:
   ldap_server:
     container_name: ldap
     build:
-      context: ./openldap
+      context: ../..
+      dockerfile: .ci/compatibility_tests/openldap/Dockerfile
       args: 
         LDAP_TAG: ${LDAP_TAG}
     image: openldap 
