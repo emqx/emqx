@@ -246,7 +246,22 @@ create_resource(#{type := Type, config := Config0} = Params) ->
     end.
 
 -spec(update_resource(resource_id(), map()) -> ok | {error, Reason :: term()}).
-update_resource(Id, NewParams) ->
+update_resource(ResId, NewParams) ->
+    try
+        lists:foreach(fun(#rule{id = RuleId, enabled = Enabled, actions = Actions}) ->
+                    lists:foreach(
+                        fun (#action_instance{args = #{<<"$resource">> := ResId1}})
+                            when ResId =:= ResId1, Enabled == true ->
+                                throw({dependency_exists, RuleId});
+                            (_) -> ok
+                        end, Actions)
+                    end, ets:tab2list(?RULE_TAB)),
+        do_update_resource_check(ResId, NewParams)
+    catch _ : Reason ->
+        {error, Reason}
+    end.
+
+do_update_resource_check(Id, NewParams) ->
     case emqx_rule_registry:find_resource(Id) of
         {ok, #resource{id = Id,
                        type = Type,

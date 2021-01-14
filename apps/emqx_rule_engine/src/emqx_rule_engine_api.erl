@@ -346,6 +346,9 @@ update_resource(#{id := Id}, NewParams) ->
         {error, {init_resource_failure, _}} ->
             ?LOG(error, "init resource failure: ~0p", [Id]),
             return({error, 500, list_to_binary("init resource failure:" ++ binary_to_list(Id))});
+        {error, {dependency_exists, RuleId}} ->
+            ?LOG(error, "dependency exists: ~0p", [RuleId]),
+            return({error, 500, list_to_binary("resource dependency by rule:" ++ binary_to_list(RuleId))});
         {error, Reason} ->
             ?LOG(error, "update resource failed: ~0p", [Reason]),
             return({error, 500, <<"update resource failed,error info have been written to logfile!">>})
