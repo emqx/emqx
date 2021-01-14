@@ -116,7 +116,8 @@ handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({mnesia_table_event, {write, {?ROUTING_NODE, Node, _}, _}}, State = #{nodes := Nodes}) ->
+handle_info({mnesia_table_event, {write, {?ROUTING_NODE, Node, _}, _}},
+            State = #{nodes := Nodes}) ->
     case ekka:is_member(Node) orelse lists:member(Node, Nodes) of
         true -> {noreply, State};
         false ->
