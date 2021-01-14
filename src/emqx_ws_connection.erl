@@ -171,6 +171,7 @@ call(WsPid, Req) when is_pid(WsPid) ->
 
 init(Req, Opts) ->
     %% WS Transport Idle Timeout
+    FailIfNoSubprotocol = proplists:get_value(fail_if_no_subprotocol, Opts),
     IdleTimeout = proplists:get_value(idle_timeout, Opts, 7200000),
     DeflateOptions = maps:from_list(proplists:get_value(deflate_options, Opts, [])),
     MaxFrameSize = case proplists:get_value(max_frame_size, Opts, 0) of
@@ -186,13 +187,32 @@ init(Req, Opts) ->
     case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
         undefined ->
             %% TODO: why not reply 500???
-            {cowboy_websocket, Req, [Req, Opts], WsOpts};
-        [<<"mqtt", Vsn/binary>>] ->
-            Resp = cowboy_req:set_resp_header(
-                     <<"sec-websocket-protocol">>, <<"mqtt", Vsn/binary>>, Req),
-            {cowboy_websocket, Resp, [Req, Opts], WsOpts};
-        _ ->
-            {ok, cowboy_req:reply(400, Req), WsOpts}
+            case FailIfNoSubprotocol of
+                true ->
+                    {ok, cowboy_req:reply(400, Req), WsOpts};
+                false ->
+                    {cowboy_websocket, Req, [Req, Opts], WsOpts}
+            end;
+        Subprotocols ->
+            SupportedSubprotocols = proplists:get_value(supported_subprotocols, Opts),
+            NSupportedSubprotocols = [list_to_binary(Subprotocol) || Subprotocol <- SupportedSubprotocols],
+            case pick_subprotocol(Subprotocols, NSupportedSubprotocols) of
+                {ok, Subprotocol} ->
+                    Resp = cowboy_req:set_resp_header(<<"sec-websocket-protocol">>, Subprotocol, Req),
+                    {cowboy_websocket, Resp, [Req, Opts], WsOpts};
+                {error, no_supported_subprotocol} ->
+                    {ok, cowboy_req:reply(400, Req), WsOpts}
+            end
+    end.
+
+pick_subprotocol([], _SupportedSubprotocols) ->
+    {error, no_supported_subprotocol};
+pick_subprotocol([Subprotocol | Rest], SupportedSubprotocols) ->
+    case lists:member(Subprotocol, SupportedSubprotocols) of
+        true ->
+            {ok, Subprotocol};
+        false ->
+            pick_subprotocol(Rest, SupportedSubprotocols)
     end.
 
 websocket_init([Req, Opts]) ->
