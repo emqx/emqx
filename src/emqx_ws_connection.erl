@@ -195,10 +195,13 @@ init(Req, Opts) ->
             end;
         Subprotocols ->
             SupportedSubprotocols = proplists:get_value(supported_subprotocols, Opts),
-            NSupportedSubprotocols = [list_to_binary(Subprotocol) || Subprotocol <- SupportedSubprotocols],
+            NSupportedSubprotocols = [list_to_binary(Subprotocol) 
+                                      || Subprotocol <- SupportedSubprotocols],
             case pick_subprotocol(Subprotocols, NSupportedSubprotocols) of
                 {ok, Subprotocol} ->
-                    Resp = cowboy_req:set_resp_header(<<"sec-websocket-protocol">>, Subprotocol, Req),
+                    Resp = cowboy_req:set_resp_header(<<"sec-websocket-protocol">>,
+                                                      Subprotocol,
+                                                      Req),
                     {cowboy_websocket, Resp, [Req, Opts], WsOpts};
                 {error, no_supported_subprotocol} ->
                     {ok, cowboy_req:reply(400, Req), WsOpts}
