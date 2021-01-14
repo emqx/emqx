@@ -171,10 +171,3 @@ t_comment_config(_) ->
     ?assertEqual(AuthCount - 1, length(emqx_hooks:lookup('client.authenticate'))),
     ?assertEqual(AclCount - 1, length(emqx_hooks:lookup('client.check_acl'))).
 
-t_feedvar(_) ->
-    Params = [{"cookie", "%k"}],
-    User0 = ?USER(<<"client1">>, <<"testuser">>, mqtt, {127,0,0,1}, external),
-    ?assertEqual([{"cookie", <<"null">>}], emqx_auth_http_cli:feedvar(Params, User0)),
-
-    User1 = User0#{ws_cookie => [{<<"k">>, <<"v">>}]},
-    ?assertEqual([{"cookie", <<"{\"k\":\"v\"}">>}], emqx_auth_http_cli:feedvar(Params, User1)).
