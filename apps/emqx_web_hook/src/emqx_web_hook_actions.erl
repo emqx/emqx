@@ -324,18 +324,22 @@ str(Str) when is_list(Str) -> Str;
 str(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 str(Bin) when is_binary(Bin) -> binary_to_list(Bin).
 
+get_default_port(<<"http">>) -> 80;
+get_default_port(<<"https">>) -> 443;
+get_default_port(Scheme) -> throw({bad_scheme, Scheme}).
+
 pool_opts(Params = #{<<"url">> := URL}) ->
-    #{host := Host0,
-      port := Port,
-      scheme := Scheme} = uri_string:parse(URL),
-    Host = get_addr(binary_to_list(Host0)),
+    ParsedParams = uri_string:parse(URL),
+    DefaultSchema = maps:get(schema, ParsedParams, <<"http">>),
+    DefaultPort = get_default_port(DefaultSchema),
+    Host = get_addr(binary_to_list(maps:get(host, ParsedParams))),
     PoolSize = maps:get(<<"pool_size">>, Params, 32),
     ConnectTimeout = timer:seconds(maps:get(<<"connect_timeout">>, Params, 5)),
     IPv6 = case tuple_size(Host) =:= 8 of
                true -> [inet6];
                false -> []
            end,
-    MoreOpts = case Scheme of
+    MoreOpts = case DefaultSchema of
                    <<"http">> ->
                        [{transport_opts, IPv6}];
                    <<"https">> ->
@@ -360,7 +364,7 @@ pool_opts(Params = #{<<"url">> := URL}) ->
                        [{transport, ssl}, {transport_opts, NTLSOpts ++ IPv6}]
               end,
     [{host, Host},
-     {port, Port},
+     {port, DefaultPort},
      {pool_size, PoolSize},
      {pool_type, hash},
      {connect_timeout, ConnectTimeout},
