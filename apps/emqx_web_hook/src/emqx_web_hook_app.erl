@@ -56,7 +56,7 @@ translate_env() ->
       scheme := Scheme} = uri_string:parse(binary_to_list(add_default_scheme(URL))),
     Host = get_addr(Host0),
     Path = path(Path0),
-    PoolSize = application:get_env(?APP, pool_size, 8),
+    PoolSize = application:get_env(?APP, pool_size, 32),
     IPv6 = case tuple_size(Host) =:= 8 of
                true -> [inet6];
                false -> []
