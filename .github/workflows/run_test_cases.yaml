@@ -26,9 +26,6 @@ jobs:
             PGSQL_TAG: 13
             LDAP_TAG: 2.4.50
           run: |
-            cp -f apps/emqx_auth_ldap/emqx.io.ldif .ci/apps_tests/emqx_ldap/schema
-            cp -f apps/emqx_auth_ldap/emqx.schema  .ci/apps_tests/emqx_ldap/schema
-            cp -f apps/emqx_auth_ldap/test/certs/* .ci/apps_tests/emqx_ldap/certs
             docker-compose -f .ci/apps_tests/docker-compose.yaml build --no-cache
             docker-compose -f .ci/apps_tests/docker-compose.yaml up -d
         - name: set config files

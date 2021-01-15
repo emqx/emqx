@@ -80,7 +80,8 @@ services:
   ldap_server:
     container_name: openldap
     build:
-      context: ./emqx_ldap
+      context: ../..
+      dockerfile: .ci/apps_tests/openldap/Dockerfile
       args: 
         LDAP_TAG: ${LDAP_TAG}
     image: emqx-ldap:1.0
