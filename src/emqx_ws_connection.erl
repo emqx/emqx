@@ -177,7 +177,7 @@ init(Req, Opts) ->
                        0 -> infinity;
                        I -> I
                    end,
-    Compress = proplists:get_value(compress, Opts, false),
+    Compress = proplists:get_bool(compress, Opts),
     WsOpts = #{compress       => Compress,
                deflate_opts   => DeflateOptions,
                max_frame_size => MaxFrameSize,
@@ -207,7 +207,7 @@ parse_sec_websocket_protocol(Req, Opts, WsOpts) ->
 parse_header_fun_origin(Req, Opts) ->
     case cowboy_req:header(<<"origin">>, Req) of
         undefined ->
-                case proplists:get_value(allow_origin_absence, Opts, true) of
+                case proplists:get_bool(allow_origin_absence, Opts) of
                     true -> ok;
                     false -> {error, origin_header_cannot_be_absent}
                 end;
@@ -220,7 +220,7 @@ parse_header_fun_origin(Req, Opts) ->
     end.
 
 check_origin_header(Req, Opts) ->
-    case proplists:get_value(check_origin_enable, Opts) of
+    case proplists:get_bool(check_origin_enable, Opts) of
         true -> parse_header_fun_origin(Req, Opts);
         false -> ok
     end.
