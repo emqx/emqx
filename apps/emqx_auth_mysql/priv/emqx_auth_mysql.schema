@@ -40,6 +40,12 @@
   {datatype, string}
 ]}.
 
+{mapping, "auth.mysql.ssl.cacertfile", "emqx_auth_mysql.server", [
+  {default, ""},
+  {datatype, string}
+]}.
+
+%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
 {mapping, "auth.mysql.ssl.certfile", "emqx_auth_mysql.server", [
   {default, ""},
   {datatype, string}
@@ -84,7 +90,10 @@
   Options1 =
       case cuttlefish:conf_get("auth.mysql.ssl", Conf) of
             true ->
-                CA = cuttlefish:conf_get("auth.mysql.ssl.cafile", Conf),
+                %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
+                CA = cuttlefish:conf_get("auth.mysql.ssl.cacertfile", Conf,
+                                         cuttlefish:conf_get("auth.mysql.ssl.cafile", Conf)
+                                        ),
                 Cert = cuttlefish:conf_get("auth.mysql.ssl.certfile", Conf),
                 Key = cuttlefish:conf_get("auth.mysql.ssl.keyfile", Conf),
                 Options ++ [{ssl, {server_name_indication, disable},
