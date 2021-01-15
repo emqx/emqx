@@ -332,21 +332,31 @@ str(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 str(Bin) when is_binary(Bin) -> binary_to_list(Bin).
 
 pool_opts(Params = #{<<"url">> := URL}) ->
-    #{host := Host,
-      scheme := Scheme} = URIMap = uri_string:parse(URL),
+    #{host := Host0,
+      scheme := Scheme} = URIMap = uri_string:parse(binary_to_list(URL)),
     Port = maps:get(port, URIMap, case Scheme of
                                       <<"https">> -> 443;
                                       _ -> 80
                                   end),
     PoolSize = maps:get(<<"pool_size">>, Params, 32),
     ConnectTimeout = timer:seconds(maps:get(<<"connect_timeout">>, Params, 5)),
-    IPv6 = case inet:getaddr(binary_to_list(Host), inet6) of
-               {error, _} -> inet;
-               {ok, _} -> inet6
+    Host = case inet:parse_address(Host0) of
+                       {ok, {_,_,_,_} = Addr} -> Addr;
+                       {ok, {_,_,_,_,_,_,_,_} = Addr} -> Addr;
+                       {error, einval} -> Host0
+                   end,
+    Inet = case Host of
+               {_,_,_,_} -> inet;
+               {_,_,_,_,_,_,_,_} -> inet6;
+               _ ->
+                   case inet:getaddr(Host, inet6) of
+                       {error, _} -> inet;
+                       {ok, _} -> inet6
+                   end
            end,
     MoreOpts = case Scheme of
                    <<"http">> ->
-                       [{transport_opts, [IPv6]}];
+                       [{transport_opts, [Inet]}];
                    <<"https">> ->
                        KeyFile = maps:get(<<"keyfile">>, Params),
                        CertFile = maps:get(<<"certfile">>, Params),
@@ -366,7 +376,7 @@ pool_opts(Params = #{<<"url">> := URL}) ->
                                    {ciphers, lists:foldl(fun(TlsVer, Ciphers) ->
                                                              Ciphers ++ ssl:cipher_suites(all, TlsVer)
                                                          end, [], TlsVers)} | TLSOpts],
-                       [{transport, ssl}, {transport_opts, [IPv6 | NTLSOpts]}]
+                       [{transport, ssl}, {transport_opts, [Inet | NTLSOpts]}]
               end,
     [{host, Host},
      {port, Port},
