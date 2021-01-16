@@ -63,7 +63,7 @@
           %% Simulate the active_n opt
           active_n :: pos_integer(),
           %% MQTT Piggyback
-          mqtt_piggyback :: single | multiple, 
+          mqtt_piggyback :: single | multiple,
           %% Limiter
           limiter :: maybe(emqx_limiter:limiter()),
           %% Limit Timer
@@ -195,7 +195,7 @@ init(Req, Opts) ->
             end;
         Subprotocols ->
             SupportedSubprotocols = proplists:get_value(supported_subprotocols, Opts),
-            NSupportedSubprotocols = [list_to_binary(Subprotocol) 
+            NSupportedSubprotocols = [list_to_binary(Subprotocol)
                                       || Subprotocol <- SupportedSubprotocols],
             case pick_subprotocol(Subprotocols, NSupportedSubprotocols) of
                 {ok, Subprotocol} ->
@@ -558,7 +558,7 @@ handle_outgoing(Packets, State = #state{active_n = ActiveN, mqtt_piggyback = MQT
                      postpone({check_gc, Stats}, State);
                  false -> State
              end,
-    
+
     {case MQTTPiggyback of
          single -> [{binary, IoData}];
          multiple -> lists:map(fun(Bin) -> {binary, Bin} end, IoData)

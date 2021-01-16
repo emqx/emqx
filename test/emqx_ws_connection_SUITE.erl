@@ -33,8 +33,6 @@
                      recv_pkt, recv_msg, send_pkt, send_msg
                     ]).
 
--define(ws_conn, emqx_ws_connection).
-
 all() -> emqx_ct:all(?MODULE).
 
 %%--------------------------------------------------------------------
@@ -44,8 +42,8 @@ all() -> emqx_ct:all(?MODULE).
 init_per_suite(Config) ->
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
-    ok = meck:expect(cowboy_req, peer, fun(_) -> {{127,0,0,1}, 3456} end),
-    ok = meck:expect(cowboy_req, sock, fun(_) -> {{127,0,0,1}, 18083} end),
+    ok = meck:expect(cowboy_req, peer, fun(_) -> {{127, 0, 0, 1}, 3456} end),
+    ok = meck:expect(cowboy_req, sock, fun(_) -> {{127, 0, 0, 1}, 18083} end),
     ok = meck:expect(cowboy_req, cert, fun(_) -> undefined end),
     ok = meck:expect(cowboy_req, parse_cookies, fun(_) -> error(badarg) end),
     %% Mock emqx_zone
@@ -100,50 +98,50 @@ end_per_testcase(_TestCase, Config) ->
 t_info(_) ->
     WsPid = spawn(fun() ->
                       receive {call, From, info} ->
-                                  gen_server:reply(From, ?ws_conn:info(st()))
+                                  gen_server:reply(From, emqx_ws_connection:info(st()))
                       end
                   end),
-    #{sockinfo := SockInfo} = ?ws_conn:call(WsPid, info),
+    #{sockinfo := SockInfo} = emqx_ws_connection:call(WsPid, info),
     #{socktype  := ws,
       active_n  := 100,
-      peername  := {{127,0,0,1}, 3456},
-      sockname  := {{127,0,0,1}, 18083},
+      peername  := {{127, 0, 0, 1}, 3456},
+      sockname  := {{127, 0, 0, 1}, 18083},
       sockstate := running
      } = SockInfo.
 
 t_info_limiter(_) ->
     St = st(#{limiter => emqx_limiter:init(external, [])}),
-    ?assertEqual(undefined, ?ws_conn:info(limiter, St)).
+    ?assertEqual(undefined, emqx_ws_connection:info(limiter, St)).
 
 t_info_channel(_) ->
-    #{conn_state := connected} = ?ws_conn:info(channel, st()).
+    #{conn_state := connected} = emqx_ws_connection:info(channel, st()).
 
 t_info_gc_state(_) ->
     GcSt = emqx_gc:init(#{count => 10, bytes => 1000}),
-    GcInfo = ?ws_conn:info(gc_state, st(#{gc_state => GcSt})),
-    ?assertEqual(#{cnt => {10,10}, oct => {1000,1000}}, GcInfo).
+    GcInfo = emqx_ws_connection:info(gc_state, st(#{gc_state => GcSt})),
+    ?assertEqual(#{cnt => {10, 10}, oct => {1000, 1000}}, GcInfo).
 
 t_info_postponed(_) ->
-    ?assertEqual([], ?ws_conn:info(postponed, st())),
-    St = ?ws_conn:postpone({active, false}, st()),
-    ?assertEqual([{active, false}], ?ws_conn:info(postponed, St)).
+    ?assertEqual([], emqx_ws_connection:info(postponed, st())),
+    St = emqx_ws_connection:postpone({active, false}, st()),
+    ?assertEqual([{active, false}], emqx_ws_connection:info(postponed, St)).
 
 t_stats(_) ->
     WsPid = spawn(fun() ->
                       receive {call, From, stats} ->
-                                  gen_server:reply(From, ?ws_conn:stats(st()))
+                                  gen_server:reply(From, emqx_ws_connection:stats(st()))
                       end
                   end),
-    Stats = ?ws_conn:call(WsPid, stats),
+    Stats = emqx_ws_connection:call(WsPid, stats),
     [{recv_oct, 0}, {recv_cnt, 0}, {send_oct, 0}, {send_cnt, 0},
      {recv_pkt, 0}, {recv_msg, 0}, {send_pkt, 0}, {send_msg, 0}|_] = Stats.
 
 t_call(_) ->
-    Info = ?ws_conn:info(st()),
+    Info = emqx_ws_connection:info(st()),
     WsPid = spawn(fun() ->
                       receive {call, From, info} -> gen_server:reply(From, Info) end
                   end),
-    ?assertEqual(Info, ?ws_conn:call(WsPid, info)).
+    ?assertEqual(Info, emqx_ws_connection:call(WsPid, info)).
 
 t_init(_) ->
     Opts = [{idle_timeout, 300000},
@@ -155,15 +153,15 @@ t_init(_) ->
                idle_timeout   => 300000
               },
     ok = meck:expect(cowboy_req, parse_header, fun(_, req) -> undefined end),
-    {cowboy_websocket, req, [req, Opts], WsOpts} = ?ws_conn:init(req, Opts),
+    {cowboy_websocket, req, [req, Opts], WsOpts} = emqx_ws_connection:init(req, Opts),
     ok = meck:expect(cowboy_req, parse_header, fun(_, req) -> [<<"mqtt">>] end),
     ok = meck:expect(cowboy_req, set_resp_header, fun(_, <<"mqtt">>, req) -> resp end),
-    {cowboy_websocket, resp, [req, Opts], WsOpts} = ?ws_conn:init(req, Opts).
+    {cowboy_websocket, resp, [req, Opts], WsOpts} = emqx_ws_connection:init(req, Opts).
 
 t_websocket_handle_binary(_) ->
     {ok, _} = websocket_handle({binary, <<>>}, st()),
     {ok, _} = websocket_handle({binary, [<<>>]}, st()),
-    {ok, _} = websocket_handle({binary, <<192,0>>}, st()),
+    {ok, _} = websocket_handle({binary, <<192, 0>>}, st()),
     receive {incoming, ?PACKET(?PINGREQ)} -> ok
     after 0 -> error(expect_incoming_pingreq)
     end.
@@ -208,16 +206,16 @@ t_websocket_info_incoming(_) ->
                  username    = <<"username">>,
                  password    = <<"passwd">>
                 },
-    {[{close,protocol_error}], St1} = websocket_info({incoming, ?CONNECT_PACKET(ConnPkt)}, st()),
+    {[{close, protocol_error}], St1} = websocket_info({incoming, ?CONNECT_PACKET(ConnPkt)}, st()),
     % ?assertEqual(<<224,2,130,0>>, iolist_to_binary(IoData1)),
     %% PINGREQ
     {[{binary, IoData2}], St2} =
         websocket_info({incoming, ?PACKET(?PINGREQ)}, St1),
-    ?assertEqual(<<208,0>>, iolist_to_binary(IoData2)),
+    ?assertEqual(<<208, 0>>, iolist_to_binary(IoData2)),
     %% PUBLISH
     Publish = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>),
     {[{binary, IoData3}], _St3} = websocket_info({incoming, Publish}, St2),
-    ?assertEqual(<<64,4,0,1,0,0>>, iolist_to_binary(IoData3)).
+    ?assertEqual(<<64, 4, 0, 1, 0, 0>>, iolist_to_binary(IoData3)).
 
 t_websocket_info_check_gc(_) ->
     Stats = #{cnt => 10, oct => 1000},
@@ -234,7 +232,7 @@ t_websocket_info_timeout_limiter(_) ->
     Ref = make_ref(),
     Event = {timeout, Ref, limit_timeout},
     {[{active, true}], St} = websocket_info(Event, st(#{limit_timer => Ref})),
-    ?assertEqual([], ?ws_conn:info(postponed, St)).
+    ?assertEqual([], emqx_ws_connection:info(postponed, St)).
 
 t_websocket_info_timeout_keepalive(_) ->
     {ok, _St} = websocket_info({timeout, make_ref(), keepalive}, st()).
@@ -243,7 +241,7 @@ t_websocket_info_timeout_emit_stats(_) ->
     Ref = make_ref(),
     St = st(#{stats_timer => Ref}),
     {ok, St1} = websocket_info({timeout, Ref, emit_stats}, St),
-    ?assertEqual(undefined, ?ws_conn:info(stats_timer, St1)).
+    ?assertEqual(undefined, emqx_ws_connection:info(stats_timer, St1)).
 
 t_websocket_info_timeout_retry(_) ->
     {ok, _St} = websocket_info({timeout, make_ref(), retry_delivery}, st()).
@@ -263,77 +261,79 @@ t_websocket_close(_) ->
 t_handle_info_connack(_) ->
     ConnAck = ?CONNACK_PACKET(?RC_SUCCESS),
     {[{binary, IoData}], _St} =
-        ?ws_conn:handle_info({connack, ConnAck}, st()),
-    ?assertEqual(<<32,2,0,0>>, iolist_to_binary(IoData)).
+        emqx_ws_connection:handle_info({connack, ConnAck}, st()),
+    ?assertEqual(<<32, 2, 0, 0>>, iolist_to_binary(IoData)).
 
 t_handle_info_close(_) ->
-    {[{close, _}], _St} = ?ws_conn:handle_info({close, protocol_error}, st()).
+    {[{close, _}], _St} = emqx_ws_connection:handle_info({close, protocol_error}, st()).
 
 t_handle_info_event(_) ->
     ok = meck:new(emqx_cm, [passthrough, no_history]),
-    ok = meck:expect(emqx_cm, register_channel, fun(_,_,_) -> ok end),
+    ok = meck:expect(emqx_cm, register_channel, fun(_, _, _) -> ok end),
     ok = meck:expect(emqx_cm, connection_closed, fun(_) -> true end),
-    {ok, _} = ?ws_conn:handle_info({event, connected}, st()),
-    {ok, _} = ?ws_conn:handle_info({event, disconnected}, st()),
-    {ok, _} = ?ws_conn:handle_info({event, updated}, st()),
+    {ok, _} = emqx_ws_connection:handle_info({event, connected}, st()),
+    {ok, _} = emqx_ws_connection:handle_info({event, disconnected}, st()),
+    {ok, _} = emqx_ws_connection:handle_info({event, updated}, st()),
     ok = meck:unload(emqx_cm).
 
 t_handle_timeout_idle_timeout(_) ->
     TRef = make_ref(),
     St = st(#{idle_timer => TRef}),
-    {[{shutdown, idle_timeout}], _St} = ?ws_conn:handle_timeout(TRef, idle_timeout, St).
+    {[{shutdown, idle_timeout}], _St} = emqx_ws_connection:handle_timeout(TRef, idle_timeout, St).
 
 t_handle_timeout_keepalive(_) ->
-    {ok, _St} = ?ws_conn:handle_timeout(make_ref(), keepalive, st()).
+    {ok, _St} = emqx_ws_connection:handle_timeout(make_ref(), keepalive, st()).
 
 t_handle_timeout_emit_stats(_) ->
     TRef = make_ref(),
-    {ok, St} = ?ws_conn:handle_timeout(
+    {ok, St} = emqx_ws_connection:handle_timeout(
                   TRef, emit_stats, st(#{stats_timer => TRef})),
-    ?assertEqual(undefined, ?ws_conn:info(stats_timer, St)).
+    ?assertEqual(undefined, emqx_ws_connection:info(stats_timer, St)).
 
 t_ensure_rate_limit(_) ->
     Limiter = emqx_limiter:init(external, {1, 10}, {100, 1000}, []),
     St = st(#{limiter => Limiter}),
-    St1 = ?ws_conn:ensure_rate_limit(#{cnt => 0, oct => 0}, St),
-    St2 = ?ws_conn:ensure_rate_limit(#{cnt => 11, oct => 1200}, St1),
-    ?assertEqual(blocked, ?ws_conn:info(sockstate, St2)),
-    ?assertEqual([{active, false}], ?ws_conn:info(postponed, St2)).
+    St1 = emqx_ws_connection:ensure_rate_limit(#{cnt => 0, oct => 0}, St),
+    St2 = emqx_ws_connection:ensure_rate_limit(#{cnt => 11, oct => 1200}, St1),
+    ?assertEqual(blocked, emqx_ws_connection:info(sockstate, St2)),
+    ?assertEqual([{active, false}], emqx_ws_connection:info(postponed, St2)).
 
 t_parse_incoming(_) ->
-    St = ?ws_conn:parse_incoming(<<48,3>>, st()),
-    St1 = ?ws_conn:parse_incoming(<<0,1,116>>, St),
+    St = emqx_ws_connection:parse_incoming(<<48, 3>>, st()),
+    St1 = emqx_ws_connection:parse_incoming(<<0, 1, 116>>, St),
     Packet = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<>>),
-    ?assertMatch([{incoming, Packet}], ?ws_conn:info(postponed, St1)).
+    ?assertMatch([{incoming, Packet}], emqx_ws_connection:info(postponed, St1)).
 
 t_parse_incoming_frame_error(_) ->
-    St = ?ws_conn:parse_incoming(<<3,2,1,0>>, st()),
+    St = emqx_ws_connection:parse_incoming(<<3, 2, 1, 0>>, st()),
     FrameError = {frame_error, function_clause},
-    [{incoming, FrameError}] = ?ws_conn:info(postponed, St).
+    [{incoming, FrameError}] = emqx_ws_connection:info(postponed, St).
 
 t_handle_incomming_frame_error(_) ->
     FrameError = {frame_error, bad_qos},
     Serialize = emqx_frame:serialize_fun(#{version => 5, max_size => 16#FFFF}),
-    {[{close, bad_qos}], _St} = ?ws_conn:handle_incoming(FrameError, st(#{serialize => Serialize})).
+    {[{close, bad_qos}], _St} =
+        emqx_ws_connection:handle_incoming(FrameError, st(#{serialize => Serialize})).
     % ?assertEqual(<<224,2,129,0>>, iolist_to_binary(IoData)).
 
 t_handle_outgoing(_) ->
     Packets = [?PUBLISH_PACKET(?QOS_1, <<"t1">>, 1, <<"payload">>),
                ?PUBLISH_PACKET(?QOS_2, <<"t2">>, 2, <<"payload">>)
               ],
-    {[{binary, IoData1}, {binary, IoData2}], _St} = ?ws_conn:handle_outgoing(Packets, st()),
+    {[{binary, IoData1}, {binary, IoData2}], _St} =
+        emqx_ws_connection:handle_outgoing(Packets, st()),
     ?assert(is_binary(iolist_to_binary(IoData1))),
     ?assert(is_binary(iolist_to_binary(IoData2))).
 
 t_run_gc(_) ->
     GcSt = emqx_gc:init(#{count => 10, bytes => 100}),
     WsSt = st(#{gc_state => GcSt}),
-    ?ws_conn:run_gc(#{cnt => 100, oct => 10000}, WsSt).
+    emqx_ws_connection:run_gc(#{cnt => 100, oct => 10000}, WsSt).
 
 t_check_oom(_) ->
     %%Policy = #{max_heap_size => 10, message_queue_len => 10},
     %%meck:expect(emqx_zone, oom_policy, fun(_) -> Policy end),
-    _St = ?ws_conn:check_oom(st()),
+    _St = emqx_ws_connection:check_oom(st()),
     ok = timer:sleep(10).
     %%receive {shutdown, proc_heap_too_large} -> ok
     %%after 0 -> error(expect_shutdown)
@@ -341,11 +341,11 @@ t_check_oom(_) ->
 
 t_enqueue(_) ->
     Packet = ?PUBLISH_PACKET(?QOS_0),
-    St = ?ws_conn:enqueue(Packet, st()),
-    [Packet] = ?ws_conn:info(postponed, St).
+    St = emqx_ws_connection:enqueue(Packet, st()),
+    [Packet] = emqx_ws_connection:info(postponed, St).
 
 t_shutdown(_) ->
-    {[{shutdown, closed}], _St} = ?ws_conn:shutdown(closed, st()).
+    {[{shutdown, closed}], _St} = emqx_ws_connection:shutdown(closed, st()).
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -353,16 +353,16 @@ t_shutdown(_) ->
 
 st() -> st(#{}).
 st(InitFields) when is_map(InitFields) ->
-    {ok, St, _} = ?ws_conn:websocket_init([req, [{zone, external}]]),
-    maps:fold(fun(N, V, S) -> ?ws_conn:set_field(N, V, S) end,
-              ?ws_conn:set_field(channel, channel(), St),
+    {ok, St, _} = emqx_ws_connection:websocket_init([req, [{zone, external}]]),
+    maps:fold(fun(N, V, S) -> emqx_ws_connection:set_field(N, V, S) end,
+              emqx_ws_connection:set_field(channel, channel(), St),
               InitFields
              ).
 
 channel() -> channel(#{}).
 channel(InitFields) ->
-    ConnInfo = #{peername => {{127,0,0,1}, 3456},
-                 sockname => {{127,0,0,1}, 18083},
+    ConnInfo = #{peername => {{127, 0, 0, 1}, 3456},
+                 sockname => {{127, 0, 0, 1}, 18083},
                  conn_mod => emqx_ws_connection,
                  proto_name => <<"MQTT">>,
                  proto_ver => ?MQTT_PROTO_V5,
@@ -375,7 +375,7 @@ channel(InitFields) ->
                 },
     ClientInfo = #{zone       => zone,
                    protocol   => mqtt,
-                   peerhost   => {127,0,0,1},
+                   peerhost   => {127, 0, 0, 1},
                    clientid   => <<"clientid">>,
                    username   => <<"username">>,
                    is_superuser => false,
