@@ -42,22 +42,20 @@ register_metrics() ->
 %% ACL callbacks
 %%--------------------------------------------------------------------
 
-check_acl(ClientInfo, PubSub, Topic, AclResult, State) ->
+check_acl(ClientInfo, PubSub, Topic, AclResult, Params) ->
     return_with(fun inc_metrics/1,
-                do_check_acl(ClientInfo, PubSub, Topic, AclResult, State)).
+                do_check_acl(ClientInfo, PubSub, Topic, AclResult, Params)).
 
-do_check_acl(#{username := <<$$, _/binary>>}, _PubSub, _Topic, _AclResult, _Config) ->
+do_check_acl(#{username := <<$$, _/binary>>}, _PubSub, _Topic, _AclResult, _Params) ->
     ok;
-do_check_acl(ClientInfo, PubSub, Topic, _AclResult, #{acl_req := AclReq,
-                                                      pool_name := PoolName}) ->
+do_check_acl(ClientInfo, PubSub, Topic, _AclResult, #{acl := ACLParams = #{path := Path}}) ->
     ClientInfo1 = ClientInfo#{access => access(PubSub), topic => Topic},
-    case check_acl_request(PoolName, AclReq, ClientInfo1) of
+    case check_acl_request(ACLParams, ClientInfo1) of
         {ok, 200, <<"ignore">>} -> ok;
         {ok, 200, _Body}    -> {stop, allow};
         {ok, _Code, _Body}  -> {stop, deny};
         {error, Error}      ->
-            ?LOG(error, "Request ACL path ~s, error: ~p",
-                 [AclReq#http_request.path, Error]),
+            ?LOG(error, "Request ACL path ~s, error: ~p", [Path, Error]),
             ok
     end.
 
@@ -77,12 +75,13 @@ inc_metrics({stop, deny}) ->
 return_with(Fun, Result) ->
     Fun(Result), Result.
 
-check_acl_request(PoolName, #http_request{path = Path,
-                                          method = Method,
-                                          headers = Headers,
-                                          params = Params,
-                                          request_timeout = RequestTimeout}, ClientInfo) ->
-    request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), RequestTimeout).
+check_acl_request(#{pool_name := PoolName,
+                    path := Path,
+                    method := Method,
+                    headers := Headers,
+                    params := Params,
+                    timeout := Timeout}, ClientInfo) ->
+    request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), Timeout).
 
 access(subscribe) -> 1;
 access(publish)   -> 2.

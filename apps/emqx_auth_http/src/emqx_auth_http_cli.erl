@@ -29,16 +29,16 @@
 
 request(PoolName, get, Path, Headers, Params, Timeout) ->
     NewPath = Path ++ "?" ++ binary_to_list(cow_qs:qs(bin_kw(Params))),
-    reply(emqx_http_client:request(get, PoolName, {NewPath, Headers}, Timeout));
+    reply(ehttpc:request(ehttpc_pool:pick_worker(PoolName), get, {NewPath, Headers}, Timeout));
 
 request(PoolName, post, Path, Headers, Params, Timeout) ->
-    Body = case proplists:get_value(<<"content-type">>, Headers) of
-               <<"application/x-www-form-urlencoded">> ->
+    Body = case proplists:get_value("content-type", Headers) of
+               "application/x-www-form-urlencoded" ->
                    cow_qs:qs(bin_kw(Params));
-               <<"application/json">> -> 
+               "application/json" -> 
                    emqx_json:encode(bin_kw(Params))
            end,
-    reply(emqx_http_client:request(post, PoolName, {Path, Headers, Body}, Timeout)).
+    reply(ehttpc:request(ehttpc_pool:pick_worker(PoolName), post, {Path, Headers, Body}, Timeout)).
 
 reply({ok, StatusCode, _Headers}) ->
     {ok, StatusCode, <<>>};
@@ -80,6 +80,7 @@ feedvar(Params, ClientInfo = #{clientid := ClientId,
                  ({Param, "%A"}) -> {Param, maps:get(access, ClientInfo, null)};
                  ({Param, "%t"}) -> {Param, maps:get(topic, ClientInfo, null)};
                  ({Param, "%m"}) -> {Param, maps:get(mountpoint, ClientInfo, null)};
+                 ({Param, "%k"}) -> {Param, emqx_json:encode(maps:get(ws_cookie, ClientInfo, null))};
                  ({Param, Var})  -> {Param, Var}
               end, Params).
 

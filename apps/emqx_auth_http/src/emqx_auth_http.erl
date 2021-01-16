@@ -29,10 +29,6 @@
         , feedvar/2
         ]).
 
--type http_request() :: #http_request{method::'get' | 'post',params::[any()]}.
-%-type http_opts() :: #{clientid:=_, peerhost:=_, protocol:=_, _=>_}.
-%-type retry_opts() :: #{backoff:=_, interval:=_, times:=_, _=>_}.
-
 %% Callbacks
 -export([ register_metrics/0
         , check/3
@@ -43,28 +39,26 @@
 register_metrics() ->
     lists:foreach(fun emqx_metrics:ensure/1, ?AUTH_METRICS).
 
-check(ClientInfo, AuthResult, #{auth_req   := AuthReq,
-                                super_req  := SuperReq,
-                                pool_name  := PoolName}) ->
-    case authenticate(PoolName, AuthReq, ClientInfo) of
+check(ClientInfo, AuthResult, #{auth  := AuthParms = #{path := Path},
+                                super := SuperParams}) ->
+    case authenticate(AuthParms, ClientInfo) of
         {ok, 200, <<"ignore">>} ->
             emqx_metrics:inc(?AUTH_METRICS(ignore)), ok;
         {ok, 200, Body}  ->
             emqx_metrics:inc(?AUTH_METRICS(success)),
-            IsSuperuser = is_superuser(PoolName, SuperReq, ClientInfo),
+            IsSuperuser = is_superuser(SuperParams, ClientInfo),
             {stop, AuthResult#{is_superuser => IsSuperuser,
                                 auth_result => success,
                                 anonymous   => false,
                                 mountpoint  => mountpoint(Body, ClientInfo)}};
         {ok, Code, _Body} ->
             ?LOG(error, "Deny connection from path: ~s, response http code: ~p",
-                 [AuthReq#http_request.path, Code]),
+                 [Path, Code]),
             emqx_metrics:inc(?AUTH_METRICS(failure)),
             {stop, AuthResult#{auth_result => http_to_connack_error(Code),
                                anonymous   => false}};
         {error, Error} ->
-            ?LOG(error, "Request auth path: ~s, error: ~p",
-                 [AuthReq#http_request.path, Error]),
+            ?LOG(error, "Request auth path: ~s, error: ~p", [Path, Error]),
             emqx_metrics:inc(?AUTH_METRICS(failure)),
             %%FIXME later: server_unavailable is not right.
             {stop, AuthResult#{auth_result => server_unavailable,
@@ -77,22 +71,24 @@ description() -> "Authentication by HTTP API".
 %% Requests
 %%--------------------------------------------------------------------
 
-authenticate(PoolName, #http_request{path = Path,
-                                     method = Method,
-                                     headers = Headers,
-                                     params = Params,
-                                     request_timeout = RequestTimeout}, ClientInfo) ->
-   request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), RequestTimeout).
+authenticate(#{pool_name := PoolName,
+               path := Path,
+               method := Method,
+               headers := Headers,
+               params := Params,
+               timeout := Timeout}, ClientInfo) ->
+   request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), Timeout).
 
--spec(is_superuser(atom(), maybe(http_request()), emqx_types:client()) -> boolean()).
-is_superuser(_PoolName, undefined, _ClientInfo) ->
+-spec(is_superuser(maybe(map()), emqx_types:client()) -> boolean()).
+is_superuser(undefined, _ClientInfo) ->
     false;
-is_superuser(PoolName, #http_request{path = Path,
-                                     method = Method,
-                                     headers = Headers,
-                                     params = Params,
-                                     request_timeout = RequestTimeout}, ClientInfo) ->
-    case request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), RequestTimeout) of
+is_superuser(#{pool_name := PoolName,
+               path := Path,
+               method := Method,
+               headers := Headers,
+               params := Params,
+               timeout := Timeout}, ClientInfo) ->
+    case request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), Timeout) of
         {ok, 200, _Body}   -> true;
         {ok, _Code, _Body} -> false;
         {error, Error}     -> ?LOG(error, "Request superuser path ~s, error: ~p", [Path, Error]),
