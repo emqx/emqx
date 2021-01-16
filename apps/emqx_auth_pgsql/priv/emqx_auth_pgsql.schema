@@ -87,7 +87,7 @@
                 Filter([{keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
                         {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
                         {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined),
-                        {versions, [list_to_atom(Value)
+                        {versions, [list_to_existing_atom(Value)
                                     ||Value <- string:tokens(cuttlefish:conf_get("auth.pgsql.ssl.tls_versions", Conf), " ,")]}}])
             end,
 
@@ -104,7 +104,7 @@
           true -> GenSsl;
           false -> []
         end,
-  
+
   TempHost = case inet:parse_address(PgHost) of
       {ok, IpAddr} ->
           IpAddr;
