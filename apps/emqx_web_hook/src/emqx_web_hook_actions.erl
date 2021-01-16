@@ -335,7 +335,7 @@ pool_opts(Params = #{<<"url">> := URL}) ->
     #{host := Host0,
       scheme := Scheme} = URIMap = uri_string:parse(binary_to_list(URL)),
     Port = maps:get(port, URIMap, case Scheme of
-                                      <<"https">> -> 443;
+                                      "https" -> 443;
                                       _ -> 80
                                   end),
     PoolSize = maps:get(<<"pool_size">>, Params, 32),
