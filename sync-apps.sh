@@ -55,7 +55,7 @@ download_zip() {
 }
 
 default_vsn="dev/v4.3.0"
-download_zip "emqx_auth_mnesia" "e4.2.2"
+download_zip "emqx_auth_mnesia" "e4.2.3"
 for app in ${apps[@]}; do
     download_zip "$app" "$default_vsn"
 done
