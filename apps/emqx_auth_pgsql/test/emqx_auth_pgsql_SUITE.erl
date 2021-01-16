@@ -132,6 +132,8 @@ t_check_auth(_) ->
     BcryptFoo = #{clientid => <<"bcrypt_foo">>, username => <<"bcrypt_foo">>, zone => external},
     User1 = #{clientid => <<"bcrypt_foo">>, username => <<"user">>, zone => external},
     Bcrypt = #{clientid => <<"bcrypt">>, username => <<"bcrypt">>, zone => external},
+    reload([{password_hash, plain},
+            {auth_query, "select password from mqtt_user where username = '%u' limit 1"}]),
     %
     reload([{password_hash, plain}]),
     {ok, #{is_superuser := true}} = emqx_access_control:authenticate(Plain#{password => <<"plain">>}),
