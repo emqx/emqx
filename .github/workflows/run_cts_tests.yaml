@@ -169,7 +169,7 @@ jobs:
 
   pgsql:
     runs-on: ubuntu-20.04
-    
+
     strategy:
       fail-fast: false
       matrix:
@@ -194,6 +194,12 @@ jobs:
         run: |
           docker-compose -f .ci/compatibility_tests/docker-compose-pgsql-tls.yaml build --no-cache
           docker-compose -f .ci/compatibility_tests/docker-compose-pgsql-tls.yaml up -d
+          if [ "$PGSQL_TAG" = "12" ] || [ "$PGSQL_TAG" = "13" ]; then
+              sed -i 's|^[#[:space:]]*auth.pgsql.ssl.tls_versions[ \t]*=.*|auth.pgsql.ssl.tls_versions = tlsv1.3,tlsv1.2|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          else
+              sed -i 's|^[#[:space:]]*auth.pgsql.ssl.tls_versions[ \t]*=.*|auth.pgsql.ssl.tls_versions = tlsv1.2,tlsv1.1|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          fi
+
           sed -i 's|^[#[:space:]]*auth.pgsql.username[ \t]*=.*|auth.pgsql.username = postgres|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
           sed -i 's|^[#[:space:]]*auth.pgsql.password[ \t]*=.*|auth.pgsql.password = postgres|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
           sed -i 's|^[#[:space:]]*auth.pgsql.database[ \t]*=.*|auth.pgsql.database = postgres|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
@@ -291,7 +297,7 @@ jobs:
           sed -i 's|^[#[:space:]]*auth.redis.type[[:space:]]*=.*|auth.redis.type = cluster|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
           sed -i "s|^[#[:space:]]*auth.redis.server[[:space:]]*=.*|auth.redis.server = ${redis_${{ matrix.network_type }}_address}:7000, ${redis_${{ matrix.network_type }}_address}:7001, ${redis_${{ matrix.network_type }}_address}:7002|g" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
       - name: setup
-        if: matrix.node_type == 'cluster' && matrix.connect_type == 'tls' && matrix.redis_tag != '5' 
+        if: matrix.node_type == 'cluster' && matrix.connect_type == 'tls' && matrix.redis_tag != '5'
         run: |
           set -exu
           sed -i 's|^[#[:space:]]*auth.redis.type[[:space:]]*=.*|auth.redis.type = cluster|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
