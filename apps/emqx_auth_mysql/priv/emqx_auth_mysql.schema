@@ -30,7 +30,7 @@
   {datatype, string}
 ]}.
 
-{mapping, "auth.mysql.ssl", "emqx_auth_mysql.server", [
+{mapping, "auth.mysql.ssl.enable", "emqx_auth_mysql.server", [
   {default, off},
   {datatype, flag}
 ]}.
@@ -82,7 +82,7 @@
               {query_timeout, Timeout},
               {keep_alive, true}],
   Options1 =
-      case cuttlefish:conf_get("auth.mysql.ssl", Conf) of
+      case cuttlefish:conf_get("auth.mysql.ssl.enable", Conf) of
             true ->
                 CA = cuttlefish:conf_get("auth.mysql.ssl.cafile", Conf),
                 Cert = cuttlefish:conf_get("auth.mysql.ssl.certfile", Conf),

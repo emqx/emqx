@@ -1,6 +1,6 @@
 %%-*- mode: erlang -*-
 %% emqx_auth_http config mapping
-{mapping, "auth.http.auth_req", "emqx_auth_http.auth_req", [
+{mapping, "auth.http.auth_req.endpoint", "emqx_auth_http.auth_req", [
   {datatype, string}
 ]}.
 
@@ -19,7 +19,7 @@
 ]}.
 
 {translation, "emqx_auth_http.auth_req", fun(Conf) ->
-  case cuttlefish:conf_get("auth.http.auth_req", Conf) of
+  case cuttlefish:conf_get("auth.http.auth_req.endpoint", Conf) of
     undefined -> cuttlefish:unset();
     Url ->
       Params = cuttlefish:conf_get("auth.http.auth_req.params", Conf),
@@ -30,7 +30,7 @@
   end
 end}.
 
-{mapping, "auth.http.super_req", "emqx_auth_http.super_req", [
+{mapping, "auth.http.super_req.endpoint", "emqx_auth_http.super_req", [
   {datatype, string}
 ]}.
 
@@ -49,7 +49,7 @@ end}.
 ]}.
 
 {translation, "emqx_auth_http.super_req", fun(Conf) ->
-  case cuttlefish:conf_get("auth.http.super_req", Conf, undefined) of
+  case cuttlefish:conf_get("auth.http.super_req.endpoint", Conf, undefined) of
     undefined -> cuttlefish:unset();
     Url -> Params = cuttlefish:conf_get("auth.http.super_req.params", Conf),
            [{url, Url}, {method, cuttlefish:conf_get("auth.http.super_req.method", Conf)},
@@ -58,7 +58,7 @@ end}.
   end
 end}.
 
-{mapping, "auth.http.acl_req", "emqx_auth_http.acl_req", [
+{mapping, "auth.http.acl_req.endpoint", "emqx_auth_http.acl_req", [
   {default, undefined},
   {datatype, string}
 ]}.
@@ -78,7 +78,7 @@ end}.
 ]}.
 
 {translation, "emqx_auth_http.acl_req", fun(Conf) ->
-  case cuttlefish:conf_get("auth.http.acl_req", Conf, undefined) of
+  case cuttlefish:conf_get("auth.http.acl_req.endpoint", Conf, undefined) of
     undefined -> cuttlefish:unset();
     Url -> Params = cuttlefish:conf_get("auth.http.acl_req.params", Conf),
            [{url, Url},

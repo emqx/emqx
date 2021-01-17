@@ -33,7 +33,7 @@
   hidden
 ]}.
 
-{mapping, "auth.redis.ssl", "emqx_auth_redis.options", [
+{mapping, "auth.redis.ssl.enable", "emqx_auth_redis.options", [
   {default, off},
   {datatype, flag}
 ]}.
@@ -54,7 +54,7 @@
 ]}.
 
 {translation, "emqx_auth_redis.options", fun(Conf) ->
-   Ssl = cuttlefish:conf_get("auth.redis.ssl", Conf, false),
+   Ssl = cuttlefish:conf_get("auth.redis.ssl.enable", Conf, false),
    case Ssl of
        true ->
             CA = cuttlefish:conf_get("auth.redis.ssl.cafile", Conf),
