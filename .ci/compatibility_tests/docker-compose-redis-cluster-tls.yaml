@@ -5,7 +5,7 @@ version: '2.4'
 services:
   erlang:
     container_name: erlang
-    image: erlang:22.3
+    image: erlang:22.3.4.13
     volumes:
       - ../..:/emqx
     networks:
