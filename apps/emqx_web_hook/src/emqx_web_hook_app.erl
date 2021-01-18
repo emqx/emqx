@@ -58,20 +58,7 @@ translate_env() ->
                                       _ -> 80
                                   end),
     Path = path(Path0),
-    Host = case inet:parse_address(Host0) of
-                       {ok, {_,_,_,_} = Addr} -> Addr;
-                       {ok, {_,_,_,_,_,_,_,_} = Addr} -> Addr;
-                       {error, einval} -> Host0
-                   end,
-    Inet = case Host of
-                       {_,_,_,_} -> inet;
-                       {_,_,_,_,_,_,_,_} -> inet6;
-                       _ ->
-                           case inet:getaddr(Host, inet6) of
-                               {error, _} -> inet;
-                               {ok, _} -> inet6
-                           end
-                   end,
+    {Inet, Host} = parse_host(Host0),
     PoolSize = application:get_env(?APP, pool_size, 32),
     MoreOpts = case Scheme of
                    "http" ->
@@ -119,3 +106,14 @@ path(Path) ->
 set_content_type(Headers) ->
     NHeaders = proplists:delete(<<"Content-Type">>, proplists:delete(<<"content-type">>, Headers)),
     [{<<"content-type">>, <<"application/json">>} | NHeaders].
+
+parse_host(Host) ->
+    case inet:parse_address(Host) of
+        {ok, Addr} when size(Addr) =:= 4 -> {inet, Addr};
+        {ok, Addr} when size(Addr) =:= 8 -> {inet6, Addr};
+        {error, einval} ->
+            case inet:getaddr(Host, inet6) of
+                {ok, _} -> {inet6, Host};
+                {error, _} -> {inet, Host}
+            end
+    end.
