@@ -83,6 +83,7 @@ The MQTT message will be translated to an LwM2M DISCOVER command and sent to the
         - "register": LwM2M Register
         - "update": LwM2M Update
       - "data" contains the query options and the object-list of the register message
+      - The *update* message is only published if the object-list changed.
 
 ### Downlink Command and Uplink Response (LwM2M Device Management & Service Enablement Interface)
 
@@ -113,6 +114,7 @@ The MQTT message will be translated to an LwM2M DISCOVER command and sent to the
             "path": {?ResourcePath}
         }
         ```
+        - {?ResourcePath}: String, LwM2M full resource path. e.g. "3/0", "/3/0/0", "/3/0/6/0"
       - **If {?MsgType} = "write" (single write)**:
         ```json
         {
@@ -121,6 +123,8 @@ The MQTT message will be translated to an LwM2M DISCOVER command and sent to the
             "value": {?Value}
         }
         ```
+        - {?ValueType}: String, can be: "Time", "String", "Integer", "Float", "Boolean", "Opaque", "Objlnk"
+        - {?Value}: Value of the resource, depends on "type".
       - **If {?MsgType} = "write" (batch write)**:
         ```json
         {
@@ -183,21 +187,6 @@ The MQTT message will be translated to an LwM2M DISCOVER command and sent to the
         }
         ```
         - {?ObjectInstanceID}: Integer, LwM2M Object Instance ID
-        - {?ResourcePath}: String, LwM2M full resource path. e.g. "3/0", "/3/0/0", "/3/0/6/0"
-        - {?Content}:
-          ```json
-          [
-              {
-                  "name": {?ResourceName},
-                  "path": {?ResourcePath},
-                  "type": {?ValueType},
-                  "value": {?Value}
-              }
-          ]
-          ```
-          - {?ResourceName}: String, LwM2M resource description, e.g. "Available Power Sources"
-          - {?ValueType}: String, can be: "Time", "String", "Integer", "Float", "Boolean", "Opaque", "Objlnk"
-          - {?Value}: Value of resource, depends on the {?ValueType}.
 
 - **The response of LwM2M will be converted to following MQTT message:**
   - **Method:** PUBLISH
@@ -262,17 +251,11 @@ The MQTT message will be translated to an LwM2M DISCOVER command and sent to the
         ```json
         [
             {
-                "name": {?ResourceName},
                 "path": {?ResourcePath},
-                "type": {?ValueType},
                 "value": {?Value}
             }
         ]
         ```
-        - {?ResourceName}: String, LwM2M resource description, e.g. "Available Power Sources"
-        - {?ResourcePath}: String, LwM2M resource full path. e.g. "3/0", "/3/0/0", "/3/0/6/0"
-        - {?ValueType}: String, can be: "Time", "String", "Integer", "Float", "Boolean", "Opaque", "Objlnk"
-        - {?Value}: Value of the resource, depends on "type".
 
     - **If {?MsgType} = "ack", "data" does not exists**
 
@@ -308,11 +291,10 @@ The MQTT message will be translated to an LwM2M DISCOVER command and sent to the
         "data": {
             "code": {?StatusCode},
             "codeMsg": {?CodeMsg},
+            "reqPath": {?RequestPath},
             "content": [
                 {
-                    "name": {?ResourceName},
                     "path": {?ResourcePath},
-                    "type": {?ValueType},
                     "value": {?Value}
                 }
             ]
@@ -338,11 +320,12 @@ The MQTT message will be translated to an LwM2M DISCOVER command and sent to the
         "data": {
             "code": {?StatusCode},
             "codeMsg": {?CodeMsg},
+            "reqPath": {?RequestPath},
             "content": [
-                "name": {?ResourceName},
-                "path": {?ResourcePath},
-                "type": {?ValueType},
-                "value": {?Value}
+                {
+                    "path": {?ResourcePath},
+                    "value": {?Value}
+                }
             ]
         }
     }
