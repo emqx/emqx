@@ -35,6 +35,11 @@
   {datatype, {enum, [true, false]}}
 ]}.
 
+{mapping, "auth.pgsql.ssl.tls_versions", "emqx_auth_pgsql.server", [
+  {default, "tlsv1.2"},
+  {datatype, string}
+]}.
+
 {mapping, "auth.pgsql.ssl_opts.keyfile", "emqx_auth_pgsql.server", [
   {datatype, string}
 ]}.
@@ -62,6 +67,8 @@
   DB = cuttlefish:conf_get("auth.pgsql.database", Conf),
   Encoding = cuttlefish:conf_get("auth.pgsql.encoding", Conf),
   Ssl = cuttlefish:conf_get("auth.pgsql.ssl", Conf),
+  SslVersions = [list_to_atom(Value)
+                ||Value <- string:tokens(cuttlefish:conf_get("auth.pgsql.ssl.tls_versions", Conf), " ,")],
 
   Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
   SslOpts = fun(Prefix) ->
@@ -85,7 +92,7 @@
    {database, DB},
    {encoding, Encoding},
    {ssl, Ssl},
-   {ssl_opts, SslOpts("auth.pgsql.ssl_opts")}]
+   {ssl_opts,[{versions, SslVersions}] ++ SslOpts("auth.pgsql.ssl_opts")}]
 end}.
 
 {mapping, "auth.pgsql.auth_query", "emqx_auth_pgsql.auth_query", [
