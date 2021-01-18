@@ -175,7 +175,7 @@ auth_username_cli(["del", Username]) ->
     end;
 
 auth_username_cli(_) ->
-    emqx_ctl:usage([{"users list", "List username auth rules"},
-                    {"users add <Username> <Password>", "Add username auth rule"},
-                    {"users update <Username> <NewPassword>", "Update username auth rule"},
-                    {"users del <Username>", "Delete username auth rule"}]).
+    emqx_ctl:usage([{"user list", "List username auth rules"},
+                    {"user add <Username> <Password>", "Add username auth rule"},
+                    {"user update <Username> <NewPassword>", "Update username auth rule"},
+                    {"user del <Username>", "Delete username auth rule"}]).

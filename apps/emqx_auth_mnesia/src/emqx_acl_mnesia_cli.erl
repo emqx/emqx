@@ -192,7 +192,7 @@ cli(_) ->
                    , {"acl add _all <Topic> <Action> <Access>", "Add $all acl"}
                    , {"acl del clientid <Clientid> <Topic>", "Delete clientid acl"}
                    , {"acl del username <Username> <Topic>", "Delete username acl"}
-                   , {"acl del _all, <Topic>", "Delete $all acl"}
+                   , {"acl del _all <Topic>", "Delete $all acl"}
                    ]).
 
 

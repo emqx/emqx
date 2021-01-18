@@ -78,7 +78,7 @@ extract_zip(){
     mv "apps/${repo}-${vsn}/" "apps/$app/"
 }
 
-extract_zip "emqx_auth_mnesia" "e4.2.2" "e4.2.2"
+extract_zip "emqx_auth_mnesia" "e4.2.3" "e4.2.3"
 for app in ${apps[@]}; do
     extract_zip "$app" "$default_vsn"
 done
