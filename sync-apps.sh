@@ -5,7 +5,8 @@ set -euo pipefail
 force="${1:-no}"
 
 apps=(
-"emqx_auth_http"
+# "emqx_auth_http" # permanently diverged
+# "emqx_web_hook" # permanently diverged
 "emqx_auth_jwt"
 "emqx_auth_ldap"
 "emqx_auth_mongo"
@@ -30,14 +31,13 @@ apps=(
 "emqx_sn"
 "emqx_stomp"
 "emqx_telemetry"
-"emqx_web_hook")
+)
 
 if git status --porcelain | grep -qE 'apps/'; then
     echo 'apps dir is not git-clear, refuse to sync'
 #    exit 1
 fi
 
-rm -rf apps/emqx_*
 mkdir -p tmp/
 
 download_zip() {
@@ -73,6 +73,7 @@ extract_zip(){
     fi
     local file="tmp/${app}-${vsn_dft}.zip"
     local repo="$(echo "$app" | sed 's#_#-#g')"
+    rm -rf "apps/${app}/"
     unzip "$file" -d apps/
     mv "apps/${repo}-${vsn}/" "apps/$app/"
 }
