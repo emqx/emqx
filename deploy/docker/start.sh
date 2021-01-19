@@ -38,7 +38,7 @@ tail -f /opt/emqx/log/erlang.log.1 &
 #          and docker dispatching system can known and restart this container.
 IDLE_TIME=0
 MGMT_CONF='/opt/emqx/etc/plugins/emqx_management.conf'
-MGMT_PORT=$(sed -n -r '/^management.listener.http[ \t]=[ \t].*$/p' $MGMT_CONF | sed -r 's/^management.listener.http = (.*)$/\1/g')
+MGMT_PORT=$(sed -n -r '/^management.listener.http.port[ \t]=[ \t].*$/p' $MGMT_CONF | sed -r 's/^management.listener.http.port = (.*)$/\1/g')
 while [ $IDLE_TIME -lt 5 ]; do
     IDLE_TIME=$(expr $IDLE_TIME + 1)
     if curl http://localhost:${MGMT_PORT}/status >/dev/null 2>&1; then
