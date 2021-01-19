@@ -41,7 +41,7 @@
   {datatype, string}
 ]}.
 
-{mapping, "auth.mongo.ssl", "emqx_auth_mongo.server", [
+{mapping, "auth.mongo.ssl.enable", "emqx_auth_mongo.server", [
   {default, off},
   {datatype, flag}
 ]}.
@@ -99,7 +99,7 @@
     true -> [];
     false -> [{r_mode, R}]
   end,
-  Ssl = case cuttlefish:conf_get("auth.mongo.ssl", Conf) of
+  Ssl = case cuttlefish:conf_get("auth.mongo.ssl.enable", Conf) of
     true ->
       Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
       SslOpts = fun(Prefix) ->

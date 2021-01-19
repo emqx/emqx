@@ -8,11 +8,11 @@ services:
     - "EMQX_NAME=emqx"
     - "EMQX_HOST=node1.emqx.io"
     - "EMQX_CLUSTER__DISCOVERY=static"
-    - "EMQX_CLUSTER__STATIC__SEEDS=emqx@node1.emqx.io, emqx@node2.emqx.io"
+    - "EMQX_CLUSTER__STATIC__SEEDS=\"emqx@node1.emqx.io, emqx@node2.emqx.io\""
     - "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s"
     - "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
-    command: 
-        - /bin/sh 
+    command:
+        - /bin/sh
         - -c
         - |
           sed -i "s 127.0.0.1 $$(ip route show |grep "link" |awk '{print $$1}') g" /opt/emqx/etc/acl.conf
@@ -26,7 +26,7 @@ services:
       emqx-bridge:
         aliases:
         - node1.emqx.io
-  
+
   emqx2:
     container_name: node2.emqx.io
     image: emqx/emqx:build-alpine-amd64
@@ -34,11 +34,11 @@ services:
     - "EMQX_NAME=emqx"
     - "EMQX_HOST=node2.emqx.io"
     - "EMQX_CLUSTER__DISCOVERY=static"
-    - "EMQX_CLUSTER__STATIC__SEEDS=emqx@node1.emqx.io, emqx@node2.emqx.io"
+    - "EMQX_CLUSTER__STATIC__SEEDS=\"emqx@node1.emqx.io, emqx@node2.emqx.io\""
     - "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s"
     - "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
-    command: 
-      - /bin/sh 
+    command:
+      - /bin/sh
       - -c
       - |
         sed -i "s 127.0.0.1 $$(ip route show |grep "link" |awk '{print $$1}') g" /opt/emqx/etc/acl.conf

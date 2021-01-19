@@ -3,7 +3,7 @@
 ## Declare variables to be passed into your templates.
 
 ## It is recommended to have odd number of nodes in a cluster, otherwise the emqx cluster cannot be automatically healed in case of net-split.
-replicaCount: 3 
+replicaCount: 3
 image:
   repository: emqx/emqx
   pullPolicy: IfNotPresent
@@ -42,7 +42,7 @@ initContainers: {}
 
 ## EMQX configuration item, see the documentation (https://github.com/emqx/emqx-docker#emq-x-configuration)
 emqxConfig:
-  EMQX_CLUSTER__K8S__APISERVER: "https://kubernetes.default.svc:443"
+  EMQX_CLUSTER__K8S__APISERVER: \"https://kubernetes.default.svc:443\"
   ## The address type is used to extract host from k8s service.
   ## Value: ip | dns | hostname
   ## Note：Hostname is only supported after v4.0-rc.2
@@ -86,7 +86,7 @@ service:
   ## Port for MQTT
   ##
   mqtt: 1883
-  ## Port for MQTT(SSL) 
+  ## Port for MQTT(SSL)
   ##
   mqttssl: 8883
   ## Port for mgmt API
