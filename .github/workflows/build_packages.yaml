@@ -91,6 +91,7 @@ jobs:
       run: |
         pkg_name=$(basename _packages/emqx/emqx-macos-*.zip)
         unzip _packages/emqx/$pkg_name
+        gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ./emqx/bin/emqx_ctl status
         ./emqx/bin/emqx stop
