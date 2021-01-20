@@ -169,6 +169,47 @@ t_sticky(_) ->
 t_hash(_) ->
     test_two_messages(hash, false).
 
+t_hash_clinetid(_) ->
+    test_two_messages(hash_clientid, false).
+
+t_hash_topic(_) ->
+    ok = ensure_config(hash_topic, false),
+    ClientId1 = <<"ClientId1">>,
+    ClientId2 = <<"ClientId2">>,
+    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
+    {ok, _} = emqtt:connect(ConnPid1),
+    {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}]),
+    {ok, _} = emqtt:connect(ConnPid2),
+
+    Topic1 = <<"foo/bar1">>,
+    Topic2 = <<"foo/bar2">>,
+    ?assert(erlang:phash2(Topic1) rem 2 =/= erlang:phash2(Topic2) rem 2),
+    Message1 = emqx_message:make(ClientId1, 0, Topic1, <<"hello1">>),
+    Message2 = emqx_message:make(ClientId1, 0, Topic2, <<"hello2">>),
+    emqtt:subscribe(ConnPid1, {<<"$share/group1/foo/#">>, 0}),
+    emqtt:subscribe(ConnPid2, {<<"$share/group1/foo/#">>, 0}),
+    ct:sleep(100),
+    emqx:publish(Message1),
+    Me = self(),
+    WaitF = fun(ExpectedPayload) ->
+                    case last_message(ExpectedPayload, [ConnPid1, ConnPid2]) of
+                        {true, Pid} ->
+                            Me ! {subscriber, Pid},
+                            true;
+                        Other ->
+                            Other
+                    end
+            end,
+    WaitF(<<"hello1">>),
+    UsedSubPid1 = receive {subscriber, P1} -> P1 end,
+    emqx_broker:publish(Message2),
+    WaitF(<<"hello2">>),
+    UsedSubPid2 = receive {subscriber, P2} -> P2 end,
+    ?assert(UsedSubPid1 =/= UsedSubPid2),
+    emqtt:stop(ConnPid1),
+    emqtt:stop(ConnPid2),
+    ok.
+
 %% if the original subscriber dies, change to another one alive
 t_not_so_sticky(_) ->
     ok = ensure_config(sticky),
@@ -246,7 +287,7 @@ last_message(ExpectedPayload, Pids) ->
     after 100 ->
         <<"not yet?">>
     end.
-    
+
 t_dispatch(_) ->
     ok = ensure_config(random),
     Topic = <<"foo">>,
