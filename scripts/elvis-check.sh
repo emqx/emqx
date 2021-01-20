@@ -4,7 +4,7 @@ set -euo pipefail
 
 ELVIS_VERSION='1.0.0-emqx-1'
 
-base=${GITHUB_BASE_REF:-$1}
+base="${GITHUB_BASE_REF:-$1}"
 elvis_version="${2:-$ELVIS_VERSION}"
 
 echo "elvis -v: $elvis_version"
