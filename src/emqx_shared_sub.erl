@@ -126,7 +126,7 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
 
 -spec(strategy() -> random | round_robin | sticky | hash).
 strategy() ->
-    emqx:get_env(shared_subscription_strategy, round_robin).
+    emqx:get_env(shared_subscription_strategy, random).
 
 -spec(ack_enabled() -> boolean()).
 ack_enabled() ->
