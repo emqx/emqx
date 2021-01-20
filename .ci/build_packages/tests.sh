@@ -25,6 +25,7 @@ emqx_test(){
                 unzip -q ${PACKAGE_PATH}/$packagename
                 sed -i "/zone.external.server_keepalive/c zone.external.server_keepalive = 60" ${PACKAGE_PATH}/emqx/etc/emqx.conf
                 sed -i "/mqtt.max_topic_alias/c mqtt.max_topic_alias = 10" ${PACKAGE_PATH}/emqx/etc/emqx.conf
+                sed -i '/emqx_telemetry/d' ${PACKAGE_PATH}/emqx/data/loaded_plugins
 
                 if [ ! -z $(echo ${EMQX_DEPS_DEFAULT_VSN#v} | grep -oE "[0-9]+\.[0-9]+(\.[0-9]+)?-(alpha|beta|rc)\.[0-9]") ]; then
                     if [ ! -d ${PACKAGE_PATH}/emqx/lib/emqx-${EMQX_DEPS_DEFAULT_VSN#v} ] || [ ! -d ${PACKAGE_PATH}/emqx/releases/${EMQX_DEPS_DEFAULT_VSN#v} ] ;then
@@ -111,6 +112,7 @@ running_test(){
 
     sed -i "/zone.external.server_keepalive/c zone.external.server_keepalive = 60" /etc/emqx/emqx.conf
     sed -i "/mqtt.max_topic_alias/c mqtt.max_topic_alias = 10" /etc/emqx/emqx.conf
+    sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
 
     emqx start || tail /var/log/emqx/erlang.log.1
     IDLE_TIME=0
