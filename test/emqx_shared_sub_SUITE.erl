@@ -47,16 +47,21 @@ t_is_ack_required(_) ->
 
 t_maybe_nack_dropped(_) ->
     ?assertEqual(ok, emqx_shared_sub:maybe_nack_dropped(#message{headers = #{}})),
-    ?assertEqual(ok, emqx_shared_sub:maybe_nack_dropped(#message{headers = #{shared_dispatch_ack => {self(), for_test}}})),
+    Msg = #message{headers = #{shared_dispatch_ack => {self(), for_test}}},
+    ?assertEqual(ok, emqx_shared_sub:maybe_nack_dropped(Msg)),
     ?assertEqual(ok,receive {for_test, {shared_sub_nack, dropped}} -> ok after 100 -> timeout end).
 
 t_nack_no_connection(_) ->
-    ?assertEqual(ok, emqx_shared_sub:nack_no_connection(#message{headers = #{shared_dispatch_ack => {self(), for_test}}})),
-    ?assertEqual(ok,receive {for_test, {shared_sub_nack, no_connection}} -> ok after 100 -> timeout end).
+    Msg = #message{headers = #{shared_dispatch_ack => {self(), for_test}}},
+    ?assertEqual(ok, emqx_shared_sub:nack_no_connection(Msg)),
+    ?assertEqual(ok,receive {for_test, {shared_sub_nack, no_connection}} -> ok
+                    after 100 -> timeout end).
 
 t_maybe_ack(_) ->
     ?assertEqual(#message{headers = #{}}, emqx_shared_sub:maybe_ack(#message{headers = #{}})),
-    ?assertEqual(#message{headers = #{shared_dispatch_ack => ?no_ack}}, emqx_shared_sub:maybe_ack(#message{headers = #{shared_dispatch_ack => {self(), for_test}}})),
+    Msg = #message{headers = #{shared_dispatch_ack => {self(), for_test}}},
+    ?assertEqual(#message{headers = #{shared_dispatch_ack => ?no_ack}},
+                 emqx_shared_sub:maybe_ack(Msg)),
     ?assertEqual(ok,receive {for_test, ?ack} -> ok after 100 -> timeout end).
 
 % t_subscribers(_) ->
@@ -124,7 +129,8 @@ t_no_connection_nack(_) ->
     %% This is the connection which was picked by broker to dispatch (sticky) for 1st message
 
     ?assertMatch([#{packet_id := 1}], recv_msgs(1)),
-    %% Now kill the connection, expect all following messages to be delivered to the other subscriber.
+    %% Now kill the connection, expect all following messages to be delivered to the other
+    %% subscriber.
     %emqx_mock_client:stop(ConnPid),
     %% sleep then make synced calls to session processes to ensure that
     %% the connection pid's 'EXIT' message is propagated to the session process
@@ -291,9 +297,11 @@ last_message(ExpectedPayload, Pids) ->
 t_dispatch(_) ->
     ok = ensure_config(random),
     Topic = <<"foo">>,
-    ?assertEqual({error, no_subscribers}, emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})),
+    ?assertEqual({error, no_subscribers},
+                 emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})),
     emqx:subscribe(Topic, #{qos => 2, share => <<"group1">>}),
-    ?assertEqual({ok, 1}, emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})).
+    ?assertEqual({ok, 1},
+                 emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})).
 
 % t_unsubscribe(_) ->
 %     error('TODO').
