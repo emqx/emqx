@@ -1187,11 +1187,10 @@ check_banned(_ConnPkt, #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
 %%--------------------------------------------------------------------
 %% Auth Connect
 
-auth_connect(#mqtt_packet_connect{clientid  = ClientId,
-                                  username  = Username,
-                                  password  = Password
-                                 },
+auth_connect(#mqtt_packet_connect{password  = Password},
              #channel{clientinfo = ClientInfo} = Channel) ->
+    #{clientid := ClientId,
+      username := Username} = ClientInfo,
     case emqx_access_control:authenticate(ClientInfo#{password => Password}) of
         {ok, AuthResult} ->
             is_anonymous(AuthResult) andalso
