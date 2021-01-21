@@ -3,7 +3,7 @@ version: '3'
 services:
   erlang:
     container_name: erlang
-    image: erlang:22.3
+    image: erlang:22.3.4.13
     depends_on:
       - mysql_server
       - redis_server
@@ -80,7 +80,8 @@ services:
   ldap_server:
     container_name: openldap
     build:
-      context: ./emqx_ldap
+      context: ../..
+      dockerfile: .ci/apps_tests/openldap/Dockerfile
       args: 
         LDAP_TAG: ${LDAP_TAG}
     image: emqx-ldap:1.0

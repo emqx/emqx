@@ -58,6 +58,15 @@
         , code_change/3
         ]).
 
+-export_type([strategy/0]).
+
+-type strategy() :: random
+                  | round_robin
+                  | sticky
+                  | hash %% same as hash_clientid, backward compatible
+                  | hash_clientid
+                  | hash_topic.
+
 -define(SERVER, ?MODULE).
 -define(TAB, emqx_shared_subscription).
 -define(SHARED_SUBS, emqx_shared_subscriber).
@@ -111,8 +120,8 @@ dispatch(Group, Topic, Delivery) ->
     dispatch(Group, Topic, Delivery, _FailedSubs = []).
 
 dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
-    #message{from = ClientId} = Msg,
-    case pick(strategy(), ClientId, Group, Topic, FailedSubs) of
+    #message{from = ClientId, topic = SourceTopic} = Msg,
+    case pick(strategy(), ClientId, SourceTopic, Group, Topic, FailedSubs) of
         false ->
             {error, no_subscribers};
         {Type, SubPid} ->
@@ -124,9 +133,9 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
             end
     end.
 
--spec(strategy() -> random | round_robin | sticky | hash).
+-spec(strategy() -> strategy()).
 strategy() ->
-    emqx:get_env(shared_subscription_strategy, round_robin).
+    emqx:get_env(shared_subscription_strategy, random).
 
 -spec(ack_enabled() -> boolean()).
 ack_enabled() ->
@@ -226,7 +235,7 @@ maybe_ack(Msg) ->
             without_ack_ref(Msg)
     end.
 
-pick(sticky, ClientId, Group, Topic, FailedSubs) ->
+pick(sticky, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
     Sub0 = erlang:get({shared_sub_sticky, Group, Topic}),
     case is_active_sub(Sub0, FailedSubs) of
         true ->
@@ -235,15 +244,15 @@ pick(sticky, ClientId, Group, Topic, FailedSubs) ->
             {fresh, Sub0};
         false ->
             %% randomly pick one for the first message
-            {Type, Sub} = do_pick(random, ClientId, Group, Topic, [Sub0 | FailedSubs]),
+            {Type, Sub} = do_pick(random, ClientId, SourceTopic, Group, Topic, [Sub0 | FailedSubs]),
             %% stick to whatever pick result
             erlang:put({shared_sub_sticky, Group, Topic}, Sub),
             {Type, Sub}
     end;
-pick(Strategy, ClientId, Group, Topic, FailedSubs) ->
-    do_pick(Strategy, ClientId, Group, Topic, FailedSubs).
+pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
+    do_pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs).
 
-do_pick(Strategy, ClientId, Group, Topic, FailedSubs) ->
+do_pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
     All = subscribers(Group, Topic),
     case All -- FailedSubs of
         [] when All =:= [] ->
@@ -251,22 +260,27 @@ do_pick(Strategy, ClientId, Group, Topic, FailedSubs) ->
             false;
         [] ->
             %% All offline? pick one anyway
-            {retry, pick_subscriber(Group, Topic, Strategy, ClientId, All)};
+            {retry, pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, All)};
         Subs ->
             %% More than one available
-            {fresh, pick_subscriber(Group, Topic, Strategy, ClientId, Subs)}
+            {fresh, pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, Subs)}
     end.
 
-pick_subscriber(_Group, _Topic, _Strategy, _ClientId, [Sub]) -> Sub;
-pick_subscriber(Group, Topic, Strategy, ClientId, Subs) ->
-    Nth = do_pick_subscriber(Group, Topic, Strategy, ClientId, length(Subs)),
+pick_subscriber(_Group, _Topic, _Strategy, _ClientId, _SourceTopic, [Sub]) -> Sub;
+pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, Subs) ->
+    Nth = do_pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, length(Subs)),
     lists:nth(Nth, Subs).
 
-do_pick_subscriber(_Group, _Topic, random, _ClientId, Count) ->
+do_pick_subscriber(_Group, _Topic, random, _ClientId, _SourceTopic, Count) ->
     rand:uniform(Count);
-do_pick_subscriber(_Group, _Topic, hash, ClientId, Count) ->
+do_pick_subscriber(Group, Topic, hash, ClientId, SourceTopic, Count) ->
+    %% backward compatible
+    do_pick_subscriber(Group, Topic, hash_clientid, ClientId, SourceTopic, Count);
+do_pick_subscriber(_Group, _Topic, hash_clientid, ClientId, _SourceTopic, Count) ->
     1 + erlang:phash2(ClientId) rem Count;
-do_pick_subscriber(Group, Topic, round_robin, _ClientId, Count) ->
+do_pick_subscriber(_Group, _Topic, hash_topic, _ClientId, SourceTopic, Count) ->
+    1 + erlang:phash2(SourceTopic) rem Count;
+do_pick_subscriber(Group, Topic, round_robin, _ClientId, _SourceTopic, Count) ->
     Rem = case erlang:get({shared_sub_round_robin, Group, Topic}) of
               undefined -> 0;
               N -> (N + 1) rem Count

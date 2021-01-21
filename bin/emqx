@@ -143,7 +143,7 @@ relx_get_pid() {
 
 relx_get_nodename() {
     id="longname$(relx_gen_id)-${NAME}"
-    "$BINDIR/erl" -boot start_clean -eval '[Host] = tl(string:tokens(atom_to_list(node()),"@")), io:format("~s~n", [Host]), halt()' -noshell ${NAME_TYPE} $id
+    "$BINDIR/erl" -boot "$REL_DIR/start_clean" -eval '[Host] = tl(string:tokens(atom_to_list(node()),"@")), io:format("~s~n", [Host]), halt()' -noshell ${NAME_TYPE} $id
 }
 
 # Connect to a remote node
@@ -155,7 +155,7 @@ relx_rem_sh() {
     TICKTIME="$(relx_nodetool rpcterms net_kernel get_net_ticktime)"
 
     # Setup remote shell command to control node
-    exec "$BINDIR/erl" "$NAME_TYPE" "$id" -remsh "$NAME" -boot start_clean \
+    exec "$BINDIR/erl" "$NAME_TYPE" "$id" -remsh "$NAME" -boot "$REL_DIR/start_clean" \
          -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
          -setcookie "$COOKIE" -hidden -kernel net_ticktime $TICKTIME $EPMD_ARG
 }
@@ -504,7 +504,7 @@ case "$1" in
                 fi
                 ;;
             console_clean)
-                BOOTFILE="$ROOTDIR/bin/start_clean"
+                BOOTFILE="$REL_DIR/start_clean"
                 ;;
             console_boot)
                 shift

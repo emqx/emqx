@@ -32,7 +32,12 @@
 
 {mapping, "auth.pgsql.ssl.enable", "emqx_auth_pgsql.server", [
   {default, off},
-  {datatype, flag}
+  {datatype, {enum, [on, off, true, false]}} %% FIXME: true/fasle is compatible with 4.0-4.2 version format, plan to delete in 5.0
+]}.
+
+{mapping, "auth.pgsql.ssl.tls_versions", "emqx_auth_pgsql.server", [
+  {default, "tlsv1.2"},
+  {datatype, string}
 ]}.
 
 {mapping, "auth.pgsql.ssl.keyfile", "emqx_auth_pgsql.server", [
@@ -44,6 +49,21 @@
 ]}.
 
 {mapping, "auth.pgsql.ssl.cacertfile", "emqx_auth_pgsql.server", [
+  {datatype, string}
+]}.
+
+%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
+{mapping, "auth.pgsql.ssl_opts.keyfile", "emqx_auth_pgsql.server", [
+  {datatype, string}
+]}.
+
+%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
+{mapping, "auth.pgsql.ssl_opts.certfile", "emqx_auth_pgsql.server", [
+  {datatype, string}
+]}.
+
+%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
+{mapping, "auth.pgsql.ssl_opts.cacertfile", "emqx_auth_pgsql.server", [
   {datatype, string}
 ]}.
 
@@ -61,14 +81,29 @@
   Passwd = cuttlefish:conf_get("auth.pgsql.password", Conf, ""),
   DB = cuttlefish:conf_get("auth.pgsql.database", Conf),
   Encoding = cuttlefish:conf_get("auth.pgsql.encoding", Conf),
-  Ssl = cuttlefish:conf_get("auth.pgsql.ssl.enable", Conf),
 
   Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
   SslOpts = fun(Prefix) ->
                 Filter([{keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
                         {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
-                        {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)}])
+                        {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined),
+                        {versions, [list_to_existing_atom(Value)
+                                    ||Value <- string:tokens(cuttlefish:conf_get("auth.pgsql.ssl.tls_versions", Conf), " ,")]}}])
             end,
+
+  %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
+  GenSsl = case cuttlefish:conf_get("auth.pgsql.ssl.cacertfile", Conf, undefined) of
+               undefined -> [{ssl, true}, {ssl_opts, SslOpts("auth.pgsql.ssl_opts")}];
+               _ -> [{ssl, true}, {ssl_opts, SslOpts("auth.pgsql.ssl")}]
+           end,
+
+  %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
+  Ssl = case cuttlefish:conf_get("auth.pgsql.ssl.enable", Conf) of
+          on -> GenSsl;
+          off -> [];
+          true -> GenSsl;
+          false -> []
+        end,
 
   TempHost = case inet:parse_address(PgHost) of
       {ok, IpAddr} ->
@@ -83,9 +118,7 @@
    {username, Username},
    {password, Passwd},
    {database, DB},
-   {encoding, Encoding},
-   {ssl, Ssl},
-   {ssl_opts, SslOpts("auth.pgsql.ssl")}]
+   {encoding, Encoding}] ++ Ssl
 end}.
 
 {mapping, "auth.pgsql.auth_query", "emqx_auth_pgsql.auth_query", [

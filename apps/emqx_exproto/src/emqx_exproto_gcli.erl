@@ -37,6 +37,12 @@
         , code_change/3
         ]).
 
+-record(state, {
+          pool,
+          id,
+          streams
+         }).
+
 -define(CONN_ADAPTER_MOD, emqx_exproto_v_1_connection_handler_client).
 
 %%--------------------------------------------------------------------
@@ -68,32 +74,34 @@ pick(Conn) ->
 
 init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    {ok, #{pool => Pool, id => Id}}.
+    {ok, #state{pool = Pool, id = Id, streams = #{}}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({rpc, Fun, Req, Options, From}, State) ->
-    try
-        case apply(?CONN_ADAPTER_MOD, Fun, [Req, Options]) of
-            {ok, Resp, _Metadata} ->
-                ?LOG(debug, "~p got {ok, ~0p, ~0p}", [Fun, Resp, _Metadata]),
-                reply(From, Fun, {ok, Resp});
-            {error, {Code, Msg}, _Metadata} ->
-                ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) response errcode: ~0p, errmsg: ~0p",
-                        [?CONN_ADAPTER_MOD, Fun, Req, Options, Code, Msg]),
-                reply(From, Fun, {error, {Code, Msg}});
-            {error, Reason} ->
-                ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) error: ~0p",
-                        [?CONN_ADAPTER_MOD, Fun, Req, Options, Reason]),
-                reply(From, Fun, {error, Reason})
-        end
-    catch _ : Rsn : Stk ->
-        ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) throw an exception: ~0p, stacktrace: ~0p",
-             [?CONN_ADAPTER_MOD, Fun, Req, Options, Rsn, Stk]),
-        reply(From, Fun, {error, Rsn})
-    end,
-    {noreply, State}.
+handle_cast({rpc, Fun, Req, Options, From}, State = #state{streams = Streams}) ->
+    case ensure_stream_opened(Fun, Options, Streams) of
+        {error, Reason} ->
+            ?LOG(error, "CALL ~0p:~0p(~0p) failed, reason: ~0p",
+                    [?CONN_ADAPTER_MOD, Fun, Options, Reason]),
+            reply(From, Fun, {error, Reason}),
+            {noreply, State#state{streams = Streams#{Fun => undefined}}};
+        {ok, Stream} ->
+            case catch grpc_client:send(Stream, Req) of
+                ok ->
+                    ?LOG(debug, "Send to ~p method successfully, request: ~0p", [Fun, Req]),
+                    reply(From, Fun, ok),
+                    {noreply, State#state{streams = Streams#{Fun => Stream}}};
+                {'EXIT', {timeout, _Stk}} ->
+                    ?LOG(error, "Send to ~p method timeout, request: ~0p", [Fun, Req]),
+                    reply(From, Fun, {error, timeout}),
+                    {noreply, State#state{streams = Streams#{Fun => Stream}}};
+                {'EXIT', {Reason1, _Stk}} ->
+                    ?LOG(error, "Send to ~p method failure, request: ~0p, stacktrace: ~0p", [Fun, Req, _Stk]),
+                    reply(From, Fun, {error, Reason1}),
+                    {noreply, State#state{streams = Streams#{Fun => undefined}}}
+            end
+    end.
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -111,3 +119,13 @@ code_change(_OldVsn, State, _Extra) ->
 reply(Pid, Fun, Result) ->
     Pid ! {hreply, Fun, Result},
     ok.
+
+ensure_stream_opened(Fun, Options, Streams) ->
+    case maps:get(Fun, Streams, undefined) of
+        undefined ->
+            case apply(?CONN_ADAPTER_MOD, Fun, [Options]) of
+                {ok, Stream} -> {ok, Stream};
+                {error, Reason} -> {error, Reason}
+            end;
+        Stream -> {ok, Stream}
+    end.

@@ -22,7 +22,3 @@ See: `priv/protos/exproto.proto`
 ## Recommended gRPC Framework
 
 See: https://github.com/grpc-ecosystem/awesome-grpc
-
-## Thanks
-
-- [grpcbox](https://github.com/tsloughter/grpcbox)
