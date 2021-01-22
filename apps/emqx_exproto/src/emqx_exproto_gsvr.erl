@@ -115,10 +115,10 @@ unsubscribe(Req = #{conn := Conn, topic := Topic}, Md) ->
 %%--------------------------------------------------------------------
 
 to_pid(ConnStr) ->
-    list_to_pid(binary_to_list(ConnStr)).
+    binary_to_term(base64:decode(ConnStr)).
 
 call(ConnStr, Req) ->
-    case catch  to_pid(ConnStr) of
+    case catch to_pid(ConnStr) of
         {'EXIT', {badarg, _}} ->
             {error, ?RESP_PARAMS_TYPE_ERROR,
                     <<"The conn type error">>};

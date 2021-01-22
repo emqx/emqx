@@ -26,18 +26,23 @@ jobs:
             PGSQL_TAG: 13
             LDAP_TAG: 2.4.50
           run: |
-            cp -f apps/emqx_auth_ldap/emqx.io.ldif .ci/apps_tests/emqx_ldap/schema
-            cp -f apps/emqx_auth_ldap/emqx.schema  .ci/apps_tests/emqx_ldap/schema
-            cp -f apps/emqx_auth_ldap/test/certs/* .ci/apps_tests/emqx_ldap/certs
             docker-compose -f .ci/apps_tests/docker-compose.yaml build --no-cache
             docker-compose -f .ci/apps_tests/docker-compose.yaml up -d
         - name: set config files
           run: |
-            sed -i "/auth.mysql.server/c auth.mysql.server = \"mysql_server:3306\"" apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-            sed -i "/auth.redis.server/c auth.redis.server = \"redis_server:6379\"" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
-            sed -i "/auth.mongo.server/c auth.mongo.server = \"mongo_server:27017\"" apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-            sed -i "/auth.pgsql.server/c auth.pgsql.server = \"pgsql_server:5432\"" apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
-            sed -i "/auth.ldap.servers/c auth.ldap.servers = \"ldap_server\"" apps/emqx_auth_ldap/etc/emqx_auth_ldap.conf
+            sed -i 's|^[#[:space:]]*auth.ldap.servers[[:space:]]*=.*|auth.ldap.servers = "ldap_server"|g' apps/emqx_auth_ldap/etc/emqx_auth_ldap.conf
+            sed -i 's|^[#[:space:]]*auth.mongo.server[[:space:]]*=.*|auth.mongo.server = "mongo_server:27017"|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+            sed -i 's|^[#[:space:]]*auth.redis.server[[:space:]]*=.*|auth.redis.server = "redis_server:6379"|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+
+            sed -i 's|^[#[:space:]]*auth.mysql.server[[:space:]]*=.*|auth.mysql.server = "mysql_server:3306"|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+            sed -i 's|^[#[:space:]]*auth.mysql.username[[:space:]]*=.*|auth.mysql.username = root|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+            sed -i 's|^[#[:space:]]*auth.mysql.password[[:space:]]*=.*|auth.mysql.password = public|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+            sed -i 's|^[#[:space:]]*auth.mysql.database[[:space:]]*=.*|auth.mysql.database = mqtt|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+
+            sed -i 's|^[#[:space:]]*auth.pgsql.server[[:space:]]*=.*|auth.pgsql.server = "pgsql_server:5432"|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+            sed -i 's|^[#[:space:]]*auth.pgsql.username[[:space:]]*=.*|auth.pgsql.username = root|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+            sed -i 's|^[#[:space:]]*auth.pgsql.password[[:space:]]*=.*|auth.pgsql.password = public|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+            sed -i 's|^[#[:space:]]*auth.pgsql.database[[:space:]]*=.*|auth.pgsql.database = mqtt|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
         - name: run tests
           run: |
             docker exec -i erlang bash -c "make xref"

@@ -364,7 +364,8 @@ handle_info({sock_closed, Reason},
     case queue:len(Queue) =:= 0
          andalso Inflight =:= undefined of
         true ->
-            {shutdown, {sock_closed, Reason}, Channel};
+            Channel1 = ensure_disconnected({sock_closed, Reason}, Channel),
+            {shutdown, {sock_closed, Reason}, Channel1};
         _ ->
             %% delayed close process for flushing all callback funcs to gRPC server
             Channel1 = Channel#channel{closed_reason = {sock_closed, Reason}},
@@ -372,9 +373,9 @@ handle_info({sock_closed, Reason},
             {ok, ensure_disconnected({sock_closed, Reason}, Channel2)}
     end;
 
-handle_info({hreply, on_socket_created, {ok, _}}, Channel) ->
+handle_info({hreply, on_socket_created, ok}, Channel) ->
     dispatch_or_close_process(Channel#channel{inflight = undefined});
-handle_info({hreply, FunName, {ok, _}}, Channel)
+handle_info({hreply, FunName, ok}, Channel)
   when FunName == on_socket_closed;
        FunName == on_received_bytes;
        FunName == on_received_messages;
@@ -525,7 +526,7 @@ interval(alive_timer, #channel{keepalive = Keepalive}) ->
 %%--------------------------------------------------------------------
 
 wrap(Req) ->
-     Req#{conn => pid_to_list(self())}.
+     Req#{conn => base64:encode(term_to_binary(self()))}.
 
 dispatch_or_close_process(Channel = #channel{
                                        rqueue = Queue,

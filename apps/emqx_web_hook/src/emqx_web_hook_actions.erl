@@ -295,15 +295,23 @@ create_req(_, Path, Headers, Body) ->
 parse_action_params(Params = #{<<"url">> := URL}) ->
     try
         #{path := CommonPath} = uri_string:parse(URL),
-        #{method => method(maps:get(<<"method">>, Params, <<"POST">>)),
+        Method = method(maps:get(<<"method">>, Params, <<"POST">>)),
+        Headers = headers(maps:get(<<"headers">>, Params, undefined)),
+        NHeaders = ensure_content_type_header(Headers, Method),
+        #{method => Method,
           path => path(filename:join(CommonPath, maps:get(<<"path">>, Params, <<>>))),
-          headers => headers(maps:get(<<"headers">>, Params, undefined)),
+          headers => NHeaders,
           body => maps:get(<<"body">>, Params, <<>>),
           request_timeout => timer:seconds(maps:get(<<"request_timeout">>, Params, 5)),
           pool => maps:get(<<"pool">>, Params)}
     catch _:_ ->
         throw({invalid_params, Params})
     end.
+
+ensure_content_type_header(Headers, Method) when Method =:= post orelse Method =:= put ->
+    Headers;
+ensure_content_type_header(Headers, _Method) ->
+    lists:keydelete("content-type", 1, Headers).
 
 path(<<>>) -> <<"/">>;
 path(Path) -> Path.
@@ -314,11 +322,10 @@ method(PUT) when PUT == <<"PUT">>; PUT == <<"put">> -> put;
 method(DEL) when DEL == <<"DELETE">>; DEL == <<"delete">> -> delete.
 
 headers(undefined) -> [];
-headers(Headers) when is_list(Headers) -> Headers;
 headers(Headers) when is_map(Headers) ->
-    maps:fold(fun(K, V, Acc) ->
-            [{str(K), str(V)} | Acc]
-        end, [], Headers).
+    headers(maps:to_list(Headers));
+headers(Headers) when is_list(Headers) ->
+    [{string:to_lower(str(K)), str(V)} || {K, V} <- Headers].
 
 str(Str) when is_list(Str) -> Str;
 str(Atom) when is_atom(Atom) -> atom_to_list(Atom);
@@ -326,18 +333,30 @@ str(Bin) when is_binary(Bin) -> binary_to_list(Bin).
 
 pool_opts(Params = #{<<"url">> := URL}) ->
     #{host := Host0,
-      port := Port,
-      scheme := Scheme} = uri_string:parse(URL),
-    Host = get_addr(binary_to_list(Host0)),
+      scheme := Scheme} = URIMap = uri_string:parse(binary_to_list(URL)),
+    Port = maps:get(port, URIMap, case Scheme of
+                                      "https" -> 443;
+                                      _ -> 80
+                                  end),
     PoolSize = maps:get(<<"pool_size">>, Params, 32),
     ConnectTimeout = timer:seconds(maps:get(<<"connect_timeout">>, Params, 5)),
-    IPv6 = case tuple_size(Host) =:= 8 of
-               true -> [inet6];
-               false -> []
+    Host = case inet:parse_address(Host0) of
+                       {ok, {_,_,_,_} = Addr} -> Addr;
+                       {ok, {_,_,_,_,_,_,_,_} = Addr} -> Addr;
+                       {error, einval} -> Host0
+                   end,
+    Inet = case Host of
+               {_,_,_,_} -> inet;
+               {_,_,_,_,_,_,_,_} -> inet6;
+               _ ->
+                   case inet:getaddr(Host, inet6) of
+                       {error, _} -> inet;
+                       {ok, _} -> inet6
+                   end
            end,
     MoreOpts = case Scheme of
                    <<"http">> ->
-                       [{transport_opts, IPv6}];
+                       [{transport_opts, [Inet]}];
                    <<"https">> ->
                        KeyFile = maps:get(<<"keyfile">>, Params),
                        CertFile = maps:get(<<"certfile">>, Params),
@@ -357,7 +376,7 @@ pool_opts(Params = #{<<"url">> := URL}) ->
                                    {ciphers, lists:foldl(fun(TlsVer, Ciphers) ->
                                                              Ciphers ++ ssl:cipher_suites(all, TlsVer)
                                                          end, [], TlsVers)} | TLSOpts],
-                       [{transport, ssl}, {transport_opts, NTLSOpts ++ IPv6}]
+                       [{transport, ssl}, {transport_opts, [Inet | NTLSOpts]}]
               end,
     [{host, Host},
      {port, Port},
@@ -366,19 +385,6 @@ pool_opts(Params = #{<<"url">> := URL}) ->
      {connect_timeout, ConnectTimeout},
      {retry, 5},
      {retry_timeout, 1000}] ++ MoreOpts.
-
-get_addr(Hostname) ->
-    case inet:parse_address(Hostname) of
-        {ok, {_,_,_,_} = Addr} -> Addr;
-        {ok, {_,_,_,_,_,_,_,_} = Addr} -> Addr;
-        {error, einval} ->
-            case inet:getaddr(Hostname, inet) of
-                 {error, _} ->
-                     {ok, Addr} = inet:getaddr(Hostname, inet6),
-                     Addr;
-                 {ok, Addr} -> Addr
-            end
-    end.
 
 pool_name(ResId) ->
     list_to_atom("webhook:" ++ str(ResId)).

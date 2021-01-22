@@ -68,15 +68,15 @@ set_special_configs(emqx_auth_http, Schema, Inet) ->
 
     AuthReq = #{method => post,
                 url => ServerAddr ++ "/mqtt/auth",
-                content_type => <<"application/json">>,
+                headers => [{"content-type", "application/json"}],
                 params => [{"clientid", "%c"}, {"username", "%u"}, {"password", "%P"}]},
     SuperReq = #{method => post,
                  url => ServerAddr ++ "/mqtt/superuser",
-                 content_type => <<"application/json">>,
+                 headers => [{"content-type", "application/json"}],
                  params => [{"clientid", "%c"}, {"username", "%u"}]},
     AclReq = #{method => post,
                url => ServerAddr ++ "/mqtt/acl",
-               content_type => <<"application/json">>,
+               headers => [{"content-type", "application/json"}],
                params => [{"access", "%A"}, {"username", "%u"}, {"clientid", "%c"}, {"ipaddr", "%a"}, {"topic", "%t"}, {"mountpoint", "%m"}]},
 
     Schema =:= https andalso set_https_client_opts(),
@@ -87,9 +87,10 @@ set_special_configs(emqx_auth_http, Schema, Inet) ->
 
 %% @private
 set_https_client_opts() ->
-    TransportOpts = emqx_ct_helpers:client_ssl_twoway(),
-    {ok, PoolOpts} = application:get_env(emqx_auth_http, pool_opts),
-    application:set_env(emqx_auth_http, pool_opts, [{transport_opts, TransportOpts}, {transport, ssl} | PoolOpts]).
+    SSLOpt = emqx_ct_helpers:client_ssl_twoway(),
+    application:set_env(emqx_auth_http, cafile, proplists:get_value(cacertfile, SSLOpt, undefined)),
+    application:set_env(emqx_auth_http, certfile, proplists:get_value(certfile, SSLOpt, undefined)),
+    application:set_env(emqx_auth_http, keyfile, proplists:get_value(keyfile, SSLOpt, undefined)).
 
 %% @private
 http_server(http, inet) -> "http://127.0.0.1:8991";

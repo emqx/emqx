@@ -1,10 +1,18 @@
 #!/bin/bash
 
+## This script checks style of changed files.
+## Expect argument 1 to be the git compare base.
+
 set -euo pipefail
 
 ELVIS_VERSION='1.0.0-emqx-1'
 
-base=${GITHUB_BASE_REF:-$1}
+base="${1:-}"
+if [ "${base}" = "" ]; then
+    echo "Usage $0 <git-compare-base-ref>"
+    exit 1
+fi
+
 elvis_version="${2:-$ELVIS_VERSION}"
 
 echo "elvis -v: $elvis_version"

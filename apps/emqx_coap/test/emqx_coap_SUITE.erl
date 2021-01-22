@@ -218,6 +218,46 @@ t_invalid_topic(_Config) ->
     Reply4 = er_coap_client:request(put, URI4, #coap_content{format = <<"application/octet-stream">>, payload = Payload3}),
     ?assertMatch({error,bad_request}, Reply4).
 
+% mqtt connection kicked by coap with same client id
+t_kick_1(_Config) ->
+    URI = "coap://127.0.0.1/mqtt/abc?c=clientid&u=tom&p=secret",
+    % workaround: emqx:subscribe does not kick same client id.
+    spawn_monitor(fun() ->
+        {ok, C} = emqtt:start_link([{host,      "localhost"},
+                                    {clientid, <<"clientid">>},
+                                    {username,  <<"plain">>},
+                                    {password,  <<"plain">>}]),
+        {ok, _} = emqtt:connect(C) end),
+    er_coap_client:request(put, URI, #coap_content{format = <<"application/octet-stream">>,
+                                                   payload = <<"123">>}),
+    receive
+        {'DOWN', _, _, _, _} -> ok
+    after 2000 ->
+        ?assert(false)
+    end.
+
+% mqtt connection kicked by coap with same client id
+t_acl(Config) ->
+    %% Update acl file and reload mod_acl_internal
+    Path = filename:join([testdir(proplists:get_value(data_dir, Config)), "deny.conf"]),
+    ok = file:write_file(Path, <<"{deny, {user, \"coap\"}, publish, [\"abc\"]}.">>),
+    OldPath = emqx:get_env(acl_file),
+    emqx_mod_acl_internal:reload([{acl_file, Path}]),
+
+    emqx:subscribe(<<"abc">>),
+    URI = "coap://127.0.0.1/mqtt/adbc?c=client1&u=coap&p=secret",
+    er_coap_client:request(put, URI, #coap_content{format = <<"application/octet-stream">>,
+                                                   payload = <<"123">>}),
+    receive
+        _Something -> ?assert(false)
+    after 2000 ->
+        ok
+    end,
+
+    application:set_env(emqx, acl_file, OldPath),
+    file:delete(Path),
+    emqx_mod_acl_internal:reload([{acl_file, OldPath}]).
+
 t_stats(_) ->
     ok.
 
@@ -238,3 +278,6 @@ receive_notification() ->
         receive_notification_timeout
     end.
 
+testdir(DataPath) ->
+    Ls = filename:split(DataPath),
+    filename:join(lists:sublist(Ls, 1, length(Ls) - 1)).

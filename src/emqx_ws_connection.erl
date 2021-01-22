@@ -177,22 +177,52 @@ init(Req, Opts) ->
                        0 -> infinity;
                        I -> I
                    end,
-    Compress = proplists:get_value(compress, Opts, false),
+    Compress = proplists:get_bool(compress, Opts),
     WsOpts = #{compress       => Compress,
                deflate_opts   => DeflateOptions,
                max_frame_size => MaxFrameSize,
                idle_timeout   => IdleTimeout
               },
+
+    case check_origin_header(Req, Opts) of
+        {error, Message} ->
+            ?LOG(error, "Invalid Origin Header ~p~n", [Message]),
+            {ok, cowboy_req:reply(403, Req), WsOpts};
+        ok -> parse_sec_websocket_protocol(Req, Opts, WsOpts)
+    end.
+
+parse_sec_websocket_protocol(Req, Opts, WsOpts) ->
     case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
         undefined ->
             %% TODO: why not reply 500???
             {cowboy_websocket, Req, [Req, Opts], WsOpts};
         [<<"mqtt", Vsn/binary>>] ->
             Resp = cowboy_req:set_resp_header(
-                     <<"sec-websocket-protocol">>, <<"mqtt", Vsn/binary>>, Req),
+                <<"sec-websocket-protocol">>, <<"mqtt", Vsn/binary>>, Req),
             {cowboy_websocket, Resp, [Req, Opts], WsOpts};
         _ ->
             {ok, cowboy_req:reply(400, Req), WsOpts}
+    end.
+
+parse_header_fun_origin(Req, Opts) ->
+    case cowboy_req:header(<<"origin">>, Req) of
+        undefined ->
+                case proplists:get_bool(allow_origin_absence, Opts) of
+                    true -> ok;
+                    false -> {error, origin_header_cannot_be_absent}
+                end;
+        Value ->
+            Origins = proplists:get_value(check_origins, Opts, []),
+            case lists:member(Value, Origins) of
+                true -> ok;
+                false -> {origin_not_allowed, Value}
+            end
+    end.
+
+check_origin_header(Req, Opts) ->
+    case proplists:get_bool(check_origin_enable, Opts) of
+        true -> parse_header_fun_origin(Req, Opts);
+        false -> ok
     end.
 
 websocket_init([Req, Opts]) ->

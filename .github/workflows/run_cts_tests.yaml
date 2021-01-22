@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-20.04
 
     strategy:
+      fail-fast: false
       matrix:
         ldap_tag:
         - 2.4.50
@@ -30,21 +31,18 @@ jobs:
         env:
           LDAP_TAG: ${{ matrix.ldap_tag }}
         run: |
-          cp -f apps/emqx_auth_ldap/emqx.io.ldif .ci/apps_tests/emqx_ldap/schema
-          cp -f apps/emqx_auth_ldap/emqx.schema  .ci/apps_tests/emqx_ldap/schema
-          cp -f apps/emqx_auth_ldap/test/certs/* .ci/apps_tests/emqx_ldap/certs
           docker-compose -f .ci/apps_tests/docker-compose.yaml build --no-cache
           docker-compose -f .ci/compatibility_tests/docker-compose-ldap.yaml up -d
       - name: setup
         if: matrix.network_type == 'ipv4'
         run: |
           server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ldap)
-          sed -i "/auth.ldap.servers/c auth.ldap.servers = \"$server_address\"" apps/emqx_auth_ldap/etc/emqx_auth_ldap.conf
+          sed -i "s|^[#[:space:]]*auth.ldap.servers[[:space:]]*=.*|auth.ldap.servers = \"$server_address\"|g" apps/emqx_auth_ldap/etc/emqx_auth_ldap.conf
       - name: setup
         if: matrix.network_type == 'ipv6'
         run: |
           server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' ldap)
-          sed -i "/auth.ldap.servers/c auth.ldap.servers = \"$server_address\"" apps/emqx_auth_ldap/etc/emqx_auth_ldap.conf
+          sed -i "s|^[#[:space:]]*auth.ldap.servers[[:space:]]*=.*|auth.ldap.servers = \"$server_address\"|g" apps/emqx_auth_ldap/etc/emqx_auth_ldap.conf
       - name: run test cases
         run: |
           docker exec -i erlang sh -c "make ensure-rebar3"
@@ -60,6 +58,7 @@ jobs:
     runs-on: ubuntu-20.04
 
     strategy:
+      fail-fast: false
       matrix:
         mongo_tag:
         - 3
@@ -79,15 +78,10 @@ jobs:
         if: matrix.connect_type == 'tls'
         run: |
           docker-compose -f .ci/compatibility_tests/docker-compose-mongo-tls.yaml up -d
-          echo 'auth.mongo.ssl.enable = on' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          echo 'auth.mongo.ssl.cacertfile = "/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem"' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          echo 'auth.mongo.ssl.certfile = "/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem"' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          echo 'auth.mongo.ssl.keyfile = "/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem"' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-
-          # echo 'auth.mongo.ssl.enable = true' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          # echo 'auth.mongo.ssl_opts.cacertfile = "/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem"' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          # echo 'auth.mongo.ssl_opts.certfile = "/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem"' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          # echo 'auth.mongo.ssl_opts.keyfile = "/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem"' >> apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          sed -i 's|^[#[:space:]]*auth.mongo.ssl[[:space:]]*=.*|auth.mongo.ssl.enable = on|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          sed -i 's|^[#[:space:]]*auth.mongo.cacertfile[[:space:]]*=.*|auth.mongo.cacertfile = "/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem"|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          sed -i 's|^[#[:space:]]*auth.mongo.certfile[[:space:]]*=.*|auth.mongo.certfile = "/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem"|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          sed -i 's|^[#[:space:]]*auth.mongo.keyfile[[:space:]]*=.*|auth.mongo.keyfile = "/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem"|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
       - name: setup
         env:
           MONGO_TAG: ${{ matrix.mongo_tag }}
@@ -97,12 +91,12 @@ jobs:
         if: matrix.network_type == 'ipv4'
         run: |
           server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mongo)
-          sed -i "/auth.mongo.server/c auth.mongo.server = \"$server_address:27017\"" apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          sed -i "s|^[#[:space:]]*auth.mongo.server[[:space:]]*=.*|auth.mongo.server = \"$server_address:27017\"|g" apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
       - name: setup
         if: matrix.network_type == 'ipv6'
         run: |
           server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' mongo)
-          sed -i "/auth.mongo.server/c auth.mongo.server = \"$server_address:27017\"" apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          sed -i "s|^[#[:space:]]*auth.mongo.server[[:space:]]*=.*|auth.mongo.server = \"$server_address:27017\"|g" apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
       - name: run test cases
         run: |
           docker exec -i erlang sh -c "make ensure-rebar3"
@@ -118,6 +112,7 @@ jobs:
     runs-on: ubuntu-20.04
 
     strategy:
+      fail-fast: false
       matrix:
         mysql_tag:
         - 5.7
@@ -137,11 +132,10 @@ jobs:
         if: matrix.connect_type == 'tls'
         run: |
           docker-compose -f .ci/compatibility_tests/docker-compose-mysql-tls.yaml up -d
-          echo '\n' >> apps/emqx_auth_mongo/etc/emqx_auth_mysql.conf
-          echo 'auth.mysql.ssl = on' >> apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-          echo "auth.mysql.ssl.cafile = \"/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem\"" >> apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-          echo "auth.mysql.ssl.certfile = \"/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem\"" >> apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-          echo "auth.mysql.ssl.keyfile =  \"/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-key.pem"\" >> apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          sed -i 's|^[#[:space:]]*auth.mysql.ssl[[:space:]]*=.*|auth.mysql.ssl.enable = on|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          sed -i 's|^[#[:space:]]*auth.mysql.cacertfile[[:space:]]*=.*|auth.mysql.cacertfile = \"/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem\"|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          sed -i 's|^[#[:space:]]*auth.mysql.certfile[[:space:]]*=.*|auth.mysql.certfile = \"/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem\"|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          sed -i 's|^[#[:space:]]*auth.mysql.keyfile[[:space:]]*=.*|auth.mysql.keyfile = \"/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-key.pem\"|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
       - name: setup
         env:
           MYSQL_TAG: ${{ matrix.mysql_tag }}
@@ -157,6 +151,11 @@ jobs:
         run: |
           server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' mysql)
           sed -i "/auth.mysql.server/c auth.mysql.server = \"$server_address:3306\"" apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+      - name: setup
+        run: |
+          sed -i 's|^[#[:space:]]*auth.mysql.username[[:space:]]*=.*|auth.mysql.username = root|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          sed -i 's|^[#[:space:]]*auth.mysql.password[[:space:]]*=.*|auth.mysql.password = public|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          sed -i 's|^[#[:space:]]*auth.mysql.database[[:space:]]*=.*|auth.mysql.database = mqtt|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
       - name: run test cases
         run: |
           docker exec -i erlang sh -c "make ensure-rebar3"
@@ -172,6 +171,7 @@ jobs:
     runs-on: ubuntu-20.04
 
     strategy:
+      fail-fast: false
       matrix:
         pgsql_tag:
         - 9
@@ -183,9 +183,8 @@ jobs:
         - ipv4
         - ipv6
         connect_type:
-            # - tls
+        - tls
         - tcp
-
     steps:
       - uses: actions/checkout@v1
       - name: setup
@@ -193,27 +192,38 @@ jobs:
           PGSQL_TAG: ${{ matrix.pgsql_tag }}
         if: matrix.connect_type == 'tls'
         run: |
+          docker-compose -f .ci/compatibility_tests/docker-compose-pgsql-tls.yaml build --no-cache
           docker-compose -f .ci/compatibility_tests/docker-compose-pgsql-tls.yaml up -d
-          echo '\n' >> apps/emqx_auth_mongo/etc/emqx_auth_pgsql.conf
-          echo 'auth.pgsql.ssl = true' >> apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
-          echo "auth.pgsql.ssl_opts.cacertfile = \"/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/ca.pem\"" >> apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
-          echo "auth.pgsql.ssl_opts.certfile = \"/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/client-cert.pem\"" >> apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
-          echo "auth.pgsql.ssl_opts.keyfile =  \"/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/client-key.pem\"" >> apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          if [ "$PGSQL_TAG" = "12" ] || [ "$PGSQL_TAG" = "13" ]; then
+              sed -i 's|^[#[:space:]]*auth.pgsql.ssl.tls_versions[ \t]*=.*|auth.pgsql.ssl.tls_versions = "tlsv1.3,tlsv1.2"|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          else
+              sed -i 's|^[#[:space:]]*auth.pgsql.ssl.tls_versions[ \t]*=.*|auth.pgsql.ssl.tls_versions = "tlsv1.2,tlsv1.1"|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          fi
+
+          sed -i 's|^[#[:space:]]*auth.pgsql.username[ \t]*=.*|auth.pgsql.username = postgres|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          sed -i 's|^[#[:space:]]*auth.pgsql.password[ \t]*=.*|auth.pgsql.password = postgres|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          sed -i 's|^[#[:space:]]*auth.pgsql.database[ \t]*=.*|auth.pgsql.database = postgres|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          sed -i 's|^[#[:space:]]*auth.pgsql.ssl.enable[ \t]*=.*|auth.pgsql.ssl.enable = on|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          sed -i 's|^[#[:space:]]*auth.pgsql.cacertfile[ \t]*=.*|auth.pgsql.cacertfile = /emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/root.crt|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
       - name: setup
         env:
           PGSQL_TAG: ${{ matrix.pgsql_tag }}
         if: matrix.connect_type == 'tcp'
-        run: docker-compose -f .ci/compatibility_tests/docker-compose-pgsql.yaml up -d
+        run: |
+          docker-compose -f .ci/compatibility_tests/docker-compose-pgsql.yaml up -d
+          sed -i 's|^[#[:space:]]*auth.pgsql.username[ \t]*=.*|auth.pgsql.username = root|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          sed -i 's|^[#[:space:]]*auth.pgsql.password[ \t]*=.*|auth.pgsql.password = public|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          sed -i 's|^[#[:space:]]*auth.pgsql.database[ \t]*=.*|auth.pgsql.database = mqtt|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
       - name: setup
         if: matrix.network_type == 'ipv4'
         run: |
           server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pgsql)
-          sed -i "/auth.pgsql.server/c auth.pgsql.server = \"$server_address:5432\"" apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          sed -i "s|^[#[:space:]]*auth.pgsql.server[[:space:]]*=.*|auth.pgsql.server = \"$server_address:5432\"|g" apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
       - name: setup
         if: matrix.network_type == 'ipv6'
         run: |
           server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' pgsql)
-          sed -i "/auth.pgsql.server/c auth.pgsql.server = \"$server_address:5432\"" apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          sed -i "s|^[#[:space:]]*auth.pgsql.server[[:space:]]*=.*|auth.pgsql.server = \"$server_address:5432\"|g" apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
       - name: run test cases
         run: |
           docker exec -i erlang sh -c "make ensure-rebar3"
@@ -229,6 +239,7 @@ jobs:
     runs-on: ubuntu-20.04
 
     strategy:
+      fail-fast: false
       matrix:
         redis_tag:
         - 5
@@ -252,11 +263,10 @@ jobs:
         run: |
           set -exu
           docker-compose -f .ci/compatibility_tests/docker-compose-redis-${{ matrix.node_type }}-tls.yaml up -d
-          echo '\n' >> apps/emqx_auth_mongo/etc/emqx_auth_redis.conf
-          echo 'auth.redis.ssl.enable = on' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
-          echo 'auth.redis.ssl.cafile = "/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/ca.crt"' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
-          echo 'auth.redis.ssl.certfile = "/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.crt"' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
-          echo 'auth.redis.ssl.keyfile = "/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.key"' >> apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          sed -i 's|^[#[:space:]]*auth.redis.ssl.enable[[:space:]]*=.*|auth.redis.ssl.enable = on|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          sed -i 's|^[#[:space:]]*auth.redis.ssl.cacertfile[[:space:]]*=.*|auth.redis.ssl.cacertfile = "/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/ca.crt"|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          sed -i 's|^[#[:space:]]*auth.redis.ssl.certfile[[:space:]]*=.*|auth.redis.ssl.certfile = "/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.crt"|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          sed -i 's|^[#[:space:]]*auth.redis.ssl.keyfile[[:space:]]*=.*|auth.redis.ssl.keyfile = "/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.key"|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
       - name: setup
         env:
           REDIS_TAG: ${{ matrix.redis_tag }}
@@ -274,24 +284,24 @@ jobs:
         if: matrix.node_type == 'singer' && matrix.connect_type == 'tcp'
         run: |
           set -exu
-          sed -i "/auth.redis.server/c auth.redis.server = \"${redis_${{ matrix.network_type }}_address}:6379\"" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          sed -i "s|^[#[:space:]]*auth.redis.server[[:space:]]*=.*|auth.redis.server = \"${redis_${{ matrix.network_type }}_address}:6379\"|g" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
       - name: setup
         if: matrix.node_type == 'singer' && matrix.connect_type == 'tls' && matrix.redis_tag != '5'
         run: |
           set -exu
-          sed -i "/auth.redis.server/c auth.redis.server = \"${redis_${{ matrix.network_type }}_address}:6380\"" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          sed -i "s|^[#[:space:]]*auth.redis.server[[:space:]]*=.*|auth.redis.server = \"${redis_${{ matrix.network_type }}_address}:6380\"|g" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
       - name: setup
         if: matrix.node_type == 'cluster' && matrix.connect_type == 'tcp'
         run: |
           set -exu
-          sed -i "/auth.redis.type/c auth.redis.type = cluster" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
-          sed -i "/auth.redis.server/c auth.redis.server = \"${redis_${{ matrix.network_type }}_address}:7000, ${redis_${{ matrix.network_type }}_address}:7001, ${redis_${{ matrix.network_type }}_address}:7002\"" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          sed -i 's|^[#[:space:]]*auth.redis.type[[:space:]]*=.*|auth.redis.type = cluster|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          sed -i "s|^[#[:space:]]*auth.redis.server[[:space:]]*=.*|auth.redis.server = \"${redis_${{ matrix.network_type }}_address}:7000, ${redis_${{ matrix.network_type }}_address}:7001, ${redis_${{ matrix.network_type }}_address}:7002\"|g" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
       - name: setup
         if: matrix.node_type == 'cluster' && matrix.connect_type == 'tls' && matrix.redis_tag != '5'
         run: |
           set -exu
-          sed -i "/auth.redis.type/c auth.redis.type = cluster" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
-          sed -i "/auth.redis.server/c auth.redis.server = \"${redis_${{ matrix.network_type }}_address}:8000, ${redis_${{ matrix.network_type }}_address}:8001, ${redis_${{ matrix.network_type }}_address}:8002\"" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          sed -i 's|^[#[:space:]]*auth.redis.type[[:space:]]*=.*|auth.redis.type = cluster|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          sed -i "s|^[#[:space:]]*auth.redis.server[[:space:]]*=.*|auth.redis.server = \"${redis_${{ matrix.network_type }}_address}:8000, ${redis_${{ matrix.network_type }}_address}:8001, ${redis_${{ matrix.network_type }}_address}:8002\"|g" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
       - name: run test cases
         if: matrix.connect_type == 'tcp' || (matrix.connect_type == 'tls' && matrix.redis_tag != '5')
         run: |
