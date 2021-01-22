@@ -22,7 +22,7 @@ jobs:
     - uses: gleam-lang/setup-erlang@v1.1.0
       id: install_erlang
       with:
-        otp-version: 22.3
+        otp-version: 23.2
     - name: build
       run: |
         #     set-executionpolicy remotesigned -s cu
@@ -81,11 +81,11 @@ jobs:
         git config --global credential.helper store
     - name: build erlang
       run: |
-        kerl build 22.3.4.13
-        kerl install 22.3.4.13 $HOME/.kerl/22.3.4.13
+        kerl build 23.2.2
+        kerl install 23.2.2 $HOME/.kerl/23.2.2
     - name: build
       run: |
-        . $HOME/.kerl/22.3.4.13/activate
+        . $HOME/.kerl/23.2.2/activate
         make emqx-pkg
     - name: test
       run: |
@@ -155,7 +155,7 @@ jobs:
     - uses: actions/checkout@v1
     - name: get deps
       env:
-        ERL_OTP: erl22.3.4.13
+        ERL_OTP: erl23.2.2
       run: |
         docker run -i --rm \
             -e GITHUB_RUN_ID=$GITHUB_RUN_ID \
@@ -191,7 +191,7 @@ jobs:
     - name: build emqx packages
       if: (matrix.arch  == 'amd64' && matrix.emqx == 'emqx') || startsWith(github.ref, 'refs/tags/')
       env:
-        ERL_OTP: erl22.3.4.13
+        ERL_OTP: erl23.2.2
         EMQX: ${{ matrix.emqx }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
@@ -245,7 +245,7 @@ jobs:
     - uses: actions/checkout@v1
     - name: get deps
       env:
-        ERL_OTP: erl22.3.4.13
+        ERL_OTP: erl23.2.2
       run: |
         docker run -i --rm \
             -e GITHUB_RUN_ID=$GITHUB_RUN_ID \
