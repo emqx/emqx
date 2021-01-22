@@ -251,7 +251,7 @@ jobs:
         - tls
         - tcp
         node_type:
-        - singer
+        - single
         - cluster
 
     steps:
@@ -281,12 +281,12 @@ jobs:
           echo "redis_ipv4_address=$ipv4_address" >> $GITHUB_ENV
           echo "redis_ipv6_address=$ipv6_address" >> $GITHUB_ENV
       - name: setup
-        if: matrix.node_type == 'singer' && matrix.connect_type == 'tcp'
+        if: matrix.node_type == 'single' && matrix.connect_type == 'tcp'
         run: |
           set -exu
           sed -i "s|^[#[:space:]]*auth.redis.server[[:space:]]*=.*|auth.redis.server = \"${redis_${{ matrix.network_type }}_address}:6379\"|g" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
       - name: setup
-        if: matrix.node_type == 'singer' && matrix.connect_type == 'tls' && matrix.redis_tag != '5'
+        if: matrix.node_type == 'single' && matrix.connect_type == 'tls' && matrix.redis_tag != '5'
         run: |
           set -exu
           sed -i "s|^[#[:space:]]*auth.redis.server[[:space:]]*=.*|auth.redis.server = \"${redis_${{ matrix.network_type }}_address}:6380\"|g" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
@@ -313,5 +313,3 @@ jobs:
         with:
           name: logs_redis${{ matrix.redis_tag }}_${{ matrix.node_type }}_${{ matrix.network_type }}_${{ matrix.connect_type }}
           path: _build/test/logs
-
-
