@@ -40,8 +40,6 @@
 -export([ get_ets_list/0
         , get_ets_info/0
         , get_ets_info/1
-        , get_ets_object/0
-        , get_ets_object/1
         ]).
 
 -export([cpu_util/0]).
@@ -341,19 +339,6 @@ get_ets_info(Tab) ->
         [];
     Entries when is_list(Entries) ->
         mapping(Entries)
-    end.
-
-get_ets_object() ->
-    [{Tab, get_ets_object(Tab)} || Tab <- ets:all()].
-
-get_ets_object(Tab) ->
-    TabInfo = ets:info(Tab),
-    Size = proplists:get_value(size, TabInfo),
-    NameTab = proplists:get_value(named_table, TabInfo),
-    if (Size == 0) or (NameTab == false) ->
-        [];
-    true ->
-        ets:tab2list(Tab)
     end.
 
 mapping(Entries) ->

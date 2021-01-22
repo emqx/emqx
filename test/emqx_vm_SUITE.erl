@@ -64,12 +64,6 @@ t_get_ets_info(_Config) ->
                            end
                        end, false, EtsInfos)).
 
-t_get_ets_object(_Config) ->
-    ets:new(test, [named_table]),
-    [] = emqx_vm:get_ets_object(test),
-    ets:insert(test, {k, v}),
-    [{k, v}] = emqx_vm:get_ets_object(test).
-
 t_scheduler_usage(_Config) ->
     emqx_vm:scheduler_usage(5000).
 
