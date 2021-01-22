@@ -180,7 +180,7 @@ get_system_info(Key) ->
 
 format_system_info(allocated_areas, List) ->
     [convert_allocated_areas(Value) || Value <- List];
-format_system_info(allocator, {_,_,_,List}) ->
+format_system_info(allocator, {_, _, _, List}) ->
     List;
 format_system_info(dist_ctrl, List) ->
     lists:map(fun({Node, Socket}) ->
@@ -230,7 +230,7 @@ scheduler_usage(Interval) when is_integer(Interval) ->
     scheduler_usage_diff(First, Last).
 
 scheduler_usage_diff(First, Last) ->
-    lists:map(fun({{I, A0, T0},{I, A1, T1}}) ->
+    lists:map(fun({{I, A0, T0}, {I, A1, T1}}) ->
                 {I, (A1 - A0)/(T1 - T0)}
               end, lists:zip(lists:sort(First), lists:sort(Last))).
 
@@ -280,7 +280,7 @@ alloc(Type) ->
 allocators() ->
     UtilAllocators = erlang:system_info(alloc_util_allocators),
     Allocators = [sys_alloc, mseg_alloc|UtilAllocators],
-    [{{A, N},lists:sort(proplists:delete(versions, Props))} ||
+    [{{A, N}, lists:sort(proplists:delete(versions, Props))} ||
         A <- Allocators, Allocs <- [erlang:system_info({allocator, A})],
             Allocs =/= false, {_, N, Props} <- Allocs].
 
