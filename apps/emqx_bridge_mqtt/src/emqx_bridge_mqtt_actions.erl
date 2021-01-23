@@ -759,7 +759,7 @@ options(Options, PoolName) ->
                   {username, str(Get(<<"username">>))},
                   {password, str(Get(<<"password">>))},
                   {proto_ver, mqtt_ver(Get(<<"proto_ver">>))},
-                  {retry_interval, cuttlefish_duration:parse(str(GetD(<<"retry_interval">>, "30s")), ms)},
+                  {retry_interval, cuttlefish_duration:parse(str(GetD(<<"retry_interval">>, "30s")), s)},
                   {ssl, cuttlefish_flag:parse(str(Get(<<"ssl">>)))},
                   {ssl_opts, [{versions, tls_versions()},
                               {ciphers, ciphers(Get(<<"ciphers">>))},
