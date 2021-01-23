@@ -100,7 +100,7 @@
 
 {mapping, "bridge.mqtt.$name.retry_interval", "emqx_bridge_mqtt.bridges", [
   {default, "20s"},
-  {datatype, {duration, ms}}
+  {datatype, {duration, s}}
 ]}.
 
 {mapping, "bridge.mqtt.$name.max_inflight", "emqx_bridge_mqtt.bridges", [
