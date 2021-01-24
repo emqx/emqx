@@ -241,7 +241,7 @@ handle_received_publish(Topic, MaxAge, Format, Payload) ->
 handle_received_create(TopicPrefix, MaxAge, Payload) ->
     case core_link:decode(Payload) of
         [{rootless, [Topic], [{ct, CT}]}] when is_binary(Topic), Topic =/= <<>> ->
-            TrueTopic = http_uri:decode(Topic),
+            TrueTopic = percent_decode(Topic),
             ?LOG(debug, "decoded link-format payload, the Topic=~p, CT=~p~n", [TrueTopic, CT]),
             LocPath = concatenate_location_path([<<"ps">>, TopicPrefix, TrueTopic]),
             FullTopic = binary:part(LocPath, 4, byte_size(LocPath)-4),
@@ -258,6 +258,14 @@ handle_received_create(TopicPrefix, MaxAge, Payload) ->
             ?LOG(debug, "post with bad payload of link-format ~p, will return bad_request", [Other]),
             {error, bad_request}
     end.
+
+%% http_uri:decode/1 is deprecated in OTP-23
+%% its equivalent uri_string:percent_decode however is not available before OTP 23
+-if(?OTP_RELEASE >= 23).
+percent_decode(Topic) -> uri_string:percent_decode(Topic).
+-else.
+percent_decode(Topic) -> http_uri:decode(Topic).
+-endif.
 
 %% When topic is timeout, server should return nocontent here,
 %% but gen_coap only receive return value of #coap_content from coap_get, so temporarily we can't give the Code 2.07 {ok, nocontent} out.TBC!!!

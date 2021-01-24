@@ -74,6 +74,23 @@ emqxAclConfig: >
   {deny, all, subscribe, ["$SYS/#", {eq, "#"}]}.
   {allow, all}.
 
+emqxLoadedPlugins: >
+  {emqx_management, true}.
+  {emqx_recon, true}.
+  {emqx_retainer, true}.
+  {emqx_dashboard, true}.
+  {emqx_telemetry, true}.
+  {emqx_rule_engine, true}.
+  {emqx_bridge_mqtt, false}.
+
+emqxLoadedModules: >
+  {emqx_mod_acl_internal, true}.
+  {emqx_mod_presence, true}.
+  {emqx_mod_delayed, false}.
+  {emqx_mod_rewrite, false}.
+  {emqx_mod_subscription, false}.
+  {emqx_mod_topic_metrics, false}.
+
 ## EMQX Enterprise Edition requires manual creation of a Secret containing the licensed content. Write the name of Secret to the value of "emqxLicneseSecretName"
 ## Example:
 ##   kubectl create secret generic emqx-license-secret-name --from-file=/path/to/emqx.lic

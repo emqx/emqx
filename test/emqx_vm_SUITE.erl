@@ -64,30 +64,6 @@ t_get_ets_info(_Config) ->
                            end
                        end, false, EtsInfos)).
 
-t_get_ets_object(_Config) ->
-    ets:new(test, [named_table]),
-    [] = emqx_vm:get_ets_object(test),
-    ets:insert(test, {k, v}),
-    [{k, v}] = emqx_vm:get_ets_object(test).
-
-t_get_port_types(_Config) ->
-    emqx_vm:get_port_types().
-
-t_get_port_info(_Config) ->
-    emqx_vm:get_port_info(),
-    spawn(fun easy_server/0),
-    ct:sleep(100),
-    {ok, Sock} = gen_tcp:connect("localhost", 5678, [binary, {packet, 0}]),
-    emqx_vm:get_port_info(),
-    ok = gen_tcp:close(Sock),
-    [_Port | _] = erlang:ports().
-
-t_transform_port(_Config) ->
-    [Port | _] = erlang:ports(),
-    ?assertEqual(Port, emqx_vm:transform_port(Port)),
-    <<131, 102, 100, NameLen:2/unit:8, _Name:NameLen/binary, N:4/unit:8, _Vsn:8>> = erlang:term_to_binary(Port),
-    ?assertEqual(Port, emqx_vm:transform_port("#Port<0." ++ integer_to_list(N) ++ ">")).
-
 t_scheduler_usage(_Config) ->
     emqx_vm:scheduler_usage(5000).
 

@@ -26,6 +26,7 @@
 
     !cd emqx
     !sed -i 's|listener.wss.external[ \t]*=.*|listener.wss.external = 8085|g' etc/emqx.conf
+    !sed -i '/emqx_telemetry/d' data/loaded_plugins
     !./bin/emqx start
     ?EMQ X Broker $old_vsn is started successfully!
 
@@ -42,6 +43,7 @@
     ?SH-PROMPT
     !cd emqx2
 
+    !sed -i '/emqx_telemetry/d' data/loaded_plugins
     !./bin/emqx start
     ?EMQ X Broker $old_vsn is started successfully!
 

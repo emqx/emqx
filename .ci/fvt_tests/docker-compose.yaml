@@ -16,6 +16,7 @@ services:
         - -c
         - |
           sed -i "s 127.0.0.1 $$(ip route show |grep "link" |awk '{print $$1}') g" /opt/emqx/etc/acl.conf
+          sed -i '/emqx_telemetry/d' /opt/emqx/data/loaded_plugins
           /usr/bin/start.sh
     healthcheck:
       test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
@@ -42,6 +43,7 @@ services:
       - -c
       - |
         sed -i "s 127.0.0.1 $$(ip route show |grep "link" |awk '{print $$1}') g" /opt/emqx/etc/acl.conf
+        sed -i '/emqx_telemetry/d' /opt/emqx/data/loaded_plugins
         /usr/bin/start.sh
     healthcheck:
       test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
