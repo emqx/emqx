@@ -1,92 +1,71 @@
 %%-*- mode: erlang -*-
 %% emqx_auth_pgsl config mapping
 
-{mapping, "auth.pgsql.server", "emqx_auth_pgsql.server", [
+{mapping, "auth_pgsql.server", "emqx_auth_pgsql.server", [
   {default, {"127.0.0.1", 5432}},
   {datatype, [integer, ip, string]}
 ]}.
 
-{mapping, "auth.pgsql.pool", "emqx_auth_pgsql.server", [
+{mapping, "auth_pgsql.pool", "emqx_auth_pgsql.server", [
   {default, 8},
   {datatype, integer}
 ]}.
 
-{mapping, "auth.pgsql.database", "emqx_auth_pgsql.server", [
+{mapping, "auth_pgsql.database", "emqx_auth_pgsql.server", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.pgsql.username", "emqx_auth_pgsql.server", [
+{mapping, "auth_pgsql.username", "emqx_auth_pgsql.server", [
   {default, ""},
   {datatype, string}
 ]}.
 
-{mapping, "auth.pgsql.password", "emqx_auth_pgsql.server", [
+{mapping, "auth_pgsql.password", "emqx_auth_pgsql.server", [
   {default, ""},
   {datatype, string}
 ]}.
 
-{mapping, "auth.pgsql.encoding", "emqx_auth_pgsql.server", [
+{mapping, "auth_pgsql.encoding", "emqx_auth_pgsql.server", [
   {default, utf8},
   {datatype, atom}
 ]}.
 
-{mapping, "auth.pgsql.ssl.enable", "emqx_auth_pgsql.server", [
+{mapping, "auth_pgsql.ssl.enable", "emqx_auth_pgsql.server", [
   {default, off},
-  {datatype, {enum, [on, off, true, false]}} %% FIXME: true/fasle is compatible with 4.0-4.2 version format, plan to delete in 5.0
+  {datatype, {enum, [on, off]}}
 ]}.
 
-{mapping, "auth.pgsql.ssl.tls_versions", "emqx_auth_pgsql.server", [
+{mapping, "auth_pgsql.ssl.tls_versions", "emqx_auth_pgsql.server", [
   {default, "tlsv1.2"},
   {datatype, string}
 ]}.
 
-{mapping, "auth.pgsql.ssl.keyfile", "emqx_auth_pgsql.server", [
+{mapping, "auth_pgsql.ssl.keyfile", "emqx_auth_pgsql.server", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.pgsql.ssl.certfile", "emqx_auth_pgsql.server", [
+{mapping, "auth_pgsql.ssl.certfile", "emqx_auth_pgsql.server", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.pgsql.ssl.cacertfile", "emqx_auth_pgsql.server", [
-  {datatype, string}
-]}.
-
-%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-{mapping, "auth.pgsql.ssl_opts.keyfile", "emqx_auth_pgsql.server", [
-  {datatype, string}
-]}.
-
-%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-{mapping, "auth.pgsql.ssl_opts.certfile", "emqx_auth_pgsql.server", [
-  {datatype, string}
-]}.
-
-%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-{mapping, "auth.pgsql.ssl_opts.cacertfile", "emqx_auth_pgsql.server", [
-  {datatype, string}
-]}.
-
-%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-{mapping, "auth.pgsql.ssl_opts.tls_versions", "emqx_auth_pgsql.server", [
-  {default, "tlsv1.2"},
+{mapping, "auth_pgsql.ssl.cacertfile", "emqx_auth_pgsql.server", [
   {datatype, string}
 ]}.
 
 {translation, "emqx_auth_pgsql.server", fun(Conf) ->
   {PgHost, PgPort} =
-  case cuttlefish:conf_get("auth.pgsql.server", Conf) of
+  case cuttlefish:conf_get("auth_pgsql.server", Conf) of
     {Ip, Port} -> {Ip, Port};
     S          -> case string:tokens(S, ":") of
                     [Domain]       -> {Domain, 5432};
                     [Domain, Port] -> {Domain, list_to_integer(Port)}
                   end
     end,
-  Pool = cuttlefish:conf_get("auth.pgsql.pool", Conf),
-  Username = cuttlefish:conf_get("auth.pgsql.username", Conf),
-  Passwd = cuttlefish:conf_get("auth.pgsql.password", Conf, ""),
-  DB = cuttlefish:conf_get("auth.pgsql.database", Conf),
-  Encoding = cuttlefish:conf_get("auth.pgsql.encoding", Conf),
+  Pool = cuttlefish:conf_get("auth_pgsql.pool", Conf),
+  Username = cuttlefish:conf_get("auth_pgsql.username", Conf),
+  Passwd = cuttlefish:conf_get("auth_pgsql.password", Conf, ""),
+  DB = cuttlefish:conf_get("auth_pgsql.database", Conf),
+  Encoding = cuttlefish:conf_get("auth_pgsql.encoding", Conf),
 
   Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
   SslOpts = fun(Prefix) ->
@@ -96,20 +75,6 @@
                         {versions, [list_to_existing_atom(Value)
                                     ||Value <- string:tokens(cuttlefish:conf_get(Prefix ++ ".tls_versions", Conf), " ,")]}}])
             end,
-
-  %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-  GenSsl = case cuttlefish:conf_get("auth.pgsql.ssl.cacertfile", Conf, undefined) of
-               undefined -> [{ssl, true}, {ssl_opts, SslOpts("auth.pgsql.ssl_opts")}];
-               _ -> [{ssl, true}, {ssl_opts, SslOpts("auth.pgsql.ssl")}]
-           end,
-
-  %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-  Ssl = case cuttlefish:conf_get("auth.pgsql.ssl.enable", Conf) of
-          on -> GenSsl;
-          off -> [];
-          true -> GenSsl;
-          false -> []
-        end,
 
   TempHost = case inet:parse_address(PgHost) of
       {ok, IpAddr} ->
@@ -127,36 +92,36 @@
    {encoding, Encoding}] ++ Ssl
 end}.
 
-{mapping, "auth.pgsql.auth_query", "emqx_auth_pgsql.auth_query", [
+{mapping, "auth_pgsql.auth_query", "emqx_auth_pgsql.auth_query", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.pgsql.password_hash", "emqx_auth_pgsql.password_hash", [
+{mapping, "auth_pgsql.password_hash", "emqx_auth_pgsql.password_hash", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.pgsql.pbkdf2_macfun", "emqx_auth_pgsql.pbkdf2_macfun", [
+{mapping, "auth_pgsql.pbkdf2_macfun", "emqx_auth_pgsql.pbkdf2_macfun", [
   {datatype, atom}
 ]}.
 
-{mapping, "auth.pgsql.pbkdf2_iterations", "emqx_auth_pgsql.pbkdf2_iterations", [
+{mapping, "auth_pgsql.pbkdf2_iterations", "emqx_auth_pgsql.pbkdf2_iterations", [
   {datatype, integer}
 ]}.
 
-{mapping, "auth.pgsql.pbkdf2_dklen", "emqx_auth_pgsql.pbkdf2_dklen", [
+{mapping, "auth_pgsql.pbkdf2_dklen", "emqx_auth_pgsql.pbkdf2_dklen", [
   {datatype, integer}
 ]}.
 
-{mapping, "auth.pgsql.super_query", "emqx_auth_pgsql.super_query", [
+{mapping, "auth_pgsql.super_query", "emqx_auth_pgsql.super_query", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.pgsql.acl_query", "emqx_auth_pgsql.acl_query", [
+{mapping, "auth_pgsql.acl_query", "emqx_auth_pgsql.acl_query", [
   {datatype, string}
 ]}.
 
 {translation, "emqx_auth_pgsql.password_hash", fun(Conf) ->
-  HashValue = cuttlefish:conf_get("auth.pgsql.password_hash", Conf),
+  HashValue = cuttlefish:conf_get("auth_pgsql.password_hash", Conf),
   case string:tokens(HashValue, ",") of
     [Hash]           -> list_to_atom(Hash);
     [Prefix, Suffix] -> {list_to_atom(Prefix), list_to_atom(Suffix)};

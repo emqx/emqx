@@ -248,8 +248,8 @@ fi
 
 # Extract the target node name from node.args
 if [ -z "$NAME_ARG" ]; then
-    if [ ! -z "$EMQX_NODE_NAME" ]; then
-        NODENAME="$EMQX_NODE_NAME"
+    if [ ! -z "$EMQX_NODE__NAME" ]; then
+        NODENAME="$EMQX_NODE__NAME"
     elif [ ! -z `ps -ef | grep "$ERTS_PATH/beam.smp" | grep -o -E '\-name (\S*)' | awk '{print $2}'` ]; then
         NODENAME=`ps -ef | grep "$ERTS_PATH/beam.smp" | grep -o -E '\-name (\S*)' | awk '{print $2}'`
     else

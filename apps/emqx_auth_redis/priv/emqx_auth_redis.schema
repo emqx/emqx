@@ -1,64 +1,64 @@
 %%-*- mode: erlang -*-
 %% emqx_auth_redis config mapping
 
-{mapping, "auth.redis.type", "emqx_auth_redis.server", [
+{mapping, "auth_redis.type", "emqx_auth_redis.server", [
   {default, single},
   {datatype, {enum, [single, sentinel, cluster]}}
 ]}.
 
-{mapping, "auth.redis.server", "emqx_auth_redis.server", [
+{mapping, "auth_redis.server", "emqx_auth_redis.server", [
   {default, "127.0.0.1:6379"},
   {datatype, [string]}
 ]}.
 
-{mapping, "auth.redis.sentinel", "emqx_auth_redis.server", [
+{mapping, "auth_redis.sentinel", "emqx_auth_redis.server", [
   {default, ""},
   {datatype, string},
   hidden
 ]}.
 
-{mapping, "auth.redis.pool", "emqx_auth_redis.server", [
+{mapping, "auth_redis.pool", "emqx_auth_redis.server", [
   {default, 8},
   {datatype, integer}
 ]}.
 
-{mapping, "auth.redis.database", "emqx_auth_redis.server", [
+{mapping, "auth_redis.database", "emqx_auth_redis.server", [
   {default, 0},
   {datatype, integer}
 ]}.
 
-{mapping, "auth.redis.password", "emqx_auth_redis.server", [
+{mapping, "auth_redis.password", "emqx_auth_redis.server", [
   {default, ""},
   {datatype, string},
   hidden
 ]}.
 
-{mapping, "auth.redis.ssl.enable", "emqx_auth_redis.options", [
+{mapping, "auth_redis.ssl.enable", "emqx_auth_redis.options", [
   {default, off},
   {datatype, flag}
 ]}.
 
-{mapping, "auth.redis.ssl.cacertfile", "emqx_auth_redis.options", [
+{mapping, "auth_redis.ssl.cacertfile", "emqx_auth_redis.options", [
   {default, ""},
   {datatype, string}
 ]}.
 
-{mapping, "auth.redis.ssl.certfile", "emqx_auth_redis.options", [
+{mapping, "auth_redis.ssl.certfile", "emqx_auth_redis.options", [
   {default, ""},
   {datatype, string}
 ]}.
 
-{mapping, "auth.redis.ssl.keyfile", "emqx_auth_redis.options", [
+{mapping, "auth_redis.ssl.keyfile", "emqx_auth_redis.options", [
   {default, ""},
   {datatype, string}
 ]}.
 
 {translation, "emqx_auth_redis.options", fun(Conf) ->
-   case cuttlefish:conf_get("auth.redis.ssl.enable", Conf, false) of
+   case cuttlefish:conf_get("auth_redis.ssl.enable", Conf, false) of
        true ->
-           CA = cuttlefish:conf_get("auth.redis.ssl.cacertfile", Conf),
-           Cert = cuttlefish:conf_get("auth.redis.ssl.certfile", Conf),
-           Key = cuttlefish:conf_get("auth.redis.ssl.keyfile", Conf),
+           CA = cuttlefish:conf_get("auth_redis.ssl.cacertfile", Conf),
+           Cert = cuttlefish:conf_get("auth_redis.ssl.certfile", Conf),
+           Key = cuttlefish:conf_get("auth_redis.ssl.keyfile", Conf),
            [{options, [{ssl_options, [{cacertfile, CA},
                                       {certfile, Cert},
                                       {keyfile, Key}]}]}];
@@ -74,8 +74,8 @@ end}.
       [Domain, Port] -> {Domain, list_to_integer(Port)}
     end
   end,
-  Servers = cuttlefish:conf_get("auth.redis.server", Conf),
-  Type = cuttlefish:conf_get("auth.redis.type", Conf),
+  Servers = cuttlefish:conf_get("auth_redis.server", Conf),
+  Type = cuttlefish:conf_get("auth_redis.type", Conf),
   Server = case Type of
     single ->
       {Host, Port} = Fun(Servers),
@@ -84,10 +84,10 @@ end}.
       S = string:tokens(Servers, ","),
       [{servers, [Fun(S1) || S1 <- S]}]
   end,
-  Pool = cuttlefish:conf_get("auth.redis.pool", Conf),
-  Passwd = cuttlefish:conf_get("auth.redis.password", Conf),
-  DB = cuttlefish:conf_get("auth.redis.database", Conf),
-  Sentinel = cuttlefish:conf_get("auth.redis.sentinel", Conf),
+  Pool = cuttlefish:conf_get("auth_redis.pool", Conf),
+  Passwd = cuttlefish:conf_get("auth_redis.password", Conf),
+  DB = cuttlefish:conf_get("auth_redis.database", Conf),
+  Sentinel = cuttlefish:conf_get("auth_redis.sentinel", Conf),
   [{type, Type},
    {pool_size, Pool},
    {auto_reconnect, 1},
@@ -96,13 +96,13 @@ end}.
    {sentinel, Sentinel}] ++ Server
 end}.
 
-{mapping, "auth.redis.query_timeout", "emqx_auth_redis.query_timeout", [
+{mapping, "auth_redis.query_timeout", "emqx_auth_redis.query_timeout", [
   {default, ""},
   {datatype, string}
 ]}.
 
 {translation, "emqx_auth_redis.query_timeout", fun(Conf) ->
-  case cuttlefish:conf_get("auth.redis.query_timeout", Conf) of
+  case cuttlefish:conf_get("auth_redis.query_timeout", Conf) of
       "" -> infinity;
       Duration ->
           case cuttlefish_duration:parse(Duration, ms) of
@@ -112,24 +112,24 @@ end}.
   end
 end}.
 
-{mapping, "auth.redis.auth_cmd", "emqx_auth_redis.auth_cmd", [
+{mapping, "auth_redis.auth_cmd", "emqx_auth_redis.auth_cmd", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.redis.password_hash", "emqx_auth_redis.password_hash", [
+{mapping, "auth_redis.password_hash", "emqx_auth_redis.password_hash", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.redis.super_cmd", "emqx_auth_redis.super_cmd", [
+{mapping, "auth_redis.super_cmd", "emqx_auth_redis.super_cmd", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.redis.acl_cmd", "emqx_auth_redis.acl_cmd", [
+{mapping, "auth_redis.acl_cmd", "emqx_auth_redis.acl_cmd", [
   {datatype, string}
 ]}.
 
 {translation, "emqx_auth_redis.password_hash", fun(Conf) ->
-  HashValue = cuttlefish:conf_get("auth.redis.password_hash", Conf),
+  HashValue = cuttlefish:conf_get("auth_redis.password_hash", Conf),
   case string:tokens(HashValue, ",") of
     [Hash]           -> list_to_atom(Hash);
     [Prefix, Suffix] -> {list_to_atom(Prefix), list_to_atom(Suffix)};

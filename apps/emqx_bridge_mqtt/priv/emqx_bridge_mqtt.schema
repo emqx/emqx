@@ -2,126 +2,126 @@
 %%--------------------------------------------------------------------
 %% Bridges
 %%--------------------------------------------------------------------
-{mapping, "bridge.mqtt.$name.address", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.address", "emqx_bridge_mqtt.bridges", [
   {datatype, string}
 ]}.
 
-{mapping, "bridge.mqtt.$name.proto_ver", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.proto_ver", "emqx_bridge_mqtt.bridges", [
   {datatype, {enum, [mqttv3, mqttv4, mqttv5]}}
 ]}.
 
-{mapping, "bridge.mqtt.$name.bridge_mode", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.bridge_mode", "emqx_bridge_mqtt.bridges", [
   {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
 
-{mapping, "bridge.mqtt.$name.start_type", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.start_type", "emqx_bridge_mqtt.bridges", [
   {datatype, {enum, [manual, auto]}},
   {default, auto}
 ]}.
 
-{mapping, "bridge.mqtt.$name.clientid", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.clientid", "emqx_bridge_mqtt.bridges", [
   {datatype, string}
 ]}.
 
-{mapping, "bridge.mqtt.$name.clean_start", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.clean_start", "emqx_bridge_mqtt.bridges", [
   {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
 
-{mapping, "bridge.mqtt.$name.username", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.username", "emqx_bridge_mqtt.bridges", [
   {datatype, string}
 ]}.
 
-{mapping, "bridge.mqtt.$name.password", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.password", "emqx_bridge_mqtt.bridges", [
   {datatype, string}
 ]}.
 
-{mapping, "bridge.mqtt.$name.forwards", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.forwards", "emqx_bridge_mqtt.bridges", [
   {datatype, string},
   {default, ""}
 ]}.
 
-{mapping, "bridge.mqtt.$name.forward_mountpoint", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.forward_mountpoint", "emqx_bridge_mqtt.bridges", [
   {datatype, string}
 ]}.
 
-{mapping, "bridge.mqtt.$name.subscription.$id.topic", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.subscription.$id.topic", "emqx_bridge_mqtt.bridges", [
   {datatype, string}
 ]}.
 
-{mapping, "bridge.mqtt.$name.subscription.$id.qos", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.subscription.$id.qos", "emqx_bridge_mqtt.bridges", [
   {datatype, integer}
 ]}.
 
-{mapping, "bridge.mqtt.$name.receive_mountpoint", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.receive_mountpoint", "emqx_bridge_mqtt.bridges", [
   {datatype, string}
 ]}.
 
-{mapping, "bridge.mqtt.$name.ssl", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.ssl", "emqx_bridge_mqtt.bridges", [
   {datatype, flag},
   {default, off}
 ]}.
 
-{mapping, "bridge.mqtt.$name.cacertfile", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.cacertfile", "emqx_bridge_mqtt.bridges", [
   {datatype, string}
 ]}.
 
-{mapping, "bridge.mqtt.$name.certfile", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.certfile", "emqx_bridge_mqtt.bridges", [
   {datatype, string}
 ]}.
 
-{mapping, "bridge.mqtt.$name.keyfile", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.keyfile", "emqx_bridge_mqtt.bridges", [
   {datatype, string}
 ]}.
 
-{mapping, "bridge.mqtt.$name.ciphers", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.ciphers", "emqx_bridge_mqtt.bridges", [
   {datatype, string}
 ]}.
 
-{mapping, "bridge.mqtt.$name.psk_ciphers", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.psk_ciphers", "emqx_bridge_mqtt.bridges", [
   {datatype, string}
 ]}.
 
-{mapping, "bridge.mqtt.$name.keepalive", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.keepalive", "emqx_bridge_mqtt.bridges", [
   {default, "10s"},
   {datatype, {duration, s}}
 ]}.
 
-{mapping, "bridge.mqtt.$name.tls_versions", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.tls_versions", "emqx_bridge_mqtt.bridges", [
   {datatype, string},
   {default, "tlsv1,tlsv1.1,tlsv1.2"}
 ]}.
 
-{mapping, "bridge.mqtt.$name.reconnect_interval", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.reconnect_interval", "emqx_bridge_mqtt.bridges", [
   {default, "30s"},
   {datatype, {duration, ms}}
 ]}.
 
-{mapping, "bridge.mqtt.$name.retry_interval", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.retry_interval", "emqx_bridge_mqtt.bridges", [
   {default, "20s"},
   {datatype, {duration, ms}}
 ]}.
 
-{mapping, "bridge.mqtt.$name.max_inflight", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.max_inflight", "emqx_bridge_mqtt.bridges", [
    {default, 0},
    {datatype, integer}
  ]}.
 
-{mapping, "bridge.mqtt.$name.batch_size", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.batch_size", "emqx_bridge_mqtt.bridges", [
   {default, 0},
   {datatype, integer}
 ]}.
 
-{mapping, "bridge.mqtt.$name.queue.replayq_dir", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.queue.replayq_dir", "emqx_bridge_mqtt.bridges", [
   {datatype, string}
 ]}.
 
-{mapping, "bridge.mqtt.$name.queue.replayq_seg_bytes", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.queue.replayq_seg_bytes", "emqx_bridge_mqtt.bridges", [
   {datatype, bytesize}
 ]}.
 
-{mapping, "bridge.mqtt.$name.queue.max_total_size", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge_mqtt.$name.queue.max_total_size", "emqx_bridge_mqtt.bridges", [
   {datatype, bytesize}
 ]}.
 
@@ -169,13 +169,13 @@
                   end
             end,
     Queue = fun(Name) ->
-                Configs = cuttlefish_variable:filter_by_prefix("bridge.mqtt." ++ Name ++ ".queue", Conf),
+                Configs = cuttlefish_variable:filter_by_prefix("bridge_mqtt." ++ Name ++ ".queue", Conf),
 
                 QOpts = [{list_to_atom(QOpt), QValue}|| {[_, _, _, "queue", QOpt], QValue} <- Configs],
                 maps:from_list(QOpts)
             end,
     Subscriptions = fun(Name) ->
-                        Configs = cuttlefish_variable:filter_by_prefix("bridge.mqtt." ++ Name ++ ".subscription", Conf),
+                        Configs = cuttlefish_variable:filter_by_prefix("bridge_mqtt." ++ Name ++ ".subscription", Conf),
                         lists:zip([Topic || {_, Topic} <- lists:sort([{I, Topic} || {[_, _, _, "subscription", I, "topic"], Topic} <- Configs])],
                                   [QoS || {_, QoS} <- lists:sort([{I, QoS} || {[_, _, _, "subscription", I, "qos"], QoS} <- Configs])])
                     end,
@@ -187,7 +187,7 @@
                  end,
     ConnMod = fun(Name) ->
 
-                      [AddrConfig] = cuttlefish_variable:filter_by_prefix("bridge.mqtt." ++ Name ++ ".address", Conf),
+                      [AddrConfig] = cuttlefish_variable:filter_by_prefix("bridge_mqtt." ++ Name ++ ".address", Conf),
                       {_, Addr} = AddrConfig,
 
                       Subs = Subscriptions(Name),
@@ -234,7 +234,7 @@
                         {queue, Queue(Name)}],
                 maps:update_with(list_to_atom(Name), fun(Opts) -> Merge(list_to_atom(Opt), Val, Opts) end, Init, Acc);
            (_, Acc) -> Acc
-        end, #{}, lists:usort(cuttlefish_variable:filter_by_prefix("bridge.mqtt", Conf))),
+        end, #{}, lists:usort(cuttlefish_variable:filter_by_prefix("bridge_mqtt", Conf))),
     C1 = maps:map(fun(Bn, Bc) ->
                       maps:to_list(maps:fold(Translate, #{}, maps:from_list(Bc)))
                   end, C),

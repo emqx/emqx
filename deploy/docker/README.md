@@ -69,12 +69,11 @@ These environment variables will ignore for configuration file.
 
 | Options                    | Default            | Mapped                    | Description                           |
 | ---------------------------| ------------------ | ------------------------- | ------------------------------------- |
-| EMQX_NAME                   | container name     | none                      | emqx node short name                   |
+| EMQX_NAME                   | emqx              | none                      | emqx node short name                   |
 | EMQX_HOST                   | container IP       | none                      | emqx node host, IP or FQDN             |
-| EMQX_WAIT_TIME              | 5                  | none                      | wait time in sec before timeout       |
 | EMQX_NODE__NAME             | EMQX_NAME@EMQX_HOST| node.name                 | Erlang node name, name@ipaddress/host |
 | EMQX_NODE__COOKIE           | emqx_dist_cookie    | node.cookie               | cookie for cluster                    |
-| EMQX_LOG__CONSOLE           | console            | log.console               | log console output method             |
+| EMQX_LOG__TO                | console            | log.to                    | log output method                     |
 | EMQX_ALLOW_ANONYMOUS        | true               | allow_anonymous           | allow mqtt anonymous login            |
 | EMQX_LISTENER__TCP__EXTERNAL| 1883               | listener.tcp.external     | MQTT TCP port                         |
 | EMQX_LISTENER__SSL__EXTERNAL| 8883               | listener.ssl.external     | MQTT TCP TLS/SSL port                 |
@@ -244,7 +243,7 @@ Let's create a static node list cluster from docker-compose.
         emqx-bridge:
           aliases:
           - node2.emqx.io
-  
+
   networks:
     emqx-bridge:
       driver: bridge

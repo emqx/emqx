@@ -1,118 +1,118 @@
 %%-*- mode: erlang -*-
 %% emqx_auth_http config mapping
-{mapping, "auth.http.auth_req.url", "emqx_auth_http.auth_req", [
+{mapping, "auth_http.auth_req.url", "emqx_auth_http.auth_req", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.http.auth_req.method", "emqx_auth_http.auth_req", [
+{mapping, "auth_http.auth_req.method", "emqx_auth_http.auth_req", [
   {default, post},
   {datatype, {enum, [post, get]}}
 ]}.
 
-{mapping, "auth.http.auth_req.headers.$field", "emqx_auth_http.auth_req", [
+{mapping, "auth_http.auth_req.headers.$field", "emqx_auth_http.auth_req", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.http.auth_req.params", "emqx_auth_http.auth_req", [
+{mapping, "auth_http.auth_req.params", "emqx_auth_http.auth_req", [
   {datatype, string}
 ]}.
 
 {translation, "emqx_auth_http.auth_req", fun(Conf) ->
-  case cuttlefish:conf_get("auth.http.auth_req.url", Conf, undefined) of
+  case cuttlefish:conf_get("auth_http.auth_req.url", Conf, undefined) of
     undefined -> cuttlefish:unset();
     Url ->
-      Headers = cuttlefish_variable:filter_by_prefix("auth.http.auth_req.headers", Conf),
-      Params = cuttlefish:conf_get("auth.http.auth_req.params", Conf),
+      Headers = cuttlefish_variable:filter_by_prefix("auth_http.auth_req.headers", Conf),
+      Params = cuttlefish:conf_get("auth_http.auth_req.params", Conf),
       [{url, Url},
-       {method, cuttlefish:conf_get("auth.http.auth_req.method", Conf)},
+       {method, cuttlefish:conf_get("auth_http.auth_req.method", Conf)},
        {headers, [{K, V} || {[_, _, _, _, K], V} <- Headers]},
        {params, [list_to_tuple(string:tokens(S, "=")) || S <- string:tokens(Params, ",")]}]
   end
 end}.
 
-{mapping, "auth.http.super_req.url", "emqx_auth_http.super_req", [
+{mapping, "auth_http.super_req.url", "emqx_auth_http.super_req", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.http.super_req.method", "emqx_auth_http.super_req", [
+{mapping, "auth_http.super_req.method", "emqx_auth_http.super_req", [
   {default, post},
   {datatype, {enum, [post, get]}}
 ]}.
 
-{mapping, "auth.http.super_req.headers.$field", "emqx_auth_http.super_req", [
+{mapping, "auth_http.super_req.headers.$field", "emqx_auth_http.super_req", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.http.super_req.params", "emqx_auth_http.super_req", [
+{mapping, "auth_http.super_req.params", "emqx_auth_http.super_req", [
   {datatype, string}
 ]}.
 
 {translation, "emqx_auth_http.super_req", fun(Conf) ->
-  case cuttlefish:conf_get("auth.http.super_req.url", Conf, undefined) of
+  case cuttlefish:conf_get("auth_http.super_req.url", Conf, undefined) of
     undefined -> cuttlefish:unset();
     Url ->
-      Headers = cuttlefish_variable:filter_by_prefix("auth.http.super_req.headers", Conf),
-      Params = cuttlefish:conf_get("auth.http.super_req.params", Conf),
+      Headers = cuttlefish_variable:filter_by_prefix("auth_http.super_req.headers", Conf),
+      Params = cuttlefish:conf_get("auth_http.super_req.params", Conf),
       [{url, Url},
-       {method, cuttlefish:conf_get("auth.http.super_req.method", Conf)},
+       {method, cuttlefish:conf_get("auth_http.super_req.method", Conf)},
        {headers, [{K, V} || {[_, _, _, _, K], V} <- Headers]},
        {params, [list_to_tuple(string:tokens(S, "=")) || S <- string:tokens(Params, ",")]}]
   end
 end}.
 
-{mapping, "auth.http.acl_req.url", "emqx_auth_http.acl_req", [
+{mapping, "auth_http.acl_req.url", "emqx_auth_http.acl_req", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.http.acl_req.method", "emqx_auth_http.acl_req", [
+{mapping, "auth_http.acl_req.method", "emqx_auth_http.acl_req", [
   {default, post},
   {datatype, {enum, [post, get]}}
 ]}.
 
-{mapping, "auth.http.acl_req.headers.$field", "emqx_auth_http.acl_req", [
+{mapping, "auth_http.acl_req.headers.$field", "emqx_auth_http.acl_req", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.http.acl_req.params", "emqx_auth_http.acl_req", [
+{mapping, "auth_http.acl_req.params", "emqx_auth_http.acl_req", [
   {datatype, string}
 ]}.
 
 {translation, "emqx_auth_http.acl_req", fun(Conf) ->
-  case cuttlefish:conf_get("auth.http.acl_req.url", Conf, undefined) of
+  case cuttlefish:conf_get("auth_http.acl_req.url", Conf, undefined) of
     undefined -> cuttlefish:unset();
     Url ->
-      Headers = cuttlefish_variable:filter_by_prefix("auth.http.acl_req.headers", Conf),
-      Params = cuttlefish:conf_get("auth.http.acl_req.params", Conf),
+      Headers = cuttlefish_variable:filter_by_prefix("auth_http.acl_req.headers", Conf),
+      Params = cuttlefish:conf_get("auth_http.acl_req.params", Conf),
       [{url, Url},
-       {method, cuttlefish:conf_get("auth.http.acl_req.method", Conf)},
+       {method, cuttlefish:conf_get("auth_http.acl_req.method", Conf)},
        {headers, [{K, V} || {[_, _, _, _, K], V} <- Headers]},
        {params, [list_to_tuple(string:tokens(S, "=")) || S <- string:tokens(Params, ",")]}]
   end
 end}.
 
-{mapping, "auth.http.timeout", "emqx_auth_http.timeout", [
+{mapping, "auth_http.timeout", "emqx_auth_http.timeout", [
   {default, "5s"},
   {datatype, [integer, {duration, ms}]}
 ]}.
 
-{mapping, "auth.http.connect_timeout", "emqx_auth_http.connect_timeout", [
+{mapping, "auth_http.connect_timeout", "emqx_auth_http.connect_timeout", [
   {default, "5s"},
   {datatype, [integer, {duration, ms}]}
 ]}.
 
-{mapping, "auth.http.pool_size", "emqx_auth_http.pool_size", [
+{mapping, "auth_http.pool_size", "emqx_auth_http.pool_size", [
   {default, 8},
   {datatype, integer}
 ]}.
 
-{mapping, "auth.http.ssl.cacertfile", "emqx_auth_http.cacertfile", [
+{mapping, "auth_http.ssl.cacertfile", "emqx_auth_http.cacertfile", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.http.ssl.certfile", "emqx_auth_http.certfile", [
+{mapping, "auth_http.ssl.certfile", "emqx_auth_http.certfile", [
   {datatype, string}
 ]}.
 
-{mapping, "auth.http.ssl.keyfile", "emqx_auth_http.keyfile", [
+{mapping, "auth_http.ssl.keyfile", "emqx_auth_http.keyfile", [
   {datatype, string}
 ]}.

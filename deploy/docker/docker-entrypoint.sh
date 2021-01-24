@@ -23,8 +23,7 @@ LOCAL_IP=$(hostname -i | grep -oE '((25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])\.){3}(
 _EMQX_HOME='/opt/emqx'
 
 if [[ -z "$EMQX_NAME" ]]; then
-    EMQX_NAME="$(hostname)"
-    export EMQX_NAME
+    EMQX_NAME="emqx"
 fi
 
 if [[ -z "$EMQX_HOST" ]]; then
@@ -37,16 +36,15 @@ if [[ -z "$EMQX_HOST" ]]; then
     else
         EMQX_HOST="$LOCAL_IP"
     fi
-    export EMQX_HOST
 fi
 
-if [[ -z "$EMQX_WAIT_TIME" ]]; then
-    export EMQX_WAIT_TIME=5
+if [[ -z "$EMQX_NODE__NAME" ]]; then
+    export EMQX_NODE__NAME="$EMQX_NAME@$EMQX_HOST"
 fi
 
-if [[ -z "$EMQX_NODE_NAME" ]]; then
-    export EMQX_NODE_NAME="$EMQX_NAME@$EMQX_HOST"
-fi
+# prevent interpretation as config values
+EMQX_NAME=null
+EMQX_HOST=null
 
 # Set hosts to prevent cluster mode failed
 
@@ -62,32 +60,32 @@ if [[ -z "$EMQX_NODE__MAX_ETS_TABLES" ]]; then
     export EMQX_NODE__MAX_ETS_TABLES=2097152
 fi
 
-if [[ -z "$EMQX__LOG_CONSOLE" ]]; then
-    export EMQX__LOG_CONSOLE='console'
+if [[ -z "$EMQX_LOG__TO" ]]; then
+    export EMQX_LOG__TO='console'
 fi
 
 if [[ -z "$EMQX_LISTENER__TCP__EXTERNAL__ACCEPTORS" ]]; then
     export EMQX_LISTENER__TCP__EXTERNAL__ACCEPTORS=64
 fi
 
-if [[ -z "$EMQX_LISTENER__TCP__EXTERNAL__MAX_CLIENTS" ]]; then
-    export EMQX_LISTENER__TCP__EXTERNAL__MAX_CLIENTS=1000000
+if [[ -z "$EMQX_LISTENER__TCP__EXTERNAL__MAX_CONNECTIONS" ]]; then
+    export EMQX_LISTENER__TCP__EXTERNAL__MAX_CONNECTIONS=1000000
 fi
 
 if [[ -z "$EMQX_LISTENER__SSL__EXTERNAL__ACCEPTORS" ]]; then
     export EMQX_LISTENER__SSL__EXTERNAL__ACCEPTORS=32
 fi
 
-if [[ -z "$EMQX_LISTENER__SSL__EXTERNAL__MAX_CLIENTS" ]]; then
-    export EMQX_LISTENER__SSL__EXTERNAL__MAX_CLIENTS=500000
+if [[ -z "$EMQX_LISTENER__SSL__EXTERNAL__MAX_CONNECTIONS" ]]; then
+    export EMQX_LISTENER__SSL__EXTERNAL__MAX_CONNECTIONS=500000
 fi
 
 if [[ -z "$EMQX_LISTENER__WS__EXTERNAL__ACCEPTORS" ]]; then
     export EMQX_LISTENER__WS__EXTERNAL__ACCEPTORS=16
 fi
 
-if [[ -z "$EMQX_LISTENER__WS__EXTERNAL__MAX_CLIENTS" ]]; then
-    export EMQX_LISTENER__WS__EXTERNAL__MAX_CLIENTS=250000
+if [[ -z "$EMQX_LISTENER__WS__EXTERNAL__MAX_CONNECTIONS" ]]; then
+    export EMQX_LISTENER__WS__EXTERNAL__MAX_CONNECTIONS=250000
 fi
 
 # Fix issue #42 - export env EMQX_DASHBOARD__DEFAULT_USER__PASSWORD to configure
@@ -116,50 +114,30 @@ echo_value() {
 # fill config on specific file if the key exists
 # SYNOPSIS
 #     try_fill_config FILE KEY VALUE
-try_fill_config() {
-    local file=$1
-    local key=$2
-    local value=$3
-    local escaped_key
-    # shellcheck disable=SC2001
-    escaped_key=$(echo "$key" | sed 's/[^a-zA-Z0-9_]/\\&/g')
-    local escaped_value
-    escaped_value=$(echo "$value" | sed 's/[\/&]/\\&/g')
-    if grep -qE "^[#[:space:]]*$escaped_key\s*=" "$file"; then
-        echo_value "$key" "$value"
-        if [[ -z "$value" ]]; then
-            sed -i -r "s/^[#[:space:]]*($escaped_key)\s*=\s*(.*)/# \1 = \2/" "$file"
-        else
-            sed -i -r "s/^[#[:space:]]*($escaped_key)\s*=\s*(.*)/\1 = $escaped_value/" "$file"
-        fi
-    # Check if config has a numbering system, but no existing configuration line in file
-    elif echo "$key" | grep -qE '\.\d+|\d+\.'; then
-        if [[ -n "$value" ]]; then
-            local template
-            template="$(echo "$escaped_key" | sed -r -e 's/\\\.[0-9]+/\\.[0-9]+/g' -e 's/[0-9]+\\\./[0-9]+\\./g')"
-            if grep -qE "^[#[:space:]]*$template\s*=" "$file"; then
-                echo_value "$key" "$value"
-                sed -i '$a'\\ "$file"
-                echo "$key = $value" >> "$file"
-            fi
-        fi
+override_config() {
+    local key=$1
+    local value=$2
+    local maybe_plugin_conf="$_EMQX_HOME/etc/plugins/emqx_${key//.*/}.conf"
+    local conf
+    if [ -f "$maybe_plugin_conf" ]; then
+      conf=$maybe_plugin_conf
+    else
+      conf="$_EMQX_HOME/etc/emqx.conf"
+    fi
+    if [[ -z "$value" ]]; then
+      echo "$key = null" >> "$conf.override"
+    else
+      echo "$key = $value" >> "$conf.override"
     fi
 }
 
-# Catch all EMQX_ prefix environment variable and match it in configure file
-CONFIG_FILE="$_EMQX_HOME/etc/emqx.conf"
-CONFIG_PLUGINS="$_EMQX_HOME/etc/plugins"
 for VAR in $(compgen -e); do
     # Config normal keys such like node.name = emqx@127.0.0.1
     if echo "$VAR" | grep -q '^EMQX_'; then
         VAR_NAME=$(echo "$VAR" | sed -e 's/^EMQX_//' -e 's/__/./g' | tr '[:upper:]' '[:lower:]' | tr -d '[:cntrl:]')
         VAR_VALUE=$(echo "${!VAR}" | tr -d '[:cntrl:]')
         # Config in emqx.conf
-        try_fill_config "$CONFIG_FILE" "$VAR_NAME" "$VAR_VALUE"
-        # Config in plugins/*
-        for CONFIG_PLUGINS_FILE in "$CONFIG_PLUGINS"/*; do
-            try_fill_config "$CONFIG_PLUGINS_FILE" "$VAR_NAME" "$VAR_VALUE"
-        done
+        override_config "$VAR_NAME" "$VAR_VALUE"
     fi
 done
 
