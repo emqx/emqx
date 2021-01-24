@@ -274,7 +274,8 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
             handle_out(connack, ReasonCode, NChannel)
     end;
 
-handle_in(Packet = ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, _Properties), Channel = #channel{conn_state = ConnState}) ->
+handle_in(Packet = ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, _Properties),
+          Channel = #channel{conn_state = ConnState}) ->
     case enhanced_auth(Packet, Channel) of
         {ok, NProperties, NChannel} ->
             case ConnState of
@@ -291,7 +292,8 @@ handle_in(Packet = ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, _Properties), Chann
             handle_out(connack, NReasonCode, NChannel)
     end;
 
-handle_in(Packet = ?AUTH_PACKET(?RC_RE_AUTHENTICATE, _Properties), Channel = #channel{conn_state = connected}) ->
+handle_in(Packet = ?AUTH_PACKET(?RC_RE_AUTHENTICATE, _Properties),
+          Channel = #channel{conn_state = connected}) ->
     case enhanced_auth(Packet, Channel) of
         {ok, NProperties, NChannel} ->
             handle_out(auth, {?RC_SUCCESS, NProperties}, NChannel);
@@ -412,8 +414,10 @@ handle_in(Packet = ?UNSUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
 handle_in(?PACKET(?PINGREQ), Channel) ->
     {ok, ?PACKET(?PINGRESP), Channel};
 
-handle_in(?DISCONNECT_PACKET(ReasonCode, Properties), Channel = #channel{conninfo = ConnInfo}) ->
-    NChannel = maybe_clean_will_msg(ReasonCode, Channel#channel{conninfo = ConnInfo#{disconn_props => Properties}}),
+handle_in(?DISCONNECT_PACKET(ReasonCode, Properties),
+          Channel = #channel{conninfo = ConnInfo}) ->
+    NConnInfo = ConnInfo#{disconn_props => Properties},
+    NChannel = maybe_clean_will_msg(ReasonCode, Channel#channel{conninfo = NConnInfo}),
     process_disconnect(ReasonCode, Properties, NChannel);
 
 handle_in(?AUTH_PACKET(), Channel) ->
@@ -444,7 +448,9 @@ handle_in(Packet, Channel) ->
 %% Process Connect
 %%--------------------------------------------------------------------
 
-process_connect(AckProps, Channel = #channel{conninfo = #{clean_start := CleanStart} = ConnInfo, clientinfo = ClientInfo}) ->
+process_connect(AckProps, Channel = #channel{conninfo = ConnInfo,
+                                             clientinfo = ClientInfo}) ->
+    #{clean_start := CleanStart} = ConnInfo,
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo) of
         {ok, #{session := Session, present := false}} ->
             NChannel = Channel#channel{session = Session},
@@ -598,7 +604,8 @@ process_subscribe([{TopicFilter, SubOpts}|More], SubProps, Channel, Acc) ->
             {RC, NChannel} = do_subscribe(TopicFilter, SubOpts#{sub_props => SubProps}, Channel),
             process_subscribe(More, SubProps, NChannel, [RC|Acc]);
         {error, RC} ->
-            ?LOG(warning, "Cannot subscribe ~s due to ~s.", [TopicFilter, emqx_reason_codes:text(RC)]),
+            ?LOG(warning, "Cannot subscribe ~s due to ~s.",
+                 [TopicFilter, emqx_reason_codes:text(RC)]),
             process_subscribe(More, SubProps, Channel, [RC|Acc])
     end.
 
@@ -611,7 +618,8 @@ do_subscribe(TopicFilter, SubOpts = #{qos := QoS}, Channel =
         {ok, NSession} ->
             {QoS, Channel#channel{session = NSession}};
         {error, RC} ->
-            ?LOG(warning, "Cannot subscribe ~s due to ~s.", [TopicFilter, emqx_reason_codes:text(RC)]),
+            ?LOG(warning, "Cannot subscribe ~s due to ~s.",
+                 [TopicFilter, emqx_reason_codes:text(RC)]),
             {RC, Channel}
     end.
 
@@ -729,7 +737,10 @@ handle_out(connack, {?RC_SUCCESS, SP, Props}, Channel = #channel{conninfo = Conn
                          fun enrich_response_information/2,
                          fun enrich_assigned_clientid/2
                         ], Props, Channel),
-    NAckProps = run_hooks('client.connack', [ConnInfo, emqx_reason_codes:name(?RC_SUCCESS)], AckProps),
+    NAckProps = run_hooks('client.connack',
+                          [ConnInfo, emqx_reason_codes:name(?RC_SUCCESS)],
+                          AckProps
+                         ),
 
     return_connack(?CONNACK_PACKET(?RC_SUCCESS, SP, NAckProps),
                    ensure_keepalive(NAckProps, Channel));
@@ -764,17 +775,17 @@ handle_out(pubcomp, {PacketId, ReasonCode}, Channel) ->
     {ok, ?PUBCOMP_PACKET(PacketId, ReasonCode), Channel};
 
 handle_out(suback, {PacketId, ReasonCodes}, Channel = ?IS_MQTT_V5) ->
-    return_suback(?SUBACK_PACKET(PacketId, ReasonCodes), Channel);
+    return_sub_unsub_ack(?SUBACK_PACKET(PacketId, ReasonCodes), Channel);
 
 handle_out(suback, {PacketId, ReasonCodes}, Channel) ->
     ReasonCodes1 = [emqx_reason_codes:compat(suback, RC) || RC <- ReasonCodes],
-    return_suback(?SUBACK_PACKET(PacketId, ReasonCodes1), Channel);
+    return_sub_unsub_ack(?SUBACK_PACKET(PacketId, ReasonCodes1), Channel);
 
 handle_out(unsuback, {PacketId, ReasonCodes}, Channel = ?IS_MQTT_V5) ->
-    return_unsuback(?UNSUBACK_PACKET(PacketId, ReasonCodes), Channel);
+    return_sub_unsub_ack(?UNSUBACK_PACKET(PacketId, ReasonCodes), Channel);
 
 handle_out(unsuback, {PacketId, _ReasonCodes}, Channel) ->
-    return_unsuback(?UNSUBACK_PACKET(PacketId), Channel);
+    return_sub_unsub_ack(?UNSUBACK_PACKET(PacketId), Channel);
 
 handle_out(disconnect, ReasonCode, Channel) when is_integer(ReasonCode) ->
     ReasonName = disconnect_reason(ReasonCode),
@@ -847,10 +858,7 @@ do_deliver(Publishes, Channel) when is_list(Publishes) ->
 %% Handle out suback
 %%--------------------------------------------------------------------
 
-return_suback(Packet, Channel) ->
-    {ok, [{outgoing, Packet}, {event, updated}], Channel}.
-
-return_unsuback(Packet, Channel) ->
+return_sub_unsub_ack(Packet, Channel) ->
     {ok, [{outgoing, Packet}, {event, updated}], Channel}.
 
 %%--------------------------------------------------------------------
@@ -1187,11 +1195,10 @@ check_banned(_ConnPkt, #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
 %%--------------------------------------------------------------------
 %% Auth Connect
 
-auth_connect(#mqtt_packet_connect{clientid  = ClientId,
-                                  username  = Username,
-                                  password  = Password
-                                 },
+auth_connect(#mqtt_packet_connect{password  = Password},
              #channel{clientinfo = ClientInfo} = Channel) ->
+    #{clientid := ClientId,
+      username := Username} = ClientInfo,
     case emqx_access_control:authenticate(ClientInfo#{password => Password}) of
         {ok, AuthResult} ->
             is_anonymous(AuthResult) andalso
@@ -1224,7 +1231,10 @@ enhanced_auth(?CONNECT_PACKET(#mqtt_packet_connect{
     end;
 
 enhanced_auth(?AUTH_PACKET(_ReasonCode, Properties), Channel = #channel{conninfo = ConnInfo}) ->
-    AuthMethod = emqx_mqtt_props:get('Authentication-Method', emqx_mqtt_props:get(conn_props, ConnInfo, #{}), undefined),
+    AuthMethod = emqx_mqtt_props:get('Authentication-Method',
+                                     emqx_mqtt_props:get(conn_props, ConnInfo, #{}),
+                                     undefined
+                                    ),
     NAuthMethod = emqx_mqtt_props:get('Authentication-Method', Properties, undefined),
     AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
     case NAuthMethod =:= undefined orelse NAuthMethod =/= AuthMethod of
@@ -1241,12 +1251,14 @@ do_enhanced_auth(undefined, _AuthData, Channel) ->
 do_enhanced_auth(_AuthMethod, undefined, Channel) ->
     {error, emqx_reason_codes:connack_error(not_authorized), Channel};
 do_enhanced_auth(AuthMethod, AuthData, Channel = #channel{auth_cache = Cache}) ->
-    case run_hooks('client.enhanced_authenticate',[AuthMethod, AuthData], Cache) of
+    case run_hooks('client.enhanced_authenticate', [AuthMethod, AuthData], Cache) of
         {ok, NAuthData, NCache} ->
-            NProperties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
+            NProperties = #{'Authentication-Method' => AuthMethod,
+                            'Authentication-Data' => NAuthData},
             {ok, NProperties, Channel#channel{auth_cache = NCache}};
         {continue, NAuthData, NCache} ->
-            NProperties = #{'Authentication-Method' => AuthMethod, 'Authentication-Data' => NAuthData},
+            NProperties = #{'Authentication-Method' => AuthMethod,
+                            'Authentication-Data' => NAuthData},
             {continue, NProperties, Channel#channel{auth_cache = NCache}};
         _ ->
             {error, emqx_reason_codes:connack_error(not_authorized), Channel}
@@ -1288,9 +1300,10 @@ packing_alias(Packet = #mqtt_packet{
                                           properties = Prop
                                          } = Publish
                         },
-              Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases, alias_maximum = Limits}) ->
+              Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases,
+                                               alias_maximum = Limits}) ->
     case find_alias(outbound, Topic, TopicAliases) of
-        {ok, AliasId} -> 
+        {ok, AliasId} ->
             NPublish = Publish#mqtt_packet_publish{
                             topic_name = <<>>,
                             properties = maps:merge(Prop, #{'Topic-Alias' => AliasId})
@@ -1592,7 +1605,7 @@ run_hooks(Name, Args, Acc) ->
 
 -compile({inline, [find_alias/3, save_alias/4]}).
 
-find_alias(_, _ ,undefined) -> false;
+find_alias(_, _, undefined) -> false;
 find_alias(inbound, AliasId, _TopicAliases = #{inbound := Aliases}) ->
     maps:find(AliasId, Aliases);
 find_alias(outbound, Topic, _TopicAliases = #{outbound := Aliases}) ->
