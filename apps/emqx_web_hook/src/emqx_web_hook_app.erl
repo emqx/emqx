@@ -85,11 +85,9 @@ translate_env() ->
                                        true -> verify_peer;
                                        false -> verify_none
                                    end,
-                       TLSOpts = lists:filter(fun({_K, V}) when V =:= <<>> ->
-                                                   false;
-                                                   (_) ->
-                                                   true
-                                               end, [{keyfile, KeyFile}, {certfile, CertFile}, {cacertfile, CACertFile}]),
+                       TLSOpts = lists:filter(fun({_K, V}) ->
+                                                V /= <<>> andalso V /= undefined andalso V /= "" andalso true
+                                              end, [{keyfile, KeyFile}, {certfile, CertFile}, {cacertfile, CACertFile}]),
                        TlsVers = ['tlsv1.2','tlsv1.1',tlsv1],
                        NTLSOpts = [{verify, VerifyType},
                                    {versions, TlsVers},
