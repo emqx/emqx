@@ -297,8 +297,7 @@ do_update_resource(#{id := Id, type := Type, description:= NewDescription, confi
                                                       type = Type,
                                                       config = Config,
                                                       description = NewDescription,
-                                                      created_at = erlang:system_time(millisecond)}),
-            cluster_call(clear_resource, [Module, Destroy, Id])
+                                                      created_at = erlang:system_time(millisecond)})
     end.
 
 -spec(start_resource(resource_id()) -> ok | {error, Reason :: term()}).

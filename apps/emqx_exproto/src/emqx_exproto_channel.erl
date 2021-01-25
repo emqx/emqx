@@ -255,7 +255,7 @@ handle_call(close, Channel) ->
 
 handle_call({auth, ClientInfo, _Password}, Channel = #channel{conn_state = connected}) ->
     ?LOG(warning, "Duplicated authorized command, dropped ~p", [ClientInfo]),
-    {ok, {error, ?RESP_PERMISSION_DENY, <<"Duplicated authenticate command">>}, Channel};
+    {reply, {error, ?RESP_PERMISSION_DENY, <<"Duplicated authenticate command">>}, Channel};
 handle_call({auth, ClientInfo0, Password},
             Channel = #channel{conninfo = ConnInfo,
                                clientinfo = ClientInfo}) ->
