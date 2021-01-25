@@ -29,7 +29,7 @@ plugins() ->
 
 test_deps() ->
     [ {bbmustache, "1.10.0"}
-    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.2"}}}
+    , {emqx_ct_helpers, {git, "https://github.com/zmstone/emqx-ct-helpers", {branch, "use-default-cipher-suites"}}}
     , meck
     ].
 
