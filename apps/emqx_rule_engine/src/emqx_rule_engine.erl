@@ -291,11 +291,11 @@ do_update_resource(#{id := Id, type := Type, description:= NewDescription, confi
         {ok, #resource_type{on_create = {Module, Create},
                             on_destroy = {Module, Destroy},
                             params_spec = ParamSpec}} ->
-            Config = emqx_rule_validator:validate_params(NewConfig, ParamSpec),
-            cluster_call(init_resource, [Module, Create, Id, Config]),
+            ok = emqx_rule_validator:validate_params(NewConfig, ParamSpec),
+            cluster_call(init_resource, [Module, Create, Id, NewConfig]),
             emqx_rule_registry:add_resource(#resource{id = Id,
                                                       type = Type,
-                                                      config = Config,
+                                                      config = NewConfig,
                                                       description = NewDescription,
                                                       created_at = erlang:system_time(millisecond)})
     end.
