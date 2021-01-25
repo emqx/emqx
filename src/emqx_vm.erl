@@ -275,14 +275,8 @@ util_alloc()->
     alloc(?UTIL_ALLOCATORS).
 
 alloc(Type) ->
-    [{{T, Instance}, Props} || {{T, Instance}, Props} <- allocators(), lists:member(T, Type)].
-
-allocators() ->
-    UtilAllocators = erlang:system_info(alloc_util_allocators),
-    Allocators = [sys_alloc, mseg_alloc|UtilAllocators],
-    [{{A, N}, lists:sort(proplists:delete(versions, Props))} ||
-        A <- Allocators, Allocs <- [erlang:system_info({allocator, A})],
-            Allocs =/= false, {_, N, Props} <- Allocs].
+    [{{T, Instance}, Props} ||
+     {{T, Instance}, Props} <- recon_alloc:allocators(), lists:member(T, Type)].
 
 container_size(Prop, Keyword, Container) ->
     Sbcs = container_value(Prop, Keyword, sbcs, Container),
