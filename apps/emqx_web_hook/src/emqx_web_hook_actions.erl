@@ -355,9 +355,9 @@ pool_opts(Params = #{<<"url">> := URL}) ->
                    end
            end,
     MoreOpts = case Scheme of
-                   <<"http">> ->
+                   "http" ->
                        [{transport_opts, [Inet]}];
-                   <<"https">> ->
+                   "https" ->
                        KeyFile = maps:get(<<"keyfile">>, Params),
                        CertFile = maps:get(<<"certfile">>, Params),
                        CACertFile = maps:get(<<"cacertfile">>, Params),
