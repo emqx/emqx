@@ -21,7 +21,7 @@ docker-prepare:
 	# @echo "PREPARE: Setting up dependencies."
 	# @apt update -y
 	# @apt install --only-upgrade docker-ce -y
-	
+
 	## Update docker configuration to enable docker manifest command
 	@echo "PREPARE: Updating docker configuration"
 	@mkdir -p $$HOME/.docker
@@ -45,7 +45,7 @@ docker-build:
 	## Prepare qemu to build images other then x86_64 on travis
 	@echo "PREPARE: Qemu" \
 	&& docker run --rm --privileged multiarch/qemu-user-static:register --reset
-  
+
 	@mkdir -p tmp \
 	&& cd tmp \
 	&& curl -L -o qemu-$(QEMU_ARCH)-static.tar.gz https://github.com/multiarch/qemu-user-static/releases/download/$(QEMU_VERSION)/qemu-$(QEMU_ARCH)-static.tar.gz \
@@ -54,7 +54,7 @@ docker-build:
 
 	@docker build --no-cache \
 		--build-arg PKG_VSN=$(PKG_VSN)  \
-		--build-arg BUILD_FROM=emqx/build-env:erl22.3-alpine-$(ARCH)  \
+		--build-arg BUILD_FROM=emqx/build-env:erl23.2.2-alpine-$(ARCH)  \
 		--build-arg RUN_FROM=$(ARCH)/alpine:3.11 \
 		--build-arg EMQX_NAME=$(EMQX_NAME) \
 		--build-arg QEMU_ARCH=$(QEMU_ARCH) \

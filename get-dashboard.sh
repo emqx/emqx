@@ -25,8 +25,8 @@ if [ -d "$DASHBOARD_PATH/www" ] && [ "$(version)" = "$VERSION" ]; then
     exit 0
 fi
 
-curl -f -L "${DOWNLOAD_URL}/${VERSION}/dist.zip" -o ./dist.zip
-unzip -q ./dist.zip -d "$DASHBOARD_PATH"
+curl -f -L "${DOWNLOAD_URL}/${VERSION}/emqx-dashboard.zip" -o ./emqx-dashboard.zip
+unzip -q ./emqx-dashboard.zip -d "$DASHBOARD_PATH"
 rm -rf "$DASHBOARD_PATH/www"
 mv "$DASHBOARD_PATH/dist" "$DASHBOARD_PATH/www"
-rm -rf dist.zip
+rm -rf emqx-dashboard.zip

@@ -3,7 +3,7 @@ version: '3'
 services:
   erlang:
     container_name: erlang
-    image: erlang:22.3.4.13
+    image: emqx/build-env:erl23.2.2-ubuntu20.04
     volumes:
       - ../..:/emqx
     networks:
@@ -14,7 +14,7 @@ services:
     tty: true
 
   redis_server:
-    container_name: redis 
+    container_name: redis
     image: redis:${REDIS_TAG}
     volumes:
       - ../../apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs:/tls

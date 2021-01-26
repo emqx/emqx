@@ -3,7 +3,7 @@ version: '3'
 services:
   erlang:
     container_name: erlang
-    image: erlang:22.3.4.13
+    image: emqx/build-env:erl23.2.2-ubuntu20.04
     volumes:
       - ../../:/emqx
     working_dir: /emqx
@@ -14,7 +14,7 @@ services:
     tty: true
 
   mongo_server:
-    container_name: mongo 
+    container_name: mongo
     image: mongo:${MONGO_TAG}
     restart: always
     environment:
