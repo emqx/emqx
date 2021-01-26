@@ -1,6 +1,8 @@
 #!/bin/sh
 set -e -u
 
+EMQX_WAIT_TIME=${EMQX_WAIT_TIME:-5}
+
 emqx_exit(){
     # At least erlang.log.1 exists
     if [ -f /opt/emqx/log/erlang.log.1 ]; then
@@ -53,7 +55,7 @@ while [ $IDLE_TIME -lt 5 ]; do
     else
         echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']:emqx not running, waiting for recovery in $((25-IDLE_TIME*5)) seconds"
     fi
-    sleep 5
+    sleep $EMQX_WAIT_TIME
 done
 
 # If running to here (the result 5 times not is running, thus in 25s emqx is not running), exit docker image
