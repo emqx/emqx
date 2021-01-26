@@ -3,7 +3,7 @@ version: '3'
 services:
   erlang:
     container_name: erlang
-    image: erlang:22.3.4.13
+    image: emqx/build-env:erl23.2.2-ubuntu20.04
     volumes:
       - ../../:/emqx
     working_dir: /emqx

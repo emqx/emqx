@@ -42,7 +42,7 @@ cmd(["node_stats"]) ->
     recon:node_stats_print(10, 1000);
 
 cmd(["remote_load", Mod]) ->
-    emqx_ctl:print("~p~n", [recon:remote_load(list_to_atom(Mod))]);
+    emqx_ctl:print("~p~n", [remote_load(list_to_atom(Mod))]);
 
 cmd(["proc_count", Attr, N]) ->
     emqx_ctl:print("~p~n", [recon:proc_count(list_to_atom(Attr), list_to_integer(N))]);
@@ -60,4 +60,13 @@ unload() ->
 
 concat(Key, Keyword) ->
     lists:concat([atom_to_list(Key), "/", atom_to_list(Keyword)]).
+
+remote_load(Module) -> remote_load(nodes(), Module).
+
+%% recon:remote_load/1 has a bug, when nodes() returns [], it is
+%% taken by recon as a node name.
+%% before OTP 23, the call returns a 'badrpc' tuple
+%% after OTP 23, it crashes with 'badarg' error
+remote_load([], _Module) -> ok;
+remote_load(Nodes, Module) -> recon:remote_load(Nodes, Module).
 
