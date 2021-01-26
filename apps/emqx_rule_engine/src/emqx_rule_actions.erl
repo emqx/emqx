@@ -51,7 +51,7 @@
                 required => true,
                 default => 0,
                 title => #{en => <<"Target Retain">>,
-                           zh => <<"目的 Retain"/utf8>>},
+                           zh => <<"Target Retain"/utf8>>},
                 description => #{en => <<"Set 1 to retain message">>,
                                  zh => <<"Set 1 to retain message"/utf8>>}
             },
