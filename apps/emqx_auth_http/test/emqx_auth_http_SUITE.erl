@@ -66,7 +66,7 @@ set_special_configs(emqx, _Schmea, _Inet) ->
 set_special_configs(emqx_auth_http, Schema, Inet) ->
     ServerAddr = http_server(Schema, Inet),
 
-    AuthReq = #{method => post,
+    AuthReq = #{method => get,
                 url => ServerAddr ++ "/mqtt/auth",
                 headers => [{"content-type", "application/json"}],
                 params => [{"clientid", "%c"}, {"username", "%u"}, {"password", "%P"}]},
