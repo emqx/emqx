@@ -55,7 +55,7 @@ translate_env(EnvName) ->
             URL = proplists:get_value(url, Req),
             #{host := Host0,
               path := Path0,
-              scheme := Scheme} = URIMap = uri_string:parse(uri_string:normalize(add_default_scheme(URL))),  
+              scheme := Scheme} = URIMap = uri_string:parse(add_default_scheme(uri_string:normalize(URL))),  
             Port = maps:get(port, URIMap, case Scheme of
                                             "https" -> 443;
                                             "http" -> 80
