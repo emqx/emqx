@@ -197,10 +197,10 @@ validate([K|Keys], [V|Values]) ->
 do_validation(login, all) ->
     true;
 do_validation(login, {clientid, V}) when is_binary(V)
-                     andalso byte_size(V) > 0->
+                     andalso byte_size(V) > 0 ->
     true;
 do_validation(login, {username, V}) when is_binary(V)
-                     andalso byte_size(V) > 0->
+                     andalso byte_size(V) > 0 ->
     true;
 do_validation(topic, V) when is_binary(V)
                      andalso byte_size(V) > 0 ->

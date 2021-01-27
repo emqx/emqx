@@ -39,18 +39,14 @@
 ]}.
 
 {mapping, "auth.redis.ssl.cacertfile", "emqx_auth_redis.options", [
-  {default, ""},
   {datatype, string}
 ]}.
 
-%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
 {mapping, "auth.redis.ssl.certfile", "emqx_auth_redis.options", [
-  {default, ""},
   {datatype, string}
 ]}.
 
 {mapping, "auth.redis.ssl.keyfile", "emqx_auth_redis.options", [
-  {default, ""},
   {datatype, string}
 ]}.
 
@@ -74,19 +70,27 @@
 
 {translation, "emqx_auth_redis.options", fun(Conf) ->
    Ssl = cuttlefish:conf_get("auth.redis.ssl", Conf, false),
+   Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
    case Ssl of
        true ->
            %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-           Prefix = case cuttlefish:conf_get("auth.redis.ssl.cacertfile", Conf, undefined) of
-               undefined -> "auth.redis";
-               _ -> "auth.redis.ssl"
-           end,
-           CA = cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf),
-           Cert = cuttlefish:conf_get(Prefix ++ ".certfile", Conf),
-           Key = cuttlefish:conf_get(Prefix ++ ".keyfile", Conf),
-           [{options, [{ssl_options, [{cacertfile, CA},
-                                      {certfile, Cert},
-                                      {keyfile, Key}]}]}];
+           CA = cuttlefish:conf_get(
+                    "auth.redis.ssl.cacertfile", Conf,
+                    cuttlefish:conf_get("auth.redis.cacertfile", Conf, undefined)
+                ),
+           Cert = cuttlefish:conf_get(
+                    "auth.redis.ssl.certfile", Conf,
+                    cuttlefish:conf_get("auth.redis.certfile", Conf, undefined)
+                  ),
+           Key = cuttlefish:conf_get(
+                    "auth.redis.ssl.keyfile", Conf,
+                    cuttlefish:conf_get("auth.redis.keyfile", Conf, undefined)
+                 ),
+           [{options, [{ssl_options,
+                        Filter([{cacertfile, CA},
+                                {certfile, Cert},
+                                {keyfile, Key}])
+                       }]}];
        _ -> [{options, []}]
    end
 end}.

@@ -98,16 +98,10 @@
             end,
 
   %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-  GenSsl = case cuttlefish:conf_get("auth.pgsql.ssl.cacertfile", Conf, undefined) of
-               undefined -> [{ssl, true}, {ssl_opts, SslOpts("auth.pgsql.ssl_opts")}];
-               _ -> [{ssl, true}, {ssl_opts, SslOpts("auth.pgsql.ssl")}]
-           end,
-
-  %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
   Ssl = case cuttlefish:conf_get("auth.pgsql.ssl", Conf) of
-          on -> GenSsl;
+          on -> [{ssl, true}, {ssl_opts, SslOpts("auth.pgsql.ssl")}];
           off -> [];
-          true -> GenSsl;
+          true -> [{ssl, true}, {ssl_opts, SslOpts("auth.pgsql.ssl_opts")}];
           false -> []
         end,
 

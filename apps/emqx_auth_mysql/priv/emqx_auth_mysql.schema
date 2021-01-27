@@ -36,23 +36,19 @@
 ]}.
 
 {mapping, "auth.mysql.ssl.cafile", "emqx_auth_mysql.server", [
-  {default, ""},
   {datatype, string}
 ]}.
 
 {mapping, "auth.mysql.ssl.cacertfile", "emqx_auth_mysql.server", [
-  {default, ""},
   {datatype, string}
 ]}.
 
 %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
 {mapping, "auth.mysql.ssl.certfile", "emqx_auth_mysql.server", [
-  {default, ""},
   {datatype, string}
 ]}.
 
 {mapping, "auth.mysql.ssl.keyfile", "emqx_auth_mysql.server", [
-  {default, ""},
   {datatype, string}
 ]}.
 
@@ -78,28 +74,31 @@
                   end
             end,
   Options = [{pool_size, Pool},
-              {auto_reconnect, 1},
-              {host, MyHost},
-              {port, MyPort},
-              {user, Username},
-              {password, Passwd},
-              {database, DB},
-              {encoding, utf8},
-              {query_timeout, Timeout},
-              {keep_alive, true}],
+             {auto_reconnect, 1},
+             {host, MyHost},
+             {port, MyPort},
+             {user, Username},
+             {password, Passwd},
+             {database, DB},
+             {encoding, utf8},
+             {query_timeout, Timeout},
+             {keep_alive, true}],
+  Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
   Options1 =
       case cuttlefish:conf_get("auth.mysql.ssl", Conf) of
             true ->
                 %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-                CA = cuttlefish:conf_get("auth.mysql.ssl.cacertfile", Conf,
-                                         cuttlefish:conf_get("auth.mysql.ssl.cafile", Conf)
-                                        ),
-                Cert = cuttlefish:conf_get("auth.mysql.ssl.certfile", Conf),
-                Key = cuttlefish:conf_get("auth.mysql.ssl.keyfile", Conf),
-                Options ++ [{ssl, {server_name_indication, disable},
-                                  {cacertfile, CA},
-                                  {certfile, Cert},
-                                  {keyfile, Key}}];
+                CA = cuttlefish:conf_get(
+                        "auth.mysql.ssl.cacertfile", Conf,
+                        cuttlefish:conf_get("auth.mysql.ssl.cafile", Conf, undefined)
+                     ),
+                Cert = cuttlefish:conf_get("auth.mysql.ssl.certfile", Conf, undefined),
+                Key = cuttlefish:conf_get("auth.mysql.ssl.keyfile", Conf, undefined),
+                Options ++ [{ssl, Filter([{server_name_indication, disable},
+                                          {cacertfile, CA},
+                                          {certfile, Cert},
+                                          {keyfile, Key}])
+                            }];
             _ ->
                 Options
       end,
