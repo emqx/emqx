@@ -55,10 +55,10 @@ translate_env(EnvName) ->
             URL = proplists:get_value(url, Req),
             #{host := Host0,
               path := Path0,
-              scheme := Scheme} = URIMap = uri_string:parse(add_default_scheme(URL)),
+              scheme := Scheme} = URIMap = uri_string:parse(add_default_scheme(uri_string:normalize(URL))),  
             Port = maps:get(port, URIMap, case Scheme of
                                             "https" -> 443;
-                                            _ -> 80
+                                            "http" -> 80
                                         end),
             Path = path(Path0),
             {Inet, Host} = parse_host(Host0),
@@ -66,7 +66,7 @@ translate_env(EnvName) ->
                         "http" ->
                             [{transport_opts, [Inet]}];
                         "https" ->
-                            CACertFile = application:get_env(?APP, cafile, undefined),
+                            CACertFile = application:get_env(?APP, cacertfile, undefined),
                             CertFile = application:get_env(?APP, certfile, undefined),
                             KeyFile = application:get_env(?APP, keyfile, undefined),
                             TLSOpts = lists:filter(fun({_K, V}) when V =:= <<>> ->

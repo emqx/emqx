@@ -40,7 +40,7 @@ initContainers: {}
   #   image: alpine
   #   command: ["sh", "-c", "for i in $(seq 1 300); do nc -zvw1 mysql 3306 && exit 0 || sleep 3; done; exit 1"]
 
-## EMQX configuration item, see the documentation (https://github.com/emqx/emqx-docker#emq-x-configuration)
+## EMQX configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx)
 emqxConfig:
   EMQX_CLUSTER__K8S__APISERVER: \"https://kubernetes.default.svc:443\"
   ## The address type is used to extract host from k8s service.

@@ -249,13 +249,13 @@ create_resource(#{type := Type, config := Config0} = Params) ->
 update_resource(ResId, NewParams) ->
     try
         lists:foreach(fun(#rule{id = RuleId, enabled = Enabled, actions = Actions}) ->
-                    lists:foreach(
-                        fun (#action_instance{args = #{<<"$resource">> := ResId1}})
-                            when ResId =:= ResId1, Enabled == true ->
-                                throw({dependency_exists, RuleId});
-                            (_) -> ok
-                        end, Actions)
-                    end, ets:tab2list(?RULE_TAB)),
+            lists:foreach(
+                fun (#action_instance{args = #{<<"$resource">> := ResId1}})
+                    when ResId =:= ResId1, Enabled =:= true ->
+                        throw({dependency_exists, RuleId});
+                    (_) -> ok
+                end, Actions)
+            end, ets:tab2list(?RULE_TAB)),
         do_update_resource_check(ResId, NewParams)
     catch _ : Reason ->
         {error, Reason}
@@ -267,37 +267,42 @@ do_update_resource_check(Id, NewParams) ->
                        type = Type,
                        config = OldConfig,
                        description = OldDescription} = _OldResource} ->
-                try
-                    do_update_resource(#{id => Id,
-                                        config => case maps:find(<<"config">>, NewParams) of
-                                                       {ok, NewConfig} -> NewConfig;
-                                                       error -> OldConfig
-                                                  end,
-                                        type => Type,
-                                        description => case maps:find(<<"description">>, NewParams) of
-                                                            {ok, NewDescription} -> NewDescription;
-                                                            error -> OldDescription
-                                                       end}),
-                    ok
-                catch _ : Reason ->
-                    {error, Reason}
-                end;
+            try
+                do_update_resource(#{id => Id,
+                                     config => case maps:find(<<"config">>, NewParams) of
+                                                    {ok, NewConfig} -> NewConfig;
+                                                    error -> OldConfig
+                                               end,
+                                     type => Type,
+                                     description => case maps:find(<<"description">>, NewParams) of
+                                                         {ok, NewDescription} -> NewDescription;
+                                                         error -> OldDescription
+                                                    end}),
+                ok
+            catch _ : Reason ->
+                {error, Reason}
+            end;
         _Other ->
             {error, not_found}
     end.
 
-do_update_resource(#{id := Id, type := Type, description:= NewDescription, config:= NewConfig}) ->
+do_update_resource(#{id := Id, type := Type, description := NewDescription, config := NewConfig}) ->
     case emqx_rule_registry:find_resource_type(Type) of
         {ok, #resource_type{on_create = {Module, Create},
-                            on_destroy = {Module, Destroy},
                             params_spec = ParamSpec}} ->
             Config = emqx_rule_validator:validate_params(NewConfig, ParamSpec),
-            cluster_call(init_resource, [Module, Create, Id, Config]),
-            emqx_rule_registry:add_resource(#resource{id = Id,
-                                                      type = Type,
-                                                      config = Config,
-                                                      description = NewDescription,
-                                                      created_at = erlang:system_time(millisecond)})
+            case test_resource(#{type => Type, config => NewConfig}) of
+                ok ->
+                    Resource = #resource{id = Id,
+                                         type = Type,
+                                         config = Config,
+                                         description = NewDescription,
+                                         created_at = erlang:system_time(millisecond)},
+                    cluster_call(init_resource, [Module, Create, Id, Config]),
+                    emqx_rule_registry:add_resource(Resource);
+               {error, Reason} ->
+                    {error, Reason}
+            end
     end.
 
 -spec(start_resource(resource_id()) -> ok | {error, Reason :: term()}).

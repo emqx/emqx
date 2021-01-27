@@ -66,7 +66,7 @@ set_special_configs(emqx, _Schmea, _Inet) ->
 set_special_configs(emqx_auth_http, Schema, Inet) ->
     ServerAddr = http_server(Schema, Inet),
 
-    AuthReq = #{method => post,
+    AuthReq = #{method => get,
                 url => ServerAddr ++ "/mqtt/auth",
                 headers => [{"content-type", "application/json"}],
                 params => [{"clientid", "%c"}, {"username", "%u"}, {"password", "%P"}]},
@@ -88,7 +88,7 @@ set_special_configs(emqx_auth_http, Schema, Inet) ->
 %% @private
 set_https_client_opts() ->
     SSLOpt = emqx_ct_helpers:client_ssl_twoway(),
-    application:set_env(emqx_auth_http, cafile, proplists:get_value(cacertfile, SSLOpt, undefined)),
+    application:set_env(emqx_auth_http, cacertfile, proplists:get_value(cacertfile, SSLOpt, undefined)),
     application:set_env(emqx_auth_http, certfile, proplists:get_value(certfile, SSLOpt, undefined)),
     application:set_env(emqx_auth_http, keyfile, proplists:get_value(keyfile, SSLOpt, undefined)).
 
@@ -171,11 +171,3 @@ t_comment_config(_) ->
     ?assertEqual([], emqx_hooks:lookup('client.authenticate')),
     ?assertEqual(AuthCount - 1, length(emqx_hooks:lookup('client.authenticate'))),
     ?assertEqual(AclCount - 1, length(emqx_hooks:lookup('client.check_acl'))).
-
-t_feedvar(_) ->
-    Params = [{"cookie", "%k"}],
-    User0 = ?USER(<<"client1">>, <<"testuser">>, mqtt, {127,0,0,1}, external),
-    ?assertEqual([{"cookie", <<"null">>}], emqx_auth_http_cli:feedvar(Params, User0)),
-
-    User1 = User0#{ws_cookie => [{<<"k">>, <<"v">>}]},
-    ?assertEqual([{"cookie", <<"{\"k\":\"v\"}">>}], emqx_auth_http_cli:feedvar(Params, User1)).
