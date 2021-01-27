@@ -83,7 +83,6 @@
           timer = undefined :: undefined | reference()
         }).
 
--type state() :: #state{}.
 -type action() :: log | publish | event.
 
 -define(ACTIVATED_ALARM, emqx_activated_alarm).
