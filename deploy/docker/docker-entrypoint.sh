@@ -62,32 +62,36 @@ if [[ -z "$EMQX_NODE__MAX_ETS_TABLES" ]]; then
     export EMQX_NODE__MAX_ETS_TABLES=2097152
 fi
 
-if [[ -z "$EMQX__LOG_CONSOLE" ]]; then
-    export EMQX__LOG_CONSOLE='console'
-fi
-
 if [[ -z "$EMQX_LISTENER__TCP__EXTERNAL__ACCEPTORS" ]]; then
     export EMQX_LISTENER__TCP__EXTERNAL__ACCEPTORS=64
 fi
 
-if [[ -z "$EMQX_LISTENER__TCP__EXTERNAL__MAX_CLIENTS" ]]; then
-    export EMQX_LISTENER__TCP__EXTERNAL__MAX_CLIENTS=1000000
+if [[ -z "$EMQX_LISTENER__TCP__EXTERNAL__MAX_CONNECTIONS" ]]; then
+    export EMQX_LISTENER__TCP__EXTERNAL__MAX_CONNECTIONS=1024000
 fi
 
 if [[ -z "$EMQX_LISTENER__SSL__EXTERNAL__ACCEPTORS" ]]; then
     export EMQX_LISTENER__SSL__EXTERNAL__ACCEPTORS=32
 fi
 
-if [[ -z "$EMQX_LISTENER__SSL__EXTERNAL__MAX_CLIENTS" ]]; then
-    export EMQX_LISTENER__SSL__EXTERNAL__MAX_CLIENTS=500000
+if [[ -z "$EMQX_LISTENER__SSL__EXTERNAL__MAX_CONNECTIONS" ]]; then
+    export EMQX_LISTENER__SSL__EXTERNAL__MAX_CONNECTIONS=102400
 fi
 
 if [[ -z "$EMQX_LISTENER__WS__EXTERNAL__ACCEPTORS" ]]; then
     export EMQX_LISTENER__WS__EXTERNAL__ACCEPTORS=16
 fi
 
-if [[ -z "$EMQX_LISTENER__WS__EXTERNAL__MAX_CLIENTS" ]]; then
-    export EMQX_LISTENER__WS__EXTERNAL__MAX_CLIENTS=250000
+if [[ -z "$EMQX_LISTENER__WS__EXTERNAL__MAX_CONNECTIONS" ]]; then
+    export EMQX_LISTENER__WS__EXTERNAL__MAX_CONNECTIONS=102400
+fi
+
+if [[ -z "$EMQX_LISTENER__WSS__EXTERNAL__ACCEPTORS" ]]; then
+    export EMQX_LISTENER__WSS__EXTERNAL__ACCEPTORS=16
+fi
+
+if [[ -z "$EMQX_LISTENER__WSS__EXTERNAL__MAX_CONNECTIONS" ]]; then
+    export EMQX_LISTENER__WSS__EXTERNAL__MAX_CONNECTIONS=102400
 fi
 
 # Fix issue #42 - export env EMQX_DASHBOARD__DEFAULT_USER__PASSWORD to configure
@@ -128,9 +132,9 @@ try_fill_config() {
     if grep -qE "^[#[:space:]]*$escaped_key\s*=" "$file"; then
         echo_value "$key" "$value"
         if [[ -z "$value" ]]; then
-            sed -i -r "s/^[#[:space:]]*($escaped_key)\s*=\s*(.*)/# \1 = \2/" "$file"
+            echo "$(sed -r "s/^[#[:space:]]*($escaped_key)\s*=\s*(.*)/# \1 = \2/" "$file")" > "$file"
         else
-            sed -i -r "s/^[#[:space:]]*($escaped_key)\s*=\s*(.*)/\1 = $escaped_value/" "$file"
+            echo "$(sed -r "s/^[#[:space:]]*($escaped_key)\s*=\s*(.*)/\1 = $escaped_value/" "$file")" > "$file"
         fi
     # Check if config has a numbering system, but no existing configuration line in file
     elif echo "$key" | grep -qE '\.\d+|\d+\.'; then
@@ -139,7 +143,7 @@ try_fill_config() {
             template="$(echo "$escaped_key" | sed -r -e 's/\\\.[0-9]+/\\.[0-9]+/g' -e 's/[0-9]+\\\./[0-9]+\\./g')"
             if grep -qE "^[#[:space:]]*$template\s*=" "$file"; then
                 echo_value "$key" "$value"
-                sed -i '$a'\\ "$file"
+                echo "$(sed '$a'\\ "$file")" > "$file"
                 echo "$key = $value" >> "$file"
             fi
         fi
@@ -171,13 +175,13 @@ fill_tuples() {
     local elements=${*:2}
     for var in $elements; do
         if grep -qE "\{\s*$var\s*,\s*(true|false)\s*\}\s*\." "$file"; then
-            sed -i -r "s/\{\s*($var)\s*,\s*(true|false)\s*\}\s*\./{\1, true}./1" "$file"
+            echo "$(sed -r "s/\{\s*($var)\s*,\s*(true|false)\s*\}\s*\./{\1, true}./1" "$file")" > "$file"
         elif grep -q "$var\s*\." "$file"; then
             # backward compatible.
-            sed -i -r "s/($var)\s*\./{\1, true}./1" "$file"
+            echo "$(sed -r "s/($var)\s*\./{\1, true}./1" "$file")" > "$file"
         else
-            sed -i '$a'\\ "$file"
-            echo "{$var, true}." >>"$file"
+            echo "$(sed '$a'\\ "$file")" > "$file"
+            echo "{$var, true}." >> "$file"
         fi
     done
 }
