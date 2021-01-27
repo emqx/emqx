@@ -66,7 +66,7 @@ translate_env(EnvName) ->
                         "http" ->
                             [{transport_opts, [Inet]}];
                         "https" ->
-                            CACertFile = application:get_env(?APP, cafile, undefined),
+                            CACertFile = application:get_env(?APP, cacertfile, undefined),
                             CertFile = application:get_env(?APP, certfile, undefined),
                             KeyFile = application:get_env(?APP, keyfile, undefined),
                             TLSOpts = lists:filter(fun({_K, V}) when V =:= <<>> ->
