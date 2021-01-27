@@ -192,8 +192,8 @@ do_register_hooks(Hook, ScriptName, _St) ->
     ?LOG(error, "Discard unknown hook type ~p from ~p", [Hook, ScriptName]).
 
 do_unloadall(Scripts) ->
-    lists:foreach(fun do_unload/1, Scripts),
-    ok.
+    lists:foreach(fun do_unload/1, Scripts).
 
 do_unload(Script) ->
-    emqx_lua_script:unregister_hooks(Script), ok.
+    emqx_lua_script:unregister_hooks(Script),
+    ok.

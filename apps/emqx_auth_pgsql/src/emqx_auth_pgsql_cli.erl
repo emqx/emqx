@@ -29,7 +29,10 @@
         , equery/3
         ]).
 
--type client_info() :: #{username:=_, clientid:=_, peerhost:=_, _=>_}.
+-type client_info() :: #{username := _,
+                         clientid := _,
+                         peerhost := _,
+                         _ => _}.
 
 %%--------------------------------------------------------------------
 %% Avoid SQL Injection: Parse SQL to Parameter Query.
