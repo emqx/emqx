@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # -*- tab-width:4;indent-tabs-mode:nil -*-
 # ex: ts=4 sw=4 et
 
@@ -188,6 +188,85 @@ relx_start_command() {
            "$START_OPTION"
 }
 
+
+# takes config key as an argument and returns the corresponding conf file
+# SYNOPSIS
+#     echo_value KEY
+lookup_plugin() {
+  KEY=$1
+
+  old_IFS=$IFS
+  IFS='.' TOKENS=( $KEY )
+  IFS=$old_IFS
+
+  MAYBE_CONF_0="$RUNNER_ETC_DIR/plugins/emqx_${TOKENS[0]}.conf"
+  MAYBE_CONF_1="$RUNNER_ETC_DIR/plugins/emqx_${TOKENS[0]}_${TOKENS[1]}.conf"
+
+  if [ -f "$MAYBE_CONF_0" ]; then
+    echo "$MAYBE_CONF_0"
+  elif [ -f "$MAYBE_CONF_1" ]; then
+    echo "$MAYBE_CONF_1"
+  elif [ "${TOKENS[0]}" = "auth" ]; then
+    if [ "${TOKENS[1]}" = "client" ] || [ "${TOKENS[1]}" = "user" ]; then
+      echo "$RUNNER_ETC_DIR/plugins/emqx_auth_mnesia.conf"
+    fi
+  elif [ "${TOKENS[0]}" = "mqtt" ] && [ "${TOKENS[1]}" = "sn" ]; then
+    echo "$RUNNER_ETC_DIR/plugins/emqx_sn.conf"
+  else
+    echo "$RUNNER_ETC_DIR/emqx.conf"
+  fi
+}
+
+# echo value of $VAR hiding secrets if any
+# SYNOPSIS
+#     echo_value KEY VALUE
+echo_value() {
+    # get MASK_CONFIG
+    old_IFS=$IFS
+    IFS='|' MASK_CONFIG_FILTER=( $MASK_CONFIG_FILTER )
+    IFS=$old_IFS
+    MASK_CONFIG_FILTER+=("password" "passwd" "key" "token" "secret")
+    local key=$1
+    local value=$2
+
+    # check if contains sensitive value
+    is_mask_needed=false
+    for mask in "${MASK_CONFIG_FILTER[@]}"; do
+        [[ "$key" == *"$mask"* ]] && is_mask_needed=true
+    done
+
+    if "${is_mask_needed}"; then
+        echo "$key=***secret***"
+    else
+      if [[ "$value" = "null" ]]; then
+        echo "$key=null"
+      else
+        echo "$key=$value"
+      fi
+    fi
+}
+
+# fill config on the corresponding .override file
+# SYNOPSIS
+#     override_config KEY VALUE
+override_config() {
+    local key=$1
+    local value=$2
+    local conf
+    conf=$(lookup_plugin "$key")
+    if [[ -z "$value" ]] || [[ "$value" = "null" ]]; then
+      value="null"
+    elif [[ "$value" == "true" ]] || [[ "$value" == "false" ]]; then
+      :
+    elif  [[ $value =~ ^[+-]?[0-9]+([.][0-9]+)?$ ]] ; then
+      :
+    else
+      value="\"$value\""
+    fi
+    echo_value "$key" "$value"
+    echo "$key = $value" >> "$conf.override"
+}
+
 # Function to generate app.config and vm.args
 generate_config() {
     ## Delete the *.siz files first or it cann't start after
@@ -202,6 +281,26 @@ generate_config() {
         # the vm, we need to pass it in twice.
         CONFIG_ARGS=" -config $RUNNER_ETC_DIR/app.config -args_file $RUNNER_ETC_DIR/vm.args -vm_args $RUNNER_ETC_DIR/vm.args "
     else
+        for VAR in $(compgen -e); do
+             if echo "$VAR" | grep -q '^EMQX_'; then
+                 VAR_NAME=$(echo "$VAR" | sed -e 's/^EMQX_//' -e 's/__/./g' | tr '[:upper:]' '[:lower:]' | tr -d '[:cntrl:]')
+                 VAR_VALUE=$(echo "${!VAR}" | tr -d '[:cntrl:]')
+                 # ignore non-conf values from docker-entrypoint.sh
+                 if [[ $VAR_NAME != "port"* ]] &&
+                    [[ $VAR_NAME != "service"* ]] &&
+                    [[ $VAR_NAME != "node_name" ]] &&
+                    [[ $VAR_NAME != "node" ]] &&
+                    [[ $VAR_NAME != "host" ]] &&
+                    [[ $VAR_NAME != "wait_time" ]] &&
+                    [[ $VAR_NAME != "name" ]] &&
+                    [[ $VAR_NAME != *"max_clients" ]] &&
+                    [[ $VAR_NAME != "admin_password" ]] &&
+                    [[ $VAR_NAME != "_log_console" ]]; then
+                     override_config "$VAR_NAME" "$VAR_VALUE"
+                 fi
+             fi
+         done
+
         CONFIG_ARGS=`$ERTS_PATH/escript $RUNNER_ROOT_DIR/bin/cuttlefish -i $REL_DIR/emqx.schema -c $RUNNER_ETC_DIR/emqx.conf -d $RUNNER_DATA_DIR/configs generate`
 
         ## Merge cuttlefish generated *.args into the vm.args
