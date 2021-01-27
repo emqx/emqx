@@ -80,7 +80,6 @@ feedvar(Params, ClientInfo = #{clientid := ClientId,
                  ({Param, "%A"}) -> {Param, maps:get(access, ClientInfo, null)};
                  ({Param, "%t"}) -> {Param, maps:get(topic, ClientInfo, null)};
                  ({Param, "%m"}) -> {Param, maps:get(mountpoint, ClientInfo, null)};
-                 ({Param, "%k"}) -> {Param, emqx_json:encode(maps:get(ws_cookie, ClientInfo, null))};
                  ({Param, Var})  -> {Param, Var}
               end, Params).
 
