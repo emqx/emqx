@@ -50,8 +50,6 @@
 
 -record(state, {peername, clientid, username, password, sub_topics = [], connected_at}).
 
--type(state() :: #state{}).
-
 -define(ALIVE_INTERVAL, 20000).
 
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
