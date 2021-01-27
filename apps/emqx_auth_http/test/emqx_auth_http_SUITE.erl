@@ -88,7 +88,7 @@ set_special_configs(emqx_auth_http, Schema, Inet) ->
 %% @private
 set_https_client_opts() ->
     SSLOpt = emqx_ct_helpers:client_ssl_twoway(),
-    application:set_env(emqx_auth_http, cafile, proplists:get_value(cacertfile, SSLOpt, undefined)),
+    application:set_env(emqx_auth_http, cacertfile, proplists:get_value(cacertfile, SSLOpt, undefined)),
     application:set_env(emqx_auth_http, certfile, proplists:get_value(certfile, SSLOpt, undefined)),
     application:set_env(emqx_auth_http, keyfile, proplists:get_value(keyfile, SSLOpt, undefined)).
 
