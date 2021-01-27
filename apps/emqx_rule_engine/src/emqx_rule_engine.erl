@@ -251,7 +251,7 @@ update_resource(ResId, NewParams) ->
         lists:foreach(fun(#rule{id = RuleId, enabled = Enabled, actions = Actions}) ->
             lists:foreach(
                 fun (#action_instance{args = #{<<"$resource">> := ResId1}})
-                    when ResId =:= ResId1, Enabled == true ->
+                    when ResId =:= ResId1, Enabled =:= true ->
                         throw({dependency_exists, RuleId});
                     (_) -> ok
                 end, Actions)
@@ -286,7 +286,7 @@ do_update_resource_check(Id, NewParams) ->
             {error, not_found}
     end.
 
-do_update_resource(#{id := Id, type := Type, description:= NewDescription, config:= NewConfig}) ->
+do_update_resource(#{id := Id, type := Type, description := NewDescription, config := NewConfig}) ->
     case emqx_rule_registry:find_resource_type(Type) of
         {ok, #resource_type{on_create = {Module, Create},
                             params_spec = ParamSpec}} ->
