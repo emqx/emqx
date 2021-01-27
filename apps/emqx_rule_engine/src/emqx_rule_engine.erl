@@ -288,7 +288,8 @@ do_update_resource_check(Id, NewParams) ->
 
 do_update_resource(#{id := Id, type := Type, description:= NewDescription, config:= NewConfig}) ->
     case emqx_rule_registry:find_resource_type(Type) of
-        {ok, #resource_type{params_spec = ParamSpec}} ->
+        {ok, #resource_type{on_create = {Module, Create},
+                            params_spec = ParamSpec}} ->
             Config = emqx_rule_validator:validate_params(NewConfig, ParamSpec),
             case test_resource(#{type => Type, config => NewConfig}) of
                 ok ->
@@ -297,6 +298,7 @@ do_update_resource(#{id := Id, type := Type, description:= NewDescription, confi
                                          config = Config,
                                          description = NewDescription,
                                          created_at = erlang:system_time(millisecond)},
+                    cluster_call(init_resource, [Module, Create, Id, Config]),
                     emqx_rule_registry:add_resource(Resource);
                {error, Reason} ->
                     {error, Reason}
