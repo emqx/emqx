@@ -155,17 +155,7 @@ in(Msg = #message{topic = Topic}, MQ = #mqueue{default_p = Dp,
                                                max_len = MaxLen,
                                                dropped = Dropped
                                               } = MQ) ->
-    Priority = get_priority(Topic, PTab, Dp),
-    PLen = ?PQUEUE:plen(Priority, Q),
-    case MaxLen =/= ?MAX_LEN_INFINITY andalso PLen =:= MaxLen of
-        true ->
-            %% reached max length, drop the oldest message
-            {{value, DroppedMsg}, Q1} = ?PQUEUE:out(Priority, Q),
-            Q2 = ?PQUEUE:in(Msg, Priority, Q1),
-            {DroppedMsg, MQ#mqueue{q = Q2, dropped = Dropped + 1}};
-        false ->
-            {_DroppedMsg = undefined, MQ#mqueue{len = Len + 1, q = ?PQUEUE:in(Msg, Priority, Q)}}
-    end.
+    {_Dropped = Msg, MQ}.
 
 -spec(out(mqueue()) -> {empty | {value, message()}, mqueue()}).
 out(MQ = #mqueue{len = 0, q = Q}) ->
