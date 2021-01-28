@@ -43,7 +43,7 @@ LABEL org.label-schema.docker.dockerfile="Dockerfile" \
 ARG QEMU_ARCH=x86_64
 ARG EMQX_NAME=emqx
 
-COPY deploy/docker/docker-entrypoint.sh deploy/docker/start.sh tmp/qemu-$QEMU_ARCH-stati* /usr/bin/
+COPY deploy/docker/docker-entrypoint.sh tmp/qemu-$QEMU_ARCH-stati* /usr/bin/
 COPY --from=builder /emqx/_build/$EMQX_NAME/rel/emqx /opt/emqx
 
 RUN ln -s /opt/emqx/bin/* /usr/local/bin/
@@ -77,4 +77,4 @@ EXPOSE 1883 8081 8083 8084 8883 11883 18083 4369 4370 5369 6369 6370
 
 ENTRYPOINT ["/usr/bin/docker-entrypoint.sh"]
 
-CMD ["/usr/bin/start.sh"]
+CMD ["/opt/emqx/bin/emqx", "foreground"]
