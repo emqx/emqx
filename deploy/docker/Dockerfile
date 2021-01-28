@@ -69,8 +69,8 @@ VOLUME ["/opt/emqx/log", "/opt/emqx/data", "/opt/emqx/lib", "/opt/emqx/etc"]
 # - 8883 port for MQTT(SSL)
 # - 11883 port for internal MQTT/TCP
 # - 18083 for dashboard
-# - 4369 for port mapping (epmd)
-# - 4370 for port mapping
+# - 4369 epmd (Erlang-distrbution port mapper daemon) listener (deprecated)
+# - 4370 default Erlang distrbution port
 # - 5369 for gen_rpc port mapping
 # - 6369 for distributed node
 EXPOSE 1883 8081 8083 8084 8883 11883 18083 4369 4370 5369 6369
