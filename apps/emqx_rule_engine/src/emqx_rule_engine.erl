@@ -299,7 +299,7 @@ do_update_resource(#{id := Id, type := Type, description := NewDescription, conf
                                          description = NewDescription,
                                          created_at = erlang:system_time(millisecond)},
                     cluster_call(init_resource, [Module, Create, Id, Config]),
-
+                    refresh_actions_of_a_resource(Id),
                     emqx_rule_registry:add_resource(Resource);
                {error, Reason} ->
                     {error, Reason}
