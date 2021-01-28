@@ -299,6 +299,7 @@ do_update_resource(#{id := Id, type := Type, description := NewDescription, conf
                                          description = NewDescription,
                                          created_at = erlang:system_time(millisecond)},
                     cluster_call(init_resource, [Module, Create, Id, Config]),
+
                     emqx_rule_registry:add_resource(Resource);
                {error, Reason} ->
                     {error, Reason}
@@ -387,15 +388,8 @@ refresh_resources() ->
     end, emqx_rule_registry:get_resources()).
 
 refresh_resource(Type) when is_atom(Type) ->
-    lists:foreach(fun(#resource{id = ResId} = Resource) ->
-        try refresh_resource(Resource)
-        catch Error:Reason:ST ->
-            logger:critical(
-                "Can not re-stablish resource ~p: ~0p. The resource is disconnected."
-                "Fix the issue and establish it manually.\n"
-                "Stacktrace: ~0p",
-                [ResId, {Error, Reason}, ST])
-        end
+    lists:foreach(fun(Resource) ->
+        refresh_resource(Resource)
     end, emqx_rule_registry:get_resources_by_type(Type));
 
 refresh_resource(#resource{id = ResId, config = Config, type = Type}) ->
