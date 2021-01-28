@@ -146,7 +146,9 @@ t_call(_) ->
     ?assertEqual(Info, ?ws_conn:call(WsPid, info)).
 
 t_init(_) ->
-    Opts = [{idle_timeout, 300000}],
+    Opts = [{idle_timeout, 300000},
+            {fail_if_no_subprotocol, false},
+            {supported_subprotocols, ["mqtt"]}],
     WsOpts = #{compress       => false,
                deflate_opts   => #{},
                max_frame_size => infinity,
