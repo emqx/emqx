@@ -48,7 +48,7 @@
                 order => 3,
                 type => number,
                 enum => [0, 1],
-                required => true,
+                required => false,
                 default => 0,
                 title => #{en => <<"Target Retain">>,
                            zh => <<"Target Retain"/utf8>>},
