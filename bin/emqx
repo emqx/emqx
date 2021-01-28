@@ -264,6 +264,8 @@ fi
 # Extract the name type and name from the NAME_ARG for REMSH
 NAME_TYPE="$(echo "$NAME_ARG" | awk '{print $1}')"
 NAME="$(echo "$NAME_ARG" | awk '{print $2}')"
+NODENAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
+export ESCRIPT_NAME="$NODENAME"
 
 PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 
