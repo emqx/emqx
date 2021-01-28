@@ -263,15 +263,15 @@ on_action_data_to_webserver(Selected, _Envs =
     Req = create_req(Method, NPath, Headers, NBody),
     case do_request(ehttpc_pool:pick_worker(Pool, ClientID), Method, Req, RequestTimeout) of
         {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            ok;
+            emqx_rule_metrics:inc_actions_success(Id);
         {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            ok;
+            emqx_rule_metrics:inc_actions_success(Id);
         {ok, StatusCode, _} ->
             ?LOG(warning, "[WebHook Action] HTTP request failed with status code: ~p", [StatusCode]),
-            ok;
+            emqx_rule_metrics:inc_actions_error(Id);
         {ok, StatusCode, _, _} ->
             ?LOG(warning, "[WebHook Action] HTTP request failed with status code: ~p", [StatusCode]),
-            ok;
+            emqx_rule_metrics:inc_actions_error(Id);
         {error, Reason} ->
             ?LOG(error, "[WebHook Action] HTTP request error: ~p", [Reason]),
             emqx_rule_metrics:inc_actions_error(Id)
