@@ -299,7 +299,6 @@ do_update_resource(#{id := Id, type := Type, description := NewDescription, conf
                                          description = NewDescription,
                                          created_at = erlang:system_time(millisecond)},
                     cluster_call(init_resource, [Module, Create, Id, Config]),
-                    refresh_actions_of_a_resource(Id),
                     emqx_rule_registry:add_resource(Resource);
                {error, Reason} ->
                     {error, Reason}
@@ -383,9 +382,8 @@ delete_resource(ResId) ->
 
 -spec(refresh_resources() -> ok).
 refresh_resources() ->
-    lists:foreach(fun(Resource) ->
-        refresh_resource(Resource)
-    end, emqx_rule_registry:get_resources()).
+    lists:foreach(fun refresh_resource/1,
+                  emqx_rule_registry:get_resources()).
 
 refresh_resource(Type) when is_atom(Type) ->
     lists:foreach(fun refresh_resource/1,
