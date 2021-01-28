@@ -388,9 +388,8 @@ refresh_resources() ->
     end, emqx_rule_registry:get_resources()).
 
 refresh_resource(Type) when is_atom(Type) ->
-    lists:foreach(fun(Resource) ->
-        refresh_resource(Resource)
-    end, emqx_rule_registry:get_resources_by_type(Type));
+    lists:foreach(fun refresh_resource/1,
+                  emqx_rule_registry:get_resources_by_type(Type));
 
 refresh_resource(#resource{id = ResId, config = Config, type = Type}) ->
     {ok, #resource_type{on_create = {M, F}}} = emqx_rule_registry:find_resource_type(Type),
