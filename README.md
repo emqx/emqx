@@ -5,7 +5,8 @@
 [![Coverage Status](https://coveralls.io/repos/github/emqx/emqx/badge.svg?branch=master)](https://coveralls.io/github/emqx/emqx?branch=master)
 [![Docker Pulls](https://img.shields.io/docker/pulls/emqx/emqx)](https://hub.docker.com/r/emqx/emqx)
 [![Slack Invite](<https://slack-invite.emqx.io/badge.svg>)](https://slack-invite.emqx.io)
-[![Twitter](https://img.shields.io/badge/Twitter-EMQ%20X-1DA1F2?logo=twitter)](https://twitter.com/emqtt)
+[![Twitter](https://img.shields.io/badge/Follow-EMQ%20X-1DA1F2?logo=twitter)](https://twitter.com/emqtt)
+[![Community](https://img.shields.io/badge/Community-EMQ%20X-yellow?logo=github)](https://github.com/emqx/emqx/discussions)
 
 [![The best IoT MQTT open source team looks forward to your joining](https://www.emqx.io/static/img/github_readme_en_bg.png)](https://www.emqx.io/careers)
 
@@ -72,17 +73,11 @@ Visiting [EMQ X FAQ](https://docs.emqx.io/broker/latest/en/faq/faq.html) to get 
 
 The [EMQ X Roadmap uses Github milestones](https://github.com/emqx/emqx/milestones) to track the progress of the project.
 
-## Community, discussion, contribution, and support
+## Community
 
-You can reach the EMQ community and developers via the following channels:
-- [Slack](https://slack-invite.emqx.io/)
-- [Twitter](https://twitter.com/emqtt)
-- [Facebook](https://www.facebook.com/emqxmqtt)
-- [Reddit](https://www.reddit.com/r/emqx/)
-- [Forum](https://groups.google.com/d/forum/emqtt)
-- [Blog](https://medium.com/@emqtt)
+The EMQ X community can be found on [GitHub Discussions](https://github.com/emqx/emqx/discussions), where you can ask questions, voice ideas, and share your projects.
 
-Please submit any bugs, issues, and feature requests to [emqx/emqx](https://github.com/emqx/emqx/issues).
+To chat with other community members you can join the [EMQ X Slack](https://slack-invite.emqx.io).
 
 ## MQTT Specifications
 
