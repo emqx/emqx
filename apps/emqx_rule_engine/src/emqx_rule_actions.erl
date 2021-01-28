@@ -44,8 +44,19 @@
                 description => #{en => <<"The QoS Level to be uses when republishing the message. Set to -1 to use the original QoS">>,
                                  zh => <<"重新发布消息时用的 QoS 级别, 设置为 -1 以使用原消息中的 QoS"/utf8>>}
             },
-            payload_tmpl => #{
+            target_retain => #{
                 order => 3,
+                type => number,
+                enum => [0, 1],
+                required => false,
+                default => 0,
+                title => #{en => <<"Target Retain">>,
+                           zh => <<"Target Retain"/utf8>>},
+                description => #{en => <<"Set 1 to retain message">>,
+                                 zh => <<"Set 1 to retain message"/utf8>>}
+            },
+            payload_tmpl => #{
+                order => 4,
                 type => string,
                 input => textarea,
                 required => false,
@@ -133,6 +144,7 @@ on_action_inspect(Selected, Envs) ->
 on_action_create_republish(Id, Params = #{
         <<"target_topic">> := TargetTopic,
         <<"target_qos">> := TargetQoS,
+        <<"target_retain">> := TargetRetain,
         <<"payload_tmpl">> := PayloadTmpl
        }) ->
     TopicTks = emqx_rule_utils:preproc_tmpl(TargetTopic),
@@ -178,6 +190,7 @@ on_action_republish(Selected, _Envs = #{
                 'Id' := ActId,
                 'TargetTopic' := TargetTopic,
                 'TargetQoS' := TargetQoS,
+                'TargetRetain' := TargetRetain,
                 'TopicTks' := TopicTks,
                 'PayloadTks' := PayloadTks
             }}) ->
@@ -188,7 +201,7 @@ on_action_republish(Selected, _Envs = #{
             id = emqx_guid:gen(),
             qos = if TargetQoS =:= -1 -> 0; true -> TargetQoS end,
             from = ActId,
-            flags = #{dup => false, retain => false},
+            flags = #{dup => false, retain => if TargetRetain =:= 0 -> false; true -> true end},
             headers = #{republish_by => ActId},
             topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
             payload = emqx_rule_utils:proc_tmpl(PayloadTks, Selected),
