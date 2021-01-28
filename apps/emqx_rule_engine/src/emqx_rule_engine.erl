@@ -544,11 +544,8 @@ init_resource(Module, OnCreate, ResId, Config) ->
 init_resource(Module, OnCreate, ResId, Config, Restart) ->
     Params = ?RAISE(
         begin
-            TempRes = emqx_rule_registry:find_resource(ResId),
-            case TempRes of
-                not_found -> not_found;
-                _ -> Module:OnCreate(ResId, Config)
-            end
+            emqx_rule_registry:find_resource(ResId) /= not_found
+            andalso Module:OnCreate(ResId, Config)
         end,
         Restart andalso
             timer:apply_after(timer:seconds(60), ?MODULE, init_resource,
