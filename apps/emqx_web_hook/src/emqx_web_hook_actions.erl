@@ -261,7 +261,7 @@ on_action_data_to_webserver(Selected, _Envs =
     NBody = format_msg(BodyTokens, Selected),
     NPath = emqx_rule_utils:proc_tmpl(PathTokens, Selected),
     Req = create_req(Method, NPath, Headers, NBody),
-    case do_request(ehttpc_pool:pick_worker(Pool, ClientID), Method, Req, RequestTimeout) of
+    case ehttpc:request(ehttpc_pool:pick_worker(Pool, ClientID), Method, Req, RequestTimeout) of
         {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
             emqx_rule_metrics:inc_actions_success(Id);
         {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
@@ -385,20 +385,4 @@ parse_host(Host) ->
                 {ok, _} -> {inet6, Host};
                 {error, _} -> {inet, Host}
             end
-    end.
-
-do_request(Pid, Method, Req, Timeout) ->
-    do_request(Pid, Method, Req, Timeout, 3).
-
-%% Only retry when connection closed by keepalive
-do_request(_Pid, _Method, _Req, _Timeout, 0) ->
-    {error, normal};
-do_request(Pid, Method, Req, Timeout, Retry) ->
-    case ehttpc:request(Pid, Method, Req, Timeout) of
-        {error, normal} ->
-            do_request(Pid, Method, Req, Timeout, Retry - 1);
-        {error, Reason} ->
-            {error, Reason};
-        Other ->
-            Other
     end.
