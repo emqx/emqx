@@ -69,9 +69,8 @@ These environment variables will ignore for configuration file.
 
 | Options                    | Default            | Mapped                    | Description                           |
 | ---------------------------| ------------------ | ------------------------- | ------------------------------------- |
-| EMQX_NAME                   | container name     | none                      | emqx node short name                   |
-| EMQX_HOST                   | container IP       | none                      | emqx node host, IP or FQDN             |
-| EMQX_WAIT_TIME              | 5                  | none                      | wait time in sec before timeout       |
+| EMQX_NAME                  | container name     | none                      | emqx node short name                  |
+| EMQX_HOST                  | container IP       | none                      | emqx node host, IP or FQDN            |
 
 The list is incomplete and may changed with [etc/emqx.conf](https://github.com/emqx/emqx/blob/master/etc/emqx.conf) and plugin configuration files. But the mapping rule is similar.
 
