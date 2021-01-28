@@ -29,7 +29,7 @@
 
 request(PoolName, get, Path, Headers, Params, Timeout) ->
     NewPath = Path ++ "?" ++ binary_to_list(cow_qs:qs(bin_kw(Params))),
-    reply(ehttpc:request(ehttpc_pool:pick_worker(PoolName), get, {NewPath, Headers}, Timeout));
+    do_request(get, PoolName, {NewPath, Headers}, Timeout);
 
 request(PoolName, post, Path, Headers, Params, Timeout) ->
     Body = case proplists:get_value("content-type", Headers) of
@@ -38,14 +38,26 @@ request(PoolName, post, Path, Headers, Params, Timeout) ->
                "application/json" -> 
                    emqx_json:encode(bin_kw(Params))
            end,
-    reply(ehttpc:request(ehttpc_pool:pick_worker(PoolName), post, {Path, Headers, Body}, Timeout)).
+    do_request(post, PoolName, {Path, Headers, Body}, Timeout).
 
-reply({ok, StatusCode, _Headers}) ->
-    {ok, StatusCode, <<>>};
-reply({ok, StatusCode, _Headers, Body}) ->
-    {ok, StatusCode, Body};
-reply({error, Reason}) ->
-    {error, Reason}.
+do_request(Method, PoolName, Req, Timeout) ->
+    do_request(Method, PoolName, Req, Timeout, 3).
+
+%% Only retry when connection closed by keepalive
+do_request(_Method, _PoolName, _Req, _Timeout, 0) ->
+    {error, normal};
+do_request(Method, PoolName, Req, Timeout, Retry) ->
+    case ehttpc:request(ehttpc_pool:pick_worker(PoolName), Method, Req, Timeout) of
+        {error, normal} ->
+            do_request(Method, PoolName, Req, Timeout, Retry - 1);
+        {error, Reason} ->
+            {error, Reason};
+        {ok, StatusCode, _Headers} ->
+            {ok, StatusCode, <<>>};
+        {ok, StatusCode, _Headers, Body} ->
+            {ok, StatusCode, Body}
+    end.
+
 
 %% TODO: move this conversion to cuttlefish config and schema
 bin_kw(KeywordList) when is_list(KeywordList) ->
