@@ -382,8 +382,13 @@ delete_resource(ResId) ->
 
 -spec(refresh_resources() -> ok).
 refresh_resources() ->
-    lists:foreach(fun(#resource{id = ResId} = Res) ->
-        try refresh_resource(Res)
+    lists:foreach(fun(Resource) ->
+        refresh_resource(Resource)
+    end, emqx_rule_registry:get_resources()).
+
+refresh_resource(Type) when is_atom(Type) ->
+    lists:foreach(fun(#resource{id = ResId} = Resource) ->
+        try refresh_resource(Resource)
         catch Error:Reason:ST ->
             logger:critical(
                 "Can not re-stablish resource ~p: ~0p. The resource is disconnected."
@@ -391,15 +396,18 @@ refresh_resources() ->
                 "Stacktrace: ~0p",
                 [ResId, {Error, Reason}, ST])
         end
-    end, emqx_rule_registry:get_resources()).
-
-refresh_resource(Type) when is_atom(Type) ->
-    lists:foreach(fun(Resource) ->
-        refresh_resource(Resource)
     end, emqx_rule_registry:get_resources_by_type(Type));
+
 refresh_resource(#resource{id = ResId, config = Config, type = Type}) ->
     {ok, #resource_type{on_create = {M, F}}} = emqx_rule_registry:find_resource_type(Type),
-    cluster_call(init_resource, [M, F, ResId, Config]).
+        try cluster_call(init_resource, [M, F, ResId, Config])
+        catch Error:Reason:ST ->
+            logger:critical(
+                "Can not re-stablish resource ~p: ~0p. The resource is disconnected."
+                "Fix the issue and establish it manually.\n"
+                "Stacktrace: ~0p",
+                [ResId, {Error, Reason}, ST])
+        end.
 
 -spec(refresh_rules() -> ok).
 refresh_rules() ->
@@ -535,7 +543,13 @@ init_resource(Module, OnCreate, ResId, Config) ->
 
 init_resource(Module, OnCreate, ResId, Config, Restart) ->
     Params = ?RAISE(
-        Module:OnCreate(ResId, Config),
+        begin
+            TempRes = emqx_rule_registry:find_resource(ResId),
+            case TempRes of
+                not_found -> not_found;
+                _ -> Module:OnCreate(ResId, Config)
+            end
+        end,
         Restart andalso
             timer:apply_after(timer:seconds(60), ?MODULE, init_resource,
                               [Module, OnCreate, ResId, Config, Restart]),
