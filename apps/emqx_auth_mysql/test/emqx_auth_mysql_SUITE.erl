@@ -164,22 +164,32 @@ t_check_auth(_) ->
     BcryptFoo = #{clientid => <<"bcrypt_foo">>, username => <<"bcrypt_foo">>, zone => external},
     User1 = #{clientid => <<"bcrypt_foo">>, username => <<"user">>, zone => external},
     Bcrypt = #{clientid => <<"bcrypt">>, username => <<"bcrypt">>, zone => external},
-    %
+    BcryptWrong = #{clientid => <<"bcrypt_wrong">>, username => <<"bcrypt_wrong">>, zone => external},
     reload([{password_hash, plain}]),
-    {ok, #{is_superuser := true}} = emqx_access_control:authenticate(Plain#{password => <<"plain">>}),
+    {ok,#{is_superuser := true}} =
+        emqx_access_control:authenticate(Plain#{password => <<"plain">>}),
     reload([{password_hash, md5}]),
-    {ok, #{is_superuser := false}} = emqx_access_control:authenticate(Md5#{password => <<"md5">>}),
+    {ok,#{is_superuser := false}} =
+        emqx_access_control:authenticate(Md5#{password => <<"md5">>}),
     reload([{password_hash, sha}]),
-    {ok, #{is_superuser := false}} = emqx_access_control:authenticate(Sha#{password => <<"sha">>}),
+    {ok,#{is_superuser := false}} =
+        emqx_access_control:authenticate(Sha#{password => <<"sha">>}),
     reload([{password_hash, sha256}]),
-    {ok, #{is_superuser := false}} = emqx_access_control:authenticate(Sha256#{password => <<"sha256">>}),
+    {ok,#{is_superuser := false}} =
+        emqx_access_control:authenticate(Sha256#{password => <<"sha256">>}),
     reload([{password_hash, bcrypt}]),
-    {ok, #{is_superuser := false}} = emqx_access_control:authenticate(Bcrypt#{password => <<"password">>}),
-
-    reload([{password_hash, {pbkdf2, sha, 1, 16}}, {auth_query, "select password, salt from mqtt_user where username = '%u' limit 1"}]),
-    {ok, #{is_superuser := false}} = emqx_access_control:authenticate(Pbkdf2#{password => <<"password">>}),
+    {ok,#{is_superuser := false}} =
+        emqx_access_control:authenticate(Bcrypt#{password => <<"password">>}),
+    {error, not_authorized} =
+        emqx_access_control:authenticate(BcryptWrong#{password => <<"password">>}),
+    %%pbkdf2 sha
+    reload([{password_hash, {pbkdf2, sha, 1, 16}},
+            {auth_query, "select password, salt from mqtt_user where username = '%u' limit 1"}]),
+    {ok,#{is_superuser := false}} =
+        emqx_access_control:authenticate(Pbkdf2#{password => <<"password">>}),
     reload([{password_hash, {salt, bcrypt}}]),
-    {ok, #{is_superuser := false}} = emqx_access_control:authenticate(BcryptFoo#{password => <<"foo">>}),
+    {ok,#{is_superuser := false}} =
+        emqx_access_control:authenticate(BcryptFoo#{password => <<"foo">>}),
     {error, _} = emqx_access_control:authenticate(User1#{password => <<"foo">>}),
     {error, not_authorized} = emqx_access_control:authenticate(Bcrypt#{password => <<"password">>}).
 
