@@ -121,7 +121,7 @@ jobs:
         - ipv4
         - ipv6
         connect_type:
-        # - tls
+        - tls
         - tcp
 
     steps:
