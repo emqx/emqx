@@ -32,7 +32,7 @@
                 title => #{en => <<"URL">>,
                            zh => <<"URL"/utf8>>},
                 description => #{en => <<"The URL of the server that will receive the Webhook requests.">>,
-                                zh => <<"用于接收 Webhook 请求的服务器的 URL。"/utf8>>}
+                                 zh => <<"用于接收 Webhook 请求的服务器的 URL。"/utf8>>}
             },
             connect_timeout => #{
                 order => 2,
@@ -40,7 +40,7 @@
                 default => 5,
                 title => #{en => <<"Connect Timeout">>,
                            zh => <<"连接超时时间"/utf8>>},
-                description => #{en => <<"Connect Timeout In Seconds">>,
+                description => #{en => <<"Connect timeout in seconds">>,
                                  zh => <<"连接超时时间，单位秒"/utf8>>}},
             request_timeout => #{
                 order => 3,
@@ -48,7 +48,7 @@
                 default => 5,
                 title => #{en => <<"Request Timeout">>,
                            zh => <<"请求超时时间时间"/utf8>>},
-                description => #{en => <<"Request Timeout In Seconds">>,
+                description => #{en => <<"Request timeout in seconds">>,
                                  zh => <<"请求超时时间，单位秒"/utf8>>}},
             cacertfile => #{
                 order => 4,
@@ -56,7 +56,7 @@
                 default => <<>>,
                 title => #{en => <<"CA Certificate File">>,
                            zh => <<"CA 证书文件"/utf8>>},
-                description => #{en => <<"CA Certificate File.">>,
+                description => #{en => <<"CA certificate file.">>,
                                  zh => <<"CA 证书文件。"/utf8>>}
             },
             certfile => #{
@@ -65,7 +65,7 @@
                 default => <<>>,
                 title => #{en => <<"Certificate File">>,
                            zh => <<"证书文件"/utf8>>},
-                description => #{en => <<"Certificate File.">>,
+                description => #{en => <<"Certificate file.">>,
                                  zh => <<"证书文件。"/utf8>>}
             },
             keyfile => #{
@@ -80,7 +80,7 @@
             verify => #{
                 order => 7,
                 type => boolean,
-                default => true,
+                default => false,
                 title => #{en => <<"Verify">>,
                            zh => <<"Verify"/utf8>>},
                 description => #{en => <<"Turn on peer certificate verification.">>,
@@ -92,8 +92,8 @@
                 default => 32,
                 title => #{en => <<"Pool Size">>,
                            zh => <<"连接池大小"/utf8>>},
-                description => #{en => <<"Pool Size for HTTP Server.">>,
-                                 zh => <<"HTTP Server 连接池大小。"/utf8>>}
+                description => #{en => <<"Pool size for HTTP server.">>,
+                                 zh => <<"HTTP server 连接池大小。"/utf8>>}
             }
         }).
 
@@ -112,7 +112,7 @@
             method => #{
                 order => 1,
                 type => string,
-                enum => [<<"POST">>,<<"DELETE">>,<<"PUT">>,<<"GET">>],
+                enum => [<<"POST">>, <<"DELETE">>, <<"PUT">>, <<"GET">>],
                 default => <<"POST">>,
                 title => #{en => <<"Method">>,
                            zh => <<"Method"/utf8>>},
@@ -263,15 +263,15 @@ on_action_data_to_webserver(Selected, _Envs =
     Req = create_req(Method, NPath, Headers, NBody),
     case ehttpc:request(ehttpc_pool:pick_worker(Pool, ClientID), Method, Req, RequestTimeout) of
         {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            ok;
+            emqx_rule_metrics:inc_actions_success(Id);
         {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            ok;
+            emqx_rule_metrics:inc_actions_success(Id);
         {ok, StatusCode, _} ->
             ?LOG(warning, "[WebHook Action] HTTP request failed with status code: ~p", [StatusCode]),
-            ok;
+            emqx_rule_metrics:inc_actions_error(Id);
         {ok, StatusCode, _, _} ->
             ?LOG(warning, "[WebHook Action] HTTP request failed with status code: ~p", [StatusCode]),
-            ok;
+            emqx_rule_metrics:inc_actions_error(Id);
         {error, Reason} ->
             ?LOG(error, "[WebHook Action] HTTP request error: ~p", [Reason]),
             emqx_rule_metrics:inc_actions_error(Id)
@@ -357,7 +357,7 @@ pool_opts(Params = #{<<"url">> := URL}) ->
                                                  (_) ->
                                                   true
                                               end, [{keyfile, KeyFile}, {certfile, CertFile}, {cacertfile, CACertFile}]),
-                       TlsVers = ['tlsv1.2','tlsv1.1',tlsv1],
+                       TlsVers = ['tlsv1.2', 'tlsv1.1', tlsv1],
                        NTLSOpts = [{verify, VerifyType},
                                    {versions, TlsVers},
                                    {ciphers, lists:foldl(fun(TlsVer, Ciphers) ->
