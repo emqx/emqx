@@ -72,8 +72,7 @@
         ]).
 
 %% Routes
--export([ list_routes/0
-        , lookup_routes/1
+-export([ lookup_routes/1
         ]).
 
 %% PubSub
@@ -420,12 +419,6 @@ lookup_subscriptions(Node, ClientId) ->
 %%--------------------------------------------------------------------
 %% Routes
 %%--------------------------------------------------------------------
-
-list_routes() ->
-    case check_row_limit([emqx_route]) of
-        false -> throw(max_row_limit);
-        ok    -> ets:tab2list(emqx_route)
-    end.
 
 lookup_routes(Topic) ->
     emqx_router:lookup_routes(Topic).
