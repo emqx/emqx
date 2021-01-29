@@ -78,10 +78,10 @@ jobs:
         if: matrix.connect_type == 'tls'
         run: |
           docker-compose -f .ci/compatibility_tests/docker-compose-mongo-tls.yaml up -d
-          sed -i 's|^[#[:space:]]*auth.mongo.ssl[[:space:]]*=.*|auth.mongo.ssl.enable = on|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          sed -i 's|^[#[:space:]]*auth.mongo.cacertfile[[:space:]]*=.*|auth.mongo.cacertfile = "/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem"|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          sed -i 's|^[#[:space:]]*auth.mongo.certfile[[:space:]]*=.*|auth.mongo.certfile = "/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem"|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          sed -i 's|^[#[:space:]]*auth.mongo.keyfile[[:space:]]*=.*|auth.mongo.keyfile = "/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem"|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          sed -i 's|^[#[:space:]]*auth.mongo.ssl.enable[[:space:]]*=.*|auth.mongo.ssl.enable = on|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          sed -i 's|^[#[:space:]]*auth.mongo.cacertfile[[:space:]]*=.*|auth.mongo.cacertfile = \"/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem\"|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          sed -i 's|^[#[:space:]]*auth.mongo.certfile[[:space:]]*=.*|auth.mongo.certfile = \"/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem\"|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          sed -i 's|^[#[:space:]]*auth.mongo.keyfile[[:space:]]*=.*|auth.mongo.keyfile = \"/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem\"|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
       - name: setup
         env:
           MONGO_TAG: ${{ matrix.mongo_tag }}
@@ -132,10 +132,10 @@ jobs:
         if: matrix.connect_type == 'tls'
         run: |
           docker-compose -f .ci/compatibility_tests/docker-compose-mysql-tls.yaml up -d
-          sed -i 's|^[#[:space:]]*auth.mysql.ssl[[:space:]]*=.*|auth.mysql.ssl.enable = on|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-          sed -i 's|^[#[:space:]]*auth.mysql.ssl.cacertfile[[:space:]]*=.*|auth.mysql.ssl.cacertfile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-          sed -i 's|^[#[:space:]]*auth.mysql.ssl.certfile[[:space:]]*=.*|auth.mysql.ssl.certfile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-          sed -i 's|^[#[:space:]]*auth.mysql.ssl.keyfile[[:space:]]*=.*|auth.mysql.ssl.keyfile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-key.pem|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          sed -i 's|^[#[:space:]]*auth.mysql.ssl.enable[[:space:]]*=.*|auth.mysql.ssl.enable = on|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          sed -i 's|^[#[:space:]]*auth.mysql.ssl.cacertfile[[:space:]]*=.*|auth.mysql.ssl.cacertfile = \"/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem\"|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          sed -i 's|^[#[:space:]]*auth.mysql.ssl.certfile[[:space:]]*=.*|auth.mysql.ssl.certfile = \"/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem\"|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          sed -i 's|^[#[:space:]]*auth.mysql.ssl.keyfile[[:space:]]*=.*|auth.mysql.ssl.keyfile = \"/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-key.pem\"|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
       - name: setup
         env:
           MYSQL_TAG: ${{ matrix.mysql_tag }}
