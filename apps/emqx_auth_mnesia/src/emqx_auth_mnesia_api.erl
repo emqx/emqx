@@ -128,7 +128,7 @@ add_clientid(_Bindings, Params) ->
             Re = do_add_clientid(Params),
             case Re of
                 ok -> return(ok);
-                {error, Error} -> {error, format_msg(Error)}
+                {error, Error} -> return({error, format_msg(Error)})
             end
     end.
 
@@ -177,7 +177,7 @@ add_username(_Bindings, Params) ->
         false ->
             case do_add_username(Params) of
                 ok -> return(ok);
-                {error, Error} -> {error, format_msg(Error)}
+                {error, Error} -> return({error, format_msg(Error)})
             end
     end.
 

@@ -39,31 +39,41 @@
 ]}.
 
 {mapping, "auth.redis.ssl.cacertfile", "emqx_auth_redis.options", [
-  {default, ""},
   {datatype, string}
 ]}.
 
 {mapping, "auth.redis.ssl.certfile", "emqx_auth_redis.options", [
-  {default, ""},
   {datatype, string}
 ]}.
 
 {mapping, "auth.redis.ssl.keyfile", "emqx_auth_redis.options", [
-  {default, ""},
   {datatype, string}
 ]}.
 
 {translation, "emqx_auth_redis.options", fun(Conf) ->
-   case cuttlefish:conf_get("auth.redis.ssl.enable", Conf, false) of
+   Ssl = cuttlefish:conf_get("auth.redis.ssl.enable", Conf, false),
+   Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
+   case Ssl of
        true ->
-           CA = cuttlefish:conf_get("auth.redis.ssl.cacertfile", Conf),
-           Cert = cuttlefish:conf_get("auth.redis.ssl.certfile", Conf),
-           Key = cuttlefish:conf_get("auth.redis.ssl.keyfile", Conf),
-           [{options, [{ssl_options, [{cacertfile, CA},
-                                      {certfile, Cert},
-                                      {keyfile, Key}]}]}];
-       false ->
-           [{options, []}]
+           %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
+           CA = cuttlefish:conf_get(
+                    "auth.redis.ssl.cacertfile", Conf,
+                    cuttlefish:conf_get("auth.redis.cacertfile", Conf, undefined)
+                ),
+           Cert = cuttlefish:conf_get(
+                    "auth.redis.ssl.certfile", Conf,
+                    cuttlefish:conf_get("auth.redis.certfile", Conf, undefined)
+                  ),
+           Key = cuttlefish:conf_get(
+                    "auth.redis.ssl.keyfile", Conf,
+                    cuttlefish:conf_get("auth.redis.keyfile", Conf, undefined)
+                 ),
+           [{options, [{ssl_options,
+                        Filter([{cacertfile, CA},
+                                {certfile, Cert},
+                                {keyfile, Key}])
+                       }]}];
+       _ -> [{options, []}]
    end
 end}.
 

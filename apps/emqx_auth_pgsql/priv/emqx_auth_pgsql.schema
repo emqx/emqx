@@ -107,7 +107,7 @@
   Ssl = case cuttlefish:conf_get("auth.pgsql.ssl.enable", Conf) of
           on -> GenSsl;
           off -> [];
-          true -> GenSsl;
+          true -> [{ssl, true}, {ssl_opts, SslOpts("auth.pgsql.ssl_opts")}];
           false -> []
         end,
 

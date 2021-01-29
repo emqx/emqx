@@ -93,6 +93,19 @@ jobs:
         unzip _packages/emqx/$pkg_name
         gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
+        ready='no'
+        for i in {1..10}; do
+          if curl -fs 127.0.0.1:18083 > /dev/null; then
+            ready='yes'
+            break
+          fi
+          sleep 1
+        done
+        if [ "$ready" != "yes" ]; then
+          echo "Timed out waiting for emqx to be ready"
+          cat emqx/log/erlang.log.1
+          exit 1
+        fi
         ./emqx/bin/emqx_ctl status
         ./emqx/bin/emqx stop
         rm -rf emqx

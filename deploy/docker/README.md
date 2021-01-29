@@ -2,7 +2,7 @@
 
 + **Where to get help**:
 
-  https://emqx.io, https://github.com/emqx/emqx-rel, or https://github.com/emqx/emqx
+  https://emqx.io or https://github.com/emqx/emqx
 
 + **Where to file issues:**
 
@@ -69,19 +69,8 @@ These environment variables will ignore for configuration file.
 
 | Options                    | Default            | Mapped                    | Description                           |
 | ---------------------------| ------------------ | ------------------------- | ------------------------------------- |
-| EMQX_NAME                   | container name     | none                      | emqx node short name                   |
-| EMQX_HOST                   | container IP       | none                      | emqx node host, IP or FQDN             |
-| EMQX_WAIT_TIME              | 5                  | none                      | wait time in sec before timeout       |
-| EMQX_NODE__NAME             | EMQX_NAME@EMQX_HOST| node.name                 | Erlang node name, name@ipaddress/host |
-| EMQX_NODE__COOKIE           | emqx_dist_cookie    | node.cookie               | cookie for cluster                    |
-| EMQX_LOG__CONSOLE           | console            | log.console               | log console output method             |
-| EMQX_ALLOW_ANONYMOUS        | true               | allow_anonymous           | allow mqtt anonymous login            |
-| EMQX_LISTENER__TCP__EXTERNAL| 1883               | listener.tcp.external     | MQTT TCP port                         |
-| EMQX_LISTENER__SSL__EXTERNAL| 8883               | listener.ssl.external     | MQTT TCP TLS/SSL port                 |
-| EMQX_LISTENER__WS__EXTERNAL | 8083               | listener.ws.external      | HTTP and WebSocket port               |
-| EMQX_LISTENER__WSS__EXTERNAL| 8084               | listener.wss.external     | HTTPS and WSS port                    |
-| EMQX_LISTENER__API__MGMT    | 8080               | listener.api.mgmt         | MGMT API  port                        |
-| EMQX_MQTT__MAX_PACKET_SIZE  | 64KB               | mqtt.max_packet_size      | Max Packet Size Allowed               |
+| EMQX_NAME                  | container name     | none                      | emqx node short name                  |
+| EMQX_HOST                  | container IP       | none                      | emqx node host, IP or FQDN            |
 
 The list is incomplete and may changed with [etc/emqx.conf](https://github.com/emqx/emqx/blob/master/etc/emqx.conf) and plugin configuration files. But the mapping rule is similar.
 
@@ -129,6 +118,7 @@ Default environment variable ``EMQX_LOADED_PLUGINS``, including
 
 + ``emqx_recon``
 + ``emqx_retainer``
++ ``emqx_rule_engine``
 + ``emqx_management``
 + ``emqx_dashboard``
 
@@ -222,7 +212,7 @@ Let's create a static node list cluster from docker-compose.
 
   services:
     emqx1:
-      image: emqx/emqx:v4.0.0
+      image: emqx/emqx:latest
       environment:
       - "EMQX_NAME=emqx"
       - "EMQX_HOST=node1.emqx.io"
@@ -234,7 +224,7 @@ Let's create a static node list cluster from docker-compose.
           - node1.emqx.io
 
     emqx2:
-      image: emqx/emqx:v4.0.0
+      image: emqx/emqx:latest
       environment:
       - "EMQX_NAME=emqx"
       - "EMQX_HOST=node2.emqx.io"
@@ -301,7 +291,7 @@ services:
 
 ### Kernel Tuning
 
-Under linux host machine, the easiest way is [tuning host machine's kernel](https://docs.emqx.io/broker/latest/en/tutorial/turn.html#turning-guide).
+Under linux host machine, the easiest way is [Tuning guide](https://docs.emqx.io/en/broker/latest/tutorial/tune.html#linux-kernel-tuning).
 
 If you want tune linux kernel by docker, you must ensure your docker is latest version (>=1.12).
 
