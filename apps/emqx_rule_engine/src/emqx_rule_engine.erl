@@ -531,8 +531,7 @@ cluster_call(Func, Args) ->
 init_resource(Module, OnCreate, ResId, Config) ->
     Params = ?RAISE(
         begin
-            emqx_rule_registry:find_resource(ResId) /= not_found
-            andalso Module:OnCreate(ResId, Config)
+            Module:OnCreate(ResId, Config)
         end,
         {{Module, OnCreate}, {_EXCLASS_, _EXCPTION_, _ST_}}),
     ResParams = #resource_params{id = ResId,
