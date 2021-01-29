@@ -1,11 +1,10 @@
 {application, emqx,
  [{description, "EMQ X Broker"},
   {id, "emqx"},
-  {vsn, "git"},
+  {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},
-  {applications, [kernel,stdlib,gproc,gen_rpc,esockd,cowboy,
-                  sasl,os_mon]},
+  {applications, [kernel,stdlib,gproc,gen_rpc,esockd,cowboy,sasl,os_mon]},
   {mod, {emqx_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},

@@ -1,50 +1,9 @@
 %% -*-: erlang -*-
-{DefaultLen, DefaultSize} =
-    case WordSize = erlang:system_info(wordsize) of
-        8 -> % arch_64
-            {10000, cuttlefish_bytesize:parse("64MB")};
-        4 -> % arch_32
-            {1000, cuttlefish_bytesize:parse("32MB")}
-    end,
 {VSN,
-  [
-    {"4.2.2", [
-      {load_module, emqx_metrics, brutal_purge, soft_purge, []}
-    ]},
-    {"4.2.1", [
-      {load_module, emqx_metrics, brutal_purge, soft_purge, []},
-      {load_module, emqx_channel, brutal_purge, soft_purge, []},
-      {load_module, emqx_mod_topic_metrics, brutal_purge, soft_purge, []},
-      {load_module, emqx_json, brutal_purge, soft_purge, []}
-    ]},
-    {"4.2.0", [
-      {load_module, emqx_metrics, brutal_purge, soft_purge, []},
-      {load_module, emqx_channel, brutal_purge, soft_purge, []},
-      {load_module, emqx_mod_topic_metrics, brutal_purge, soft_purge, []},
-      {load_module, emqx_json, brutal_purge, soft_purge, []},
-      {apply, {application, set_env,
-                [emqx, force_shutdown_policy,
-                 #{message_queue_len => DefaultLen,
-                   max_heap_size => DefaultSize div WordSize}]}}
-    ]},
-    {<<".*">>, []}
-  ],
-  [
-    {"4.2.2", [
-      {load_module, emqx_metrics, brutal_purge, soft_purge, []}
-    ]},
-    {"4.2.1", [
-      {load_module, emqx_metrics, brutal_purge, soft_purge, []},
-      {load_module, emqx_channel, brutal_purge, soft_purge, []},
-      {load_module, emqx_mod_topic_metrics, brutal_purge, soft_purge, []},
-      {load_module, emqx_json, brutal_purge, soft_purge, []}
-    ]},
-    {"4.2.0", [
-      {load_module, emqx_metrics, brutal_purge, soft_purge, []},
-      {load_module, emqx_channel, brutal_purge, soft_purge, []},
-      {load_module, emqx_mod_topic_metrics, brutal_purge, soft_purge, []},
-      {load_module, emqx_json, brutal_purge, soft_purge, []}
-    ]},
-    {<<".*">>, []}
-  ]
+ [
+   {<<".*">>, []}
+ ],
+ [
+   {<<".*">>, []}
+ ]
 }.

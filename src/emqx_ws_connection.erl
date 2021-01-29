@@ -63,15 +63,15 @@
           %% Simulate the active_n opt
           active_n :: pos_integer(),
           %% MQTT Piggyback
-          mqtt_piggyback :: single | multiple, 
+          mqtt_piggyback :: single | multiple,
           %% Limiter
           limiter :: maybe(emqx_limiter:limiter()),
           %% Limit Timer
           limit_timer :: maybe(reference()),
           %% Parse State
           parse_state :: emqx_frame:parse_state(),
-          %% Serialize Fun
-          serialize :: emqx_frame:serialize_fun(),
+          %% Serialize options
+          serialize :: emqx_frame:serialize_opts(),
           %% Channel
           channel :: emqx_channel:channel(),
           %% GC State
@@ -177,22 +177,74 @@ init(Req, Opts) ->
                        0 -> infinity;
                        I -> I
                    end,
-    Compress = proplists:get_value(compress, Opts, false),
+    Compress = proplists:get_bool(compress, Opts),
     WsOpts = #{compress       => Compress,
                deflate_opts   => DeflateOptions,
                max_frame_size => MaxFrameSize,
                idle_timeout   => IdleTimeout
               },
+
+    case check_origin_header(Req, Opts) of
+        {error, Message} ->
+            ?LOG(error, "Invalid Origin Header ~p~n", [Message]),
+            {ok, cowboy_req:reply(403, Req), WsOpts};
+        ok -> parse_sec_websocket_protocol(Req, Opts, WsOpts)
+    end.
+
+parse_sec_websocket_protocol(Req, Opts, WsOpts) ->
+    FailIfNoSubprotocol = proplists:get_value(fail_if_no_subprotocol, Opts),
     case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
         undefined ->
-            %% TODO: why not reply 500???
-            {cowboy_websocket, Req, [Req, Opts], WsOpts};
-        [<<"mqtt", Vsn/binary>>] ->
-            Resp = cowboy_req:set_resp_header(
-                     <<"sec-websocket-protocol">>, <<"mqtt", Vsn/binary>>, Req),
-            {cowboy_websocket, Resp, [Req, Opts], WsOpts};
-        _ ->
-            {ok, cowboy_req:reply(400, Req), WsOpts}
+            case FailIfNoSubprotocol of
+                true ->
+                    {ok, cowboy_req:reply(400, Req), WsOpts};
+                false ->
+                    {cowboy_websocket, Req, [Req, Opts], WsOpts}
+            end;
+        Subprotocols ->
+            SupportedSubprotocols = proplists:get_value(supported_subprotocols, Opts),
+            NSupportedSubprotocols = [list_to_binary(Subprotocol)
+                                      || Subprotocol <- SupportedSubprotocols],
+            case pick_subprotocol(Subprotocols, NSupportedSubprotocols) of
+                {ok, Subprotocol} ->
+                    Resp = cowboy_req:set_resp_header(<<"sec-websocket-protocol">>,
+                                                      Subprotocol,
+                                                      Req),
+                    {cowboy_websocket, Resp, [Req, Opts], WsOpts};
+                {error, no_supported_subprotocol} ->
+                    {ok, cowboy_req:reply(400, Req), WsOpts}
+            end
+    end.
+
+pick_subprotocol([], _SupportedSubprotocols) ->
+    {error, no_supported_subprotocol};
+pick_subprotocol([Subprotocol | Rest], SupportedSubprotocols) ->
+    case lists:member(Subprotocol, SupportedSubprotocols) of
+        true ->
+            {ok, Subprotocol};
+        false ->
+            pick_subprotocol(Rest, SupportedSubprotocols)
+    end.
+
+parse_header_fun_origin(Req, Opts) ->
+    case cowboy_req:header(<<"origin">>, Req) of
+        undefined ->
+                case proplists:get_bool(allow_origin_absence, Opts) of
+                    true -> ok;
+                    false -> {error, origin_header_cannot_be_absent}
+                end;
+        Value ->
+            Origins = proplists:get_value(check_origins, Opts, []),
+            case lists:member(Value, Origins) of
+                true -> ok;
+                false -> {origin_not_allowed, Value}
+            end
+    end.
+
+check_origin_header(Req, Opts) ->
+    case proplists:get_bool(check_origin_enable, Opts) of
+        true -> parse_header_fun_origin(Req, Opts);
+        false -> ok
     end.
 
 websocket_init([Req, Opts]) ->
@@ -231,7 +283,7 @@ websocket_init([Req, Opts]) ->
     MQTTPiggyback = proplists:get_value(mqtt_piggyback, Opts, multiple),
     FrameOpts = emqx_zone:mqtt_frame_options(Zone),
     ParseState = emqx_frame:initial_parse_state(FrameOpts),
-    Serialize = emqx_frame:serialize_fun(),
+    Serialize = emqx_frame:serialize_opts(),
     Channel = emqx_channel:init(ConnInfo, Opts),
     GcState = emqx_zone:init_gc_state(Zone),
     StatsTimer = emqx_zone:stats_timer(Zone),
@@ -292,7 +344,7 @@ websocket_info({cast, Msg}, State) ->
     handle_info(Msg, State);
 
 websocket_info({incoming, Packet = ?CONNECT_PACKET(ConnPkt)}, State) ->
-    Serialize = emqx_frame:serialize_fun(ConnPkt),
+    Serialize = emqx_frame:serialize_opts(ConnPkt),
     NState = State#state{serialize = Serialize},
     handle_incoming(Packet, cancel_idle_timer(NState));
 
@@ -386,7 +438,7 @@ handle_info({close, Reason}, State) ->
 
 handle_info({event, connected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    ok = emqx_cm:register_channel(ClientId, info(State), stats(State)),
+    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
     return(State);
 
 handle_info({event, disconnected}, State = #state{channel = Channel}) ->
@@ -535,7 +587,7 @@ handle_outgoing(Packets, State = #state{active_n = ActiveN, mqtt_piggyback = MQT
                      postpone({check_gc, Stats}, State);
                  false -> State
              end,
-    
+
     {case MQTTPiggyback of
          single -> [{binary, IoData}];
          multiple -> lists:map(fun(Bin) -> {binary, Bin} end, IoData)
@@ -544,7 +596,7 @@ handle_outgoing(Packets, State = #state{active_n = ActiveN, mqtt_piggyback = MQT
 
 serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
     fun(Packet) ->
-        case Serialize(Packet) of
+        case emqx_frame:serialize_pkt(Packet, Serialize) of
             <<>> -> ?LOG(warning, "~s is discarded due to the frame is too large.",
                          [emqx_packet:format(Packet)]),
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),
@@ -568,35 +620,38 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
           ]}).
 
 inc_recv_stats(Cnt, Oct) ->
-    emqx_pd:inc_counter(incoming_bytes, Oct),
-    emqx_pd:inc_counter(recv_cnt, Cnt),
-    emqx_pd:inc_counter(recv_oct, Oct),
+    inc_counter(incoming_bytes, Oct),
+    inc_counter(recv_cnt, Cnt),
+    inc_counter(recv_oct, Oct),
     emqx_metrics:inc('bytes.received', Oct).
 
 inc_incoming_stats(Packet = ?PACKET(Type)) ->
-    emqx_pd:inc_counter(recv_pkt, 1),
+    _ = emqx_pd:inc_counter(recv_pkt, 1),
     if Type == ?PUBLISH ->
-           emqx_pd:inc_counter(recv_msg, 1),
-           emqx_pd:inc_counter(incoming_pubs, 1);
+           inc_counter(recv_msg, 1),
+           inc_counter(incoming_pubs, 1);
        true -> ok
     end,
     emqx_metrics:inc_recv(Packet).
 
 inc_outgoing_stats(Packet = ?PACKET(Type)) ->
-    emqx_pd:inc_counter(send_pkt, 1),
+    _ = emqx_pd:inc_counter(send_pkt, 1),
     if Type == ?PUBLISH ->
-           emqx_pd:inc_counter(send_msg, 1),
-           emqx_pd:inc_counter(outgoing_pubs, 1);
+           inc_counter(send_msg, 1),
+           inc_counter(outgoing_pubs, 1);
        true -> ok
     end,
     emqx_metrics:inc_sent(Packet).
 
 inc_sent_stats(Cnt, Oct) ->
-    emqx_pd:inc_counter(outgoing_bytes, Oct),
-    emqx_pd:inc_counter(send_cnt, Cnt),
-    emqx_pd:inc_counter(send_oct, Oct),
+    inc_counter(outgoing_bytes, Oct),
+    inc_counter(send_cnt, Cnt),
+    inc_counter(send_oct, Oct),
     emqx_metrics:inc('bytes.sent', Oct).
 
+inc_counter(Name, Value) ->
+    _ = emqx_pd:inc_counter(Name, Value),
+    ok.
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------

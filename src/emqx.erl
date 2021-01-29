@@ -86,7 +86,7 @@ restart(ConfFile) ->
     reload_config(ConfFile),
     shutdown(),
     ok = application:stop(mnesia),
-    application:start(mnesia),
+    _ = application:start(mnesia),
     reboot().
 
 %% @doc Stop emqx application.
@@ -184,7 +184,7 @@ hook(HookPoint, Action, InitArgs) when is_list(InitArgs) ->
 hook(HookPoint, Action, Filter, Priority) ->
     emqx_hooks:add(HookPoint, Action, Filter, Priority).
 
--spec(unhook(emqx_hooks:hookpoint(), function() | {module(), atom()}) -> ok).
+-spec(unhook(emqx_hooks:hookpoint(), emqx_hooks:action() | {module(), atom()}) -> ok).
 unhook(HookPoint, Action) ->
     emqx_hooks:del(HookPoint, Action).
 
@@ -205,8 +205,8 @@ shutdown() ->
 
 shutdown(Reason) ->
     ?LOG(critical, "emqx shutdown for ~s", [Reason]),
-    emqx_alarm_handler:unload(),
-    emqx_plugins:unload(),
+    _ = emqx_alarm_handler:unload(),
+    _ = emqx_plugins:unload(),
     lists:foreach(fun application:stop/1, [emqx, ekka, cowboy, ranch, esockd, gproc]).
 
 reboot() ->

@@ -16,8 +16,8 @@
 
 -module(emqx_ws_connection_SUITE).
 
--include("emqx.hrl").
--include("emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 -compile(export_all).
@@ -146,7 +146,9 @@ t_call(_) ->
     ?assertEqual(Info, ?ws_conn:call(WsPid, info)).
 
 t_init(_) ->
-    Opts = [{idle_timeout, 300000}],
+    Opts = [{idle_timeout, 300000},
+            {fail_if_no_subprotocol, false},
+            {supported_subprotocols, ["mqtt"]}],
     WsOpts = #{compress       => false,
                deflate_opts   => #{},
                max_frame_size => infinity,
@@ -270,6 +272,7 @@ t_handle_info_close(_) ->
 t_handle_info_event(_) ->
     ok = meck:new(emqx_cm, [passthrough, no_history]),
     ok = meck:expect(emqx_cm, register_channel, fun(_,_,_) -> ok end),
+    ok = meck:expect(emqx_cm, insert_channel_info, fun(_,_,_) -> ok end),
     ok = meck:expect(emqx_cm, connection_closed, fun(_) -> true end),
     {ok, _} = ?ws_conn:handle_info({event, connected}, st()),
     {ok, _} = ?ws_conn:handle_info({event, disconnected}, st()),

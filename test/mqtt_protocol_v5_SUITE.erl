@@ -19,8 +19,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include("emqx.hrl").
--include("emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 -import(lists, [nth/2]).
@@ -348,16 +348,19 @@ t_connect_will_delay_interval(_) ->
                                         {will_topic, Topic},
                                         {will_payload, Payload},
                                         {will_props, #{'Will-Delay-Interval' => 3}},
-                                        {properties, #{'Session-Expiry-Interval' => 7200}},
-                                        {keepalive, 2}
+                                        {properties, #{'Session-Expiry-Interval' => 7200}}
                                         ]),
     {ok, _} = emqtt:connect(Client2),
-
-    timer:sleep(5000),
+    %% terminate the client without sending the DISCONNECT
+    emqtt:stop(Client2),
+    %% should not get the will msg in 2.5s
+    timer:sleep(1500),
     ?assertEqual(0, length(receive_messages(1))),
-    timer:sleep(7000),
+    %% should get the will msg in 4.5s
+    timer:sleep(1000),
     ?assertEqual(1, length(receive_messages(1))),
 
+    %% try again, but let the session expire quickly
     {ok, Client3} = emqtt:start_link([
                                         {clientid, <<"t_connect_will_delay_interval">>},
                                         {proto_ver, v5},
@@ -367,14 +370,16 @@ t_connect_will_delay_interval(_) ->
                                         {will_topic, Topic},
                                         {will_payload, Payload},
                                         {will_props, #{'Will-Delay-Interval' => 7200}},
-                                        {properties, #{'Session-Expiry-Interval' => 3}},
-                                        {keepalive, 2}
+                                        {properties, #{'Session-Expiry-Interval' => 3}}
                                         ]),
     {ok, _} = emqtt:connect(Client3),
-
-    timer:sleep(5000),
+    %% terminate the client without sending the DISCONNECT
+    emqtt:stop(Client3),
+    %% should not get the will msg in 2.5s
+    timer:sleep(1500),
     ?assertEqual(0, length(receive_messages(1))),
-    timer:sleep(7000),
+    %% should get the will msg in 4.5s
+    timer:sleep(1000),
     ?assertEqual(1, length(receive_messages(1))),
 
     ok = emqtt:disconnect(Client1),

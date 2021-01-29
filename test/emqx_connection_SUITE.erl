@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include("emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() -> emqx_ct:all(?MODULE).
@@ -52,6 +52,9 @@ init_per_suite(Config) ->
 
     ok = meck:expect(emqx_channel, ensure_disconnected, fun(_, Channel) -> Channel end),
 
+    ok = meck:expect(emqx_alarm, activate, fun(_, _) -> ok end),
+    ok = meck:expect(emqx_alarm, deactivate, fun(_) -> ok end),
+
     Config.
 
 end_per_suite(_Config) ->
@@ -62,6 +65,7 @@ end_per_suite(_Config) ->
     ok = meck:unload(emqx_pd),
     ok = meck:unload(emqx_metrics),
     ok = meck:unload(emqx_hooks),
+    ok = meck:unload(emqx_alarm),
     ok.
 
 init_per_testcase(_TestCase, Config) ->
@@ -77,6 +81,7 @@ init_per_testcase(_TestCase, Config) ->
                                                       {ok, [{K, 0} || K <- Options]}
                                               end),
     ok = meck:expect(emqx_transport, async_send, fun(_Sock, _Data) -> ok end),
+    ok = meck:expect(emqx_transport, async_send, fun(_Sock, _Data, _Opts) -> ok end),
     ok = meck:expect(emqx_transport, fast_close, fun(_Sock) -> ok end),
     Config.
 
@@ -204,6 +209,7 @@ t_handle_msg_close(_) ->
     
 t_handle_msg_event(_) ->
     ok = meck:expect(emqx_cm, register_channel, fun(_, _, _) -> ok end),
+    ok = meck:expect(emqx_cm, insert_channel_info, fun(_, _, _) -> ok end),
     ok = meck:expect(emqx_cm, set_chan_info, fun(_, _) -> ok end),
     ok = meck:expect(emqx_cm, connection_closed, fun(_) -> ok end),
     ?assertEqual(ok, emqx_connection:handle_msg({event, connected}, st())),

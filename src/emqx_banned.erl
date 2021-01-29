@@ -47,6 +47,8 @@
         , code_change/3
         ]).
 
+-elvis([{elvis_style, state_record_and_type, disable}]).
+
 -define(BANNED_TAB, ?MODULE).
 
 %%--------------------------------------------------------------------
@@ -62,7 +64,7 @@ mnesia(boot) ->
                 {storage_properties, [{ets, [{read_concurrency, true}]}]}]);
 
 mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?BANNED_TAB).
+    ok = ekka_mnesia:copy_table(?BANNED_TAB, disc_copies).
 
 %% @doc Start the banned server.
 -spec(start_link() -> startlink_ret()).

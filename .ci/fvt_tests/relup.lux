@@ -1,0 +1,160 @@
+[config var=PACKAGE_PATH]
+[config var=BENCH_PATH]
+[config var=ONE_MORE_EMQX_PATH]
+[config var=VSN]
+[config var=OLD_VSNS]
+
+[config shell_cmd=/bin/bash]
+[config timeout=600000]
+
+[loop old_vsn $OLD_VSNS]
+
+[shell http_server]
+    !cd http_server
+    !rebar3 shell
+    ???Eshell
+    ???>
+    !http_server:start().
+    ?Start http_server listener on 8080 successfully.
+    ?ok
+    ?>
+
+[shell emqx]
+    !cd $PACKAGE_PATH
+    !unzip -q -o emqx-ubuntu20.04-$old_vsn-x86_64.zip
+    ?SH-PROMPT
+
+    !cd emqx
+    !sed -i 's|listener.wss.external[ \t]*=.*|listener.wss.external = 8085|g' etc/emqx.conf
+    !sed -i '/emqx_telemetry/d' data/loaded_plugins
+    !./bin/emqx start
+    ?EMQ X Broker $old_vsn is started successfully!
+
+    !./bin/emqx_ctl status
+    """?
+    Node 'emqx@127.0.0.1' is started
+    emqx $old_vsn is running
+    """
+
+[shell emqx2]
+    !cd $PACKAGE_PATH
+    !cp -f $ONE_MORE_EMQX_PATH/one_more_emqx.sh .
+    !./one_more_emqx.sh emqx2
+    ?SH-PROMPT
+    !cd emqx2
+
+    !sed -i '/emqx_telemetry/d' data/loaded_plugins
+    !./bin/emqx start
+    ?EMQ X Broker $old_vsn is started successfully!
+
+    !./bin/emqx_ctl status
+    """?
+    Node 'emqx2@127.0.0.1' is started
+    emqx $old_vsn is running
+    """
+    ?SH-PROMPT
+
+    !./bin/emqx_ctl cluster join emqx@127.0.0.1
+    ???Join the cluster successfully.
+    ?SH-PROMPT
+
+    !./bin/emqx_ctl cluster status
+    """???
+    Cluster status: #{running_nodes => ['emqx2@127.0.0.1','emqx@127.0.0.1'],
+                      stopped_nodes => []}
+    """
+    ?SH-PROMPT
+
+    !./bin/emqx_ctl resources create 'web_hook' -i 'resource:691c29ba' -c '{"url": "http://127.0.0.1:8080/counter", "method": "POST"}'
+    ?created
+    ?SH-PROMPT
+    !./bin/emqx_ctl rules create 'SELECT * FROM "t/#"' '[{"name":"data_to_webserver", "params": {"$$resource":  "resource:691c29ba"}}]'
+    ?created
+    ?SH-PROMPT
+
+[shell emqx]
+    !./bin/emqx_ctl resources list
+    ?691c29ba
+    ?SH-PROMPT
+    !./bin/emqx_ctl rules list
+    ?691c29ba
+    ?SH-PROMPT
+
+[shell bench]
+    !cd $BENCH_PATH
+    !./emqtt_bench pub -c 10 -I 1000 -t t/%i -s 64 -L 600
+    ???sent
+
+[shell emqx]
+    !cp -f ../emqx-ubuntu20.04-$VSN-x86_64.zip releases/
+    !./bin/emqx install $VSN
+    ?SH-PROMPT
+    !./bin/emqx versions |grep permanent | grep -oE "[0-9].[0-9].[0-9]"
+    ?$VSN
+    ?SH-PROMPT
+
+    !./bin/emqx_ctl cluster status
+    """???
+    Cluster status: #{running_nodes => ['emqx2@127.0.0.1','emqx@127.0.0.1'],
+                      stopped_nodes => []}
+    """
+    ?SH-PROMPT
+
+[shell emqx2]
+    !cp -f ../emqx-ubuntu20.04-$VSN-x86_64.zip releases/
+    !./bin/emqx install $VSN
+    ?SH-PROMPT
+    !./bin/emqx versions |grep permanent | grep -oE "[0-9].[0-9].[0-9]"
+    ?$VSN
+    ?SH-PROMPT
+
+    !./bin/emqx_ctl cluster status
+    """???
+    Cluster status: #{running_nodes => ['emqx2@127.0.0.1','emqx@127.0.0.1'],
+                      stopped_nodes => []}
+    """
+    ?SH-PROMPT
+
+[shell bench]
+    ???publish complete
+    ??SH-PROMPT:
+    !curl http://127.0.0.1:8080/counter
+    ???{"data":600,"code":0}
+    ?SH-PROMPT
+
+[shell http_server]
+    !http_server:stop().
+    ?ok
+    ?>
+    !halt(3).
+    ?SH-PROMPT:
+
+[shell emqx2]
+    !cat log/emqx.log.1 |grep -v 691c29ba |tail -n 100
+    -error
+    ??SH-PROMPT:
+
+    !./bin/emqx stop
+    ?ok
+    ?SH-PROMPT:
+
+    !rm -rf $PACKAGE_PATH/emqx2
+    ?SH-PROMPT:
+
+[shell emqx]
+    !cat log/emqx.log.1 |grep -v 691c29ba |tail -n 100
+    -error
+    ??SH-PROMPT:
+
+    !./bin/emqx stop
+    ?ok
+    ?SH-PROMPT:
+
+    !rm -rf $PACKAGE_PATH/emqx
+    ?SH-PROMPT:
+
+[endloop]
+
+[cleanup]
+    !echo ==$$?==
+    ?==0==

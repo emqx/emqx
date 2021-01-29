@@ -1,0 +1,70 @@
+version: '3'
+
+services:
+  emqx1:
+    container_name: node1.emqx.io
+    image: emqx/emqx:build-alpine-amd64
+    environment:
+    - "EMQX_NAME=emqx"
+    - "EMQX_HOST=node1.emqx.io"
+    - "EMQX_CLUSTER__DISCOVERY=static"
+    - "EMQX_CLUSTER__STATIC__SEEDS=emqx@node1.emqx.io, emqx@node2.emqx.io"
+    - "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s"
+    - "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
+    command:
+        - /bin/sh
+        - -c
+        - |
+          sed -i "s 127.0.0.1 $$(ip route show |grep "link" |awk '{print $$1}') g" /opt/emqx/etc/acl.conf
+          sed -i '/emqx_telemetry/d' /opt/emqx/data/loaded_plugins
+          /opt/emqx/bin/emqx foreground
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+    networks:
+      emqx-bridge:
+        aliases:
+        - node1.emqx.io
+
+  emqx2:
+    container_name: node2.emqx.io
+    image: emqx/emqx:build-alpine-amd64
+    environment:
+    - "EMQX_NAME=emqx"
+    - "EMQX_HOST=node2.emqx.io"
+    - "EMQX_CLUSTER__DISCOVERY=static"
+    - "EMQX_CLUSTER__STATIC__SEEDS=emqx@node1.emqx.io, emqx@node2.emqx.io"
+    - "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s"
+    - "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        sed -i "s 127.0.0.1 $$(ip route show |grep "link" |awk '{print $$1}') g" /opt/emqx/etc/acl.conf
+        sed -i '/emqx_telemetry/d' /opt/emqx/data/loaded_plugins
+        /opt/emqx/bin/emqx foreground
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+    networks:
+      emqx-bridge:
+        aliases:
+        - node2.emqx.io
+
+  client:
+    container_name: paho_client
+    image: python:3.7.2-alpine3.9
+    depends_on:
+      - emqx1
+      - emqx2
+    tty: true
+    networks:
+        emqx-bridge:
+
+networks:
+  emqx-bridge:
+    driver: bridge

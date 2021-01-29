@@ -1244,6 +1244,11 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.tcp.$name.high_watermark", "emqx.listeners", [
+   {datatype, bytesize},
+   {default, "1MB"}
+ ]}.
+
 {mapping, "listener.tcp.$name.tune_buffer", "emqx.listeners", [
   {datatype, flag},
   hidden
@@ -1335,6 +1340,11 @@ end}.
   {datatype, bytesize},
   hidden
 ]}.
+
+{mapping, "listener.ssl.$name.high_watermark", "emqx.listeners", [
+   {datatype, bytesize},
+   {default, "1MB"}
+ ]}.
 
 {mapping, "listener.ssl.$name.tune_buffer", "emqx.listeners", [
   {datatype, flag},
@@ -1462,9 +1472,14 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "listener.ws.$name.verify_protocol_header", "emqx.listeners", [
-  {default, on},
-  {datatype, flag}
+{mapping, "listener.ws.$name.fail_if_no_subprotocol", "emqx.listeners", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "listener.ws.$name.supported_subprotocols", "emqx.listeners", [
+  {default, "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5"},
+  {datatype, string}
 ]}.
 
 {mapping, "listener.ws.$name.proxy_protocol", "emqx.listeners", [
@@ -1572,6 +1587,23 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.ws.$name.check_origin_enable", "emqx.listeners", [
+  {datatype, {enum, [true, false]}},
+  {default, false},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.allow_origin_absence", "emqx.listeners", [
+  {datatype, {enum, [true, false]}},
+  {default, true},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.check_origins", "emqx.listeners", [
+  {datatype, string},
+  hidden
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT/WebSocket/SSL Listeners
 
@@ -1611,9 +1643,14 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "listener.wss.$name.verify_protocol_header", "emqx.listeners", [
-  {default, on},
-  {datatype, flag}
+{mapping, "listener.wss.$name.fail_if_no_subprotocol", "emqx.listeners", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "listener.wss.$name.supported_subprotocols", "emqx.listeners", [
+  {default, "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5"},
+  {datatype, string}
 ]}.
 
 {mapping, "listener.wss.$name.access.$id", "emqx.listeners", [
@@ -1790,6 +1827,23 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.wss.$name.check_origin_enable", "emqx.listeners", [
+  {datatype, {enum, [true, false]}},
+  {default, false},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.allow_origin_absence", "emqx.listeners", [
+  {datatype, {enum, [true, false]}},
+  {default, true},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.check_origins", "emqx.listeners", [
+  {datatype, string},
+  hidden
+]}.
+
 {translation, "emqx.listeners", fun(Conf) ->
 
     Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
@@ -1823,6 +1877,20 @@ end}.
                         {Limit, Duration}
                 end,
 
+        CheckOrigin = fun(S) ->
+                        Origins = string:tokens(S, ","),
+                        [ list_to_binary(string:trim(O)) || O <- Origins]
+                      end,
+
+        WsOpts = fun(Prefix) ->
+                          case cuttlefish_variable:filter_by_prefix(Prefix ++ ".check_origins", Conf) of
+                              [] -> undefined;
+                              Rules ->
+                                    OriginList = [CheckOrigin(Rule) || {_, Rule} <- Rules],
+                                    lists:flatten(OriginList)
+                          end
+                      end,
+
     LisOpts = fun(Prefix) ->
                   Filter([{acceptors, cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
                           {mqtt_path, cuttlefish:conf_get(Prefix ++ ".mqtt_path", Conf, undefined)},
@@ -1834,12 +1902,16 @@ end}.
                           {rate_limit, RateLimit(cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined))},
                           {proxy_protocol, cuttlefish:conf_get(Prefix ++ ".proxy_protocol", Conf, undefined)},
                           {proxy_protocol_timeout, cuttlefish:conf_get(Prefix ++ ".proxy_protocol_timeout", Conf, undefined)},
-                          {verify_protocol_header, cuttlefish:conf_get(Prefix ++ ".verify_protocol_header", Conf, undefined)},
+                          {fail_if_no_subprotocol, cuttlefish:conf_get(Prefix ++ ".fail_if_no_subprotocol", Conf, undefined)},
+                          {supported_subprotocols, string:tokens(cuttlefish:conf_get(Prefix ++ ".supported_subprotocols", Conf, ""), ", ")},
                           {peer_cert_as_username, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_username", Conf, undefined)},
                           {compress, cuttlefish:conf_get(Prefix ++ ".compress", Conf, undefined)},
                           {idle_timeout, cuttlefish:conf_get(Prefix ++ ".idle_timeout", Conf, undefined)},
                           {max_frame_size, cuttlefish:conf_get(Prefix ++ ".max_frame_size", Conf, undefined)},
-                          {mqtt_piggyback, cuttlefish:conf_get(Prefix ++ ".mqtt_piggyback", Conf, undefined)} | AccOpts(Prefix)])
+                          {mqtt_piggyback, cuttlefish:conf_get(Prefix ++ ".mqtt_piggyback", Conf, undefined)},
+                          {check_origin_enable, cuttlefish:conf_get(Prefix ++ ".check_origin_enable", Conf, undefined)},
+                          {allow_origin_absence, cuttlefish:conf_get(Prefix ++ ".allow_origin_absence", Conf, undefined)},
+                          {check_origins, WsOpts(Prefix)} | AccOpts(Prefix)])
               end,
     DeflateOpts = fun(Prefix) ->
                       Filter([{level, cuttlefish:conf_get(Prefix ++ ".deflate_opts.level", Conf, undefined)},
@@ -1857,6 +1929,7 @@ end}.
                           {recbuf,  cuttlefish:conf_get(Prefix ++ ".recbuf", Conf, undefined)},
                           {sndbuf,  cuttlefish:conf_get(Prefix ++ ".sndbuf", Conf, undefined)},
                           {buffer,  cuttlefish:conf_get(Prefix ++ ".buffer", Conf, undefined)},
+                          {high_watermark,  cuttlefish:conf_get(Prefix ++ ".high_watermark", Conf, undefined)},
                           {nodelay, cuttlefish:conf_get(Prefix ++ ".nodelay", Conf, true)},
                           {reuseaddr, cuttlefish:conf_get(Prefix ++ ".reuseaddr", Conf, undefined)}])
               end,

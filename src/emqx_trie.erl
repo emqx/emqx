@@ -44,6 +44,8 @@
 -define(TRIE_TAB, emqx_trie).
 -define(TRIE_NODE_TAB, emqx_trie_node).
 
+-elvis([{elvis_style, function_naming_convention, disable}]).
+
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
@@ -69,9 +71,9 @@ mnesia(boot) ->
 
 mnesia(copy) ->
     %% Copy trie table
-    ok = ekka_mnesia:copy_table(?TRIE_TAB),
+    ok = ekka_mnesia:copy_table(?TRIE_TAB, ram_copies),
     %% Copy trie_node table
-    ok = ekka_mnesia:copy_table(?TRIE_NODE_TAB).
+    ok = ekka_mnesia:copy_table(?TRIE_NODE_TAB, ram_copies).
 
 %%--------------------------------------------------------------------
 %% Trie APIs
@@ -99,7 +101,7 @@ match(Topic) when is_binary(Topic) ->
     [Name || #trie_node{topic = Name} <- TrieNodes, Name =/= undefined].
 
 %% @doc Lookup a trie node.
--spec(lookup(NodeId :: binary()) -> [#trie_node{}]).
+-spec(lookup(NodeId :: binary()) -> [trie_node()]).
 lookup(NodeId) ->
     mnesia:read(?TRIE_NODE_TAB, NodeId).
 

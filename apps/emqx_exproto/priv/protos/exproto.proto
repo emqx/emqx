@@ -1,0 +1,259 @@
+//------------------------------------------------------------------------------
+// Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//------------------------------------------------------------------------------
+
+syntax = "proto3";
+
+package emqx.exproto.v1;
+
+// The Broker side serivce. It provides a set of APIs to
+// handle a protcol access
+service ConnectionAdapter {
+
+  // -- socket layer
+
+  rpc Send(SendBytesRequest) returns (CodeResponse) {};
+
+  rpc Close(CloseSocketRequest) returns (CodeResponse) {};
+
+  // -- protocol layer
+
+  rpc Authenticate(AuthenticateRequest) returns (CodeResponse) {};
+
+  rpc StartTimer(TimerRequest) returns (CodeResponse) {};
+
+  // -- pub/sub layer
+
+  rpc Publish(PublishRequest) returns (CodeResponse) {};
+
+  rpc Subscribe(SubscribeRequest) returns (CodeResponse) {};
+
+  rpc Unsubscribe(UnsubscribeRequest) returns (CodeResponse) {};
+}
+
+service ConnectionHandler {
+
+  // -- socket layer
+
+  rpc OnSocketCreated(stream SocketCreatedRequest) returns (EmptySuccess) {};
+
+  rpc OnSocketClosed(stream SocketClosedRequest) returns (EmptySuccess) {};
+
+  rpc OnReceivedBytes(stream ReceivedBytesRequest) returns (EmptySuccess) {};
+
+  // -- pub/sub layer
+
+  rpc OnTimerTimeout(stream TimerTimeoutRequest) returns (EmptySuccess) {};
+
+  rpc OnReceivedMessages(stream ReceivedMessagesRequest) returns (EmptySuccess) {};
+}
+
+message EmptySuccess { }
+
+enum ResultCode {
+
+  // Operation successfully
+  SUCCESS = 0;
+
+  // Unknown Error
+  UNKNOWN = 1;
+
+  // Connection process is not alive
+  CONN_PROCESS_NOT_ALIVE = 2;
+
+  // Miss the required parameter
+  REQUIRED_PARAMS_MISSED = 3;
+
+  // Params type or values incorrect
+  PARAMS_TYPE_ERROR = 4;
+
+  // No permission or Pre-conditions not fulfilled
+  PERMISSION_DENY = 5;
+}
+
+message CodeResponse {
+
+  ResultCode code = 1;
+
+  // The reason message if result is false
+  string message = 2;
+}
+
+message SendBytesRequest {
+
+  string conn = 1;
+
+  bytes bytes = 2;
+}
+
+message CloseSocketRequest {
+
+  string conn = 1;
+}
+
+message AuthenticateRequest {
+
+  string conn = 1;
+
+  ClientInfo clientinfo = 2;
+
+  string password = 3;
+}
+
+message TimerRequest {
+
+  string conn = 1;
+
+  TimerType type = 2;
+
+  uint32 interval = 3;
+}
+
+enum TimerType {
+
+  KEEPALIVE = 0;
+}
+
+message PublishRequest {
+
+  string conn = 1;
+
+  string topic = 2;
+
+  uint32 qos = 3;
+
+  bytes payload = 4;
+}
+
+message SubscribeRequest {
+
+  string conn = 1;
+
+  string topic = 2;
+
+  uint32 qos = 3;
+}
+
+message UnsubscribeRequest {
+
+  string conn = 1;
+
+  string topic = 2;
+}
+
+message SocketCreatedRequest {
+
+  string conn = 1;
+
+  ConnInfo conninfo = 2;
+}
+
+message ReceivedBytesRequest {
+
+  string conn = 1;
+
+  bytes bytes = 2;
+}
+
+message TimerTimeoutRequest {
+
+  string conn = 1;
+
+  TimerType type = 2;
+}
+
+message SocketClosedRequest {
+
+  string conn = 1;
+
+  string reason = 2;
+}
+
+message ReceivedMessagesRequest {
+
+  string conn = 1;
+
+  repeated Message messages = 2;
+}
+
+//--------------------------------------------------------------------
+// Basic data types
+//--------------------------------------------------------------------
+
+message ConnInfo {
+
+  SocketType socktype = 1;
+
+  Address peername = 2;
+
+  Address sockname = 3;
+
+  CertificateInfo peercert = 4;
+}
+
+enum SocketType {
+
+  TCP = 0;
+
+  SSL = 1;
+
+  UDP = 2;
+
+  DTLS = 3;
+}
+
+message Address {
+
+  string host = 1;
+
+  uint32 port = 2;
+}
+
+message CertificateInfo {
+
+  string cn = 1;
+
+  string dn = 2;
+}
+
+message ClientInfo {
+
+  string proto_name = 1;
+
+  string proto_ver = 2;
+
+  string clientid = 3;
+
+  string username = 4;
+
+  string mountpoint = 5;
+}
+
+message Message {
+
+  string node = 1;
+
+  string id = 2;
+
+  uint32 qos = 3;
+
+  string from = 4;
+
+  string topic = 5;
+
+  bytes  payload = 6;
+
+  uint64 timestamp = 7;
+}

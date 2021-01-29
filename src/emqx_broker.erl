@@ -465,7 +465,8 @@ handle_cast({subscribe, Topic}, State) ->
 handle_cast({unsubscribed, Topic}, State) ->
     case ets:member(?SUBSCRIBER, Topic) of
         false ->
-            _ = emqx_router:do_delete_route(Topic);
+            _ = emqx_router:do_delete_route(Topic),
+            ok;
         true -> ok
     end,
     {noreply, State};

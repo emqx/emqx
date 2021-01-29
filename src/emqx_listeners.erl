@@ -124,10 +124,10 @@ restart_listener(tcp, ListenOn, _Options) ->
 restart_listener(Proto, ListenOn, _Options) when Proto == ssl; Proto == tls ->
     esockd:reopen('mqtt:ssl', ListenOn);
 restart_listener(Proto, ListenOn, Options) when Proto == http; Proto == ws ->
-    cowboy:stop_listener(ws_name('mqtt:ws', ListenOn)),
+    _ = cowboy:stop_listener(ws_name('mqtt:ws', ListenOn)),
     start_listener(Proto, ListenOn, Options);
 restart_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
-    cowboy:stop_listener(ws_name('mqtt:wss', ListenOn)),
+    _ = cowboy:stop_listener(ws_name('mqtt:wss', ListenOn)),
     start_listener(Proto, ListenOn, Options);
 restart_listener(Proto, ListenOn, _Opts) ->
     esockd:reopen(Proto, ListenOn).

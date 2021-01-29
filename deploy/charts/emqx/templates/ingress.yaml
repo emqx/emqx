@@ -1,0 +1,70 @@
+{{- if .Values.ingress.dashboard.enabled -}}
+{{- if semverCompare ">=1.14-0" .Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1beta1
+{{- else -}}
+apiVersion: extensions/v1beta1
+{{- end }}
+kind: Ingress
+metadata:
+  name: {{ printf "%s-%s" (include "emqx.fullname" .) "dashboard" }}
+  labels:
+    app.kubernetes.io/name: {{ include "emqx.name" . }}
+    helm.sh/chart: {{ include "emqx.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  {{- if .Values.ingress.dashboard.annotations }}
+  annotations:
+    {{- toYaml .Values.ingress.dashboard.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  rules:
+  {{- range $host := .Values.ingress.dashboard.hosts }}
+  - host: {{ $host }}
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: {{ include "emqx.fullname" $ }}
+          servicePort: {{ $.Values.service.dashboard }}
+  {{- end -}}
+  {{- if .Values.ingress.dashboard.tls }}
+  tls:
+    {{- toYaml .Values.ingress.dashboard.tls | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
+{{- if .Values.ingress.mgmt.enabled -}}
+{{- if semverCompare ">=1.14-0" .Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1beta1
+{{- else -}}
+apiVersion: extensions/v1beta1
+{{- end }}
+kind: Ingress
+metadata:
+  name: {{ printf "%s-%s" (include "emqx.fullname" .) "mgmt" }}
+  labels:
+    app.kubernetes.io/name: {{ include "emqx.name" . }}
+    helm.sh/chart: {{ include "emqx.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  {{- if .Values.ingress.mgmt.annotations }}
+  annotations:
+    {{- toYaml .Values.ingress.mgmt.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  rules:
+  {{- range $host := .Values.ingress.mgmt.hosts }}
+  - host: {{ $host }}
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: {{ include "emqx.fullname" $ }}
+          servicePort: {{ $.Values.service.mgmt }}
+  {{- end -}}
+  {{- if .Values.ingress.mgmt.tls }}
+  tls:
+    {{- toYaml .Values.ingress.mgmt.tls | nindent 4 }}
+  {{- end }}
+---
+{{- end }}

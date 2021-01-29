@@ -189,7 +189,7 @@ t_feed_var(_) ->
                  feed_var(<<"%c">>, <<"clientId">>, <<"username/test/client/%c">>)).
 
 long_topic() ->
-    iolist_to_binary([[integer_to_list(I), "/"] || I <- lists:seq(0, 10000)]).
+    iolist_to_binary([[integer_to_list(I), "/"] || I <- lists:seq(0, 66666)]).
 
 t_parse(_) ->
     ok = ?catch_error({invalid_topic_filter, <<"$queue/t">>},

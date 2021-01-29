@@ -52,6 +52,9 @@
         , all_registered_topics/0
         ]).
 
+%% stats.
+-export([ rates/2 ]).
+
 %% gen_server callbacks
 -export([ init/1
         , handle_call/3
@@ -78,13 +81,15 @@
         ]).
 
 -define(TICKING_INTERVAL, 1).
+-define(SPEED_AVERAGE_WINDOW_SIZE, 5).
+-define(SPEED_MEDIUM_WINDOW_SIZE, 60).
+-define(SPEED_LONG_WINDOW_SIZE, 300).
 
 -record(speed, {
             last = 0 :: number(),
-            tick = 1 :: number(),
             last_v = 0 :: number(),
-            acc = 0 :: number(),
-            samples = [] :: list()
+            last_medium = 0 :: number(),
+            last_long = 0 :: number()
         }).
 
 -record(state, {
@@ -97,14 +102,14 @@
 
 load(_Env) ->
     emqx_mod_sup:start_child(?MODULE, worker),
-    emqx:hook('message.publish',   {?MODULE, on_message_publish, []}),
-    emqx:hook('message.dropped',   {?MODULE, on_message_dropped, []}),
-    emqx:hook('message.delivered', {?MODULE, on_message_delivered, []}).
+    emqx_hooks:put('message.publish',   {?MODULE, on_message_publish, []}),
+    emqx_hooks:put('message.dropped',   {?MODULE, on_message_dropped, []}),
+    emqx_hooks:put('message.delivered', {?MODULE, on_message_delivered, []}).
 
 unload(_Env) ->
-    emqx:unhook('message.publish',   {?MODULE, on_message_publish}),
-    emqx:unhook('message.dropped',   {?MODULE, on_message_dropped}),
-    emqx:unhook('message.delivered', {?MODULE, on_message_delivered}),
+    emqx_hooks:del('message.publish',   {?MODULE, on_message_publish}),
+    emqx_hooks:del('message.dropped',   {?MODULE, on_message_dropped}),
+    emqx_hooks:del('message.delivered', {?MODULE, on_message_delivered}),
     emqx_mod_sup:stop_child(?MODULE).
 
 description() ->
@@ -113,7 +118,7 @@ description() ->
 on_message_publish(#message{topic = Topic, qos = QoS}) ->
     case is_registered(Topic) of
         true ->
-            inc(Topic, 'messages.in'),
+            try_inc(Topic, 'messages.in'),
             case QoS of
                 ?QOS_0 -> inc(Topic, 'messages.qos0.in');
                 ?QOS_1 -> inc(Topic, 'messages.qos1.in');
@@ -126,7 +131,7 @@ on_message_publish(#message{topic = Topic, qos = QoS}) ->
 on_message_delivered(_, #message{topic = Topic, qos = QoS}) ->
     case is_registered(Topic) of
         true ->
-            inc(Topic, 'messages.out'),
+            try_inc(Topic, 'messages.out'),
             case QoS of
                 ?QOS_0 -> inc(Topic, 'messages.qos0.out');
                 ?QOS_1 -> inc(Topic, 'messages.qos1.out');
@@ -149,6 +154,10 @@ start_link() ->
 
 stop() ->
     gen_server:stop(?MODULE).
+
+try_inc(Topic, Metric) ->
+    _ = inc(Topic, Metric),
+    ok.
 
 inc(Topic, Metric) ->
     inc(Topic, Metric, 1).
@@ -180,7 +189,15 @@ val(Topic, Metric) ->
     end.
 
 rate(Topic, Metric) ->
-    gen_server:call(?MODULE, {get_rate, Topic, Metric}).
+    case rates(Topic, Metric) of
+        #{short := Last} ->
+            Last;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+rates(Topic, Metric) ->
+    gen_server:call(?MODULE, {get_rates, Topic, Metric}).
 
 metrics(Topic) ->
     case ets:lookup(?TAB, Topic) of
@@ -253,7 +270,7 @@ handle_call({unregister, Topic}, _From, State = #state{speeds = Speeds}) ->
             {reply, ok, State#state{speeds = NSpeeds}}
     end;
 
-handle_call({get_rate, Topic, Metric}, _From, State = #state{speeds = Speeds}) ->
+handle_call({get_rates, Topic, Metric}, _From, State = #state{speeds = Speeds}) ->
     case is_registered(Topic) of
         false ->
             {reply, {error, topic_not_found}, State};
@@ -261,8 +278,8 @@ handle_call({get_rate, Topic, Metric}, _From, State = #state{speeds = Speeds}) -
             case maps:get({Topic, Metric}, Speeds, undefined) of
                 undefined ->
                     {reply, {error, invalid_metric}, State};
-                #speed{last = Last} ->
-                    {reply, Last, State}
+                #speed{last = Short, last_medium = Medium, last_long = Long}  ->
+                    {reply, #{ short => Short, medium => Medium, long => Long }, State}
             end
     end.
 
@@ -358,25 +375,29 @@ counters_size() ->
 number_of_registered_topics() ->
     proplists:get_value(size, ets:info(?TAB)).
 
-calculate_speed(CurVal, #speed{last_v = LastVal, tick = Tick, acc = Acc, samples = Samples}) ->
+calculate_speed(CurVal, #speed{last = Last,
+    last_v = LastVal,
+    last_medium = LastMedium,
+    last_long = LastLong
+}) ->
     %% calculate the current speed based on the last value of the counter
     CurSpeed = (CurVal - LastVal) / ?TICKING_INTERVAL,
+    #speed{
+        last_v = CurVal,
+        last = short_mma(Last, CurSpeed),
+        last_medium = medium_mma(LastMedium, CurSpeed),
+        last_long = long_mma(LastLong, CurSpeed)
+    }.
 
-    %% calculate the average speed in last 5 seconds
-    case Tick < 5 of
-        true ->
-            Acc1 = Acc + CurSpeed,
-            #speed{last = Acc1 / Tick,
-                   last_v = CurVal,
-                   acc = Acc1,
-                   samples = Samples ++ [CurSpeed],
-                   tick = Tick + 1};
-        false ->
-            [FirstSpeed | Speeds] = Samples,
-            Acc1 =  Acc + CurSpeed - FirstSpeed,
-            #speed{last = Acc1 / Tick,
-                   last_v = CurVal,
-                   acc = Acc1,
-                   samples = Speeds ++ [CurSpeed],
-                   tick = Tick}
-    end.
+%% Modified Moving Average ref: https://en.wikipedia.org/wiki/Moving_average
+mma(WindowSize, LastSpeed, CurSpeed) ->
+    (LastSpeed * (WindowSize - 1) + CurSpeed) / WindowSize.
+
+short_mma(LastSpeed, CurSpeed) ->
+    mma(?SPEED_AVERAGE_WINDOW_SIZE, LastSpeed, CurSpeed).
+
+medium_mma(LastSpeed, CurSpeed) ->
+    mma(?SPEED_MEDIUM_WINDOW_SIZE, LastSpeed, CurSpeed).
+
+long_mma(LastSpeed, CurSpeed) ->
+    mma(?SPEED_LONG_WINDOW_SIZE, LastSpeed, CurSpeed).

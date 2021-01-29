@@ -16,7 +16,7 @@
 
 -module(prop_emqx_frame).
 
--include("emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("proper/include/proper.hrl").
 
 %%--------------------------------------------------------------------

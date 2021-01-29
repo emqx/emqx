@@ -1,0 +1,41 @@
+version: '2.4'
+# network configuration is limited in version 3
+# https://github.com/docker/compose/issues/4958
+
+services:
+  erlang:
+    container_name: erlang
+    image: emqx/build-env:erl23.2.2-ubuntu20.04
+    volumes:
+      - ../..:/emqx
+    networks:
+      - app_net
+    depends_on:
+      - redis_cluster
+    working_dir: /emqx
+    tty: true
+
+  redis_cluster:
+    container_name: redis
+    image: redis:${REDIS_TAG}
+    volumes:
+      - ../../apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs:/tls
+      - ./redis/:/data/conf
+    command: bash -c "/bin/bash /data/conf/redis.sh --node cluster --tls-enabled && while true; do echo 1; sleep 1; done"
+    networks:
+      app_net:
+        # Assign a public address. Erlang container cannot find cluster nodes by network-scoped alias (redis_cluster).
+        ipv4_address: 172.16.239.10
+        ipv6_address: 2001:3200:3200::20
+
+networks:
+  app_net:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.16.239.0/24
+          gateway: 172.16.239.1
+        - subnet: 2001:3200:3200::/64
+          gateway: 2001:3200:3200::1

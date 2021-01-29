@@ -1,0 +1,17 @@
+%%-*- mode: erlang -*-
+%% Retainer config mapping
+
+{mapping, "telemetry.enabled", "emqx_telemetry.enabled", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "telemetry.url", "emqx_telemetry.url", [
+  {default, "https://telemetry.emqx.io/api/telemetry"},
+  {datatype, string}
+]}.
+
+{mapping, "telemetry.report_interval", "emqx_telemetry.report_interval", [
+  {default, "7d"},
+  {datatype, {duration, s}}
+]}.

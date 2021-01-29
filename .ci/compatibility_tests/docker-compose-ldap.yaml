@@ -1,0 +1,41 @@
+version: '3'
+
+services:
+  erlang:
+    container_name: erlang
+    image: emqx/build-env:erl23.2.2-ubuntu20.04
+    depends_on:
+      - ldap_server
+    networks:
+      - emqx_bridge
+    volumes:
+      - ../../.:/emqx
+    working_dir: /emqx
+    tty: true
+
+  ldap_server:
+    container_name: ldap
+    build:
+      context: ../..
+      dockerfile: .ci/compatibility_tests/openldap/Dockerfile
+      args: 
+        LDAP_TAG: ${LDAP_TAG}
+    image: openldap 
+    ports:
+      - 389:389
+    restart: always
+    networks:
+      - emqx_bridge
+
+networks:
+  emqx_bridge:
+    driver: bridge
+    name: emqx_bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.100.239.0/24
+          gateway: 172.100.239.1
+        - subnet: 2001:3200:3200::/64
+          gateway: 2001:3200:3200::1

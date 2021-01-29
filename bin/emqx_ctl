@@ -1,0 +1,85 @@
+#!/bin/sh
+# -*- tab-width:4;indent-tabs-mode:nil -*-
+# ex: ts=4 sw=4 et
+
+set -e
+
+ROOT_DIR="$(cd $(dirname $(readlink $0 || echo $0))/..; pwd -P)"
+. $ROOT_DIR/releases/emqx_vars
+
+# Echo to stderr on errors
+echoerr() { echo "$@" 1>&2; }
+
+if [ -z "$WITH_EPMD" ]; then
+    EPMD_ARG="-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"
+else
+    EPMD_ARG="-start_epmd true"
+fi
+
+relx_get_nodename() {
+    id="longname$(relx_gen_id)-${NAME}"
+    "$BINDIR/erl" -boot start_clean -eval '[Host] = tl(string:tokens(atom_to_list(node()),"@")), io:format("~s~n", [Host]), halt()' -noshell ${NAME_TYPE} $id
+}
+
+# Control a node
+relx_nodetool() {
+    command="$1"; shift
+
+    ERL_FLAGS="$ERL_FLAGS $EPMD_ARG $PROTO_DIST_ARG" \
+    "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" "$NAME_TYPE" "$NAME" \
+                                -setcookie "$COOKIE" "$command" "$@"
+}
+
+
+if [ -z "$NAME_ARG" ]; then
+    NODENAME="${EMQX_NODE_NAME:-}"
+    # check if there is a node running, inspect its name
+    [ -z "$NODENAME" ] && NODENAME=`ps -ef | grep -E '\progname\s.*emqx\s' | grep -o -E '\-name (\S*)' | awk '{print $2}'`
+    [ -z "$NODENAME" ] && NODENAME=`egrep '^[ \t]*node.name[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-`
+    if [ -z "$NODENAME" ]; then
+        echoerr "vm.args needs to have a -name parameter."
+        echoerr "  -sname is not supported."
+        echoerr "perhaps you do not have read permissions on $RUNNER_ETC_DIR/emqx.conf"
+        exit 1
+    else
+        NAME_ARG="-name ${NODENAME# *}"
+    fi
+fi
+
+# Extract the name type and name from the NAME_ARG for REMSH
+NAME_TYPE="$(echo "$NAME_ARG" | awk '{print $1}')"
+NAME="$(echo "$NAME_ARG" | awk '{print $2}')"
+
+# Extract the target cookie
+if [ -z "$COOKIE_ARG" ]; then
+    COOKIE="${EMQX_NODE_COOKIE:-}"
+    # check if there is a node running, steal its cookie
+    [ -z "$COOKIE" ] && COOKIE=`ps -ef | grep -E '\-progname\s.*emqx\s' | grep -o -E '\-setcookie (\S*)' | awk '{print $2}'`
+    [ -z "$COOKIE" ] && COOKIE=`egrep '^[ \t]*node.cookie[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-`
+    if [ -z "$COOKIE" ]; then
+        echoerr "vm.args needs to have a -setcookie parameter."
+        echoerr "please check $RUNNER_ETC_DIR/emqx.conf"
+        exit 1
+    else
+        COOKIE_ARG="-setcookie $COOKIE"
+    fi
+fi
+
+# Extract cookie name from COOKIE_ARG
+COOKIE="$(echo "$COOKIE_ARG" | awk '{print $2}')"
+
+# Support for IPv6 Dist. See: https://github.com/emqtt/emqttd/issues/1460
+PROTO_DIST=`egrep '^[ \t]*cluster.proto_dist[ \t]*=[ \t]*' $RUNNER_ETC_DIR/emqx.conf 2> /dev/null | tail -1 | cut -d = -f 2-`
+if [ -z "$PROTO_DIST" ]; then
+    PROTO_DIST_ARG=""
+else
+    PROTO_DIST_ARG="-proto_dist $PROTO_DIST"
+fi
+
+export ROOTDIR="$RUNNER_ROOT_DIR"
+export ERTS_DIR="$ROOTDIR/erts-$ERTS_VSN"
+export BINDIR="$ERTS_DIR/bin"
+cd "$ROOTDIR"
+
+relx_nodetool rpc emqx_ctl run_command "$@"
+
