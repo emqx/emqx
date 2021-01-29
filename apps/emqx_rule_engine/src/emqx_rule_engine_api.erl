@@ -531,14 +531,7 @@ parse_resource_params([_ | Params], Res) ->
     parse_resource_params(Params, Res).
 
 json_term_to_map(List) ->
-    Data = lists:map(fun({K, V}) ->
-                    case V of
-                        {} ->{K, [{}]};
-                        _ -> {K, V}
-                    end
-                 end,
-            List),
-    emqx_json:decode(emqx_json:encode(Data), [return_maps]).
+    emqx_json:decode(emqx_json:encode(List), [return_maps]).
 
 sort_by_title(action, Actions) ->
     sort_by(#action.title, Actions);
