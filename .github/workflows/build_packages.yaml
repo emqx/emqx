@@ -16,6 +16,8 @@ jobs:
   windows:
     runs-on: windows-2019
 
+    if: startsWith(github.ref, 'refs/tags/')
+
     steps:
     - uses: actions/checkout@v1
     - uses: ilammy/msvc-dev-cmd@v1
@@ -64,13 +66,14 @@ jobs:
         ./_build/emqx/rel/emqx/bin/emqx install
         ./_build/emqx/rel/emqx/bin/emqx uninstall
     - uses: actions/upload-artifact@v1
-      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: emqx
         path: ./_packages/emqx/.
 
   mac:
     runs-on: macos-10.15
+
+    if: startsWith(github.ref, 'refs/tags/')
 
     steps:
     - uses: actions/checkout@v1
@@ -80,6 +83,7 @@ jobs:
         echo "/usr/local/bin" >> $GITHUB_PATH
         git config --global credential.helper store
     - name: build erlang
+      timeout-minutes: 60
       run: |
         kerl build 23.2.2
         kerl install 23.2.2 $HOME/.kerl/23.2.2
@@ -111,7 +115,6 @@ jobs:
         rm -rf emqx
         openssl dgst -sha256 ./_packages/emqx/$pkg_name | awk '{print $2}'  > ./_packages/emqx/$pkg_name.sha256
     - uses: actions/upload-artifact@v1
-      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: emqx
         path: ./_packages/emqx/.
@@ -245,6 +248,8 @@ jobs:
   docker:
     runs-on: ubuntu-20.04
 
+    if: startsWith(github.ref, 'refs/tags/')
+
     strategy:
       matrix:
         arch:
@@ -280,12 +285,10 @@ jobs:
         sudo TARGET=emqx/emqx-edge ARCH=$ARCH QEMU_ARCH=$QEMU_ARCH  make docker
         cd _packages/emqx-edge && for var in $(ls emqx-edge-docker-* ); do sudo bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"; done && cd -
     - uses: actions/upload-artifact@v1
-      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: emqx
         path: ./_packages/emqx/.
     - uses: actions/upload-artifact@v1
-      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: emqx-edge
         path: ./_packages/emqx-edge/.
