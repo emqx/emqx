@@ -8,6 +8,7 @@
 #
 
 # Source function library.
+# shellcheck disable=SC1091
 . /etc/rc.d/init.d/functions
 
 RETVAL=0
@@ -25,6 +26,7 @@ pidfile=/var/run/$NAME/$NAME.pid
 [ -d /var/lib/$NAME ] || exit 0
 
 # Read configuration variable file if it is present and readable
+# shellcheck disable=SC1090
 [ -r /etc/sysconfig/$NAME ] && . /etc/sysconfig/$NAME
 
 # `service` strips all environmental VARS so
@@ -38,6 +40,7 @@ status -p $pidfile -l $(basename $lockfile) $NAME >/dev/null 2>&1
 running=$?
 
 find_pid() {
+    # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
     ps ax | grep -E "\-progname\s+$NAME\s" | awk '{print $1}'
 }
 

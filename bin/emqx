@@ -4,8 +4,9 @@
 
 set -e
 
-ROOT_DIR="$(cd $(dirname $(readlink $0 || echo $0))/..; pwd -P)"
-. $ROOT_DIR/releases/emqx_vars
+ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+# shellcheck disable=SC1090
+. "$ROOT_DIR"/releases/emqx_vars
 
 RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
 CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
@@ -133,6 +134,7 @@ esac
 relx_get_pid() {
     if output="$(relx_nodetool rpcterms os getpid)"
     then
+        # shellcheck disable=SC2001 # Escaped quote taken as closing quote in editor
         echo "$output" | sed -e 's/"//g'
         return 0
     else
@@ -154,6 +156,7 @@ relx_rem_sh() {
     # Get the node's ticktime so that we use the same thing.
     TICKTIME="$(relx_nodetool rpcterms net_kernel get_net_ticktime)"
 
+    # shellcheck disable=SC2086 # $EPMD_ARG is supposed to be split by whitespace
     # Setup remote shell command to control node
     exec "$BINDIR/erl" "$NAME_TYPE" "$id" -remsh "$NAME" -boot "$REL_DIR/start_clean" \
          -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
@@ -224,6 +227,7 @@ generate_config() {
         mv -f "$TMP_ARG_FILE" "$CUTTLE_GEN_ARG_FILE"
     fi
 
+    # shellcheck disable=SC2086
     if ! relx_nodetool chkconfig $CONFIG_ARGS; then
         echoerr "Error reading $CONFIG_ARGS"
         exit 1
@@ -249,8 +253,9 @@ fi
 if [ -z "$NAME_ARG" ]; then
     NODENAME="${EMQX_NODE_NAME:-}"
     # check if there is a node running, inspect its name
-    [ -z "$NODENAME" ] && NODENAME=`ps -ef | grep -E '\-progname\s.*emqx\s' | grep -o -E '\-name (\S*)' | awk '{print $2}'`
-    [ -z "$NODENAME" ] && NODENAME=`egrep '^[ \t]*node.name[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-`
+    # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
+    [ -z "$NODENAME" ] && NODENAME=$(ps -ef | grep -E '\-progname\s.*emqx\s' | grep -o -E '\-name (\S*)' | awk '{print $2}')
+    [ -z "$NODENAME" ] && NODENAME=$(grep -E '^[ \t]*node.name[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-)
     if [ -z "$NODENAME" ]; then
         echoerr "vm.args needs to have a -name parameter."
         echoerr "  -sname is not supported."
@@ -273,8 +278,9 @@ PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 if [ -z "$COOKIE_ARG" ]; then
     COOKIE="${EMQX_NODE_COOKIE:-}"
     # check if there is a node running, steal its cookie
-    [ -z "$COOKIE" ] && COOKIE=`ps -ef | grep -E '\-progname\s.*emqx\s' | grep -o -E '\-setcookie (\S*)' | awk '{print $2}'`
-    [ -z "$COOKIE" ] && COOKIE=`egrep '^[ \t]*node.cookie[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-`
+    # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
+    [ -z "$COOKIE" ] && COOKIE=$(ps -ef | grep -E '\-progname\s.*emqx\s' | grep -o -E '\-setcookie (\S*)' | awk '{print $2}')
+    [ -z "$COOKIE" ] && COOKIE=$(grep -E '^[ \t]*node.cookie[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-)
     if [ -z "$COOKIE" ]; then
         echoerr "vm.args needs to have a -setcookie parameter."
         echoerr "please check $RUNNER_ETC_DIR/emqx.conf"
@@ -521,6 +527,7 @@ case "$1" in
         # Store passed arguments since they will be erased by `set`
         ARGS="$@"
 
+        # shellcheck disable=SC2086 # $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
         set -- "$BINDIR/erlexec" -boot "$BOOTFILE" -mode "$CODE_LOADING_MODE" \
@@ -562,6 +569,7 @@ case "$1" in
         # Store passed arguments since they will be erased by `set`
         ARGS="$@"
 
+        # shellcheck disable=SC2086 # $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
         set -- "$BINDIR/erlexec" $FOREGROUNDOPTIONS \
