@@ -216,14 +216,14 @@ start_resource(ResId, PoolName, Options) ->
 
 -spec(on_get_resource_status(binary(), map()) -> map()).
 on_get_resource_status(ResId, #{<<"url">> := Url}) ->
-    #{is_alive =>
-        case emqx_rule_utils:http_connectivity(Url) of
-            ok -> true;
-            {error, Reason} ->
-                ?LOG(error, "Connectivity Check for ~p failed, ResId: ~p, ~0p",
-                     [?RESOURCE_TYPE_WEBHOOK, ResId, Reason]),
-                false
-        end}.
+    #{is_alive => try
+                      test_http_connect(Url),
+                      true
+                  catch _ : Reason ->
+                      ?LOG(error, "Connectivity Check for ~p failed, ResId: ~p, ~0p",
+                          [?RESOURCE_TYPE_WEBHOOK, ResId, Reason]),
+                      false
+                  end}.
 
 -spec(on_resource_destroy(binary(), map()) -> ok | {error, Reason::term()}).
 on_resource_destroy(ResId, #{<<"pool">> := PoolName}) ->
