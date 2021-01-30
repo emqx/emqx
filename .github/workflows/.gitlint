@@ -58,7 +58,7 @@ ignore=title-trailing-punctuation, T1, T2, T3, T4, T5, T6, T8, B1, B2, B3, B4, B
 # python-style regex that the commit-msg title must match
 # Note that the regex can contradict with other rules if not used correctly
 # (e.g. title-must-not-contain-word).
-regex=^(feat|fix|docs|style|refactor|test|chore|perf)\(.+\): .+
+regex=^(feat|fix|docs|style|refactor|test|build|ci|revert|chore|perf)(\(.+\))*: .+
 
 # [body-max-line-length]
 # line-length=72
