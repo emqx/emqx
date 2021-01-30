@@ -196,6 +196,7 @@ on_resource_create(ResId, Conf) ->
     {ok, _} = application:ensure_all_started(ehttpc),
     Options = pool_opts(Conf),
     PoolName = pool_name(ResId),
+    test_http_connect(maps:get(<<"url">>, Conf)),
     start_resource(ResId, PoolName, Options),
     Conf#{<<"pool">> => PoolName, options => Options}.
 
@@ -385,4 +386,10 @@ parse_host(Host) ->
                 {ok, _} -> {inet6, Host};
                 {error, _} -> {inet, Host}
             end
+    end.
+
+test_http_connect(Url) ->
+    case emqx_rule_utils:http_connectivity(Url) of
+        ok -> ok;
+        {error, _} -> error({error, http_connect_failure})
     end.

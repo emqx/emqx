@@ -273,6 +273,8 @@ do_create_resource(Create, ParsedParams) ->
             return({ok, record_to_map(Resource)});
         {error, {resource_type_not_found, Type}} ->
             return({error, 400, ?ERR_NO_RESOURCE_TYPE(Type)});
+        {error, {init_resource_failure, _}} ->
+            return({error, 500, <<"Init resource failure!">>});
         {error, Reason} ->
             ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
             return({error, 400, ?ERR_BADARGS(Reason)})
