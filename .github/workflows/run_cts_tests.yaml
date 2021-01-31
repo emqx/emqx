@@ -133,9 +133,9 @@ jobs:
         run: |
           docker-compose -f .ci/compatibility_tests/docker-compose-mysql-tls.yaml up -d
           sed -i 's|^[#[:space:]]*auth.mysql.ssl[[:space:]]*=.*|auth.mysql.ssl = on|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-          sed -i 's|^[#[:space:]]*auth.mysql.cacertfile[[:space:]]*=.*|auth.mysql.cacertfile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-          sed -i 's|^[#[:space:]]*auth.mysql.certfile[[:space:]]*=.*|auth.mysql.certfile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-          sed -i 's|^[#[:space:]]*auth.mysql.keyfile[[:space:]]*=.*|auth.mysql.keyfile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-key.pem|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          sed -i 's|^[#[:space:]]*auth.mysql.ssl.cacertfile[[:space:]]*=.*|auth.mysql.ssl.cacertfile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          sed -i 's|^[#[:space:]]*auth.mysql.ssl.certfile[[:space:]]*=.*|auth.mysql.ssl.certfile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          sed -i 's|^[#[:space:]]*auth.mysql.ssl.keyfile[[:space:]]*=.*|auth.mysql.ssl.keyfile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-key.pem|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
       - name: setup
         env:
           MYSQL_TAG: ${{ matrix.mysql_tag }}

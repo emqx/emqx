@@ -132,8 +132,8 @@
 %%      and work as message batch transport layer
 %% reconnect_delay_ms: Delay in milli-seconds for the bridge worker to retry
 %%      in case of transportation failure.
-%% max_inflight_batches: Max number of batches allowed to send-ahead before
-%%      receiving confirmation from remote node/cluster
+%% max_inflight: Max number of batches allowed to send-ahead before receiving
+%%       confirmation from remote node/cluster
 %% mountpoint: The topic mount point for messages sent to remote node/cluster
 %%      `undefined', `<<>>' or `""' to disable
 %% forwards: Local topics to subscribe.

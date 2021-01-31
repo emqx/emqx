@@ -121,6 +121,7 @@ t_placeholders(_) ->
          emqx_access_control:authenticate(ClientA#{password => <<"plain">>}),
      {ok, _} =
          emqx_access_control:authenticate(ClientA#{password => <<"plain">>, peerhost => {192,168,1,5}}).
+
 t_check_auth(_) ->
     Plain = #{clientid => <<"client1">>, username => <<"plain">>, zone => external},
     Md5 = #{clientid => <<"md5">>, username => <<"md5">>, zone => external},

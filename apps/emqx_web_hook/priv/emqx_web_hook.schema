@@ -27,7 +27,7 @@
 ]}.
 
 {mapping, "web.hook.ssl.verify", "emqx_web_hook.verify", [
-  {default, true},
+  {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
 

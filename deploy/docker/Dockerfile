@@ -1,5 +1,5 @@
 ARG BUILD_FROM=emqx/build-env:erl23.2.2-alpine-amd64
-ARG RUN_FROM=alpine:3.11
+ARG RUN_FROM=alpine:3.12
 FROM ${BUILD_FROM} AS builder
 
 ARG QEMU_ARCH=x86_64
@@ -35,15 +35,15 @@ LABEL org.label-schema.docker.dockerfile="Dockerfile" \
     org.label-schema.name="emqx" \
     org.label-schema.version=${PKG_VSN} \
     org.label-schema.description="EMQ (Erlang MQTT Broker) is a distributed, massively scalable, highly extensible MQTT messaging broker written in Erlang/OTP." \
-    org.label-schema.url="http://emqx.io" \
+    org.label-schema.url="https://emqx.io" \
     org.label-schema.vcs-type="Git" \
-    org.label-schema.vcs-url="https://github.com/emqx/emqx-docker" \
+    org.label-schema.vcs-url="https://github.com/emqx/emqx" \
     maintainer="Raymond M Mouthaan <raymondmmouthaan@gmail.com>, Huang Rui <vowstar@gmail.com>, EMQ X Team <support@emqx.io>"
 
 ARG QEMU_ARCH=x86_64
 ARG EMQX_NAME=emqx
 
-COPY deploy/docker/docker-entrypoint.sh deploy/docker/start.sh tmp/qemu-$QEMU_ARCH-stati* /usr/bin/
+COPY deploy/docker/docker-entrypoint.sh tmp/qemu-$QEMU_ARCH-stati* /usr/bin/
 COPY --from=builder /emqx/_build/$EMQX_NAME/rel/emqx /opt/emqx
 
 RUN ln -s /opt/emqx/bin/* /usr/local/bin/
@@ -59,7 +59,7 @@ RUN chgrp -Rf emqx /opt/emqx && chmod -Rf g+w /opt/emqx \
 
 USER emqx
 
-VOLUME ["/opt/emqx/log", "/opt/emqx/data", "/opt/emqx/lib", "/opt/emqx/etc"]
+VOLUME ["/opt/emqx/log", "/opt/emqx/data", "/opt/emqx/etc"]
 
 # emqx will occupy these port:
 # - 1883 port for MQTT
@@ -69,12 +69,12 @@ VOLUME ["/opt/emqx/log", "/opt/emqx/data", "/opt/emqx/lib", "/opt/emqx/etc"]
 # - 8883 port for MQTT(SSL)
 # - 11883 port for internal MQTT/TCP
 # - 18083 for dashboard
-# - 4369 for port mapping (epmd)
-# - 4370 for port mapping
+# - 4369 epmd (Erlang-distrbution port mapper daemon) listener (deprecated)
+# - 4370 default Erlang distrbution port
 # - 5369 for gen_rpc port mapping
-# - 6369 for distributed node
-EXPOSE 1883 8081 8083 8084 8883 11883 18083 4369 4370 5369 6369
+# - 6369 6370 for distributed node
+EXPOSE 1883 8081 8083 8084 8883 11883 18083 4369 4370 5369 6369 6370
 
 ENTRYPOINT ["/usr/bin/docker-entrypoint.sh"]
 
-CMD ["/usr/bin/start.sh"]
+CMD ["/opt/emqx/bin/emqx", "foreground"]

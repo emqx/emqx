@@ -38,7 +38,7 @@ status -p $pidfile -l $(basename $lockfile) $NAME >/dev/null 2>&1
 running=$?
 
 find_pid() {
-    ps ax | grep beam.smp | grep -E "\-progname.+$NAME" | awk '{print $1}'
+    ps ax | grep -E "\-progname\s+$NAME\s" | awk '{print $1}'
 }
 
 check_pid_status() {
@@ -92,7 +92,7 @@ stop() {
 
 hardstop() {
     echo -n $"Shutting down $NAME: "
-    su - emqx -c "ps -ef | grep beam.smp | grep '\-progname $NAME ' | grep -v grep | awk '{print \$2}' | xargs kill -9"
+    su - emqx -c "ps -ef | grep -E '\-progname\s+$NAME\s' | awk '{print \$2}' | xargs kill -9"
     for n in $(seq 1 10); do
         sleep 1
         check_pid_status

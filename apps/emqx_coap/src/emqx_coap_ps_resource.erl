@@ -259,13 +259,13 @@ handle_received_create(TopicPrefix, MaxAge, Payload) ->
             {error, bad_request}
     end.
 
-%% http_uri:decode/1 is deprecated in OTP-23
-%% its equivalent uri_string:percent_decode however is not available before OTP 23
--if(?OTP_RELEASE >= 23).
-percent_decode(Topic) -> uri_string:percent_decode(Topic).
--else.
-percent_decode(Topic) -> http_uri:decode(Topic).
--endif.
+%% @private Copy from http_uri.erl which has been deprecated since OTP-23
+percent_decode(<<$%, Hex:2/binary, Rest/bits>>) ->
+    <<(binary_to_integer(Hex, 16)), (percent_decode(Rest))/binary>>;
+percent_decode(<<First:1/binary, Rest/bits>>) ->
+    <<First/binary, (percent_decode(Rest))/binary>>;
+percent_decode(<<>>) ->
+    <<>>.
 
 %% When topic is timeout, server should return nocontent here,
 %% but gen_coap only receive return value of #coap_content from coap_get, so temporarily we can't give the Code 2.07 {ok, nocontent} out.TBC!!!

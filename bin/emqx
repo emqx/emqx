@@ -246,15 +246,11 @@ if [ -z "$RELX_CONFIG_PATH" ]; then
     fi
 fi
 
-# Extract the target node name from node.args
 if [ -z "$NAME_ARG" ]; then
-    if [ ! -z "$EMQX_NODE_NAME" ]; then
-        NODENAME="$EMQX_NODE_NAME"
-    elif [ ! -z `ps -ef | grep "$ERTS_PATH/beam.smp" | grep -o -E '\-name (\S*)' | awk '{print $2}'` ]; then
-        NODENAME=`ps -ef | grep "$ERTS_PATH/beam.smp" | grep -o -E '\-name (\S*)' | awk '{print $2}'`
-    else
-        NODENAME=`egrep '^[ \t]*node.name[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-`
-    fi
+    NODENAME="${EMQX_NODE_NAME:-}"
+    # check if there is a node running, inspect its name
+    [ -z "$NODENAME" ] && NODENAME=`ps -ef | grep -E '\-progname\s.*emqx\s' | grep -o -E '\-name (\S*)' | awk '{print $2}'`
+    [ -z "$NODENAME" ] && NODENAME=`egrep '^[ \t]*node.name[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-`
     if [ -z "$NODENAME" ]; then
         echoerr "vm.args needs to have a -name parameter."
         echoerr "  -sname is not supported."
@@ -268,18 +264,17 @@ fi
 # Extract the name type and name from the NAME_ARG for REMSH
 NAME_TYPE="$(echo "$NAME_ARG" | awk '{print $1}')"
 NAME="$(echo "$NAME_ARG" | awk '{print $2}')"
+NODENAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
+export ESCRIPT_NAME="$NODENAME"
 
 PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 
 # Extract the target cookie
 if [ -z "$COOKIE_ARG" ]; then
-    if [ ! -z "$EMQX_NODE_COOKIE" ]; then
-        COOKIE="$EMQX_NODE_COOKIE"
-    elif [ ! -z `ps -ef | grep "$ERTS_PATH/beam.smp" | grep -o -E '\-setcookie (\S*)' | awk '{print $2}'` ]; then
-        COOKIE=`ps -ef | grep "$ERTS_PATH/beam.smp" | grep -o -E '\-setcookie (\S*)' | awk '{print $2}'`
-    else
-        COOKIE=`egrep '^[ \t]*node.cookie[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-`
-    fi
+    COOKIE="${EMQX_NODE_COOKIE:-}"
+    # check if there is a node running, steal its cookie
+    [ -z "$COOKIE" ] && COOKIE=`ps -ef | grep -E '\-progname\s.*emqx\s' | grep -o -E '\-setcookie (\S*)' | awk '{print $2}'`
+    [ -z "$COOKIE" ] && COOKIE=`egrep '^[ \t]*node.cookie[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-`
     if [ -z "$COOKIE" ]; then
         echoerr "vm.args needs to have a -setcookie parameter."
         echoerr "please check $RUNNER_ETC_DIR/emqx.conf"

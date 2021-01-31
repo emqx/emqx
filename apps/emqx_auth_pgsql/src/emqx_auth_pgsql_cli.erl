@@ -29,7 +29,10 @@
         , equery/3
         ]).
 
--type client_info() :: #{username:=_, clientid:=_, peerhost:=_, _=>_}.
+-type client_info() :: #{username := _,
+                         clientid := _,
+                         peerhost := _,
+                         _ => _}.
 
 %%--------------------------------------------------------------------
 %% Avoid SQL Injection: Parse SQL to Parameter Query.
@@ -56,6 +59,11 @@ pgvar(Sql, Params) ->
 %% PostgreSQL Connect/Query
 %%--------------------------------------------------------------------
 
+%% Due to a bug in epgsql the caluse for `econnrefused` is not recognised by
+%% dialyzer, result in this error:
+%% The pattern {'error', Reason = 'econnrefused'} can never match the type ...
+%% https://github.com/epgsql/epgsql/issues/246
+-dialyzer([{nowarn_function, [connect/1]}]).
 connect(Opts) ->
     Host     = proplists:get_value(host, Opts),
     Username = proplists:get_value(username, Opts),
@@ -64,6 +72,9 @@ connect(Opts) ->
         {ok, C} ->
             conn_post(C),
             {ok, C};
+        {error, Reason = econnrefused} ->
+            ?LOG(error, "[Postgres] Can't connect to Postgres server: Connection refused."),
+            {error, Reason};
         {error, Reason = invalid_authorization_specification} ->
             ?LOG(error, "[Postgres] Can't connect to Postgres server: Invalid authorization specification."),
             {error, Reason};

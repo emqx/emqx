@@ -31,19 +31,15 @@ relx_nodetool() {
 }
 
 
-# Extract the target node name from node.args
 if [ -z "$NAME_ARG" ]; then
-    if [ ! -z "$EMQX_NODE_NAME" ]; then
-        NODENAME="$EMQX_NODE_NAME"
-    elif [ ! -z `ps -ef | grep "$ERTS_PATH/beam.smp" | grep -o -E '\-name (\S*)' | awk '{print $2}'` ]; then
-        NODENAME=`ps -ef | grep "$ERTS_PATH/beam.smp" | grep -o -E '\-name (\S*)' | awk '{print $2}'`
-    else
-        NODENAME=`egrep '^[ \t]*node.name[ \t]*=[ \t]*' $RUNNER_ETC_DIR/emqx.conf 2> /dev/null | tail -1 | cut -d = -f 2-`
-    fi
+    NODENAME="${EMQX_NODE_NAME:-}"
+    # check if there is a node running, inspect its name
+    [ -z "$NODENAME" ] && NODENAME=`ps -ef | grep -E '\progname\s.*emqx\s' | grep -o -E '\-name (\S*)' | awk '{print $2}'`
+    [ -z "$NODENAME" ] && NODENAME=`egrep '^[ \t]*node.name[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-`
     if [ -z "$NODENAME" ]; then
         echoerr "vm.args needs to have a -name parameter."
         echoerr "  -sname is not supported."
-        echoerr "please check $RUNNER_ETC_DIR/emqx.conf"
+        echoerr "perhaps you do not have read permissions on $RUNNER_ETC_DIR/emqx.conf"
         exit 1
     else
         NAME_ARG="-name ${NODENAME# *}"
@@ -56,13 +52,10 @@ NAME="$(echo "$NAME_ARG" | awk '{print $2}')"
 
 # Extract the target cookie
 if [ -z "$COOKIE_ARG" ]; then
-    if [ ! -z "$EMQX_NODE_COOKIE" ]; then
-        COOKIE="$EMQX_NODE_COOKIE"
-    elif [ ! -z `ps -ef | grep "$ERTS_PATH/beam.smp" | grep -o -E '\-setcookie (\S*)' | awk '{print $2}'` ]; then
-        COOKIE=`ps -ef | grep "$ERTS_PATH/beam.smp" | grep -o -E '\-setcookie (\S*)' | awk '{print $2}'`
-    else
-        COOKIE=`egrep '^[ \t]*node.cookie[ \t]*=[ \t]*' $RUNNER_ETC_DIR/emqx.conf 2> /dev/null | tail -1 | cut -d = -f 2-`
-    fi
+    COOKIE="${EMQX_NODE_COOKIE:-}"
+    # check if there is a node running, steal its cookie
+    [ -z "$COOKIE" ] && COOKIE=`ps -ef | grep -E '\-progname\s.*emqx\s' | grep -o -E '\-setcookie (\S*)' | awk '{print $2}'`
+    [ -z "$COOKIE" ] && COOKIE=`egrep '^[ \t]*node.cookie[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-`
     if [ -z "$COOKIE" ]; then
         echoerr "vm.args needs to have a -setcookie parameter."
         echoerr "please check $RUNNER_ETC_DIR/emqx.conf"

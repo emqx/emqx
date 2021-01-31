@@ -68,7 +68,7 @@ set_special_configs_https(_) ->
     Path = emqx_ct_helpers:deps_path(emqx_web_hook, "test/emqx_web_hook_SUITE_data/"),
     SslOpts = [{keyfile, Path ++ "/client-key.pem"},
                {certfile, Path ++ "/client-cert.pem"},
-               {cafile, Path ++ "/ca.pem"}],
+               {cacertfile, Path ++ "/ca.pem"}],
     application:set_env(emqx_web_hook, ssl, true),
     application:set_env(emqx_web_hook, ssloptions, SslOpts),
     application:set_env(emqx_web_hook, url, "https://127.0.0.1:8888").

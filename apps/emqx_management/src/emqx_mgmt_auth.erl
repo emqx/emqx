@@ -99,11 +99,11 @@ add_app(AppId, Name, Secret, Desc, Status, Expired) when is_binary(AppId) ->
     AddFun = fun() ->
                  case mnesia:wread({mqtt_app, AppId}) of
                      [] -> mnesia:write(App);
-                     _  -> mnesia:abort(alread_existed), ok
+                     _  -> mnesia:abort(alread_existed)
                  end
              end,
     case mnesia:transaction(AddFun) of
-        {atomic, _} -> {ok, Secret1};
+        {atomic, ok} -> {ok, Secret1};
         {aborted, Reason} -> {error, Reason}
     end.
 
