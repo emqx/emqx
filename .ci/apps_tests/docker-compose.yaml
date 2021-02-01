@@ -12,6 +12,14 @@ services:
       - ldap_server
     networks:
       - emqx_bridge
+    environment:
+      GITHUB_ACTIONS: ${GITHUB_ACTIONS}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITHUB_RUN_ID: ${GITHUB_RUN_ID}
+      GITHUB_SHA: ${GITHUB_SHA}
+      GITHUB_RUN_NUMBER: ${GITHUB_RUN_NUMBER}
+      GITHUB_EVENT_NAME: ${GITHUB_EVENT_NAME}
+      GITHUB_REF: ${GITHUB_REF}
     volumes:
       - ../../.:/emqx
     working_dir: /emqx

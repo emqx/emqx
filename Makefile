@@ -39,6 +39,10 @@ ct: $(REBAR)
 cover: $(REBAR)
 	$(REBAR) cover
 
+.PHONY: coveralls
+cover: $(REBAR)
+	$(REBAR) as test coveralls send
+
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(REBAR) get-dashboard
 ifneq ($(shell echo $(@) |grep edge),)

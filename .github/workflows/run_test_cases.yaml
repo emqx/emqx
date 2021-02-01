@@ -25,6 +25,7 @@ jobs:
             MONGO_TAG: 4
             PGSQL_TAG: 13
             LDAP_TAG: 2.4.50
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           run: |
             docker-compose -f .ci/apps_tests/docker-compose.yaml build --no-cache
             docker-compose -f .ci/apps_tests/docker-compose.yaml up -d
@@ -48,6 +49,7 @@ jobs:
             docker exec -i erlang bash -c "make xref"
             docker exec -i erlang bash -c "make ct"
             docker exec -i erlang bash -c "make cover"
+            docker exec -i erlang bash -c "make coveralls"
         - uses: actions/upload-artifact@v1
           if: failure()
           with:
