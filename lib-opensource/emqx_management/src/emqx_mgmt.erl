@@ -919,7 +919,7 @@ get_telemetry_data() ->
 
 item(client, {ClientId, ChanPid}) ->
     Attrs = case emqx_cm:get_chan_info(ClientId, ChanPid) of
-                undefined -> #{};
+                undefined -> throw(gone);
                 Attrs0 -> Attrs0
             end,
     Stats = case emqx_cm:get_chan_stats(ClientId, ChanPid) of
@@ -933,7 +933,7 @@ item(client, {ClientId, ChanPid}) ->
                   _Sess -> _Sess
               end,
     SessCreated = maps:get(created_at, Session, maps:get(connected_at, ConnInfo)),
-    Connected = case maps:get(conn_state, Attrs) of
+    Connected = case maps:get(conn_state, Attrs, connected) of
                     connected -> true;
                     _ -> false
                 end,
