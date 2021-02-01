@@ -218,15 +218,8 @@ start_resource(ResId, PoolName, Options) ->
     end.
 
 -spec(on_get_resource_status(binary(), map()) -> map()).
-on_get_resource_status(ResId, Conf) ->
-    #{is_alive => try
-                      test_http_connect(Conf),
-                      true
-                  catch _ : Reason ->
-                      ?LOG(error, "Connectivity Check for ~p failed, ResId: ~p, ~0p",
-                          [?RESOURCE_TYPE_WEBHOOK, ResId, Reason]),
-                      false
-                  end}.
+on_get_resource_status(_ResId, Conf) ->
+    #{is_alive => test_http_connect(Conf)}.
 
 -spec(on_resource_destroy(binary(), map()) -> ok | {error, Reason::term()}).
 on_resource_destroy(ResId, #{<<"pool">> := PoolName}) ->
@@ -392,14 +385,16 @@ parse_host(Host) ->
     end.
 
 test_http_connect(Conf) ->
-    Url = maps:get(<<"url">>, Conf),
-    try emqx_rule_utils:http_connectivity(Url) of
+    Url = fun() -> maps:get(<<"url">>, Conf) end,
+    try
+       emqx_rule_utils:http_connectivity(Url())
+    of
        ok -> true;
        {error, _Reason} ->
-         ?LOG(error, "check http_connectivity failed: ~p", [Url]),
-         false
+           ?LOG(error, "check http_connectivity failed: ~p", [Url()]),
+           false
     catch
         Err:Reason:ST ->
-           ?LOG(error, "check http_connectivity failed: ~p, ~0p", [Url, {Err, Reason, ST}]),
+           ?LOG(error, "check http_connectivity failed: ~p, ~0p", [Conf, {Err, Reason, ST}]),
            false
     end.
