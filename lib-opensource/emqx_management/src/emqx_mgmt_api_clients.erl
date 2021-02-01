@@ -250,7 +250,15 @@ parse_ratelimit_str(S) ->
 %% Format
 
 format(Items) when is_list(Items) ->
-    [format(Item) || Item <- Items];
+    lists:foldr(
+      fun(Item, Acc) ->
+        try
+            [format(Item) | Acc]
+        catch
+            throw:gone:_Stk ->
+                Acc
+        end
+      end, [], Items);
 format(Key) when is_tuple(Key) ->
     format(emqx_mgmt:item(client, Key));
 format(Data) when is_map(Data)->
