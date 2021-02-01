@@ -27,7 +27,7 @@
 -export([init/1]).
 
 start_link() ->
-	supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
     Opts = [public, named_table, set, {read_concurrency, true}],
@@ -45,7 +45,13 @@ init([]) ->
                 shutdown => 5000,
                 type => worker,
                 modules => [emqx_rule_metrics]},
-    {ok, {{one_for_one, 10, 10}, [Registry, Metrics]}}.
+    Monitor = #{id => emqx_rule_monitor,
+                start => {emqx_rule_monitor, start_link, []},
+                restart => permanent,
+                shutdown => 5000,
+                type => worker,
+                modules => [emqx_rule_monitor]},
+    {ok, {{one_for_one, 10, 10}, [Registry, Metrics, Monitor]}}.
 
 start_locker() ->
     Locker = #{id => emqx_rule_locker,
