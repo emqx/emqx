@@ -28,7 +28,8 @@ plugins() ->
     ].
 
 test_plugins() ->
-    [ {coveralls, {git, "https://github.com/emqx/coveralls-erl", {branch, "github"}}}
+    [ rebar3_proper,
+      {coveralls, {git, "https://github.com/emqx/coveralls-erl", {branch, "github"}}}
     ].
 
 test_deps() ->

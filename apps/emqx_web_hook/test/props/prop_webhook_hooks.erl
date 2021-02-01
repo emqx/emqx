@@ -290,58 +290,22 @@ prop_message_acked() ->
             true
         end).
 
-prop_try_again() ->
-    Setup = fun() ->
-                logger:set_module_level(emqx_web_hook, emergency),
-                meck:new(httpc, [passthrough, no_history]),
-                meck:expect(httpc, request,
-                    fun(Method, {Url, [], ContentType, Body}, _HttpOpts, _Opt) ->
-                        self() ! {Method, Url, ContentType, Body}, {error, get(code)}
-                    end),
-                meck:new(emqx_metrics, [passthrough, no_history]),
-                meck:expect(emqx_metrics, inc, fun(_) -> ok end)
-            end,
-    Teardown = fun() ->
-                   meck:unload(httpc),
-                   meck:unload(emqx_metrics),
-                   logger:set_module_level(emqx_web_hook, debug)
-               end,
-    ?SETUP(fun() -> Setup(), Teardown end,
-        ?FORALL({ConnInfo, ConnProps, Env, Code},
-                {conninfo(), conn_properties(), empty_env(), http_code()},
-                begin
-                    %% pre-set error code
-                    put(code, Code),
-                    %% run hook
-                    ok = emqx_web_hook:on_client_connect(ConnInfo, ConnProps, Env),
-
-                    Bodys = receive_http_request_bodys(),
-                    Body = emqx_json:encode(
-                             #{action => client_connect,
-                               node => stringfy(node()),
-                               clientid => maps:get(clientid, ConnInfo),
-                               username => maybe(maps:get(username, ConnInfo)),
-                               ipaddress => peer2addr(maps:get(peername, ConnInfo)),
-                               keepalive => maps:get(keepalive, ConnInfo),
-                               proto_ver => maps:get(proto_ver, ConnInfo)
-                              }),
-                    [ B = Body || B <- Bodys],
-                    if Code == socket_closed_remotely ->
-                           4 = length(Bodys);
-                       true -> ok
-                    end,
-                    true
-                end)).
-
 %%--------------------------------------------------------------------
 %% Helper
 %%--------------------------------------------------------------------
 do_setup() ->
+    %% Pre-defined envs
+    application:set_env(emqx_web_hook, path, "path"),
+    application:set_env(emqx_web_hook, headers, []),
+
+    meck:new(ehttpc_pool, [passthrough, no_history]),
+    meck:expect(ehttpc_pool, pick_worker, fun(_, _) -> ok end),
+
     Self = self(),
-    meck:new(httpc, [passthrough, no_history]),
-    meck:expect(httpc, request,
-                fun(Method, {Url, [], ContentType, Body}, _HttpOpts, _Opt) ->
-                    Self ! {Method, Url, ContentType, Body}, {ok, ok}
+    meck:new(ehttpc, [passthrough, no_history]),
+    meck:expect(ehttpc, request,
+                fun(_ClientId, Method, {Path, Headers, Body}) ->
+                    Self ! {Method, Path, Headers, Body}, {ok, ok, ok}
                 end),
 
     meck:new(emqx_metrics, [passthrough, no_history]),
@@ -349,7 +313,8 @@ do_setup() ->
     ok.
 
 do_teardown(_) ->
-    meck:unload(httpc),
+    meck:unload(ehttpc_pool),
+    meck:unload(ehttpc),
     meck:unload(emqx_metrics).
 
 maybe(undefined) -> null;
@@ -372,7 +337,7 @@ stringfy(Term) ->
 
 receive_http_request_body() ->
     receive
-        {post, "http://127.0.0.1", "application/json", Body} ->
+        {post, _, _, Body} ->
             Body
     after 100 ->
         exit(waiting_message_timeout)
@@ -383,7 +348,7 @@ receive_http_request_bodys() ->
 
 receive_http_request_bodys_(Acc) ->
     receive
-        {post, "http://127.0.0.1", "application/json", Body} ->
+        {post, _, _, Body} ->
            receive_http_request_bodys_([Body|Acc])
     after 1000 ->
           lists:reverse(Acc)
