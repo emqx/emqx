@@ -300,7 +300,7 @@ do_update_resource(#{id := Id, type := Type, description := NewDescription, conf
                     cluster_call(init_resource, [Module, Create, Id, Config]),
                     emqx_rule_registry:add_resource(Resource);
                {error, Reason} ->
-                    {error, Reason}
+                    error({error, Reason})
             end
     end.
 
