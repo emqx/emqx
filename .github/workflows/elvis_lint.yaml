@@ -7,5 +7,4 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v1
-      - run: |
-          ./scripts/elvis-check.sh $GITHUB_BASE_REF
+      - run: ./scripts/elvis-check.sh $GITHUB_BASE_REF

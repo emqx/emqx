@@ -1,0 +1,17 @@
+name: Appup Check
+
+on:
+  push:
+    tags:
+      - v*
+  release:
+    types:
+      - published
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v1
+      - run: ./scripts/appup-check.sh
