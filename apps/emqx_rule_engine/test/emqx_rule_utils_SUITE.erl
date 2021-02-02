@@ -116,3 +116,12 @@ t_preproc_sql3(_) ->
     ParamsTokens = emqx_rule_utils:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d}">>),
     ?assertEqual(<<"a:'1',b:1,c:1.0,d:'{\"d1\":\"hi\"}'">>,
                  emqx_rule_utils:proc_sql_param_str(ParamsTokens, Selected)).
+
+t_preproc_sql4(_) ->
+    %% with apostrophes
+    %% https://github.com/emqx/emqx/issues/4135
+    Selected = #{a => <<"1''2">>, b => 1, c => 1.0,
+                 d => #{d1 => <<"someone's phone">>}},
+    ParamsTokens = emqx_rule_utils:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d}">>),
+    ?assertEqual(<<"a:'1\\'\\'2',b:1,c:1.0,d:'{\"d1\":\"someone\\'s phone\"}'">>,
+                 emqx_rule_utils:proc_sql_param_str(ParamsTokens, Selected)).
