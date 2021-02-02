@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # -*- tab-width:4;indent-tabs-mode:nil -*-
 # ex: ts=4 sw=4 et
 
@@ -80,7 +80,7 @@ relx_usage() {
 check_user() {
     # Validate that the user running the script is the owner of the
     # RUN_DIR.
-    if ([ "$RUNNER_USER" ] && [ "x$WHOAMI" != "x$RUNNER_USER" ]); then
+    if [ "$RUNNER_USER" ] && [ "x$WHOAMI" != "x$RUNNER_USER" ]; then
         if [ "x$WHOAMI" != "xroot" ]; then
             echo "You need to be root or use sudo to run this command"
             exit 1
@@ -91,13 +91,13 @@ check_user() {
         done
         # This will drop priviledges into the runner user
         # It exec's in a new shell and the current shell will exit
-        exec su - $RUNNER_USER -c "$CMD"
+        exec su - "$RUNNER_USER" -c "$CMD"
     fi
 }
 
 
 # Make sure the user running this script is the owner and/or su to that user
-check_user $@
+check_user "$@"
 ES=$?
 if [ "$ES" -ne 0 ]; then
     exit $ES
@@ -110,7 +110,7 @@ else
 fi
 
 # Warn the user if ulimit -n is less than 1024
-ULIMIT_F=`ulimit -n`
+ULIMIT_F=$(ulimit -n)
 if [ "$ULIMIT_F" -lt 1024 ]; then
     echo "!!!!"
     echo "!!!! WARNING: ulimit -n is ${ULIMIT_F}; 1024 is the recommended minimum."
@@ -145,7 +145,7 @@ relx_get_pid() {
 
 relx_get_nodename() {
     id="longname$(relx_gen_id)-${NAME}"
-    "$BINDIR/erl" -boot "$REL_DIR/start_clean" -eval '[Host] = tl(string:tokens(atom_to_list(node()),"@")), io:format("~s~n", [Host]), halt()' -noshell ${NAME_TYPE} $id
+    "$BINDIR/erl" -boot "$REL_DIR/start_clean" -eval '[Host] = tl(string:tokens(atom_to_list(node()),"@")), io:format("~s~n", [Host]), halt()' -noshell "${NAME_TYPE}" "$id"
 }
 
 # Connect to a remote node
@@ -160,7 +160,7 @@ relx_rem_sh() {
     # Setup remote shell command to control node
     exec "$BINDIR/erl" "$NAME_TYPE" "$id" -remsh "$NAME" -boot "$REL_DIR/start_clean" \
          -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
-         -setcookie "$COOKIE" -hidden -kernel net_ticktime $TICKTIME $EPMD_ARG
+         -setcookie "$COOKIE" -hidden -kernel net_ticktime "$TICKTIME" $EPMD_ARG
 }
 
 # Generate a random id
@@ -174,7 +174,7 @@ relx_nodetool() {
 
     ERL_FLAGS="$ERL_FLAGS $EPMD_ARG" \
     "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" "$NAME_TYPE" "$NAME" \
-                                -setcookie "$COOKIE" "$command" $@
+                                -setcookie "$COOKIE" "$command" "$@"
 }
 
 # Run an escript in the node's environment
@@ -182,7 +182,7 @@ relx_escript() {
     shift; scriptpath="$1"; shift
     export RUNNER_ROOT_DIR
 
-    "$ERTS_DIR/bin/escript" "$ROOTDIR/$scriptpath" $@
+    "$ERTS_DIR/bin/escript" "$ROOTDIR/$scriptpath" "$@"
 }
 
 # Output a start command for the last argument of run_erl
@@ -205,19 +205,19 @@ generate_config() {
         # the vm, we need to pass it in twice.
         CONFIG_ARGS=" -config $RUNNER_ETC_DIR/app.config -args_file $RUNNER_ETC_DIR/vm.args -vm_args $RUNNER_ETC_DIR/vm.args "
     else
-        CONFIG_ARGS=`$ERTS_PATH/escript $RUNNER_ROOT_DIR/bin/cuttlefish -i $REL_DIR/emqx.schema -c $RUNNER_ETC_DIR/emqx.conf -d $RUNNER_DATA_DIR/configs generate`
+        CONFIG_ARGS=$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -i "$REL_DIR"/emqx.schema -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)
 
         ## Merge cuttlefish generated *.args into the vm.args
-        CUTTLE_GEN_ARG_FILE=`echo "$CONFIG_ARGS" | sed -n 's/^.*\(vm_args[[:space:]]\)//p' | awk '{print $1}'`
+        CUTTLE_GEN_ARG_FILE=$(echo "$CONFIG_ARGS" | sed -n 's/^.*\(vm_args[[:space:]]\)//p' | awk '{print $1}')
         TMP_ARG_FILE="$RUNNER_DATA_DIR/configs/vm.args.tmp"
         cp "$RUNNER_ETC_DIR/vm.args" "$TMP_ARG_FILE"
         echo "" >> "$TMP_ARG_FILE"
-        sed '/^#/d' $CUTTLE_GEN_ARG_FILE | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
-            ARG_KEY=`echo "$ARG_LINE" | awk '{$NF="";print}'`
-            ARG_VALUE=`echo "$ARG_LINE" | awk '{print $NF}'`
-            TMP_ARG_VALUE=`grep "^$ARG_KEY" "$TMP_ARG_FILE" | awk '{print $NF}'`
+        sed '/^#/d' "$CUTTLE_GEN_ARG_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
+            ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
+            ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
+            TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" | awk '{print $NF}')
             if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
-                if [ ! -z $TMP_ARG_VALUE ]; then
+                if [ -n "$TMP_ARG_VALUE" ]; then
                     sh -c "$SED_REPLACE 's/^$ARG_KEY.*$/$ARG_LINE/' $TMP_ARG_FILE"
                 else
                     echo "$ARG_LINE" >> "$TMP_ARG_FILE"
@@ -237,7 +237,7 @@ generate_config() {
 # Call bootstrapd for daemon commands like start/stop/console
 bootstrapd() {
     if [ -e "$RUNNER_DATA_DIR/.erlang.cookie" ]; then
-        chown $RUNNER_USER $RUNNER_DATA_DIR/.erlang.cookie
+        chown "$RUNNER_USER" "$RUNNER_DATA_DIR"/.erlang.cookie
     fi
 }
 
@@ -294,7 +294,7 @@ fi
 COOKIE="$(echo "$COOKIE_ARG" | awk '{print $2}')"
 
 # Support for IPv6 Dist. See: https://github.com/emqtt/emqttd/issues/1460
-PROTO_DIST=`egrep '^[ \t]*cluster.proto_dist[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-`
+PROTO_DIST=$(grep -E '^[ \t]*cluster.proto_dist[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-)
 if [ -z "$PROTO_DIST" ]; then
     PROTO_DIST_ARG=""
 else
@@ -333,7 +333,7 @@ case "$1" in
             exit 1
         fi
         # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
-        bootstrapd $@
+        bootstrapd
 
         # Save this for later.
         CMD=$1
@@ -349,7 +349,7 @@ case "$1" in
                 HEART_OPTION="start_boot"
                 ;;
         esac
-        RUN_PARAM="$@"
+        RUN_PARAM="$*"
 
         # Set arguments for the heart command
         set -- "$RUNNER_SCRIPT" "$HEART_OPTION"
@@ -372,9 +372,9 @@ case "$1" in
                           "$(relx_start_command)"
 
         WAIT_TIME=${WAIT_FOR_ERLANG:-15}
-        while [ $WAIT_TIME -gt 0 ]; do
+        while [ "$WAIT_TIME" -gt 0 ]; do
             if ! relx_nodetool "ping" >/dev/null 2>&1; then
-                WAIT_TIME=`expr $WAIT_TIME - 1`
+                WAIT_TIME=$((WAIT_TIME - 1))
                 sleep 1
                 continue
             fi
@@ -396,14 +396,14 @@ case "$1" in
         if ! relx_nodetool "stop"; then
             exit 1
         fi
-        while $(kill -s 0 "$PID" 2>/dev/null); do
+        while kill -s 0 "$PID" 2>/dev/null; do
             sleep 1
         done
         ;;
 
     restart|reboot)
-        echo "$EMQX_DISCR $REL_VSN is stopped: $($RUNNER_BIN_DIR/emqx stop)"
-        $RUNNER_BIN_DIR/emqx start
+        echo "$EMQX_DISCR $REL_VSN is stopped: $("$RUNNER_BIN_DIR"/emqx stop)"
+        "$RUNNER_BIN_DIR"/emqx start
         ;;
 
     pid)
@@ -422,7 +422,7 @@ case "$1" in
 
     escript)
         ## Run an escript under the node's environment
-        if ! relx_escript $@; then
+        if ! relx_escript "$@"; then
             exit 1
         fi
         ;;
@@ -435,7 +435,7 @@ case "$1" in
         fi
 
         # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
-        bootstrapd $@
+        bootstrapd
 
         shift
         exec "$BINDIR/to_erl" "$PIPE_DIR"
@@ -449,7 +449,7 @@ case "$1" in
         fi
 
         # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
-        bootstrapd $@
+        bootstrapd
 
         shift
         relx_rem_sh
@@ -491,7 +491,7 @@ case "$1" in
 
     console|console_clean|console_boot)
         # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
-        bootstrapd $@
+        bootstrapd
 
         # .boot file typically just $REL_NAME (ie, the app name)
         # however, for debugging, sometimes start_clean.boot is useful.
@@ -525,7 +525,7 @@ case "$1" in
         export PROGNAME
 
         # Store passed arguments since they will be erased by `set`
-        ARGS="$@"
+        ARGS="$*"
 
         # shellcheck disable=SC2086 # $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
         # Build an array of arguments to pass to exec later on
@@ -536,12 +536,12 @@ case "$1" in
             $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG
 
         # Dump environment info for logging purposes
-        echo "Exec: $@" -- ${1+$ARGS}
+        echo "Exec: $*" -- ${1+$ARGS}
         echo "Root: $ROOTDIR"
 
         # Log the startup
         echo "$RUNNER_ROOT_DIR"
-        logger -t "$REL_NAME[$$]" "Starting up"
+        logger -t "${REL_NAME[$$]}" "Starting up"
 
         # Start the VM
         exec "$@" -- ${1+$ARGS}
@@ -549,7 +549,7 @@ case "$1" in
 
     foreground)
         # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
-        bootstrapd $@
+        bootstrapd
         # start up the release in the foreground for use by runit
         # or other supervision services
 
@@ -567,7 +567,7 @@ case "$1" in
         export PROGNAME
 
         # Store passed arguments since they will be erased by `set`
-        ARGS="$@"
+        ARGS="$*"
 
         # shellcheck disable=SC2086 # $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
         # Build an array of arguments to pass to exec later on
@@ -579,14 +579,14 @@ case "$1" in
             $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG
 
         # Dump environment info for logging purposes
-        echo "Exec: $@" -- ${1+$ARGS}
+        echo "Exec: $*" -- ${1+$ARGS}
         echo "Root: $ROOTDIR"
 
         # Start the VM
         exec "$@" -- ${1+$ARGS}
         ;;
     ertspath)
-        echo $ERTS_PATH
+        echo "$ERTS_PATH"
         ;;
     rpc)
         # Make sure a node IS running
@@ -597,7 +597,7 @@ case "$1" in
 
         shift
 
-        relx_nodetool rpc $@
+        relx_nodetool rpc "$@"
         ;;
     rpcterms)
         # Make sure a node IS running
@@ -608,7 +608,7 @@ case "$1" in
 
         shift
 
-        relx_nodetool rpcterms $@
+        relx_nodetool rpcterms "$@"
         ;;
     root_dir)
         # Make sure a node IS running
@@ -628,10 +628,10 @@ case "$1" in
         fi
 
         shift
-        relx_nodetool "eval" $@
+        relx_nodetool "eval" "$@"
         ;;
     *)
-        relx_usage $1
+        relx_usage "$1"
         exit 1
         ;;
 esac

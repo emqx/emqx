@@ -19,7 +19,7 @@ fi
 
 relx_get_nodename() {
     id="longname$(relx_gen_id)-${NAME}"
-    "$BINDIR/erl" -boot start_clean -eval '[Host] = tl(string:tokens(atom_to_list(node()),"@")), io:format("~s~n", [Host]), halt()' -noshell ${NAME_TYPE} $id
+    "$BINDIR/erl" -boot start_clean -eval '[Host] = tl(string:tokens(atom_to_list(node()),"@")), io:format("~s~n", [Host]), halt()' -noshell "${NAME_TYPE}" "$id"
 }
 
 # Control a node
@@ -72,7 +72,7 @@ fi
 COOKIE="$(echo "$COOKIE_ARG" | awk '{print $2}')"
 
 # Support for IPv6 Dist. See: https://github.com/emqtt/emqttd/issues/1460
-PROTO_DIST=`egrep '^[ \t]*cluster.proto_dist[ \t]*=[ \t]*' $RUNNER_ETC_DIR/emqx.conf 2> /dev/null | tail -1 | cut -d = -f 2-`
+PROTO_DIST=$(grep -E '^[ \t]*cluster.proto_dist[ \t]*=[ \t]*' "$RUNNER_ETC_DIR"/emqx.conf 2> /dev/null | tail -1 | cut -d = -f 2-)
 if [ -z "$PROTO_DIST" ]; then
     PROTO_DIST_ARG=""
 else

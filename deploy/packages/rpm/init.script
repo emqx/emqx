@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # emqx
 #
@@ -13,7 +13,6 @@
 
 RETVAL=0
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
-DESC="EMQX, a distributed, massively scalable, highly extensible MQTT message broker written in Erlang/OTP"
 NAME=emqx
 DAEMON=/usr/bin/$NAME
 lockfile=/var/lock/subsys/$NAME
@@ -36,7 +35,7 @@ if [ -z "$HOME" ]; then
     export HOME=
 fi
 
-status -p $pidfile -l $(basename $lockfile) $NAME >/dev/null 2>&1
+status -p $pidfile -l "$(basename $lockfile)" $NAME >/dev/null 2>&1
 running=$?
 
 find_pid() {
@@ -45,7 +44,8 @@ find_pid() {
 }
 
 check_pid_status() {
-    local pid="$(find_pid)"
+    local pid
+    pid="$(find_pid)"
     if [ "$pid" = "" ]; then
         # prog not running?
         return 1
@@ -75,7 +75,7 @@ stop() {
     # Stop daemon.
     echo -n $"Shutting down emqx: "
     $DAEMON stop 2>/dev/null
-    for n in $(seq 1 10); do
+    for _ in $(seq 1 10); do
         sleep 1
         check_pid_status
         RETVAL=$?
@@ -96,7 +96,7 @@ stop() {
 hardstop() {
     echo -n $"Shutting down $NAME: "
     su - emqx -c "ps -ef | grep -E '\-progname\s+$NAME\s' | awk '{print \$2}' | xargs kill -9"
-    for n in $(seq 1 10); do
+    for _ in $(seq 1 10); do
         sleep 1
         check_pid_status
         RETVAL=$?
@@ -136,7 +136,7 @@ case "$1" in
         restart
         ;;
     status)
-        status -p $pidfile -l $(basename $lockfile) $NAME
+        status -p $pidfile -l "$(basename $lockfile)" $NAME
         ;;
     ping)
         $DAEMON ping || exit $?

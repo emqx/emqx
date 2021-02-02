@@ -39,8 +39,8 @@ docker run -d -t --restart=always --name "$NODE1" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
   -e WAIT_FOR_ERLANG=60 \
   -p 18083:18083 \
-  -v $PROJ_DIR/_build/emqx/rel/emqx:/built \
-  $IMAGE sh -c 'cp -r /built /emqx && /emqx/bin/emqx console'
+  -v "$PROJ_DIR"/_build/emqx/rel/emqx:/built \
+  "$IMAGE" sh -c 'cp -r /built /emqx && /emqx/bin/emqx console'
 
 docker run -d -t --restart=always --name "$NODE2" \
   --net "$NET" \
@@ -48,8 +48,8 @@ docker run -d -t --restart=always --name "$NODE2" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
   -e WAIT_FOR_ERLANG=60 \
   -p 18084:18083 \
-  -v $PROJ_DIR/_build/emqx/rel/emqx:/built \
-  $IMAGE sh -c 'cp -r /built /emqx && /emqx/bin/emqx console'
+  -v "$PROJ_DIR"/_build/emqx/rel/emqx:/built \
+  "$IMAGE" sh -c 'cp -r /built /emqx && /emqx/bin/emqx console'
 
 wait (){
   container="$1"
