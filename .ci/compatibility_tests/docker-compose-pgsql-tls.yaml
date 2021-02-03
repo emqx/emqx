@@ -24,9 +24,9 @@ services:
     image: emqx_pgsql:${PGSQL_TAG}
     restart: always
     environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mqtt
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: public
     ports:
       - "5432:5432"
     command:
