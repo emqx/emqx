@@ -146,7 +146,6 @@ relx_plugin_apps_per_rel(cloud) ->
     , emqx_exproto
     , emqx_prometheus
     , emqx_psk_file
-    , emqx_plugin_template
     ];
 relx_plugin_apps_per_rel(edge) ->
     [].
