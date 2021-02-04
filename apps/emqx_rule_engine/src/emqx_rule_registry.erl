@@ -387,6 +387,8 @@ delete_resource_type(Type) ->
 init([]) ->
     %% Enable stats timer
     ok = emqx_stats:update_interval(rule_registery_stats, fun update_stats/0),
+    ets:new(?KV_TAB, [named_table, set, public, {write_concurrency, true},
+        {read_concurrency, true}]),
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
