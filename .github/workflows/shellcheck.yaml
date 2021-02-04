@@ -1,0 +1,18 @@
+name: Shellcheck
+
+on: [pull_request]
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@master
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt install shellcheck
+      - name: Run shellcheck
+        run: |
+          ./scripts/shellcheck.sh
+          echo "success"
