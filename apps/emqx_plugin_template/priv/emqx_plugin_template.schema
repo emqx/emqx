@@ -1,6 +1,0 @@
-%%-*- mode: erlang -*-
-%% emqx_plugin_template config mapping
-{mapping, "emqx_plugin_template.name", "plugin_template.name", [
-  {default, "emqx_plugin_template"},
-  {datatype, string}
-]}.

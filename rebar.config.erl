@@ -222,7 +222,7 @@ plugin_etc_overlays(App0) ->
 %% the overlay should be hand-coded but not to rely on build-time wildcards.
 find_conf_files(App) ->
     Dir = filename:join(["apps", App, "etc"]),
-    filelib:wildcard("*.conf", Dir) ++ filelib:wildcard("*.config", Dir).
+    filelib:wildcard("*.conf", Dir).
 
 env(Name, Default) ->
     case os:getenv(Name) of
