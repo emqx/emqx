@@ -65,6 +65,8 @@
              , action_instance_params/0
              ]).
 
+-define(T_RETRY, 60000).
+
 %%------------------------------------------------------------------------------
 %% Load resource/action providers from all available applications
 %%------------------------------------------------------------------------------
@@ -392,10 +394,11 @@ refresh_resource(#resource{id = ResId, config = Config, type = Type}) ->
     {ok, #resource_type{on_create = {M, F}}} = emqx_rule_registry:find_resource_type(Type),
         try cluster_call(init_resource, [M, F, ResId, Config])
         catch Error:Reason:ST ->
-            emqx_rule_monitor:ensure_resource_started(ResId),
-            logger:critical(
-                "Can not re-stablish resource ~p: ~0p. The resource is disconnected."
-                "Fix the issue and establish it manually.\n"
+            emqx_rule_monitor:ensure_resource_retrier(ResId, ?T_RETRY),
+            logger:warning(
+                "Can not restart the resource ~p: ~0p."
+                "The resource is disconnected."
+                "You could restart it manually later.\n"
                 "Stacktrace: ~0p",
                 [ResId, {Error, Reason}, ST])
         end.

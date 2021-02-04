@@ -22,8 +22,6 @@
 -include_lib("emqx/include/logger.hrl").
 -logger_header("[Rule Monitor]").
 
--define(T_RETRY, 60000).
-
 -export([init/1,
          handle_call/3,
          handle_cast/2,
@@ -32,38 +30,42 @@
          code_change/3]).
 
 -export([ start_link/0
-        , ensure_resource_started/1
+        , stop/0
+        , ensure_resource_retrier/2
+        , keep_restart/3
         ]).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+stop() ->
+    gen_server:stop(?MODULE).
+
 init([]) ->
+    erlang:process_flag(trap_exit, true),
     {ok, #{pids => #{}}}.
 
-ensure_resource_started(ResId) ->
-    gen_server:call(?MODULE, {create_restart_handler, resource, ResId}).
+ensure_resource_retrier(ResId, Interval) ->
+    gen_server:cast(?MODULE, {create_restart_handler, resource, ResId, Interval}).
 
-handle_call({create_restart_handler, Tag, Obj}, _From, State) ->
+handle_call(_Msg, _From, State) ->
+    {reply, ok, State}.
+
+handle_cast({create_restart_handler, Tag, Obj, Interval}, State) ->
     Objects = maps:get(Tag, State, #{}),
     NewState = case maps:find(Obj, Objects) of
         error ->
             update_object(Tag, Obj,
-                create_restart_handler(Tag, Obj), State);
-        {ok, Pid} ->
-            case is_process_alive(Pid) of
-                true -> State;
-                false ->
-                    update_object(Tag, Obj,
-                        create_restart_handler(Tag, Obj), State)
-            end
+                create_restart_handler(Tag, Obj, Interval), State);
+        {ok, _Pid} ->
+            State
     end,
-    {reply, ok, NewState}.
+    {noreply, NewState};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'DOWN', _, process, Pid, Reason}, State = #{pids := Handlers}) ->
+handle_info({'EXIT', Pid, Reason}, State = #{pids := Handlers}) ->
     case maps:take(Pid, Handlers) of
         {{Tag, Obj}, Handlers2} ->
             Objects = maps:get(Tag, State, #{}),
@@ -88,21 +90,24 @@ update_object(Tag, Obj, Pid, State) ->
     Pids = maps:get(pids, State, #{}),
     State#{Tag => Objects#{Obj => Pid}, pids => Pids#{Pid => {Tag, Obj}}}.
 
-create_restart_handler(Tag, Obj) ->
-    ?LOG(info, "keep restarting ~p ~p", [Tag, Obj]),
-    {Pid, _Ref} = spawn_monitor(fun() -> keep_restart(Tag, Obj, ?T_RETRY) end),
-    Pid.
+create_restart_handler(Tag, Obj, Interval) ->
+    ?LOG(info, "keep restarting ~p ~p, interval: ~p", [Tag, Obj, Interval]),
+    %% spawn a dedicated process to handle the restarting asynchronously
+    spawn_link(?MODULE, keep_restart, [Tag, Obj, Interval]).
 
 keep_restart(resource, ResId, Interval) ->
     case emqx_rule_registry:find_resource(ResId) of
         {ok, #resource{type = Type, config = Config}} ->
-            {ok, #resource_type{on_create = {M, F}}} =
-                emqx_rule_registry:find_resource_type(Type),
-            try emqx_rule_engine:init_resource(M, F, ResId, Config)
+            try
+                {ok, #resource_type{on_create = {M, F}}} =
+                    emqx_rule_registry:find_resource_type(Type),
+                emqx_rule_engine:init_resource(M, F, ResId, Config)
             catch
-                _:_ ->
+                Err:Reason:ST ->
+                    ?LOG(warning, "init_resource failed: ~p, ~0p",
+                        [{Err, Reason}, ST]),
                     timer:sleep(Interval),
-                    keep_restart(resource, ResId, Interval)
+                    ?MODULE:keep_restart(resource, ResId, Interval)
             end;
         not_found ->
             ok
