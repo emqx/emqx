@@ -48,6 +48,8 @@ end_per_suite(_Config) ->
 
 t_restart_resource(_) ->
     {ok, _} = emqx_rule_monitor:start_link(),
+    Opts = [public, named_table, set, {read_concurrency, true}],
+    _ = ets:new(?RES_PARAMS_TAB, [{keypos, #resource_params.id}|Opts]),
     ets:new(t_restart_resource, [named_table, public]),
     ets:insert(t_restart_resource, {failed_count, 0}),
     ets:insert(t_restart_resource, {succ_count, 0}),
@@ -73,6 +75,8 @@ t_restart_resource(_) ->
     timer:sleep(1000),
     [{_, 5}] = ets:lookup(t_restart_resource, failed_count),
     [{_, 1}] = ets:lookup(t_restart_resource, succ_count),
+    #{pids := Pids} = sys:get_state(whereis(emqx_rule_monitor)),
+    ?assertEqual(0, map_size(Pids)),
     ok = emqx_rule_engine:unload_providers(),
     emqx_rule_registry:remove_resource(ResId),
     emqx_rule_monitor:stop(),
