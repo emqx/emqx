@@ -43,12 +43,14 @@ mkdir -p tmp/
 download_zip() {
     local app="$1"
     local ref="$2"
-    local vsn="$(echo "$ref" | tr '/' '-')"
+    local vsn
+    vsn="$(echo "$ref" | tr '/' '-')"
     local file="tmp/${app}-${vsn}.zip"
     if [ -f "$file" ] && [ "$force" != "force" ]; then
         return 0
     fi
-    local repo="$(echo "$app" | sed 's#_#-#g')"
+    local repo
+    repo=${app//_/-}
     local url="https://github.com/emqx/$repo/archive/$ref.zip"
     echo "downloading ${url}"
     curl -fLsS -o "$file" "$url"
@@ -56,7 +58,7 @@ download_zip() {
 
 default_vsn="dev/v4.3.0"
 download_zip "emqx_auth_mnesia" "e4.2.3"
-for app in ${apps[@]}; do
+for app in "${apps[@]}"; do
     download_zip "$app" "$default_vsn"
 done
 
@@ -64,7 +66,8 @@ extract_zip(){
     local app="$1"
     local ref="$2"
     local vsn_arg="${3:-}"
-    local vsn_dft="$(echo "$ref" | tr '/' '-')"
+    local vsn_dft
+    vsn_dft="$(echo "$ref" | tr '/' '-')"
     local vsn
     if [ -n "$vsn_arg" ]; then
         vsn="$vsn_arg"
@@ -72,14 +75,15 @@ extract_zip(){
         vsn="$vsn_dft"
     fi
     local file="tmp/${app}-${vsn_dft}.zip"
-    local repo="$(echo "$app" | sed 's#_#-#g')"
+    local repo
+    repo=${app//_/-}
     rm -rf "apps/${app}/"
     unzip "$file" -d apps/
     mv "apps/${repo}-${vsn}/" "apps/$app/"
 }
 
 extract_zip "emqx_auth_mnesia" "e4.2.3" "e4.2.3"
-for app in ${apps[@]}; do
+for app in "${apps[@]}"; do
     extract_zip "$app" "$default_vsn"
 done
 
@@ -95,6 +99,6 @@ cleanup_app(){
 }
 
 apps+=( "emqx_auth_mnesia" )
-for app in ${apps[@]}; do
-    cleanup_app $app
+for app in "${apps[@]}"; do
+    cleanup_app "$app"
 done
