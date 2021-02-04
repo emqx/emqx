@@ -424,30 +424,31 @@ udp_opts() ->
      {reuseaddr, true}].
 
 ssl_opts() ->
-    Path = emqx_ct_helpers:deps_path(emqx, "etc/certs"),
+    Certs = certs("key.pem", "cert.pem", "cacert.pem"),
     [{versions, ['tlsv1.2','tlsv1.1',tlsv1]},
-     {ciphers, ciphers()},
-     {keyfile, Path ++ "/key.pem"},
-     {certfile, Path ++ "/cert.pem"},
-     {cacertfile, Path ++ "/cacert.pem"},
+     {ciphers, ciphers('tlsv1.2')},
      {verify, verify_peer},
      {fail_if_no_peer_cert, true},
      {secure_renegotiate, false},
      {reuse_sessions, true},
-     {honor_cipher_order, true}].
+     {honor_cipher_order, true}]++Certs.
 
 dtls_opts() ->
     Opts = ssl_opts(),
     lists:keyreplace(versions, 1, Opts, {versions, ['dtlsv1.2', 'dtlsv1']}).
 
-ciphers() ->
-    proplists:get_value(ciphers, emqx_ct_helpers:client_ssl()).
+ciphers(Version) ->
+    proplists:get_value(ciphers, emqx_ct_helpers:client_ssl(Version)).
 
 %%--------------------------------------------------------------------
 %% Client-Opts
 
 client_ssl_opts() ->
-    Path = emqx_ct_helpers:deps_path(emqx, "etc/certs"),
-    [{keyfile, Path ++ "/client-key.pem"},
-     {certfile, Path ++ "/client-cert.pem"},
-     {cacertfile, Path ++ "/cacert.pem"}].
+    certs( "client-key.pem", "client-cert.pem", "cacert.pem" ).
+
+certs( Key, Cert, CACert ) ->
+    CertsPath = emqx_ct_helpers:deps_path(emqx, "etc/certs"),
+    [ { keyfile,    filename:join([ CertsPath, Key    ]) },
+      { certfile,   filename:join([ CertsPath, Cert   ]) },
+      { cacertfile, filename:join([ CertsPath, CACert ]) } ].
+
