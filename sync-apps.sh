@@ -21,7 +21,6 @@ apps=(
 "emqx_lua_hook"
 "emqx_lwm2m"
 "emqx_management"
-"emqx_plugin_template"
 "emqx_prometheus"
 "emqx_psk_file"
 "emqx_recon"
