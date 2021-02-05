@@ -219,7 +219,7 @@ delete_rule(RuleId) ->
             catch
                 Error:Reason:ST ->
                     ?LOG(error, "clear_rule ~p failed: ~p", [RuleId, {Error, Reason, ST}]),
-                    refresh_actions(Actions, fun(_) -> true end)
+                    refresh_actions(Actions)
             end;
         not_found ->
             ok
@@ -390,18 +390,8 @@ refresh_resource(Type) when is_atom(Type) ->
     lists:foreach(fun refresh_resource/1,
                   emqx_rule_registry:get_resources_by_type(Type));
 
-refresh_resource(#resource{id = ResId, config = Config, type = Type}) ->
-    {ok, #resource_type{on_create = {M, F}}} = emqx_rule_registry:find_resource_type(Type),
-        try cluster_call(init_resource, [M, F, ResId, Config])
-        catch Error:Reason:ST ->
-            emqx_rule_monitor:ensure_resource_retrier(ResId, ?T_RETRY),
-            logger:warning(
-                "Can not restart the resource ~p: ~0p."
-                "The resource is disconnected."
-                "You could restart it manually later.\n"
-                "Stacktrace: ~0p",
-                [ResId, {Error, Reason}, ST])
-        end.
+refresh_resource(#resource{id = ResId}) ->
+    emqx_rule_monitor:ensure_resource_retrier(ResId, ?T_RETRY).
 
 -spec(refresh_rules() -> ok).
 refresh_rules() ->
@@ -418,7 +408,7 @@ refresh_rules() ->
 
 refresh_rule(#rule{id = RuleId, actions = Actions}) ->
     ok = emqx_rule_metrics:create_rule_metrics(RuleId),
-    refresh_actions(Actions, fun(_) -> true end).
+    refresh_actions(Actions).
 
 -spec(refresh_resource_status() -> ok).
 refresh_resource_status() ->
