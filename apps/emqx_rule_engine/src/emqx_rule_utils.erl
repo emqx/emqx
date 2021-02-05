@@ -27,6 +27,7 @@
         , preproc_sql/2
         , proc_sql/2
         , proc_sql_param_str/2
+        , proc_cql_param_str/2
         ]).
 
 %% type converting
@@ -145,8 +146,15 @@ proc_sql(Tokens, Data) ->
 
 -spec(proc_sql_param_str(tmpl_token(), map()) -> binary()).
 proc_sql_param_str(Tokens, Data) ->
+    proc_param_str(Tokens, Data, fun quote_sql/1).
+
+-spec(proc_cql_param_str(tmpl_token(), map()) -> binary()).
+proc_cql_param_str(Tokens, Data) ->
+    proc_param_str(Tokens, Data, fun quote_cql/1).
+
+proc_param_str(Tokens, Data, Quote) ->
     iolist_to_binary(
-      proc_tmpl(Tokens, Data, #{return => rawlist, var_trans => fun quote/1})).
+      proc_tmpl(Tokens, Data, #{return => rawlist, var_trans => Quote})).
 
 %% backward compatibility for hot upgrading from =< e4.2.1
 get_phld_var(Fun, Data) when is_function(Fun) ->
@@ -238,16 +246,23 @@ sql_data(Bool) when is_boolean(Bool) -> Bool;
 sql_data(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 sql_data(Map) when is_map(Map) -> emqx_json:encode(Map).
 
-quote(Str) when is_list(Str);
-                is_binary(Str);
-                is_atom(Str);
-                is_map(Str) ->
-    [$', escape_apo(bin(Str)), $'];
-quote(Val) ->
+quote_sql(Str) ->
+    quote(Str, <<"\\\\'">>).
+
+quote_cql(Str) ->
+    quote(Str, <<"''">>).
+
+quote(Str, ReplaceWith) when
+        is_list(Str);
+        is_binary(Str);
+        is_atom(Str);
+        is_map(Str) ->
+    [$', escape_apo(bin(Str), ReplaceWith), $'];
+quote(Val, _) ->
     bin(Val).
 
-escape_apo(Str) ->
-    re:replace(Str, <<"'">>, <<"\\\\'">>, [{return, binary}, global]).
+escape_apo(Str, ReplaceWith) ->
+    re:replace(Str, <<"'">>, ReplaceWith, [{return, binary}, global]).
 
 str(Bin) when is_binary(Bin) -> binary_to_list(Bin);
 str(Num) when is_number(Num) -> number_to_list(Num);

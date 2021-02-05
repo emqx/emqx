@@ -125,3 +125,12 @@ t_preproc_sql4(_) ->
     ParamsTokens = emqx_rule_utils:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d}">>),
     ?assertEqual(<<"a:'1\\'\\'2',b:1,c:1.0,d:'{\"d1\":\"someone\\'s phone\"}'">>,
                  emqx_rule_utils:proc_sql_param_str(ParamsTokens, Selected)).
+
+t_preproc_sql5(_) ->
+    %% with apostrophes for cassandra
+    %% https://github.com/emqx/emqx/issues/4148
+    Selected = #{a => <<"1''2">>, b => 1, c => 1.0,
+                 d => #{d1 => <<"someone's phone">>}},
+    ParamsTokens = emqx_rule_utils:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d}">>),
+    ?assertEqual(<<"a:'1''''2',b:1,c:1.0,d:'{\"d1\":\"someone''s phone\"}'">>,
+                 emqx_rule_utils:proc_cql_param_str(ParamsTokens, Selected)).
