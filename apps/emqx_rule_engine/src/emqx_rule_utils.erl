@@ -238,12 +238,16 @@ sql_data(Bool) when is_boolean(Bool) -> Bool;
 sql_data(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 sql_data(Map) when is_map(Map) -> emqx_json:encode(Map).
 
-quote(List) when is_list(List) -> [$', List, $'];
-quote(Bin) when is_binary(Bin) -> [$', Bin, $'];
-quote(Num) when is_number(Num) -> bin(Num);
-quote(Bool) when is_boolean(Bool) -> bin(Bool);
-quote(Atom) when is_atom(Atom) -> [$', atom_to_binary(Atom, utf8), $'];
-quote(Map) when is_map(Map) -> [$', emqx_json:encode(Map), $'].
+quote(Str) when is_list(Str);
+                is_binary(Str);
+                is_atom(Str);
+                is_map(Str) ->
+    [$', escape_apo(bin(Str)), $'];
+quote(Val) ->
+    bin(Val).
+
+escape_apo(Str) ->
+    re:replace(Str, <<"'">>, <<"\\\\'">>, [{return, binary}, global]).
 
 str(Bin) when is_binary(Bin) -> binary_to_list(Bin);
 str(Num) when is_number(Num) -> number_to_list(Num);
