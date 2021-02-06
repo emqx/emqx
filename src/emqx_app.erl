@@ -32,12 +32,13 @@ start(_Type, _Args) ->
     print_banner(),
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),
-    ok = emqx_modules:load(),
-    ok = emqx_plugins:init(),
-    _ = emqx_plugins:load(),
+
+    ok = init_and_load_plugins(),
+    _ = start_autocluster(),
     emqx_boot:is_enabled(listeners)
       andalso (ok = emqx_listeners:start()),
-    start_autocluster(),
+    ok = emqx_plugins:init(),
+    emqx_plugins:load(),
     register(emqx, self()),
     ok = emqx_alarm_handler:load(),
     print_vsn(),
@@ -47,8 +48,7 @@ start(_Type, _Args) ->
 stop(_State) ->
     ok = emqx_alarm_handler:unload(),
     emqx_boot:is_enabled(listeners)
-      andalso emqx_listeners:stop(),
-    emqx_modules:unload().
+      andalso emqx_listeners:stop().
 
 %%--------------------------------------------------------------------
 %% Print Banner
@@ -62,12 +62,24 @@ print_vsn() ->
     {ok, Vsn} = application:get_key(vsn),
     io:format("~s ~s is running now!~n", [Descr, Vsn]).
 
-%%--------------------------------------------------------------------
-%% Autocluster
-%%--------------------------------------------------------------------
+-ifdef(EMQX_ENTERPRISE).
+
+init_and_load_plugins() -> ok.
 
 start_autocluster() ->
     ekka:callback(prepare, fun emqx:shutdown/1),
     ekka:callback(reboot,  fun emqx:reboot/0),
-    ekka:autocluster(?APP).
+    _ = ekka:autocluster(?APP),
+    ok.
 
+-else.
+
+init_and_load_plugins() ->
+    ok = emqx_modules:load(),
+    ok = emqx_plugins:init(),
+    _ = emqx_plugins:load(),
+    ok.
+
+start_autocluster() -> ok.
+
+-endif. % EMQX_ENTERPRISE
