@@ -26,13 +26,13 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
+    emqx_ct_helpers:start_apps([emqx_modules]),
     %% Ensure all the modules unloaded.
     ok = emqx_modules:unload(),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
+    emqx_ct_helpers:stop_apps([emqx_modules]).
 
 %% Test case for emqx_mod_presence
 t_mod_presence(_) ->

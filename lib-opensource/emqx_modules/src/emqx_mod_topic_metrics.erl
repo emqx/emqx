@@ -19,9 +19,9 @@
 -behaviour(gen_server).
 -behaviour(emqx_gen_mod).
 
--include("emqx.hrl").
--include("logger.hrl").
--include("emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -logger_header("[TOPIC_METRICS]").
 

@@ -28,11 +28,11 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_testcase(_, Config) ->
     emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([emqx_telemetry]),
+    emqx_ct_helpers:start_apps([emqx_modules, emqx_telemetry]),
     Config.
 
 end_per_testcase(_, _Config) ->
-    emqx_ct_helpers:stop_apps([emqx_telemetry]).
+    emqx_ct_helpers:stop_apps([emqx_telemetry, emqx_modules]).
 
 t_uuid(_) ->
     UUID = emqx_telemetry:generate_uuid(),

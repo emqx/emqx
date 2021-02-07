@@ -70,7 +70,7 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_auth_pgsql]),
+    emqx_ct_helpers:start_apps([emqx_modules, emqx_auth_pgsql]),
     drop_acl(),
     drop_auth(),
     init_auth(),
@@ -79,7 +79,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(Config) ->
-    emqx_ct_helpers:stop_apps([emqx_auth_pgsql]),
+    emqx_ct_helpers:stop_apps([emqx_auth_pgsql, emqx_modules]),
     Config.
 
 set_special_configs() ->

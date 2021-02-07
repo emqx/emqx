@@ -4,7 +4,9 @@
 
 do(Dir, CONFIG) ->
     ok = compile_and_load_pase_transforms(Dir),
-    dump(deps(CONFIG) ++ dialyzer(CONFIG) ++ coveralls() ++ config()).
+    C1 = deps(CONFIG),
+    Config = dialyzer(C1),
+    dump(Config ++ coveralls() ++ config()).
 
 bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
@@ -20,7 +22,18 @@ deps(Config) ->
 config() ->
     [ {plugins, plugins()}
     , {profiles, profiles()}
+    , {project_app_dirs, project_app_dirs()}
     ].
+
+extra_lib_dir() ->
+    EnterpriseFlag = os:getenv("EMQX_ENTERPRISE"),
+    case EnterpriseFlag =:= "true" orelse EnterpriseFlag =:= "1" of
+        true -> "lib-enterprise";
+        false -> "lib-opensource"
+    end.
+
+project_app_dirs() ->
+    ["apps/*", extra_lib_dir() ++ "/*", "."].
 
 plugins() ->
     [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {branch,"master"}}},
@@ -142,6 +155,7 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_rule_engine
     , emqx_sasl
     , emqx_telemetry
+    , emqx_modules
     ] ++ relx_plugin_apps_per_rel(ReleaseType).
 
 relx_plugin_apps_per_rel(cloud) ->
@@ -229,8 +243,9 @@ plugin_etc_overlays(App0) ->
 %% NOTE: for apps fetched as rebar dependency (there is so far no such an app)
 %% the overlay should be hand-coded but not to rely on build-time wildcards.
 find_conf_files(App) ->
-    Dir = filename:join(["apps", App, "etc"]),
-    filelib:wildcard("*.conf", Dir).
+    Dir1 = filename:join(["apps", App, "etc"]),
+    Dir2 = filename:join([extra_lib_dir(), App, "etc"]),
+    filelib:wildcard("*.conf", Dir1) ++ filelib:wildcard("*.conf", Dir2).
 
 env(Name, Default) ->
     case os:getenv(Name) of
@@ -275,7 +290,9 @@ str(L) when is_list(L) -> L;
 str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
 erl_opts_i() ->
-    [{i, "apps"}] ++ [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "**", "include"]))].
+    [{i, "apps"}] ++
+    [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "**", "include"]))] ++
+    [{i, Dir}  || Dir <- filelib:wildcard(filename:join([extra_lib_dir(), "**", "include"]))].
 
 dialyzer(Config) ->
     {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),
@@ -287,12 +304,9 @@ dialyzer(Config) ->
             [ list_to_atom(App) || App <- string:tokens(Value, ",")]
     end,
 
-    AppsDir = "apps",
-    AppNames = [emqx | list_dir(AppsDir)],
+    AppNames = [emqx | list_dir("apps")] ++ list_dir(extra_lib_dir()),
 
     KnownApps = [Name ||  Name <- AppsToAnalyse, lists:member(Name, AppNames)],
-    UnknownApps = AppsToAnalyse -- KnownApps,
-    io:format("Unknown Apps ~p ~n", [UnknownApps]),
 
     AppsToExclude = AppNames -- KnownApps,
 

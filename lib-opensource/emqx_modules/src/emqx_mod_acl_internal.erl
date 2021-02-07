@@ -18,8 +18,8 @@
 
 -behaviour(emqx_gen_mod).
 
--include("emqx.hrl").
--include("logger.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -logger_header("[ACL_INTERNAL]").
 

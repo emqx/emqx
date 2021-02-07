@@ -18,7 +18,7 @@
 
 -behaviour(supervisor).
 
--include("types.hrl").
+-include_lib("emqx/include/types.hrl").
 
 -export([ start_link/0
         , start_child/1
