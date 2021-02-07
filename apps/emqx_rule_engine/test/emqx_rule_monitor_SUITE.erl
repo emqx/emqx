@@ -46,13 +46,25 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-t_restart_resource(_) ->
-    {ok, _} = emqx_rule_monitor:start_link(),
+init_per_testcase(t_restart_resource, Config) ->
     Opts = [public, named_table, set, {read_concurrency, true}],
     _ = ets:new(?RES_PARAMS_TAB, [{keypos, #resource_params.id}|Opts]),
     ets:new(t_restart_resource, [named_table, public]),
     ets:insert(t_restart_resource, {failed_count, 0}),
     ets:insert(t_restart_resource, {succ_count, 0}),
+    Config;
+
+init_per_testcase(_, Config) ->
+    Config.
+
+end_per_testcase(t_restart_resource, Config) ->
+    ets:delete(t_restart_resource),
+    Config;
+end_per_testcase(_, Config) ->
+    Config.
+
+t_restart_resource(_) ->
+    {ok, _} = emqx_rule_monitor:start_link(),
     ok = emqx_rule_registry:register_resource_types(
             [#resource_type{
                 name = test_res_1,
