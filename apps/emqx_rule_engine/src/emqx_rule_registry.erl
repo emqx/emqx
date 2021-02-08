@@ -26,6 +26,7 @@
 %% Rule Management
 -export([ get_rules/0
         , get_rules_for/1
+        , get_rules_with_same_event/1
         , get_rule/1
         , add_rule/1
         , add_rules/1
@@ -90,6 +91,8 @@
         , {?ACTION_TAB, 'actions.count', 'actions.max'}
         , {?RES_TAB, 'resources.count', 'resources.max'}
         ]).
+
+-define(T_CALL, 10000).
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -170,6 +173,15 @@ get_rules_for(Topic) ->
     [Rule || Rule = #rule{for = For} <- get_rules(),
              emqx_rule_utils:can_topic_match_oneof(Topic, For)].
 
+-spec(get_rules_with_same_event(Topic :: binary()) -> list(emqx_rule_engine:rule())).
+get_rules_with_same_event(Topic) ->
+    EventName = emqx_rule_events:event_name(Topic),
+    [Rule || Rule = #rule{for = For} <- get_rules(),
+             lists:any(fun(T) -> is_of_event_name(EventName, T) end, For)].
+
+is_of_event_name(EventName, Topic) ->
+    EventName =:= emqx_rule_events:event_name(Topic).
+
 -spec(get_rule(Id :: rule_id()) -> {ok, emqx_rule_engine:rule()} | not_found).
 get_rule(Id) ->
     case mnesia:dirty_read(?RULE_TAB, Id) of
@@ -179,23 +191,24 @@ get_rule(Id) ->
 
 -spec(add_rule(emqx_rule_engine:rule()) -> ok).
 add_rule(Rule) when is_record(Rule, rule) ->
-    trans(fun insert_rule/1, [Rule]).
+    add_rules([Rule]).
 
 -spec(add_rules(list(emqx_rule_engine:rule())) -> ok).
 add_rules(Rules) ->
-    trans(fun lists:foreach/2, [fun insert_rule/1, Rules]).
+    gen_server:call(?REGISTRY, {add_rules, Rules}, ?T_CALL).
 
 -spec(remove_rule(emqx_rule_engine:rule() | rule_id()) -> ok).
 remove_rule(RuleOrId) ->
-    trans(fun delete_rule/1, [RuleOrId]).
+    remove_rules([RuleOrId]).
 
 -spec(remove_rules(list(emqx_rule_engine:rule()) | list(rule_id())) -> ok).
 remove_rules(Rules) ->
-    trans(fun lists:foreach/2, [fun delete_rule/1, Rules]).
+    gen_server:call(?REGISTRY, {remove_rules, Rules}, ?T_CALL).
 
 %% @private
-insert_rule(Rule = #rule{}) ->
-    mnesia:write(?RULE_TAB, Rule, write).
+insert_rule(Rule = #rule{for = Topics}) ->
+    mnesia:write(?RULE_TAB, Rule, write),
+    lists:foreach(fun emqx_rule_events:load/1, Topics).
 
 %% @private
 delete_rule(RuleId) when is_binary(RuleId) ->
@@ -203,8 +216,14 @@ delete_rule(RuleId) when is_binary(RuleId) ->
         {ok, Rule} -> delete_rule(Rule);
         not_found -> ok
     end;
-delete_rule(Rule = #rule{}) when is_record(Rule, rule) ->
-    mnesia:delete_object(?RULE_TAB, Rule, write).
+delete_rule(Rule = #rule{for = Topics}) when is_record(Rule, rule) ->
+    mnesia:delete_object(?RULE_TAB, Rule, write),
+    lists:foreach(fun(Topic) ->
+            case get_rules_with_same_event(Topic) of
+                [] -> emqx_rule_events:unload(Topic);
+                _ -> ok
+            end
+        end, Topics).
 
 %%------------------------------------------------------------------------------
 %% Action Management
@@ -388,6 +407,14 @@ init([]) ->
     %% Enable stats timer
     ok = emqx_stats:update_interval(rule_registery_stats, fun update_stats/0),
     {ok, #{}}.
+
+handle_call({add_rules, Rules}, _From, State) ->
+    trans(fun lists:foreach/2, [fun insert_rule/1, Rules]),
+    {reply, ok, State};
+
+handle_call({remove_rules, Rules}, _From, State) ->
+    trans(fun lists:foreach/2, [fun delete_rule/1, Rules]),
+    {reply, ok, State};
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "[RuleRegistry]: unexpected call - ~p", [Req]),

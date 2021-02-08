@@ -16,12 +16,14 @@
 
 -module(emqx_rule_events).
 
+-include("rule_engine.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -logger_header("[RuleEvents]").
 
 -export([ load/1
+        , unload/0
         , unload/1
         , event_name/1
         , eventmsg_publish/1
@@ -60,16 +62,22 @@
         ]).
 -endif.
 
-load(Env) ->
-    lists:foreach(
-      fun(HookPoint) ->
-              ok = emqx_hooks:put(HookPoint, {?MODULE, hook_fun(HookPoint), [hook_conf(HookPoint, Env)]})
-      end, ?SUPPORTED_HOOK).
+load(Topic) ->
+    HookPoint = event_name(Topic),
+    emqx_hooks:put(HookPoint, {?MODULE, hook_fun(HookPoint),
+        [hook_conf(HookPoint, env())]}).
 
-unload(_Env) ->
-    [emqx_hooks:del(HookPoint, {?MODULE, hook_fun(HookPoint)})
-     || HookPoint <- ?SUPPORTED_HOOK],
-    ok.
+unload() ->
+    lists:foreach(fun(HookPoint) ->
+            emqx_hooks:del(HookPoint, {?MODULE, hook_fun(HookPoint)})
+        end, ?SUPPORTED_HOOK).
+
+unload(Topic) ->
+    HookPoint = event_name(Topic),
+    emqx_hooks:del(HookPoint, {?MODULE, hook_fun(HookPoint)}).
+
+env() ->
+    application:get_all_env(?APP).
 
 %%--------------------------------------------------------------------
 %% Callbacks
@@ -574,17 +582,19 @@ reason(_) -> internal_error.
 
 ntoa(undefined) -> undefined;
 ntoa({IpAddr, Port}) ->
-    iolist_to_binary([inet:ntoa(IpAddr),":",integer_to_list(Port)]);
+    iolist_to_binary([inet:ntoa(IpAddr), ":", integer_to_list(Port)]);
 ntoa(IpAddr) ->
     iolist_to_binary(inet:ntoa(IpAddr)).
 
 event_name(<<"$events/client_connected", _/binary>>) -> 'client.connected';
 event_name(<<"$events/client_disconnected", _/binary>>) -> 'client.disconnected';
 event_name(<<"$events/session_subscribed", _/binary>>) -> 'session.subscribed';
-event_name(<<"$events/session_unsubscribed", _/binary>>) -> 'session.unsubscribed';
+event_name(<<"$events/session_unsubscribed", _/binary>>) ->
+    'session.unsubscribed';
 event_name(<<"$events/message_delivered", _/binary>>) -> 'message.delivered';
 event_name(<<"$events/message_acked", _/binary>>) -> 'message.acked';
-event_name(<<"$events/message_dropped", _/binary>>) -> 'message.dropped'.
+event_name(<<"$events/message_dropped", _/binary>>) -> 'message.dropped';
+event_name(_) -> 'message.publish'.
 
 event_topic('client.connected') -> <<"$events/client_connected">>;
 event_topic('client.disconnected') -> <<"$events/client_disconnected">>;
