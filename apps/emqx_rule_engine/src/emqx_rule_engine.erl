@@ -414,8 +414,9 @@ refresh_rules() ->
         end
     end, emqx_rule_registry:get_rules()).
 
-refresh_rule(#rule{id = RuleId, actions = Actions}) ->
+refresh_rule(#rule{id = RuleId, for = Topics, actions = Actions}) ->
     ok = emqx_rule_metrics:create_rule_metrics(RuleId),
+    lists:foreach(fun emqx_rule_events:load/1, Topics),
     refresh_actions(Actions, fun(_) -> true end).
 
 -spec(refresh_resource_status() -> ok).

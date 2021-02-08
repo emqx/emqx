@@ -207,8 +207,8 @@ remove_rules(Rules) ->
 
 %% @private
 insert_rule(Rule = #rule{for = Topics}) ->
-    mnesia:write(?RULE_TAB, Rule, write),
-    lists:foreach(fun emqx_rule_events:load/1, Topics).
+    lists:foreach(fun emqx_rule_events:load/1, Topics),
+    mnesia:write(?RULE_TAB, Rule, write).
 
 %% @private
 delete_rule(RuleId) when is_binary(RuleId) ->
@@ -216,14 +216,15 @@ delete_rule(RuleId) when is_binary(RuleId) ->
         {ok, Rule} -> delete_rule(Rule);
         not_found -> ok
     end;
-delete_rule(Rule = #rule{for = Topics}) when is_record(Rule, rule) ->
-    mnesia:delete_object(?RULE_TAB, Rule, write),
+delete_rule(Rule = #rule{id = Id, for = Topics}) when is_record(Rule, rule) ->
     lists:foreach(fun(Topic) ->
             case get_rules_with_same_event(Topic) of
-                [] -> emqx_rule_events:unload(Topic);
+                [#rule{id = Id}] -> %% we are now deleting the last rule
+                    emqx_rule_events:unload(Topic);
                 _ -> ok
             end
-        end, Topics).
+        end, Topics),
+    mnesia:delete_object(?RULE_TAB, Rule, write).
 
 %%------------------------------------------------------------------------------
 %% Action Management
