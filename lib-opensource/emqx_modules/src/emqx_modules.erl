@@ -16,7 +16,7 @@
 
 -module(emqx_modules).
 
--include("logger.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -logger_header("[Modules]").
 
