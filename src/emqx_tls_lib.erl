@@ -47,7 +47,7 @@ integral_versions(Desired) ->
 
 %% @doc Return a list of default (openssl string format) cipher suites.
 -spec default_ciphers() -> [string()].
-default_ciphers() -> default_ciphers(tls_versions()).
+default_ciphers() -> default_ciphers(default_versions()).
 
 %% @doc Return a list of (openssl string format) cipher suites.
 -spec default_ciphers([ssl:tls_version()]) -> [string()].
@@ -68,7 +68,7 @@ integral_ciphers(Versions, Ciphers) when Ciphers =:= [] orelse Ciphers =:= undef
     integral_ciphers(Versions, default_ciphers(Versions));
 integral_ciphers(Versions, Ciphers) when ?IS_STRING_LIST(Ciphers) ->
     %% ensure tlsv1.3 ciphers if none of them is found in Ciphers
-    dedup(ensure_tls1_3_cipher(lists:member('tlsv1.3', Versions), Ciphers));
+    dedup(ensure_tls13_cipher(lists:member('tlsv1.3', Versions), Ciphers));
 integral_ciphers(Versions, Ciphers) when is_binary(Ciphers) ->
     %% parse binary
     integral_ciphers(Versions, binary_to_list(Ciphers));
@@ -78,20 +78,20 @@ integral_ciphers(Versions, Ciphers) ->
 
 %% In case tlsv1.3 is present, ensure tlsv1.3 cipher is added if user
 %% did not provide it from config --- which is a common mistake
-ensure_tls1_3_cipher(true, Ciphers) ->
+ensure_tls13_cipher(true, Ciphers) ->
     Tls13Ciphers = default_ciphers(['tlsv1.3']),
     case lists:any(fun(C) -> lists:member(C, Tls13Ciphers) end, Ciphers) of
         true  -> Ciphers;
         false -> Tls13Ciphers ++ Ciphers
     end;
-ensure_tls1_3_cipher(false, Ciphers) ->
+ensure_tls13_cipher(false, Ciphers) ->
     Ciphers.
 
 %% tlsv1.3 is available from OTP-22 but we do not want to use until 23.
 default_versions(OtpRelease) when OtpRelease >= 23 ->
-    ['tlsv1.3' | default_tls_versions(22)];
+    ['tlsv1.3' | default_versions(22)];
 default_versions(_) ->
-    ['tlsv1.2','tlsv1.1', tlsv1].
+    ['tlsv1.2', 'tlsv1.1', tlsv1].
 
 %% Deduplicate a list without re-ordering the elements.
 dedup([]) -> [];

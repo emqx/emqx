@@ -90,7 +90,7 @@
 
 {mapping, "bridge.mqtt.$name.tls_versions", "emqx_bridge_mqtt.bridges", [
   {datatype, string},
-  {default, "tlsv1,tlsv1.1,tlsv1.2"}
+  {default, "tlsv1.3,tlsv1.2,tlsv1.1,tlsv1"}
 ]}.
 
 {mapping, "bridge.mqtt.$name.reconnect_interval", "emqx_bridge_mqtt.bridges", [

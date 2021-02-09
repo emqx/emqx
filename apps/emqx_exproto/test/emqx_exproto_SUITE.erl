@@ -425,8 +425,8 @@ udp_opts() ->
 
 ssl_opts() ->
     Certs = certs("key.pem", "cert.pem", "cacert.pem"),
-    [{versions, ['tlsv1.2','tlsv1.1',tlsv1]},
-     {ciphers, ciphers('tlsv1.2')},
+    [{versions, emqx_tls_lib:default_versions()},
+     {ciphers, emqx_tls_lib:default_ciphers()},
      {verify, verify_peer},
      {fail_if_no_peer_cert, true},
      {secure_renegotiate, false},
@@ -436,9 +436,6 @@ ssl_opts() ->
 dtls_opts() ->
     Opts = ssl_opts(),
     lists:keyreplace(versions, 1, Opts, {versions, ['dtlsv1.2', 'dtlsv1']}).
-
-ciphers(Version) ->
-    proplists:get_value(ciphers, emqx_ct_helpers:client_ssl(Version)).
 
 %%--------------------------------------------------------------------
 %% Client-Opts
