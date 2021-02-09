@@ -32,7 +32,7 @@
 -export([ start_link/0
         , stop/0
         , ensure_resource_retrier/2
-        , keep_restart/3
+        , retry_loop/3
         ]).
 
 start_link() ->
@@ -42,8 +42,8 @@ stop() ->
     gen_server:stop(?MODULE).
 
 init([]) ->
-    erlang:process_flag(trap_exit, true),
-    {ok, #{pids => #{}}}.
+    _ = erlang:process_flag(trap_exit, true),
+    {ok, #{retryers => #{}}}.
 
 ensure_resource_retrier(ResId, Interval) ->
     gen_server:cast(?MODULE, {create_restart_handler, resource, ResId, Interval}).
@@ -65,12 +65,12 @@ handle_cast({create_restart_handler, Tag, Obj, Interval}, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'EXIT', Pid, Reason}, State = #{pids := Handlers}) ->
-    case maps:take(Pid, Handlers) of
-        {{Tag, Obj}, Handlers2} ->
+handle_info({'EXIT', Pid, Reason}, State = #{retryers := Retryers}) ->
+    case maps:take(Pid, Retryers) of
+        {{Tag, Obj}, Retryers2} ->
             Objects = maps:get(Tag, State, #{}),
             {noreply, State#{Tag => maps:remove(Obj, Objects),
-                             pids => Handlers2}};
+                             retryers => Retryers2}};
         error ->
             ?LOG(error, "got unexpected proc down: ~p ~p", [Pid, Reason]),
             {noreply, State}
@@ -85,17 +85,20 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-update_object(Tag, Obj, Pid, State) ->
+update_object(Tag, Obj, Retryer, State) ->
     Objects = maps:get(Tag, State, #{}),
-    Pids = maps:get(pids, State, #{}),
-    State#{Tag => Objects#{Obj => Pid}, pids => Pids#{Pid => {Tag, Obj}}}.
+    Retryers = maps:get(retryers, State, #{}),
+    State#{
+        Tag => Objects#{Obj => Retryer},
+        retryers => Retryers#{Retryer => {Tag, Obj}}
+    }.
 
 create_restart_handler(Tag, Obj, Interval) ->
     ?LOG(info, "keep restarting ~p ~p, interval: ~p", [Tag, Obj, Interval]),
     %% spawn a dedicated process to handle the restarting asynchronously
-    spawn_link(?MODULE, keep_restart, [Tag, Obj, Interval]).
+    spawn_link(?MODULE, retry_loop, [Tag, Obj, Interval]).
 
-keep_restart(resource, ResId, Interval) ->
+retry_loop(resource, ResId, Interval) ->
     case emqx_rule_registry:find_resource(ResId) of
         {ok, #resource{type = Type, config = Config}} ->
             try
@@ -107,7 +110,7 @@ keep_restart(resource, ResId, Interval) ->
                     ?LOG(warning, "init_resource failed: ~p, ~0p",
                         [{Err, Reason}, ST]),
                     timer:sleep(Interval),
-                    ?MODULE:keep_restart(resource, ResId, Interval)
+                    ?MODULE:retry_loop(resource, ResId, Interval)
             end;
         not_found ->
             ok
