@@ -50,14 +50,14 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
-    emqx_ct_helpers:start_apps([emqx_auth_mongo], fun set_special_confs/1),
+    emqx_ct_helpers:start_apps([emqx_modules, emqx_auth_mongo], fun set_special_confs/1),
     emqx_modules:load_module(emqx_mod_acl_internal, false),
     init_mongo_data(),
     Cfg.
 
 end_per_suite(_Cfg) ->
     deinit_mongo_data(),
-    emqx_ct_helpers:stop_apps([emqx_auth_mongo]).
+    emqx_ct_helpers:stop_apps([emqx_auth_mongo, emqx_modules]).
 
 set_special_confs(emqx) ->
     application:set_env(emqx, acl_nomatch, deny),

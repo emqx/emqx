@@ -36,12 +36,12 @@ all() ->
      check_acl].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx, emqx_auth_ldap], fun set_special_configs/1),
+    emqx_ct_helpers:start_apps([emqx_modules, emqx_auth_ldap], fun set_special_configs/1),
     emqx_mod_acl_internal:unload([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_auth_ldap, emqx]).
+    emqx_ct_helpers:stop_apps([emqx_auth_ldap, emqx_modules]).
 
 check_auth(_) ->
     MqttUser1 = #{clientid => <<"mqttuser1">>,

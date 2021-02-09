@@ -35,11 +35,11 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([], fun set_special_configs/1),
+    emqx_ct_helpers:start_apps([emqx_modules], fun set_special_configs/1),
     Config.
 
 end_per_suite(_) ->
-    emqx_ct_helpers:stop_apps([]).
+    emqx_ct_helpers:stop_apps([emqx_modules]).
 
 set_special_configs(emqx) ->
     application:set_env(emqx, modules, [{emqx_mod_delayed, []}]),

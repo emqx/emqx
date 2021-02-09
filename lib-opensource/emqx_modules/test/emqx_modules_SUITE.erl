@@ -24,7 +24,7 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([], fun set_sepecial_cfg/1),
+    emqx_ct_helpers:start_apps([emqx_modules], fun set_sepecial_cfg/1),
     Config.
 
 set_sepecial_cfg(_) ->
@@ -32,7 +32,7 @@ set_sepecial_cfg(_) ->
     ok.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
+    emqx_ct_helpers:stop_apps([emqx_modules]).
 
 t_load(_) ->
     ?assertEqual(ok, emqx_modules:unload()),

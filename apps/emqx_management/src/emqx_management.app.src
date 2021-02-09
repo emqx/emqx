@@ -3,7 +3,7 @@
   {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_management_sup]},
-  {applications, [kernel,stdlib,minirest]},
+  {applications, [kernel,stdlib,minirest,emqx_modules]},
   {mod, {emqx_mgmt_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},
