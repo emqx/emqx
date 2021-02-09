@@ -24,13 +24,28 @@
 
 -export([stop/1]).
 
+-define(APP, emqx_modules).
+
 start(_Type, _Args) ->
     % the configs for emqx_modules is so far still in emqx application
     % Ensure it's loaded
     application:load(emqx),
+    ok = load_app_env(),
     {ok, Pid} = emqx_mod_sup:start_link(),
     ok = emqx_modules:load(),
     {ok, Pid}.
 
 stop(_State) ->
     emqx_modules:unload().
+
+load_app_env() ->
+    Schema = filename:join([code:priv_dir(?APP), "emqx_modules.schema"]),
+    Conf1 = filename:join([code:lib_dir(?APP), "etc", "emqx_modules.conf"]),
+    Conf2 = filename:join([emqx:get_env(plugins_etc_dir), "emqx_modules.conf"]),
+    [ConfFile | _] = lists:filter(fun filelib:is_regular/1, [Conf1, Conf2]),
+    Conf = cuttlefish_conf:file(ConfFile),
+    AppEnv = cuttlefish_generator:map(cuttlefish_schema:files([Schema]), Conf),
+    lists:foreach(fun({AppName, Envs}) ->
+        [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
+    end, AppEnv).
+

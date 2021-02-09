@@ -179,10 +179,7 @@ t_batch_subscribe(_) ->
     {ok, Client} = emqtt:start_link([{proto_ver, v5}, {clientid, <<"batch_test">>}]),
     {ok, _} = emqtt:connect(Client),
     application:set_env(emqx, enable_acl_cache, false),
-    TempAcl = emqx_ct_helpers:deps_path(emqx, "test/emqx_access_SUITE_data/acl_temp.conf"),
-    file:write_file(TempAcl, "{deny, {client, \"batch_test\"}, subscribe, [\"t1\", \"t2\", \"t3\"]}.\n"),
-    timer:sleep(10),
-    emqx_mod_acl_internal:reload([{acl_file, TempAcl}]),
+    application:set_env(emqx, acl_nomatch, deny),
     {ok, _, [?RC_NOT_AUTHORIZED,
              ?RC_NOT_AUTHORIZED,
              ?RC_NOT_AUTHORIZED]} = emqtt:subscribe(Client, [{<<"t1">>, qos1},
@@ -193,7 +190,7 @@ t_batch_subscribe(_) ->
              ?RC_NO_SUBSCRIPTION_EXISTED]} = emqtt:unsubscribe(Client, [<<"t1">>,
                                                                         <<"t2">>,
                                                                         <<"t3">>]),
-    file:delete(TempAcl),
+    application:set_env(emqx, acl_nomatch, allow),
     emqtt:disconnect(Client).
 
 t_connect_will_retain(_) ->

@@ -43,7 +43,13 @@
 %%--------------------------------------------------------------------
 
 load(Env) ->
-    Rules = rules_from_file(proplists:get_value(acl_file, Env)),
+    %% TODO: acl_file config should be moved to emqx_modules.conf
+    %% when all the plubin tests stops using it in the old way.
+    File = case proplists:get_value(acl_file, Env) of
+               {emqx, get_env, _} -> emqx:get_env(acl_file);
+               F -> F
+           end,
+    Rules = rules_from_file(File),
     emqx_hooks:add('client.check_acl', {?MODULE, check_acl, [Rules]},  -1).
 
 unload(_Env) ->
