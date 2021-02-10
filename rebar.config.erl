@@ -291,8 +291,8 @@ str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
 erl_opts_i() ->
     [{i, "apps"}] ++
-    [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "**", "include"]))] ++
-    [{i, Dir}  || Dir <- filelib:wildcard(filename:join([extra_lib_dir(), "**", "include"]))].
+    [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "*", "include"]))] ++
+    [{i, Dir}  || Dir <- filelib:wildcard(filename:join([extra_lib_dir(), "*", "include"]))].
 
 dialyzer(Config) ->
     {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),
