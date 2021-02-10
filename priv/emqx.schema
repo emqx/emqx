@@ -689,6 +689,12 @@ end}.
   {datatype, {enum, [allow, deny]}}
 ]}.
 
+%% @doc Default ACL file.
+{mapping, "acl_file", "emqx.acl_file", [
+  {datatype, string},
+  hidden
+]}.
+
 %% @doc Enable ACL cache for publish.
 {mapping, "enable_acl_cache", "emqx.enable_acl_cache", [
   {default, on},
@@ -1239,9 +1245,9 @@ end}.
 ]}.
 
 {mapping, "listener.tcp.$name.high_watermark", "emqx.listeners", [
-  {datatype, bytesize},
-  {default, "1MB"}
-]}.
+   {datatype, bytesize},
+   {default, "1MB"}
+ ]}.
 
 {mapping, "listener.tcp.$name.tune_buffer", "emqx.listeners", [
   {datatype, flag},
@@ -1336,9 +1342,9 @@ end}.
 ]}.
 
 {mapping, "listener.ssl.$name.high_watermark", "emqx.listeners", [
-  {datatype, bytesize},
-  {default, "1MB"}
-]}.
+   {datatype, bytesize},
+   {default, "1MB"}
+ ]}.
 
 {mapping, "listener.ssl.$name.tune_buffer", "emqx.listeners", [
   {datatype, flag},
