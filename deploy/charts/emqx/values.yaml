@@ -42,7 +42,7 @@ initContainers: {}
 
 ## EMQX configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx)
 emqxConfig:
-  EMQX_CLUSTER__K8S__APISERVER: "https://kubernetes.default.svc:443"
+  EMQX_CLUSTER__K8S__APISERVER: \"https://kubernetes.default.svc:443\"
   ## The address type is used to extract host from k8s service.
   ## Value: ip | dns | hostname
   ## Note：Hostname is only supported after v4.0-rc.2

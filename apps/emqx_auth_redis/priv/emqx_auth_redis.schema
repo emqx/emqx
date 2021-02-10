@@ -33,7 +33,7 @@
   hidden
 ]}.
 
-{mapping, "auth.redis.ssl", "emqx_auth_redis.options", [
+{mapping, "auth.redis.ssl.enable", "emqx_auth_redis.options", [
   {default, off},
   {datatype, flag}
 ]}.
@@ -50,26 +50,8 @@
   {datatype, string}
 ]}.
 
-%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-{mapping, "auth.redis.cafile", "emqx_auth_redis.options", [
-  {default, ""},
-  {datatype, string}
-]}.
-
-%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-{mapping, "auth.redis.certfile", "emqx_auth_redis.options", [
-  {default, ""},
-  {datatype, string}
-]}.
-
-%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-{mapping, "auth.redis.keyfile", "emqx_auth_redis.options", [
-  {default, ""},
-  {datatype, string}
-]}.
-
 {translation, "emqx_auth_redis.options", fun(Conf) ->
-   Ssl = cuttlefish:conf_get("auth.redis.ssl", Conf, false),
+   Ssl = cuttlefish:conf_get("auth.redis.ssl.enable", Conf, false),
    Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
    case Ssl of
        true ->

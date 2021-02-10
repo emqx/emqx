@@ -31,7 +31,7 @@
   {datatype, {duration, ms}}
 ]}.
 
-{mapping, "auth.ldap.ssl", "emqx_auth_ldap.ldap", [
+{mapping, "auth.ldap.ssl.enable", "emqx_auth_ldap.ldap", [
   {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
@@ -85,7 +85,7 @@
             {bind_password, BindPassword},
             {pool, Pool},
             {auto_reconnect, 2}],
-    case cuttlefish:conf_get("auth.ldap.ssl", Conf) of
+    case cuttlefish:conf_get("auth.ldap.ssl.enable", Conf) of
         true  -> [{ssl, true}, {sslopts, Filter(SslOpts())}|Opts];
         false -> [{ssl, false}|Opts]
     end
