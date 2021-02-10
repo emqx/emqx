@@ -126,7 +126,7 @@ bridge.mqtt.emqx2.ciphers = ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES256-GCM-S
 bridge.mqtt.emqx2.keepalive = 60s
 
 ## Supported TLS version
-bridge.mqtt.emqx2.tls_versions = tlsv1.2,tlsv1.1,tlsv1
+bridge.mqtt.emqx2.tls_versions = tlsv1.3,tlsv1.2,tlsv1.1,tlsv1
 
 ## Forwarding topics of the message
 bridge.mqtt.emqx2.forwards = sensor1/#,sensor2/#

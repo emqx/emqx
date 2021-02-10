@@ -75,10 +75,7 @@ end}.
   Ciphers =
       case cuttlefish:conf_get("coap.dtls.ciphers", Conf, undefined) of
           undefined ->
-              lists:foldl(
-                  fun(TlsVer, Ciphers) ->
-                      Ciphers ++ ssl:cipher_suites(all, TlsVer)
-                  end, [], ['dtlsv1', 'dtlsv1.2']);
+              lists:append([ssl:cipher_suites(all, V, openssl) || V <- ['dtlsv1.2', 'dtlsv1']]);
           C ->
               SplitFun(C)
       end,
