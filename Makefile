@@ -2,6 +2,7 @@ REBAR_VERSION = 3.14.3-emqx-4
 DASHBOARD_VERSION = v4.3.0
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
+export EMQX_ENTERPRISE=false
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 
 PROFILE ?= emqx

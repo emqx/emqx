@@ -279,7 +279,7 @@ provide_bcrypt_release(ReleaseType) ->
 %% rebar3 does not handle umberella project's cross-app parse_transform well
 compile_and_load_pase_transforms(Dir) ->
     PtFiles =
-        [ "apps/emqx_rule_engine/src/emqx_rule_actions_trans.erl"
+        [ "lib-opensource/emqx_rule_engine/src/emqx_rule_actions_trans.erl"
         ],
     CompileOpts = [verbose,report_errors,report_warnings,return_errors,debug_info],
     lists:foreach(fun(PtFile) -> {ok, _Mod} = compile:file(path(Dir, PtFile), CompileOpts) end, PtFiles).
