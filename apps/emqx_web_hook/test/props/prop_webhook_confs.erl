@@ -62,7 +62,6 @@ do_teardown(_) ->
 
 set_special_cfgs(_) ->
     application:set_env(emqx, plugins_loaded_file, undefined),
-    application:set_env(emqx, modules_loaded_file, undefined),
     ok.
 
 assert_confs([{"web.hook.api.url", Url}|More], Envs) ->
