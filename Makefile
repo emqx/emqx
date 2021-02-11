@@ -31,6 +31,10 @@ get-dashboard:
 eunit: $(REBAR)
 	$(REBAR) eunit
 
+.PHONY: proper
+proper: $(REBAR)
+	$(REBAR) as test proper -d test/props -c
+
 .PHONY: ct
 ct: $(REBAR)
 	$(REBAR) ct --name 'test@127.0.0.1' -c -v
@@ -38,6 +42,10 @@ ct: $(REBAR)
 .PHONY: cover
 cover: $(REBAR)
 	$(REBAR) cover
+
+.PHONY: coveralls
+coveralls: $(REBAR)
+	$(REBAR) as test coveralls send
 
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(REBAR) get-dashboard

@@ -4,7 +4,9 @@
 
 do(Dir, CONFIG) ->
     ok = compile_and_load_pase_transforms(Dir),
-    dump(deps(CONFIG) ++ dialyzer(CONFIG) ++ config()).
+    C1 = deps(CONFIG),
+    Config = dialyzer(C1),
+    dump(Config ++ coveralls() ++ config()).
 
 bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
@@ -20,35 +22,55 @@ deps(Config) ->
 config() ->
     [ {plugins, plugins()}
     , {profiles, profiles()}
+    , {project_app_dirs, project_app_dirs()}
     ].
+
+extra_lib_dir() ->
+    EnterpriseFlag = os:getenv("EMQX_ENTERPRISE"),
+    case EnterpriseFlag =:= "true" orelse EnterpriseFlag =:= "1" of
+        true -> "lib-enterprise";
+        false -> "lib-opensource"
+    end.
+
+project_app_dirs() ->
+    ["apps/*", extra_lib_dir() ++ "/*", "."].
 
 plugins() ->
     [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {branch,"master"}}},
       {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0"}}}
     ].
 
-test_deps() ->
-    [ {bbmustache, "1.10.0"}
-    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.4"}}}
-    , meck
+test_plugins() ->
+    [ rebar3_proper,
+      {coveralls, {git, "https://github.com/emqx/coveralls-erl", {branch, "github"}}}
     ].
 
+test_deps() ->
+    [ {bbmustache, "1.10.0"}
+     , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.5"}}}
+     , meck
+    ].
+
+default_compile_opts() ->
+    [compressed, deterministic, no_debug_info, warnings_as_errors, {parse_transform, mod_vsn}].
+
 profiles() ->
-    [ {'emqx',          [ {erl_opts, [no_debug_info, warnings_as_errors, {parse_transform, mod_vsn}]}
+    [ {'emqx',          [ {erl_opts, default_compile_opts()}
                         , {relx, relx('emqx')}
                         ]}
-    , {'emqx-pkg',      [ {erl_opts, [no_debug_info, warnings_as_errors, {parse_transform, mod_vsn}]}
+    , {'emqx-pkg',      [ {erl_opts, default_compile_opts()}
                         , {relx, relx('emqx-pkg')}
                         ]}
-    , {'emqx-edge',     [ {erl_opts, [no_debug_info, warnings_as_errors, {parse_transform, mod_vsn}]}
+    , {'emqx-edge',     [ {erl_opts, default_compile_opts()}
                         , {relx, relx('emqx-edge')}
                         ]}
-    , {'emqx-edge-pkg', [ {erl_opts, [no_debug_info, warnings_as_errors, {parse_transform, mod_vsn}]}
+    , {'emqx-edge-pkg', [ {erl_opts, default_compile_opts()}
                         , {relx, relx('emqx-edge-pkg')}
                         ]}
     , {check,           [ {erl_opts, [debug_info, warnings_as_errors, {parse_transform, mod_vsn}]}
                         ]}
     , {test,            [ {deps, test_deps()}
+                        , {plugins, test_plugins()}
                         , {erl_opts, [debug_info, {parse_transform, mod_vsn}] ++ erl_opts_i()}
                         ]}
     ].
@@ -133,6 +155,7 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_rule_engine
     , emqx_sasl
     , emqx_telemetry
+    , emqx_modules
     ] ++ relx_plugin_apps_per_rel(ReleaseType).
 
 relx_plugin_apps_per_rel(cloud) ->
@@ -146,7 +169,6 @@ relx_plugin_apps_per_rel(cloud) ->
     , emqx_exproto
     , emqx_prometheus
     , emqx_psk_file
-    , emqx_plugin_template
     ];
 relx_plugin_apps_per_rel(edge) ->
     [].
@@ -221,8 +243,9 @@ plugin_etc_overlays(App0) ->
 %% NOTE: for apps fetched as rebar dependency (there is so far no such an app)
 %% the overlay should be hand-coded but not to rely on build-time wildcards.
 find_conf_files(App) ->
-    Dir = filename:join(["apps", App, "etc"]),
-    filelib:wildcard("*.conf", Dir).
+    Dir1 = filename:join(["apps", App, "etc"]),
+    Dir2 = filename:join([extra_lib_dir(), App, "etc"]),
+    filelib:wildcard("*.conf", Dir1) ++ filelib:wildcard("*.conf", Dir2).
 
 env(Name, Default) ->
     case os:getenv(Name) of
@@ -267,7 +290,9 @@ str(L) when is_list(L) -> L;
 str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
 erl_opts_i() ->
-    [{i, "apps"}] ++ [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "**", "include"]))].
+    [{i, "apps"}] ++
+    [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "**", "include"]))] ++
+    [{i, Dir}  || Dir <- filelib:wildcard(filename:join([extra_lib_dir(), "**", "include"]))].
 
 dialyzer(Config) ->
     {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),
@@ -279,12 +304,9 @@ dialyzer(Config) ->
             [ list_to_atom(App) || App <- string:tokens(Value, ",")]
     end,
 
-    AppsDir = "apps",
-    AppNames = [emqx | list_dir(AppsDir)],
+    AppNames = [emqx | list_dir("apps")] ++ list_dir(extra_lib_dir()),
 
     KnownApps = [Name ||  Name <- AppsToAnalyse, lists:member(Name, AppNames)],
-    UnknownApps = AppsToAnalyse -- KnownApps,
-    io:format("Unknown Apps ~p ~n", [UnknownApps]),
 
     AppsToExclude = AppNames -- KnownApps,
 
@@ -293,6 +315,26 @@ dialyzer(Config) ->
             lists:keystore(dialyzer, 1, Config, {dialyzer, OldDialyzerConfig ++ [{exclude_apps, AppsToExclude}]});
         false ->
             Config
+    end.
+
+coveralls() ->
+    case {os:getenv("GITHUB_ACTIONS"), os:getenv("GITHUB_TOKEN")} of
+      {"true", Token} when is_list(Token) ->
+        Cfgs = [{coveralls_repo_token, Token},
+                {coveralls_service_job_id, os:getenv("GITHUB_RUN_ID")},
+                {coveralls_commit_sha, os:getenv("GITHUB_SHA")},
+                {coveralls_service_number, os:getenv("GITHUB_RUN_NUMBER")},
+                {coveralls_coverdata, "_build/test/cover/*.coverdata"},
+                {coveralls_service_name, "github"}],
+        case os:getenv("GITHUB_EVENT_NAME") =:= "pull_request"
+            andalso string:tokens(os:getenv("GITHUB_REF"), "/") of
+            [_, "pull", PRNO, _] ->
+                [{coveralls_service_pull_request, PRNO} | Cfgs];
+            _ ->
+                Cfgs
+        end;
+      _ ->
+        []
     end.
 
 list_dir(Dir) ->

@@ -49,13 +49,13 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
-    emqx_ct_helpers:start_apps([emqx_auth_redis], fun set_special_configs/1),
+    emqx_ct_helpers:start_apps([emqx_modules, emqx_auth_redis], fun set_special_configs/1),
     init_redis_rows(),
     Cfg.
 
 end_per_suite(_Cfg) ->
     deinit_redis_rows(),
-    emqx_ct_helpers:stop_apps([emqx_auth_redis]).
+    emqx_ct_helpers:stop_apps([emqx_auth_redis, emqx_modules]).
 
 set_special_configs(emqx) ->
     application:set_env(emqx, allow_anonymous, false),

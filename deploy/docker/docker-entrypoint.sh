@@ -128,9 +128,9 @@ try_fill_config() {
     if grep -qE "^[#[:space:]]*$escaped_key\s*=" "$file"; then
         echo_value "$key" "$value"
         if [[ -z "$value" ]]; then
-            echo "$(sed -r "s/^[#[:space:]]*($escaped_key)\s*=\s*(.*)/# \1 = \2/" "$file")" > "$file"
+            sed -r "s/^[#[:space:]]*($escaped_key)\s*=\s*(.*)/# \1 = \2/" "$file" > tmpfile && cat tmpfile > "$file"
         else
-            echo "$(sed -r "s/^[#[:space:]]*($escaped_key)\s*=\s*(.*)/\1 = $escaped_value/" "$file")" > "$file"
+            sed -r "s/^[#[:space:]]*($escaped_key)\s*=\s*(.*)/\1 = $escaped_value/" "$file" > tmpfile && cat tmpfile > "$file"
         fi
     # Check if config has a numbering system, but no existing configuration line in file
     elif echo "$key" | grep -qE '\.\d+|\d+\.'; then
@@ -139,7 +139,7 @@ try_fill_config() {
             template="$(echo "$escaped_key" | sed -r -e 's/\\\.[0-9]+/\\.[0-9]+/g' -e 's/[0-9]+\\\./[0-9]+\\./g')"
             if grep -qE "^[#[:space:]]*$template\s*=" "$file"; then
                 echo_value "$key" "$value"
-                echo "$(sed '$a'\\ "$file")" > "$file"
+                sed '$a'\\ "$file" > tmpfile && cat tmpfile > "$file"
                 echo "$key = $value" >> "$file"
             fi
         fi
@@ -171,12 +171,12 @@ fill_tuples() {
     local elements=${*:2}
     for var in $elements; do
         if grep -qE "\{\s*$var\s*,\s*(true|false)\s*\}\s*\." "$file"; then
-            echo "$(sed -r "s/\{\s*($var)\s*,\s*(true|false)\s*\}\s*\./{\1, true}./1" "$file")" > "$file"
+            sed -r "s/\{\s*($var)\s*,\s*(true|false)\s*\}\s*\./{\1, true}./1" "$file" > tmpfile && mv tmpfile "$file"
         elif grep -q "$var\s*\." "$file"; then
             # backward compatible.
-            echo "$(sed -r "s/($var)\s*\./{\1, true}./1" "$file")" > "$file"
+            sed -r "s/($var)\s*\./{\1, true}./1" "$file" > tmpfile && cat tmpfile > "$file"
         else
-            echo "$(sed '$a'\\ "$file")" > "$file"
+            sed '$a'\\ "$file" > tmpfile && cat tmpfile > "$file"
             echo "{$var, true}." >> "$file"
         fi
     done

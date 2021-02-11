@@ -58,13 +58,13 @@ groups() ->
     }].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx, emqx_management, emqx_auth_mnesia]),
+    emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_auth_mnesia]),
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_auth_mnesia, emqx_management, emqx]),
+    emqx_ct_helpers:stop_apps([emqx_auth_mnesia, emqx_management, emqx_modules]),
     ekka_mnesia:ensure_stopped().
 
 init_per_testcase(data, Config) ->

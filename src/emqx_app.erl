@@ -32,7 +32,6 @@ start(_Type, _Args) ->
     print_banner(),
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),
-    ok = emqx_modules:load(),
     ok = emqx_plugins:init(),
     _ = emqx_plugins:load(),
     emqx_boot:is_enabled(listeners)
@@ -47,8 +46,7 @@ start(_Type, _Args) ->
 stop(_State) ->
     ok = emqx_alarm_handler:unload(),
     emqx_boot:is_enabled(listeners)
-      andalso emqx_listeners:stop(),
-    emqx_modules:unload().
+      andalso emqx_listeners:stop().
 
 %%--------------------------------------------------------------------
 %% Print Banner

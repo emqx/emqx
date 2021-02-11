@@ -41,11 +41,11 @@ all() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_lua_hook], fun set_special_configs/1),
+    emqx_ct_helpers:start_apps([emqx_modules, emqx_lua_hook], fun set_special_configs/1),
     Config.
 
 end_per_suite(Config) ->
-    emqx_ct_helpers:stop_apps([emqx_lua_hook]),
+    emqx_ct_helpers:stop_apps([emqx_lua_hook, emqx_modules]),
     Config.
 
 set_special_configs(emqx) ->

@@ -70,7 +70,9 @@ groups() ->
       ]},
      {others, [non_parallel_tests],
       [t_username_as_clientid,
-       t_certcn_as_clientid
+       t_certcn_as_clientid_default_config_tls,
+       t_certcn_as_clientid_tlsv1_3,
+       t_certcn_as_clientid_tlsv1_2
       ]}
     ].
 
@@ -278,14 +280,18 @@ t_username_as_clientid(_) ->
     #{clientinfo := #{clientid := Username}} = emqx_cm:get_chan_info(Username),
     emqtt:disconnect(C).
 
-t_certcn_as_clientid(_) ->
-    CN = <<"Client">>,
-    emqx_zone:set_env(external, use_username_as_clientid, true),
-    SslConf = emqx_ct_helpers:client_ssl_twoway(),
-    {ok, C} = emqtt:start_link([{port, 8883}, {ssl, true}, {ssl_opts, SslConf}]),
-    {ok, _} = emqtt:connect(C),
-    #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),
-    emqtt:disconnect(C).
+
+
+t_certcn_as_clientid_default_config_tls(_) ->
+    tls_certcn_as_clientid(default).
+
+t_certcn_as_clientid_tlsv1_3(_) ->
+    tls_certcn_as_clientid('tlsv1.3').
+
+t_certcn_as_clientid_tlsv1_2(_) ->
+    tls_certcn_as_clientid('tlsv1.2').
+
+
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -304,3 +310,29 @@ recv_msgs(Count, Msgs) ->
     after 100 ->
         Msgs
     end.
+
+
+confirm_tls_version( Client, RequiredProtocol ) ->
+    Info = emqtt:info(Client),
+    SocketInfo = proplists:get_value( socket, Info ),
+    %% emqtt_sock has #ssl_socket.ssl
+    SSLSocket = element( 3, SocketInfo ),
+    { ok, SSLInfo } = ssl:connection_information(SSLSocket),
+    Protocol = proplists:get_value( protocol, SSLInfo ),
+    RequiredProtocol = Protocol.
+
+
+tls_certcn_as_clientid(default = TLSVsn) ->
+    tls_certcn_as_clientid(TLSVsn, 'tlsv1.3');
+tls_certcn_as_clientid(TLSVsn) ->
+    tls_certcn_as_clientid(TLSVsn, TLSVsn).
+
+tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
+    CN = <<"Client">>,
+    emqx_zone:set_env(external, use_username_as_clientid, true),
+    SslConf = emqx_ct_helpers:client_ssl_twoway(TLSVsn),
+    {ok, Client} = emqtt:start_link([{port, 8883}, {ssl, true}, {ssl_opts, SslConf}]),
+    {ok, _} = emqtt:connect(Client),
+    #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),
+    confirm_tls_version( Client, RequiredTLSVsn ),
+    emqtt:disconnect(Client).

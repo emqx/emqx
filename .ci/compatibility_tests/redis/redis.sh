@@ -31,7 +31,7 @@ rm -f \
     /data/conf/nodes.7001.conf \
     /data/conf/nodes.7002.conf ;
 
-if [ ${node} = "cluster" ] ; then
+if [ "${node}" = "cluster" ] ; then
   if $tls ; then
     redis-server /data/conf/redis-tls.conf --port 7000 --cluster-config-file /data/conf/nodes.7000.conf \
                                            --tls-port 8000 --cluster-enabled yes ;
@@ -44,7 +44,7 @@ if [ ${node} = "cluster" ] ; then
     redis-server /data/conf/redis.conf --port 7001 --cluster-config-file /data/conf/nodes.7001.conf --cluster-enabled yes;
     redis-server /data/conf/redis.conf --port 7002 --cluster-config-file /data/conf/nodes.7002.conf --cluster-enabled yes;
   fi
-elif [ ${node} = "sentinel" ] ; then
+elif [ "${node}" = "sentinel" ] ; then
     redis-server /data/conf/redis.conf --port 7000 --cluster-config-file /data/conf/nodes.7000.conf \
                                        --cluster-enabled no;
     redis-server /data/conf/redis.conf --port 7001 --cluster-config-file /data/conf/nodes.7001.conf \
@@ -75,9 +75,9 @@ do
     else
         continue;
     fi
-    if [ ${node} = "cluster" ] ; then
+    if [ "${node}" = "cluster" ] ; then
       yes "yes" | redis-cli --cluster create 172.16.239.10:7000 172.16.239.10:7001 172.16.239.10:7002;
-    elif [ ${node} = "sentinel" ] ; then
+    elif [ "${node}" = "sentinel" ] ; then
       cp /data/conf/sentinel.conf /_sentinel.conf
       redis-server /_sentinel.conf --sentinel;
     fi
