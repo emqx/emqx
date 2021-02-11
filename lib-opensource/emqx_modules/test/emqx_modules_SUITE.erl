@@ -24,12 +24,12 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_modules]),
-    File = emqx_ct_helpers:deps_path(emqx_modules, "test/emqx_modules_SUITE_data/loaded_modules"),
-    application:set_env(emqx_modules, modules_loaded_file, File),
-    ok = emqx_modules:unload(),
-    ok = emqx_modules:load(),
+    emqx_ct_helpers:start_apps([emqx_modules], fun set_sepecial_cfg/1),
     Config.
+
+set_sepecial_cfg(_) ->
+    application:set_env(emqx, modules_loaded_file, emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_modules")),
+    ok.
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_modules]).
@@ -37,7 +37,7 @@ end_per_suite(_Config) ->
 t_load(_) ->
     ?assertEqual(ok, emqx_modules:unload()),
     ?assertEqual(ok, emqx_modules:load()),
-    ?assertEqual({error, not_found}, emqx_modules:load(foo)),
+    ?assertEqual({error, not_found}, emqx_modules:load(not_existed_module)),
     ?assertEqual({error, not_started}, emqx_modules:unload(emqx_mod_rewrite)),
     ?assertEqual(ignore, emqx_modules:reload(emqx_mod_rewrite)),
     ?assertEqual(ok, emqx_modules:reload(emqx_mod_acl_internal)).
