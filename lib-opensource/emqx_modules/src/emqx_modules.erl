@@ -30,8 +30,6 @@
         , load_module/2
         ]).
 
--define(APP, ?MODULE).
-
 %% @doc List all available plugins
 -spec(list() -> [{atom(), boolean()}]).
 list() ->
@@ -40,7 +38,7 @@ list() ->
 %% @doc Load all the extended modules.
 -spec(load() -> ok).
 load() ->
-    case get_env(modules_loaded_file) of
+    case emqx:get_env(modules_loaded_file) of
         undefined -> ok;
         File ->
             load_modules(File)
@@ -61,7 +59,7 @@ load(ModuleName) ->
 %% @doc Unload all the extended modules.
 -spec(unload() -> ok).
 unload() ->
-    case get_env(modules_loaded_file) of
+    case emqx:get_env(modules_loaded_file) of
         undefined -> ignore;
         File ->
             unload_modules(File)
@@ -81,7 +79,7 @@ unload(ModuleName) ->
 
 -spec(reload(module()) -> ok | ignore | {error, any()}).
 reload(emqx_mod_acl_internal) ->
-    Modules = get_env(modules, []),
+    Modules = emqx:get_env(modules, []),
     Env = proplists:get_value(emqx_mod_acl_internal, Modules, undefined),
     case emqx_mod_acl_internal:reload(Env) of
         ok ->
@@ -98,7 +96,7 @@ find_module(ModuleName) ->
     ets:lookup(?MODULE, ModuleName).
 
 filter_module(ModuleNames) ->
-    filter_module(ModuleNames, get_env(modules, [])).
+    filter_module(ModuleNames, emqx:get_env(modules, [])).
 filter_module([], Acc) ->
     Acc;
 filter_module([{ModuleName, true} | ModuleNames], Acc) ->
@@ -125,7 +123,7 @@ load_module(ModuleName) ->
     load_module({ModuleName, true}).
 
 load_module(ModuleName, Persistent) ->
-    Modules = get_env(modules, []),
+    Modules = emqx:get_env(modules, []),
     Env = proplists:get_value(ModuleName, Modules, undefined),
     case ModuleName:load(Env) of
         ok ->
@@ -152,7 +150,7 @@ unload_module(ModuleName) ->
     unload_module({ModuleName, true}).
 
 unload_module(ModuleName, Persistent) ->
-    Modules = get_env(modules, []),
+    Modules = emqx:get_env(modules, []),
     Env = proplists:get_value(ModuleName, Modules, undefined),
     case ModuleName:unload(Env) of
         ok ->
@@ -164,7 +162,7 @@ unload_module(ModuleName, Persistent) ->
     end.
 
 write_loaded(true) ->
-    FilePath = get_env(modules_loaded_file),
+    FilePath = emqx:get_env(modules_loaded_file),
     case file:write_file(FilePath, [io_lib:format("~p.~n", [Name]) || Name <- list()]) of
         ok -> ok;
         {error, Error} ->
@@ -172,7 +170,3 @@ write_loaded(true) ->
             ok
     end;
 write_loaded(false) -> ok.
-
-get_env(Key) -> get_env(Key, undefined).
-
-get_env(Key, Default) -> application:get_env(?APP, Key, Default).
