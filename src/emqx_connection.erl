@@ -274,7 +274,7 @@ recvloop(Parent, State = #state{idle_timeout = IdleTimeout}) ->
         Msg ->
             process_msg([Msg], Parent, ensure_stats_timer(IdleTimeout, State))
     after
-        IdleTimeout ->
+        IdleTimeout + 100 ->
             hibernate(Parent, cancel_stats_timer(State))
     end.
 
@@ -387,8 +387,12 @@ handle_msg({Passive, _Sock}, State)
     handle_info(activate_socket, NState1);
 
 handle_msg(Deliver = {deliver, _Topic, _Msg},
-           State = #state{active_n = ActiveN}) ->
-    Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
+           #state{active_n = MaxBatchSize, transport = Transport,
+                  socket = Socket, channel = Channel} = State) ->
+    Delivers0 = emqx_misc:drain_deliver(MaxBatchSize),
+    emqx_congestion:maybe_alarm_too_many_publish(Socket, Transport, Channel,
+        length(Delivers0), MaxBatchSize),
+    Delivers = [Deliver|Delivers0],
     with_channel(handle_deliver, [Delivers], State);
 
 %% Something sent
@@ -441,10 +445,12 @@ handle_msg(Msg, State) ->
 %% Terminate
 
 -spec terminate(any(), state()) -> no_return().
-terminate(Reason, State = #state{channel = Channel}) ->
+terminate(Reason, State = #state{channel = Channel, transport = Transport,
+          socket = Socket}) ->
     ?LOG(debug, "Terminated due to ~p", [Reason]),
-    emqx_alarm:deactivate(?ALARM_TCP_CONGEST(Channel)),
-    emqx_channel:terminate(Reason, Channel),
+    Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
+    emqx_congestion:cancel_alarms(Socket, Transport, Channel1),
+    emqx_channel:terminate(Reason, Channel1),
     _ = close_socket(State),
     exit(Reason).
 
@@ -456,6 +462,62 @@ system_continue(Parent, _Debug, State) ->
 
 system_terminate(Reason, _Parent, _Debug, State) ->
     terminate(Reason, State).
+
+system_code_change(State, _Mod, {down, Vsn}, _Extra)
+    when Vsn == "4.2.0";
+         Vsn == "4.2.1" ->
+    Channel = State#state.channel,
+    NSerialize = emqx_frame:serialize_fun(State#state.serialize),
+    case {State#state.parse_state, element(10, Channel)} of
+        {{none, _}, undefined} ->
+            {ok, State#state{serialize = NSerialize}};
+        {Ps, Quota} ->
+            %% BACKW: e4.2.0-e4.2.1
+            %% We can't recover/reconstruct anonymous function state for
+            %% Parser or Quota consumer. So just close it.
+            ?LOG(error, "Unsupport downgrade connection ~0p, peername: ~0p."
+              " Due to it have an incomplete frame or unsafed quota counter,"
+              " parser_state: ~0p, quota: ~0p."
+              " Force close it now!!!", [self(), State#state.peername, Ps, Quota]),
+            self() ! {close, unsupported_downgrade_connection_state},
+            {ok, State#state{serialize = NSerialize}}
+    end;
+
+system_code_change(State, _Mod, Vsn, _Extra)
+    when Vsn == "4.2.0";
+         Vsn == "4.2.1" ->
+    Channel = State#state.channel,
+    NChannel =
+        case element(10, Channel) of
+            undefined -> Channel;
+            Quoter ->
+                Zone = element(2, Quoter),
+                Cks = element(3, Quoter),
+                NCks = [case Name == overall_messages_routing of
+                            true -> Ck#{consumer => Zone};
+                            _ -> Ck
+                        end || Ck = #{name := Name} <- Cks],
+                setelement(10, Channel, setelement(3, Quoter, NCks))
+        end,
+
+    NParseState =
+        case State#state.parse_state of
+            Ps = {none, _} ->  Ps;
+            Ps when is_function(Ps) ->
+                case erlang:fun_info(Ps, env) of
+                    {_, [Hdr, Opts]} ->
+                        {{len, #{hdr => Hdr, len => {1,0}}}, Opts};
+                    {_, [Bin, Hdr, Len, Opts]} when is_binary(Bin) ->
+                        {{body, #{hdr => Hdr, len => Len, rest => Bin}}, Opts};
+                    {_, [Hdr, Multip, Len, Opts]} ->
+                        {{len, #{hdr => Hdr, len => {Multip, Len}}}, Opts}
+                end
+        end,
+
+    {_, [Ver, MaxSize]} = erlang:fun_info(State#state.serialize, env),
+    NSerialize = #{version => Ver, max_size => MaxSize},
+
+    {ok, State#state{channel = NChannel, parse_state = NParseState, serialize = NSerialize}};
 
 system_code_change(State, _Mod, _OldVsn, _Extra) ->
     {ok, State}.
@@ -500,8 +562,12 @@ handle_timeout(_TRef, limit_timeout, State) ->
                         },
     handle_info(activate_socket, NState);
 
-handle_timeout(_TRef, emit_stats, State =
-               #state{channel = Channel}) ->
+handle_timeout(_TRef, emit_stats, State = #state{active_n = MaxBatchSize,
+        channel = Channel, transport = Transport, socket = Socket}) ->
+    {_, MsgQLen} = erlang:process_info(self(), message_queue_len),
+    emqx_congestion:maybe_alarm_port_busy(Socket, Transport, Channel, true),
+    emqx_congestion:maybe_alarm_too_many_publish(Socket, Transport, Channel,
+        MsgQLen, MaxBatchSize, true),
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
     {ok, State#state{stats_timer = undefined}};
@@ -614,7 +680,7 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
     Oct = iolist_size(IoData),
     ok = emqx_metrics:inc('bytes.sent', Oct),
     inc_counter(outgoing_bytes, Oct),
-    maybe_warn_congestion(Socket, Transport, Channel),
+    emqx_congestion:maybe_alarm_port_busy(Socket, Transport, Channel),
     case Transport:async_send(Socket, IoData, [nosuspend]) of
         ok -> ok;
         Error = {error, _Reason} ->

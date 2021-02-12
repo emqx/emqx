@@ -16,8 +16,6 @@
 
 -module(emqx_access_rule).
 
--include("emqx.hrl").
-
 %% APIs
 -export([ match/3
         , compile/1

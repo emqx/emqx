@@ -32,11 +32,11 @@ start(_Type, _Args) ->
     print_banner(),
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),
-    ok = emqx_plugins:init(),
-    _ = emqx_plugins:load(),
+    start_autocluster(),
     emqx_boot:is_enabled(listeners)
       andalso (ok = emqx_listeners:start()),
-    start_autocluster(),
+    ok = emqx_plugins:init(),
+    _ = emqx_plugins:load(),
     register(emqx, self()),
     ok = emqx_alarm_handler:load(),
     print_vsn(),
@@ -64,8 +64,11 @@ print_vsn() ->
 %% Autocluster
 %%--------------------------------------------------------------------
 
+-ifdef(EMQX_ENTERPRISE).
 start_autocluster() ->
     ekka:callback(prepare, fun emqx:shutdown/1),
     ekka:callback(reboot,  fun emqx:reboot/0),
     ekka:autocluster(?APP).
-
+-else.
+start_autocluster() -> ok.
+-endif.
