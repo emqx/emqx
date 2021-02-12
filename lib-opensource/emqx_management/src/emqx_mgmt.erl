@@ -302,14 +302,14 @@ lookup_client({username, Username}, FormatFun) ->
     lists:append([lookup_client(Node, {username, Username}, FormatFun) || Node <- ekka_mnesia:running_nodes()]).
 
 lookup_client(Node, {clientid, ClientId}, {M,F}) when Node =:= node() ->
-    M:F(ets:lookup(emqx_channel, ClientId));
+    lists:map(fun(E) -> M:F(E) end, ets:lookup(emqx_channel, ClientId));
 
 lookup_client(Node, {clientid, ClientId}, FormatFun) ->
     rpc_call(Node, lookup_client, [Node, {clientid, ClientId}, FormatFun]);
 
 lookup_client(Node, {username, Username}, {M,F}) when Node =:= node() ->
     MatchSpec = [{{'$1', #{clientinfo => #{username => '$2'}}, '_'}, [{'=:=','$2', Username}], ['$1']}],
-    M:F(ets:select(emqx_channel_info, MatchSpec));
+    lists:map(fun(E) -> M:F(E) end, ets:select(emqx_channel_info, MatchSpec));
 
 lookup_client(Node, {username, Username}, FormatFun) ->
     rpc_call(Node, lookup_client, [Node, {username, Username}, FormatFun]).
@@ -916,46 +916,6 @@ get_telemetry_data() ->
 %%--------------------------------------------------------------------
 %% Common Table API
 %%--------------------------------------------------------------------
-
-item(client, {ClientId, ChanPid}) ->
-    Attrs = case emqx_cm:get_chan_info(ClientId, ChanPid) of
-                undefined -> throw(gone);
-                Attrs0 -> Attrs0
-            end,
-    Stats = case emqx_cm:get_chan_stats(ClientId, ChanPid) of
-                undefined -> #{};
-                Stats0 -> maps:from_list(Stats0)
-            end,
-    ClientInfo = maps:get(clientinfo, Attrs, #{}),
-    ConnInfo = maps:get(conninfo, Attrs, #{}),
-    Session = case maps:get(session, Attrs, #{}) of
-                  undefined -> #{};
-                  _Sess -> _Sess
-              end,
-    SessCreated = maps:get(created_at, Session, maps:get(connected_at, ConnInfo)),
-    Connected = case maps:get(conn_state, Attrs, connected) of
-                    connected -> true;
-                    _ -> false
-                end,
-    NStats = Stats#{max_subscriptions => maps:get(subscriptions_max, Stats, 0),
-                    max_inflight => maps:get(inflight_max, Stats, 0),
-                    max_awaiting_rel => maps:get(awaiting_rel_max, Stats, 0),
-                    max_mqueue => maps:get(mqueue_max, Stats, 0),
-                    inflight => maps:get(inflight_cnt, Stats, 0),
-                    awaiting_rel => maps:get(awaiting_rel_cnt, Stats, 0)},
-    lists:foldl(fun(Items, Acc) ->
-                    maps:merge(Items, Acc)
-                end, #{connected => Connected},
-                [maps:with([ subscriptions_cnt, max_subscriptions,
-                             inflight, max_inflight, awaiting_rel,
-                             max_awaiting_rel, mqueue_len, mqueue_dropped,
-                             max_mqueue, heap_size, reductions, mailbox_len,
-                             recv_cnt, recv_msg, recv_oct, recv_pkt, send_cnt,
-                             send_msg, send_oct, send_pkt], NStats),
-                 maps:with([clientid, username, mountpoint, is_bridge, zone], ClientInfo),
-                 maps:with([clean_start, keepalive, expiry_interval, proto_name,
-                            proto_ver, peername, connected_at, disconnected_at], ConnInfo),
-                 #{created_at => SessCreated}]);
 
 item(subscription, {{Topic, ClientId}, Options}) ->
     #{topic => Topic, clientid => ClientId, options => Options};
