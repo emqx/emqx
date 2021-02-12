@@ -1,6 +1,5 @@
-#!/bin/sh
+#!/bin/bash
 
-#set -euo pipefail
 set -eu
 
 VERSION="$1"
@@ -10,7 +9,11 @@ cd -P -- "$(dirname -- "$0")"
 
 DOWNLOAD_URL='https://github.com/emqx/emqx-dashboard-frontend/releases/download'
 
-DASHBOARD_PATH='apps/emqx_dashboard/priv'
+if [ "$EMQX_ENTERPRISE" = 'true' ] || [ "$EMQX_ENTERPRISE" == '1' ]; then
+    DASHBOARD_PATH='lib-enterprise/emqx_dashboard/priv'
+else
+    DASHBOARD_PATH='lib-opensource/emqx_dashboard/priv'
+fi
 
 case $(uname) in
     *Darwin*) SED="sed -E";;
