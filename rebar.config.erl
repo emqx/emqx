@@ -184,6 +184,7 @@ relx_overlay(ReleaseType) ->
     , {template,"data/emqx_vars","releases/emqx_vars"}
     , {copy,"bin/emqx","bin/emqx"}
     , {copy,"bin/emqx_ctl","bin/emqx_ctl"}
+    , {copy,"bin/override_conf.escript", "bin/override_conf.escript"}
     , {copy,"bin/install_upgrade.escript", "bin/install_upgrade.escript"}
     , {copy,"bin/emqx","bin/emqx-{{release_version}}"} %% for relup
     , {copy,"bin/emqx_ctl","bin/emqx_ctl-{{release_version}}"} %% for relup

@@ -205,6 +205,7 @@ generate_config() {
         # the vm, we need to pass it in twice.
         CONFIG_ARGS=" -config $RUNNER_ETC_DIR/app.config -args_file $RUNNER_ETC_DIR/vm.args -vm_args $RUNNER_ETC_DIR/vm.args "
     else
+        "$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/override_conf.escript -l "$RUNNER_LIB_DIR" -e "$RUNNER_ETC_DIR"
         CONFIG_ARGS=$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -i "$REL_DIR"/emqx.schema -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)
 
         ## Merge cuttlefish generated *.args into the vm.args
