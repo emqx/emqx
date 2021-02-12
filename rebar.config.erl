@@ -279,7 +279,7 @@ provide_bcrypt_release(ReleaseType) ->
 %% rebar3 does not handle umberella project's cross-app parse_transform well
 compile_and_load_pase_transforms(Dir) ->
     PtFiles =
-        [ "apps/emqx_rule_engine/src/emqx_rule_actions_trans.erl"
+        [ "lib-opensource/emqx_rule_engine/src/emqx_rule_actions_trans.erl"
         ],
     CompileOpts = [verbose,report_errors,report_warnings,return_errors,debug_info],
     lists:foreach(fun(PtFile) -> {ok, _Mod} = compile:file(path(Dir, PtFile), CompileOpts) end, PtFiles).
@@ -291,8 +291,8 @@ str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
 erl_opts_i() ->
     [{i, "apps"}] ++
-    [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "**", "include"]))] ++
-    [{i, Dir}  || Dir <- filelib:wildcard(filename:join([extra_lib_dir(), "**", "include"]))].
+    [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "*", "include"]))] ++
+    [{i, Dir}  || Dir <- filelib:wildcard(filename:join([extra_lib_dir(), "*", "include"]))].
 
 dialyzer(Config) ->
     {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),

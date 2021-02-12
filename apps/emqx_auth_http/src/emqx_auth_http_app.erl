@@ -74,11 +74,10 @@ translate_env(EnvName) ->
                                                         (_) ->
                                                         true
                                                     end, [{keyfile, KeyFile}, {certfile, CertFile}, {cacertfile, CACertFile}]),
-                            TlsVers = ['tlsv1.2','tlsv1.1',tlsv1],
-                            NTLSOpts = [{versions, TlsVers},
-                                        {ciphers, lists:foldl(fun(TlsVer, Ciphers) ->
-                                                                    Ciphers ++ ssl:cipher_suites(all, TlsVer)
-                                                                end, [], TlsVers)} | TLSOpts],
+                            NTLSOpts = [ {versions, emqx_tls_lib:default_versions()}
+                                       , {ciphers, emqx_tls_lib:default_ciphers()}
+                                       | TLSOpts
+                                       ],
                             [{transport, ssl}, {transport_opts, [Inet | NTLSOpts]}]
                         end,
             PoolOpts = [{host, Host},
