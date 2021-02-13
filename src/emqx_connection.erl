@@ -29,6 +29,8 @@
 -compile(nowarn_export_all).
 -endif.
 
+-elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_connection]}}]).
+
 %% API
 -export([ start_link/3
         , stop/1
@@ -506,7 +508,7 @@ system_code_change(State, _Mod, Vsn, _Extra)
             Ps when is_function(Ps) ->
                 case erlang:fun_info(Ps, env) of
                     {_, [Hdr, Opts]} ->
-                        {{len, #{hdr => Hdr, len => {1,0}}}, Opts};
+                        {{len, #{hdr => Hdr, len => {1, 0}}}, Opts};
                     {_, [Bin, Hdr, Len, Opts]} when is_binary(Bin) ->
                         {{body, #{hdr => Hdr, len => Len, rest => Bin}}, Opts};
                     {_, [Hdr, Multip, Len, Opts]} ->
@@ -689,57 +691,15 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
             ok
     end.
 
-maybe_warn_congestion(Socket, Transport, Channel) ->
-    IsCongestAlarmSet = is_congestion_alarm_set(),
-    case is_congested(Socket, Transport) of
-        true when not IsCongestAlarmSet ->
-            ok = set_congestion_alarm(),
-            emqx_alarm:activate(?ALARM_TCP_CONGEST(Channel),
-                tcp_congestion_alarm_details(Socket, Transport, Channel));
-        false when IsCongestAlarmSet ->
-            ok = clear_congestion_alarm(),
-            emqx_alarm:deactivate(?ALARM_TCP_CONGEST(Channel));
-        _ -> ok
-    end.
-
-is_congested(Socket, Transport) ->
-    case Transport:getstat(Socket, [send_pend]) of
-        {ok, [{send_pend, N}]} when N > 0 -> true;
-        _ -> false
-    end.
-
-is_congestion_alarm_set() ->
-    case erlang:get(conn_congested) of
-        true -> true;
-        _ -> false
-    end.
-set_congestion_alarm() ->
-    erlang:put(conn_congested, true), ok.
-clear_congestion_alarm() ->
-    erlang:put(conn_congested, false), ok.
-
-tcp_congestion_alarm_details(Socket, Transport, Channel) ->
-    {ok, Stat} = Transport:getstat(Socket, ?ALARM_SOCK_STATS_KEYS),
-    {ok, Opts} = Transport:getopts(Socket, ?ALARM_SOCK_OPTS_KEYS),
-    SockInfo = maps:from_list(Stat ++ Opts),
-    ConnInfo = maps:from_list([conn_info(Key, Channel) || Key <- ?ALARM_CONN_INFO_KEYS]),
-    maps:merge(ConnInfo, SockInfo).
-
-conn_info(Key, Channel) when Key =:= sockname; Key =:= peername ->
-    {IPStr, Port} = emqx_channel:info(Key, Channel),
-    {Key, iolist_to_binary([inet:ntoa(IPStr),":",integer_to_list(Port)])};
-conn_info(Key, Channel) ->
-    {Key, emqx_channel:info(Key, Channel)}.
-
 %%--------------------------------------------------------------------
 %% Handle Info
 
 handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
     case activate_socket(State) of
         {ok, NState = #state{sockstate = NewSst}} ->
-            if OldSst =/= NewSst ->
-                   {ok, {event, NewSst}, NState};
-               true -> {ok, NState}
+            case OldSst =/= NewSst of
+                true -> {ok, {event, NewSst}, NState};
+                false -> {ok, NState}
             end;
         {error, Reason} ->
             handle_info({sock_error, Reason}, State)

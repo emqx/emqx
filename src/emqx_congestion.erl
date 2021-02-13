@@ -23,15 +23,18 @@
         , cancel_alarms/3
         ]).
 
--define(ALARM_CONN_CONGEST(Channel, Reason),
-        list_to_binary(io_lib:format("mqtt_conn/congested/~s/~s/~s", [emqx_channel:info(clientid, Channel),
-         maps:get(username, emqx_channel:info(clientinfo, Channel), <<"undefined">>),
-         Reason]))).
+-elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_congestion]}}]).
 
--define(ALARM_CONN_INFO_KEYS, [
-    socktype, sockname, peername, clientid, username, proto_name, proto_ver,
-    connected_at, conn_state
-]).
+-define(ALARM_CONN_CONGEST(Channel, Reason),
+        list_to_binary(
+          io_lib:format("mqtt_conn/congested/~s/~s/~s",
+                        [emqx_channel:info(clientid, Channel),
+                         maps:get(username, emqx_channel:info(clientinfo, Channel),
+                                  <<"undefined">>),
+                         Reason]))).
+
+-define(ALARM_CONN_INFO_KEYS, [socktype, sockname, peername, clientid, username,
+                               proto_name, proto_ver, connected_at, conn_state]).
 -define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
 -define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
 -define(PROC_INFO_KEYS, [message_queue_len, memory, reductions]).
@@ -156,6 +159,6 @@ tcp_congestion_alarm_details(Socket, Transport, Channel) ->
 
 conn_info(Key, Channel) when Key =:= sockname; Key =:= peername ->
     {IPStr, Port} = emqx_channel:info(Key, Channel),
-    {Key, iolist_to_binary([inet:ntoa(IPStr),":",integer_to_list(Port)])};
+    {Key, iolist_to_binary([inet:ntoa(IPStr), ":", integer_to_list(Port)])};
 conn_info(Key, Channel) ->
     {Key, emqx_channel:info(Key, Channel)}.

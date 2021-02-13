@@ -62,7 +62,8 @@ t_reload_aclfile_and_cleanall(_Config) ->
                                          disconnected => fun(_) ->  ok end,
                                          publish => fun(_) -> ok end } end,
 
-    {ok, Client} = emqtt:start_link([{clientid, <<"emqx_c">>}, {proto_ver, v5}, {msg_handler, RasieMsg()}]),
+    {ok, Client} = emqtt:start_link([{clientid, <<"emqx_c">>}, {proto_ver, v5},
+                                     {msg_handler, RasieMsg()}]),
     {ok, _} = emqtt:connect(Client),
 
     {ok, PktId} = emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, qos1),

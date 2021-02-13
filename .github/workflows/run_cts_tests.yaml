@@ -194,15 +194,9 @@ jobs:
         run: |
           docker-compose -f .ci/compatibility_tests/docker-compose-pgsql-tls.yaml build --no-cache
           docker-compose -f .ci/compatibility_tests/docker-compose-pgsql-tls.yaml up -d
-          if [ "$PGSQL_TAG" = "12" ] || [ "$PGSQL_TAG" = "13" ]; then
-              sed -i 's|^[#[:space:]]*auth.pgsql.ssl.tls_versions[ \t]*=.*|auth.pgsql.ssl.tls_versions = tlsv1.3,tlsv1.2|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
-          else
-              sed -i 's|^[#[:space:]]*auth.pgsql.ssl.tls_versions[ \t]*=.*|auth.pgsql.ssl.tls_versions = tlsv1.2,tlsv1.1|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
-          fi
-
-          sed -i 's|^[#[:space:]]*auth.pgsql.username[ \t]*=.*|auth.pgsql.username = postgres|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
-          sed -i 's|^[#[:space:]]*auth.pgsql.password[ \t]*=.*|auth.pgsql.password = postgres|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
-          sed -i 's|^[#[:space:]]*auth.pgsql.database[ \t]*=.*|auth.pgsql.database = postgres|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          sed -i 's|^[#[:space:]]*auth.pgsql.username[ \t]*=.*|auth.pgsql.username = root|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          sed -i 's|^[#[:space:]]*auth.pgsql.password[ \t]*=.*|auth.pgsql.password = public|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          sed -i 's|^[#[:space:]]*auth.pgsql.database[ \t]*=.*|auth.pgsql.database = mqtt|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
           sed -i 's|^[#[:space:]]*auth.pgsql.ssl[ \t]*=.*|auth.pgsql.ssl = on|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
           sed -i 's|^[#[:space:]]*auth.pgsql.cacertfile[ \t]*=.*|auth.pgsql.cacertfile = /emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/root.crt|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
       - name: setup

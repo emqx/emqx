@@ -133,9 +133,6 @@ EMQ X MQTT bridging principle: Create an MQTT client on the EMQ X broker, and co
    ## Key file of Client SSL connection 
    bridge.mqtt.emqx2.keyfile = etc/certs/client-key.pem
 
-   ## SSL encryption
-   bridge.mqtt.emqx2.ciphers = ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES256-GCM-SHA384
-
    ## TTLS PSK password
    ## Note 'listener.ssl.external.ciphers' and 'listener.ssl.external.psk_ciphers' cannot be configured at the same time
    ##
@@ -146,7 +143,10 @@ EMQ X MQTT bridging principle: Create an MQTT client on the EMQ X broker, and co
    bridge.mqtt.emqx2.keepalive = 60s
 
    ## Supported TLS version
-   bridge.mqtt.emqx2.tls_versions = tlsv1.2,tlsv1.1,tlsv1
+   bridge.mqtt.emqx2.tls_versions = tlsv1.2
+
+   ## SSL encryption
+   bridge.mqtt.emqx2.ciphers = ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES256-GCM-SHA384
 
    ## Forwarding topics of the message
    bridge.mqtt.emqx2.forwards = sensor1/#,sensor2/#

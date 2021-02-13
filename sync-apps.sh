@@ -15,17 +15,17 @@ apps=(
 "emqx_auth_redis"
 "emqx_bridge_mqtt"
 "emqx_coap"
-"emqx_dashboard"
+# "emqx_dashboard" # moved to lib-opensource
 "emqx_exhook"
 "emqx_exproto"
 "emqx_lua_hook"
 "emqx_lwm2m"
-"emqx_management"
+# "emqx_management" # moved to lib-opensource
 "emqx_prometheus"
 "emqx_psk_file"
 "emqx_recon"
 "emqx_retainer"
-"emqx_rule_engine"
+# "emqx_rule_engine" # moved to lib-opensource
 "emqx_sasl"
 "emqx_sn"
 "emqx_stomp"
