@@ -173,23 +173,33 @@ with_port({Addr, Port}, Opts = #{socket_opts := SocketOption}) ->
 restart() ->
     lists:foreach(fun restart_listener/1, emqx:get_env(listeners, [])).
 
--spec(restart_listener(listener()) -> any()).
+-spec(restart_listener(listener() | string() | binary()) -> ok | {error, any()}).
 restart_listener(#{proto := Proto, listen_on := ListenOn, opts := Options}) ->
-    restart_listener(Proto, ListenOn, Options).
+    restart_listener(Proto, ListenOn, Options);
+restart_listener(Identifier) ->
+    case emqx_listeners:find_by_id(Identifier) of
+        false    -> {error, {no_such_listener, Identifier}};
+        Listener -> restart_listener(Listener)
+    end.
 
--spec(restart_listener(esockd:proto(), esockd:listen_on(), [esockd:option()]) -> any()).
+-spec(restart_listener(esockd:proto(), esockd:listen_on(), [esockd:option()]) ->
+    ok | {error, any()}).
 restart_listener(tcp, ListenOn, _Options) ->
     esockd:reopen('mqtt:tcp', ListenOn);
 restart_listener(Proto, ListenOn, _Options) when Proto == ssl; Proto == tls ->
     esockd:reopen('mqtt:ssl', ListenOn);
 restart_listener(Proto, ListenOn, Options) when Proto == http; Proto == ws ->
     _ = cowboy:stop_listener(ws_name('mqtt:ws', ListenOn)),
-    start_listener(Proto, ListenOn, Options);
+    ok(start_listener(Proto, ListenOn, Options));
 restart_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
     _ = cowboy:stop_listener(ws_name('mqtt:wss', ListenOn)),
-    start_listener(Proto, ListenOn, Options);
+    ok(start_listener(Proto, ListenOn, Options));
 restart_listener(Proto, ListenOn, _Opts) ->
     esockd:reopen(Proto, ListenOn).
+
+ok(ok) -> ok;
+ok({ok, _}) -> ok;
+ok(Error) -> Error.
 
 %% @doc Stop all listeners.
 -spec(stop() -> ok).

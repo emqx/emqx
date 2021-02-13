@@ -30,7 +30,19 @@
             func   => list,
             descr  => "A list of listeners on the node"}).
 
--export([list/2]).
+-rest_api(#{name   => restart_listener,
+            method => 'PUT',
+            path   => "/listeners/:bin:identifier/restart",
+            func   => restart,
+            descr  => "Restart a listener in the cluster"}).
+
+-rest_api(#{name   => restart_node_listener,
+            method => 'PUT',
+            path   => "/nodes/:atom:node/listeners/:bin:identifier/restart",
+            func   => restart,
+            descr  => "Restart a listener on a node"}).
+
+-export([list/2, restart/2]).
 
 %% List listeners on a node.
 list(#{node := Node}, _Params) ->
@@ -40,6 +52,21 @@ list(#{node := Node}, _Params) ->
 list(_Binding, _Params) ->
     return({ok, [#{node => Node, listeners => format(Listeners)}
                               || {Node, Listeners} <- emqx_mgmt:list_listeners()]}).
+
+%% Restart listeners on a node.
+restart(#{node := Node, identifier := Identifier}, _Params) ->
+    case emqx_mgmt:restart_listener(Node, Identifier) of
+        ok -> return({ok, "Listener restarted."});
+        {error, Error} -> return({error, Error})
+    end;
+
+%% Restart listeners in the cluster.
+restart(#{identifier := Identifier}, _Params) ->
+    Results = [{Node, emqx_mgmt:restart_listener(Node, Identifier)} || {Node, _Info} <- emqx_mgmt:list_nodes()],
+    case lists:filter(fun({_, Result}) -> Result =/= ok end, Results) of
+        [] -> return(ok);
+        Errors -> return({error, Errors})
+    end.
 
 format(Listeners) when is_list(Listeners) ->
     [ Info#{listen_on => list_to_binary(esockd:to_string(ListenOn))}
