@@ -23,10 +23,17 @@ if [ ! -f ./elvis ] || [ "$(./elvis -v | grep -oE '[1-9]+\.[0-9]+\.[0-9]+\-emqx-
     chmod +x ./elvis
 fi
 
-git fetch origin "$base"
+if [[ "$base" =~ [0-9a-f]{8,40} ]]; then
+    # base is a commit sha1
+    compare_base="$base"
+else
+    remote="$(git remote -v | grep -E 'github\.com(.|/)emqx' | grep fetch | awk '{print $1}')"
+    git fetch "$remote" "$base"
+    compare_base="$remote/$base"
+fi
 
 git_diff() {
-    git diff --name-only origin/"$base"...HEAD
+    git diff --name-only "$compare_base"...HEAD
 }
 
 bad_file_count=0
