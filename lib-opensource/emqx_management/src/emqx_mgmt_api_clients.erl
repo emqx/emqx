@@ -249,10 +249,6 @@ parse_ratelimit_str(S) ->
 %%--------------------------------------------------------------------
 %% Format
 
-format_channel_info(Key = {_ClientId, _Pid}) ->
-    [E] = ets:lookup(emqx_channel_info, Key),
-    format_channel_info(E);
-
 format_channel_info({_Key, Info, Stats0}) ->
     Stats = maps:from_list(Stats0),
     ClientInfo = maps:get(clientinfo, Info, #{}),
