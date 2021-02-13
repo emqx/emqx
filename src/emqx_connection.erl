@@ -29,6 +29,8 @@
 -compile(nowarn_export_all).
 -endif.
 
+-elvis([{elvis_style, invalid_dynamic_call, #{ ignore => [emqx_connection]}}]).
+
 %% API
 -export([ start_link/3
         , stop/1
@@ -661,7 +663,7 @@ tcp_congestion_alarm_details(Socket, Transport, Channel) ->
 
 conn_info(Key, Channel) when Key =:= sockname; Key =:= peername ->
     {IPStr, Port} = emqx_channel:info(Key, Channel),
-    {Key, iolist_to_binary([inet:ntoa(IPStr),":",integer_to_list(Port)])};
+    {Key, iolist_to_binary([inet:ntoa(IPStr), ":", integer_to_list(Port)])};
 conn_info(Key, Channel) ->
     {Key, emqx_channel:info(Key, Channel)}.
 
@@ -671,9 +673,9 @@ conn_info(Key, Channel) ->
 handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
     case activate_socket(State) of
         {ok, NState = #state{sockstate = NewSst}} ->
-            if OldSst =/= NewSst ->
-                   {ok, {event, NewSst}, NState};
-               true -> {ok, NState}
+            case OldSst =/= NewSst of
+                true -> {ok, {event, NewSst}, NState};
+                false -> {ok, NState}
             end;
         {error, Reason} ->
             handle_info({sock_error, Reason}, State)
