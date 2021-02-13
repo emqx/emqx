@@ -510,14 +510,14 @@ trace_off(Who, Name) ->
 
 listeners([]) ->
     foreach(fun({{Protocol, ListenOn}, _Pid}) ->
-                Info = [{acceptors,      esockd:get_acceptors({Protocol, ListenOn})},
+                Info = [{identifier,     {string, emqx_listeners:find_id_by_listen_on(ListenOn)}},
+                        {acceptors,      esockd:get_acceptors({Protocol, ListenOn})},
                         {max_conns,      esockd:get_max_connections({Protocol, ListenOn})},
                         {current_conn,   esockd:get_current_connections({Protocol, ListenOn})},
-                        {shutdown_count, esockd:get_shutdown_count({Protocol, ListenOn})}],
+                        {shutdown_count, esockd:get_shutdown_count({Protocol, ListenOn})}
+                       ],
                     emqx_ctl:print("listener on ~s:~s~n", [Protocol, esockd:to_string(ListenOn)]),
-                foreach(fun({Key, Val}) ->
-                            emqx_ctl:print("  ~-16s: ~w~n", [Key, Val])
-                        end, Info)
+                foreach(fun indent_print/1, Info)
             end, esockd:listeners()),
     foreach(fun({Protocol, Opts}) ->
                 Info = [{acceptors,      maps:get(num_acceptors, proplists:get_value(transport_options, Opts, #{}), 0)},
@@ -525,9 +525,7 @@ listeners([]) ->
                         {current_conn,   proplists:get_value(all_connections, Opts)},
                         {shutdown_count, []}],
                     emqx_ctl:print("listener on ~s:~p~n", [Protocol, proplists:get_value(port, Opts)]),
-                foreach(fun({Key, Val}) ->
-                            emqx_ctl:print("  ~-16s: ~w~n", [Key, Val])
-                        end, Info)
+                foreach(fun indent_print/1, Info)
             end, ranch:info());
 
 listeners(["stop",  Name = "http" ++ _N, ListenOn]) ->
@@ -538,21 +536,31 @@ listeners(["stop",  Name = "http" ++ _N, ListenOn]) ->
             emqx_ctl:print("Failed to stop ~s listener on ~s, error:~p~n", [Name, ListenOn, Error])
     end;
 
-listeners(["stop", Proto, ListenOn]) ->
+listeners(["stop", "mqtt:" ++ _ = Identifier]) ->
+    stop_listener(emqx_listeners:find_by_id(Identifier), Identifier);
+
+listeners(["stop", _Proto, ListenOn]) ->
+    %% this clause is kept to be backward compatible
     ListenOn1 = case string:tokens(ListenOn, ":") of
         [Port]     -> list_to_integer(Port);
         [IP, Port] -> {IP, list_to_integer(Port)}
     end,
-    case emqx_listeners:stop_listener({list_to_atom(Proto), ListenOn1, []}) of
-        ok ->
-            emqx_ctl:print("Stop ~s listener on ~s successfully.~n", [Proto, ListenOn]);
-        {error, Error} ->
-            emqx_ctl:print("Failed to stop ~s listener on ~s, error:~p~n", [Proto, ListenOn, Error])
-    end;
+    stop_listener(emqx_listeners:find_by_listen_on(ListenOn1), ListenOn1);
 
 listeners(_) ->
     emqx_ctl:usage([{"listeners",                        "List listeners"},
                     {"listeners stop    <Proto> <Port>", "Stop a listener"}]).
+
+stop_listener(false, Input) ->
+    emqx_ctl:print("No such listener ~p~n", [Input]);
+stop_listener(#{listen_on := ListenOn} = Listener, _Input) ->
+    ID = emqx_listeners:identifier(Listener),
+    case emqx_listeners:stop_listener(Listener) of
+        ok ->
+            emqx_ctl:print("Stop ~s listener on ~s successfully.~n", [ID, ListenOn]);
+        {error, Error} ->
+            emqx_ctl:print("Failed to stop ~s listener on ~s, error:~p~n", [ID, ListenOn, Error])
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc data Command
@@ -707,3 +715,8 @@ format(_, Val) ->
     Val.
 
 bin(S) -> iolist_to_binary(S).
+
+indent_print({Key, {string, Val}}) ->
+    emqx_ctl:print("  ~-16s: ~s~n", [Key, Val]);
+indent_print({Key, Val}) ->
+    emqx_ctl:print("  ~-16s: ~w~n", [Key, Val]).

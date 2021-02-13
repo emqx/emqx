@@ -33,11 +33,43 @@
         , restart_listener/3
         ]).
 
--type(listener() :: {esockd:proto(), esockd:listen_on(), [esockd:option()]}).
+-export([ find_id_by_listen_on/1
+        , find_by_listen_on/1
+        , find_by_id/1
+        , identifier/1
+        ]).
 
-%%--------------------------------------------------------------------
-%% APIs
-%%--------------------------------------------------------------------
+-type(listener() :: #{ name := binary()
+                     , proto := esockd:proto()
+                     , listen_on := esockd:listen_on()
+                     , opts := [esockd:option()]
+                     }).
+
+%% @doc Find listener identifier by listen-on.
+%% Return empty string (binary) if listener is not found in config.
+-spec(find_id_by_listen_on(esockd:listen_on()) -> binary()).
+find_id_by_listen_on(ListenOn) ->
+    case find_by_listen_on(ListenOn) of
+        false -> <<>>;
+        L -> identifier(L)
+    end.
+
+%% @doc Find listener by listen-on.
+%% Return 'false' if not found.
+-spec(find_by_listen_on(esockd:listen_on()) -> listener() | false).
+find_by_listen_on(ListenOn) ->
+    find_by_listen_on(ListenOn, emqx:get_env(listeners, [])).
+
+%% @doc Find listener by identifier.
+%% Return 'false' if not found.
+-spec(find_by_id(string() | binary()) -> listener() | false).
+find_by_id(Id) ->
+    find_by_id(iolist_to_binary(Id), emqx:get_env(listeners, [])).
+
+%% @doc Return the ID of the given listener.
+-spec identifier(listener()) -> binary().
+identifier(#{proto := Proto, name := Name}) ->
+    identifier(Proto, Name).
 
 %% @doc Start all listeners.
 -spec(start() -> ok).
@@ -45,13 +77,14 @@ start() ->
     lists:foreach(fun start_listener/1, emqx:get_env(listeners, [])).
 
 -spec(start_listener(listener()) -> ok).
-start_listener({Proto, ListenOn, Options}) ->
+start_listener(#{proto := Proto, name := Name, listen_on := ListenOn, opts := Options}) ->
+    ID = identifier(Proto, Name),
     case start_listener(Proto, ListenOn, Options) of
-        {ok, _} -> io:format("Start mqtt:~s listener on ~s successfully.~n",
-                             [Proto, format(ListenOn)]);
+        {ok, _} -> io:format("Start ~s listener on ~s successfully.~n",
+                             [ID, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to start mqtt:~s listener on ~s - ~0p~n!",
-                      [Proto, format(ListenOn), Reason]),
+            io:format(standard_error, "Failed to start mqtt listener ~s on ~s - ~0p~n!",
+                      [ID, format(ListenOn), Reason]),
             error(Reason)
     end.
 
@@ -115,7 +148,7 @@ restart() ->
     lists:foreach(fun restart_listener/1, emqx:get_env(listeners, [])).
 
 -spec(restart_listener(listener()) -> any()).
-restart_listener({Proto, ListenOn, Options}) ->
+restart_listener(#{proto := Proto, listen_on := ListenOn, opts := Options}) ->
     restart_listener(Proto, ListenOn, Options).
 
 -spec(restart_listener(esockd:proto(), esockd:listen_on(), [esockd:option()]) -> any()).
@@ -138,14 +171,14 @@ stop() ->
     lists:foreach(fun stop_listener/1, emqx:get_env(listeners, [])).
 
 -spec(stop_listener(listener()) -> ok | {error, term()}).
-stop_listener({Proto, ListenOn, Opts}) ->
+stop_listener(#{proto := Proto, name := Name, listen_on := ListenOn, opts := Opts}) ->
+    ID = identifier(Proto, Name),
     StopRet = stop_listener(Proto, ListenOn, Opts),
     case StopRet of
-        ok -> io:format("Stop mqtt:~s listener on ~s successfully.~n",
-                        [Proto, format(ListenOn)]);
+        ok -> io:format("Stop ~s listener on ~s successfully.~n", [ID, format(ListenOn)]);
         {error, Reason} ->
             io:format(standard_error, "Failed to stop mqtt:~s listener on ~s - ~p~n.",
-                      [Proto, format(ListenOn), Reason])
+                      [ID, format(ListenOn), Reason])
     end,
     StopRet.
 
@@ -181,3 +214,19 @@ ws_name(Name, {_Addr, Port}) ->
     ws_name(Name, Port);
 ws_name(Name, Port) ->
     list_to_atom(lists:concat([Name, ":", Port])).
+
+identifier(Proto, Name) when is_atom(Proto) ->
+    identifier(atom_to_list(Proto), Name);
+identifier(Proto, Name) ->
+    iolist_to_binary(["mqtt", ":", Proto, ":", Name]).
+
+find_by_listen_on(ListenOn, []) -> error({unknown_listener, ListenOn});
+find_by_listen_on(ListenOn, [#{listen_on := ListenOn} = L | _]) -> L;
+find_by_listen_on(ListenOn, [_ | Rest]) -> find_by_listen_on(ListenOn, Rest).
+
+find_by_id(_Id, []) -> false;
+find_by_id(Id, [L | Rest]) ->
+    case identifier(L) =:= Id of
+        true -> L;
+        false -> find_by_id(Id, Rest)
+    end.
