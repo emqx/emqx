@@ -27,13 +27,6 @@ emqx_test(){
                 sed -i "/mqtt.max_topic_alias/c mqtt.max_topic_alias = 10" "${PACKAGE_PATH}"/emqx/etc/emqx.conf
                 sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
-                if echo "${EMQX_DEPS_DEFAULT_VSN#v}" | grep -qE "[0-9]+\.[0-9]+(\.[0-9]+)?-(alpha|beta|rc)\.[0-9]"; then
-                    if [ ! -d "${PACKAGE_PATH}/emqx/lib/emqx-${EMQX_DEPS_DEFAULT_VSN#v}" ] || [ ! -d "${PACKAGE_PATH}/emqx/releases/${EMQX_DEPS_DEFAULT_VSN#v}" ] ;then
-                        echo "emqx zip version error"
-                        exit 1
-                    fi
-                fi
-
                 echo "running ${packagename} start"
                 "${PACKAGE_PATH}"/emqx/bin/emqx start || tail "${PACKAGE_PATH}"/emqx/log/erlang.log.1
                 IDLE_TIME=0
@@ -103,13 +96,6 @@ emqx_test(){
 }
 
 running_test(){
-    if echo "${EMQX_DEPS_DEFAULT_VSN#v}" | grep -qE "[0-9]+\.[0-9]+(\.[0-9]+)?-(alpha|beta|rc)\.[0-9]"; then
-        if [ ! -d /usr/lib/emqx/lib/emqx-"${EMQX_DEPS_DEFAULT_VSN#v}" ] || [ ! -d /usr/lib/emqx/releases/"${EMQX_DEPS_DEFAULT_VSN#v}" ];then
-            echo "emqx package version error"
-            exit 1
-        fi
-    fi
-
     sed -i "/zone.external.server_keepalive/c zone.external.server_keepalive = 60" /etc/emqx/emqx.conf
     sed -i "/mqtt.max_topic_alias/c mqtt.max_topic_alias = 10" /etc/emqx/emqx.conf
     sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
@@ -150,6 +136,7 @@ running_test(){
 }
 
 relup_test(){
+    TARGET_VERSION="$1"
     if [ -d "${RELUP_PACKAGE_PATH}" ];then
         cd "${RELUP_PACKAGE_PATH }"
 
@@ -159,9 +146,9 @@ relup_test(){
             ./emqx/bin/emqx start
             ./emqx/bin/emqx_ctl status
             ./emqx/bin/emqx versions
-            cp "${PACKAGE_PATH}/${EMQX_NAME}"-*-"${EMQX_DEPS_DEFAULT_VSN#v}-$(uname -m)".zip ./emqx/releases
-            ./emqx/bin/emqx install "${EMQX_DEPS_DEFAULT_VSN#v}"
-            [ "$(./emqx/bin/emqx versions |grep permanent | grep -oE "[0-9].[0-9].[0-9]")" = "${EMQX_DEPS_DEFAULT_VSN#v}" ] || exit 1
+            cp "${PACKAGE_PATH}/${EMQX_NAME}"-*-"${TARGET_VERSION}-$(uname -m)".zip ./emqx/releases
+            ./emqx/bin/emqx install "${TARGET_VERSION}"
+            [ "$(./emqx/bin/emqx versions |grep permanent | grep -oE "[0-9].[0-9].[0-9]")" = "${TARGET_VERSION}" ] || exit 1
             ./emqx/bin/emqx_ctl status
             ./emqx/bin/emqx stop
             rm -rf emqx
@@ -171,4 +158,4 @@ relup_test(){
 
 emqx_prepare
 emqx_test
-relup_test
+# relup_test <TODO: parameterise relup target version>
