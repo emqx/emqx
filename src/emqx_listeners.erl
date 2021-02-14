@@ -28,7 +28,6 @@
 -export([ start_listener/1
         , start_listener/3
         , stop_listener/1
-        , stop_listener/3
         , restart_listener/1
         , restart_listener/3
         ]).
@@ -37,6 +36,7 @@
         , find_by_listen_on/1
         , find_by_id/1
         , identifier/1
+        , format_listen_on/1
         ]).
 
 -type(listener() :: #{ name := binary()
@@ -75,6 +75,10 @@ identifier(#{proto := Proto, name := Name}) ->
 -spec(start() -> ok).
 start() ->
     lists:foreach(fun start_listener/1, emqx:get_env(listeners, [])).
+
+%% @doc Format address:port for logging.
+-spec(format_listen_on(esockd:listen_on()) -> binary()).
+format_listen_on(ListenOn) -> format(ListenOn).
 
 -spec(start_listener(listener()) -> ok).
 start_listener(#{proto := Proto, name := Name, listen_on := ListenOn, opts := Options}) ->
@@ -171,16 +175,8 @@ stop() ->
     lists:foreach(fun stop_listener/1, emqx:get_env(listeners, [])).
 
 -spec(stop_listener(listener()) -> ok | {error, term()}).
-stop_listener(#{proto := Proto, name := Name, listen_on := ListenOn, opts := Opts}) ->
-    ID = identifier(Proto, Name),
-    StopRet = stop_listener(Proto, ListenOn, Opts),
-    case StopRet of
-        ok -> io:format("Stop ~s listener on ~s successfully.~n", [ID, format(ListenOn)]);
-        {error, Reason} ->
-            io:format(standard_error, "Failed to stop mqtt:~s listener on ~s - ~p~n.",
-                      [ID, format(ListenOn), Reason])
-    end,
-    StopRet.
+stop_listener(#{proto := Proto, listen_on := ListenOn, opts := Opts}) ->
+    stop_listener(Proto, ListenOn, Opts).
 
 -spec(stop_listener(esockd:proto(), esockd:listen_on(), [esockd:option()])
       -> ok | {error, term()}).
