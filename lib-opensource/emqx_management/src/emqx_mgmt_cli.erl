@@ -549,18 +549,17 @@ listeners(["stop", _Proto, ListenOn]) ->
 
 listeners(_) ->
     emqx_ctl:usage([{"listeners",                        "List listeners"},
-                    {"listeners stop    <Proto> <Port>", "Stop a listener"}]).
+                    {"listeners stop    <Identifier>",   "Stop a listener"},
+                    {"listeners stop    <Proto> <Port>", "Stop a listener"}
+                   ]).
 
 stop_listener(false, Input) ->
     emqx_ctl:print("No such listener ~p~n", [Input]);
-stop_listener(#{listen_on := ListenOn} = Listener, _Input) ->
-    ID = emqx_listeners:identifier(Listener),
-    case emqx_listeners:stop_listener(Listener) of
-        ok ->
-            emqx_ctl:print("Stop ~s listener on ~s successfully.~n", [ID, ListenOn]);
-        {error, Error} ->
-            emqx_ctl:print("Failed to stop ~s listener on ~s, error:~p~n", [ID, ListenOn, Error])
-    end.
+stop_listener(#{} = Listener, _Input) ->
+    %% Discard reason here, reasons are io:format logged to group leader
+    %% in case of emqx_ctl RPC call, it's logged to the remore node.
+    _ = emqx_listeners:stop_listener(Listener),
+    ok.
 
 %%--------------------------------------------------------------------
 %% @doc data Command
