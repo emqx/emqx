@@ -554,16 +554,16 @@ listeners(_) ->
                    ]).
 
 stop_listener(false, Input) ->
-    ok = emqx_ctl:print("No such listener ~p~n", [Input]);
+    emqx_ctl:print("No such listener ~p~n", [Input]);
 stop_listener(#{listen_on := ListenOn} = Listener, _Input) ->
     ID = emqx_listeners:identifier(Listener),
     ListenOnStr = emqx_listeners:format_listen_on(ListenOn),
     case emqx_listeners:stop_listener(Listener) of
         ok ->
-            ok = emqx_ctl:print("Stop ~s listener on ~s successfully.~n", [ID, ListenOnStr]);
+            emqx_ctl:print("Stop ~s listener on ~s successfully.~n", [ID, ListenOnStr]);
         {error, Reason} ->
-            ok = emqx_ctl:print("Failed to stop ~s listener on ~s - ~p~n.",
-                                [ID, ListenOnStr, Reason])
+            emqx_ctl:print("Failed to stop ~s listener on ~s - ~p~n.",
+                           [ID, ListenOnStr, Reason])
     end.
 
 %%--------------------------------------------------------------------

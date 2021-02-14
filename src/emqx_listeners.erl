@@ -21,6 +21,7 @@
 
 %% APIs
 -export([ start/0
+        , ensure_all_started/0
         , restart/0
         , stop/0
         ]).
@@ -75,6 +76,27 @@ identifier(#{proto := Proto, name := Name}) ->
 -spec(start() -> ok).
 start() ->
     lists:foreach(fun start_listener/1, emqx:get_env(listeners, [])).
+
+%% @doc Ensure all configured listeners are started.
+%% Raise exception if any of them failed to start.
+-spec(ensure_all_started() -> ok).
+ensure_all_started() ->
+    ensure_all_started(emqx:get_env(listeners, []), []).
+
+ensure_all_started([], []) -> ok;
+ensure_all_started([], Failed) -> error(Failed);
+ensure_all_started([L | Rest], Results) ->
+    #{proto := Proto, listen_on := ListenOn, opts := Options} = L,
+    NewResults =
+        case start_listener(Proto, ListenOn, Options) of
+            {ok, _Pid} ->
+                Results;
+            {error, {already_started, _Pid}} ->
+                Results;
+            {error, Reason} ->
+                [{identifier(L), Reason} | Results]
+        end,
+    ensure_all_started(Rest, NewResults).
 
 %% @doc Format address:port for logging.
 -spec(format_listen_on(esockd:listen_on()) -> binary()).
