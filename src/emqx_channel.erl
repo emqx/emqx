@@ -220,13 +220,19 @@ setting_peercert_infos(NoSSL, ClientInfo, _Options)
 setting_peercert_infos(Peercert, ClientInfo, Options) ->
     {DN, CN} = {esockd_peercert:subject(Peercert),
                 esockd_peercert:common_name(Peercert)},
-    Username = case proplists:get_value(peer_cert_as_username, Options) of
-                   cn  -> CN;
-                   dn  -> DN;
-                   crt -> Peercert;
-                   _   -> undefined
-               end,
-    ClientInfo#{username => Username, dn => DN, cn => CN}.
+    Username = peer_cert_as(peer_cert_as_username, Options, Peercert, DN, CN),
+    ClientId = peer_cert_as(peer_cert_as_clientid, Options, Peercert, DN, CN),
+    ClientInfo#{username => Username, clientid => ClientId, dn => DN, cn => CN}.
+
+peer_cert_as(Key, Options, Peercert, DN, CN) ->
+    case proplists:get_value(Key, Options) of
+         cn  -> CN;
+         dn  -> DN;
+         crt -> Peercert;
+         pem -> base64:encode(Peercert);
+         md5 -> emqx_passwd:hash(md5, Peercert);
+         _   -> undefined
+     end.
 
 take_ws_cookie(ClientInfo, ConnInfo) ->
     case maps:take(ws_cookie, ConnInfo) of
