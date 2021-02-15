@@ -530,12 +530,13 @@ listeners([]) ->
                 foreach(fun indent_print/1, Info)
             end, ranch:info());
 
-listeners(["stop",  Name = "http" ++ _N, ListenOn]) ->
+listeners(["stop",  Name = "http" ++ _N | _MaybePort]) ->
+    %% _MaybePort is to be backward compatible, to stop http listener, there is no need for the port number
     case minirest:stop_http(list_to_atom(Name)) of
         ok ->
-            emqx_ctl:print("Stop ~s listener on ~s successfully.~n", [Name, ListenOn]);
+            emqx_ctl:print("Stop ~s listener successfully.~n", [Name]);
         {error, Error} ->
-            emqx_ctl:print("Failed to stop ~s listener on ~s, error:~p~n", [Name, ListenOn, Error])
+            emqx_ctl:print("Failed to stop ~s listener, error:~p~n", [Name, Error])
     end;
 
 listeners(["stop", "mqtt:" ++ _ = Identifier]) ->
