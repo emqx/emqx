@@ -510,21 +510,23 @@ trace_off(Who, Name) ->
 
 listeners([]) ->
     foreach(fun({{Protocol, ListenOn}, _Pid}) ->
-                Info = [{identifier,     {string, emqx_listeners:find_id_by_listen_on(ListenOn)}},
+                Info = [{listen_on,      {string, emqx_listeners:format_listen_on(ListenOn)}},
                         {acceptors,      esockd:get_acceptors({Protocol, ListenOn})},
                         {max_conns,      esockd:get_max_connections({Protocol, ListenOn})},
                         {current_conn,   esockd:get_current_connections({Protocol, ListenOn})},
                         {shutdown_count, esockd:get_shutdown_count({Protocol, ListenOn})}
                        ],
-                    emqx_ctl:print("listener on ~s:~s~n", [Protocol, esockd:to_string(ListenOn)]),
+                    emqx_ctl:print("~s~n", [listener_identifier(Protocol, ListenOn)]),
                 foreach(fun indent_print/1, Info)
             end, esockd:listeners()),
     foreach(fun({Protocol, Opts}) ->
-                Info = [{acceptors,      maps:get(num_acceptors, proplists:get_value(transport_options, Opts, #{}), 0)},
+                Port = proplists:get_value(port, Opts),
+                Info = [{listen_on,      {string, emqx_listeners:format_listen_on(Port)}},
+                        {acceptors,      maps:get(num_acceptors, proplists:get_value(transport_options, Opts, #{}), 0)},
                         {max_conns,      proplists:get_value(max_connections, Opts)},
                         {current_conn,   proplists:get_value(all_connections, Opts)},
                         {shutdown_count, []}],
-                    emqx_ctl:print("listener on ~s:~p~n", [Protocol, proplists:get_value(port, Opts)]),
+                    emqx_ctl:print("~s~n", [listener_identifier(Protocol, Port)]),
                 foreach(fun indent_print/1, Info)
             end, ranch:info());
 
@@ -724,3 +726,11 @@ indent_print({Key, {string, Val}}) ->
     emqx_ctl:print("  ~-16s: ~s~n", [Key, Val]);
 indent_print({Key, Val}) ->
     emqx_ctl:print("  ~-16s: ~w~n", [Key, Val]).
+
+listener_identifier(Protocol, ListenOn) ->
+    case emqx_listeners:find_id_by_listen_on(ListenOn) of
+        false ->
+            "http" ++ _ = atom_to_list(Protocol); %% assert
+        ID ->
+            ID
+    end.

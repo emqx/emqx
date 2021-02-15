@@ -48,10 +48,10 @@
 
 %% @doc Find listener identifier by listen-on.
 %% Return empty string (binary) if listener is not found in config.
--spec(find_id_by_listen_on(esockd:listen_on()) -> binary()).
+-spec(find_id_by_listen_on(esockd:listen_on()) -> binary() | false).
 find_id_by_listen_on(ListenOn) ->
     case find_by_listen_on(ListenOn) of
-        false -> <<>>;
+        false -> false;
         L -> identifier(L)
     end.
 
@@ -238,7 +238,7 @@ identifier(Proto, Name) when is_atom(Proto) ->
 identifier(Proto, Name) ->
     iolist_to_binary(["mqtt", ":", Proto, ":", Name]).
 
-find_by_listen_on(ListenOn, []) -> error({unknown_listener, ListenOn});
+find_by_listen_on(_ListenOn, []) -> false;
 find_by_listen_on(ListenOn, [#{listen_on := ListenOn} = L | _]) -> L;
 find_by_listen_on(ListenOn, [_ | Rest]) -> find_by_listen_on(ListenOn, Rest).
 
