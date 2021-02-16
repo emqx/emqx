@@ -202,7 +202,8 @@ end}.
 
 %% @doc Node name
 {mapping, "node.name", "vm_args.-name", [
-  {default, "emqx@127.0.0.1"}
+  {default, "emqx@127.0.0.1"},
+  {override_env, "NODE_NAME"}
 ]}.
 
 %% @doc Specify SSL Options in the file if using SSL for erlang distribution
