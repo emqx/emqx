@@ -28,7 +28,7 @@
         , stop_trace/1
         ]).
 
--type(trace_who() :: {clientid | topic, binary() | list()}).
+-type(trace_who() :: {clientid | topic, binary()}).
 
 -define(TRACER, ?MODULE).
 -define(FORMAT, {emqx_logger_formatter,
@@ -135,9 +135,9 @@ filter_traces(#{id := Id, level := Level, dst := Dst}, Acc) ->
     end.
 
 handler_id(?TOPIC_TRACE(Topic)) ->
-    list_to_atom(?TOPIC_TRACE_ID(str(Topic)));
+    list_to_atom(?TOPIC_TRACE_ID(handler_name(Topic)));
 handler_id(?CLIENT_TRACE(ClientId)) ->
-    list_to_atom(?CLIENT_TRACE_ID(str(ClientId))).
+    list_to_atom(?CLIENT_TRACE_ID(handler_name(ClientId))).
 
 filter_by_meta_key(#{meta:=Meta}=LogEvent, {MetaKey, MetaValue}) ->
     case maps:find(MetaKey, Meta) of
@@ -150,6 +150,16 @@ filter_by_meta_key(#{meta:=Meta}=LogEvent, {MetaKey, MetaValue}) ->
         _ -> ignore
     end.
 
-str(Bin) when is_binary(Bin) -> binary_to_list(Bin);
-str(Atom) when is_atom(Atom) -> atom_to_list(Atom);
-str(Str) when is_list(Str) -> Str.
+handler_name(Bin) ->
+    case byte_size(Bin) of
+        Size when Size =< 200 -> binary_to_list(Bin);
+        _ -> hashstr(Bin)
+    end.
+
+hashstr(Bin) ->
+    hexstr(crypto:hash(sha, Bin)).
+
+hexstr(Bin) ->
+    lists:flatten(
+        [io_lib:format("~2.16.0B", [Int])
+         || Int <- binary_to_list(Bin)]).
