@@ -23,8 +23,8 @@ emqx_test(){
             "zip")
                 packagename=$(basename "${PACKAGE_PATH}/${EMQX_NAME}"-*.zip)
                 unzip -q "${PACKAGE_PATH}/${packagename}"
-                sed -i "/zone.external.server_keepalive/c zone.external.server_keepalive = 60" "${PACKAGE_PATH}"/emqx/etc/emqx.conf
-                sed -i "/mqtt.max_topic_alias/c mqtt.max_topic_alias = 10" "${PACKAGE_PATH}"/emqx/etc/emqx.conf
+                export EMQX_ZONE__EXTERNAL__SERVER__KEEPALIVE=60 \
+                       EMQX_MQTT__MAX_TOPIC_ALIAS=10
                 sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
                 echo "running ${packagename} start"
@@ -96,8 +96,8 @@ emqx_test(){
 }
 
 running_test(){
-    sed -i "/zone.external.server_keepalive/c zone.external.server_keepalive = 60" /etc/emqx/emqx.conf
-    sed -i "/mqtt.max_topic_alias/c mqtt.max_topic_alias = 10" /etc/emqx/emqx.conf
+    export EMQX_ZONE__EXTERNAL__SERVER__KEEPALIVE=60 \
+           EMQX_MQTT__MAX_TOPIC_ALIAS=10
     sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
 
     emqx start || tail /var/log/emqx/erlang.log.1

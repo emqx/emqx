@@ -36,18 +36,18 @@ jobs:
       - name: setup
         if: matrix.network_type == 'ipv4'
         run: |
-          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ldap)
-          sed -i "s|^[#[:space:]]*auth.ldap.servers[[:space:]]*=.*|auth.ldap.servers = $server_address|g" apps/emqx_auth_ldap/etc/emqx_auth_ldap.conf
+          echo EMQX_AUTH__LDAP__SERVERS=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ldap) >> "$GITHUB_ENV"
       - name: setup
         if: matrix.network_type == 'ipv6'
         run: |
-          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' ldap)
-          sed -i "s|^[#[:space:]]*auth.ldap.servers[[:space:]]*=.*|auth.ldap.servers = $server_address|g" apps/emqx_auth_ldap/etc/emqx_auth_ldap.conf
+          echo EMQX_AUTH__LDAP__SERVERS=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' ldap) >> "$GITHUB_ENV"
       - name: run test cases
         run: |
+          export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
+          printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_ldap"
-          docker exec -i erlang sh -c "./rebar3 ct    --dir apps/emqx_auth_ldap"
+          docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_ldap"
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
@@ -78,30 +78,34 @@ jobs:
         if: matrix.connect_type == 'tls'
         run: |
           docker-compose -f .ci/compatibility_tests/docker-compose-mongo-tls.yaml up -d
-          sed -i 's|^[#[:space:]]*auth.mongo.ssl[[:space:]]*=.*|auth.mongo.ssl = on|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          sed -i 's|^[#[:space:]]*auth.mongo.cacertfile[[:space:]]*=.*|auth.mongo.cacertfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          sed -i 's|^[#[:space:]]*auth.mongo.certfile[[:space:]]*=.*|auth.mongo.certfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
-          sed -i 's|^[#[:space:]]*auth.mongo.keyfile[[:space:]]*=.*|auth.mongo.keyfile = /emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem|g' apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          cat <<-EOF >> "$GITHUB_ENV"
+          EMQX_AUTH__MONGO__SSL=on
+          EMQX_AUTH__MONGO__CACERTFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem
+          EMQX_AUTH__MONGO__CERTFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem
+          EMQX_AUTH__MONGO__KEYFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem
+          EOF
       - name: setup
         env:
           MONGO_TAG: ${{ matrix.mongo_tag }}
         if: matrix.connect_type == 'tcp'
-        run: docker-compose -f .ci/compatibility_tests/docker-compose-mongo.yaml up -d
+        run: |
+          docker-compose -f .ci/compatibility_tests/docker-compose-mongo.yaml up -d
+          echo EMQX_AUTH__MONGO__SSL=off >> "$GITHUB_ENV"
       - name: setup
         if: matrix.network_type == 'ipv4'
         run: |
-          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mongo)
-          sed -i "s|^[#[:space:]]*auth.mongo.server[[:space:]]*=.*|auth.mongo.server = $server_address:27017|g" apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          echo "EMQX_AUTH__MONGO__SERVER=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mongo):27017" >> "$GITHUB_ENV"
       - name: setup
         if: matrix.network_type == 'ipv6'
         run: |
-          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' mongo)
-          sed -i "s|^[#[:space:]]*auth.mongo.server[[:space:]]*=.*|auth.mongo.server = $server_address:27017|g" apps/emqx_auth_mongo/etc/emqx_auth_mongo.conf
+          echo "EMQX_AUTH__MONGO__SERVER=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' mongo):27017" >> "$GITHUB_ENV"
       - name: run test cases
         run: |
+          export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
+          printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mongo"
-          docker exec -i erlang sh -c "./rebar3 ct    --dir apps/emqx_auth_mongo"
+          docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_mongo"
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
@@ -132,35 +136,37 @@ jobs:
         if: matrix.connect_type == 'tls'
         run: |
           docker-compose -f .ci/compatibility_tests/docker-compose-mysql-tls.yaml up -d
-          sed -i 's|^[#[:space:]]*auth.mysql.ssl[[:space:]]*=.*|auth.mysql.ssl = on|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-          sed -i 's|^[#[:space:]]*auth.mysql.ssl.cacertfile[[:space:]]*=.*|auth.mysql.ssl.cacertfile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-          sed -i 's|^[#[:space:]]*auth.mysql.ssl.certfile[[:space:]]*=.*|auth.mysql.ssl.certfile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-          sed -i 's|^[#[:space:]]*auth.mysql.ssl.keyfile[[:space:]]*=.*|auth.mysql.ssl.keyfile = /emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-key.pem|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          cat <<-EOF >> "$GITHUB_ENV"
+            EMQX_AUTH__MYSQL__SSL=on
+            EMQX_AUTH__MYSQL__SSL__CACERTFILE=/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem
+            EMQX_AUTH__MYSQL__SSL__CERTFILE=/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem
+            EMQX_AUTH__MYSQL__SSL__KEYFILE=/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-key.pem
+          EOF
       - name: setup
         env:
           MYSQL_TAG: ${{ matrix.mysql_tag }}
         if: matrix.connect_type == 'tcp'
-        run: docker-compose -f .ci/compatibility_tests/docker-compose-mysql.yaml up -d
+        run: |
+          docker-compose -f .ci/compatibility_tests/docker-compose-mysql.yaml up -d
+          echo EMQX_AUTH__MYSQL__SSL=off >> "$GITHUB_ENV"
       - name: setup
         if: matrix.network_type == 'ipv4'
         run: |
-          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mysql)
-          sed -i "/auth.mysql.server/c auth.mysql.server = $server_address:3306" apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          echo "EMQX_AUTH__MYSQL__SERVER=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mysql):3306" >> "$GITHUB_ENV"
       - name: setup
         if: matrix.network_type == 'ipv6'
         run: |
-          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' mysql)
-          sed -i "/auth.mysql.server/c auth.mysql.server = $server_address:3306" apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-      - name: setup
-        run: |
-          sed -i 's|^[#[:space:]]*auth.mysql.username[[:space:]]*=.*|auth.mysql.username = root|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-          sed -i 's|^[#[:space:]]*auth.mysql.password[[:space:]]*=.*|auth.mysql.password = public|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
-          sed -i 's|^[#[:space:]]*auth.mysql.database[[:space:]]*=.*|auth.mysql.database = mqtt|g' apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+          echo "EMQX_AUTH__MYSQL__SERVER=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' mysql):3306" >> "$GITHUB_ENV"
       - name: run test cases
         run: |
+          export EMQX_AUTH__MYSQL__USERNAME=root \
+                 EMQX_AUTH__MYSQL__PASSWORD=public \
+                 EMQX_AUTH__MYSQL__DATABASE=mqtt \
+                 CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
+          printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mysql"
-          docker exec -i erlang sh -c "./rebar3 ct    --dir apps/emqx_auth_mysql"
+          docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_mysql"
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
@@ -194,35 +200,35 @@ jobs:
         run: |
           docker-compose -f .ci/compatibility_tests/docker-compose-pgsql-tls.yaml build --no-cache
           docker-compose -f .ci/compatibility_tests/docker-compose-pgsql-tls.yaml up -d
-          sed -i 's|^[#[:space:]]*auth.pgsql.username[ \t]*=.*|auth.pgsql.username = root|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
-          sed -i 's|^[#[:space:]]*auth.pgsql.password[ \t]*=.*|auth.pgsql.password = public|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
-          sed -i 's|^[#[:space:]]*auth.pgsql.database[ \t]*=.*|auth.pgsql.database = mqtt|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
-          sed -i 's|^[#[:space:]]*auth.pgsql.ssl[ \t]*=.*|auth.pgsql.ssl = on|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
-          sed -i 's|^[#[:space:]]*auth.pgsql.cacertfile[ \t]*=.*|auth.pgsql.cacertfile = /emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/root.crt|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          cat <<-EOF >> "$GITHUB_ENV"
+          EMQX_AUTH__PGSQL__SSL=on
+          EMQX_AUTH__PGSQL__SSL__CACERTFILE=/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/root.crt
+          EOF
       - name: setup
         env:
           PGSQL_TAG: ${{ matrix.pgsql_tag }}
         if: matrix.connect_type == 'tcp'
         run: |
           docker-compose -f .ci/compatibility_tests/docker-compose-pgsql.yaml up -d
-          sed -i 's|^[#[:space:]]*auth.pgsql.username[ \t]*=.*|auth.pgsql.username = root|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
-          sed -i 's|^[#[:space:]]*auth.pgsql.password[ \t]*=.*|auth.pgsql.password = public|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
-          sed -i 's|^[#[:space:]]*auth.pgsql.database[ \t]*=.*|auth.pgsql.database = mqtt|g' apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          echo EMQX_AUTH__PGSQL__SSL=off >> "$GITHUB_ENV"
       - name: setup
         if: matrix.network_type == 'ipv4'
         run: |
-          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pgsql)
-          sed -i "s|^[#[:space:]]*auth.pgsql.server[[:space:]]*=.*|auth.pgsql.server = $server_address:5432|g" apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          echo "EMQX_AUTH__PGSQL__SERVER=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pgsql):5432" >> "$GITHUB_ENV"
       - name: setup
         if: matrix.network_type == 'ipv6'
         run: |
-          server_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' pgsql)
-          sed -i "s|^[#[:space:]]*auth.pgsql.server[[:space:]]*=.*|auth.pgsql.server = $server_address:5432|g" apps/emqx_auth_pgsql/etc/emqx_auth_pgsql.conf
+          echo "EMQX_AUTH__PGSQL__SERVER=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' pgsql):5432" >> "$GITHUB_ENV"
       - name: run test cases
         run: |
+          export EMQX_AUTH__PGSQL__USERNAME=root \
+                 EMQX_AUTH__PGSQL__PASSWORD=public \
+                 EMQX_AUTH__PGSQL__DATABASE=mqtt \
+                 CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
+          printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_pgsql"
-          docker exec -i erlang sh -c "./rebar3 ct    --dir apps/emqx_auth_pgsql"
+          docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_pgsql"
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
@@ -257,51 +263,69 @@ jobs:
         run: |
           set -exu
           docker-compose -f .ci/compatibility_tests/docker-compose-redis-${{ matrix.node_type }}-tls.yaml up -d
-          sed -i 's|^[#[:space:]]*auth.redis.ssl[[:space:]]*=.*|auth.redis.ssl = on|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
-          sed -i 's|^[#[:space:]]*auth.redis.ssl.cacertfile[[:space:]]*=.*|auth.redis.ssl.cacertfile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/ca.crt|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
-          sed -i 's|^[#[:space:]]*auth.redis.ssl.certfile[[:space:]]*=.*|auth.redis.ssl.certfile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.crt|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
-          sed -i 's|^[#[:space:]]*auth.redis.ssl.keyfile[[:space:]]*=.*|auth.redis.ssl.keyfile = /emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.key|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          cat <<-EOF >> "$GITHUB_ENV"
+          EMQX_AUTH__REDIS__SSL=on
+          EMQX_AUTH__REDIS__SSL__CACERTFILE=/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/ca.crt
+          EMQX_AUTH__REDIS__SSL__CERTFILE=/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.crt
+          EMQX_AUTH__REDIS__SSL__KEYFILE=/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.key
+          EOF
       - name: setup
         env:
           REDIS_TAG: ${{ matrix.redis_tag }}
         if: matrix.connect_type == 'tcp'
-        run: docker-compose -f .ci/compatibility_tests/docker-compose-redis-${{ matrix.node_type }}.yaml up -d
+        run: |
+          docker-compose -f .ci/compatibility_tests/docker-compose-redis-${{ matrix.node_type }}.yaml up -d
+          echo EMQX_AUTH__REDIS__SSL=off >> "$GITHUB_ENV"
       - name: get server address
         if: matrix.connect_type == 'tcp' || (matrix.connect_type == 'tls' && matrix.redis_tag != '5')
         run: |
           set -exu
           ipv4_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' redis)
           ipv6_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' redis)
-          echo "redis_ipv4_address=$ipv4_address" >> $GITHUB_ENV
-          echo "redis_ipv6_address=$ipv6_address" >> $GITHUB_ENV
+          cat <<-EOF >> "$GITHUB_ENV"
+          redis_ipv4_address=$ipv4_address
+          redis_ipv6_address=$ipv6_address
+          EOF
       - name: setup
         if: matrix.node_type == 'single' && matrix.connect_type == 'tcp'
         run: |
           set -exu
-          sed -i "s|^[#[:space:]]*auth.redis.server[[:space:]]*=.*|auth.redis.server = ${redis_${{ matrix.network_type }}_address}:6379|g" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          cat <<-EOF >> "$GITHUB_ENV"
+          EMQX_AUTH__REDIS__TYPE=single
+          EMQX_AUTH__REDIS__SERVER=${redis_${{ matrix.network_type }}_address}:6379
+          EOF
       - name: setup
         if: matrix.node_type == 'single' && matrix.connect_type == 'tls' && matrix.redis_tag != '5'
         run: |
           set -exu
-          sed -i "s|^[#[:space:]]*auth.redis.server[[:space:]]*=.*|auth.redis.server = ${redis_${{ matrix.network_type }}_address}:6380|g" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          cat <<-EOF >> "$GITHUB_ENV"
+          EMQX_AUTH__REDIS__TYPE=single
+          EMQX_AUTH__REDIS__SERVER=${redis_${{ matrix.network_type }}_address}:6380
+          EOF
       - name: setup
         if: matrix.node_type == 'cluster' && matrix.connect_type == 'tcp'
         run: |
           set -exu
-          sed -i 's|^[#[:space:]]*auth.redis.type[[:space:]]*=.*|auth.redis.type = cluster|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
-          sed -i "s|^[#[:space:]]*auth.redis.server[[:space:]]*=.*|auth.redis.server = ${redis_${{ matrix.network_type }}_address}:7000, ${redis_${{ matrix.network_type }}_address}:7001, ${redis_${{ matrix.network_type }}_address}:7002|g" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          cat <<-EOF >> "$GITHUB_ENV"
+          EMQX_AUTH__REDIS__TYPE=cluster
+          EMQX_AUTH__REDIS__SERVER=${redis_${{ matrix.network_type }}_address}:7000
+          EOF
       - name: setup
         if: matrix.node_type == 'cluster' && matrix.connect_type == 'tls' && matrix.redis_tag != '5'
         run: |
           set -exu
-          sed -i 's|^[#[:space:]]*auth.redis.type[[:space:]]*=.*|auth.redis.type = cluster|g' apps/emqx_auth_redis/etc/emqx_auth_redis.conf
-          sed -i "s|^[#[:space:]]*auth.redis.server[[:space:]]*=.*|auth.redis.server = ${redis_${{ matrix.network_type }}_address}:8000, ${redis_${{ matrix.network_type }}_address}:8001, ${redis_${{ matrix.network_type }}_address}:8002|g" apps/emqx_auth_redis/etc/emqx_auth_redis.conf
+          cat <<-EOF >> "$GITHUB_ENV"
+          EMQX_AUTH__REDIS__TYPE=cluster
+          EMQX_AUTH__REDIS__SERVER=${redis_${{ matrix.network_type }}_address}:8000
+          EOF
       - name: run test cases
         if: matrix.connect_type == 'tcp' || (matrix.connect_type == 'tls' && matrix.redis_tag != '5')
         run: |
+          export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
+          printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_redis"
-          docker exec -i erlang sh -c "./rebar3 ct    --dir apps/emqx_auth_redis"
+          docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_redis"
       - uses: actions/upload-artifact@v1
         if: failure()
         with:

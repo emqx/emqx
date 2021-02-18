@@ -20,6 +20,9 @@ mkdir -p "$RUNNER_LOG_DIR"
 # Make sure data directory exists
 mkdir -p "$RUNNER_DATA_DIR"
 
+# cuttlefish try to read environment variables starting with "EMQX_", if not specified
+export CUTTLEFISH_ENV_OVERRIDE_PREFIX="${CUTTLEFISH_ENV_OVERRIDE_PREFIX:-EMQX_}"
+
 relx_usage() {
     command="$1"
 

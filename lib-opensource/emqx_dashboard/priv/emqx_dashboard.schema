@@ -6,7 +6,8 @@
 ]}.
 
 {mapping, "dashboard.default_user.password", "emqx_dashboard.default_user_passwd", [
-  {datatype, string}
+  {datatype, string},
+  {override_env, "ADMIN_PASSWORD"}
 ]}.
 
 {mapping, "dashboard.listener.http", "emqx_dashboard.listeners", [

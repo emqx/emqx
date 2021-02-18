@@ -41,17 +41,26 @@ The emqx broker runs as linux user `emqx` in the docker container.
 
 Use the environment variable to configure the EMQ X docker container.
 
-The environment variables which with ``EMQX_`` prefix are mapped to configuration fils.
+By default, the environment variables with ``EMQX_`` prefix are mapped to key-value pairs in configuration files.
 
-+ Prefix ``EMQX_`` is removed
-+ All upper case letters is replaced with lower case letters
-+ ``__`` is replaced with ``.``
+You can change the prefix by overriding "CUTTLEFISH_ENV_OVERRIDE_PREFIX".
 
 Example:
 
 ```bash
 EMQX_LISTENER__SSL__EXTERNAL__ACCEPTORS <--> listener.ssl.external.acceptors
 EMQX_MQTT__MAX_PACKET_SIZE              <--> mqtt.max_packet_size
+```
+
++ Prefix ``EMQX_`` is removed
++ All upper case letters is replaced with lower case letters
++ ``__`` is replaced with ``.``
+
+If `CUTTLEFISH_ENV_OVERRIDE_PREFIX=DEV_` is set:
+
+```bash
+DEV_LISTENER__SSL__EXTERNAL__ACCEPTORS <--> listener.ssl.external.acceptors
+DEV_MQTT__MAX_PACKET_SIZE              <--> mqtt.max_packet_size
 ```
 
 Non mapped environment variables:
@@ -189,16 +198,6 @@ docker run -d --name emqx -p 18083:18083 -p 1883:1883 -p 4369:4369 \
     emqx/emqx:latest
 ```
 
-#### Mask Sensitive Configuration
-
-Use ``MASK_CONFIG_FILTER`` to hide senstive configuration values from leaking to logging system.
-
-For example, set ``MASK_CONFIG_FILTER="password|token"`` to hide all configuration names containing those keywords.
-
-By default emqx masks the configuration using following filter `"password|passwd|key|token|secret"`. Setting ``MASK_CONFIG_FILTER`` will be merged with the default filter.
-
-The configuration should match whole word (after splitting it by '.') with `MASK_CONFIG_FILTER`. You can use commas, spaces or other required separators to separate different words.
-
 ### Cluster
 
 EMQ X supports a variety of clustering methods, see our [documentation](https://docs.emqx.io/broker/latest/en/advanced/cluster.html#emqx-service-discovery) for details.
@@ -234,7 +233,7 @@ Let's create a static node list cluster from docker-compose.
         emqx-bridge:
           aliases:
           - node2.emqx.io
-  
+
   networks:
     emqx-bridge:
       driver: bridge
