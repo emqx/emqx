@@ -216,7 +216,7 @@ delete_rule(RuleId) when is_binary(RuleId) ->
         {ok, Rule} -> delete_rule(Rule);
         not_found -> ok
     end;
-delete_rule(Rule = #rule{id = Id, for = Topics}) when is_record(Rule, rule) ->
+delete_rule(Rule = #rule{id = Id, for = Topics}) ->
     lists:foreach(fun(Topic) ->
             case get_rules_with_same_event(Topic) of
                 [#rule{id = Id}] -> %% we are now deleting the last rule
