@@ -125,7 +125,7 @@ update_reg_info(NewRegInfo, Lwm2mState = #lwm2m_state{
             lwm2m_coap_responder:options(), object_list_changed) of
         always ->
             send_to_broker(<<"update">>, #{<<"data">> => UpdatedRegInfo}, Lwm2mState);
-        _ ->
+        object_list_changed ->
             %% - report the registration info update, but only when objectList is updated.
             case NewRegInfo of
                 #{<<"objectList">> := _} ->

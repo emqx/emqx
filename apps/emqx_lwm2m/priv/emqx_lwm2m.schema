@@ -113,7 +113,7 @@ end}.
 ]}.
 
 {mapping, "lwm2m.publish_update_when", "emqx_lwm2m.publish_update_when", [
-  {datatype, atom},
+  {datatype, {enum, [object_list_changed, always]}},
   {default, object_list_changed}
 ]}.
 
