@@ -112,6 +112,11 @@ end}.
   {default, "lwm2m/%e/up/resp"}
 ]}.
 
+{mapping, "lwm2m.publish_update_when", "emqx_lwm2m.publish_update_when", [
+  {datatype, atom},
+  {default, object_list_changed}
+]}.
+
 {translation, "emqx_lwm2m.topics", fun(Conf) ->
   Topics = cuttlefish_variable:filter_by_prefix("lwm2m.topics", Conf),
   Opts = lists:map(fun({[_,_, Key], Value}) ->
