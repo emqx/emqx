@@ -73,7 +73,7 @@ start_listener({Proto, ListenOn, Options}) ->
         {ok, _} -> io:format("Start stomp:~s listener on ~s successfully.~n",
                              [Proto, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to start stomp:~s listener on ~s - ~0p~n!",
+            io:format(standard_error, "Failed to start stomp:~s listener on ~s: ~0p~n",
                       [Proto, format(ListenOn), Reason]),
             error(Reason)
     end.
@@ -102,7 +102,7 @@ stop_listener({Proto, ListenOn, Opts}) ->
         ok -> io:format("Stop stomp:~s listener on ~s successfully.~n",
                         [Proto, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to stop stomp:~s listener on ~s - ~p~n.",
+            io:format(standard_error, "Failed to stop stomp:~s listener on ~s: ~0p~n",
                       [Proto, format(ListenOn), Reason])
     end,
     StopRet.

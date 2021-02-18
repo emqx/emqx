@@ -109,7 +109,7 @@ start_listener(#{proto := Proto, name := Name, listen_on := ListenOn, opts := Op
         {ok, _} -> io:format("Start ~s listener on ~s successfully.~n",
                              [ID, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to start mqtt listener ~s on ~s - ~0p~n!",
+            io:format(standard_error, "Failed to start mqtt listener ~s on ~s: ~0p~n",
                       [ID, format(ListenOn), Reason]),
             error(Reason)
     end.

@@ -157,7 +157,7 @@ cluster(["join", SNode]) ->
         ignore ->
             emqx_ctl:print("Ignore.~n");
         {error, Error} ->
-            emqx_ctl:print("Failed to join the cluster: ~p~n", [Error])
+            emqx_ctl:print("Failed to join the cluster: ~0p~n", [Error])
     end;
 
 cluster(["leave"]) ->
@@ -166,7 +166,7 @@ cluster(["leave"]) ->
             emqx_ctl:print("Leave the cluster successfully.~n"),
             cluster(["status"]);
         {error, Error} ->
-            emqx_ctl:print("Failed to leave the cluster: ~p~n", [Error])
+            emqx_ctl:print("Failed to leave the cluster: ~0p~n", [Error])
     end;
 
 cluster(["force-leave", SNode]) ->
@@ -177,7 +177,7 @@ cluster(["force-leave", SNode]) ->
         ignore ->
             emqx_ctl:print("Ignore.~n");
         {error, Error} ->
-            emqx_ctl:print("Failed to remove the node from cluster: ~p~n", [Error])
+            emqx_ctl:print("Failed to remove the node from cluster: ~0p~n", [Error])
     end;
 
 cluster(["status"]) ->
@@ -536,7 +536,7 @@ listeners(["stop",  Name = "http" ++ _N | _MaybePort]) ->
         ok ->
             emqx_ctl:print("Stop ~s listener successfully.~n", [Name]);
         {error, Error} ->
-            emqx_ctl:print("Failed to stop ~s listener, error:~p~n", [Name, Error])
+            emqx_ctl:print("Failed to stop ~s listener: ~0p~n", [Name, Error])
     end;
 
 listeners(["stop", "mqtt:" ++ _ = Identifier]) ->
@@ -565,7 +565,7 @@ stop_listener(#{listen_on := ListenOn} = Listener, _Input) ->
         ok ->
             emqx_ctl:print("Stop ~s listener on ~s successfully.~n", [ID, ListenOnStr]);
         {error, Reason} ->
-            emqx_ctl:print("Failed to stop ~s listener on ~s - ~p~n.",
+            emqx_ctl:print("Failed to stop ~s listener on ~s: ~0p~n",
                            [ID, ListenOnStr, Reason])
     end.
 
