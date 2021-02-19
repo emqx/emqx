@@ -129,7 +129,7 @@ add(_Bindings, Params) ->
             case Re of
                 #{result := ok} -> return({ok, Re});
                 #{result := <<"ok">>} -> return({ok, Re});
-                _ -> return({error, Re})
+                _ -> return({error, {add, Re}})
             end
     end.
 
