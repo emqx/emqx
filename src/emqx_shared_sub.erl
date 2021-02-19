@@ -282,7 +282,7 @@ do_pick_subscriber(_Group, _Topic, hash_topic, _ClientId, SourceTopic, Count) ->
     1 + erlang:phash2(SourceTopic) rem Count;
 do_pick_subscriber(Group, Topic, round_robin, _ClientId, _SourceTopic, Count) ->
     Rem = case erlang:get({shared_sub_round_robin, Group, Topic}) of
-              undefined -> 0;
+              undefined -> rand:uniform(Count) - 1;
               N -> (N + 1) rem Count
           end,
     _ = erlang:put({shared_sub_round_robin, Group, Topic}, Rem),
