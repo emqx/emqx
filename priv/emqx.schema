@@ -2010,8 +2010,15 @@ end}.
                                   Other -> Other
                               end
                       end,
-                      [{Atom(Type), ListenOnN, [{deflate_options, DeflateOpts(Prefix)},
-                                              {tcp_options, TcpOpts(Prefix)} | LisOpts(Prefix)]}]
+                      [#{ proto => Atom(Type)
+                        , name => Name
+                        , listen_on => ListenOnN
+                        , opts => [ {deflate_options, DeflateOpts(Prefix)}
+                                  , {tcp_options, TcpOpts(Prefix)}
+                                  | LisOpts(Prefix)
+                                  ]
+                        }
+                      ]
                    end,
     SslListeners = fun(Type, Name) ->
                        Prefix = string:join(["listener", Type, Name], "."),
@@ -2019,9 +2026,16 @@ end}.
                            undefined ->
                                [];
                            ListenOn ->
-                               [{Atom(Type), ListenOn, [{deflate_options, DeflateOpts(Prefix)},
-                                                        {tcp_options, TcpOpts(Prefix)},
-                                                        {ssl_options, SslOpts(Prefix)} | LisOpts(Prefix)]}]
+                               [#{ proto => Atom(Type)
+                                 , name => Name
+                                 , listen_on => ListenOn
+                                 , opts => [ {deflate_options, DeflateOpts(Prefix)}
+                                           , {tcp_options, TcpOpts(Prefix)}
+                                           , {ssl_options, SslOpts(Prefix)}
+                                           | LisOpts(Prefix)
+                                           ]
+                                 }
+                               ]
                        end
                    end,
 
