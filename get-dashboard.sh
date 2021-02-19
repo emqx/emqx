@@ -10,9 +10,9 @@ cd -P -- "$(dirname -- "$0")"
 DOWNLOAD_URL='https://github.com/emqx/emqx-dashboard-frontend/releases/download'
 
 if [ "$EMQX_ENTERPRISE" = 'true' ] || [ "$EMQX_ENTERPRISE" == '1' ]; then
-    DASHBOARD_PATH='lib-enterprise/emqx_dashboard/priv'
+    DASHBOARD_PATH='lib-ee/emqx_dashboard/priv'
 else
-    DASHBOARD_PATH='lib-opensource/emqx_dashboard/priv'
+    DASHBOARD_PATH='lib-ce/emqx_dashboard/priv'
 fi
 
 case $(uname) in
