@@ -49,7 +49,8 @@ groups() ->
         t_broker_cmd,
         t_router_cmd,
         t_subscriptions_cmd,
-        t_listeners_cmd
+        t_listeners_cmd_old,
+        t_listeners_cmd_new
        ]}].
 
 apps() ->
@@ -275,12 +276,35 @@ t_subscriptions_cmd(_) ->
     ?assertEqual(emqx_mgmt_cli:subscriptions(["del", "client", "b/b/c"]), "ok~n"),
     unmock_print().
 
-t_listeners_cmd(_) ->
+t_listeners_cmd_old(_) ->
+    ok = emqx_listeners:ensure_all_started(),
     mock_print(),
     ?assertEqual(emqx_mgmt_cli:listeners([]), ok),
     ?assertEqual(
-       emqx_mgmt_cli:listeners(["stop", "wss", "8084"]),
-       "Stop wss listener on 8084 successfully.\n"
+       "Stop mqtt:wss:external listener on 0.0.0.0:8084 successfully.\n",
+       emqx_mgmt_cli:listeners(["stop", "wss", "8084"])
+      ),
+    unmock_print().
+
+t_listeners_cmd_new(_) ->
+    ok = emqx_listeners:ensure_all_started(),
+    mock_print(),
+    ?assertEqual(emqx_mgmt_cli:listeners([]), ok),
+    ?assertEqual(
+       "Stop mqtt:wss:external listener on 0.0.0.0:8084 successfully.\n",
+       emqx_mgmt_cli:listeners(["stop", "mqtt:wss:external"])
+      ),
+    ?assertEqual(
+       emqx_mgmt_cli:listeners(["restart", "mqtt:tcp:external"]),
+       "Restarted mqtt:tcp:external listener successfully.\n"
+      ),
+    ?assertEqual(
+       emqx_mgmt_cli:listeners(["restart", "mqtt:ssl:external"]),
+       "Restarted mqtt:ssl:external listener successfully.\n"
+      ),
+    ?assertEqual(
+       emqx_mgmt_cli:listeners(["restart", "bad:listener:identifier"]),
+       "Failed to restart bad:listener:identifier listener: {no_such_listener,\"bad:listener:identifier\"}\n"
       ),
     unmock_print().
 

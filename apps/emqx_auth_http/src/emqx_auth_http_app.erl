@@ -106,7 +106,7 @@ load_hooks() ->
             ok = emqx_auth_http:register_metrics(),
             PoolOpts = proplists:get_value(pool_opts, AuthReq),
             PoolName = proplists:get_value(pool_name, AuthReq),
-            ehttpc_sup:start_pool(PoolName, PoolOpts),
+            {ok, _} = ehttpc_sup:start_pool(PoolName, PoolOpts),
             case application:get_env(?APP, super_req) of
                 undefined ->
                     emqx:hook('client.authenticate', {emqx_auth_http, check, [#{auth => maps:from_list(AuthReq),
@@ -114,7 +114,7 @@ load_hooks() ->
                 {ok, SuperReq} ->
                     PoolOpts1 = proplists:get_value(pool_opts, SuperReq),
                     PoolName1 = proplists:get_value(pool_name, SuperReq),
-                    ehttpc_sup:start_pool(PoolName1, PoolOpts1),
+                    {ok, _} = ehttpc_sup:start_pool(PoolName1, PoolOpts1),
                     emqx:hook('client.authenticate', {emqx_auth_http, check, [#{auth => maps:from_list(AuthReq),
                                                                                 super => maps:from_list(SuperReq)}]})
             end
@@ -125,7 +125,7 @@ load_hooks() ->
             ok = emqx_acl_http:register_metrics(),
             PoolOpts2 = proplists:get_value(pool_opts, ACLReq),
             PoolName2 = proplists:get_value(pool_name, ACLReq),
-            ehttpc_sup:start_pool(PoolName2, PoolOpts2),
+            {ok, _} = ehttpc_sup:start_pool(PoolName2, PoolOpts2),
             emqx:hook('client.check_acl', {emqx_acl_http, check_acl, [#{acl => maps:from_list(ACLReq)}]})
     end,
     ok.
@@ -133,9 +133,9 @@ load_hooks() ->
 unload_hooks() ->
     emqx:unhook('client.authenticate', {emqx_auth_http, check}),
     emqx:unhook('client.check_acl', {emqx_acl_http, check_acl}),
-    ehttpc_sup:stop_pool('emqx_auth_http/auth_req'),
-    ehttpc_sup:stop_pool('emqx_auth_http/super_req'),
-    ehttpc_sup:stop_pool('emqx_auth_http/acl_req'),
+    _ = ehttpc_sup:stop_pool('emqx_auth_http/auth_req'),
+    _ = ehttpc_sup:stop_pool('emqx_auth_http/super_req'),
+    _ = ehttpc_sup:stop_pool('emqx_auth_http/acl_req'),
     ok.
 
 parse_host(Host) ->

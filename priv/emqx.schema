@@ -1596,6 +1596,10 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.ws.$name.peer_cert_as_username", "emqx.listeners", [
+  {datatype, {enum, [cn, dn, crt]}}
+]}.
+
 {mapping, "listener.ws.$name.check_origin_enable", "emqx.listeners", [
   {datatype, {enum, [true, false]}},
   {default, false},
@@ -1740,6 +1744,10 @@ end}.
 ]}.
 
 {mapping, "listener.wss.$name.cacertfile", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.wss.$name.dhfile", "emqx.listeners", [
   {datatype, string}
 ]}.
 
@@ -2009,8 +2017,15 @@ end}.
                                   Other -> Other
                               end
                       end,
-                      [{Atom(Type), ListenOnN, [{deflate_options, DeflateOpts(Prefix)},
-                                              {tcp_options, TcpOpts(Prefix)} | LisOpts(Prefix)]}]
+                      [#{ proto => Atom(Type)
+                        , name => Name
+                        , listen_on => ListenOnN
+                        , opts => [ {deflate_options, DeflateOpts(Prefix)}
+                                  , {tcp_options, TcpOpts(Prefix)}
+                                  | LisOpts(Prefix)
+                                  ]
+                        }
+                      ]
                    end,
     SslListeners = fun(Type, Name) ->
                        Prefix = string:join(["listener", Type, Name], "."),
@@ -2018,9 +2033,16 @@ end}.
                            undefined ->
                                [];
                            ListenOn ->
-                               [{Atom(Type), ListenOn, [{deflate_options, DeflateOpts(Prefix)},
-                                                        {tcp_options, TcpOpts(Prefix)},
-                                                        {ssl_options, SslOpts(Prefix)} | LisOpts(Prefix)]}]
+                               [#{ proto => Atom(Type)
+                                 , name => Name
+                                 , listen_on => ListenOn
+                                 , opts => [ {deflate_options, DeflateOpts(Prefix)}
+                                           , {tcp_options, TcpOpts(Prefix)}
+                                           , {ssl_options, SslOpts(Prefix)}
+                                           | LisOpts(Prefix)
+                                           ]
+                                 }
+                               ]
                        end
                    end,
     lists:flatten([TcpListeners(Type, Name) || {["listener", Type, Name, "endpoint"], ListenOn}

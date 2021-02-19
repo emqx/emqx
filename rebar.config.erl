@@ -28,8 +28,8 @@ config() ->
 extra_lib_dir() ->
     EnterpriseFlag = os:getenv("EMQX_ENTERPRISE"),
     case EnterpriseFlag =:= "true" orelse EnterpriseFlag =:= "1" of
-        true -> "lib-enterprise";
-        false -> "lib-opensource"
+        true -> "lib-ee";
+        false -> "lib-ce"
     end.
 
 project_app_dirs() ->
@@ -279,7 +279,7 @@ provide_bcrypt_release(ReleaseType) ->
 %% rebar3 does not handle umberella project's cross-app parse_transform well
 compile_and_load_pase_transforms(Dir) ->
     PtFiles =
-        [ "lib-opensource/emqx_rule_engine/src/emqx_rule_actions_trans.erl"
+        [ "apps/emqx_rule_engine/src/emqx_rule_actions_trans.erl"
         ],
     CompileOpts = [verbose,report_errors,report_warnings,return_errors,debug_info],
     lists:foreach(fun(PtFile) -> {ok, _Mod} = compile:file(path(Dir, PtFile), CompileOpts) end, PtFiles).

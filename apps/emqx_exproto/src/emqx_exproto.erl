@@ -69,7 +69,7 @@ start_connection_handler_instance({_Proto, _LisType, _ListenOn, Opts}) ->
         {ok, _ClientChannelPid} ->
             {_Proto, _LisType, _ListenOn, [{handler, Name} | LisOpts]};
         {error, Reason} ->
-            io:format(standard_error, "Failed to start ~s's connection handler - ~0p~n!",
+            io:format(standard_error, "Failed to start ~s's connection handler: ~0p~n",
                       [Name, Reason]),
             error(Reason)
     end.
@@ -85,7 +85,7 @@ start_server({Name, Port, SSLOptions}) ->
             io:format("Start ~s gRPC server on ~w successfully.~n",
                       [Name, Port]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to start ~s gRPC server on ~w - ~0p~n!",
+            io:format(standard_error, "Failed to start ~s gRPC server on ~w: ~0p~n",
                       [Name, Port, Reason]),
             error({failed_start_server, Reason})
     end.
@@ -101,7 +101,7 @@ start_listener({Proto, LisType, ListenOn, Opts}) ->
             io:format("Start ~s listener on ~s successfully.~n",
                       [Name, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to start ~s listener on ~s - ~0p~n!",
+            io:format(standard_error, "Failed to start ~s listener on ~s: ~0p~n",
                       [Name, format(ListenOn), Reason]),
             error(Reason)
     end.
@@ -132,7 +132,7 @@ stop_listener({Proto, LisType, ListenOn, Opts}) ->
             io:format("Stop ~s listener on ~s successfully.~n",
                       [Name, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to stop ~s listener on ~s - ~p~n.",
+            io:format(standard_error, "Failed to stop ~s listener on ~s: ~0p~n",
                       [Name, format(ListenOn), Reason])
     end,
     StopRet.
