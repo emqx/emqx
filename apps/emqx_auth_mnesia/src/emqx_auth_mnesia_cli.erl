@@ -119,7 +119,7 @@ hash(Password, SaltBin, HashType) ->
     emqx_passwd:hash(HashType, <<SaltBin/binary, Password/binary>>).
 
 salt() ->
-    rand:seed(exsplus, erlang:timestamp()),
+    {_AlgHandler, _AlgState} = rand:seed(exsplus, erlang:timestamp()),
     Salt = rand:uniform(16#ffffffff), <<Salt:32>>.
 
 %%--------------------------------------------------------------------
