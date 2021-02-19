@@ -102,6 +102,7 @@
 %% Listeners
 -export([ list_listeners/0
         , list_listeners/1
+        , restart_listener/2
         ]).
 
 %% Alarms
@@ -560,6 +561,12 @@ list_listeners(Node) when Node =:= node() ->
 list_listeners(Node) ->
     rpc_call(Node, list_listeners, [Node]).
 
+restart_listener(Node, Identifier) when Node =:= node() ->
+    emqx_listeners:restart_listener(Identifier);
+
+restart_listener(Node, Identifier) ->
+    rpc_call(Node, restart_listener, [Node, Identifier]).
+
 %%--------------------------------------------------------------------
 %% Get Alarms
 %%--------------------------------------------------------------------
@@ -978,3 +985,4 @@ action_to_prop_list({action_instance, ActionInstId, Name, FallbackActions, Args}
      {name, Name},
      {fallbacks, actions_to_prop_list(FallbackActions)},
      {args, Args}].
+

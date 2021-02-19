@@ -294,6 +294,18 @@ t_listeners_cmd_new(_) ->
        "Stop mqtt:wss:external listener on 0.0.0.0:8084 successfully.\n",
        emqx_mgmt_cli:listeners(["stop", "mqtt:wss:external"])
       ),
+    ?assertEqual(
+       emqx_mgmt_cli:listeners(["restart", "mqtt:tcp:external"]),
+       "Restarted mqtt:tcp:external listener successfully.\n"
+      ),
+    ?assertEqual(
+       emqx_mgmt_cli:listeners(["restart", "mqtt:ssl:external"]),
+       "Restarted mqtt:ssl:external listener successfully.\n"
+      ),
+    ?assertEqual(
+       emqx_mgmt_cli:listeners(["restart", "bad:listener:identifier"]),
+       "Failed to restart bad:listener:identifier listener: {no_such_listener,\"bad:listener:identifier\"}\n"
+      ),
     unmock_print().
 
 t_plugins_cmd(_) ->

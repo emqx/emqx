@@ -550,10 +550,19 @@ listeners(["stop", _Proto, ListenOn]) ->
     end,
     stop_listener(emqx_listeners:find_by_listen_on(ListenOn1), ListenOn1);
 
+listeners(["restart", Identifier]) ->
+    case emqx_listeners:restart_listener(Identifier) of
+        ok ->
+            emqx_ctl:print("Restarted ~s listener successfully.~n", [Identifier]);
+        {error, Error} ->
+            emqx_ctl:print("Failed to restart ~s listener: ~0p~n", [Identifier, Error])
+    end;
+
 listeners(_) ->
     emqx_ctl:usage([{"listeners",                        "List listeners"},
                     {"listeners stop    <Identifier>",   "Stop a listener"},
-                    {"listeners stop    <Proto> <Port>", "Stop a listener"}
+                    {"listeners stop    <Proto> <Port>", "Stop a listener"},
+                    {"listeners restart <Identifier>",   "Restart a listener"}
                    ]).
 
 stop_listener(false, Input) ->
