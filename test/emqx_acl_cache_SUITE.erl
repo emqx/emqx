@@ -56,7 +56,7 @@ t_clean_acl_cache(_) ->
     emqtt:stop(Client).
 
 % optimize??
-t_reload_aclfile_and_cleanall(Config) ->
+t_reload_aclfile_and_cleanall(_Config) ->
 
     RasieMsg = fun() -> Self = self(), #{puback => fun(Msg) -> Self ! {puback, Msg} end,
                                          disconnected => fun(_) ->  ok end,
@@ -79,27 +79,6 @@ t_reload_aclfile_and_cleanall(Config) ->
     %% Check acl cache list
     [ClientPid] = emqx_cm:lookup_channels(<<"emqx_c">>),
     ?assert(length(gen_server:call(ClientPid, list_acl_cache)) > 0),
-
-    %% Update acl file and reload mod_acl_internal
-    Path = filename:join([testdir(proplists:get_value(data_dir, Config)), "acl2.conf"]),
-    ok = file:write_file(Path, <<"{deny, all}.">>),
-    OldPath = emqx:get_env(acl_file),
-    % application:set_env(emqx, acl_file, Path),
-    emqx_mod_acl_internal:reload([{acl_file, Path}]),
-
-    ?assert(length(gen_server:call(ClientPid, list_acl_cache)) == 0),
-    {ok, PktId2} = emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, qos1),
-
-    receive
-        {puback, #{packet_id := PktId2, reason_code := Rc2}} ->
-            %% Not authorized
-            ?assertEqual(16#87, Rc2);
-        _ ->
-            ?assert(false)
-    end,
-    application:set_env(emqx, acl_file, OldPath),
-    file:delete(Path),
-    emqx_mod_acl_internal:reload([{acl_file, OldPath}]),
     emqtt:stop(Client).
 
 %% @private

@@ -1596,6 +1596,10 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.ws.$name.peer_cert_as_username", "emqx.listeners", [
+  {datatype, {enum, [cn, dn, crt]}}
+]}.
+
 {mapping, "listener.ws.$name.check_origin_enable", "emqx.listeners", [
   {datatype, {enum, [true, false]}},
   {default, false},
@@ -1740,6 +1744,10 @@ end}.
 ]}.
 
 {mapping, "listener.wss.$name.cacertfile", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.wss.$name.dhfile", "emqx.listeners", [
   {datatype, string}
 ]}.
 
