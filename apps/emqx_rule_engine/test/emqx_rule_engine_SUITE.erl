@@ -69,7 +69,9 @@ groups() ->
        t_resource_types_cli
       ]},
      {funcs, [],
-      [t_topic_func]},
+      [t_topic_func,
+       t_kv_store
+      ]},
      {registry, [sequence],
       [t_add_get_remove_rule,
        t_add_get_remove_rules,
@@ -596,6 +598,14 @@ t_resource_types_cli(_Config) ->
 t_topic_func(_Config) ->
     %%TODO:
     ok.
+
+t_kv_store(_) ->
+    undefined = emqx_rule_funcs:kv_store_get(<<"abc">>),
+    <<"not_found">> = emqx_rule_funcs:kv_store_get(<<"abc">>, <<"not_found">>),
+    emqx_rule_funcs:kv_store_put(<<"abc">>, 1),
+    1 = emqx_rule_funcs:kv_store_get(<<"abc">>),
+    emqx_rule_funcs:kv_store_del(<<"abc">>),
+    undefined = emqx_rule_funcs:kv_store_get(<<"abc">>).
 
 %%------------------------------------------------------------------------------
 %% Test cases for rule registry

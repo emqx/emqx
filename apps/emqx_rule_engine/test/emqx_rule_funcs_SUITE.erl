@@ -143,6 +143,40 @@ t_bool(_) ->
     ?assertEqual(false, emqx_rule_funcs:bool(<<"false">>)),
     ?assertError({invalid_boolean, _}, emqx_rule_funcs:bool(3)).
 
+t_proc_dict_put_get_del(_) ->
+    ?assertEqual(undefined, emqx_rule_funcs:proc_dict_get(<<"abc">>)),
+    emqx_rule_funcs:proc_dict_put(<<"abc">>, 1),
+    ?assertEqual(1, emqx_rule_funcs:proc_dict_get(<<"abc">>)),
+    emqx_rule_funcs:proc_dict_del(<<"abc">>),
+    ?assertEqual(undefined, emqx_rule_funcs:proc_dict_get(<<"abc">>)).
+
+t_term_encode(_) ->
+    TestData = [<<"abc">>, #{a => 1}, #{<<"3">> => [1,2,4]}],
+    lists:foreach(fun(Data) ->
+            ?assertEqual(Data,
+                emqx_rule_funcs:term_decode(
+                    emqx_rule_funcs:term_encode(Data)))
+        end, TestData).
+
+t_hexstr2bin(_) ->
+    ?assertEqual(<<1,2>>, emqx_rule_funcs:hexstr2bin(<<"0102">>)),
+    ?assertEqual(<<17,33>>, emqx_rule_funcs:hexstr2bin(<<"1121">>)).
+
+t_bin2hexstr(_) ->
+    ?assertEqual(<<"0102">>, emqx_rule_funcs:bin2hexstr(<<1,2>>)),
+    ?assertEqual(<<"1121">>, emqx_rule_funcs:bin2hexstr(<<17,33>>)).
+
+t_hex_convert(_) ->
+    ?PROPTEST(hex_convert).
+
+hex_convert() ->
+    ?FORALL(L, list(range(0, 255)),
+            begin
+                AbitraryBin = list_to_binary(L),
+                AbitraryBin == emqx_rule_funcs:hexstr2bin(
+                    emqx_rule_funcs:bin2hexstr(AbitraryBin))
+            end).
+
 t_is_null(_) ->
     ?assertEqual(true, emqx_rule_funcs:is_null(undefined)),
     ?assertEqual(false, emqx_rule_funcs:is_null(a)),
