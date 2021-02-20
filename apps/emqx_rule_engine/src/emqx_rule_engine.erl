@@ -43,7 +43,6 @@
         ]).
 
 -export([ init_resource/4
-        , init_resource/5
         , init_action/4
         , clear_resource/3
         , clear_rule/1
@@ -65,6 +64,8 @@
              , resource_params/0
              , action_instance_params/0
              ]).
+
+-define(T_RETRY, 60000).
 
 %%------------------------------------------------------------------------------
 %% Load resource/action providers from all available applications
@@ -218,7 +219,7 @@ delete_rule(RuleId) ->
             catch
                 Error:Reason:ST ->
                     ?LOG(error, "clear_rule ~p failed: ~p", [RuleId, {Error, Reason, ST}]),
-                    refresh_actions(Actions, fun(_) -> true end)
+                    refresh_actions(Actions)
             end;
         not_found ->
             ok
@@ -239,7 +240,7 @@ create_resource(#{type := Type, config := Config0} = Params) ->
             ok = emqx_rule_registry:add_resource(Resource),
             %% Note that we will return OK in case of resource creation failure,
             %% A timer is started to re-start the resource later.
-            catch cluster_call(init_resource, [M, F, ResId, Config, true]),
+            catch cluster_call(init_resource, [M, F, ResId, Config]),
             {ok, Resource};
         not_found ->
             {error, {resource_type_not_found, Type}}
@@ -301,7 +302,7 @@ do_update_resource(#{id := Id, type := Type, description := NewDescription, conf
                     cluster_call(init_resource, [Module, Create, Id, Config]),
                     emqx_rule_registry:add_resource(Resource);
                {error, Reason} ->
-                    {error, Reason}
+                    error({error, Reason})
             end
     end.
 
@@ -382,24 +383,15 @@ delete_resource(ResId) ->
 
 -spec(refresh_resources() -> ok).
 refresh_resources() ->
-    lists:foreach(fun(#resource{id = ResId} = Res) ->
-        try refresh_resource(Res)
-        catch Error:Reason:ST ->
-            logger:critical(
-                "Can not re-stablish resource ~p: ~0p. The resource is disconnected."
-                "Fix the issue and establish it manually.\n"
-                "Stacktrace: ~0p",
-                [ResId, {Error, Reason}, ST])
-        end
-    end, emqx_rule_registry:get_resources()).
+    lists:foreach(fun refresh_resource/1,
+                  emqx_rule_registry:get_resources()).
 
 refresh_resource(Type) when is_atom(Type) ->
-    lists:foreach(fun(Resource) ->
-        refresh_resource(Resource)
-    end, emqx_rule_registry:get_resources_by_type(Type));
-refresh_resource(#resource{id = ResId, config = Config, type = Type}) ->
-    {ok, #resource_type{on_create = {M, F}}} = emqx_rule_registry:find_resource_type(Type),
-    cluster_call(init_resource, [M, F, ResId, Config]).
+    lists:foreach(fun refresh_resource/1,
+                  emqx_rule_registry:get_resources_by_type(Type));
+
+refresh_resource(#resource{id = ResId}) ->
+    emqx_rule_monitor:ensure_resource_retrier(ResId, ?T_RETRY).
 
 -spec(refresh_rules() -> ok).
 refresh_rules() ->
@@ -417,7 +409,7 @@ refresh_rules() ->
 refresh_rule(#rule{id = RuleId, for = Topics, actions = Actions}) ->
     ok = emqx_rule_metrics:create_rule_metrics(RuleId),
     lists:foreach(fun emqx_rule_events:load/1, Topics),
-    refresh_actions(Actions, fun(_) -> true end).
+    refresh_actions(Actions).
 
 -spec(refresh_resource_status() -> ok).
 refresh_resource_status() ->
@@ -532,14 +524,7 @@ cluster_call(Func, Args) ->
    end.
 
 init_resource(Module, OnCreate, ResId, Config) ->
-    init_resource(Module, OnCreate, ResId, Config, false).
-
-init_resource(Module, OnCreate, ResId, Config, Restart) ->
-    Params = ?RAISE(
-        Module:OnCreate(ResId, Config),
-        Restart andalso
-            timer:apply_after(timer:seconds(60), ?MODULE, init_resource,
-                              [Module, OnCreate, ResId, Config, Restart]),
+    Params = ?RAISE(Module:OnCreate(ResId, Config),
         {{Module, OnCreate}, {_EXCLASS_, _EXCPTION_, _ST_}}),
     ResParams = #resource_params{id = ResId,
                                  params = Params,

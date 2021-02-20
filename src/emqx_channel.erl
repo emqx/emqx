@@ -31,6 +31,7 @@
 
 -export([ info/1
         , info/2
+        , set_conn_state/2
         , stats/1
         , caps/1
         ]).
@@ -87,7 +88,7 @@
           pendings :: list()
          }).
 
--opaque(channel() :: #channel{}).
+-type(channel() :: #channel{}).
 
 -type(conn_state() :: idle | connecting | connected | disconnected).
 
@@ -127,26 +128,26 @@ info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 info(conninfo, #channel{conninfo = ConnInfo}) ->
     ConnInfo;
-info(zone, #channel{clientinfo = #{zone := Zone}}) ->
-    Zone;
-info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
-    ClientId;
-info(username, #channel{clientinfo = #{username := Username}}) ->
-    Username;
-info(socktype, #channel{conninfo = #{socktype := SockType}}) ->
-    SockType;
-info(peername, #channel{conninfo = #{peername := Peername}}) ->
-    Peername;
-info(sockname, #channel{conninfo = #{sockname := Sockname}}) ->
-    Sockname;
-info(proto_name, #channel{conninfo = #{proto_name := ProtoName}}) ->
-    ProtoName;
-info(proto_ver, #channel{conninfo = #{proto_ver := ProtoVer}}) ->
-    ProtoVer;
-info(connected_at, #channel{conninfo = #{connected_at := ConnectedAt}}) ->
-    ConnectedAt;
+info(socktype, #channel{conninfo = ConnInfo}) ->
+    maps:get(socktype, ConnInfo, undefined);
+info(peername, #channel{conninfo = ConnInfo}) ->
+    maps:get(peername, ConnInfo, undefined);
+info(sockname, #channel{conninfo = ConnInfo}) ->
+    maps:get(sockname, ConnInfo, undefined);
+info(proto_name, #channel{conninfo = ConnInfo}) ->
+    maps:get(proto_name, ConnInfo, undefined);
+info(proto_ver, #channel{conninfo = ConnInfo}) ->
+    maps:get(proto_ver, ConnInfo, undefined);
+info(connected_at, #channel{conninfo = ConnInfo}) ->
+    maps:get(connected_at, ConnInfo, undefined);
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
+info(zone, #channel{clientinfo = ClientInfo}) ->
+    maps:get(zone, ClientInfo, undefined);
+info(clientid, #channel{clientinfo = ClientInfo}) ->
+    maps:get(clientid, ClientInfo, undefined);
+info(username, #channel{clientinfo = ClientInfo}) ->
+    maps:get(username, ClientInfo, undefined);
 info(session, #channel{session = Session}) ->
     maybe_apply(fun emqx_session:info/1, Session);
 info(conn_state, #channel{conn_state = ConnState}) ->
@@ -162,6 +163,9 @@ info(topic_aliases, #channel{topic_aliases = Aliases}) ->
 info(alias_maximum, #channel{alias_maximum = Limits}) ->
     Limits;
 info(timers, #channel{timers = Timers}) -> Timers.
+
+set_conn_state(ConnState, Channel) ->
+    Channel#channel{conn_state = ConnState}.
 
 %% TODO: Add more stats.
 -spec(stats(channel()) -> emqx_types:stats()).
@@ -220,13 +224,19 @@ setting_peercert_infos(NoSSL, ClientInfo, _Options)
 setting_peercert_infos(Peercert, ClientInfo, Options) ->
     {DN, CN} = {esockd_peercert:subject(Peercert),
                 esockd_peercert:common_name(Peercert)},
-    Username = case proplists:get_value(peer_cert_as_username, Options) of
-                   cn  -> CN;
-                   dn  -> DN;
-                   crt -> Peercert;
-                   _   -> undefined
-               end,
-    ClientInfo#{username => Username, dn => DN, cn => CN}.
+    Username = peer_cert_as(peer_cert_as_username, Options, Peercert, DN, CN),
+    ClientId = peer_cert_as(peer_cert_as_clientid, Options, Peercert, DN, CN),
+    ClientInfo#{username => Username, clientid => ClientId, dn => DN, cn => CN}.
+
+peer_cert_as(Key, Options, Peercert, DN, CN) ->
+    case proplists:get_value(Key, Options) of
+         cn  -> CN;
+         dn  -> DN;
+         crt -> Peercert;
+         pem -> base64:encode(Peercert);
+         md5 -> emqx_passwd:hash(md5, Peercert);
+         _   -> undefined
+     end.
 
 take_ws_cookie(ClientInfo, ConnInfo) ->
     case maps:take(ws_cookie, ConnInfo) of

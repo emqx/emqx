@@ -32,7 +32,7 @@
                 title => #{en => <<"URL">>,
                            zh => <<"URL"/utf8>>},
                 description => #{en => <<"The URL of the server that will receive the Webhook requests.">>,
-                                zh => <<"用于接收 Webhook 请求的服务器的 URL。"/utf8>>}
+                                 zh => <<"用于接收 Webhook 请求的服务器的 URL。"/utf8>>}
             },
             connect_timeout => #{
                 order => 2,
@@ -40,7 +40,7 @@
                 default => 5,
                 title => #{en => <<"Connect Timeout">>,
                            zh => <<"连接超时时间"/utf8>>},
-                description => #{en => <<"Connect Timeout In Seconds">>,
+                description => #{en => <<"Connect timeout in seconds">>,
                                  zh => <<"连接超时时间，单位秒"/utf8>>}},
             request_timeout => #{
                 order => 3,
@@ -48,7 +48,7 @@
                 default => 5,
                 title => #{en => <<"Request Timeout">>,
                            zh => <<"请求超时时间时间"/utf8>>},
-                description => #{en => <<"Request Timeout In Seconds">>,
+                description => #{en => <<"Request timeout in seconds">>,
                                  zh => <<"请求超时时间，单位秒"/utf8>>}},
             cacertfile => #{
                 order => 4,
@@ -56,7 +56,7 @@
                 default => <<>>,
                 title => #{en => <<"CA Certificate File">>,
                            zh => <<"CA 证书文件"/utf8>>},
-                description => #{en => <<"CA Certificate File.">>,
+                description => #{en => <<"CA certificate file.">>,
                                  zh => <<"CA 证书文件。"/utf8>>}
             },
             certfile => #{
@@ -65,7 +65,7 @@
                 default => <<>>,
                 title => #{en => <<"Certificate File">>,
                            zh => <<"证书文件"/utf8>>},
-                description => #{en => <<"Certificate File.">>,
+                description => #{en => <<"Certificate file.">>,
                                  zh => <<"证书文件。"/utf8>>}
             },
             keyfile => #{
@@ -80,7 +80,7 @@
             verify => #{
                 order => 7,
                 type => boolean,
-                default => true,
+                default => false,
                 title => #{en => <<"Verify">>,
                            zh => <<"Verify"/utf8>>},
                 description => #{en => <<"Turn on peer certificate verification.">>,
@@ -92,8 +92,8 @@
                 default => 32,
                 title => #{en => <<"Pool Size">>,
                            zh => <<"连接池大小"/utf8>>},
-                description => #{en => <<"Pool Size for HTTP Server.">>,
-                                 zh => <<"HTTP Server 连接池大小。"/utf8>>}
+                description => #{en => <<"Pool size for HTTP server.">>,
+                                 zh => <<"HTTP server 连接池大小。"/utf8>>}
             }
         }).
 
@@ -112,7 +112,7 @@
             method => #{
                 order => 1,
                 type => string,
-                enum => [<<"POST">>,<<"DELETE">>,<<"PUT">>,<<"GET">>],
+                enum => [<<"POST">>, <<"DELETE">>, <<"PUT">>, <<"GET">>],
                 default => <<"POST">>,
                 title => #{en => <<"Method">>,
                            zh => <<"Method"/utf8>>},
@@ -196,6 +196,10 @@ on_resource_create(ResId, Conf) ->
     {ok, _} = application:ensure_all_started(ehttpc),
     Options = pool_opts(Conf),
     PoolName = pool_name(ResId),
+    case test_http_connect(Conf) of
+        true -> ok;
+        false -> error({error, check_http_connectivity_failed})
+    end,
     start_resource(ResId, PoolName, Options),
     Conf#{<<"pool">> => PoolName, options => Options}.
 
@@ -214,15 +218,8 @@ start_resource(ResId, PoolName, Options) ->
     end.
 
 -spec(on_get_resource_status(binary(), map()) -> map()).
-on_get_resource_status(ResId, #{<<"url">> := Url}) ->
-    #{is_alive =>
-        case emqx_rule_utils:http_connectivity(Url) of
-            ok -> true;
-            {error, Reason} ->
-                ?LOG(error, "Connectivity Check for ~p failed, ResId: ~p, ~0p",
-                     [?RESOURCE_TYPE_WEBHOOK, ResId, Reason]),
-                false
-        end}.
+on_get_resource_status(_ResId, Conf) ->
+    #{is_alive => test_http_connect(Conf)}.
 
 -spec(on_resource_destroy(binary(), map()) -> ok | {error, Reason::term()}).
 on_resource_destroy(ResId, #{<<"pool">> := PoolName}) ->
@@ -263,15 +260,15 @@ on_action_data_to_webserver(Selected, _Envs =
     Req = create_req(Method, NPath, Headers, NBody),
     case ehttpc:request(ehttpc_pool:pick_worker(Pool, ClientID), Method, Req, RequestTimeout) of
         {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            ok;
+            emqx_rule_metrics:inc_actions_success(Id);
         {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            ok;
+            emqx_rule_metrics:inc_actions_success(Id);
         {ok, StatusCode, _} ->
             ?LOG(warning, "[WebHook Action] HTTP request failed with status code: ~p", [StatusCode]),
-            ok;
+            emqx_rule_metrics:inc_actions_error(Id);
         {ok, StatusCode, _, _} ->
             ?LOG(warning, "[WebHook Action] HTTP request failed with status code: ~p", [StatusCode]),
-            ok;
+            emqx_rule_metrics:inc_actions_error(Id);
         {error, Reason} ->
             ?LOG(error, "[WebHook Action] HTTP request error: ~p", [Reason]),
             emqx_rule_metrics:inc_actions_error(Id)
@@ -357,12 +354,11 @@ pool_opts(Params = #{<<"url">> := URL}) ->
                                                  (_) ->
                                                   true
                                               end, [{keyfile, KeyFile}, {certfile, CertFile}, {cacertfile, CACertFile}]),
-                       TlsVers = ['tlsv1.2','tlsv1.1',tlsv1],
-                       NTLSOpts = [{verify, VerifyType},
-                                   {versions, TlsVers},
-                                   {ciphers, lists:foldl(fun(TlsVer, Ciphers) ->
-                                                             Ciphers ++ ssl:cipher_suites(all, TlsVer)
-                                                         end, [], TlsVers)} | TLSOpts],
+                       NTLSOpts = [ {verify, VerifyType}
+                                  , {versions, emqx_tls_lib:default_versions()}
+                                  , {ciphers, emqx_tls_lib:default_ciphers()}
+                                  | TLSOpts
+                                  ],
                        [{transport, ssl}, {transport_opts, [Inet | NTLSOpts]}]
               end,
     [{host, Host},
@@ -385,4 +381,19 @@ parse_host(Host) ->
                 {ok, _} -> {inet6, Host};
                 {error, _} -> {inet, Host}
             end
+    end.
+
+test_http_connect(Conf) ->
+    Url = fun() -> maps:get(<<"url">>, Conf) end,
+    try
+       emqx_rule_utils:http_connectivity(Url())
+    of
+       ok -> true;
+       {error, _Reason} ->
+           ?LOG(error, "check http_connectivity failed: ~p", [Url()]),
+           false
+    catch
+        Err:Reason:ST ->
+           ?LOG(error, "check http_connectivity failed: ~p, ~0p", [Conf, {Err, Reason, ST}]),
+           false
     end.

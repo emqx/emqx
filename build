@@ -71,7 +71,8 @@ make_relup() {
     local releases=()
     if [ -d "$releases_dir" ]; then
         while read -r dir; do
-            local version="$(basename "$dir")"
+            local version
+            version="$(basename "$dir")"
             # skip current version
             if [ "$version" != "$PKG_VSN" ]; then
                 releases+=( "$version" )

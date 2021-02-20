@@ -59,12 +59,12 @@ insert_user(User = #emqx_user{login = Login}) ->
 %% @doc Update User
 -spec(update_user(tuple(), binary()) -> ok | {error, any()}).
 update_user(Login, NewPassword) ->
-    User = #emqx_user{login = Login, password = encrypted_data(NewPassword)},
-    ret(mnesia:transaction(fun do_update_user/1, [User])).
+    ret(mnesia:transaction(fun do_update_user/2, [Login, encrypted_data(NewPassword)])).
 
-do_update_user(User = #emqx_user{login = Login}) ->
+do_update_user(Login, NewPassword) ->
     case mnesia:read(?TABLE, Login) of
-        [{?TABLE, Login, _, CreateAt}] -> mnesia:write(User#emqx_user{created_at = CreateAt});
+        [#emqx_user{} = User] ->
+            mnesia:write(User#emqx_user{password = NewPassword});
         [] -> mnesia:abort(noexisted)
     end.
 
@@ -119,7 +119,7 @@ hash(Password, SaltBin, HashType) ->
     emqx_passwd:hash(HashType, <<SaltBin/binary, Password/binary>>).
 
 salt() ->
-    rand:seed(exsplus, erlang:timestamp()),
+    {_AlgHandler, _AlgState} = rand:seed(exsplus, erlang:timestamp()),
     Salt = rand:uniform(16#ffffffff), <<Salt:32>>.
 
 %%--------------------------------------------------------------------

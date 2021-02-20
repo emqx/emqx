@@ -129,7 +129,7 @@ add(_Bindings, Params) ->
             case Re of
                 #{result := ok} -> return({ok, Re});
                 #{result := <<"ok">>} -> return({ok, Re});
-                _ -> return({error, Re})
+                _ -> return({error, {add, Re}})
             end
     end.
 
@@ -197,10 +197,10 @@ validate([K|Keys], [V|Values]) ->
 do_validation(login, all) ->
     true;
 do_validation(login, {clientid, V}) when is_binary(V)
-                     andalso byte_size(V) > 0->
+                     andalso byte_size(V) > 0 ->
     true;
 do_validation(login, {username, V}) when is_binary(V)
-                     andalso byte_size(V) > 0->
+                     andalso byte_size(V) > 0 ->
     true;
 do_validation(topic, V) when is_binary(V)
                      andalso byte_size(V) > 0 ->

@@ -671,12 +671,6 @@ format_data([], Msg) ->
 format_data(Tokens, Msg) ->
     emqx_rule_utils:proc_tmpl(Tokens, Msg).
 
-tls_versions() ->
-    ['tlsv1.2','tlsv1.1', tlsv1].
-
-ciphers(Ciphers) ->
-    string:tokens(str(Ciphers), ", ").
-
 subscriptions(Subscriptions) ->
     scan_binary(<<"[", Subscriptions/binary, "].">>).
 
@@ -749,6 +743,8 @@ options(Options, PoolName) ->
                      Topic ->
                          [{subscriptions, [{Topic, Get(<<"qos">>)}]} | Subscriptions]
                  end,
+                 %% TODO check why only ciphers are configurable but not versions
+                 TlsVersions = emqx_tls_lib:default_versions(),
                  [{address, binary_to_list(Address)},
                   {bridge_mode, GetD(<<"bridge_mode">>, true)},
                   {clean_start, true},
@@ -761,12 +757,13 @@ options(Options, PoolName) ->
                   {proto_ver, mqtt_ver(Get(<<"proto_ver">>))},
                   {retry_interval, cuttlefish_duration:parse(str(GetD(<<"retry_interval">>, "30s")), s)},
                   {ssl, cuttlefish_flag:parse(str(Get(<<"ssl">>)))},
-                  {ssl_opts, [{versions, tls_versions()},
-                              {ciphers, ciphers(Get(<<"ciphers">>))},
-                              {keyfile, str(Get(<<"keyfile">>))},
-                              {certfile, str(Get(<<"certfile">>))},
-                              {cacertfile, str(Get(<<"cacertfile">>))}
-                             ]}] ++ Subscriptions1
+                  {ssl_opts, [ {keyfile, str(Get(<<"keyfile">>))}
+                             , {certfile, str(Get(<<"certfile">>))}
+                             , {cacertfile, str(Get(<<"cacertfile">>))}
+                             , {versions, TlsVersions}
+                             , {ciphers, emqx_tls_lib:integral_ciphers(TlsVersions, Get(<<"ciphers">>))}
+                             ]}
+                 ] ++ Subscriptions1
          end.
 
 

@@ -16,6 +16,8 @@
 
 -module(emqx_rule_funcs).
 
+-include("rule_engine.hrl").
+
 %% IoT Funcs
 -export([ msgid/0
         , qos/0
@@ -91,6 +93,8 @@
         , int/1
         , float/1
         , map/1
+        , bin2hexstr/1
+        , hexstr2bin/1
         ]).
 
 %% Data Type Validation Funcs
@@ -169,6 +173,8 @@
         , base64_decode/1
         , json_decode/1
         , json_encode/1
+        , term_decode/1
+        , term_encode/1
         ]).
 
 %% Date functions
@@ -177,6 +183,16 @@
         , now_timestamp/0
         , now_timestamp/1
         ]).
+
+%% Proc Dict Func
+ -export([ proc_dict_get/1
+         , proc_dict_put/2
+         , proc_dict_del/1
+         , kv_store_get/1
+         , kv_store_get/2
+         , kv_store_put/2
+         , kv_store_del/1
+         ]).
 
 -export(['$handle_undefined_function'/2]).
 
@@ -495,6 +511,14 @@ float(Data) ->
 map(Data) ->
     emqx_rule_utils:map(Data).
 
+bin2hexstr(Bin) when is_binary(Bin) ->
+    IntL = binary_to_list(Bin),
+    list_to_binary([io_lib:format("~2.16.0B", [Int]) || Int <- IntL]).
+
+hexstr2bin(Str) when is_binary(Str) ->
+    list_to_binary([binary_to_integer(W, 16) || <<W:2/binary>> <= Str]).
+
+
 %%------------------------------------------------------------------------------
 %% NULL Funcs
 %%------------------------------------------------------------------------------
@@ -804,7 +828,7 @@ hexstring(<<X:256/big-unsigned-integer>>) ->
     iolist_to_binary(io_lib:format("~64.16.0b", [X])).
 
 %%------------------------------------------------------------------------------
-%% Base64 Funcs
+%% Data encode and decode Funcs
 %%------------------------------------------------------------------------------
 
 base64_encode(Data) when is_binary(Data) ->
@@ -818,6 +842,40 @@ json_encode(Data) ->
 
 json_decode(Data) ->
     emqx_json:decode(Data, [return_maps]).
+
+term_encode(Term) ->
+    erlang:term_to_binary(Term).
+
+term_decode(Data) when is_binary(Data) ->
+    erlang:binary_to_term(Data).
+
+%%------------------------------------------------------------------------------
+%% Dict Funcs
+%%------------------------------------------------------------------------------
+
+-define(DICT_KEY(KEY), {'@rule_engine', KEY}).
+proc_dict_get(Key) ->
+    erlang:get(?DICT_KEY(Key)).
+
+proc_dict_put(Key, Val) ->
+    erlang:put(?DICT_KEY(Key), Val).
+
+proc_dict_del(Key) ->
+    erlang:erase(?DICT_KEY(Key)).
+
+kv_store_put(Key, Val) ->
+    ets:insert(?KV_TAB, {Key, Val}).
+
+kv_store_get(Key) ->
+    kv_store_get(Key, undefined).
+kv_store_get(Key, Default) ->
+    case ets:lookup(?KV_TAB, Key) of
+        [{_, Val}] -> Val;
+        _ -> Default
+    end.
+
+kv_store_del(Key) ->
+    ets:delete(?KV_TAB, Key).
 
 %%--------------------------------------------------------------------
 %% Date functions

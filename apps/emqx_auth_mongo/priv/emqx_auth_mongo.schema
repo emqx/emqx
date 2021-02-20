@@ -23,12 +23,10 @@
 
 %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
 {mapping, "auth.mongo.login", "emqx_auth_mongo.server", [
-  {default, ""},
   {datatype, string}
 ]}.
 
 {mapping, "auth.mongo.username", "emqx_auth_mongo.server", [
-  {default, ""},
   {datatype, string}
 ]}.
 
@@ -100,7 +98,7 @@
   Pool = cuttlefish:conf_get("auth.mongo.pool", Conf),
   %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
   Login = cuttlefish:conf_get("auth.mongo.username", Conf,
-                              cuttlefish:conf_get("auth.mongo.login", Conf)
+                              cuttlefish:conf_get("auth.mongo.login", Conf, "")
                              ),
   Passwd = cuttlefish:conf_get("auth.mongo.password", Conf),
   DB = cuttlefish:conf_get("auth.mongo.database", Conf),
@@ -132,16 +130,10 @@
             end,
 
   %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-  GenSsl = case cuttlefish:conf_get("auth.mongo.ssl.cacertfile", Conf, undefined) of
-               undefined -> [{ssl, true}, {ssl_opts, SslOpts("auth.mongo.ssl_opts")}];
-               _ -> [{ssl, true}, {ssl_opts, SslOpts("auth.mongo.ssl")}]
-           end,
-
-  %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
   Ssl = case cuttlefish:conf_get("auth.mongo.ssl", Conf) of
-          on -> GenSsl;
+          on -> [{ssl, true}, {ssl_opts, SslOpts("auth.mongo.ssl")}];
           off -> [];
-          true -> GenSsl;
+          true -> [{ssl, true}, {ssl_opts, SslOpts("auth.mongo.ssl_opts")}];
           false -> []
         end,
 

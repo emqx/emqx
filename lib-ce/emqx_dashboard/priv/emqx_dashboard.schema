@@ -1,0 +1,152 @@
+%%-*- mode: erlang -*-
+%% emqx_dashboard config mapping
+
+{mapping, "dashboard.default_user.login", "emqx_dashboard.default_user_username", [
+  {datatype, string}
+]}.
+
+{mapping, "dashboard.default_user.password", "emqx_dashboard.default_user_passwd", [
+  {datatype, string},
+  {override_env, "ADMIN_PASSWORD"}
+]}.
+
+{mapping, "dashboard.listener.http", "emqx_dashboard.listeners", [
+  {datatype, integer}
+]}.
+
+{mapping, "dashboard.listener.http.acceptors", "emqx_dashboard.listeners", [
+  {default, 4},
+  {datatype, integer}
+]}.
+
+{mapping, "dashboard.listener.http.max_clients", "emqx_dashboard.listeners", [
+  {default, 512},
+  {datatype, integer}
+]}.
+
+{mapping, "dashboard.listener.http.access.$id", "emqx_dashboard.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "dashboard.listener.http.inet6", "emqx_dashboard.listeners", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "dashboard.listener.http.ipv6_v6only", "emqx_dashboard.listeners", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "dashboard.listener.https", "emqx_dashboard.listeners", [
+  {datatype, integer}
+]}.
+
+{mapping, "dashboard.listener.https.acceptors", "emqx_dashboard.listeners", [
+  {default, 8},
+  {datatype, integer}
+]}.
+
+{mapping, "dashboard.listener.https.max_clients", "emqx_dashboard.listeners", [
+  {default, 64},
+  {datatype, integer}
+]}.
+
+{mapping, "dashboard.listener.https.inet6", "emqx_dashboard.listeners", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "dashboard.listener.https.ipv6_v6only", "emqx_dashboard.listeners", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "dashboard.listener.https.tls_versions", "emqx_dashboard.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "dashboard.listener.https.dhfile", "emqx_dashboard.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "dashboard.listener.https.keyfile", "emqx_dashboard.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "dashboard.listener.https.certfile", "emqx_dashboard.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "dashboard.listener.https.cacertfile", "emqx_dashboard.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "dashboard.listener.https.verify", "emqx_dashboard.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "dashboard.listener.https.fail_if_no_peer_cert", "emqx_dashboard.listeners", [
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "dashboard.listener.https.ciphers", "emqx_dashboard.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "dashboard.listener.https.secure_renegotiate", "emqx_dashboard.listeners", [
+  {datatype, flag}
+]}.
+
+{mapping, "dashboard.listener.https.reuse_sessions", "emqx_dashboard.listeners", [
+  {default, on},
+  {datatype, flag}
+]}.
+
+{mapping, "dashboard.listener.https.honor_cipher_order", "emqx_dashboard.listeners", [
+  {datatype, flag}
+]}.
+
+{translation, "emqx_dashboard.listeners", fun(Conf) ->
+  Filter = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
+  LisOpts = fun(Prefix) ->
+             Filter([{num_acceptors,   cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
+                     {max_connections, cuttlefish:conf_get(Prefix ++ ".max_clients", Conf)},
+                     {inet6, cuttlefish:conf_get(Prefix ++ ".inet6", Conf)},
+                     {ipv6_v6only, cuttlefish:conf_get(Prefix ++ ".ipv6_v6only", Conf)}])
+         end,
+
+  SplitFun = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
+
+  SslOpts = fun(Prefix) ->
+               Versions = case SplitFun(cuttlefish:conf_get(Prefix ++ ".tls_versions", Conf, undefined)) of
+                              undefined -> undefined;
+                              L -> [list_to_atom(V) || V <- L]
+                          end,
+                Filter([{versions, Versions},
+                        {ciphers, SplitFun(cuttlefish:conf_get(Prefix ++ ".ciphers", Conf, undefined))},
+                        {dhfile, cuttlefish:conf_get(Prefix ++ ".dhfile", Conf, undefined)},
+                        {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
+                        {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
+                        {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
+                        {verify,     cuttlefish:conf_get(Prefix ++ ".verify", Conf, undefined)},
+                        {fail_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ ".fail_if_no_peer_cert", Conf, undefined)},
+                        {secure_renegotiate, cuttlefish:conf_get(Prefix ++ ".secure_renegotiate", Conf, undefined)},
+                        {reuse_sessions, cuttlefish:conf_get(Prefix ++ ".reuse_sessions", Conf, undefined)},
+                        {honor_cipher_order, cuttlefish:conf_get(Prefix ++ ".honor_cipher_order", Conf, undefined)}])
+            end,
+  lists:append(
+    lists:map(
+      fun(Proto) ->
+        Prefix = "dashboard.listener." ++ atom_to_list(Proto),
+        case cuttlefish:conf_get(Prefix, Conf, undefined) of
+            undefined -> [];
+            Port      ->
+                [{Proto, Port, case Proto of
+                                   http  -> LisOpts(Prefix);
+                                   https -> LisOpts(Prefix) ++ SslOpts(Prefix)
+                               end}]
+        end
+      end, [http, https]))
+end}.
+

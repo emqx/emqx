@@ -47,7 +47,7 @@ start_listener({Proto, ListenOn, Opts}) ->
             io:format("Start lwm2m:~s listener on ~s successfully.~n",
                       [Proto, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to start lwm2m:~s listener on ~s - ~0p~n!",
+            io:format(standard_error, "Failed to start lwm2m:~s listener on ~s: ~0p~n",
                       [Proto, format(ListenOn), Reason]),
             error(Reason)
     end.
@@ -63,7 +63,7 @@ stop_listener({Proto, ListenOn, _Opts}) ->
         ok -> io:format("Stop lwm2m:~s listener on ~s successfully.~n",
                         [Proto, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to stop lwm2m:~s listener on ~s - ~p~n.",
+            io:format(standard_error, "Failed to stop lwm2m:~s listener on ~s: ~0p~n",
                       [Proto, format(ListenOn), Reason])
     end,
     Ret.
@@ -101,10 +101,12 @@ get_lwm2m_opts(Envs) ->
     AutoObserve = proplists:get_value(auto_observe, Envs, []),
     QmodeTimeWindow = proplists:get_value(qmode_time_window, Envs, []),
     Topics = proplists:get_value(topics, Envs, []),
+    PublishUpdateWhen = proplists:get_value(publish_update_when, Envs, object_list_changed),
     [{lifetime_max, LifetimeMax},
      {lifetime_min, LifetimeMin},
      {mountpoint, list_to_binary(Mountpoint)},
      {port, Sockport},
      {auto_observe, AutoObserve},
      {qmode_time_window, QmodeTimeWindow},
+     {publish_update_when, PublishUpdateWhen},
      {topics, Topics}].

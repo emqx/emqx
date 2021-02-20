@@ -33,7 +33,7 @@
         ]).
 
 init(#{clientid_list := ClientidList, username_list := UsernameList}) ->
-    ok = ekka_mnesia:create_table(emqx_user, [
+    ok = ekka_mnesia:create_table(?TABLE, [
             {disc_copies, [node()]},
             {attributes, record_info(fields, emqx_user)},
             {storage_properties, [{ets, [{read_concurrency, true}]}]}]),
@@ -41,7 +41,7 @@ init(#{clientid_list := ClientidList, username_list := UsernameList}) ->
       || {Clientid, Password} <- ClientidList],
     _ = [ add_default_user({{username, iolist_to_binary(Username)}, iolist_to_binary(Password)})
       || {Username, Password} <- UsernameList],
-    ok = ekka_mnesia:copy_table(emqx_user, disc_copies).
+    ok = ekka_mnesia:copy_table(?TABLE, disc_copies).
 
 %% @private
 add_default_user({Login, Password}) when is_tuple(Login) ->
@@ -55,8 +55,8 @@ check(ClientInfo = #{ clientid := Clientid
                     , password := NPassword
                     }, AuthResult, #{hash_type := HashType}) ->
     Username = maps:get(username, ClientInfo, undefined),
-    MatchSpec = ets:fun2ms(fun({?TABLE, {clientid, X }, Password, InterTime}) when X =:= Clientid-> Password;
-                              ({?TABLE, {username, X }, Password, InterTime}) when X =:= Username andalso X =/= undefined -> Password
+    MatchSpec = ets:fun2ms(fun({?TABLE, {clientid, X}, Password, InterTime}) when X =:= Clientid-> Password;
+                              ({?TABLE, {username, X}, Password, InterTime}) when X =:= Username andalso X =/= undefined -> Password
                            end),
     case ets:select(?TABLE, MatchSpec) of
         [] ->

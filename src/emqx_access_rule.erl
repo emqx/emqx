@@ -16,8 +16,6 @@
 
 -module(emqx_access_rule).
 
--include("emqx.hrl").
-
 %% APIs
 -export([ match/3
         , compile/1
@@ -71,14 +69,13 @@ compile(topic, {eq, Topic}) ->
     {eq, emqx_topic:words(bin(Topic))};
 compile(topic, Topic) ->
     Words = emqx_topic:words(bin(Topic)),
-    case 'pattern?'(Words) of
+    case pattern(Words) of
         true  -> {pattern, Words};
         false -> Words
     end.
 
-'pattern?'(Words) ->
-    lists:member(<<"%u">>, Words)
-        orelse lists:member(<<"%c">>, Words).
+pattern(Words) ->
+    lists:member(<<"%u">>, Words) orelse lists:member(<<"%c">>, Words).
 
 bin(L) when is_list(L) ->
     list_to_binary(L);

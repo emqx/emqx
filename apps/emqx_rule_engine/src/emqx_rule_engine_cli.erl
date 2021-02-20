@@ -173,7 +173,7 @@ resources(["update" | Params]) ->
             ok ->
                 emqx_ctl:print("Resource update successfully~n");
             {error, Reason} ->
-                emqx_ctl:print("update resource failed, reason: ~p!~n", [Reason])
+                emqx_ctl:print("Resource update failed: ~0p~n", [Reason])
             end
         end, Params, ?OPTSPEC_RESOURCES_UPDATE, {?FUNCTION_NAME, update});
 

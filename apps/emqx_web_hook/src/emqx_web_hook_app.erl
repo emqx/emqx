@@ -52,10 +52,10 @@ translate_env() ->
     {ok, URL} = application:get_env(?APP, url),
     #{host := Host0,
       path := Path0,
-      scheme := Scheme} = URIMap = uri_string:parse(add_default_scheme(URL)),
+      scheme := Scheme} = URIMap = uri_string:parse(add_default_scheme(uri_string:normalize(URL))),
     Port = maps:get(port, URIMap, case Scheme of
                                       "https" -> 443;
-                                      _ -> 80
+                                      "http" -> 80
                                   end),
     Path = path(Path0),
     {Inet, Host} = parse_host(Host0),
@@ -75,12 +75,11 @@ translate_env() ->
                        TLSOpts = lists:filter(fun({_K, V}) ->
                                                 V /= <<>> andalso V /= undefined andalso V /= "" andalso true
                                               end, [{keyfile, KeyFile}, {certfile, CertFile}, {cacertfile, CACertFile}]),
-                       TlsVers = ['tlsv1.2','tlsv1.1',tlsv1],
-                       NTLSOpts = [{verify, VerifyType},
-                                   {versions, TlsVers},
-                                   {ciphers, lists:foldl(fun(TlsVer, Ciphers) ->
-                                                               Ciphers ++ ssl:cipher_suites(all, TlsVer)
-                                                           end, [], TlsVers)} | TLSOpts],
+                       NTLSOpts = [ {verify, VerifyType}
+                                  , {versions, emqx_tls_lib:default_versions()}
+                                  , {ciphers, emqx_tls_lib:default_ciphers()}
+                                  | TLSOpts
+                                  ],
                        [{transport, ssl}, {transport_opts, [Inet | NTLSOpts]}]
                 end,
     PoolOpts = [{host, Host},

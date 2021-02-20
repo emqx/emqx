@@ -202,7 +202,8 @@ end}.
 
 %% @doc Node name
 {mapping, "node.name", "vm_args.-name", [
-  {default, "emqx@127.0.0.1"}
+  {default, "emqx@127.0.0.1"},
+  {override_env, "NODE_NAME"}
 ]}.
 
 %% @doc Specify SSL Options in the file if using SSL for erlang distribution
@@ -1211,7 +1212,11 @@ end}.
 ]}.
 
 {mapping, "listener.tcp.$name.peer_cert_as_username", "emqx.listeners", [
-  {datatype, {enum, [cn, dn, crt]}}
+  {datatype, {enum, [cn, dn, crt, pem, md5]}}
+]}.
+
+{mapping, "listener.tcp.$name.peer_cert_as_clientid", "emqx.listeners", [
+  {datatype, {enum, [cn, dn, crt, pem, md5]}}
 ]}.
 
 {mapping, "listener.tcp.$name.backlog", "emqx.listeners", [
@@ -1425,7 +1430,11 @@ end}.
 ]}.
 
 {mapping, "listener.ssl.$name.peer_cert_as_username", "emqx.listeners", [
-  {datatype, {enum, [cn, dn, crt]}}
+  {datatype, {enum, [cn, dn, crt, pem, md5]}}
+]}.
+
+{mapping, "listener.ssl.$name.peer_cert_as_clientid", "emqx.listeners", [
+  {datatype, {enum, [cn, dn, crt, pem, md5]}}
 ]}.
 
 %%--------------------------------------------------------------------
@@ -1472,9 +1481,14 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "listener.ws.$name.verify_protocol_header", "emqx.listeners", [
-  {default, on},
-  {datatype, flag}
+{mapping, "listener.ws.$name.fail_if_no_subprotocol", "emqx.listeners", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "listener.ws.$name.supported_subprotocols", "emqx.listeners", [
+  {default, "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5"},
+  {datatype, string}
 ]}.
 
 {mapping, "listener.ws.$name.proxy_protocol", "emqx.listeners", [
@@ -1582,6 +1596,10 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.ws.$name.peer_cert_as_username", "emqx.listeners", [
+  {datatype, {enum, [cn, dn, crt]}}
+]}.
+
 {mapping, "listener.ws.$name.check_origin_enable", "emqx.listeners", [
   {datatype, {enum, [true, false]}},
   {default, false},
@@ -1638,9 +1656,14 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "listener.wss.$name.verify_protocol_header", "emqx.listeners", [
-  {default, on},
-  {datatype, flag}
+{mapping, "listener.wss.$name.fail_if_no_subprotocol", "emqx.listeners", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "listener.wss.$name.supported_subprotocols", "emqx.listeners", [
+  {default, "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5"},
+  {datatype, string}
 ]}.
 
 {mapping, "listener.wss.$name.access.$id", "emqx.listeners", [
@@ -1724,6 +1747,10 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "listener.wss.$name.dhfile", "emqx.listeners", [
+  {datatype, string}
+]}.
+
 {mapping, "listener.wss.$name.depth", "emqx.listeners", [
   {default, 10},
   {datatype, integer}
@@ -1755,7 +1782,11 @@ end}.
 ]}.
 
 {mapping, "listener.wss.$name.peer_cert_as_username", "emqx.listeners", [
-  {datatype, {enum, [cn, dn, crt]}}
+  {datatype, {enum, [cn, dn, crt, pem, md5]}}
+]}.
+
+{mapping, "listener.wss.$name.peer_cert_as_clientid", "emqx.listeners", [
+  {datatype, {enum, [cn, dn, crt, pem, md5]}}
 ]}.
 
 {mapping, "listener.wss.$name.compress", "emqx.listeners", [
@@ -1892,8 +1923,10 @@ end}.
                           {rate_limit, RateLimit(cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined))},
                           {proxy_protocol, cuttlefish:conf_get(Prefix ++ ".proxy_protocol", Conf, undefined)},
                           {proxy_protocol_timeout, cuttlefish:conf_get(Prefix ++ ".proxy_protocol_timeout", Conf, undefined)},
-                          {verify_protocol_header, cuttlefish:conf_get(Prefix ++ ".verify_protocol_header", Conf, undefined)},
+                          {fail_if_no_subprotocol, cuttlefish:conf_get(Prefix ++ ".fail_if_no_subprotocol", Conf, undefined)},
+                          {supported_subprotocols, string:tokens(cuttlefish:conf_get(Prefix ++ ".supported_subprotocols", Conf, ""), ", ")},
                           {peer_cert_as_username, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_username", Conf, undefined)},
+                          {peer_cert_as_clientid, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_clientid", Conf, undefined)},
                           {compress, cuttlefish:conf_get(Prefix ++ ".compress", Conf, undefined)},
                           {idle_timeout, cuttlefish:conf_get(Prefix ++ ".idle_timeout", Conf, undefined)},
                           {max_frame_size, cuttlefish:conf_get(Prefix ++ ".max_frame_size", Conf, undefined)},
@@ -1985,8 +2018,15 @@ end}.
                                   Other -> Other
                               end
                       end,
-                      [{Atom(Type), ListenOnN, [{deflate_options, DeflateOpts(Prefix)},
-                                              {tcp_options, TcpOpts(Prefix)} | LisOpts(Prefix)]}]
+                      [#{ proto => Atom(Type)
+                        , name => Name
+                        , listen_on => ListenOnN
+                        , opts => [ {deflate_options, DeflateOpts(Prefix)}
+                                  , {tcp_options, TcpOpts(Prefix)}
+                                  | LisOpts(Prefix)
+                                  ]
+                        }
+                      ]
                    end,
     SslListeners = fun(Type, Name) ->
                        Prefix = string:join(["listener", Type, Name], "."),
@@ -1994,9 +2034,16 @@ end}.
                            undefined ->
                                [];
                            ListenOn ->
-                               [{Atom(Type), ListenOn, [{deflate_options, DeflateOpts(Prefix)},
-                                                        {tcp_options, TcpOpts(Prefix)},
-                                                        {ssl_options, SslOpts(Prefix)} | LisOpts(Prefix)]}]
+                               [#{ proto => Atom(Type)
+                                 , name => Name
+                                 , listen_on => ListenOn
+                                 , opts => [ {deflate_options, DeflateOpts(Prefix)}
+                                           , {tcp_options, TcpOpts(Prefix)}
+                                           , {ssl_options, SslOpts(Prefix)}
+                                           | LisOpts(Prefix)
+                                           ]
+                                 }
+                               ]
                        end
                    end,
 

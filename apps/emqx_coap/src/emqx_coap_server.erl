@@ -55,7 +55,7 @@ start_listener({Proto, ListenOn, Opts}) ->
             io:format("Start coap:~s listener on ~s successfully.~n",
                       [Proto, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to start coap:~s listener on ~s - ~0p~n!",
+            io:format(standard_error, "Failed to start coap:~s listener on ~s: ~0p~n",
                       [Proto, format(ListenOn), Reason]),
             error(Reason)
     end.
@@ -71,7 +71,7 @@ stop_listener({Proto, ListenOn, _Opts}) ->
         ok -> io:format("Stop coap:~s listener on ~s successfully.~n",
                         [Proto, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to stop coap:~s listener on ~s - ~p~n.",
+            io:format(standard_error, "Failed to stop coap:~s listener on ~s: ~0p~n.",
                       [Proto, format(ListenOn), Reason])
     end,
     Ret.

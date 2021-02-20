@@ -40,10 +40,6 @@ if [[ -z "$EMQX_HOST" ]]; then
     export EMQX_HOST
 fi
 
-if [[ -z "$EMQX_WAIT_TIME" ]]; then
-    export EMQX_WAIT_TIME=5
-fi
-
 if [[ -z "$EMQX_NODE_NAME" ]]; then
     export EMQX_NODE_NAME="$EMQX_NAME@$EMQX_HOST"
 fi
@@ -94,79 +90,6 @@ if [[ -z "$EMQX_LISTENER__WSS__EXTERNAL__MAX_CONNECTIONS" ]]; then
     export EMQX_LISTENER__WSS__EXTERNAL__MAX_CONNECTIONS=102400
 fi
 
-# Fix issue #42 - export env EMQX_DASHBOARD__DEFAULT_USER__PASSWORD to configure
-# 'dashboard.default_user.password' in etc/plugins/emqx_dashboard.conf
-if [[ -n "$EMQX_ADMIN_PASSWORD" ]]; then
-    export EMQX_DASHBOARD__DEFAULT_USER__PASSWORD=$EMQX_ADMIN_PASSWORD
-fi
-
-# echo value of $VAR hiding secrets if any
-# SYNOPSIS
-#     echo_value KEY VALUE
-echo_value() {
-    # get MASK_CONFIG
-    MASK_CONFIG_FILTER="$MASK_CONFIG_FILTER|password|passwd|key|token|secret"
-    FORMAT_MASK_CONFIG_FILTER=$(echo "$MASK_CONFIG_FILTER" | sed -r -e 's/^[^A-Za-z0-9_]+//' -e 's/[^A-Za-z0-9_]+$//' -e 's/[^A-Za-z0-9_]+/|/g')
-    local key=$1
-    local value=$2
-    # check if contains sensitive value
-    if echo "$key" | grep -iqwE "$FORMAT_MASK_CONFIG_FILTER"; then
-        echo "$key=***secret***"
-    else
-        echo "$key=$value"
-    fi
-}
-
-# fill config on specific file if the key exists
-# SYNOPSIS
-#     try_fill_config FILE KEY VALUE
-try_fill_config() {
-    local file=$1
-    local key=$2
-    local value=$3
-    local escaped_key
-    # shellcheck disable=SC2001
-    escaped_key=$(echo "$key" | sed 's/[^a-zA-Z0-9_]/\\&/g')
-    local escaped_value
-    escaped_value=$(echo "$value" | sed 's/[\/&]/\\&/g')
-    if grep -qE "^[#[:space:]]*$escaped_key\s*=" "$file"; then
-        echo_value "$key" "$value"
-        if [[ -z "$value" ]]; then
-            echo "$(sed -r "s/^[#[:space:]]*($escaped_key)\s*=\s*(.*)/# \1 = \2/" "$file")" > "$file"
-        else
-            echo "$(sed -r "s/^[#[:space:]]*($escaped_key)\s*=\s*(.*)/\1 = $escaped_value/" "$file")" > "$file"
-        fi
-    # Check if config has a numbering system, but no existing configuration line in file
-    elif echo "$key" | grep -qE '\.\d+|\d+\.'; then
-        if [[ -n "$value" ]]; then
-            local template
-            template="$(echo "$escaped_key" | sed -r -e 's/\\\.[0-9]+/\\.[0-9]+/g' -e 's/[0-9]+\\\./[0-9]+\\./g')"
-            if grep -qE "^[#[:space:]]*$template\s*=" "$file"; then
-                echo_value "$key" "$value"
-                echo "$(sed '$a'\\ "$file")" > "$file"
-                echo "$key = $value" >> "$file"
-            fi
-        fi
-    fi
-}
-
-# Catch all EMQX_ prefix environment variable and match it in configure file
-CONFIG_FILE="$_EMQX_HOME/etc/emqx.conf"
-CONFIG_PLUGINS="$_EMQX_HOME/etc/plugins"
-for VAR in $(compgen -e); do
-    # Config normal keys such like node.name = emqx@127.0.0.1
-    if echo "$VAR" | grep -q '^EMQX_'; then
-        VAR_NAME=$(echo "$VAR" | sed -e 's/^EMQX_//' -e 's/__/./g' | tr '[:upper:]' '[:lower:]' | tr -d '[:cntrl:]')
-        VAR_VALUE=$(echo "${!VAR}" | tr -d '[:cntrl:]')
-        # Config in emqx.conf
-        try_fill_config "$CONFIG_FILE" "$VAR_NAME" "$VAR_VALUE"
-        # Config in plugins/*
-        for CONFIG_PLUGINS_FILE in "$CONFIG_PLUGINS"/*; do
-            try_fill_config "$CONFIG_PLUGINS_FILE" "$VAR_NAME" "$VAR_VALUE"
-        done
-    fi
-done
-
 # fill tuples on specific file
 # SYNOPSIS
 #     fill_tuples FILE [ELEMENTS ...]
@@ -175,12 +98,12 @@ fill_tuples() {
     local elements=${*:2}
     for var in $elements; do
         if grep -qE "\{\s*$var\s*,\s*(true|false)\s*\}\s*\." "$file"; then
-            echo "$(sed -r "s/\{\s*($var)\s*,\s*(true|false)\s*\}\s*\./{\1, true}./1" "$file")" > "$file"
+            sed -r "s/\{\s*($var)\s*,\s*(true|false)\s*\}\s*\./{\1, true}./1" "$file" > tmpfile && mv tmpfile "$file"
         elif grep -q "$var\s*\." "$file"; then
             # backward compatible.
-            echo "$(sed -r "s/($var)\s*\./{\1, true}./1" "$file")" > "$file"
+            sed -r "s/($var)\s*\./{\1, true}./1" "$file" > tmpfile && cat tmpfile > "$file"
         else
-            echo "$(sed '$a'\\ "$file")" > "$file"
+            sed '$a'\\ "$file" > tmpfile && cat tmpfile > "$file"
             echo "{$var, true}." >> "$file"
         fi
     done

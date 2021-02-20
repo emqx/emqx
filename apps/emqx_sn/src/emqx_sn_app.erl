@@ -71,7 +71,7 @@ start_listener({Proto, ListenOn, Options}) ->
         {ok, _} -> io:format("Start mqttsn:~s listener on ~s successfully.~n",
                              [Proto, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to start mqttsn:~s listener on ~s - ~0p~n!",
+            io:format(standard_error, "Failed to start mqttsn:~s listener on ~s: ~0p~n",
                       [Proto, format(ListenOn), Reason]),
             error(Reason)
     end.
@@ -101,7 +101,7 @@ stop_listener({Proto, ListenOn, Opts}) ->
         ok -> io:format("Stop mqttsn:~s listener on ~s successfully.~n",
                         [Proto, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to stop mqttsn:~s listener on ~s - ~p~n.",
+            io:format(standard_error, "Failed to stop mqttsn:~s listener on ~s: ~0p~n",
                       [Proto, format(ListenOn), Reason])
     end,
     StopRet.

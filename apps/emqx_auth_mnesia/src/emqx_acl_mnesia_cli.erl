@@ -36,7 +36,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc Add Acls
--spec(add_acl(login() |all, emqx_topic:topic(), pub | sub| pubsub, allow | deny) ->
+-spec(add_acl(login() | all, emqx_topic:topic(), pub | sub | pubsub, allow | deny) ->
         ok | {error, any()}).
 add_acl(Login, Topic, Action, Access) ->
     Acls = #?TABLE{

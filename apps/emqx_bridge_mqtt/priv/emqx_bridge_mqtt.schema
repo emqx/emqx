@@ -90,7 +90,7 @@
 
 {mapping, "bridge.mqtt.$name.tls_versions", "emqx_bridge_mqtt.bridges", [
   {datatype, string},
-  {default, "tlsv1,tlsv1.1,tlsv1.2"}
+  {default, "tlsv1.3,tlsv1.2,tlsv1.1,tlsv1"}
 ]}.
 
 {mapping, "bridge.mqtt.$name.reconnect_interval", "emqx_bridge_mqtt.bridges", [
@@ -103,7 +103,7 @@
   {datatype, {duration, s}}
 ]}.
 
-{mapping, "bridge.mqtt.$name.max_inflight", "emqx_bridge_mqtt.bridges", [
+{mapping, "bridge.mqtt.$name.max_inflight_size", "emqx_bridge_mqtt.bridges", [
    {default, 0},
    {datatype, integer}
  ]}.
@@ -222,6 +222,8 @@
                        mqttv5 -> v5;
                        _ -> v4
                    end};
+            Tr(max_inflight_size, Size, Cfg) ->
+                Cfg#{max_inflight => Size};
             Tr(Key, Value, Cfg) ->
                 Cfg#{Key => Value}
          end,

@@ -81,7 +81,7 @@ get_mem_check_interval() ->
 
 set_mem_check_interval(Seconds) when Seconds < 60 ->
     memsup:set_check_interval(1);
-set_mem_check_interval(Seconds) -> 
+set_mem_check_interval(Seconds) ->
     memsup:set_check_interval(Seconds div 60).
 
 get_sysmem_high_watermark() ->
@@ -145,12 +145,12 @@ handle_info({timeout, Timer, check}, State = #{timer := Timer,
     case emqx_vm:cpu_util() of %% TODO: should be improved?
         0 ->
             State#{timer := undefined};
-        Busy when Busy / 100 >= CPUHighWatermark ->
+        Busy when Busy >= CPUHighWatermark ->
             emqx_alarm:activate(high_cpu_usage, #{usage => Busy,
                                                   high_watermark => CPUHighWatermark,
                                                   low_watermark => CPULowWatermark}),
             ensure_check_timer(State);
-        Busy when Busy / 100 =< CPULowWatermark ->
+        Busy when Busy =< CPULowWatermark ->
             emqx_alarm:deactivate(high_cpu_usage),
             ensure_check_timer(State);
         _Busy ->

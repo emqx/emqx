@@ -4,8 +4,9 @@
 
 set -e
 
-ROOT_DIR="$(cd $(dirname $(readlink $0 || echo $0))/..; pwd -P)"
-. $ROOT_DIR/releases/emqx_vars
+ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+# shellcheck disable=SC1090
+. "$ROOT_DIR"/releases/emqx_vars
 
 # Echo to stderr on errors
 echoerr() { echo "$@" 1>&2; }
@@ -18,7 +19,7 @@ fi
 
 relx_get_nodename() {
     id="longname$(relx_gen_id)-${NAME}"
-    "$BINDIR/erl" -boot start_clean -eval '[Host] = tl(string:tokens(atom_to_list(node()),"@")), io:format("~s~n", [Host]), halt()' -noshell ${NAME_TYPE} $id
+    "$BINDIR/erl" -boot start_clean -eval '[Host] = tl(string:tokens(atom_to_list(node()),"@")), io:format("~s~n", [Host]), halt()' -noshell "${NAME_TYPE}" "$id"
 }
 
 # Control a node
@@ -31,19 +32,16 @@ relx_nodetool() {
 }
 
 
-# Extract the target node name from node.args
 if [ -z "$NAME_ARG" ]; then
-    if [ ! -z "$EMQX_NODE_NAME" ]; then
-        NODENAME="$EMQX_NODE_NAME"
-    elif [ ! -z `ps -ef | grep "$ERTS_PATH/beam.smp" | grep -o -E '\-name (\S*)' | awk '{print $2}'` ]; then
-        NODENAME=`ps -ef | grep "$ERTS_PATH/beam.smp" | grep -o -E '\-name (\S*)' | awk '{print $2}'`
-    else
-        NODENAME=`egrep '^[ \t]*node.name[ \t]*=[ \t]*' $RUNNER_ETC_DIR/emqx.conf 2> /dev/null | tail -1 | cut -d = -f 2-`
-    fi
+    NODENAME="${EMQX_NODE_NAME:-}"
+    # check if there is a node running, inspect its name
+    # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
+    [ -z "$NODENAME" ] && NODENAME=$(ps -ef | grep -E '\progname\s.*emqx\s' | grep -o -E '\-name (\S*)' | awk '{print $2}')
+    [ -z "$NODENAME" ] && NODENAME=$(grep -E '^[ \t]*node.name[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-)
     if [ -z "$NODENAME" ]; then
         echoerr "vm.args needs to have a -name parameter."
         echoerr "  -sname is not supported."
-        echoerr "please check $RUNNER_ETC_DIR/emqx.conf"
+        echoerr "perhaps you do not have read permissions on $RUNNER_ETC_DIR/emqx.conf"
         exit 1
     else
         NAME_ARG="-name ${NODENAME# *}"
@@ -56,13 +54,11 @@ NAME="$(echo "$NAME_ARG" | awk '{print $2}')"
 
 # Extract the target cookie
 if [ -z "$COOKIE_ARG" ]; then
-    if [ ! -z "$EMQX_NODE_COOKIE" ]; then
-        COOKIE="$EMQX_NODE_COOKIE"
-    elif [ ! -z `ps -ef | grep "$ERTS_PATH/beam.smp" | grep -o -E '\-setcookie (\S*)' | awk '{print $2}'` ]; then
-        COOKIE=`ps -ef | grep "$ERTS_PATH/beam.smp" | grep -o -E '\-setcookie (\S*)' | awk '{print $2}'`
-    else
-        COOKIE=`egrep '^[ \t]*node.cookie[ \t]*=[ \t]*' $RUNNER_ETC_DIR/emqx.conf 2> /dev/null | tail -1 | cut -d = -f 2-`
-    fi
+    COOKIE="${EMQX_NODE_COOKIE:-}"
+    # check if there is a node running, steal its cookie
+    # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
+    [ -z "$COOKIE" ] && COOKIE=$(ps -ef | grep -E '\-progname\s.*emqx\s' | grep -o -E '\-setcookie (\S*)' | awk '{print $2}')
+    [ -z "$COOKIE" ] && COOKIE=$(grep -E '^[ \t]*node.cookie[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-)
     if [ -z "$COOKIE" ]; then
         echoerr "vm.args needs to have a -setcookie parameter."
         echoerr "please check $RUNNER_ETC_DIR/emqx.conf"
@@ -76,7 +72,7 @@ fi
 COOKIE="$(echo "$COOKIE_ARG" | awk '{print $2}')"
 
 # Support for IPv6 Dist. See: https://github.com/emqtt/emqttd/issues/1460
-PROTO_DIST=`egrep '^[ \t]*cluster.proto_dist[ \t]*=[ \t]*' $RUNNER_ETC_DIR/emqx.conf 2> /dev/null | tail -1 | cut -d = -f 2-`
+PROTO_DIST=$(grep -E '^[ \t]*cluster.proto_dist[ \t]*=[ \t]*' "$RUNNER_ETC_DIR"/emqx.conf 2> /dev/null | tail -1 | cut -d = -f 2-)
 if [ -z "$PROTO_DIST" ]; then
     PROTO_DIST_ARG=""
 else
