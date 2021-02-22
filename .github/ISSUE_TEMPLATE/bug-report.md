@@ -1,26 +1,27 @@
 ---
 name: Bug Report
-about: Create a report to help us improve
+about: Report a bug encountered while operating EMQ X
 title: ''
-labels: Support
+labels: BUG
 assignees: tigercl
 
 ---
 
-<!-- Please use this template while reporting a bug and provide as much info as possible. Thanks!-->
-<!-- 请使用英文描述问题 -->
+<!-- Please use this template while reporting a bug and provide as much info as possible so that we can support you more efficiently. Thanks!-->
 
-**Environment**:
+#### What happened:
+
+#### What you expected to happen:
+
+#### How to reproduce it (as minimally and precisely as possible):
+
+#### Anything else we need to know:
+
+#### Environment:
 
 - EMQ X version (e.g. `emqx_ctl status`): 
 - Hardware configuration (e.g. `lscpu`):
 - OS (e.g. `cat /etc/os-release`):
 - Kernel (e.g. `uname -a`):
-- Erlang/OTP version (in case you build emqx from source code): 
+- Erlang/OTP version (in case you build EMQ X from source code): 
 - Others:
-
-**What happened and what you expected to happen**:
-
-**How to reproduce it (as minimally and precisely as possible)**:
-
-**Anything else we need to know?**:
