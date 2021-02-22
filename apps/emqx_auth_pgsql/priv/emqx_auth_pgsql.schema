@@ -30,7 +30,7 @@
   {datatype, atom}
 ]}.
 
-{mapping, "auth.pgsql.ssl", "emqx_auth_pgsql.server", [
+{mapping, "auth.pgsql.ssl.enable", "emqx_auth_pgsql.server", [
   {default, off},
   {datatype, {enum, [on, off, true, false]}} %% FIXME: true/fasle is compatible with 4.0-4.2 version format, plan to delete in 5.0
 ]}.
@@ -98,8 +98,14 @@
             end,
 
   %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-  Ssl = case cuttlefish:conf_get("auth.pgsql.ssl", Conf) of
-          on -> [{ssl, true}, {ssl_opts, SslOpts("auth.pgsql.ssl")}];
+  GenSsl = case cuttlefish:conf_get("auth.pgsql.ssl.cacertfile", Conf, undefined) of
+               undefined -> [{ssl, true}, {ssl_opts, SslOpts("auth.pgsql.ssl_opts")}];
+               _ -> [{ssl, true}, {ssl_opts, SslOpts("auth.pgsql.ssl")}]
+           end,
+
+  %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
+  Ssl = case cuttlefish:conf_get("auth.pgsql.ssl.enable", Conf) of
+          on -> GenSsl;
           off -> [];
           true -> [{ssl, true}, {ssl_opts, SslOpts("auth.pgsql.ssl_opts")}];
           false -> []

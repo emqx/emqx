@@ -44,7 +44,7 @@ end}.
 %%--------------------------------------------------------------------
 %% Listeners
 
-{mapping, "exproto.listener.$proto", "emqx_exproto.listeners", [
+{mapping, "exproto.listener.$proto.endpoint", "emqx_exproto.listeners", [
   {datatype, string}
 ]}.
 
@@ -340,7 +340,7 @@ end}.
     Listeners = fun(Proto) ->
                     Prefix = string:join(["exproto","listener", Proto], "."),
                     Opts = HandlerOpts(Prefix) ++ ConnOpts(Prefix) ++ LisOpts(Prefix),
-                    case cuttlefish:conf_get(Prefix, Conf, undefined) of
+                    case cuttlefish:conf_get(Prefix ++ ".endpoint", Conf, undefined) of
                         undefined -> [];
                         ListenOn0 ->
                             case ParseListenOn(ListenOn0) of
@@ -359,6 +359,6 @@ end}.
                             end
                     end
                 end,
-    lists:flatten([Listeners(Proto) || {[_, "listener", Proto], ListenOn}
+    lists:flatten([Listeners(Proto) || {[_, "listener", Proto, "endpoint"], ListenOn}
                                    <- cuttlefish_variable:filter_by_prefix("exproto.listener", Conf)])
 end}.

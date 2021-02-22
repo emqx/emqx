@@ -49,7 +49,7 @@ auth.pgsql.encoding = utf8
 ## Whether to enable SSL connection.
 ##
 ## Value: true | false
-auth.pgsql.ssl = false
+auth.pgsql.ssl.enable = false
 
 ## SSL keyfile.
 ##

@@ -2479,7 +2479,7 @@ start_apps() ->
     [start_apps(App, SchemaFile, ConfigFile) ||
         {App, SchemaFile, ConfigFile}
             <- [{emqx, deps_path(emqx, "priv/emqx.schema"),
-                       deps_path(emqx, "etc/emqx.conf")},
+                       deps_path(emqx, "etc/emqx.conf.rendered")},
                 {emqx_rule_engine, local_path("priv/emqx_rule_engine.schema"),
                                    local_path("etc/emqx_rule_engine.conf")}]].
 
@@ -2491,7 +2491,7 @@ start_apps(App, SchemaFile, ConfigFile) ->
 read_schema_configs(App, SchemaFile, ConfigFile) ->
     ct:pal("Read configs - SchemaFile: ~p, ConfigFile: ~p", [SchemaFile, ConfigFile]),
     Schema = cuttlefish_schema:files([SchemaFile]),
-    Conf = conf_parse:file(ConfigFile),
+    {ok, Conf} = hocon:load(ConfigFile, #{format => proplists}),
     NewConfig = cuttlefish_generator:map(Schema, Conf),
     Vals = proplists:get_value(App, NewConfig, []),
     [application:set_env(App, Par, Value) || {Par, Value} <- Vals].
