@@ -16,6 +16,8 @@
 
 -define(APP, emqx_rule_engine).
 
+-define(KV_TAB, '@rule_engine_db').
+
 -type(maybe(T) :: T | undefined).
 
 -type(rule_id() :: binary()).

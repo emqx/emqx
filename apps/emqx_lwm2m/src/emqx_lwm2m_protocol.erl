@@ -115,15 +115,23 @@ post_init(Lwm2mState = #lwm2m_state{endpoint_name = _EndpointName,
     _ = send_to_broker(<<"register">>, #{<<"data">> => RegInfo}, Lwm2mState),
     Lwm2mState#lwm2m_state{mqtt_topic = Topic}.
 
-update_reg_info(NewRegInfo, Lwm2mState=#lwm2m_state{life_timer = LifeTimer, register_info = RegInfo,
-                                                    coap_pid = CoapPid}) ->
+update_reg_info(NewRegInfo, Lwm2mState = #lwm2m_state{
+        life_timer = LifeTimer, register_info = RegInfo,
+        coap_pid = CoapPid}) ->
+
     UpdatedRegInfo = maps:merge(RegInfo, NewRegInfo),
 
-    %% - report the registration info update, but only when objectList is updated.
-    case NewRegInfo of
-        #{<<"objectList">> := _} ->
+    case proplists:get_value(publish_update_when,
+            lwm2m_coap_responder:options(), object_list_changed) of
+        always ->
             send_to_broker(<<"update">>, #{<<"data">> => UpdatedRegInfo}, Lwm2mState);
-        _ -> ok
+        object_list_changed ->
+            %% - report the registration info update, but only when objectList is updated.
+            case NewRegInfo of
+                #{<<"objectList">> := _} ->
+                    send_to_broker(<<"update">>, #{<<"data">> => UpdatedRegInfo}, Lwm2mState);
+                _ -> ok
+            end
     end,
 
     %% - flush cached donwlink commands

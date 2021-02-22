@@ -69,7 +69,9 @@ groups() ->
        t_resource_types_cli
       ]},
      {funcs, [],
-      [t_topic_func]},
+      [t_topic_func,
+       t_kv_store
+      ]},
      {registry, [sequence],
       [t_add_get_remove_rule,
        t_add_get_remove_rules,
@@ -77,6 +79,7 @@ groups() ->
        t_update_rule,
        t_get_rules_for,
        t_get_rules_for_2,
+       t_get_rules_with_same_event,
        t_add_get_remove_action,
        t_add_get_remove_actions,
        t_remove_actions_of,
@@ -597,6 +600,14 @@ t_topic_func(_Config) ->
     %%TODO:
     ok.
 
+t_kv_store(_) ->
+    undefined = emqx_rule_funcs:kv_store_get(<<"abc">>),
+    <<"not_found">> = emqx_rule_funcs:kv_store_get(<<"abc">>, <<"not_found">>),
+    emqx_rule_funcs:kv_store_put(<<"abc">>, 1),
+    1 = emqx_rule_funcs:kv_store_get(<<"abc">>),
+    emqx_rule_funcs:kv_store_del(<<"abc">>),
+    undefined = emqx_rule_funcs:kv_store_get(<<"abc">>).
+
 %%------------------------------------------------------------------------------
 %% Test cases for rule registry
 %%------------------------------------------------------------------------------
@@ -702,6 +713,39 @@ t_get_rules_for_2(_Config) ->
              ]),
     ?assertEqual(Len0+4, length(emqx_rule_registry:get_rules_for(<<"simple/1">>))),
     ok = emqx_rule_registry:remove_rules([<<"rule-debug-1">>, <<"rule-debug-2">>,<<"rule-debug-3">>, <<"rule-debug-4">>,<<"rule-debug-5">>, <<"rule-debug-6">>]),
+    ok.
+
+t_get_rules_with_same_event(_Config) ->
+    PubT = <<"simple/1">>,
+    PubN = length(emqx_rule_registry:get_rules_with_same_event(PubT)),
+    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/client_connected">>)),
+    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/client_disconnected">>)),
+    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/session_subscribed">>)),
+    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/session_unsubscribed">>)),
+    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/message_delivered">>)),
+    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/message_acked">>)),
+    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/message_dropped">>)),
+    ok = emqx_rule_registry:add_rules(
+            [make_simple_rule(<<"r1">>, <<"select * from \"simple/#\"">>, [<<"simple/#">>]),
+             make_simple_rule(<<"r2">>, <<"select * from \"abc/+\"">>, [<<"abc/+">>]),
+             make_simple_rule(<<"r3">>, <<"select * from \"$events/client_connected\"">>, [<<"$events/client_connected">>]),
+             make_simple_rule(<<"r4">>, <<"select * from \"$events/client_disconnected\"">>, [<<"$events/client_disconnected">>]),
+             make_simple_rule(<<"r5">>, <<"select * from \"$events/session_subscribed\"">>, [<<"$events/session_subscribed">>]),
+             make_simple_rule(<<"r6">>, <<"select * from \"$events/session_unsubscribed\"">>, [<<"$events/session_unsubscribed">>]),
+             make_simple_rule(<<"r7">>, <<"select * from \"$events/message_delivered\"">>, [<<"$events/message_delivered">>]),
+             make_simple_rule(<<"r8">>, <<"select * from \"$events/message_acked\"">>, [<<"$events/message_acked">>]),
+             make_simple_rule(<<"r9">>, <<"select * from \"$events/message_dropped\"">>, [<<"$events/message_dropped">>]),
+             make_simple_rule(<<"r10">>, <<"select * from \"t/1, $events/session_subscribed, $events/client_connected\"">>, [<<"t/1">>, <<"$events/session_subscribed">>, <<"$events/client_connected">>])
+             ]),
+    ?assertEqual(PubN + 3, length(emqx_rule_registry:get_rules_with_same_event(PubT))),
+    ?assertEqual(2, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/client_connected">>))),
+    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/client_disconnected">>))),
+    ?assertEqual(2, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/session_subscribed">>))),
+    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/session_unsubscribed">>))),
+    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/message_delivered">>))),
+    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/message_acked">>))),
+    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/message_dropped">>))),
+    ok = emqx_rule_registry:remove_rules([<<"r1">>, <<"r2">>,<<"r3">>, <<"r4">>,<<"r5">>, <<"r6">>, <<"r7">>, <<"r8">>, <<"r9">>, <<"r10">>]),
     ok.
 
 t_add_get_remove_action(_Config) ->

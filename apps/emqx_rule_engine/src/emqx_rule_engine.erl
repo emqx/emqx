@@ -65,6 +65,8 @@
              , action_instance_params/0
              ]).
 
+-define(T_RETRY, 60000).
+
 %%------------------------------------------------------------------------------
 %% Load resource/action providers from all available applications
 %%------------------------------------------------------------------------------
@@ -217,7 +219,7 @@ delete_rule(RuleId) ->
             catch
                 Error:Reason:ST ->
                     ?LOG(error, "clear_rule ~p failed: ~p", [RuleId, {Error, Reason, ST}]),
-                    refresh_actions(Actions, fun(_) -> true end)
+                    refresh_actions(Actions)
             end;
         not_found ->
             ok
@@ -388,16 +390,8 @@ refresh_resource(Type) when is_atom(Type) ->
     lists:foreach(fun refresh_resource/1,
                   emqx_rule_registry:get_resources_by_type(Type));
 
-refresh_resource(#resource{id = ResId, config = Config, type = Type}) ->
-    {ok, #resource_type{on_create = {M, F}}} = emqx_rule_registry:find_resource_type(Type),
-        try cluster_call(init_resource, [M, F, ResId, Config])
-        catch Error:Reason:ST ->
-            logger:critical(
-                "Can not re-stablish resource ~p: ~0p. The resource is disconnected."
-                "Fix the issue and establish it manually.\n"
-                "Stacktrace: ~0p",
-                [ResId, {Error, Reason}, ST])
-        end.
+refresh_resource(#resource{id = ResId}) ->
+    emqx_rule_monitor:ensure_resource_retrier(ResId, ?T_RETRY).
 
 -spec(refresh_rules() -> ok).
 refresh_rules() ->
@@ -412,9 +406,10 @@ refresh_rules() ->
         end
     end, emqx_rule_registry:get_rules()).
 
-refresh_rule(#rule{id = RuleId, actions = Actions}) ->
+refresh_rule(#rule{id = RuleId, for = Topics, actions = Actions}) ->
     ok = emqx_rule_metrics:create_rule_metrics(RuleId),
-    refresh_actions(Actions, fun(_) -> true end).
+    lists:foreach(fun emqx_rule_events:load/1, Topics),
+    refresh_actions(Actions).
 
 -spec(refresh_resource_status() -> ok).
 refresh_resource_status() ->
@@ -529,10 +524,7 @@ cluster_call(Func, Args) ->
    end.
 
 init_resource(Module, OnCreate, ResId, Config) ->
-    Params = ?RAISE(
-        begin
-            Module:OnCreate(ResId, Config)
-        end,
+    Params = ?RAISE(Module:OnCreate(ResId, Config),
         {{Module, OnCreate}, {_EXCLASS_, _EXCPTION_, _ST_}}),
     ResParams = #resource_params{id = ResId,
                                  params = Params,
