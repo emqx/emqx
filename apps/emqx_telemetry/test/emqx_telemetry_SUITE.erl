@@ -46,6 +46,20 @@ t_uuid(_) ->
     {ok, UUID3} = emqx_telemetry:get_uuid(),
     ?assertEqual(UUID2, UUID3).
 
+t_official_version(_) ->
+    true = emqx_telemetry:official_version("0.0.0"),
+    true = emqx_telemetry:official_version("1.1.1"),
+    true = emqx_telemetry:official_version("10.10.10"),
+    false = emqx_telemetry:official_version("0.0.0.0"),
+    false = emqx_telemetry:official_version("1.1.a"),
+    true = emqx_telemetry:official_version("0.0-alpha.1"),
+    true = emqx_telemetry:official_version("1.1-alpha.1"),
+    true = emqx_telemetry:official_version("10.10-alpha.10"),
+    false = emqx_telemetry:official_version("1.1-alpha.0"),
+    true = emqx_telemetry:official_version("1.1-beta.1"),
+    true = emqx_telemetry:official_version("1.1-rc.1"),
+    false = emqx_telemetry:official_version("1.1-alpha.a").
+
 t_get_telemetry(_) ->
     {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
     OTPVersion = bin(erlang:system_info(otp_release)),

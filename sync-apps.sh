@@ -25,7 +25,7 @@ apps=(
 "emqx_psk_file"
 "emqx_recon"
 "emqx_retainer"
-# "emqx_rule_engine" # moved to lib-ce
+"emqx_rule_engine"
 "emqx_sasl"
 "emqx_sn"
 "emqx_stomp"
