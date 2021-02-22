@@ -24,8 +24,6 @@
 
 -export([stop/1]).
 
--define(APP, emqx_rule_engine).
-
 start(_Type, _Args) ->
     {ok, Sup} = emqx_rule_engine_sup:start_link(),
     _ = emqx_rule_engine_sup:start_locker(),
@@ -33,13 +31,8 @@ start(_Type, _Args) ->
     ok = emqx_rule_engine:refresh_resources(),
     ok = emqx_rule_engine:refresh_rules(),
     ok = emqx_rule_engine_cli:load(),
-    ok = emqx_rule_events:load(env()),
     {ok, Sup}.
 
 stop(_State) ->
-    ok = emqx_rule_events:unload(env()),
+    ok = emqx_rule_events:unload(),
     ok = emqx_rule_engine_cli:unload().
-
-env() ->
-    application:get_all_env(?APP)
-    .
