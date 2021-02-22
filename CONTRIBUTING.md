@@ -29,11 +29,14 @@ Example 1:
 
 ```
 feat: add Fuji release compose files
+```
+
+```
 fix(script): correct run script to use the right ports
 
-Previously device services used wrong port numbers. This commit fixes the port numbers to use the latest port numbers .
+Previously device services used wrong port numbers. This commit fixes the port numbers to use the latest port numbers.
 
-Closes: #123
+Closes: #123, #245, #992
 ```
 
 ### Revert
@@ -77,5 +80,3 @@ Just as in the **subject**, use the imperative, present tense: "change" not "cha
 The footer should contain any information about **Breaking Changes** and is also the place to reference GitHub issues that this commit **Closes**.
 
 **Breaking Changes** should start with the word `BREAKING CHANGE:` with a space or two newlines. The rest of the commit message is then used for this.
-
-<details class="details-reset details-overlay details-overlay-dark" id="jumpto-line-details-dialog" style="box-sizing: border-box; display: block;"><summary data-hotkey="l" aria-label="Jump to line" role="button" style="box-sizing: border-box; display: list-item; cursor: pointer; list-style: none;"></summary></details>
