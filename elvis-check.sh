@@ -18,7 +18,7 @@ fi
 git fetch origin "$base"
 
 git_diff() {
-    git diff --name-only origin/"$base"...HEAD
+    git diff --name-only --diff-filter=ACMRTUXB origin/"$base"...HEAD
 }
 
 bad_file_count=0
