@@ -7,7 +7,7 @@ assignees: tigercl
 
 ---
 
-<!-- Please use this template while reporting a bug and provide as much info 
+<!-- Please use this template while reporting a bug and provide as much info
 as possible so that we can support you more efficiently. Thanks!-->
 
 #### What happened:
@@ -16,13 +16,13 @@ as possible so that we can support you more efficiently. Thanks!-->
 
 #### How to reproduce it (as minimally and precisely as possible):
 
-#### Anything else we need to know:
+#### More information to help understand/troubleshoot:
 
 #### Environment:
 
-- EMQ X version (e.g. `emqx_ctl status`): 
+- EMQ X version (e.g. `emqx_ctl status`):
 - Hardware configuration (e.g. `lscpu`):
 - OS (e.g. `cat /etc/os-release`):
 - Kernel (e.g. `uname -a`):
-- Erlang/OTP version (in case you build EMQ X from source code): 
+- Erlang/OTP version (in case you build EMQ X from source code):
 - Others:
