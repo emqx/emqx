@@ -33,7 +33,7 @@ else
 fi
 
 git_diff() {
-    git diff --name-only "$compare_base"...HEAD
+    git diff --name-only --diff-filter=ACMRTUXB "$compare_base"...HEAD
 }
 
 bad_file_count=0
