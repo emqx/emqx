@@ -157,7 +157,12 @@ init([Opts]) ->
                  [#telemetry{uuid = UUID, enabled = Enabled} | _] ->
                      State#state{enabled = Enabled, uuid = UUID}
              end,
-    {ok, ensure_report_timer(NState), {continue, first_report}}.
+    case official_version(emqx_version()) of
+        true ->
+            {ok, ensure_report_timer(NState), {continue, first_report}};
+        false ->
+            {ok, NState#state{enabled = false}}
+    end. 
 
 handle_call(enable, _From, State = #state{uuid = UUID}) ->
     mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
@@ -216,6 +221,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+official_version(Version) ->
+    case re:run(Version,
+                "^\\d+\\.\\d+(?:(-(?:alpha|beta|rc)\\.[1-9][0-9]*)|\\.\\d+)$",
+                [{capture, none}]) of
+        match -> true;
+        nomatch -> false
+    end.
 
 ensure_report_timer(State = #state{report_interval = ReportInterval}) ->
     State#state{timer = emqx_misc:start_timer(ReportInterval, time_to_report_telemetry_data)}.

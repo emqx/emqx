@@ -708,8 +708,8 @@ t_disable_rule(_Config) ->
                 description = #{en => <<"Simple Action">>}}),
     {ok, #rule{actions = [#action_instance{id = ActInsId0}]}} = emqx_rule_engine:create_rule(
         #{id => <<"simple_rule_2">>,
-        rawsql => <<"select * from \"t/#\"">>,
-        actions => [#{name => 'simpile_action_2', args => #{}}]
+          rawsql => <<"select * from \"t/#\"">>,
+          actions => [#{name => 'simpile_action_2', args => #{}}]
         }),
     [{_, CAt}] = ets:lookup(simpile_action_2, created),
     ?assert(CAt > Now),
