@@ -195,4 +195,3 @@ feedvar(max_inflight, 0, _) ->
 
 feedvar(max_inflight, Size, _) ->
     Size.
-

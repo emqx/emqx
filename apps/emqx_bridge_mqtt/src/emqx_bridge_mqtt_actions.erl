@@ -185,18 +185,16 @@
         },
         ssl => #{
             order => 14,
-            type => string,
-            required => false,
-            default => <<"off">>,
-            enum => [<<"on">>, <<"off">>],
-            title => #{en => <<"Bridge SSL">>,
-                       zh => <<"Bridge SSL"/utf8>>},
-            description => #{en => <<"Switch which used to enable ssl connection of the bridge">>,
-                             zh => <<"是否启用 Bridge SSL 连接"/utf8>>}
+            type => boolean,
+            default => false,
+            title => #{en => <<"Enable SSL">>,
+                       zh => <<"开启SSL链接"/utf8>>},
+            description => #{en => <<"Enable SSL or not">>,
+                             zh => <<"是否开启 SSL"/utf8>>}
         },
         cacertfile => #{
             order => 15,
-            type => string,
+            type => file,
             required => false,
             default => <<"etc/certs/cacert.pem">>,
             title => #{en => <<"CA certificates">>,
@@ -206,7 +204,7 @@
         },
         certfile => #{
             order => 16,
-            type => string,
+            type => file,
             required => false,
             default => <<"etc/certs/client-cert.pem">>,
             title => #{en => <<"SSL Certfile">>,
@@ -216,7 +214,7 @@
         },
         keyfile => #{
             order => 17,
-            type => string,
+            type => file,
             required => false,
             default => <<"etc/certs/client-key.pem">>,
             title => #{en => <<"SSL Keyfile">>,
@@ -245,7 +243,6 @@
                              zh => <<"SSL 加密算法"/utf8>>}
         }
     }).
-
 
 -define(RESOURCE_CONFIG_SPEC_MQTT_SUB, #{
         address => #{
@@ -424,7 +421,6 @@
         }
     }).
 
-
 -define(RESOURCE_CONFIG_SPEC_RPC, #{
         address => #{
             order => 1,
@@ -573,7 +569,7 @@ on_resource_create(ResId, Params) ->
     ?LOG(info, "Initiating Resource ~p, ResId: ~p", [?RESOURCE_TYPE_MQTT, ResId]),
     {ok, _} = application:ensure_all_started(ecpool),
     PoolName = pool_name(ResId),
-    Options = options(Params, PoolName),
+    Options = options(Params, PoolName, ResId),
     start_resource(ResId, PoolName, Options),
     case test_resource_status(PoolName) of
         true -> ok;
@@ -719,7 +715,7 @@ name(Pool, Id) ->
 pool_name(ResId) ->
     list_to_atom("bridge_mqtt:" ++ str(ResId)).
 
-options(Options, PoolName) ->
+options(Options, PoolName, ResId) ->
     GetD = fun(Key, Default) -> maps:get(Key, Options, Default) end,
     Get = fun(Key) -> GetD(Key, undefined) end,
     Address = Get(<<"address">>),
@@ -757,15 +753,12 @@ options(Options, PoolName) ->
                   {proto_ver, mqtt_ver(Get(<<"proto_ver">>))},
                   {retry_interval, cuttlefish_duration:parse(str(GetD(<<"retry_interval">>, "30s")), s)},
                   {ssl, cuttlefish_flag:parse(str(Get(<<"ssl">>)))},
-                  {ssl_opts, [ {keyfile, str(Get(<<"keyfile">>))}
-                             , {certfile, str(Get(<<"certfile">>))}
-                             , {cacertfile, str(Get(<<"cacertfile">>))}
-                             , {versions, TlsVersions}
+                  {ssl_opts, [ {versions, TlsVersions}
                              , {ciphers, emqx_tls_lib:integral_ciphers(TlsVersions, Get(<<"ciphers">>))}
+                             | get_ssl_opts(Options, ResId)
                              ]}
                  ] ++ Subscriptions1
          end.
-
 
 mqtt_ver(ProtoVer) ->
     case ProtoVer of
@@ -779,3 +772,43 @@ format_subscriptions(SubOpts) ->
     lists:map(fun(Sub) ->
         {maps:get(<<"topic">>, Sub), maps:get(<<"qos">>, Sub)}
     end, SubOpts).
+
+get_ssl_opts(Opts, ResId) ->
+    KeyFile = maps:get(<<"keyfile">>, Opts, undefined),
+    CertFile = maps:get(<<"certfile">>, Opts, undefined),
+    CAFile = case maps:get(<<"cacertfile">>, Opts, undefined) of
+        undefined -> maps:get(<<"cafile">>, Opts, undefined);
+        CAFile0 -> CAFile0
+    end,
+    Filter = fun(Opts1) ->
+                     [{K, V} || {K, V} <- Opts1,
+                                    V =/= undefined,
+                                    V =/= <<>>,
+                                    V =/= "" ]
+             end,
+    Key = save_upload_file(KeyFile, ResId),
+    Cert = save_upload_file(CertFile, ResId),
+    CA = save_upload_file(CAFile, ResId),
+    Verify = case maps:get(<<"verify">>, Opts, false) of
+        false -> verify_none;
+        true -> verify_peer
+    end,
+    case Filter([{keyfile, Key}, {certfile, Cert}, {cacertfile, CA}]) of
+        [] -> [{verify, Verify}];
+        SslOpts ->
+            [{verify, Verify} | SslOpts]
+    end.
+
+save_upload_file(#{<<"file">> := <<>>, <<"filename">> := <<>>}, _ResId) -> "";
+save_upload_file(FilePath, _) when is_binary(FilePath) -> binary_to_list(FilePath);
+save_upload_file(#{<<"file">> := File, <<"filename">> := FileName}, ResId) ->
+     FullFilename = filename:join([emqx:get_env(data_dir), rules, ResId, FileName]),
+     ok = filelib:ensure_dir(FullFilename),
+     case file:write_file(FullFilename, File) of
+          ok ->
+               binary_to_list(FullFilename);
+          {error, Reason} ->
+               logger:error("Store file failed, ResId: ~p, ~0p", [ResId, Reason]),
+               error({ResId, store_file_fail})
+     end;
+save_upload_file(_, _) -> "".
