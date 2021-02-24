@@ -109,14 +109,14 @@ load_hooks() ->
             {ok, _} = ehttpc_sup:start_pool(PoolName, PoolOpts),
             case application:get_env(?APP, super_req) of
                 undefined ->
-                    emqx:hook('client.authenticate', {emqx_auth_http, check, [#{auth => maps:from_list(AuthReq),
-                                                                                super => undefined}]});
+                    emqx_hooks:put('client.authenticate', {emqx_auth_http, check, [#{auth => maps:from_list(AuthReq),
+                                                                                     super => undefined}]});
                 {ok, SuperReq} ->
                     PoolOpts1 = proplists:get_value(pool_opts, SuperReq),
                     PoolName1 = proplists:get_value(pool_name, SuperReq),
                     {ok, _} = ehttpc_sup:start_pool(PoolName1, PoolOpts1),
-                    emqx:hook('client.authenticate', {emqx_auth_http, check, [#{auth => maps:from_list(AuthReq),
-                                                                                super => maps:from_list(SuperReq)}]})
+                    emqx_hooks:put('client.authenticate', {emqx_auth_http, check, [#{auth => maps:from_list(AuthReq),
+                                                                                     super => maps:from_list(SuperReq)}]})
             end
     end,
     case application:get_env(?APP, acl_req) of
@@ -126,7 +126,7 @@ load_hooks() ->
             PoolOpts2 = proplists:get_value(pool_opts, ACLReq),
             PoolName2 = proplists:get_value(pool_name, ACLReq),
             {ok, _} = ehttpc_sup:start_pool(PoolName2, PoolOpts2),
-            emqx:hook('client.check_acl', {emqx_acl_http, check_acl, [#{acl => maps:from_list(ACLReq)}]})
+            emqx_hooks:put('client.check_acl', {emqx_acl_http, check_acl, [#{acl => maps:from_list(ACLReq)}]})
     end,
     ok.
 
