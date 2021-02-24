@@ -273,6 +273,7 @@ run_loop(Parent, State = #state{socket   = Socket,
             exit_on_sock_error(Reason)
     end.
 
+-spec exit_on_sock_error(atom()) -> no_return().
 exit_on_sock_error(Reason) when Reason =:= einval;
                                 Reason =:= enotconn;
                                 Reason =:= closed ->
@@ -449,6 +450,7 @@ handle_msg(Msg, State) ->
 %%--------------------------------------------------------------------
 %% Terminate
 
+-spec terminate(atom(), state()) -> no_return().
 terminate(Reason, State = #state{channel = Channel}) ->
     ?LOG(debug, "Terminated due to ~p", [Reason]),
     _ = emqx_exproto_channel:terminate(Reason, Channel),
