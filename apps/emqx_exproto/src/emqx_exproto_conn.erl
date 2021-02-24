@@ -264,7 +264,7 @@ init_state(WrappedSock, Peername, Options) ->
 run_loop(Parent, State = #state{socket   = Socket,
                                 peername = Peername}) ->
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
-    emqx_misc:tune_heap_size(?DEFAULT_OOM_POLICY),
+    _ = emqx_misc:tune_heap_size(?DEFAULT_OOM_POLICY),
     case activate_socket(State) of
         {ok, NState} ->
             hibernate(Parent, NState);
