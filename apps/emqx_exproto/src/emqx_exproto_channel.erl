@@ -565,15 +565,14 @@ enrich_clientinfo(InClientInfo = #{proto_name := ProtoName}, ClientInfo) ->
     NClientInfo#{protocol => ProtoName}.
 
 default_conninfo(ConnInfo) ->
-    ConnInfo#{proto_name => undefined,
-              proto_ver => undefined,
-              clean_start => true,
+    ConnInfo#{clean_start => true,
               clientid => undefined,
               username => undefined,
-              conn_props => [],
+              conn_mod => undefined,
+              conn_props => #{},
               connected => true,
               connected_at => erlang:system_time(millisecond),
-              keepalive => undefined,
+              keepalive => 0,
               receive_maximum => 0,
               expiry_interval => 0}.
 
