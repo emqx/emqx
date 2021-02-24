@@ -17,95 +17,111 @@
 %% Define the default actions.
 -module(emqx_web_hook_actions).
 
+-export([ on_resource_create/2
+        , on_get_resource_status/2
+        , on_resource_destroy/2
+        ]).
+
+-export([ on_action_create_data_to_webserver/2
+        , on_action_data_to_webserver/2
+        ]).
+
+-export_type([action_fun/0]).
+
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_rule_engine/include/rule_actions.hrl").
--include("emqx_web_hook.hrl").
+
+-type(action_fun() :: fun((Data :: map(), Envs :: map()) -> Result :: any())).
+
+-type(url() :: binary()).
 
 -define(RESOURCE_TYPE_WEBHOOK, 'web_hook').
 -define(RESOURCE_CONFIG_SPEC, #{
-            url => #{
-                order => 1,
+    method => #{order => 1,
                 type => string,
-                format => url,
-                required => true,
-                title => #{en => <<"URL">>,
-                           zh => <<"URL"/utf8>>},
-                description => #{en => <<"The URL of the server that will receive the Webhook requests.">>,
-                                 zh => <<"用于接收 Webhook 请求的服务器的 URL。"/utf8>>}
-            },
-            connect_timeout => #{
-                order => 2,
-                type => number,
-                default => 5,
-                title => #{en => <<"Connect Timeout">>,
-                           zh => <<"连接超时时间"/utf8>>},
-                description => #{en => <<"Connect timeout in seconds">>,
-                                 zh => <<"连接超时时间，单位秒"/utf8>>}},
-            request_timeout => #{
-                order => 3,
-                type => number,
-                default => 5,
-                title => #{en => <<"Request Timeout">>,
-                           zh => <<"请求超时时间时间"/utf8>>},
-                description => #{en => <<"Request timeout in seconds">>,
-                                 zh => <<"请求超时时间，单位秒"/utf8>>}},
-            cacertfile => #{
-                order => 4,
-                type => file,
-                default => <<>>,
-                title => #{en => <<"CA Certificate File">>,
-                           zh => <<"CA 证书文件"/utf8>>},
-                description => #{en => <<"CA certificate file.">>,
-                                 zh => <<"CA 证书文件。"/utf8>>}
-            },
-            certfile => #{
-                order => 5,
-                type => file,
-                default => <<>>,
-                title => #{en => <<"Certificate File">>,
-                           zh => <<"证书文件"/utf8>>},
-                description => #{en => <<"Certificate file.">>,
-                                 zh => <<"证书文件。"/utf8>>}
-            },
-            keyfile => #{
-                order => 6,
-                type => file,
-                default => <<>>,
-                title => #{en => <<"Private Key File">>,
-                           zh => <<"私钥文件"/utf8>>},
-                description => #{en => <<"Private key file.">>,
-                                 zh => <<"私钥文件。"/utf8>>}
-            },
-            verify => #{
-                order => 7,
+                enum => [<<"PUT">>,<<"POST">>],
+                default => <<"POST">>,
+                title => #{en => <<"Request Method">>,
+                           zh => <<"请求方法"/utf8>>},
+                description => #{en => <<"Request Method">>,
+                                 zh => <<"请求方法"/utf8>>}},
+    url => #{order => 2,
+             type => string,
+             format => url,
+             required => true,
+             title => #{en => <<"Request URL">>,
+                        zh => <<"请求 URL"/utf8>>},
+             description => #{en => <<"The URL of the server that will receive the Webhook requests.">>,
+                              zh => <<"用于接收 Webhook 请求的服务器的 URL。"/utf8>>}},
+    headers => #{order => 3,
+                 type => object,
+                 schema => #{},
+                 default => #{},
+                 title => #{en => <<"Request Header">>,
+                            zh => <<"请求头"/utf8>>},
+                 description => #{en => <<"Request Header">>,
+                                  zh => <<"请求头"/utf8>>}},
+    connect_timeout => #{order => 4,
+                         type => string,
+                         default => <<"5s">>,
+                         title => #{en => <<"Connect Timeout">>,
+                                    zh => <<"连接超时时间"/utf8>>},
+                         description => #{en => <<"Connect Timeout In Seconds">>,
+                                          zh => <<"连接超时时间"/utf8>>}},
+    request_timeout => #{order => 5,
+                         type => string,
+                         default => <<"5s">>,
+                         title => #{en => <<"Request Timeout">>,
+                                    zh => <<"请求超时时间时间"/utf8>>},
+                         description => #{en => <<"Request Timeout In Seconds">>,
+                                          zh => <<"请求超时时间"/utf8>>}},
+    pool_size => #{order => 6,
+                   type => number,
+                   default => 8,
+                   title => #{en => <<"Pool Size">>, zh => <<"连接池大小"/utf8>>},
+                   description => #{en => <<"Connection Pool">>,
+                                    zh => <<"连接池大小"/utf8>>}
+                },
+    cacertfile => #{order => 7,
+                    type => file,
+                    default => <<"">>,
+                    title => #{en => <<"CA Certificate File">>,
+                               zh => <<"CA 证书文件"/utf8>>},
+                    description => #{en => <<"CA Certificate file">>,
+                                     zh => <<"CA 证书文件"/utf8>>}},
+    keyfile => #{order => 8,
+                 type => file,
+                 default => <<"">>,
+                 title =>#{en => <<"SSL Key">>,
+                           zh => <<"SSL Key"/utf8>>},
+                 description => #{en => <<"Your ssl keyfile">>,
+                                  zh => <<"SSL 私钥"/utf8>>}},
+    certfile => #{order => 9,
+                  type => file,
+                  default => <<"">>,
+                  title =>#{en => <<"SSL Cert">>,
+                            zh => <<"SSL Cert"/utf8>>},
+                  description => #{en => <<"Your ssl certfile">>,
+                                   zh => <<"SSL 证书"/utf8>>}},
+    verify => #{order => 10,
                 type => boolean,
                 default => false,
-                title => #{en => <<"Verify">>,
-                           zh => <<"Verify"/utf8>>},
-                description => #{en => <<"Turn on peer certificate verification.">>,
-                                 zh => <<"是否开启对端证书验证。"/utf8>>}
-            },
-            pool_size => #{
-                order => 8,
-                type => number,
-                default => 32,
-                title => #{en => <<"Pool Size">>,
-                           zh => <<"连接池大小"/utf8>>},
-                description => #{en => <<"Pool size for HTTP server.">>,
-                                 zh => <<"HTTP server 连接池大小。"/utf8>>}
-            }
-        }).
+                title =>#{en => <<"Verify Server Certfile">>,
+                          zh => <<"校验服务器证书"/utf8>>},
+                description => #{en => <<"Whether to verify the server certificate. By default, the client will not verify the server's certificate. If verification is required, please set it to true.">>,
+                                 zh => <<"是否校验服务器证书。 默认客户端不会去校验服务器的证书，如果需要校验，请设置成true。"/utf8>>}}
+}).
 
 -define(ACTION_PARAM_RESOURCE, #{
-            order => 0,
-            type => string,
-            required => true,
-            title => #{en => <<"Resource ID">>,
-                       zh => <<"资源 ID"/utf8>>},
-            description => #{en => <<"Bind a resource to this action.">>,
-                             zh => <<"给动作绑定一个资源。"/utf8>>}
-        }).
+    order => 0,
+    type => string,
+    required => true,
+    title => #{en => <<"Resource ID">>,
+               zh => <<"资源 ID"/utf8>>},
+    description => #{en => <<"Bind a resource to this action">>,
+                     zh => <<"给动作绑定一个资源"/utf8>>}
+}).
 
 -define(ACTION_DATA_SPEC, #{
             '$resource' => ?ACTION_PARAM_RESOURCE,
@@ -153,39 +169,29 @@
                                          "默认 HTTP 请求体的内容为规则输出的所有字段的键和值构成的 JSON 字符串。"/utf8>>}}
             }).
 
--resource_type(#{name => ?RESOURCE_TYPE_WEBHOOK,
-                 create => on_resource_create,
-                 status => on_get_resource_status,
-                 destroy => on_resource_destroy,
-                 params => ?RESOURCE_CONFIG_SPEC,
-                 title => #{en => <<"WebHook">>,
-                            zh => <<"WebHook"/utf8>>},
-                 description => #{en => <<"WebHook">>,
-                                  zh => <<"WebHook"/utf8>>}
-                }).
+-resource_type(
+    #{name => ?RESOURCE_TYPE_WEBHOOK,
+      create => on_resource_create,
+      status => on_get_resource_status,
+      destroy => on_resource_destroy,
+      params => ?RESOURCE_CONFIG_SPEC,
+      title => #{en => <<"WebHook">>,
+                 zh => <<"WebHook"/utf8>>},
+      description => #{en => <<"WebHook">>,
+                       zh => <<"WebHook"/utf8>>}
+}).
 
 -rule_action(#{name => data_to_webserver,
-               category => data_forward,
-               for => '$any',
-               create => on_action_create_data_to_webserver,
-               params => ?ACTION_DATA_SPEC,
-               types => [?RESOURCE_TYPE_WEBHOOK],
-               title => #{en => <<"Data to Web Server">>,
-                          zh => <<"发送数据到 Web 服务"/utf8>>},
-               description => #{en => <<"Forward Messages to Web Server">>,
-                                zh => <<"将数据转发给 Web 服务"/utf8>>}
-              }).
-
--type(url() :: binary()).
-
--export([ on_resource_create/2
-        , on_get_resource_status/2
-        , on_resource_destroy/2
-        ]).
-
--export([ on_action_create_data_to_webserver/2
-        , on_action_data_to_webserver/2
-        ]).
+    category => data_forward,
+    for => '$any',
+    create => on_action_create_data_to_webserver,
+    params => ?ACTION_DATA_SPEC,
+    types => [?RESOURCE_TYPE_WEBHOOK],
+    title => #{en => <<"Data to Web Server">>,
+               zh => <<"发送数据到 Web 服务"/utf8>>},
+    description => #{en => <<"Forward Messages to Web Server">>,
+                     zh => <<"将数据转发给 Web 服务"/utf8>>}
+}).
 
 %%------------------------------------------------------------------------------
 %% Actions for web hook
@@ -194,7 +200,7 @@
 -spec(on_resource_create(binary(), map()) -> map()).
 on_resource_create(ResId, Conf) ->
     {ok, _} = application:ensure_all_started(ehttpc),
-    Options = pool_opts(Conf),
+    Options = pool_opts(Conf, ResId),
     PoolName = pool_name(ResId),
     case test_http_connect(Conf) of
         true -> ok;
@@ -299,7 +305,7 @@ parse_action_params(Params = #{<<"url">> := URL}) ->
           path => path(filename:join(CommonPath, maps:get(<<"path">>, Params, <<>>))),
           headers => NHeaders,
           body => maps:get(<<"body">>, Params, <<>>),
-          request_timeout => timer:seconds(maps:get(<<"request_timeout">>, Params, 5)),
+          request_timeout => cuttlefish_duration:parse(str(maps:get(<<"request_timeout">>, Params, <<"5s">>))),
           pool => maps:get(<<"pool">>, Params)}
     catch _:_ ->
         throw({invalid_params, Params})
@@ -328,49 +334,76 @@ str(Str) when is_list(Str) -> Str;
 str(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 str(Bin) when is_binary(Bin) -> binary_to_list(Bin).
 
-pool_opts(Params = #{<<"url">> := URL}) ->
-    #{host := Host0,
-      scheme := Scheme} = URIMap = uri_string:parse(binary_to_list(URL)),
+add_default_scheme(<<"http://", _/binary>> = URL) ->
+    URL;
+add_default_scheme(<<"https://", _/binary>> = URL) ->
+    URL;
+add_default_scheme(URL) ->
+    <<"http://", URL/binary>>.
+
+pool_opts(Params = #{<<"url">> := URL}, ResId) ->
+    #{host := Host0, scheme := Scheme} = URIMap = uri_string:parse(binary_to_list(add_default_scheme(URL))),
     Port = maps:get(port, URIMap, case Scheme of
                                       "https" -> 443;
                                       _ -> 80
                                   end),
     PoolSize = maps:get(<<"pool_size">>, Params, 32),
-    ConnectTimeout = timer:seconds(maps:get(<<"connect_timeout">>, Params, 5)),
+    ConnectTimeout = cuttlefish_duration:parse(str(maps:get(<<"connect_timeout">>, Params, <<"5s">>))),
     {Inet, Host} = parse_host(Host0),
-    MoreOpts = case Scheme of
-                   "http" ->
-                       [{transport_opts, [Inet]}];
-                   "https" ->
-                       KeyFile = maps:get(<<"keyfile">>, Params),
-                       CertFile = maps:get(<<"certfile">>, Params),
-                       CACertFile = maps:get(<<"cacertfile">>, Params),
-                       VerifyType = case maps:get(<<"verify">>, Params) of
-                                        true -> verify_peer;
-                                        false -> verify_none
-                                    end,
-                       TLSOpts = lists:filter(fun({_K, V}) when V =:= <<>> ->
-                                                  false;
-                                                 (_) ->
-                                                  true
-                                              end, [{keyfile, KeyFile}, {certfile, CertFile}, {cacertfile, CACertFile}]),
-                       NTLSOpts = [ {verify, VerifyType}
-                                  , {versions, emqx_tls_lib:default_versions()}
-                                  , {ciphers, emqx_tls_lib:default_ciphers()}
-                                  | TLSOpts
-                                  ],
-                       [{transport, ssl}, {transport_opts, [Inet | NTLSOpts]}]
-              end,
+    SslOpts = get_ssl_options(Params, ResId, add_default_scheme(URL)),
     [{host, Host},
      {port, Port},
      {pool_size, PoolSize},
      {pool_type, hash},
      {connect_timeout, ConnectTimeout},
      {retry, 5},
-     {retry_timeout, 1000}] ++ MoreOpts.
+     {retry_timeout, 1000},
+     {transport_opts, [Inet] ++ SslOpts}].
 
 pool_name(ResId) ->
     list_to_atom("webhook:" ++ str(ResId)).
+
+get_ssl_options(Config, ResId, <<"https://", _URL/binary>>) ->
+    [{transport, ssl}, {transport_opts, get_ssl_opts(Config, ResId)}];
+get_ssl_options(_Config, _ResId, _URL) ->
+    [].
+
+get_ssl_opts(Opts, ResId) ->
+    KeyFile = maps:get(<<"keyfile">>, Opts, undefined),
+    CertFile = maps:get(<<"certfile">>, Opts, undefined),
+    CAFile = maps:get(<<"cacertfile">>, Opts, undefined),
+    Filter = fun(Opts1) ->
+                     [{K, V} || {K, V} <- Opts1,
+                                    V =/= undefined,
+                                    V =/= <<>>,
+                                    V =/= "" ]
+             end,
+    Key = save_upload_file(KeyFile, ResId),
+    Cert = save_upload_file(CertFile, ResId),
+    CA = save_upload_file(CAFile, ResId),
+    Verify = case maps:get(<<"verify">>, Opts, false) of
+        false -> verify_none;
+        true -> verify_peer
+    end,
+    case Filter([{keyfile, Key}, {certfile, Cert}, {cacertfile, CA}]) of
+        [] -> [{verify, Verify}];
+        SslOpts ->
+            [{verify, Verify} | SslOpts]
+    end.
+
+save_upload_file(#{<<"file">> := <<>>, <<"filename">> := <<>>}, _ResId) -> "";
+save_upload_file(FilePath, _) when is_binary(FilePath) -> binary_to_list(FilePath);
+save_upload_file(#{<<"file">> := File, <<"filename">> := FileName}, ResId) ->
+     FullFilename = filename:join([emqx:get_env(data_dir), rules, ResId, FileName]),
+     ok = filelib:ensure_dir(FullFilename),
+     case file:write_file(FullFilename, File) of
+          ok ->
+               binary_to_list(FullFilename);
+          {error, Reason} ->
+               logger:error("Store file failed, ResId: ~p, ~0p", [ResId, Reason]),
+               error({ResId, store_file_fail})
+     end;
+save_upload_file(_, _) -> "".
 
 parse_host(Host) ->
     case inet:parse_address(Host) of
