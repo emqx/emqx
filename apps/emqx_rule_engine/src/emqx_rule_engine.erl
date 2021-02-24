@@ -468,9 +468,14 @@ may_update_rule_params(Rule, Params = #{rawsql := SQL}) ->
                 maps:remove(rawsql, Params));
         Reason -> throw(Reason)
     end;
-may_update_rule_params(Rule, Params = #{enabled := Enabled}) ->
-    Enabled andalso refresh_rule(Rule),
-    may_update_rule_params(Rule#rule{enabled = Enabled}, maps:remove(enabled, Params));
+may_update_rule_params(Rule = #rule{enabled = OldE, actions = Actions},
+         Params = #{enabled := ToE}) ->
+     case {OldE, ToE} of
+         {false, true} -> refresh_rule(Rule);
+         {true, false} -> clear_actions(Actions);
+         _ -> ok
+     end,
+     may_update_rule_params(Rule#rule{enabled = ToE}, maps:remove(enabled, Params));
 may_update_rule_params(Rule, Params = #{description := Descr}) ->
     may_update_rule_params(Rule#rule{description = Descr}, maps:remove(description, Params));
 may_update_rule_params(Rule, Params = #{on_action_failed := OnFailed}) ->

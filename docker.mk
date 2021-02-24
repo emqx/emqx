@@ -9,7 +9,11 @@ QEMU_VERSION ?= v5.0.0-2
 OS ?= alpine
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 
-EMQX_NAME = $(subst emqx/,,$(TARGET))
+ifeq ($(findstring emqx-edge, $(TARGET)), emqx-edge)
+	EMQX_NAME := emqx-edge
+else
+	EMQX_NAME := emqx
+endif
 ARCH_LIST = amd64 arm64v8 arm32v7 i386 s390x
 
 .PHONY: docker

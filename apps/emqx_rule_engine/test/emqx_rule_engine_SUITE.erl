@@ -77,6 +77,7 @@ groups() ->
        t_add_get_remove_rules,
        t_create_existing_rule,
        t_update_rule,
+       t_disable_rule,
        t_get_rules_for,
        t_get_rules_for_2,
        t_get_rules_with_same_event,
