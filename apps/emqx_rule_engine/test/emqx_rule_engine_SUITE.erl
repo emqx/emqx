@@ -77,6 +77,7 @@ groups() ->
        t_add_get_remove_rules,
        t_create_existing_rule,
        t_update_rule,
+       t_disable_rule,
        t_get_rules_for,
        t_get_rules_for_2,
        t_get_rules_with_same_event,
@@ -691,6 +692,48 @@ t_update_rule(_Config) ->
     ok = emqx_rule_engine:delete_rule(<<"an_existing_rule">>),
     ?assertEqual(not_found, emqx_rule_registry:get_rule(<<"an_existing_rule">>)),
     ok.
+
+t_disable_rule(_Config) ->
+    ets:new(simpile_action_2, [named_table, set, public]),
+    ets:insert(simpile_action_2, {created, 0}),
+    ets:insert(simpile_action_2, {destroyed, 0}),
+    Now = erlang:timestamp(),
+    emqx_rule_registry:add_action(
+        #action{name = 'simpile_action_2', app = ?APP,
+                module = ?MODULE,
+                on_create = simpile_action_2_create,
+                on_destroy = simpile_action_2_destroy,
+                types=[], params_spec = #{},
+                title = #{en => <<"Simple Action">>},
+                description = #{en => <<"Simple Action">>}}),
+    {ok, #rule{actions = [#action_instance{id = ActInsId0}]}} = emqx_rule_engine:create_rule(
+        #{id => <<"simple_rule_2">>,
+        rawsql => <<"select * from \"t/#\"">>,
+        actions => [#{name => 'simpile_action_2', args => #{}}]
+        }),
+    [{_, CAt}] = ets:lookup(simpile_action_2, created),
+    ?assert(CAt > Now),
+    [{_, DAt}] = ets:lookup(simpile_action_2, destroyed),
+    ?assert(DAt < Now),
+
+    %% disable the rule and verify the old action instances has been cleared
+    Now2 = erlang:timestamp(),
+    emqx_rule_engine:update_rule(#{ id => <<"simple_rule_2">>,
+                                    enabled => false}),
+    [{_, CAt2}] = ets:lookup(simpile_action_2, created),
+    ?assert(CAt2 < Now2),
+    [{_, DAt2}] = ets:lookup(simpile_action_2, destroyed),
+    ?assert(DAt2 > Now2),
+
+    %% enable the rule again and verify the action instances has been created
+    Now3 = erlang:timestamp(),
+    emqx_rule_engine:update_rule(#{ id => <<"simple_rule_2">>,
+                                    enabled => true}),
+    [{_, CAt3}] = ets:lookup(simpile_action_2, created),
+    ?assert(CAt3 > Now3),
+    [{_, DAt3}] = ets:lookup(simpile_action_2, destroyed),
+    ?assert(DAt3 < Now3),
+    ok = emqx_rule_engine:delete_rule(<<"simple_rule_2">>).
 
 t_get_rules_for(_Config) ->
     Len0 = length(emqx_rule_registry:get_rules_for(<<"simple/topic">>)),
@@ -2206,6 +2249,14 @@ crash_action(_Id, _Params) ->
         ct:pal("applying crash action, Data: ~p", [Data]),
         error(crash)
     end.
+
+simpile_action_2_create(_Id, _Params) ->
+    ets:insert(simpile_action_2, {created, erlang:timestamp()}),
+    fun(_Data, _Envs) -> ok end.
+
+simpile_action_2_destroy(_Id, _Params) ->
+    ets:insert(simpile_action_2, {destroyed, erlang:timestamp()}),
+    fun(_Data, _Envs) -> ok end.
 
 init_plus_by_one_action() ->
     ets:new(plus_by_one_action, [named_table, set, public]),
