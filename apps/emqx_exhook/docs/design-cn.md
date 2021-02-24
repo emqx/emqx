@@ -19,7 +19,7 @@
 2. 将 `emqx-extension-hook` 重命名为 `emqx-exhook`
 
 
-旧版本的设计参考：[emqx-extension-hook design in v4.2.0](https://github.com/emqx/emqx-exhook/blob/v4.2.0/docs/design.md)
+旧版本的设计：[emqx-extension-hook design in v4.2.0](https://github.com/emqx/emqx-exhook/blob/v4.2.0/docs/design.md)
 
 ## 设计
 
@@ -39,13 +39,13 @@
 `emqx-exhook` 通过 gRPC 的方式向用户部署的 gRPC 服务发送钩子的请求，并处理其返回的值。
 
 
-和 emqx 原生的钩子一致，emqx-exhook 也支持链式的方式计算和返回：
+和 emqx 原生的钩子一致，emqx-exhook 也按照链式的方式执行：
 
 <img src="https://docs.emqx.net/broker/latest/cn/advanced/assets/chain_of_responsiblity.png" style="zoom:50%;" />
 
 ### gRPC 服务示例
 
-用户需要实现的方法，和数据类型的定义在 `priv/protos/exhook.proto` 文件中。例如，其支持的接口有：
+用户需要实现的方法，和数据类型的定义在 `priv/protos/exhook.proto` 文件中：
 
 ```protobuff
 syntax = "proto3";
