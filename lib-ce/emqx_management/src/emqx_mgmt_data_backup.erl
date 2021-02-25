@@ -16,6 +16,10 @@
 
 -module(emqx_mgmt_data_backup).
 
+-include("emqx_mgmt.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("kernel/include/file.hrl").
+
 -ifdef(EMQX_ENTERPISE).
 -export([ export_modules/0
         , export_schemas/0
@@ -266,6 +270,14 @@ apply_new_config([Action = #{<<"name">> := <<"data_to_webserver">>,
             apply_new_config(More, Configs, [Action#{<<"args">> := Args} | Acc])
     end.
 
+actions_to_prop_list(Actions) ->
+    [action_to_prop_list(Act) || Act <- Actions].
+
+action_to_prop_list({action_instance, ActionInstId, Name, FallbackActions, Args}) ->
+    [{id, ActionInstId},
+     {name, Name},
+     {fallbacks, actions_to_prop_list(FallbackActions)},
+     {args, Args}].
 
 -endif.
 
@@ -415,6 +427,26 @@ import_confs(Configs, ListenersState) ->
 
 -endif.
 
+any_to_atom(L) when is_list(L) -> list_to_atom(L);
+any_to_atom(B) when is_binary(B) -> binary_to_atom(B, utf8);
+any_to_atom(A) when is_atom(A) -> A.
+
+map_to_actions(Maps) ->
+    [map_to_action(M) || M <- Maps].
+
+map_to_action(Map = #{<<"id">> := ActionInstId, <<"name">> := Name, <<"args">> := Args}) ->
+    #{id => ActionInstId,
+      name => any_to_atom(Name),
+      args => Args,
+      fallbacks => map_to_actions(maps:get(<<"fallbacks">>, Map, []))}.
+
+to_version(Version) when is_integer(Version) ->
+    integer_to_list(Version);
+to_version(Version) when is_binary(Version) ->
+    binary_to_list(Version);
+to_version(Version) when is_list(Version) ->
+    Version.
+
 -ifdef(EMQX_ENTERPRISE).
 export() ->
     Modules = export_modules(),
@@ -507,7 +539,7 @@ export() ->
     write_file(NFilename, Data). 
     
 import(Filename) ->
-    case file:read_file(FullFilename) of
+    case file:read_file(Filename) of
         {ok, Json} ->
             Data = emqx_json:decode(Json, [return_maps]),
             Version = to_version(maps:get(<<"version">>, Data)),
@@ -532,8 +564,7 @@ import(Filename) ->
                     logger:error("Unsupported version: ~p", [Version]),
                     {error, unsupported_version}
             end;
-        {error, Reason} ->
-            {error, Reason}
+        Error -> Error
     end.
 -endif.
 
@@ -544,14 +575,12 @@ write_file(Filename, Data) ->
             case file:read_file_info(Filename) of
                 {ok, #file_info{size = Size, ctime = {{Y, M, D}, {H, MM, S}}}} ->
                     CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S]),
-                    {ok, [{filename, list_to_binary(Filename)},
-                          {size, Size},
-                          {created_at, list_to_binary(CreatedAt)},
-                          {node, node()}
-                         ]};
-                {error, Reason} ->
-                    {error, Reason}
+                    {ok, #{filename => list_to_binary(Filename),
+                           size => Size,
+                           created_at => list_to_binary(CreatedAt),
+                           node => node()
+                          }};
+                Error -> Error
             end;
-        {error, Reason} ->
-            {error, Reason}
+        Error -> Error
     end.

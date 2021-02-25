@@ -483,16 +483,6 @@ delete_banned(Who) ->
     emqx_banned:delete(Who).
 
 
-any_to_atom(L) when is_list(L) -> list_to_atom(L);
-any_to_atom(B) when is_binary(B) -> binary_to_atom(B, utf8);
-any_to_atom(A) when is_atom(A) -> A.
-
-to_version(Version) when is_integer(Version) ->
-    integer_to_list(Version);
-to_version(Version) when is_binary(Version) ->
-    binary_to_list(Version);
-to_version(Version) when is_list(Version) ->
-    Version.
 
 %%--------------------------------------------------------------------
 %% Telemtry API
@@ -561,20 +551,4 @@ max_row_limit() ->
 
 table_size(Tab) -> ets:info(Tab, size).
 
-map_to_actions(Maps) ->
-    [map_to_action(M) || M <- Maps].
 
-map_to_action(Map = #{<<"id">> := ActionInstId, <<"name">> := Name, <<"args">> := Args}) ->
-    #{id => ActionInstId,
-      name => any_to_atom(Name),
-      args => Args,
-      fallbacks => map_to_actions(maps:get(<<"fallbacks">>, Map, []))}.
-
-actions_to_prop_list(Actions) ->
-    [action_to_prop_list(Act) || Act <- Actions].
-
-action_to_prop_list({action_instance, ActionInstId, Name, FallbackActions, Args}) ->
-    [{id, ActionInstId},
-     {name, Name},
-     {fallbacks, actions_to_prop_list(FallbackActions)},
-     {args, Args}].

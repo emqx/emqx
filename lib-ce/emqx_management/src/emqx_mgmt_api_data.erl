@@ -75,7 +75,11 @@
         ]).
 
 export(_Bindings, _Params) ->
-    return(emqx_mgmt_data_backup:export()).
+    case emqx_mgmt_data_backup:export() of
+        {ok, File = #{filename := Filename}} ->
+            return({ok, File#{filename => filename:basename(Filename)}});
+        Return -> return(Return)
+    end.
     
 list_exported(_Bindings, _Params) ->
     List = [ rpc:call(Node, ?MODULE, get_list_exported, []) || Node <- ekka_mnesia:running_nodes() ],
