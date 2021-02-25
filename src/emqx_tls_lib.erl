@@ -23,7 +23,8 @@
         , integral_ciphers/2
         ]).
 
--define(IS_STRING_LIST(L), (is_list(L) andalso L =/= [] andalso is_list(hd(L)))).
+-define(IS_STRING(L), (is_list(L) andalso L =/= [] andalso is_integer(hd(L)))).
+-define(IS_STRING_LIST(L), (is_list(L) andalso L =/= [] andalso ?IS_STRING(hd(L)))).
 
 %% @doc Returns the default supported tls versions.
 -spec default_versions() -> [atom()].
@@ -33,7 +34,18 @@ default_versions() ->
 
 %% @doc Validate a given list of desired tls versions.
 %% raise an error exception if non of them are available.
--spec integral_versions([ssl:tls_version()]) -> [ssl:tls_version()].
+%% The input list can be a string/binary of comma separated versions.
+-spec integral_versions(undefined | string() | binary() | [ssl:tls_version()]) -> [ssl:tls_version()].
+integral_versions(undefined) ->
+    integral_versions(default_versions());
+integral_versions([]) ->
+    integral_versions(default_versions());
+integral_versions(<<>>) ->
+    integral_versions(default_versions());
+integral_versions(Desired) when is_binary(Desired) ->
+    integral_versions(parse_versions(Desired));
+integral_versions(Desired) when ?IS_STRING(Desired) ->
+    integral_versions(iolist_to_binary(Desired));
 integral_versions(Desired) ->
     {_, Available} = lists:keyfind(available, 1, ssl:versions()),
     case lists:filter(fun(V) -> lists:member(V, Available) end, Desired) of
@@ -96,3 +108,32 @@ default_versions(_) ->
 %% Deduplicate a list without re-ordering the elements.
 dedup([]) -> [];
 dedup([H | T]) -> [H | dedup([I || I <- T, I =/= H])].
+
+%% parse comma separated tls version strings
+parse_versions(Versions) ->
+    do_parse_versions(split_by_comma(Versions), []).
+
+do_parse_versions([], Acc) -> lists:reverse(Acc);
+do_parse_versions([V | More], Acc) ->
+    case parse_version(V) of
+        unknown ->
+            emqx_logger:warning("unknown_tls_version_discarded: ~p", [V]),
+            do_parse_versions(More, Acc);
+        Parsed ->
+            do_parse_versions(More, [Parsed | Acc])
+    end.
+
+parse_version(<<"tlsv", Vsn/binary>>) -> parse_version(Vsn);
+parse_version(<<"v", Vsn/binary>>) -> parse_version(Vsn);
+parse_version(<<"1.3">>) -> 'tlsv1.3';
+parse_version(<<"1.2">>) -> 'tlsv1.2';
+parse_version(<<"1.1">>) -> 'tlsv1.1';
+parse_version(<<"1">>) -> 'tlsv1';
+parse_version(_) -> unknown.
+
+split_by_comma(Bin) ->
+    [trim_space(I) || I <- binary:split(Bin, <<",">>, [global])].
+
+%% trim spaces
+trim_space(Bin) ->
+    hd([I || I <- binary:split(Bin, <<" ">>), I =/= <<>>]).
