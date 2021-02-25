@@ -176,7 +176,10 @@ write_loaded(false) -> ok.
 %%--------------------------------------------------------------------
 %% @doc Modules Command
 cli(["list"]) ->
-    foreach(fun(Module) -> print({module, Module}) end, emqx_modules:list());
+    lists:foreach(fun({Name, Active}) -> 
+                    emqx_ctl:print("Module(~s, description=~s, active=~s)~n",
+                        [Name, Name:description(), Active])
+                  end, emqx_modules:list());
 
 cli(["load", Name]) ->
     case emqx_modules:load(list_to_atom(Name)) of

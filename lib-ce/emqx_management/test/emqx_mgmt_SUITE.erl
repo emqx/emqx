@@ -44,7 +44,6 @@ groups() ->
         t_clients_cmd,
         t_vm_cmd,
         t_plugins_cmd,
-        t_modules_cmd,
         t_trace_cmd,
         t_broker_cmd,
         t_router_cmd,
@@ -59,11 +58,11 @@ apps() ->
 init_per_suite(Config) ->
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_auth_mnesia]),
+    emqx_ct_helpers:start_apps([emqx_management, emqx_auth_mnesia]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_management, emqx_auth_mnesia, emqx_modules]).
+    emqx_ct_helpers:stop_apps([emqx_management, emqx_auth_mnesia]).
 
 t_app(_Config) ->
     {ok, AppSecret} = emqx_mgmt_auth:add_app(<<"app_id">>, <<"app_name">>),
@@ -327,19 +326,6 @@ t_plugins_cmd(_) ->
        emqx_mgmt_cli:plugins(["unload", "emqx_management"]),
        "Plugin emqx_management can not be unloaded.~n"
       ),
-    unmock_print().
-
-t_modules_cmd(_) ->
-    mock_print(),
-    meck:new(emqx_modules, [non_strict, passthrough]),
-    meck:expect(emqx_modules, load, fun(_) -> ok end),
-    meck:expect(emqx_modules, unload, fun(_) -> ok end),
-    meck:expect(emqx_modules, reload, fun(_) -> ok end),
-    ?assertEqual(emqx_mgmt_cli:modules(["list"]), ok),
-    ?assertEqual(emqx_mgmt_cli:modules(["load", "emqx_mod_presence"]),
-                 "Module emqx_mod_presence loaded successfully.\n"),
-    ?assertEqual(emqx_mgmt_cli:modules(["unload", "emqx_mod_presence"]),
-                 "Module emqx_mod_presence unloaded successfully.\n"),
     unmock_print().
 
 t_cli(_) ->

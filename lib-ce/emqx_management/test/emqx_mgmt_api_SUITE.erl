@@ -48,7 +48,6 @@ groups() ->
       , metrics
       , nodes
       , plugins
-      , modules
       , acl_cache
       , pubsub
       , routes_and_subscriptions
@@ -58,13 +57,13 @@ groups() ->
     }].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_auth_mnesia]),
+    emqx_ct_helpers:start_apps([emqx_management, emqx_auth_mnesia]),
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_auth_mnesia, emqx_management, emqx_modules]),
+    emqx_ct_helpers:stop_apps([emqx_auth_mnesia, emqx_management]),
     ekka_mnesia:ensure_stopped().
 
 init_per_testcase(data, Config) ->
@@ -381,64 +380,6 @@ plugins(_) ->
                                          "unload"]),
                                auth_header_()),
     ?assertEqual(<<"not_started">>, get(<<"message">>, Error2)).
-
-modules(_) ->
-    emqx_modules:load_module(emqx_mod_presence, false),
-    timer:sleep(50),
-    {ok, Modules1} = request_api(get, api_path(["modules"]), auth_header_()),
-    [Modules11] = filter(get(<<"data">>, Modules1), <<"node">>, atom_to_binary(node(), utf8)),
-    [Module1] = filter(maps:get(<<"modules">>, Modules11), <<"name">>, <<"emqx_mod_presence">>),
-    ?assertEqual(<<"emqx_mod_presence">>, maps:get(<<"name">>, Module1)),
-    ?assertEqual(true, maps:get(<<"active">>, Module1)),
-
-    {ok, _} = request_api(put,
-                          api_path(["modules",
-                                    atom_to_list(emqx_mod_presence),
-                                    "unload"]),
-                          auth_header_()),
-    {ok, Error1} = request_api(put,
-                               api_path(["modules",
-                                         atom_to_list(emqx_mod_presence),
-                                         "unload"]),
-                               auth_header_()),
-    ?assertEqual(<<"not_started">>, get(<<"message">>, Error1)),
-    {ok, Modules2} = request_api(get,
-                                 api_path(["nodes", atom_to_list(node()), "modules"]),
-                                 auth_header_()),
-    [Module2] = filter(get(<<"data">>, Modules2), <<"name">>, <<"emqx_mod_presence">>),
-    ?assertEqual(<<"emqx_mod_presence">>, maps:get(<<"name">>, Module2)),
-    ?assertEqual(false, maps:get(<<"active">>, Module2)),
-
-    {ok, _} = request_api(put,
-                          api_path(["nodes",
-                                    atom_to_list(node()),
-                                    "modules",
-                                    atom_to_list(emqx_mod_presence),
-                                    "load"]),
-                          auth_header_()),
-    {ok, Modules3} = request_api(get,
-                                 api_path(["nodes", atom_to_list(node()), "modules"]),
-                                 auth_header_()),
-    [Module3] = filter(get(<<"data">>, Modules3), <<"name">>, <<"emqx_mod_presence">>),
-    ?assertEqual(<<"emqx_mod_presence">>, maps:get(<<"name">>, Module3)),
-    ?assertEqual(true, maps:get(<<"active">>, Module3)),
-
-    {ok, _} = request_api(put,
-                          api_path(["nodes",
-                                    atom_to_list(node()),
-                                    "modules",
-                                    atom_to_list(emqx_mod_presence),
-                                    "unload"]),
-                          auth_header_()),
-    {ok, Error2} = request_api(put,
-                               api_path(["nodes",
-                                         atom_to_list(node()),
-                                         "modules",
-                                         atom_to_list(emqx_mod_presence),
-                                         "unload"]),
-                               auth_header_()),
-    ?assertEqual(<<"not_started">>, get(<<"message">>, Error2)),
-    emqx_modules:unload(emqx_mod_presence).
 
 acl_cache(_) ->
     ClientId = <<"client1">>,

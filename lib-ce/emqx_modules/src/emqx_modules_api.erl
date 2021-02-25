@@ -72,6 +72,10 @@
         , reload/2
         ]).
 
+-export([ do_load_module/2
+        , do_unload_module/2
+        ]).
+
 list(#{node := Node}, _Params) ->
     return({ok, [format(Module) || Module <- list_modules(Node)]});
 
@@ -79,10 +83,10 @@ list(_Bindings, _Params) ->
     return({ok, [format(Node, Modules) || {Node, Modules} <- list_modules()]}).
 
 load(#{node := Node, module := Module}, _Params) ->
-    return(load_module(Node, Module));
+    return(do_load_module(Node, Module));
 
 load(#{module := Module}, _Params) ->
-    Results = [load_module(Node, Module) || {Node, _Info} <- list_nodes()],
+    Results = [do_load_module(Node, Module) || {Node, _Info} <- emqx_mgmt:list_nodes()],
     case lists:filter(fun(Item) -> Item =/= ok end, Results) of
         [] ->
             return(ok);
@@ -91,10 +95,10 @@ load(#{module := Module}, _Params) ->
     end.
 
 unload(#{node := Node, module := Module}, _Params) ->
-    return(unload_module(Node, Module));
+    return(do_unload_module(Node, Module));
 
 unload(#{module := Module}, _Params) ->
-    Results = [unload_module(Node, Module) || {Node, _Info} <- list_nodes()],
+    Results = [do_unload_module(Node, Module) || {Node, _Info} <- emqx_mgmt:list_nodes()],
     case lists:filter(fun(Item) -> Item =/= ok end, Results) of
         [] ->
             return(ok);
@@ -109,7 +113,7 @@ reload(#{node := Node, module := Module}, _Params) ->
     end;
 
 reload(#{module := Module}, _Params) ->
-    Results = [reload_module(Node, Module) || {Node, _Info} <- list_nodes()],
+    Results = [reload_module(Node, Module) || {Node, _Info} <- emqx_mgmt:list_nodes()],
     case lists:filter(fun(Item) -> Item =/= ok end, Results) of
         [] ->
             return(ok);
@@ -137,15 +141,15 @@ list_modules(Node) when Node =:= node() ->
 list_modules(Node) ->
     rpc_call(Node, list_modules, [Node]).
 
-load_module(Node, Module) when Node =:= node() ->
+do_load_module(Node, Module) when Node =:= node() ->
     emqx_modules:load(Module);
-load_module(Node, Module) ->
-    rpc_call(Node, load_module, [Node, Module]).
+do_load_module(Node, Module) ->
+    rpc_call(Node, do_load_module, [Node, Module]).
 
-unload_module(Node, Module) when Node =:= node() ->
+do_unload_module(Node, Module) when Node =:= node() ->
     emqx_modules:unload(Module);
-unload_module(Node, Module) ->
-    rpc_call(Node, unload_module, [Node, Module]).
+do_unload_module(Node, Module) ->
+    rpc_call(Node, do_unload_module, [Node, Module]).
 
 reload_module(Node, Module) when Node =:= node() ->
     emqx_modules:reload(Module);

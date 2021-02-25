@@ -58,7 +58,7 @@
 -spec(load() -> ok).
 load() ->
     Cmds = [Fun || {Fun, _} <- ?MODULE:module_info(exports), is_cmd(Fun)],
-    lists:foreach(fun(Cmd) -> emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, []) end, Cmds).
+    foreach(fun(Cmd) -> emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, []) end, Cmds).
 
 is_cmd(Fun) ->
     not lists:member(Fun, [init, load, module_info]).
@@ -100,7 +100,7 @@ mgmt(["delete", AppId]) ->
     end;
 
 mgmt(["list"]) ->
-    lists:foreach(fun({AppId, AppSecret, Name, Desc, Status, Expired}) ->
+    foreach(fun({AppId, AppSecret, Name, Desc, Status, Expired}) ->
                       emqx_ctl:print("app_id: ~s, secret: ~s, name: ~s, desc: ~s, status: ~s, expired: ~p~n",
                                     [AppId, AppSecret, Name, Desc, Status, Expired])
                   end, emqx_mgmt_auth:list_apps());
@@ -229,7 +229,7 @@ routes(_) ->
                     {"routes show <Topic>", "Show a route"}]).
 
 subscriptions(["list"]) ->
-    lists:foreach(fun(Suboption) ->
+    foreach(fun(Suboption) ->
                         print({emqx_suboption, Suboption})
                   end, ets:tab2list(emqx_suboption));
 
@@ -544,8 +544,8 @@ stop_listener(#{listen_on := ListenOn} = Listener, _Input) ->
 
 data(["export"]) ->
     case emqx_mgmt_data_backup:export() of
-        {ok, _} ->
-            emqx_ctl:print("The emqx data has been successfully exported to ~s.~n", [NFilename]);
+        {ok, #{filename := Filename}} ->
+            emqx_ctl:print("The emqx data has been successfully exported to ~s.~n", [Filename]);
         {error, Reason} ->
             emqx_ctl:print("The emqx data export failed due to ~p.~n", [Reason])
     end;    
@@ -555,9 +555,9 @@ data(["import", Filename]) ->
         ok ->
             emqx_ctl:print("The emqx data has been imported successfully.~n");
         {error, import_failed} -> 
-            emqx_ctl:print("The emqx data import failed due: ~0p~n", [{Class,Reason,Stack}]);
+            emqx_ctl:print("The emqx data import failed. ~n");
         {error, unsupported_version} ->
-            emqx_ctl:print("Unsupported version: ~p~n", [Version]);
+            emqx_ctl:print("The emqx data import failed: Unsupported version. ~n");
         {error, Reason} ->
             emqx_ctl:print("The emqx data import failed: ~0p while reading ~s.~n", [Reason, Filename])
     end;
@@ -635,10 +635,6 @@ print({emqx_route, #route{topic = Topic, dest = Node}}) ->
 print(#plugin{name = Name, descr = Descr, active = Active}) ->
     emqx_ctl:print("Plugin(~s, description=~s, active=~s)~n",
                   [Name, Descr, Active]);
-
-print({module, {Name, Active}}) ->
-    emqx_ctl:print("Module(~s, description=~s, active=~s)~n",
-                  [Name, Name:description(), Active]);
 
 print({emqx_suboption, {{Pid, Topic}, Options}}) when is_pid(Pid) ->
     emqx_ctl:print("~s -> ~s~n", [maps:get(subid, Options), Topic]).
