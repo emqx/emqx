@@ -75,48 +75,8 @@
         ]).
 
 export(_Bindings, _Params) ->
-    Rules = emqx_mgmt:export_rules(),
-    Resources = emqx_mgmt:export_resources(),
-    Blacklist = emqx_mgmt:export_blacklist(),
-    Apps = emqx_mgmt:export_applications(),
-    Users = emqx_mgmt:export_users(),
-    AuthMnesia = emqx_mgmt:export_auth_mnesia(),
-    AclMnesia = emqx_mgmt:export_acl_mnesia(),
-    Seconds = erlang:system_time(second),
-    {{Y, M, D}, {H, MM, S}} = emqx_mgmt_util:datetime(Seconds),
-    Filename = io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]),
-    NFilename = filename:join([emqx:get_env(data_dir), Filename]),
-    Version = string:sub_string(emqx_sys:version(), 1, 3),
-    Data = [{version, erlang:list_to_binary(Version)},
-            {date, erlang:list_to_binary(emqx_mgmt_util:strftime(Seconds))},
-            {rules, Rules},
-            {resources, Resources},
-            {blacklist, Blacklist},
-            {apps, Apps},
-            {users, Users},
-            {auth_mnesia, AuthMnesia},
-            {acl_mnesia, AclMnesia}
-           ],
-
-    Bin = emqx_json:encode(Data),
-    ok = filelib:ensure_dir(NFilename),
-    case file:write_file(NFilename, Bin) of
-        ok ->
-            case file:read_file_info(NFilename) of
-                {ok, #file_info{size = Size, ctime = {{Y0, M0, D0}, {H0, MM0, S0}}}} ->
-                    CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y0, M0, D0, H0, MM0, S0]),
-                    return({ok, [{filename, list_to_binary(Filename)},
-                                 {size, Size},
-                                 {created_at, list_to_binary(CreatedAt)},
-                                 {node, node()}
-                                ]});
-                {error, Reason} ->
-                    return({error, Reason})
-            end;
-        {error, Reason} ->
-            return({error, Reason})
-    end.
-
+    return(emqx_mgmt_data_backup:export()).
+    
 list_exported(_Bindings, _Params) ->
     List = [ rpc:call(Node, ?MODULE, get_list_exported, []) || Node <- ekka_mnesia:running_nodes() ],
     NList = lists:map(fun({_, FileInfo}) -> FileInfo end, lists:keysort(1, lists:append(List))),
@@ -158,7 +118,7 @@ import(_Bindings, Params) ->
                     case lists:member(Node,
                           [ erlang:atom_to_binary(N, utf8) || N <- ekka_mnesia:running_nodes() ]
                          ) of
-                        true -> rpc:call(erlang:binary_to_atom(Node, utf8), ?MODULE, do_import, [Filename]);
+                        true -> return(rpc:call(erlang:binary_to_atom(Node, utf8), ?MODULE, do_import, [Filename]));
                         false -> return({error, no_existent_node})
                     end
             end,
@@ -167,34 +127,7 @@ import(_Bindings, Params) ->
 
 do_import(Filename) ->
     FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
-    case file:read_file(FullFilename) of
-        {ok, Json} ->
-            Data = emqx_json:decode(Json, [return_maps]),
-            Version = emqx_mgmt:to_version(maps:get(<<"version">>, Data)),
-            case lists:member(Version, ?VERSIONS) of
-                true  ->
-                    try
-                        emqx_mgmt:import_resources_and_rules(maps:get(<<"resources">>, Data, []), maps:get(<<"rules">>, Data, []), Version),
-                        emqx_mgmt:import_blacklist(maps:get(<<"blacklist">>, Data, [])),
-                        emqx_mgmt:import_applications(maps:get(<<"apps">>, Data, [])),
-                        emqx_mgmt:import_users(maps:get(<<"users">>, Data, [])),
-                        _ = emqx_mgmt:import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
-                        _ = emqx_mgmt:import_auth_username(maps:get(<<"auth_username">>, Data, [])),
-                        _ = emqx_mgmt:import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, []), Version),
-                        _ = emqx_mgmt:import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, []), Version),
-                        logger:debug("The emqx data has been imported successfully"),
-                        ok
-                    catch Class:Reason:Stack ->
-                        logger:error("The emqx data import failed: ~0p", [{Class,Reason,Stack}]),
-                        {error, import_failed}
-                    end;
-                false ->
-                    logger:error("Unsupported version: ~p", [Version]),
-                    {error, unsupported_version}
-            end;
-        {error, Reason} ->
-            {error, Reason}
-    end.
+    emqx_mgmt_data_backup:import(FullFilename).    
 
 download(#{filename := Filename}, _Params) ->
     FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
