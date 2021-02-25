@@ -307,8 +307,26 @@ stringfy(Term) when is_atom(Term) ->
 stringfy(Term) ->
     unicode:characters_to_binary((io_lib:format("~0p", [Term]))).
 
-hexstr(B) ->
-    iolist_to_binary([io_lib:format("~2.16.0B", [X]) || X <- binary_to_list(B)]).
+hexstr(<<>>) -> [];
+hexstr(<<H:4, L:4, B/binary>>) ->
+    iolist_to_binary([hexchar(H), hexchar(L)] ++ hexstr(B)).
+
+hexchar(0) -> $0;
+hexchar(1) -> $1;
+hexchar(2) -> $2;
+hexchar(3) -> $3;
+hexchar(4) -> $4;
+hexchar(5) -> $5;
+hexchar(6) -> $6;
+hexchar(7) -> $7;
+hexchar(8) -> $8;
+hexchar(9) -> $9;
+hexchar(10) -> $A;
+hexchar(11) -> $B;
+hexchar(12) -> $C;
+hexchar(13) -> $D;
+hexchar(14) -> $E;
+hexchar(15) -> $F.
 
 %%--------------------------------------------------------------------
 %% Acc funcs
