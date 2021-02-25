@@ -101,7 +101,7 @@ get(Key, ResponseBody) ->
 
 lookup_alarm(Name, [#{<<"name">> := Name} | _More]) ->
     true;
-lookup_alarm(Name, [_Alarm | More]) ->  
+lookup_alarm(Name, [_Alarm | More]) ->
     lookup_alarm(Name, More);
 lookup_alarm(_Name, []) ->
     false.
@@ -119,7 +119,7 @@ alarms(_) ->
 
     ?assert(is_existing(alarm1, emqx_alarm:get_alarms(activated))),
     ?assert(is_existing(alarm2, emqx_alarm:get_alarms(activated))),
-    
+
     {ok, Return1} = request_api(get, api_path(["alarms/activated"]), auth_header_()),
     ?assert(lookup_alarm(<<"alarm1">>, maps:get(<<"alarms">>, lists:nth(1, get(<<"data">>, Return1))))),
     ?assert(lookup_alarm(<<"alarm2">>, maps:get(<<"alarms">>, lists:nth(1, get(<<"data">>, Return1))))),
@@ -230,7 +230,7 @@ clients(_) ->
     {ok, Clients2} = request_api(get, api_path(["nodes", atom_to_list(node()),
                                                 "clients", binary_to_list(ClientId2)])
                                  , auth_header_()),
-    ?assertEqual(<<"client2">>, maps:get(<<"clientid">>, lists:nth(1, get(<<"data">>, Clients2)))),               
+    ?assertEqual(<<"client2">>, maps:get(<<"clientid">>, lists:nth(1, get(<<"data">>, Clients2)))),
 
     {ok, Clients3} = request_api(get, api_path(["clients",
                                                 "username", binary_to_list(Username1)]),
@@ -245,7 +245,7 @@ clients(_) ->
 
     {ok, Clients5} = request_api(get, api_path(["clients"]), "_limit=100&_page=1", auth_header_()),
     ?assertEqual(2, maps:get(<<"count">>, get(<<"meta">>, Clients5))),
-    
+
     meck:new(emqx_mgmt, [passthrough, no_history]),
     meck:expect(emqx_mgmt, kickout_client, 1, fun(_) -> {error, undefined} end),
 
@@ -261,7 +261,7 @@ clients(_) ->
     ?assertEqual(?ERROR1, get(<<"code">>, MeckRet3)),
 
     meck:unload(emqx_mgmt),
-    
+
     {ok, Ok} = request_api(delete, api_path(["clients", binary_to_list(ClientId1)]), auth_header_()),
     ?assertEqual(?SUCCESS, get(<<"code">>, Ok)),
 
@@ -436,7 +436,7 @@ pubsub(_) ->
                                    <<"topics">> => <<"">>,
                                    <<"qos">> => 1,
                                    <<"payload">> => <<"hello">>}),
-    ?assertEqual(?ERROR15, get(<<"code">>, BadTopic2)),       
+    ?assertEqual(?ERROR15, get(<<"code">>, BadTopic2)),
 
     {ok, BadTopic3} = request_api(post, api_path(["mqtt/unsubscribe"]), [], auth_header_(),
                                  #{<<"clientid">> => ClientId,

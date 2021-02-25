@@ -57,7 +57,7 @@ list(#{topic := Topic0}, _Params) ->
     execute_when_enabled(fun() ->
         Topic = emqx_mgmt_util:urldecode(Topic0),
         case safe_validate(Topic) of
-            true -> 
+            true ->
                 case get_topic_metrics(Topic) of
                     {error, Reason} -> return({error, Reason});
                     Metrics         -> return({ok, maps:from_list(Metrics)})
@@ -74,7 +74,7 @@ list(_Bindings, _Params) ->
             Metrics         -> return({ok, Metrics})
         end
     end).
-    
+
 register(_Bindings, Params) ->
     execute_when_enabled(fun() ->
         case proplists:get_value(<<"topic">>, Params) of
@@ -82,7 +82,7 @@ register(_Bindings, Params) ->
                 return({error, missing_required_params});
             Topic ->
                 case safe_validate(Topic) of
-                    true -> 
+                    true ->
                         register_topic_metrics(Topic),
                         return(ok);
                     false ->
@@ -101,7 +101,7 @@ unregister(#{topic := Topic0}, _Params) ->
     execute_when_enabled(fun() ->
         Topic = emqx_mgmt_util:urldecode(Topic0),
         case safe_validate(Topic) of
-            true -> 
+            true ->
                 unregister_topic_metrics(Topic),
                 return(ok);
             false ->

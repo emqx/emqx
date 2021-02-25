@@ -51,7 +51,7 @@
         , to_version/1
         ]).
 
--export([ export/0 
+-export([ export/0
         , import/1
         ]).
 
@@ -323,7 +323,7 @@ import_auth_clientid(Lists) ->
     case ets:info(emqx_user) of
         undefined -> ok;
         _ ->
-            lists:foreach(fun(#{<<"clientid">> := Clientid, <<"password">> := Password}) -> 
+            lists:foreach(fun(#{<<"clientid">> := Clientid, <<"password">> := Password}) ->
                             mnesia:dirty_write({emqx_user, {clientid, Clientid}, base64:decode(Password), erlang:system_time(millisecond)})
                           end, Lists)
     end.
@@ -333,7 +333,7 @@ import_auth_username(Lists) ->
         undefined -> ok;
         _ ->
             lists:foreach(fun(#{<<"username">> := Username, <<"password">> := Password}) ->
-                            mnesia:dirty_write({emqx_user, {username, Username}, base64:decode(Password), erlang:system_time(millisecond)})           
+                            mnesia:dirty_write({emqx_user, {username, Username}, base64:decode(Password), erlang:system_time(millisecond)})
                           end, Lists)
     end.
 
@@ -344,8 +344,8 @@ import_auth_mnesia(Auths, FromVersion) when FromVersion =:= "4.0" orelse
         _ ->
             CreatedAt = erlang:system_time(millisecond),
             lists:foreach(fun(#{<<"login">> := Login,
-                                <<"password">> := Password}) -> 
-                            mnesia:dirty_write({emqx_user, {username, Login}, base64:decode(Password), CreatedAt})          
+                                <<"password">> := Password}) ->
+                            mnesia:dirty_write({emqx_user, {username, Login}, base64:decode(Password), CreatedAt})
                           end, Auths)
     end;
 
@@ -356,7 +356,7 @@ import_auth_mnesia(Auths, _) ->
             lists:foreach(fun(#{<<"login">> := Login,
                                 <<"type">> := Type,
                                 <<"password">> := Password,
-                                <<"created_at">> := CreatedAt }) -> 
+                                <<"created_at">> := CreatedAt }) ->
                             mnesia:dirty_write({emqx_user, {any_to_atom(Type), Login}, base64:decode(Password), CreatedAt})
                           end, Auths)
     end.
@@ -375,7 +375,7 @@ import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.0" orelse
                                          true -> allow;
                                          false -> deny
                                      end,
-                            mnesia:dirty_write({emqx_acl, {{username, Login}, Topic}, any_to_atom(Action), Allow1, CreatedAt})         
+                            mnesia:dirty_write({emqx_acl, {{username, Login}, Topic}, any_to_atom(Action), Allow1, CreatedAt})
                           end, Acls)
     end;
 
@@ -385,14 +385,14 @@ import_acl_mnesia(Acls, _) ->
         _ ->
             lists:foreach(fun(Map = #{<<"action">> := Action,
                                       <<"access">> := Access,
-                                      <<"created_at">> := CreatedAt}) -> 
+                                      <<"created_at">> := CreatedAt}) ->
                             Filter = case maps:get(<<"type_value">>, Map, undefined) of
                                 undefined ->
                                     {any_to_atom(maps:get(<<"type">>, Map)), maps:get(<<"topic">>, Map)};
                                 Value ->
                                     {{any_to_atom(maps:get(<<"type">>, Map)), Value}, maps:get(<<"topic">>, Map)}
                             end,
-                            mnesia:dirty_write({emqx_acl ,Filter, any_to_atom(Action), any_to_atom(Access), CreatedAt})            
+                            mnesia:dirty_write({emqx_acl ,Filter, any_to_atom(Action), any_to_atom(Access), CreatedAt})
                           end, Acls)
     end.
 
@@ -447,135 +447,19 @@ to_version(Version) when is_binary(Version) ->
 to_version(Version) when is_list(Version) ->
     Version.
 
--ifdef(EMQX_ENTERPRISE).
 export() ->
-    Modules = export_modules(),
-    Rules = export_rules(),
-    Resources = export_resources(),
-    Blacklist = export_blacklist(),
-    Apps = export_applications(),
-    Users = export_users(),
-    AuthMnesia = export_auth_mnesia(),
-    AclMnesia = export_acl_mnesia(),
-    Schemas = export_schemas(),
-    {Configs, State} = export_confs(),
     Seconds = erlang:system_time(second),
+    Data = do_export_data() ++ [{date, erlang:list_to_binary(emqx_mgmt_util:strftime(Seconds))}],
     {{Y, M, D}, {H, MM, S}} = emqx_mgmt_util:datetime(Seconds),
     Filename = io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]),
     NFilename = filename:join([emqx:get_env(data_dir), Filename]),
-    Version = string:sub_string(emqx_sys:version(), 1, 3),
-    Data = [{version, erlang:list_to_binary(Version)},
-            {date, erlang:list_to_binary(emqx_mgmt_util:strftime(Seconds))},
-            {modules, Modules},
-            {rules, Rules},
-            {resources, Resources},
-            {blacklist, Blacklist},
-            {apps, Apps},
-            {users, Users},
-            {auth_mnesia, AuthMnesia},
-            {acl_mnesia, AclMnesia},
-            {schemas, Schemas},
-            {configs, Configs},
-            {listeners_state, State}],
-    write_file(NFilename, Data). 
-
-import(Filename) ->
-    case file:read_file(FullFilename) of
-        {ok, Json} ->
-            Data = emqx_json:decode(Json, [return_maps]),
-            Version = to_version(maps:get(<<"version">>, Data)),
-            case lists:member(Version, ?VERSIONS) of
-                true  ->
-                    try
-                        import_confs(maps:get(<<"configs">>, Data, []), maps:get(<<"listeners_state">>, Data, [])),
-                        import_resources(maps:get(<<"resources">>, Data, [])),
-                        import_rules(maps:get(<<"rules">>, Data, [])),
-                        import_blacklist(maps:get(<<"blacklist">>, Data, [])),
-                        import_applications(maps:get(<<"apps">>, Data, [])),
-                        import_users(maps:get(<<"users">>, Data, [])),
-                        import_modules(maps:get(<<"modules">>, Data, [])),
-                        import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
-                        import_auth_username(maps:get(<<"auth_username">>, Data, [])),
-                        import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, []), Version),
-                        import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, []), Version),
-                        import_schemas(maps:get(<<"schemas">>, Data, [])),
-                        logger:debug("The emqx data has been imported successfully"),
-                        ok
-                    catch Class:Reason:Stack ->
-                        logger:error("The emqx data import failed: ~0p", [{Class,Reason,Stack}]),
-                        {error, import_failed}
-                    end;
-                false ->
-                    logger:error("Unsupported version: ~p", [Version]),
-                    {error, unsupported_version}
-            end;
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
--else.
-export() ->
-    Rules = export_rules(),
-    Resources = export_resources(),
-    Blacklist = export_blacklist(),
-    Apps = export_applications(),
-    Users = export_users(),
-    AuthMnesia = export_auth_mnesia(),
-    AclMnesia = export_acl_mnesia(),
-    Seconds = erlang:system_time(second),
-    {{Y, M, D}, {H, MM, S}} = emqx_mgmt_util:datetime(Seconds),
-    Filename = io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]),
-    NFilename = filename:join([emqx:get_env(data_dir), Filename]),
-    Version = string:sub_string(emqx_sys:version(), 1, 3),
-    Data = [{version, erlang:list_to_binary(Version)},
-            {date, erlang:list_to_binary(emqx_mgmt_util:strftime(Seconds))},
-            {rules, Rules},
-            {resources, Resources},
-            {blacklist, Blacklist},
-            {apps, Apps},
-            {users, Users},
-            {auth_mnesia, AuthMnesia},
-            {acl_mnesia, AclMnesia}],
-    write_file(NFilename, Data). 
-    
-import(Filename) ->
-    case file:read_file(Filename) of
-        {ok, Json} ->
-            Data = emqx_json:decode(Json, [return_maps]),
-            Version = to_version(maps:get(<<"version">>, Data)),
-            case lists:member(Version, ?VERSIONS) of
-                true  ->
-                    try
-                        import_resources_and_rules(maps:get(<<"resources">>, Data, []), maps:get(<<"rules">>, Data, []), Version),
-                        import_blacklist(maps:get(<<"blacklist">>, Data, [])),
-                        import_applications(maps:get(<<"apps">>, Data, [])),
-                        import_users(maps:get(<<"users">>, Data, [])),
-                        import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
-                        import_auth_username(maps:get(<<"auth_username">>, Data, [])),
-                        import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, []), Version),
-                        import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, []), Version),
-                        logger:debug("The emqx data has been imported successfully"),
-                        ok
-                    catch Class:Reason:Stack ->
-                        logger:error("The emqx data import failed: ~0p", [{Class,Reason,Stack}]),
-                        {error, import_failed}
-                    end;
-                false ->
-                    logger:error("Unsupported version: ~p", [Version]),
-                    {error, unsupported_version}
-            end;
-        Error -> Error
-    end.
--endif.
-
-write_file(Filename, Data) ->
-    ok = filelib:ensure_dir(Filename),
-    case file:write_file(Filename, emqx_json:encode(Data)) of
+    ok = filelib:ensure_dir(NFilename),
+    case file:write_file(NFilename, emqx_json:encode(Data)) of
         ok ->
-            case file:read_file_info(Filename) of
+            case file:read_file_info(NFilename) of
                 {ok, #file_info{size = Size, ctime = {{Y, M, D}, {H, MM, S}}}} ->
                     CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S]),
-                    {ok, #{filename => list_to_binary(Filename),
+                    {ok, #{filename => list_to_binary(NFilename),
                            size => Size,
                            created_at => list_to_binary(CreatedAt),
                            node => node()
@@ -584,3 +468,71 @@ write_file(Filename, Data) ->
             end;
         Error -> Error
     end.
+
+do_export_data() ->
+    Version = string:sub_string(emqx_sys:version(), 1, 3),
+    [{version, erlang:list_to_binary(Version)},
+     {rules, export_rules()},
+     {resources, export_resources()},
+     {blacklist, export_blacklist()},
+     {apps, export_applications()},
+     {users, export_users()},
+     {auth_mnesia, export_auth_mnesia()},
+     {acl_mnesia, export_acl_mnesia()}
+     ] ++ do_export_extra_data().
+
+-ifdef(EMQX_ENTERPRISE).
+do_export_extra_data() ->
+    {Configs, State} = export_confs(),
+    [{modules, export_modules()},
+     {schemas, export_schemas()},
+     {configs, Configs},
+     {listeners_state, State}
+    ].
+-else.
+do_export_extra_data() -> [].
+-endif.
+
+import(Filename) ->
+    case file:read_file(Filename) of
+        {ok, Json} ->
+            Data = emqx_json:decode(Json, [return_maps]),
+            Version = to_version(maps:get(<<"version">>, Data)),
+            case lists:member(Version, ?VERSIONS) of
+                true  ->
+                    try
+                        do_import_data(Data, Version),
+                        logger:debug("The emqx data has been imported successfully"),
+                        ok
+                    catch Class:Reason:Stack ->
+                        logger:error("The emqx data import failed: ~0p", [{Class,Reason,Stack}]),
+                        {error, import_failed}
+                    end;
+                false ->
+                    logger:error("Unsupported version: ~p", [Version]),
+                    {error, unsupported_version}
+            end;
+        Error -> Error
+    end.
+
+do_import_data(Data, Version) ->
+    import_blacklist(maps:get(<<"blacklist">>, Data, [])),
+    import_applications(maps:get(<<"apps">>, Data, [])),
+    import_users(maps:get(<<"users">>, Data, [])),
+    import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
+    import_auth_username(maps:get(<<"auth_username">>, Data, [])),
+    import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, []), Version),
+    import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, []), Version),
+    do_import_extra_data(Data, Version).
+
+-ifdef(EMQX_ENTERPRISE).
+do_import_extra_data(Data, Version) ->
+    import_confs(maps:get(<<"configs">>, Data, []), maps:get(<<"listeners_state">>, Data, [])),
+    import_resources(maps:get(<<"resources">>, Data, [])),
+    import_rules(maps:get(<<"rules">>, Data, [])),
+    import_modules(maps:get(<<"modules">>, Data, [])),
+    import_schemas(maps:get(<<"schemas">>, Data, [])).
+-else.
+do_import_extra_data(Data, Version) ->
+    import_resources_and_rules(maps:get(<<"resources">>, Data, []), maps:get(<<"rules">>, Data, []), Version).
+-endif.
