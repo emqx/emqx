@@ -364,7 +364,11 @@ pool_name(ResId) ->
     list_to_atom("webhook:" ++ str(ResId)).
 
 get_ssl_options(Config, ResId, <<"https://", _URL/binary>>) ->
-    [{transport, ssl}, {transport_opts, get_ssl_opts(Config, ResId)}];
+    [{transport, ssl},
+     {transport_opts, get_ssl_opts(Config, ResId)},
+     {versions, emqx_tls_lib:default_versions()},
+     {ciphers, emqx_tls_lib:default_ciphers()}
+    ];
 get_ssl_options(_Config, _ResId, _URL) ->
     [].
 
