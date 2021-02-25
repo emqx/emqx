@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mgmt_api_topic_metrics).
+-module(emqx_mod_api_topic_metrics).
 
 -import(minirest, [return/1]).
 
@@ -58,7 +58,7 @@ list(#{topic := Topic0}, _Params) ->
         Topic = emqx_mgmt_util:urldecode(Topic0),
         case safe_validate(Topic) of
             true -> 
-                case emqx_mgmt:get_topic_metrics(Topic) of
+                case get_topic_metrics(Topic) of
                     {error, Reason} -> return({error, Reason});
                     Metrics         -> return({ok, maps:from_list(Metrics)})
                 end;
@@ -69,7 +69,7 @@ list(#{topic := Topic0}, _Params) ->
 
 list(_Bindings, _Params) ->
     execute_when_enabled(fun() ->
-        case emqx_mgmt:get_all_topic_metrics() of
+        case get_all_topic_metrics() of
             {error, Reason} -> return({error, Reason});
             Metrics         -> return({ok, Metrics})
         end
@@ -83,7 +83,7 @@ register(_Bindings, Params) ->
             Topic ->
                 case safe_validate(Topic) of
                     true -> 
-                        emqx_mgmt:register_topic_metrics(Topic),
+                        register_topic_metrics(Topic),
                         return(ok);
                     false ->
                         return({error, invalid_topic_name})
@@ -93,7 +93,7 @@ register(_Bindings, Params) ->
 
 unregister(Bindings, _Params) when map_size(Bindings) =:= 0 ->
     execute_when_enabled(fun() ->
-        emqx_mgmt:unregister_all_topic_metrics(),
+        unregister_all_topic_metrics(),
         return(ok)
     end);
 
@@ -102,7 +102,7 @@ unregister(#{topic := Topic0}, _Params) ->
         Topic = emqx_mgmt_util:urldecode(Topic0),
         case safe_validate(Topic) of
             true -> 
-                emqx_mgmt:unregister_topic_metrics(Topic),
+                unregister_topic_metrics(Topic),
                 return(ok);
             false ->
                 return({error, invalid_topic_name})
@@ -127,4 +127,77 @@ safe_validate(Topic) ->
     catch
         error:_Error ->
             false
+    end.
+
+get_all_topic_metrics() ->
+    lists:foldl(fun(Topic, Acc) ->
+                    case get_topic_metrics(Topic) of
+                        {error, _Reason} ->
+                            Acc;
+                        Metrics ->
+                            [#{topic => Topic, metrics => Metrics} | Acc]
+                    end
+                end, [], emqx_mod_topic_metrics:all_registered_topics()).
+
+get_topic_metrics(Topic) ->
+    lists:foldl(fun(Node, Acc) ->
+                    case get_topic_metrics(Node, Topic) of
+                        {error, _Reason} ->
+                            Acc;
+                        Metrics ->
+                            case Acc of
+                                [] -> Metrics;
+                                _ ->
+                                    lists:foldl(fun({K, V}, Acc0) ->
+                                                    [{K, V + proplists:get_value(K, Metrics, 0)} | Acc0]
+                                                end, [], Acc)
+                            end
+                    end
+                end, [], ekka_mnesia:running_nodes()).
+
+get_topic_metrics(Node, Topic) when Node =:= node() ->
+    emqx_mod_topic_metrics:metrics(Topic);
+get_topic_metrics(Node, Topic) ->
+    rpc_call(Node, get_topic_metrics, [Node, Topic]).
+
+register_topic_metrics(Topic) ->
+    Results = [register_topic_metrics(Node, Topic) || Node <- ekka_mnesia:running_nodes()],
+    case lists:any(fun(Item) -> Item =:= ok end, Results) of
+        true  -> ok;
+        false -> lists:last(Results)
+    end.
+
+register_topic_metrics(Node, Topic) when Node =:= node() ->
+    emqx_mod_topic_metrics:register(Topic);
+register_topic_metrics(Node, Topic) ->
+    rpc_call(Node, register_topic_metrics, [Node, Topic]).
+
+unregister_topic_metrics(Topic) ->
+    Results = [unregister_topic_metrics(Node, Topic) || Node <- ekka_mnesia:running_nodes()],
+    case lists:any(fun(Item) -> Item =:= ok end, Results) of
+        true  -> ok;
+        false -> lists:last(Results)
+    end.
+
+unregister_topic_metrics(Node, Topic) when Node =:= node() ->
+    emqx_mod_topic_metrics:unregister(Topic);
+unregister_topic_metrics(Node, Topic) ->
+    rpc_call(Node, unregister_topic_metrics, [Node, Topic]).
+
+unregister_all_topic_metrics() ->
+    Results = [unregister_all_topic_metrics(Node) || Node <- ekka_mnesia:running_nodes()],
+    case lists:any(fun(Item) -> Item =:= ok end, Results) of
+        true  -> ok;
+        false -> lists:last(Results)
+    end.
+
+unregister_all_topic_metrics(Node) when Node =:= node() ->
+    emqx_mod_topic_metrics:unregister_all();
+unregister_all_topic_metrics(Node) ->
+    rpc_call(Node, unregister_topic_metrics, [Node]).
+
+rpc_call(Node, Fun, Args) ->
+    case rpc:call(Node, ?MODULE, Fun, Args) of
+        {badrpc, Reason} -> {error, Reason};
+        Res -> Res
     end.
