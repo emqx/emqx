@@ -80,7 +80,7 @@ export(_Bindings, _Params) ->
             return({ok, File#{filename => filename:basename(Filename)}});
         Return -> return(Return)
     end.
-    
+
 list_exported(_Bindings, _Params) ->
     List = [ rpc:call(Node, ?MODULE, get_list_exported, []) || Node <- ekka_mnesia:running_nodes() ],
     NList = lists:map(fun({_, FileInfo}) -> FileInfo end, lists:keysort(1, lists:append(List))),
@@ -131,7 +131,7 @@ import(_Bindings, Params) ->
 
 do_import(Filename) ->
     FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
-    emqx_mgmt_data_backup:import(FullFilename).    
+    emqx_mgmt_data_backup:import(FullFilename).
 
 download(#{filename := Filename}, _Params) ->
     FullFilename = filename:join([emqx:get_env(data_dir), Filename]),

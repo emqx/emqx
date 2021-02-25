@@ -23,8 +23,6 @@
 
 -define(PRINT_CMD(Cmd, Descr), io:format("~-48s# ~s~n", [Cmd, Descr])).
 
--import(lists, [foreach/2]).
-
 -export([load/0]).
 
 -export([ status/1
@@ -58,7 +56,7 @@
 -spec(load() -> ok).
 load() ->
     Cmds = [Fun || {Fun, _} <- ?MODULE:module_info(exports), is_cmd(Fun)],
-    foreach(fun(Cmd) -> emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, []) end, Cmds).
+    lists:foreach(fun(Cmd) -> emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, []) end, Cmds).
 
 is_cmd(Fun) ->
     not lists:member(Fun, [init, load, module_info]).
@@ -100,7 +98,7 @@ mgmt(["delete", AppId]) ->
     end;
 
 mgmt(["list"]) ->
-    foreach(fun({AppId, AppSecret, Name, Desc, Status, Expired}) ->
+    lists:foreach(fun({AppId, AppSecret, Name, Desc, Status, Expired}) ->
                       emqx_ctl:print("app_id: ~s, secret: ~s, name: ~s, desc: ~s, status: ~s, expired: ~p~n",
                                     [AppId, AppSecret, Name, Desc, Status, Expired])
                   end, emqx_mgmt_auth:list_apps());
@@ -229,7 +227,7 @@ routes(_) ->
                     {"routes show <Topic>", "Show a route"}]).
 
 subscriptions(["list"]) ->
-    foreach(fun(Suboption) ->
+    lists:foreach(fun(Suboption) ->
                         print({emqx_suboption, Suboption})
                   end, ets:tab2list(emqx_suboption));
 
@@ -279,7 +277,7 @@ if_valid_qos(QoS, Fun) ->
     end.
 
 plugins(["list"]) ->
-    foreach(fun print/1, emqx_plugins:list());
+    lists:foreach(fun print/1, emqx_plugins:list());
 
 plugins(["load", Name]) ->
     case emqx_plugins:load(list_to_atom(Name)) of
@@ -421,7 +419,7 @@ log(_) ->
 %% @doc Trace Command
 
 trace(["list"]) ->
-    foreach(fun({{Who, Name}, {Level, LogFile}}) ->
+    lists:foreach(fun({{Who, Name}, {Level, LogFile}}) ->
                 emqx_ctl:print("Trace(~s=~s, level=~s, destination=~p)~n", [Who, Name, Level, LogFile])
             end, emqx_tracer:lookup_traces());
 
@@ -470,7 +468,7 @@ trace_off(Who, Name) ->
 %% @doc Listeners Command
 
 listeners([]) ->
-    foreach(fun({{Protocol, ListenOn}, _Pid}) ->
+    lists:foreach(fun({{Protocol, ListenOn}, _Pid}) ->
                 Info = [{listen_on,      {string, emqx_listeners:format_listen_on(ListenOn)}},
                         {acceptors,      esockd:get_acceptors({Protocol, ListenOn})},
                         {max_conns,      esockd:get_max_connections({Protocol, ListenOn})},
@@ -478,9 +476,9 @@ listeners([]) ->
                         {shutdown_count, esockd:get_shutdown_count({Protocol, ListenOn})}
                        ],
                     emqx_ctl:print("~s~n", [listener_identifier(Protocol, ListenOn)]),
-                foreach(fun indent_print/1, Info)
+                lists:foreach(fun indent_print/1, Info)
             end, esockd:listeners()),
-    foreach(fun({Protocol, Opts}) ->
+    lists:foreach(fun({Protocol, Opts}) ->
                 Port = proplists:get_value(port, Opts),
                 Info = [{listen_on,      {string, emqx_listeners:format_listen_on(Port)}},
                         {acceptors,      maps:get(num_acceptors, proplists:get_value(transport_options, Opts, #{}), 0)},
@@ -488,7 +486,7 @@ listeners([]) ->
                         {current_conn,   proplists:get_value(all_connections, Opts)},
                         {shutdown_count, []}],
                     emqx_ctl:print("~s~n", [listener_identifier(Protocol, Port)]),
-                foreach(fun indent_print/1, Info)
+                lists:foreach(fun indent_print/1, Info)
             end, ranch:info());
 
 listeners(["stop",  Name = "http" ++ _N | _MaybePort]) ->
@@ -548,16 +546,16 @@ data(["export"]) ->
             emqx_ctl:print("The emqx data has been successfully exported to ~s.~n", [Filename]);
         {error, Reason} ->
             emqx_ctl:print("The emqx data export failed due to ~p.~n", [Reason])
-    end;    
+    end;
 
 data(["import", Filename]) ->
     case emqx_mgmt_data_backup:import(Filename) of
         ok ->
             emqx_ctl:print("The emqx data has been imported successfully.~n");
-        {error, import_failed} -> 
-            emqx_ctl:print("The emqx data import failed. ~n");
+        {error, import_failed} ->
+            emqx_ctl:print("The emqx data import failed.~n");
         {error, unsupported_version} ->
-            emqx_ctl:print("The emqx data import failed: Unsupported version. ~n");
+            emqx_ctl:print("The emqx data import failed: Unsupported version.~n");
         {error, Reason} ->
             emqx_ctl:print("The emqx data import failed: ~0p while reading ~s.~n", [Reason, Filename])
     end;
