@@ -52,7 +52,7 @@ test_deps() ->
     ].
 
 default_compile_opts() ->
-    [compressed, deterministic, no_debug_info, warnings_as_errors, {parse_transform, mod_vsn}].
+    [compressed, deterministic, no_debug_info, warnings_as_errors, {parse_transform, emqx_mod_vsn}].
 
 profiles() ->
     [ {'emqx',          [ {erl_opts, default_compile_opts()}
@@ -67,11 +67,11 @@ profiles() ->
     , {'emqx-edge-pkg', [ {erl_opts, default_compile_opts()}
                         , {relx, relx('emqx-edge-pkg')}
                         ]}
-    , {check,           [ {erl_opts, [debug_info, warnings_as_errors, {parse_transform, mod_vsn}]}
+    , {check,           [ {erl_opts, [debug_info, warnings_as_errors, {parse_transform, emqx_mod_vsn}]}
                         ]}
     , {test,            [ {deps, test_deps()}
                         , {plugins, test_plugins()}
-                        , {erl_opts, [debug_info, {parse_transform, mod_vsn}] ++ erl_opts_i()}
+                        , {erl_opts, [debug_info, {parse_transform, emqx_mod_vsn}] ++ erl_opts_i()}
                         , {extra_src_dirs, [{"test", [{recursive,true}]}]}
                         ]}
     ].
@@ -281,6 +281,7 @@ provide_bcrypt_release(ReleaseType) ->
 compile_and_load_pase_transforms(Dir) ->
     PtFiles =
         [ "apps/emqx_rule_engine/src/emqx_rule_actions_trans.erl"
+        , "src/emqx_mod_vsn.erl"
         ],
     CompileOpts = [verbose,report_errors,report_warnings,return_errors,debug_info],
     lists:foreach(fun(PtFile) -> {ok, _Mod} = compile:file(path(Dir, PtFile), CompileOpts) end, PtFiles).
