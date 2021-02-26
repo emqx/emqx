@@ -45,10 +45,10 @@ integral_versions([]) ->
     integral_versions(default_versions());
 integral_versions(<<>>) ->
     integral_versions(default_versions());
-integral_versions(Desired) when is_binary(Desired) ->
-    integral_versions(parse_versions(Desired));
 integral_versions(Desired) when ?IS_STRING(Desired) ->
     integral_versions(iolist_to_binary(Desired));
+integral_versions(Desired) when is_binary(Desired) ->
+    integral_versions(parse_versions(Desired));
 integral_versions(Desired) ->
     {_, Available} = lists:keyfind(available, 1, ssl:versions()),
     case lists:filter(fun(V) -> lists:member(V, Available) end, Desired) of
