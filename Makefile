@@ -26,7 +26,7 @@ $(REBAR): ensure-rebar3
 
 .PHONY: get-dashboard
 get-dashboard:
-	$(CURDIR)/get-dashboard.sh $(DASHBOARD_VERSION)
+	$(CURDIR)/scripts/get-dashboard.sh $(DASHBOARD_VERSION)
 
 .PHONY: eunit
 eunit: $(REBAR)
