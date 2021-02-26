@@ -34,4 +34,5 @@ start(_Type, _Args) ->
     {ok, Pid}.
 
 stop(_State) ->
+    emqx_ctl:unregister_command(modules),
     emqx_modules:unload().

@@ -28,8 +28,6 @@
         , import_schemas/1
         , import_confs/2
         ]).
--else.
--export([ import_resources_and_rules/3 ]).
 -endif.
 
 -export([ export_rules/0
@@ -39,6 +37,7 @@
         , export_users/0
         , export_auth_mnesia/0
         , export_acl_mnesia/0
+        , import_resources_and_rules/3
         , import_rules/1
         , import_resources/1
         , import_blacklist/1
@@ -245,6 +244,7 @@ import_resources_and_rules(Resources, Rules, FromVersion)
                       NActions = apply_new_config(Actions, Configs),
                       import_rule(Rule#{<<"actions">> := NActions})
                   end, Rules);
+
 import_resources_and_rules(Resources, Rules, _FromVersion) ->
     import_resources(Resources),
     import_rules(Rules).
@@ -278,7 +278,10 @@ action_to_prop_list({action_instance, ActionInstId, Name, FallbackActions, Args}
      {name, Name},
      {fallbacks, actions_to_prop_list(FallbackActions)},
      {args, Args}].
-
+-else.
+import_resources_and_rules(Resources, Rules, _FromVersion) ->
+    import_resources(Resources),
+    import_rules(Rules).
 -endif.
 
 import_blacklist(Blacklist) ->
@@ -516,23 +519,22 @@ import(Filename) ->
     end.
 
 do_import_data(Data, Version) ->
+    do_import_extra_data(Data, Version),
+    import_resources_and_rules(maps:get(<<"resources">>, Data, []), maps:get(<<"rules">>, Data, []), Version),
     import_blacklist(maps:get(<<"blacklist">>, Data, [])),
     import_applications(maps:get(<<"apps">>, Data, [])),
     import_users(maps:get(<<"users">>, Data, [])),
     import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
     import_auth_username(maps:get(<<"auth_username">>, Data, [])),
     import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, []), Version),
-    import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, []), Version),
-    do_import_extra_data(Data, Version).
+    import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, []), Version).
 
 -ifdef(EMQX_ENTERPRISE).
 do_import_extra_data(Data, Version) ->
     import_confs(maps:get(<<"configs">>, Data, []), maps:get(<<"listeners_state">>, Data, [])),
-    import_resources(maps:get(<<"resources">>, Data, [])),
-    import_rules(maps:get(<<"rules">>, Data, [])),
     import_modules(maps:get(<<"modules">>, Data, [])),
-    import_schemas(maps:get(<<"schemas">>, Data, [])).
+    import_schemas(maps:get(<<"schemas">>, Data, [])),
+    ok.
 -else.
-do_import_extra_data(Data, Version) ->
-    import_resources_and_rules(maps:get(<<"resources">>, Data, []), maps:get(<<"rules">>, Data, []), Version).
+do_import_extra_data(_Data, _Version) -> ok.
 -endif.
