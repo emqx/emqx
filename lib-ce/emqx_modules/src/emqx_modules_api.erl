@@ -86,7 +86,7 @@ load(#{node := Node, module := Module}, _Params) ->
     return(do_load_module(Node, Module));
 
 load(#{module := Module}, _Params) ->
-    Results = [do_load_module(Node, Module) || {Node, _Info} <- emqx_mgmt:list_nodes()],
+    Results = [do_load_module(Node, Module) || Node <- ekka_mnesia:running_nodes()],
     case lists:filter(fun(Item) -> Item =/= ok end, Results) of
         [] ->
             return(ok);
@@ -98,7 +98,7 @@ unload(#{node := Node, module := Module}, _Params) ->
     return(do_unload_module(Node, Module));
 
 unload(#{module := Module}, _Params) ->
-    Results = [do_unload_module(Node, Module) || {Node, _Info} <- emqx_mgmt:list_nodes()],
+    Results = [do_unload_module(Node, Module) || Node <- ekka_mnesia:running_nodes()],
     case lists:filter(fun(Item) -> Item =/= ok end, Results) of
         [] ->
             return(ok);
@@ -113,7 +113,7 @@ reload(#{node := Node, module := Module}, _Params) ->
     end;
 
 reload(#{module := Module}, _Params) ->
-    Results = [reload_module(Node, Module) || {Node, _Info} <- emqx_mgmt:list_nodes()],
+    Results = [reload_module(Node, Module) || Node <- ekka_mnesia:running_nodes()],
     case lists:filter(fun(Item) -> Item =/= ok end, Results) of
         [] ->
             return(ok);
