@@ -148,6 +148,7 @@ relx_apps(ReleaseType) ->
     , emqx
     , {mnesia, load}
     , {ekka, load}
+    , {emqx_plugin_libs, load}
     ]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
     ++ relx_apps_per_rel(ReleaseType)

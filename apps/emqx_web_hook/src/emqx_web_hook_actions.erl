@@ -365,49 +365,14 @@ pool_name(ResId) ->
 
 get_ssl_options(Config, ResId, <<"https://", _URL/binary>>) ->
     [{transport, ssl},
-     {transport_opts, get_ssl_opts(Config, ResId)},
-     {versions, emqx_tls_lib:default_versions()},
-     {ciphers, emqx_tls_lib:default_ciphers()}
+     {transport_opts, get_ssl_opts(Config, ResId)}
     ];
 get_ssl_options(_Config, _ResId, _URL) ->
     [].
 
 get_ssl_opts(Opts, ResId) ->
-    KeyFile = maps:get(<<"keyfile">>, Opts, undefined),
-    CertFile = maps:get(<<"certfile">>, Opts, undefined),
-    CAFile = maps:get(<<"cacertfile">>, Opts, undefined),
-    Filter = fun(Opts1) ->
-                     [{K, V} || {K, V} <- Opts1,
-                                    V =/= undefined,
-                                    V =/= <<>>,
-                                    V =/= "" ]
-             end,
-    Key = save_upload_file(KeyFile, ResId),
-    Cert = save_upload_file(CertFile, ResId),
-    CA = save_upload_file(CAFile, ResId),
-    Verify = case maps:get(<<"verify">>, Opts, false) of
-        false -> verify_none;
-        true -> verify_peer
-    end,
-    case Filter([{keyfile, Key}, {certfile, Cert}, {cacertfile, CA}]) of
-        [] -> [{verify, Verify}];
-        SslOpts ->
-            [{verify, Verify} | SslOpts]
-    end.
-
-save_upload_file(#{<<"file">> := <<>>, <<"filename">> := <<>>}, _ResId) -> "";
-save_upload_file(FilePath, _) when is_binary(FilePath) -> binary_to_list(FilePath);
-save_upload_file(#{<<"file">> := File, <<"filename">> := FileName}, ResId) ->
-     FullFilename = filename:join([emqx:get_env(data_dir), rules, ResId, FileName]),
-     ok = filelib:ensure_dir(FullFilename),
-     case file:write_file(FullFilename, File) of
-          ok ->
-               binary_to_list(FullFilename);
-          {error, Reason} ->
-               logger:error("Store file failed, ResId: ~p, ~0p", [ResId, Reason]),
-               error({ResId, store_file_fail})
-     end;
-save_upload_file(_, _) -> "".
+    Dir = filename:join([emqx:get_env(data_dir), "rule", ResId]),
+    [{ssl, true}, {ssl_opts, emqx_plugin_libs_ssl:save_files_return_opts(Opts, Dir)}].
 
 parse_host(Host) ->
     case inet:parse_address(Host) of
