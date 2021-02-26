@@ -23,7 +23,9 @@
         , integral_ciphers/2
         ]).
 
+%% non-empty string
 -define(IS_STRING(L), (is_list(L) andalso L =/= [] andalso is_integer(hd(L)))).
+%% non-empty list of strings
 -define(IS_STRING_LIST(L), (is_list(L) andalso L =/= [] andalso ?IS_STRING(hd(L)))).
 
 %% @doc Returns the default supported tls versions.
@@ -35,7 +37,8 @@ default_versions() ->
 %% @doc Validate a given list of desired tls versions.
 %% raise an error exception if non of them are available.
 %% The input list can be a string/binary of comma separated versions.
--spec integral_versions(undefined | string() | binary() | [ssl:tls_version()]) -> [ssl:tls_version()].
+-spec integral_versions(undefined | string() | binary() | [ssl:tls_version()]) ->
+        [ssl:tls_version()].
 integral_versions(undefined) ->
     integral_versions(default_versions());
 integral_versions([]) ->
