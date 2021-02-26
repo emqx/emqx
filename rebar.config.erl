@@ -72,6 +72,7 @@ profiles() ->
     , {test,            [ {deps, test_deps()}
                         , {plugins, test_plugins()}
                         , {erl_opts, [debug_info, {parse_transform, mod_vsn}] ++ erl_opts_i()}
+                        , {extra_src_dirs, [{"test", [{recursive,true}]}]}
                         ]}
     ].
 

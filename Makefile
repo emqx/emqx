@@ -30,7 +30,7 @@ get-dashboard:
 
 .PHONY: eunit
 eunit: $(REBAR)
-	$(REBAR) eunit
+	$(REBAR) eunit -v -c
 
 .PHONY: proper
 proper: $(REBAR)

@@ -47,6 +47,7 @@ jobs:
             printenv > .env
             docker exec -i erlang bash -c "make xref"
             docker exec --env-file .env -i erlang bash -c "make ct"
+            docker exec --env-file .env -i erlang bash -c "make eunit"
             docker exec -i erlang bash -c "make cover"
             docker exec -i erlang bash -c "make coveralls"
         - uses: actions/upload-artifact@v1
