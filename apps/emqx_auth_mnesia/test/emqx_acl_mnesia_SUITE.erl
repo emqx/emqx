@@ -250,8 +250,4 @@ uri(Parts) when is_list(Parts) ->
     NParts = [b2l(E) || E <- Parts],
     ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION, "acl"| NParts]).
 
-%% @private
-b2l(B) when is_binary(B) ->
-    http_uri:encode(binary_to_list(B));
-b2l(L) when is_list(L) ->
-    http_uri:encode(L).
+b2l(B) -> binary_to_list(emqx_http_lib:uri_encode(iolist_to_binary(B))).
