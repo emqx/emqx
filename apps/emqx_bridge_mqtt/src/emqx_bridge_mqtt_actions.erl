@@ -755,7 +755,7 @@ options(Options, PoolName, ResId) ->
          end.
 
 maybe_ssl(_Options, false, _ResId) ->
-    [{ssl, false}];
+    [];
 maybe_ssl(Options, true, ResId) ->
     Dir = filename:join([emqx:get_env(data_dir), "rule", ResId]),
     [{ssl, true}, {ssl_opts, emqx_plugin_libs_ssl:save_files_return_opts(Options, Dir)}].
