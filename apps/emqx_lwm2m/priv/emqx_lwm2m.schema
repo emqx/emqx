@@ -112,9 +112,9 @@ end}.
   {default, "lwm2m/%e/up/resp"}
 ]}.
 
-{mapping, "lwm2m.publish_update_when", "emqx_lwm2m.publish_update_when", [
-  {datatype, {enum, [object_list_changed, always]}},
-  {default, object_list_changed}
+{mapping, "lwm2m.publish_update_msg_when", "emqx_lwm2m.publish_update_msg_when", [
+  {datatype, {enum, [contains_object_list, always]}},
+  {default, contains_object_list}
 ]}.
 
 {translation, "emqx_lwm2m.topics", fun(Conf) ->

@@ -121,11 +121,11 @@ update_reg_info(NewRegInfo, Lwm2mState = #lwm2m_state{
 
     UpdatedRegInfo = maps:merge(RegInfo, NewRegInfo),
 
-    case proplists:get_value(publish_update_when,
-            lwm2m_coap_responder:options(), object_list_changed) of
+    case proplists:get_value(publish_update_msg_when,
+            lwm2m_coap_responder:options(), contains_object_list) of
         always ->
             send_to_broker(<<"update">>, #{<<"data">> => UpdatedRegInfo}, Lwm2mState);
-        object_list_changed ->
+        contains_object_list ->
             %% - report the registration info update, but only when objectList is updated.
             case NewRegInfo of
                 #{<<"objectList">> := _} ->
