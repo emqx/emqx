@@ -269,16 +269,10 @@ do_update_resource_check(Id, NewParams) ->
                        config = OldConfig,
                        description = OldDescription} = _OldResource} ->
             try
-                do_update_resource(#{id => Id,
-                                     config => case maps:find(<<"config">>, NewParams) of
-                                                    {ok, NewConfig} -> NewConfig;
-                                                    error -> OldConfig
-                                               end,
-                                     type => Type,
-                                     description => case maps:find(<<"description">>, NewParams) of
-                                                         {ok, NewDescription} -> NewDescription;
-                                                         error -> OldDescription
-                                                    end}),
+                Conifg = maps:get(<<"config">>, NewParams, OldConfig),
+                Descr = maps:get(<<"description">>, NewParams, OldDescription),
+                do_update_resource(#{id => Id, config => Conifg, type => Type,
+                                     description => Descr}),
                 ok
             catch _ : Reason ->
                 {error, Reason}
@@ -294,11 +288,13 @@ do_update_resource(#{id := Id, type := Type, description := NewDescription, conf
             Config = emqx_rule_validator:validate_params(NewConfig, ParamSpec),
             case test_resource(#{type => Type, config => NewConfig}) of
                 ok ->
-                    Resource = #resource{id = Id,
-                                         type = Type,
-                                         config = Config,
-                                         description = NewDescription,
-                                         created_at = erlang:system_time(millisecond)},
+                    Resource = #resource{
+                        id = Id,
+                        type = Type,
+                        config = Config,
+                        description = NewDescription,
+                        created_at = erlang:system_time(millisecond)
+                    },
                     cluster_call(init_resource, [Module, Create, Id, Config]),
                     emqx_rule_registry:add_resource(Resource);
                {error, Reason} ->
@@ -468,18 +464,19 @@ may_update_rule_params(Rule, Params = #{rawsql := SQL}) ->
                 maps:remove(rawsql, Params));
         Reason -> throw(Reason)
     end;
-may_update_rule_params(Rule = #rule{enabled = OldE, actions = Actions},
-         Params = #{enabled := ToE}) ->
-     case {OldE, ToE} of
+may_update_rule_params(Rule = #rule{enabled = OldEnb, actions = Actions},
+         Params = #{enabled := NewEnb}) ->
+     case {OldEnb, NewEnb} of
          {false, true} -> refresh_rule(Rule);
          {true, false} -> clear_actions(Actions);
          _ -> ok
      end,
-     may_update_rule_params(Rule#rule{enabled = ToE}, maps:remove(enabled, Params));
+     may_update_rule_params(Rule#rule{enabled = NewEnb}, maps:remove(enabled, Params));
 may_update_rule_params(Rule, Params = #{description := Descr}) ->
     may_update_rule_params(Rule#rule{description = Descr}, maps:remove(description, Params));
 may_update_rule_params(Rule, Params = #{on_action_failed := OnFailed}) ->
-    may_update_rule_params(Rule#rule{on_action_failed = OnFailed}, maps:remove(on_action_failed, Params));
+    may_update_rule_params(Rule#rule{on_action_failed = OnFailed},
+        maps:remove(on_action_failed, Params));
 may_update_rule_params(Rule = #rule{actions = OldActions}, Params = #{actions := Actions}) ->
     %% prepare new actions before removing old ones
     NewActions = prepare_actions(Actions, maps:get(enabled, Params, true)),
