@@ -99,7 +99,7 @@ ensure_all_started([L | Rest], Results) ->
     ensure_all_started(Rest, NewResults).
 
 %% @doc Format address:port for logging.
--spec(format_listen_on(esockd:listen_on()) -> binary()).
+-spec(format_listen_on(esockd:listen_on()) -> [char()]).
 format_listen_on(ListenOn) -> format(ListenOn).
 
 -spec(start_listener(listener()) -> ok).
