@@ -109,7 +109,7 @@ pack_banned(Params) ->
     Now = erlang:system_time(second),
     do_pack_banned(Params, #{by => <<"user">>, at => Now, until => Now + 300}).
 
-do_pack_banned([], #{who := Who,  by := By, reason := Reason, at := At, until  := Until}) ->
+do_pack_banned([], #{who := Who,  by := By, reason := Reason, at := At, until := Until}) ->
     {ok, #banned{who = Who, by = By, reason = Reason, at = At, until = Until}};
 do_pack_banned([{<<"who">>, Who} | Params], Banned) ->
     case lists:keytake(<<"as">>, 1, Params) of
