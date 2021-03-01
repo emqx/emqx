@@ -1,5 +1,5 @@
 REBAR_VERSION = 3.14.3-emqx-4
-DASHBOARD_VERSION = v4.3.0
+DASHBOARD_VERSION = v4.3.0-beta.1
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
@@ -21,49 +21,50 @@ all: $(REBAR) $(PROFILES)
 
 .PHONY: ensure-rebar3
 ensure-rebar3:
-	$(SCRIPTS)/ensure-rebar3.sh $(REBAR_VERSION)
+	@$(SCRIPTS)/fail-on-old-otp-version.escript
+	@$(SCRIPTS)/ensure-rebar3.sh $(REBAR_VERSION)
 
 $(REBAR): ensure-rebar3
 
 .PHONY: get-dashboard
 get-dashboard:
-	$(SCRIPTS)/get-dashboard.sh $(DASHBOARD_VERSION)
+	@$(SCRIPTS)/get-dashboard.sh $(DASHBOARD_VERSION)
 
 .PHONY: eunit
 eunit: $(REBAR)
-	$(REBAR) eunit -v -c
+	@$(REBAR) eunit -v -c
 
 .PHONY: proper
 proper: $(REBAR)
-	$(REBAR) as test proper -d test/props -c
+	@$(REBAR) as test proper -d test/props -c
 
 .PHONY: ct
 ct: $(REBAR)
-	$(REBAR) ct --name 'test@127.0.0.1' -c -v
+	@$(REBAR) ct --name 'test@127.0.0.1' -c -v
 
 .PHONY: cover
 cover: $(REBAR)
-	$(REBAR) cover
+	@$(REBAR) cover
 
 .PHONY: coveralls
 coveralls: $(REBAR)
-	$(REBAR) as test coveralls send
+	@$(REBAR) as test coveralls send
 
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(REBAR) get-dashboard
 ifneq ($(shell echo $(@) |grep edge),)
-	export EMQX_DESC="EMQ X Edge"
+	@export EMQX_DESC="EMQ X Edge"
 else
-	export EMQX_DESC="EMQ X Broker"
+	@export EMQX_DESC="EMQ X Broker"
 endif
-	$(REBAR) as $(@) release
+	@$(REBAR) as $(@) release
 
 # rebar clean
 .PHONY: clean $(PROFILES:%=clean-%)
 clean: $(PROFILES:%=clean-%)
 $(PROFILES:%=clean-%): $(REBAR)
-	$(REBAR) as $(@:clean-%=%) clean
-	rm -rf apps/emqx_dashboard/priv/www
+	@$(REBAR) as $(@:clean-%=%) clean
+	@rm -rf apps/emqx_dashboard/priv/www
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%)
@@ -71,35 +72,35 @@ deps-all: $(REBAR) $(PROFILES:%=deps-%)
 .PHONY: $(PROFILES:%=deps-%)
 $(PROFILES:%=deps-%): $(REBAR) get-dashboard
 ifneq ($(shell echo $(@) |grep edge),)
-	export EMQX_DESC="EMQ X Edge"
+	@export EMQX_DESC="EMQ X Edge"
 else
-	export EMQX_DESC="EMQ X Broker"
+	@export EMQX_DESC="EMQ X Broker"
 endif
-	$(REBAR) as $(@:deps-%=%) get-deps
+	@$(REBAR) as $(@:deps-%=%) get-deps
 
 .PHONY: xref
 xref: $(REBAR)
-	$(REBAR) as check xref
+	@$(REBAR) as check xref
 
 .PHONY: dialyzer
 dialyzer: $(REBAR)
-	$(REBAR) as check dialyzer
+	@$(REBAR) as check dialyzer
 
 .PHONY: $(REL_PROFILES:%=relup-%)
 $(REL_PROFILES:%=relup-%): $(REBAR)
 ifneq ($(OS),Windows_NT)
-	$(BUILD) $(@:relup-%=%) relup
+	@$(BUILD) $(@:relup-%=%) relup
 endif
 
 .PHONY: $(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar)
 $(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar): $(REBAR) get-dashboard
-	$(BUILD) $(subst -tar,,$(@)) tar
+	@$(BUILD) $(subst -tar,,$(@)) tar
 
 ## zip targets depend on the corresponding relup and tar artifacts
 .PHONY: $(REL_PROFILES:%=%-zip)
 define gen-zip-target
 $1-zip: relup-$1 $1-tar
-	$(BUILD) $1 zip
+	@$(BUILD) $1 zip
 endef
 ALL_ZIPS = $(REL_PROFILES) $(PKG_PROFILES)
 $(foreach zt,$(ALL_ZIPS),$(eval $(call gen-zip-target,$(zt))))
@@ -109,7 +110,7 @@ $(foreach zt,$(ALL_ZIPS),$(eval $(call gen-zip-target,$(zt))))
 .PHONY: $(PKG_PROFILES)
 define gen-pkg-target
 $1: $(subst -pkg,,$1)-zip $1-tar
-	$(BUILD) $1 pkg
+	@$(BUILD) $1 pkg
 endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
 
