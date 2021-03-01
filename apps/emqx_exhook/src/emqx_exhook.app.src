@@ -1,6 +1,6 @@
 {application, emqx_exhook,
  [{description, "EMQ X Extension for Hook"},
-  {vsn, "git"},
+  {vsn, "4.3.0"},
   {modules, []},
   {registered, []},
   {mod, {emqx_exhook_app, []}},

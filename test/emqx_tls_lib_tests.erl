@@ -53,8 +53,12 @@ tls_versions_test() ->
     ?assert(lists:member('tlsv1.3', emqx_tls_lib:default_versions())).
 
 tls_version_unknown_test() ->
-    ?assertError(#{reason := no_available_tls_version},
+    ?assertEqual(emqx_tls_lib:default_versions(),
                  emqx_tls_lib:integral_versions([])),
+    ?assertEqual(emqx_tls_lib:default_versions(),
+                 emqx_tls_lib:integral_versions(<<>>)),
+    ?assertEqual(emqx_tls_lib:default_versions(),
+                 emqx_tls_lib:integral_versions("foo")),
     ?assertError(#{reason := no_available_tls_version},
                  emqx_tls_lib:integral_versions([foo])).
 

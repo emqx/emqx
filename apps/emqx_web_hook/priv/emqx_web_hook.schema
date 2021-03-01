@@ -15,14 +15,17 @@
 ]}.
 
 {mapping, "web.hook.ssl.cacertfile", "emqx_web_hook.cacertfile", [
+  {default, ""},
   {datatype, string}
 ]}.
 
 {mapping, "web.hook.ssl.certfile", "emqx_web_hook.certfile", [
+  {default, ""},
   {datatype, string}
 ]}.
 
 {mapping, "web.hook.ssl.keyfile", "emqx_web_hook.keyfile", [
+  {default, ""},
   {datatype, string}
 ]}.
 

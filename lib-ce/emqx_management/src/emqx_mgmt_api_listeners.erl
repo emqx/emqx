@@ -65,7 +65,7 @@ restart(#{identifier := Identifier}, _Params) ->
     Results = [{Node, emqx_mgmt:restart_listener(Node, Identifier)} || {Node, _Info} <- emqx_mgmt:list_nodes()],
     case lists:filter(fun({_, Result}) -> Result =/= ok end, Results) of
         [] -> return(ok);
-        Errors -> return({error, Errors})
+        Errors -> return({error, {restart, Errors}})
     end.
 
 format(Listeners) when is_list(Listeners) ->

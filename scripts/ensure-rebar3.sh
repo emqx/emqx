@@ -1,12 +1,11 @@
-#!/bin/sh
+#!/bin/bash
 
-#set -euo pipefail
-set -eu
+set -euo pipefail
 
 VERSION="$1"
 
 # ensure dir
-cd -P -- "$(dirname -- "$0")"
+cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 DOWNLOAD_URL='https://github.com/emqx/rebar3/releases/download'
 

@@ -264,7 +264,7 @@ init_state(WrappedSock, Peername, Options) ->
 run_loop(Parent, State = #state{socket   = Socket,
                                 peername = Peername}) ->
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
-    emqx_misc:tune_heap_size(?DEFAULT_OOM_POLICY),
+    _ = emqx_misc:tune_heap_size(?DEFAULT_OOM_POLICY),
     case activate_socket(State) of
         {ok, NState} ->
             hibernate(Parent, NState);
@@ -273,6 +273,7 @@ run_loop(Parent, State = #state{socket   = Socket,
             exit_on_sock_error(Reason)
     end.
 
+-spec exit_on_sock_error(atom()) -> no_return().
 exit_on_sock_error(Reason) when Reason =:= einval;
                                 Reason =:= enotconn;
                                 Reason =:= closed ->
@@ -449,6 +450,7 @@ handle_msg(Msg, State) ->
 %%--------------------------------------------------------------------
 %% Terminate
 
+-spec terminate(atom(), state()) -> no_return().
 terminate(Reason, State = #state{channel = Channel}) ->
     ?LOG(debug, "Terminated due to ~p", [Reason]),
     _ = emqx_exproto_channel:terminate(Reason, Channel),

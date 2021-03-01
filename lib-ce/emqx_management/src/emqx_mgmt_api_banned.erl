@@ -105,37 +105,33 @@ validate_params(Params) ->
             {error, ?ERROR8, Msg}
     end.
 
-%% TODO who and reason is undefined - causing dialyzer errors. fix later
--dialyzer({nowarn_function,pack_banned/1}).
 pack_banned(Params) ->
     Now = erlang:system_time(second),
-    do_pack_banned(Params, #banned{by = <<"user">>,
-                                   at = Now,
-                                   until = Now + 300}).
+    do_pack_banned(Params, #{by => <<"user">>, at => Now, until => Now + 300}).
 
-do_pack_banned([], Banned) ->
-    {ok, Banned};
+do_pack_banned([], #{who := Who,  by := By, reason := Reason, at := At, until := Until}) ->
+    {ok, #banned{who = Who, by = By, reason = Reason, at = At, until = Until}};
 do_pack_banned([{<<"who">>, Who} | Params], Banned) ->
     case lists:keytake(<<"as">>, 1, Params) of
         {value, {<<"as">>, <<"peerhost">>}, Params2} ->
             {ok, IPAddress} = inet:parse_address(str(Who)),
-            do_pack_banned(Params2, Banned#banned{who = {peerhost, IPAddress}});
+            do_pack_banned(Params2, Banned#{who => {peerhost, IPAddress}});
         {value, {<<"as">>, <<"clientid">>}, Params2} ->
-            do_pack_banned(Params2, Banned#banned{who = {clientid, Who}});
+            do_pack_banned(Params2, Banned#{who => {clientid, Who}});
         {value, {<<"as">>, <<"username">>}, Params2} ->
-            do_pack_banned(Params2, Banned#banned{who = {username, Who}})
+            do_pack_banned(Params2, Banned#{who => {username, Who}})
     end;
 do_pack_banned([P1 = {<<"as">>, _}, P2 | Params], Banned) ->
     do_pack_banned([P2, P1 | Params], Banned);
 do_pack_banned([{<<"by">>, By} | Params], Banned) ->
-    do_pack_banned(Params, Banned#banned{by = By});
+    do_pack_banned(Params, Banned#{by => By});
 do_pack_banned([{<<"reason">>, Reason} | Params], Banned) ->
-    do_pack_banned(Params, Banned#banned{reason = Reason});
+    do_pack_banned(Params, Banned#{reason => Reason});
 do_pack_banned([{<<"at">>, At} | Params], Banned) ->
-    do_pack_banned(Params, Banned#banned{at = At});
+    do_pack_banned(Params, Banned#{at => At});
 do_pack_banned([{<<"until">>, Until} | Params], Banned) ->
-    do_pack_banned(Params, Banned#banned{until = Until});
-do_pack_banned([_P | Params], Banned) -> %% ingore other params
+    do_pack_banned(Params, Banned#{until => Until});
+do_pack_banned([_P | Params], Banned) -> %% ignore other params
     do_pack_banned(Params, Banned).
 
 do_delete(<<"peerhost">>, Who) ->
