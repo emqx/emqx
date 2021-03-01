@@ -112,7 +112,7 @@ end}.
   {default, "lwm2m/%e/up/resp"}
 ]}.
 
-{mapping, "lwm2m.publish_update_msg_when", "emqx_lwm2m.publish_update_msg_when", [
+{mapping, "lwm2m.update_msg_publish_condition", "emqx_lwm2m.update_msg_publish_condition", [
   {datatype, {enum, [contains_object_list, always]}},
   {default, contains_object_list}
 ]}.
