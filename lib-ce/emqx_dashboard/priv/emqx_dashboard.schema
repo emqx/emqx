@@ -10,7 +10,7 @@
   {override_env, "ADMIN_PASSWORD"}
 ]}.
 
-{mapping, "dashboard.listener.http", "emqx_dashboard.listeners", [
+{mapping, "dashboard.listener.http.port", "emqx_dashboard.listeners", [
   {datatype, integer}
 ]}.
 
@@ -38,7 +38,7 @@
   {datatype, {enum, [true, false]}}
 ]}.
 
-{mapping, "dashboard.listener.https", "emqx_dashboard.listeners", [
+{mapping, "dashboard.listener.https.port", "emqx_dashboard.listeners", [
   {datatype, integer}
 ]}.
 
@@ -139,7 +139,7 @@
     lists:map(
       fun(Proto) ->
         Prefix = "dashboard.listener." ++ atom_to_list(Proto),
-        case cuttlefish:conf_get(Prefix, Conf, undefined) of
+        case cuttlefish:conf_get(Prefix ++ ".port", Conf, undefined) of
             undefined -> [];
             Port      ->
                 [{Proto, Port, case Proto of
