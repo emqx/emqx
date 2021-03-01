@@ -197,9 +197,8 @@ restart_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
 restart_listener(Proto, ListenOn, _Opts) ->
     esockd:reopen(Proto, ListenOn).
 
-ok(ok) -> ok;
 ok({ok, _}) -> ok;
-ok(Error) -> Error.
+ok(Other) -> Other.
 
 %% @doc Stop all listeners.
 -spec(stop() -> ok).
