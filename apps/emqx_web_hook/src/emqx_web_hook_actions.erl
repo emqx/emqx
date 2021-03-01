@@ -38,15 +38,7 @@
 
 -define(RESOURCE_TYPE_WEBHOOK, 'web_hook').
 -define(RESOURCE_CONFIG_SPEC, #{
-    method => #{order => 1,
-                type => string,
-                enum => [<<"PUT">>,<<"POST">>],
-                default => <<"POST">>,
-                title => #{en => <<"Request Method">>,
-                           zh => <<"请求方法"/utf8>>},
-                description => #{en => <<"Request Method">>,
-                                 zh => <<"请求方法"/utf8>>}},
-    url => #{order => 2,
+    url => #{order => 1,
              type => string,
              format => url,
              required => true,
@@ -54,57 +46,49 @@
                         zh => <<"请求 URL"/utf8>>},
              description => #{en => <<"The URL of the server that will receive the Webhook requests.">>,
                               zh => <<"用于接收 Webhook 请求的服务器的 URL。"/utf8>>}},
-    headers => #{order => 3,
-                 type => object,
-                 schema => #{},
-                 default => #{},
-                 title => #{en => <<"Request Header">>,
-                            zh => <<"请求头"/utf8>>},
-                 description => #{en => <<"Request Header">>,
-                                  zh => <<"请求头"/utf8>>}},
-    connect_timeout => #{order => 4,
+    connect_timeout => #{order => 2,
                          type => string,
                          default => <<"5s">>,
                          title => #{en => <<"Connect Timeout">>,
                                     zh => <<"连接超时时间"/utf8>>},
                          description => #{en => <<"Connect Timeout In Seconds">>,
                                           zh => <<"连接超时时间"/utf8>>}},
-    request_timeout => #{order => 5,
+    request_timeout => #{order => 3,
                          type => string,
                          default => <<"5s">>,
                          title => #{en => <<"Request Timeout">>,
                                     zh => <<"请求超时时间时间"/utf8>>},
                          description => #{en => <<"Request Timeout In Seconds">>,
                                           zh => <<"请求超时时间"/utf8>>}},
-    pool_size => #{order => 6,
+    pool_size => #{order => 4,
                    type => number,
                    default => 8,
                    title => #{en => <<"Pool Size">>, zh => <<"连接池大小"/utf8>>},
                    description => #{en => <<"Connection Pool">>,
                                     zh => <<"连接池大小"/utf8>>}
                 },
-    cacertfile => #{order => 7,
+    cacertfile => #{order => 5,
                     type => file,
                     default => <<"">>,
                     title => #{en => <<"CA Certificate File">>,
                                zh => <<"CA 证书文件"/utf8>>},
                     description => #{en => <<"CA Certificate file">>,
                                      zh => <<"CA 证书文件"/utf8>>}},
-    keyfile => #{order => 8,
+    keyfile => #{order => 6,
                  type => file,
                  default => <<"">>,
                  title =>#{en => <<"SSL Key">>,
                            zh => <<"SSL Key"/utf8>>},
                  description => #{en => <<"Your ssl keyfile">>,
                                   zh => <<"SSL 私钥"/utf8>>}},
-    certfile => #{order => 9,
+    certfile => #{order => 7,
                   type => file,
                   default => <<"">>,
                   title =>#{en => <<"SSL Cert">>,
                             zh => <<"SSL Cert"/utf8>>},
                   description => #{en => <<"Your ssl certfile">>,
                                    zh => <<"SSL 证书"/utf8>>}},
-    verify => #{order => 10,
+    verify => #{order => 8,
                 type => boolean,
                 default => false,
                 title =>#{en => <<"Verify Server Certfile">>,
@@ -156,7 +140,7 @@
                 description => #{en => <<"HTTP headers.">>,
                                  zh => <<"HTTP headers。"/utf8>>}},
             body => #{
-                order => 5,
+                order => 4,
                 type => string,
                 input => textarea,
                 required => false,
@@ -350,24 +334,27 @@ pool_opts(Params = #{<<"url">> := URL}, ResId) ->
     PoolSize = maps:get(<<"pool_size">>, Params, 32),
     ConnectTimeout = cuttlefish_duration:parse(str(maps:get(<<"connect_timeout">>, Params, <<"5s">>))),
     {Inet, Host} = parse_host(Host0),
+    SslOpts0 = maybe_ssl(Params, ResId, add_default_scheme(URL)),
+    TranOpts = lists:keyfind(transport_opts, 1, SslOpts0),
+    SslOpts = lists:keyreplace(transport_opts,  1,
+                               {transport_opts, [Inet | TranOpts]}, SslOpts0),
     [{host, Host},
      {port, Port},
      {pool_size, PoolSize},
      {pool_type, hash},
      {connect_timeout, ConnectTimeout},
      {retry, 5},
-     {retry_timeout, 1000}
-     | maybe_ssl(Params, ResId, add_default_scheme(URL), Inet)].
+     {retry_timeout, 1000} | SslOpts].
 
 pool_name(ResId) ->
     list_to_atom("webhook:" ++ str(ResId)).
 
-maybe_ssl(Config, ResId, <<"https://", _URL/binary>>, Inet) ->
+maybe_ssl(Config, ResId, <<"https://", _URL/binary>>) ->
     [{transport, ssl},
-     {transport_opts, [Inet | get_ssl_opts(Config, ResId)]}
+     {transport_opts, get_ssl_opts(Config, ResId)}
     ];
-maybe_ssl(_Config, _ResId, _URL, Inet) ->
-    [{transport_opts, [Inet]}].
+maybe_ssl(_Config, _ResId, _URL) ->
+    [{transport_opts, []}].
 
 get_ssl_opts(Opts, ResId) ->
     Dir = filename:join([emqx:get_env(data_dir), "rule", ResId]),
