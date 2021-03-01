@@ -326,35 +326,40 @@ add_default_scheme(URL) ->
     <<"http://", URL/binary>>.
 
 pool_opts(Params = #{<<"url">> := URL}, ResId) ->
-    #{host := Host0, scheme := Scheme} = URIMap = uri_string:parse(binary_to_list(add_default_scheme(URL))),
-    Port = maps:get(port, URIMap, case Scheme of
-                                      "https" -> 443;
-                                      _ -> 80
-                                  end),
+    #{host := Host0, scheme := Scheme} = URIMap =
+        uri_string:parse(binary_to_list(add_default_scheme(URL))),
+    DefaultPort = case is_https(Scheme) of
+                      true  -> 443;
+                      false -> 80
+                  end,
+    Port = maps:get(port, URIMap, DefaultPort),
     PoolSize = maps:get(<<"pool_size">>, Params, 32),
-    ConnectTimeout = cuttlefish_duration:parse(str(maps:get(<<"connect_timeout">>, Params, <<"5s">>))),
+    ConnectTimeout =
+        cuttlefish_duration:parse(str(maps:get(<<"connect_timeout">>, Params, <<"5s">>))),
     {Inet, Host} = parse_host(Host0),
-    SslOpts0 = maybe_ssl(Params, ResId, add_default_scheme(URL)),
-    {transport_opts, TranOpts} = lists:keyfind(transport_opts, 1, SslOpts0),
-    SslOpts = lists:keyreplace(transport_opts, 1,
-                               {transport_opts, [Inet | TranOpts]}, SslOpts0),
+    TransportOpts =
+        case is_https(Scheme) of
+            true  -> [Inet | get_ssl_opts(Params, ResId)];
+            false -> [Inet]
+        end,
+    Opts = case is_https(Scheme) of
+               true  -> [{transport_opts, TransportOpts}, {transport, ssl}];
+               false -> [{transport_opts, TransportOpts}]
+           end,
     [{host, Host},
      {port, Port},
      {pool_size, PoolSize},
      {pool_type, hash},
      {connect_timeout, ConnectTimeout},
      {retry, 5},
-     {retry_timeout, 1000} | SslOpts].
+     {retry_timeout, 1000} | Opts].
 
 pool_name(ResId) ->
     list_to_atom("webhook:" ++ str(ResId)).
 
-maybe_ssl(Config, ResId, <<"https://", _URL/binary>>) ->
-    [{transport, ssl},
-     {transport_opts, get_ssl_opts(Config, ResId)}
-    ];
-maybe_ssl(_Config, _ResId, _URL) ->
-    [{transport_opts, []}].
+is_https(Scheme) when is_list(Scheme) -> is_https(list_to_binary(Scheme));
+is_https(<<"https", _/binary>>) -> true;
+is_https(_) -> false.
 
 get_ssl_opts(Opts, ResId) ->
     Dir = filename:join([emqx:get_env(data_dir), "rule", ResId]),
