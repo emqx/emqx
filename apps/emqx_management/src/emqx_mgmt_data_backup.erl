@@ -215,7 +215,11 @@ import_resource(#{<<"id">> := Id,
                                        created_at => NCreatedAt,
                                        description => Desc}).
 
--ifndef(EMQX_ENTERPRISE).
+-ifdef(EMQX_ENTERPRISE).
+import_resources_and_rules(Resources, Rules, _FromVersion) ->
+    import_resources(Resources),
+    import_rules(Rules).
+-else.
 import_resources_and_rules(Resources, Rules, FromVersion)
   when FromVersion =:= "4.0" orelse FromVersion =:= "4.1" orelse FromVersion =:= "4.2" ->
     Configs = lists:foldl(fun(#{<<"id">> := ID,
@@ -278,10 +282,6 @@ action_to_prop_list({action_instance, ActionInstId, Name, FallbackActions, Args}
      {name, Name},
      {fallbacks, actions_to_prop_list(FallbackActions)},
      {args, Args}].
--else.
-import_resources_and_rules(Resources, Rules, _FromVersion) ->
-    import_resources(Resources),
-    import_rules(Rules).
 -endif.
 
 import_blacklist(Blacklist) ->
@@ -340,8 +340,37 @@ import_auth_username(Lists) ->
                           end, Lists)
     end.
 
+-ifdef(EMQX_ENTERPRISE).
 import_auth_mnesia(Auths, FromVersion) when FromVersion =:= "4.0" orelse
                                             FromVersion =:= "4.1" ->
+    do_import_auth_mnesia_by_old_data(Auths);
+import_auth_mnesia(Auths, _) ->
+    do_import_auth_mnesia(Auths).
+
+import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.0" orelse
+                                          FromVersion =:= "4.1" ->
+    do_import_acl_mnesia_by_old_data(Acls);
+
+import_acl_mnesia(Acls, _) ->
+    do_import_acl_mnesia(Acls).
+-else.
+import_auth_mnesia(Auths, FromVersion) when FromVersion =:= "4.0" orelse
+                                            FromVersion =:= "4.1" orelse
+                                            FromVersion =:= "4.2" ->
+    do_import_auth_mnesia_by_old_data(Auths);
+import_auth_mnesia(Auths, _) ->
+    do_import_auth_mnesia(Auths).
+
+import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.0" orelse
+                                          FromVersion =:= "4.1" orelse
+                                          FromVersion =:= "4.2" ->
+    do_import_acl_mnesia_by_old_data(Acls);
+
+import_acl_mnesia(Acls, _) ->
+    do_import_acl_mnesia(Acls).
+-endif.
+
+do_import_auth_mnesia_by_old_data(Auths) ->
     case ets:info(emqx_user) of
         undefined -> ok;
         _ ->
@@ -350,9 +379,8 @@ import_auth_mnesia(Auths, FromVersion) when FromVersion =:= "4.0" orelse
                                 <<"password">> := Password}) ->
                             mnesia:dirty_write({emqx_user, {username, Login}, base64:decode(Password), CreatedAt})
                           end, Auths)
-    end;
-
-import_auth_mnesia(Auths, _) ->
+    end.
+do_import_auth_mnesia(Auths) ->
     case ets:info(emqx_user) of
         undefined -> ok;
         _ ->
@@ -364,8 +392,7 @@ import_auth_mnesia(Auths, _) ->
                           end, Auths)
     end.
 
-import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.0" orelse
-                                          FromVersion =:= "4.1" ->
+do_import_acl_mnesia_by_old_data(Acls) ->
     case ets:info(emqx_acl) of
         undefined -> ok;
         _ ->
@@ -380,9 +407,8 @@ import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.0" orelse
                                      end,
                             mnesia:dirty_write({emqx_acl, {{username, Login}, Topic}, any_to_atom(Action), Allow1, CreatedAt})
                           end, Acls)
-    end;
-
-import_acl_mnesia(Acls, _) ->
+    end.
+do_import_acl_mnesia(Acls) ->
     case ets:info(emqx_acl) of
         undefined -> ok;
         _ ->
