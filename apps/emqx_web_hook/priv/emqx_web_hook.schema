@@ -1,7 +1,7 @@
 %%-*- mode: erlang -*-
 %% EMQ X R3.0 config mapping
 
-{mapping, "web.hook.api.url", "emqx_web_hook.url", [
+{mapping, "web.hook.url", "emqx_web_hook.url", [
   {datatype, string}
 ]}.
 
