@@ -11,7 +11,7 @@ Please see: [EMQ X - WebHook](https://docs.emqx.io/broker/latest/en/advanced/web
 ## The web services URL for Hook request
 ##
 ## Value: String
-web.hook.api.url = http://127.0.0.1:8080
+web.hook.url = http://127.0.0.1:8080
 
 ## Encode message payload field
 ##
