@@ -350,25 +350,24 @@ pool_opts(Params = #{<<"url">> := URL}, ResId) ->
     PoolSize = maps:get(<<"pool_size">>, Params, 32),
     ConnectTimeout = cuttlefish_duration:parse(str(maps:get(<<"connect_timeout">>, Params, <<"5s">>))),
     {Inet, Host} = parse_host(Host0),
-    SslOpts = get_ssl_options(Params, ResId, add_default_scheme(URL)),
     [{host, Host},
      {port, Port},
      {pool_size, PoolSize},
      {pool_type, hash},
      {connect_timeout, ConnectTimeout},
      {retry, 5},
-     {retry_timeout, 1000},
-     {transport_opts, [Inet] ++ SslOpts}].
+     {retry_timeout, 1000}
+     | maybe_ssl(Params, ResId, add_default_scheme(URL), Inet)].
 
 pool_name(ResId) ->
     list_to_atom("webhook:" ++ str(ResId)).
 
-get_ssl_options(Config, ResId, <<"https://", _URL/binary>>) ->
+maybe_ssl(Config, ResId, <<"https://", _URL/binary>>, Inet) ->
     [{transport, ssl},
-     {transport_opts, get_ssl_opts(Config, ResId)}
+     {transport_opts, [Inet | get_ssl_opts(Config, ResId)]}
     ];
-get_ssl_options(_Config, _ResId, _URL) ->
-    [].
+maybe_ssl(_Config, _ResId, _URL, Inet) ->
+    [{transport_opts, [Inet]}].
 
 get_ssl_opts(Opts, ResId) ->
     Dir = filename:join([emqx:get_env(data_dir), "rule", ResId]),
