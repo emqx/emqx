@@ -1,8 +1,9 @@
 #!/bin/bash
 
-## NOTE: execute this script in the project root
-
 set -euo pipefail
+
+# ensure dir
+cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 if [[ "$1" == https://* ]]; then
     VERSION='*' # alwyas download

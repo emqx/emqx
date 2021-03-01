@@ -2,6 +2,7 @@ REBAR_VERSION = 3.14.3-emqx-4
 DASHBOARD_VERSION = v4.3.0
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
+SCRIPTS = $(CURDIR)/scripts
 export EMQX_ENTERPRISE=false
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 
@@ -20,13 +21,13 @@ all: $(REBAR) $(PROFILES)
 
 .PHONY: ensure-rebar3
 ensure-rebar3:
-	$(CURDIR)/ensure-rebar3.sh $(REBAR_VERSION)
+	$(SCRIPTS)/ensure-rebar3.sh $(REBAR_VERSION)
 
 $(REBAR): ensure-rebar3
 
 .PHONY: get-dashboard
 get-dashboard:
-	$(CURDIR)/scripts/get-dashboard.sh $(DASHBOARD_VERSION)
+	$(SCRIPTS)/get-dashboard.sh $(DASHBOARD_VERSION)
 
 .PHONY: eunit
 eunit: $(REBAR)
