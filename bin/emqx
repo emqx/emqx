@@ -176,6 +176,7 @@ relx_nodetool() {
     command="$1"; shift
 
     ERL_FLAGS="$ERL_FLAGS $EPMD_ARG" \
+    ERL_LIBS="${LIB_EKKA_DIR}:${ERL_LIBS:-}" \
     "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" "$NAME_TYPE" "$NAME" \
                                 -setcookie "$COOKIE" "$command" "$@"
 }
