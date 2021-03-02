@@ -33,21 +33,21 @@
 -define(TRACER, ?MODULE).
 -define(FORMAT, {emqx_logger_formatter,
                   #{template =>
-                      [time," [",level,"] ",
+                      [time, " [", level, "] ",
                        {clientid,
                           [{peername,
-                              [clientid,"@",peername," "],
+                              [clientid, "@", peername, " "],
                               [clientid, " "]}],
                           [{peername,
-                              [peername," "],
+                              [peername, " "],
                               []}]},
-                       msg,"\n"]}}).
+                       msg, "\n"]}}).
 -define(TOPIC_TRACE_ID(T), "trace_topic_"++T).
 -define(CLIENT_TRACE_ID(C), "trace_clientid_"++C).
--define(TOPIC_TRACE(T), {topic,T}).
--define(CLIENT_TRACE(C), {clientid,C}).
+-define(TOPIC_TRACE(T), {topic, T}).
+-define(CLIENT_TRACE(C), {clientid, C}).
 
--define(is_log_level(L),
+-define(IS_LOG_LEVEL(L),
         L =:= emergency orelse
         L =:= alert orelse
         L =:= critical orelse
@@ -67,19 +67,24 @@ trace(publish, #message{topic = <<"$SYS/", _/binary>>}) ->
     ignore;
 trace(publish, #message{from = From, topic = Topic, payload = Payload})
         when is_binary(From); is_atom(From) ->
-    emqx_logger:info(#{topic => Topic, mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY} }, "PUBLISH to ~s: ~0p", [Topic, Payload]).
+    emqx_logger:info(#{topic => Topic,
+                       mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY} },
+                     "PUBLISH to ~s: ~0p", [Topic, Payload]).
 
 %% @doc Start to trace clientid or topic.
 -spec(start_trace(trace_who(), logger:level() | all, string()) -> ok | {error, term()}).
 start_trace(Who, all, LogFile) ->
     start_trace(Who, debug, LogFile);
 start_trace(Who, Level, LogFile) ->
-    case ?is_log_level(Level) of
+    case ?IS_LOG_LEVEL(Level) of
         true ->
             #{level := PrimaryLevel} = logger:get_primary_config(),
             try logger:compare_levels(Level, PrimaryLevel) of
                 lt ->
-                    {error, io_lib:format("Cannot trace at a log level (~s) lower than the primary log level (~s)", [Level, PrimaryLevel])};
+                    {error,
+                     io_lib:format("Cannot trace at a log level (~s) "
+                                   "lower than the primary log level (~s)",
+                                   [Level, PrimaryLevel])};
                 _GtOrEq ->
                     install_trace_handler(Who, Level, LogFile)
             catch
@@ -127,9 +132,9 @@ uninstall_trance_handler(Who) ->
 filter_traces(#{id := Id, level := Level, dst := Dst}, Acc) ->
     case atom_to_list(Id) of
         ?TOPIC_TRACE_ID(T)->
-            [{?TOPIC_TRACE(T), {Level,Dst}} | Acc];
+            [{?TOPIC_TRACE(T), {Level, Dst}} | Acc];
         ?CLIENT_TRACE_ID(C) ->
-            [{?CLIENT_TRACE(C), {Level,Dst}} | Acc];
+            [{?CLIENT_TRACE(C), {Level, Dst}} | Acc];
         _ -> Acc
     end.
 
