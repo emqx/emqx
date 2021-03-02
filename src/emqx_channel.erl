@@ -228,6 +228,9 @@ setting_peercert_infos(Peercert, ClientInfo, Options) ->
     ClientId = peer_cert_as(peer_cert_as_clientid, Options, Peercert, DN, CN),
     ClientInfo#{username => Username, clientid => ClientId, dn => DN, cn => CN}.
 
+-dialyzer([{nowarn_function, [peer_cert_as/5]}]).
+% esockd_peercert:peercert is opaque
+% https://github.com/emqx/esockd/blob/9b959fc11a1c398a589892f335235be6c5b4a454/src/esockd_peercert.erl#L23
 peer_cert_as(Key, Options, Peercert, DN, CN) ->
     case proplists:get_value(Key, Options) of
          cn  -> CN;
