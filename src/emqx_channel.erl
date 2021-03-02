@@ -501,8 +501,10 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
                 ignore ->
                     case QoS of
                        ?QOS_0 -> {ok, NChannel};
-                        _ ->
-                           handle_out(puback, {PacketId, Rc}, NChannel)
+                       ?QOS_1 ->
+                            handle_out(puback, {PacketId, Rc}, NChannel);
+                       ?QOS_2 ->
+                            handle_out(pubrec, {PacketId, Rc}, NChannel)
                     end;
                 disconnect ->
                     handle_out(disconnect, Rc, NChannel)
