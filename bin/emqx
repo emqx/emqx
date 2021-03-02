@@ -518,6 +518,9 @@ case "$1" in
                 ;;
         esac
 
+        # set before generate_config
+        export EMQX_LOG__TO='console'
+
         #generate app.config and vm.args
         generate_config
 
@@ -534,7 +537,8 @@ case "$1" in
         # shellcheck disable=SC2086 # $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
-        set -- "$BINDIR/erlexec" -boot "$BOOTFILE" -mode "$CODE_LOADING_MODE" \
+        set -- "$BINDIR/erlexec" \
+            -boot "$BOOTFILE" -mode "$CODE_LOADING_MODE" \
             -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
             -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
             $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG
@@ -556,6 +560,9 @@ case "$1" in
         bootstrapd
         # start up the release in the foreground for use by runit
         # or other supervision services
+
+        # set before generate_config
+        export EMQX_LOG__TO='console'
 
         #generate app.config and vm.args
         generate_config
