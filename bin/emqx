@@ -339,6 +339,10 @@ case "$1" in
         # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
         bootstrapd
 
+        # this flag passes down to console mode
+        # so we know it's intended to be run in daemon mode
+        export _EMQX_START_MODE="$1"
+
         # Save this for later.
         CMD=$1
         case "$1" in
@@ -519,7 +523,9 @@ case "$1" in
         esac
 
         # set before generate_config
-        export EMQX_LOG__TO='console'
+        if [ "${_EMQX_START_MODE:-}" = '' ]; then
+            export EMQX_LOG__TO="${EMQX_LOG__TO:-console}"
+        fi
 
         #generate app.config and vm.args
         generate_config
@@ -562,7 +568,7 @@ case "$1" in
         # or other supervision services
 
         # set before generate_config
-        export EMQX_LOG__TO='console'
+        export EMQX_LOG__TO="${EMQX_LOG__TO:-console}"
 
         #generate app.config and vm.args
         generate_config
