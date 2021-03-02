@@ -1,20 +1,62 @@
 name: Compatibility Test Suite
 
 on:
-  push:
-    tags:
-      - v*
-  release:
-    types:
-      - published
   pull_request:
-  workflow_dispatch:
-  repository_dispatch:
-    types: [run_actions]
 
 jobs:
+  check_diff:
+    runs-on: ubuntu-20.04
+
+    outputs:
+      ldap_diff: ${{ steps.check_ldap_diff.outputs.is_diff }}
+      mongo_diff: ${{ steps.check_mongo_diff.outputs.is_diff }}
+      mysql_diff: ${{ steps.check_mysql_diff.outputs.is_diff }}
+      pgsql_diff: ${{ steps.check_pgsql_diff.outputs.is_diff }}
+      redis_diff: ${{ steps.check_redis_diff.outputs.is_diff }}
+
+    steps:
+      - uses: actions/checkout@v1
+      - name: check_ldap_diff
+        run: |
+          if [ $(.ci/compatibility_tests/check_diff.sh $GITHUB_BASE_REF | grep apps/emqx_auth_ldap) ]; then
+            echo "::set-output name=is_diff::true"
+          else
+            echo "::set-output name=is_diff::false"
+          fi
+      - name: check_mongo_diff
+        run: |
+          if [ $(.ci/compatibility_tests/check_diff.sh $GITHUB_BASE_REF | grep apps/emqx_auth_mongo) ]; then
+            echo "::set-output name=is_diff::true"
+          else
+            echo "::set-output name=is_diff::false"
+          fi
+      - name: check_mysql_diff
+        run: |
+          if [ $(.ci/compatibility_tests/check_diff.sh $GITHUB_BASE_REF | grep apps/emqx_auth_mysql) ]; then
+            echo "::set-output name=is_diff::true"
+          else
+            echo "::set-output name=is_diff::false"
+          fi
+      - name: check_pgsql_diff
+        run: |
+          if [ $(.ci/compatibility_tests/check_diff.sh $GITHUB_BASE_REF | grep apps/emqx_auth_pgsql) ]; then
+            echo "::set-output name=is_diff::true"
+          else
+            echo "::set-output name=is_diff::false"
+          fi
+      - name: check_redis_diff
+        run: |
+          if [ $(.ci/compatibility_tests/check_diff.sh $GITHUB_BASE_REF | grep apps/emqx_auth_redis) ]; then
+            echo "::set-output name=is_diff::true"
+          else
+            echo "::set-output name=is_diff::false"
+          fi
+
   ldap:
     runs-on: ubuntu-20.04
+
+    needs: check_diff
+    if: ${{ needs.check_diff.outputs.check_ldap_diff }}
 
     strategy:
       fail-fast: false
@@ -56,6 +98,9 @@ jobs:
 
   mongo:
     runs-on: ubuntu-20.04
+
+    needs: check_diff
+    if: ${{ needs.check_diff.outputs.check_mongo_diff }}
 
     strategy:
       fail-fast: false
@@ -114,6 +159,9 @@ jobs:
 
   mysql:
     runs-on: ubuntu-20.04
+
+    needs: check_diff
+    if: ${{ needs.check_diff.outputs.check_mysql_diff }}
 
     strategy:
       fail-fast: false
@@ -176,6 +224,9 @@ jobs:
   pgsql:
     runs-on: ubuntu-20.04
 
+    needs: check_diff
+    if: ${{ needs.check_diff.outputs.check_pgsql_diff }}
+
     strategy:
       fail-fast: false
       matrix:
@@ -237,6 +288,9 @@ jobs:
 
   redis:
     runs-on: ubuntu-20.04
+
+    needs: check_diff
+    if: ${{ needs.check_diff.outputs.check_redis_diff }}
 
     strategy:
       fail-fast: false
