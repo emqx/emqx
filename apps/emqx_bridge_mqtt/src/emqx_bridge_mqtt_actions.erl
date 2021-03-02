@@ -94,7 +94,7 @@
         },
         password => #{
             order => 6,
-            type => string,
+            type => password,
             required => false,
             default => <<"">>,
             title => #{en => <<"Password">>,
@@ -296,7 +296,7 @@
         },
         password => #{
             order => 6,
-            type => string,
+            type => password,
             required => false,
             default => <<"">>,
             title => #{en => <<"Password">>,
