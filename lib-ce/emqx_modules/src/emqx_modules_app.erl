@@ -25,7 +25,7 @@
 start(_Type, _Args) ->
     % the configs for emqx_modules is so far still in emqx application
     % Ensure it's loaded
-    application:load(emqx),
+    _ = application:load(emqx),
     {ok, Pid} = emqx_mod_sup:start_link(),
     ok = emqx_modules:load(),
     emqx_ctl:register_command(modules, {emqx_modules, cli}, []),

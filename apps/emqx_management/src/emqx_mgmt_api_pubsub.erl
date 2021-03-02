@@ -167,7 +167,7 @@ do_publish(_ClientId, [], _Qos, _Retain, _Payload) ->
 do_publish(ClientId, Topics, Qos, Retain, Payload) ->
     MsgIds = lists:map(fun(Topic) ->
         Msg = emqx_message:make(ClientId, Qos, Topic, Payload),
-        emqx_mgmt:publish(Msg#message{flags = #{retain => Retain}}),
+        _ = emqx_mgmt:publish(Msg#message{flags = #{retain => Retain}}),
         emqx_guid:to_hexstr(Msg#message.id)
     end, Topics),
     {ok, MsgIds}.
