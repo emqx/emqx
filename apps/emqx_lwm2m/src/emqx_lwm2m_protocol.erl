@@ -121,7 +121,7 @@ update_reg_info(NewRegInfo, Lwm2mState = #lwm2m_state{
 
     UpdatedRegInfo = maps:merge(RegInfo, NewRegInfo),
 
-    case proplists:get_value(update_msg_publish_condition,
+    _ = case proplists:get_value(update_msg_publish_condition,
             lwm2m_coap_responder:options(), contains_object_list) of
         always ->
             send_to_broker(<<"update">>, #{<<"data">> => UpdatedRegInfo}, Lwm2mState);
