@@ -55,6 +55,7 @@ to_export(emqx_bridge_mqtt, Mountpoint,
     #mqtt_msg{qos = QoS,
               retain = Retain,
               topic = topic(Mountpoint, Topic),
+              props = #{},
               payload = Payload};
 to_export(_Module, Mountpoint,
           #message{topic = Topic} = Msg) ->
