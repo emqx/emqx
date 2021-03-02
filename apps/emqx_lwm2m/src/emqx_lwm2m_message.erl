@@ -90,13 +90,13 @@ basename(OldBaseName, _ObjectId, ObjectInstanceId, _ResourceId, 2) ->
         [ObjId, ObjInsId, _ResId] -> <<$/, ObjId/binary, $/, ObjInsId/binary>>;
         [ObjId, ObjInsId] -> <<$/, ObjId/binary, $/, ObjInsId/binary>>;
         [ObjId] -> <<$/, ObjId/binary, $/, (integer_to_binary(ObjectInstanceId))/binary>>
-    end;
-basename(OldBaseName, _ObjectId, _ObjectInstanceId, _ResourceId, 1) ->
-    case binary:split(binary_util:trim(OldBaseName, $/), [<<$/>>], [global]) of
-        [ObjId, _ObjInsId, _ResId]       -> <<$/, ObjId/binary>>;
-        [ObjId, _ObjInsId]               -> <<$/, ObjId/binary>>;
-        [ObjId]                          -> <<$/, ObjId/binary>>
     end.
+% basename(OldBaseName, _ObjectId, _ObjectInstanceId, _ResourceId, 1) ->
+%    case binary:split(binary_util:trim(OldBaseName, $/), [<<$/>>], [global]) of
+%        [ObjId, _ObjInsId, _ResId]       -> <<$/, ObjId/binary>>;
+%        [ObjId, _ObjInsId]               -> <<$/, ObjId/binary>>;
+%        [ObjId]                          -> <<$/, ObjId/binary>>
+%    end.
 
 make_path(RelativePath, Id) ->
     <<RelativePath/binary, $/, (integer_to_binary(Id))/binary>>.
