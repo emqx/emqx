@@ -202,7 +202,6 @@ terminate(Reason, Lwm2mState) ->
     ?LOG(error, "process terminated: ~p, lwm2m_state: ~p", [Reason, Lwm2mState]).
 
 clean_subscribe(_CoapPid, _Error, undefined, _Lwm2mState) -> ok;
-clean_subscribe(_CoapPid, _Error, _SubTopic, undefined) -> ok;
 clean_subscribe(CoapPid, {shutdown, Error}, SubTopic, Lwm2mState) ->
     do_clean_subscribe(CoapPid, Error, SubTopic, Lwm2mState);
 clean_subscribe(CoapPid, Error, SubTopic, Lwm2mState) ->
