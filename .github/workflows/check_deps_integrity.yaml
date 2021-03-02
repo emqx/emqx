@@ -1,0 +1,13 @@
+name: Check Rebar Dependencies
+
+on: [pull_request]
+
+jobs:
+  check_deps_integrity:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run check-deps-integrity.escript
+        run: |
+          docker run --rm -v "$(pwd):/emqx" emqx/build-env:erl23.2.2-ubuntu20.04 sh -c 'cd /emqx && ./scripts/check-deps-integrity.escript'
+
