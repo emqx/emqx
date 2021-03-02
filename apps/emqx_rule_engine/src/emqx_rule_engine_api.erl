@@ -337,7 +337,7 @@ update_resource(#{id := Id}, NewParams) ->
     P2 = case proplists:get_value(<<"config">>, NewParams) of
         undefined -> #{};
         [{}] -> #{};
-        Map -> #{<<"config">> => ?RAISE(maps:from_list(Map), {invalid_config, Map})}
+        Config -> #{<<"config">> => ?RAISE(json_term_to_map(Config), {invalid_config, Config})}
     end,
     case emqx_rule_engine:update_resource(Id, maps:merge(P1, P2)) of
         ok ->
