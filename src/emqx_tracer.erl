@@ -103,7 +103,6 @@ install_trace_handler(Who, Level, LogFile) ->
     case logger:add_handler(handler_id(Who), logger_disk_log_h,
                             #{level => Level,
                               formatter => ?FORMAT,
-                              filesync_repeat_interval => no_repeat,
                               config => #{type => halt, file => LogFile},
                               filter_default => stop,
                               filters => [{meta_key_filter,
