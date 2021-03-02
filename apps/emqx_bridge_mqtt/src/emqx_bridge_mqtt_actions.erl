@@ -370,10 +370,8 @@
         },
         ssl => #{
             order => 11,
-            type => string,
-            required => false,
-            default => <<"off">>,
-            enum => [<<"on">>, <<"off">>],
+            type => boolean,
+            default => false,
             title => #{en => <<"Bridge SSL">>,
                        zh => <<"Bridge SSL"/utf8>>},
             description => #{en => <<"Switch which used to enable ssl connection of the bridge">>,
@@ -381,7 +379,7 @@
         },
         cacertfile => #{
             order => 12,
-            type => string,
+            type => file,
             required => false,
             default => <<"etc/certs/cacert.pem">>,
             title => #{en => <<"CA certificates">>,
@@ -391,7 +389,7 @@
         },
         certfile => #{
             order => 13,
-            type => string,
+            type => file,
             required => false,
             default => <<"etc/certs/client-cert.pem">>,
             title => #{en => <<"SSL Certfile">>,
@@ -401,7 +399,7 @@
         },
         keyfile => #{
             order => 14,
-            type => string,
+            type => file,
             required => false,
             default => <<"etc/certs/client-key.pem">>,
             title => #{en => <<"SSL Keyfile">>,
@@ -750,7 +748,7 @@ options(Options, PoolName, ResId) ->
                   {password, str(Get(<<"password">>))},
                   {proto_ver, mqtt_ver(Get(<<"proto_ver">>))},
                   {retry_interval, cuttlefish_duration:parse(str(GetD(<<"retry_interval">>, "30s")), s)}
-                  | maybe_ssl(Options, cuttlefish_flag:parse(str(Get(<<"ssl">>))), ResId)
+                  | maybe_ssl(Options, Get(<<"ssl">>), ResId)
                  ] ++ Subscriptions1
          end.
 
