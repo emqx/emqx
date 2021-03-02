@@ -187,7 +187,7 @@ insert(Level, #{<<"path">> := EleName, <<"type">> := Type, <<"value">> := Value}
     case Level of
         object          -> insert_resource_into_object(Path, BinaryValue, Acc);
         object_instance -> insert_resource_into_object_instance(Path, BinaryValue, Acc);
-        resource        -> insert_resource_instance_into_resource(Path, BinaryValue, Acc)
+        resource        -> insert_resource_instance_into_resource(hd(Path), BinaryValue, Acc)
     end.
 
 % json text to TLV binary
