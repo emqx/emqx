@@ -44,3 +44,4 @@ elvis
 emqx_dialyzer_*_plt
 */emqx_dashboard/priv/www
 dist.zip
+scripts/git-token

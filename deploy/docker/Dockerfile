@@ -18,7 +18,8 @@ RUN apk add --no-cache \
     bsd-compat-headers \
     libc-dev \
     libstdc++ \
-    bash
+    bash \
+    jq
 
 COPY . /emqx
 
