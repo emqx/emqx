@@ -1,0 +1,12 @@
+name: Run dialyzer
+on: pull_request
+jobs:
+  run_dialyzer:
+    runs-on: ubuntu-latest
+    container:
+      image: erlang:23.2
+    steps:
+      - uses: actions/checkout@v1
+      - name: Code dialyzer
+        run: |
+          make dialyzer
