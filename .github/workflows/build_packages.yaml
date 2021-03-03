@@ -1,16 +1,14 @@
 name: Cross build packages
 
 on:
+  schedule:
+    - cron:  '0 */6 * * *'
   push:
     tags:
       - v*
   release:
     types:
       - published
-  pull_request:
-  workflow_dispatch:
-  repository_dispatch:
-    types: [run_actions]
 
 jobs:
   windows:
@@ -70,8 +68,6 @@ jobs:
 
   mac:
     runs-on: macos-10.15
-
-    if: startsWith(github.ref, 'refs/tags/')
 
     steps:
     - uses: actions/checkout@v1
@@ -203,7 +199,6 @@ jobs:
         done
         cd -
     - name: build emqx packages
-      if: (matrix.arch  == 'amd64' && matrix.emqx == 'emqx') || startsWith(github.ref, 'refs/tags/')
       env:
         ERL_OTP: erl23.2.2
         EMQX: ${{ matrix.emqx }}
@@ -245,8 +240,6 @@ jobs:
 
   docker:
     runs-on: ubuntu-20.04
-
-    if: startsWith(github.ref, 'refs/tags/')
 
     strategy:
       matrix:
