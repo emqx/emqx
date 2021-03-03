@@ -13,7 +13,7 @@ else
     DOWNLOAD_URL="https://github.com/emqx/emqx-dashboard-frontend/releases/download/${VERSION}/emqx-dashboard.zip"
 fi
 
-if [ "${EMQX_ENTERPRISE:-}" = 'true' ] || [ "${EMQX_ENTERPRISE:-}" == '1' ]; then
+if [ -f 'EMQX_ENTERPRISE' ]; then
     DASHBOARD_PATH='lib-ee/emqx_dashboard/priv'
 else
     DASHBOARD_PATH='lib-ce/emqx_dashboard/priv'

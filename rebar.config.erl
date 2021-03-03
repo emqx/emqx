@@ -22,6 +22,7 @@ overrides() ->
     [ {add, [ {extra_src_dirs, [{"etc", [{recursive,true}]}]}
             , {erl_opts, [ deterministic
                          , {compile_info, [{emqx_vsn, get_vsn()}]}
+                         | [{d, 'EMQX_ENTERPRISE'} || is_enterprise()]
                          ]}
             ]}
     ].
@@ -32,9 +33,11 @@ config() ->
     , {project_app_dirs, project_app_dirs()}
     ].
 
+is_enterprise() ->
+    filelib:is_regular("EMQX_ENTERPRISE").
+
 extra_lib_dir() ->
-    EnterpriseFlag = os:getenv("EMQX_ENTERPRISE"),
-    case EnterpriseFlag =:= "true" orelse EnterpriseFlag =:= "1" of
+    case is_enterprise() of
         true -> "lib-ee";
         false -> "lib-ce"
     end.
@@ -61,6 +64,7 @@ test_deps() ->
 common_compile_opts() ->
     [ deterministic
     , {compile_info, [{emqx_vsn, get_vsn()}]}
+    | [{d, 'EMQX_ENTERPRISE'} || is_enterprise()]
     ].
 
 prod_compile_opts() ->
@@ -180,7 +184,9 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_sasl
     , emqx_telemetry
     , emqx_modules
-    ] ++ relx_plugin_apps_per_rel(ReleaseType).
+    ]
+    ++ relx_plugin_apps_per_rel(ReleaseType)
+    ++ relx_plugin_apps_enterprise(is_enterprise()).
 
 relx_plugin_apps_per_rel(cloud) ->
     [ emqx_lwm2m
@@ -196,6 +202,11 @@ relx_plugin_apps_per_rel(cloud) ->
     ];
 relx_plugin_apps_per_rel(edge) ->
     [].
+
+relx_plugin_apps_enterprise(true) ->
+    [list_to_atom(A) || A <- filelib:wildcard("*", "lib-ee"),
+                        filelib:is_dir(filename:join(["lib-ee", A]))];
+relx_plugin_apps_enterprise(false) -> [].
 
 relx_overlay(ReleaseType) ->
     [ {mkdir,"log/"}
