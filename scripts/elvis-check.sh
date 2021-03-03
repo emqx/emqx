@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 ## This script checks style of changed files.
 ## Expect argument 1 to be the git compare base.
