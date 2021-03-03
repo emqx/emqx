@@ -281,7 +281,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
-    - user: get_version
+    - name: get_version
       run: |
         version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
         echo "VERSION=$verison" >> $GITHUB_ENV
