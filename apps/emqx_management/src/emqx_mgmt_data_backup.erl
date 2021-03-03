@@ -20,7 +20,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("kernel/include/file.hrl").
 
--ifdef(EMQX_ENTERPISE).
+-ifdef(EMQX_ENTERPRISE).
 -export([ export_modules/0
         , export_schemas/0
         , export_confs/0
@@ -123,7 +123,7 @@ export_acl_mnesia() ->
                       end, ets:tab2list(emqx_acl))
     end.
 
--ifdef(EMQX_ENTERPISE).
+-ifdef(EMQX_ENTERPRISE).
 export_modules() ->
     case ets:info(emqx_modules) of
         undefined -> [];
