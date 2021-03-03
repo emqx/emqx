@@ -509,6 +509,18 @@ listeners(["stop", _Proto, ListenOn]) ->
     end,
     stop_listener(emqx_listeners:find_by_listen_on(ListenOn1), ListenOn1);
 
+listeners(["restart", "http:management" = Identifier]) ->
+    restart_emqx_management(Identifier);
+
+listeners(["restart", "https:management" = Identifier]) ->
+    restart_emqx_management(Identifier);
+
+listeners(["restart", "http:dashboard" = Identifier]) ->
+    restart_emqx_dashboard(Identifier);
+
+listeners(["restart", "https:dashboard" = Identifier]) ->
+    restart_emqx_dashboard(Identifier);
+
 listeners(["restart", Identifier]) ->
     case emqx_listeners:restart_listener(Identifier) of
         ok ->
@@ -661,3 +673,11 @@ listener_identifier(Protocol, ListenOn) ->
         ID ->
             ID
     end.
+
+%% TODO Maybe redesign this api.
+restart_emqx_management(Identifier) ->
+    emqx_ctl:print("Listener ~p not support restart!~n", [Identifier]).
+
+restart_emqx_dashboard(Identifier) ->
+    emqx_ctl:print("Listener ~p not support restart!~n", [Identifier]).
+
