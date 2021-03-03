@@ -2,17 +2,24 @@ name: Compatibility Test Suite
 
 on:
   push:
+    branches:
+      - master
+      - main
     tags:
       - v*
   release:
     types:
       - published
-  pull_request:
-  workflow_dispatch:
-  repository_dispatch:
-    types: [run_actions]
 
 jobs:
+  cancel_pre_runs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.8.0
+        with:
+          access_token: ${{ github.token }}
+
   ldap:
     runs-on: ubuntu-20.04
 
