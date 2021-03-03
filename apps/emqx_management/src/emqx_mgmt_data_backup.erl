@@ -20,7 +20,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("kernel/include/file.hrl").
 
--ifdef(EMQX_ENTERPISE).
+-ifdef(EMQX_ENTERPRISE).
 -export([ export_modules/0
         , export_schemas/0
         , export_confs/0
@@ -123,7 +123,7 @@ export_acl_mnesia() ->
                       end, ets:tab2list(emqx_acl))
     end.
 
--ifdef(EMQX_ENTERPISE).
+-ifdef(EMQX_ENTERPRISE).
 export_modules() ->
     case ets:info(emqx_modules) of
         undefined -> [];
@@ -174,12 +174,8 @@ export_confs() ->
 confs_to_binary(Confs) ->
     [{list_to_binary(Key), list_to_binary(Val)} || {Key, Val} <-Confs].
 
--endif.
+-else.
 
-import_rules(Rules) ->
-    lists:foreach(fun(Resource) ->
-                      import_resource(Resource)
-                  end, Rules).
 import_rule(#{<<"id">> := RuleId,
               <<"rawsql">> := RawSQL,
               <<"actions">> := Actions,
@@ -194,6 +190,22 @@ import_rule(#{<<"id">> := RuleId,
     catch throw:{resource_not_initialized, _ResId} ->
         emqx_rule_engine:create_rule(Rule#{enabled => false})
     end.
+
+map_to_actions(Maps) ->
+    [map_to_action(M) || M <- Maps].
+
+map_to_action(Map = #{<<"id">> := ActionInstId, <<"name">> := Name, <<"args">> := Args}) ->
+    #{id => ActionInstId,
+      name => any_to_atom(Name),
+      args => Args,
+      fallbacks => map_to_actions(maps:get(<<"fallbacks">>, Map, []))}.
+
+-endif.
+
+import_rules(Rules) ->
+    lists:foreach(fun(Resource) ->
+                      import_resource(Resource)
+                  end, Rules).
 
 import_resources(Reources) ->
     lists:foreach(fun(Resource) ->
@@ -274,6 +286,8 @@ apply_new_config([Action = #{<<"name">> := <<"data_to_webserver">>,
             apply_new_config(More, Configs, [Action#{<<"args">> := Args} | Acc])
     end.
 
+-endif.
+
 actions_to_prop_list(Actions) ->
     [action_to_prop_list(Act) || Act <- Actions].
 
@@ -282,7 +296,6 @@ action_to_prop_list({action_instance, ActionInstId, Name, FallbackActions, Args}
      {name, Name},
      {fallbacks, actions_to_prop_list(FallbackActions)},
      {args, Args}].
--endif.
 
 import_blacklist(Blacklist) ->
     lists:foreach(fun(#{<<"who">> := Who,
@@ -460,15 +473,6 @@ any_to_atom(L) when is_list(L) -> list_to_atom(L);
 any_to_atom(B) when is_binary(B) -> binary_to_atom(B, utf8);
 any_to_atom(A) when is_atom(A) -> A.
 
-map_to_actions(Maps) ->
-    [map_to_action(M) || M <- Maps].
-
-map_to_action(Map = #{<<"id">> := ActionInstId, <<"name">> := Name, <<"args">> := Args}) ->
-    #{id => ActionInstId,
-      name => any_to_atom(Name),
-      args => Args,
-      fallbacks => map_to_actions(maps:get(<<"fallbacks">>, Map, []))}.
-
 to_version(Version) when is_integer(Version) ->
     integer_to_list(Version);
 to_version(Version) when is_binary(Version) ->
@@ -556,7 +560,7 @@ do_import_data(Data, Version) ->
     import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, []), Version).
 
 -ifdef(EMQX_ENTERPRISE).
-do_import_extra_data(Data, Version) ->
+do_import_extra_data(Data, _Version) ->
     import_confs(maps:get(<<"configs">>, Data, []), maps:get(<<"listeners_state">>, Data, [])),
     import_modules(maps:get(<<"modules">>, Data, [])),
     import_schemas(maps:get(<<"schemas">>, Data, [])),
