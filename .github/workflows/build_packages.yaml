@@ -16,8 +16,6 @@ jobs:
   windows:
     runs-on: windows-2019
 
-    if: startsWith(github.ref, 'refs/tags/')
-
     steps:
     - uses: actions/checkout@v1
     - uses: ilammy/msvc-dev-cmd@v1
@@ -261,17 +259,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v1
-    - name: get deps
-      env:
-        ERL_OTP: erl23.2.2
-      run: |
-        docker run -i --rm \
-            -e GITHUB_RUN_ID=$GITHUB_RUN_ID \
-            -e GITHUB_REF=$GITHUB_REF \
-            -v $(pwd):/emqx \
-            -w /emqx \
-            emqx/build-env:${ERL_OTP}-alpine-amd64 \
-            sh -c "make deps-emqx"
     - name: build emqx docker image
       env:
         ARCH: ${{ matrix.arch[0] }}
