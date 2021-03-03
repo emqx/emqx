@@ -5,7 +5,7 @@
 do(_Dir, CONFIG) ->
     C1 = deps(CONFIG),
     Config = dialyzer(C1),
-    dump(Config ++ [{overrides, overrides()}] ++ coveralls() ++ config()).
+    maybe_dump(Config ++ [{overrides, overrides()}] ++ coveralls() ++ config()).
 
 bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
@@ -286,9 +286,18 @@ get_vsn() ->
     Vsn2 = re:replace(PkgVsn, "v", "", [{return ,list}]),
     re:replace(Vsn2, "\n", "", [{return ,list}]).
 
-dump(Config) ->
-    file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- Config]),
+maybe_dump(Config) ->
+    is_debug() andalso file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- Config]),
     Config.
+
+is_debug() -> is_debug("DEBUG") orelse is_debug("DIAGNOSTIC").
+
+is_debug(VarName) ->
+    case os:getenv(VarName) of
+        false -> false;
+        "" -> false;
+        _ -> true
+    end.
 
 provide_bcrypt_dep() ->
     case os:type() of
