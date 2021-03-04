@@ -2,11 +2,10 @@
 
 -export([do/2]).
 
-do(Dir, CONFIG) ->
-    ok = compile_and_load_pase_transforms(Dir),
+do(_Dir, CONFIG) ->
     C1 = deps(CONFIG),
     Config = dialyzer(C1),
-    dump(Config ++ [{overrides, overrides()}] ++ coveralls() ++ config()).
+    maybe_dump(Config ++ [{overrides, overrides()}] ++ coveralls() ++ config()).
 
 bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
@@ -23,6 +22,7 @@ overrides() ->
     [ {add, [ {extra_src_dirs, [{"etc", [{recursive,true}]}]}
             , {erl_opts, [ deterministic
                          , {compile_info, [{emqx_vsn, get_vsn()}]}
+                         | [{d, 'EMQX_ENTERPRISE'} || is_enterprise()]
                          ]}
             ]}
     ].
@@ -33,9 +33,11 @@ config() ->
     , {project_app_dirs, project_app_dirs()}
     ].
 
+is_enterprise() ->
+    filelib:is_regular("EMQX_ENTERPRISE").
+
 extra_lib_dir() ->
-    EnterpriseFlag = os:getenv("EMQX_ENTERPRISE"),
-    case EnterpriseFlag =:= "true" orelse EnterpriseFlag =:= "1" of
+    case is_enterprise() of
         true -> "lib-ee";
         false -> "lib-ce"
     end.
@@ -62,6 +64,7 @@ test_deps() ->
 common_compile_opts() ->
     [ deterministic
     , {compile_info, [{emqx_vsn, get_vsn()}]}
+    | [{d, 'EMQX_ENTERPRISE'} || is_enterprise()]
     ].
 
 prod_compile_opts() ->
@@ -149,6 +152,7 @@ relx_apps(ReleaseType) ->
     , {mnesia, load}
     , {ekka, load}
     , {emqx_plugin_libs, load}
+    , emqx_modules
     ]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
     ++ relx_apps_per_rel(ReleaseType)
@@ -180,7 +184,9 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_sasl
     , emqx_telemetry
     , emqx_modules
-    ] ++ relx_plugin_apps_per_rel(ReleaseType).
+    ]
+    ++ relx_plugin_apps_per_rel(ReleaseType)
+    ++ relx_plugin_apps_enterprise(is_enterprise()).
 
 relx_plugin_apps_per_rel(cloud) ->
     [ emqx_lwm2m
@@ -196,6 +202,11 @@ relx_plugin_apps_per_rel(cloud) ->
     ];
 relx_plugin_apps_per_rel(edge) ->
     [].
+
+relx_plugin_apps_enterprise(true) ->
+    [list_to_atom(A) || A <- filelib:wildcard("*", "lib-ee"),
+                        filelib:is_dir(filename:join(["lib-ee", A]))];
+relx_plugin_apps_enterprise(false) -> [].
 
 relx_overlay(ReleaseType) ->
     [ {mkdir,"log/"}
@@ -244,11 +255,11 @@ extra_overlay(edge) ->
     [].
 emqx_etc_overlay(cloud) ->
     emqx_etc_overlay_common() ++
-    [ {"etc/emqx_cloud.d/vm.args","etc/vm.args"}
+    [ {"etc/emqx_cloud/vm.args","etc/vm.args"}
     ];
 emqx_etc_overlay(edge) ->
     emqx_etc_overlay_common() ++
-    [ {"etc/emqx_edge.d/vm.args","etc/vm.args"}
+    [ {"etc/emqx_edge/vm.args","etc/vm.args"}
     ].
 
 emqx_etc_overlay_common() ->
@@ -286,9 +297,18 @@ get_vsn() ->
     Vsn2 = re:replace(PkgVsn, "v", "", [{return ,list}]),
     re:replace(Vsn2, "\n", "", [{return ,list}]).
 
-dump(Config) ->
-    file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- Config]),
+maybe_dump(Config) ->
+    is_debug() andalso file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- Config]),
     Config.
+
+is_debug() -> is_debug("DEBUG") orelse is_debug("DIAGNOSTIC").
+
+is_debug(VarName) ->
+    case os:getenv(VarName) of
+        false -> false;
+        "" -> false;
+        _ -> true
+    end.
 
 provide_bcrypt_dep() ->
     case os:type() of
@@ -298,20 +318,6 @@ provide_bcrypt_dep() ->
 
 provide_bcrypt_release(ReleaseType) ->
     provide_bcrypt_dep() andalso ReleaseType =:= cloud.
-
-%% this is a silly but working patch.
-%% rebar3 does not handle umberella project's cross-app parse_transform well
-compile_and_load_pase_transforms(Dir) ->
-    PtFiles =
-        [ "apps/emqx_rule_engine/src/emqx_rule_actions_trans.erl"
-        ],
-    CompileOpts = [verbose,report_errors,report_warnings,return_errors,debug_info],
-    lists:foreach(fun(PtFile) -> {ok, _Mod} = compile:file(path(Dir, PtFile), CompileOpts) end, PtFiles).
-
-path(Dir, Path) -> str(filename:join([Dir, Path])).
-
-str(L) when is_list(L) -> L;
-str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
 erl_opts_i() ->
     [{i, "apps"}] ++

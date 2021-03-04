@@ -78,7 +78,19 @@ subscribe(_Bindings, Params) ->
 publish(_Bindings, Params) ->
     logger:debug("API publish Params:~p", [Params]),
     {ClientId, Topic, Qos, Retain, Payload} = parse_publish_params(Params),
-    return(do_publish(ClientId, Topic, Qos, Retain, Payload)).
+    case do_publish(ClientId, Topic, Qos, Retain, Payload) of
+        {ok, MsgIds} ->
+            case get_value(<<"return">>, Params, undefined) of
+                undefined -> return(ok);
+                _Val ->
+                    case get_value(<<"topics">>, Params, undefined) of
+                        undefined -> return({ok, #{msgid => lists:last(MsgIds)}});
+                        _ -> return({ok, #{msgids => MsgIds}})
+                    end
+            end;
+        Result ->
+            return(Result)
+    end.
 
 unsubscribe(_Bindings, Params) ->
     logger:debug("API unsubscribe Params:~p", [Params]),
@@ -119,7 +131,7 @@ loop_publish([], Result) ->
 loop_publish([Params | ParamsN], Acc) ->
     {ClientId, Topic, Qos, Retain, Payload} = parse_publish_params(Params),
     Code = case do_publish(ClientId, Topic, Qos, Retain, Payload) of
-        ok -> 0;
+        {ok, _} -> 0;
         {_, Code0, _} -> Code0
     end,
     Result = #{topic => resp_topic(get_value(<<"topic">>, Params), get_value(<<"topics">>, Params, <<"">>)),
@@ -153,11 +165,12 @@ do_subscribe(ClientId, Topics, QoS) ->
 do_publish(_ClientId, [], _Qos, _Retain, _Payload) ->
     {ok, ?ERROR15, bad_topic};
 do_publish(ClientId, Topics, Qos, Retain, Payload) ->
-    lists:foreach(fun(Topic) ->
+    MsgIds = lists:map(fun(Topic) ->
         Msg = emqx_message:make(ClientId, Qos, Topic, Payload),
-        emqx_mgmt:publish(Msg#message{flags = #{retain => Retain}})
+        _ = emqx_mgmt:publish(Msg#message{flags = #{retain => Retain}}),
+        emqx_guid:to_hexstr(Msg#message.id)
     end, Topics),
-    ok.
+    {ok, MsgIds}.
 
 do_unsubscribe(ClientId, Topic) ->
     case validate_by_filter(Topic) of

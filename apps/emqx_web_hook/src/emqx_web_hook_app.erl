@@ -30,7 +30,7 @@ start(_StartType, _StartArgs) ->
     translate_env(),
     {ok, Sup} = emqx_web_hook_sup:start_link(),
     {ok, PoolOpts} = application:get_env(?APP, pool_opts),
-    ehttpc_sup:start_pool(?APP, PoolOpts),
+    {ok, _Pid} = ehttpc_sup:start_pool(?APP, PoolOpts),
     emqx_web_hook:register_metrics(),
     emqx_web_hook:load(),
     {ok, Sup}.

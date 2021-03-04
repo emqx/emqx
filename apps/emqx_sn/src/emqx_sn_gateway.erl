@@ -104,9 +104,6 @@
 
 -define(NO_PEERCERT, undefined).
 
-%% TODO: fix when https://github.com/emqx/emqx-sn/pull/170 is merged
--dialyzer([{nowarn_function, [idle/3]}]).
-
 %%--------------------------------------------------------------------
 %% Exported APIs
 %%--------------------------------------------------------------------
@@ -201,7 +198,7 @@ idle(cast, {incoming, ?SN_PUBLISH_MSG(#mqtt_sn_flags{qos = ?QOS_NEG1,
                     false -> emqx_sn_registry:lookup_topic(Registry, ClientId, TopicId);
                     true  -> <<TopicId:16>>
                 end,
-    case TopicName =/= undefined of
+    _ = case TopicName =/= undefined of
         true ->
             Msg = emqx_message:make(?NEG_QOS_CLIENT_ID, ?QOS_0, TopicName, Data),
             emqx_broker:publish(Msg);
@@ -590,11 +587,7 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
         {reply, Reply, NChannel} ->
             {reply, Reply, State#state{channel = NChannel}};
         {shutdown, Reason, Reply, NChannel} ->
-            shutdown(Reason, Reply, State#state{channel = NChannel});
-        {shutdown, Reason, Reply, OutPacket, NChannel} ->
-            NState = State#state{channel = NChannel},
-            ok = handle_outgoing(OutPacket, NState),
-            shutdown(Reason, Reply, NState)
+            shutdown(Reason, Reply, State#state{channel = NChannel})
     end.
 
 handle_info(Info, State = #state{channel = Channel}) ->
@@ -609,8 +602,6 @@ handle_ping(_PingReq, State) ->
 handle_timeout(TRef, TMsg, State = #state{channel = Channel}) ->
     handle_return(emqx_channel:handle_timeout(TRef, TMsg, Channel), State).
 
-handle_return(ok, State) ->
-    {keep_state, State};
 handle_return({ok, NChannel}, State) ->
     {keep_state, State#state{channel = NChannel}};
 handle_return({ok, Replies, NChannel}, State) ->
@@ -621,13 +612,7 @@ handle_return({shutdown, Reason, NChannel}, State) ->
 handle_return({shutdown, Reason, OutPacket, NChannel}, State) ->
     NState = State#state{channel = NChannel},
     ok = handle_outgoing(OutPacket, NState),
-    stop({shutdown, Reason}, NState);
-handle_return({stop, Reason, NChannel}, State) ->
-    stop(Reason, State#state{channel = NChannel});
-handle_return({stop, Reason, OutPacket, NChannel}, State) ->
-    NState = State#state{channel = NChannel},
-    ok = handle_outgoing(OutPacket, NState),
-    stop(Reason, NState).
+    stop({shutdown, Reason}, NState).
 
 next_events(Packet) when is_record(Packet, mqtt_packet) ->
     next_event({outgoing, Packet});

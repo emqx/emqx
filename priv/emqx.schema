@@ -449,7 +449,7 @@ end}.
 %%--------------------------------------------------------------------
 
 {mapping, "log.to", "kernel.logger", [
-  {default, console},
+  {default, file},
   {datatype, {enum, [off, file, console, both]}}
 ]}.
 

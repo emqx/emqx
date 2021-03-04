@@ -205,14 +205,18 @@ store_retained(Msg = #message{topic = Topic, payload = Payload}, Env) ->
                                                msg = Msg,
                                                expiry_time = get_expiry_time(Msg, Env)});
         {true, false} ->
-            case mnesia:dirty_read(?TAB, Topic) of
-                [_] ->
-                    mnesia:dirty_write(?TAB, #retained{topic = topic2tokens(Topic),
-                                                       msg = Msg,
-                                                       expiry_time = get_expiry_time(Msg, Env)});
-                [] ->
-                    ?LOG(error, "Cannot retain message(topic=~s) for table is full!", [Topic])
-            end;
+            {atomic, _} = mnesia:transaction(
+                fun() ->
+                    case mnesia:read(?TAB, Topic) of
+                        [_] ->
+                            mnesia:write(?TAB, #retained{topic = topic2tokens(Topic),
+                                                         msg = Msg,
+                                                         expiry_time = get_expiry_time(Msg, Env)}, write);
+                        [] ->
+                            ?LOG(error, "Cannot retain message(topic=~s) for table is full!", [Topic])
+                    end
+                end),
+            ok;
         {true, _} ->
             ?LOG(error, "Cannot retain message(topic=~s) for table is full!", [Topic]);
         {_, true} ->

@@ -14,9 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mgmt_api_modules).
-
--include("emqx_mgmt.hrl").
+-module(emqx_modules_api).
 
 -import(minirest, [return/1]).
 
@@ -74,17 +72,21 @@
         , reload/2
         ]).
 
+-export([ do_load_module/2
+        , do_unload_module/2
+        ]).
+
 list(#{node := Node}, _Params) ->
-    return({ok, [format(Module) || Module <- emqx_mgmt:list_modules(Node)]});
+    return({ok, [format(Module) || Module <- list_modules(Node)]});
 
 list(_Bindings, _Params) ->
-    return({ok, [format(Node, Modules) || {Node, Modules} <- emqx_mgmt:list_modules()]}).
+    return({ok, [format(Node, Modules) || {Node, Modules} <- list_modules()]}).
 
 load(#{node := Node, module := Module}, _Params) ->
-    return(emqx_mgmt:load_module(Node, Module));
+    return(do_load_module(Node, Module));
 
 load(#{module := Module}, _Params) ->
-    Results = [emqx_mgmt:load_module(Node, Module) || {Node, _Info} <- emqx_mgmt:list_nodes()],
+    Results = [do_load_module(Node, Module) || Node <- ekka_mnesia:running_nodes()],
     case lists:filter(fun(Item) -> Item =/= ok end, Results) of
         [] ->
             return(ok);
@@ -93,10 +95,10 @@ load(#{module := Module}, _Params) ->
     end.
 
 unload(#{node := Node, module := Module}, _Params) ->
-    return(emqx_mgmt:unload_module(Node, Module));
+    return(do_unload_module(Node, Module));
 
 unload(#{module := Module}, _Params) ->
-    Results = [emqx_mgmt:unload_module(Node, Module) || {Node, _Info} <- emqx_mgmt:list_nodes()],
+    Results = [do_unload_module(Node, Module) || Node <- ekka_mnesia:running_nodes()],
     case lists:filter(fun(Item) -> Item =/= ok end, Results) of
         [] ->
             return(ok);
@@ -105,19 +107,23 @@ unload(#{module := Module}, _Params) ->
     end.
 
 reload(#{node := Node, module := Module}, _Params) ->
-    case emqx_mgmt:reload_module(Node, Module) of
+    case reload_module(Node, Module) of
         ignore -> return(ok);
         Result -> return(Result)
     end;
 
 reload(#{module := Module}, _Params) ->
-    Results = [emqx_mgmt:reload_module(Node, Module) || {Node, _Info} <- emqx_mgmt:list_nodes()],
+    Results = [reload_module(Node, Module) || Node <- ekka_mnesia:running_nodes()],
     case lists:filter(fun(Item) -> Item =/= ok end, Results) of
         [] ->
             return(ok);
         Errors ->
             return(lists:last(Errors))
     end.
+
+%%------------------------------------------------------------------------------
+%% Internal Functions
+%%------------------------------------------------------------------------------
 
 format(Node, Modules) ->
     #{node => Node, modules => [format(Module) || Module <- Modules]}.
@@ -127,3 +133,31 @@ format({Name, Active}) ->
       description => iolist_to_binary(Name:description()),
       active => Active}.
 
+list_modules() ->
+    [{Node, list_modules(Node)} || Node <- ekka_mnesia:running_nodes()].
+
+list_modules(Node) when Node =:= node() ->
+    emqx_modules:list();
+list_modules(Node) ->
+    rpc_call(Node, list_modules, [Node]).
+
+do_load_module(Node, Module) when Node =:= node() ->
+    emqx_modules:load(Module);
+do_load_module(Node, Module) ->
+    rpc_call(Node, do_load_module, [Node, Module]).
+
+do_unload_module(Node, Module) when Node =:= node() ->
+    emqx_modules:unload(Module);
+do_unload_module(Node, Module) ->
+    rpc_call(Node, do_unload_module, [Node, Module]).
+
+reload_module(Node, Module) when Node =:= node() ->
+    emqx_modules:reload(Module);
+reload_module(Node, Module) ->
+    rpc_call(Node, reload_module, [Node, Module]).
+
+rpc_call(Node, Fun, Args) ->
+    case rpc:call(Node, ?MODULE, Fun, Args) of
+        {badrpc, Reason} -> {error, Reason};
+        Res -> Res
+    end.

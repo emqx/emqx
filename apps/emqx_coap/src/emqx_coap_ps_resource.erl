@@ -241,7 +241,7 @@ handle_received_publish(Topic, MaxAge, Format, Payload) ->
 handle_received_create(TopicPrefix, MaxAge, Payload) ->
     case core_link:decode(Payload) of
         [{rootless, [Topic], [{ct, CT}]}] when is_binary(Topic), Topic =/= <<>> ->
-            TrueTopic = percent_decode(Topic),
+            TrueTopic = emqx_http_lib:uri_decode(Topic),
             ?LOG(debug, "decoded link-format payload, the Topic=~p, CT=~p~n", [TrueTopic, CT]),
             LocPath = concatenate_location_path([<<"ps">>, TopicPrefix, TrueTopic]),
             FullTopic = binary:part(LocPath, 4, byte_size(LocPath)-4),
@@ -258,14 +258,6 @@ handle_received_create(TopicPrefix, MaxAge, Payload) ->
             ?LOG(debug, "post with bad payload of link-format ~p, will return bad_request", [Other]),
             {error, bad_request}
     end.
-
-%% @private Copy from http_uri.erl which has been deprecated since OTP-23
-percent_decode(<<$%, Hex:2/binary, Rest/bits>>) ->
-    <<(binary_to_integer(Hex, 16)), (percent_decode(Rest))/binary>>;
-percent_decode(<<First:1/binary, Rest/bits>>) ->
-    <<First/binary, (percent_decode(Rest))/binary>>;
-percent_decode(<<>>) ->
-    <<>>.
 
 %% When topic is timeout, server should return nocontent here,
 %% but gen_coap only receive return value of #coap_content from coap_get, so temporarily we can't give the Code 2.07 {ok, nocontent} out.TBC!!!

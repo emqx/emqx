@@ -228,6 +228,9 @@ setting_peercert_infos(Peercert, ClientInfo, Options) ->
     ClientId = peer_cert_as(peer_cert_as_clientid, Options, Peercert, DN, CN),
     ClientInfo#{username => Username, clientid => ClientId, dn => DN, cn => CN}.
 
+-dialyzer([{nowarn_function, [peer_cert_as/5]}]).
+% esockd_peercert:peercert is opaque
+% https://github.com/emqx/esockd/blob/master/src/esockd_peercert.erl
 peer_cert_as(Key, Options, Peercert, DN, CN) ->
     case proplists:get_value(Key, Options) of
          cn  -> CN;
@@ -501,8 +504,10 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
                 ignore ->
                     case QoS of
                        ?QOS_0 -> {ok, NChannel};
-                        _ ->
-                           handle_out(puback, {PacketId, Rc}, NChannel)
+                       ?QOS_1 ->
+                            handle_out(puback, {PacketId, Rc}, NChannel);
+                       ?QOS_2 ->
+                            handle_out(pubrec, {PacketId, Rc}, NChannel)
                     end;
                 disconnect ->
                     handle_out(disconnect, Rc, NChannel)

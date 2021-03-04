@@ -1,22 +1,18 @@
 name: Cross build packages
 
 on:
+  schedule:
+    - cron:  '0 */6 * * *'
   push:
     tags:
       - v*
   release:
     types:
       - published
-  pull_request:
-  workflow_dispatch:
-  repository_dispatch:
-    types: [run_actions]
 
 jobs:
   windows:
     runs-on: windows-2019
-
-    if: startsWith(github.ref, 'refs/tags/')
 
     steps:
     - uses: actions/checkout@v1
@@ -72,8 +68,6 @@ jobs:
 
   mac:
     runs-on: macos-10.15
-
-    if: startsWith(github.ref, 'refs/tags/')
 
     steps:
     - uses: actions/checkout@v1
@@ -205,7 +199,6 @@ jobs:
         done
         cd -
     - name: build emqx packages
-      if: (matrix.arch  == 'amd64' && matrix.emqx == 'emqx') || startsWith(github.ref, 'refs/tags/')
       env:
         ERL_OTP: erl23.2.2
         EMQX: ${{ matrix.emqx }}
@@ -248,8 +241,6 @@ jobs:
   docker:
     runs-on: ubuntu-20.04
 
-    if: startsWith(github.ref, 'refs/tags/')
-
     strategy:
       matrix:
         arch:
@@ -261,17 +252,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v1
-    - name: get deps
-      env:
-        ERL_OTP: erl23.2.2
-      run: |
-        docker run -i --rm \
-            -e GITHUB_RUN_ID=$GITHUB_RUN_ID \
-            -e GITHUB_REF=$GITHUB_REF \
-            -v $(pwd):/emqx \
-            -w /emqx \
-            emqx/build-env:${ERL_OTP}-alpine-amd64 \
-            sh -c "make deps-emqx"
     - name: build emqx docker image
       env:
         ARCH: ${{ matrix.arch[0] }}
@@ -301,6 +281,11 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
+    - name: get_version
+      run: |
+        echo 'version<<EOF' >> $GITHUB_ENV
+        echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g" >> $GITHUB_ENV
+        echo 'EOF' >> $GITHUB_ENV
     - uses: actions/download-artifact@v2
       with:
         name: emqx
@@ -325,17 +310,13 @@ jobs:
     - name: upload aws s3
       run: |
         set -e -x -u
-        version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-        unzip -q awscliv2.zip
-        sudo ./aws/install
         aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws configure set default.region us-west-2
 
-        aws s3 cp --recursive _packages/emqx s3://packages.emqx/emqx-ce/$version
-        aws s3 cp --recursive _packages/emqx-edge s3://packages.emqx/emqx-edge/$version
-        aws cloudfront create-invalidation --distribution-id E170YEULGLT8XB --paths "/emqx-ce/$version/*,/emqx-edge/$version/*"
+        aws s3 cp --recursive _packages/emqx s3://packages.emqx/emqx-ce/${{ env.version }}
+        aws s3 cp --recursive _packages/emqx-edge s3://packages.emqx/emqx-edge/${{ env.version }}
+        aws cloudfront create-invalidation --distribution-id E170YEULGLT8XB --paths "/emqx-ce/${{ env.version }}/*,/emqx-edge/${{ env.version }}/*"
 
         mkdir packages
         mv _packages/emqx/* packages
@@ -343,28 +324,27 @@ jobs:
     - uses: actions/checkout@v2
       with:
         path: emqx
-    - name: update to github and emqx.io
+    - uses: Rory-Z/upload-release-asset@v1
+      if: github.event_name == 'release'
+      with:
+        repo: emqx
+        path: "packages/emqx-*"
+        token: ${{ github.token }}
+    - name: update to emqx.io
       if: github.event_name == 'release'
       run: |
         set -e -x -u
-        version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
-        cd packages
-        for var in $(ls); do
-          ../emqx/.ci/build_packages/upload_github_release_asset.sh owner=emqx repo=emqx tag=$version filename=$var github_api_token=$(echo ${{ secrets.AccessToken }})
-          sleep 1
-        done
         curl -w %{http_code} \
              --insecure \
              -H "Content-Type: application/json" \
              -H "token: ${{ secrets.EMQX_IO_TOKEN }}" \
              -X POST \
-             -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${version}\" }" \
+             -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ env.version }}\" }" \
              ${{ secrets.EMQX_IO_RELEASE_API }}
     - name: push docker image to docker hub
       if: github.event_name == 'release'
       run: |
         set -e -x -u
-        version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
         sudo make -C emqx docker-prepare
         cd packages && for var in $(ls |grep docker |grep -v sha256); do unzip $var; sudo docker load < ${var%.*}; rm -f ${var%.*}; done && cd -
         echo ${{ secrets.DOCKER_HUB_TOKEN }} |sudo docker login -u ${{ secrets.DOCKER_HUB_USER }} --password-stdin
@@ -375,23 +355,26 @@ jobs:
     - name: update repo.emqx.io
       if: github.event_name == 'release'
       run: |
-        set -e -x -u
-        version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
-        curl \
+        curl --silent --show-error \
           -H "Authorization: token ${{ secrets.AccessToken }}" \
           -H "Accept: application/vnd.github.v3+json" \
           -X POST \
-          -d "{\"ref\":\"v1.0.0\",\"inputs\":{\"version\": \"${version}\", \"emqx_ce\": \"true\"}}" \
-          https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_repos.yaml/dispatches
+          -d "{\"ref\":\"v1.0.1\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ce\": \"true\"}}" \
+          "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_repos.yaml/dispatches"
+    - name: update homebrew packages
+      if: github.event_name == 'release'
+      run: |
+        if [ -z $(echo $version | grep -oE "(alpha|beta|rc)\.[0-9]") ]; then
+            curl --silent --show-error \
+              -H "Authorization: token ${{ secrets.AccessToken }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -X POST \
+              -d "{\"ref\":\"v1.0.1\",\"inputs\":{\"version\": \"${{ env.version }}\"}}" \
+              "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_homebrew.yaml/dispatches"
+        fi
     - uses: geekyeggo/delete-artifact@v1
       with:
         name: emqx
     - uses: geekyeggo/delete-artifact@v1
       with:
         name: emqx-edge
-    # - name: update homebrew packages
-    #   run: |
-    #     version=$(echo ${{ github.ref }} | sed -r  "s .*/.*/(.*) \1 g")
-    #     if [ ! -z $(echo $version | grep -oE "v[0-9]+\.[0-9]+(\.[0-9]+)?") ] && [ -z $(echo $version | grep -oE "(alpha|beta|rc)\.[0-9]") ]; then
-    #       curl -H "Authorization: token ${{ secrets.AccessToken }}" -H "Accept: application/vnd.github.everest-preview+json" -H "Content-Type: application/json" -X POST -d "{\"event_type\":\"update_homebrew\",\"client_payload\":{\"version\": \"$version\"}}" https://api.github.com/repos/emqx/emqx-packages-docker/dispatches
-    #     fi

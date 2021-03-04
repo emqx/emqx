@@ -12,6 +12,8 @@ services:
       - ldap_server
     networks:
       - emqx_bridge
+    env_file:
+      - conf.env
     environment:
       GITHUB_ACTIONS: ${GITHUB_ACTIONS}
       GITHUB_TOKEN: ${GITHUB_TOKEN}

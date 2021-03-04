@@ -121,7 +121,7 @@ update_reg_info(NewRegInfo, Lwm2mState = #lwm2m_state{
 
     UpdatedRegInfo = maps:merge(RegInfo, NewRegInfo),
 
-    case proplists:get_value(update_msg_publish_condition,
+    _ = case proplists:get_value(update_msg_publish_condition,
             lwm2m_coap_responder:options(), contains_object_list) of
         always ->
             send_to_broker(<<"update">>, #{<<"data">> => UpdatedRegInfo}, Lwm2mState);
@@ -202,7 +202,6 @@ terminate(Reason, Lwm2mState) ->
     ?LOG(error, "process terminated: ~p, lwm2m_state: ~p", [Reason, Lwm2mState]).
 
 clean_subscribe(_CoapPid, _Error, undefined, _Lwm2mState) -> ok;
-clean_subscribe(_CoapPid, _Error, _SubTopic, undefined) -> ok;
 clean_subscribe(CoapPid, {shutdown, Error}, SubTopic, Lwm2mState) ->
     do_clean_subscribe(CoapPid, Error, SubTopic, Lwm2mState);
 clean_subscribe(CoapPid, Error, SubTopic, Lwm2mState) ->
@@ -407,8 +406,8 @@ clientinfo(#lwm2m_state{peername = {PeerHost, _},
       peerhost => PeerHost,
       sockport => 5683,         %% FIXME:
       clientid => EndpointName,
-      username => null,
-      password => null,
+      username => undefined,
+      password => undefined,
       peercert => nossl,
       is_bridge => false,
       is_superuser => false,

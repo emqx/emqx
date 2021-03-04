@@ -30,6 +30,8 @@
         , load_module/2
         ]).
 
+-export([cli/1]).
+
 %% @doc List all available plugins
 -spec(list() -> [{atom(), boolean()}]).
 list() ->
@@ -170,3 +172,44 @@ write_loaded(true) ->
             ok
     end;
 write_loaded(false) -> ok.
+
+%%--------------------------------------------------------------------
+%% @doc Modules Command
+cli(["list"]) ->
+    lists:foreach(fun({Name, Active}) -> 
+                    emqx_ctl:print("Module(~s, description=~s, active=~s)~n",
+                        [Name, Name:description(), Active])
+                  end, emqx_modules:list());
+
+cli(["load", Name]) ->
+    case emqx_modules:load(list_to_atom(Name)) of
+        ok ->
+            emqx_ctl:print("Module ~s loaded successfully.~n", [Name]);
+        {error, Reason}   ->
+            emqx_ctl:print("Load module ~s error: ~p.~n", [Name, Reason])
+    end;
+
+cli(["unload", Name]) ->
+    case emqx_modules:unload(list_to_atom(Name)) of
+        ok ->
+            emqx_ctl:print("Module ~s unloaded successfully.~n", [Name]);
+        {error, Reason} ->
+            emqx_ctl:print("Unload module ~s error: ~p.~n", [Name, Reason])
+    end;
+
+cli(["reload", "emqx_mod_acl_internal" = Name]) ->
+    case emqx_modules:reload(list_to_atom(Name)) of
+        ok ->
+            emqx_ctl:print("Module ~s reloaded successfully.~n", [Name]);
+        {error, Reason} ->
+            emqx_ctl:print("Reload module ~s error: ~p.~n", [Name, Reason])
+    end;
+cli(["reload", Name]) ->
+    emqx_ctl:print("Module: ~p does not need to be reloaded.~n", [Name]);
+
+cli(_) ->
+    emqx_ctl:usage([{"modules list",            "Show loaded modules"},
+                    {"modules load <Module>",   "Load module"},
+                    {"modules unload <Module>", "Unload module"},
+                    {"modules reload <Module>", "Reload module"}
+                   ]).

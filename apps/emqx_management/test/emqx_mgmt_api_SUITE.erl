@@ -48,7 +48,6 @@ groups() ->
       , metrics
       , nodes
       , plugins
-      , modules
       , acl_cache
       , pubsub
       , routes_and_subscriptions
@@ -58,13 +57,13 @@ groups() ->
     }].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_auth_mnesia]),
+    emqx_ct_helpers:start_apps([emqx_management, emqx_auth_mnesia]),
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_auth_mnesia, emqx_management, emqx_modules]),
+    emqx_ct_helpers:stop_apps([emqx_auth_mnesia, emqx_management]),
     ekka_mnesia:ensure_stopped().
 
 init_per_testcase(data, Config) ->
@@ -102,7 +101,7 @@ get(Key, ResponseBody) ->
 
 lookup_alarm(Name, [#{<<"name">> := Name} | _More]) ->
     true;
-lookup_alarm(Name, [_Alarm | More]) ->  
+lookup_alarm(Name, [_Alarm | More]) ->
     lookup_alarm(Name, More);
 lookup_alarm(_Name, []) ->
     false.
@@ -120,7 +119,7 @@ alarms(_) ->
 
     ?assert(is_existing(alarm1, emqx_alarm:get_alarms(activated))),
     ?assert(is_existing(alarm2, emqx_alarm:get_alarms(activated))),
-    
+
     {ok, Return1} = request_api(get, api_path(["alarms/activated"]), auth_header_()),
     ?assert(lookup_alarm(<<"alarm1">>, maps:get(<<"alarms">>, lists:nth(1, get(<<"data">>, Return1))))),
     ?assert(lookup_alarm(<<"alarm2">>, maps:get(<<"alarms">>, lists:nth(1, get(<<"data">>, Return1))))),
@@ -231,7 +230,7 @@ clients(_) ->
     {ok, Clients2} = request_api(get, api_path(["nodes", atom_to_list(node()),
                                                 "clients", binary_to_list(ClientId2)])
                                  , auth_header_()),
-    ?assertEqual(<<"client2">>, maps:get(<<"clientid">>, lists:nth(1, get(<<"data">>, Clients2)))),               
+    ?assertEqual(<<"client2">>, maps:get(<<"clientid">>, lists:nth(1, get(<<"data">>, Clients2)))),
 
     {ok, Clients3} = request_api(get, api_path(["clients",
                                                 "username", binary_to_list(Username1)]),
@@ -246,7 +245,7 @@ clients(_) ->
 
     {ok, Clients5} = request_api(get, api_path(["clients"]), "_limit=100&_page=1", auth_header_()),
     ?assertEqual(2, maps:get(<<"count">>, get(<<"meta">>, Clients5))),
-    
+
     meck:new(emqx_mgmt, [passthrough, no_history]),
     meck:expect(emqx_mgmt, kickout_client, 1, fun(_) -> {error, undefined} end),
 
@@ -262,7 +261,7 @@ clients(_) ->
     ?assertEqual(?ERROR1, get(<<"code">>, MeckRet3)),
 
     meck:unload(emqx_mgmt),
-    
+
     {ok, Ok} = request_api(delete, api_path(["clients", binary_to_list(ClientId1)]), auth_header_()),
     ?assertEqual(?SUCCESS, get(<<"code">>, Ok)),
 
@@ -382,64 +381,6 @@ plugins(_) ->
                                auth_header_()),
     ?assertEqual(<<"not_started">>, get(<<"message">>, Error2)).
 
-modules(_) ->
-    emqx_modules:load_module(emqx_mod_presence, false),
-    timer:sleep(50),
-    {ok, Modules1} = request_api(get, api_path(["modules"]), auth_header_()),
-    [Modules11] = filter(get(<<"data">>, Modules1), <<"node">>, atom_to_binary(node(), utf8)),
-    [Module1] = filter(maps:get(<<"modules">>, Modules11), <<"name">>, <<"emqx_mod_presence">>),
-    ?assertEqual(<<"emqx_mod_presence">>, maps:get(<<"name">>, Module1)),
-    ?assertEqual(true, maps:get(<<"active">>, Module1)),
-
-    {ok, _} = request_api(put,
-                          api_path(["modules",
-                                    atom_to_list(emqx_mod_presence),
-                                    "unload"]),
-                          auth_header_()),
-    {ok, Error1} = request_api(put,
-                               api_path(["modules",
-                                         atom_to_list(emqx_mod_presence),
-                                         "unload"]),
-                               auth_header_()),
-    ?assertEqual(<<"not_started">>, get(<<"message">>, Error1)),
-    {ok, Modules2} = request_api(get,
-                                 api_path(["nodes", atom_to_list(node()), "modules"]),
-                                 auth_header_()),
-    [Module2] = filter(get(<<"data">>, Modules2), <<"name">>, <<"emqx_mod_presence">>),
-    ?assertEqual(<<"emqx_mod_presence">>, maps:get(<<"name">>, Module2)),
-    ?assertEqual(false, maps:get(<<"active">>, Module2)),
-
-    {ok, _} = request_api(put,
-                          api_path(["nodes",
-                                    atom_to_list(node()),
-                                    "modules",
-                                    atom_to_list(emqx_mod_presence),
-                                    "load"]),
-                          auth_header_()),
-    {ok, Modules3} = request_api(get,
-                                 api_path(["nodes", atom_to_list(node()), "modules"]),
-                                 auth_header_()),
-    [Module3] = filter(get(<<"data">>, Modules3), <<"name">>, <<"emqx_mod_presence">>),
-    ?assertEqual(<<"emqx_mod_presence">>, maps:get(<<"name">>, Module3)),
-    ?assertEqual(true, maps:get(<<"active">>, Module3)),
-
-    {ok, _} = request_api(put,
-                          api_path(["nodes",
-                                    atom_to_list(node()),
-                                    "modules",
-                                    atom_to_list(emqx_mod_presence),
-                                    "unload"]),
-                          auth_header_()),
-    {ok, Error2} = request_api(put,
-                               api_path(["nodes",
-                                         atom_to_list(node()),
-                                         "modules",
-                                         atom_to_list(emqx_mod_presence),
-                                         "unload"]),
-                               auth_header_()),
-    ?assertEqual(<<"not_started">>, get(<<"message">>, Error2)),
-    emqx_modules:unload(emqx_mod_presence).
-
 acl_cache(_) ->
     ClientId = <<"client1">>,
     Topic = <<"mytopic">>,
@@ -495,7 +436,7 @@ pubsub(_) ->
                                    <<"topics">> => <<"">>,
                                    <<"qos">> => 1,
                                    <<"payload">> => <<"hello">>}),
-    ?assertEqual(?ERROR15, get(<<"code">>, BadTopic2)),       
+    ?assertEqual(?ERROR15, get(<<"code">>, BadTopic2)),
 
     {ok, BadTopic3} = request_api(post, api_path(["mqtt/unsubscribe"]), [], auth_header_(),
                                  #{<<"clientid">> => ClientId,
