@@ -4,7 +4,7 @@
   {datatype, string}
 ]}.
 
-{mapping, "auth.jwt.jwks", "emqx_auth_jwt.jwks", [
+{mapping, "auth.jwt.jwks.endpoint", "emqx_auth_jwt.jwks", [
   {datatype, string}
 ]}.
 
@@ -26,7 +26,7 @@
   {datatype, {enum, [raw, der]}}
 ]}.
 
-{mapping, "auth.jwt.verify_claims", "emqx_auth_jwt.verify_claims", [
+{mapping, "auth.jwt.verify_claims.enable", "emqx_auth_jwt.verify_claims", [
   {default, off},
   {datatype, flag}
 ]}.
@@ -36,7 +36,7 @@
 ]}.
 
 {translation, "emqx_auth_jwt.verify_claims", fun(Conf) ->
-    case cuttlefish:conf_get("auth.jwt.verify_claims", Conf) of
+    case cuttlefish:conf_get("auth.jwt.verify_claims.enable", Conf) of
         false -> cuttlefish:unset();
         true ->
             lists:foldr(
