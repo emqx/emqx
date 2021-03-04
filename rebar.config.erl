@@ -294,8 +294,7 @@ get_vsn() ->
                  false -> os:cmd("./pkg-vsn.sh");
                  Vsn -> Vsn
              end,
-    Vsn2 = re:replace(PkgVsn, "v", "", [{return ,list}]),
-    re:replace(Vsn2, "\n", "", [{return ,list}]).
+    re:replace(PkgVsn, "\n", "", [{return ,list}]).
 
 maybe_dump(Config) ->
     is_debug() andalso file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- Config]),
