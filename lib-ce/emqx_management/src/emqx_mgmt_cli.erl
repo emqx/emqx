@@ -758,9 +758,9 @@ listener_identifier(Protocol, ListenOn) ->
     end.
 
 %% TODO Maybe redesign this api.
-restart_emqx_management(Identifier) ->
-    emqx_ctl:print("Listener ~p not support restart!~n", [Identifier]).
+restart_emqx_management(_Identifier) ->
+    emqx_ctl:print("Management listener restart is not supported~n", []).
 
-restart_emqx_dashboard(Identifier) ->
-    emqx_ctl:print("Listener ~p not support restart!~n", [Identifier]).
+restart_emqx_dashboard(_Identifier) ->
+    emqx_ctl:print("Management listener restart is not supported~n", []).
 
