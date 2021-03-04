@@ -329,7 +329,7 @@ jobs:
       with:
         repo: emqx
         path: "packages/emqx-*"
-        token: ${{ secrets.AccessToken }}
+        token: ${{ github.token }}
     - name: update to emqx.io
       if: github.event_name == 'release'
       run: |
@@ -355,21 +355,26 @@ jobs:
     - name: update repo.emqx.io
       if: github.event_name == 'release'
       run: |
-        set -e -x -u
-        curl \
+        curl --silent --show-error \
           -H "Authorization: token ${{ secrets.AccessToken }}" \
           -H "Accept: application/vnd.github.v3+json" \
           -X POST \
-          -d "{\"ref\":\"v1.0.0\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ce\": \"true\"}}" \
-          https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_repos.yaml/dispatches
+          -d "{\"ref\":\"v1.0.1\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ce\": \"true\"}}" \
+          "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_repos.yaml/dispatches"
+    - name: update homebrew packages
+      if: github.event_name == 'release'
+      run: |
+        if [ -z $(echo $version | grep -oE "(alpha|beta|rc)\.[0-9]") ]; then
+            curl --silent --show-error \
+              -H "Authorization: token ${{ secrets.AccessToken }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -X POST \
+              -d "{\"ref\":\"v1.0.1\",\"inputs\":{\"version\": \"${{ env.version }}\"}}" \
+              "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_homebrew.yaml/dispatches"
+        fi
     - uses: geekyeggo/delete-artifact@v1
       with:
         name: emqx
     - uses: geekyeggo/delete-artifact@v1
       with:
         name: emqx-edge
-    # - name: update homebrew packages
-    #   run: |
-    #     if [ ! -z $(echo $version | grep -oE "v[0-9]+\.[0-9]+(\.[0-9]+)?") ] && [ -z $(echo $version | grep -oE "(alpha|beta|rc)\.[0-9]") ]; then
-    #       curl -H "Authorization: token ${{ secrets.AccessToken }}" -H "Accept: application/vnd.github.everest-preview+json" -H "Content-Type: application/json" -X POST -d "{\"event_type\":\"update_homebrew\",\"client_payload\":{\"version\": \"$version\"}}" https://api.github.com/repos/emqx/emqx-packages-docker/dispatches
-    #     fi

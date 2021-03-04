@@ -10,7 +10,18 @@ on:
   pull_request:
 
 jobs:
-    run_test_case:
+    run_static_analysis:
+        runs-on: ubuntu-20.04
+        container: emqx/build-env:erl23.2.2-ubuntu20.04
+
+        steps:
+        - uses: actions/checkout@v2
+        - name: xref
+          run: make xref
+        - name: dialyzer
+          run: make dialyzer
+
+    run_common_test:
         runs-on: ubuntu-20.04
 
         steps:
@@ -26,25 +37,12 @@ jobs:
           run: |
             docker-compose -f .ci/apps_tests/docker-compose.yaml build --no-cache
             docker-compose -f .ci/apps_tests/docker-compose.yaml up -d
-
-        - name: run tests
+        - name: run eunit
+          run: docker exec -i erlang bash -c "make eunit"
+        - name: run common test
+          run: docker exec -i erlang bash -c "make ct"
+        - name: run cover
           run: |
-            export EMQX_AUTH__LDAP__SERVERS=ldap_server \
-                   EMQX_AUTH__MONGO__SERVER=mongo_server:27017 \
-                   EMQX_AUTH__REDIS__SERVER=redis_server:6379 \
-                   EMQX_AUTH__MYSQL__SERVER=mysql_server:3306 \
-                   EMQX_AUTH__MYSQL__USERNAME=root \
-                   EMQX_AUTH__MYSQL__PASSWORD=public \
-                   EMQX_AUTH__MYSQL__DATABASE=mqtt \
-                   EMQX_AUTH__PGSQL__SERVER=pgsql_server:5432 \
-                   EMQX_AUTH__PGSQL__USERNAME=root \
-                   EMQX_AUTH__PGSQL__PASSWORD=public \
-                   EMQX_AUTH__PGSQL__DATABASE=mqtt \
-                   CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
-            printenv > .env
-            docker exec -i erlang bash -c "make xref"
-            docker exec --env-file .env -i erlang bash -c "make ct"
-            docker exec --env-file .env -i erlang bash -c "make eunit"
             docker exec -i erlang bash -c "make cover"
             docker exec -i erlang bash -c "make coveralls"
         - uses: actions/upload-artifact@v1
