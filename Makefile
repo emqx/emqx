@@ -1,9 +1,9 @@
 REBAR_VERSION = 3.14.3-emqx-4
-DASHBOARD_VERSION = v4.3.0-beta.1
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
+export EMQX_CE_DASHBOARD_VERSION ?= v4.3.0-beta.1
 
 PROFILE ?= emqx
 REL_PROFILES := emqx emqx-edge
@@ -27,7 +27,7 @@ $(REBAR): ensure-rebar3
 
 .PHONY: get-dashboard
 get-dashboard:
-	@$(SCRIPTS)/get-dashboard.sh $(DASHBOARD_VERSION)
+	@$(SCRIPTS)/get-dashboard.sh
 
 .PHONY: eunit
 eunit: $(REBAR)
