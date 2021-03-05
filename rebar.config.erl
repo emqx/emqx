@@ -22,7 +22,6 @@ overrides() ->
     [ {add, [ {extra_src_dirs, [{"etc", [{recursive,true}]}]}
             , {erl_opts, [ deterministic
                          , {compile_info, [{emqx_vsn, get_vsn()}]}
-                         | [{d, 'EMQX_ENTERPRISE'} || is_enterprise()]
                          ]}
             ]}
     ].
