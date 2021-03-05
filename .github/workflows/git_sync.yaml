@@ -23,7 +23,7 @@ jobs:
           set -euo pipefail
           curl --silent --show-error \
           -H "Accept: application/vnd.github.v3+json" \
-          -H "Authorization: token ${{ secrets.CI_GIT_TOEKN }}" \
+          -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
           -X POST \
           -d '{"title": "Sync code into enterprise from opensource", "head": "master", "base":"enterprise"}' \
           https://api.github.com/repos/${{ github.repository_owner }}/emqx-enterprise/pulls
