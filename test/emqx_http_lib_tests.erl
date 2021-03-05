@@ -44,3 +44,31 @@ test_prop_uri(URI) ->
     Decoded2 =  uri_string:percent_decode(Encoded),
     ?assertEqual(URI, Decoded2),
     true.
+
+uri_parse_test_() ->
+    [ {"default port http",
+       fun() -> ?assertMatch({ok, #{port := 80, scheme := http, host := "localhost"}},
+                             emqx_http_lib:uri_parse("localhost"))
+       end
+      }
+    , {"default port https",
+       fun() -> ?assertMatch({ok, #{port := 443, scheme := https}},
+                             emqx_http_lib:uri_parse("https://localhost"))
+       end
+      }
+    , {"bad url",
+       fun() -> ?assertMatch({error, {invalid_uri, _}},
+                             emqx_http_lib:uri_parse("https://localhost:notnumber"))
+       end
+      }
+    , {"normalise",
+       fun() -> ?assertMatch({ok, #{scheme := https}},
+                             emqx_http_lib:uri_parse("HTTPS://127.0.0.1"))
+       end
+      }
+    , {"unsupported_scheme",
+       fun() -> ?assertEqual({error, {unsupported_scheme, <<"wss">>}},
+                             emqx_http_lib:uri_parse("wss://127.0.0.1"))
+       end
+      }
+    ].
