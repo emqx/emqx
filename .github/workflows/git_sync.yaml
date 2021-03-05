@@ -1,0 +1,29 @@
+name: Sync to enterprise
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  sync_to_enterprise:
+    runs-on: ubuntu-20.04
+    if: github.repository == 'emqx/emqx'
+    steps:
+      - name: git-sync
+        uses: Rory-Z/git-sync@v3.0.1
+        with:
+          source_repo: ${{ github.repository }}
+          source_branch: ${{ github.ref }}
+          destination_repo: "${{ github.repository_owner }}/emqx-enterprise"
+          destination_branch: ${{ github.ref }}
+          destination_ssh_private_key: "${{ secrets.CI_SSH_PRIVATE_KEY }}"
+      - name: create pull request
+        run: |
+          set -euo pipefail
+          curl --silent --show-error \
+          -H "Accept: application/vnd.github.v3+json" \
+          -H "Authorization: token ${{ secrets.CI_GIT_TOEKN }}" \
+          -X POST \
+          -d '{"title": "Sync code into enterprise from opensource", "head": "master", "base":"enterprise"}' \
+          https://api.github.com/repos/${{ github.repository_owner }}/emqx-enterprise/pulls
