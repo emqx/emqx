@@ -11,12 +11,32 @@ bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
 
 deps(Config) ->
-    {deps, OldDpes} = lists:keyfind(deps, 1, Config),
+    {deps, OldDeps} = lists:keyfind(deps, 1, Config),
     MoreDeps = case provide_bcrypt_dep() of
         true -> [bcrypt()];
         false -> []
     end,
-    lists:keystore(deps, 1, Config, {deps, OldDpes ++ MoreDeps}).
+    lists:keystore(deps, 1, Config, {deps, OldDeps ++ MoreDeps ++ extra_deps()}).
+
+extra_deps() ->
+    {ok, Proplist} = file:consult("lib-extra/plugins"),
+    AllPlugins = proplists:get_value(erlang_plugins, Proplist),
+    Filter = string:split(os:getenv("EMQX_EXTRA_PLUGINS", ""), ",", all),
+    filter_extra_deps(AllPlugins, Filter).
+
+filter_extra_deps(AllPlugins, ["all"]) ->
+    AllPlugins;
+filter_extra_deps(AllPlugins, Filter) ->
+    filter_extra_deps(AllPlugins, Filter, []).
+filter_extra_deps([], _, Acc) ->
+    lists:reverse(Acc);
+filter_extra_deps([{Plugin, _}=P|More], Filter, Acc) ->
+    case lists:member(atom_to_list(Plugin), Filter) of
+        true ->
+            filter_extra_deps(More, Filter, [P|Acc]);
+        false ->
+            filter_extra_deps(More, Filter, Acc)
+    end.
 
 overrides() ->
     [ {add, [ {extra_src_dirs, [{"etc", [{recursive,true}]}]}
@@ -24,7 +44,10 @@ overrides() ->
                          , {compile_info, [{emqx_vsn, get_vsn()}]}
                          ]}
             ]}
-    ].
+    ] ++ community_plugin_overrides().
+
+community_plugin_overrides() ->
+    [{add, App, [ {erl_opts, [{i, "include"}]}]} || App <- relx_plugin_apps_extra()].
 
 config() ->
     [ {plugins, plugins()}
@@ -35,14 +58,14 @@ config() ->
 is_enterprise() ->
     filelib:is_regular("EMQX_ENTERPRISE").
 
-extra_lib_dir() ->
+alternative_lib_dir() ->
     case is_enterprise() of
         true -> "lib-ee";
         false -> "lib-ce"
     end.
 
 project_app_dirs() ->
-    ["apps/*", extra_lib_dir() ++ "/*", "."].
+    ["apps/*", alternative_lib_dir() ++ "/*", "."].
 
 plugins() ->
     [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {branch,"master"}}},
@@ -185,7 +208,8 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_modules
     ]
     ++ relx_plugin_apps_per_rel(ReleaseType)
-    ++ relx_plugin_apps_enterprise(is_enterprise()).
+    ++ relx_plugin_apps_enterprise(is_enterprise())
+    ++ relx_plugin_apps_extra().
 
 relx_plugin_apps_per_rel(cloud) ->
     [ emqx_lwm2m
@@ -206,6 +230,9 @@ relx_plugin_apps_enterprise(true) ->
     [list_to_atom(A) || A <- filelib:wildcard("*", "lib-ee"),
                         filelib:is_dir(filename:join(["lib-ee", A]))];
 relx_plugin_apps_enterprise(false) -> [].
+
+relx_plugin_apps_extra() ->
+    [Plugin || {Plugin, _} <- extra_deps()].
 
 relx_overlay(ReleaseType) ->
     [ {mkdir,"log/"}
@@ -234,7 +261,8 @@ relx_overlay(ReleaseType) ->
 etc_overlay(ReleaseType) ->
     PluginApps = relx_plugin_apps(ReleaseType),
     Templates = emqx_etc_overlay(ReleaseType) ++
-                lists:append([plugin_etc_overlays(App) || App <- PluginApps]),
+                lists:append([plugin_etc_overlays(App) || App <- PluginApps]) ++
+                [community_plugin_etc_overlays(App) || App <- relx_plugin_apps_extra()],
     [ {mkdir, "etc/"}
     , {mkdir, "etc/plugins"}
     , {template, "etc/BUILT_ON", "releases/{{release_version}}/BUILT_ON"}
@@ -274,11 +302,15 @@ plugin_etc_overlays(App0) ->
     [{"{{base_dir}}/lib/"++ App ++"/etc/" ++ F, "etc/plugins/" ++ F}
      || F <- ConfFiles].
 
+community_plugin_etc_overlays(App0) ->
+    App = atom_to_list(App0),
+    {"{{base_dir}}/lib/"++ App ++"/etc/" ++ App ++ ".conf", "etc/plugins/" ++ App ++ ".conf"}.
+
 %% NOTE: for apps fetched as rebar dependency (there is so far no such an app)
 %% the overlay should be hand-coded but not to rely on build-time wildcards.
 find_conf_files(App) ->
     Dir1 = filename:join(["apps", App, "etc"]),
-    Dir2 = filename:join([extra_lib_dir(), App, "etc"]),
+    Dir2 = filename:join([alternative_lib_dir(), App, "etc"]),
     filelib:wildcard("*.conf", Dir1) ++ filelib:wildcard("*.conf", Dir2).
 
 env(Name, Default) ->
@@ -320,7 +352,7 @@ provide_bcrypt_release(ReleaseType) ->
 erl_opts_i() ->
     [{i, "apps"}] ++
     [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "*", "include"]))] ++
-    [{i, Dir}  || Dir <- filelib:wildcard(filename:join([extra_lib_dir(), "*", "include"]))].
+    [{i, Dir}  || Dir <- filelib:wildcard(filename:join([alternative_lib_dir(), "*", "include"]))].
 
 dialyzer(Config) ->
     {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),
@@ -332,7 +364,7 @@ dialyzer(Config) ->
             [ list_to_atom(App) || App <- string:tokens(Value, ",")]
     end,
 
-    AppNames = [emqx | list_dir("apps")] ++ list_dir(extra_lib_dir()),
+    AppNames = [emqx | list_dir("apps")] ++ list_dir(alternative_lib_dir()),
 
     KnownApps = [Name ||  Name <- AppsToAnalyse, lists:member(Name, AppNames)],
 
