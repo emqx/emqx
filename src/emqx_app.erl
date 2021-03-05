@@ -20,9 +20,12 @@
 
 -export([ start/2
         , stop/1
+        , get_release/0
         ]).
 
 -define(APP, emqx).
+
+-include("emqx_release.hrl").
 
 %%--------------------------------------------------------------------
 %% Application callbacks
@@ -57,8 +60,19 @@ print_banner() ->
 
 print_vsn() ->
     {ok, Descr} = application:get_key(description),
-    {ok, Vsn} = application:get_key(vsn),
-    io:format("~s ~s is running now!~n", [Descr, Vsn]).
+    io:format("~s ~s is running now!~n", [Descr, get_release()]).
+
+-ifdef(TEST).
+%% When testing, the 'cover' compiler stripps aways compile info
+get_release() -> ?EMQX_RELEASE.
+-else.
+%% Otherwise print the build number,
+%% which may have a git commit in its suffix.
+get_release() ->
+    {_, Vsn} = lists:keyfind(emqx_vsn, 1, ?MODULE:module_info(compile)),
+    ?EMQX_RELEASE ++ _ = Vsn, %% assert
+    Vsn.
+-endif.
 
 %%--------------------------------------------------------------------
 %% Autocluster
