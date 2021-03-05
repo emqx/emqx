@@ -39,31 +39,19 @@ stop(_State) ->
     emqx_web_hook:unload(),
     ehttpc_sup:stop_pool(?APP).
 
-add_default_scheme(URL) when is_list(URL) ->
-    binary_to_list(add_default_scheme(list_to_binary(URL)));
-add_default_scheme(<<"http://", _/binary>> = URL) ->
-    URL;
-add_default_scheme(<<"https://", _/binary>> = URL) ->
-    URL;
-add_default_scheme(URL) ->
-    <<"http://", URL/binary>>.
-
 translate_env() ->
     {ok, URL} = application:get_env(?APP, url),
-    #{host := Host0,
-      path := Path0,
-      scheme := Scheme} = URIMap = uri_string:parse(add_default_scheme(uri_string:normalize(URL))),
-    Port = maps:get(port, URIMap, case Scheme of
-                                      "https" -> 443;
-                                      "http" -> 80
-                                  end),
+    {ok, #{host := Host0,
+           path := Path0,
+           port := Port,
+           scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
     Path = path(Path0),
     {Inet, Host} = parse_host(Host0),
     PoolSize = application:get_env(?APP, pool_size, 32),
     MoreOpts = case Scheme of
-                   "http" ->
+                   http ->
                        [{transport_opts, [Inet]}];
-                   "https" ->
+                   https ->
                        CACertFile = application:get_env(?APP, cacertfile, undefined),
                        CertFile = application:get_env(?APP, certfile, undefined),
                        KeyFile = application:get_env(?APP, keyfile, undefined),
