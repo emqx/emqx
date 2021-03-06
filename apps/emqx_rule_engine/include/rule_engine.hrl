@@ -79,6 +79,7 @@
         , on_action_failed :: continue | stop
         , actions :: list(#action_instance{})
         , enabled :: boolean()
+        , created_at :: integer() %% epoch in millisecond precision
         , description :: binary()
         }).
 

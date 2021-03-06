@@ -20,6 +20,7 @@
 
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("stdlib/include/qlc.hrl").
 
 -export([start_link/0]).
 
@@ -27,6 +28,7 @@
 -export([ get_rules/0
         , get_rules_for/1
         , get_rules_with_same_event/1
+        , get_rules_ordered_by_ts/0
         , get_rule/1
         , add_rule/1
         , add_rules/1
@@ -167,6 +169,14 @@ start_link() ->
 -spec(get_rules() -> list(emqx_rule_engine:rule())).
 get_rules() ->
     get_all_records(?RULE_TAB).
+
+get_rules_ordered_by_ts() ->
+    F = fun() ->
+        Query = qlc:q([E || E <- mnesia:table(?RULE_TAB)]),
+        qlc:e(qlc:keysort(#rule.created_at, Query, [{order, ascending}]))
+    end,
+    {atomic, List} = mnesia:transaction(F),
+    List.
 
 -spec(get_rules_for(Topic :: binary()) -> list(emqx_rule_engine:rule())).
 get_rules_for(Topic) ->

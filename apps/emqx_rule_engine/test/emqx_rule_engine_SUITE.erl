@@ -694,44 +694,44 @@ t_update_rule(_Config) ->
     ok.
 
 t_disable_rule(_Config) ->
-    ets:new(simpile_action_2, [named_table, set, public]),
-    ets:insert(simpile_action_2, {created, 0}),
-    ets:insert(simpile_action_2, {destroyed, 0}),
+    ets:new(simple_action_2, [named_table, set, public]),
+    ets:insert(simple_action_2, {created, 0}),
+    ets:insert(simple_action_2, {destroyed, 0}),
     Now = erlang:timestamp(),
     emqx_rule_registry:add_action(
-        #action{name = 'simpile_action_2', app = ?APP,
+        #action{name = 'simple_action_2', app = ?APP,
                 module = ?MODULE,
-                on_create = simpile_action_2_create,
-                on_destroy = simpile_action_2_destroy,
+                on_create = simple_action_2_create,
+                on_destroy = simple_action_2_destroy,
                 types=[], params_spec = #{},
                 title = #{en => <<"Simple Action">>},
                 description = #{en => <<"Simple Action">>}}),
     {ok, #rule{actions = [#action_instance{id = ActInsId0}]}} = emqx_rule_engine:create_rule(
         #{id => <<"simple_rule_2">>,
           rawsql => <<"select * from \"t/#\"">>,
-          actions => [#{name => 'simpile_action_2', args => #{}}]
+          actions => [#{name => 'simple_action_2', args => #{}}]
         }),
-    [{_, CAt}] = ets:lookup(simpile_action_2, created),
+    [{_, CAt}] = ets:lookup(simple_action_2, created),
     ?assert(CAt > Now),
-    [{_, DAt}] = ets:lookup(simpile_action_2, destroyed),
+    [{_, DAt}] = ets:lookup(simple_action_2, destroyed),
     ?assert(DAt < Now),
 
     %% disable the rule and verify the old action instances has been cleared
     Now2 = erlang:timestamp(),
     emqx_rule_engine:update_rule(#{ id => <<"simple_rule_2">>,
                                     enabled => false}),
-    [{_, CAt2}] = ets:lookup(simpile_action_2, created),
+    [{_, CAt2}] = ets:lookup(simple_action_2, created),
     ?assert(CAt2 < Now2),
-    [{_, DAt2}] = ets:lookup(simpile_action_2, destroyed),
+    [{_, DAt2}] = ets:lookup(simple_action_2, destroyed),
     ?assert(DAt2 > Now2),
 
     %% enable the rule again and verify the action instances has been created
     Now3 = erlang:timestamp(),
     emqx_rule_engine:update_rule(#{ id => <<"simple_rule_2">>,
                                     enabled => true}),
-    [{_, CAt3}] = ets:lookup(simpile_action_2, created),
+    [{_, CAt3}] = ets:lookup(simple_action_2, created),
     ?assert(CAt3 > Now3),
-    [{_, DAt3}] = ets:lookup(simpile_action_2, destroyed),
+    [{_, DAt3}] = ets:lookup(simple_action_2, destroyed),
     ?assert(DAt3 < Now3),
     ok = emqx_rule_engine:delete_rule(<<"simple_rule_2">>).
 
@@ -743,6 +743,19 @@ t_get_rules_for(_Config) ->
     ?assertEqual(Len0+2, length(emqx_rule_registry:get_rules_for(<<"simple/topic">>))),
     ok = emqx_rule_registry:remove_rules([<<"rule-debug-1">>, <<"rule-debug-2">>]),
     ok.
+
+t_get_rules_ordered_by_ts(_Config) ->
+    Now = fun() -> erlang:system_time(nanosecond) end,
+    ok = emqx_rule_registry:add_rules(
+            [make_simple_rule_with_ts(<<"rule-debug-0">>, Now()),
+             make_simple_rule_with_ts(<<"rule-debug-1">>, Now()),
+             make_simple_rule_with_ts(<<"rule-debug-2">>, Now())
+             ]),
+    ?assertMatch([
+        #rule{id = <<"rule-debug-0">>},
+        #rule{id = <<"rule-debug-1">>},
+        #rule{id = <<"rule-debug-2">>}
+    ], emqx_rule_registry:get_rules_ordered_by_ts()).
 
 t_get_rules_for_2(_Config) ->
     Len0 = length(emqx_rule_registry:get_rules_for(<<"simple/1">>)),
@@ -2166,6 +2179,17 @@ make_simple_rule(RuleId) when is_binary(RuleId) ->
           actions = [{'inspect', #{}}],
           description = <<"simple rule">>}.
 
+make_simple_rule_with_ts(RuleId, Ts) when is_binary(RuleId) ->
+    #rule{id = RuleId,
+          rawsql = <<"select * from \"simple/topic\"">>,
+          for = [<<"simple/topic">>],
+          fields = [<<"*">>],
+          is_foreach = false,
+          conditions = {},
+          actions = [{'inspect', #{}}],
+          created_at = Ts,
+          description = <<"simple rule">>}.
+
 make_simple_rule(RuleId, SQL, ForTopics) when is_binary(RuleId) ->
     #rule{id = RuleId,
           rawsql = SQL,
@@ -2250,12 +2274,12 @@ crash_action(_Id, _Params) ->
         error(crash)
     end.
 
-simpile_action_2_create(_Id, _Params) ->
-    ets:insert(simpile_action_2, {created, erlang:timestamp()}),
+simple_action_2_create(_Id, _Params) ->
+    ets:insert(simple_action_2, {created, erlang:timestamp()}),
     fun(_Data, _Envs) -> ok end.
 
-simpile_action_2_destroy(_Id, _Params) ->
-    ets:insert(simpile_action_2, {destroyed, erlang:timestamp()}),
+simple_action_2_destroy(_Id, _Params) ->
+    ets:insert(simple_action_2, {destroyed, erlang:timestamp()}),
     fun(_Data, _Envs) -> ok end.
 
 init_plus_by_one_action() ->

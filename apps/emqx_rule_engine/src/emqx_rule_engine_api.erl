@@ -230,7 +230,7 @@ update_rule(#{id := Id}, Params) ->
     end.
 
 list_rules(_Bindings, _Params) ->
-    return_all(emqx_rule_registry:get_rules()).
+    return_all(emqx_rule_registry:get_rules_ordered_by_ts()).
 
 show_rule(#{id := Id}, _Params) ->
     reply_with(fun emqx_rule_registry:get_rule/1, Id).
@@ -495,8 +495,8 @@ parse_rule_params([{<<"actions">>, Actions} | Params], Rule) ->
     parse_rule_params(Params, Rule#{actions => parse_actions(Actions)});
 parse_rule_params([{<<"description">>, Descr} | Params], Rule) ->
     parse_rule_params(Params, Rule#{description => Descr});
-parse_rule_params([_ | Params], Res) ->
-    parse_rule_params(Params, Res).
+parse_rule_params([_ | Params], Rule) ->
+    parse_rule_params(Params, Rule).
 
 on_failed(<<"continue">>) -> continue;
 on_failed(<<"stop">>) -> stop;
