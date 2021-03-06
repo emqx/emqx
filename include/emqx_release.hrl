@@ -25,12 +25,8 @@
 %% plugins had a bug to fix. So for a hot beam upgrade, only the app
 %% with beam files changed needs an upgrade.
 
-%% NOTE: The version string prefix should be:
-%% 'v' for opensource edition
-%% 'e' for enterprise edition
-
 %% NOTE: This version number should be manually bumped for each release
 
--define(EMQX_RELEASE, "v4.3-beta.1").
+-define(EMQX_RELEASE, "4.3-beta.1").
 
 -endif.
