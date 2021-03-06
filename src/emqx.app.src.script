@@ -1,0 +1,7 @@
+[{application, Name, Opts}] = CONFIG,
+case os:getenv("EMQX_DESC") of
+    [_ | _] = Desc ->
+      [{application, Name, [{description, Desc} | Opts]}];
+    _ ->
+      error(env_var_EMQX_DESC_not_set)
+end.

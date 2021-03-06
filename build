@@ -12,19 +12,6 @@ ARTIFACT="$2"
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
-case "$PROFILE" in
-    emqx-edge*)
-	    export EMQX_DESC="EMQ X Edge"
-        ;;
-    emqx*)
-	    export EMQX_DESC="EMQ X Broker"
-        ;;
-    *)
-        echo "Unknown profile $PROFILE"
-        exit 1
-        ;;
-esac
-
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
 export PKG_VSN
 

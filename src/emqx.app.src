@@ -1,6 +1,5 @@
 {application, emqx,
- [{description, "EMQ X Broker"},
-  {id, "emqx"},
+ [{id, "emqx"},
   {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},

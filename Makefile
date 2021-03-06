@@ -4,6 +4,7 @@ REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
+export EMQX_DESC ?= EMQ X
 export EMQX_CE_DASHBOARD_VERSION ?= v4.3.0-beta.1
 
 PROFILE ?= emqx
@@ -53,9 +54,9 @@ coveralls: $(REBAR)
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(REBAR) get-dashboard
 ifneq ($(shell echo $(@) |grep edge),)
-	@export EMQX_DESC="EMQ X Edge"
+	@export EMQX_DESC="$${EMQX_DESC} Edge"
 else
-	@export EMQX_DESC="EMQ X Broker"
+	@export EMQX_DESC="$${EMQX_DESC} Broker"
 endif
 	@$(REBAR) as $(@) release
 
@@ -72,9 +73,9 @@ deps-all: $(REBAR) $(PROFILES:%=deps-%)
 .PHONY: $(PROFILES:%=deps-%)
 $(PROFILES:%=deps-%): $(REBAR) get-dashboard
 ifneq ($(shell echo $(@) |grep edge),)
-	@export EMQX_DESC="EMQ X Edge"
+	@export EMQX_DESC="$${EMQX_DESC} Edge"
 else
-	@export EMQX_DESC="EMQ X Broker"
+	@export EMQX_DESC="$${EMQX_DESC} Broker"
 endif
 	@$(REBAR) as $(@:deps-%=%) get-deps
 
