@@ -202,15 +202,11 @@ http_connectivity(Url) ->
 
 -spec(http_connectivity(uri_string(), integer()) -> ok | {error, Reason :: term()}).
 http_connectivity(Url, Timeout) ->
-    case uri_string:parse(uri_string:normalize(Url)) of
-        {error, Reason, _} ->
-            {error, Reason};
-        #{host := Host, port := Port} ->
+    case emqx_http_lib:uri_parse(Url) of
+        {ok, #{host := Host, port := Port}} ->
             tcp_connectivity(str(Host), Port, Timeout);
-        #{host := Host, scheme := Scheme} ->
-            tcp_connectivity(str(Host), default_port(Scheme), Timeout);
-        _ ->
-            {error, {invalid_url, Url}}
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 -spec tcp_connectivity(Host :: inet:socket_address() | inet:hostname(),
@@ -228,13 +224,6 @@ tcp_connectivity(Host, Port, Timeout) ->
         {ok, Sock} -> gen_tcp:close(Sock), ok;
         {error, Reason} -> {error, Reason}
     end.
-
-default_port("http") -> 80;
-default_port("https") -> 443;
-default_port(<<"http">>) -> 80;
-default_port(<<"https">>) -> 443;
-default_port(Scheme) -> throw({bad_scheme, Scheme}).
-
 
 unwrap(<<"${", Val/binary>>) ->
     binary:part(Val, {0, byte_size(Val)-1}).

@@ -53,19 +53,16 @@ translate_env(EnvName) ->
             {ok, PoolSize} = application:get_env(?APP, pool_size),
             {ok, ConnectTimeout} = application:get_env(?APP, connect_timeout),
             URL = proplists:get_value(url, Req),
-            #{host := Host0,
-              path := Path0,
-              scheme := Scheme} = URIMap = uri_string:parse(add_default_scheme(uri_string:normalize(URL))),
-            Port = maps:get(port, URIMap, case Scheme of
-                                            "https" -> 443;
-                                            "http" -> 80
-                                        end),
+            {ok, #{host := Host0,
+                   path := Path0,
+                   port := Port,
+                   scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
             Path = path(Path0),
             {Inet, Host} = parse_host(Host0),
             MoreOpts = case Scheme of
-                        "http" ->
+                        http ->
                             [{transport_opts, [Inet]}];
-                        "https" ->
+                        https ->
                             CACertFile = application:get_env(?APP, cacertfile, undefined),
                             CertFile = application:get_env(?APP, certfile, undefined),
                             KeyFile = application:get_env(?APP, keyfile, undefined),
@@ -157,15 +154,6 @@ ensure_content_type_header(Method, Headers)
     Headers;
 ensure_content_type_header(_Method, Headers) ->
     lists:keydelete("content-type", 1, Headers).
-
-add_default_scheme(URL) when is_list(URL) ->
-    binary_to_list(add_default_scheme(list_to_binary(URL)));
-add_default_scheme(<<"http://", _/binary>> = URL) ->
-    URL;
-add_default_scheme(<<"https://", _/binary>> = URL) ->
-    URL;
-add_default_scheme(URL) ->
-    <<"http://", URL/binary>>.
 
 path("") ->
     "/";
