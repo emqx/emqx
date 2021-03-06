@@ -515,8 +515,12 @@ handle_timeout(TRef, keepalive, State = #state{socket = Socket,
     end;
 handle_timeout(_TRef, emit_stats, State =
                #state{channel = Channel}) ->
-    ClientId = emqx_exproto_channel:info(clientid, Channel),
-    emqx_cm:set_chan_stats(ClientId, stats(State)),
+    case emqx_exproto_channel:info(clientid, Channel) of
+        undefined ->
+            ignore;
+        ClientId ->
+            emqx_cm:set_chan_stats(ClientId, stats(State))
+    end,
     {ok, State#state{stats_timer = undefined}};
 
 handle_timeout(TRef, Msg, State) ->
