@@ -98,7 +98,7 @@ unload() ->
 %%-----------------------------------------------------------------------------
 -dialyzer([{nowarn_function, [rules/1]}]).
 rules(["list"]) ->
-    print_all(emqx_rule_registry:get_rules());
+    print_all(emqx_rule_registry:get_rules_ordered_by_ts());
 
 rules(["show", RuleId]) ->
     print_with(fun emqx_rule_registry:get_rule/1, list_to_binary(RuleId));
