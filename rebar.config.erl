@@ -102,17 +102,18 @@ test_compile_opts() ->
     ].
 
 profiles() ->
+    Vsn = get_vsn(),
     [ {'emqx',          [ {erl_opts, prod_compile_opts()}
-                        , {relx, relx('emqx')}
+                        , {relx, relx(Vsn, cloud, bin)}
                         ]}
     , {'emqx-pkg',      [ {erl_opts, prod_compile_opts()}
-                        , {relx, relx('emqx-pkg')}
+                        , {relx, relx(Vsn, cloud, pkg)}
                         ]}
     , {'emqx-edge',     [ {erl_opts, prod_compile_opts()}
-                        , {relx, relx('emqx-edge')}
+                        , {relx, relx(Vsn, edge, bin)}
                         ]}
     , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts()}
-                        , {relx, relx('emqx-edge-pkg')}
+                        , {relx, relx(Vsn, edge, pkg)}
                         ]}
     , {check,           [ {erl_opts, test_compile_opts()}
                         ]}
@@ -121,41 +122,30 @@ profiles() ->
                         , {erl_opts, test_compile_opts() ++ erl_opts_i()}
                         , {extra_src_dirs, [{"test", [{recursive,true}]}]}
                         ]}
-    ].
+    ] ++ ee_profiles(Vsn).
 
-relx(Profile) ->
-    Vsn = get_vsn(),
+%% RelType: cloud (full size) | edge (slim size)
+%% PkgType: bin | pkg
+relx(Vsn, RelType, PkgType) ->
     [ {include_src,false}
     , {include_erts, true}
     , {extended_start_script,false}
     , {generate_start_script,false}
     , {sys_config,false}
     , {vm_args,false}
-    ] ++ do_relx(Profile, Vsn).
-
-do_relx('emqx', Vsn) ->
-    [ {release, {emqx, Vsn}, relx_apps(cloud)}
-    , {overlay, relx_overlay(cloud)}
-    , {overlay_vars, overlay_vars(["vars/vars-cloud.config","vars/vars-bin.config"])}
-    ];
-do_relx('emqx-pkg', Vsn) ->
-    [ {release, {emqx, Vsn}, relx_apps(cloud)}
-    , {overlay, relx_overlay(cloud)}
-    , {overlay_vars, overlay_vars(["vars/vars-cloud.config","vars/vars-pkg.config"])}
-    ];
-do_relx('emqx-edge', Vsn) ->
-    [ {release, {emqx, Vsn}, relx_apps(edge)}
-    , {overlay, relx_overlay(edge)}
-    , {overlay_vars, overlay_vars(["vars/vars-edge.config","vars/vars-bin.config"])}
-    ];
-do_relx('emqx-edge-pkg', Vsn) ->
-    [ {release, {emqx, Vsn}, relx_apps(edge)}
-    , {overlay, relx_overlay(edge)}
-    , {overlay_vars, overlay_vars(["vars/vars-edge.config","vars/vars-pkg.config"])}
+    , {release, {emqx, Vsn}, relx_apps(RelType)}
+    , {overlay, relx_overlay(RelType)}
+    , {overlay_vars, [ {built_on_arch, rebar_utils:get_arch()}
+                     , overlay_vars_rel(RelType)
+                     , overlay_vars_pkg(PkgType)
+                     ]}
     ].
 
-overlay_vars(Files) ->
-    [{built_on_arch, rebar_utils:get_arch()} | Files].
+overlay_vars_rel(cloud) -> "vars/vars-cloud.config";
+overlay_vars_rel(edge) -> "vars/vars-edge.config".
+
+overlay_vars_pkg(bin) -> "vars/vars-bin.config";
+overlay_vars_pkg(pkg) -> "vars/vars-pkg.config".
 
 relx_apps(ReleaseType) ->
     [ kernel
@@ -400,3 +390,7 @@ coveralls() ->
 list_dir(Dir) ->
     {ok, Names} = file:list_dir(Dir),
     [list_to_atom(Name) || Name <- Names, filelib:is_dir(filename:join([Dir, Name]))].
+
+%% ==== Enterprise supports below ==================================================================
+
+ee_profiles(_Vsn) -> [].
