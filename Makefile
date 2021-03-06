@@ -10,7 +10,7 @@ export EMQX_CE_DASHBOARD_VERSION ?= v4.3.0-beta.1
 PROFILE ?= emqx
 REL_PROFILES := emqx emqx-edge
 PKG_PROFILES := emqx-pkg emqx-edge-pkg
-PROFILES := $(REL_PROFILES) $(PKG_PROFILES)
+PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
 
@@ -60,12 +60,22 @@ else
 endif
 	@$(REBAR) as $(@) release
 
-# rebar clean
+## Not calling rebar3 clean because
+## 1. rebar3 clean relies on rebar3, meaning it reads config, fetches dependencies etc.
+## 2. it's slow
+## NOTE: this does not force rebar3 to fetch new version dependencies
+## make clean-all to delete all fetched dependencies for a fresh start-over
 .PHONY: clean $(PROFILES:%=clean-%)
 clean: $(PROFILES:%=clean-%)
-$(PROFILES:%=clean-%): $(REBAR)
-	@$(REBAR) as $(@:clean-%=%) clean
-	@rm -rf apps/emqx_dashboard/priv/www
+$(PROFILES:%=clean-%):
+	@if [ -d _build/$(@:clean-%=%) ]; then \
+		rm -rf _build/$(@:clean-%=%)/rel; \
+		find _build/$(@:clean-%=%) -name '*.beam' -o -name '*.so' -o -name '*.app' -o -name '*.appup' -type f | xargs rm -f; \
+	fi
+
+.PHONY: clean-all
+clean-all:
+	@rm -rf _build
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%)
