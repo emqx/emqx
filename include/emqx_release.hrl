@@ -27,6 +27,13 @@
 
 %% NOTE: This version number should be manually bumped for each release
 
--define(EMQX_RELEASE, "4.3-beta.1").
+-ifndef(EMQX_ENTERPRISE).
+
+-define(EMQX_RELEASE, {opensource, "4.3-beta.1"}).
+
+-else.
+
+
+-endif.
 
 -endif.

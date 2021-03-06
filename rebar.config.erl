@@ -204,9 +204,9 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_recon
     , emqx_rule_engine
     , emqx_sasl
-    , emqx_telemetry
     , emqx_modules
     ]
+    ++ [emqx_telemetry || not is_enterprise()]
     ++ relx_plugin_apps_per_rel(ReleaseType)
     ++ relx_plugin_apps_enterprise(is_enterprise())
     ++ relx_plugin_apps_extra().
