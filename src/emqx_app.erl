@@ -64,15 +64,19 @@ print_vsn() ->
 
 -ifdef(TEST).
 %% When testing, the 'cover' compiler stripps aways compile info
-get_release() -> ?EMQX_RELEASE.
+get_release() -> release_in_macro().
 -else.
 %% Otherwise print the build number,
 %% which may have a git commit in its suffix.
 get_release() ->
     {_, Vsn} = lists:keyfind(emqx_vsn, 1, ?MODULE:module_info(compile)),
-    ?EMQX_RELEASE ++ _ = Vsn, %% assert
+    VsnStr = release_in_macro(),
+    1 = string:str(Vsn, VsnStr), %% assert
     Vsn.
 -endif.
+
+release_in_macro() ->
+    element(2, ?EMQX_RELEASE).
 
 %%--------------------------------------------------------------------
 %% Autocluster
