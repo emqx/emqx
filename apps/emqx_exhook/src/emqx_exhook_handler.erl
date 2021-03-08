@@ -77,14 +77,11 @@
          , {'session.discarded',   {?MODULE, on_session_discarded,    []}}
          , {'session.takeovered',  {?MODULE, on_session_takeovered,   []}}
          , {'session.terminated',  {?MODULE, on_session_terminated,   []}}
-         %]).
-         , {'message.publish',     {?MODULE, on_message_publish,   []}}
-         , {'message.delivered',   {?MODULE, on_message_delivered, []}}
-         , {'message.acked',       {?MODULE, on_message_acked,     []}}
-         , {'message.dropped',     {?MODULE, on_message_dropped,   []}}
+         , {'message.publish',     {?MODULE, on_message_publish,      []}}
+         , {'message.delivered',   {?MODULE, on_message_delivered,    []}}
+         , {'message.acked',       {?MODULE, on_message_acked,        []}}
+         , {'message.dropped',     {?MODULE, on_message_dropped,      []}}
          ]).
-
-
 
 %%--------------------------------------------------------------------
 %% Clients
