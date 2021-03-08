@@ -57,6 +57,7 @@ prep_stop(State) ->
     emqx_ctl:unregister_command(exhook),
     _ = unload_exhooks(),
     ok = unload_all_servers(),
+    _ = deinit_hook_registray(),
     State.
 
 stop(_State) ->
@@ -91,6 +92,9 @@ init_hook_registray() ->
 unload_exhooks() ->
     [emqx:unhook(Name, {M, F}) ||
      {Name, {M, F, _A}, _} <- ets:tab2list(?REGISTRAY)].
+
+deinit_hook_registray() ->
+    ets:delete(?REGISTRAY).
 
 search_exhooks() ->
     search_exhooks(ignore_lib_apps(application:loaded_applications())).
