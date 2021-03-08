@@ -164,8 +164,9 @@ relx_apps(ReleaseType) ->
     , {mnesia, load}
     , {ekka, load}
     , {emqx_plugin_libs, load}
-    , emqx_modules
     ]
+    ++ [emqx_modules || not is_enterprise()]
+    ++ [emqx_license || is_enterprise()]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
     ++ relx_apps_per_rel(ReleaseType)
     ++ [{N, load} || N <- relx_plugin_apps(ReleaseType)].
@@ -194,7 +195,6 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_recon
     , emqx_rule_engine
     , emqx_sasl
-    , emqx_modules
     ]
     ++ [emqx_telemetry || not is_enterprise()]
     ++ relx_plugin_apps_per_rel(ReleaseType)
@@ -225,28 +225,28 @@ relx_plugin_apps_extra() ->
     [Plugin || {Plugin, _} <- extra_deps()].
 
 relx_overlay(ReleaseType) ->
-    [ {mkdir,"log/"}
-    , {mkdir,"data/"}
-    , {mkdir,"data/mnesia"}
-    , {mkdir,"data/configs"}
-    , {mkdir,"data/scripts"}
+    [ {mkdir, "log/"}
+    , {mkdir, "data/"}
+    , {mkdir, "data/mnesia"}
+    , {mkdir, "data/configs"}
+    , {mkdir, "data/scripts"}
     , {template, "data/loaded_plugins.tmpl", "data/loaded_plugins"}
     , {template, "data/loaded_modules.tmpl", "data/loaded_modules"}
-    , {template,"data/emqx_vars","releases/emqx_vars"}
-    , {copy,"bin/emqx","bin/emqx"}
-    , {copy,"bin/emqx_ctl","bin/emqx_ctl"}
-    , {copy,"bin/install_upgrade.escript", "bin/install_upgrade.escript"}
-    , {copy,"bin/emqx","bin/emqx-{{release_version}}"} %% for relup
-    , {copy,"bin/emqx_ctl","bin/emqx_ctl-{{release_version}}"} %% for relup
-    , {copy,"bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"} %% for relup
-    , {template,"bin/emqx.cmd","bin/emqx.cmd"}
-    , {template,"bin/emqx_ctl.cmd","bin/emqx_ctl.cmd"}
-    , {copy,"bin/nodetool","bin/nodetool"}
-    , {copy,"bin/nodetool","bin/nodetool-{{release_version}}"}
-    , {copy,"_build/default/lib/cuttlefish/cuttlefish","bin/cuttlefish"}
-    , {copy,"_build/default/lib/cuttlefish/cuttlefish","bin/cuttlefish-{{release_version}}"}
-    , {copy,"priv/emqx.schema","releases/{{release_version}}/"}
-    ] ++ etc_overlay(ReleaseType).
+    , {template, "data/emqx_vars", "releases/emqx_vars"}
+    , {copy, "bin/emqx", "bin/emqx"}
+    , {copy, "bin/emqx_ctl", "bin/emqx_ctl"}
+    , {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript"}
+    , {copy, "bin/emqx", "bin/emqx-{{release_version}}"} %% for relup
+    , {copy, "bin/emqx_ctl", "bin/emqx_ctl-{{release_version}}"} %% for relup
+    , {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"} %% for relup
+    , {template, "bin/emqx.cmd", "bin/emqx.cmd"}
+    , {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"}
+    , {copy, "bin/nodetool", "bin/nodetool"}
+    , {copy, "bin/nodetool", "bin/nodetool-{{release_version}}"}
+    , {copy, "_build/default/lib/cuttlefish/cuttlefish", "bin/cuttlefish"}
+    , {copy, "_build/default/lib/cuttlefish/cuttlefish", "bin/cuttlefish-{{release_version}}"}
+    , {copy, "priv/emqx.schema", "releases/{{release_version}}/"}
+    ] ++ ee_etc_overlay() ++ etc_overlay(ReleaseType).
 
 etc_overlay(ReleaseType) ->
     PluginApps = relx_plugin_apps(ReleaseType),
@@ -394,3 +394,4 @@ list_dir(Dir) ->
 %% ==== Enterprise supports below ==================================================================
 
 ee_profiles(_Vsn) -> [].
+ee_etc_overlay() -> [].
