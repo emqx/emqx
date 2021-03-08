@@ -213,6 +213,7 @@ generate_config() {
         if [ "${EMQX_LICENSE_CONF:-}" != "" ]; then
             EMQX_LICENSE_CONF_OPTION="-i ${EMQX_LICENSE_CONF}"
         fi
+         # shellcheck disable=SC2086
         CONFIG_ARGS=$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -i "$REL_DIR"/emqx.schema $EMQX_LICENSE_CONF_OPTION -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)
 
         ## Merge cuttlefish generated *.args into the vm.args
