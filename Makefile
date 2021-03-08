@@ -80,13 +80,11 @@ clean-all:
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%)
 
+## deps-<profile> is used in CI scripts to download deps and the
+## share downloads between CI steps and/or copied into containers
+## which may not have the right credentials
 .PHONY: $(PROFILES:%=deps-%)
 $(PROFILES:%=deps-%): $(REBAR) get-dashboard
-ifneq ($(shell echo $(@) |grep edge),)
-	@export EMQX_DESC="$${EMQX_DESC} Edge"
-else
-	@export EMQX_DESC="$${EMQX_DESC} Broker"
-endif
 	@$(REBAR) as $(@:deps-%=%) get-deps
 
 .PHONY: xref
