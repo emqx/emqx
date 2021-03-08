@@ -434,7 +434,14 @@ restart_listener(Node, Identifier) when Node =:= node() ->
     emqx_listeners:restart_listener(Identifier);
 
 restart_listener(Node, Identifier) ->
-    rpc_call(Node, restart_listener, [Node, Identifier]).
+    Names = [<<"http:management">>,
+             <<"https:management">>,
+             <<"http:dashboard">>,
+             <<"https:dashboard">>],
+    case lists:member(Identifier, Names) of
+        true -> {error, "Operate forbidden"};
+        _ -> rpc_call(Node, restart_listener, [Node, Identifier])
+    end.
 
 %%--------------------------------------------------------------------
 %% Get Alarms

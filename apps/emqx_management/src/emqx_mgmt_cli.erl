@@ -509,6 +509,18 @@ listeners(["stop", _Proto, ListenOn]) ->
     end,
     stop_listener(emqx_listeners:find_by_listen_on(ListenOn1), ListenOn1);
 
+listeners(["restart", "http:management" = Identifier]) ->
+    restart_emqx_management(Identifier);
+
+listeners(["restart", "https:management" = Identifier]) ->
+    restart_emqx_management(Identifier);
+
+listeners(["restart", "http:dashboard" = Identifier]) ->
+    restart_emqx_dashboard(Identifier);
+
+listeners(["restart", "https:dashboard" = Identifier]) ->
+    restart_emqx_dashboard(Identifier);
+
 listeners(["restart", Identifier]) ->
     case emqx_listeners:restart_listener(Identifier) of
         ok ->
@@ -661,3 +673,29 @@ listener_identifier(Protocol, ListenOn) ->
         ID ->
             ID
     end.
+
+restart_emqx_management(Identifier) ->
+    lists:foreach(fun({Protocol ,Port, Options}) ->
+        case Identifier = atom_to_list(Protocol) ++ ":management" of
+            "http:management" ->
+                restart(emqx_mgmt_http, http, Port, Options);
+            "https:management" ->
+                restart(emqx_mgmt_http, https, Port, Options);
+            _ -> ok
+        end
+    end, application:get_env(emqx_management, listeners, [])).
+
+restart_emqx_dashboard(Identifier) ->
+    lists:foreach(fun({Protocol ,Port, Options}) ->
+        case Identifier = atom_to_list(Protocol) ++ ":dashboard" of
+            "http:dashboard" ->
+                restart(emqx_dashboard, http, Port, Options);
+            "https:dashboard" ->
+                restart(emqx_dashboard, https, Port, Options);
+            _ -> ok
+        end
+    end, application:get_env(emqx_dashboard, listeners, [])).
+
+restart(ListenerModule, Protocol, Port, Options) ->
+    ListenerModule:stop_listener({Protocol, Port, Options}),
+    ListenerModule:start_listener({Protocol, Port, Options}).

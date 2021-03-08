@@ -23,6 +23,8 @@
 
 -export([ start_listeners/0
         , stop_listeners/0
+        , start_listener/1
+        , stop_listener/1
         ]).
 
 %% for minirest
