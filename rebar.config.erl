@@ -248,9 +248,6 @@ relx_overlay(ReleaseType) ->
     , {copy, "priv/emqx.schema", "releases/{{release_version}}/"}
     ] ++ ee_etc_overlay() ++ etc_overlay(ReleaseType).
 
-ee_etc_overlay() ->
-    [].
-
 etc_overlay(ReleaseType) ->
     PluginApps = relx_plugin_apps(ReleaseType),
     Templates = emqx_etc_overlay(ReleaseType) ++
@@ -397,3 +394,4 @@ list_dir(Dir) ->
 %% ==== Enterprise supports below ==================================================================
 
 ee_profiles(_Vsn) -> [].
+ee_etc_overlay() -> [].
