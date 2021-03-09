@@ -153,7 +153,8 @@ handle_info({timeout, TRef, heartbeat}, State = #state{heartbeat = TRef}) ->
     publish_any(datetime, iolist_to_binary(datetime())),
     {noreply, heartbeat(State)};
 
-handle_info({timeout, TRef, tick}, State = #state{ticker = TRef, version = Version, sysdescr = Descr}) ->
+handle_info({timeout, TRef, tick},
+            State = #state{ticker = TRef, version = Version, sysdescr = Descr}) ->
     publish_any(version, Version),
     publish_any(sysdescr, Descr),
     publish_any(brokers, ekka_mnesia:running_nodes()),
