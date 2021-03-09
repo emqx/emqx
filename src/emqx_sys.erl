@@ -85,13 +85,11 @@ stop() ->
 
 %% @doc Get sys version
 -spec(version() -> string()).
-version() ->
-    {ok, Version} = application:get_key(?APP, vsn), Version.
+version() -> emqx_app:get_release().
 
 %% @doc Get sys description
 -spec(sysdescr() -> string()).
-sysdescr() ->
-    {ok, Descr} = application:get_key(?APP, description), Descr.
+sysdescr() -> emqx_app:get_description().
 
 %% @doc Get sys uptime
 -spec(uptime() -> string()).

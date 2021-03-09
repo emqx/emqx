@@ -53,11 +53,6 @@ coveralls: $(REBAR)
 
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(REBAR) get-dashboard
-ifneq ($(shell echo $(@) |grep edge),)
-	@export EMQX_DESC="$${EMQX_DESC} Edge"
-else
-	@export EMQX_DESC="$${EMQX_DESC} Broker"
-endif
 	@$(REBAR) as $(@) release
 
 ## Not calling rebar3 clean because

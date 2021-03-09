@@ -1,6 +1,0 @@
-[{application, Name, Opts}] = CONFIG,
-Desc = case os:getenv("EMQX_DESC") of
-           [_ | _] = D -> D;
-           _ -> "EMQ X test"
-       end,
-[{application, Name, [{description, Desc} | Opts]}].
