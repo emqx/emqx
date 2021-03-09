@@ -683,7 +683,7 @@ restart_emqx_management(Identifier) ->
     end, application:get_env(emqx_management, listeners, [])).
 
 restart_emqx_dashboard(Identifier) ->
-    lists:foreach(fun({Protocol ,Port, Options}) ->
+    lists:foreach(fun({Protocol, Port, Options}) ->
         case Identifier =:= atom_to_list(Protocol) ++ ":dashboard" of
             true -> restart(emqx_dashboard, Protocol, Port, Options);
             false -> ok
