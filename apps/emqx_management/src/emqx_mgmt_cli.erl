@@ -676,23 +676,17 @@ listener_identifier(Protocol, ListenOn) ->
 
 restart_emqx_management(Identifier) ->
     lists:foreach(fun({Protocol ,Port, Options}) ->
-        case Identifier = atom_to_list(Protocol) ++ ":management" of
-            "http:management" ->
-                restart(emqx_mgmt_http, http, Port, Options);
-            "https:management" ->
-                restart(emqx_mgmt_http, https, Port, Options);
-            _ -> ok
+        case Identifier =:= atom_to_list(Protocol) ++ ":management" of
+            true -> restart(emqx_management, Protocol, Port, Options);
+            false -> ok
         end
     end, application:get_env(emqx_management, listeners, [])).
 
 restart_emqx_dashboard(Identifier) ->
     lists:foreach(fun({Protocol ,Port, Options}) ->
-        case Identifier = atom_to_list(Protocol) ++ ":dashboard" of
-            "http:dashboard" ->
-                restart(emqx_dashboard, http, Port, Options);
-            "https:dashboard" ->
-                restart(emqx_dashboard, https, Port, Options);
-            _ -> ok
+        case Identifier =:= atom_to_list(Protocol) ++ ":dashboard" of
+            true -> restart(emqx_dashboard, Protocol, Port, Options);
+            false -> ok
         end
     end, application:get_env(emqx_dashboard, listeners, [])).
 

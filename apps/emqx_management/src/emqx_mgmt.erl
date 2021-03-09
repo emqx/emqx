@@ -439,7 +439,7 @@ restart_listener(Node, Identifier) ->
              <<"http:dashboard">>,
              <<"https:dashboard">>],
     case lists:member(Identifier, Names) of
-        true -> {error, "Operate forbidden"};
+        true -> {error, iolist_to_binary(["unknown_listener: ", Identifier])};
         _ -> rpc_call(Node, restart_listener, [Node, Identifier])
     end.
 
