@@ -136,10 +136,19 @@ relx(Vsn, RelType, PkgType) ->
     , {release, {emqx, Vsn}, relx_apps(RelType)}
     , {overlay, relx_overlay(RelType)}
     , {overlay_vars, [ {built_on_arch, rebar_utils:get_arch()}
+                     , {emqx_description, emqx_description(RelType)}
                      , overlay_vars_rel(RelType)
                      , overlay_vars_pkg(PkgType)
                      ]}
     ].
+
+emqx_description(cloud) ->
+    case is_enterprise() of
+        true -> "EMQ X Enterprise";
+        false -> "EMQ X Broker"
+    end;
+emqx_description(edge) ->
+    "EMQ X Edge".
 
 overlay_vars_rel(cloud) -> "vars/vars-cloud.config";
 overlay_vars_rel(edge) -> "vars/vars-edge.config".
