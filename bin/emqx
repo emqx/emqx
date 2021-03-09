@@ -393,10 +393,10 @@ case "$1" in
             fi
             sleep 1
             if relx_nodetool "ping" >/dev/null 2>&1; then
-                echo "$EMQX_DISCR $REL_VSN is started successfully!"
+                echo "$EMQX_DESCRIPTION $REL_VSN is started successfully!"
                 exit 0
             fi
-        done && echo "$EMQX_DISCR $REL_VSN failed to start within ${WAIT_FOR_ERLANG:-15} seconds,"
+        done && echo "$EMQX_DESCRIPTION $REL_VSN failed to start within ${WAIT_FOR_ERLANG:-15} seconds,"
         echo "see the output of '$0 console' for more information."
         echo "If you want to wait longer, set the environment variable"
         echo "WAIT_FOR_ERLANG to the number of seconds to wait."
@@ -415,7 +415,7 @@ case "$1" in
         ;;
 
     restart|reboot)
-        echo "$EMQX_DISCR $REL_VSN is stopped: $("$RUNNER_BIN_DIR"/emqx stop)"
+        echo "$EMQX_DESCRIPTION $REL_VSN is stopped: $("$RUNNER_BIN_DIR"/emqx stop)"
         "$RUNNER_BIN_DIR"/emqx start
         ;;
 
