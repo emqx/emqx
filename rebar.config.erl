@@ -138,21 +138,67 @@ relx(Vsn, RelType, PkgType) ->
     , {overlay, relx_overlay(RelType)}
     , {overlay_vars, [ {built_on_arch, rebar_utils:get_arch()}
                      , {emqx_description, emqx_description(RelType, IsEnterprise)}
-                     , overlay_vars_rel(RelType, IsEnterprise)
-                     , overlay_vars_pkg(PkgType)
-                     ]}
+                     | overlay_vars(RelType, PkgType, IsEnterprise)]}
     ].
 
 emqx_description(cloud, true) -> "EMQ X Enterprise";
 emqx_description(cloud, false) -> "EMQ X Broker";
 emqx_description(edge, _) -> "EMQ X Edge".
 
-overlay_vars_rel(cloud, true) -> "vars/vars-enterprise.config";
-overlay_vars_rel(cloud, false) -> "vars/vars-cloud.config";
-overlay_vars_rel(edge, _) -> "vars/vars-edge.config".
 
-overlay_vars_pkg(bin) -> "vars/vars-bin.config";
-overlay_vars_pkg(pkg) -> "vars/vars-pkg.config".
+overlay_vars(_RelType, PkgType, true) ->
+    ee_overlay_vars(PkgType);
+overlay_vars(RelType, PkgType, false) ->
+    overlay_vars_rel(RelType) ++ overlay_vars_pkg(PkgType).
+
+%% vars per release type, cloud or edge
+overlay_vars_rel(RelType) ->
+    VmArgs = case RelType of
+                 cloud -> "vm.args";
+                 edge -> "vm.args.edge"
+             end,
+    [ {enable_plugin_emqx_rule_engine, RelType =:= cloud}
+    , {enable_plugin_emqx_bridge_mqtt, RelType =:= edge}
+    , {enable_plugin_emqx_modules, false} %% modules is not a plugin in ce
+    , {enable_plugin_emqx_recon, true}
+    , {enable_plugin_emqx_retainer, true}
+    , {enable_plugin_emqx_telemetry, true}
+    , {vm_args_file, VmArgs}
+    ].
+
+%% vars per packaging type, bin(zip/tar.gz/docker) or pkg(rpm/deb)
+overlay_vars_pkg(bin) ->
+    [ {platform_bin_dir, "bin"}
+    , {platform_data_dir, "data"}
+    , {platform_etc_dir, "etc"}
+    , {platform_lib_dir, "lib"}
+    , {platform_log_dir, "log"}
+    , {platform_plugins_dir,  "plugins"}
+    , {runner_root_dir, "$(cd $(dirname $(readlink $0 || echo $0))/..; pwd -P)"}
+    , {runner_bin_dir, "$RUNNER_ROOT_DIR/bin"}
+    , {runner_etc_dir, "$RUNNER_ROOT_DIR/etc"}
+    , {runner_lib_dir, "$RUNNER_ROOT_DIR/lib"}
+    , {runner_log_dir, "$RUNNER_ROOT_DIR/log"}
+    , {runner_data_dir, "$RUNNER_ROOT_DIR/data"}
+    , {pipe_dir, "/tmp/$RUNNER_SCRIPT/"}
+    , {runner_user, ""}
+    ];
+overlay_vars_pkg(pkg) ->
+    [ {platform_bin_dir, ""}
+    , {platform_data_dir, "/var/lib/emqx"}
+    , {platform_etc_dir, "/etc/emqx"}
+    , {platform_lib_dir, ""}
+    , {platform_log_dir, "/var/log/emqx"}
+    , {platform_plugins_dir, "/var/lib/emqx/plugins"}
+    , {runner_root_dir, "/usr/lib/emqx"}
+    , {runner_bin_dir, "/usr/bin"}
+    , {runner_etc_dir, "/etc/emqx"}
+    , {runner_lib_dir, "$RUNNER_ROOT_DIR/lib"}
+    , {runner_log_dir, "/var/log/emqx"}
+    , {runner_data_dir, "/var/lib/emqx"}
+    , {pipe_dir, "/tmp/$RUNNER_SCRIPT/"}
+    , {runner_user, "emqx"}
+    ].
 
 relx_apps(ReleaseType) ->
     [ kernel
@@ -402,3 +448,4 @@ list_dir(Dir) ->
 
 ee_profiles(_Vsn) -> [].
 ee_etc_overlay() -> [].
+ee_overlay_vars(_PkgType) -> [].
