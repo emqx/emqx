@@ -297,7 +297,10 @@ relx_overlay(ReleaseType) ->
     , {copy, "_build/default/lib/cuttlefish/cuttlefish", "bin/cuttlefish"}
     , {copy, "_build/default/lib/cuttlefish/cuttlefish", "bin/cuttlefish-{{release_version}}"}
     , {copy, "priv/emqx.schema", "releases/{{release_version}}/"}
-    ] ++ ee_etc_overlay() ++ etc_overlay(ReleaseType).
+    ] ++ case is_enterprise() of
+             true -> ee_etc_overlay(ReleaseType);
+             false -> etc_overlay(ReleaseType)
+         end.
 
 etc_overlay(ReleaseType) ->
     PluginApps = relx_plugin_apps(ReleaseType),
@@ -445,5 +448,5 @@ list_dir(Dir) ->
 %% ==== Enterprise supports below ==================================================================
 
 ee_profiles(_Vsn) -> [].
-ee_etc_overlay() -> [].
+ee_etc_overlay(_) -> [].
 ee_overlay_vars(_PkgType) -> [].
