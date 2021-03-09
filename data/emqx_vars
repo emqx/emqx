@@ -16,7 +16,7 @@ RUNNER_USER="{{ runner_user }}"
 LIB_EKKA_DIR="${RUNNER_LIB_DIR}/ekka-$(grep ekka "${RUNNER_ROOT_DIR}/releases/RELEASES" | awk -F '\"' '{print $2}')"
 
 EMQX_LICENSE_CONF=''
-EMQX_DESCRIPTION="{{ emqx_description }}"
+export EMQX_DESCRIPTION='{{ emqx_description }}'
 
 ## computed vars
 REL_NAME="emqx"

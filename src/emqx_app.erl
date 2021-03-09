@@ -20,6 +20,7 @@
 
 -export([ start/2
         , stop/1
+        , get_description/0
         , get_release/0
         ]).
 
@@ -59,8 +60,15 @@ print_banner() ->
     io:format("Starting ~s on node ~s~n", [?APP, node()]).
 
 print_vsn() ->
-    {ok, Descr} = application:get_key(description),
-    io:format("~s ~s is running now!~n", [Descr, get_release()]).
+    io:format("~s ~s is running now!~n", [get_description(), get_release()]).
+
+get_description() ->
+    {ok, Descr0} = application:get_key(?APP, description),
+    case os:getenv("EMQX_DESCRIPTION") of
+        false -> Descr0;
+        "" -> Descr0;
+        Str -> string:strip(Str, both, $\n)
+    end.
 
 -ifdef(TEST).
 %% When testing, the 'cover' compiler stripps aways compile info
