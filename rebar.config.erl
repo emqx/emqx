@@ -127,6 +127,7 @@ profiles() ->
 %% RelType: cloud (full size) | edge (slim size)
 %% PkgType: bin | pkg
 relx(Vsn, RelType, PkgType) ->
+    IsEnterprise = is_enterprise(),
     [ {include_src,false}
     , {include_erts, true}
     , {extended_start_script,false}
@@ -136,22 +137,19 @@ relx(Vsn, RelType, PkgType) ->
     , {release, {emqx, Vsn}, relx_apps(RelType)}
     , {overlay, relx_overlay(RelType)}
     , {overlay_vars, [ {built_on_arch, rebar_utils:get_arch()}
-                     , {emqx_description, emqx_description(RelType)}
-                     , overlay_vars_rel(RelType)
+                     , {emqx_description, emqx_description(RelType, IsEnterprise)}
+                     , overlay_vars_rel(RelType, IsEnterprise)
                      , overlay_vars_pkg(PkgType)
                      ]}
     ].
 
-emqx_description(cloud) ->
-    case is_enterprise() of
-        true -> "EMQ X Enterprise";
-        false -> "EMQ X Broker"
-    end;
-emqx_description(edge) ->
-    "EMQ X Edge".
+emqx_description(cloud, true) -> "EMQ X Enterprise";
+emqx_description(cloud, false) -> "EMQ X Broker";
+emqx_description(edge, _) -> "EMQ X Edge".
 
-overlay_vars_rel(cloud) -> "vars/vars-cloud.config";
-overlay_vars_rel(edge) -> "vars/vars-edge.config".
+overlay_vars_rel(cloud, true) -> "vars/vars-enterprise.config";
+overlay_vars_rel(cloud, false) -> "vars/vars-cloud.config";
+overlay_vars_rel(edge, _) -> "vars/vars-edge.config".
 
 overlay_vars_pkg(bin) -> "vars/vars-bin.config";
 overlay_vars_pkg(pkg) -> "vars/vars-pkg.config".
