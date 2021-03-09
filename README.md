@@ -91,8 +91,8 @@ examples
 
 ```bash
 ./rebar3 ct --name 'test@127.0.0.1' -c -v --dir test,apps/emqx_sn,apps/emqx_coap
-./rebar3 ct --name 'test@127.0.0.1' -c -v --dir apps/emqx_auth_mnesi --suite emqx_acl_mnesia_SUITE
-./rebar3 ct --name 'test@127.0.0.1' -c -v --dir apps/emqx_auth_mnesi --suite emqx_acl_mnesia_SUITE --case t_rest_api
+./rebar3 ct --name 'test@127.0.0.1' -c -v --dir apps/emqx_auth_mnesia --suite emqx_acl_mnesia_SUITE
+./rebar3 ct --name 'test@127.0.0.1' -c -v --dir apps/emqx_auth_mnesia --suite emqx_acl_mnesia_SUITE --case t_rest_api
 ```
 
 NOTE: Do *NOT* use full (relative) path to SUITE files like this `--suite apps/emqx_auth_mnesia/test/emqx_acl_mnesia_SUITE.erl`,
