@@ -180,7 +180,6 @@ overlay_vars_pkg(bin) ->
     , {runner_lib_dir, "$RUNNER_ROOT_DIR/lib"}
     , {runner_log_dir, "$RUNNER_ROOT_DIR/log"}
     , {runner_data_dir, "$RUNNER_ROOT_DIR/data"}
-    , {pipe_dir, "/tmp/$RUNNER_SCRIPT/"}
     , {runner_user, ""}
     ];
 overlay_vars_pkg(pkg) ->
@@ -196,7 +195,6 @@ overlay_vars_pkg(pkg) ->
     , {runner_lib_dir, "$RUNNER_ROOT_DIR/lib"}
     , {runner_log_dir, "/var/log/emqx"}
     , {runner_data_dir, "/var/lib/emqx"}
-    , {pipe_dir, "/tmp/$RUNNER_SCRIPT/"}
     , {runner_user, "emqx"}
     ].
 
