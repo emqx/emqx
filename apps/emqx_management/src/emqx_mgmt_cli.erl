@@ -510,16 +510,16 @@ listeners(["stop", _Proto, ListenOn]) ->
     stop_listener(emqx_listeners:find_by_listen_on(ListenOn1), ListenOn1);
 
 listeners(["restart", "http:management" = Identifier]) ->
-    restart_emqx_management(Identifier);
+    restart_http_listener(Identifier);
 
 listeners(["restart", "https:management" = Identifier]) ->
-    restart_emqx_management(Identifier);
+    restart_http_listener(Identifier);
 
 listeners(["restart", "http:dashboard" = Identifier]) ->
-    restart_emqx_dashboard(Identifier);
+    restart_http_listener(Identifier);
 
 listeners(["restart", "https:dashboard" = Identifier]) ->
-    restart_emqx_dashboard(Identifier);
+    restart_http_listener(Identifier);
 
 listeners(["restart", Identifier]) ->
     case emqx_listeners:restart_listener(Identifier) of
@@ -674,22 +674,27 @@ listener_identifier(Protocol, ListenOn) ->
             ID
     end.
 
-restart_emqx_management(Identifier) ->
-    lists:foreach(fun({Protocol ,Port, Options}) ->
-        case Identifier =:= atom_to_list(Protocol) ++ ":management" of
-            true -> restart(emqx_management, Protocol, Port, Options);
-            false -> ok
-        end
-    end, application:get_env(emqx_management, listeners, [])).
+restart_http_listener(Identifier) ->
+    [_, Name] = string:tokens(Identifier, ":"),
+    case lists:member(Name, ["dashboard", "management"]) of
+        false -> ok;
+        true ->
+            lists:foreach(fun({Protocol, Port, Options}) ->
+                case Identifier =:= atom_to_list(Protocol) ++ ":" ++ Name of
+                    true -> restart(Name, Protocol, Port, Options);
+                    false -> ok
+                end
+            end, switch_table(Name))
+    end.
 
-restart_emqx_dashboard(Identifier) ->
-    lists:foreach(fun({Protocol, Port, Options}) ->
-        case Identifier =:= atom_to_list(Protocol) ++ ":dashboard" of
-            true -> restart(emqx_dashboard, Protocol, Port, Options);
-            false -> ok
-        end
-    end, application:get_env(emqx_dashboard, listeners, [])).
-
-restart(ListenerModule, Protocol, Port, Options) ->
+restart(Name, Protocol, Port, Options) ->
+    ListenerModule = case Name of
+        "dashboard" -> emqx_dashboard;
+        "management" -> emqx_mgmt_http
+    end,
     ListenerModule:stop_listener({Protocol, Port, Options}),
     ListenerModule:start_listener({Protocol, Port, Options}).
+
+switch_table(Name) ->
+    EnvName = list_to_existing_atom("emqx_" ++ Name),
+    application:get_env(EnvName, listeners, []).
