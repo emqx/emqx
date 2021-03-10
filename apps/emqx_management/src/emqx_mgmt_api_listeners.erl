@@ -61,6 +61,8 @@ restart(#{node := Node, identifier := Identifier}, _Params) ->
     end;
 
 %% Restart listeners in the cluster.
+restart(#{identifier := <<"http", _/binary>>}, _Params) ->
+    {403, <<"http_listener_restart_unsupported">>};
 restart(#{identifier := Identifier}, _Params) ->
     Results = [{Node, emqx_mgmt:restart_listener(Node, Identifier)} || {Node, _Info} <- emqx_mgmt:list_nodes()],
     case lists:filter(fun({_, Result}) -> Result =/= ok end, Results) of

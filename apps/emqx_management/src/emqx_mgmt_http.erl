@@ -21,6 +21,8 @@
 -export([ start_listeners/0
         , handle_request/2
         , stop_listeners/0
+        , start_listener/1
+        , stop_listener/1
         ]).
 
 -export([init/2]).
