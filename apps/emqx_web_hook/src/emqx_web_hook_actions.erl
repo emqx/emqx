@@ -281,7 +281,7 @@ create_req(_, Path, Headers, Body) ->
 
 parse_action_params(Params = #{<<"url">> := URL}) ->
     try
-        #{path := CommonPath} = uri_string:parse(URL),
+        {ok, #{path := CommonPath}} = emqx_http_lib:uri_parse(URL),
         Method = method(maps:get(<<"method">>, Params, <<"POST">>)),
         Headers = headers(maps:get(<<"headers">>, Params, undefined)),
         NHeaders = ensure_content_type_header(Headers, Method),
@@ -318,31 +318,19 @@ str(Str) when is_list(Str) -> Str;
 str(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 str(Bin) when is_binary(Bin) -> binary_to_list(Bin).
 
-add_default_scheme(<<"http://", _/binary>> = URL) ->
-    URL;
-add_default_scheme(<<"https://", _/binary>> = URL) ->
-    URL;
-add_default_scheme(URL) ->
-    <<"http://", URL/binary>>.
-
 pool_opts(Params = #{<<"url">> := URL}, ResId) ->
-    #{host := Host0, scheme := Scheme} = URIMap =
-        uri_string:parse(binary_to_list(add_default_scheme(URL))),
-    DefaultPort = case is_https(Scheme) of
-                      true  -> 443;
-                      false -> 80
-                  end,
-    Port = maps:get(port, URIMap, DefaultPort),
+    {ok, #{host := Host0,
+           port := Port,
+           scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
     PoolSize = maps:get(<<"pool_size">>, Params, 32),
     ConnectTimeout =
         cuttlefish_duration:parse(str(maps:get(<<"connect_timeout">>, Params, <<"5s">>))),
     {Inet, Host} = parse_host(Host0),
-    TransportOpts =
-        case is_https(Scheme) of
-            true  -> [Inet | get_ssl_opts(Params, ResId)];
-            false -> [Inet]
-        end,
-    Opts = case is_https(Scheme) of
+    TransportOpts = case Scheme =:= https of
+                        true  -> [Inet | get_ssl_opts(Params, ResId)];
+                        false -> [Inet]
+                    end,
+    Opts = case Scheme =:= https  of
                true  -> [{transport_opts, TransportOpts}, {transport, ssl}];
                false -> [{transport_opts, TransportOpts}]
            end,
@@ -356,10 +344,6 @@ pool_opts(Params = #{<<"url">> := URL}, ResId) ->
 
 pool_name(ResId) ->
     list_to_atom("webhook:" ++ str(ResId)).
-
-is_https(Scheme) when is_list(Scheme) -> is_https(list_to_binary(Scheme));
-is_https(<<"https", _/binary>>) -> true;
-is_https(_) -> false.
 
 get_ssl_opts(Opts, ResId) ->
     Dir = filename:join([emqx:get_env(data_dir), "rule", ResId]),

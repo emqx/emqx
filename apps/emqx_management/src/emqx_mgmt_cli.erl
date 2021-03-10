@@ -509,6 +509,18 @@ listeners(["stop", _Proto, ListenOn]) ->
     end,
     stop_listener(emqx_listeners:find_by_listen_on(ListenOn1), ListenOn1);
 
+listeners(["restart", "http:management"]) ->
+    restart_http_listener(http, emqx_management);
+
+listeners(["restart", "https:management"]) ->
+    restart_http_listener(https, emqx_management);
+
+listeners(["restart", "http:dashboard"]) ->
+    restart_http_listener(http, emqx_dashboard);
+
+listeners(["restart", "https:dashboard"]) ->
+    restart_http_listener(https, emqx_dashboard);
+
 listeners(["restart", Identifier]) ->
     case emqx_listeners:restart_listener(Identifier) of
         ok ->
@@ -661,3 +673,17 @@ listener_identifier(Protocol, ListenOn) ->
         ID ->
             ID
     end.
+
+restart_http_listener(Scheme, AppName) ->
+    Listeners = application:get_env(AppName, listeners, []),
+    case lists:keyfind(Scheme, 1, Listeners) of
+        false ->
+            emqx_ctl:print("Listener ~s not exists!~n", [AppName]);
+        {Scheme, Port, Options} ->
+            ModName = http_mod_name(AppName),
+            ModName:stop_listener({Scheme, Port, Options}),
+            ModName:start_listener({Scheme, Port, Options})
+    end.
+
+http_mod_name(emqx_management) -> emqx_mgmt_http;
+http_mod_name(Name) -> Name.

@@ -23,6 +23,8 @@
 
 -export([ start_listeners/0
         , stop_listeners/0
+        , start_listener/1
+        , stop_listener/1
         ]).
 
 %% for minirest
@@ -87,7 +89,8 @@ listener_name(Proto) ->
 http_handlers() ->
     Plugins = lists:map(fun(Plugin) -> Plugin#plugin.name end, emqx_plugins:list()),
     [{"/api/v4/",
-      minirest:handler(#{apps => Plugins, filter => fun ?MODULE:filter/1}),
+      minirest:handler(#{apps => Plugins ++  [emqx_modules],
+                         filter => fun ?MODULE:filter/1}),
       [{authorization, fun ?MODULE:is_authorized/1}]}].
 
 %%--------------------------------------------------------------------
@@ -113,6 +116,7 @@ is_authorized(_Path, Req) ->
          _  -> false
     end.
 
+filter(#{app := emqx_modules}) -> true;
 filter(#{app := App}) ->
     case emqx_plugins:find_plugin(App) of
         false -> false;

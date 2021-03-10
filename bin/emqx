@@ -209,7 +209,12 @@ generate_config() {
         # the vm, we need to pass it in twice.
         CONFIG_ARGS=" -config $RUNNER_ETC_DIR/app.config -args_file $RUNNER_ETC_DIR/vm.args -vm_args $RUNNER_ETC_DIR/vm.args "
     else
-        CONFIG_ARGS=$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -i "$REL_DIR"/emqx.schema -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)
+        EMQX_LICENSE_CONF_OPTION=""
+        if [ "${EMQX_LICENSE_CONF:-}" != "" ]; then
+            EMQX_LICENSE_CONF_OPTION="-i ${EMQX_LICENSE_CONF}"
+        fi
+        # shellcheck disable=SC2086
+        CONFIG_ARGS=$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -i "$REL_DIR"/emqx.schema $EMQX_LICENSE_CONF_OPTION -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)
 
         ## Merge cuttlefish generated *.args into the vm.args
         CUTTLE_GEN_ARG_FILE=$(echo "$CONFIG_ARGS" | sed -n 's/^.*\(vm_args[[:space:]]\)//p' | awk '{print $1}')
@@ -388,10 +393,10 @@ case "$1" in
             fi
             sleep 1
             if relx_nodetool "ping" >/dev/null 2>&1; then
-                echo "$EMQX_DISCR $REL_VSN is started successfully!"
+                echo "$EMQX_DESCRIPTION $REL_VSN is started successfully!"
                 exit 0
             fi
-        done && echo "$EMQX_DISCR $REL_VSN failed to start within ${WAIT_FOR_ERLANG:-15} seconds,"
+        done && echo "$EMQX_DESCRIPTION $REL_VSN failed to start within ${WAIT_FOR_ERLANG:-15} seconds,"
         echo "see the output of '$0 console' for more information."
         echo "If you want to wait longer, set the environment variable"
         echo "WAIT_FOR_ERLANG to the number of seconds to wait."
@@ -410,7 +415,7 @@ case "$1" in
         ;;
 
     restart|reboot)
-        echo "$EMQX_DISCR $REL_VSN is stopped: $("$RUNNER_BIN_DIR"/emqx stop)"
+        echo "$EMQX_DESCRIPTION $REL_VSN is stopped: $("$RUNNER_BIN_DIR"/emqx stop)"
         "$RUNNER_BIN_DIR"/emqx start
         ;;
 

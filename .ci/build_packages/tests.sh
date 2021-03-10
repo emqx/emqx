@@ -1,8 +1,9 @@
 #!/bin/sh
 set -x -e -u
+export CODE_PATH=${CODE_PATH:-"/emqx"}
 export EMQX_NAME=${EMQX_NAME:-"emqx"}
-export PACKAGE_PATH="/emqx/_packages/${EMQX_NAME}"
-export RELUP_PACKAGE_PATH="/emqx/relup_packages/${EMQX_NAME}"
+export PACKAGE_PATH="${CODE_PATH}/_packages/${EMQX_NAME}"
+export RELUP_PACKAGE_PATH="${CODE_PATH}/relup_packages/${EMQX_NAME}"
 # export EMQX_NODE_NAME="emqx-on-$(uname -m)@127.0.0.1"
 # export EMQX_NODE_COOKIE=$(date +%s%N)
 

@@ -16,6 +16,12 @@
 
 syntax = "proto3";
 
+option csharp_namespace = "Emqx.Exhook.V1";
+option go_package = "emqx.io/grpc/exhook";
+option java_multiple_files = true;
+option java_package = "io.emqx.exhook";
+option java_outer_classname = "EmqxExHookProto";
+
 package emqx.exhook.v1;
 
 service HookProvider {

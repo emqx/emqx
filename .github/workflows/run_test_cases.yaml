@@ -38,9 +38,13 @@ jobs:
             docker-compose -f .ci/apps_tests/docker-compose.yaml build --no-cache
             docker-compose -f .ci/apps_tests/docker-compose.yaml up -d
         - name: run eunit
-          run: docker exec -i erlang bash -c "make eunit"
+          run: |
+            docker exec -i erlang bash -c "make eunit"
+            docker exec --env EMQX_EXTRA_PLUGINS=all -i erlang bash -c "./rebar3 eunit --dir $(find lib-extra/ -mindepth 1 -maxdepth 2 -type l | tr '\n' ',')"
         - name: run common test
-          run: docker exec -i erlang bash -c "make ct"
+          run: |
+            docker exec -i erlang bash -c "make ct"
+            docker exec --env EMQX_EXTRA_PLUGINS=all -i erlang bash -c "./rebar3 ct --dir $(find lib-extra/ -mindepth 1 -maxdepth 2 -type l | tr '\n' ',')"
         - name: run cover
           run: |
             docker exec -i erlang bash -c "make cover"

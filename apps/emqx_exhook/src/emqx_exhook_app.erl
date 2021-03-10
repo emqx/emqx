@@ -22,6 +22,8 @@
 
 -emqx_plugin(extension).
 
+-define(REGISTRAY, emqx_exhook_registray).
+
 -export([ start/2
         , stop/1
         , prep_stop/1
@@ -30,8 +32,8 @@
 %% Internal export
 -export([ load_server/2
         , unload_server/1
-        , load_exhooks/0
         , unload_exhooks/0
+        , init_hook_registray/0
         ]).
 
 %%--------------------------------------------------------------------
@@ -41,11 +43,11 @@
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_exhook_sup:start_link(),
 
+    %% Collect all available hooks
+    _ = init_hook_registray(),
+
     %% Load all dirvers
     load_all_servers(),
-
-    %% Register all hooks
-    _ = load_exhooks(),
 
     %% Register CLI
     emqx_ctl:register_command(exhook, {emqx_exhook_cli, cli}, []),
@@ -55,6 +57,7 @@ prep_stop(State) ->
     emqx_ctl:unregister_command(exhook),
     _ = unload_exhooks(),
     ok = unload_all_servers(),
+    _ = deinit_hook_registray(),
     State.
 
 stop(_State) ->
@@ -81,11 +84,17 @@ unload_server(Name) ->
 %%--------------------------------------------------------------------
 %% Exhooks
 
-load_exhooks() ->
-    [emqx:hook(Name, {M, F, A}) || {Name, {M, F, A}} <- search_exhooks()].
+init_hook_registray() ->
+    _ = ets:new(?REGISTRAY, [public, named_table]),
+    [ets:insert(?REGISTRAY, {Name, {M, F, A}, 0})
+     || {Name, {M, F, A}} <- search_exhooks()].
 
 unload_exhooks() ->
-    [emqx:unhook(Name, {M, F}) || {Name, {M, F, _A}} <- search_exhooks()].
+    [emqx:unhook(Name, {M, F}) ||
+     {Name, {M, F, _A}, _} <- ets:tab2list(?REGISTRAY)].
+
+deinit_hook_registray() ->
+    ets:delete(?REGISTRAY).
 
 search_exhooks() ->
     search_exhooks(ignore_lib_apps(application:loaded_applications())).

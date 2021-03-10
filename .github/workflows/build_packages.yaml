@@ -356,7 +356,7 @@ jobs:
       if: github.event_name == 'release'
       run: |
         curl --silent --show-error \
-          -H "Authorization: token ${{ secrets.AccessToken }}" \
+          -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
           -H "Accept: application/vnd.github.v3+json" \
           -X POST \
           -d "{\"ref\":\"v1.0.1\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ce\": \"true\"}}" \
@@ -366,7 +366,7 @@ jobs:
       run: |
         if [ -z $(echo $version | grep -oE "(alpha|beta|rc)\.[0-9]") ]; then
             curl --silent --show-error \
-              -H "Authorization: token ${{ secrets.AccessToken }}" \
+              -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
               -X POST \
               -d "{\"ref\":\"v1.0.1\",\"inputs\":{\"version\": \"${{ env.version }}\"}}" \

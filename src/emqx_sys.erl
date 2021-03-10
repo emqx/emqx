@@ -85,13 +85,11 @@ stop() ->
 
 %% @doc Get sys version
 -spec(version() -> string()).
-version() ->
-    {ok, Version} = application:get_key(?APP, vsn), Version.
+version() -> emqx_app:get_release().
 
 %% @doc Get sys description
 -spec(sysdescr() -> string()).
-sysdescr() ->
-    {ok, Descr} = application:get_key(?APP, description), Descr.
+sysdescr() -> emqx_app:get_description().
 
 %% @doc Get sys uptime
 -spec(uptime() -> string()).
@@ -155,7 +153,8 @@ handle_info({timeout, TRef, heartbeat}, State = #state{heartbeat = TRef}) ->
     publish_any(datetime, iolist_to_binary(datetime())),
     {noreply, heartbeat(State)};
 
-handle_info({timeout, TRef, tick}, State = #state{ticker = TRef, version = Version, sysdescr = Descr}) ->
+handle_info({timeout, TRef, tick},
+            State = #state{ticker = TRef, version = Version, sysdescr = Descr}) ->
     publish_any(version, Version),
     publish_any(sysdescr, Descr),
     publish_any(brokers, ekka_mnesia:running_nodes()),

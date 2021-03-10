@@ -1,14 +1,16 @@
-REBAR_VERSION = 3.14.3-emqx-4
-DASHBOARD_VERSION = v4.3.0-beta.1
+$(shell scripts/git-hooks-init.sh)
+REBAR_VERSION = 3.14.3-emqx-5
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
+export EMQX_DESC ?= EMQ X
+export EMQX_CE_DASHBOARD_VERSION ?= v4.3.0-beta.1
 
 PROFILE ?= emqx
 REL_PROFILES := emqx emqx-edge
 PKG_PROFILES := emqx-pkg emqx-edge-pkg
-PROFILES := $(REL_PROFILES) $(PKG_PROFILES)
+PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
 
@@ -27,7 +29,7 @@ $(REBAR): ensure-rebar3
 
 .PHONY: get-dashboard
 get-dashboard:
-	@$(SCRIPTS)/get-dashboard.sh $(DASHBOARD_VERSION)
+	@$(SCRIPTS)/get-dashboard.sh
 
 .PHONY: eunit
 eunit: $(REBAR)
@@ -51,30 +53,33 @@ coveralls: $(REBAR)
 
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(REBAR) get-dashboard
-ifneq ($(shell echo $(@) |grep edge),)
-	@export EMQX_DESC="EMQ X Edge"
-else
-	@export EMQX_DESC="EMQ X Broker"
-endif
 	@$(REBAR) as $(@) release
 
-# rebar clean
+## Not calling rebar3 clean because
+## 1. rebar3 clean relies on rebar3, meaning it reads config, fetches dependencies etc.
+## 2. it's slow
+## NOTE: this does not force rebar3 to fetch new version dependencies
+## make clean-all to delete all fetched dependencies for a fresh start-over
 .PHONY: clean $(PROFILES:%=clean-%)
 clean: $(PROFILES:%=clean-%)
-$(PROFILES:%=clean-%): $(REBAR)
-	@$(REBAR) as $(@:clean-%=%) clean
-	@rm -rf apps/emqx_dashboard/priv/www
+$(PROFILES:%=clean-%):
+	@if [ -d _build/$(@:clean-%=%) ]; then \
+		rm -rf _build/$(@:clean-%=%)/rel; \
+		find _build/$(@:clean-%=%) -name '*.beam' -o -name '*.so' -o -name '*.app' -o -name '*.appup' -o -name '*.o' -o -name '*.d' -type f | xargs rm -f; \
+	fi
+
+.PHONY: clean-all
+clean-all:
+	@rm -rf _build
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%)
 
+## deps-<profile> is used in CI scripts to download deps and the
+## share downloads between CI steps and/or copied into containers
+## which may not have the right credentials
 .PHONY: $(PROFILES:%=deps-%)
 $(PROFILES:%=deps-%): $(REBAR) get-dashboard
-ifneq ($(shell echo $(@) |grep edge),)
-	@export EMQX_DESC="EMQ X Edge"
-else
-	@export EMQX_DESC="EMQ X Broker"
-endif
 	@$(REBAR) as $(@:deps-%=%) get-deps
 
 .PHONY: xref

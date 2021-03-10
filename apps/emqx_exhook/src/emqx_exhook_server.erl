@@ -20,6 +20,7 @@
 
 -logger_header("[ExHook Svr]").
 
+-define(REGISTRAY, emqx_exhook_registray).
 -define(PB_CLIENT_MOD, emqx_exhook_v_1_hook_provider_client).
 
 %% Load/Unload
@@ -83,13 +84,19 @@
 load(Name0, Opts0) ->
     Name = prefix(Name0),
     {SvrAddr, ClientOpts} = channel_opts(Opts0),
-    case emqx_exhook_sup:start_grpc_client_channel(Name, SvrAddr, ClientOpts) of
+    case emqx_exhook_sup:start_grpc_client_channel(
+           Name,
+           SvrAddr,
+           ClientOpts) of
         {ok, _ChannPoolPid} ->
             case do_init(Name) of
                 {ok, HookSpecs} ->
                     %% Reigster metrics
-                    Prefix = lists:flatten(io_lib:format("exhook.~s.", [Name])),
+                    Prefix = lists:flatten(
+                               io_lib:format("exhook.~s.", [Name])),
                     ensure_metrics(Prefix, HookSpecs),
+                    %% Ensure hooks
+                    ensure_hooks(HookSpecs),
                     {ok, #server{name = Name,
                                  options = Opts0,
                                  channel = _ChannPoolPid,
@@ -126,8 +133,9 @@ channel_opts(Opts) ->
     {SvrAddr, ClientOpts}.
 
 -spec unload(server()) -> ok.
-unload(#server{name = Name}) ->
+unload(#server{name = Name, hookspec = HookSpecs}) ->
     _ = do_deinit(Name),
+    _ = may_unload_hooks(HookSpecs),
     _ = emqx_exhook_sup:stop_grpc_client_channel(Name),
     ok.
 
@@ -176,6 +184,31 @@ ensure_metrics(Prefix, HookSpecs) ->
     Keys = [list_to_atom(Prefix ++ atom_to_list(Hookpoint))
             || Hookpoint <- maps:keys(HookSpecs)],
     lists:foreach(fun emqx_metrics:ensure/1, Keys).
+
+ensure_hooks(HookSpecs) ->
+    lists:foreach(fun(Hookpoint) ->
+        case ets:lookup(?REGISTRAY, Hookpoint) of
+            [] ->
+                ?LOG(warning, "Hoook ~s not found in registray", [Hookpoint]);
+            [{Hookpoint, {M, F, A}, _}] ->
+                emqx_hooks:put(Hookpoint, {M, F, A}),
+                ets:update_counter(?REGISTRAY, Hookpoint, {3, 1})
+        end
+    end, maps:keys(HookSpecs)).
+
+may_unload_hooks(HookSpecs) ->
+    lists:foreach(fun(Hookpoint) ->
+        case ets:update_counter(?REGISTRAY, Hookpoint, {3, -1}) of
+            Cnt when Cnt =< 0 ->
+                case ets:lookup(?REGISTRAY, Hookpoint) of
+                    [{Hookpoint, {M, F, _A}, _}] ->
+                        emqx_hooks:del(Hookpoint, {M, F});
+                    _ -> ok
+                end,
+                ets:delete(?REGISTRAY, Hookpoint);
+            _ -> ok
+        end
+    end, maps:keys(HookSpecs)).
 
 format(#server{name = Name, hookspec = Hooks}) ->
     io_lib:format("name=~p, hooks=~0p", [Name, Hooks]).
