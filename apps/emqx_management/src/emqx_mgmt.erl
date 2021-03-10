@@ -434,14 +434,7 @@ restart_listener(Node, Identifier) when Node =:= node() ->
     emqx_listeners:restart_listener(Identifier);
 
 restart_listener(Node, Identifier) ->
-    Names = [<<"http:management">>,
-             <<"https:management">>,
-             <<"http:dashboard">>,
-             <<"https:dashboard">>],
-    case lists:member(Identifier, Names) of
-        true -> {error, iolist_to_binary(["unknown_listener: ", Identifier])};
-        _ -> rpc_call(Node, restart_listener, [Node, Identifier])
-    end.
+    rpc_call(Node, restart_listener, [Node, Identifier]).
 
 %%--------------------------------------------------------------------
 %% Get Alarms
