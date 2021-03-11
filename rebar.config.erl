@@ -50,10 +50,18 @@ community_plugin_overrides() ->
     [{add, App, [ {erl_opts, [{i, "include"}]}]} || App <- relx_plugin_apps_extra()].
 
 config() ->
-    [ {plugins, plugins()}
+    [ {cover_enabled, is_cover_enabled()}
+    , {plugins, plugins()}
     , {profiles, profiles()}
     , {project_app_dirs, project_app_dirs()}
     ].
+
+is_cover_enabled() ->
+    case os:getenv("ENABLE_COVER_COMPILE") of
+        "1"-> true;
+        "true" -> true;
+        _ -> false
+    end.
 
 is_enterprise() ->
     filelib:is_regular("EMQX_ENTERPRISE").

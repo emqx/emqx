@@ -33,23 +33,23 @@ get-dashboard:
 
 .PHONY: eunit
 eunit: $(REBAR)
-	@$(REBAR) eunit -v -c
+	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit -v -c
 
 .PHONY: proper
 proper: $(REBAR)
-	@$(REBAR) as test proper -d test/props -c
+	@ENABLE_COVER_COMPILE=1 $(REBAR) as test proper -d test/props -c
 
 .PHONY: ct
 ct: $(REBAR)
-	@$(REBAR) ct --name 'test@127.0.0.1' -c -v
+	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name 'test@127.0.0.1' -c -v
 
 .PHONY: cover
 cover: $(REBAR)
-	@$(REBAR) cover
+	@ENABLE_COVER_COMPILE=1 $(REBAR) cover
 
 .PHONY: coveralls
 coveralls: $(REBAR)
-	@$(REBAR) as test coveralls send
+	@ENABLE_COVER_COMPILE=1 $(REBAR) as test coveralls send
 
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(REBAR) get-dashboard
