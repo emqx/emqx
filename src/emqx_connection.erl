@@ -551,9 +551,9 @@ handle_timeout(_TRef, limit_timeout, State) ->
 handle_timeout(_TRef, emit_stats, State = #state{active_n = MaxBatchSize,
         channel = Channel, transport = Transport, socket = Socket}) ->
     {_, MsgQLen} = erlang:process_info(self(), message_queue_len),
-    emqx_congestion:maybe_alarm_port_busy(Socket, Transport, Channel, true),
+    emqx_congestion:maybe_alarm_port_busy(Socket, Transport, Channel),
     emqx_congestion:maybe_alarm_too_many_publish(Socket, Transport, Channel,
-        MsgQLen, MaxBatchSize, true),
+        MsgQLen, MaxBatchSize),
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
     {ok, State#state{stats_timer = undefined}};

@@ -38,7 +38,7 @@
 -define(ALARM_SENT(REASON), {alarm_sent, REASON}).
 -define(ALL_ALARM_REASONS, [port_busy, too_many_publish]).
 -define(CONFIRM_CLEAR(REASON), {alarm_confirm_clear, REASON}).
--define(CONFIRM_CLEAR_INTERVAL, 10000).
+-define(CONFIRM_CLEAR_INTERVAL, 60000).
 
 maybe_alarm_port_busy(Socket, Transport, Channel) ->
     maybe_alarm_port_busy(Socket, Transport, Channel, false).
