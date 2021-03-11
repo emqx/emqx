@@ -67,7 +67,20 @@
 -export([ to_packet/2
         , to_map/1
         , to_list/1
+        , from_map/1
         ]).
+
+-export_type([message_map/0]).
+
+-type(message_map() :: #{id := binary(),
+                        qos := 0 | 1 | 2,
+                        from := atom() | binary(),
+                        flags := emqx_types:flags(),
+                        headers := emqx_types:headers(),
+                        topic := emqx_types:topic(),
+                        payload := emqx_types:payload(),
+                        timestamp := integer()}
+     ).
 
 -export([format/1]).
 
@@ -266,7 +279,7 @@ filter_pub_props(Props) ->
               ], Props).
 
 %% @doc Message to map
--spec(to_map(emqx_types:message()) -> map()).
+-spec(to_map(emqx_types:message()) -> message_map()).
 to_map(#message{
           id = Id,
           qos = QoS,
@@ -291,6 +304,28 @@ to_map(#message{
 -spec(to_list(emqx_types:message()) -> list()).
 to_list(Msg) ->
     lists:zip(record_info(fields, message), tl(tuple_to_list(Msg))).
+
+%% @doc Map to message
+-spec(from_map(message_map()) -> emqx_types:message()).
+from_map(#{id := Id,
+           qos := QoS,
+           from := From,
+           flags := Flags,
+           headers := Headers,
+           topic := Topic,
+           payload := Payload,
+           timestamp := Timestamp
+          }) ->
+    #message{
+        id = Id,
+        qos = QoS,
+        from = From,
+        flags = Flags,
+        headers = Headers,
+        topic = Topic,
+        payload = Payload,
+        timestamp = Timestamp
+    }.
 
 %% MilliSeconds
 elapsed(Since) ->
