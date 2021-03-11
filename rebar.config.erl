@@ -80,6 +80,7 @@ test_plugins() ->
 test_deps() ->
     [ {bbmustache, "1.10.0"}
     , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.6"}}}
+    , {snabbkaffe, {git, "https://github.com/kafka4beam/snabbkaffe.git", {tag, "0.8.2"}}}
     , meck
     ].
 
