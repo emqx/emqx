@@ -70,7 +70,10 @@ project_app_dirs() ->
 plugins() ->
     [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {branch,"master"}}},
       {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0"}}}
-    ].
+    ]
+    %% test plugins are concatenated to default profile plugins
+    %% otherwise rebar3 test profile runs are super slow
+    ++ test_plugins().
 
 test_plugins() ->
     [ rebar3_proper,
@@ -119,7 +122,6 @@ profiles() ->
     , {check,           [ {erl_opts, test_compile_opts()}
                         ]}
     , {test,            [ {deps, test_deps()}
-                        , {plugins, test_plugins()}
                         , {erl_opts, test_compile_opts() ++ erl_opts_i()}
                         , {extra_src_dirs, [{"test", [{recursive,true}]}]}
                         ]}
