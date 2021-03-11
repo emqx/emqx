@@ -84,6 +84,8 @@
 
 -export([format/1]).
 
+-elvis([{elvis_style, god_modules, disable}]).
+
 -spec(make(emqx_topic:topic(), emqx_types:payload()) -> emqx_types:message()).
 make(Topic, Payload) ->
     make(undefined, Topic, Payload).
@@ -241,8 +243,9 @@ is_expired(#message{headers = #{properties := #{'Message-Expiry-Interval' := Int
 is_expired(_Msg) -> false.
 
 -spec(update_expiry(emqx_types:message()) -> emqx_types:message()).
-update_expiry(Msg = #message{headers = #{properties := Props = #{'Message-Expiry-Interval' := Interval}},
+update_expiry(Msg = #message{headers = #{properties := #{'Message-Expiry-Interval' := Interval}},
                              timestamp = CreatedAt}) ->
+    Props = maps:get(properties, Msg#message.headers),
     case elapsed(CreatedAt) of
         Elapsed when Elapsed > 0 ->
             Interval1 = max(1, Interval - (Elapsed div 1000)),
@@ -263,7 +266,8 @@ to_packet(PacketId, Msg = #message{qos = QoS, headers = Headers,
                                                },
                  variable = #mqtt_packet_publish{topic_name = Topic,
                                                  packet_id  = PacketId,
-                                                 properties = filter_pub_props(maps:get(properties, Headers, #{}))
+                                                 properties = filter_pub_props(
+                                                     maps:get(properties, Headers, #{}))
                                                 },
                  payload  = Payload
                 }.
@@ -331,7 +335,12 @@ from_map(#{id := Id,
 elapsed(Since) ->
     max(0, erlang:system_time(millisecond) - Since).
 
-format(#message{id = Id, qos = QoS, topic = Topic, from = From, flags = Flags, headers = Headers}) ->
+format(#message{id = Id,
+                qos = QoS,
+                topic = Topic,
+                from = From,
+                flags = Flags,
+                headers = Headers}) ->
     io_lib:format("Message(Id=~s, QoS=~w, Topic=~s, From=~p, Flags=~s, Headers=~s)",
                   [Id, QoS, Topic, From, format(flags, Flags), format(headers, Headers)]).
 
