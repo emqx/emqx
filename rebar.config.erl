@@ -76,7 +76,7 @@ project_app_dirs() ->
     ["apps/*", alternative_lib_dir() ++ "/*", "."].
 
 plugins() ->
-    [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {branch,"master"}}},
+    [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {tag, "2.0.0"}}},
       {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0"}}}
     ]
     %% test plugins are concatenated to default profile plugins
