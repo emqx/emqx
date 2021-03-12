@@ -46,7 +46,8 @@ all() ->
 groups() ->
     [{parse, [parallel],
       [t_parse_cont,
-       t_parse_frame_too_large
+       t_parse_frame_too_large,
+       t_parse_frame_malformed_variable_byte_integer
       ]},
      {connect, [parallel],
       [t_serialize_parse_connect,
@@ -133,6 +134,12 @@ t_parse_frame_too_large(_) ->
     ?catch_error(frame_too_large, parse_serialize(Packet, #{max_size => 256})),
     ?catch_error(frame_too_large, parse_serialize(Packet, #{max_size => 512})),
     ?assertEqual(Packet, parse_serialize(Packet, #{max_size => 2048, version => ?MQTT_PROTO_V4})).
+
+t_parse_frame_malformed_variable_byte_integer(_) ->
+    MalformedPayload = << <<16#80>> || _ <- lists:seq(1, 4) >>,
+    ParseState = emqx_frame:initial_parse_state(#{}),
+    ?catch_error(malformed_variable_byte_integer,
+        emqx_frame:parse(MalformedPayload, ParseState)).
 
 t_serialize_parse_connect(_) ->
     ?PROPTEST(prop_serialize_parse_connect).
