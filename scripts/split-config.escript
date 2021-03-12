@@ -73,5 +73,5 @@ dump_base({Name, Lines0}, IncludeNames0) ->
 
 save_conf(Name, Lines) ->
     Filename = filename:join(["etc", iolist_to_binary([Name, ".conf.seg"])]),
-    Lines = [[L, "\n"] || L <-  Lines0 ++ Includes],
-    ok = file:write_file(Filename, Lines).
+    Lines1 = [[L, "\n"] || L <-  Lines0 ++ Includes],
+    ok = file:write_file(Filename, Lines1).
