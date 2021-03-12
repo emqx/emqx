@@ -16,10 +16,13 @@ main(_) ->
     {ok, Bin} = file:read_file("etc/emqx.conf"),
     Lines = binary:split(Bin, <<"\n">>, [global]),
     Sections0 = parse_sections(Lines),
-    Sections = lists:filter(fun({<<"modules">>, _}) -> false;
-                               (_) -> true
-                            end, Sections0),
-    ok = dump_sections(Sections).
+    {value, _, Sections1} = lists:keytake(<<"modules">>, 1, Sections0),
+    {value, {N, Base}, Sections2} = lists:keytake(<<"emqx">>, 1, Sections1),
+    IncludeNames = proplists:get_keys(Sections2),
+    Includes = lists:map(fun(Name) ->
+        iolist_to_binary(["include {{ platform_etc_dir }}/", Name, ".conf"])
+    end, IncludeNames),
+    ok = dump_sections([{N, Base ++ Includes}| Sections2]).
 
 parse_sections(Lines) ->
     {ok, P} = re:compile("#+\s*CONFIG_SECTION_(BGN|END)\s*=\s*([^\s-]+)\s*="),
@@ -42,9 +45,7 @@ parse_sections([Line | Lines], Parse, Section, Sections) ->
             ?BASE = Section, %% assert
             true = (Name =/= ?BASE), %% assert
             false = maps:is_key(Name, Sections), %% assert
-            Include = iolist_to_binary(["include {{ platform_etc_dir }}/", Name, ".conf"]),
-            Base = maps:get(?BASE, Sections),
-            NewSections = Sections#{?BASE := [Include | Base], Name => []},
+            NewSections = Sections#{?BASE := maps:get(?BASE, Sections), Name => []},
             parse_sections(Lines, Parse, Name, NewSections);
         {section_end, Name} ->
             true = (Name =:= Section), %% assert
