@@ -23,7 +23,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 all() ->
-    [{group, connect},
+    [{group, parse},
+     {group, connect},
      {group, connack},
      {group, publish},
      {group, puback},
@@ -36,7 +37,10 @@ all() ->
      {group, auth}].
 
 groups() ->
-    [{connect, [parallel],
+    [{parse, [parallel],
+      [t_parse_frame_malformed_variable_byte_integer
+      ]},
+     {connect, [parallel],
       [serialize_parse_connect,
        serialize_parse_v3_connect,
        serialize_parse_v4_connect,
@@ -104,6 +108,12 @@ init_per_group(_Group, Config) ->
 
 end_per_group(_Group, _Config) ->
 	ok.
+
+t_parse_frame_malformed_variable_byte_integer(_) ->
+    MalformedPayload = << <<16#80>> || _ <- lists:seq(1, 6) >>,
+    ParseState = emqx_frame:initial_parse_state(#{}),
+    ?assertError(malformed_variable_byte_integer,
+        emqx_frame:parse(MalformedPayload, ParseState)).
 
 serialize_parse_connect(_) ->
     Packet1 = ?CONNECT_PACKET(#mqtt_packet_connect{}),
