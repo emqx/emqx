@@ -16,10 +16,16 @@ main(_) ->
     {ok, Bin} = file:read_file("etc/emqx.conf"),
     Lines = binary:split(Bin, <<"\n">>, [global]),
     Sections0 = parse_sections(Lines),
-    Sections = lists:filter(fun({<<"modules">>, _}) -> false;
-                               (_) -> true
-                            end, Sections0),
-    ok = dump_sections(Sections).
+    {Base1, Sections, IncludeNames1} = lists:foldl(
+        fun({Name, Section}, {Base, Includes, IncludeNames}) ->
+            case Name of
+                <<"emqx">> -> {{Name, Section}, Includes, IncludeNames};
+                <<"modules">> -> {Base, Includes, IncludeNames};
+                Name -> {Base, [{Name, Section} | Includes], [Name | IncludeNames]}
+            end
+        end, {{}, [], []}, Sections0),
+    ok = dump_sections(Sections),
+    ok = dump_base(Base1, IncludeNames1).
 
 parse_sections(Lines) ->
     {ok, P} = re:compile("#+\s*CONFIG_SECTION_(BGN|END)\s*=\s*([^\s-]+)\s*="),
@@ -42,9 +48,7 @@ parse_sections([Line | Lines], Parse, Section, Sections) ->
             ?BASE = Section, %% assert
             true = (Name =/= ?BASE), %% assert
             false = maps:is_key(Name, Sections), %% assert
-            Include = iolist_to_binary(["include {{ platform_etc_dir }}/", Name, ".conf"]),
-            Base = maps:get(?BASE, Sections),
-            NewSections = Sections#{?BASE := [Include | Base], Name => []},
+            NewSections = Sections#{?BASE := maps:get(?BASE, Sections), Name => []},
             parse_sections(Lines, Parse, Name, NewSections);
         {section_end, Name} ->
             true = (Name =:= Section), %% assert
@@ -56,7 +60,18 @@ parse_sections([Line | Lines], Parse, Section, Sections) ->
 
 dump_sections([]) -> ok;
 dump_sections([{Name, Lines0} | Rest]) ->
-    Filename = filename:join(["etc", iolist_to_binary([Name, ".conf.seg"])]),
     Lines = [[L, "\n"] || L <- Lines0],
-    ok = file:write_file(Filename, Lines),
+    save_conf(Name, Lines),
     dump_sections(Rest).
+
+dump_base({Name, Lines0}, IncludeNames0) ->
+    Includes = lists:map(fun(Name) ->
+        iolist_to_binary(["include {{ platform_etc_dir }}/", Name, ".conf"])
+    end, IncludeNames0),
+    Lines = [[L, "\n"] || L <-  Lines0 ++ Includes],
+    save_conf(Name, Lines).
+
+save_conf(Name, Lines) ->
+    Filename = filename:join(["etc", iolist_to_binary([Name, ".conf.seg"])]),
+    Lines = [[L, "\n"] || L <-  Lines0 ++ Includes],
+    ok = file:write_file(Filename, Lines).
