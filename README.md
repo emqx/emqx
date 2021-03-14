@@ -23,6 +23,8 @@ Starting from 3.0 release, *EMQ X* broker fully supports MQTT V5.0 protocol spec
 
 The *EMQ X* broker is cross-platform, which supports Linux, Unix, macOS and Windows. It means *EMQ X* can be deployed on x86_64 architecture servers and ARM devices like Raspberry Pi.
 
+See more details for building and running *EMQ X* on Windows in [Windows.md](./Windows.md)
+
 #### Installing via EMQ X Docker Image
 
 ```
