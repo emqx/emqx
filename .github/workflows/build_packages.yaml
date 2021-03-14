@@ -23,15 +23,6 @@ jobs:
         otp-version: 23.2
     - name: build
       run: |
-        #     set-executionpolicy remotesigned -s cu
-        #     iex (new-object net.webclient).downloadstring('https://get.scoop.sh')
-        #     # $env:path + ";" + $env:USERPROFILE + "\scoop\shims" + ';C:\Program Files\erl10.4\bin'
-        #     [environment]::SetEnvironmentvariable("Path", ";" + $env:USERPROFILE + "\scoop\shims")
-        #     [environment]::SetEnvironmentvariable("Path", ';C:\Program Files\erl10.4\bin')
-        #     scoop bucket add extras https://github.com/lukesampson/scoop-extras.git
-        #     scoop update
-        #     scoop install sudo curl vcredist2013
-
         $env:PATH = "${{ steps.install_erlang.outputs.erlpath }}\bin;$env:PATH"
 
         $version = $( "${{ github.ref }}" -replace "^(.*)/(.*)/" )
@@ -42,13 +33,6 @@ jobs:
         else {
           $pkg_name = "emqx-windows-$($version -replace '/').zip"
           }
-
-        make deps-emqx || cat rebar3.crashdump
-        $rebar3 = $env:USERPROFILE + "\rebar3"
-        (New-Object System.Net.WebClient).DownloadFile('https://s3.amazonaws.com/rebar3/rebar3', $rebar3)
-        cd _build/emqx/lib/jiffy/
-        escript $rebar3 compile
-        cd ../../../../
 
         make emqx
         mkdir -p _packages/emqx
