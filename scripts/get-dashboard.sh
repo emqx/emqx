@@ -55,4 +55,4 @@ get_assets
 unzip -q "$RELEASE_ASSET_FILE" -d "$DASHBOARD_PATH"
 rm -rf "$DASHBOARD_PATH/www"
 mv "$DASHBOARD_PATH/dist" "$DASHBOARD_PATH/www"
-rm -rf "$RELEASE_ASSET_FILE"
+rm -f "$RELEASE_ASSET_FILE"
