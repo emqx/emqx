@@ -38,7 +38,8 @@ get_assets(){
         --header "${AUTH}" \
         --header "Accept: application/vnd.github.v3+json" \
         "https://api.github.com/repos/emqx/${DASHBOARD_REPO}/releases/tags/${VERSION}" \
-        | jq --raw-output ".assets[] | select(.name==\"${RELEASE_ASSET_FILE}\").url")"
+        | jq --raw-output ".assets[] | select(.name==\"${RELEASE_ASSET_FILE}\").url" \
+        | tr -d '\n' | tr -d '\r')"
     # Get GitHub's S3 redirect URL
     redirect_url=$(curl --silent --show-error \
         --header "${AUTH}" \
