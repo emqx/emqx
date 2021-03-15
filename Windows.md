@@ -111,3 +111,17 @@ scoop install git curl make jq zip unzip
   Visual Studio should print out `Microsoft (R) Incremental Linker`.
   To fix it, Visual Studio's bin paths should be ordered prior to Cygwin's (or similar installation's)
   bin paths in `Path` environment variable.
+
+## Run EMQ X
+
+To start EMQ X broker.
+
+Execute `_build\emqx\rel\emqx>.\bin\emqx console` or `_build\emqx\rel\emqx>.\bin\emqx start` to start EMQ X.
+
+Then execute `_build\emqx\rel\emqx>.\bin\emqx_ctl status` to check status.
+If everything works fine, it should print out
+
+```
+Node 'emqx@127.0.0.1' 4.3-beta.1 is started
+Application emqx 4.3.0 is running
+```
