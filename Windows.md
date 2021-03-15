@@ -11,7 +11,8 @@ in C/C++. To compile and link C/C++ libraries, the easiest way is perhaps to
 install Visual Studio.
 
 Visual Studio 2019 is used in our tests.
-If you (like @zmstone) do not know where to start, please follow this OTP guide:
+If you are like me (@zmstone), do not know where to start,
+please follow this OTP guide:
 https://github.com/erlang/otp/blob/master/HOWTO/INSTALL-WIN32.md
 
 NOTE: To avoid surprises, you may need to add below two paths to `Path` environment variable
@@ -43,8 +44,6 @@ To validate Erlang installation in CMD or powershell:
 e.g.
 
 ```
-Eshell V11.1.4  (abort with ^G)
-1> halt().
 PS C:\Users\zmsto> erl
 Eshell V11.1.4  (abort with ^G)
 1> halt().
