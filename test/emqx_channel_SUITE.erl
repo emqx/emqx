@@ -347,8 +347,8 @@ t_process_publish_qos1(_) ->
 
 t_process_subscribe(_) ->
     ok = meck:expect(emqx_session, subscribe, fun(_, _, _, Session) -> {ok, Session} end),
-    TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
-    {[?RC_SUCCESS], _Channel} = emqx_channel:process_subscribe(TopicFilters, #{}, channel()).
+    TopicFilters = [ TopicFilter = {<<"+">>, ?DEFAULT_SUBOPTS}],
+    {[{TopicFilter, ?RC_SUCCESS}], _Channel} = emqx_channel:process_subscribe(TopicFilters, #{}, channel()).
 
 t_process_unsubscribe(_) ->
     ok = meck:expect(emqx_session, unsubscribe, fun(_, _, _, Session) -> {ok, Session} end),
@@ -650,10 +650,11 @@ t_check_pub_alias(_) ->
     Channel = emqx_channel:set_field(alias_maximum, #{inbound => 10}, channel()),
     ok = emqx_channel:check_pub_alias(#mqtt_packet{variable = Publish}, Channel).
 
-t_check_subscribe(_) ->
+t_check_sub_acls(_) ->
     ok = meck:new(emqx_zone, [passthrough, no_history]),
     ok = meck:expect(emqx_zone, enable_acl, fun(_) -> true end),
-    ok = emqx_channel:check_subscribe(<<"t">>, ?DEFAULT_SUBOPTS, channel()),
+    TopicFilter = {<<"t">>, ?DEFAULT_SUBOPTS},
+    [{TopicFilter, 0}] = emqx_channel:check_sub_acls([TopicFilter], channel()),
     ok = meck:unload(emqx_zone).
 
 t_enrich_connack_caps(_) ->
