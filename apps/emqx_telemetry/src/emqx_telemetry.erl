@@ -157,7 +157,7 @@ init([Opts]) ->
                  [#telemetry{uuid = UUID, enabled = Enabled} | _] ->
                      State#state{enabled = Enabled, uuid = UUID}
              end,
-    case official_version(emqx_version()) of
+    case official_version(emqx_app:get_release()) of
         true ->
             {ok, ensure_report_timer(NState), {continue, first_report}};
         false ->
@@ -232,10 +232,6 @@ official_version(Version) ->
 
 ensure_report_timer(State = #state{report_interval = ReportInterval}) ->
     State#state{timer = emqx_misc:start_timer(ReportInterval, time_to_report_telemetry_data)}.
-
-emqx_version() ->
-    {ok, Version} = application:get_key(emqx, vsn),
-    Version.
 
 license() ->
     case search_telemetry_license() of
@@ -347,7 +343,7 @@ generate_uuid() ->
 
 get_telemetry(#state{uuid = UUID}) ->
     OSInfo = os_info(),
-    [{emqx_version, bin(emqx_version())},
+    [{emqx_version, bin(emqx_app:get_release())},
      {license, license()},
      {os_name, bin(get_value(os_name, OSInfo))},
      {os_version, bin(get_value(os_version, OSInfo))},
