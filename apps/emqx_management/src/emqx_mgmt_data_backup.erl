@@ -17,6 +17,7 @@
 -module(emqx_mgmt_data_backup).
 
 -include("emqx_mgmt.hrl").
+-include_lib("emqx_rule_engine/include/rule_engine.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("kernel/include/file.hrl").
 
@@ -59,7 +60,11 @@
 %%--------------------------------------------------------------------
 
 export_rules() ->
-    lists:map(fun({_, RuleId, _, RawSQL, _, _, _, _, _, _, Actions, Enabled, Desc}) ->
+    lists:map(fun(#rule{id = RuleId,
+                        rawsql = RawSQL,
+                        actions = Actions,
+                        enabled = Enabled,
+                        description = Desc}) ->
                    [{id, RuleId},
                     {rawsql, RawSQL},
                     {actions, actions_to_prop_list(Actions)},
@@ -68,7 +73,11 @@ export_rules() ->
                end, emqx_rule_registry:get_rules()).
 
 export_resources() ->
-    lists:map(fun({_, Id, Type, Config, CreatedAt, Desc}) ->
+    lists:map(fun(#resource{id = Id,
+                            type = Type,
+                            config = Config,
+                            created_at = CreatedAt,
+                            description = Desc}) ->
                    NCreatedAt = case CreatedAt of
                                     undefined -> null;
                                     _ -> CreatedAt
@@ -236,18 +245,26 @@ import_resources_and_rules(Resources, Rules, FromVersion)
   when FromVersion =:= "4.0" orelse FromVersion =:= "4.1" orelse FromVersion =:= "4.2" ->
     Configs = lists:foldl(fun(#{<<"id">> := ID,
                                 <<"type">> := <<"web_hook">>,
-                                <<"config">> := #{<<"content_type">> := ContentType,
+                                <<"config">> := #{<<"connect_timeout">> := ConnectTimeout,
+                                                  <<"content_type">> := ContentType,
                                                   <<"headers">> := Headers,
                                                   <<"method">> := Method,
+                                                  <<"pool_size">> := PoolSize,
+                                                  <<"request_timeout">> := RequestTimeout,
                                                   <<"url">> := URL}} = Resource, Acc) ->
-                              NConfig = #{<<"connect_timeout">> => 5,
-                                          <<"request_timeout">> => 5,
+                              CovertFun = fun(Int) ->
+                                  list_to_binary(integer_to_list(Int) ++ "s")
+                              end,
+                              NConfig = #{<<"connect_timeout">> => CovertFun(ConnectTimeout),
+                                          <<"content_type">> => ContentType,
+                                          <<"method">> => Method,
+                                          <<"pool_size">> => PoolSize,
+                                          <<"request_timeout">> => CovertFun(RequestTimeout),
                                           <<"cacertfile">> => <<>>,
                                           <<"certfile">> => <<>>,
                                           <<"keyfile">> => <<>>,
-                                          <<"pool_size">> => 8,
-                                          <<"url">> => URL,
-                                          <<"verify">> => true},
+                                          <<"verify">> => true,
+                                          <<"url">> => URL},
                               NResource = Resource#{<<"config">> := NConfig},
                               {ok, _Resource} = import_resource(NResource),
                               NHeaders = maps:put(<<"content-type">>, ContentType, Headers),
