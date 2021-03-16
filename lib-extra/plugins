@@ -1,5 +1,5 @@
 {erlang_plugins,
-  [ {emqx_plugin_template, {git, "https://github.com/emqx/emqx-plugin-template", {branch, "master"}}}
+  [ {emqx_plugin_template, {git, "https://github.com/emqx/emqx-plugin-template", {tag, "4.3.0"}}}
   ]
 }.
 
