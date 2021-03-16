@@ -72,9 +72,9 @@ get_description() ->
 
 get_release() ->
     case lists:keyfind(emqx_vsn, 1, ?MODULE:module_info(compile)) of
-        false ->
+        false ->    %% For TEST build or depedency build.
             release_in_macro();
-        {_, Vsn} ->
+        {_, Vsn} -> %% For emqx release build
             VsnStr = release_in_macro(),
             1 = string:str(Vsn, VsnStr), %% assert
             Vsn
