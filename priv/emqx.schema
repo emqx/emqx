@@ -1211,14 +1211,6 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
-{mapping, "listener.tcp.$name.peer_cert_as_username", "emqx.listeners", [
-  {datatype, {enum, [cn, dn, crt, pem, md5]}}
-]}.
-
-{mapping, "listener.tcp.$name.peer_cert_as_clientid", "emqx.listeners", [
-  {datatype, {enum, [cn, dn, crt, pem, md5]}}
-]}.
-
 {mapping, "listener.tcp.$name.backlog", "emqx.listeners", [
   {datatype, integer},
   {default, 1024}
