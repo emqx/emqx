@@ -1,0 +1,63 @@
+{
+    "version": "4.2",
+    "date": "2021-03-17 14:05:06",
+    "rules": [
+        {
+            "id": "test",
+            "rawsql": "SELECT\n  payload.msg as msg\nFROM\n  \"t/#\"\nWHERE\n  msg = 'hello'",
+            "actions": [
+                {
+                    "id": "data_to_mqtt_broker_1615961099322609000",
+                    "name": "data_to_mqtt_broker",
+                    "fallbacks": [],
+                    "args": {
+                        "payload_tmpl": "point1",
+                        "forward_topic": "I have a dream",
+                        "$resource": "resource:967810"
+                    }
+                }
+            ],
+            "enabled": true,
+            "description": ""
+        }
+    ],
+    "resources": [
+        {
+            "id": "resource:967810",
+            "type": "bridge_rpc",
+            "config": {
+                "address": "emqx@127.0.0.1",
+                "batch_size": 32,
+                "disk_cache": "off",
+                "mountpoint": "bridge/emqx/${node}/",
+                "pool_size": 8,
+                "reconnect_interval": "30s"
+            },
+            "created_at": null,
+            "description": "test"
+        }
+    ],
+    "blacklist": [],
+    "apps": [
+        {
+            "id": "admin",
+            "secret": "public",
+            "name": "Default",
+            "desc": "Application user",
+            "status": true,
+            "expired": "undefined"
+        }
+    ],
+    "users": [
+        {
+            "username": "admin",
+            "password": "2Gky0oAFkW4H9hDgr4//94fYDqY=",
+            "tags": "administrator"
+        }
+    ],
+    "auth_clientid": [],
+    "auth_username": [],
+    "auth_mnesia": [],
+    "acl_mnesia": [],
+    "schemas": []
+}

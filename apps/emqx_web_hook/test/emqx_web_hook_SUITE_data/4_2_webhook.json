@@ -1,0 +1,66 @@
+{
+    "version": "4.2",
+    "date": "2021-03-15 14:10:04",
+    "rules": [
+        {
+            "id": "test",
+            "rawsql": "SELECT\n  payload.msg as msg\nFROM\n  \"t/#\"\nWHERE\n  msg = 'hello'",
+            "actions": [
+                {
+                    "id": "data_to_webserver_1615788585723654000",
+                    "name": "data_to_webserver",
+                    "fallbacks": [],
+                    "args": {
+                        "payload_tmpl": "${id}",
+                        "path": "NB",
+                        "$resource": "resource:771522"
+                    }
+                }
+            ],
+            "enabled": true,
+            "description": ""
+        }
+    ],
+    "resources": [
+        {
+            "id": "resource:771522",
+            "type": "web_hook",
+            "config": {
+                "connect_timeout": 5,
+                "content_type": "application/json",
+                "headers": {
+                    "1": "1"
+                },
+                "method": "POST",
+                "pool_size": 32,
+                "request_timeout": 5,
+                "url": "http://www.emqx.io"
+            },
+            "created_at": null,
+            "description": "test"
+        }
+    ],
+    "blacklist": [],
+    "apps": [
+        {
+            "id": "admin",
+            "secret": "public",
+            "name": "Default",
+            "desc": "Application user",
+            "status": true,
+            "expired": "undefined"
+        }
+    ],
+    "users": [
+        {
+            "username": "admin",
+            "password": "3Dszaa0uuieb4fjkCKxH9MpAnvs=",
+            "tags": "administrator"
+        }
+    ],
+    "auth_clientid": [],
+    "auth_username": [],
+    "auth_mnesia": [],
+    "acl_mnesia": [],
+    "schemas": []
+}

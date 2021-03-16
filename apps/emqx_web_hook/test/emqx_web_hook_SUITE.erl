@@ -44,16 +44,21 @@ groups() ->
      {ipv6https, [sequence], Cases}].
 
 init_per_group(Name, Config) ->
+    application:ensure_all_started(emqx_management),
     set_special_cfgs(),
     case Name of
         http ->
-            emqx_ct_helpers:start_apps([emqx_web_hook], fun set_special_configs_http/1);
+            emqx_ct_helpers:start_apps([emqx_web_hook, emqx_management,
+                                        emqx_rule_engine], fun set_special_configs_http/1);
         https ->
-            emqx_ct_helpers:start_apps([emqx_web_hook], fun set_special_configs_https/1);
+            emqx_ct_helpers:start_apps([emqx_web_hook, emqx_management,
+                                        emqx_rule_engine], fun set_special_configs_https/1);
         ipv6http ->
-            emqx_ct_helpers:start_apps([emqx_web_hook], fun set_special_configs_ipv6_http/1);
+            emqx_ct_helpers:start_apps([emqx_web_hook, emqx_management,
+                                        emqx_rule_engine], fun set_special_configs_ipv6_http/1);
         ipv6https ->
-            emqx_ct_helpers:start_apps([emqx_web_hook], fun set_special_configs_ipv6_https/1)
+            emqx_ct_helpers:start_apps([emqx_web_hook, emqx_management,
+                                        emqx_rule_engine], fun set_special_configs_ipv6_https/1)
     end,
     Config.
 
