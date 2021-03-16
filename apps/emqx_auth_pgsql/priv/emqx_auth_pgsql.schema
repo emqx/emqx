@@ -40,6 +40,10 @@
   {datatype, string}
 ]}.
 
+{mapping, "auth.pgsql.ssl.verify", "emqx_auth_pgsql.server", [
+  {datatype, {enum, [verify_peer, verify_none]}}
+]}.
+
 {mapping, "auth.pgsql.ssl.keyfile", "emqx_auth_pgsql.server", [
   {datatype, string}
 ]}.
@@ -90,7 +94,8 @@
 
   Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
   SslOpts = fun(Prefix) ->
-                Filter([{keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
+                Filter([{verify,     cuttlefish:conf_get(Prefix ++ ".verify", Conf, undefined)},
+                        {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
                         {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
                         {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
                         {versions, [list_to_existing_atom(Value)
