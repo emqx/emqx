@@ -240,6 +240,7 @@ import_resources_and_rules(Resources, Rules, _FromVersion) ->
     import_resources(Resources),
     import_rules(Rules).
 -else.
+
 import_resources_and_rules(Resources, Rules, FromVersion)
   when FromVersion =:= "4.0" orelse
        FromVersion =:= "4.1" orelse
@@ -249,7 +250,6 @@ import_resources_and_rules(Resources, Rules, FromVersion)
                       NActions = apply_new_config(Actions, Configs),
                       import_rule(Rule#{<<"actions">> := NActions})
                   end, Rules);
-
 import_resources_and_rules(Resources, Rules, _FromVersion) ->
     import_resources(Resources),
     import_rules(Rules).
@@ -290,14 +290,11 @@ compatible_version(#{<<"id">> := ID,
 compatible_version(#{<<"type">> := <<"bridge_mqtt">>,
                      <<"id">> := ID, %% begin 4.2.0.
                      <<"config">> := #{<<"ssl">> := Ssl} = Config} = Resource, Acc) ->
-                     F = fun(B) ->
-                         case B of
-                               <<"on">> -> true;
-                               <<"off">> -> false;
-                               Other -> Other
-                         end
-                     end,
-                    NewConfig = Config#{<<"ssl">> := F(Ssl)},
+                    NewConfig = Config#{<<"ssl">> := flag_to_boolean(Ssl),
+                                        <<"pool_size">> => case maps:get(<<"pool_size">>, Config, undefined) of %% 4.0.x, compatible `pool_size`
+                                                                undefined -> 8;
+                                                                PoolSize -> PoolSize
+                                                           end},
                     {ok, _Resource} = import_resource(Resource#{<<"config">> := NewConfig}),
                     [{ID, NewConfig} | Acc];
 
@@ -643,9 +640,12 @@ do_import_extra_data(_Data, _Version) -> ok.
 -endif.
 
 -ifndef(EMQX_ENTERPRISE).
-covert_empty_headers(Headers) ->
-    case Headers of
-        [] -> #{};
-        Other -> Other
-    end.
+
+covert_empty_headers([]) -> #{};
+covert_empty_headers(Other) -> Other.
+
+flag_to_boolean(<<"on">>) -> true;
+flag_to_boolean(<<"off">>) -> false;
+flag_to_boolean(Other) -> Other.
+
 -endif.
