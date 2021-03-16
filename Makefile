@@ -100,7 +100,7 @@ ifneq ($(OS),Windows_NT)
 endif
 
 .PHONY: $(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar)
-$(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar): $(REBAR) get-dashboard
+$(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar): $(REBAR) get-dashboard $(CONF_SEGS)
 	@$(BUILD) $(subst -tar,,$(@)) tar
 
 ## zip targets depend on the corresponding relup and tar artifacts
