@@ -89,16 +89,16 @@ spec:
       initContainers:
 {{ toYaml .Values.initContainers | indent 8 }}
       {{- end }}
+      {{- if .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range .Values.image.pullSecrets }}
+        - name: {{ . }}
+      {{- end }}
+      {{- end }}
       containers:
         - name: emqx
           image: "{{ .Values.image.repository }}:{{ .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- if .Values.image.pullSecrets }}
-          imagePullSecrets:
-          {{- range .Values.image.pullSecrets }}
-          - name: {{ . }}
-          {{- end }}
-          {{- end }}
           ports:
           - name: mqtt
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENER__TCP__EXTERNAL | default 1883 }}
@@ -120,14 +120,14 @@ spec:
             containerPort: 4370
           envFrom:
             - configMapRef:
-                name: {{ include "emqx.fullname" . }}-env 
+                name: {{ include "emqx.fullname" . }}-env
           env:
           - name: EMQX_NAME
-            value: {{ .Release.Name }} 
+            value: {{ .Release.Name }}
           - name: EMQX_CLUSTER__K8S__APP_NAME
-            value: {{ .Release.Name }} 
+            value: {{ .Release.Name }}
           - name: EMQX_CLUSTER__DISCOVERY
-            value: k8s 
+            value: k8s
           - name: EMQX_CLUSTER__K8S__SERVICE_NAME
             value: {{ include "emqx.fullname" . }}-headless
           - name: EMQX_CLUSTER__K8S__NAMESPACE
