@@ -24,7 +24,6 @@ services:
       - emqx_bridge
     command:
       --bind-address "::"
-      --default-authentication-plugin=mysql_native_password
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_general_ci
       --explicit_defaults_for_timestamp=true
