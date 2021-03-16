@@ -3,9 +3,9 @@
 -export([do/2]).
 
 do(_Dir, CONFIG) ->
-    C1 = deps(CONFIG),
+    {HasElixir, C1} = deps(CONFIG),
     Config = dialyzer(C1),
-    maybe_dump(Config ++ [{overrides, overrides()}] ++ coveralls() ++ config()).
+    maybe_dump(Config ++ [{overrides, overrides()}] ++ coveralls() ++ config(HasElixir)).
 
 bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
@@ -16,13 +16,17 @@ deps(Config) ->
         true -> [bcrypt()];
         false -> []
     end,
-    lists:keystore(deps, 1, Config, {deps, OldDeps ++ MoreDeps ++ extra_deps()}).
+    {HasElixir, ExtraDeps} = extra_deps(),
+    {HasElixir, lists:keystore(deps, 1, Config, {deps, OldDeps ++ MoreDeps ++ ExtraDeps})}.
 
 extra_deps() ->
     {ok, Proplist} = file:consult("lib-extra/plugins"),
-    AllPlugins = proplists:get_value(erlang_plugins, Proplist),
+    ErlPlugins0 = proplists:get_value(erlang_plugins, Proplist),
+    ExPlugins0 = proplists:get_value(elixir_plugins, Proplist),
     Filter = string:split(os:getenv("EMQX_EXTRA_PLUGINS", ""), ",", all),
-    filter_extra_deps(AllPlugins, Filter).
+    ErlPlugins = filter_extra_deps(ErlPlugins0, Filter),
+    ExPlugins = filter_extra_deps(ExPlugins0, Filter),
+    {ExPlugins=/= [], ErlPlugins ++ ExPlugins}.
 
 filter_extra_deps(AllPlugins, ["all"]) ->
     AllPlugins;
@@ -49,11 +53,14 @@ overrides() ->
 community_plugin_overrides() ->
     [{add, App, [ {erl_opts, [{i, "include"}]}]} || App <- relx_plugin_apps_extra()].
 
-config() ->
+config(HasElixir) ->
     [ {cover_enabled, is_cover_enabled()}
-    , {plugins, plugins()}
     , {profiles, profiles()}
     , {project_app_dirs, project_app_dirs()}
+    , {plugins, plugins(HasElixir)}
+    | [ {provider_hooks, [ {pre,  [{compile, {mix, find_elixir_libs}}]}
+                         , {post, [{compile, {mix, consolidate_protocols}}]}
+                         ]} || HasElixir ]
     ].
 
 is_cover_enabled() ->
@@ -75,9 +82,10 @@ alternative_lib_dir() ->
 project_app_dirs() ->
     ["apps/*", alternative_lib_dir() ++ "/*", "."].
 
-plugins() ->
-    [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {tag, "2.0.0"}}},
-      {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0"}}}
+plugins(HasElixir) ->
+    [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {tag, "2.0.0"}}}
+    , {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0"}}}
+    | [ rebar_mix || HasElixir ]
     ]
     %% test plugins are concatenated to default profile plugins
     %% otherwise rebar3 test profile runs are super slow
@@ -155,7 +163,6 @@ relx(Vsn, RelType, PkgType) ->
 emqx_description(cloud, true) -> "EMQ X Enterprise";
 emqx_description(cloud, false) -> "EMQ X Broker";
 emqx_description(edge, _) -> "EMQ X Edge".
-
 
 overlay_vars(_RelType, PkgType, true) ->
     ee_overlay_vars(PkgType);
@@ -285,7 +292,8 @@ relx_plugin_apps_enterprise(true) ->
 relx_plugin_apps_enterprise(false) -> [].
 
 relx_plugin_apps_extra() ->
-    [Plugin || {Plugin, _} <- extra_deps()].
+    {_HasElixir, ExtraDeps} = extra_deps(),
+    [Plugin || {Plugin, _} <- ExtraDeps].
 
 relx_overlay(ReleaseType) ->
     [ {mkdir, "log/"}
