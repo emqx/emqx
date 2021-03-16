@@ -221,6 +221,7 @@ generate_config() {
         TMP_ARG_FILE="$RUNNER_DATA_DIR/configs/vm.args.tmp"
         cp "$RUNNER_ETC_DIR/vm.args" "$TMP_ARG_FILE"
         echo "" >> "$TMP_ARG_FILE"
+        echo "-pa ${REL_DIR}/consolidated" >> "$TMP_ARG_FILE"
         sed '/^#/d' "$CUTTLE_GEN_ARG_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
             ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
             ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')

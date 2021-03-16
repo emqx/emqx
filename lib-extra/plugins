@@ -2,3 +2,8 @@
   [ {emqx_plugin_template, {git, "https://github.com/emqx/emqx-plugin-template", {branch, "master"}}}
   ]
 }.
+
+{elixir_plugins,
+  [ {emqx_elixir_plugin, {git, "https://github.com/zmstone/emqx-elixir-plugin.git", {branch, "umbrella"}}}
+  ]
+}.
