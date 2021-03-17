@@ -43,7 +43,9 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
-    TestCase =/= t_ws_sub_protocols_mqtt ->
+    TestCase =/= t_ws_sub_protocols_mqtt,
+    TestCase =/= t_ws_check_origin,
+    TestCase =/= t_ws_non_check_origin ->
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
     ok = meck:expect(cowboy_req, peer, fun(_) -> {{127,0,0,1}, 3456} end),
@@ -85,7 +87,9 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(TestCase, Config) when
         TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
-        TestCase =/= t_ws_sub_protocols_mqtt ->
+        TestCase =/= t_ws_sub_protocols_mqtt,
+        TestCase =/= t_ws_check_origin,
+        TestCase =/= t_ws_non_check_origin ->
     lists:foreach(fun meck:unload/1,
                   [cowboy_req,
                    emqx_zone,
@@ -170,6 +174,41 @@ t_ws_sub_protocols_mqtt_equivalents(_) ->
     ?assertMatch({gun_response, {_, 400, _}},
         start_ws_client(#{protocols => [<<"not-mqtt">>]})),
     emqx_ct_helpers:stop_apps([]).
+
+t_ws_check_origin(_) ->
+    emqx_ct_helpers:start_apps([],
+        fun(emqx) ->
+            {ok, Listeners} = application:get_env(emqx, listeners),
+            NListeners = lists:map(fun(#{listen_on := 8083, opts := Opts} = Listener) ->
+                                       NOpts = proplists:delete(check_origin_enable, Opts),
+                                       Listener#{opts => [{check_origin_enable, true} | NOpts]};
+                                      (Listener) ->
+                                       Listener
+                                   end, Listeners),
+            application:set_env(emqx, listeners, NListeners),
+            ok;
+           (_) -> ok
+        end),
+    {ok, _} = application:ensure_all_started(gun),
+    ?assertMatch({gun_upgrade, _},
+        start_ws_client(#{protocols => [<<"mqtt">>],
+                          headers => [{<<"origin">>, <<"http://localhost:18083">>}]})),
+    ?assertMatch({gun_response, {_, 500, _}},
+        start_ws_client(#{protocols => [<<"mqtt">>],
+                          headers => [{<<"origin">>, <<"http://localhost:18080">>}]})),
+    emqx_ct_helpers:stop_apps([]).
+
+t_ws_non_check_origin(_) ->
+    emqx_ct_helpers:start_apps([]),
+    {ok, _} = application:ensure_all_started(gun),
+    ?assertMatch({gun_upgrade, _},
+        start_ws_client(#{protocols => [<<"mqtt">>],
+                          headers => [{<<"origin">>, <<"http://localhost:18083">>}]})),
+    ?assertMatch({gun_upgrade, _},
+        start_ws_client(#{protocols => [<<"mqtt">>],
+                          headers => [{<<"origin">>, <<"http://localhost:18080">>}]})),
+    emqx_ct_helpers:stop_apps([]).
+
 
 t_init(_) ->
     Opts = [{idle_timeout, 300000},
@@ -433,7 +472,7 @@ ws_client(State) ->
     receive
         {gun_up, WPID, _Proto} ->
             #{protocols := Protos} = State,
-            StreamRef = gun:ws_upgrade(WPID, "/mqtt", [],
+            StreamRef = gun:ws_upgrade(WPID, "/mqtt", maps:get(headers, State, []),
                 #{protocols => [{P, gun_ws_h} || P <- Protos]}),
             ws_client(State#{wref => StreamRef});
         {gun_down, _WPID, _, Reason, _, _} ->
