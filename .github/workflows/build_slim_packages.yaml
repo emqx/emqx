@@ -5,17 +5,17 @@ on: [pull_request]
 jobs:
   build:
     runs-on: ubuntu-20.04
-    
+
     strategy:
       matrix:
         erl_otp:
-        - erl23.2.2
+        - erl23.2.7
         os:
         - ubuntu20.04
         - centos8
 
     container: emqx/build-env:${{ matrix.erl_otp }}-${{ matrix.os }}
-    
+
     steps:
     - uses: actions/checkout@v1
     - name: build packages

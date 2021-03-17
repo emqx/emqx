@@ -63,11 +63,11 @@ jobs:
     - name: build erlang
       timeout-minutes: 60
       run: |
-        kerl build 23.2.2
-        kerl install 23.2.2 $HOME/.kerl/23.2.2
+        kerl build 23.2.7
+        kerl install 23.2.7 $HOME/.kerl/23.2.7
     - name: build
       run: |
-        . $HOME/.kerl/23.2.2/activate
+        . $HOME/.kerl/23.2.7/activate
         make emqx-pkg
     - name: test
       run: |
@@ -149,7 +149,7 @@ jobs:
     - uses: actions/checkout@v1
     - name: get deps
       env:
-        ERL_OTP: erl23.2.2
+        ERL_OTP: erl23.2.7
       run: |
         docker run -i --rm \
             -e GITHUB_RUN_ID=$GITHUB_RUN_ID \
@@ -184,7 +184,7 @@ jobs:
         cd -
     - name: build emqx packages
       env:
-        ERL_OTP: erl23.2.2
+        ERL_OTP: erl23.2.7
         EMQX: ${{ matrix.emqx }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}

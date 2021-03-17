@@ -3,7 +3,7 @@ version: '3'
 services:
   erlang:
     container_name: erlang
-    image: emqx/build-env:erl23.2.2-ubuntu20.04
+    image: emqx/build-env:erl23.2.7-ubuntu20.04
     depends_on:
       - mysql_server
       - redis_server
