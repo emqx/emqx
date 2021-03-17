@@ -56,7 +56,7 @@ coveralls: $(REBAR)
 
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(REBAR) get-dashboard
-	@$(REBAR) as $(@) release
+	@$(REBAR) as $(@) do compile,release
 
 ## Not calling rebar3 clean because
 ## 1. rebar3 clean relies on rebar3, meaning it reads config, fetches dependencies etc.
