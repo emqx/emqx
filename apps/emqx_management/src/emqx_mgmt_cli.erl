@@ -580,19 +580,30 @@ data(_) ->
 %%--------------------------------------------------------------------
 %% @doc acl Command
 
-acl(["cache-clean", "node", SNode]) ->
-    emqx_mgmt:clean_acl_cache_all(ekka_node:parse_name(SNode));
+acl(["cache-clean", "node", Node]) ->
+    case emqx_mgmt:clean_acl_cache_all(erlang:list_to_atom(Node)) of
+        ok ->
+            emqx_ctl:print("The emqx acl cache removed on node ~s.~n", [Node]);
+        {error, Reason} ->
+            emqx_ctl:print("The emqx acl cache-clean on node ~s failed: ~s.~n", [Node, Reason])
+    end;
 
 acl(["cache-clean", "all"]) ->
-    emqx_mgmt:clean_acl_cache();
+    case emqx_mgmt:clean_acl_cache_all() of
+        ok ->
+            emqx_ctl:print("The emqx acl cache removed on all nodes.~n");
+        {error, Reason} ->
+            emqx_ctl:print("The emqx acl cache-clean failed: ~s.~n", [Reason])
+    end;
 
 acl(["cache-clean", ClientId]) ->
     emqx_mgmt:clean_acl_cache(ClientId);
 
 acl(_) ->
-    emqx_ctl:usage([{"cache-clean all",           "Clears acl cache on all nodes"},
-        {"cache-clean node <Node>",   "Clears acl cache on given node"},
-        {"cache-clean <ClientId>",    "Clears acl cache for given client"}]).
+    emqx_ctl:usage([{"cache-clean all", "Clears acl cache on all nodes"},
+                    {"cache-clean node <Node>",     "Clears acl cache on given node"},
+                    {"cache-clean <ClientId>",      "Clears acl cache for given client"}
+                   ]).
 
 %%--------------------------------------------------------------------
 %% Dump ETS

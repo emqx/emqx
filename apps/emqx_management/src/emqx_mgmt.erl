@@ -43,9 +43,9 @@
         , lookup_client/3
         , kickout_client/1
         , list_acl_cache/1
-        , clean_acl_cache/0
         , clean_acl_cache/1
         , clean_acl_cache/2
+        , clean_acl_cache_all/0
         , clean_acl_cache_all/1
         , set_ratelimit_policy/2
         , set_quota_policy/2
@@ -233,13 +233,6 @@ kickout_client(Node, ClientId) ->
 list_acl_cache(ClientId) ->
     call_client(ClientId, list_acl_cache).
 
-clean_acl_cache() ->
-    Results = [clean_acl_cache_all(Node) || Node <- ekka_mnesia:running_nodes()],
-    case lists:any(fun(Item) -> Item =:= ok end, Results) of
-        true  -> ok;
-        false -> lists:last(Results)
-    end.
-
 clean_acl_cache(ClientId) ->
     Results = [clean_acl_cache(Node, ClientId) || Node <- ekka_mnesia:running_nodes()],
     case lists:any(fun(Item) -> Item =:= ok end, Results) of
@@ -258,12 +251,18 @@ clean_acl_cache(Node, ClientId) when Node =:= node() ->
 clean_acl_cache(Node, ClientId) ->
     rpc_call(Node, clean_acl_cache, [Node, ClientId]).
 
+clean_acl_cache_all() ->
+    Results = [clean_acl_cache_all(Node) || Node <- ekka_mnesia:running_nodes()],
+    case lists:any(fun(Item) -> Item =:= ok end, Results) of
+        true  -> ok;
+        false -> lists:last(Results)
+    end.
+
 clean_acl_cache_all(Node) when Node =:= node() ->
-    _ = emqx_acl_cache:drain_cache(),
-    ok;
+    emqx_acl_cache:drain_cache();
 
 clean_acl_cache_all(Node) ->
-    rpc_call(Node, clean_acl_cache, []).
+    rpc_call(Node, clean_acl_cache_all, [Node]).
 
 set_ratelimit_policy(ClientId, Policy) ->
     call_client(ClientId, {ratelimit, Policy}).
