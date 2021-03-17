@@ -23,7 +23,7 @@
                   ]).
 -rest_api(#{name   => clean_acl_cache_all,
             method => 'DELETE',
-            path   => "/acl-cache/",
+            path   => "/acl-cache",
             func   => clean_all,
             descr  => "Clean acl cache on all nodes"}).
 
@@ -38,13 +38,13 @@
         ]).
 
 clean_all(_Bindings, _Params) ->
-    case emqx_mgmt:clean_acl_cache() of
+    case emqx_mgmt:clean_acl_cache_all() of
       ok -> return();
       {error, Reason} -> return({error, ?ERROR1, Reason})
     end.
 
 clean_node(#{node := Node}, _Params) ->
-    case emqx_mgmt:clean_acl_cache(Node) of
+    case emqx_mgmt:clean_acl_cache_all(Node) of
       ok -> return();
       {error, Reason} -> return({error, ?ERROR1, Reason})
     end.
