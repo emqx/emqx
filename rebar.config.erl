@@ -101,9 +101,20 @@ common_compile_opts() ->
     | [{d, 'EMQX_ENTERPRISE'} || is_enterprise()]
     ].
 
+prod_compile_opts(false) ->
+    prod_compile_opts();
+prod_compile_opts(SecretFile) ->
+    SecretText = get_compile_secret(SecretFile),
+    beam_lib:crypto_key_fun(
+      fun(init) -> ok;
+         (clear) -> ok;
+         ({debug_info, _Mode, _Module, _Filename}) -> SecretText
+      end
+     ),
+    [{debug_info_key, SecretText} | prod_compile_opts()].
+
 prod_compile_opts() ->
     [ compressed
-    , no_debug_info
     , warnings_as_errors
     | common_compile_opts()
     ].
@@ -115,16 +126,18 @@ test_compile_opts() ->
 
 profiles() ->
     Vsn = get_vsn(),
-    [ {'emqx',          [ {erl_opts, prod_compile_opts()}
+    SecretFile = os:getenv("EMQX_COMPILE_SECRET_FILE"),
+    SecretFile =/= false andalso io:format("debug_info encryption enabled !~n"),
+    [ {'emqx',          [ {erl_opts, prod_compile_opts(SecretFile)}
                         , {relx, relx(Vsn, cloud, bin)}
                         ]}
-    , {'emqx-pkg',      [ {erl_opts, prod_compile_opts()}
+    , {'emqx-pkg',      [ {erl_opts, prod_compile_opts(SecretFile)}
                         , {relx, relx(Vsn, cloud, pkg)}
                         ]}
-    , {'emqx-edge',     [ {erl_opts, prod_compile_opts()}
+    , {'emqx-edge',     [ {erl_opts, prod_compile_opts(SecretFile)}
                         , {relx, relx(Vsn, edge, bin)}
                         ]}
-    , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts()}
+    , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts(SecretFile)}
                         , {relx, relx(Vsn, edge, pkg)}
                         ]}
     , {check,           [ {erl_opts, test_compile_opts()}
@@ -456,6 +469,10 @@ coveralls() ->
 list_dir(Dir) ->
     {ok, Names} = file:list_dir(Dir),
     [list_to_atom(Name) || Name <- Names, filelib:is_dir(filename:join([Dir, Name]))].
+
+get_compile_secret(SecretFile) ->
+    {ok, Secret} = file:read_file(SecretFile),
+    string:trim(binary_to_list(Secret)).
 
 %% ==== Enterprise supports below ==================================================================
 
