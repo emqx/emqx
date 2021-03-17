@@ -26,7 +26,7 @@ extra_deps() ->
     Filter = string:split(os:getenv("EMQX_EXTRA_PLUGINS", ""), ",", all),
     ErlPlugins = filter_extra_deps(ErlPlugins0, Filter),
     ExPlugins = filter_extra_deps(ExPlugins0, Filter),
-    {ExPlugins=/= [], ErlPlugins ++ ExPlugins}.
+    {ExPlugins =/= [], ErlPlugins ++ ExPlugins}.
 
 filter_extra_deps(AllPlugins, ["all"]) ->
     AllPlugins;
@@ -34,10 +34,10 @@ filter_extra_deps(AllPlugins, Filter) ->
     filter_extra_deps(AllPlugins, Filter, []).
 filter_extra_deps([], _, Acc) ->
     lists:reverse(Acc);
-filter_extra_deps([{Plugin, _}=P|More], Filter, Acc) ->
+filter_extra_deps([{Plugin, _} = P | More], Filter, Acc) ->
     case lists:member(atom_to_list(Plugin), Filter) of
         true ->
-            filter_extra_deps(More, Filter, [P|Acc]);
+            filter_extra_deps(More, Filter, [P | Acc]);
         false ->
             filter_extra_deps(More, Filter, Acc)
     end.
