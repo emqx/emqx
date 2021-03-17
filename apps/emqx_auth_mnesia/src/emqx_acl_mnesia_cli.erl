@@ -160,18 +160,27 @@ cli(["show", "username", Username]) ->
     [print_acl(Acl) || Acl <- lookup_acl({username, iolist_to_binary(Username)})];
 
 cli(["del", "clientid", Clientid, Topic])->
+    cli(["delete", "clientid", Clientid, Topic]);
+
+cli(["delete", "clientid", Clientid, Topic])->
     case remove_acl({clientid, iolist_to_binary(Clientid)}, iolist_to_binary(Topic)) of
          ok -> emqx_ctl:print("ok~n");
         {error, Reason} -> emqx_ctl:print("Error: ~p~n", [Reason])
     end;
 
 cli(["del", "username", Username, Topic])->
+    cli(["delete", "username", Username, Topic]);
+
+cli(["delete", "username", Username, Topic])->
     case remove_acl({username, iolist_to_binary(Username)}, iolist_to_binary(Topic)) of
          ok -> emqx_ctl:print("ok~n");
         {error, Reason} -> emqx_ctl:print("Error: ~p~n", [Reason])
     end;
 
 cli(["del", "_all", Topic])->
+    cli(["delete", "_all", Topic]);
+
+cli(["delete", "_all", Topic])->
     case remove_acl(all, iolist_to_binary(Topic)) of
          ok -> emqx_ctl:print("ok~n");
         {error, Reason} -> emqx_ctl:print("Error: ~p~n", [Reason])
@@ -186,9 +195,9 @@ cli(_) ->
                    , {"acl aad clientid <Clientid> <Topic> <Action> <Access>", "Add clientid acl"}
                    , {"acl add Username <Username> <Topic> <Action> <Access>", "Add username acl"}
                    , {"acl add _all <Topic> <Action> <Access>", "Add $all acl"}
-                   , {"acl del clientid <Clientid> <Topic>", "Delete clientid acl"}
-                   , {"acl del username <Username> <Topic>", "Delete username acl"}
-                   , {"acl del _all <Topic>", "Delete $all acl"}
+                   , {"acl delete clientid <Clientid> <Topic>", "Delete clientid acl"}
+                   , {"acl delete username <Username> <Topic>", "Delete username acl"}
+                   , {"acl delete _all <Topic>", "Delete $all acl"}
                    ]).
 
 %%--------------------------------------------------------------------
