@@ -114,7 +114,7 @@ jobs:
 
     relup_test:
         runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.2.2-ubuntu20.04
+        container: emqx/build-env:erl23.2.7-ubuntu20.04
         defaults:
           run:
             shell: bash

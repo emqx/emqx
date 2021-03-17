@@ -5,7 +5,7 @@ on: [pull_request]
 jobs:
   check_deps_integrity:
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.2.2-ubuntu20.04
+    container: emqx/build-env:erl23.2.7-ubuntu20.04
 
     steps:
       - uses: actions/checkout@v2

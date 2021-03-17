@@ -58,7 +58,7 @@ docker-build:
 
 	@docker build --no-cache \
 		--build-arg PKG_VSN=$(PKG_VSN)  \
-		--build-arg BUILD_FROM=emqx/build-env:erl23.2.2-alpine-$(ARCH)  \
+		--build-arg BUILD_FROM=emqx/build-env:erl23.2.7-alpine-$(ARCH)  \
 		--build-arg RUN_FROM=$(ARCH)/alpine:3.12 \
 		--build-arg EMQX_NAME=$(EMQX_NAME) \
 		--build-arg QEMU_ARCH=$(QEMU_ARCH) \
