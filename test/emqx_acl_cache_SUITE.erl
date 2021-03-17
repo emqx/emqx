@@ -55,6 +55,30 @@ t_clean_acl_cache(_) ->
     ?assertEqual(0, length(gen_server:call(ClientPid, list_acl_cache))),
     emqtt:stop(Client).
 
+
+t_drain_acl_cache(_) ->
+    {ok, Client} = emqtt:start_link([{clientid, <<"emqx_c">>}]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
+    emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, 0),
+    ct:sleep(100),
+    ClientPid = case emqx_cm:lookup_channels(<<"emqx_c">>) of
+                    [Pid] when is_pid(Pid) ->
+                        Pid;
+                    Pids when is_list(Pids) ->
+                        lists:last(Pids);
+                    _ -> {error, not_found}
+                end,
+    Caches = gen_server:call(ClientPid, list_acl_cache),
+    ct:log("acl caches: ~p", [Caches]),
+    ?assert(length(Caches) > 0),
+    emqx_acl_cache:drain_cache(),
+    ?assertEqual(0, length(gen_server:call(ClientPid, list_acl_cache))),
+    ct:sleep(100),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
+    ?assert(length(gen_server:call(ClientPid, list_acl_cache)) > 0),
+    emqtt:stop(Client).
+
 % optimize??
 t_reload_aclfile_and_cleanall(_Config) ->
 
