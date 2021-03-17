@@ -66,11 +66,14 @@ translate_env(EnvName) ->
                             CACertFile = application:get_env(?APP, cacertfile, undefined),
                             CertFile = application:get_env(?APP, certfile, undefined),
                             KeyFile = application:get_env(?APP, keyfile, undefined),
-                            TLSOpts = lists:filter(fun({_K, V}) when V =:= <<>> ->
-                                                        false;
-                                                        (_) ->
-                                                        true
-                                                    end, [{keyfile, KeyFile}, {certfile, CertFile}, {cacertfile, CACertFile}]),
+                            Verify = application:get_env(?APP, verify, undefined),
+                            TLSOpts = lists:filter(
+                                        fun({_, V}) ->
+                                            V =/= <<>> andalso V =/= undefined
+                                        end, [{verify, Verify},
+                                              {keyfile, KeyFile},
+                                              {certfile, CertFile},
+                                              {cacertfile, CACertFile}]),
                             NTLSOpts = [ {versions, emqx_tls_lib:default_versions()}
                                        , {ciphers, emqx_tls_lib:default_ciphers()}
                                        | TLSOpts

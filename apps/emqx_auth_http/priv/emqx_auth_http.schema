@@ -116,3 +116,7 @@ end}.
 {mapping, "auth.http.ssl.keyfile", "emqx_auth_http.keyfile", [
   {datatype, string}
 ]}.
+
+{mapping, "auth.http.ssl.verify", "emqx_auth_http.verify", [
+  {datatype, {enum, [verify_peer, verify_none]}}
+]}.
