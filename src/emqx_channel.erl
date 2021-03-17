@@ -410,9 +410,12 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
                     TopicFilters3 = run_hooks('client.subscribe',
                                               [ClientInfo, Properties],
                                               TopicFilters2),
-                    {TupleTopicFilters1, NChannel} = process_subscribe(TopicFilters3, Properties, Channel),
+                    {TupleTopicFilters1, NChannel} = process_subscribe(TopicFilters3,
+                                                                       Properties,
+                                                                       Channel),
                     TupleTopicFilters2 = Replace(TupleTopicFilters0, TupleTopicFilters1),
-                    ReasonCodes2 = [ ReasonCode || {_TopicFilter, ReasonCode} <- TupleTopicFilters2],
+                    ReasonCodes2 = [ ReasonCode
+                                     || {_TopicFilter, ReasonCode} <- TupleTopicFilters2],
                     handle_out(suback, {PacketId, ReasonCodes2}, NChannel)
             end;
         {error, ReasonCode} ->
@@ -624,7 +627,9 @@ process_subscribe([], _SubProps, Channel, Acc) ->
 process_subscribe([Topic = {TopicFilter, SubOpts}|More], SubProps, Channel, Acc) ->
     case check_sub_caps(TopicFilter, SubOpts, Channel) of
          ok ->
-            {ReasonCode, NChannel} = do_subscribe(TopicFilter, SubOpts#{sub_props => SubProps}, Channel),
+            {ReasonCode, NChannel} = do_subscribe(TopicFilter,
+                                                  SubOpts#{sub_props => SubProps},
+                                                  Channel),
             process_subscribe(More, SubProps, NChannel, [{Topic, ReasonCode} | Acc]);
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot subscribe ~s due to ~s.",
