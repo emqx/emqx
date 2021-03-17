@@ -90,8 +90,8 @@ set_https_client_opts() ->
     SSLOpt = emqx_ct_helpers:client_ssl_twoway(),
     application:set_env(emqx_auth_http, cacertfile, proplists:get_value(cacertfile, SSLOpt, undefined)),
     application:set_env(emqx_auth_http, certfile, proplists:get_value(certfile, SSLOpt, undefined)),
-    application:set_env(emqx_auth_http, keyfile, proplists:get_value(keyfile, SSLOpt, undefined)).
-    application:set_env(emqx_auth_http, verify, proplists:get_value(verify, SSLOpt, verify_none)).
+    application:set_env(emqx_auth_http, keyfile, proplists:get_value(keyfile, SSLOpt, undefined)),
+    application:set_env(emqx_auth_http, verify, true).
 
 %% @private
 http_server(http, inet) -> "http://127.0.0.1:8991";
