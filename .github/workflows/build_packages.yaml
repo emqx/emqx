@@ -4,8 +4,6 @@ on:
   schedule:
     - cron:  '0 */6 * * *'
   push:
-    branches:
-      - "*/*"
     tags:
       - v*
   pull_request:
@@ -204,11 +202,11 @@ jobs:
           arch: amd64
         - os: raspbian9
           profile: emqx
-        - os: raspbian9
+        - os: raspbian10
           profile: emqx
         - os: raspbian9
           profile: emqx-ee
-        - os: raspbian9
+        - os: raspbian10
           profile: emqx-ee
 
     defaults:
@@ -265,9 +263,9 @@ jobs:
         mkdir -p tmp/relup_packages/$PROFILE
         cd tmp/relup_packages/$PROFILE
         for tag in ${old_vsns[@]};do
-          if [ ! -z "$(echo  $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/v${tag#[e|v]}/$PROFILE-$SYSTEM-${tag#[e|v]}-$arch.zip) | grep -oE "^[23]+")" ];then
-            wget https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/v${tag#[e|v]}/$PROFILE-$SYSTEM-${tag#[e|v]}-$arch.zip
-            wget https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/v${tag#[e|v]}/$PROFILE-$SYSTEM-${tag#[e|v]}-$arch.zip.sha256
+          if [ ! -z "$(echo  $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.AWS_S3_BUCKET }}/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$arch.zip) | grep -oE "^[23]+")" ];then
+            wget https://s3-${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.AWS_S3_BUCKET }}/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$arch.zip
+            wget https://s3-${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.AWS_S3_BUCKET }}/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$arch.zip.sha256
             echo "$(cat $PROFILE-$SYSTEM-${tag#[e|v]}-$arch.zip.sha256) $PROFILE-$SYSTEM-${tag#[e|v]}-$arch.zip" | sha256sum -c || exit 1
           fi
         done
@@ -413,10 +411,10 @@ jobs:
         fi
         aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws configure set default.region us-west-2
+        aws configure set default.region ${{ secrets.AWS_DEFAULT_REGION }}
 
-        aws s3 cp --recursive _packages/${{ matrix.profile }} s3://packages.emqx/$broker/${{ env.version }}
-        aws cloudfront create-invalidation --distribution-id E170YEULGLT8XB --paths "/$broker/${{ env.version }}/*"
+        aws s3 cp --recursive _packages/${{ matrix.profile }} s3://${{ secrets.AWS_S3_BUCKET }}/$broker/${{ env.version }}
+        aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_CLOUDFRONT_ID }} --paths "/$broker/${{ env.version }}/*"
     - uses: Rory-Z/upload-release-asset@v1
       if: github.event_name == 'release'
       with:
