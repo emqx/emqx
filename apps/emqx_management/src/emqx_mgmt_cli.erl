@@ -39,6 +39,7 @@
         , log/1
         , mgmt/1
         , data/1
+        , acl/1
         ]).
 
 -define(PROC_INFOKEYS, [status,
@@ -575,6 +576,23 @@ data(["import", Filename]) ->
 data(_) ->
     emqx_ctl:usage([{"data import <File>",   "Import data from the specified file"},
                     {"data export",          "Export data"}]).
+
+%%--------------------------------------------------------------------
+%% @doc acl Command
+
+acl(["cache-clean", "node", SNode]) ->
+    emqx_mgmt:clean_acl_cache_all(ekka_node:parse_name(SNode));
+
+acl(["cache-clean", "all"]) ->
+    emqx_mgmt:clean_acl_cache();
+
+acl(["cache-clean", ClientId]) ->
+    emqx_mgmt:clean_acl_cache(ClientId);
+
+acl(_) ->
+    emqx_ctl:usage([{"cache-clean all",           "Clears acl cache on all nodes"},
+        {"cache-clean node <Node>",   "Clears acl cache on given node"},
+        {"cache-clean <ClientId>",    "Clears acl cache for given client"}]).
 
 %%--------------------------------------------------------------------
 %% Dump ETS
