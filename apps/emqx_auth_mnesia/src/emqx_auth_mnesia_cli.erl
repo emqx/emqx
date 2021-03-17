@@ -144,6 +144,9 @@ auth_clientid_cli(["update", ClientId, NewPassword]) ->
     end;
 
 auth_clientid_cli(["del", ClientId]) ->
+    auth_clientid_cli(["delete", ClientId]);
+
+auth_clientid_cli(["delete", ClientId]) ->
     case  remove_user({clientid, iolist_to_binary(ClientId)}) of
         ok -> emqx_ctl:print("ok~n");
         {error, Reason} -> emqx_ctl:print("Error: ~p~n", [Reason])
@@ -153,7 +156,7 @@ auth_clientid_cli(_) ->
     emqx_ctl:usage([{"clientid list", "List clientid auth rules"},
                     {"clientid add <Username> <Password>", "Add clientid auth rule"},
                     {"clientid update <Username> <NewPassword>", "Update clientid auth rule"},
-                    {"clientid del <Username>", "Delete clientid auth rule"}]).
+                    {"clientid delete <Username>", "Delete clientid auth rule"}]).
 
 %%--------------------------------------------------------------------
 %% Auth Username Cli
@@ -176,6 +179,9 @@ auth_username_cli(["update", Username, NewPassword]) ->
         {error, Reason} -> emqx_ctl:print("Error: ~p~n", [Reason])
     end;
 auth_username_cli(["del", Username]) ->
+    auth_username_cli(["delete", Username]);
+
+auth_username_cli(["delete", Username]) ->
     case  remove_user({username, iolist_to_binary(Username)}) of
         ok -> emqx_ctl:print("ok~n");
         {error, Reason} -> emqx_ctl:print("Error: ~p~n", [Reason])
@@ -185,4 +191,4 @@ auth_username_cli(_) ->
     emqx_ctl:usage([{"user list", "List username auth rules"},
                     {"user add <Username> <Password>", "Add username auth rule"},
                     {"user update <Username> <NewPassword>", "Update username auth rule"},
-                    {"user del <Username>", "Delete username auth rule"}]).
+                    {"user delete <Username>", "Delete username auth rule"}]).
