@@ -66,7 +66,10 @@ translate_env(EnvName) ->
                             CACertFile = application:get_env(?APP, cacertfile, undefined),
                             CertFile = application:get_env(?APP, certfile, undefined),
                             KeyFile = application:get_env(?APP, keyfile, undefined),
-                            Verify = application:get_env(?APP, verify, undefined),
+                            Verify = case application:get_env(?APP, verify, fasle) of
+                                         true -> verify_peer;
+                                         false -> verify_none
+                                     end,
                             TLSOpts = lists:filter(
                                         fun({_, V}) ->
                                             V =/= <<>> andalso V =/= undefined

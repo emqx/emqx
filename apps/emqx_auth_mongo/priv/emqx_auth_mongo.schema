@@ -63,7 +63,8 @@
 ]}.
 
 {mapping, "auth.mongo.ssl.verify", "emqx_auth_mongo.server", [
-  {datatype, {enum, [verify_peer, verify_none]}}
+  {default, false},
+  {datatype, {enum, [true, false]}}
 ]}.
 
 %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
@@ -126,9 +127,14 @@
     false -> [{r_mode, R}]
   end,
 
+
   Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
   SslOpts = fun(Prefix) ->
-                Filter([{verify,     cuttlefish:conf_get(Prefix ++ ".verify", Conf, undefined)},
+                Verify = case cuttlefish:conf_get(Prefix ++ ".verify", Conf, false) of
+                             true -> verify_peer;
+                             flase -> verify_none
+                         end,
+                Filter([{verify,     Verify},
                         {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
                         {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
                         {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)}])

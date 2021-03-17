@@ -118,5 +118,6 @@ end}.
 ]}.
 
 {mapping, "auth.http.ssl.verify", "emqx_auth_http.verify", [
-  {datatype, {enum, [verify_peer, verify_none]}}
+  {default, false},
+  {datatype, {enum, [true, false]}}
 ]}.

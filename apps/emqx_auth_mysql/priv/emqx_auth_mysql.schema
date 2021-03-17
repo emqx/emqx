@@ -53,7 +53,8 @@
 ]}.
 
 {mapping, "auth.mysql.ssl.verify", "emqx_auth_mysql.server", [
-  {datatype, {enum, [verify_peer, verify_none]}}
+  {default, false},
+  {datatype, {enum, [true, false]}}
 ]}.
 
 {translation, "emqx_auth_mysql.server", fun(Conf) ->
@@ -98,7 +99,10 @@
                      ),
                 Cert = cuttlefish:conf_get("auth.mysql.ssl.certfile", Conf, undefined),
                 Key = cuttlefish:conf_get("auth.mysql.ssl.keyfile", Conf, undefined),
-                Verify = cuttlefish:conf_get("auth.mysql.ssl.verify", Conf, undefined),
+                Verify = case cuttlefish:conf_get("auth.mysql.ssl.verify", Conf, false) of
+                             true -> verify_peer;
+                             flase -> verify_none
+                         end,
                 Options ++ [{ssl, Filter([{server_name_indication, disable},
                                           {cacertfile, CA},
                                           {certfile, Cert},
