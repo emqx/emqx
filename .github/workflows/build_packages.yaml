@@ -242,7 +242,11 @@ jobs:
 
         vsn="$(grep -E "define.+EMQX_RELEASE.+${edition}" include/emqx_release.hrl | cut -d '"' -f2)"
         pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
-        old_vsns=($(git tag -l "$pre_vsn.[0-9]" | sed "s/$vsn//"))
+        if  [ $PROFILE = "emqx-ee" ]; then
+            old_vsns=($(git tag -l "e$pre_vsn.[0-9]" | sed "s/e$vsn//"))
+        else
+            old_vsns=($(git tag -l "v$pre_vsn.[0-9]" | sed "s/v$vsn//"))
+        fi
 
         mkdir -p tmp/relup_packages/$PROFILE
         cd tmp/relup_packages/$PROFILE
