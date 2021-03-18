@@ -21,8 +21,6 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
--import(proplists, [get_value/2]).
-
 -define(CLIENT_QS_SCHEMA, {emqx_channel_info,
         [{<<"clientid">>, binary},
          {<<"username">>, binary},
@@ -187,8 +185,8 @@ list_acl_cache(#{clientid := ClientId}, _Params) ->
     end.
 
 set_ratelimit_policy(#{clientid := ClientId}, Params) ->
-    P = [{conn_bytes_in, get_value(<<"conn_bytes_in">>, Params)},
-         {conn_messages_in, get_value(<<"conn_messages_in">>, Params)}],
+    P = [{conn_bytes_in, proplists:get_value(<<"conn_bytes_in">>, Params)},
+         {conn_messages_in, proplists:get_value(<<"conn_messages_in">>, Params)}],
     case [{K, parse_ratelimit_str(V)} || {K, V} <- P, V =/= undefined] of
         [] -> minirest:return();
         Policy ->
@@ -207,7 +205,7 @@ clean_ratelimit(#{clientid := ClientId}, _Params) ->
     end.
 
 set_quota_policy(#{clientid := ClientId}, Params) ->
-    P = [{conn_messages_routing, get_value(<<"conn_messages_routing">>, Params)}],
+    P = [{conn_messages_routing, proplists:get_value(<<"conn_messages_routing">>, Params)}],
     case [{K, parse_ratelimit_str(V)} || {K, V} <- P, V =/= undefined] of
         [] -> minirest:return();
         Policy ->
