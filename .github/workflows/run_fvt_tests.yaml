@@ -15,8 +15,19 @@ jobs:
 
         steps:
         - uses: actions/checkout@v1
+        - name: prepare
+          run: |
+            if make emqx-ee --dry-run > /dev/null 2>&1; then
+              echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+              git config --global credential.helper store
+              echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
+              make deps-emqx-ee
+              echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
+            else
+              echo "TARGET=emqx/emqx" >> $GITHUB_ENV
+            fi
         - name: make emqx image
-          run: TARGET=emqx/emqx make docker
+          run: make docker
         - name: run emqx
           timeout-minutes: 5
           run: |
@@ -45,8 +56,19 @@ jobs:
 
         steps:
         - uses: actions/checkout@v1
+        - name: prepare
+          run: |
+            if make emqx-ee --dry-run > /dev/null 2>&1; then
+              echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+              git config --global credential.helper store
+              echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
+              make deps-emqx-ee
+              echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
+            else
+              echo "TARGET=emqx/emqx" >> $GITHUB_ENV
+            fi
         - name: make emqx image
-          run: TARGET=emqx/emqx make docker
+          run: make docker
         - name: install k3s
           env:
             KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
@@ -69,15 +91,21 @@ jobs:
           timeout-minutes: 5
           run: |
             version=$(./pkg-vsn.sh)
-            sudo docker save emqx/emqx:$version -o emqx.tar.gz
+            sudo docker save ${TARGET}:$version -o emqx.tar.gz
             sudo k3s ctr image import emqx.tar.gz
 
             sed -i -r "s/^appVersion: .*$/appVersion: \"${version}\"/g" deploy/charts/emqx/Chart.yaml
-            sed -i -r 's/  pullPolicy: .*$/  pullPolicy: Never/g' deploy/charts/emqx/values.yaml
             sed -i '/emqx_telemetry/d' deploy/charts/emqx/values.yaml
 
-            helm install emqx --set emqxAclConfig="" --set emqxConfig.EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 deploy/charts/emqx --debug --dry-run
-            helm install emqx --set emqxAclConfig="" --set emqxConfig.EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 deploy/charts/emqx
+            helm install emqx \
+                --set image.repository=${TARGET} \
+                --set image.pullPolicy=Never \
+                --set emqxAclConfig="" \
+                --set image.pullPolicy=Never \
+                --set emqxConfig.EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s \
+                --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
+                deploy/charts/emqx \
+                --debug
 
             while [ "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.replicas}')" \
               != "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.readyReplicas}')" ]; do
@@ -110,6 +138,7 @@ jobs:
             emqx2=$(kubectl get pods emqx-2 -o jsonpath='{.status.podIP}')
 
             pytest -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host $emqx_svc
+            pytest -v paho.mqtt.testing/interoperability/test_client --host $emqx_svc
             pytest -v paho.mqtt.testing/interoperability/test_cluster --host1 $emqx1 --host2 $emqx2
 
     relup_test:
@@ -148,14 +177,37 @@ jobs:
             repository: ${{ github.repository }}
             path: emqx
             fetch-depth: 0
+        - name: prepare
+          run: |
+            if make -C emqx emqx-ee --dry-run > /dev/null 2>&1; then
+              echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+              git config --global credential.helper store
+              echo "${{ secrets.CI_GIT_TOKEN }}" >> emqx/scripts/git-token
+              echo "PROFILE=emqx-ee" >> $GITHUB_ENV
+            else
+              echo "PROFILE=emqx" >> $GITHUB_ENV
+            fi
         - name: get version
           run: |
             set -e -x -u
             cd emqx
-            vsn="$(erl -eval '{ok, [{application,emqx, L} | _]} = file:consult("src/emqx.app.src"), {vsn, VSN} = lists:keyfind(vsn,1,L), io:fwrite(VSN), halt().' -noshell)"
+            if [ $PROFILE = "emqx" ];then
+                broker="emqx-ce"
+                edition='opensource'
+            else
+                broker="emqx-ee"
+                edition='enterprise'
+            fi
+
+            vsn="$(grep -E "define.+EMQX_RELEASE.+${edition}" include/emqx_release.hrl | cut -d '"' -f2)"
             echo "VSN=$vsn" >> $GITHUB_ENV
-            pre_tag="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
-            old_vsns="$(git tag -l "$pre_tag.[0-9]" | tr "\n" " " | sed "s/$vsn//")"
+
+            pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
+            if  [ $PROFILE = "emqx" ]; then
+                old_vsns="$(git tag -l "v$pre_vsn.[0-9]" | tr "\n" " " | sed "s/v$vsn//")"
+            else
+                old_vsns="$(git tag -l "e$pre_vsn.[0-9]" | tr "\n" " " | sed "s/v$vsn//")"
+            fi
             echo "OLD_VSNS=$old_vsns" >> $GITHUB_ENV
         - name: download emqx
           run: |
@@ -163,10 +215,10 @@ jobs:
             cd emqx
             old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
             for old_vsn in ${old_vsns[@]}; do
-              wget https://s3-us-west-2.amazonaws.com/packages.emqx/emqx-ce/v$old_vsn/emqx-ubuntu20.04-${old_vsn}-x86_64.zip
+              wget https://s3-${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.AWS_S3_BUCKET }}/$broker/$old_vsn/$PROFILE-ubuntu20.04-${old_vsn#[e|v]}-x86_64.zip
             done
         - name: build emqx
-          run: make -C emqx emqx-zip
+          run: make -C emqx ${PROFILE}-zip
         - name: build emqtt-bench
           run: make -C emqtt-bench
         - name: build lux
