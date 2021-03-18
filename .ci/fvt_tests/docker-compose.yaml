@@ -3,7 +3,7 @@ version: '3'
 services:
   emqx1:
     container_name: node1.emqx.io
-    image: emqx/emqx:build-alpine-amd64
+    image: ${TARGET}:build-alpine-amd64
     environment:
     - "EMQX_NAME=emqx"
     - "EMQX_HOST=node1.emqx.io"
@@ -30,7 +30,7 @@ services:
 
   emqx2:
     container_name: node2.emqx.io
-    image: emqx/emqx:build-alpine-amd64
+    image: ${TARGET}:build-alpine-amd64
     environment:
     - "EMQX_NAME=emqx"
     - "EMQX_HOST=node2.emqx.io"
