@@ -16,8 +16,6 @@
 
 -module(emqx_mgmt_api_nodes).
 
--import(minirest, [return/1]).
-
 -rest_api(#{name   => list_nodes,
             method => 'GET',
             path   => "/nodes/",
@@ -35,10 +33,10 @@
         ]).
 
 list(_Bindings, _Params) ->
-    return({ok, [format(Node, Info) || {Node, Info} <- emqx_mgmt:list_nodes()]}).
+    minirest:return({ok, [format(Node, Info) || {Node, Info} <- emqx_mgmt:list_nodes()]}).
 
 get(#{node := Node}, _Params) ->
-    return({ok, emqx_mgmt:lookup_node(Node)}).
+    minirest:return({ok, emqx_mgmt:lookup_node(Node)}).
 
 format(Node, {error, Reason}) -> #{node => Node, error => Reason};
 

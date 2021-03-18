@@ -22,10 +22,6 @@
 
 -import(proplists, [get_value/2]).
 
--import(minirest, [ return/0
-                  , return/1
-                  ]).
-
 -rest_api(#{name   => list_banned,
             method => 'GET',
             path   => "/banned/",
@@ -50,7 +46,7 @@
         ]).
 
 list(_Bindings, Params) ->
-    return({ok, emqx_mgmt_api:paginate(emqx_banned, Params, fun format/1)}).
+    minirest:return({ok, emqx_mgmt_api:paginate(emqx_banned, Params, fun format/1)}).
 
 create(_Bindings, Params) ->
     case pipeline([fun ensure_required/1,
@@ -58,9 +54,9 @@ create(_Bindings, Params) ->
         {ok, NParams} ->
             {ok, Banned} = pack_banned(NParams),
             ok = emqx_mgmt:create_banned(Banned),
-            return({ok, maps:from_list(Params)});
+            minirest:return({ok, maps:from_list(Params)});
         {error, Code, Message} ->
-            return({error, Code, Message})
+            minirest:return({error, Code, Message})
     end.
 
 delete(#{as := As, who := Who}, _) ->
@@ -70,9 +66,9 @@ delete(#{as := As, who := Who}, _) ->
                    fun validate_params/1], Params) of
         {ok, NParams} ->
             do_delete(get_value(<<"as">>, NParams), get_value(<<"who">>, NParams)),
-            return();
+            minirest:return();
         {error, Code, Message} ->
-            return({error, Code, Message})
+            minirest:return({error, Code, Message})
     end.
 
 pipeline([], Params) ->

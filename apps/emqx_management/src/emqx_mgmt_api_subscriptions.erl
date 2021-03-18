@@ -18,8 +18,6 @@
 
 -include_lib("emqx/include/emqx.hrl").
 
--import(minirest, [return/1]).
-
 -define(SUBS_QS_SCHEMA, {emqx_suboption,
             [{<<"clientid">>, binary},
              {<<"topic">>, binary},
@@ -65,9 +63,9 @@
 list(Bindings, Params) when map_size(Bindings) == 0 ->
     case proplists:get_value(<<"topic">>, Params) of
         undefined ->
-            return({ok, emqx_mgmt_api:cluster_query(Params, ?SUBS_QS_SCHEMA, ?query_fun)});
+            minirest:return({ok, emqx_mgmt_api:cluster_query(Params, ?SUBS_QS_SCHEMA, ?query_fun)});
         Topic ->
-            return({ok, emqx_mgmt:list_subscriptions_via_topic(emqx_mgmt_util:urldecode(Topic), ?format_fun)})
+            minirest:return({ok, emqx_mgmt:list_subscriptions_via_topic(emqx_mgmt_util:urldecode(Topic), ?format_fun)})
     end;
 
 list(#{node := Node} = Bindings, Params) ->
@@ -75,22 +73,22 @@ list(#{node := Node} = Bindings, Params) ->
         undefined ->
             case Node =:= node() of
                 true ->
-                    return({ok, emqx_mgmt_api:node_query(Node, Params, ?SUBS_QS_SCHEMA, ?query_fun)});
+                    minirest:return({ok, emqx_mgmt_api:node_query(Node, Params, ?SUBS_QS_SCHEMA, ?query_fun)});
                 false ->
                     case rpc:call(Node, ?MODULE, list, [Bindings, Params]) of
-                        {badrpc, Reason} -> return({error, Reason});
+                        {badrpc, Reason} -> minirest:return({error, Reason});
                         Res -> Res
                     end
             end;
         Topic ->
-            return({ok, emqx_mgmt:list_subscriptions_via_topic(Node, emqx_mgmt_util:urldecode(Topic), ?format_fun)})
+            minirest:return({ok, emqx_mgmt:list_subscriptions_via_topic(Node, emqx_mgmt_util:urldecode(Topic), ?format_fun)})
     end.
 
 lookup(#{node := Node, clientid := ClientId}, _Params) ->
-    return({ok, format(emqx_mgmt:lookup_subscriptions(Node, emqx_mgmt_util:urldecode(ClientId)))});
+    minirest:return({ok, format(emqx_mgmt:lookup_subscriptions(Node, emqx_mgmt_util:urldecode(ClientId)))});
 
 lookup(#{clientid := ClientId}, _Params) ->
-    return({ok, format(emqx_mgmt:lookup_subscriptions(emqx_mgmt_util:urldecode(ClientId)))}).
+    minirest:return({ok, format(emqx_mgmt:lookup_subscriptions(emqx_mgmt_util:urldecode(ClientId)))}).
 
 format(Items) when is_list(Items) ->
     [format(Item) || Item <- Items];
