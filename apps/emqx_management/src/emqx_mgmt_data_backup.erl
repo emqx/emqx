@@ -243,35 +243,7 @@ import_resources_and_rules(Resources, Rules, _FromVersion) ->
 -else.
 import_resources_and_rules(Resources, Rules, FromVersion)
   when FromVersion =:= "4.0" orelse FromVersion =:= "4.1" orelse FromVersion =:= "4.2" ->
-    Configs = lists:foldl(fun(#{<<"id">> := ID,
-                                <<"type">> := <<"web_hook">>,
-                                <<"config">> := #{<<"connect_timeout">> := ConnectTimeout,
-                                                  <<"content_type">> := ContentType,
-                                                  <<"headers">> := Headers,
-                                                  <<"method">> := Method,
-                                                  <<"pool_size">> := PoolSize,
-                                                  <<"request_timeout">> := RequestTimeout,
-                                                  <<"url">> := URL}} = Resource, Acc) ->
-                              CovertFun = fun(Int) ->
-                                  list_to_binary(integer_to_list(Int) ++ "s")
-                              end,
-                              NConfig = #{<<"connect_timeout">> => CovertFun(ConnectTimeout),
-                                          <<"method">> => Method,
-                                          <<"pool_size">> => PoolSize,
-                                          <<"request_timeout">> => CovertFun(RequestTimeout),
-                                          <<"cacertfile">> => <<>>,
-                                          <<"certfile">> => <<>>,
-                                          <<"keyfile">> => <<>>,
-                                          <<"verify">> => true,
-                                          <<"url">> => URL},
-                              NResource = Resource#{<<"config">> := NConfig},
-                              {ok, _Resource} = import_resource(NResource),
-                              NHeaders = maps:put(<<"content-type">>, ContentType, Headers),
-                              [{ID, #{headers => NHeaders, method => Method}} | Acc];
-                             (Resource, Acc) ->
-                              {ok, _Resource} = import_resource(Resource),
-                              Acc
-                          end, [], Resources),
+    Configs = lists:foldl(fun compatible_version/2 , [], Resources),
     lists:foreach(fun(#{<<"actions">> := Actions} = Rule) ->
                       NActions = apply_new_config(Actions, Configs),
                       import_rule(Rule#{<<"actions">> := NActions})
@@ -280,6 +252,66 @@ import_resources_and_rules(Resources, Rules, FromVersion)
 import_resources_and_rules(Resources, Rules, _FromVersion) ->
     import_resources(Resources),
     import_rules(Rules).
+
+
+%% 4.2.5 +
+compatible_version(#{<<"id">> := ID,
+                     <<"type">> := <<"web_hook">>,
+                     <<"config">> := #{<<"connect_timeout">> := ConnectTimeout,
+                                       <<"content_type">> := ContentType,
+                                       <<"headers">> := Headers,
+                                       <<"method">> := Method,
+                                       <<"pool_size">> := PoolSize,
+                                       <<"request_timeout">> := RequestTimeout,
+                                       <<"url">> := URL}} = Resource, Acc) ->
+                    CovertFun = fun(Int) ->
+                        list_to_binary(integer_to_list(Int) ++ "s")
+                    end,
+                    Cfg = make_new_config(#{<<"method">> => Method,
+                                            <<"pool_size">> => PoolSize,
+                                            <<"connect_timeout">> => CovertFun(ConnectTimeout),
+                                            <<"request_timeout">> => CovertFun(RequestTimeout),
+                                            <<"url">> => URL}),
+                    {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
+                    NHeaders = maps:put(<<"content-type">>, ContentType, Headers),
+                    [{ID, #{headers => NHeaders, method => Method}} | Acc];
+% 4.2.0
+compatible_version(#{<<"id">> := ID,
+                     <<"type">> := <<"web_hook">>,
+                     <<"config">> := #{<<"headers">> := Headers,
+                                       <<"method">> := Method,%% 4.2.0 Different here
+                                       <<"url">> := URL}} = Resource, Acc) ->
+                    Cfg = make_new_config(#{<<"method">> => Method,
+                                            <<"url">> => URL}),
+                    {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
+                    NHeaders = maps:put(<<"content-type">>, <<"application/json">> , Headers),
+                    [{ID, #{headers => NHeaders, method => Method}} | Acc];
+% 4.2.3
+compatible_version(#{<<"id">> := ID,
+                    <<"type">> := <<"web_hook">>,
+                    <<"config">> := #{<<"headers">> := Headers,
+                                      <<"content_type">> := ContentType,%% 4.2.3 Different here
+                                      <<"method">> := Method,
+                                      <<"url">> := URL}} = Resource, Acc) ->
+                    Cfg = make_new_config(#{<<"method">> => Method,
+                                            <<"url">> => URL}),
+                    {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
+                    NHeaders = maps:put(<<"content-type">>, ContentType, Headers),
+                    [{ID, #{headers => NHeaders, method => Method}} | Acc];
+% normal version
+compatible_version(Resource, Acc) ->
+                    {ok, _Resource} = import_resource(Resource),
+                    Acc.
+
+make_new_config(Cfg) ->
+    Config = #{<<"pool_size">> => 8,
+               <<"connect_timeout">> => <<"3s">>,
+               <<"request_timeout">> => <<"3s">>,
+               <<"cacertfile">> => <<>>,
+               <<"certfile">> => <<>>,
+               <<"keyfile">> => <<>>,
+               <<"verify">> => true},
+    maps:merge(Cfg, Config).
 
 apply_new_config(Actions, Configs) ->
     apply_new_config(Actions, Configs, []).
