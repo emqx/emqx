@@ -24,8 +24,6 @@
                    , get_value/3
                    ]).
 
--import(minirest, [return/1]).
-
 -rest_api(#{name   => mqtt_subscribe,
             method => 'POST',
             path   => "/mqtt/subscribe",
@@ -73,7 +71,7 @@
 subscribe(_Bindings, Params) ->
     logger:debug("API subscribe Params:~p", [Params]),
     {ClientId, Topic, QoS} = parse_subscribe_params(Params),
-    return(do_subscribe(ClientId, Topic, QoS)).
+    minirest:return(do_subscribe(ClientId, Topic, QoS)).
 
 publish(_Bindings, Params) ->
     logger:debug("API publish Params:~p", [Params]),
@@ -81,33 +79,33 @@ publish(_Bindings, Params) ->
     case do_publish(ClientId, Topic, Qos, Retain, Payload) of
         {ok, MsgIds} ->
             case get_value(<<"return">>, Params, undefined) of
-                undefined -> return(ok);
+                undefined -> minirest:return(ok);
                 _Val ->
                     case get_value(<<"topics">>, Params, undefined) of
-                        undefined -> return({ok, #{msgid => lists:last(MsgIds)}});
-                        _ -> return({ok, #{msgids => MsgIds}})
+                        undefined -> minirest:return({ok, #{msgid => lists:last(MsgIds)}});
+                        _ -> minirest:return({ok, #{msgids => MsgIds}})
                     end
             end;
         Result ->
-            return(Result)
+            minirest:return(Result)
     end.
 
 unsubscribe(_Bindings, Params) ->
     logger:debug("API unsubscribe Params:~p", [Params]),
     {ClientId, Topic} = parse_unsubscribe_params(Params),
-    return(do_unsubscribe(ClientId, Topic)).
+    minirest:return(do_unsubscribe(ClientId, Topic)).
 
 subscribe_batch(_Bindings, Params) ->
     logger:debug("API subscribe batch Params:~p", [Params]),
-    return({ok, loop_subscribe(Params)}).
+    minirest:return({ok, loop_subscribe(Params)}).
 
 publish_batch(_Bindings, Params) ->
     logger:debug("API publish batch Params:~p", [Params]),
-    return({ok, loop_publish(Params)}).
+    minirest:return({ok, loop_publish(Params)}).
 
 unsubscribe_batch(_Bindings, Params) ->
     logger:debug("API unsubscribe batch Params:~p", [Params]),
-    return({ok, loop_unsubscribe(Params)}).
+    minirest:return({ok, loop_unsubscribe(Params)}).
 
 loop_subscribe(Params) ->
     loop_subscribe(Params, []).

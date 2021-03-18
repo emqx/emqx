@@ -21,10 +21,6 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
--import(minirest, [ return/0
-                  , return/1
-                  ]).
-
 -import(proplists, [get_value/2]).
 
 -define(CLIENT_QS_SCHEMA, {emqx_channel_info,
@@ -146,87 +142,87 @@
 -define(format_fun, {?MODULE, format_channel_info}).
 
 list(Bindings, Params) when map_size(Bindings) == 0 ->
-    return({ok, emqx_mgmt_api:cluster_query(Params, ?CLIENT_QS_SCHEMA, ?query_fun)});
+    minirest:return({ok, emqx_mgmt_api:cluster_query(Params, ?CLIENT_QS_SCHEMA, ?query_fun)});
 
 list(#{node := Node}, Params) when Node =:= node() ->
-    return({ok, emqx_mgmt_api:node_query(Node, Params, ?CLIENT_QS_SCHEMA, ?query_fun)});
+    minirest:return({ok, emqx_mgmt_api:node_query(Node, Params, ?CLIENT_QS_SCHEMA, ?query_fun)});
 
 list(Bindings = #{node := Node}, Params) ->
     case rpc:call(Node, ?MODULE, list, [Bindings, Params]) of
-        {badrpc, Reason} -> return({error, ?ERROR1, Reason});
+        {badrpc, Reason} -> minirest:return({error, ?ERROR1, Reason});
         Res -> Res
     end.
 
 lookup(#{node := Node, clientid := ClientId}, _Params) ->
-    return({ok, emqx_mgmt:lookup_client(Node, {clientid, emqx_mgmt_util:urldecode(ClientId)}, ?format_fun)});
+    minirest:return({ok, emqx_mgmt:lookup_client(Node, {clientid, emqx_mgmt_util:urldecode(ClientId)}, ?format_fun)});
 
 lookup(#{clientid := ClientId}, _Params) ->
-    return({ok, emqx_mgmt:lookup_client({clientid, emqx_mgmt_util:urldecode(ClientId)}, ?format_fun)});
+    minirest:return({ok, emqx_mgmt:lookup_client({clientid, emqx_mgmt_util:urldecode(ClientId)}, ?format_fun)});
 
 lookup(#{node := Node, username := Username}, _Params) ->
-    return({ok, emqx_mgmt:lookup_client(Node, {username, emqx_mgmt_util:urldecode(Username)}, ?format_fun)});
+    minirest:return({ok, emqx_mgmt:lookup_client(Node, {username, emqx_mgmt_util:urldecode(Username)}, ?format_fun)});
 
 lookup(#{username := Username}, _Params) ->
-    return({ok, emqx_mgmt:lookup_client({username, emqx_mgmt_util:urldecode(Username)}, ?format_fun)}).
+    minirest:return({ok, emqx_mgmt:lookup_client({username, emqx_mgmt_util:urldecode(Username)}, ?format_fun)}).
 
 kickout(#{clientid := ClientId}, _Params) ->
     case emqx_mgmt:kickout_client(emqx_mgmt_util:urldecode(ClientId)) of
-        ok -> return();
-        {error, not_found} -> return({error, ?ERROR12, not_found});
-        {error, Reason} -> return({error, ?ERROR1, Reason})
+        ok -> minirest:return();
+        {error, not_found} -> minirest:return({error, ?ERROR12, not_found});
+        {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
     end.
 
 clean_acl_cache(#{clientid := ClientId}, _Params) ->
     case emqx_mgmt:clean_acl_cache(emqx_mgmt_util:urldecode(ClientId)) of
-        ok -> return();
-        {error, not_found} -> return({error, ?ERROR12, not_found});
-        {error, Reason} -> return({error, ?ERROR1, Reason})
+        ok -> minirest:return();
+        {error, not_found} -> minirest:return({error, ?ERROR12, not_found});
+        {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
     end.
 
 list_acl_cache(#{clientid := ClientId}, _Params) ->
     case emqx_mgmt:list_acl_cache(emqx_mgmt_util:urldecode(ClientId)) of
-        {error, not_found} -> return({error, ?ERROR12, not_found});
-        {error, Reason} -> return({error, ?ERROR1, Reason});
-        Caches -> return({ok, [format_acl_cache(Cache) || Cache <- Caches]})
+        {error, not_found} -> minirest:return({error, ?ERROR12, not_found});
+        {error, Reason} -> minirest:return({error, ?ERROR1, Reason});
+        Caches -> minirest:return({ok, [format_acl_cache(Cache) || Cache <- Caches]})
     end.
 
 set_ratelimit_policy(#{clientid := ClientId}, Params) ->
     P = [{conn_bytes_in, get_value(<<"conn_bytes_in">>, Params)},
          {conn_messages_in, get_value(<<"conn_messages_in">>, Params)}],
     case [{K, parse_ratelimit_str(V)} || {K, V} <- P, V =/= undefined] of
-        [] -> return();
+        [] -> minirest:return();
         Policy ->
             case emqx_mgmt:set_ratelimit_policy(emqx_mgmt_util:urldecode(ClientId), Policy) of
-                ok -> return();
-                {error, not_found} -> return({error, ?ERROR12, not_found});
-                {error, Reason} -> return({error, ?ERROR1, Reason})
+                ok -> minirest:return();
+                {error, not_found} -> minirest:return({error, ?ERROR12, not_found});
+                {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
             end
     end.
 
 clean_ratelimit(#{clientid := ClientId}, _Params) ->
     case emqx_mgmt:set_ratelimit_policy(emqx_mgmt_util:urldecode(ClientId), []) of
-        ok -> return();
-        {error, not_found} -> return({error, ?ERROR12, not_found});
-        {error, Reason} -> return({error, ?ERROR1, Reason})
+        ok -> minirest:return();
+        {error, not_found} -> minirest:return({error, ?ERROR12, not_found});
+        {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
     end.
 
 set_quota_policy(#{clientid := ClientId}, Params) ->
     P = [{conn_messages_routing, get_value(<<"conn_messages_routing">>, Params)}],
     case [{K, parse_ratelimit_str(V)} || {K, V} <- P, V =/= undefined] of
-        [] -> return();
+        [] -> minirest:return();
         Policy ->
             case emqx_mgmt:set_quota_policy(emqx_mgmt_util:urldecode(ClientId), Policy) of
-                ok -> return();
-                {error, not_found} -> return({error, ?ERROR12, not_found});
-                {error, Reason} -> return({error, ?ERROR1, Reason})
+                ok -> minirest:return();
+                {error, not_found} -> minirest:return({error, ?ERROR12, not_found});
+                {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
             end
     end.
 
 clean_quota(#{clientid := ClientId}, _Params) ->
     case emqx_mgmt:set_quota_policy(emqx_mgmt_util:urldecode(ClientId), []) of
-        ok -> return();
-        {error, not_found} -> return({error, ?ERROR12, not_found});
-        {error, Reason} -> return({error, ?ERROR1, Reason})
+        ok -> minirest:return();
+        {error, not_found} -> minirest:return({error, ?ERROR12, not_found});
+        {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
     end.
 
 %% @private
