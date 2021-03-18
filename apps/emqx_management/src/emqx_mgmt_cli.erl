@@ -581,28 +581,28 @@ data(_) ->
 %% @doc acl Command
 
 acl(["cache-clean", "node", Node]) ->
-    case emqx_mgmt:clean_acl_cache_all(erlang:list_to_atom(Node)) of
+    case emqx_mgmt:clean_acl_cache_all(erlang:list_to_existing_atom(Node)) of
         ok ->
-            emqx_ctl:print("The emqx acl cache removed on node ~s.~n", [Node]);
+            emqx_ctl:print("ACL cache drain started on node ~s.~n", [Node]);
         {error, Reason} ->
-            emqx_ctl:print("The emqx acl cache-clean on node ~s failed: ~s.~n", [Node, Reason])
+            emqx_ctl:print("ACL drain failed on node ~s: ~0p.~n", [Node, Reason])
     end;
 
 acl(["cache-clean", "all"]) ->
     case emqx_mgmt:clean_acl_cache_all() of
         ok ->
-            emqx_ctl:print("The emqx acl cache removed on all nodes.~n");
+            emqx_ctl:print("Started ACL cache drain in all nodes~n");
         {error, Reason} ->
-            emqx_ctl:print("The emqx acl cache-clean failed: ~s.~n", [Reason])
+            emqx_ctl:print("ACL cache-clean failed: ~p.~n", [Reason])
     end;
 
 acl(["cache-clean", ClientId]) ->
     emqx_mgmt:clean_acl_cache(ClientId);
 
 acl(_) ->
-    emqx_ctl:usage([{"cache-clean all", "Clears acl cache on all nodes"},
-                    {"cache-clean node <Node>",     "Clears acl cache on given node"},
-                    {"cache-clean <ClientId>",      "Clears acl cache for given client"}
+    emqx_ctl:usage([{"acl cache-clean all",             "Clears acl cache on all nodes"},
+                    {"acl cache-clean node <Node>",     "Clears acl cache on given node"},
+                    {"acl cache-clean <ClientId>",      "Clears acl cache for given client"}
                    ]).
 
 %%--------------------------------------------------------------------
