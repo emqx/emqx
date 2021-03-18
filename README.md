@@ -28,15 +28,15 @@ See more details for building and running *EMQ X* on Windows in [Windows.md](./W
 #### Installing via EMQ X Docker Image
 
 ```
-docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
+docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
 ```
 
 #### Installing via Binary Package
 
 Get the binary package of the corresponding OS from [EMQ X Download](https://www.emqx.io/downloads) page.
 
-- [Single Node Install](https://docs.emqx.io/broker/latest/en/getting-started/install.html)
-- [Multi Node Install](https://docs.emqx.io/broker/latest/en/advanced/cluster.html)
+- [Single Node Install](https://docs.emqx.io/en/broker/latest/getting-started/install.html)
+- [Multi Node Install](https://docs.emqx.io/en/broker/latest/advanced/cluster.html)
 
 
 ## Build From Source
@@ -113,7 +113,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 
 ## FAQ
 
-Visiting [EMQ X FAQ](https://docs.emqx.io/broker/latest/en/faq/faq.html) to get help of common problems.
+Visiting [EMQ X FAQ](https://docs.emqx.io/en/broker/latest/faq/faq.html) to get help of common problems.
 
 ## Roadmap
 
