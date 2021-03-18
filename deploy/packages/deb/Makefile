@@ -14,11 +14,9 @@ all: | $(BUILT)
 	cp -r debian $(SRCDIR)/
 	sed -i "s#<DATETIME>#$(shell date -u '+%a, %d %b %Y %T %z')#g" $(SRCDIR)/debian/changelog
 	sed -i "s#<VERSION>#$(PKG_VSN)#g" $(SRCDIR)/debian/changelog
-	if [ ! -z $(shell echo $(EMQX_NAME) |grep edge) ]; then \
-		sed -i "s/emqx-pkg/emqx-edge-pkg/g" $(SRCDIR)/debian/rules; \
-		sed -i "s debian/emqx debian/emqx-edge g" $(SRCDIR)/debian/rules; \
-		sed -i "s/Package: emqx/Package: emqx-edge/1" $(SRCDIR)/debian/control; \
-	fi
+	sed -i "s/emqx-pkg/$(EMQX_NAME)-pkg/g" $(SRCDIR)/debian/rules; \
+	sed -i "s debian/emqx debian/$(EMQX_NAME) g" $(SRCDIR)/debian/rules; \
+	sed -i "s/Package: emqx/Package: $(EMQX_NAME)/1" $(SRCDIR)/debian/control; \
 	cd $(SRCDIR) && dpkg-buildpackage -us -uc
 	mkdir -p $(EMQX_REL)/_packages/$(EMQX_NAME)
 	cp $(SRCDIR)/../$(SOURCE_PKG).deb $(EMQX_REL)/_packages/$(EMQX_NAME)/$(TARGET_PKG).deb
