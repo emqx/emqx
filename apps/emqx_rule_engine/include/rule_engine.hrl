@@ -87,7 +87,7 @@
         { id :: resource_id()
         , type :: resource_type_name()
         , config :: #{} %% the configs got from API for initializing resource
-        , created_at :: integer() %% epoch in millisecond precision
+        , created_at :: integer() | undefined %% epoch in millisecond precision
         , description :: binary()
         }).
 
