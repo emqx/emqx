@@ -14,7 +14,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.2.2-ubuntu20.04
+    container: emqx/build-env:erl23.2.7-ubuntu20.04
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles}}
@@ -223,27 +223,12 @@ jobs:
         docker info
         docker buildx create --use --name mybuild
         docker run --rm --privileged tonistiigi/binfmt --install all
-<<<<<<< HEAD
-    - uses: actions/checkout@v1
-    - name: get deps
-      env:
-        ERL_OTP: erl23.2.7
-      run: |
-        docker run -i --rm \
-            -e GITHUB_RUN_ID=$GITHUB_RUN_ID \
-            -e GITHUB_REF=$GITHUB_REF \
-            -v $(pwd):/emqx \
-            -w /emqx \
-            emqx/build-env:${ERL_OTP}-debian10 \
-            bash -c "make deps-all"
-=======
     - uses: actions/download-artifact@v2
       with:
         name: source
         path: .
     - name: unzip source code
       run: unzip -q source.zip
->>>>>>> chore(CI): build workflows support ee
     - name: downloads emqx zip packages
       env:
         PROFILE: ${{ matrix.profile }}
@@ -272,13 +257,8 @@ jobs:
         cd -
     - name: build emqx packages
       env:
-<<<<<<< HEAD
         ERL_OTP: erl23.2.7
-        EMQX: ${{ matrix.emqx }}
-=======
-        ERL_OTP: erl23.2.2
         PROFILE: ${{ matrix.profile }}
->>>>>>> chore(CI): build workflows support ee
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
       run: |
