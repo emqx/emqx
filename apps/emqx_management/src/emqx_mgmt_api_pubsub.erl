@@ -20,10 +20,6 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include("emqx_mgmt.hrl").
 
--import(proplists, [ get_value/2
-                   , get_value/3
-                   ]).
-
 -rest_api(#{name   => mqtt_subscribe,
             method => 'POST',
             path   => "/mqtt/subscribe",
@@ -78,10 +74,10 @@ publish(_Bindings, Params) ->
     {ClientId, Topic, Qos, Retain, Payload} = parse_publish_params(Params),
     case do_publish(ClientId, Topic, Qos, Retain, Payload) of
         {ok, MsgIds} ->
-            case get_value(<<"return">>, Params, undefined) of
+            case proplists:get_value(<<"return">>, Params, undefined) of
                 undefined -> minirest:return(ok);
                 _Val ->
-                    case get_value(<<"topics">>, Params, undefined) of
+                    case proplists:get_value(<<"topics">>, Params, undefined) of
                         undefined -> minirest:return({ok, #{msgid => lists:last(MsgIds)}});
                         _ -> minirest:return({ok, #{msgids => MsgIds}})
                     end
@@ -118,7 +114,7 @@ loop_subscribe([Params | ParamsN], Acc) ->
         {_, Code0, _Reason} -> Code0
     end,
     Result = #{clientid => ClientId,
-               topic => resp_topic(get_value(<<"topic">>, Params), get_value(<<"topics">>, Params, <<"">>)),
+               topic => resp_topic(proplists:get_value(<<"topic">>, Params), proplists:get_value(<<"topics">>, Params, <<"">>)),
                code => Code},
     loop_subscribe(ParamsN, [Result | Acc]).
 
@@ -132,7 +128,7 @@ loop_publish([Params | ParamsN], Acc) ->
         {ok, _} -> 0;
         {_, Code0, _} -> Code0
     end,
-    Result = #{topic => resp_topic(get_value(<<"topic">>, Params), get_value(<<"topics">>, Params, <<"">>)),
+    Result = #{topic => resp_topic(proplists:get_value(<<"topic">>, Params), proplists:get_value(<<"topics">>, Params, <<"">>)),
                code => Code},
     loop_publish(ParamsN, [Result | Acc]).
 
@@ -147,7 +143,7 @@ loop_unsubscribe([Params | ParamsN], Acc) ->
         {_, Code0, _} -> Code0
     end,
     Result = #{clientid => ClientId,
-               topic => resp_topic(get_value(<<"topic">>, Params), get_value(<<"topics">>, Params, <<"">>)),
+               topic => resp_topic(proplists:get_value(<<"topic">>, Params), proplists:get_value(<<"topics">>, Params, <<"">>)),
                code => Code},
     loop_unsubscribe(ParamsN, [Result | Acc]).
 
@@ -182,24 +178,24 @@ do_unsubscribe(ClientId, Topic) ->
     end.
 
 parse_subscribe_params(Params) ->
-    ClientId = get_value(<<"clientid">>, Params),
-    Topics   = topics(filter, get_value(<<"topic">>, Params), get_value(<<"topics">>, Params, <<"">>)),
-    QoS      = get_value(<<"qos">>, Params, 0),
+    ClientId = proplists:get_value(<<"clientid">>, Params),
+    Topics   = topics(filter, proplists:get_value(<<"topic">>, Params), proplists:get_value(<<"topics">>, Params, <<"">>)),
+    QoS      = proplists:get_value(<<"qos">>, Params, 0),
     {ClientId, Topics, QoS}.
 
 parse_publish_params(Params) ->
-    Topics   = topics(name, get_value(<<"topic">>, Params), get_value(<<"topics">>, Params, <<"">>)),
-    ClientId = get_value(<<"clientid">>, Params),
-    Payload  = decode_payload(get_value(<<"payload">>, Params, <<>>),
-                              get_value(<<"encoding">>, Params, <<"plain">>)),
-    Qos      = get_value(<<"qos">>, Params, 0),
-    Retain   = get_value(<<"retain">>, Params, false),
+    Topics   = topics(name, proplists:get_value(<<"topic">>, Params), proplists:get_value(<<"topics">>, Params, <<"">>)),
+    ClientId = proplists:get_value(<<"clientid">>, Params),
+    Payload  = decode_payload(proplists:get_value(<<"payload">>, Params, <<>>),
+                              proplists:get_value(<<"encoding">>, Params, <<"plain">>)),
+    Qos      = proplists:get_value(<<"qos">>, Params, 0),
+    Retain   = proplists:get_value(<<"retain">>, Params, false),
     Payload1 = maybe_maps_to_binary(Payload),
     {ClientId, Topics, Qos, Retain, Payload1}.
 
 parse_unsubscribe_params(Params) ->
-    ClientId = get_value(<<"clientid">>, Params),
-    Topic    = get_value(<<"topic">>, Params),
+    ClientId = proplists:get_value(<<"clientid">>, Params),
+    Topic    = proplists:get_value(<<"topic">>, Params),
     {ClientId, Topic}.
 
 topics(Type, undefined, Topics0) ->

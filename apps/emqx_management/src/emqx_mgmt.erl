@@ -22,8 +22,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
--import(proplists, [get_value/2]).
-
 %% Nodes and Brokers API
 -export([ list_nodes/0
         , lookup_node/1
@@ -135,11 +133,11 @@ node_info(Node) when Node =:= node() ->
     BrokerInfo = emqx_sys:info(),
     Info#{node              => node(),
           otp_release       => iolist_to_binary(otp_rel()),
-          memory_total      => get_value(allocated, Memory),
-          memory_used       => get_value(used, Memory),
+          memory_total      => proplists:get_value(allocated, Memory),
+          memory_used       => proplists:get_value(used, Memory),
           process_available => erlang:system_info(process_limit),
           process_used      => erlang:system_info(process_count),
-          max_fds           => get_value(max_fds, lists:usort(lists:flatten(erlang:system_info(check_io)))),
+          max_fds           => proplists:get_value(max_fds, lists:usort(lists:flatten(erlang:system_info(check_io)))),
           connections       => ets:info(emqx_channel, size),
           node_status       => 'Running',
           uptime            => iolist_to_binary(proplists:get_value(uptime, BrokerInfo)),

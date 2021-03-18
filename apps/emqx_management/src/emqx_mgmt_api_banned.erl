@@ -20,8 +20,6 @@
 
 -include("emqx_mgmt.hrl").
 
--import(proplists, [get_value/2]).
-
 -rest_api(#{name   => list_banned,
             method => 'GET',
             path   => "/banned/",
@@ -65,7 +63,7 @@ delete(#{as := As, who := Who}, _) ->
     case pipeline([fun ensure_required/1,
                    fun validate_params/1], Params) of
         {ok, NParams} ->
-            do_delete(get_value(<<"as">>, NParams), get_value(<<"who">>, NParams)),
+            do_delete(proplists:get_value(<<"as">>, NParams), proplists:get_value(<<"who">>, NParams)),
             minirest:return();
         {error, Code, Message} ->
             minirest:return({error, Code, Message})
@@ -95,7 +93,7 @@ ensure_required(Params) when is_list(Params) ->
 
 validate_params(Params) ->
     #{enum_values := AsEnums, message := Msg} = enum_values(as),
-    case lists:member(get_value(<<"as">>, Params), AsEnums) of
+    case lists:member(proplists:get_value(<<"as">>, Params), AsEnums) of
         true -> {ok, Params};
         false ->
             {error, ?ERROR8, Msg}
