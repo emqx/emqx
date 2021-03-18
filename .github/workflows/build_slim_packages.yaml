@@ -1,6 +1,8 @@
 name: Build slim packages
 
-on: [pull_request]
+on:
+  - pull_request
+  - workflow_dispatch
 
 jobs:
   build:
@@ -12,7 +14,7 @@ jobs:
         - erl23.2.7
         os:
         - ubuntu20.04
-        - centos8
+        - centos7
 
     container: emqx/build-env:${{ matrix.erl_otp }}-${{ matrix.os }}
 
