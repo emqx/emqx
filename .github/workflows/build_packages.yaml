@@ -6,7 +6,6 @@ on:
   push:
     tags:
       - v*
-  pull_request:
   release:
     types:
       - published
@@ -187,7 +186,7 @@ jobs:
           - ubuntu16.04
           - debian10
           - debian9
-          - opensuse
+          # - opensuse
           - centos8
           - centos7
           - centos6
