@@ -34,3 +34,7 @@ jobs:
       run: |
         export CODE_PATH=$GITHUB_WORKSPACE
         .ci/build_packages/tests.sh
+    - uses: actions/upload-artifact@v2
+      with:
+        name: ${{ matrix.os }}
+        path: _packages/**/*.zip
