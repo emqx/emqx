@@ -19,7 +19,15 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: build packages
-      run: make emqx-pkg
+      run: |
+        if make -C source emqx-ee --dry-run > /dev/null 2>&1; then
+          echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+          git config --global credential.helper store
+          echo "${{ secrets.CI_GIT_TOKEN }}" >> source/scripts/git-token
+          make emqx-ee-pkg
+        else
+          make emqx-pkg
+        fi
     - name: pakcages test
       run: |
         export CODE_PATH=$GITHUB_WORKSPACE
