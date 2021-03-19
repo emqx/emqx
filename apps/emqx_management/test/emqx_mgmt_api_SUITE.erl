@@ -87,9 +87,6 @@ init_per_testcase(_, Config) ->
 end_per_testcase(data, _Config) ->
     application:stop(emqx_dahboard),
     application:stop(emqx_rule_engine),
-    application:stop(emqx_modules),
-    application:stop(emqx_schema_registry),
-    application:stop(emqx_conf),
     meck:unload(emqx_sys),
     ok;
 
