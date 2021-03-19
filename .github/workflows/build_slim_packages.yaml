@@ -22,7 +22,7 @@ jobs:
     - uses: actions/checkout@v1
     - name: build packages
       run: |
-        if make -C source emqx-ee --dry-run > /dev/null 2>&1; then
+        if make emqx-ee --dry-run > /dev/null 2>&1; then
           echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
           git config --global credential.helper store
           echo "${{ secrets.CI_GIT_TOKEN }}" >> source/scripts/git-token
