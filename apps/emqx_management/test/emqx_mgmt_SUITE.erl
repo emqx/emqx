@@ -53,7 +53,7 @@ groups() ->
        ]}].
 
 apps() ->
-    [emqx_management, emqx_auth_mnesia, emqx_modules].
+    [emqx_management, emqx_auth_mnesia].
 
 init_per_suite(Config) ->
     ekka_mnesia:start(),

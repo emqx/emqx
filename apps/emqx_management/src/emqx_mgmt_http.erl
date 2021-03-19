@@ -83,12 +83,23 @@ listeners() ->
 listener_name(Proto) ->
     list_to_atom(atom_to_list(Proto) ++ ":management").
 
+-ifdef(EMQX_ENTERPRISE).
 http_handlers() ->
     Plugins = lists:map(fun(Plugin) -> Plugin#plugin.name end, emqx_plugins:list()),
     [{"/api/v4", minirest:handler(#{apps   => Plugins ++ [emqx_modules] -- ?EXCEPT_PLUGIN,
                                     except => ?EXCEPT,
                                     filter => fun filter/1}),
                  [{authorization, fun authorize_appid/1}]}].
+-else.
+http_handlers() ->
+    Plugins = lists:map(fun(Plugin) -> Plugin#plugin.name end, emqx_plugins:list()),
+    [{"/api/v4", minirest:handler(#{apps   => Plugins -- ?EXCEPT_PLUGIN,
+                                    except => ?EXCEPT,
+                                    filter => fun filter/1}),
+                 [{authorization, fun authorize_appid/1}]}].
+
+-endif.
+
 
 %%--------------------------------------------------------------------
 %% Handle 'status' request
@@ -119,12 +130,20 @@ authorize_appid(Req) ->
          _  -> false
     end.
 
+-ifdef(EMQX_ENTERPRISE).
 filter(#{app := emqx_modules}) -> true;
 filter(#{app := App}) ->
     case emqx_plugins:find_plugin(App) of
         false -> false;
         Plugin -> Plugin#plugin.active
     end.
+-else.
+filter(#{app := App}) ->
+    case emqx_plugins:find_plugin(App) of
+        false -> false;
+        Plugin -> Plugin#plugin.active
+    end.
+-endif.
 
 format(Port) when is_integer(Port) ->
     io_lib:format("0.0.0.0:~w", [Port]);
