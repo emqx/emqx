@@ -33,6 +33,7 @@
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
+    print_otp_version_warning(),
     print_banner(),
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),
@@ -55,6 +56,15 @@ stop(_State) ->
 %%--------------------------------------------------------------------
 %% Print Banner
 %%--------------------------------------------------------------------
+
+-if(?OTP_RELEASE> 22).
+print_otp_version_warning() -> ok.
+-else.
+print_otp_version_warning() ->
+    io:format("WARNING: Running on Erlang/OTP version ~p. Recommended: 23~n",
+              [?OTP_RELEASE]).
+-endif.
+
 
 print_banner() ->
     io:format("Starting ~s on node ~s~n", [?APP, node()]).
