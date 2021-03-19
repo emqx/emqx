@@ -1,4 +1,4 @@
-version: '3'
+version: '3.9'
 
 services:
   erlang:
@@ -26,6 +26,11 @@ services:
       - ../../.:/emqx
     working_dir: /emqx
     tty: true
+    deploy:
+      resources:
+        reservations:
+          cpus: '0.5'
+          memory: 500M
 
   mysql_server:
     container_name: mysql
