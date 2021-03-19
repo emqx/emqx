@@ -49,22 +49,18 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_auth_redis], fun set_special_configs/1),
+    emqx_ct_helpers:start_apps([emqx_auth_redis], fun set_special_configs/1),
     init_redis_rows(),
     Cfg.
 
 end_per_suite(_Cfg) ->
     deinit_redis_rows(),
-    emqx_ct_helpers:stop_apps([emqx_auth_redis, emqx_modules]).
+    emqx_ct_helpers:stop_apps([emqx_auth_redis]).
 
 set_special_configs(emqx) ->
     application:set_env(emqx, allow_anonymous, false),
     application:set_env(emqx, acl_nomatch, deny),
-    application:set_env(emqx, acl_file,
-                        emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/acl.conf")),
-    application:set_env(emqx, enable_acl_cache, false),
-    application:set_env(emqx, plugins_loaded_file,
-                        emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins"));
+    application:set_env(emqx, enable_acl_cache, false);
 set_special_configs(_App) ->
     ok.
 
@@ -72,7 +68,6 @@ init_redis_rows() ->
     %% Users
     [q(["HMSET", Key|FiledValue]) || {Key, FiledValue} <- ?INIT_AUTH],
     %% ACLs
-    emqx_modules:load_module(emqx_mod_acl_internal, false),
     Result = [q(["HSET", Key, Filed, Value]) || {Key, Filed, Value} <- ?INIT_ACL],
     ct:pal("redis init result: ~p~n", [Result]).
 
@@ -136,7 +131,7 @@ t_check_acl(_) ->
     allow = emqx_access_control:check_acl(User2, subscribe, <<"topic2">>),
     allow = emqx_access_control:check_acl(User3, publish, <<"topic3">>),
     allow = emqx_access_control:check_acl(User3, subscribe, <<"topic3">>),
-    allow = emqx_access_control:check_acl(User4, publish, <<"a/b/c">>).
+    deny = emqx_access_control:check_acl(User4, publish, <<"a/b/c">>).
 
 t_acl_super(_) ->
     reload([{password_hash, plain}]),
