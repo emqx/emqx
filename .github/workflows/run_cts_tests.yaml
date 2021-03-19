@@ -38,6 +38,11 @@ jobs:
         if: matrix.network_type == 'ipv6'
         run: |
           echo EMQX_AUTH__LDAP__SERVERS=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' ldap) >> "$GITHUB_ENV"
+      - name: set git token
+        run: |
+          if make emqx-ee --dry-run > /dev/null 2>&1; then
+            docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+          fi
       - name: run test cases
         run: |
           export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
@@ -96,6 +101,11 @@ jobs:
         if: matrix.network_type == 'ipv6'
         run: |
           echo "EMQX_AUTH__MONGO__SERVER=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' mongo):27017" >> "$GITHUB_ENV"
+      - name: set git token
+        run: |
+          if make emqx-ee --dry-run > /dev/null 2>&1; then
+            docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+          fi
       - name: run test cases
         run: |
           export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
@@ -154,6 +164,11 @@ jobs:
         if: matrix.network_type == 'ipv6'
         run: |
           echo "EMQX_AUTH__MYSQL__SERVER=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' mysql):3306" >> "$GITHUB_ENV"
+      - name: set git token
+        run: |
+          if make emqx-ee --dry-run > /dev/null 2>&1; then
+            docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+          fi
       - name: run test cases
         run: |
           export EMQX_AUTH__MYSQL__USERNAME=root \
@@ -216,6 +231,11 @@ jobs:
         if: matrix.network_type == 'ipv6'
         run: |
           echo "EMQX_AUTH__PGSQL__SERVER=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' pgsql):5432" >> "$GITHUB_ENV"
+      - name: set git token
+        run: |
+          if make emqx-ee --dry-run > /dev/null 2>&1; then
+            docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+          fi
       - name: run test cases
         run: |
           export EMQX_AUTH__PGSQL__USERNAME=root \
@@ -317,6 +337,11 @@ jobs:
           EMQX_AUTH__REDIS__TYPE=cluster
           EMQX_AUTH__REDIS__SERVER=${redis_${{ matrix.network_type }}_address}:8000
           EOF
+      - name: set git token
+        run: |
+          if make emqx-ee --dry-run > /dev/null 2>&1; then
+            docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+          fi
       - name: run test cases
         run: |
           export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
