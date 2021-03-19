@@ -83,8 +83,9 @@ spec:
           secretName: {{ .Values.emqxLicneseSecretName }}
       {{- end }}
       serviceAccountName:  {{ include "emqx.fullname" . }}
-      securityContext:
-        fsGroup: 1000
+      {{- if .Values.podSecurityContext.enabled }}
+      securityContext: {{- omit .Values.podSecurityContext "enabled" | toYaml | nindent 8 }}
+      {{- end }}
       {{- if .Values.initContainers }}
       initContainers:
 {{ toYaml .Values.initContainers | indent 8 }}
@@ -99,6 +100,9 @@ spec:
         - name: emqx
           image: "{{ .Values.image.repository }}:{{ .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.containerSecurityContext.enabled }}
+          securityContext: {{- omit .Values.containerSecurityContext "enabled" | toYaml | nindent 12 }}
+          {{- end }}
           ports:
           - name: mqtt
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENER__TCP__EXTERNAL | default 1883 }}
