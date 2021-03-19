@@ -4,6 +4,6 @@
 }.
 
 {elixir_plugins,
-  [ {emqx_elixir_plugin, {git, "https://github.com/zmstone/emqx-elixir-plugin.git", {branch, "umbrella"}}}
+  [ {emqx_elixir_plugin, {git, "https://github.com/emqx/emqx-elixir-plugin.git", {branch, "3.0.0"}}}
   ]
 }.
