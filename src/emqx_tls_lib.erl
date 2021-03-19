@@ -21,6 +21,7 @@
         , default_ciphers/0
         , default_ciphers/1
         , integral_ciphers/2
+        , drop_tls13_for_old_otp/1
         ]).
 
 %% non-empty string
@@ -140,3 +141,58 @@ split_by_comma(Bin) ->
 %% trim spaces
 trim_space(Bin) ->
     hd([I || I <- binary:split(Bin, <<" ">>), I =/= <<>>]).
+
+%% @doc Drop tlsv1.3 version and ciphers from ssl options
+%% if running on otp 22 or earlier.
+drop_tls13_for_old_otp(SslOpts) ->
+    case list_to_integer(erlang:system_info(otp_release)) < 23 of
+        true -> drop_tls13(SslOpts);
+        false -> SslOpts
+    end.
+
+%% The ciphers that ssl:cipher_suites(exclusive, 'tlsv1.3', openssl)
+%% should return when running on otp 23.
+%% But we still have to hard-code them because tlsv1.3 on otp 22 is
+%% not trustworthy.
+-define(TLSV13_EXCLUSIVE_CIPHERS, [ "TLS_AES_256_GCM_SHA384"
+                                  , "TLS_AES_128_GCM_SHA256"
+                                  , "TLS_CHACHA20_POLY1305_SHA256"
+                                  , "TLS_AES_128_CCM_SHA256"
+                                  , "TLS_AES_128_CCM_8_SHA256"
+                                  ]).
+drop_tls13(SslOpts0) ->
+    SslOpts1 = case proplists:get_value(versions, SslOpts0) of
+                   undefined -> SslOpts0;
+                   Vsns -> replace(SslOpts0, versions, Vsns -- ['tlsv1.3'])
+               end,
+    case proplists:get_value(ciphers, SslOpts1) of
+        undefined -> SslOpts1;
+        Ciphers -> replace(SslOpts1, ciphers, Ciphers -- ?TLSV13_EXCLUSIVE_CIPHERS)
+    end.
+
+replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].
+
+-if(?OTP_RELEASE > 22).
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+drop_tls13_test() ->
+    Versions = default_versions(),
+    ?assert(lists:member('tlsv1.3', Versions)),
+    Ciphers = default_ciphers(),
+    ?assert(has_tlsv13_cipher(Ciphers)),
+    Opts0 = [{versions, Versions}, {ciphers, Ciphers}, other, {bool, true}],
+    Opts = drop_tls13(Opts0),
+    ?assertNot(lists:member('tlsv1.3', proplists:get_value(versions, Opts))),
+    ?assertNot(has_tlsv13_cipher(proplists:get_value(ciphers, Opts))).
+
+drop_tls13_no_versions_cipers_test() ->
+    Opts0 = [other, {bool, true}],
+    Opts = drop_tls13(Opts0),
+    ?_assertEqual(Opts0, Opts).
+
+has_tlsv13_cipher(Ciphers) ->
+    lists:any(fun(C) -> lists:member(C, Ciphers) end, ?TLSV13_EXCLUSIVE_CIPHERS).
+
+-endif.
+-endif.
