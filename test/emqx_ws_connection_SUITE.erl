@@ -45,7 +45,9 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
     TestCase =/= t_ws_sub_protocols_mqtt,
     TestCase =/= t_ws_check_origin,
-    TestCase =/= t_ws_non_check_origin ->
+    TestCase =/= t_ws_pingreq_before_connected,
+    TestCase =/= t_ws_non_check_origin
+    ->
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
     ok = meck:expect(cowboy_req, peer, fun(_) -> {{127,0,0,1}, 3456} end),
@@ -89,7 +91,9 @@ end_per_testcase(TestCase, Config) when
         TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
         TestCase =/= t_ws_sub_protocols_mqtt,
         TestCase =/= t_ws_check_origin,
-        TestCase =/= t_ws_non_check_origin ->
+        TestCase =/= t_ws_non_check_origin,
+        TestCase =/= t_ws_pingreq_before_connected
+        ->
     lists:foreach(fun meck:unload/1,
                   [cowboy_req,
                    emqx_zone,
@@ -153,6 +157,40 @@ t_call(_) ->
                       receive {call, From, info} -> gen_server:reply(From, Info) end
                   end),
     ?assertEqual(Info, ?ws_conn:call(WsPid, info)).
+
+t_ws_pingreq_before_connected(_) ->
+    ok = emqx_ct_helpers:start_apps([]),
+    {ok, _} = application:ensure_all_started(gun),
+    {ok, WPID} = gun:open("127.0.0.1", 8083),
+    ws_pingreq(#{}),
+    gun:close(WPID),
+    emqx_ct_helpers:stop_apps([]).
+
+ws_pingreq(State) ->
+    receive
+        {gun_up, WPID, _Proto} ->
+            StreamRef = gun:ws_upgrade(WPID, "/mqtt", [], #{
+                protocols => [{<<"mqtt">>, gun_ws_h}]}),
+            ws_pingreq(State#{wref => StreamRef});
+        {gun_down, _WPID, _, Reason, _, _} ->
+            State#{result => {gun_down, Reason}};
+        {gun_upgrade, WPID, _Ref, _Proto, _Data} ->
+            ct:pal("-- gun_upgrade, send ping-req"),
+            PingReq = {binary, <<192,0>>},
+            ok = gun:ws_send(WPID, PingReq),
+            gun:flush(WPID),
+            ws_pingreq(State);
+        {gun_ws, _WPID, _Ref, {binary, <<208,0>>}} ->
+            ct:fail(unexpected_pingresp);
+        {gun_ws, _WPID, _Ref, Frame} ->
+            ct:pal("gun received frame: ~p", [Frame]),
+            ws_pingreq(State);
+        Message ->
+            ct:pal("Received Unknown Message on Gun: ~p~n",[Message]),
+            ws_pingreq(State)
+    after 1000 ->
+        ct:fail(ws_timeout)
+    end.
 
 t_ws_sub_protocols_mqtt(_) ->
     ok = emqx_ct_helpers:start_apps([]),

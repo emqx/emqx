@@ -60,7 +60,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     ok = meck:unload(emqx_transport),
-    ok = meck:unload(emqx_channel),
+    catch meck:unload(emqx_channel),
     ok = meck:unload(emqx_cm),
     ok = meck:unload(emqx_limiter),
     ok = meck:unload(emqx_pd),
@@ -69,7 +69,8 @@ end_per_suite(_Config) ->
     ok = meck:unload(emqx_alarm),
     ok.
 
-init_per_testcase(_TestCase, Config) ->
+init_per_testcase(TestCase, Config) when
+        TestCase =/= t_ws_pingreq_before_connected ->
     ok = meck:expect(emqx_transport, wait, fun(Sock) -> {ok, Sock} end),
     ok = meck:expect(emqx_transport, type, fun(_Sock) -> tcp end),
     ok = meck:expect(emqx_transport, ensure_ok_or_exit,
@@ -87,6 +88,8 @@ init_per_testcase(_TestCase, Config) ->
     ok = meck:expect(emqx_transport, async_send, fun(_Sock, _Data) -> ok end),
     ok = meck:expect(emqx_transport, async_send, fun(_Sock, _Data, _Opts) -> ok end),
     ok = meck:expect(emqx_transport, fast_close, fun(_Sock) -> ok end),
+    Config;
+init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_TestCase, Config) ->
@@ -95,6 +98,9 @@ end_per_testcase(_TestCase, Config) ->
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
+t_ws_pingreq_before_connected(_) ->
+    ?assertMatch({ok, [_, {close,protocol_error}], _},
+        handle_msg({incoming, ?PACKET(?PINGREQ)}, st(#{}, #{conn_state => disconnected}))).
 
 t_info(_) ->
     CPid = spawn(fun() ->
@@ -175,7 +181,6 @@ t_handle_msg(_) ->
 t_handle_msg_incoming(_) ->
     ?assertMatch({ok, _Out, _St},
                  handle_msg({incoming, ?CONNECT_PACKET(#mqtt_packet_connect{})}, st())),
-    ?assertEqual(ok, handle_msg({incoming, ?PACKET(?PINGREQ)}, st())),
     ok = meck:expect(emqx_channel, handle_in, fun(_Packet, Channel) -> {ok, Channel} end),
     ?assertMatch({ok, _St},
                  handle_msg({incoming, ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>)}, st())),
@@ -277,7 +282,6 @@ t_handle_incoming(_) ->
 
 t_with_channel(_) ->
     State = st(),
-    
     ok = meck:expect(emqx_channel, handle_in, fun(_, _) -> ok end),
     ?assertEqual({ok, State}, emqx_connection:with_channel(handle_in, [for_testing], State)),
 
@@ -300,7 +304,8 @@ t_with_channel(_) ->
                              {shutdown, [for_testing], ?DISCONNECT_PACKET(), Channel}
                      end),
     ?assertMatch({stop, {shutdown,[for_testing]}, _NState},
-                 emqx_connection:with_channel(handle_in, [for_testing], State)).
+                 emqx_connection:with_channel(handle_in, [for_testing], State)),
+    meck:unload(emqx_channel).
 
 t_handle_outgoing(_) ->
     ?assertEqual(ok, emqx_connection:handle_outgoing(?PACKET(?PINGRESP), st())),
@@ -432,11 +437,13 @@ make_frame(Packet) ->
 
 payload(Len) -> iolist_to_binary(lists:duplicate(Len, 1)).
 
-st() -> st(#{}).
+st() -> st(#{}, #{}).
 st(InitFields) when is_map(InitFields) ->
+    st(InitFields, #{}).
+st(InitFields, ChannelFields) when is_map(InitFields) ->
     St = emqx_connection:init_state(emqx_transport, sock, [#{zone => external}]),
     maps:fold(fun(N, V, S) -> emqx_connection:set_field(N, V, S) end,
-              emqx_connection:set_field(channel, channel(), St),
+              emqx_connection:set_field(channel, channel(ChannelFields), St),
               InitFields
              ).
 
