@@ -134,7 +134,18 @@ start_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
     start_http_listener(fun cowboy:start_tls/3, 'mqtt:wss', ListenOn,
                         ranch_opts(Options), ws_opts(Options)).
 
-start_mqtt_listener(Name, ListenOn, Options) ->
+replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].
+
+drop_tls13_for_old_otp(Options) ->
+    case proplists:get_value(ssl_options, Options) of
+        undefined -> Options;
+        SslOpts ->
+            SslOpts1 = emqx_tls_lib:drop_tls13_for_old_otp(SslOpts),
+            replace(Options, ssl_options, SslOpts1)
+    end.
+
+start_mqtt_listener(Name, ListenOn, Options0) ->
+    Options = drop_tls13_for_old_otp(Options0),
     SockOpts = esockd:parse_opt(Options),
     esockd:open(Name, ListenOn, merge_default(SockOpts),
                 {emqx_connection, start_link, [Options -- SockOpts]}).
@@ -151,7 +162,8 @@ ws_opts(Options) ->
     ProxyProto = proplists:get_value(proxy_protocol, Options, false),
     #{env => #{dispatch => Dispatch}, proxy_header => ProxyProto}.
 
-ranch_opts(Options) ->
+ranch_opts(Options0) ->
+    Options = drop_tls13_for_old_otp(Options0),
     NumAcceptors = proplists:get_value(acceptors, Options, 4),
     MaxConnections = proplists:get_value(max_connections, Options, 1024),
     TcpOptions = proplists:get_value(tcp_options, Options, []),
