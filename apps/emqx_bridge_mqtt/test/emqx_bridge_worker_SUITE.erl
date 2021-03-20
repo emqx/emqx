@@ -56,12 +56,12 @@ init_per_suite(Config) ->
         _ -> ok
     end,
     ok = application:set_env(gen_rpc, tcp_client_num, 1),
-    emqx_ct_helpers:start_apps([emqx_bridge_mqtt]),
+    emqx_ct_helpers:start_apps([emqx_modules, emqx_bridge_mqtt]),
     emqx_logger:set_log_level(error),
     [{log_level, error} | Config].
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_bridge_mqtt]).
+    emqx_ct_helpers:stop_apps([emqx_bridge_mqtt, emqx_modules]).
 
 t_mngr(Config) when is_list(Config) ->
     Subs = [{<<"a">>, 1}, {<<"b">>, 2}],

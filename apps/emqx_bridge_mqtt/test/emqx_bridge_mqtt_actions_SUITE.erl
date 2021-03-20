@@ -25,30 +25,36 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
-    emqx_ct_helpers:start_apps([emqx, emqx_rule_engine, emqx_management]),
+    ok = ekka_mnesia:start(),
+    ok = emqx_rule_registry:mnesia(boot),
+    emqx_ct_helpers:start_apps([emqx_bridge_mqtt, emqx_rule_engine, emqx_modules, emqx_management, emqx_dashboard]),
     Cfg.
 
 end_per_suite(Cfg) ->
-    emqx_ct_helpers:stop_apps([emqx_management, emqx_rule_engine, emqx]),
+    emqx_ct_helpers:stop_apps([emqx_dashboard, emqx_management, emqx_modules, emqx_rule_engine, emqx_bridge_mqtt]),
     Cfg.
 
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------
-t_export(_) ->
-    {ok, _} = emqx_mgmt_data_backup:export().
 
 t_import_bridge(_) ->
-    Path = emqx_ct_helpers:deps_path(emqx_web_hook, "test/emqx_bridge_mqtt_SUITE_data/"),
+    Path = emqx_ct_helpers:deps_path(emqx_bridge_mqtt, "test/emqx_bridge_mqtt_SUITE_data/"),
     ok = emqx_mgmt_data_backup:import(Path ++ "/4_2_bridge.json"),
     Resources = emqx_rule_registry:get_resources(),
-    ct:print("Resources = ~p.~n", [Resources]),
     ?assertEqual(1, length(Resources)),
-    TestData = #resource{id = <<"resource:967810">>,
-                         type = bridge_rpc,
-                         config = #{<<"address">> => <<"emqx@127.0.0.1">>,
-                                    <<"batch_size">> => 32,<<"disk_cache">> => <<"off">>,
-                                    <<"mountpoint">> => <<"bridge/emqx/${node}/">>,
-                                    <<"pool_size">> => 8,<<"reconnect_interval">> => <<"30s">>},
-                         description = <<"test">>},
-    [TestData | _] = Resources.
+    [Resource | _] = Resources,
+    #resource{id = Id,
+              type = Type,
+              config = Config,
+              description = Desc} = Resource,
+    ?assertEqual(<<"resource:967810">>, Id),
+    ?assertEqual(bridge_rpc, Type),
+    ?assertEqual(<<"test">>, Desc),
+    ?assertEqual(#{<<"address">> => <<"emqx@127.0.0.1">>,
+                   <<"batch_size">> => 32,
+                   <<"disk_cache">> => <<"off">>,
+                   <<"mountpoint">> => <<"bridge/emqx/${node}/">>,
+                   <<"pool_size">> => 8,
+                   <<"reconnect_interval">> => <<"30s">>}, Config),
+    {ok, _} = emqx_mgmt_data_backup:export().

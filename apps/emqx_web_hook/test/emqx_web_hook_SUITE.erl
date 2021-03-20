@@ -48,10 +48,10 @@ init_per_group(Name, Config) ->
     set_special_cfgs(),
     case Name of
         http ->
-            emqx_ct_helpers:start_apps([emqx_web_hook, emqx_management,
+            emqx_ct_helpers:start_apps([emqx_web_hook, emqx_modules, emqx_management,
                                         emqx_rule_engine], fun set_special_configs_http/1);
         https ->
-            emqx_ct_helpers:start_apps([emqx_web_hook, emqx_management,
+            emqx_ct_helpers:start_apps([emqx_web_hook, emqx_modules, emqx_management,
                                         emqx_rule_engine], fun set_special_configs_https/1);
         ipv6http ->
             emqx_ct_helpers:start_apps([emqx_web_hook, emqx_management,

@@ -25,35 +25,37 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
-    emqx_ct_helpers:start_apps([emqx, emqx_rule_engine, emqx_management]),
+    emqx_ct_helpers:start_apps([emqx_web_hook, emqx_rule_engine, emqx_modules, emqx_management, emqx_dashboard]),
     Cfg.
 
 end_per_suite(Cfg) ->
-    emqx_ct_helpers:stop_apps([emqx_management, emqx_rule_engine, emqx]),
+    emqx_ct_helpers:stop_apps([emqx_dashboard, emqx_management, emqx_modules, emqx_rule_engine, emqx_web_hook]),
     Cfg.
 
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------
-t_export(_) ->
-    {ok, _} = emqx_mgmt_data_backup:export().
 
 t_import_webhook(_) ->
     Path = emqx_ct_helpers:deps_path(emqx_web_hook, "test/emqx_web_hook_SUITE_data/"),
     ok = emqx_mgmt_data_backup:import(Path ++ "/4_2_webhook.json"),
     Resources = emqx_rule_registry:get_resources(),
     ?assertEqual(1, length(Resources)),
-    TestData = #resource{
-        id = <<"resource:771522">>,
-        type = web_hook,
-        config = #{<<"cacertfile">> => <<>>,<<"certfile">> => <<>>,
-                   <<"connect_timeout">> => <<"3s">>,<<"keyfile">> => <<>>,
-                   <<"method">> => <<"POST">>,<<"pool_size">> => 8,
+    [Resource | _] = Resources,
+    #resource{id = Id,
+              type = Type,
+              config = Config,
+              description = Desc} = Resource,
+    ?assertEqual(<<"resource:771522">>, Id),
+    ?assertEqual(web_hook, Type),
+    ?assertEqual(<<"test">>, Desc),
+    ?assertEqual(#{<<"cacertfile">> => <<>>,
+                   <<"certfile">> => <<>>,
+                   <<"keyfile">> => <<>>,
+                   <<"connect_timeout">> => <<"3s">>,
+                   <<"method">> => <<"POST">>,
+                   <<"pool_size">> => 8,
                    <<"request_timeout">> => <<"3s">>,
                    <<"url">> => <<"http://www.emqx.io">>,
-                   <<"verify">> => true},
-        description = <<"test">>
-    },
-    [TestData | _] = Resources.
-
-
+                   <<"verify">> => true}, Config),
+    {ok, _} = emqx_mgmt_data_backup:export().
