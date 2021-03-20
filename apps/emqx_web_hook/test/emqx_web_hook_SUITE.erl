@@ -105,7 +105,7 @@ t_valid(Config) ->
                                , {proto_ver, v5}
                                , {keepalive, 60}
                                ]),
-    {ok, _} = emqtt:connect(C),
+    {ok, Sock} = emqtt:connect(C),
     emqtt:subscribe(C, <<"TopicA">>, qos2),
     emqtt:publish(C, <<"TopicA">>, <<"Payload...">>, qos2),
     emqtt:unsubscribe(C, <<"TopicA">>),
@@ -164,6 +164,7 @@ validate_hook_resp(Body = ?ACTION(<<"client_connected">>)) ->
     ?assertEqual(60, maps:get(<<"keepalive">>, Body)),
     ?assertEqual(<<"127.0.0.1">>, maps:get(<<"ipaddress">>, Body)),
     ?assertEqual(<<"test@127.0.0.1">>, maps:get(<<"node">>, Body)),
+    ?assertEqual(true, erlang:is_integer(maps:get(<<"srcport">>, Body))),
     assert_username_clientid(Body);
 validate_hook_resp(Body = ?ACTION(<<"client_disconnected">>)) ->
     ?assertEqual(<<"normal">>, maps:get(<<"reason">>, Body)),
