@@ -89,16 +89,11 @@ make eunit ct
 
 ### To run subset of the common tests
 
-examples
+Examples
 
 ```bash
-./rebar3 ct --name 'test@127.0.0.1' -c -v --dir test,apps/emqx_sn,apps/emqx_coap
-./rebar3 ct --name 'test@127.0.0.1' -c -v --dir apps/emqx_auth_mnesi --suite emqx_acl_mnesia_SUITE
-./rebar3 ct --name 'test@127.0.0.1' -c -v --dir apps/emqx_auth_mnesi --suite emqx_acl_mnesia_SUITE --case t_rest_api
+make apps/emqx_bridge_mqtt-ct
 ```
-
-NOTE: Do *NOT* use full (relative) path to SUITE files like this `--suite apps/emqx_auth_mnesia/test/emqx_acl_mnesia_SUITE.erl`,
-because it will lead to a full copy of `apps` dir into `_buid/test/lib/emqx`.
 
 ### Dialyzer
 ##### To Analyze all the apps
