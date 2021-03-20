@@ -77,7 +77,7 @@ jobs:
     - name: build
       env:
         PYTHON: python
-        DIAGNOSTIC: 1 
+        DIAGNOSTIC: 1
       run: |
         $env:PATH = "${{ steps.install_erlang.outputs.erlpath }}\bin;$env:PATH"
 
@@ -89,8 +89,10 @@ jobs:
         else {
           $pkg_name = "${{ matrix.profile }}-windows-$($version -replace '/').zip"
           }
-
         cd source
+        ## We do not build/release bcrypt for windows package
+        Remove-Item -Recurse -Force -Path _build/default/lib/bcrypt/
+        Remove-Item -Force -Path rebar.lock
         make ${{ matrix.profile }}
         mkdir -p _packages/${{ matrix.profile }}
         Compress-Archive -Path _build/${{ matrix.profile }}/rel/emqx -DestinationPath _build/${{ matrix.profile }}/rel/$pkg_name
