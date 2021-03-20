@@ -6,9 +6,11 @@ on:
   push:
     tags:
       - v*
+      - e*
   release:
     types:
       - published
+  workflow_dispatch:
 
 jobs:
   prepare:
