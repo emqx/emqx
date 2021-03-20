@@ -91,11 +91,13 @@ connected_presence(#{peerhost := PeerHost,
                      proto_ver := ProtoVer,
                      keepalive := Keepalive,
                      connected_at := ConnectedAt,
-                     expiry_interval := ExpiryInterval
+                     expiry_interval := ExpiryInterval,
+                     peername := {_, SrcPort}
                     }) ->
     #{clientid => ClientId,
       username => Username,
       ipaddress => ntoa(PeerHost),
+      srcport => SrcPort,
       sockport => SockPort,
       proto_name => ProtoName,
       proto_ver => ProtoVer,
