@@ -73,6 +73,10 @@ jobs:
             docker-compose -f .ci/apps_tests/docker-compose.yaml -f .ci/apps_tests/docker-compose.enterprise.yaml build --no-cache
             docker-compose -f .ci/apps_tests/docker-compose.yaml -f .ci/apps_tests/docker-compose.enterprise.yaml up -d
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+            while [ $(docker ps -a --filter name=client --filter exited=0 | wc -l) \
+                 != $(docker ps -a --filter name=client | wc -l) ]; do
+              sleep 5
+            done
         - name: run eunit
           run: |
             docker exec -i erlang bash -c "make eunit"
