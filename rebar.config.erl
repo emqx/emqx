@@ -104,30 +104,11 @@ test_deps() ->
     ].
 
 common_compile_opts() ->
-    [ deterministic
+    [ debug_info % alwyas include debug_info
+    , deterministic
     , {compile_info, [{emqx_vsn, get_vsn()}]}
     | [{d, 'EMQX_ENTERPRISE'} || is_enterprise()]
     ].
-
-make_debug_info_key_fun() ->
-    case os:getenv("EMQX_COMPILE_SECRET_FILE") of
-        false -> false;
-        "" -> false;
-        Fn ->
-            io:format("===< using debug_info encryption key from file ~p!~n", [Fn]),
-            SecretText = get_compile_secret(Fn),
-            F = fun(init) -> ok;
-                   (clear) -> ok;
-                   ({debug_info, _Mode, _Module, _Filename}) -> SecretText
-                end,
-            beam_lib:crypto_key_fun(F),
-            F
-    end.
-
-prod_compile_opts(false) ->
-    prod_compile_opts();
-prod_compile_opts(KeyFun) ->
-    [{debug_info_key, KeyFun({debug_info, "", "", ""})} | prod_compile_opts()].
 
 prod_compile_opts() ->
     [ compressed
@@ -135,30 +116,24 @@ prod_compile_opts() ->
     | common_compile_opts()
     ].
 
-test_compile_opts() ->
-    [ debug_info
-    | common_compile_opts()
-    ].
-
 profiles() ->
     Vsn = get_vsn(),
-    KeyFun = make_debug_info_key_fun(),
-    [ {'emqx',          [ {erl_opts, prod_compile_opts(KeyFun)}
+    [ {'emqx',          [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, bin)}
                         ]}
-    , {'emqx-pkg',      [ {erl_opts, prod_compile_opts(KeyFun)}
+    , {'emqx-pkg',      [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, pkg)}
                         ]}
-    , {'emqx-edge',     [ {erl_opts, prod_compile_opts(KeyFun)}
+    , {'emqx-edge',     [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, bin)}
                         ]}
-    , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts(KeyFun)}
+    , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, pkg)}
                         ]}
-    , {check,           [ {erl_opts, test_compile_opts()}
+    , {check,           [ {erl_opts, common_compile_opts()}
                         ]}
     , {test,            [ {deps, test_deps()}
-                        , {erl_opts, test_compile_opts() ++ erl_opts_i()}
+                        , {erl_opts, common_compile_opts() ++ erl_opts_i()}
                         , {extra_src_dirs, [{"test", [{recursive,true}]}]}
                         ]}
     ] ++ ee_profiles(Vsn).
@@ -484,15 +459,6 @@ coveralls() ->
 list_dir(Dir) ->
     {ok, Names} = file:list_dir(Dir),
     [list_to_atom(Name) || Name <- Names, filelib:is_dir(filename:join([Dir, Name]))].
-
-get_compile_secret(SecretFile) ->
-    case file:read_file(SecretFile) of
-        {ok, Secret} ->
-            string:trim(binary_to_list(Secret));
-        {error, Reason} ->
-            io:format("===< Failed to read debug_info encryption key file ~s: ~p~n", [SecretFile, Reason]),
-            exit(Reason)
-    end.
 
 %% ==== Enterprise supports below ==================================================================
 
