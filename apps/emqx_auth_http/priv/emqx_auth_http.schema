@@ -121,3 +121,7 @@ end}.
   {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
+
+{mapping, "auth.http.ssl.server_name_indication", "emqx_auth_http.server_name_indication", [
+  {datatype, string}
+]}.

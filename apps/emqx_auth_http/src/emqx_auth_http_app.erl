@@ -70,13 +70,15 @@ translate_env(EnvName) ->
                                          true -> verify_peer;
                                          false -> verify_none
                                      end,
+                            SNI = application:get_env(?APP, server_name_indication, undefined),
                             TLSOpts = lists:filter(
                                         fun({_, V}) ->
                                             V =/= <<>> andalso V =/= undefined
-                                        end, [{verify, Verify},
-                                              {keyfile, KeyFile},
+                                        end, [{keyfile, KeyFile},
                                               {certfile, CertFile},
-                                              {cacertfile, CACertFile}]),
+                                              {cacertfile, CACertFile},
+                                              {verify, Verify},
+                                              {server_name_indication, SNI}]),
                             NTLSOpts = [ {versions, emqx_tls_lib:default_versions()}
                                        , {ciphers, emqx_tls_lib:default_ciphers()}
                                        | TLSOpts

@@ -34,6 +34,10 @@
   {datatype, {enum, [true, false]}}
 ]}.
 
+{mapping, "web.hook.ssl.server_name_indication", "emqx_web_hook.server_name_indication", [
+  {datatype, string}
+]}.
+
 {mapping, "web.hook.pool_size", "emqx_web_hook.pool_size", [
   {default, 32},
   {datatype, integer}
