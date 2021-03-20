@@ -28,7 +28,7 @@ jobs:
         env:
           LDAP_TAG: ${{ matrix.ldap_tag }}
         run: |
-          docker-compose -f .ci/apps_tests/docker-compose.yaml build --no-cache
+          docker-compose -f .ci/compatibility_tests/docker-compose-ldap.yaml build --no-cache
           docker-compose -f .ci/compatibility_tests/docker-compose-ldap.yaml up -d
       - name: setup
         if: matrix.network_type == 'ipv4'
