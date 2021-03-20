@@ -25,7 +25,7 @@ jobs:
         if make emqx-ee --dry-run > /dev/null 2>&1; then
           echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
           git config --global credential.helper store
-          echo "${{ secrets.CI_GIT_TOKEN }}" >> source/scripts/git-token
+          echo "${{ secrets.CI_GIT_TOKEN }}" >> ./scripts/git-token
           make emqx-ee-pkg
         else
           make emqx-pkg
