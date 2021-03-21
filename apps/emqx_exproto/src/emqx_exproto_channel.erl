@@ -577,7 +577,7 @@ default_conninfo(ConnInfo) ->
               expiry_interval => 0}.
 
 default_clientinfo(#{peername := {PeerHost, PeerPort},
-                     sockname := {_, SockPort}}) ->
+    sockname := {_, SockPort}}) when is_integer(PeerPort) ->
     #{zone         => external,
       protocol     => undefined,
       peerhost     => PeerHost,
@@ -587,7 +587,11 @@ default_clientinfo(#{peername := {PeerHost, PeerPort},
       username     => undefined,
       is_bridge    => false,
       is_superuser => false,
-      mountpoint   => undefined}.
+      mountpoint   => undefined};
+
+default_clientinfo(#{peername := {PeerHost, _},
+                     sockname := {SockHost, SockPort}}) ->
+    default_clientinfo(#{peername => {PeerHost, 0}, sockname => {SockHost, SockPort}}).
 
 stringfy(Reason) ->
     unicode:characters_to_binary((io_lib:format("~0p", [Reason]))).
