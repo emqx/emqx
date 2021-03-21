@@ -398,12 +398,13 @@ take_place(Text, Lwm2mState) ->
 take_place(Text, Placeholder, Value) ->
     binary:replace(Text, Placeholder, Value, [global]).
 
-clientinfo(#lwm2m_state{peername = {PeerHost, _},
+clientinfo(#lwm2m_state{peername = {PeerHost, PeerPort},
                         endpoint_name = EndpointName,
                         mountpoint = Mountpoint}) ->
     #{zone => undefined,
       protocol => lwm2m,
       peerhost => PeerHost,
+      peerport => PeerPort,
       sockport => 5683,         %% FIXME:
       clientid => EndpointName,
       username => undefined,

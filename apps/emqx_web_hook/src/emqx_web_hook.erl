@@ -117,9 +117,8 @@ on_client_connack(ConnInfo = #{clientid := ClientId, username := Username, peern
 %% Client connected
 %%--------------------------------------------------------------------
 
-on_client_connected(#{clientid := ClientId, username := Username, peerhost := Peerhost}, ConnInfo, _Env) ->
+on_client_connected(#{clientid := ClientId, username := Username, peerhost := Peerhost, peerport:= Peerport}, ConnInfo, _Env) ->
     emqx_metrics:inc('webhook.client_connected'),
-    {_, SrcPort} = maps:get(peername, ConnInfo),
     Params = #{ action => client_connected
               , node => node()
               , clientid => ClientId
@@ -128,7 +127,7 @@ on_client_connected(#{clientid := ClientId, username := Username, peerhost := Pe
               , keepalive => maps:get(keepalive, ConnInfo)
               , proto_ver => maps:get(proto_ver, ConnInfo)
               , connected_at => maps:get(connected_at, ConnInfo)
-              , srcport => SrcPort
+              , srcport => Peerport
               },
     send_http_request(ClientId, Params).
 

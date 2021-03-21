@@ -130,6 +130,7 @@
 -type(clientinfo() :: #{zone         := maybe(zone()),
                         protocol     := protocol(),
                         peerhost     := peerhost(),
+                        peerport     := non_neg_integer(),
                         sockport     := non_neg_integer(),
                         clientid     := clientid(),
                         username     := username(),

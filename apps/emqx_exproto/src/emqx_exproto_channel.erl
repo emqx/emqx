@@ -576,11 +576,12 @@ default_conninfo(ConnInfo) ->
               receive_maximum => 0,
               expiry_interval => 0}.
 
-default_clientinfo(#{peername := {PeerHost, _},
+default_clientinfo(#{peername := {PeerHost, PeerPort},
                      sockname := {_, SockPort}}) ->
     #{zone         => external,
       protocol     => undefined,
       peerhost     => PeerHost,
+      peerport     => PeerPort,
       sockport     => SockPort,
       clientid     => undefined,
       username     => undefined,
