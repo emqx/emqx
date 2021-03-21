@@ -359,13 +359,14 @@ stats(#state{sub_topics = SubTopics}) ->
     ProcStats = emqx_misc:proc_stats(),
     lists:append([SockStats, ConnStats, ChanStats, ProcStats]).
 
-clientinfo(#state{peername = {PeerHost, _},
+clientinfo(#state{peername = {PeerHost, PeerPort},
                   clientid = ClientId,
                   username = Username,
                   password = Password}) ->
     #{zone => undefined,
       protocol => coap,
       peerhost => PeerHost,
+      peerport => PeerPort,
       sockport => 5683,      %% FIXME:
       clientid => ClientId,
       username => Username,
