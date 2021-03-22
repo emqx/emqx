@@ -16,3 +16,8 @@ if [ -f 'EMQX_ENTERPRISE' ]; then
 else
     find_app 'lib-ce'
 fi
+
+## find directories in lib-extra
+find_app 'lib-extra'
+## find symlinks in lib-extra
+find 'lib-extra/' -mindepth 1 -maxdepth 1 -type l

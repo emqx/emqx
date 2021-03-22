@@ -6,11 +6,11 @@ external plugins from open-source community.
 The (maybe broken) symlinks are keept to help testing plugins
 in this umbrella project.
 
-## How to build `plugin_foo`
+## Add a plugin to the project
 
 Add `plugin_foo` as a rebar3 dependency in `plugins` file.
 
-e.g.
+e.g. For an Erlang plugin named `plugin_foo`:
 
 ```
 {erlang_plugins,
@@ -19,32 +19,58 @@ e.g.
 }.
 ```
 
-Exeucte command
+## Build a release
 
 ```
-export EMQX_EXTRA_PLUGINS='plugin_foo'
-make
+$ make
 ```
 
-The plugin source code should downloaded to `_build/default/lib/plugin_foo`
+If all goes as expected, there should be two directories in the release:
 
-NOTE: Shallow clone with depth=1 is used for git dependencies.
+```
+_build/emqx/rel/emqx/lib/plugin_foo-<..vsn..>/
+```
 
-## How to test `plugin_foo`
+## Run your code
 
-If the source code in `_build` is already symlinked from `lib-extra/`,
-you may directlly run tests with commands below.
+Start the node (interactive mode)
+
+```
+./_build/emqx/rel/emqx/bin/emqx console
+```
+
+Load the plugin with command:
+
+```
+./_build/emqx/rel/emqx/bin/emqx_ctl plugins load plugin_foo
+```
+
+## Test the plugin
+
+If the plugin is added as a rebar dependency, it should be cloned
+to `_build/default/lib/plugin_foo`.
+
+Before you can test it, you need to make sure there is a symlink
+in `lib-extra` pointing to the clone. For instance, the `emqx_plugin_template`
+plugin is linked like this
+
+`emqx_plugin_template -> ../_build/default/lib/emqx_plugin_template/`
+
+To run its teste cases:
 
 ```bash
 ./rebar3 eunit --dir lib-extra/plugin_foo
-./rebar3 ct --dir lib-extra/plugin_foo
+mkae lib-extra/plugin_foo-ct
 ```
 
-In case the plugin is being actively developed
-it can be cloned to `lib-extra`, e.g. `lib-extra/plugin-bar-dev`
-then it can be tested with commands below:
+NOTE: we should `depth=1` shallow clone into `_build/` directory,
+for plugins being actively developed, you can place the clone in `lib-extra/`
 
-```bash
-./rebar3 eunit --dir lib-extra/plugin-bar-dev
-./rebar3 ct --dir lib-extra/plugin-bar-dev
-```
+## Caveats
+
+* Elixir dependency in Erlang is not quite nicely supported as incremental builds,
+  meaning you will not be able to edit the code in this project and get recompiled
+  in the next `make` command.
+
+* To have the plugin enabled/loaded by default, you can include it in the template
+  `data/loaded_plugins.tmpl`
