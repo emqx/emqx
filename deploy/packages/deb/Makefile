@@ -1,5 +1,6 @@
-# Keep this short to avoid bloating beam files with long file path info
+ARCH ?= amd64
 TOPDIR := /tmp/emqx
+# Keep this short to avoid bloating beam files with long file path info
 SRCDIR := $(TOPDIR)/$(PKG_VSN)
 BUILT := $(SRCDIR)/BUILT
 
@@ -7,7 +8,7 @@ EMQX_NAME=$(subst -pkg,,$(EMQX_BUILD))
 
 TAR_PKG := $(EMQX_REL)/_build/$(EMQX_BUILD)/rel/emqx/emqx-$(PKG_VSN).tar.gz
 SOURCE_PKG := $(EMQX_NAME)_$(PKG_VSN)_$(shell dpkg --print-architecture)
-TARGET_PKG := $(EMQX_NAME)-$(SYSTEM)-$(PKG_VSN)-$(shell uname -m)
+TARGET_PKG := $(EMQX_NAME)-$(SYSTEM)-$(PKG_VSN)-$(ARCH)
 
 .PHONY: all
 all: | $(BUILT)

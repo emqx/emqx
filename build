@@ -28,6 +28,20 @@ elif [ "$(uname -s)" = 'Linux' ]; then
     SYSTEM="$(echo "${DIST}${VERSION_ID}" | sed -r 's/([a-zA-Z]*)-.*/\1/g')"
 fi
 
+ARCH="$(uname -m)"
+case "$ARCH" in
+    x86_64)
+        ARCH='amd64'
+        ;;
+    aarch64)
+        ARCH='arm64'
+        ;;
+    arm*)
+        ARCH=arm
+        ;;
+esac
+export ARCH
+
 ##
 ## Support RPM and Debian based linux systems
 ##
@@ -95,7 +109,7 @@ make_zip() {
         log "ERROR: $tarball is not found"
     fi
     local zipball
-    zipball="${pkgpath}/${PROFILE}-${SYSTEM}-${PKG_VSN}-$(uname -m).zip"
+    zipball="${pkgpath}/${PROFILE}-${SYSTEM}-${PKG_VSN}-${ARCH}.zip"
     tar zxf "${tarball}" -C "${tard}/emqx"
     (cd "${tard}" && zip -qr - emqx) > "${zipball}"
 }
