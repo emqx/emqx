@@ -106,19 +106,25 @@ make dialyzer
 DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 ```
 
-## FAQ
+## Community
+
+### FAQ
 
 Visiting [EMQ X FAQ](https://docs.emqx.io/en/broker/latest/faq/faq.html) to get help of common problems.
 
-## Roadmap
 
-The [EMQ X Roadmap uses Github milestones](https://github.com/emqx/emqx/milestones) to track the progress of the project.
+### Questions
 
-## Community
+[GitHub Discussions](https://github.com/emqx/emqx/discussions) is where you can ask questions, and share ideas.
 
-The EMQ X community can be found on [GitHub Discussions](https://github.com/emqx/emqx/discussions), where you can ask questions, voice ideas, and share your projects.
+### Proposals
 
-To chat with other community members you can join the [EMQ X Slack](https://slack-invite.emqx.io).
+For more organised improvement proposals, you can send pull requests to [EIP](https://github.com/emqx/eip).
+
+### Plugin development
+
+To develop your own plugins, see [lib-extra/README.md](./lib-extra/README.md)
+
 
 ## MQTT Specifications
 
