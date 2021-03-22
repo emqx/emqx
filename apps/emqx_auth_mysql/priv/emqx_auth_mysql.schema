@@ -30,6 +30,11 @@
   {datatype, integer}
 ]}.
 
+{mapping, "auth.mysql.auto_reconnect", "emqx_auth_mysql.server", [
+  {default, 1},
+  {datatype, integer}
+]}.
+
 {mapping, "auth.mysql.query_timeout", "emqx_auth_mysql.server", [
   {default, ""},
   {datatype, string}
@@ -80,6 +85,7 @@
   Passwd = cuttlefish:conf_get("auth.mysql.password", Conf),
   DB = cuttlefish:conf_get("auth.mysql.database", Conf),
   StartUpAttempts = cuttlefish:conf_get("auth.mysql.start_up_attempts", Conf),
+  AutoReconnect = cuttlefish:conf_get("auth.mysql.auto_reconnect", Conf),
   Timeout = case cuttlefish:conf_get("auth.mysql.query_timeout", Conf) of
                 "" -> 300000;
                 Duration ->
@@ -90,7 +96,7 @@
             end,
   Options = [{pool_size, Pool},
              {start_up_attempts, StartUpAttempts},
-             {auto_reconnect, 1},
+             {auto_reconnect, AutoReconnect},
              {host, MyHost},
              {port, MyPort},
              {user, Username},
