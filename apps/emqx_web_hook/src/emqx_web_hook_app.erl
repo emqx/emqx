@@ -60,7 +60,10 @@ translate_env() ->
                                        true -> verify_peer;
                                        false -> verify_none
                                    end,
-                       SNI = application:get_env(?APP, server_name_indication, undefined),
+                       SNI = case application:get_env(?APP, server_name_indication, undefined) of
+                                 "disable" -> disable;
+                                 SNI0 -> SNI0
+                             end,
                        TLSOpts = lists:filter(fun({_K, V}) ->
                                                 V /= <<>> andalso V /= undefined andalso V /= "" andalso true
                                               end, [{keyfile, KeyFile},

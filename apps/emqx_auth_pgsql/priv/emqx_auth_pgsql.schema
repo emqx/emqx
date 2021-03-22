@@ -107,7 +107,10 @@
                         {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
                         {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
                         {verify,     Verify},
-                        {server_name_indication, cuttlefish:conf_get(Prefix ++ ".server_name_indication", Conf, undefined)},
+                        {server_name_indication, case cuttlefish:conf_get(Prefix ++ ".server_name_indication", Conf, undefined) of
+                                                   "disable" -> disable;
+                                                   SNI -> SNI
+                                                 end},
                         {versions, [list_to_existing_atom(Value)
                                     || Value <- string:tokens(cuttlefish:conf_get(Prefix ++ ".tls_versions", Conf), " ,")]}])
             end,

@@ -71,7 +71,10 @@
                  {keyfile, cuttlefish:conf_get("auth.ldap.ssl.keyfile", Conf)},
                  {cacertfile, cuttlefish:conf_get("auth.ldap.ssl.cacertfile", Conf, undefined)},
                  {verify, cuttlefish:conf_get("auth.ldap.ssl.verify", Conf, undefined)},
-                 {server_name_indication, cuttlefish:conf_get("auth.ldap.ssl.server_name_indication", Conf, undefined)}]
+                 {server_name_indication, case cuttlefish:conf_get("auth.ldap.ssl.server_name_indication", Conf, undefined) of
+                                            "disable" -> disable;
+                                            SNI -> SNI
+                                          end}]
               end,
     Opts = [{servers, Servers},
             {port, Port},
