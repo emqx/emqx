@@ -17,7 +17,8 @@
 -module(emqx_plugin_libs_ssl).
 
 -export([save_files_return_opts/2,
-         save_files_return_opts/3
+         save_files_return_opts/3,
+         save_file/2
         ]).
 
 -type file_input_key() :: binary(). %% <<"file">> | <<"filename">>
@@ -41,7 +42,8 @@
 %% @doc Parse ssl options input.
 %% If the input contains file content, save the files in the given dir.
 %% Returns ssl options for Erlang's ssl application.
--spec save_files_return_opts(opts_input(), string(), string() | binary()) -> opts().
+-spec save_files_return_opts(opts_input(), atom() | string() | binary(),
+                             string() | binary()) -> opts().
 save_files_return_opts(Options, SubDir, ResId) ->
     Dir = filename:join([emqx:get_env(data_dir), SubDir, ResId]),
     save_files_return_opts(Options, Dir).
@@ -56,9 +58,9 @@ save_files_return_opts(Options, Dir) ->
     KeyFile = Get(<<"keyfile">>),
     CertFile = Get(<<"certfile">>),
     CAFile = GetD(<<"cacertfile">>, Get(<<"cafile">>)),
-    Key = save_file(KeyFile, Dir),
-    Cert = save_file(CertFile, Dir),
-    CA = save_file(CAFile, Dir),
+    Key = do_save_file(KeyFile, Dir),
+    Cert = do_save_file(CertFile, Dir),
+    CA = do_save_file(CAFile, Dir),
     Verify = case GetD(<<"verify">>, false) of
                   false -> verify_none;
                   _ -> verify_peer
@@ -68,22 +70,30 @@ save_files_return_opts(Options, Dir) ->
     filter([{keyfile, Key}, {certfile, Cert}, {cacertfile, CA},
             {verify, Verify}, {versions, Versions}, {ciphers, Ciphers}]).
 
+%% @doc Save a key or certificate file in data dir,
+%% and return path of the saved file.
+%% empty string is returned if the input is empty.
+-spec save_file(file_input(), atom() | string() | binary()) -> string().
+save_file(Param, SubDir) ->
+   Dir = filename:join([emqx:get_env(data_dir), SubDir]),
+   do_save_file( Param, Dir).
+
 filter([]) -> [];
 filter([{_, ""} | T]) -> filter(T);
 filter([H | T]) -> [H | filter(T)].
 
-save_file(#{<<"filename">> := FileName, <<"file">> := Content}, Dir)
+do_save_file(#{<<"filename">> := FileName, <<"file">> := Content}, Dir)
   when FileName =/= undefined andalso Content =/= undefined ->
-    save_file(ensure_str(FileName), iolist_to_binary(Content), Dir);
-save_file(FilePath, _) when is_binary(FilePath) ->
+    do_save_file(ensure_str(FileName), iolist_to_binary(Content), Dir);
+do_save_file(FilePath, _) when is_binary(FilePath) ->
     ensure_str(FilePath);
-save_file(FilePath, _) when is_list(FilePath) ->
+do_save_file(FilePath, _) when is_list(FilePath) ->
     FilePath;
-save_file(_, _) -> "".
+do_save_file(_, _) -> "".
 
-save_file("", _, _Dir) -> ""; %% ignore
-save_file(_, <<>>, _Dir) -> ""; %% ignore
-save_file(FileName, Content, Dir) ->
+do_save_file("", _, _Dir) -> ""; %% ignore
+do_save_file(_, <<>>, _Dir) -> ""; %% ignore
+do_save_file(FileName, Content, Dir) ->
      FullFilename = filename:join([Dir, FileName]),
      ok = filelib:ensure_dir(FullFilename),
      case file:write_file(FullFilename, Content) of
