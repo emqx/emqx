@@ -567,7 +567,7 @@ options(Options, PoolName, ResId) ->
 maybe_ssl(_Options, false, _ResId) ->
     [];
 maybe_ssl(Options, true, ResId) ->
-    Dir = filename:join([emqx:get_env(data_dir), "rule", ResId]),
+    Dir = filename:join([emqx:get_env(data_dir), "rules", ResId]),
     [{ssl, true}, {ssl_opts, emqx_plugin_libs_ssl:save_files_return_opts(Options, Dir)}].
 
 mqtt_ver(ProtoVer) ->
