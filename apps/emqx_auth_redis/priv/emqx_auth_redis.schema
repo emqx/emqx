@@ -55,7 +55,7 @@
   {datatype, {enum, [true, false]}}
 ]}.
 
-{mapping, "auth.redis.ssl.server_name_indication", "emqx_auth_redis.server_name_indication", [
+{mapping, "auth.redis.ssl.server_name_indication", "emqx_auth_redis.options", [
   {datatype, string}
 ]}.
 

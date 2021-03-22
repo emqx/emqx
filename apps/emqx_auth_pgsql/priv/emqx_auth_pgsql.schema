@@ -57,7 +57,7 @@
   {datatype, {enum, [true, false]}}
 ]}.
 
-{mapping, "auth.pgsql.ssl.server_name_indication", "emqx_auth_pgsql.server_name_indication", [
+{mapping, "auth.pgsql.ssl.server_name_indication", "emqx_auth_pgsql.server", [
   {datatype, string}
 ]}.
 

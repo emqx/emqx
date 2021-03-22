@@ -57,7 +57,7 @@
   {datatype, {enum, [true, false]}}
 ]}.
 
-{mapping, "auth.mysql.ssl.server_name_indication", "emqx_auth_mysql.server_name_indication", [
+{mapping, "auth.mysql.ssl.server_name_indication", "emqx_auth_mysql.server", [
   {datatype, string}
 ]}.
 
