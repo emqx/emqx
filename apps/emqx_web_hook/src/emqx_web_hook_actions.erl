@@ -346,8 +346,7 @@ pool_name(ResId) ->
     list_to_atom("webhook:" ++ str(ResId)).
 
 get_ssl_opts(Opts, ResId) ->
-    Dir = filename:join([emqx:get_env(data_dir), "rules", ResId]),
-    [{ssl, true}, {ssl_opts, emqx_plugin_libs_ssl:save_files_return_opts(Opts, Dir)}].
+    [{ssl, true}, {ssl_opts, emqx_plugin_libs_ssl:save_files_return_opts(Opts, "rules", ResId)}].
 
 parse_host(Host) ->
     case inet:parse_address(Host) of
