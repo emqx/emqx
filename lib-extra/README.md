@@ -22,6 +22,7 @@ e.g. For an Erlang plugin named `plugin_foo`:
 ## Build a release
 
 ```
+$ export EMQX_EXTRA_PLUGINS=plugin_foo,plugin_bar
 $ make
 ```
 
