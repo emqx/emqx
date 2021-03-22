@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-ELVIS_VERSION='1.0.0-emqx-1'
+ELVIS_VERSION='1.0.0-emqx-2'
 
 base="${1:-}"
 if [ "${base}" = "" ]; then
