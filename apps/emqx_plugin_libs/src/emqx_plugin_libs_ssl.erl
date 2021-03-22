@@ -16,7 +16,9 @@
 
 -module(emqx_plugin_libs_ssl).
 
--export([save_files_return_opts/2]).
+-export([save_files_return_opts/2,
+         save_files_return_opts/3
+        ]).
 
 -type file_input_key() :: binary(). %% <<"file">> | <<"filename">>
 -type file_input() :: #{file_input_key() => binary()}.
@@ -35,6 +37,14 @@
 -type opt_key() :: keyfile | certfile | cacertfile | verify | versions | ciphers.
 -type opt_value() :: term().
 -type opts() :: [{opt_key(), opt_value()}].
+
+%% @doc Parse ssl options input.
+%% If the input contains file content, save the files in the given dir.
+%% Returns ssl options for Erlang's ssl application.
+-spec save_files_return_opts(opts_input(), string(), string() | binary()) -> opts().
+save_files_return_opts(Options, SubDir, ResId) ->
+    Dir = filename:join([emqx:get_env(data_dir), SubDir, ResId]),
+    save_files_return_opts(Options, Dir).
 
 %% @doc Parse ssl options input.
 %% If the input contains file content, save the files in the given dir.
