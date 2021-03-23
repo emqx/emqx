@@ -33,6 +33,7 @@
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
+    set_backtrace_depth(),
     print_otp_version_warning(),
     print_banner(),
     ekka:start(),
@@ -40,8 +41,7 @@ start(_Type, _Args) ->
     ok = start_autocluster(),
     ok = emqx_plugins:init(),
     _ = emqx_plugins:load(),
-    emqx_boot:is_enabled(listeners)
-      andalso (ok = emqx_listeners:start()),
+    emqx_boot:is_enabled(listeners) andalso (ok = emqx_listeners:start()),
     register(emqx, self()),
     ok = emqx_alarm_handler:load(),
     print_vsn(),
@@ -52,6 +52,11 @@ stop(_State) ->
     ok = emqx_alarm_handler:unload(),
     emqx_boot:is_enabled(listeners)
       andalso emqx_listeners:stop().
+
+set_backtrace_depth() ->
+    Depth = application:get_env(?APP, backtrace_depth, 16),
+    _ = erlang:system_flag(backtrace_depth, Depth),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Print Banner
