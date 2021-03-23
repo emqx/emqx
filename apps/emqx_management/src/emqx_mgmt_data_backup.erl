@@ -268,13 +268,12 @@ compatible_version(#{<<"id">> := ID,
                     CovertFun = fun(Int) ->
                         list_to_binary(integer_to_list(Int) ++ "s")
                     end,
-                    Cfg = make_new_config(#{<<"method">> => Method,
-                                            <<"pool_size">> => PoolSize,
+                    Cfg = make_new_config(#{<<"pool_size">> => PoolSize,
                                             <<"connect_timeout">> => CovertFun(ConnectTimeout),
                                             <<"request_timeout">> => CovertFun(RequestTimeout),
                                             <<"url">> => URL}),
                     {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
-                    NHeaders = maps:put(<<"content-type">>, ContentType, Headers),
+                    NHeaders = maps:put(<<"content-type">>, ContentType, covert_empty_headers(Headers)),
                     [{ID, #{headers => NHeaders, method => Method}} | Acc];
 % 4.2.0
 compatible_version(#{<<"id">> := ID,
@@ -282,14 +281,9 @@ compatible_version(#{<<"id">> := ID,
                      <<"config">> := #{<<"headers">> := Headers,
                                        <<"method">> := Method,%% 4.2.0 Different here
                                        <<"url">> := URL}} = Resource, Acc) ->
-                    Cfg = make_new_config(#{<<"method">> => Method,
-                                            <<"url">> => URL}),
+                    Cfg = make_new_config(#{<<"url">> => URL}),
                     {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
-                    NHeaders = maps:put(<<"content-type">>, <<"application/json">> ,
-                                                                    case Headers of
-                                                                        [] -> #{};
-                                                                        Other -> Other
-                                                                    end),
+                    NHeaders = maps:put(<<"content-type">>, <<"application/json">> , covert_empty_headers(Headers)),
                     [{ID, #{headers => NHeaders, method => Method}} | Acc];
 
 %% bridge mqtt
@@ -315,10 +309,9 @@ compatible_version(#{<<"id">> := ID,
                                       <<"content_type">> := ContentType,%% 4.2.3 Different here
                                       <<"method">> := Method,
                                       <<"url">> := URL}} = Resource, Acc) ->
-                    Cfg = make_new_config(#{<<"method">> => Method,
-                                            <<"url">> => URL}),
+                    Cfg = make_new_config(#{<<"url">> => URL}),
                     {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
-                    NHeaders = maps:put(<<"content-type">>, ContentType, Headers),
+                    NHeaders = maps:put(<<"content-type">>, ContentType, covert_empty_headers(Headers)),
                     [{ID, #{headers => NHeaders, method => Method}} | Acc];
 % normal version
 compatible_version(Resource, Acc) ->
@@ -327,8 +320,8 @@ compatible_version(Resource, Acc) ->
 
 make_new_config(Cfg) ->
     Config = #{<<"pool_size">> => 8,
-               <<"connect_timeout">> => <<"3s">>,
-               <<"request_timeout">> => <<"3s">>,
+               <<"connect_timeout">> => <<"5s">>,
+               <<"request_timeout">> => <<"5s">>,
                <<"cacertfile">> => <<>>,
                <<"certfile">> => <<>>,
                <<"keyfile">> => <<>>,
@@ -649,3 +642,9 @@ do_import_extra_data(Data, _Version) ->
 -else.
 do_import_extra_data(_Data, _Version) -> ok.
 -endif.
+
+covert_empty_headers(Headers) ->
+    case Headers of
+        [] -> #{};
+        Other -> Other
+    end.
