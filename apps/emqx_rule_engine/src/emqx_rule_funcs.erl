@@ -512,12 +512,10 @@ map(Data) ->
     emqx_rule_utils:map(Data).
 
 bin2hexstr(Bin) when is_binary(Bin) ->
-    IntL = binary_to_list(Bin),
-    list_to_binary([io_lib:format("~2.16.0B", [Int]) || Int <- IntL]).
+    emqx_misc:bin2hexstr(Bin).
 
 hexstr2bin(Str) when is_binary(Str) ->
-    list_to_binary([binary_to_integer(W, 16) || <<W:2/binary>> <= Str]).
-
+    emqx_misc:hexstr2bin(Str).
 
 %%------------------------------------------------------------------------------
 %% NULL Funcs
@@ -776,14 +774,7 @@ sha256(S) when is_binary(S) ->
     hash(sha256, S).
 
 hash(Type, Data) ->
-    hexstring(crypto:hash(Type, Data)).
-
-hexstring(<<X:128/big-unsigned-integer>>) ->
-    iolist_to_binary(io_lib:format("~32.16.0b", [X]));
-hexstring(<<X:160/big-unsigned-integer>>) ->
-    iolist_to_binary(io_lib:format("~40.16.0b", [X]));
-hexstring(<<X:256/big-unsigned-integer>>) ->
-    iolist_to_binary(io_lib:format("~64.16.0b", [X])).
+    emqx_misc:bin2hexstr(crypto:hash(Type, Data)).
 
 %%------------------------------------------------------------------------------
 %% Data encode and decode Funcs

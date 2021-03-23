@@ -273,7 +273,7 @@ clientinfo(ClientInfo =
 
 message(#message{id = Id, qos = Qos, from = From, topic = Topic, payload = Payload, timestamp = Ts}) ->
     #{node => stringfy(node()),
-      id => hexstr(Id),
+      id => emqx_guid:to_hexstr(Id),
       qos => Qos,
       from => stringfy(From),
       topic => Topic,
@@ -303,12 +303,6 @@ stringfy(Term) when is_atom(Term) ->
     atom_to_binary(Term, utf8);
 stringfy(Term) ->
     unicode:characters_to_binary((io_lib:format("~0p", [Term]))).
-
-hexstr(B) ->
-    << <<(hexchar(H)), (hexchar(L))>> || <<H:4, L:4>> <= B>>.
-
-hexchar(I) when I >= 0 andalso I < 10 -> I + $0;
-hexchar(I) -> I - 10 + $A.
 
 %%--------------------------------------------------------------------
 %% Acc funcs
