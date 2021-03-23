@@ -84,17 +84,23 @@
     certfile => #{order => 7,
                   type => file,
                   default => <<"">>,
-                  title =>#{en => <<"SSL Cert">>,
-                            zh => <<"SSL Cert"/utf8>>},
+                  title => #{en => <<"SSL Cert">>,
+                             zh => <<"SSL Cert"/utf8>>},
                   description => #{en => <<"Your ssl certfile">>,
                                    zh => <<"SSL 证书"/utf8>>}},
     verify => #{order => 8,
                 type => boolean,
                 default => false,
-                title =>#{en => <<"Verify Server Certfile">>,
-                          zh => <<"校验服务器证书"/utf8>>},
+                title => #{en => <<"Verify Server Certfile">>,
+                           zh => <<"校验服务器证书"/utf8>>},
                 description => #{en => <<"Whether to verify the server certificate. By default, the client will not verify the server's certificate. If verification is required, please set it to true.">>,
-                                 zh => <<"是否校验服务器证书。 默认客户端不会去校验服务器的证书，如果需要校验，请设置成true。"/utf8>>}}
+                                 zh => <<"是否校验服务器证书。 默认客户端不会去校验服务器的证书，如果需要校验，请设置成true。"/utf8>>}},
+    server_name_indication => #{order => 9,
+                                type => string,
+                                title => #{en => <<"Server Name Indication">>,
+                                           zh => <<"服务器名称指示"/utf8>>},
+                                description => #{en => <<"Specify the hostname used for peer certificate verification, or set to disable to turn off this verification.">>,
+                                                 zh => <<"指定用于对端证书验证时使用的主机名，或者设置为 disable 以关闭此项验证。"/utf8>>}}
 }).
 
 -define(ACTION_PARAM_RESOURCE, #{

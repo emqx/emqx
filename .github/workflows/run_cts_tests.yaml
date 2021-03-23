@@ -82,9 +82,11 @@ jobs:
           docker-compose -f .ci/compatibility_tests/docker-compose-mongo-tls.yaml up -d
           cat <<-EOF >> "$GITHUB_ENV"
           EMQX_AUTH__MONGO__SSL=on
-          EMQX_AUTH__MONGO__CACERTFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem
-          EMQX_AUTH__MONGO__CERTFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem
-          EMQX_AUTH__MONGO__KEYFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem
+          EMQX_AUTH__MONGO__SSL__CACERTFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem
+          EMQX_AUTH__MONGO__SSL__CERTFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem
+          EMQX_AUTH__MONGO__SSL__KEYFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem
+          EMQX_AUTH__MONGO__SSL__VERIFY=true
+          EMQX_AUTH__MONGO__SSL__SERVER_NAME_INDICATION=disable
           EOF
       - name: setup
         env:
@@ -148,6 +150,8 @@ jobs:
             EMQX_AUTH__MYSQL__SSL__CACERTFILE=/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem
             EMQX_AUTH__MYSQL__SSL__CERTFILE=/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem
             EMQX_AUTH__MYSQL__SSL__KEYFILE=/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-key.pem
+            EMQX_AUTH__MYSQL__SSL__VERIFY=true
+            EMQX_AUTH__MYSQL__SSL__SERVER_NAME_INDICATION=disable
           EOF
       - name: setup
         env:
@@ -214,7 +218,11 @@ jobs:
           docker-compose -f .ci/compatibility_tests/docker-compose-pgsql-tls.yaml up -d
           cat <<-EOF >> "$GITHUB_ENV"
           EMQX_AUTH__PGSQL__SSL=on
-          EMQX_AUTH__PGSQL__SSL__CACERTFILE=/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/root.crt
+          EMQX_AUTH__PGSQL__SSL__CACERTFILE=/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/ca.pem
+          EMQX_AUTH__PGSQL__SSL__CERTFILE=/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/client-cert.pem
+          EMQX_AUTH__PGSQL__SSL__KEYFILE=/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/client-key.pem
+          EMQX_AUTH__PGSQL__SSL__VERIFY=true
+          EMQX_AUTH__PGSQL__SSL__SERVER_NAME_INDICATION=disable
           EOF
       - name: setup
         env:
@@ -288,6 +296,8 @@ jobs:
           EMQX_AUTH__REDIS__SSL__CACERTFILE=/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/ca.crt
           EMQX_AUTH__REDIS__SSL__CERTFILE=/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.crt
           EMQX_AUTH__REDIS__SSL__KEYFILE=/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.key
+          EMQX_AUTH__REDIS__SSL__VERIFY=true
+          EMQX_AUTH__REDIS__SSL__SERVER_NAME_INDICATION=disable
           EOF
       - name: setup
         env:

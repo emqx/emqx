@@ -19,7 +19,7 @@ echo "elvis -v: $elvis_version"
 echo "git diff base: $base"
 
 if [ ! -f ./elvis ] || [ "$(./elvis -v | grep -oE '[1-9]+\.[0-9]+\.[0-9]+\-emqx-[0-9]+')" != "$elvis_version" ]; then
-    curl  -fLO "https://github.com/emqx/elvis/releases/download/$elvis_version/elvis"
+    curl  --silent --show-error -fLO "https://github.com/emqx/elvis/releases/download/$elvis_version/elvis"
     chmod +x ./elvis
 fi
 
@@ -27,7 +27,11 @@ if [[ "$base" =~ [0-9a-f]{8,40} ]]; then
     # base is a commit sha1
     compare_base="$base"
 else
-    remote="$(git remote -v | grep -E 'github\.com(.|/)emqx' | grep fetch | awk '{print $1}')"
+    if [[ $CI == true ]];then
+        remote="$(git remote -v | grep -E "github\.com(.|/)$GITHUB_REPOSITORY" | grep fetch | awk '{print $1}')"
+    else
+        remote="$(git remote -v | grep -E 'github\.com(.|/)emqx' | grep fetch | awk '{print $1}')"
+    fi
     git fetch "$remote" "$base"
     compare_base="$remote/$base"
 fi
