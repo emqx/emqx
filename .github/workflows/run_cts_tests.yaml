@@ -203,7 +203,7 @@ jobs:
           docker-compose -f .ci/compatibility_tests/docker-compose-pgsql-tls.yaml up -d
           cat <<-EOF >> "$GITHUB_ENV"
           EMQX_AUTH__PGSQL__SSL=on
-          EMQX_AUTH__PGSQL__SSL__CACERTFILE=/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/root.crt
+          EMQX_AUTH__PGSQL__SSL__CACERTFILE=/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/ca.pem
           EMQX_AUTH__PGSQL__SSL__VERIFY=true
           EMQX_AUTH__PGSQL__SSL__SERVER_NAME_INDICATION=disable
           EOF
