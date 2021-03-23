@@ -137,7 +137,7 @@ npid() ->
     NPid.
 
 to_hexstr(I) when byte_size(I) =:= 16 ->
-    emqx_misc:bin2hexstr(I).
+    emqx_misc:bin2hexstr_A_F(I).
 
 from_hexstr(S) when byte_size(S) =:= 32 ->
     emqx_misc:hexstr2bin(S).
