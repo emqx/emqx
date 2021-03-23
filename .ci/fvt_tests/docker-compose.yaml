@@ -46,7 +46,7 @@ services:
         sed -i '/emqx_telemetry/d' /opt/emqx/data/loaded_plugins
         /opt/emqx/bin/emqx foreground
     healthcheck:
-      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
+      test: ["CMD", "/opt/emqx/bin/emqx", "ping"]
       interval: 5s
       timeout: 25s
       retries: 5

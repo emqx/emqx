@@ -262,6 +262,8 @@ fi
 
 if [ -z "$NAME_ARG" ]; then
     NODENAME="${EMQX_NODE_NAME:-}"
+    # compatible with docker entrypoint
+    [ -z "$NODENAME" ] && [ -n "$EMQX_NAME" ] && [ -n "$EMQX_HOST" ] && NODENAME="${EMQX_NAME}@${EMQX_HOST}"
     [ -z "$NODENAME" ] && NODENAME=$(grep -E '^[ \t]*node.name[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-)
     if [ -z "$NODENAME" ]; then
         echoerr "vm.args needs to have a -name parameter."
