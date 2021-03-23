@@ -161,4 +161,4 @@ handler_name(Bin) ->
     end.
 
 hashstr(Bin) ->
-    binary_to_list(emqx_misc:bin2hexstr(Bin)).
+    binary_to_list(emqx_misc:bin2hexstr_A_F(Bin)).

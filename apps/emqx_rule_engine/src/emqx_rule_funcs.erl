@@ -512,7 +512,7 @@ map(Data) ->
     emqx_rule_utils:map(Data).
 
 bin2hexstr(Bin) when is_binary(Bin) ->
-    emqx_misc:bin2hexstr(Bin).
+    emqx_misc:bin2hexstr_A_F(Bin).
 
 hexstr2bin(Str) when is_binary(Str) ->
     emqx_misc:hexstr2bin(Str).
@@ -774,7 +774,7 @@ sha256(S) when is_binary(S) ->
     hash(sha256, S).
 
 hash(Type, Data) ->
-    emqx_misc:bin2hexstr(crypto:hash(Type, Data)).
+    emqx_misc:bin2hexstr_a_f(crypto:hash(Type, Data)).
 
 %%------------------------------------------------------------------------------
 %% Data encode and decode Funcs
