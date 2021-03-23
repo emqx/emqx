@@ -55,6 +55,7 @@ jobs:
     runs-on: windows-2019
 
     needs: prepare
+    if: endsWith(github.repository, 'emqx')
 
     strategy:
       matrix:
@@ -91,16 +92,20 @@ jobs:
         cd source
         ## We do not build/release bcrypt for windows package
         Remove-Item -Recurse -Force -Path _build/default/lib/bcrypt/
-        Remove-Item -Force -Path rebar.lock
+        if (Test-Path rebar.lock) {
+            Remove-Item -Force -Path rebar.lock
+        }
         make ${{ matrix.profile }}
         mkdir -p _packages/${{ matrix.profile }}
         Compress-Archive -Path _build/${{ matrix.profile }}/rel/emqx -DestinationPath _build/${{ matrix.profile }}/rel/$pkg_name
         mv _build/${{ matrix.profile }}/rel/$pkg_name _packages/${{ matrix.profile }}
         Get-FileHash -Path "_packages/${{ matrix.profile }}/$pkg_name" | Format-List | grep 'Hash' | awk '{print $3}'  > _packages/${{ matrix.profile }}/$pkg_name.sha256
     - name: run emqx
+      timeout-minutes: 1
       run: |
         cd source
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
+        Start-Sleep -s 5
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
@@ -348,7 +353,7 @@ jobs:
 
   delete-artifact:
     runs-on: ubuntu-20.04
-    needs: [prepare, windows, mac, linux, docker]
+    needs: [prepare, mac, linux, docker]
     steps:
     - uses: geekyeggo/delete-artifact@v1
       with:
@@ -359,7 +364,7 @@ jobs:
 
     if: startsWith(github.ref, 'refs/tags/')
 
-    needs: [prepare, windows, mac, linux, docker]
+    needs: [prepare, mac, linux, docker]
 
     strategy:
       matrix:

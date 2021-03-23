@@ -138,7 +138,6 @@ jobs:
             emqx2=$(kubectl get pods emqx-2 -o jsonpath='{.status.podIP}')
 
             pytest -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host $emqx_svc
-            pytest -v paho.mqtt.testing/interoperability/test_client --host $emqx_svc
             pytest -v paho.mqtt.testing/interoperability/test_cluster --host1 $emqx1 --host2 $emqx2
 
     relup_test:
