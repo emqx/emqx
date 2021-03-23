@@ -262,9 +262,6 @@ fi
 
 if [ -z "$NAME_ARG" ]; then
     NODENAME="${EMQX_NODE_NAME:-}"
-    # check if there is a node running, inspect its name
-    # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
-    [ -z "$NODENAME" ] && NODENAME=$(ps -ef | grep -E '\-progname\s.*emqx\s' | grep -o -E '\-name (\S*)' | awk '{print $2}')
     [ -z "$NODENAME" ] && NODENAME=$(grep -E '^[ \t]*node.name[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-)
     if [ -z "$NODENAME" ]; then
         echoerr "vm.args needs to have a -name parameter."
@@ -287,9 +284,6 @@ PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 # Extract the target cookie
 if [ -z "$COOKIE_ARG" ]; then
     COOKIE="${EMQX_NODE_COOKIE:-}"
-    # check if there is a node running, steal its cookie
-    # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
-    [ -z "$COOKIE" ] && COOKIE=$(ps -ef | grep -E '\-progname\s.*emqx\s' | grep -o -E '\-setcookie (\S*)' | awk '{print $2}')
     [ -z "$COOKIE" ] && COOKIE=$(grep -E '^[ \t]*node.cookie[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-)
     if [ -z "$COOKIE" ]; then
         echoerr "vm.args needs to have a -setcookie parameter."
