@@ -212,8 +212,8 @@ map_to_action(Map = #{<<"id">> := ActionInstId, <<"name">> := Name, <<"args">> :
 -endif.
 
 import_rules(Rules) ->
-    lists:foreach(fun(Resource) ->
-                      import_resource(Resource)
+    lists:foreach(fun(Rule) ->
+                      import_rule(Rule)
                   end, Rules).
 
 import_resources(Reources) ->
@@ -242,7 +242,9 @@ import_resources_and_rules(Resources, Rules, _FromVersion) ->
     import_rules(Rules).
 -else.
 import_resources_and_rules(Resources, Rules, FromVersion)
-  when FromVersion =:= "4.0" orelse FromVersion =:= "4.1" orelse FromVersion =:= "4.2" ->
+  when FromVersion =:= "4.0" orelse
+       FromVersion =:= "4.1" orelse
+       FromVersion =:= "4.2" ->
     Configs = lists:foldl(fun compatible_version/2 , [], Resources),
     lists:foreach(fun(#{<<"actions">> := Actions} = Rule) ->
                       NActions = apply_new_config(Actions, Configs),
@@ -252,7 +254,6 @@ import_resources_and_rules(Resources, Rules, FromVersion)
 import_resources_and_rules(Resources, Rules, _FromVersion) ->
     import_resources(Resources),
     import_rules(Rules).
-
 
 %% 4.2.5 +
 compatible_version(#{<<"id">> := ID,
@@ -284,9 +285,30 @@ compatible_version(#{<<"id">> := ID,
                     Cfg = make_new_config(#{<<"method">> => Method,
                                             <<"url">> => URL}),
                     {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
-                    NHeaders = maps:put(<<"content-type">>, <<"application/json">> , Headers),
+                    NHeaders = maps:put(<<"content-type">>, <<"application/json">> ,
+                                                                    case Headers of
+                                                                        [] -> #{};
+                                                                        Other -> Other
+                                                                    end),
                     [{ID, #{headers => NHeaders, method => Method}} | Acc];
-% 4.2.3
+
+%% bridge mqtt
+%% 4.2.0 - 4.2.5 bridge_mqtt, ssl enabled from on/off to true/false
+compatible_version(#{<<"type">> := <<"bridge_mqtt">>,
+                     <<"id">> := ID, %% begin 4.2.0.
+                     <<"config">> := #{<<"ssl">> := Ssl} = Config} = Resource, Acc) ->
+                     F = fun(B) ->
+                         case B of
+                               <<"on">> -> true;
+                               <<"off">> -> false;
+                               Other -> Other
+                         end
+                     end,
+                    NewConfig = Config#{<<"ssl">> := F(Ssl)},
+                    {ok, _Resource} = import_resource(Resource#{<<"config">> := NewConfig}),
+                    [{ID, NewConfig} | Acc];
+
+% 4.2.3, add :content_type
 compatible_version(#{<<"id">> := ID,
                     <<"type">> := <<"web_hook">>,
                     <<"config">> := #{<<"headers">> := Headers,
@@ -310,7 +332,7 @@ make_new_config(Cfg) ->
                <<"cacertfile">> => <<>>,
                <<"certfile">> => <<>>,
                <<"keyfile">> => <<>>,
-               <<"verify">> => true},
+               <<"verify">> => false},
     maps:merge(Cfg, Config).
 
 apply_new_config(Actions, Configs) ->
@@ -597,7 +619,7 @@ import(Filename) ->
                         logger:debug("The emqx data has been imported successfully"),
                         ok
                     catch Class:Reason:Stack ->
-                        logger:error("The emqx data import failed: ~0p", [{Class,Reason,Stack}]),
+                        logger:error("The emqx data import failed: ~0p", [{Class, Reason, Stack}]),
                         {error, import_failed}
                     end;
                 false ->
