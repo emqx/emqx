@@ -161,9 +161,4 @@ handler_name(Bin) ->
     end.
 
 hashstr(Bin) ->
-    hexstr(crypto:hash(sha, Bin)).
-
-hexstr(Bin) ->
-    lists:flatten(
-        [io_lib:format("~2.16.0B", [Int])
-         || Int <- binary_to_list(Bin)]).
+    binary_to_list(emqx_misc:bin2hexstr(Bin)).
