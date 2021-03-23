@@ -1,5 +1,4 @@
 # Keep this short to avoid bloating beam files with long file path info
-ARCH ?= amd64
 TOPDIR := /tmp/emqx
 SRCDIR := $(TOPDIR)/$(PKG_VSN)
 BUILT := $(SRCDIR)/BUILT
@@ -9,6 +8,7 @@ space := $(none) $(none)
 RPM_VSN ?= $(shell echo $(PKG_VSN) | grep -oE "[0-9]+\.[0-9]+(\.[0-9]+)?")
 RPM_REL ?= $(shell echo $(PKG_VSN) | grep -oE "(alpha|beta|rc)\.[0-9]")
 
+ARCH ?= amd64
 ifeq ($(ARCH),mips64)
 ARCH:=mips64el
 endif
