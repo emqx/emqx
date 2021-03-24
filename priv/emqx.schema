@@ -933,10 +933,11 @@ end}.
 ]}.
 
 %% @doc Max number of QoS 1 and 2 messages that can be “inflight” at one time.
-%% 0 means no limit
+%% 0 is equivalent to maximum allowed
 {mapping, "zone.$name.max_inflight", "emqx.zones", [
   {default, 0},
   {datatype, integer}
+  {validators, ["range:1-32767"]},
 ]}.
 
 %% @doc Retry interval for redelivering QoS1/2 messages.
