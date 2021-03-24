@@ -280,12 +280,13 @@ if [ -z "$NAME_ARG" ]; then
     [ -z "$NODENAME" ] && [ -n "$EMQX_NAME" ] && [ -n "$EMQX_HOST" ] && NODENAME="${EMQX_NAME}@${EMQX_HOST}"
     if [ -z "$NODENAME" ] && [ "$IS_BOOT_COMMAND" = 'no' ]; then
         # for non-boot commands, inspect vm.<time>.args for node name
+        # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $RUNNER_DATA_DIR/configs/vm.*.args | head -1)"
         if [ -z "$LATEST_VM_ARGS" ]; then
             echo "For command $1, there is no vm.*.args config file found in $RUNNER_DATA_DIR/configs/"
             exit 1
         fi
-        NODENAME="$(grep -E '^-name' $LATEST_VM_ARGS | awk '{print $2}')"
+        NODENAME="$(grep -E '^-name' "$LATEST_VM_ARGS" | awk '{print $2}')"
     else
         # for boot commands, inspect emqx.conf for node name
         NODENAME=$(grep -E '^[ \t]*node.name[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2-)
@@ -316,12 +317,13 @@ PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 # or inspect vm.<time>.args
 COOKIE="${EMQX_NODE_COOKIE:-}"
 if [ -z "$COOKIE" ] && [ "$IS_BOOT_COMMAND" = 'no' ]; then
+    # shellcheck disable=SC2012,SC2086
     LATEST_VM_ARGS="$(ls -t $RUNNER_DATA_DIR/configs/vm.*.args | head -1)"
     if [ -z "$LATEST_VM_ARGS" ]; then
         echo "For command $1, there is no vm.*.args config file found in $RUNNER_DATA_DIR/configs/"
         exit 1
     fi
-    COOKIE="$(grep -E '^-setcookie' $LATEST_VM_ARGS | awk '{print $2}')"
+    COOKIE="$(grep -E '^-setcookie' "$LATEST_VM_ARGS" | awk '{print $2}')"
     if [ -z "$COOKIE" ]; then
         echoerr "Please set node.cookie in $RUNNER_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE_COOKIE"
         exit 1
