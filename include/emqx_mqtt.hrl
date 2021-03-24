@@ -182,6 +182,8 @@
 -define(MAX_PACKET_SIZE, 16#FFFFFFF).
 -define(MAX_TOPIC_AlIAS, 16#FFFF).
 
+-define(MAX_INFLIGHT_HARD_LIMIT, 32767).
+
 %%--------------------------------------------------------------------
 %% MQTT Frame Mask
 %%--------------------------------------------------------------------

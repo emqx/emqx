@@ -1142,9 +1142,13 @@ expiry_interval(Zone, #mqtt_packet_connect{clean_start = false}) ->
 expiry_interval(_Zone, #mqtt_packet_connect{clean_start = true}) ->
     0.
 
--compile({inline, [receive_maximum/2]}).
 receive_maximum(Zone, ConnProps) ->
-    emqx_mqtt_props:get('Receive-Maximum', ConnProps, emqx_zone:max_inflight(Zone)).
+    MaxInflightConfig = case emqx_zone:max_inflight(Zone) of
+                            0 -> ?MAX_INFLIGHT_HARD_LIMIT;
+                            N -> N
+                        end,
+    MaxByClient = emqx_mqtt_props:get('Receive-Maximum', ConnProps, MaxInflightConfig),
+    erlang:min(MaxByClient, MaxInflightConfig).
 
 %%--------------------------------------------------------------------
 %% Run Connect Hooks
