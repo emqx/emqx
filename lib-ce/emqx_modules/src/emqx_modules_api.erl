@@ -67,6 +67,7 @@
             descr  => "Reload a module in the cluster"}).
 
 -export([ list/2
+        , list_modules/1
         , load/2
         , unload/2
         , reload/2
