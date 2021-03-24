@@ -131,4 +131,11 @@ $1: $(subst -pkg,,$1)-zip $1-tar
 endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
 
+.PHONY: run
+run: $(PROFILE) quickrun
+
+.PHONY: quickrun
+quickrun:
+	./_build/$(PROFILE)/rel/emqx/bin/emqx console
+
 include docker.mk
