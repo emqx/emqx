@@ -1049,13 +1049,14 @@ t_asleep_test03_to_awake_qos1_dl_msg(_) ->
 
     % goto awake state, receive downlink messages, and go back to asleep
     send_pingreq_msg(Socket, ClientId),
-    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
 
-    %% {unexpected_udp_data, _} = receive_response(Socket),
-
+    %% the broker should sent dl msgs to the awake client before sending the pingresp
     UdpData = receive_response(Socket),
     MsgId_udp = check_publish_msg_on_udp({Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId1, Payload1}, UdpData),
     send_puback_msg(Socket, TopicId1, MsgId_udp),
+
+    %% check the pingresp is received at last
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
 
     gen_udp:close(Socket).
 
@@ -1106,8 +1107,6 @@ t_asleep_test04_to_awake_qos1_dl_msg(_) ->
     % goto awake state, receive downlink messages, and go back to asleep
     send_pingreq_msg(Socket, <<"test">>),
 
-    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
-
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% get REGISTER first, since this topic has never been registered
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1118,6 +1117,8 @@ t_asleep_test04_to_awake_qos1_dl_msg(_) ->
     UdpData = receive_response(Socket),
     MsgId_udp = check_publish_msg_on_udp({Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload1}, UdpData),
     send_puback_msg(Socket, TopicIdNew, MsgId_udp),
+
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
 
     gen_udp:close(Socket).
 
@@ -1171,9 +1172,13 @@ t_asleep_test05_to_awake_qos1_dl_msg(_) ->
     ok = emqtt:disconnect(C),
     timer:sleep(50),
 
+    % dbg:tracer(),
+    % dbg:p(all, c),
+    % dbg:tpl(emqx_session, dequeue, 1, cx),
+    % dbg:tpl(emqx_sn_gateway, channel_handle_in, '_', cx),
+
     % goto awake state, receive downlink messages, and go back to asleep
     send_pingreq_msg(Socket, <<"test">>),
-    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
 
     UdpData_reg = receive_response(Socket),
     {TopicIdNew, MsgId_reg} = check_register_msg_on_udp(TopicName_test5, UdpData_reg),
@@ -1197,7 +1202,7 @@ t_asleep_test05_to_awake_qos1_dl_msg(_) ->
                                                TopicIdNew, Payload4}, UdpData4),
             send_puback_msg(Socket, TopicIdNew, MsgId4)
     end,
-    timer:sleep(50),
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
 t_asleep_test06_to_awake_qos2_dl_msg(_) ->
@@ -1249,14 +1254,12 @@ t_asleep_test06_to_awake_qos2_dl_msg(_) ->
 
     % goto awake state, receive downlink messages, and go back to asleep
     send_pingreq_msg(Socket, <<"test">>),
-    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
 
     UdpData = wrap_receive_response(Socket),
     MsgId_udp = check_publish_msg_on_udp({Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId_tom, Payload1}, UdpData),
     send_pubrec_msg(Socket, MsgId_udp),
 
-    timer:sleep(300),
-
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
 t_asleep_test07_to_connected(_) ->
@@ -1391,8 +1394,6 @@ t_asleep_test09_to_awake_again_qos1_dl_msg(_) ->
     % goto awake state, receive downlink messages, and go back to asleep
     send_pingreq_msg(Socket, <<"test">>),
 
-    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
-
     UdpData_reg = receive_response(Socket),
     {TopicIdNew, MsgId_reg} = check_register_msg_on_udp(TopicName_test9, UdpData_reg),
     send_regack_msg(Socket, TopicIdNew, MsgId_reg),
@@ -1424,7 +1425,7 @@ t_asleep_test09_to_awake_again_qos1_dl_msg(_) ->
                                        TopicIdNew, Payload4}, UdpData4),
             send_puback_msg(Socket, TopicIdNew, MsgId4)
     end,
-    timer:sleep(100),
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
 
     %% send PINGREQ again to enter awake state
     send_pingreq_msg(Socket, <<"test">>),
@@ -1787,7 +1788,7 @@ wrap_receive_response(Socket) ->
             Other
     end.
 receive_response(Socket) ->
-    receive_response(Socket, 5000).
+    receive_response(Socket, 2000).
 receive_response(Socket, Timeout) ->
     receive
         {udp, Socket, _, _, Bin} ->
@@ -1832,8 +1833,8 @@ get_udp_broadcast_address() ->
     "255.255.255.255".
 
 check_publish_msg_on_udp({Dup, QoS, Retain, WillBit, CleanSession, TopicType, TopicId, Payload}, UdpData) ->
-    ct:pal("UdpData: ~p, Payload: ~p", [UdpData, Payload]),
     <<HeaderUdp:5/binary, MsgId:16, PayloadIn/binary>> = UdpData,
+    ct:pal("UdpData: ~p, Payload: ~p, PayloadIn: ~p", [UdpData, Payload, PayloadIn]),
     Size9 = byte_size(Payload) + 7,
     Eexp = <<Size9:8, ?SN_PUBLISH, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, TopicType:2, TopicId:16>>,
     ?assertEqual(Eexp, HeaderUdp),     % mqtt-sn header should be same
