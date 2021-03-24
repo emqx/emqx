@@ -936,8 +936,8 @@ end}.
 %% 0 is equivalent to maximum allowed
 {mapping, "zone.$name.max_inflight", "emqx.zones", [
   {default, 0},
-  {datatype, integer}
-  {validators, ["range:1-32767"]},
+  {datatype, integer},
+  {validators, ["range:1-32767"]}
 ]}.
 
 %% @doc Retry interval for redelivering QoS1/2 messages.
