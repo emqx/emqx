@@ -2011,19 +2011,18 @@ end}.
                           {honor_cipher_order, cuttlefish:conf_get(Prefix ++ ".honor_cipher_order", Conf, undefined)}])
               end,
 
+    Listen_fix = fun({Ip, Port}) -> case inet:parse_address(Ip) of
+                                      {ok, R} -> {R, Port};
+                                            _ -> {Ip, Port}
+                                    end;
+                     (Other) -> Other
+                 end,
+
     TcpListeners = fun(Type, Name) ->
                       Prefix = string:join(["listener", Type, Name], "."),
                       ListenOnN = case cuttlefish:conf_get(Prefix, Conf, undefined) of
                           undefined -> [];
-                          ListenOn  ->
-                              case ListenOn of
-                                  {Ip, Port} ->
-                                          case inet:parse_address(Ip) of
-                                              {ok ,R} -> {R, Port};
-                                              _ -> {Ip, Port}
-                                          end;
-                                  Other -> Other
-                              end
+                          ListenOn  -> Listen_fix(ListenOn)
                       end,
                       [#{ proto => Atom(Type)
                         , name => Name
@@ -2043,7 +2042,7 @@ end}.
                            ListenOn ->
                                [#{ proto => Atom(Type)
                                  , name => Name
-                                 , listen_on => ListenOn
+                                 , listen_on => Listen_fix(ListenOn)
                                  , opts => [ {deflate_options, DeflateOpts(Prefix)}
                                            , {tcp_options, TcpOpts(Prefix)}
                                            , {ssl_options, SslOpts(Prefix)}
