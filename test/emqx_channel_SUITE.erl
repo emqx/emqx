@@ -235,6 +235,36 @@ t_handle_in_puback_id_not_found(_) ->
     {ok, _Channel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), channel()).
     % ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, Channel)).
 
+t_bad_receive_maximum(_) ->
+    ok = meck:expect(emqx_cm, open_session,
+                     fun(true, _ClientInfo, _ConnInfo) ->
+                             {ok, #{session => session(), present => false}}
+                     end),
+    ok = meck:expect(emqx_zone, response_information, fun(_) -> test end),
+    C1 = channel(#{conn_state => idle}),
+    {shutdown, protocol_error, _, _} =
+        emqx_channel:handle_in(
+          ?CONNECT_PACKET(connpkt(#{'Receive-Maximum' => 0})),
+          C1
+        ).
+
+t_override_client_receive_maximum(_) ->
+    ok = meck:expect(emqx_cm, open_session,
+                     fun(true, _ClientInfo, _ConnInfo) ->
+                             {ok, #{session => session(), present => false}}
+                     end),
+    ok = meck:expect(emqx_zone, response_information, fun(_) -> test end),
+    ok = meck:expect(emqx_zone, max_inflight, fun(_) -> 0 end),
+    C1 = channel(#{conn_state => idle}),
+    ClientCapacity = 2,
+    {ok, [{event, connected}, _ConnAck], C2} =
+        emqx_channel:handle_in(
+          ?CONNECT_PACKET(connpkt(#{'Receive-Maximum' => ClientCapacity})),
+          C1
+        ),
+    ConnInfo = emqx_channel:info(conninfo, C2),
+    ?assertEqual(ClientCapacity, maps:get(receive_maximum, ConnInfo)).
+
 t_handle_in_pubrec_ok(_) ->
     Msg = emqx_message:make(test,?QOS_2, <<"t">>, <<"payload">>),
     ok = meck:expect(emqx_session, pubrec, fun(_, Session) -> {ok, Msg, Session} end),
