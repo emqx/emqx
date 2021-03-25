@@ -183,7 +183,7 @@ export_confs() ->
 confs_to_binary(Confs) ->
     [{list_to_binary(Key), list_to_binary(Val)} || {Key, Val} <-Confs].
 
--else.
+-endif.
 
 import_rule(#{<<"id">> := RuleId,
               <<"rawsql">> := RawSQL,
@@ -209,7 +209,6 @@ map_to_action(Map = #{<<"id">> := ActionInstId, <<"name">> := Name, <<"args">> :
       args => Args,
       fallbacks => map_to_actions(maps:get(<<"fallbacks">>, Map, []))}.
 
--endif.
 
 import_rules(Rules) ->
     lists:foreach(fun(Rule) ->
@@ -643,8 +642,10 @@ do_import_extra_data(Data, _Version) ->
 do_import_extra_data(_Data, _Version) -> ok.
 -endif.
 
+-ifndef(EMQX_ENTERPRISE).
 covert_empty_headers(Headers) ->
     case Headers of
         [] -> #{};
         Other -> Other
     end.
+-endif.
