@@ -937,7 +937,7 @@ end}.
 {mapping, "zone.$name.max_inflight", "emqx.zones", [
   {default, 0},
   {datatype, integer},
-  {validators, ["range:1-32767"]}
+  {validators, ["range:1-65535"]}
 ]}.
 
 %% @doc Retry interval for redelivering QoS1/2 messages.

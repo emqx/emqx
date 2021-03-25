@@ -1119,7 +1119,6 @@ enrich_conninfo(ConnPkt = #mqtt_packet_connect{
                                    clientinfo = #{zone := Zone}
                                   }) ->
     ExpiryInterval = expiry_interval(Zone, ConnPkt),
-    ReceiveMaximum = receive_maximum(Zone, ConnProps),
     NConnInfo = ConnInfo#{proto_name  => ProtoName,
                           proto_ver   => ProtoVer,
                           clean_start => CleanStart,
@@ -1128,7 +1127,7 @@ enrich_conninfo(ConnPkt = #mqtt_packet_connect{
                           username    => Username,
                           conn_props  => ConnProps,
                           expiry_interval => ExpiryInterval,
-                          receive_maximum => ReceiveMaximum
+                          receive_maximum => receive_maximum(Zone, ConnProps)
                          },
     {ok, Channel#channel{conninfo = NConnInfo}}.
 
@@ -1144,11 +1143,14 @@ expiry_interval(_Zone, #mqtt_packet_connect{clean_start = true}) ->
 
 receive_maximum(Zone, ConnProps) ->
     MaxInflightConfig = case emqx_zone:max_inflight(Zone) of
-                            0 -> ?MAX_INFLIGHT_HARD_LIMIT;
+                            0 -> ?RECEIVE_MAXIMUM_LIMIT;
                             N -> N
                         end,
-    MaxByClient = emqx_mqtt_props:get('Receive-Maximum', ConnProps, MaxInflightConfig),
-    erlang:min(MaxByClient, MaxInflightConfig).
+    %% Received might be zero which should be a protocol error
+    %% we do not validate MQTT properties here
+    %% it is to be caught later
+    Received = emqx_mqtt_props:get('Receive-Maximum', ConnProps, MaxInflightConfig),
+    erlang:min(Received, MaxInflightConfig).
 
 %%--------------------------------------------------------------------
 %% Run Connect Hooks
