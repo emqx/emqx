@@ -58,14 +58,15 @@ end_per_suite(_Config) ->
                  emqx_session,
                  emqx_broker,
                  emqx_hooks,
-                 emqx_cm,
-                 emqx_zone
+                 emqx_cm
                 ]).
 
 init_per_testcase(_TestCase, Config) ->
+    meck:new(emqx_zone, [passthrough, no_history, no_link]),
     Config.
 
 end_per_testcase(_TestCase, Config) ->
+    meck:unload([emqx_zone]),
     Config.
 
 %%--------------------------------------------------------------------
@@ -708,11 +709,9 @@ t_packing_alias(_) ->
                    channel())).
 
 t_check_pub_acl(_) ->
-    ok = meck:new(emqx_zone, [passthrough, no_history]),
     ok = meck:expect(emqx_zone, enable_acl, fun(_) -> true end),
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
-    ok = emqx_channel:check_pub_acl(Publish, channel()),
-    ok = meck:unload(emqx_zone).
+    ok = emqx_channel:check_pub_acl(Publish, channel()).
 
 t_check_pub_alias(_) ->
     Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},
@@ -720,11 +719,9 @@ t_check_pub_alias(_) ->
     ok = emqx_channel:check_pub_alias(#mqtt_packet{variable = Publish}, Channel).
 
 t_check_sub_acls(_) ->
-    ok = meck:new(emqx_zone, [passthrough, no_history]),
     ok = meck:expect(emqx_zone, enable_acl, fun(_) -> true end),
     TopicFilter = {<<"t">>, ?DEFAULT_SUBOPTS},
-    [{TopicFilter, 0}] = emqx_channel:check_sub_acls([TopicFilter], channel()),
-    ok = meck:unload(emqx_zone).
+    [{TopicFilter, 0}] = emqx_channel:check_sub_acls([TopicFilter], channel()).
 
 t_enrich_connack_caps(_) ->
     ok = meck:new(emqx_mqtt_caps, [passthrough, no_history]),
