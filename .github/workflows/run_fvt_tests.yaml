@@ -47,6 +47,7 @@ jobs:
             if ! docker exec -i paho_client /scripts/pytest.sh; then
               docker logs node1.emqx.io
               docker logs node2.emqx.io
+              exit 1
             fi
 
     helm_test:
