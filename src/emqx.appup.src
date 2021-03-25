@@ -8,6 +8,10 @@
     end,
 {VSN,
   [
+    {"4.2.9", [
+      {load_module, emqx_connection, brutal_purge, soft_purge, []},
+      {load_module, emqx_ws_connection, brutal_purge, soft_purge, []}
+    ]},
     {<<"4.2.[34567]">>, [
       {load_module, emqx_frame, brutal_purge, soft_purge, []}
     ]},
