@@ -11,6 +11,7 @@ services:
     - "EMQX_CLUSTER__STATIC__SEEDS=emqx@node1.emqx.io, emqx@node2.emqx.io"
     - "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s"
     - "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
+    - "EMQX_LOG__LEVEL=debug"
     command:
         - /bin/sh
         - -c
@@ -38,6 +39,7 @@ services:
     - "EMQX_CLUSTER__STATIC__SEEDS=emqx@node1.emqx.io, emqx@node2.emqx.io"
     - "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s"
     - "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
+    - "EMQX_LOG__LEVEL=debug"
     command:
       - /bin/sh
       - -c
@@ -64,6 +66,8 @@ services:
     tty: true
     networks:
         emqx-bridge:
+    volumes:
+      - ./scripts:/scripts
 
 networks:
   emqx-bridge:

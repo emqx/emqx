@@ -44,12 +44,10 @@ jobs:
             done
         - name: make paho tests
           run: |
-            docker exec -i paho_client sh -c "apk update && apk add git curl \
-              && git clone -b develop-4.0 https://github.com/emqx/paho.mqtt.testing.git /paho.mqtt.testing \
-              && pip install pytest \
-              && pytest -v /paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host node1.emqx.io \
-              && pytest -v /paho.mqtt.testing/interoperability/test_cluster --host1 node1.emqx.io --host2 node2.emqx.io \
-              && pytest -v /paho.mqtt.testing/interoperability/test_client --host node1.emqx.io"
+            if ! docker exec -i paho_client /scripts/pytest.sh; then
+              docker logs node1.emqx.io
+              docker logs node2.emqx.io
+            fi
 
     helm_test:
         runs-on: ubuntu-20.04
@@ -138,7 +136,14 @@ jobs:
             emqx2=$(kubectl get pods emqx-2 -o jsonpath='{.status.podIP}')
 
             pytest -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host $emqx_svc
+            RESULT=$?
             pytest -v paho.mqtt.testing/interoperability/test_cluster --host1 $emqx1 --host2 $emqx2
+            RESULT=$((RESULT + $?))
+            if [ 0 -ne $RESULT ]; then
+                kubectl logs emqx-1
+                kubectl logs emqx-2
+            fi
+            exit $RESULT
 
     relup_test:
         runs-on: ubuntu-20.04
