@@ -227,11 +227,14 @@ relx_apps(ReleaseType) ->
     , compiler
     , runtime_tools
     , cuttlefish
+    , quicer
     , emqx
     , {mnesia, load}
     , {ekka, load}
     , {emqx_plugin_libs, load}
     , observer_cli
+    , observer
+    , wx
     ]
     ++ [emqx_modules || not is_enterprise()]
     ++ [emqx_license || is_enterprise()]

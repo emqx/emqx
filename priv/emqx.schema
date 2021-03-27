@@ -1872,6 +1872,254 @@ end}.
   hidden
 ]}.
 
+%%--------------------------------------------------------------------
+%% MQTT/QUIC SSL Listeners
+
+{mapping, "listener.quic.$name", "emqx.listeners", [
+  {datatype, [integer, ip]}
+]}.
+
+{mapping, "listener.quic.$name.mqtt_path", "emqx.listeners", [
+  {default, "/mqtt"},
+  {datatype, string}
+]}.
+
+{mapping, "listener.quic.$name.acceptors", "emqx.listeners", [
+  {default, 8},
+  {datatype, integer}
+]}.
+
+{mapping, "listener.quic.$name.max_connections", "emqx.listeners", [
+  {default, 1024},
+  {datatype, integer}
+]}.
+
+{mapping, "listener.quic.$name.max_conn_rate", "emqx.listeners", [
+  {datatype, integer}
+]}.
+
+{mapping, "listener.quic.$name.active_n", "emqx.listeners", [
+  {default, 100},
+  {datatype, integer}
+]}.
+
+{mapping, "listener.quic.$name.zone", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.quic.$name.rate_limit", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.quic.$name.fail_if_no_subprotocol", "emqx.listeners", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "listener.quic.$name.supported_subprotocols", "emqx.listeners", [
+  {default, "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5"},
+  {datatype, string}
+]}.
+
+{mapping, "listener.quic.$name.access.$id", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.quic.$name.proxy_protocol", "emqx.listeners", [
+  {datatype, flag}
+]}.
+
+{mapping, "listener.quic.$name.proxy_protocol_timeout", "emqx.listeners", [
+  {datatype, {duration, ms}}
+]}.
+
+%%{mapping, "listener.quic.$name.handshake_timeout", "emqx.listeners", [
+%%  {default, "15s"},
+%%  {datatype, {duration, ms}}
+%%]}.
+
+{mapping, "listener.quic.$name.backlog", "emqx.listeners", [
+  {default, 1024},
+  {datatype, integer}
+]}.
+
+{mapping, "listener.quic.$name.send_timeout", "emqx.listeners", [
+  {datatype, {duration, ms}},
+  {default, "15s"}
+]}.
+
+{mapping, "listener.quic.$name.send_timeout_close", "emqx.listeners", [
+  {datatype, flag},
+  {default, on}
+]}.
+
+{mapping, "listener.quic.$name.recbuf", "emqx.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.sndbuf", "emqx.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.buffer", "emqx.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.tune_buffer", "emqx.listeners", [
+  {datatype, flag},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.nodelay", "emqx.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.tls_versions", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.quic.$name.ciphers", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.quic.$name.psk_ciphers", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.quic.$name.keyfile", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.quic.$name.certfile", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.quic.$name.cacertfile", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.quic.$name.dhfile", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.quic.$name.depth", "emqx.listeners", [
+  {default, 10},
+  {datatype, integer}
+]}.
+
+{mapping, "listener.quic.$name.key_password", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.quic.$name.verify", "emqx.listeners", [
+  {datatype, atom}
+]}.
+
+{mapping, "listener.quic.$name.fail_if_no_peer_cert", "emqx.listeners", [
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "listener.quic.$name.secure_renegotiate", "emqx.listeners", [
+  {datatype, flag}
+]}.
+
+{mapping, "listener.quic.$name.reuse_sessions", "emqx.listeners", [
+  {default, on},
+  {datatype, flag}
+]}.
+
+{mapping, "listener.quic.$name.honor_cipher_order", "emqx.listeners", [
+  {datatype, flag}
+]}.
+
+{mapping, "listener.quic.$name.peer_cert_as_username", "emqx.listeners", [
+  {datatype, {enum, [cn, dn, crt, pem, md5]}}
+]}.
+
+{mapping, "listener.quic.$name.peer_cert_as_clientid", "emqx.listeners", [
+  {datatype, {enum, [cn, dn, crt, pem, md5]}}
+]}.
+
+{mapping, "listener.quic.$name.compress", "emqx.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.deflate_opts.level", "emqx.listeners", [
+  {datatype, {enum, [none, default, best_compression, best_speed]}},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.deflate_opts.mem_level", "emqx.listeners", [
+  {datatype, integer},
+  {validators, ["range:1-9"]},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.deflate_opts.strategy", "emqx.listeners", [
+  {datatype, {enum, [default, filtered, huffman_only, rle]}},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.deflate_opts.server_context_takeover", "emqx.listeners", [
+  {datatype, {enum, [takeover, no_takeover]}},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.deflate_opts.client_context_takeover", "emqx.listeners", [
+  {datatype, {enum, [takeover, no_takeover]}},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.deflate_opts.server_max_window_bits", "emqx.listeners", [
+  {datatype, integer},
+  {validators, ["range:8-15"]},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.deflate_opts.client_max_window_bits", "emqx.listeners", [
+  {datatype, integer},
+  {validators, ["range:8-15"]},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.idle_timeout", "emqx.listeners", [
+  {datatype, {duration, ms}},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.max_frame_size", "emqx.listeners", [
+  {datatype, integer},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.mqtt_piggyback", "emqx.listeners", [
+  {datatype, {enum, [single, multiple]}},
+  {default, multiple},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.check_origin_enable", "emqx.listeners", [
+  {datatype, {enum, [true, false]}},
+  {default, false},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.allow_origin_absence", "emqx.listeners", [
+  {datatype, {enum, [true, false]}},
+  {default, true},
+  hidden
+]}.
+
+{mapping, "listener.quic.$name.check_origins", "emqx.listeners", [
+  {datatype, string},
+  hidden
+]}.
+
 {translation, "emqx.listeners", fun(Conf) ->
 
     Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
@@ -2059,6 +2307,7 @@ end}.
                   ++
                   [SslListeners(Type, Name) || {["listener", Type, Name], ListenOn}
                                                <- cuttlefish_variable:filter_by_prefix("listener.ssl", Conf)
+                                               ++ cuttlefish_variable:filter_by_prefix("listener.quic", Conf)
                                                ++ cuttlefish_variable:filter_by_prefix("listener.wss", Conf)])
 end}.
 
