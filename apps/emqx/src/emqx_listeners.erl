@@ -139,7 +139,22 @@ start_listener(Proto, ListenOn, Options) when Proto == http; Proto == ws ->
 %% Start MQTT/WSS listener
 start_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
     start_http_listener(fun cowboy:start_tls/3, 'mqtt:wss', ListenOn,
-                        ranch_opts(Options), ws_opts(Options)).
+                        ranch_opts(Options), ws_opts(Options));
+
+%% MQTT over QUIC
+start_listener(quic, ListenOn, Options) ->
+    SSLOpts = proplists:get_value(ssl_options, Options),
+    ListenOpts = [ {cert, proplists:get_value(certfile, SSLOpts)}
+                 , {key, proplists:get_value(keyfile, SSLOpts)}
+                 , {alpn, ["mqtt"]}
+                 , {conn_acceptors, 32}
+                 ],
+    ConnectionOpts = [ {conn_callback, quicer_server_conn_callback}
+                     , {idle_timeout_ms, 5000}
+                     , {peer_unidi_stream_count, 1}
+                     , {peer_bidi_stream_count, 10}],
+    StreamOpts = [{stream_callback, quicer_echo_server_stream_callback}],
+    quicer:start_listener('mqtt:quic', ListenOn, {ListenOpts, ConnectionOpts, StreamOpts}).
 
 replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].
 
