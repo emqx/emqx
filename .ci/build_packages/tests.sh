@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 set -x -e -u
 export CODE_PATH=${CODE_PATH:-"/emqx"}
 export EMQX_NAME=${EMQX_NAME:-"emqx"}
@@ -29,7 +29,7 @@ emqx_test(){
                 sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
                 echo "running ${packagename} start"
-                "${PACKAGE_PATH}"/emqx/bin/emqx start || tail "${PACKAGE_PATH}"/emqx/log/erlang.log.1
+                "${PACKAGE_PATH}"/emqx/bin/emqx start || ( tail "${PACKAGE_PATH}"/emqx/log/emqx.log.1 && exit 1 )
                 IDLE_TIME=0
                 while [ -z "$("${PACKAGE_PATH}"/emqx/bin/emqx_ctl status |grep 'is running'|awk '{print $1}')" ]
                 do
@@ -101,7 +101,7 @@ running_test(){
            EMQX_MQTT__MAX_TOPIC_ALIAS=10
     sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
 
-    emqx start || tail /var/log/emqx/erlang.log.1
+    emqx start || ( tail /var/log/emqx/emqx.log.1 && exit 1 )
     IDLE_TIME=0
     while [ -z "$(emqx_ctl status |grep 'is running'|awk '{print $1}')" ]
     do
@@ -120,7 +120,7 @@ running_test(){
     if [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = ubuntu ] \
     || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] \
     || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = raspbian ];then
-        service emqx start || tail /var/log/emqx/erlang.log.1
+        service emqx start || ( tail /var/log/emqx/emqx.log.1 && exit 1 )
         IDLE_TIME=0
         while [ -z "$(emqx_ctl status |grep 'is running'|awk '{print $1}')" ]
         do
@@ -144,7 +144,7 @@ relup_test(){
         for var in "${EMQX_NAME}"-*-"$(uname -m)".zip;do
             packagename=$(basename "${var}")
             unzip "$packagename"
-            ./emqx/bin/emqx start
+            ./emqx/bin/emqx start || ( tail emqx/log/emqx.log.1 && exit 1 )
             ./emqx/bin/emqx_ctl status
             ./emqx/bin/emqx versions
             cp "${PACKAGE_PATH}/${EMQX_NAME}"-*-"${TARGET_VERSION}-$(uname -m)".zip ./emqx/releases
