@@ -441,9 +441,11 @@ import_acl_mnesia(Acls, _) ->
     do_import_acl_mnesia(Acls).
 -else.
 import_auth_mnesia(Auths, FromVersion) when FromVersion =:= "4.0" orelse
-                                            FromVersion =:= "4.1" orelse
-                                            FromVersion =:= "4.2" ->
+                                            FromVersion =:= "4.1" ->
     do_import_auth_mnesia_by_old_data(Auths);
+import_auth_mnesia(Auths, "4.2") ->
+    %% 4.2 contains a bug where password is not base64-encoded
+    do_import_auth_mnesia_4_2(Auths);
 import_auth_mnesia(Auths, _) ->
     do_import_auth_mnesia(Auths).
 
@@ -454,6 +456,17 @@ import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.0" orelse
 
 import_acl_mnesia(Acls, _) ->
     do_import_acl_mnesia(Acls).
+
+do_import_auth_mnesia_4_2(Auths) ->
+    case ets:info(emqx_user) of
+        undefined -> ok;
+        _ ->
+            CreatedAt = erlang:system_time(millisecond),
+            lists:foreach(fun(#{<<"login">> := Login,
+                                <<"password">> := Password}) ->
+                            mnesia:dirty_write({emqx_user, {username, Login}, Password, CreatedAt})
+                          end, Auths)
+    end.
 -endif.
 
 do_import_auth_mnesia_by_old_data(Auths) ->
@@ -466,6 +479,8 @@ do_import_auth_mnesia_by_old_data(Auths) ->
                             mnesia:dirty_write({emqx_user, {username, Login}, base64:decode(Password), CreatedAt})
                           end, Auths)
     end.
+
+
 do_import_auth_mnesia(Auths) ->
     case ets:info(emqx_user) of
         undefined -> ok;

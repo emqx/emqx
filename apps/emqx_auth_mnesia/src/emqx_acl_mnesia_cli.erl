@@ -39,13 +39,19 @@
 -spec(add_acl(login() | all, emqx_topic:topic(), pub | sub | pubsub, allow | deny) ->
         ok | {error, any()}).
 add_acl(Login, Topic, Action, Access) ->
-    Acls = #?TABLE{
-              filter = {Login, Topic},
-              action = Action,
-              access = Access,
-              created_at = erlang:system_time(millisecond)
-             },
-    ret(mnesia:transaction(fun mnesia:write/1, [Acls])).
+    Filter = {Login, Topic},
+    Acl = #?TABLE{
+             filter = Filter,
+             action = Action,
+             access = Access,
+             created_at = erlang:system_time(millisecond)
+            },
+    ret(mnesia:transaction(
+          fun() ->
+                  OldRecords = mnesia:wread({?TABLE, Filter}),
+                  maybe_delete_shadowed_records(Action, OldRecords),
+                  mnesia:write(Acl)
+          end)).
 
 %% @doc Lookup acl by login
 -spec(lookup_acl(login() | all) -> list()).
@@ -233,3 +239,13 @@ print_acl({all, Topic, Action, Access, _}) ->
         "Acl($all topic = ~p action = ~p access = ~p)~n",
         [Topic, Action, Access]
      ).
+
+maybe_delete_shadowed_records(_, []) ->
+    ok;
+maybe_delete_shadowed_records(Action1, [Rec = #emqx_acl{action = Action2} | Rest]) ->
+    if Action1 =:= Action2 orelse Action1 =:= pubsub ->
+            ok = mnesia:delete_object(Rec);
+       true ->
+            ok
+    end,
+    maybe_delete_shadowed_records(Action1, Rest).

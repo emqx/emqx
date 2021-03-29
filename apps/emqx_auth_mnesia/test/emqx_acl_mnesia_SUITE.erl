@@ -124,6 +124,7 @@ t_acl_cli(_Config) ->
 
     ?assertEqual(0, length(emqx_acl_mnesia_cli:cli(["list"]))),
 
+    emqx_acl_mnesia_cli:cli(["add", "clientid", "test_clientid", "topic/A", "pub", "deny"]),
     emqx_acl_mnesia_cli:cli(["add", "clientid", "test_clientid", "topic/A", "pub", "allow"]),
     R1 = emqx_ctl:format("Acl(clientid = ~p topic = ~p action = ~p access = ~p)~n",
                          [<<"test_clientid">>, <<"topic/A">>, pub, allow]),
@@ -136,6 +137,7 @@ t_acl_cli(_Config) ->
     ?assertEqual([R2], emqx_acl_mnesia_cli:cli(["show", "username", "test_username"])),
     ?assertEqual([R2], emqx_acl_mnesia_cli:cli(["list", "username"])),
 
+    emqx_acl_mnesia_cli:cli(["add", "_all", "#", "pub", "allow"]),
     emqx_acl_mnesia_cli:cli(["add", "_all", "#", "pubsub", "deny"]),
     ?assertMatch(["Acl($all topic = <<\"#\">> action = pubsub access = deny)\n"],
                  emqx_acl_mnesia_cli:cli(["list", "_all"])

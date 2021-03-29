@@ -31,6 +31,7 @@
 
 init() ->
     ok = ekka_mnesia:create_table(emqx_acl, [
+            {type, bag},
             {disc_copies, [node()]},
             {attributes, record_info(fields, emqx_acl)},
             {storage_properties, [{ets, [{read_concurrency, true}]}]}]),
