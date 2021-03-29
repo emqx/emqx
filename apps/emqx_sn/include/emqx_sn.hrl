@@ -78,8 +78,6 @@
 
 -type(mqtt_sn_message() :: #mqtt_sn_message{}).
 
--define(SN_MSG, #mqtt_sn_message{}).
-
 -define(SN_ADVERTISE_MSG(GwId, Duration),
         #mqtt_sn_message{type     = ?SN_ADVERTISE,
                          variable = {GwId, Duration}}).

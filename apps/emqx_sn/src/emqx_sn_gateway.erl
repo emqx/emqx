@@ -695,9 +695,6 @@ handle_ping(_PingReq, State) ->
 inc_ping_counter() ->
     inc_counter(recv_msg, 1).
 
-mqtt2sn(?SN_MSG = SnMsg,  _State) ->
-    SnMsg;
-
 mqtt2sn(?CONNACK_PACKET(0, _SessPresent),  _State) ->
     ?SN_CONNACK_MSG(0);
 
@@ -810,12 +807,17 @@ mqttsn_to_mqtt(?SN_PUBCOMP, MsgId) ->
     ?PUBCOMP_PACKET(MsgId).
 
 do_connect(ClientId, CleanStart, WillFlag, Duration, State) ->
+    %% 6.6 Client’s Publish Procedure
+    %% At any point in time a client may have only one QoS level 1 or 2 PUBLISH message
+    %% outstanding, i.e. it has to wait for the termination of this PUBLISH message exchange
+    %% before it could start a new level 1 or 2 transaction.
+    OnlyOneMaxInflight = #{'Receive-Maximum' => 1},
     ConnPkt = #mqtt_packet_connect{clientid    = ClientId,
                                    clean_start = CleanStart,
                                    username    = State#state.username,
                                    password    = State#state.password,
                                    keepalive   = Duration,
-                                   properties  = #{'Receive-Maximum' => 1}
+                                   properties  = OnlyOneMaxInflight
                                   },
     put(clientid, ClientId),
     case WillFlag of
