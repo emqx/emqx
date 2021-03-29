@@ -269,16 +269,19 @@ exit_on_sock_error(Reason) ->
 
 recvloop(Parent, State = #state{idle_timeout = IdleTimeout}) ->
     receive
-        {system, From, Request} ->
-            sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
-        {'EXIT', Parent, Reason} ->
-            terminate(Reason, State);
         Msg ->
-            process_msg([Msg], Parent, ensure_stats_timer(IdleTimeout, State))
+            handle_recv(Msg, Parent, State)
     after
         IdleTimeout + 100 ->
             hibernate(Parent, cancel_stats_timer(State))
     end.
+
+handle_recv({system, From, Request}, Parent, State) ->
+    sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
+handle_recv({'EXIT', Parent, Reason}, Parent, State) ->
+    terminate(Reason, State);
+handle_recv(Msg, Parent, State = #state{idle_timeout = IdleTimeout}) ->
+    process_msg([Msg], Parent, ensure_stats_timer(IdleTimeout, State)).
 
 hibernate(Parent, State) ->
     proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, State]).
