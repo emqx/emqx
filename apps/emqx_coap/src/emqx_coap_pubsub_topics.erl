@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_coap_ps_topics).
+-module(emqx_coap_pubsub_topics).
 
 -behaviour(gen_server).
 
