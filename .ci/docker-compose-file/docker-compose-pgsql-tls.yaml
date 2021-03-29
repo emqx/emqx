@@ -1,23 +1,11 @@
-version: '3'
+version: '3.9'
 
 services:
-  erlang:
-    container_name: erlang
-    image: emqx/build-env:erl23.2.7-ubuntu20.04
-    volumes:
-      - ../../:/emqx
-    working_dir: /emqx
-    networks:
-      - emqx_bridge
-    depends_on:
-      - pgsql_server
-    tty: true
-
   pgsql_server:
     container_name: pgsql
     build:
       context: ../..
-      dockerfile: .ci/compatibility_tests/pgsql/Dockerfile
+      dockerfile: .ci/docker-compose-file/pgsql/Dockerfile
       args:
         POSTGRES_USER: postgres
         BUILD_FROM: postgres:${PGSQL_TAG}
@@ -41,17 +29,6 @@ services:
       - -c
       - hba_file=/var/lib/postgresql/pg_hba.conf
     networks:
-      - emqx_bridge
-
-networks:
-  emqx_bridge:
-    driver: bridge
-    name: emqx_bridge
-    enable_ipv6: true
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.100.100.0/24
-          gateway: 172.100.100.1
-        - subnet: 2001:3200:3200::/64
-          gateway: 2001:3200:3200::1
+      emqx_bridge:
+        ipv4_address: 172.100.239.13
+        ipv6_address: 2001:3200:3200::13

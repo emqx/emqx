@@ -1,31 +1,25 @@
-version: '3'
+version: '3.9'
 
 services:
   erlang:
     container_name: erlang
     image: emqx/build-env:erl23.2.7-ubuntu20.04
-    depends_on:
-      - ldap_server
+    env_file:
+      - conf.env
+    environment:
+      GITHUB_ACTIONS: ${GITHUB_ACTIONS}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITHUB_RUN_ID: ${GITHUB_RUN_ID}
+      GITHUB_SHA: ${GITHUB_SHA}
+      GITHUB_RUN_NUMBER: ${GITHUB_RUN_NUMBER}
+      GITHUB_EVENT_NAME: ${GITHUB_EVENT_NAME}
+      GITHUB_REF: ${GITHUB_REF}
     networks:
       - emqx_bridge
     volumes:
-      - ../../.:/emqx
+      - ../..:/emqx
     working_dir: /emqx
     tty: true
-
-  ldap_server:
-    container_name: ldap
-    build:
-      context: ../..
-      dockerfile: .ci/compatibility_tests/openldap/Dockerfile
-      args: 
-        LDAP_TAG: ${LDAP_TAG}
-    image: openldap 
-    ports:
-      - 389:389
-    restart: always
-    networks:
-      - emqx_bridge
 
 networks:
   emqx_bridge:
