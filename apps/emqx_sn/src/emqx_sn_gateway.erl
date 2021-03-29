@@ -87,7 +87,7 @@
                 stats_timer          :: maybe(reference()),
                 idle_timeout         :: integer(),
                 enable_qos3 = false  :: boolean(),
-                is_pingresp_pending = false :: integer()
+                has_pending_pingresp = false :: boolean()
                }).
 
 -define(INFO_KEYS, [socktype, peername, sockname, sockstate]). %, active_n]).
@@ -409,10 +409,11 @@ asleep(cast, {incoming, ?SN_PINGREQ_MSG(ClientIdPing)},
                     send_message(?SN_PINGRESP_MSG(), State),
                     {keep_state, State#state{channel = set_session(Session0, Channel)}};
                 {ok, Delivers, Session0} ->
-                    handle_asleep_return(Delivers, State#state{
+                    Events = [emqx_message:to_packet(PckId, Msg) || {PckId, Msg} <- Delivers]
+                             ++ [try_goto_asleep],
+                    {next_state, awake, State#state{
                         channel = set_session(Session0, Channel),
-                        is_pingresp_pending = true
-                    })
+                        has_pending_pingresp = true}, outgoing_events(Events)}
             end;
         _Other   ->
             {next_state, asleep, State}
@@ -462,11 +463,11 @@ awake(cast, {incoming, ?SN_PUBACK_MSG(TopicId, MsgId, ReturnCode)}, State) ->
     do_puback(TopicId, MsgId, ReturnCode, awake, State);
 
 awake(cast, try_goto_asleep, State=#state{channel = Channel,
-        is_pingresp_pending = PingPending}) ->
+        has_pending_pingresp = PingPending}) ->
     case emqx_mqueue:is_empty(emqx_session:info(mqueue, get_session(Channel))) of
         true when PingPending =:= true ->
             send_message(?SN_PINGRESP_MSG(), State),
-            goto_asleep_state(State#state{is_pingresp_pending = false});
+            goto_asleep_state(State#state{has_pending_pingresp = false});
         true when PingPending =:= false ->
             goto_asleep_state(State);
         false -> keep_state_and_data
@@ -619,15 +620,8 @@ handle_return({shutdown, Reason, OutPacket, NChannel}, State, _AddEvents) ->
     ok = handle_outgoing(OutPacket, NState),
     stop({shutdown, Reason}, NState).
 
-handle_asleep_return(Delivers, State) ->
-    {next_state, awake, State,
-        outgoing_events([emqx_message:to_packet(PckId, Msg) || {PckId, Msg} <- Delivers]
-            ++ [try_goto_asleep])}.
-
-outgoing_events(Actions) when is_list(Actions) ->
-    lists:map(fun outgoing_event/1, Actions);
-outgoing_events(Action) ->
-    [outgoing_event(Action)].
+outgoing_events(Actions) ->
+    lists:map(fun outgoing_event/1, Actions).
 
 outgoing_event(Packet) when is_record(Packet, mqtt_packet);
                             is_record(Packet, mqtt_sn_message)->
@@ -811,13 +805,13 @@ do_connect(ClientId, CleanStart, WillFlag, Duration, State) ->
     %% At any point in time a client may have only one QoS level 1 or 2 PUBLISH message
     %% outstanding, i.e. it has to wait for the termination of this PUBLISH message exchange
     %% before it could start a new level 1 or 2 transaction.
-    OnlyOneMaxInflight = #{'Receive-Maximum' => 1},
+    OnlyOneInflight = #{'Receive-Maximum' => 1},
     ConnPkt = #mqtt_packet_connect{clientid    = ClientId,
                                    clean_start = CleanStart,
                                    username    = State#state.username,
                                    password    = State#state.password,
                                    keepalive   = Duration,
-                                   properties  = OnlyOneMaxInflight
+                                   properties  = OnlyOneInflight
                                   },
     put(clientid, ClientId),
     case WillFlag of
