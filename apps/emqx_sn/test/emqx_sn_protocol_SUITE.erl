@@ -402,8 +402,6 @@ t_publish_negqos_case09(_) ->
             What = receive_response(Socket),
             ?assertEqual(Eexp, What)
     end,
-    %% dbg:start(), dbg:tracer(), dbg:p(all, c),
-    %% dbg:tpl(emqx_sn_gateway, send_message, x),
 
     send_disconnect_msg(Socket, undefined),
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
@@ -1171,11 +1169,6 @@ t_asleep_test05_to_awake_qos1_dl_msg(_) ->
     timer:sleep(200),
     ok = emqtt:disconnect(C),
     timer:sleep(50),
-
-    % dbg:tracer(),
-    % dbg:p(all, c),
-    % dbg:tpl(emqx_session, dequeue, 1, cx),
-    % dbg:tpl(emqx_sn_gateway, channel_handle_in, '_', cx),
 
     % goto awake state, receive downlink messages, and go back to asleep
     send_pingreq_msg(Socket, <<"test">>),

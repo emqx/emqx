@@ -404,15 +404,16 @@ asleep(cast, {incoming, ?SN_PINGREQ_MSG(ClientIdPing)},
     case ClientIdPing of
         ClientId ->
             inc_ping_counter(),
-            case emqx_session:dequeue(get_session(Channel)) of
+            case emqx_session:dequeue(emqx_channel:get_session(Channel)) of
                 {ok, Session0} ->
                     send_message(?SN_PINGRESP_MSG(), State),
-                    {keep_state, State#state{channel = set_session(Session0, Channel)}};
+                    {keep_state, State#state{
+                        channel = emqx_channel:set_session(Session0, Channel)}};
                 {ok, Delivers, Session0} ->
                     Events = [emqx_message:to_packet(PckId, Msg) || {PckId, Msg} <- Delivers]
                              ++ [try_goto_asleep],
                     {next_state, awake, State#state{
-                        channel = set_session(Session0, Channel),
+                        channel = emqx_channel:set_session(Session0, Channel),
                         has_pending_pingresp = true}, outgoing_events(Events)}
             end;
         _Other   ->
@@ -464,7 +465,7 @@ awake(cast, {incoming, ?SN_PUBACK_MSG(TopicId, MsgId, ReturnCode)}, State) ->
 
 awake(cast, try_goto_asleep, State=#state{channel = Channel,
         has_pending_pingresp = PingPending}) ->
-    case emqx_mqueue:is_empty(emqx_session:info(mqueue, get_session(Channel))) of
+    case emqx_mqueue:is_empty(emqx_session:info(mqueue, emqx_channel:get_session(Channel))) of
         true when PingPending =:= true ->
             send_message(?SN_PINGRESP_MSG(), State),
             goto_asleep_state(State#state{has_pending_pingresp = false});
@@ -511,11 +512,10 @@ handle_event(info, {datagram, SockPid, Data}, StateName,
 
 handle_event(info, {deliver, _Topic, Msg}, asleep,
              State = #state{channel = Channel}) ->
-    Session0 = get_session(Channel),
     % section 6.14, Support of sleeping clients
     ?LOG(debug, "enqueue downlink message in asleep state Msg=~p", [Msg], State),
-    Session = emqx_session:enqueue(Msg, Session0),
-    {keep_state, State#state{channel = set_session(Session, Channel)}};
+    Session = emqx_session:enqueue(Msg, emqx_channel:get_session(Channel)),
+    {keep_state, State#state{channel = emqx_channel:set_session(Session, Channel)}};
 
 handle_event(info, Deliver = {deliver, _Topic, _Msg}, _StateName,
              State = #state{channel = Channel}) ->
@@ -1102,12 +1102,6 @@ next_event(Content) ->
 inc_counter(Key, Inc) ->
     _ = emqx_pd:inc_counter(Key, Inc),
     ok.
-
-get_session(Channel) ->
-    element(4, Channel).
-
-set_session(Session, Channel) ->
-    setelement(4, Channel, Session).
 
 append(Replies, AddEvents) when is_list(Replies) ->
     Replies ++ AddEvents;
