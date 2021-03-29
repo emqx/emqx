@@ -50,8 +50,14 @@ jobs:
             LDAP_TAG: 2.4.50
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           run: |
-            docker-compose -f .ci/apps_tests/docker-compose.yaml build --no-cache
-            docker-compose -f .ci/apps_tests/docker-compose.yaml up -d
+            docker-compose \
+                -f .ci/docker-compose-file/docker-compose.yaml \
+                -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
+                up -d --build
         - name: docker compose up
           if: env.EDITION == 'enterprise'
           env:

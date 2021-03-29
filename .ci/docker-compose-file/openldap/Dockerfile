@@ -9,7 +9,7 @@ RUN wget ftp://ftp.openldap.org/pub/OpenLDAP/openldap-release/openldap-${LDAP_TA
     && ./configure && make depend && make && make install \
     && cd .. && rm -rf  openldap-${LDAP_TAG}
 
-COPY .ci/apps_tests/openldap/slapd.conf /usr/local/etc/openldap/slapd.conf
+COPY .ci/docker-compose-file/openldap/slapd.conf /usr/local/etc/openldap/slapd.conf
 COPY apps/emqx_auth_ldap/emqx.io.ldif /usr/local/etc/openldap/schema/emqx.io.ldif
 COPY apps/emqx_auth_ldap/emqx.schema /usr/local/etc/openldap/schema/emqx.schema
 COPY apps/emqx_auth_ldap/test/certs/*.pem /usr/local/etc/openldap/

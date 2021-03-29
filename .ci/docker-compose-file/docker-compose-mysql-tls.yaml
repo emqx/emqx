@@ -1,18 +1,6 @@
-version: '3'
+version: '3.9'
 
 services:
-  erlang:
-    container_name: erlang
-    image: emqx/build-env:erl23.2.7-ubuntu20.04
-    volumes:
-      - ../../:/emqx
-    working_dir: /emqx
-    networks:
-      - emqx_bridge
-    depends_on:
-      - mysql_server
-    tty: true
-
   mysql_server:
     container_name: mysql
     image: mysql:${MYSQL_TAG}
@@ -25,7 +13,9 @@ services:
       - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/server-cert.pem:/etc/certs/server-cert.pem
       - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/server-key.pem:/etc/certs/server-key.pem
     networks:
-      - emqx_bridge
+      emqx_bridge:
+        ipv4_address: 172.100.239.12
+        ipv6_address: 2001:3200:3200::12
     command:
       --bind-address "::"
       --character-set-server=utf8mb4
@@ -37,16 +27,3 @@ services:
       --ssl-ca=/etc/certs/ca-cert.pem
       --ssl-cert=/etc/certs/server-cert.pem
       --ssl-key=/etc/certs/server-key.pem
-
-networks:
-  emqx_bridge:
-    driver: bridge
-    name: emqx_bridge
-    enable_ipv6: true
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.100.100.0/24
-          gateway: 172.100.100.1
-        - subnet: 2001:3200:3200::/64
-          gateway: 2001:3200:3200::1
