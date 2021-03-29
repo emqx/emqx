@@ -2,7 +2,7 @@
     - Enhance all test case
 
 2. Remove the mqtt adaptor
-3. Remove the emqx_coap_ps_topics.erl
+3. Remove the emqx_coap_pubsub_topics.erl
 
 
 ### Problems
