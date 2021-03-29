@@ -21,6 +21,7 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -logger_header("[MQTT]").
 
@@ -449,7 +450,7 @@ handle_msg(Msg, State) ->
 -spec terminate(any(), state()) -> no_return().
 terminate(Reason, State = #state{channel = Channel, transport = Transport,
           socket = Socket}) ->
-    ?LOG(debug, "Terminated due to ~p", [Reason]),
+    ?tp(debug, terminate, #{reason => Reason}),
     Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
     emqx_congestion:cancel_alarms(Socket, Transport, Channel1),
     emqx_channel:terminate(Reason, Channel1),
@@ -686,6 +687,7 @@ run_gc(Stats, State = #state{gc_state = GcSt}) ->
 check_oom(State = #state{channel = Channel}) ->
     Zone = emqx_channel:info(zone, Channel),
     OomPolicy = emqx_zone:oom_policy(Zone),
+    ?tp(debug, check_oom, #{policy => OomPolicy}),
     case ?ENABLED(OomPolicy) andalso emqx_misc:check_oom(OomPolicy) of
         {shutdown, Reason} ->
             %% triggers terminate/2 callback immediately
