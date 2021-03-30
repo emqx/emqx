@@ -142,11 +142,11 @@ start_listener(quic, ListenOn, Options) ->
                  , {alpn, ["mqtt"]}
                  , {conn_acceptors, 32}
                  ],
-    ConnectionOpts = [ {conn_callback, quicer_server_conn_callback}
+    ConnectionOpts = [ {conn_callback, emqx_quic_connection}
                      , {idle_timeout_ms, 5000}
                      , {peer_unidi_stream_count, 1}
                      , {peer_bidi_stream_count, 10}],
-    StreamOpts = [{stream_callback, quicer_echo_server_stream_callback}],
+    StreamOpts = [],
     quicer:start_listener('mqtt:quic', ListenOn, {ListenOpts, ConnectionOpts, StreamOpts}).
 
 replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].

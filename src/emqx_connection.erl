@@ -350,6 +350,13 @@ handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     ok = emqx_metrics:inc('bytes.received', Oct),
     parse_incoming(Data, State);
 
+handle_msg({quic, Data, _Sock, _, _, _}, State) ->
+    ?LOG(debug, "RECV ~0p", [Data]),
+    Oct = iolist_size(Data),
+    inc_counter(incoming_bytes, Oct),
+    ok = emqx_metrics:inc('bytes.received', Oct),
+    parse_incoming(Data, State);
+
 handle_msg({incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
            State = #state{idle_timer = IdleTimer}) ->
     ok = emqx_misc:cancel_timer(IdleTimer),
