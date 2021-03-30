@@ -32,6 +32,8 @@
 -export([ info/1
         , info/2
         , set_conn_state/2
+        , get_session/1
+        , set_session/2
         , stats/1
         , caps/1
         ]).
@@ -166,6 +168,12 @@ info(timers, #channel{timers = Timers}) -> Timers.
 
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
+
+get_session(#channel{session = Session}) ->
+    Session.
+
+set_session(Session, Channel) ->
+    Channel#channel{session = Session}.
 
 %% TODO: Add more stats.
 -spec(stats(channel()) -> emqx_types:stats()).
