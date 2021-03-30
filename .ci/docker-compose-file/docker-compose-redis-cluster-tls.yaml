@@ -7,7 +7,7 @@ services:
     volumes:
       - ../../apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs:/tls
       - ./redis/:/data/conf
-    command: bash -c "/bin/bash /data/conf/redis.sh --node cluster --tls-enabled && while true; do echo 1; sleep 1; done"
+    command: bash -c "/bin/bash /data/conf/redis.sh --node cluster --tls-enabled && tail -f /var/log/redis-server.log"
     networks:
       emqx_bridge:
         # Assign a public address. Erlang container cannot find cluster nodes by network-scoped alias (redis_cluster).

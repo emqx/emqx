@@ -364,12 +364,7 @@ jobs:
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
           fi
       - name: run test cases
-        timeout-minutes: 10
         run: |
-          while ! nc -zv ${EMQX_AUTH__REDIS__SERVER%:*} ${EMQX_AUTH__REDIS__SERVER##*:} > /dev/null 2>&1; do
-            echo "waiting redis server"
-            sleep 1
-          done
           export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
