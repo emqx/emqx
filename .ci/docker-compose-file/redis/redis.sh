@@ -1,5 +1,9 @@
 #!/bin/bash
 
+set -x
+
+LOCAL_IP=$(hostname -i | grep -oE '((25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])\.){3}(25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])' | head -n 1)
+
 node=single
 tls=false
 while [[ $# -gt 0 ]]
@@ -48,9 +52,9 @@ elif [ "${node}" = "sentinel" ] ; then
     redis-server /data/conf/redis.conf --port 7000 --cluster-config-file /data/conf/nodes.7000.conf \
                                        --cluster-enabled no;
     redis-server /data/conf/redis.conf --port 7001 --cluster-config-file /data/conf/nodes.7001.conf \
-                                       --cluster-enabled no --slaveof 172.16.239.10 7000;
+                                       --cluster-enabled no --slaveof "$LOCAL_IP" 7000;
     redis-server /data/conf/redis.conf --port 7002 --cluster-config-file /data/conf/nodes.7002.conf \
-                                       --cluster-enabled no --slaveof 172.16.239.10 7000;
+                                       --cluster-enabled no --slaveof "$LOCAL_IP" 7000;
 fi
 REDIS_LOAD_FLG=true;
 
@@ -76,7 +80,7 @@ do
         continue;
     fi
     if [ "${node}" = "cluster" ] ; then
-      yes "yes" | redis-cli --cluster create 172.16.239.10:7000 172.16.239.10:7001 172.16.239.10:7002;
+      yes "yes" | redis-cli --cluster create "$LOCAL_IP:7000" "$LOCAL_IP:7001" "$LOCAL_IP:7002";
     elif [ "${node}" = "sentinel" ] ; then
       cp /data/conf/sentinel.conf /_sentinel.conf
       redis-server /_sentinel.conf --sentinel;
