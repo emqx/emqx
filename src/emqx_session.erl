@@ -75,6 +75,7 @@
 
 -export([ deliver/2
         , enqueue/2
+        , dequeue/1
         , retry/1
         , terminate/3
         ]).
