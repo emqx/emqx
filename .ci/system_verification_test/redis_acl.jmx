@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <jmeterTestPlan version="1.2" properties="5.0" jmeter="5.2.1">
   <hashTree>
-    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="测试计划" enabled="true">
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="test plan" enabled="true">
       <stringProp name="TestPlan.comments"></stringProp>
       <boolProp name="TestPlan.functional_mode">false</boolProp>
       <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
@@ -12,7 +12,7 @@
       <stringProp name="TestPlan.user_define_classpath"></stringProp>
     </TestPlan>
     <hashTree>
-      <Arguments guiclass="ArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
+      <Arguments guiclass="ArgumentsPanel" testclass="Arguments" testname="User Defined Variables" enabled="true">
         <collectionProp name="Arguments.arguments">
           <elementProp name="redis_server" elementType="Argument">
             <stringProp name="Argument.name">redis_server</stringProp>
@@ -117,7 +117,7 @@
         </collectionProp>
       </Arguments>
       <hashTree/>
-      <SetupThreadGroup guiclass="SetupThreadGroupGui" testclass="SetupThreadGroup" testname="初始化环境" enabled="true">
+      <SetupThreadGroup guiclass="SetupThreadGroupGui" testclass="SetupThreadGroup" testname="initialization environment" enabled="true">
         <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
         <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器" enabled="true">
           <boolProp name="LoopController.continue_forever">false</boolProp>
@@ -131,7 +131,7 @@
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
       </SetupThreadGroup>
       <hashTree>
-        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="察看结果树" enabled="true">
+        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="results tree" enabled="true">
           <boolProp name="ResultCollector.error_logging">false</boolProp>
           <objProp>
             <name>saveConfig</name>
@@ -168,7 +168,7 @@
           <stringProp name="filename"></stringProp>
         </ResultCollector>
         <hashTree/>
-        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP信息头管理器" enabled="true">
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP Header Manager" enabled="true">
           <collectionProp name="HeaderManager.headers">
             <elementProp name="" elementType="Header">
               <stringProp name="Header.name">content-type</stringProp>
@@ -177,7 +177,7 @@
           </collectionProp>
         </HeaderManager>
         <hashTree/>
-        <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="HTTP请求默认值" enabled="true">
+        <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="HTTP Request Defaults" enabled="true">
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
             <collectionProp name="Arguments.arguments"/>
           </elementProp>
@@ -191,7 +191,7 @@
           <stringProp name="HTTPSampler.response_timeout"></stringProp>
         </ConfigTestElement>
         <hashTree/>
-        <AuthManager guiclass="AuthPanel" testclass="AuthManager" testname="HTTP授权管理器" enabled="true">
+        <AuthManager guiclass="AuthPanel" testclass="AuthManager" testname="HTTP Authorization Manager" enabled="true">
           <collectionProp name="AuthManager.auth_list">
             <elementProp name="" elementType="Authorization">
               <stringProp name="Authorization.url">http://${emqx_ip}</stringProp>
@@ -204,7 +204,7 @@
           <boolProp name="AuthManager.controlledByThreadGroup">false</boolProp>
         </AuthManager>
         <hashTree/>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="模块列表请求" enabled="true">
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="get modules&apos; id" enabled="true">
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
             <collectionProp name="Arguments.arguments"/>
           </elementProp>
@@ -224,14 +224,14 @@
           <stringProp name="TestPlan.comments">获取特定模块的id</stringProp>
         </HTTPSamplerProxy>
         <hashTree>
-          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="JSON提取器" enabled="true">
+          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="JSON Extractor" enabled="true">
             <stringProp name="JSONPostProcessor.referenceNames">acl_control_id;redis_mo_id</stringProp>
-            <stringProp name="JSONPostProcessor.jsonPathExprs">$.data[?(@.title.zh=~/.*内置访问控制文件.*/)].id;$.data[?(@.title.zh=~/.*Redis 认证\/访问控制.*/)].id</stringProp>
+            <stringProp name="JSONPostProcessor.jsonPathExprs">$.data[?(@.title.en=~/.*Internal ACL File.*/)].id;$.data[?(@.title.en=~/.*Redis AUTH.*/)].id</stringProp>
             <stringProp name="JSONPostProcessor.match_numbers">1;1</stringProp>
             <stringProp name="JSONPostProcessor.defaultValues">err_acl_control_id;err_redis_mo_id</stringProp>
           </JSONPostProcessor>
           <hashTree/>
-          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
             <collectionProp name="Asserion.test_strings">
               <stringProp name="67791721">&quot;code&quot;:0</stringProp>
             </collectionProp>
@@ -242,7 +242,7 @@
           </ResponseAssertion>
           <hashTree/>
         </hashTree>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="初始化设置模块" enabled="true">
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="setup settings" enabled="true">
           <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
             <collectionProp name="Arguments.arguments">
@@ -269,7 +269,7 @@
           <stringProp name="TestPlan.comments">&quot;enable_acl_cache&quot;:&quot;off&quot;,&quot;acl_nomatch&quot;:&quot;deny&quot;</stringProp>
         </HTTPSamplerProxy>
         <hashTree>
-          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
             <collectionProp name="Asserion.test_strings">
               <stringProp name="2101543476">&quot;code&quot;:0}</stringProp>
             </collectionProp>
@@ -280,7 +280,7 @@
           </ResponseAssertion>
           <hashTree/>
         </hashTree>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="关闭内置acl控制" enabled="true">
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="turnoff internal acl control" enabled="true">
           <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
             <collectionProp name="Arguments.arguments">
@@ -306,7 +306,7 @@
           <stringProp name="HTTPSampler.response_timeout"></stringProp>
         </HTTPSamplerProxy>
         <hashTree>
-          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
             <collectionProp name="Asserion.test_strings">
               <stringProp name="2101543476">&quot;code&quot;:0}</stringProp>
             </collectionProp>
@@ -317,7 +317,7 @@
           </ResponseAssertion>
           <hashTree/>
         </hashTree>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="删除redis模块" enabled="true">
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="rm redis acl module" enabled="true">
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
             <collectionProp name="Arguments.arguments"/>
           </elementProp>
@@ -337,7 +337,7 @@
           <stringProp name="TestPlan.comments">如果有，则删除</stringProp>
         </HTTPSamplerProxy>
         <hashTree>
-          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
             <collectionProp name="Asserion.test_strings">
               <stringProp name="67791721">&quot;code&quot;:0</stringProp>
               <stringProp name="-1548522440"> {badmatch,not_found}</stringProp>
@@ -349,7 +349,7 @@
           </ResponseAssertion>
           <hashTree/>
         </hashTree>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="添加redis认证/访问控制模块" enabled="true">
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="add redis auth/acl module" enabled="true">
           <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
             <collectionProp name="Arguments.arguments">
@@ -375,7 +375,7 @@
           <stringProp name="HTTPSampler.response_timeout"></stringProp>
         </HTTPSamplerProxy>
         <hashTree>
-          <BeanShellPreProcessor guiclass="TestBeanGUI" testclass="BeanShellPreProcessor" testname="获取ssl证书内容" enabled="true">
+          <BeanShellPreProcessor guiclass="TestBeanGUI" testclass="BeanShellPreProcessor" testname="get ssl content" enabled="true">
             <stringProp name="TestPlan.comments">最终得到参数名：ca, redis_key, redis_cert</stringProp>
             <boolProp name="resetInterpreter">false</boolProp>
             <stringProp name="parameters"></stringProp>
@@ -429,7 +429,7 @@ vars.put(&quot;redis_cert&quot;,redis_cert);
           </BeanShellPreProcessor>
           <hashTree/>
         </hashTree>
-        <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加认证用户" enabled="true">
+        <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add auth-users in redis" enabled="true">
           <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
 Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
@@ -452,14 +452,8 @@ jedis.close();</stringProp>
           <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
         </BeanShellSampler>
         <hashTree/>
-        <DebugSampler guiclass="TestBeanGUI" testclass="DebugSampler" testname="调试取样器" enabled="true">
-          <boolProp name="displayJMeterProperties">false</boolProp>
-          <boolProp name="displayJMeterVariables">true</boolProp>
-          <boolProp name="displaySystemProperties">false</boolProp>
-        </DebugSampler>
-        <hashTree/>
       </hashTree>
-      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="认证与访问控制验证" enabled="true">
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="auth&amp;acl check" enabled="true">
         <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
         <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器" enabled="true">
           <boolProp name="LoopController.continue_forever">false</boolProp>
@@ -473,7 +467,7 @@ jedis.close();</stringProp>
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
       </ThreadGroup>
       <hashTree>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="模块列表请求" enabled="true">
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="modules request" enabled="true">
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
             <collectionProp name="Arguments.arguments"/>
           </elementProp>
@@ -493,14 +487,14 @@ jedis.close();</stringProp>
           <stringProp name="TestPlan.comments">获取特定模块的id</stringProp>
         </HTTPSamplerProxy>
         <hashTree>
-          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="JSON提取器" enabled="true">
+          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="JSON Extractor" enabled="true">
             <stringProp name="JSONPostProcessor.referenceNames">redis_mo_id</stringProp>
-            <stringProp name="JSONPostProcessor.jsonPathExprs">$.data[?(@.title.zh=~/.*Redis 认证\/访问控制.*/)].id</stringProp>
+            <stringProp name="JSONPostProcessor.jsonPathExprs">$.data[?(@.title.en=~/.*Redis AUTH.*/)].id</stringProp>
             <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
             <stringProp name="JSONPostProcessor.defaultValues">err_redis_mo_id</stringProp>
           </JSONPostProcessor>
           <hashTree/>
-          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
             <collectionProp name="Asserion.test_strings">
               <stringProp name="67791721">&quot;code&quot;:0</stringProp>
             </collectionProp>
@@ -511,7 +505,7 @@ jedis.close();</stringProp>
           </ResponseAssertion>
           <hashTree/>
         </hashTree>
-        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="察看结果树" enabled="true">
+        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="results tree" enabled="true">
           <boolProp name="ResultCollector.error_logging">false</boolProp>
           <objProp>
             <name>saveConfig</name>
@@ -548,7 +542,7 @@ jedis.close();</stringProp>
           <stringProp name="filename"></stringProp>
         </ResultCollector>
         <hashTree/>
-        <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="获取ssl证书内容" enabled="true">
+        <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="get ssl content" enabled="true">
           <stringProp name="TestPlan.comments">最终得到参数名：ca, redis_key, redis_cert</stringProp>
           <stringProp name="BeanShellSampler.query">import java.io.File;
 import java.io.FileInputStream;
@@ -601,7 +595,7 @@ vars.put(&quot;redis_cert&quot;,redis_cert);
           <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
         </BeanShellSampler>
         <hashTree/>
-        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP信息头管理器" enabled="true">
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP Header Manager" enabled="true">
           <collectionProp name="HeaderManager.headers">
             <elementProp name="" elementType="Header">
               <stringProp name="Header.name">content-type</stringProp>
@@ -610,7 +604,7 @@ vars.put(&quot;redis_cert&quot;,redis_cert);
           </collectionProp>
         </HeaderManager>
         <hashTree/>
-        <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="HTTP请求默认值" enabled="true">
+        <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="HTTP Request Defaults" enabled="true">
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
             <collectionProp name="Arguments.arguments"/>
           </elementProp>
@@ -624,7 +618,7 @@ vars.put(&quot;redis_cert&quot;,redis_cert);
           <stringProp name="HTTPSampler.response_timeout"></stringProp>
         </ConfigTestElement>
         <hashTree/>
-        <AuthManager guiclass="AuthPanel" testclass="AuthManager" testname="HTTP授权管理器" enabled="true">
+        <AuthManager guiclass="AuthPanel" testclass="AuthManager" testname="HTTP Authorization Manager" enabled="true">
           <collectionProp name="AuthManager.auth_list">
             <elementProp name="" elementType="Authorization">
               <stringProp name="Authorization.url">http://${emqx_ip}</stringProp>
@@ -637,12 +631,12 @@ vars.put(&quot;redis_cert&quot;,redis_cert);
           <boolProp name="AuthManager.controlledByThreadGroup">false</boolProp>
         </AuthManager>
         <hashTree/>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="sha256认证判断" enabled="true">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="sha256 auth check" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="修改redis认证/访问控制模块" enabled="true">
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="change redis auth/acl module" enabled="true">
             <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
             <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
               <collectionProp name="Arguments.arguments">
@@ -689,11 +683,11 @@ vars.put(&quot;redis_cert&quot;,redis_cert);
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -707,12 +701,12 @@ vars.put(&quot;redis_cert&quot;,redis_cert);
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="salt+sha256认证判断" enabled="true">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="salt+sha256 auth check" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="修改redis认证/访问控制模块" enabled="true">
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="change redis auth/acl module" enabled="true">
             <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
             <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
               <collectionProp name="Arguments.arguments">
@@ -759,7 +753,7 @@ vars.put(&quot;redis_cert&quot;,redis_cert);
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -769,7 +763,7 @@ vars.put(&quot;redis_cert&quot;,redis_cert);
               <intProp name="Assertion.test_type">16</intProp>
             </ResponseAssertion>
             <hashTree/>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">5000</stringProp>
             </ConstantTimer>
             <hashTree/>
@@ -777,12 +771,12 @@ vars.put(&quot;redis_cert&quot;,redis_cert);
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="sha256+salt认证判断" enabled="true">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="sha256+salt auth check" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="修改redis认证/访问控制模块" enabled="true">
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="change redis auth/acl module" enabled="true">
             <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
             <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
               <collectionProp name="Arguments.arguments">
@@ -829,11 +823,11 @@ vars.put(&quot;redis_cert&quot;,redis_cert);
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">5000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -847,40 +841,13 @@ vars.put(&quot;redis_cert&quot;,redis_cert);
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
         </hashTree>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="修改redis认证/访问控制模块" enabled="true">
-          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
-          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
-            <collectionProp name="Arguments.arguments">
-              <elementProp name="" elementType="HTTPArgument">
-                <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <stringProp name="Argument.value">{&quot;type&quot;:&quot;redis_authentication&quot;,&quot;id&quot;:&quot;${redis_mo_id}&quot;,&quot;enabled&quot;:true,&quot;description&quot;:{&quot;zh&quot;:&quot;Redis 认证/访问控制&quot;,&quot;en&quot;:&quot;Redis AUTH/ACL&quot;},&quot;config&quot;:{&quot;type&quot;:&quot;single&quot;,&quot;server&quot;:&quot;${redis_server}:6379&quot;,&quot;database&quot;:0,&quot;password&quot;:&quot;${redis_auth}&quot;,&quot;pool_size&quot;:8,&quot;password_hash&quot;:&quot;sha256,salt&quot;,&quot;auth_cmd&quot;:&quot;HMGET mqtt_user:%u password salt&quot;,&quot;acl_cmd&quot;:&quot;HGETALL mqtt_acl:%u&quot;,&quot;super_cmd&quot;:&quot;HGET mqtt_user:%u is_superuser&quot;,&quot;auto_reconnect&quot;:true,&quot;sentinel&quot;:&quot;&quot;,&quot;query_timeout&quot;:&quot;5s&quot;,&quot;ssl&quot;:true,&quot;cacertfile&quot;:{&quot;filename&quot;:&quot;ca.pem&quot;,&quot;file&quot;:&quot;${ca}&quot;},&quot;keyfile&quot;:{&quot;filename&quot;:&quot;redis-key.pem&quot;,&quot;file&quot;:&quot;${redis_key}&quot;},&quot;certfile&quot;:{&quot;filename&quot;:&quot;redis-cert.pem&quot;,&quot;file&quot;:&quot;${redis_cert}&quot;},&quot;verify&quot;:false}}</stringProp>
-                <stringProp name="Argument.metadata">=</stringProp>
-              </elementProp>
-            </collectionProp>
-          </elementProp>
-          <stringProp name="HTTPSampler.domain"></stringProp>
-          <stringProp name="HTTPSampler.port"></stringProp>
-          <stringProp name="HTTPSampler.protocol"></stringProp>
-          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
-          <stringProp name="HTTPSampler.path">/api/v4/modules/${redis_mo_id}</stringProp>
-          <stringProp name="HTTPSampler.method">PUT</stringProp>
-          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
-          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
-          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
-          <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
-          <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
-          <stringProp name="HTTPSampler.connect_timeout"></stringProp>
-          <stringProp name="HTTPSampler.response_timeout"></stringProp>
-          <stringProp name="TestPlan.comments">加密方式改为salt+sha256和认证查询命令</stringProp>
-        </HTTPSamplerProxy>
-        <hashTree/>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定用户特定topic订阅" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user&amp;topic sub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <stringProp name="TestPlan.comments">确认不能推送</stringProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl in redis" enabled="true">
             <stringProp name="TestPlan.comments">特定用户特定topic订阅(确认不定推送)</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -915,11 +882,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -939,7 +906,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">3000</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -952,7 +919,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl in redis" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -968,13 +935,13 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定用户特定topic推送" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user&amp;topic pub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <stringProp name="TestPlan.comments">确认不能订阅</stringProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl in redis" enabled="true">
             <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1009,11 +976,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -1033,7 +1000,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">3000</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -1046,7 +1013,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1062,13 +1029,13 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定用户特定topic订阅/推送" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user&amp;topic sub/pub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <stringProp name="TestPlan.comments">确认不能订阅</stringProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1103,11 +1070,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -1127,7 +1094,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">3000</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -1140,7 +1107,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1156,12 +1123,12 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定用户所有topic订阅" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user, all topic sub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1196,11 +1163,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -1220,7 +1187,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">3000</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -1233,7 +1200,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1249,12 +1216,12 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定用户所有topic推送" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user, all topic pub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1289,11 +1256,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -1313,7 +1280,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">3000</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -1326,7 +1293,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1342,12 +1309,12 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定用户所有topic订阅/推送" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user, alltopic sub/pub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1382,11 +1349,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -1406,7 +1373,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">3000</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -1419,7 +1386,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1435,13 +1402,13 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定用户特定topic订阅/特定topic推送" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="1 user sub/1 user pub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <stringProp name="TestPlan.comments">确认订阅&amp;推送成功</stringProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户特定topic订阅(确认订阅成功)</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1477,11 +1444,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -1501,7 +1468,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">1</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -1514,7 +1481,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1531,13 +1498,13 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定用户所有topic订阅/所有topic推送" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="1user sub all/1 user pub all" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <stringProp name="TestPlan.comments">确认订阅&amp;推送成功</stringProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户特定topic订阅(确认订阅成功)</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1573,11 +1540,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -1597,7 +1564,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">3000</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -1610,7 +1577,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1627,7 +1594,7 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="修改redis认证/访问控制模块" enabled="false">
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="change redis auth/acl module" enabled="true">
           <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
             <collectionProp name="Arguments.arguments">
@@ -1651,15 +1618,15 @@ jedis.close();</stringProp>
           <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
           <stringProp name="HTTPSampler.connect_timeout"></stringProp>
           <stringProp name="HTTPSampler.response_timeout"></stringProp>
-          <stringProp name="TestPlan.comments">修改acl规则对象为clientid</stringProp>
+          <stringProp name="TestPlan.comments">acl rule for clientid</stringProp>
         </HTTPSamplerProxy>
         <hashTree/>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定clientid特定topic订阅/推送" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific clientid&amp;topic订阅/推送" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1695,11 +1662,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -1719,7 +1686,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">1</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -1732,7 +1699,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1749,13 +1716,13 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定clientid特定topic订阅" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="special clientid&amp;topic sub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <stringProp name="TestPlan.comments">确认单独订阅不能推送成功</stringProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1791,11 +1758,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -1815,7 +1782,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">3000</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -1828,7 +1795,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1845,13 +1812,13 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定clientid特定topic推送" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific clientid&amp;topic pub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <stringProp name="TestPlan.comments">确认单独推送不能订阅成功</stringProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1887,11 +1854,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -1911,7 +1878,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">3000</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -1924,7 +1891,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1941,12 +1908,12 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定clientid所有topic订阅" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific clientid, all topic sub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户所有topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -1982,11 +1949,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -2006,7 +1973,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">3000</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -2019,7 +1986,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -2036,12 +2003,12 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定clientid所有topic推送" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="spicific clientid, all topic pub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户所有topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -2077,11 +2044,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -2101,7 +2068,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">3000</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -2114,7 +2081,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -2131,12 +2098,12 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定clientid所有topic订阅/推送" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific clientid, all topic sub/pub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户所有topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -2172,11 +2139,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -2196,7 +2163,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">3000</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -2209,7 +2176,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -2226,13 +2193,13 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定clientid特定topic推送&amp;订阅" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific clientid&amp;topic sub&amp;pub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <stringProp name="TestPlan.comments">确定单独的订阅&amp;推送成功</stringProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -2268,11 +2235,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -2292,7 +2259,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">3000</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -2305,7 +2272,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -2322,13 +2289,13 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定clientid所有topic订阅&amp;推送" enabled="false">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific clientid, all topic sub&amp;pub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <stringProp name="TestPlan.comments">确认单独订阅&amp;推送成功</stringProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户所有topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -2364,11 +2331,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -2388,7 +2355,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">3000</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -2401,7 +2368,7 @@ jedis.close();</stringProp>
           </hashTree>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -2418,12 +2385,12 @@ jedis.close();</stringProp>
           </BeanShellSampler>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="acl缓存验证" enabled="true">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="acl cache check" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
         <hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中添加acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
             <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -2459,11 +2426,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -2474,7 +2441,7 @@ jedis.close();</stringProp>
             </ResponseAssertion>
             <hashTree/>
           </hashTree>
-          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="打开acl缓存" enabled="true">
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="turnon acl chache" enabled="true">
             <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
             <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
               <collectionProp name="Arguments.arguments">
@@ -2501,7 +2468,7 @@ jedis.close();</stringProp>
             <stringProp name="TestPlan.comments">&quot;enable_acl_cache&quot;:&quot;on&quot;</stringProp>
           </HTTPSamplerProxy>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="2101543476">&quot;code&quot;:0}</stringProp>
               </collectionProp>
@@ -2532,7 +2499,7 @@ jedis.close();</stringProp>
             </ResponseAssertion>
             <hashTree/>
           </hashTree>
-          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="redis中删除acl" enabled="true">
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
             <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
             <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
  
@@ -2557,7 +2524,7 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.sample_condition_value">1</stringProp>
           </net.xmeter.samplers.SubSampler>
           <hashTree>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="-100397459">hello redis!!!!</stringProp>
               </collectionProp>
@@ -2567,7 +2534,7 @@ jedis.close();</stringProp>
               <intProp name="Assertion.test_type">2</intProp>
             </ResponseAssertion>
             <hashTree/>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">3000</stringProp>
             </ConstantTimer>
             <hashTree/>
@@ -2575,14 +2542,8 @@ jedis.close();</stringProp>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
         </hashTree>
-        <DebugSampler guiclass="TestBeanGUI" testclass="DebugSampler" testname="调试取样器" enabled="false">
-          <boolProp name="displayJMeterProperties">false</boolProp>
-          <boolProp name="displayJMeterVariables">true</boolProp>
-          <boolProp name="displaySystemProperties">false</boolProp>
-        </DebugSampler>
-        <hashTree/>
       </hashTree>
-      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="pub线程组" enabled="false">
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="pub Thread Group" enabled="true">
         <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
         <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器" enabled="true">
           <boolProp name="LoopController.continue_forever">false</boolProp>
@@ -2596,7 +2557,7 @@ jedis.close();</stringProp>
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
       </ThreadGroup>
       <hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定user_pub" enabled="true">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user_pub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
@@ -2621,11 +2582,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">16000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -2636,7 +2597,7 @@ jedis.close();</stringProp>
             </ResponseAssertion>
             <hashTree/>
           </hashTree>
-          <LoopController guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器" enabled="true">
+          <LoopController guiclass="LoopControlPanel" testclass="LoopController" testname="Loop Controler" enabled="true">
             <boolProp name="LoopController.continue_forever">true</boolProp>
             <stringProp name="LoopController.loops">20</stringProp>
           </LoopController>
@@ -2651,11 +2612,11 @@ jedis.close();</stringProp>
               <boolProp name="mqtt.retained_message">false</boolProp>
             </net.xmeter.samplers.PubSampler>
             <hashTree>
-              <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+              <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
                 <stringProp name="ConstantTimer.delay">2000</stringProp>
               </ConstantTimer>
               <hashTree/>
-              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
                 <collectionProp name="Asserion.test_strings">
                   <stringProp name="-1267750625">successfuly</stringProp>
                 </collectionProp>
@@ -2670,7 +2631,7 @@ jedis.close();</stringProp>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定user_pub--user2" enabled="true">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user_pub--user2" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
@@ -2695,11 +2656,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">1000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -2710,7 +2671,7 @@ jedis.close();</stringProp>
             </ResponseAssertion>
             <hashTree/>
           </hashTree>
-          <LoopController guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器" enabled="true">
+          <LoopController guiclass="LoopControlPanel" testclass="LoopController" testname="loop controler" enabled="true">
             <boolProp name="LoopController.continue_forever">true</boolProp>
             <stringProp name="LoopController.loops">7</stringProp>
           </LoopController>
@@ -2725,11 +2686,11 @@ jedis.close();</stringProp>
               <boolProp name="mqtt.retained_message">false</boolProp>
             </net.xmeter.samplers.PubSampler>
             <hashTree>
-              <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+              <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
                 <stringProp name="ConstantTimer.delay">2000</stringProp>
               </ConstantTimer>
               <hashTree/>
-              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
                 <collectionProp name="Asserion.test_strings">
                   <stringProp name="-1267750625">successfuly</stringProp>
                 </collectionProp>
@@ -2744,7 +2705,7 @@ jedis.close();</stringProp>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
         </hashTree>
-        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="特定clientid-pub" enabled="true">
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific clientid-pub" enabled="true">
           <boolProp name="TransactionController.includeTimers">false</boolProp>
           <boolProp name="TransactionController.parent">true</boolProp>
         </TransactionController>
@@ -2769,11 +2730,11 @@ jedis.close();</stringProp>
             <stringProp name="mqtt.conn_clean_session">true</stringProp>
           </net.xmeter.samplers.ConnectSampler>
           <hashTree>
-            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
               <stringProp name="ConstantTimer.delay">1000</stringProp>
             </ConstantTimer>
             <hashTree/>
-            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="1259833018">Successful</stringProp>
               </collectionProp>
@@ -2784,7 +2745,7 @@ jedis.close();</stringProp>
             </ResponseAssertion>
             <hashTree/>
           </hashTree>
-          <LoopController guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器" enabled="true">
+          <LoopController guiclass="LoopControlPanel" testclass="LoopController" testname="Loop controler" enabled="true">
             <boolProp name="LoopController.continue_forever">true</boolProp>
             <stringProp name="LoopController.loops">30</stringProp>
           </LoopController>
@@ -2799,11 +2760,11 @@ jedis.close();</stringProp>
               <boolProp name="mqtt.retained_message">false</boolProp>
             </net.xmeter.samplers.PubSampler>
             <hashTree>
-              <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="固定定时器" enabled="true">
+              <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
                 <stringProp name="ConstantTimer.delay">2000</stringProp>
               </ConstantTimer>
               <hashTree/>
-              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
                 <collectionProp name="Asserion.test_strings">
                   <stringProp name="-1267750625">successfuly</stringProp>
                 </collectionProp>
@@ -2818,7 +2779,7 @@ jedis.close();</stringProp>
           <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
           <hashTree/>
         </hashTree>
-        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="察看结果树" enabled="true">
+        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="results tree" enabled="true">
           <boolProp name="ResultCollector.error_logging">false</boolProp>
           <objProp>
             <name>saveConfig</name>
@@ -2856,7 +2817,7 @@ jedis.close();</stringProp>
         </ResultCollector>
         <hashTree/>
       </hashTree>
-      <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="察看结果树" enabled="true">
+      <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="result tree" enabled="true">
         <boolProp name="ResultCollector.error_logging">false</boolProp>
         <objProp>
           <name>saveConfig</name>
@@ -2893,85 +2854,6 @@ jedis.close();</stringProp>
         <stringProp name="filename"></stringProp>
       </ResultCollector>
       <hashTree/>
-      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="线程组" enabled="false">
-        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
-        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器" enabled="true">
-          <boolProp name="LoopController.continue_forever">false</boolProp>
-          <stringProp name="LoopController.loops">1</stringProp>
-        </elementProp>
-        <stringProp name="ThreadGroup.num_threads">1</stringProp>
-        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
-        <boolProp name="ThreadGroup.scheduler">false</boolProp>
-        <stringProp name="ThreadGroup.duration"></stringProp>
-        <stringProp name="ThreadGroup.delay"></stringProp>
-        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
-      </ThreadGroup>
-      <hashTree>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="HTTP请求" enabled="true">
-          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
-            <collectionProp name="Arguments.arguments">
-              <elementProp name="aa" elementType="HTTPArgument">
-                <boolProp name="HTTPArgument.always_encode">true</boolProp>
-                <stringProp name="Argument.value">xfypp@sina.com</stringProp>
-                <stringProp name="Argument.metadata">=</stringProp>
-                <boolProp name="HTTPArgument.use_equals">true</boolProp>
-                <stringProp name="Argument.name">aa</stringProp>
-              </elementProp>
-            </collectionProp>
-          </elementProp>
-          <stringProp name="HTTPSampler.domain"></stringProp>
-          <stringProp name="HTTPSampler.port"></stringProp>
-          <stringProp name="HTTPSampler.protocol"></stringProp>
-          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
-          <stringProp name="HTTPSampler.path"></stringProp>
-          <stringProp name="HTTPSampler.method">GET</stringProp>
-          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
-          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
-          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
-          <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
-          <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
-          <stringProp name="HTTPSampler.connect_timeout"></stringProp>
-          <stringProp name="HTTPSampler.response_timeout"></stringProp>
-        </HTTPSamplerProxy>
-        <hashTree/>
-        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="察看结果树" enabled="true">
-          <boolProp name="ResultCollector.error_logging">false</boolProp>
-          <objProp>
-            <name>saveConfig</name>
-            <value class="SampleSaveConfiguration">
-              <time>true</time>
-              <latency>true</latency>
-              <timestamp>true</timestamp>
-              <success>true</success>
-              <label>true</label>
-              <code>true</code>
-              <message>true</message>
-              <threadName>true</threadName>
-              <dataType>true</dataType>
-              <encoding>false</encoding>
-              <assertions>true</assertions>
-              <subresults>true</subresults>
-              <responseData>false</responseData>
-              <samplerData>false</samplerData>
-              <xml>false</xml>
-              <fieldNames>true</fieldNames>
-              <responseHeaders>false</responseHeaders>
-              <requestHeaders>false</requestHeaders>
-              <responseDataOnError>false</responseDataOnError>
-              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
-              <assertionsResultsToSave>0</assertionsResultsToSave>
-              <bytes>true</bytes>
-              <sentBytes>true</sentBytes>
-              <url>true</url>
-              <threadCounts>true</threadCounts>
-              <idleTime>true</idleTime>
-              <connectTime>true</connectTime>
-            </value>
-          </objProp>
-          <stringProp name="filename"></stringProp>
-        </ResultCollector>
-        <hashTree/>
-      </hashTree>
     </hashTree>
   </hashTree>
 </jmeterTestPlan>
