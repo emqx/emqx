@@ -68,6 +68,25 @@ t_publish(_Config) ->
             ?assert(false)
     end.
 
+t_publish_acl_deny(_Config) ->
+    Topic = <<"abc">>, Payload = <<"123">>,
+    TopicStr = binary_to_list(Topic),
+    URI = "coap://127.0.0.1/mqtt/"++TopicStr++"?c=client1&u=tom&p=secret",
+
+    %% Sub topic first
+    emqx:subscribe(Topic),
+
+    ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history]),
+    ok = meck:expect(emqx_access_control, check_acl, 3, deny),
+    Reply = er_coap_client:request(put, URI, #coap_content{format = <<"application/octet-stream">>, payload = Payload}),
+    ?assertEqual({error,forbidden}, Reply),
+    ok = meck:unload(emqx_access_control),
+    receive
+        {deliver, Topic, Msg} -> ct:fail({unexpected, {Topic, Msg}})
+    after
+        500 -> ok
+    end.
+
 t_observe(_Config) ->
     Topic = <<"abc">>, TopicStr = binary_to_list(Topic),
     Payload = <<"123">>,
@@ -90,6 +109,15 @@ t_observe(_Config) ->
     timer:sleep(100),
 
     [] = emqx:subscribers(Topic).
+
+t_observe_acl_deny(_Config) ->
+    Topic = <<"abc">>, TopicStr = binary_to_list(Topic),
+    Uri = "coap://127.0.0.1/mqtt/"++TopicStr++"?c=client1&u=tom&p=secret",
+    ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history]),
+    ok = meck:expect(emqx_access_control, check_acl, 3, deny),
+    ?assertEqual({error,forbidden}, er_coap_observer:observe(Uri)),
+    [] = emqx:subscribers(Topic),
+    ok = meck:unload(emqx_access_control).
 
 t_observe_wildcard(_Config) ->
     Topic = <<"+/b">>, TopicStr = http_uri:encode(binary_to_list(Topic)),

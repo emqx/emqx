@@ -112,14 +112,16 @@ coap_observe(ChId, ?PS_PREFIX, TopicPath, Ack, Content) when TopicPath =/= [] ->
     Topic = topic(TopicPath),
     ?LOG(debug, "observe Topic=~p, Ack=~p，Content=~p", [Topic, Ack, Content]),
     Pid = get(mqtt_client_pid),
-    emqx_coap_mqtt_adapter:subscribe(Pid, Topic),
-    Code = case emqx_coap_pubsub_topics:is_topic_timeout(Topic) of
-               true  ->
-                   nocontent;
-               false->
-                   content
-           end,
-    {ok, {state, ChId, ?PS_PREFIX, [Topic]}, Code, Content};
+    case emqx_coap_mqtt_adapter:subscribe(Pid, Topic) of
+        ok ->
+            Code = case emqx_coap_pubsub_topics:is_topic_timeout(Topic) of
+               true -> nocontent;
+               false-> content
+            end,
+            {ok, {state, ChId, ?PS_PREFIX, [Topic]}, Code, Content};
+        {error, Code} ->
+            {error, Code}
+    end;
 
 coap_observe(ChId, Prefix, TopicPath, Ack, _Content) ->
     ?LOG(error, "unknown observe request ChId=~p, Prefix=~p, TopicPath=~p, Ack=~p", [ChId, Prefix, TopicPath, Ack]),
@@ -222,17 +224,19 @@ format_string_to_int(<<"application/json">>) ->
 
 handle_received_publish(Topic, MaxAge, Format, Payload) ->
     case add_topic_info(publish, Topic, MaxAge, format_string_to_int(Format), Payload) of
-        {Ret ,true}  ->
+        {Ret, true}  ->
             Pid = get(mqtt_client_pid),
-            emqx_coap_mqtt_adapter:publish(Pid, topic(Topic), Payload),
-            Content = case Ret of
-                          changed ->
-                              #coap_content{};
-                          created ->
-                              LocPath = concatenate_location_path([<<"ps">>, Topic, <<>>]),
-                              #coap_content{location_path = [LocPath]}
-                      end,
-            {ok, Ret, Content};
+            case emqx_coap_mqtt_adapter:publish(Pid, topic(Topic), Payload) of
+                ok ->
+                    {ok, Ret, case Ret of
+                        changed -> #coap_content{};
+                        created ->
+                            #coap_content{location_path = [
+                                concatenate_location_path([<<"ps">>, Topic, <<>>])]}
+                     end};
+                {error, Code} ->
+                    {error, Code}
+            end;
         {_, false} ->
             ?LOG(debug, "add_topic_info failed, will return bad_request", []),
             {error, bad_request}
