@@ -133,8 +133,8 @@ init({ClientId, Username, Password, Channel}) ->
 handle_call({subscribe, Topic, CoapPid}, _From, State=#state{sub_topics = TopicList}) ->
     NewTopics = proplists:delete(Topic, TopicList),
     IsWild = emqx_topic:wildcard(Topic),
-    chann_subscribe(Topic, State),
-    {reply, ok, State#state{sub_topics = [{Topic, {IsWild, CoapPid}}|NewTopics]}, hibernate};
+    {reply, chann_subscribe(Topic, State), State#state{sub_topics =
+        [{Topic, {IsWild, CoapPid}}|NewTopics]}, hibernate};
 
 handle_call({unsubscribe, Topic, _CoapPid}, _From, State=#state{sub_topics = TopicList}) ->
     NewTopics = proplists:delete(Topic, TopicList),
@@ -142,8 +142,7 @@ handle_call({unsubscribe, Topic, _CoapPid}, _From, State=#state{sub_topics = Top
     {reply, ok, State#state{sub_topics = NewTopics}, hibernate};
 
 handle_call({publish, Topic, Payload}, _From, State) ->
-    _ = chann_publish(Topic, Payload, State),
-    {reply, ok, State};
+    {reply, chann_publish(Topic, Payload, State), State};
 
 handle_call(info, _From, State) ->
     {reply, info(State), State};
@@ -221,10 +220,12 @@ chann_subscribe(Topic, State = #state{clientid = ClientId}) ->
     case emqx_access_control:check_acl(clientinfo(State), subscribe, Topic) of
         allow ->
             emqx_broker:subscribe(Topic, ClientId, ?SUBOPTS),
-            emqx_hooks:run('session.subscribed', [clientinfo(State), Topic, ?SUBOPTS]);
+            emqx_hooks:run('session.subscribed', [clientinfo(State), Topic, ?SUBOPTS]),
+            ok;
         deny  ->
             ?LOG(warning, "subscribe to ~p by clientid ~p failed due to acl check.",
-                 [Topic, ClientId])
+                 [Topic, ClientId]),
+            {error, forbidden}
     end.
 
 chann_unsubscribe(Topic, State) ->
@@ -239,10 +240,12 @@ chann_publish(Topic, Payload, State = #state{clientid = ClientId}) ->
         allow ->
             emqx_broker:publish(
                 emqx_message:set_flag(retain, false,
-                                      emqx_message:make(ClientId, ?QOS_0, Topic, Payload)));
+                                      emqx_message:make(ClientId, ?QOS_0, Topic, Payload))),
+            ok;
         deny  ->
             ?LOG(warning, "publish to ~p by clientid ~p failed due to acl check.",
-                 [Topic, ClientId])
+                 [Topic, ClientId]),
+            {error, forbidden}
     end.
 
 
