@@ -26,19 +26,31 @@
 -include_lib("emqx_auth_mnesia/include/emqx_auth_mnesia.hrl").
 
 all() ->
+    [{group, Id} || {Id, _, _} <- groups()].
+
+groups() ->
+    [{username, [], cases()}, {clientid, [], cases()}].
+
+cases() ->
     [t_import_4_2, t_import_4_1].
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([emqx_management, emqx_dashboard, emqx_auth_mnesia]),
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
-    mnesia:clear_table(emqx_acl),
-    mnesia:clear_table(emqx_user),
     Config.
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_modules, emqx_management, emqx_dashboard, emqx_management, emqx_auth_mnesia]),
     ekka_mnesia:ensure_stopped().
+
+init_per_group(username, Config) ->
+    [{cred_type, username} | Config];
+init_per_group(clientid, Config) ->
+    [{cred_type, clientid} | Config].
+
+end_per_group(_, Config) ->
+    Config.
 
 init_per_testcase(_, Config) ->
     Config.
@@ -55,26 +67,30 @@ t_import_4_1(Config) ->
     test_import(Config, "v4.1.json").
 
 test_import(Config, File) ->
+    Type = proplists:get_value(cred_type, Config),
+    mnesia:clear_table(emqx_acl),
+    mnesia:clear_table(emqx_user),
     Filename = filename:join(proplists:get_value(data_dir, Config), File),
-    ?assertMatch(ok, emqx_mgmt_data_backup:import(Filename)),
+    Overrides = emqx_json:encode(#{<<"auth.mnesia.as">> => atom_to_binary(Type)}),
+    ?assertMatch(ok, emqx_mgmt_data_backup:import(Filename, Overrides)),
     Records = lists:sort(ets:tab2list(emqx_acl)),
     %% Check importing of records related to emqx_auth_mnesia
     ?assertMatch([#emqx_acl{
-                     filter = {{username,<<"emqx_c">>}, <<"Topic/A">>},
+                     filter = {{Type,<<"emqx_c">>}, <<"Topic/A">>},
                      action = pub,
                      access = allow
                     },
                   #emqx_acl{
-                     filter = {{username,<<"emqx_c">>}, <<"Topic/A">>},
+                     filter = {{Type,<<"emqx_c">>}, <<"Topic/A">>},
                      action = sub,
                      access = allow
                     }],
                  lists:sort(Records)),
     ?assertMatch([#emqx_user{
-                     login = {username, <<"emqx_c">>}
+                     login = {Type, <<"emqx_c">>}
                     }], ets:tab2list(emqx_user)),
-    Req = #{clientid => "blah",
-            username => <<"emqx_c">>,
+    Req = #{clientid => <<"blah">>}
+          #{Type => <<"emqx_c">>,
             password => "emqx_p"
            },
     ?assertMatch({stop, #{auth_result := success}},
