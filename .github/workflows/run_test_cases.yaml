@@ -75,9 +75,27 @@ jobs:
             KAFKA_TAG: 2.5.0
             PULSAR_TAG: 2.3.2
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          timeout-minutes: 20
           run: |
-            docker-compose -f .ci/apps_tests/docker-compose.yaml -f .ci/apps_tests/docker-compose.enterprise.yaml build --no-cache
-            docker-compose -f .ci/apps_tests/docker-compose.yaml -f .ci/apps_tests/docker-compose.enterprise.yaml up -d
+            docker-compose \
+                -f .ci/docker-compose-file/docker-compose.yaml \
+                -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-cassandra-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-dynamodb-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-influxdb-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-kafka-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-opentsdb-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-pulsar-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-rabbit-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-timescale-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-mysql-client.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-pgsql-and-timescale-client.yaml \
+                up -d --build
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
             while [ $(docker ps -a --filter name=client --filter exited=0 | wc -l) \
                  != $(docker ps -a --filter name=client | wc -l) ]; do
