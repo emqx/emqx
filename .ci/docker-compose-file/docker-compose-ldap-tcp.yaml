@@ -13,6 +13,4 @@ services:
       - 389:389
     restart: always
     networks:
-      emqx_bridge:
-        ipv4_address: 172.100.239.10
-        ipv6_address: 2001:3200:3200::10
+      - emqx_bridge

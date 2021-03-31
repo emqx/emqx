@@ -146,17 +146,25 @@ jobs:
     steps:
       - uses: actions/checkout@v1
       - name: docker-compose up
+        timeout-minutes: 5
         run: |
           docker-compose \
             -f .ci/docker-compose-file/docker-compose-mysql-${{ matrix.connect_type }}.yaml \
             -f .ci/docker-compose-file/docker-compose.yaml \
             up -d --build
+          while [ $(docker ps -a --filter name=client --filter exited=0 | wc -l) \
+                 != $(docker ps -a --filter name=client | wc -l) ]; do
+              sleep 5
+          done
       - name: setup
         env:
           MYSQL_TAG: ${{ matrix.mysql_tag }}
         if: matrix.connect_type == 'tls'
         run: |
           cat <<-EOF >> "$GITHUB_ENV"
+            EMQX_AUTH__MYSQL__USERNAME=ssluser
+            EMQX_AUTH__MYSQL__PASSWORD=public
+            EMQX_AUTH__MYSQL__DATABASE=mqtt
             EMQX_AUTH__MYSQL__SSL=on
             EMQX_AUTH__MYSQL__SSL__CACERTFILE=/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem
             EMQX_AUTH__MYSQL__SSL__CERTFILE=/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem
@@ -169,7 +177,12 @@ jobs:
           MYSQL_TAG: ${{ matrix.mysql_tag }}
         if: matrix.connect_type == 'tcp'
         run: |
-          echo EMQX_AUTH__MYSQL__SSL=off >> "$GITHUB_ENV"
+          cat <<-EOF >> "$GITHUB_ENV"
+            EMQX_AUTH__MYSQL__USERNAME=root
+            EMQX_AUTH__MYSQL__PASSWORD=public
+            EMQX_AUTH__MYSQL__DATABASE=mqtt
+            EMQX_AUTH__MYSQL__SSL=off
+          EOF
       - name: setup
         if: matrix.network_type == 'ipv4'
         run: |
@@ -185,10 +198,7 @@ jobs:
           fi
       - name: run test cases
         run: |
-          export EMQX_AUTH__MYSQL__USERNAME=root \
-                 EMQX_AUTH__MYSQL__PASSWORD=public \
-                 EMQX_AUTH__MYSQL__DATABASE=mqtt \
-                 CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
+          export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mysql"

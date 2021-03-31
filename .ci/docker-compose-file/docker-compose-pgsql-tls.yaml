@@ -29,6 +29,4 @@ services:
       - -c
       - hba_file=/var/lib/postgresql/pg_hba.conf
     networks:
-      emqx_bridge:
-        ipv4_address: 172.100.239.13
-        ipv6_address: 2001:3200:3200::13
+      - emqx_bridge
