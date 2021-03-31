@@ -62,7 +62,9 @@ getopts(_Socket, _Opts) ->
            {buffer,80000}]}.
 
 fast_close(Stream) ->
-    quicer:close_stream(Stream).
+    quicer:close_stream(Stream),
+    %% Stream might be closed already.
+    ok.
 
 -spec(ensure_ok_or_exit(atom(), list(term())) -> term()).
 ensure_ok_or_exit(Fun, Args = [Sock|_]) when is_atom(Fun), is_list(Args) ->

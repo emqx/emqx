@@ -657,6 +657,9 @@ handle_info({sock_error, Reason}, State) ->
     Reason =/= closed andalso ?LOG(error, "Socket error: ~p", [Reason]),
     handle_info({sock_closed, Reason}, close_socket(State));
 
+handle_info({quic, closed, _Channel, ReasonFlag}, State) ->
+    handle_info({sock_closed, ReasonFlag}, State);
+
 handle_info(Info, State) ->
     with_channel(handle_info, [Info], State).
 
