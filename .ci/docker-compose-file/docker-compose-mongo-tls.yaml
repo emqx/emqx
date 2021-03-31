@@ -10,9 +10,7 @@ services:
     volumes:
         - ../../apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/mongodb.pem/:/etc/certs/mongodb.pem
     networks:
-      emqx_bridge:
-        ipv4_address: 172.100.239.11
-        ipv6_address: 2001:3200:3200::11
+      - emqx_bridge
     command:
       --ipv6
       --bind_ip_all

@@ -9,7 +9,4 @@ services:
         - "--bind 0.0.0.0 ::"
     restart: always
     networks:
-      emqx_bridge:
-        # Assign a public address. Erlang container cannot find cluster nodes by network-scoped alias (redis_cluster).
-        ipv4_address: 172.100.239.14
-        ipv6_address: 2001:3200:3200::14
+      - emqx_bridge
