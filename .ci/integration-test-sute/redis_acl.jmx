@@ -1,0 +1,2859 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.2.1">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="test plan" enabled="true">
+      <stringProp name="TestPlan.comments"></stringProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
+      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
+        <collectionProp name="Arguments.arguments"/>
+      </elementProp>
+      <stringProp name="TestPlan.user_define_classpath"></stringProp>
+    </TestPlan>
+    <hashTree>
+      <Arguments guiclass="ArgumentsPanel" testclass="Arguments" testname="User Defined Variables" enabled="true">
+        <collectionProp name="Arguments.arguments">
+          <elementProp name="redis_server" elementType="Argument">
+            <stringProp name="Argument.name">redis_server</stringProp>
+            <stringProp name="Argument.value">122.112.146.22</stringProp>
+            <stringProp name="Argument.desc">redis服务器ip</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="redis_port" elementType="Argument">
+            <stringProp name="Argument.name">redis_port</stringProp>
+            <stringProp name="Argument.value">6380</stringProp>
+            <stringProp name="Argument.desc">redis端口</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="redis_auth" elementType="Argument">
+            <stringProp name="Argument.name">redis_auth</stringProp>
+            <stringProp name="Argument.value">123123</stringProp>
+            <stringProp name="Argument.desc">redis密码</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="ca_route" elementType="Argument">
+            <stringProp name="Argument.name">ca_route</stringProp>
+            <stringProp name="Argument.value">/Users/xiangfangyang/Documents/ca/redis6</stringProp>
+            <stringProp name="Argument.desc">证书存放路径</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="emqx_ip" elementType="Argument">
+            <stringProp name="Argument.name">emqx_ip</stringProp>
+            <stringProp name="Argument.value">127.0.0.1</stringProp>
+            <stringProp name="Argument.desc">emqx服务器ip地址</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="dash_user" elementType="Argument">
+            <stringProp name="Argument.name">dash_user</stringProp>
+            <stringProp name="Argument.value">admin</stringProp>
+            <stringProp name="Argument.desc">dash应用账号</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="dash_pwd" elementType="Argument">
+            <stringProp name="Argument.name">dash_pwd</stringProp>
+            <stringProp name="Argument.value">public</stringProp>
+            <stringProp name="Argument.desc">dash账号的密码</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="data_user_sha256" elementType="Argument">
+            <stringProp name="Argument.name">data_user_sha256</stringProp>
+            <stringProp name="Argument.value">redis_sha256</stringProp>
+            <stringProp name="Argument.desc">认证使用账号1，sha256加密</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="data_user_salt_sha256" elementType="Argument">
+            <stringProp name="Argument.name">data_user_salt_sha256</stringProp>
+            <stringProp name="Argument.value">redis_salt_sha256</stringProp>
+            <stringProp name="Argument.desc">认证使用账号2，salt+sha256加密</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="data_user_sha256_salt" elementType="Argument">
+            <stringProp name="Argument.name">data_user_sha256_salt</stringProp>
+            <stringProp name="Argument.value">redis_sha256_salt</stringProp>
+            <stringProp name="Argument.desc">认证使用账号3，sha256+salt加密</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="data_pwd" elementType="Argument">
+            <stringProp name="Argument.name">data_pwd</stringProp>
+            <stringProp name="Argument.value">123123</stringProp>
+            <stringProp name="Argument.desc">明文密码</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="salt" elementType="Argument">
+            <stringProp name="Argument.name">salt</stringProp>
+            <stringProp name="Argument.value">abcd</stringProp>
+            <stringProp name="Argument.desc">盐值</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="sha256_pwd" elementType="Argument">
+            <stringProp name="Argument.name">sha256_pwd</stringProp>
+            <stringProp name="Argument.value">96cae35ce8a9b0244178bf28e4966c2ce1b8385723a96a6b838858cdd6ca0a1e</stringProp>
+            <stringProp name="Argument.desc">123123sha256加密后密码，redis存储</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="salt_sha256_pwd" elementType="Argument">
+            <stringProp name="Argument.name">salt_sha256_pwd</stringProp>
+            <stringProp name="Argument.value">73d33603bd53295f8ef8cb78c6f9407f776a715eb219b2bd73b70859fc5ef578</stringProp>
+            <stringProp name="Argument.desc">123123salt+sha256加密密码，redis存储</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="sha256_salt_pwd" elementType="Argument">
+            <stringProp name="Argument.name">sha256_salt_pwd</stringProp>
+            <stringProp name="Argument.value">d2abb1cda7da468062a5f78402c9c9969fcc3a293b4047fb61ca54d578553a7c</stringProp>
+            <stringProp name="Argument.desc">123123sha256+salt加密密码，redis存储</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="topic" elementType="Argument">
+            <stringProp name="Argument.name">topic</stringProp>
+            <stringProp name="Argument.value">redis_topic</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="clientid" elementType="Argument">
+            <stringProp name="Argument.name">clientid</stringProp>
+            <stringProp name="Argument.value">clientid</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+        </collectionProp>
+      </Arguments>
+      <hashTree/>
+      <SetupThreadGroup guiclass="SetupThreadGroupGui" testclass="SetupThreadGroup" testname="initialization environment" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">1</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+        <stringProp name="ThreadGroup.duration"></stringProp>
+        <stringProp name="ThreadGroup.delay"></stringProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+      </SetupThreadGroup>
+      <hashTree>
+        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="results tree" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP Header Manager" enabled="true">
+          <collectionProp name="HeaderManager.headers">
+            <elementProp name="" elementType="Header">
+              <stringProp name="Header.name">content-type</stringProp>
+              <stringProp name="Header.value">application/json;charset=utf-8</stringProp>
+            </elementProp>
+          </collectionProp>
+        </HeaderManager>
+        <hashTree/>
+        <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="HTTP Request Defaults" enabled="true">
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
+            <collectionProp name="Arguments.arguments"/>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain">${emqx_ip}</stringProp>
+          <stringProp name="HTTPSampler.port">18083</stringProp>
+          <stringProp name="HTTPSampler.protocol">http</stringProp>
+          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+          <stringProp name="HTTPSampler.path"></stringProp>
+          <stringProp name="HTTPSampler.concurrentPool">6</stringProp>
+          <stringProp name="HTTPSampler.connect_timeout"></stringProp>
+          <stringProp name="HTTPSampler.response_timeout"></stringProp>
+        </ConfigTestElement>
+        <hashTree/>
+        <AuthManager guiclass="AuthPanel" testclass="AuthManager" testname="HTTP Authorization Manager" enabled="true">
+          <collectionProp name="AuthManager.auth_list">
+            <elementProp name="" elementType="Authorization">
+              <stringProp name="Authorization.url">http://${emqx_ip}</stringProp>
+              <stringProp name="Authorization.username">${dash_user}</stringProp>
+              <stringProp name="Authorization.password">${dash_pwd}</stringProp>
+              <stringProp name="Authorization.domain"></stringProp>
+              <stringProp name="Authorization.realm"></stringProp>
+            </elementProp>
+          </collectionProp>
+          <boolProp name="AuthManager.controlledByThreadGroup">false</boolProp>
+        </AuthManager>
+        <hashTree/>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="get modules&apos; id" enabled="true">
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
+            <collectionProp name="Arguments.arguments"/>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain"></stringProp>
+          <stringProp name="HTTPSampler.port">18083</stringProp>
+          <stringProp name="HTTPSampler.protocol"></stringProp>
+          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+          <stringProp name="HTTPSampler.path">/api/v4/modules</stringProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+          <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+          <stringProp name="HTTPSampler.connect_timeout"></stringProp>
+          <stringProp name="HTTPSampler.response_timeout"></stringProp>
+          <stringProp name="TestPlan.comments">获取特定模块的id</stringProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="JSON Extractor" enabled="true">
+            <stringProp name="JSONPostProcessor.referenceNames">acl_control_id;redis_mo_id</stringProp>
+            <stringProp name="JSONPostProcessor.jsonPathExprs">$.data[?(@.title.en=~/.*Internal ACL File.*/)].id;$.data[?(@.title.en=~/.*Redis AUTH.*/)].id</stringProp>
+            <stringProp name="JSONPostProcessor.match_numbers">1;1</stringProp>
+            <stringProp name="JSONPostProcessor.defaultValues">err_acl_control_id;err_redis_mo_id</stringProp>
+          </JSONPostProcessor>
+          <hashTree/>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="67791721">&quot;code&quot;:0</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message"></stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">16</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="setup settings" enabled="true">
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{&quot;mqtt_wildcard_subscription&quot;:&quot;true&quot;,&quot;mqtt_strict_mode&quot;:&quot;false&quot;,&quot;mqtt_shared_subscription&quot;:&quot;true&quot;,&quot;mqtt_retain_available&quot;:&quot;true&quot;,&quot;mqtt_max_topic_levels&quot;:&quot;0&quot;,&quot;mqtt_max_topic_alias&quot;:&quot;65535&quot;,&quot;mqtt_max_qos_allowed&quot;:&quot;2&quot;,&quot;mqtt_max_packet_size&quot;:&quot;1MB&quot;,&quot;mqtt_max_clientid_len&quot;:&quot;65535&quot;,&quot;mqtt_ignore_loop_deliver&quot;:&quot;false&quot;,&quot;flapping_detect_policy&quot;:&quot;30, 1m, 5m&quot;,&quot;enable_acl_cache&quot;:&quot;off&quot;,&quot;broker_sys_interval&quot;:&quot;1m&quot;,&quot;broker_sys_heartbeat&quot;:&quot;30s&quot;,&quot;broker_shared_subscription_strategy&quot;:&quot;random&quot;,&quot;broker_shared_dispatch_ack_enabled&quot;:&quot;false&quot;,&quot;broker_session_locking_strategy&quot;:&quot;quorum&quot;,&quot;allow_anonymous&quot;:&quot;false&quot;,&quot;acl_nomatch&quot;:&quot;deny&quot;,&quot;acl_deny_action&quot;:&quot;ignore&quot;,&quot;acl_cache_ttl&quot;:&quot;1m&quot;,&quot;acl_cache_max_size&quot;:&quot;32&quot;}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain"></stringProp>
+          <stringProp name="HTTPSampler.port"></stringProp>
+          <stringProp name="HTTPSampler.protocol"></stringProp>
+          <stringProp name="HTTPSampler.contentEncoding">utf-8</stringProp>
+          <stringProp name="HTTPSampler.path">/api/v4/configs/emqx</stringProp>
+          <stringProp name="HTTPSampler.method">PUT</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+          <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+          <stringProp name="HTTPSampler.connect_timeout"></stringProp>
+          <stringProp name="HTTPSampler.response_timeout"></stringProp>
+          <stringProp name="TestPlan.comments">&quot;enable_acl_cache&quot;:&quot;off&quot;,&quot;acl_nomatch&quot;:&quot;deny&quot;</stringProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="2101543476">&quot;code&quot;:0}</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message"></stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">16</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="turnoff internal acl control" enabled="true">
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{&quot;enabled&quot;:false}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain"></stringProp>
+          <stringProp name="HTTPSampler.port"></stringProp>
+          <stringProp name="HTTPSampler.protocol"></stringProp>
+          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+          <stringProp name="HTTPSampler.path">/api/v4/modules/${acl_control_id}</stringProp>
+          <stringProp name="HTTPSampler.method">PUT</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+          <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+          <stringProp name="HTTPSampler.connect_timeout"></stringProp>
+          <stringProp name="HTTPSampler.response_timeout"></stringProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="2101543476">&quot;code&quot;:0}</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message"></stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">16</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="rm redis acl module" enabled="true">
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
+            <collectionProp name="Arguments.arguments"/>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain"></stringProp>
+          <stringProp name="HTTPSampler.port"></stringProp>
+          <stringProp name="HTTPSampler.protocol"></stringProp>
+          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+          <stringProp name="HTTPSampler.path">/api/v4/modules/${redis_mo_id}</stringProp>
+          <stringProp name="HTTPSampler.method">DELETE</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+          <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+          <stringProp name="HTTPSampler.connect_timeout"></stringProp>
+          <stringProp name="HTTPSampler.response_timeout"></stringProp>
+          <stringProp name="TestPlan.comments">如果有，则删除</stringProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="67791721">&quot;code&quot;:0</stringProp>
+              <stringProp name="-1548522440"> {badmatch,not_found}</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message"></stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">48</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="add redis auth/acl module" enabled="true">
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{&quot;config&quot;:{&quot;type&quot;:&quot;single&quot;,&quot;server&quot;:&quot;${redis_server}:6379&quot;,&quot;database&quot;:0,&quot;password&quot;:&quot;${redis_auth}&quot;,&quot;pool_size&quot;:8,&quot;password_hash&quot;:&quot;sha256&quot;,&quot;auth_cmd&quot;:&quot;HMGET mqtt_user:%u password&quot;,&quot;acl_cmd&quot;:&quot;HGETALL mqtt_acl:%u&quot;,&quot;super_cmd&quot;:&quot;HGET mqtt_user:%u is_superuser&quot;,&quot;auto_reconnect&quot;:true,&quot;sentinel&quot;:&quot;&quot;,&quot;query_timeout&quot;:&quot;5s&quot;,&quot;ssl&quot;:true,&quot;cacertfile&quot;:{&quot;file&quot;:&quot;${ca}&quot;,&quot;filename&quot;:&quot;ca.pem&quot;},&quot;keyfile&quot;:{&quot;file&quot;:&quot;${redis_key}&quot;,&quot;filename&quot;:&quot;redis-key.pem&quot;},&quot;certfile&quot;:{&quot;file&quot;:&quot;${redis_cert}&quot;,&quot;filename&quot;:&quot;redis-cert.pem&quot;},&quot;verify&quot;:false},&quot;type&quot;:&quot;redis_authentication&quot;}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain"></stringProp>
+          <stringProp name="HTTPSampler.port"></stringProp>
+          <stringProp name="HTTPSampler.protocol"></stringProp>
+          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+          <stringProp name="HTTPSampler.path">/api/v4/modules</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+          <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+          <stringProp name="HTTPSampler.connect_timeout"></stringProp>
+          <stringProp name="HTTPSampler.response_timeout"></stringProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <BeanShellPreProcessor guiclass="TestBeanGUI" testclass="BeanShellPreProcessor" testname="get ssl content" enabled="true">
+            <stringProp name="TestPlan.comments">最终得到参数名：ca, redis_key, redis_cert</stringProp>
+            <boolProp name="resetInterpreter">false</boolProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="script">import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.io.BufferedReader;
+
+File f_ca = new File(&quot;${ca_route}/ca.pem&quot;);
+File f_key = new File(&quot;${ca_route}/redis-key.pem&quot;);
+File f_cert = new File(&quot;${ca_route}/redis-cert.pem&quot;);
+BufferedReader br_ca = new BufferedReader(new InputStreamReader(new FileInputStream(f_ca),&quot;UTF-8&quot;));
+BufferedReader br_key = new BufferedReader(new InputStreamReader(new FileInputStream(f_key),&quot;UTF-8&quot;));
+BufferedReader br_cert = new BufferedReader(new InputStreamReader(new FileInputStream(f_cert),&quot;UTF-8&quot;));
+ 
+String line_ca = null;
+String ca=&quot;&quot;;
+while ((line_ca = br_ca.readLine()) != null) {
+		//System.out.println(line_ca);
+	if(line_ca!=&quot;&quot;)
+		ca = ca +line_ca+&quot;\\\n&quot;;
+		if(line_ca.contains(&quot;END&quot;))
+		break;
+}
+String line_key = null;
+String redis_key=&quot;&quot;;
+while ((line_key = br_key.readLine()) != null) {
+		//System.out.println(line_key);
+		redis_key = redis_key +line_key+&quot;\\\n&quot;;
+		if(line_key.contains(&quot;END&quot;))
+		break;
+}
+String line_cert = null;
+String redis_cert=&quot;&quot;;
+while ((line_cert = br_cert.readLine()) != null) {
+		//System.out.println(line_key);
+		redis_cert = redis_cert +line_cert+&quot;\\\n&quot;;
+		if(line_cert.contains(&quot;END&quot;))
+		break;
+}
+vars.put(&quot;ca&quot;,ca);
+vars.put(&quot;redis_key&quot;,redis_key);
+vars.put(&quot;redis_cert&quot;,redis_cert);
+
+//	br.close();
+ //       fis.close();
+ // 	System.out.println(line);
+
+</stringProp>
+          </BeanShellPreProcessor>
+          <hashTree/>
+        </hashTree>
+        <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add auth-users in redis" enabled="true">
+          <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.flushDB();
+jedis.hset(&quot;mqtt_user:${data_user_sha256}&quot;,&quot;password&quot;,&quot;${sha256_pwd}&quot;);
+jedis.hset(&quot;mqtt_user:${data_user_sha256_salt}&quot;,&quot;password&quot;,&quot;${sha256_salt_pwd}&quot;);
+jedis.hset(&quot;mqtt_user:${data_user_sha256_salt}&quot;,&quot;salt&quot;,&quot;${salt}&quot;);
+jedis.hset(&quot;mqtt_user:${data_user_salt_sha256}&quot;,&quot;password&quot;,&quot;${salt_sha256_pwd}&quot;);
+jedis.hset(&quot;mqtt_user:${data_user_salt_sha256}&quot;,&quot;salt&quot;,&quot;${salt}&quot;);
+jedis.hset(&quot;mqtt_user:${data_user_sha256_salt}_2&quot;,&quot;password&quot;,&quot;${sha256_salt_pwd}&quot;);
+jedis.hset(&quot;mqtt_user:${data_user_sha256_salt}_2&quot;,&quot;salt&quot;,&quot;${salt}&quot;);
+//System.out.println(jedis.hgetAll(&quot;mqtt_user:${data_user_sha256}&quot;));
+//vars.put(&quot;aa&quot;,jedis.hget(&quot;mqtt_user:${data_user_sha256}&quot;,&quot;password&quot;));
+jedis.close();</stringProp>
+          <stringProp name="BeanShellSampler.filename"></stringProp>
+          <stringProp name="BeanShellSampler.parameters"></stringProp>
+          <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+        </BeanShellSampler>
+        <hashTree/>
+      </hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="auth&amp;acl check" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">1</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+        <stringProp name="ThreadGroup.duration"></stringProp>
+        <stringProp name="ThreadGroup.delay"></stringProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="modules request" enabled="true">
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
+            <collectionProp name="Arguments.arguments"/>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain"></stringProp>
+          <stringProp name="HTTPSampler.port">18083</stringProp>
+          <stringProp name="HTTPSampler.protocol"></stringProp>
+          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+          <stringProp name="HTTPSampler.path">/api/v4/modules</stringProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+          <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+          <stringProp name="HTTPSampler.connect_timeout"></stringProp>
+          <stringProp name="HTTPSampler.response_timeout"></stringProp>
+          <stringProp name="TestPlan.comments">获取特定模块的id</stringProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="JSON Extractor" enabled="true">
+            <stringProp name="JSONPostProcessor.referenceNames">redis_mo_id</stringProp>
+            <stringProp name="JSONPostProcessor.jsonPathExprs">$.data[?(@.title.en=~/.*Redis AUTH.*/)].id</stringProp>
+            <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
+            <stringProp name="JSONPostProcessor.defaultValues">err_redis_mo_id</stringProp>
+          </JSONPostProcessor>
+          <hashTree/>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="67791721">&quot;code&quot;:0</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message"></stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">16</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="results tree" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="get ssl content" enabled="true">
+          <stringProp name="TestPlan.comments">最终得到参数名：ca, redis_key, redis_cert</stringProp>
+          <stringProp name="BeanShellSampler.query">import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.io.BufferedReader;
+
+File f_ca = new File(&quot;${ca_route}/ca.pem&quot;);
+File f_key = new File(&quot;${ca_route}/redis-key.pem&quot;);
+File f_cert = new File(&quot;${ca_route}/redis-cert.pem&quot;);
+BufferedReader br_ca = new BufferedReader(new InputStreamReader(new FileInputStream(f_ca),&quot;UTF-8&quot;));
+BufferedReader br_key = new BufferedReader(new InputStreamReader(new FileInputStream(f_key),&quot;UTF-8&quot;));
+BufferedReader br_cert = new BufferedReader(new InputStreamReader(new FileInputStream(f_cert),&quot;UTF-8&quot;));
+ 
+String line_ca = null;
+String ca=&quot;&quot;;
+while ((line_ca = br_ca.readLine()) != null) {
+		//System.out.println(line_ca);
+	if(line_ca!=&quot;&quot;)
+		ca = ca +line_ca+&quot;\\\n&quot;;
+		if(line_ca.contains(&quot;END&quot;))
+		break;
+}
+String line_key = null;
+String redis_key=&quot;&quot;;
+while ((line_key = br_key.readLine()) != null) {
+		//System.out.println(line_key);
+		redis_key = redis_key +line_key+&quot;\\\n&quot;;
+		if(line_key.contains(&quot;END&quot;))
+		break;
+}
+String line_cert = null;
+String redis_cert=&quot;&quot;;
+while ((line_cert = br_cert.readLine()) != null) {
+		//System.out.println(line_key);
+		redis_cert = redis_cert +line_cert+&quot;\\\n&quot;;
+		if(line_cert.contains(&quot;END&quot;))
+		break;
+}
+vars.put(&quot;ca&quot;,ca);
+vars.put(&quot;redis_key&quot;,redis_key);
+vars.put(&quot;redis_cert&quot;,redis_cert);
+
+//	br.close();
+ //       fis.close();
+ // 	System.out.println(line);
+
+</stringProp>
+          <stringProp name="BeanShellSampler.filename"></stringProp>
+          <stringProp name="BeanShellSampler.parameters"></stringProp>
+          <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+        </BeanShellSampler>
+        <hashTree/>
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP Header Manager" enabled="true">
+          <collectionProp name="HeaderManager.headers">
+            <elementProp name="" elementType="Header">
+              <stringProp name="Header.name">content-type</stringProp>
+              <stringProp name="Header.value">application/json;charset=utf-8</stringProp>
+            </elementProp>
+          </collectionProp>
+        </HeaderManager>
+        <hashTree/>
+        <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="HTTP Request Defaults" enabled="true">
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
+            <collectionProp name="Arguments.arguments"/>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain">${emqx_ip}</stringProp>
+          <stringProp name="HTTPSampler.port">18083</stringProp>
+          <stringProp name="HTTPSampler.protocol">http</stringProp>
+          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+          <stringProp name="HTTPSampler.path"></stringProp>
+          <stringProp name="HTTPSampler.concurrentPool">6</stringProp>
+          <stringProp name="HTTPSampler.connect_timeout"></stringProp>
+          <stringProp name="HTTPSampler.response_timeout"></stringProp>
+        </ConfigTestElement>
+        <hashTree/>
+        <AuthManager guiclass="AuthPanel" testclass="AuthManager" testname="HTTP Authorization Manager" enabled="true">
+          <collectionProp name="AuthManager.auth_list">
+            <elementProp name="" elementType="Authorization">
+              <stringProp name="Authorization.url">http://${emqx_ip}</stringProp>
+              <stringProp name="Authorization.username">${dash_user}</stringProp>
+              <stringProp name="Authorization.password">${dash_pwd}</stringProp>
+              <stringProp name="Authorization.domain"></stringProp>
+              <stringProp name="Authorization.realm"></stringProp>
+            </elementProp>
+          </collectionProp>
+          <boolProp name="AuthManager.controlledByThreadGroup">false</boolProp>
+        </AuthManager>
+        <hashTree/>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="sha256 auth check" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="change redis auth/acl module" enabled="true">
+            <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+              <collectionProp name="Arguments.arguments">
+                <elementProp name="" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                  <stringProp name="Argument.value">{&quot;type&quot;:&quot;redis_authentication&quot;,&quot;id&quot;:&quot;${redis_mo_id}&quot;,&quot;enabled&quot;:true,&quot;description&quot;:{&quot;zh&quot;:&quot;Redis 认证/访问控制&quot;,&quot;en&quot;:&quot;Redis AUTH/ACL&quot;},&quot;config&quot;:{&quot;type&quot;:&quot;single&quot;,&quot;server&quot;:&quot;${redis_server}:6379&quot;,&quot;database&quot;:0,&quot;password&quot;:&quot;${redis_auth}&quot;,&quot;pool_size&quot;:8,&quot;password_hash&quot;:&quot;sha256&quot;,&quot;auth_cmd&quot;:&quot;HMGET mqtt_user:%u password&quot;,&quot;acl_cmd&quot;:&quot;HGETALL mqtt_acl:%u&quot;,&quot;super_cmd&quot;:&quot;HGET mqtt_user:%u is_superuser&quot;,&quot;auto_reconnect&quot;:true,&quot;sentinel&quot;:&quot;&quot;,&quot;query_timeout&quot;:&quot;5s&quot;,&quot;ssl&quot;:true,&quot;cacertfile&quot;:{&quot;filename&quot;:&quot;ca.pem&quot;,&quot;file&quot;:&quot;${ca}&quot;},&quot;keyfile&quot;:{&quot;filename&quot;:&quot;redis-key.pem&quot;,&quot;file&quot;:&quot;${redis_key}&quot;},&quot;certfile&quot;:{&quot;filename&quot;:&quot;redis-cert.pem&quot;,&quot;file&quot;:&quot;${redis_cert}&quot;},&quot;verify&quot;:false}}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                </elementProp>
+              </collectionProp>
+            </elementProp>
+            <stringProp name="HTTPSampler.domain"></stringProp>
+            <stringProp name="HTTPSampler.port"></stringProp>
+            <stringProp name="HTTPSampler.protocol"></stringProp>
+            <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+            <stringProp name="HTTPSampler.path">/api/v4/modules/${redis_mo_id}</stringProp>
+            <stringProp name="HTTPSampler.method">PUT</stringProp>
+            <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+            <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+            <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+            <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+            <stringProp name="HTTPSampler.connect_timeout"></stringProp>
+            <stringProp name="HTTPSampler.response_timeout"></stringProp>
+            <stringProp name="TestPlan.comments">加密方式改为sha256和认证查询命令</stringProp>
+          </HTTPSamplerProxy>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">conn_</stringProp>
+            <boolProp name="mqtt.client_id_suffix">true</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="salt+sha256 auth check" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="change redis auth/acl module" enabled="true">
+            <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+              <collectionProp name="Arguments.arguments">
+                <elementProp name="" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                  <stringProp name="Argument.value">{&quot;type&quot;:&quot;redis_authentication&quot;,&quot;id&quot;:&quot;${redis_mo_id}&quot;,&quot;enabled&quot;:true,&quot;description&quot;:{&quot;zh&quot;:&quot;Redis 认证/访问控制&quot;,&quot;en&quot;:&quot;Redis AUTH/ACL&quot;},&quot;config&quot;:{&quot;type&quot;:&quot;single&quot;,&quot;server&quot;:&quot;${redis_server}:6379&quot;,&quot;database&quot;:0,&quot;password&quot;:&quot;${redis_auth}&quot;,&quot;pool_size&quot;:8,&quot;password_hash&quot;:&quot;salt,sha256&quot;,&quot;auth_cmd&quot;:&quot;HMGET mqtt_user:%u password salt&quot;,&quot;acl_cmd&quot;:&quot;HGETALL mqtt_acl:%u&quot;,&quot;super_cmd&quot;:&quot;HGET mqtt_user:%u is_superuser&quot;,&quot;auto_reconnect&quot;:true,&quot;sentinel&quot;:&quot;&quot;,&quot;query_timeout&quot;:&quot;5s&quot;,&quot;ssl&quot;:true,&quot;cacertfile&quot;:{&quot;filename&quot;:&quot;ca.pem&quot;,&quot;file&quot;:&quot;${ca}&quot;},&quot;keyfile&quot;:{&quot;filename&quot;:&quot;redis-key.pem&quot;,&quot;file&quot;:&quot;${redis_key}&quot;},&quot;certfile&quot;:{&quot;filename&quot;:&quot;redis-cert.pem&quot;,&quot;file&quot;:&quot;${redis_cert}&quot;},&quot;verify&quot;:false}}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                </elementProp>
+              </collectionProp>
+            </elementProp>
+            <stringProp name="HTTPSampler.domain"></stringProp>
+            <stringProp name="HTTPSampler.port"></stringProp>
+            <stringProp name="HTTPSampler.protocol"></stringProp>
+            <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+            <stringProp name="HTTPSampler.path">/api/v4/modules/${redis_mo_id}</stringProp>
+            <stringProp name="HTTPSampler.method">PUT</stringProp>
+            <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+            <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+            <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+            <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+            <stringProp name="HTTPSampler.connect_timeout"></stringProp>
+            <stringProp name="HTTPSampler.response_timeout"></stringProp>
+            <stringProp name="TestPlan.comments">修改acl规则对象为clientid</stringProp>
+          </HTTPSamplerProxy>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_salt_sha256}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">conn_</stringProp>
+            <boolProp name="mqtt.client_id_suffix">true</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">5000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="sha256+salt auth check" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="change redis auth/acl module" enabled="true">
+            <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+              <collectionProp name="Arguments.arguments">
+                <elementProp name="" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                  <stringProp name="Argument.value">{&quot;type&quot;:&quot;redis_authentication&quot;,&quot;id&quot;:&quot;${redis_mo_id}&quot;,&quot;enabled&quot;:true,&quot;description&quot;:{&quot;zh&quot;:&quot;Redis 认证/访问控制&quot;,&quot;en&quot;:&quot;Redis AUTH/ACL&quot;},&quot;config&quot;:{&quot;type&quot;:&quot;single&quot;,&quot;server&quot;:&quot;${redis_server}:6379&quot;,&quot;database&quot;:0,&quot;password&quot;:&quot;${redis_auth}&quot;,&quot;pool_size&quot;:8,&quot;password_hash&quot;:&quot;sha256,salt&quot;,&quot;auth_cmd&quot;:&quot;HMGET mqtt_user:%u password salt&quot;,&quot;acl_cmd&quot;:&quot;HGETALL mqtt_acl:%u&quot;,&quot;super_cmd&quot;:&quot;HGET mqtt_user:%u is_superuser&quot;,&quot;auto_reconnect&quot;:true,&quot;sentinel&quot;:&quot;&quot;,&quot;query_timeout&quot;:&quot;5s&quot;,&quot;ssl&quot;:true,&quot;cacertfile&quot;:{&quot;filename&quot;:&quot;ca.pem&quot;,&quot;file&quot;:&quot;${ca}&quot;},&quot;keyfile&quot;:{&quot;filename&quot;:&quot;redis-key.pem&quot;,&quot;file&quot;:&quot;${redis_key}&quot;},&quot;certfile&quot;:{&quot;filename&quot;:&quot;redis-cert.pem&quot;,&quot;file&quot;:&quot;${redis_cert}&quot;},&quot;verify&quot;:false}}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                </elementProp>
+              </collectionProp>
+            </elementProp>
+            <stringProp name="HTTPSampler.domain"></stringProp>
+            <stringProp name="HTTPSampler.port"></stringProp>
+            <stringProp name="HTTPSampler.protocol"></stringProp>
+            <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+            <stringProp name="HTTPSampler.path">/api/v4/modules/${redis_mo_id}</stringProp>
+            <stringProp name="HTTPSampler.method">PUT</stringProp>
+            <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+            <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+            <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+            <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+            <stringProp name="HTTPSampler.connect_timeout"></stringProp>
+            <stringProp name="HTTPSampler.response_timeout"></stringProp>
+            <stringProp name="TestPlan.comments">加密方式改为sha256+salt和认证查询命令</stringProp>
+          </HTTPSamplerProxy>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">conn_</stringProp>
+            <boolProp name="mqtt.client_id_suffix">true</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">5000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user&amp;topic sub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <stringProp name="TestPlan.comments">确认不能推送</stringProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl in redis" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户特定topic订阅(确认不定推送)</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${data_user_sha256_salt}&quot;,&quot;${topic}&quot;,&quot;1&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">conn_</stringProp>
+            <boolProp name="mqtt.client_id_suffix">true</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">specified elapsed time (ms)</stringProp>
+            <stringProp name="mqtt.sample_condition_value">3000</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">6</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl in redis" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${data_user_sha256_salt}&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user&amp;topic pub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <stringProp name="TestPlan.comments">确认不能订阅</stringProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl in redis" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${data_user_sha256_salt}&quot;,&quot;${topic}&quot;,&quot;2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">conn_</stringProp>
+            <boolProp name="mqtt.client_id_suffix">true</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">specified elapsed time (ms)</stringProp>
+            <stringProp name="mqtt.sample_condition_value">3000</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">6</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${data_user_sha256_salt}&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user&amp;topic sub/pub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <stringProp name="TestPlan.comments">确认不能订阅</stringProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${data_user_sha256_salt}&quot;,&quot;${topic}&quot;,&quot;3&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">conn_</stringProp>
+            <boolProp name="mqtt.client_id_suffix">true</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">specified elapsed time (ms)</stringProp>
+            <stringProp name="mqtt.sample_condition_value">3000</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">2</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${data_user_sha256_salt}&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user, all topic sub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${data_user_sha256_salt}&quot;,&quot;#&quot;,&quot;1&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">conn_</stringProp>
+            <boolProp name="mqtt.client_id_suffix">true</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">specified elapsed time (ms)</stringProp>
+            <stringProp name="mqtt.sample_condition_value">3000</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">6</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${data_user_sha256_salt}&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user, all topic pub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${data_user_sha256_salt}&quot;,&quot;#&quot;,&quot;2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">conn_</stringProp>
+            <boolProp name="mqtt.client_id_suffix">true</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">specified elapsed time (ms)</stringProp>
+            <stringProp name="mqtt.sample_condition_value">3000</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">6</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${data_user_sha256_salt}&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user, alltopic sub/pub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${data_user_sha256_salt}&quot;,&quot;#&quot;,&quot;3&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">conn_</stringProp>
+            <boolProp name="mqtt.client_id_suffix">true</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">specified elapsed time (ms)</stringProp>
+            <stringProp name="mqtt.sample_condition_value">3000</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">2</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${data_user_sha256_salt}&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="1 user sub/1 user pub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <stringProp name="TestPlan.comments">确认订阅&amp;推送成功</stringProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户特定topic订阅(确认订阅成功)</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${data_user_sha256_salt}&quot;,&quot;${topic}&quot;,&quot;1&quot;);
+jedis.hset(&quot;mqtt_acl:${data_user_sha256_salt}_2&quot;,&quot;${topic}&quot;,&quot;2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">conn_</stringProp>
+            <boolProp name="mqtt.client_id_suffix">true</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">number of received messages</stringProp>
+            <stringProp name="mqtt.sample_condition_value">1</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">2</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${data_user_sha256_salt}&quot;);
+jedis.del(&quot;mqtt_acl:${data_user_sha256_salt}_2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="1user sub all/1 user pub all" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <stringProp name="TestPlan.comments">确认订阅&amp;推送成功</stringProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户特定topic订阅(确认订阅成功)</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${data_user_sha256_salt}&quot;,&quot;#&quot;,&quot;1&quot;);
+jedis.hset(&quot;mqtt_acl:${data_user_sha256_salt}_2&quot;,&quot;#&quot;,&quot;2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">conn_</stringProp>
+            <boolProp name="mqtt.client_id_suffix">true</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">specified elapsed time (ms)</stringProp>
+            <stringProp name="mqtt.sample_condition_value">3000</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">2</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${data_user_sha256_salt}&quot;);
+jedis.del(&quot;mqtt_acl:${data_user_sha256_salt}_2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="change redis auth/acl module" enabled="true">
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{&quot;type&quot;:&quot;redis_authentication&quot;,&quot;id&quot;:&quot;${redis_mo_id}&quot;,&quot;enabled&quot;:true,&quot;description&quot;:{&quot;zh&quot;:&quot;Redis 认证/访问控制&quot;,&quot;en&quot;:&quot;Redis AUTH/ACL&quot;},&quot;config&quot;:{&quot;type&quot;:&quot;single&quot;,&quot;server&quot;:&quot;${redis_server}:6379&quot;,&quot;database&quot;:0,&quot;password&quot;:&quot;${redis_auth}&quot;,&quot;pool_size&quot;:8,&quot;password_hash&quot;:&quot;sha256,salt&quot;,&quot;auth_cmd&quot;:&quot;HMGET mqtt_user:%u password salt&quot;,&quot;acl_cmd&quot;:&quot;HGETALL mqtt_acl:%c&quot;,&quot;super_cmd&quot;:&quot;HGET mqtt_user:%u is_superuser&quot;,&quot;auto_reconnect&quot;:true,&quot;sentinel&quot;:&quot;&quot;,&quot;query_timeout&quot;:&quot;5s&quot;,&quot;ssl&quot;:true,&quot;cacertfile&quot;:{&quot;filename&quot;:&quot;ca.pem&quot;,&quot;file&quot;:&quot;${ca}&quot;},&quot;keyfile&quot;:{&quot;filename&quot;:&quot;redis-key.pem&quot;,&quot;file&quot;:&quot;${redis_key}&quot;},&quot;certfile&quot;:{&quot;filename&quot;:&quot;redis-cert.pem&quot;,&quot;file&quot;:&quot;${redis_cert}&quot;},&quot;verify&quot;:false}}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain"></stringProp>
+          <stringProp name="HTTPSampler.port"></stringProp>
+          <stringProp name="HTTPSampler.protocol"></stringProp>
+          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+          <stringProp name="HTTPSampler.path">/api/v4/modules/${redis_mo_id}</stringProp>
+          <stringProp name="HTTPSampler.method">PUT</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+          <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+          <stringProp name="HTTPSampler.connect_timeout"></stringProp>
+          <stringProp name="HTTPSampler.response_timeout"></stringProp>
+          <stringProp name="TestPlan.comments">acl rule for clientid</stringProp>
+        </HTTPSamplerProxy>
+        <hashTree/>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific clientid&amp;topic订阅/推送" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${clientid}_1&quot;,&quot;${topic}&quot;,&quot;3&quot;);
+jedis.hset(&quot;mqtt_acl:${clientid}_2&quot;,&quot;${topic}&quot;,&quot;3&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">${clientid}_1</stringProp>
+            <boolProp name="mqtt.client_id_suffix">false</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">number of received messages</stringProp>
+            <stringProp name="mqtt.sample_condition_value">1</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">2</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${clientid}_1&quot;);
+jedis.del(&quot;mqtt_acl:${clientid}_2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="special clientid&amp;topic sub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <stringProp name="TestPlan.comments">确认单独订阅不能推送成功</stringProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${clientid}_1&quot;,&quot;${topic}&quot;,&quot;1&quot;);
+jedis.hset(&quot;mqtt_acl:${clientid}_2&quot;,&quot;${topic}&quot;,&quot;1&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">${clientid}_1</stringProp>
+            <boolProp name="mqtt.client_id_suffix">false</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">specified elapsed time (ms)</stringProp>
+            <stringProp name="mqtt.sample_condition_value">3000</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">6</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${clientid}_1&quot;);
+jedis.del(&quot;mqtt_acl:${clientid}_2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific clientid&amp;topic pub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <stringProp name="TestPlan.comments">确认单独推送不能订阅成功</stringProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${clientid}_1&quot;,&quot;${topic}&quot;,&quot;2&quot;);
+jedis.hset(&quot;mqtt_acl:${clientid}_2&quot;,&quot;${topic}&quot;,&quot;2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">${clientid}_1</stringProp>
+            <boolProp name="mqtt.client_id_suffix">false</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">specified elapsed time (ms)</stringProp>
+            <stringProp name="mqtt.sample_condition_value">3000</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">6</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${clientid}_1&quot;);
+jedis.del(&quot;mqtt_acl:${clientid}_2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific clientid, all topic sub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户所有topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${clientid}_1&quot;,&quot;#&quot;,&quot;1&quot;);
+jedis.hset(&quot;mqtt_acl:${clientid}_2&quot;,&quot;#&quot;,&quot;1&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">${clientid}_1</stringProp>
+            <boolProp name="mqtt.client_id_suffix">false</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">specified elapsed time (ms)</stringProp>
+            <stringProp name="mqtt.sample_condition_value">3000</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">6</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${clientid}_1&quot;);
+jedis.del(&quot;mqtt_acl:${clientid}_2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="spicific clientid, all topic pub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户所有topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${clientid}_1&quot;,&quot;#&quot;,&quot;2&quot;);
+jedis.hset(&quot;mqtt_acl:${clientid}_2&quot;,&quot;#&quot;,&quot;2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">${clientid}_1</stringProp>
+            <boolProp name="mqtt.client_id_suffix">false</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">specified elapsed time (ms)</stringProp>
+            <stringProp name="mqtt.sample_condition_value">3000</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">6</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${clientid}_1&quot;);
+jedis.del(&quot;mqtt_acl:${clientid}_2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific clientid, all topic sub/pub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户所有topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${clientid}_1&quot;,&quot;#&quot;,&quot;3&quot;);
+jedis.hset(&quot;mqtt_acl:${clientid}_2&quot;,&quot;#&quot;,&quot;3&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">${clientid}_1</stringProp>
+            <boolProp name="mqtt.client_id_suffix">false</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">specified elapsed time (ms)</stringProp>
+            <stringProp name="mqtt.sample_condition_value">3000</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">2</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${clientid}_1&quot;);
+jedis.del(&quot;mqtt_acl:${clientid}_2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific clientid&amp;topic sub&amp;pub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <stringProp name="TestPlan.comments">确定单独的订阅&amp;推送成功</stringProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${clientid}_1&quot;,&quot;${topic}&quot;,&quot;1&quot;);
+jedis.hset(&quot;mqtt_acl:${clientid}_2&quot;,&quot;${topic}&quot;,&quot;2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">${clientid}_1</stringProp>
+            <boolProp name="mqtt.client_id_suffix">false</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">specified elapsed time (ms)</stringProp>
+            <stringProp name="mqtt.sample_condition_value">3000</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">2</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${clientid}_1&quot;);
+jedis.del(&quot;mqtt_acl:${clientid}_2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific clientid, all topic sub&amp;pub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <stringProp name="TestPlan.comments">确认单独订阅&amp;推送成功</stringProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户所有topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${clientid}_1&quot;,&quot;#&quot;,&quot;1&quot;);
+jedis.hset(&quot;mqtt_acl:${clientid}_2&quot;,&quot;#&quot;,&quot;2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">${clientid}_1</stringProp>
+            <boolProp name="mqtt.client_id_suffix">false</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">specified elapsed time (ms)</stringProp>
+            <stringProp name="mqtt.sample_condition_value">3000</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">2</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${clientid}_1&quot;);
+jedis.del(&quot;mqtt_acl:${clientid}_2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="acl cache check" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="add acl" enabled="true">
+            <stringProp name="TestPlan.comments">特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.hset(&quot;mqtt_acl:${clientid}_1&quot;,&quot;${topic}&quot;,&quot;3&quot;);
+jedis.hset(&quot;mqtt_acl:${clientid}_2&quot;,&quot;${topic}&quot;,&quot;3&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">${clientid}_1</stringProp>
+            <boolProp name="mqtt.client_id_suffix">false</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="turnon acl chache" enabled="true">
+            <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+              <collectionProp name="Arguments.arguments">
+                <elementProp name="" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                  <stringProp name="Argument.value">{&quot;mqtt_wildcard_subscription&quot;:&quot;true&quot;,&quot;mqtt_strict_mode&quot;:&quot;false&quot;,&quot;mqtt_shared_subscription&quot;:&quot;true&quot;,&quot;mqtt_retain_available&quot;:&quot;true&quot;,&quot;mqtt_max_topic_levels&quot;:&quot;0&quot;,&quot;mqtt_max_topic_alias&quot;:&quot;65535&quot;,&quot;mqtt_max_qos_allowed&quot;:&quot;2&quot;,&quot;mqtt_max_packet_size&quot;:&quot;1MB&quot;,&quot;mqtt_max_clientid_len&quot;:&quot;65535&quot;,&quot;mqtt_ignore_loop_deliver&quot;:&quot;false&quot;,&quot;flapping_detect_policy&quot;:&quot;30, 1m, 5m&quot;,&quot;enable_acl_cache&quot;:&quot;on&quot;,&quot;broker_sys_interval&quot;:&quot;1m&quot;,&quot;broker_sys_heartbeat&quot;:&quot;30s&quot;,&quot;broker_shared_subscription_strategy&quot;:&quot;random&quot;,&quot;broker_shared_dispatch_ack_enabled&quot;:&quot;false&quot;,&quot;broker_session_locking_strategy&quot;:&quot;quorum&quot;,&quot;allow_anonymous&quot;:&quot;false&quot;,&quot;acl_nomatch&quot;:&quot;deny&quot;,&quot;acl_deny_action&quot;:&quot;ignore&quot;,&quot;acl_cache_ttl&quot;:&quot;1m&quot;,&quot;acl_cache_max_size&quot;:&quot;32&quot;}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                </elementProp>
+              </collectionProp>
+            </elementProp>
+            <stringProp name="HTTPSampler.domain"></stringProp>
+            <stringProp name="HTTPSampler.port"></stringProp>
+            <stringProp name="HTTPSampler.protocol"></stringProp>
+            <stringProp name="HTTPSampler.contentEncoding">utf-8</stringProp>
+            <stringProp name="HTTPSampler.path">/api/v4/configs/emqx</stringProp>
+            <stringProp name="HTTPSampler.method">PUT</stringProp>
+            <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+            <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+            <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+            <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+            <stringProp name="HTTPSampler.connect_timeout"></stringProp>
+            <stringProp name="HTTPSampler.response_timeout"></stringProp>
+            <stringProp name="TestPlan.comments">&quot;enable_acl_cache&quot;:&quot;on&quot;</stringProp>
+          </HTTPSamplerProxy>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="2101543476">&quot;code&quot;:0}</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">number of received messages</stringProp>
+            <stringProp name="mqtt.sample_condition_value">1</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">2</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="delete acl" enabled="true">
+            <stringProp name="TestPlan.comments">删除特定用户特定topic订阅</stringProp>
+            <stringProp name="BeanShellSampler.query">import redis.clients.jedis.Jedis;
+ 
+Jedis jedis = new Jedis(&quot;${redis_server}&quot;,${redis_port});
+ 
+jedis.auth(&quot;123123&quot;);
+jedis.select(0);
+jedis.del(&quot;mqtt_acl:${clientid}_1&quot;);
+jedis.del(&quot;mqtt_acl:${clientid}_2&quot;);
+jedis.close();</stringProp>
+            <stringProp name="BeanShellSampler.filename"></stringProp>
+            <stringProp name="BeanShellSampler.parameters"></stringProp>
+            <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
+          </BeanShellSampler>
+          <hashTree/>
+          <net.xmeter.samplers.SubSampler guiclass="net.xmeter.gui.SubSamplerUI" testclass="net.xmeter.samplers.SubSampler" testname="MQTT Sub Sampler" enabled="true">
+            <stringProp name="mqtt.topic_name">${topic}</stringProp>
+            <stringProp name="mqtt.qos_level">0</stringProp>
+            <boolProp name="mqtt.add_timestamp">false</boolProp>
+            <boolProp name="mqtt.debug_response">true</boolProp>
+            <stringProp name="mqtt.sample_condition">number of received messages</stringProp>
+            <stringProp name="mqtt.sample_condition_value">1</stringProp>
+          </net.xmeter.samplers.SubSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="-100397459">hello redis!!!!</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">2</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">3000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="pub Thread Group" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">1</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+        <stringProp name="ThreadGroup.duration"></stringProp>
+        <stringProp name="ThreadGroup.delay"></stringProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+      </ThreadGroup>
+      <hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user_pub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">conn_</stringProp>
+            <boolProp name="mqtt.client_id_suffix">true</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">16000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <LoopController guiclass="LoopControlPanel" testclass="LoopController" testname="Loop Controler" enabled="true">
+            <boolProp name="LoopController.continue_forever">true</boolProp>
+            <stringProp name="LoopController.loops">20</stringProp>
+          </LoopController>
+          <hashTree>
+            <net.xmeter.samplers.PubSampler guiclass="net.xmeter.gui.PubSamplerUI" testclass="net.xmeter.samplers.PubSampler" testname="MQTT Pub Sampler" enabled="true">
+              <stringProp name="mqtt.topic_name">${topic}</stringProp>
+              <stringProp name="mqtt.qos_level">0</stringProp>
+              <boolProp name="mqtt.add_timestamp">false</boolProp>
+              <stringProp name="mqtt.message_type">String</stringProp>
+              <stringProp name="mqtt.message_type_fixed_length">1024</stringProp>
+              <stringProp name="mqtt.message_to_sent">hello redis!!!!</stringProp>
+              <boolProp name="mqtt.retained_message">false</boolProp>
+            </net.xmeter.samplers.PubSampler>
+            <hashTree>
+              <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+                <stringProp name="ConstantTimer.delay">2000</stringProp>
+              </ConstantTimer>
+              <hashTree/>
+              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+                <collectionProp name="Asserion.test_strings">
+                  <stringProp name="-1267750625">successfuly</stringProp>
+                </collectionProp>
+                <stringProp name="Assertion.custom_message"></stringProp>
+                <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+                <boolProp name="Assertion.assume_success">false</boolProp>
+                <intProp name="Assertion.test_type">16</intProp>
+              </ResponseAssertion>
+              <hashTree/>
+            </hashTree>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific user_pub--user2" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}_2</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">conn_</stringProp>
+            <boolProp name="mqtt.client_id_suffix">true</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">1000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <LoopController guiclass="LoopControlPanel" testclass="LoopController" testname="loop controler" enabled="true">
+            <boolProp name="LoopController.continue_forever">true</boolProp>
+            <stringProp name="LoopController.loops">7</stringProp>
+          </LoopController>
+          <hashTree>
+            <net.xmeter.samplers.PubSampler guiclass="net.xmeter.gui.PubSamplerUI" testclass="net.xmeter.samplers.PubSampler" testname="MQTT Pub Sampler" enabled="true">
+              <stringProp name="mqtt.topic_name">${topic}</stringProp>
+              <stringProp name="mqtt.qos_level">0</stringProp>
+              <boolProp name="mqtt.add_timestamp">false</boolProp>
+              <stringProp name="mqtt.message_type">String</stringProp>
+              <stringProp name="mqtt.message_type_fixed_length">1024</stringProp>
+              <stringProp name="mqtt.message_to_sent">hello redis!!!!</stringProp>
+              <boolProp name="mqtt.retained_message">false</boolProp>
+            </net.xmeter.samplers.PubSampler>
+            <hashTree>
+              <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+                <stringProp name="ConstantTimer.delay">2000</stringProp>
+              </ConstantTimer>
+              <hashTree/>
+              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+                <collectionProp name="Asserion.test_strings">
+                  <stringProp name="-1267750625">successfuly</stringProp>
+                </collectionProp>
+                <stringProp name="Assertion.custom_message"></stringProp>
+                <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+                <boolProp name="Assertion.assume_success">false</boolProp>
+                <intProp name="Assertion.test_type">16</intProp>
+              </ResponseAssertion>
+              <hashTree/>
+            </hashTree>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+        </hashTree>
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="specific clientid-pub" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+          <net.xmeter.samplers.ConnectSampler guiclass="net.xmeter.gui.ConnectSamplerUI" testclass="net.xmeter.samplers.ConnectSampler" testname="MQTT Connect" enabled="true">
+            <stringProp name="mqtt.server">${emqx_ip}</stringProp>
+            <stringProp name="mqtt.port">8083</stringProp>
+            <stringProp name="mqtt.version">3.1</stringProp>
+            <stringProp name="mqtt.conn_timeout">10</stringProp>
+            <stringProp name="mqtt.protocol">WS</stringProp>
+            <stringProp name="mqtt.ws_path">/mqtt</stringProp>
+            <boolProp name="mqtt.dual_ssl_authentication">false</boolProp>
+            <stringProp name="mqtt.clientcert_file_path"></stringProp>
+            <stringProp name="mqtt.clientcert_password"></stringProp>
+            <stringProp name="mqtt.user_name">${data_user_sha256_salt}</stringProp>
+            <stringProp name="mqtt.password">${data_pwd}</stringProp>
+            <stringProp name="mqtt.client_id_prefix">${clientid}_2</stringProp>
+            <boolProp name="mqtt.client_id_suffix">false</boolProp>
+            <stringProp name="mqtt.conn_keep_alive">300</stringProp>
+            <stringProp name="mqtt.conn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.reconn_attampt_max">0</stringProp>
+            <stringProp name="mqtt.conn_clean_session">true</stringProp>
+          </net.xmeter.samplers.ConnectSampler>
+          <hashTree>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+              <stringProp name="ConstantTimer.delay">1000</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1259833018">Successful</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message"></stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">16</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+          <LoopController guiclass="LoopControlPanel" testclass="LoopController" testname="Loop controler" enabled="true">
+            <boolProp name="LoopController.continue_forever">true</boolProp>
+            <stringProp name="LoopController.loops">30</stringProp>
+          </LoopController>
+          <hashTree>
+            <net.xmeter.samplers.PubSampler guiclass="net.xmeter.gui.PubSamplerUI" testclass="net.xmeter.samplers.PubSampler" testname="MQTT Pub Sampler" enabled="true">
+              <stringProp name="mqtt.topic_name">${topic}</stringProp>
+              <stringProp name="mqtt.qos_level">0</stringProp>
+              <boolProp name="mqtt.add_timestamp">false</boolProp>
+              <stringProp name="mqtt.message_type">String</stringProp>
+              <stringProp name="mqtt.message_type_fixed_length">1024</stringProp>
+              <stringProp name="mqtt.message_to_sent">hello redis!!!!</stringProp>
+              <boolProp name="mqtt.retained_message">false</boolProp>
+            </net.xmeter.samplers.PubSampler>
+            <hashTree>
+              <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="constant timer" enabled="true">
+                <stringProp name="ConstantTimer.delay">2000</stringProp>
+              </ConstantTimer>
+              <hashTree/>
+              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Response Assertion" enabled="true">
+                <collectionProp name="Asserion.test_strings">
+                  <stringProp name="-1267750625">successfuly</stringProp>
+                </collectionProp>
+                <stringProp name="Assertion.custom_message"></stringProp>
+                <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+                <boolProp name="Assertion.assume_success">false</boolProp>
+                <intProp name="Assertion.test_type">16</intProp>
+              </ResponseAssertion>
+              <hashTree/>
+            </hashTree>
+          </hashTree>
+          <net.xmeter.samplers.DisConnectSampler guiclass="net.xmeter.gui.DisConnectSamplerUI" testclass="net.xmeter.samplers.DisConnectSampler" testname="MQTT DisConnect" enabled="true"/>
+          <hashTree/>
+        </hashTree>
+        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="results tree" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+      </hashTree>
+      <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="result tree" enabled="true">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SampleSaveConfiguration">
+            <time>true</time>
+            <latency>true</latency>
+            <timestamp>true</timestamp>
+            <success>true</success>
+            <label>true</label>
+            <code>true</code>
+            <message>true</message>
+            <threadName>true</threadName>
+            <dataType>true</dataType>
+            <encoding>false</encoding>
+            <assertions>true</assertions>
+            <subresults>true</subresults>
+            <responseData>false</responseData>
+            <samplerData>false</samplerData>
+            <xml>false</xml>
+            <fieldNames>true</fieldNames>
+            <responseHeaders>false</responseHeaders>
+            <requestHeaders>false</requestHeaders>
+            <responseDataOnError>false</responseDataOnError>
+            <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+            <assertionsResultsToSave>0</assertionsResultsToSave>
+            <bytes>true</bytes>
+            <sentBytes>true</sentBytes>
+            <url>true</url>
+            <threadCounts>true</threadCounts>
+            <idleTime>true</idleTime>
+            <connectTime>true</connectTime>
+          </value>
+        </objProp>
+        <stringProp name="filename"></stringProp>
+      </ResultCollector>
+      <hashTree/>
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>
