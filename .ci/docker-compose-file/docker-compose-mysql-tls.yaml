@@ -13,12 +13,12 @@ services:
     ports:
       - "${MAP_PORT}:3306"
     volumes:
-      - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/init-db.txt:/etc/mysql-init-db.txt
+      - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/init-db-tls.txt:/etc/mysql-init-db.txt
       - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem:/etc/certs/ca-cert.pem
       - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/server-cert.pem:/etc/certs/server-cert.pem
       - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/server-key.pem:/etc/certs/server-key.pem
-    networks:
-      - emqx_bridge
+#    networks:
+#      - emqx_bridge
     command:
       --bind-address "::"
       --character-set-server=utf8mb4
@@ -36,19 +36,3 @@ services:
       timeout: 5s
       retries: 20
 
-
-#  mysql_client:
-#    container_name: mysql_client
-#    image: mysql:${MYSQL_TAG}
-#    networks:
-#      - emqx_bridge
-#    depends_on:
-#      - mysql_server
-#    command:
-#      - /bin/bash
-#      - -c
-#      - |
-#        service mysql start
-#        echo "show tables;" | mysql -h mysql_server -u root -ppublic mqtt mqtt
-#        while [[ $$? -ne 0 ]];do echo "show tables;" | mysql -h mysql_server -u root -ppublic mqtt; done
-#        echo "ALTER USER 'emqx'@'%' REQUIRE X509;" | mysql -h mysql_server -u root -ppublic mqtt

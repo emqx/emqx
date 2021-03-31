@@ -1,0 +1,4 @@
+CREATE USER IF NOT EXISTS 'emqx'@'%' IDENTIFIED WITH mysql_native_password BY 'public';
+GRANT ALL PRIVILEGES ON * . * TO 'emqx'@'%';
+CREATE DATABASE IF NOT EXISTS mqtt;
+FLUSH PRIVILEGES;

@@ -2,14 +2,20 @@ version: '3.9'
 
 services:
   mysql_server:
-    container_name: mysql
+    container_name: ${MYSQL_CONTAINER_NAME}
     image: mysql:${MYSQL_TAG}
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: public
       MYSQL_DATABASE: mqtt
-    networks:
-      - emqx_bridge
+      MYSQL_USER: emqx
+      MYSQL_PASSWORD: public
+    ports:
+      - "${MAP_PORT}:3306"
+    volumes:
+     - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/init-db-tcp.txt:/etc/mysql-init-db.txt
+#     networks:
+#      - emqx_bridge
     command:
       --bind-address "::"
       --character-set-server=utf8mb4
@@ -18,3 +24,8 @@ services:
       --lower_case_table_names=1
       --max_allowed_packet=128M
       --skip-symbolic-links
+    healthcheck:
+      test: " mysql -uemqx -ppublic -e 'use mqtt;'"
+      interval: 5s
+      timeout: 5s
+      retries: 20

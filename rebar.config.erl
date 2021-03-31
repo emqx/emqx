@@ -101,13 +101,13 @@ test_plugins() ->
 
 test_deps() ->
     [ {bbmustache, "1.10.0"}
-    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.7"}}}
-    , {snabbkaffe, {git, "https://github.com/kafka4beam/snabbkaffe.git", {tag, "0.8.2"}}}
+%%    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3."}}}
+    , {emqx_ct_helpers, {git, "https://github.com/jovdipp/emqx-ct-helpers.git", {branch, "job-matrix-node-name-fix"}}}
     , meck
     ].
 
 common_compile_opts() ->
-    [ debug_info % alwyas include debug_info
+    [ debug_info % always include debug_info
     , deterministic
     , {compile_info, [{emqx_vsn, get_vsn()}]}
     | [{d, 'EMQX_ENTERPRISE'} || is_enterprise()]

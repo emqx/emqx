@@ -30,7 +30,8 @@ services:
       - emqx_bridge
     command:
       --bind-address "::"
-      --character-set-server=utf8mb4      --collation-server=utf8mb4_general_ci
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
       --explicit_defaults_for_timestamp=true
       --lower_case_table_names=1
       --max_allowed_packet=128M

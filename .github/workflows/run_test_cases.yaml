@@ -49,6 +49,8 @@ jobs:
             PGSQL_TAG: 13
             LDAP_TAG: 2.4.50
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            MYSQL_CONTAINER_NAME: githubActionMysql
+            MAP_PORT: 33060
           run: |
             docker-compose \
                 -f .ci/docker-compose-file/docker-compose.yaml \
@@ -74,6 +76,8 @@ jobs:
             RABBITMQ_TAG: 3.7
             KAFKA_TAG: 2.5.0
             PULSAR_TAG: 2.3.2
+            MYSQL_CONTAINER_NAME: githubActionMysql
+            MAP_PORT: 33060
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           timeout-minutes: 20
           run: |
@@ -97,10 +101,6 @@ jobs:
                 -f .ci/docker-compose-file/docker-compose-enterprise-pgsql-and-timescale-client.yaml \
                 up -d --build
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
-            while [ $(docker ps -a --filter name=client --filter exited=0 | wc -l) \
-                 != $(docker ps -a --filter name=client | wc -l) ]; do
-              sleep 5
-            done
         - name: run eunit
           run: |
             docker exec -i erlang bash -c "make eunit"

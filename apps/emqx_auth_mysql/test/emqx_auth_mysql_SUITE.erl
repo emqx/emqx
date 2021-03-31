@@ -85,36 +85,28 @@
 %% ( Multiple configurations concurrently in unique nodes )
 job_matrix() ->
     [
-        [?JOB_MYSQLV5_7, ?JOB_MYSQLV8],
-%%        [?JOB_MYSQLV5_7],
-%%        [?JOB_MYSQLV8],
+%%     [?JOB_MYSQLV5_7, ?JOB_MYSQLV8],
+     [?JOB_MYSQLV8],
      [?JOB_TCP, ?JOB_TLS],
      [?JOB_IPV4, ?JOB_IPV6]].
 
 init_per_job(Job) ->
-    proc_lib:spawn( fun() ->
-%%                        start_mysql_dep_container(Job)
-                    ok
-                    end ),
-    ok.
+    proc_lib:spawn(fun() -> start_mysql_dep_container(Job) end ).
 
 start_mysql_dep_container(#ct_job{name=Name, vectors=[VSN,Connection,IPv], index=Index} = Job) ->
-    io:format("~n Job : ~p ", [Job]),
     DEnv = docker_env(Name, VSN, Index),
-    log_timestamp(),
     File = docker_compose_file(Connection),
     JobName = binary_to_list(Name),
     server_env(JobName, IPv, Index),
     JobName = binary_to_list(Name),
     DockerRes = emqx_ct_helpers_docker:compose(File, JobName, "mysql_server", "", DEnv),
-    io:format("~n DockerRes : ~p ", [DockerRes]).
+    io:format("~n Job :~p DockerRes : ~p ", [Job, DockerRes]).
 
 end_per_job(#ct_job{ name = Name }, _Config) ->
     JobName = binary_to_list(Name),
-%%    emqx_ct_helpers_docker:force_remove(JobName),
-    ok.
+    emqx_ct_helpers_docker:force_remove(JobName, true).
 
-job_options(#ct_job{name = NameBin, vectors = [_VSN, tls, IPv], index = Index}) ->
+job_options(#ct_job{ vectors = [_VSN, tls, _IPv], index = Index}) ->
     AllJobsEnv = all_jobs_env(Index),
     {ok, CaPath} = data_file("ca.pem"),
     {ok, CertPath} = data_file("client-cert.pem"),
@@ -129,7 +121,7 @@ job_options(#ct_job{name = NameBin, vectors = [_VSN, tls, IPv], index = Index}) 
     Envs = AllJobsEnv ++ TlsEnvs,
     io:format("~n TLS Envs : ~p ", [ Envs ] ),
     [{env, Envs}];
-job_options(#ct_job{name = NameBin, vectors = [_VSN, tcp, IPv], index = Index}) ->
+job_options(#ct_job{ vectors = [_VSN, tcp, _IPv], index = Index}) ->
     AllJobsEnv = all_jobs_env(Index),
     TcpEnvs = [{"EMQX_AUTH__MYSQL__SSL", "off"}],
     Envs = AllJobsEnv ++ TcpEnvs,
@@ -146,14 +138,6 @@ all() ->
 init_per_suite(Config) ->
     JobsConfig = proplists:get_value(?JOBS_MATRIX_CONFIG, Config),
     Job = proplists:get_value(job, JobsConfig),
-
-    start_mysql_dep_container(Job),
-    { ok, healthy } = wait_for_healthy(Job),
-
-    io:format("~n Config : ~p ", [ Config ] ),
-    Env = os:getenv(),
-    io:format("~n Env : ~p ", [ Env ] ),
-
     emqx_ct_helpers:start_apps([emqx_auth_mysql], set_special_configs(Job)),
     init_mysql_data(),
     Config.
@@ -180,24 +164,32 @@ set_special_configs(#ct_job{ index = Index }, emqx) ->
     application:set_env(emqx, allow_anonymous, false),
     application:set_env(emqx, enable_acl_cache, false),
     application:set_env(emqx, plugins_loaded_file, PluginPath);
-set_special_configs(_Job, emqx_auth_mysql) ->
-    { ok, MysqlServer } = application:get_env(emqx_auth_mysql, server),
-    MysqlServerUpdated = lists:keyreplace(auto_reconnect, 1, MysqlServer, { auto_reconnect, 20 }),
-    ok = application:set_env(emqx_auth_mysql, server, MysqlServerUpdated );
 set_special_configs(_Job, _App) ->
     ok.
 
 init_mysql_data() ->
-    {ok, Pid} = ecpool_worker:client(gproc_pool:pick_worker({ecpool, ?APP})),
-    %% Users
-    ok = mysql:query(Pid, ?DROP_AUTH_TABLE),
-    ok = mysql:query(Pid, ?CREATE_AUTH_TABLE),
-    ok = mysql:query(Pid, ?INIT_AUTH),
+    init_mysql_data(120000).
 
-    %% ACLs
-    ok = mysql:query(Pid, ?DROP_ACL_TABLE),
-    ok = mysql:query(Pid, ?CREATE_ACL_TABLE),
-    ok = mysql:query(Pid, ?INIT_ACL).
+init_mysql_data(0) ->
+    exit(" Unable to connect to MYSQL");
+init_mysql_data(WaitFor) ->
+    case gproc_pool:pick_worker({ecpool, ?APP}) of
+        false ->
+            timer:sleep(2000),
+            init_mysql_data(WaitFor-2000);
+        Worker ->
+            io:format("~n Worker : ~p ", [ Worker ] ),
+            {ok, Pid} = ecpool_worker:client(Worker),
+            %% Users
+            ok = mysql:query(Pid, ?DROP_AUTH_TABLE),
+            ok = mysql:query(Pid, ?CREATE_AUTH_TABLE),
+            ok = mysql:query(Pid, ?INIT_AUTH),
+
+            %% ACLs
+            ok = mysql:query(Pid, ?DROP_ACL_TABLE),
+            ok = mysql:query(Pid, ?CREATE_ACL_TABLE),
+            ok = mysql:query(Pid, ?INIT_ACL)
+    end.
 
 deinit_mysql_data() ->
     {ok, Pid} = ecpool_worker:client(gproc_pool:pick_worker({ecpool, ?APP})),
@@ -361,6 +353,8 @@ all_jobs_env(Index) ->
      {"EMQX_AUTH__MYSQL__USERNAME", "emqx"},
      {"EMQX_AUTH__MYSQL__PASSWORD", "public"},
      {"EMQX_AUTH__MYSQL__DATABASE", "mqtt"},
+     {"EMQX_AUTH__MYSQL__START_UP_ATTEMPTS", "120"},
+     {"EMQX_AUTH__MYSQL__AUTO_RECONNECT", "1"},
      {"CUTTLEFISH_ENV_OVERRIDE_PREFIX", "EMQX_"}].
 
 mysql_vsn(?JOB_MYSQLV8)   -> "8";
@@ -379,9 +373,9 @@ docker_compose_file(Connection) ->
     {ok, RepoRoot} = emqx_ct_helpers_jobs:repo_root(),
     ComposeFile = case Connection of
                       tls -> "docker-compose-mysql-tls.yaml";
-                      tcp -> "docker-compose-mysql.yaml"
+                      tcp -> "docker-compose-mysql-tcp.yaml"
                   end,
-    File = filename:join([RepoRoot, ".ci", "compatibility_tests", ComposeFile]),
+    File = filename:join([RepoRoot, ".ci", "docker-compose-file", ComposeFile]),
     io:format("~n Docker Compose File : ~p ", [ File ] ),
     File.
 
@@ -421,32 +415,3 @@ get_data_dir() ->
     Path = filename:dirname(code:where_is_file(BeamFile)),
     Dir = filename:join([Path, "emqx_auth_mysql_SUITE_data"]),
     {ok, Dir}.
-
-wait_for_healthy(#ct_job{ name = Name }) ->
-    JobName = binary_to_list(Name),
-    wait_for_healthy(JobName, 90000, 0).
-
-wait_for_healthy(_JobName, Max, Current) when Current > Max ->
-    log_timestamp(),
-    { error, "MYSQL took too long be be healthy"};
-wait_for_healthy(JobName, Max, Current) ->
-    io:format("~n wait_for_healthy -> JobName : ~p ", [ JobName ] ),
-    Cmd = "docker inspect "++JobName++" | jq '.[].State.Health.Status'",
-    Res = os:cmd(Cmd),
-    ResClean = string:trim(Res, both, "\n \""),
-    case ResClean of
-        "healthy" ->
-            log_timestamp(),
-            { ok, healthy };
-        Other ->
-            io:format("~n wait_for_healthy -> Other : ~p ", [ Other ] ),
-            Interval = 2000,
-            timer:sleep(Interval),
-            wait_for_healthy(JobName, Max, Current+Interval)
-    end.
-
-
-log_timestamp() ->
-    Time = calendar:local_time(),
-    io:format("~n >>>>  Timestamp : ~p ", [ Time ] ),
-    ok.

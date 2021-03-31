@@ -44,7 +44,7 @@ proper: $(REBAR)
 
 .PHONY: ct
 ct: $(REBAR)
-	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name 'test@127.0.0.1' -c -v
+	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name test -c -v
 
 APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
 
@@ -52,7 +52,7 @@ APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
 .PHONY: $(APPS:%=%-ct)
 define gen-app-ct-target
 $1-ct:
-	$(REBAR) ct --name 'test@127.0.0.1' -v --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
+	$(REBAR) ct --sname test -v --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
 

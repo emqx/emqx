@@ -130,15 +130,12 @@ jobs:
   mysql:
     runs-on: ubuntu-20.04
 
-    strategy:
-      fail-fast: false
-
     steps:
       - uses: actions/checkout@v1
       - name: docker-compose up
-        timeout-minutes: 5
+        timeout-minutes: 10
         run: docker-compose -f .ci/docker-compose-file/docker-compose.yaml up -d --build
-     - name: set git token
+      - name: set git token
         run: |
           if make emqx-ee --dry-run > /dev/null 2>&1; then
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
@@ -146,13 +143,20 @@ jobs:
       - name: run test cases
         run: |
           docker exec -i erlang sh -c "make ensure-rebar3"
-          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mysql"
-          docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_mysql"
+          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mysql "
+          docker exec -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_mysql --sname test -c -v"
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
-          name: logs_mysql${{ matrix.mysql_tag }}_${{ matrix.network_type }}_${{ matrix.connect_type }}
+          name: logs_mysql
           path: _build/test/logs
+      - name: Publish Test Report
+        uses: scacap/action-surefire-report@v1
+        with:
+          report_paths: _build/test/logs/**/results/*surefire.xml'
+          fail_on_test_failures: true
+          fail_if_no_tests: true
+
 
   pgsql:
     runs-on: ubuntu-20.04
