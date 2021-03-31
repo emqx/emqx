@@ -238,9 +238,9 @@ chann_publish(Topic, Payload, State = #state{clientid = ClientId}) ->
     ?LOG(debug, "publish Topic=~p, Payload=~p", [Topic, Payload]),
     case emqx_access_control:check_acl(clientinfo(State), publish, Topic) of
         allow ->
-            emqx_broker:publish(
-                emqx_message:set_flag(retain, false,
-                                      emqx_message:make(ClientId, ?QOS_0, Topic, Payload))),
+            _ = emqx_broker:publish(
+                    emqx_message:set_flag(retain, false,
+                        emqx_message:make(ClientId, ?QOS_0, Topic, Payload))),
             ok;
         deny  ->
             ?LOG(warning, "publish to ~p by clientid ~p failed due to acl check.",
