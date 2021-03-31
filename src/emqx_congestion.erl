@@ -16,22 +16,16 @@
 
 -module(emqx_congestion).
 
--export([ maybe_alarm_port_busy/3
-        , maybe_alarm_port_busy/4
-        , maybe_alarm_too_many_publish/5
-        , maybe_alarm_too_many_publish/6
+-export([ maybe_alarm_conn_congestion/3
         , cancel_alarms/3
         ]).
 
--elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_congestion]}}]).
-
 -define(ALARM_CONN_CONGEST(Channel, Reason),
         list_to_binary(
-          io_lib:format("mqtt_conn/congested/~s/~s/~s",
-                        [emqx_channel:info(clientid, Channel),
+          io_lib:format("~s/~s/~s",
+                        [Reason, emqx_channel:info(clientid, Channel),
                          maps:get(username, emqx_channel:info(clientinfo, Channel),
-                                  <<"undefined">>),
-                         Reason]))).
+                                  <<"unknown_user">>)]))).
 
 -define(ALARM_CONN_INFO_KEYS, [socktype, sockname, peername, clientid, username,
                                proto_name, proto_ver, connected_at, conn_state]).
@@ -39,43 +33,27 @@
 -define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
 -define(PROC_INFO_KEYS, [message_queue_len, memory, reductions]).
 -define(ALARM_SENT(REASON), {alarm_sent, REASON}).
--define(ALL_ALARM_REASONS, [port_busy, too_many_publish]).
--define(CONFIRM_CLEAR(REASON), {alarm_confirm_clear, REASON}).
--define(CONFIRM_CLEAR_INTERVAL, 10000).
+-define(ALL_ALARM_REASONS, [conn_congestion]).
+-define(WONT_CLEAR_IN, 60000).
 
-maybe_alarm_port_busy(Socket, Transport, Channel) ->
-    maybe_alarm_port_busy(Socket, Transport, Channel, false).
-
-maybe_alarm_port_busy(Socket, Transport, Channel, ForceClear) ->
-    case is_tcp_congested(Socket, Transport) of
-        true -> alarm_congestion(Socket, Transport, Channel, port_busy);
-        false -> cancel_alarm_congestion(Socket, Transport, Channel, port_busy,
-                    ForceClear)
+maybe_alarm_conn_congestion(Socket, Transport, Channel) ->
+    case is_alarm_enabled(Channel) of
+        false -> ok;
+        true ->
+            case is_tcp_congested(Socket, Transport) of
+                true -> alarm_congestion(Socket, Transport, Channel, conn_congestion);
+                false -> cancel_alarm_congestion(Socket, Transport, Channel, conn_congestion)
+            end
     end.
-
-maybe_alarm_too_many_publish(Socket, Transport, Channel, PubMsgCount,
-        MaxBatchSize) ->
-    maybe_alarm_too_many_publish(Socket, Transport, Channel, PubMsgCount,
-        MaxBatchSize, false).
-
-maybe_alarm_too_many_publish(Socket, Transport, Channel, PubMsgCount,
-        PubMsgCount = _MaxBatchSize, _ForceClear) ->
-    %% we only alarm it when the process is "too busy"
-    alarm_congestion(Socket, Transport, Channel, too_many_publish);
-maybe_alarm_too_many_publish(Socket, Transport, Channel, PubMsgCount,
-        _MaxBatchSize, ForceClear) when PubMsgCount == 0 ->
-    %% but we clear the alarm until it is really "idle", to avoid sending
-    %% alarms and clears too frequently
-    cancel_alarm_congestion(Socket, Transport, Channel, too_many_publish,
-        ForceClear);
-maybe_alarm_too_many_publish(_Socket, _Transport, _Channel, _PubMsgCount,
-        _MaxBatchSize, _ForceClear) ->
-    ok.
 
 cancel_alarms(Socket, Transport, Channel) ->
     lists:foreach(fun(Reason) ->
         do_cancel_alarm_congestion(Socket, Transport, Channel, Reason)
     end, ?ALL_ALARM_REASONS).
+
+is_alarm_enabled(Channel) ->
+    emqx_zone:get_env(emqx_channel:info(zone, Channel),
+        conn_congestion_alarm_enabled, false).
 
 alarm_congestion(Socket, Transport, Channel, Reason) ->
     case has_alarm_sent(Reason) of
@@ -85,8 +63,10 @@ alarm_congestion(Socket, Transport, Channel, Reason) ->
             update_alarm_sent_at(Reason)
     end.
 
-cancel_alarm_congestion(Socket, Transport, Channel, Reason, ForceClear) ->
-    case is_alarm_allowed_clear(Reason, ForceClear) of
+cancel_alarm_congestion(Socket, Transport, Channel, Reason) ->
+    Zone = emqx_channel:info(zone, Channel),
+    WontClearIn = emqx_zone:get_env(Zone, conn_congestion_wont_clear_alarm_in, ?WONT_CLEAR_IN),
+    case has_alarm_sent(Reason) andalso long_time_since_last_alarm(Reason, WontClearIn) of
         true -> do_cancel_alarm_congestion(Socket, Transport, Channel, Reason);
         false -> ok
     end.
@@ -125,14 +105,11 @@ get_alarm_sent_at(Reason) ->
         undefined -> 0;
         LastSentAt -> LastSentAt
     end.
-
-is_alarm_allowed_clear(Reason, _ForceClear = true) ->
-    has_alarm_sent(Reason);
-is_alarm_allowed_clear(Reason, _ForceClear = false) ->
+long_time_since_last_alarm(Reason, WontClearIn) ->
     %% only sent clears when the alarm was not triggered in the last
-    %% ?CONFIRM_CLEAR_INTERVAL time
+    %% WontClearIn time
     case timenow() - get_alarm_sent_at(Reason) of
-        Elapse when Elapse >= ?CONFIRM_CLEAR_INTERVAL -> true;
+        Elapse when Elapse >= WontClearIn -> true;
         _ -> false
     end.
 
