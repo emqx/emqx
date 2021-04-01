@@ -41,11 +41,11 @@ all() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_lua_hook], fun set_special_configs/1),
+    emqx_ct_helpers:start_apps([emqx_lua_hook], fun set_special_configs/1),
     Config.
 
 end_per_suite(Config) ->
-    emqx_ct_helpers:stop_apps([emqx_lua_hook, emqx_modules]),
+    emqx_ct_helpers:stop_apps([emqx_lua_hook]),
     Config.
 
 set_special_configs(emqx) ->
@@ -667,7 +667,7 @@ case301(_Config) ->
 
     ClientInfo = #{clientid => undefined,
                    username => <<"test">>,
-                   peername => undefined,
+                   peerhost => {127, 0, 0, 1},
                    password => <<"mqtt">>
                   },
     Result = #{auth_result => success, anonymous => true},
@@ -675,8 +675,6 @@ case301(_Config) ->
                  emqx_hooks:run_fold('client.authenticate', [ClientInfo], Result)).
 
 case302(_Config) ->
-    application:set_env(emqx, modules, [{emqx_mod_acl_internal, [{acl_file, emqx:get_env(acl_file)}]}]),
-    emqx_modules:load_module(emqx_mod_acl_internal, false),
     ScriptName = filename:join([emqx_lua_hook:lua_dir(), "abc.lua"]),
     Code =   "function on_client_check_acl(clientid, username, peerhost, password, topic, pubsub)"
            "\n    return \"allow\""
@@ -688,7 +686,7 @@ case302(_Config) ->
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
     ClientInfo = #{clientid => undefined,
                    username => <<"test">>,
-                   peername => undefined,
+                   peerhost => {127, 0, 0, 1},
                    password => <<"mqtt">>
                   },
     ?assertEqual(allow, emqx_hooks:run_fold('client.check_acl',
