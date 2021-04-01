@@ -131,6 +131,26 @@ t_management(_Config) ->
     deny  = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
     deny  = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
 
+    %% Test implicit migration of pubsub to pub and sub:
+    ok = emqx_acl_mnesia_cli:remove_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>),
+    ok = mnesia:dirty_write(#emqx_acl{
+                               filter = {{clientid, <<"test_clientid">>}, <<"topic/mix">>},
+                               action = pubsub,
+                               access = allow,
+                               created_at = erlang:system_time(millisecond)
+                              }),
+    timer:sleep(100),
+    allow = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
+    allow = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
+    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pub, deny),
+    timer:sleep(100),
+    allow = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
+    deny  = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
+    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, sub, deny),
+    timer:sleep(100),
+    deny  = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
+    deny  = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
+
     ok = emqx_acl_mnesia_cli:remove_acl({clientid, <<"test_clientid">>}, <<"topic/%c">>),
     ok = emqx_acl_mnesia_cli:remove_acl({clientid, <<"test_clientid">>}, <<"topic/+">>),
     ok = emqx_acl_mnesia_cli:remove_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>),
