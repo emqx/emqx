@@ -296,10 +296,10 @@ if [ -z "$NAME_ARG" ]; then
     if [ -z "$NODENAME" ]; then
         echoerr "Failed to resolve emqx node name"
         if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-            echoerr "Make user emqx has read permissions on $RUNNER_ETC_DIR/emqx.conf"
+            echoerr "Make sure runner has read permission on '$RUNNER_ETC_DIR/emqx.conf'"
         fi
-        echoerr "Maybe set environment variable ENQX_NODE_NAME='name@host.name'"
-        echoerr "or set EMQX_NAME='name' EMQX_HOST='host.name'"
+        echoerr "Maybe override node name with environment variable ENQX_NODE_NAME='name@host.name'"
+        echoerr "or, EMQX_NAME='name' and EMQX_HOST='host.name'"
         exit 1
     fi
     NAME_ARG="-name ${NODENAME# *}"
