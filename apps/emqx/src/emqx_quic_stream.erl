@@ -47,8 +47,10 @@ peercert(_S) ->
     nossl.
 
 getstat(Socket, Stats) ->
-    Res = quicer:getstats(Socket, Stats),
-    {ok, lists:keyreplace(send_pend, 1, Res, {send_pend, 0})}.
+    case quicer:getstats(Socket, Stats) of
+        {error, _} -> [];
+        Res -> {ok, Res}
+    end.
 
 setopts(_Socket, _Opts) ->
     ok.
