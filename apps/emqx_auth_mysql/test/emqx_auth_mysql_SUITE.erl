@@ -84,9 +84,7 @@
 
 %% ( Multiple configurations concurrently in unique nodes )
 job_matrix() ->
-    [
-%%     [?JOB_MYSQLV5_7, ?JOB_MYSQLV8],
-     [?JOB_MYSQLV8],
+    [[?JOB_MYSQLV5_7, ?JOB_MYSQLV8],
      [?JOB_TCP, ?JOB_TLS],
      [?JOB_IPV4, ?JOB_IPV6]].
 
