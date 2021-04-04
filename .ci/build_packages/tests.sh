@@ -118,8 +118,7 @@ running_test(){
     emqx stop || kill "$(ps -ef | grep -E '\-progname\s.+emqx\s' |awk '{print $2}')"
 
     if [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = ubuntu ] \
-    || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] \
-    || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = raspbian ];then
+    || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] ;then
         service emqx start || ( tail /var/log/emqx/emqx.log.1 && exit 1 )
         IDLE_TIME=0
         while [ -z "$(emqx_ctl status |grep 'is running'|awk '{print $1}')" ]
