@@ -102,7 +102,7 @@ test_plugins() ->
 test_deps() ->
     [ {bbmustache, "1.10.0"}
 %%    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3."}}}
-    , {emqx_ct_helpers, {git, "https://github.com/jovdipp/emqx-ct-helpers.git", {branch, "job-matrix-node-name-fix"}}}
+    , {emqx_ct_helpers, {git, "https://github.com/jovdipp/emqx-ct-helpers.git", {branch, "github-ci-actions-dynamic-matrix"}}}
     , meck
     ].
 

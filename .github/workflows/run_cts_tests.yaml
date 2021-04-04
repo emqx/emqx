@@ -127,9 +127,27 @@ jobs:
           name: logs_mongo${{ matrix.mongo_tag }}_${{ matrix.network_type }}_${{ matrix.connect_type }}
           path: _build/test/logs
 
+  mysql_matrix:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v1
+      - name: docker-compose up
+        timeout-minutes: 10
+        run: docker-compose -f .ci/docker-compose-file/docker-compose.yaml up -d --build
+      - name: fetch matrix
+        run: |
+          docker exec -i erlang sh -c "make ensure-rebar3"
+          docker exec -i erlang sh -c "./rebar3 ct --compile_only"
+      - id: set-matrix
+        run: echo "::set-output name=matrix::$( erl -noshell -pa _build/test/lib/emqx_ct_helpers/ebin/ -run emqx_ct_helpers_github_ci main get-matrix emqx_auth_mysql_SUITE )"
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+
   mysql:
     runs-on: ubuntu-20.04
-
+    needs: mysql_matrix
+    strategy:
+      matrix: ${{fromJSON(needs.mysql_matrix.outputs.matrix)}}
     steps:
       - uses: actions/checkout@v1
       - name: docker-compose up
