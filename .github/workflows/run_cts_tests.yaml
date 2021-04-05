@@ -159,6 +159,8 @@ jobs:
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
           fi
       - name: run test cases
+        env:
+          EMQX_CT_MATRIX_OVERRIDE: ${{ matrix.vectors }}
         run: |
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mysql "
@@ -173,8 +175,7 @@ jobs:
         with:
           report_paths: _build/test/logs/**/results/*surefire.xml'
           fail_on_test_failures: true
-          fail_if_no_tests: true
-
+          fail_if_no_tests: true 
 
   pgsql:
     runs-on: ubuntu-20.04
