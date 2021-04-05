@@ -158,13 +158,9 @@ jobs:
           if make emqx-ee --dry-run > /dev/null 2>&1; then
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
           fi
-      - name: vectors-debug
-        run: |
-          echo "matrix vectors ${{ matrix.vectors }}"
-          echo "matrix vectors json ${{ toJSON(matrix.vectors)}}"
       - name: run test cases
         env:
-          EMQX_CT_MATRIX_OVERRIDE: ${{ matrix.vectors }}
+          EMQX_CT_MATRIX_OVERRIDE: ${{ toJSON(matrix.vectors) }}
         run: |
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mysql "
