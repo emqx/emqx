@@ -48,7 +48,7 @@ peercert(_S) ->
 
 getstat(Socket, Stats) ->
     case quicer:getstats(Socket, Stats) of
-        {error, _} -> [];
+        {error, _} -> {error, closed};
         Res -> {ok, Res}
     end.
 
