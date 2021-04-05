@@ -158,6 +158,10 @@ jobs:
           if make emqx-ee --dry-run > /dev/null 2>&1; then
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
           fi
+      - name: vectors-debug
+        run: |
+          echo "matrix vectors ${{ matrix.vectors }}"
+          echo "matrix vectors json ${{ toJSON(matrix.vectors)}}"
       - name: run test cases
         env:
           EMQX_CT_MATRIX_OVERRIDE: ${{ matrix.vectors }}
@@ -175,7 +179,7 @@ jobs:
         with:
           report_paths: _build/test/logs/**/results/*surefire.xml'
           fail_on_test_failures: true
-          fail_if_no_tests: true 
+          fail_if_no_tests: true
 
   pgsql:
     runs-on: ubuntu-20.04
