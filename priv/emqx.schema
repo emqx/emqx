@@ -214,7 +214,8 @@ end}.
 
 %% @doc Secret cookie for distributed erlang node
 {mapping, "node.cookie", "vm_args.-setcookie", [
-  {default, "emqxsecretcookie"}
+  {default, "emqxsecretcookie"},
+  {override_env, "NODE_COOKIE"}
 ]}.
 
 {mapping, "node.data_dir", "emqx.data_dir", [
@@ -250,7 +251,8 @@ end}.
 %% Valid range is 1024-134217727
 {mapping, "node.max_ports", "vm_args.+Q", [
   {datatype, integer},
-  {validators, ["range4ports"]}
+  {validators, ["range4ports"]},
+  {override_env, "MAX_PORTS"}
 ]}.
 
 {validator, "range4ports", "must be 1024 to 134217727",
@@ -758,7 +760,8 @@ end}.
 %% @doc Max Packet Size Allowed, 1MB by default.
 {mapping, "mqtt.max_packet_size", "emqx.max_packet_size", [
   {default, "1MB"},
-  {datatype, bytesize}
+  {datatype, bytesize},
+  {override_env, "MAX_PACKET_SIZE"}
 ]}.
 
 %% @doc Set the Max ClientId Length Allowed.
@@ -1177,6 +1180,11 @@ end}.
   {datatype, [integer, ip]}
 ]}.
 
+{mapping, "listener.tcp.external", "emqx.listeners", [
+  {datatype, [integer, ip]},
+  {override_env, "TCP_PORT"}
+]}.
+
 {mapping, "listener.tcp.$name.acceptors", "emqx.listeners", [
   {default, 8},
   {datatype, integer}
@@ -1282,6 +1290,11 @@ end}.
 
 {mapping, "listener.ssl.$name", "emqx.listeners", [
   {datatype, [integer, ip]}
+]}.
+
+{mapping, "listener.ssl.external", "emqx.listeners", [
+  {datatype, [integer, ip]},
+  {override_env, "SSL_PORT"}
 ]}.
 
 {mapping, "listener.ssl.$name.acceptors", "emqx.listeners", [
@@ -1450,6 +1463,11 @@ end}.
 
 {mapping, "listener.ws.$name", "emqx.listeners", [
   {datatype, [integer, ip]}
+]}.
+
+{mapping, "listener.ws.external", "emqx.listeners", [
+  {datatype, [integer, ip]},
+  {override_env, "WS_PORT"}
 ]}.
 
 {mapping, "listener.ws.$name.mqtt_path", "emqx.listeners", [
@@ -1630,6 +1648,11 @@ end}.
 
 {mapping, "listener.wss.$name", "emqx.listeners", [
   {datatype, [integer, ip]}
+]}.
+
+{mapping, "listener.wss.external", "emqx.listeners", [
+  {datatype, [integer, ip]},
+  {override_env, "WSS_PORT"}
 ]}.
 
 {mapping, "listener.wss.$name.mqtt_path", "emqx.listeners", [
