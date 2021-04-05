@@ -159,12 +159,13 @@ jobs:
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
           fi
       - name: run test cases
-        env:
-          EMQX_CT_MATRIX_OVERRIDE: ${{ toJSON(matrix.vectors) }}
         run: |
+          export EMQX_CT_MATRIX_OVERRIDE=${{ toJSON(matrix.vectors) }}
+          printenv > .env
+          echo "EMQX_CT_MATRIX_OVERRIDE :$EMQX_CT_MATRIX_OVERRIDE"
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mysql "
-          docker exec -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_mysql --sname test -c -v"
+          docker exec  --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_mysql --sname test -c -v"
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
