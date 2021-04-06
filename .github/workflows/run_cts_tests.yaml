@@ -160,9 +160,11 @@ jobs:
           fi
       - name: run test cases
         run: |
-          export EMQX_CT_MATRIX_OVERRIDE=${{ toJSON(matrix.vectors) }}
+          EMQX_CT_MATRIX_OVERRIDE=`echo "${{ toJSON(matrix.vectors) }}" | tr '\r\n' ' ' | sed 's/\[/[[/g' | sed 's/\]/]]/g' | sed 's/,/],[/g' `
+          export EMQX_CT_MATRIX_OVERRIDE="$EMQX_CT_MATRIX_OVERRIDE"
           printenv > .env
-          echo "EMQX_CT_MATRIX_OVERRIDE :$EMQX_CT_MATRIX_OVERRIDE"
+          cat .env
+          echo "EMQX_CT_MATRIX_OVERRIDE : $EMQX_CT_MATRIX_OVERRIDE"
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mysql "
           docker exec  --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_mysql --sname test -c -v"
