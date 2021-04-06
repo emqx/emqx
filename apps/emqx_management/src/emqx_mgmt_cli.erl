@@ -698,7 +698,7 @@ indent_print({Key, Val}) ->
 listener_identifier(Protocol, ListenOn) ->
     case emqx_listeners:find_id_by_listen_on(ListenOn) of
         false ->
-            "http" ++ _ = atom_to_list(Protocol); %% assert
+            atom_to_list(Protocol);
         ID ->
             ID
     end.
