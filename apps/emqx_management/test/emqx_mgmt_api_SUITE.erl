@@ -262,6 +262,7 @@ clients(_) ->
     {ok, Ok} = request_api(delete, api_path(["clients", binary_to_list(ClientId1)]), auth_header_()),
     ?assertEqual(?SUCCESS, get(<<"code">>, Ok)),
 
+    timer:sleep(100), %% sleep for waiting process exited
     {ok, NotFound0} = request_api(delete, api_path(["clients", binary_to_list(ClientId1)]), auth_header_()),
     ?assertEqual(?ERROR12, get(<<"code">>, NotFound0)),
 
