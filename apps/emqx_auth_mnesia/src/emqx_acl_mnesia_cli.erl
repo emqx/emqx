@@ -39,13 +39,24 @@
 -spec(add_acl(login() | all, emqx_topic:topic(), pub | sub | pubsub, allow | deny) ->
         ok | {error, any()}).
 add_acl(Login, Topic, Action, Access) ->
-    Acls = #?TABLE{
-              filter = {Login, Topic},
-              action = Action,
-              access = Access,
-              created_at = erlang:system_time(millisecond)
-             },
-    ret(mnesia:transaction(fun mnesia:write/1, [Acls])).
+    Filter = {Login, Topic},
+    Acl = #?TABLE{
+             filter = Filter,
+             action = Action,
+             access = Access,
+             created_at = erlang:system_time(millisecond)
+            },
+    ret(mnesia:transaction(
+          fun() ->
+                  OldRecords = mnesia:wread({?TABLE, Filter}),
+                  case Action of
+                      pubsub ->
+                          update_permission(pub, Acl, OldRecords),
+                          update_permission(sub, Acl, OldRecords);
+                      _ ->
+                          update_permission(Action, Acl, OldRecords)
+                  end
+          end)).
 
 %% @doc Lookup acl by login
 -spec(lookup_acl(login() | all) -> list()).
@@ -233,3 +244,27 @@ print_acl({all, Topic, Action, Access, _}) ->
         "Acl($all topic = ~p action = ~p access = ~p)~n",
         [Topic, Action, Access]
      ).
+
+update_permission(Action, Acl0, OldRecords) ->
+    Acl = Acl0 #?TABLE{action = Action},
+    maybe_delete_shadowed_records(Action, OldRecords),
+    mnesia:write(Acl).
+
+maybe_delete_shadowed_records(_, []) ->
+    ok;
+maybe_delete_shadowed_records(Action1, [Rec = #emqx_acl{action = Action2} | Rest]) ->
+    if Action1 =:= Action2 ->
+            ok = mnesia:delete_object(Rec);
+       Action2 =:= pubsub ->
+            %% Perform migration from the old data format on the
+            %% fly. This is needed only for the enterprise version,
+            %% delete this branch on 5.0
+            mnesia:delete_object(Rec),
+            mnesia:write(Rec#?TABLE{action = other_action(Action1)});
+       true ->
+            ok
+    end,
+    maybe_delete_shadowed_records(Action1, Rest).
+
+other_action(pub) -> sub;
+other_action(sub) -> pub.

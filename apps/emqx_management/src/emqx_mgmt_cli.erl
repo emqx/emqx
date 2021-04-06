@@ -562,7 +562,9 @@ data(["export"]) ->
     end;
 
 data(["import", Filename]) ->
-    case emqx_mgmt_data_backup:import(Filename) of
+    data(["import", Filename, "--env", "{}"]);
+data(["import", Filename, "--env", Env]) ->
+    case emqx_mgmt_data_backup:import(Filename, Env) of
         ok ->
             emqx_ctl:print("The emqx data has been imported successfully.~n");
         {error, import_failed} ->
@@ -574,8 +576,9 @@ data(["import", Filename]) ->
     end;
 
 data(_) ->
-    emqx_ctl:usage([{"data import <File>",   "Import data from the specified file"},
-                    {"data export",          "Export data"}]).
+    emqx_ctl:usage([{"data import <File> [--env '<json>']",
+                     "Import data from the specified file, possibly with overrides"},
+                    {"data export", "Export data"}]).
 
 %%--------------------------------------------------------------------
 %% @doc acl Command
