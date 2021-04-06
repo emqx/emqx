@@ -19,4 +19,26 @@
 
 -define(APP, emqx_exhook).
 
+-define(ENABLED_HOOKS,
+      [ {'client.connect',      {?MODULE, on_client_connect,       []}}
+      , {'client.connack',      {?MODULE, on_client_connack,       []}}
+      , {'client.connected',    {?MODULE, on_client_connected,     []}}
+      , {'client.disconnected', {?MODULE, on_client_disconnected,  []}}
+      , {'client.authenticate', {?MODULE, on_client_authenticate,  []}}
+      , {'client.check_acl',    {?MODULE, on_client_check_acl,     []}}
+      , {'client.subscribe',    {?MODULE, on_client_subscribe,     []}}
+      , {'client.unsubscribe',  {?MODULE, on_client_unsubscribe,   []}}
+      , {'session.created',     {?MODULE, on_session_created,      []}}
+      , {'session.subscribed',  {?MODULE, on_session_subscribed,   []}}
+      , {'session.unsubscribed',{?MODULE, on_session_unsubscribed, []}}
+      , {'session.resumed',     {?MODULE, on_session_resumed,      []}}
+      , {'session.discarded',   {?MODULE, on_session_discarded,    []}}
+      , {'session.takeovered',  {?MODULE, on_session_takeovered,   []}}
+      , {'session.terminated',  {?MODULE, on_session_terminated,   []}}
+      , {'message.publish',     {?MODULE, on_message_publish,      []}}
+      , {'message.delivered',   {?MODULE, on_message_delivered,    []}}
+      , {'message.acked',       {?MODULE, on_message_acked,        []}}
+      , {'message.dropped',     {?MODULE, on_message_dropped,      []}}
+      ]).
+
 -endif.

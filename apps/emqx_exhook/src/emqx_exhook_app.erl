@@ -22,7 +22,7 @@
 
 -emqx_plugin(extension).
 
--define(REGISTRAY, emqx_exhook_registray).
+-define(CNTER, emqx_exhook_counter).
 
 -export([ start/2
         , stop/1
@@ -33,7 +33,8 @@
 -export([ load_server/2
         , unload_server/1
         , unload_exhooks/0
-        , init_hook_registray/0
+        , init_hooks_cnter/0
+        , deinit_hooks_cnter/0
         ]).
 
 %%--------------------------------------------------------------------
@@ -43,8 +44,8 @@
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_exhook_sup:start_link(),
 
-    %% Collect all available hooks
-    _ = init_hook_registray(),
+    %% Init counter
+    init_hooks_cnter(),
 
     %% Load all dirvers
     load_all_servers(),
@@ -56,8 +57,8 @@ start(_StartType, _StartArgs) ->
 prep_stop(State) ->
     emqx_ctl:unregister_command(exhook),
     _ = unload_exhooks(),
+    _ = deinit_hooks_cnter(),
     ok = unload_all_servers(),
-    _ = deinit_hook_registray(),
     State.
 
 stop(_State) ->
@@ -81,46 +82,17 @@ load_server(Name, Options) ->
 unload_server(Name) ->
     emqx_exhook:disable(Name).
 
-%%--------------------------------------------------------------------
-%% Exhooks
-
-init_hook_registray() ->
-    _ = ets:new(?REGISTRAY, [public, named_table]),
-    [ets:insert(?REGISTRAY, {Name, {M, F, A}, 0})
-     || {Name, {M, F, A}} <- search_exhooks()].
-
 unload_exhooks() ->
     [emqx:unhook(Name, {M, F}) ||
-     {Name, {M, F, _A}, _} <- ets:tab2list(?REGISTRAY)].
+     {Name, {M, F, _A}} <- ?ENABLED_HOOKS].
 
-deinit_hook_registray() ->
-    ets:delete(?REGISTRAY).
-
-search_exhooks() ->
-    search_exhooks(ignore_lib_apps(application:loaded_applications())).
-search_exhooks(Apps) ->
-    lists:flatten([ExHooks || App <- Apps, {_App, _Mod, ExHooks} <- find_attrs(App, exhooks)]).
-
-ignore_lib_apps(Apps) ->
-    LibApps = [kernel, stdlib, sasl, appmon, eldap, erts,
-               syntax_tools, ssl, crypto, mnesia, os_mon,
-               inets, goldrush, gproc, runtime_tools,
-               snmp, otp_mibs, public_key, asn1, ssh, hipe,
-               common_test, observer, webtool, xmerl, tools,
-               test_server, compiler, debugger, eunit, et,
-               wx],
-    [AppName || {AppName, _, _} <- Apps, not lists:member(AppName, LibApps)].
-
-find_attrs(App, Def) ->
-    [{App, Mod, Attr} || {ok, Modules} <- [application:get_key(App, modules)],
-                         Mod <- Modules,
-                         {Name, Attrs} <- module_attributes(Mod), Name =:= Def,
-                         Attr <- Attrs].
-
-module_attributes(Module) ->
-    try Module:module_info(attributes)
+init_hooks_cnter() ->
+    try
+        _ = ets:new(?CNTER, [named_table, public]), ok
     catch
-        error:undef -> [];
-        error:Reason -> error(Reason)
+        exit:badarg:_ ->
+            ok
     end.
 
+deinit_hooks_cnter() ->
+    ets:delete(?CNTER).
