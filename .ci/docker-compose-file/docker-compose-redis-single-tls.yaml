@@ -9,6 +9,7 @@ services:
     command:
       - redis-server
       - "--bind 0.0.0.0 ::"
+      - --requirepass public
       - --tls-port 6380
       - --tls-cert-file /tls/redis.crt
       - --tls-key-file /tls/redis.key
