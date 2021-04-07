@@ -22,6 +22,12 @@
         , stop/1
         ]).
 
+-export([ start_listener/1
+        , start_listener/3
+        , stop_listener/1
+        , stop_listener/2
+        ]).
+
 -define(LOG(Level, Format, Args),
     logger:Level("LwM2M: " ++ Format, Args)).
 

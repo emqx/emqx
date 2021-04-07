@@ -44,13 +44,11 @@ groups() ->
 
 init_per_group(GrpName, Cfg) ->
     Fun = fun(App) -> set_special_configs(GrpName, App) end,
-    emqx_ct_helpers:start_apps([emqx_modules]),
     emqx_ct_helpers:start_apps([emqx_auth_ldap], Fun),
-    emqx_mod_acl_internal:unload([]),
     Cfg.
 
 end_per_group(_GrpName, _Cfg) ->
-    emqx_ct_helpers:stop_apps([emqx_auth_ldap, emqx_modules]).
+    emqx_ct_helpers:stop_apps([emqx_auth_ldap]).
 
 %%--------------------------------------------------------------------
 %% Cases

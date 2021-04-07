@@ -53,16 +53,16 @@ groups() ->
        ]}].
 
 apps() ->
-    [emqx, emqx_management, emqx_auth_mnesia].
+    [emqx_management, emqx_auth_mnesia, emqx_modules].
 
 init_per_suite(Config) ->
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
-    emqx_ct_helpers:start_apps([emqx_management, emqx_auth_mnesia]),
+    emqx_ct_helpers:start_apps(apps()),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_management, emqx_auth_mnesia]).
+    emqx_ct_helpers:stop_apps(apps()).
 
 t_app(_Config) ->
     {ok, AppSecret} = emqx_mgmt_auth:add_app(<<"app_id">>, <<"app_name">>),

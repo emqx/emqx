@@ -6,6 +6,11 @@ jobs:
   build:
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v2
+      - name: Set git token
+        if: endsWith(github.repository, 'enterprise')
+        run: |
+          echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+          git config --global credential.helper store
       - run: |
           ./scripts/elvis-check.sh $GITHUB_BASE_REF

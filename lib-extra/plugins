@@ -1,4 +1,9 @@
 {erlang_plugins,
-  [ {emqx_plugin_template, {git, "https://github.com/emqx/emqx-plugin-template", {branch, "master"}}}
+  [ {emqx_plugin_template, {git, "https://github.com/emqx/emqx-plugin-template", {tag, "4.3.0"}}}
+  ]
+}.
+
+{elixir_plugins,
+  [ {emqx_elixir_plugin, {git, "https://github.com/emqx/emqx-elixir-plugin.git", {branch, "3.0.0"}}}
   ]
 }.

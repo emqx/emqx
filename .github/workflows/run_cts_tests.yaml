@@ -24,12 +24,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v1
-      - name: setup
+      - name: docker compose up
         env:
           LDAP_TAG: ${{ matrix.ldap_tag }}
         run: |
-          docker-compose -f .ci/apps_tests/docker-compose.yaml build --no-cache
-          docker-compose -f .ci/compatibility_tests/docker-compose-ldap.yaml up -d
+          docker-compose \
+            -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
+            -f .ci/docker-compose-file/docker-compose.yaml \
+            up -d --build
       - name: setup
         if: matrix.network_type == 'ipv4'
         run: |
@@ -38,6 +40,11 @@ jobs:
         if: matrix.network_type == 'ipv6'
         run: |
           echo EMQX_AUTH__LDAP__SERVERS=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' ldap) >> "$GITHUB_ENV"
+      - name: set git token
+        run: |
+          if make emqx-ee --dry-run > /dev/null 2>&1; then
+            docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+          fi
       - name: run test cases
         run: |
           export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
@@ -69,24 +76,30 @@ jobs:
 
     steps:
       - uses: actions/checkout@v1
+      - name: docker-compose up
+        run: |
+          docker-compose \
+            -f .ci/docker-compose-file/docker-compose-mongo-${{ matrix.connect_type }}.yaml \
+            -f .ci/docker-compose-file/docker-compose.yaml \
+            up -d --build
       - name: setup
         env:
           MONGO_TAG: ${{ matrix.mongo_tag }}
         if: matrix.connect_type == 'tls'
         run: |
-          docker-compose -f .ci/compatibility_tests/docker-compose-mongo-tls.yaml up -d
           cat <<-EOF >> "$GITHUB_ENV"
           EMQX_AUTH__MONGO__SSL__ENABLE=on
-          EMQX_AUTH__MONGO__CACERTFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem
-          EMQX_AUTH__MONGO__CERTFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem
-          EMQX_AUTH__MONGO__KEYFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem
+          EMQX_AUTH__MONGO__SSL__CACERTFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem
+          EMQX_AUTH__MONGO__SSL__CERTFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem
+          EMQX_AUTH__MONGO__SSL__KEYFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem
+          EMQX_AUTH__MONGO__SSL__VERIFY=true
+          EMQX_AUTH__MONGO__SSL__SERVER_NAME_INDICATION=disable
           EOF
       - name: setup
         env:
           MONGO_TAG: ${{ matrix.mongo_tag }}
         if: matrix.connect_type == 'tcp'
         run: |
-          docker-compose -f .ci/compatibility_tests/docker-compose-mongo.yaml up -d
           echo EMQX_AUTH__MONGO__SSL__ENABLE=off >> "$GITHUB_ENV"
       - name: setup
         if: matrix.network_type == 'ipv4'
@@ -96,6 +109,11 @@ jobs:
         if: matrix.network_type == 'ipv6'
         run: |
           echo "EMQX_AUTH__MONGO__SERVER=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' mongo):27017" >> "$GITHUB_ENV"
+      - name: set git token
+        run: |
+          if make emqx-ee --dry-run > /dev/null 2>&1; then
+            docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+          fi
       - name: run test cases
         run: |
           export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
@@ -127,25 +145,44 @@ jobs:
 
     steps:
       - uses: actions/checkout@v1
+      - name: docker-compose up
+        timeout-minutes: 5
+        run: |
+          docker-compose \
+            -f .ci/docker-compose-file/docker-compose-mysql-${{ matrix.connect_type }}.yaml \
+            -f .ci/docker-compose-file/docker-compose.yaml \
+            up -d --build
+          while [ $(docker ps -a --filter name=client --filter exited=0 | wc -l) \
+                 != $(docker ps -a --filter name=client | wc -l) ]; do
+              sleep 5
+          done
       - name: setup
         env:
           MYSQL_TAG: ${{ matrix.mysql_tag }}
         if: matrix.connect_type == 'tls'
         run: |
-          docker-compose -f .ci/compatibility_tests/docker-compose-mysql-tls.yaml up -d
           cat <<-EOF >> "$GITHUB_ENV"
             EMQX_AUTH__MYSQL__SSL__ENABLE=on
+            EMQX_AUTH__MYSQL__USERNAME=ssluser
+            EMQX_AUTH__MYSQL__PASSWORD=public
+            EMQX_AUTH__MYSQL__DATABASE=mqtt
             EMQX_AUTH__MYSQL__SSL__CACERTFILE=/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem
             EMQX_AUTH__MYSQL__SSL__CERTFILE=/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem
             EMQX_AUTH__MYSQL__SSL__KEYFILE=/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-key.pem
+            EMQX_AUTH__MYSQL__SSL__VERIFY=true
+            EMQX_AUTH__MYSQL__SSL__SERVER_NAME_INDICATION=disable
           EOF
       - name: setup
         env:
           MYSQL_TAG: ${{ matrix.mysql_tag }}
         if: matrix.connect_type == 'tcp'
         run: |
-          docker-compose -f .ci/compatibility_tests/docker-compose-mysql.yaml up -d
-          echo EMQX_AUTH__MYSQL__SSL__ENABLE=off >> "$GITHUB_ENV"
+          cat <<-EOF >> "$GITHUB_ENV"
+            EMQX_AUTH__MYSQL__USERNAME=root
+            EMQX_AUTH__MYSQL__PASSWORD=public
+            EMQX_AUTH__MYSQL__DATABASE=mqtt
+            EMQX_AUTH__MYSQL__SSL__ENABLE=off
+          EOF
       - name: setup
         if: matrix.network_type == 'ipv4'
         run: |
@@ -154,12 +191,14 @@ jobs:
         if: matrix.network_type == 'ipv6'
         run: |
           echo "EMQX_AUTH__MYSQL__SERVER=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' mysql):3306" >> "$GITHUB_ENV"
+      - name: set git token
+        run: |
+          if make emqx-ee --dry-run > /dev/null 2>&1; then
+            docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+          fi
       - name: run test cases
         run: |
-          export EMQX_AUTH__MYSQL__USERNAME=root \
-                 EMQX_AUTH__MYSQL__PASSWORD=public \
-                 EMQX_AUTH__MYSQL__DATABASE=mqtt \
-                 CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
+          export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mysql"
@@ -190,23 +229,30 @@ jobs:
         - tcp
     steps:
       - uses: actions/checkout@v1
+      - name: docker-compose up
+        run: |
+          docker-compose \
+            -f .ci/docker-compose-file/docker-compose-pgsql-${{ matrix.connect_type }}.yaml \
+            -f .ci/docker-compose-file/docker-compose.yaml \
+            up -d --build
       - name: setup
         env:
           PGSQL_TAG: ${{ matrix.pgsql_tag }}
         if: matrix.connect_type == 'tls'
         run: |
-          docker-compose -f .ci/compatibility_tests/docker-compose-pgsql-tls.yaml build --no-cache
-          docker-compose -f .ci/compatibility_tests/docker-compose-pgsql-tls.yaml up -d
           cat <<-EOF >> "$GITHUB_ENV"
           EMQX_AUTH__PGSQL__SSL__ENABLE=on
-          EMQX_AUTH__PGSQL__SSL__CACERTFILE=/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/root.crt
+          EMQX_AUTH__PGSQL__SSL__CACERTFILE=/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/ca.pem
+          EMQX_AUTH__PGSQL__SSL__CERTFILE=/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/client-cert.pem
+          EMQX_AUTH__PGSQL__SSL__KEYFILE=/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/client-key.pem
+          EMQX_AUTH__PGSQL__SSL__VERIFY=true
+          EMQX_AUTH__PGSQL__SSL__SERVER_NAME_INDICATION=disable
           EOF
       - name: setup
         env:
           PGSQL_TAG: ${{ matrix.pgsql_tag }}
         if: matrix.connect_type == 'tcp'
         run: |
-          docker-compose -f .ci/compatibility_tests/docker-compose-pgsql.yaml up -d
           echo EMQX_AUTH__PGSQL__SSL__ENABLE=off >> "$GITHUB_ENV"
       - name: setup
         if: matrix.network_type == 'ipv4'
@@ -216,6 +262,11 @@ jobs:
         if: matrix.network_type == 'ipv6'
         run: |
           echo "EMQX_AUTH__PGSQL__SERVER=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' pgsql):5432" >> "$GITHUB_ENV"
+      - name: set git token
+        run: |
+          if make emqx-ee --dry-run > /dev/null 2>&1; then
+            docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+          fi
       - name: run test cases
         run: |
           export EMQX_AUTH__PGSQL__USERNAME=root \
@@ -250,33 +301,39 @@ jobs:
         node_type:
         - single
         - cluster
+        exclude:
+        - redis_tag: 5
+          connect_type: tls
 
     steps:
       - uses: actions/checkout@v1
+      - name: docker-compose up
+        run: |
+          docker-compose \
+            -f .ci/docker-compose-file/docker-compose-redis-${{ matrix.node_type }}-${{ matrix.connect_type }}.yaml \
+            -f .ci/docker-compose-file/docker-compose.yaml \
+            up -d --build
       - name: setup
         env:
           REDIS_TAG: ${{ matrix.redis_tag }}
-        if: matrix.connect_type == 'tls' && matrix.redis_tag != '5'
+        if: matrix.connect_type == 'tls'
         run: |
-          set -exu
-          docker-compose -f .ci/compatibility_tests/docker-compose-redis-${{ matrix.node_type }}-tls.yaml up -d
           cat <<-EOF >> "$GITHUB_ENV"
           EMQX_AUTH__REDIS__SSL__ENABLE=on
           EMQX_AUTH__REDIS__SSL__CACERTFILE=/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/ca.crt
           EMQX_AUTH__REDIS__SSL__CERTFILE=/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.crt
           EMQX_AUTH__REDIS__SSL__KEYFILE=/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.key
+          EMQX_AUTH__REDIS__SSL__VERIFY=true
+          EMQX_AUTH__REDIS__SSL__SERVER_NAME_INDICATION=disable
           EOF
       - name: setup
         env:
           REDIS_TAG: ${{ matrix.redis_tag }}
         if: matrix.connect_type == 'tcp'
         run: |
-          docker-compose -f .ci/compatibility_tests/docker-compose-redis-${{ matrix.node_type }}.yaml up -d
           echo EMQX_AUTH__REDIS__SSL__ENABLE=off >> "$GITHUB_ENV"
       - name: get server address
-        if: matrix.connect_type == 'tcp' || (matrix.connect_type == 'tls' && matrix.redis_tag != '5')
         run: |
-          set -exu
           ipv4_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' redis)
           ipv6_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' redis)
           cat <<-EOF >> "$GITHUB_ENV"
@@ -286,15 +343,13 @@ jobs:
       - name: setup
         if: matrix.node_type == 'single' && matrix.connect_type == 'tcp'
         run: |
-          set -exu
           cat <<-EOF >> "$GITHUB_ENV"
           EMQX_AUTH__REDIS__TYPE=single
           EMQX_AUTH__REDIS__SERVER=${redis_${{ matrix.network_type }}_address}:6379
           EOF
       - name: setup
-        if: matrix.node_type == 'single' && matrix.connect_type == 'tls' && matrix.redis_tag != '5'
+        if: matrix.node_type == 'single' && matrix.connect_type == 'tls'
         run: |
-          set -exu
           cat <<-EOF >> "$GITHUB_ENV"
           EMQX_AUTH__REDIS__TYPE=single
           EMQX_AUTH__REDIS__SERVER=${redis_${{ matrix.network_type }}_address}:6380
@@ -302,23 +357,26 @@ jobs:
       - name: setup
         if: matrix.node_type == 'cluster' && matrix.connect_type == 'tcp'
         run: |
-          set -exu
           cat <<-EOF >> "$GITHUB_ENV"
           EMQX_AUTH__REDIS__TYPE=cluster
           EMQX_AUTH__REDIS__SERVER=${redis_${{ matrix.network_type }}_address}:7000
           EOF
       - name: setup
-        if: matrix.node_type == 'cluster' && matrix.connect_type == 'tls' && matrix.redis_tag != '5'
+        if: matrix.node_type == 'cluster' && matrix.connect_type == 'tls'
         run: |
-          set -exu
           cat <<-EOF >> "$GITHUB_ENV"
           EMQX_AUTH__REDIS__TYPE=cluster
           EMQX_AUTH__REDIS__SERVER=${redis_${{ matrix.network_type }}_address}:8000
           EOF
+      - name: set git token
+        run: |
+          if make emqx-ee --dry-run > /dev/null 2>&1; then
+            docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+          fi
       - name: run test cases
-        if: matrix.connect_type == 'tcp' || (matrix.connect_type == 'tls' && matrix.redis_tag != '5')
         run: |
           export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
+          export EMQX_AUTH__REIDS__PASSWORD=public
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_redis"

@@ -22,8 +22,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
--import(proplists, [get_value/2]).
-
 %% Nodes and Brokers API
 -export([ list_nodes/0
         , lookup_node/1
@@ -47,6 +45,8 @@
         , list_acl_cache/1
         , clean_acl_cache/1
         , clean_acl_cache/2
+        , clean_acl_cache_all/0
+        , clean_acl_cache_all/1
         , set_ratelimit_policy/2
         , set_quota_policy/2
         ]).
@@ -101,12 +101,15 @@
         , delete_banned/1
         ]).
 
+-ifndef(EMQX_ENTERPRISE).
 
 -export([ enable_telemetry/0
         , disable_telemetry/0
         , get_telemetry_status/0
         , get_telemetry_data/0
         ]).
+
+-endif.
 
 %% Common Table API
 -export([ item/2
@@ -135,11 +138,11 @@ node_info(Node) when Node =:= node() ->
     BrokerInfo = emqx_sys:info(),
     Info#{node              => node(),
           otp_release       => iolist_to_binary(otp_rel()),
-          memory_total      => get_value(allocated, Memory),
-          memory_used       => get_value(used, Memory),
+          memory_total      => proplists:get_value(allocated, Memory),
+          memory_used       => proplists:get_value(used, Memory),
           process_available => erlang:system_info(process_limit),
           process_used      => erlang:system_info(process_count),
-          max_fds           => get_value(max_fds, lists:usort(lists:flatten(erlang:system_info(check_io)))),
+          max_fds           => proplists:get_value(max_fds, lists:usort(lists:flatten(erlang:system_info(check_io)))),
           connections       => ets:info(emqx_channel, size),
           node_status       => 'Running',
           uptime            => iolist_to_binary(proplists:get_value(uptime, BrokerInfo)),
@@ -250,6 +253,19 @@ clean_acl_cache(Node, ClientId) when Node =:= node() ->
     end;
 clean_acl_cache(Node, ClientId) ->
     rpc_call(Node, clean_acl_cache, [Node, ClientId]).
+
+clean_acl_cache_all() ->
+    Results = [{Node, clean_acl_cache_all(Node)} || Node <- ekka_mnesia:running_nodes()],
+    case lists:filter(fun({_Node, Item}) -> Item =/= ok end, Results) of
+        []  -> ok;
+        BadNodes -> {error, BadNodes}
+    end.
+
+clean_acl_cache_all(Node) when Node =:= node() ->
+    emqx_acl_cache:drain_cache();
+
+clean_acl_cache_all(Node) ->
+    rpc_call(Node, clean_acl_cache_all, [Node]).
 
 set_ratelimit_policy(ClientId, Policy) ->
     call_client(ClientId, {ratelimit, Policy}).
@@ -488,6 +504,8 @@ delete_banned(Who) ->
 %% Telemtry API
 %%--------------------------------------------------------------------
 
+-ifndef(EMQX_ENTERPRISE).
+
 enable_telemetry() ->
     lists:foreach(fun enable_telemetry/1,ekka_mnesia:running_nodes()).
 
@@ -509,6 +527,8 @@ get_telemetry_status() ->
 
 get_telemetry_data() ->
     emqx_telemetry:get_telemetry().
+
+-endif.
 
 %%--------------------------------------------------------------------
 %% Common Table API

@@ -12,7 +12,7 @@
 -export([start_link/0]).
 -export([get_received_data/0]).
 -export([stop/1]).
--export([code_change/3, handle_call/3, handle_cast/2, handle_info/2, init/1, terminate/2]).
+-export([code_change/3, handle_call/3, handle_cast/2, handle_info/2, init/1, init/2, terminate/2]).
 -define(HTTP_PORT, 9999).
 -define(HTTPS_PORT, 8888).
 -record(state, {}).

@@ -1,0 +1,32 @@
+version: '3.9'
+
+services:
+  pgsql_server:
+    container_name: pgsql
+    build:
+      context: ../..
+      dockerfile: .ci/docker-compose-file/pgsql/Dockerfile
+      args:
+        POSTGRES_USER: postgres
+        BUILD_FROM: postgres:${PGSQL_TAG}
+    image: emqx_pgsql:${PGSQL_TAG}
+    restart: always
+    environment:
+      POSTGRES_DB: mqtt
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: public
+    ports:
+      - "5432:5432"
+    command:
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/var/lib/postgresql/server.crt
+      - -c
+      - ssl_key_file=/var/lib/postgresql/server.key
+      - -c
+      - ssl_ca_file=/var/lib/postgresql/root.crt
+      - -c
+      - hba_file=/var/lib/postgresql/pg_hba.conf
+    networks:
+      - emqx_bridge

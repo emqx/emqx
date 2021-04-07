@@ -75,6 +75,7 @@
 
 -export([ deliver/2
         , enqueue/2
+        , dequeue/1
         , retry/1
         , terminate/3
         ]).
@@ -662,7 +663,7 @@ inc_expired_cnt(message, N) ->
 
 -compile({inline, [next_pkt_id/1]}).
 
-next_pkt_id(Session = #session{next_pkt_id = 16#FFFF}) ->
+next_pkt_id(Session = #session{next_pkt_id = ?MAX_PACKET_ID}) ->
     Session#session{next_pkt_id = 1};
 
 next_pkt_id(Session = #session{next_pkt_id = Id}) ->

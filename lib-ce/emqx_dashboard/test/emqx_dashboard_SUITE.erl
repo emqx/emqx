@@ -54,11 +54,11 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx, emqx_management, emqx_dashboard]),
+    emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_dashboard]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_dashboard, emqx_management, emqx]),
+    emqx_ct_helpers:stop_apps([emqx_dashboard, emqx_management, emqx_modules]),
     ekka_mnesia:ensure_stopped().
 
 t_overview(_) ->

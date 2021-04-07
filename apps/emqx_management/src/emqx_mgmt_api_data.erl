@@ -22,10 +22,6 @@
 
 -include("emqx_mgmt.hrl").
 
--import(minirest, [ return/0
-                  , return/1
-                  ]).
-
 -rest_api(#{name   => export,
             method => 'POST',
             path   => "/data/export",
@@ -77,14 +73,14 @@
 export(_Bindings, _Params) ->
     case emqx_mgmt_data_backup:export() of
         {ok, File = #{filename := Filename}} ->
-            return({ok, File#{filename => filename:basename(Filename)}});
-        Return -> return(Return)
+            minirest:return({ok, File#{filename => filename:basename(Filename)}});
+        Return -> minirest:return(Return)
     end.
 
 list_exported(_Bindings, _Params) ->
     List = [ rpc:call(Node, ?MODULE, get_list_exported, []) || Node <- ekka_mnesia:running_nodes() ],
     NList = lists:map(fun({_, FileInfo}) -> FileInfo end, lists:keysort(1, lists:append(List))),
-    return({ok, NList}).
+    minirest:return({ok, NList}).
 
 get_list_exported() ->
     Dir = emqx:get_env(data_dir),
@@ -114,7 +110,7 @@ get_list_exported() ->
 import(_Bindings, Params) ->
     case proplists:get_value(<<"filename">>, Params) of
         undefined ->
-            return({error, missing_required_params});
+            minirest:return({error, missing_required_params});
         Filename ->
             Result = case proplists:get_value(<<"node">>, Params) of
                 undefined -> do_import(Filename);
@@ -122,16 +118,16 @@ import(_Bindings, Params) ->
                     case lists:member(Node,
                           [ erlang:atom_to_binary(N, utf8) || N <- ekka_mnesia:running_nodes() ]
                          ) of
-                        true -> return(rpc:call(erlang:binary_to_atom(Node, utf8), ?MODULE, do_import, [Filename]));
-                        false -> return({error, no_existent_node})
+                        true -> minirest:return(rpc:call(erlang:binary_to_atom(Node, utf8), ?MODULE, do_import, [Filename]));
+                        false -> minirest:return({error, no_existent_node})
                     end
             end,
-            return(Result)
+            minirest:return(Result)
     end.
 
 do_import(Filename) ->
     FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
-    emqx_mgmt_data_backup:import(FullFilename).
+    emqx_mgmt_data_backup:import(FullFilename, "{}").
 
 download(#{filename := Filename}, _Params) ->
     FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
@@ -140,7 +136,7 @@ download(#{filename := Filename}, _Params) ->
             {ok, #{filename => list_to_binary(Filename),
                    file => Bin}};
         {error, Reason} ->
-            return({error, Reason})
+            minirest:return({error, Reason})
     end.
 
 upload(Bindings, Params) ->
@@ -151,9 +147,9 @@ do_upload(_Bindings, #{<<"filename">> := Filename,
     FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
     case file:write_file(FullFilename, Bin) of
         ok ->
-            return({ok, [{node, node()}]});
+            minirest:return({ok, [{node, node()}]});
         {error, Reason} ->
-            return({error, Reason})
+            minirest:return({error, Reason})
     end;
 do_upload(Bindings, Params = #{<<"file">> := _}) ->
     Seconds = erlang:system_time(second),
@@ -161,13 +157,13 @@ do_upload(Bindings, Params = #{<<"file">> := _}) ->
     Filename = io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]),
     do_upload(Bindings, Params#{<<"filename">> => Filename});
 do_upload(_Bindings, _Params) ->
-    return({error, missing_required_params}).
+    minirest:return({error, missing_required_params}).
 
 delete(#{filename := Filename}, _Params) ->
     FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
     case file:delete(FullFilename) of
         ok ->
-            return();
+            minirest:return();
         {error, Reason} ->
-            return({error, Reason})
+            minirest:return({error, Reason})
     end.

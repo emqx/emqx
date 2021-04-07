@@ -36,12 +36,11 @@ all() ->
      check_acl].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_auth_ldap], fun set_special_configs/1),
-    emqx_mod_acl_internal:unload([]),
+    emqx_ct_helpers:start_apps([emqx_auth_ldap], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_auth_ldap, emqx_modules]).
+    emqx_ct_helpers:stop_apps([emqx_auth_ldap]).
 
 check_auth(_) ->
     MqttUser1 = #{clientid => <<"mqttuser1">>,
@@ -62,7 +61,6 @@ check_auth(_) ->
     ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(NonExistUser1)).
 
 check_acl(_) ->
-    % emqx_modules:load_module(emqx_mod_acl_internal, false),
     MqttUser = #{clientid => <<"mqttuser1">>, username => <<"user1">>, zone => external},
     NoMqttUser = #{clientid => <<"mqttuser2">>, username => <<"user7">>, zone => external},
     allow = emqx_access_control:check_acl(MqttUser, publish, <<"mqttuser0001/pub/1">>),

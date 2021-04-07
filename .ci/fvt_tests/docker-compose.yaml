@@ -3,7 +3,7 @@ version: '3'
 services:
   emqx1:
     container_name: node1.emqx.io
-    image: emqx/emqx:build-alpine-amd64
+    image: ${TARGET}:build-alpine-amd64
     environment:
     - "EMQX_NAME=emqx"
     - "EMQX_HOST=node1.emqx.io"
@@ -11,6 +11,7 @@ services:
     - "EMQX_CLUSTER__STATIC__SEEDS=emqx@node1.emqx.io, emqx@node2.emqx.io"
     - "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s"
     - "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
+    - "EMQX_LOG__LEVEL=debug"
     command:
         - /bin/sh
         - -c
@@ -30,7 +31,7 @@ services:
 
   emqx2:
     container_name: node2.emqx.io
-    image: emqx/emqx:build-alpine-amd64
+    image: ${TARGET}:build-alpine-amd64
     environment:
     - "EMQX_NAME=emqx"
     - "EMQX_HOST=node2.emqx.io"
@@ -38,6 +39,7 @@ services:
     - "EMQX_CLUSTER__STATIC__SEEDS=emqx@node1.emqx.io, emqx@node2.emqx.io"
     - "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s"
     - "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
+    - "EMQX_LOG__LEVEL=debug"
     command:
       - /bin/sh
       - -c
@@ -46,7 +48,7 @@ services:
         sed -i '/emqx_telemetry/d' /opt/emqx/data/loaded_plugins
         /opt/emqx/bin/emqx foreground
     healthcheck:
-      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
+      test: ["CMD", "/opt/emqx/bin/emqx", "ping"]
       interval: 5s
       timeout: 25s
       retries: 5
@@ -64,6 +66,8 @@ services:
     tty: true
     networks:
         emqx-bridge:
+    volumes:
+      - ./scripts:/scripts
 
 networks:
   emqx-bridge:

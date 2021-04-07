@@ -23,7 +23,8 @@
 cli(["server", "list"]) ->
     if_enabled(fun() ->
         Services = emqx_exhook:list(),
-        [emqx_ctl:print("HookServer(~s)~n", [emqx_exhook_server:format(Service)]) || Service <- Services]
+        [emqx_ctl:print("HookServer(~s)~n",
+                        [emqx_exhook_server:format(Service)]) || Service <- Services]
     end);
 
 cli(["server", "enable", Name0]) ->
@@ -74,7 +75,7 @@ hint() ->
 stats() ->
     lists:usort(lists:foldr(fun({K, N}, Acc) ->
         case atom_to_list(K) of
-            "exhook." ++ Key -> [{Key, N}|Acc];
+            "exhook." ++ Key -> [{Key, N} | Acc];
             _ -> Acc
         end
     end, [], emqx_metrics:all())).

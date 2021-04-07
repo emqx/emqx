@@ -23,18 +23,20 @@ Starting from 3.0 release, *EMQ X* broker fully supports MQTT V5.0 protocol spec
 
 The *EMQ X* broker is cross-platform, which supports Linux, Unix, macOS and Windows. It means *EMQ X* can be deployed on x86_64 architecture servers and ARM devices like Raspberry Pi.
 
+See more details for building and running *EMQ X* on Windows in [Windows.md](./Windows.md)
+
 #### Installing via EMQ X Docker Image
 
 ```
-docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
+docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
 ```
 
 #### Installing via Binary Package
 
 Get the binary package of the corresponding OS from [EMQ X Download](https://www.emqx.io/downloads) page.
 
-- [Single Node Install](https://docs.emqx.io/broker/latest/en/getting-started/install.html)
-- [Multi Node Install](https://docs.emqx.io/broker/latest/en/advanced/cluster.html)
+- [Single Node Install](https://docs.emqx.io/en/broker/latest/getting-started/install.html)
+- [Multi Node Install](https://docs.emqx.io/en/broker/latest/advanced/cluster.html)
 
 
 ## Build From Source
@@ -87,16 +89,11 @@ make eunit ct
 
 ### To run subset of the common tests
 
-examples
+Examples
 
 ```bash
-./rebar3 ct --name 'test@127.0.0.1' -c -v --dir test,apps/emqx_sn,apps/emqx_coap
-./rebar3 ct --name 'test@127.0.0.1' -c -v --dir apps/emqx_auth_mnesi --suite emqx_acl_mnesia_SUITE
-./rebar3 ct --name 'test@127.0.0.1' -c -v --dir apps/emqx_auth_mnesi --suite emqx_acl_mnesia_SUITE --case t_rest_api
+make apps/emqx_bridge_mqtt-ct
 ```
-
-NOTE: Do *NOT* use full (relative) path to SUITE files like this `--suite apps/emqx_auth_mnesia/test/emqx_acl_mnesia_SUITE.erl`,
-because it will lead to a full copy of `apps` dir into `_buid/test/lib/emqx`.
 
 ### Dialyzer
 ##### To Analyze all the apps
@@ -109,19 +106,25 @@ make dialyzer
 DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 ```
 
-## FAQ
-
-Visiting [EMQ X FAQ](https://docs.emqx.io/broker/latest/en/faq/faq.html) to get help of common problems.
-
-## Roadmap
-
-The [EMQ X Roadmap uses Github milestones](https://github.com/emqx/emqx/milestones) to track the progress of the project.
-
 ## Community
 
-The EMQ X community can be found on [GitHub Discussions](https://github.com/emqx/emqx/discussions), where you can ask questions, voice ideas, and share your projects.
+### FAQ
 
-To chat with other community members you can join the [EMQ X Slack](https://slack-invite.emqx.io).
+Visiting [EMQ X FAQ](https://docs.emqx.io/en/broker/latest/faq/faq.html) to get help of common problems.
+
+
+### Questions
+
+[GitHub Discussions](https://github.com/emqx/emqx/discussions) is where you can ask questions, and share ideas.
+
+### Proposals
+
+For more organised improvement proposals, you can send pull requests to [EIP](https://github.com/emqx/eip).
+
+### Plugin development
+
+To develop your own plugins, see [lib-extra/README.md](./lib-extra/README.md)
+
 
 ## MQTT Specifications
 

@@ -181,6 +181,7 @@
 -define(MAX_PACKET_ID, 16#FFFF).
 -define(MAX_PACKET_SIZE, 16#FFFFFFF).
 -define(MAX_TOPIC_AlIAS, 16#FFFF).
+-define(RECEIVE_MAXIMUM_LIMIT, ?MAX_PACKET_ID).
 
 %%--------------------------------------------------------------------
 %% MQTT Frame Mask

@@ -62,27 +62,6 @@
         , call_fold/3
         ]).
 
--exhooks([ {'client.connect',      {?MODULE, on_client_connect,       []}}
-         , {'client.connack',      {?MODULE, on_client_connack,       []}}
-         , {'client.connected',    {?MODULE, on_client_connected,     []}}
-         , {'client.disconnected', {?MODULE, on_client_disconnected,  []}}
-         , {'client.authenticate', {?MODULE, on_client_authenticate,  []}}
-         , {'client.check_acl',    {?MODULE, on_client_check_acl,     []}}
-         , {'client.subscribe',    {?MODULE, on_client_subscribe,     []}}
-         , {'client.unsubscribe',  {?MODULE, on_client_unsubscribe,   []}}
-         , {'session.created',     {?MODULE, on_session_created,      []}}
-         , {'session.subscribed',  {?MODULE, on_session_subscribed,   []}}
-         , {'session.unsubscribed',{?MODULE, on_session_unsubscribed, []}}
-         , {'session.resumed',     {?MODULE, on_session_resumed,      []}}
-         , {'session.discarded',   {?MODULE, on_session_discarded,    []}}
-         , {'session.takeovered',  {?MODULE, on_session_takeovered,   []}}
-         , {'session.terminated',  {?MODULE, on_session_terminated,   []}}
-         , {'message.publish',     {?MODULE, on_message_publish,      []}}
-         , {'message.delivered',   {?MODULE, on_message_delivered,    []}}
-         , {'message.acked',       {?MODULE, on_message_acked,        []}}
-         , {'message.dropped',     {?MODULE, on_message_dropped,      []}}
-         ]).
-
 %%--------------------------------------------------------------------
 %% Clients
 %%--------------------------------------------------------------------
@@ -273,7 +252,7 @@ clientinfo(ClientInfo =
 
 message(#message{id = Id, qos = Qos, from = From, topic = Topic, payload = Payload, timestamp = Ts}) ->
     #{node => stringfy(node()),
-      id => hexstr(Id),
+      id => emqx_guid:to_hexstr(Id),
       qos => Qos,
       from => stringfy(From),
       topic => Topic,
@@ -303,12 +282,6 @@ stringfy(Term) when is_atom(Term) ->
     atom_to_binary(Term, utf8);
 stringfy(Term) ->
     unicode:characters_to_binary((io_lib:format("~0p", [Term]))).
-
-hexstr(B) ->
-    << <<(hexchar(H)), (hexchar(L))>> || <<H:4, L:4>> <= B>>.
-
-hexchar(I) when I >= 0 andalso I < 10 -> I + $0;
-hexchar(I) -> I - 10 + $A.
 
 %%--------------------------------------------------------------------
 %% Acc funcs

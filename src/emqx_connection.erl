@@ -21,6 +21,7 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -logger_header("[MQTT]").
 
@@ -269,16 +270,19 @@ exit_on_sock_error(Reason) ->
 
 recvloop(Parent, State = #state{idle_timeout = IdleTimeout}) ->
     receive
-        {system, From, Request} ->
-            sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
-        {'EXIT', Parent, Reason} ->
-            terminate(Reason, State);
         Msg ->
-            process_msg([Msg], Parent, ensure_stats_timer(IdleTimeout, State))
+            handle_recv(Msg, Parent, State)
     after
         IdleTimeout + 100 ->
             hibernate(Parent, cancel_stats_timer(State))
     end.
+
+handle_recv({system, From, Request}, Parent, State) ->
+    sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
+handle_recv({'EXIT', Parent, Reason}, Parent, State) ->
+    terminate(Reason, State);
+handle_recv(Msg, Parent, State = #state{idle_timeout = IdleTimeout}) ->
+    process_msg([Msg], Parent, ensure_stats_timer(IdleTimeout, State)).
 
 hibernate(Parent, State) ->
     proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, State]).
@@ -358,9 +362,6 @@ handle_msg({incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
                          idle_timer = undefined
                         },
     handle_incoming(Packet, NState);
-
-handle_msg({incoming, ?PACKET(?PINGREQ)}, State) ->
-    handle_outgoing(?PACKET(?PINGRESP), State);
 
 handle_msg({incoming, Packet}, State) ->
     handle_incoming(Packet, State);
@@ -449,7 +450,7 @@ handle_msg(Msg, State) ->
 -spec terminate(any(), state()) -> no_return().
 terminate(Reason, State = #state{channel = Channel, transport = Transport,
           socket = Socket}) ->
-    ?LOG(debug, "Terminated due to ~p", [Reason]),
+    ?tp(debug, terminate, #{reason => Reason}),
     Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
     emqx_congestion:cancel_alarms(Socket, Transport, Channel1),
     emqx_channel:terminate(Reason, Channel1),
@@ -686,10 +687,13 @@ run_gc(Stats, State = #state{gc_state = GcSt}) ->
 check_oom(State = #state{channel = Channel}) ->
     Zone = emqx_channel:info(zone, Channel),
     OomPolicy = emqx_zone:oom_policy(Zone),
+    ?tp(debug, check_oom, #{policy => OomPolicy}),
     case ?ENABLED(OomPolicy) andalso emqx_misc:check_oom(OomPolicy) of
-        Shutdown = {shutdown, _Reason} ->
-            erlang:send(self(), Shutdown);
-        _Other -> ok
+        {shutdown, Reason} ->
+            %% triggers terminate/2 callback immediately
+            erlang:exit({shutdown, Reason});
+        _Other ->
+            ok
     end,
     State.
 

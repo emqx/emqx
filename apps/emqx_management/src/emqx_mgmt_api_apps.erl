@@ -18,12 +18,6 @@
 
 -include("emqx_mgmt.hrl").
 
--import(proplists, [get_value/2]).
-
--import(minirest, [ return/0
-                  , return/1
-                  ]).
-
 -rest_api(#{name   => add_app,
             method => 'POST',
             path   => "/apps/",
@@ -62,47 +56,47 @@
         ]).
 
 add_app(_Bindings, Params) ->
-    AppId = get_value(<<"app_id">>, Params),
-    Name = get_value(<<"name">>, Params),
-    Secret = get_value(<<"secret">>, Params),
-    Desc = get_value(<<"desc">>, Params),
-    Status = get_value(<<"status">>, Params),
-    Expired = get_value(<<"expired">>, Params),
+    AppId = proplists:get_value(<<"app_id">>, Params),
+    Name = proplists:get_value(<<"name">>, Params),
+    Secret = proplists:get_value(<<"secret">>, Params),
+    Desc = proplists:get_value(<<"desc">>, Params),
+    Status = proplists:get_value(<<"status">>, Params),
+    Expired = proplists:get_value(<<"expired">>, Params),
     case emqx_mgmt_auth:add_app(AppId, Name, Secret, Desc, Status, Expired) of
-        {ok, AppSecret} -> return({ok, #{secret => AppSecret}});
-        {error, Reason} -> return({error, Reason})
+        {ok, AppSecret} -> minirest:return({ok, #{secret => AppSecret}});
+        {error, Reason} -> minirest:return({error, Reason})
     end.
 
 del_app(#{appid := AppId}, _Params) ->
     case emqx_mgmt_auth:del_app(AppId) of
-        ok -> return();
-        {error, Reason} -> return({error, Reason})
+        ok -> minirest:return();
+        {error, Reason} -> minirest:return({error, Reason})
     end.
 
 list_apps(_Bindings, _Params) ->
-    return({ok, [format(Apps)|| Apps <- emqx_mgmt_auth:list_apps()]}).
+    minirest:return({ok, [format(Apps)|| Apps <- emqx_mgmt_auth:list_apps()]}).
 
 lookup_app(#{appid := AppId}, _Params) ->
     case emqx_mgmt_auth:lookup_app(AppId) of
         {AppId, AppSecret, Name, Desc, Status, Expired} ->
-            return({ok, #{app_id => AppId,
+            minirest:return({ok, #{app_id => AppId,
                           secret => AppSecret,
                           name => Name,
                           desc => Desc,
                           status => Status,
                           expired => Expired}});
         undefined ->
-            return({ok, #{}})
+            minirest:return({ok, #{}})
     end.
 
 update_app(#{appid := AppId}, Params) ->
-    Name = get_value(<<"name">>, Params),
-    Desc = get_value(<<"desc">>, Params),
-    Status = get_value(<<"status">>, Params),
-    Expired = get_value(<<"expired">>, Params),
+    Name = proplists:get_value(<<"name">>, Params),
+    Desc = proplists:get_value(<<"desc">>, Params),
+    Status = proplists:get_value(<<"status">>, Params),
+    Expired = proplists:get_value(<<"expired">>, Params),
     case emqx_mgmt_auth:update_app(AppId, Name, Desc, Status, Expired) of
-        ok -> return();
-        {error, Reason} -> return({error, Reason})
+        ok -> minirest:return();
+        {error, Reason} -> minirest:return({error, Reason})
     end.
 
 format({AppId, _AppSecret, Name, Desc, Status, Expired}) ->

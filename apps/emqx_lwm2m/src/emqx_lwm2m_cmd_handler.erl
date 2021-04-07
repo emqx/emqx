@@ -303,18 +303,7 @@ bin(Float) when is_float(Float) -> float_to_binary(Float).
 
 decoding(Datas, <<"hex">>) ->
     lists:map(fun(Data = #{<<"value">> := Value}) ->
-        Data#{<<"value">> => hexstr_to_bin(binary_to_list(Value))}
+        Data#{<<"value">> => emqx_misc:hexstr2bin(Value)}
     end, Datas);
 decoding(Datas, _) ->
     Datas.
-
-hexstr_to_bin(S) ->
-  hexstr_to_bin(S, []).
-hexstr_to_bin([], Acc) ->
-  list_to_binary(lists:reverse(Acc));
-hexstr_to_bin([X,Y|T], Acc) ->
-  {ok, [V], []} = io_lib:fread("~16u", [X,Y]),
-  hexstr_to_bin(T, [V | Acc]);
-hexstr_to_bin([X|T], Acc) ->
-  {ok, [V], []} = io_lib:fread("~16u", lists:flatten([X,"0"])),
-  hexstr_to_bin(T, [V | Acc]).

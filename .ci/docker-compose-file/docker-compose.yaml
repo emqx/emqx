@@ -1,0 +1,35 @@
+version: '3.9'
+
+services:
+  erlang:
+    container_name: erlang
+    image: emqx/build-env:erl23.2.7-ubuntu20.04
+    env_file:
+      - conf.env
+    environment:
+      GITHUB_ACTIONS: ${GITHUB_ACTIONS}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITHUB_RUN_ID: ${GITHUB_RUN_ID}
+      GITHUB_SHA: ${GITHUB_SHA}
+      GITHUB_RUN_NUMBER: ${GITHUB_RUN_NUMBER}
+      GITHUB_EVENT_NAME: ${GITHUB_EVENT_NAME}
+      GITHUB_REF: ${GITHUB_REF}
+    networks:
+      - emqx_bridge
+    volumes:
+      - ../..:/emqx
+    working_dir: /emqx
+    tty: true
+
+networks:
+  emqx_bridge:
+    driver: bridge
+    name: emqx_bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.100.239.0/24
+          gateway: 172.100.239.1
+        - subnet: 2001:3200:3200::/64
+          gateway: 2001:3200:3200::1

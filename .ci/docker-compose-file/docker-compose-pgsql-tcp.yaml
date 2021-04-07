@@ -1,0 +1,15 @@
+version: '3.9'
+
+services:
+  pgsql_server:
+    container_name: pgsql
+    image: postgres:${PGSQL_TAG}
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: public
+      POSTGRES_USER: root
+      POSTGRES_DB: mqtt
+    ports:
+      - "5432:5432"
+    networks:
+      - emqx_bridge

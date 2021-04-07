@@ -1,0 +1,11 @@
+version: '3.9'
+
+services:
+  redis_cluster:
+    container_name: redis
+    image: redis:${REDIS_TAG}
+    volumes:
+      - ./redis/:/data/conf
+    command: bash -c "/bin/bash /data/conf/redis.sh --node sentinel && tail -f /var/log/redis-server.log"
+    networks:
+      - emqx_bridge

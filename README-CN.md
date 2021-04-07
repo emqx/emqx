@@ -6,8 +6,9 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/emqx/emqx)](https://hub.docker.com/r/emqx/emqx)
 [![Slack Invite](<https://slack-invite.emqx.io/badge.svg>)](https://slack-invite.emqx.io)
 [![Twitter](https://img.shields.io/badge/Twitter-EMQ%20X-1DA1F2?logo=twitter)](https://twitter.com/emqtt)
+[![Community](https://img.shields.io/badge/Community-EMQ%20X-yellow)](https://askemq.com)
 
-[![最棒的物联网 MQTT 开源团队期待您的加入](https://www.emqx.io/static/img/github_readme_cn_bg.png)](https://www.emqx.io/cn/careers)
+[![最棒的物联网 MQTT 开源团队期待您的加入](https://www.emqx.io/static/img/github_readme_cn_bg.png)](https://careers.emqx.cn/)
 
 [English](./README.md) | 简体中文 | [日本語](./README-JP.md)
 
@@ -16,7 +17,7 @@
 从 3.0 版本开始，*EMQ X* 完整支持 MQTT V5.0 协议规范，向下兼容 MQTT V3.1 和 V3.1.1，并支持 MQTT-SN、CoAP、LwM2M、WebSocket 和 STOMP 等通信协议。EMQ X 3.0 单集群可支持千万级别的 MQTT 并发连接。
 
 - 新功能的完整列表，请参阅 [EMQ X Release Notes](https://github.com/emqx/emqx/releases)。
-- 获取更多信息，请访问 [EMQ X 官网](https://www.emqx.io/cn/)。
+- 获取更多信息，请访问 [EMQ X 官网](https://www.emqx.cn/)。
 
 ## 安装
 
@@ -25,15 +26,15 @@
 #### EMQ X Docker 镜像安装
 
 ```
-docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
+docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
 ```
 
 #### 二进制软件包安装
 
-需从 [EMQ X 下载](https://www.emqx.io/cn/downloads) 页面获取相应操作系统的二进制软件包。
+需从 [EMQ X 下载](https://www.emqx.cn/downloads) 页面获取相应操作系统的二进制软件包。
 
-- [单节点安装文档](https://docs.emqx.io/broker/latest/cn/getting-started/install.html)
-- [集群配置文档](https://docs.emqx.io/broker/latest/cn/advanced/cluster.html)
+- [单节点安装文档](https://docs.emqx.cn/broker/latest/getting-started/install.html)
+- [集群配置文档](https://docs.emqx.cn/broker/latest/advanced/cluster.html)
 
 ## 从源码构建
 
@@ -75,7 +76,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 
 ## FAQ
 
-访问 [EMQ X FAQ](https://docs.emqx.io/broker/latest/cn/faq/faq.html) 以获取常见问题的帮助。
+访问 [EMQ X FAQ](https://docs.emqx.cn/broker/latest/faq/faq.html) 以获取常见问题的帮助。
 
 ## 产品路线
 
@@ -89,9 +90,9 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 - [Twitter](https://twitter.com/emqtt)
 - [Facebook](https://www.facebook.com/emqxmqtt)
 - [Reddit](https://www.reddit.com/r/emqx/)
-- [Forum](https://groups.google.com/d/forum/emqtt)
+- [Forum](https://askemq.com)
 - [Weibo](https://weibo.com/emqtt)
-- [Blog](https://www.emqx.io/cn/blog)
+- [Blog](https://www.emqx.cn/blog)
 
 欢迎你将任何 bug、问题和功能请求提交到 [emqx/emqx](https://github.com/emqx/emqx/issues)。
 

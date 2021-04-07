@@ -205,7 +205,7 @@ handle_deliver(Delivers, Channel = #channel{clientinfo = ClientInfo}) ->
                                           [ClientInfo], Msg),
                NMsg = emqx_mountpoint:unmount(Mountpoint, Msg1),
                #{node => NodeStr,
-                 id => hexstr(emqx_message:id(NMsg)),
+                 id => emqx_guid:to_hexstr(emqx_message:id(NMsg)),
                  qos => emqx_message:qos(NMsg),
                  from => fmt_from(emqx_message:from(NMsg)),
                  topic => emqx_message:topic(NMsg),
@@ -590,9 +590,6 @@ default_clientinfo(#{peername := {PeerHost, _},
 
 stringfy(Reason) ->
     unicode:characters_to_binary((io_lib:format("~0p", [Reason]))).
-
-hexstr(Bin) ->
-    [io_lib:format("~2.16.0B",[X]) || <<X:8>> <= Bin].
 
 fmt_from(undefined) -> <<>>;
 fmt_from(Bin) when is_binary(Bin) -> Bin;

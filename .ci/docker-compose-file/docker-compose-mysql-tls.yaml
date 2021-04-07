@@ -1,0 +1,45 @@
+version: '3.9'
+
+services:
+  mysql_server:
+    container_name: mysql
+    image: mysql:${MYSQL_TAG}
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: public
+      MYSQL_DATABASE: mqtt
+      MYSQL_USER: ssluser
+      MYSQL_PASSWORD: public
+    volumes:
+      - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem:/etc/certs/ca-cert.pem
+      - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/server-cert.pem:/etc/certs/server-cert.pem
+      - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/server-key.pem:/etc/certs/server-key.pem
+    networks:
+      - emqx_bridge
+    command:
+      --bind-address "::"
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+      --explicit_defaults_for_timestamp=true
+      --lower_case_table_names=1
+      --max_allowed_packet=128M
+      --skip-symbolic-links
+      --ssl-ca=/etc/certs/ca-cert.pem
+      --ssl-cert=/etc/certs/server-cert.pem
+      --ssl-key=/etc/certs/server-key.pem
+
+  mysql_client:
+    container_name: mysql_client
+    image: mysql:${MYSQL_TAG}
+    networks:
+      - emqx_bridge
+    depends_on:
+      - mysql_server
+    command:
+      - /bin/bash
+      - -c
+      - |
+        service mysql start
+        echo "show tables;" | mysql -h mysql_server -u root -ppublic mqtt mqtt
+        while [[ $$? -ne 0 ]];do echo "show tables;" | mysql -h mysql_server -u root -ppublic mqtt; done
+        echo "ALTER USER 'ssluser'@'%' REQUIRE X509;" | mysql -h mysql_server -u root -ppublic mqtt

@@ -16,11 +16,12 @@
 
 -module(emqx_exhook_server).
 
+-include("emqx_exhook.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -logger_header("[ExHook Svr]").
 
--define(REGISTRAY, emqx_exhook_registray).
+-define(CNTER, emqx_exhook_counter).
 -define(PB_CLIENT_MOD, emqx_exhook_v_1_hook_provider_client).
 
 %% Load/Unload
@@ -187,25 +188,25 @@ ensure_metrics(Prefix, HookSpecs) ->
 
 ensure_hooks(HookSpecs) ->
     lists:foreach(fun(Hookpoint) ->
-        case ets:lookup(?REGISTRAY, Hookpoint) of
-            [] ->
-                ?LOG(warning, "Hoook ~s not found in registray", [Hookpoint]);
-            [{Hookpoint, {M, F, A}, _}] ->
+        case lists:keyfind(Hookpoint, 1, ?ENABLED_HOOKS) of
+            false ->
+                ?LOG(error, "Unknown name ~s to hook, skip it!", [Hookpoint]);
+            {Hookpoint, {M, F, A}} ->
                 emqx_hooks:put(Hookpoint, {M, F, A}),
-                ets:update_counter(?REGISTRAY, Hookpoint, {3, 1})
+                ets:update_counter(?CNTER, Hookpoint, {2, 1}, {Hookpoint, 0})
         end
     end, maps:keys(HookSpecs)).
 
 may_unload_hooks(HookSpecs) ->
     lists:foreach(fun(Hookpoint) ->
-        case ets:update_counter(?REGISTRAY, Hookpoint, {3, -1}) of
+        case ets:update_counter(?CNTER, Hookpoint, {2, -1}, {Hookpoint, 0}) of
             Cnt when Cnt =< 0 ->
-                case ets:lookup(?REGISTRAY, Hookpoint) of
-                    [{Hookpoint, {M, F, _A}, _}] ->
+                case lists:keyfind(Hookpoint, 1, ?ENABLED_HOOKS) of
+                    {Hookpoint, {M, F, _A}} ->
                         emqx_hooks:del(Hookpoint, {M, F});
                     _ -> ok
                 end,
-                ets:delete(?REGISTRAY, Hookpoint);
+                ets:delete(?CNTER, Hookpoint);
             _ -> ok
         end
     end, maps:keys(HookSpecs)).
