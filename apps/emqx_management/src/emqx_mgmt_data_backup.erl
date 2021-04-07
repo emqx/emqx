@@ -578,8 +578,8 @@ export() ->
     case file:write_file(NFilename, emqx_json:encode(Data)) of
         ok ->
             case file:read_file_info(NFilename) of
-                {ok, #file_info{size = Size, ctime = {{Y, M, D}, {H, MM, S}}}} ->
-                    CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S]),
+                {ok, #file_info{size = Size, ctime = {{Y1, M1, D1}, {H1, MM1, S1}}}} ->
+                    CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y1, M1, D1, H1, MM1, S1]),
                     {ok, #{filename => list_to_binary(NFilename),
                            size => Size,
                            created_at => list_to_binary(CreatedAt),
