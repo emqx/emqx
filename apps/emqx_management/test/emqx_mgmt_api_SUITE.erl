@@ -71,14 +71,6 @@ init_per_testcase(data, Config) ->
     application:ensure_all_started(emqx_dahboard),
     ok = emqx_rule_registry:mnesia(boot),
     application:ensure_all_started(emqx_rule_engine),
-
-    meck:new(emqx_sys, [passthrough, no_history]),
-    meck:expect(emqx_sys, version, 0,
-                fun() ->
-                  Tag =os:cmd("git describe --abbrev=0 --tags") -- "\n",
-                  re:replace(Tag, "[v|e]", "", [{return ,list}])
-                end),
-
     Config;
 
 init_per_testcase(_, Config) ->
@@ -87,7 +79,6 @@ init_per_testcase(_, Config) ->
 end_per_testcase(data, _Config) ->
     application:stop(emqx_dahboard),
     application:stop(emqx_rule_engine),
-    meck:unload(emqx_sys),
     ok;
 
 end_per_testcase(_, _Config) ->
