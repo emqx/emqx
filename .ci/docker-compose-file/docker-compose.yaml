@@ -3,7 +3,8 @@ version: '3.9'
 services:
   erlang:
     container_name: erlang
-    image: emqx/build-env:erl23.2.7-ubuntu20.04
+#    image: emqx/build-env:erl23.2.7-ubuntu20.04
+    image: twenty8/emqx:dockerCompose
     env_file:
       - conf.env
     environment:
