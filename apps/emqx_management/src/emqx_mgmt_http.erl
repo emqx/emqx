@@ -16,8 +16,6 @@
 
 -module(emqx_mgmt_http).
 
--import(proplists, [get_value/3]).
-
 -export([ start_listeners/0
         , handle_request/2
         , stop_listeners/0
@@ -58,8 +56,8 @@ start_listener({Proto, Port, Options}) when Proto == https ->
     minirest:start_https(listener_name(Proto), ranch_opts(Port, Options), Dispatch).
 
 ranch_opts(Port, Options0) ->
-    NumAcceptors = get_value(num_acceptors, Options0, 4),
-    MaxConnections = get_value(max_connections, Options0, 512),
+    NumAcceptors = proplists:get_value(num_acceptors, Options0, 4),
+    MaxConnections = proplists:get_value(max_connections, Options0, 512),
     Options = lists:foldl(fun({K, _V}, Acc) when K =:= max_connections orelse K =:= num_acceptors ->
                                  Acc;
                              ({inet6, true}, Acc) -> [inet6 | Acc];

@@ -32,4 +32,4 @@
 -define(ERROR14, 114). %% OldPassword error
 -define(ERROR15, 115). %% bad topic
 
--define(VERSIONS, ["1", "3.2", "3.4", "4.0", "4.1", "4.2"]).
+-define(VERSIONS, ["1", "3.2", "3.4", "4.0", "4.1", "4.2", "4.3"]).

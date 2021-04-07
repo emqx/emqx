@@ -45,6 +45,11 @@
         , index_of/2
         ]).
 
+-export([ bin2hexstr_A_F/1
+        , bin2hexstr_a_f/1
+        , hexstr2bin/1
+        ]).
+
 %% @doc Merge options
 -spec(merge_opts(Opts, Opts) -> Opts when Opts :: proplists:proplist()).
 merge_opts(Defaults, Options) ->
@@ -232,4 +237,24 @@ index_of(E, I, [E|_]) ->
     I;
 index_of(E, I, [_|L]) ->
     index_of(E, I+1, L).
+
+-spec(bin2hexstr_A_F(binary()) -> binary()).
+bin2hexstr_A_F(B) when is_binary(B) ->
+    << <<(int2hexchar(H, upper)), (int2hexchar(L, upper))>> || <<H:4, L:4>> <= B>>.
+
+-spec(bin2hexstr_a_f(binary()) -> binary()).
+bin2hexstr_a_f(B) when is_binary(B) ->
+    << <<(int2hexchar(H, lower)), (int2hexchar(L, lower))>> || <<H:4, L:4>> <= B>>.
+
+int2hexchar(I, _) when I >= 0 andalso I < 10 -> I + $0;
+int2hexchar(I, upper) -> I - 10 + $A;
+int2hexchar(I, lower) -> I - 10 + $a.
+
+-spec(hexstr2bin(binary()) -> binary()).
+hexstr2bin(B) when is_binary(B) ->
+    << <<(hexchar2int(H)*16 + hexchar2int(L))>> || <<H:8, L:8>> <= B>>.
+
+hexchar2int(I) when I >= $0 andalso I =< $9 -> I - $0;
+hexchar2int(I) when I >= $A andalso I =< $F -> I - $A + 10;
+hexchar2int(I) when I >= $a andalso I =< $f -> I - $a + 10.
 

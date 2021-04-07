@@ -24,13 +24,13 @@ main(Args) ->
     ok = do_with_halt(Args, "chkconfig", fun chkconfig/1),
     Args1 = do_with_ret(Args, "-name",
                         fun(TargetName) ->
-                                ThisNode = append_node_suffix(TargetName, "_maint_"),
+                                ThisNode = this_node_name(TargetName),
                                 {ok, _} = net_kernel:start([ThisNode, longnames]),
                                 put(target_node, nodename(TargetName))
                         end),
     Args2 = do_with_ret(Args1, "-sname",
                         fun(TargetName) ->
-                                ThisNode = append_node_suffix(TargetName, "_maint_"),
+                                ThisNode = this_node_name(TargetName),
                                 {ok, _} = net_kernel:start([ThisNode, shortnames]),
                                 put(target_node, nodename(TargetName))
                         end),
@@ -200,13 +200,9 @@ nodename(Name) ->
             list_to_atom(lists:concat([Node, "@", Host]))
     end.
 
-append_node_suffix(Name, Suffix) ->
-    case re:split(Name, "@", [{return, list}, unicode]) of
-        [Node, Host] ->
-            list_to_atom(lists:concat([Node, Suffix, os:getpid(), "@", Host]));
-        [Node] ->
-            list_to_atom(lists:concat([Node, Suffix, os:getpid()]))
-    end.
+this_node_name(Name) ->
+    [Node, Host] = re:split(Name, "@", [{return, list}, unicode]),
+    list_to_atom(lists:concat(["remsh_maint_", Node, os:getpid(), "@", Host])).
 
 %% For windows???
 create_mnesia_dir(DataDir, NodeName) ->

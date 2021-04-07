@@ -325,7 +325,7 @@ send_http_request(ClientID, Params) ->
     {ok, Path} = application:get_env(?APP, path),
     Headers = application:get_env(?APP, headers, []),
     Body = emqx_json:encode(Params),
-    ?LOG(debug, "Send to: ~0p, params: ~0s", [Path, Body]),
+    ?LOG(debug, "Send to: ~0p, params: ~s", [Path, Body]),
     case ehttpc:request(ehttpc_pool:pick_worker(?APP, ClientID), post, {Path, Headers, Body}) of
         {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
             ok;

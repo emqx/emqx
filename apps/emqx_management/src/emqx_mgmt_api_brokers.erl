@@ -18,8 +18,6 @@
 
 -include("emqx_mgmt.hrl").
 
--import(minirest, [return/1]).
-
 -rest_api(#{name   => list_brokers,
             method => 'GET',
             path   => "/brokers/",
@@ -37,13 +35,13 @@
         ]).
 
 list(_Bindings, _Params) ->
-    return({ok, [Info || {_Node, Info} <- emqx_mgmt:list_brokers()]}).
+    minirest:return({ok, [Info || {_Node, Info} <- emqx_mgmt:list_brokers()]}).
 
 get(#{node := Node}, _Params) ->
     case emqx_mgmt:lookup_broker(Node) of
         {error, Reason} -> 
-            return({error, ?ERROR2, Reason});
+            minirest:return({error, ?ERROR2, Reason});
         Info -> 
-            return({ok, Info})
+            minirest:return({ok, Info})
     end.
 

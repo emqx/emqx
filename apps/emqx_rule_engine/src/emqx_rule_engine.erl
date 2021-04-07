@@ -179,6 +179,7 @@ create_rule(Params = #{rawsql := Sql, actions := ActArgs}) ->
                         on_action_failed = maps:get(on_action_failed, Params, continue),
                         actions = Actions,
                         enabled = Enabled,
+                        created_at = erlang:system_time(millisecond),
                         description = maps:get(description, Params, "")
                     },
                     ok = emqx_rule_registry:add_rule(Rule),

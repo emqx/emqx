@@ -176,4 +176,15 @@ ingress:
     - api.emqx.local
     tls: []
 
+podSecurityContext:
+  enabled: true
+  fsGroup: 1000
+  fsGroupChangePolicy: Always
+  runAsUser: 1000
+  supplementalGroups:
+    - 1000
 
+containerSecurityContext:
+  enabled: true
+  runAsNonRoot: true
+  runAsUser: 1000

@@ -50,6 +50,30 @@
   {datatype, string}
 ]}.
 
+{mapping, "auth.redis.ssl.verify", "emqx_auth_redis.options", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "auth.redis.ssl.server_name_indication", "emqx_auth_redis.options", [
+  {datatype, string}
+]}.
+
+%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
+{mapping, "auth.redis.cafile", "emqx_auth_redis.options", [
+  {datatype, string}
+]}.
+
+%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
+{mapping, "auth.redis.certfile", "emqx_auth_redis.options", [
+  {datatype, string}
+]}.
+
+%% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
+{mapping, "auth.redis.keyfile", "emqx_auth_redis.options", [
+  {datatype, string}
+]}.
+
 {translation, "emqx_auth_redis.options", fun(Conf) ->
    Ssl = cuttlefish:conf_get("auth.redis.ssl.enable", Conf, false),
    Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
@@ -58,7 +82,7 @@
            %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
            CA = cuttlefish:conf_get(
                     "auth.redis.ssl.cacertfile", Conf,
-                    cuttlefish:conf_get("auth.redis.cacertfile", Conf, undefined)
+                    cuttlefish:conf_get("auth.redis.cafile", Conf, undefined)
                 ),
            Cert = cuttlefish:conf_get(
                     "auth.redis.ssl.certfile", Conf,
@@ -68,10 +92,21 @@
                     "auth.redis.ssl.keyfile", Conf,
                     cuttlefish:conf_get("auth.redis.keyfile", Conf, undefined)
                  ),
+           Verify = case cuttlefish:conf_get("auth.redis.ssl.verify", Conf, false) of
+                         true -> verify_peer;
+                         flase -> verify_none
+                     end,
+           SNI = case cuttlefish:conf_get("auth.redis.ssl.server_name_indication", Conf, undefined) of
+                   "disable" -> disable;
+                   SNI0 -> SNI0
+                 end,
            [{options, [{ssl_options,
                         Filter([{cacertfile, CA},
                                 {certfile, Cert},
-                                {keyfile, Key}])
+                                {keyfile, Key},
+                                {verify, Verify},
+                                {server_name_indication, SNI}
+                               ])
                        }]}];
        _ -> [{options, []}]
    end

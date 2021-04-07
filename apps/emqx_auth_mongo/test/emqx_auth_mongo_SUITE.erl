@@ -50,23 +50,18 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_auth_mongo], fun set_special_confs/1),
-    emqx_modules:load_module(emqx_mod_acl_internal, false),
+    emqx_ct_helpers:start_apps([emqx_auth_mongo], fun set_special_confs/1),
     init_mongo_data(),
     Cfg.
 
 end_per_suite(_Cfg) ->
     deinit_mongo_data(),
-    emqx_ct_helpers:stop_apps([emqx_auth_mongo, emqx_modules]).
+    emqx_ct_helpers:stop_apps([emqx_auth_mongo]).
 
 set_special_confs(emqx) ->
     application:set_env(emqx, acl_nomatch, deny),
-    application:set_env(emqx, acl_file,
-                        emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/acl.conf")),
     application:set_env(emqx, allow_anonymous, false),
-    application:set_env(emqx, enable_acl_cache, false),
-    application:set_env(emqx, plugins_loaded_file,
-                        emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins"));
+    application:set_env(emqx, enable_acl_cache, false);
 set_special_confs(_App) ->
     ok.
 
@@ -133,7 +128,7 @@ t_check_acl(_) ->
     allow = emqx_access_control:check_acl(User2, subscribe, <<"$SYS/testuser/1">>),
     allow = emqx_access_control:check_acl(User3, publish, <<"a/b/c">>),
     deny = emqx_access_control:check_acl(User3, publish, <<"c">>),
-    allow = emqx_access_control:check_acl(User4, publish, <<"a/b/c">>).
+    deny = emqx_access_control:check_acl(User4, publish, <<"a/b/c">>).
 
 t_acl_super(_) ->
     reload({auth_query, [{password_hash, plain}, {password_field, [<<"password">>]}]}),

@@ -39,6 +39,7 @@
         , log/1
         , mgmt/1
         , data/1
+        , acl/1
         ]).
 
 -define(PROC_INFOKEYS, [status,
@@ -115,12 +116,12 @@ mgmt(_) ->
 
 status([]) ->
     {InternalStatus, _ProvidedStatus} = init:get_status(),
-        emqx_ctl:print("Node ~p is ~p~n", [node(), InternalStatus]),
+    emqx_ctl:print("Node ~p ~s is ~p~n", [node(), emqx_app:get_release(), InternalStatus]),
     case lists:keysearch(?APP, 1, application:which_applications()) of
         false ->
-            emqx_ctl:print("~s is not running~n", [?APP]);
+            emqx_ctl:print("Application ~s is not running~n", [?APP]);
         {value, {?APP, _Desc, Vsn}} ->
-            emqx_ctl:print("~s ~s is running~n", [?APP, Vsn])
+            emqx_ctl:print("Application ~s ~s is running~n", [?APP, Vsn])
     end;
 status(_) ->
      emqx_ctl:usage("status", "Show broker status").
@@ -561,7 +562,9 @@ data(["export"]) ->
     end;
 
 data(["import", Filename]) ->
-    case emqx_mgmt_data_backup:import(Filename) of
+    data(["import", Filename, "--env", "{}"]);
+data(["import", Filename, "--env", Env]) ->
+    case emqx_mgmt_data_backup:import(Filename, Env) of
         ok ->
             emqx_ctl:print("The emqx data has been imported successfully.~n");
         {error, import_failed} ->
@@ -573,8 +576,37 @@ data(["import", Filename]) ->
     end;
 
 data(_) ->
-    emqx_ctl:usage([{"data import <File>",   "Import data from the specified file"},
-                    {"data export",          "Export data"}]).
+    emqx_ctl:usage([{"data import <File> [--env '<json>']",
+                     "Import data from the specified file, possibly with overrides"},
+                    {"data export", "Export data"}]).
+
+%%--------------------------------------------------------------------
+%% @doc acl Command
+
+acl(["cache-clean", "node", Node]) ->
+    case emqx_mgmt:clean_acl_cache_all(erlang:list_to_existing_atom(Node)) of
+        ok ->
+            emqx_ctl:print("ACL cache drain started on node ~s.~n", [Node]);
+        {error, Reason} ->
+            emqx_ctl:print("ACL drain failed on node ~s: ~0p.~n", [Node, Reason])
+    end;
+
+acl(["cache-clean", "all"]) ->
+    case emqx_mgmt:clean_acl_cache_all() of
+        ok ->
+            emqx_ctl:print("Started ACL cache drain in all nodes~n");
+        {error, Reason} ->
+            emqx_ctl:print("ACL cache-clean failed: ~p.~n", [Reason])
+    end;
+
+acl(["cache-clean", ClientId]) ->
+    emqx_mgmt:clean_acl_cache(ClientId);
+
+acl(_) ->
+    emqx_ctl:usage([{"acl cache-clean all",             "Clears acl cache on all nodes"},
+                    {"acl cache-clean node <Node>",     "Clears acl cache on given node"},
+                    {"acl cache-clean <ClientId>",      "Clears acl cache for given client"}
+                   ]).
 
 %%--------------------------------------------------------------------
 %% Dump ETS
@@ -669,7 +701,7 @@ indent_print({Key, Val}) ->
 listener_identifier(Protocol, ListenOn) ->
     case emqx_listeners:find_id_by_listen_on(ListenOn) of
         false ->
-            "http" ++ _ = atom_to_list(Protocol); %% assert
+            atom_to_list(Protocol);
         ID ->
             ID
     end.

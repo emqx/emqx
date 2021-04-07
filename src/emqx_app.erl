@@ -33,14 +33,15 @@
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
+    set_backtrace_depth(),
+    print_otp_version_warning(),
     print_banner(),
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),
     ok = start_autocluster(),
     ok = emqx_plugins:init(),
     _ = emqx_plugins:load(),
-    emqx_boot:is_enabled(listeners)
-      andalso (ok = emqx_listeners:start()),
+    emqx_boot:is_enabled(listeners) andalso (ok = emqx_listeners:start()),
     register(emqx, self()),
     ok = emqx_alarm_handler:load(),
     print_vsn(),
@@ -52,9 +53,23 @@ stop(_State) ->
     emqx_boot:is_enabled(listeners)
       andalso emqx_listeners:stop().
 
+set_backtrace_depth() ->
+    Depth = application:get_env(?APP, backtrace_depth, 16),
+    _ = erlang:system_flag(backtrace_depth, Depth),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Print Banner
 %%--------------------------------------------------------------------
+
+-if(?OTP_RELEASE> 22).
+print_otp_version_warning() -> ok.
+-else.
+print_otp_version_warning() ->
+    io:format("WARNING: Running on Erlang/OTP version ~p. Recommended: 23~n",
+              [?OTP_RELEASE]).
+-endif.
+
 
 print_banner() ->
     io:format("Starting ~s on node ~s~n", [?APP, node()]).
@@ -70,18 +85,15 @@ get_description() ->
         Str -> string:strip(Str, both, $\n)
     end.
 
--ifdef(TEST).
-%% When testing, the 'cover' compiler stripps aways compile info
-get_release() -> release_in_macro().
--else.
-%% Otherwise print the build number,
-%% which may have a git commit in its suffix.
 get_release() ->
-    {_, Vsn} = lists:keyfind(emqx_vsn, 1, ?MODULE:module_info(compile)),
-    VsnStr = release_in_macro(),
-    1 = string:str(Vsn, VsnStr), %% assert
-    Vsn.
--endif.
+    case lists:keyfind(emqx_vsn, 1, ?MODULE:module_info(compile)) of
+        false ->    %% For TEST build or depedency build.
+            release_in_macro();
+        {_, Vsn} -> %% For emqx release build
+            VsnStr = release_in_macro(),
+            1 = string:str(Vsn, VsnStr), %% assert
+            Vsn
+    end.
 
 release_in_macro() ->
     element(2, ?EMQX_RELEASE).

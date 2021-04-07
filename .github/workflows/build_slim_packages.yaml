@@ -1,26 +1,42 @@
 name: Build slim packages
 
-on: [pull_request]
+on:
+  - pull_request
+  - workflow_dispatch
 
 jobs:
   build:
     runs-on: ubuntu-20.04
-    
+
     strategy:
       matrix:
         erl_otp:
-        - erl23.2.2
+        - erl23.2.7
         os:
         - ubuntu20.04
-        - centos8
+        - centos7
 
     container: emqx/build-env:${{ matrix.erl_otp }}-${{ matrix.os }}
-    
+
     steps:
     - uses: actions/checkout@v1
+    - name: prepare
+      run: |
+        if make emqx-ee --dry-run > /dev/null 2>&1; then
+          echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+          git config --global credential.helper store
+          echo "${{ secrets.CI_GIT_TOKEN }}" >> ./scripts/git-token
+          echo "EMQX_NAME=emqx-ee" >> $GITHUB_ENV
+        else
+          echo "EMQX_NAME=emqx" >> $GITHUB_ENV
+        fi
     - name: build packages
-      run: make emqx-pkg
+      run: make ${EMQX_NAME}-pkg
     - name: pakcages test
       run: |
         export CODE_PATH=$GITHUB_WORKSPACE
         .ci/build_packages/tests.sh
+    - uses: actions/upload-artifact@v2
+      with:
+        name: ${{ matrix.os }}
+        path: _packages/**/*.zip

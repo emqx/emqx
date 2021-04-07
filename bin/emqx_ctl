@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # -*- tab-width:4;indent-tabs-mode:nil -*-
 # ex: ts=4 sw=4 et
 
@@ -7,6 +7,13 @@ set -e
 ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 # shellcheck disable=SC1090
 . "$ROOT_DIR"/releases/emqx_vars
+
+# shellcheck disable=SC2012,SC2086
+LATEST_VM_ARGS="$(ls -t $RUNNER_DATA_DIR/configs/vm.*.args | head -1)"
+if [ -z "$LATEST_VM_ARGS" ]; then
+    echo "No vm.*.args config file found in $RUNNER_DATA_DIR/configs/"
+    exit 1
+fi
 
 # Echo to stderr on errors
 echoerr() { echo "$@" 1>&2; }
@@ -34,10 +41,8 @@ relx_nodetool() {
 
 if [ -z "$NAME_ARG" ]; then
     NODENAME="${EMQX_NODE_NAME:-}"
-    # check if there is a node running, inspect its name
-    # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
-    [ -z "$NODENAME" ] && NODENAME=$(ps -ef | grep -E '\progname\s.*emqx\s' | grep -o -E '\-name (\S*)' | awk '{print $2}')
-    [ -z "$NODENAME" ] && NODENAME=$(grep -E '^[ \t]*node.name[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2- | tr -d '"')
+    [ -z "$NODENAME" ] && [ -n "$EMQX_NAME" ] && [ -n "$EMQX_HOST" ] && NODENAME="${EMQX_NAME}@${EMQX_HOST}"
+    [ -z "$NODENAME" ] && NODENAME="$(grep -E '^-name' "$LATEST_VM_ARGS" | awk '{print $2}')"
     if [ -z "$NODENAME" ]; then
         echoerr "vm.args needs to have a -name parameter."
         echoerr "  -sname is not supported."
@@ -52,27 +57,15 @@ fi
 NAME_TYPE="$(echo "$NAME_ARG" | awk '{print $1}')"
 NAME="$(echo "$NAME_ARG" | awk '{print $2}')"
 
-# Extract the target cookie
-if [ -z "$COOKIE_ARG" ]; then
-    COOKIE="${EMQX_NODE_COOKIE:-}"
-    # check if there is a node running, steal its cookie
-    # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
-    [ -z "$COOKIE" ] && COOKIE=$(ps -ef | grep -E '\-progname\s.*emqx\s' | grep -o -E '\-setcookie (\S*)' | awk '{print $2}')
-    [ -z "$COOKIE" ] && COOKIE=$(grep -E '^[ \t]*node.cookie[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | cut -d = -f 2- | tr -d '"')
-    if [ -z "$COOKIE" ]; then
-        echoerr "vm.args needs to have a -setcookie parameter."
-        echoerr "please check $RUNNER_ETC_DIR/emqx.conf"
-        exit 1
-    else
-        COOKIE_ARG="-setcookie $COOKIE"
-    fi
+COOKIE="${EMQX_NODE_COOKIE:-}"
+[ -z "$COOKIE" ] && COOKIE="$(grep -E '^-setcookie' "$LATEST_VM_ARGS" | awk '{print $2}')"
+if [ -z "$COOKIE" ]; then
+    echoerr "Please set node.cookie in $RUNNER_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE_COOKIE"
+    exit 1
 fi
 
-# Extract cookie name from COOKIE_ARG
-COOKIE="$(echo "$COOKIE_ARG" | awk '{print $2}')"
-
 # Support for IPv6 Dist. See: https://github.com/emqtt/emqttd/issues/1460
-PROTO_DIST=$(grep -E '^[ \t]*cluster.proto_dist[ \t]*=[ \t]*' "$RUNNER_ETC_DIR"/emqx.conf 2> /dev/null | tail -1 | cut -d = -f 2-)
+PROTO_DIST=$(grep -E '^[ \t]*cluster.proto_dist[ \t]*=[ \t]*' "$RUNNER_ETC_DIR"/emqx.conf 2> /dev/null | tail -1 | awk -F"= " '{print $NF}')
 if [ -z "$PROTO_DIST" ]; then
     PROTO_DIST_ARG=""
 else

@@ -56,7 +56,7 @@ coap_get(ChId, ?MQTT_PREFIX, Path, Query, _Content) ->
             #coap_content{};
         {error, auth_failure} ->
             put(mqtt_client_pid, undefined),
-            {error, unauthorized};
+            {error, forbidden};
         {error, bad_request} ->
             put(mqtt_client_pid, undefined),
             {error, bad_request};
@@ -74,8 +74,7 @@ coap_post(_ChId, _Prefix, _Topic, _Content) ->
 coap_put(_ChId, ?MQTT_PREFIX, Topic, #coap_content{payload = Payload}) when Topic =/= [] ->
     ?LOG(debug, "put message, Topic=~p, Payload=~p~n", [Topic, Payload]),
     Pid = get(mqtt_client_pid),
-    emqx_coap_mqtt_adapter:publish(Pid, topic(Topic), Payload),
-    ok;
+    emqx_coap_mqtt_adapter:publish(Pid, topic(Topic), Payload);
 coap_put(_ChId, Prefix, Topic, Content) ->
     ?LOG(error, "put has error, Prefix=~p, Topic=~p, Content=~p", [Prefix, Topic, Content]),
     {error, bad_request}.
@@ -87,8 +86,10 @@ coap_observe(ChId, ?MQTT_PREFIX, Topic, Ack, Content) when Topic =/= [] ->
     TrueTopic = topic(Topic),
     ?LOG(debug, "observe Topic=~p, Ack=~p", [TrueTopic, Ack]),
     Pid = get(mqtt_client_pid),
-    emqx_coap_mqtt_adapter:subscribe(Pid, TrueTopic),
-    {ok, {state, ChId, ?MQTT_PREFIX, [TrueTopic]}, content, Content};
+    case emqx_coap_mqtt_adapter:subscribe(Pid, TrueTopic) of
+        ok -> {ok, {state, ChId, ?MQTT_PREFIX, [TrueTopic]}, content, Content};
+        {error, Code} -> {error, Code}
+    end;
 coap_observe(ChId, Prefix, Topic, Ack, _Content) ->
     ?LOG(error, "unknown observe request ChId=~p, Prefix=~p, Topic=~p, Ack=~p", [ChId, Prefix, Topic, Ack]),
     {error, bad_request}.

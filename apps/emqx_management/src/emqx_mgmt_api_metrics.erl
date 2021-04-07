@@ -16,8 +16,6 @@
 
 -module(emqx_mgmt_api_metrics).
 
--import(minirest, [return/1]).
-
 -rest_api(#{name   => list_all_metrics,
             method => 'GET',
             path   => "/metrics",
@@ -33,12 +31,12 @@
 -export([list/2]).
 
 list(Bindings, _Params) when map_size(Bindings) == 0 ->
-    return({ok, [#{node => Node, metrics => maps:from_list(Metrics)}
+    minirest:return({ok, [#{node => Node, metrics => maps:from_list(Metrics)}
                               || {Node, Metrics} <- emqx_mgmt:get_metrics()]});
 
 list(#{node := Node}, _Params) ->
     case emqx_mgmt:get_metrics(Node) of
-        {error, Reason} -> return({error, Reason});
-        Metrics         -> return({ok, maps:from_list(Metrics)})
+        {error, Reason} -> minirest:return({error, Reason});
+        Metrics         -> minirest:return({ok, maps:from_list(Metrics)})
     end.
 

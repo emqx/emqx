@@ -16,8 +16,6 @@
 
 -module(emqx_mgmt_api_stats).
 
--import(minirest, [return/1]).
-
 -rest_api(#{name   => list_stats,
             method => 'GET',
             path   => "/stats/",
@@ -36,12 +34,12 @@
 
 %% List stats of all nodes
 list(Bindings, _Params) when map_size(Bindings) == 0 ->
-    return({ok, [#{node => Node, stats => maps:from_list(Stats)}
+    minirest:return({ok, [#{node => Node, stats => maps:from_list(Stats)}
                               || {Node, Stats} <- emqx_mgmt:get_stats()]}).
 
 %% List stats of a node
 lookup(#{node := Node}, _Params) ->
     case emqx_mgmt:get_stats(Node) of
-        {error, Reason} -> return({error, Reason});
-        Stats -> return({ok, maps:from_list(Stats)})
+        {error, Reason} -> minirest:return({error, Reason});
+        Stats -> minirest:return({ok, maps:from_list(Stats)})
     end.

@@ -214,7 +214,8 @@ end}.
 
 %% @doc Secret cookie for distributed erlang node
 {mapping, "node.cookie", "vm_args.-setcookie", [
-  {default, "emqxsecretcookie"}
+  {default, "emqxsecretcookie"},
+  {override_env, "NODE_COOKIE"}
 ]}.
 
 {mapping, "node.data_dir", "emqx.data_dir", [
@@ -250,7 +251,8 @@ end}.
 %% Valid range is 1024-134217727
 {mapping, "node.max_ports", "vm_args.+Q", [
   {datatype, integer},
-  {validators, ["range4ports"]}
+  {validators, ["range4ports"]},
+  {override_env, "MAX_PORTS"}
 ]}.
 
 {validator, "range4ports", "must be 1024 to 134217727",
@@ -332,6 +334,11 @@ end}.
   {commented, 6369},
   {datatype, integer},
   hidden
+]}.
+
+{mapping, "node.backtrace_depth", "emqx.backtrace_depth", [
+  {default, 16},
+  {datatype, integer}
 ]}.
 
 %%--------------------------------------------------------------------
@@ -753,7 +760,8 @@ end}.
 %% @doc Max Packet Size Allowed, 1MB by default.
 {mapping, "mqtt.max_packet_size", "emqx.max_packet_size", [
   {default, "1MB"},
-  {datatype, bytesize}
+  {datatype, bytesize},
+  {override_env, "MAX_PACKET_SIZE"}
 ]}.
 
 %% @doc Set the Max ClientId Length Allowed.
@@ -928,10 +936,11 @@ end}.
 ]}.
 
 %% @doc Max number of QoS 1 and 2 messages that can be “inflight” at one time.
-%% 0 means no limit
+%% 0 is equivalent to maximum allowed
 {mapping, "zone.$name.max_inflight", "emqx.zones", [
   {default, 0},
-  {datatype, integer}
+  {datatype, integer},
+  {validators, ["range:1-65535"]}
 ]}.
 
 %% @doc Retry interval for redelivering QoS1/2 messages.
@@ -1171,6 +1180,11 @@ end}.
   {datatype, [integer, ip]}
 ]}.
 
+{mapping, "listener.tcp.external", "emqx.listeners", [
+  {datatype, [integer, ip]},
+  {override_env, "TCP_PORT"}
+]}.
+
 {mapping, "listener.tcp.$name.acceptors", "emqx.listeners", [
   {default, 8},
   {datatype, integer}
@@ -1211,12 +1225,14 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
+%% The proxy-protocol protocol can get the certificate CN through tcp
 {mapping, "listener.tcp.$name.peer_cert_as_username", "emqx.listeners", [
-  {datatype, {enum, [cn, dn, crt, pem, md5]}}
+  {datatype, {enum, [cn]}}
 ]}.
 
+%% The proxy-protocol protocol can get the certificate CN through tcp
 {mapping, "listener.tcp.$name.peer_cert_as_clientid", "emqx.listeners", [
-  {datatype, {enum, [cn, dn, crt, pem, md5]}}
+  {datatype, {enum, [cn]}}
 ]}.
 
 {mapping, "listener.tcp.$name.backlog", "emqx.listeners", [
@@ -1274,6 +1290,11 @@ end}.
 
 {mapping, "listener.ssl.$name.endpoint", "emqx.listeners", [
   {datatype, [integer, ip]}
+]}.
+
+{mapping, "listener.ssl.external", "emqx.listeners", [
+  {datatype, [integer, ip]},
+  {override_env, "SSL_PORT"}
 ]}.
 
 {mapping, "listener.ssl.$name.acceptors", "emqx.listeners", [
@@ -1442,6 +1463,11 @@ end}.
 
 {mapping, "listener.ws.$name.endpoint", "emqx.listeners", [
   {datatype, [integer, ip]}
+]}.
+
+{mapping, "listener.ws.external", "emqx.listeners", [
+  {datatype, [integer, ip]},
+  {override_env, "WS_PORT"}
 ]}.
 
 {mapping, "listener.ws.$name.mqtt_path", "emqx.listeners", [
@@ -1622,6 +1648,11 @@ end}.
 
 {mapping, "listener.wss.$name.endpoint", "emqx.listeners", [
   {datatype, [integer, ip]}
+]}.
+
+{mapping, "listener.wss.external", "emqx.listeners", [
+  {datatype, [integer, ip]},
+  {override_env, "WSS_PORT"}
 ]}.
 
 {mapping, "listener.wss.$name.mqtt_path", "emqx.listeners", [
@@ -2003,19 +2034,18 @@ end}.
                           {honor_cipher_order, cuttlefish:conf_get(Prefix ++ ".honor_cipher_order", Conf, undefined)}])
               end,
 
+    Listen_fix = fun({Ip, Port}) -> case inet:parse_address(Ip) of
+                                      {ok, R} -> {R, Port};
+                                            _ -> {Ip, Port}
+                                    end;
+                     (Other) -> Other
+                 end,
+
     TcpListeners = fun(Type, Name) ->
                       Prefix = string:join(["listener", Type, Name], "."),
                       ListenOnN = case cuttlefish:conf_get(Prefix ++ ".endpoint", Conf, undefined) of
                           undefined -> [];
-                          ListenOn  ->
-                              case ListenOn of
-                                  {Ip, Port} ->
-                                          case inet:parse_address(Ip) of
-                                              {ok ,R} -> {R, Port};
-                                              _ -> {Ip, Port}
-                                          end;
-                                  Other -> Other
-                              end
+                          ListenOn  -> Listen_fix(ListenOn)
                       end,
                       [#{ proto => Atom(Type)
                         , name => Name
@@ -2035,7 +2065,7 @@ end}.
                            ListenOn ->
                                [#{ proto => Atom(Type)
                                  , name => Name
-                                 , listen_on => ListenOn
+                                 , listen_on => Listen_fix(ListenOn)
                                  , opts => [ {deflate_options, DeflateOpts(Prefix)}
                                            , {tcp_options, TcpOpts(Prefix)}
                                            , {ssl_options, SslOpts(Prefix)}

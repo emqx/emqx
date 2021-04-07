@@ -70,7 +70,7 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_auth_pgsql]),
+    emqx_ct_helpers:start_apps([emqx_auth_pgsql]),
     drop_acl(),
     drop_auth(),
     init_auth(),
@@ -79,7 +79,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(Config) ->
-    emqx_ct_helpers:stop_apps([emqx_auth_pgsql, emqx_modules]),
+    emqx_ct_helpers:stop_apps([emqx_auth_pgsql]),
     Config.
 
 set_special_configs() ->
@@ -161,7 +161,6 @@ t_check_auth(_) ->
     {error, not_authorized} = emqx_access_control:authenticate(Bcrypt#{password => <<"password">>}).
 
 t_check_acl(_) ->
-    emqx_modules:load_module(emqx_mod_acl_internal, false),
     User1 = #{zone => external, peerhost => {127,0,0,1}, clientid => <<"c1">>, username => <<"u1">>},
     User2 = #{zone => external, peerhost => {127,0,0,1}, clientid => <<"c2">>, username => <<"u2">>},
     allow = emqx_access_control:check_acl(User1, subscribe, <<"t1">>),
@@ -170,8 +169,8 @@ t_check_acl(_) ->
     User4 = #{zone => external, peerhost => {10,10,10,110}, clientid => <<"c1">>, username => <<"u1">>},
     allow = emqx_access_control:check_acl(User3, subscribe, <<"t1">>),
     allow = emqx_access_control:check_acl(User3, subscribe, <<"t1">>),
-    allow = emqx_access_control:check_acl(User3, subscribe, <<"t2">>),%% nomatch -> ignore -> emqttd acl
-    allow = emqx_access_control:check_acl(User4, subscribe, <<"t1">>),%% nomatch -> ignore -> emqttd acl
+    deny = emqx_access_control:check_acl(User3, subscribe, <<"t2">>),%% nomatch -> ignore -> emqx acl
+    deny = emqx_access_control:check_acl(User4, subscribe, <<"t1">>),%% nomatch -> ignore -> emqx acl
     User5 = #{zone => external, peerhost => {127,0,0,1}, clientid => <<"c3">>, username => <<"u3">>},
     allow = emqx_access_control:check_acl(User5, subscribe, <<"t1">>),
     allow = emqx_access_control:check_acl(User5, publish, <<"t1">>).

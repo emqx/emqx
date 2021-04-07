@@ -1,4 +1,4 @@
-$(shell scripts/git-hooks-init.sh)
+$(shell $(CURDIR)/scripts/git-hooks-init.sh)
 REBAR_VERSION = 3.14.3-emqx-5
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
@@ -6,6 +6,9 @@ SCRIPTS = $(CURDIR)/scripts
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 export EMQX_DESC ?= EMQ X
 export EMQX_CE_DASHBOARD_VERSION ?= v4.3.0-beta.1
+ifeq ($(OS),Windows_NT)
+	export REBAR_COLOR=none
+endif
 
 PROFILE ?= emqx
 REL_PROFILES := emqx emqx-edge
@@ -33,27 +36,37 @@ get-dashboard:
 
 .PHONY: eunit
 eunit: $(REBAR)
-	@$(REBAR) eunit -v -c
+	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit -v -c
 
 .PHONY: proper
 proper: $(REBAR)
-	@$(REBAR) as test proper -d test/props -c
+	@ENABLE_COVER_COMPILE=1 $(REBAR) as test proper -d test/props -c
 
 .PHONY: ct
 ct: $(REBAR)
-	@$(REBAR) ct --name 'test@127.0.0.1' -c -v
+	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name 'test@127.0.0.1' -c -v
+
+APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
+
+## app/name-ct targets are intended for local tests hence cover is not enabled
+.PHONY: $(APPS:%=%-ct)
+define gen-app-ct-target
+$1-ct:
+	$(REBAR) ct --name 'test@127.0.0.1' -v --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
+endef
+$(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
 
 .PHONY: cover
 cover: $(REBAR)
-	@$(REBAR) cover
+	@ENABLE_COVER_COMPILE=1 $(REBAR) cover
 
 .PHONY: coveralls
 coveralls: $(REBAR)
-	@$(REBAR) as test coveralls send
+	@ENABLE_COVER_COMPILE=1 $(REBAR) as test coveralls send
 
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(REBAR) get-dashboard
-	@$(REBAR) as $(@) release
+	@$(REBAR) as $(@) do compile,release
 
 ## Not calling rebar3 clean because
 ## 1. rebar3 clean relies on rebar3, meaning it reads config, fetches dependencies etc.
@@ -97,7 +110,7 @@ ifneq ($(OS),Windows_NT)
 endif
 
 .PHONY: $(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar)
-$(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar): $(REBAR) get-dashboard
+$(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar): $(REBAR) get-dashboard $(CONF_SEGS)
 	@$(BUILD) $(subst -tar,,$(@)) tar
 
 ## zip targets depend on the corresponding relup and tar artifacts
@@ -117,5 +130,12 @@ $1: $(subst -pkg,,$1)-zip $1-tar
 	@$(BUILD) $1 pkg
 endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
+
+.PHONY: run
+run: $(PROFILE) quickrun
+
+.PHONY: quickrun
+quickrun:
+	./_build/$(PROFILE)/rel/emqx/bin/emqx console
 
 include docker.mk

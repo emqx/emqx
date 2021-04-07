@@ -17,6 +17,7 @@
 -module(emqx_mgmt_data_backup).
 
 -include("emqx_mgmt.hrl").
+-include_lib("emqx_rule_engine/include/rule_engine.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("kernel/include/file.hrl").
 
@@ -51,7 +52,7 @@
         ]).
 
 -export([ export/0
-        , import/1
+        , import/2
         ]).
 
 %%--------------------------------------------------------------------
@@ -59,7 +60,11 @@
 %%--------------------------------------------------------------------
 
 export_rules() ->
-    lists:map(fun({_, RuleId, _, RawSQL, _, _, _, _, _, _, Actions, Enabled, Desc}) ->
+    lists:map(fun(#rule{id = RuleId,
+                        rawsql = RawSQL,
+                        actions = Actions,
+                        enabled = Enabled,
+                        description = Desc}) ->
                    [{id, RuleId},
                     {rawsql, RawSQL},
                     {actions, actions_to_prop_list(Actions)},
@@ -68,7 +73,11 @@ export_rules() ->
                end, emqx_rule_registry:get_rules()).
 
 export_resources() ->
-    lists:map(fun({_, Id, Type, Config, CreatedAt, Desc}) ->
+    lists:map(fun(#resource{id = Id,
+                            type = Type,
+                            config = Config,
+                            created_at = CreatedAt,
+                            description = Desc}) ->
                    NCreatedAt = case CreatedAt of
                                     undefined -> null;
                                     _ -> CreatedAt
@@ -174,7 +183,7 @@ export_confs() ->
 confs_to_binary(Confs) ->
     [{list_to_binary(Key), list_to_binary(Val)} || {Key, Val} <-Confs].
 
--else.
+-endif.
 
 import_rule(#{<<"id">> := RuleId,
               <<"rawsql">> := RawSQL,
@@ -200,11 +209,10 @@ map_to_action(Map = #{<<"id">> := ActionInstId, <<"name">> := Name, <<"args">> :
       args => Args,
       fallbacks => map_to_actions(maps:get(<<"fallbacks">>, Map, []))}.
 
--endif.
 
 import_rules(Rules) ->
-    lists:foreach(fun(Resource) ->
-                      import_resource(Resource)
+    lists:foreach(fun(Rule) ->
+                      import_rule(Rule)
                   end, Rules).
 
 import_resources(Reources) ->
@@ -233,29 +241,10 @@ import_resources_and_rules(Resources, Rules, _FromVersion) ->
     import_rules(Rules).
 -else.
 import_resources_and_rules(Resources, Rules, FromVersion)
-  when FromVersion =:= "4.0" orelse FromVersion =:= "4.1" orelse FromVersion =:= "4.2" ->
-    Configs = lists:foldl(fun(#{<<"id">> := ID,
-                                <<"type">> := <<"web_hook">>,
-                                <<"config">> := #{<<"content_type">> := ContentType,
-                                                  <<"headers">> := Headers,
-                                                  <<"method">> := Method,
-                                                  <<"url">> := URL}} = Resource, Acc) ->
-                              NConfig = #{<<"connect_timeout">> => 5,
-                                          <<"request_timeout">> => 5,
-                                          <<"cacertfile">> => <<>>,
-                                          <<"certfile">> => <<>>,
-                                          <<"keyfile">> => <<>>,
-                                          <<"pool_size">> => 8,
-                                          <<"url">> => URL,
-                                          <<"verify">> => true},
-                              NResource = Resource#{<<"config">> := NConfig},
-                              {ok, _Resource} = import_resource(NResource),
-                              NHeaders = maps:put(<<"content-type">>, ContentType, Headers),
-                              [{ID, #{headers => NHeaders, method => Method}} | Acc];
-                             (Resource, Acc) ->
-                              {ok, _Resource} = import_resource(Resource),
-                              Acc
-                          end, [], Resources),
+  when FromVersion =:= "4.0" orelse
+       FromVersion =:= "4.1" orelse
+       FromVersion =:= "4.2" ->
+    Configs = lists:foldl(fun compatible_version/2 , [], Resources),
     lists:foreach(fun(#{<<"actions">> := Actions} = Rule) ->
                       NActions = apply_new_config(Actions, Configs),
                       import_rule(Rule#{<<"actions">> := NActions})
@@ -264,6 +253,79 @@ import_resources_and_rules(Resources, Rules, FromVersion)
 import_resources_and_rules(Resources, Rules, _FromVersion) ->
     import_resources(Resources),
     import_rules(Rules).
+
+%% 4.2.5 +
+compatible_version(#{<<"id">> := ID,
+                     <<"type">> := <<"web_hook">>,
+                     <<"config">> := #{<<"connect_timeout">> := ConnectTimeout,
+                                       <<"content_type">> := ContentType,
+                                       <<"headers">> := Headers,
+                                       <<"method">> := Method,
+                                       <<"pool_size">> := PoolSize,
+                                       <<"request_timeout">> := RequestTimeout,
+                                       <<"url">> := URL}} = Resource, Acc) ->
+                    CovertFun = fun(Int) ->
+                        list_to_binary(integer_to_list(Int) ++ "s")
+                    end,
+                    Cfg = make_new_config(#{<<"pool_size">> => PoolSize,
+                                            <<"connect_timeout">> => CovertFun(ConnectTimeout),
+                                            <<"request_timeout">> => CovertFun(RequestTimeout),
+                                            <<"url">> => URL}),
+                    {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
+                    NHeaders = maps:put(<<"content-type">>, ContentType, covert_empty_headers(Headers)),
+                    [{ID, #{headers => NHeaders, method => Method}} | Acc];
+% 4.2.0
+compatible_version(#{<<"id">> := ID,
+                     <<"type">> := <<"web_hook">>,
+                     <<"config">> := #{<<"headers">> := Headers,
+                                       <<"method">> := Method,%% 4.2.0 Different here
+                                       <<"url">> := URL}} = Resource, Acc) ->
+                    Cfg = make_new_config(#{<<"url">> => URL}),
+                    {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
+                    NHeaders = maps:put(<<"content-type">>, <<"application/json">> , covert_empty_headers(Headers)),
+                    [{ID, #{headers => NHeaders, method => Method}} | Acc];
+
+%% bridge mqtt
+%% 4.2.0 - 4.2.5 bridge_mqtt, ssl enabled from on/off to true/false
+compatible_version(#{<<"type">> := <<"bridge_mqtt">>,
+                     <<"id">> := ID, %% begin 4.2.0.
+                     <<"config">> := #{<<"ssl">> := Ssl} = Config} = Resource, Acc) ->
+                     F = fun(B) ->
+                         case B of
+                               <<"on">> -> true;
+                               <<"off">> -> false;
+                               Other -> Other
+                         end
+                     end,
+                    NewConfig = Config#{<<"ssl">> := F(Ssl)},
+                    {ok, _Resource} = import_resource(Resource#{<<"config">> := NewConfig}),
+                    [{ID, NewConfig} | Acc];
+
+% 4.2.3, add :content_type
+compatible_version(#{<<"id">> := ID,
+                    <<"type">> := <<"web_hook">>,
+                    <<"config">> := #{<<"headers">> := Headers,
+                                      <<"content_type">> := ContentType,%% 4.2.3 Different here
+                                      <<"method">> := Method,
+                                      <<"url">> := URL}} = Resource, Acc) ->
+                    Cfg = make_new_config(#{<<"url">> => URL}),
+                    {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
+                    NHeaders = maps:put(<<"content-type">>, ContentType, covert_empty_headers(Headers)),
+                    [{ID, #{headers => NHeaders, method => Method}} | Acc];
+% normal version
+compatible_version(Resource, Acc) ->
+                    {ok, _Resource} = import_resource(Resource),
+                    Acc.
+
+make_new_config(Cfg) ->
+    Config = #{<<"pool_size">> => 8,
+               <<"connect_timeout">> => <<"5s">>,
+               <<"request_timeout">> => <<"5s">>,
+               <<"cacertfile">> => <<>>,
+               <<"certfile">> => <<>>,
+               <<"keyfile">> => <<>>,
+               <<"verify">> => false},
+    maps:merge(Cfg, Config).
 
 apply_new_config(Actions, Configs) ->
     apply_new_config(Actions, Configs, []).
@@ -284,7 +346,18 @@ apply_new_config([Action = #{<<"name">> := <<"data_to_webserver">>,
                      <<"method">> => Method,
                      <<"path">> => Path},
             apply_new_config(More, Configs, [Action#{<<"args">> := Args} | Acc])
-    end.
+    end;
+
+apply_new_config([Action = #{<<"args">> := #{<<"$resource">> := ResourceId,
+                                             <<"forward_topic">> := ForwardTopic,
+                                             <<"payload_tmpl">> := PayloadTmpl},
+                           <<"fallbacks">> := _Fallbacks,
+                           <<"id">> := _Id,
+                           <<"name">> := <<"data_to_mqtt_broker">>} | More], Configs, Acc) ->
+            Args = #{<<"$resource">> => ResourceId,
+                     <<"payload_tmpl">> => PayloadTmpl,
+                     <<"forward_topic">> => ForwardTopic},
+            apply_new_config(More, Configs, [Action#{<<"args">> := Args} | Acc]).
 
 -endif.
 
@@ -368,9 +441,11 @@ import_acl_mnesia(Acls, _) ->
     do_import_acl_mnesia(Acls).
 -else.
 import_auth_mnesia(Auths, FromVersion) when FromVersion =:= "4.0" orelse
-                                            FromVersion =:= "4.1" orelse
-                                            FromVersion =:= "4.2" ->
+                                            FromVersion =:= "4.1" ->
     do_import_auth_mnesia_by_old_data(Auths);
+import_auth_mnesia(Auths, "4.2") ->
+    %% 4.2 contains a bug where password is not base64-encoded
+    do_import_auth_mnesia_4_2(Auths);
 import_auth_mnesia(Auths, _) ->
     do_import_auth_mnesia(Auths).
 
@@ -381,6 +456,17 @@ import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.0" orelse
 
 import_acl_mnesia(Acls, _) ->
     do_import_acl_mnesia(Acls).
+
+do_import_auth_mnesia_4_2(Auths) ->
+    case ets:info(emqx_user) of
+        undefined -> ok;
+        _ ->
+            CreatedAt = erlang:system_time(millisecond),
+            lists:foreach(fun(#{<<"login">> := Login,
+                                <<"password">> := Password}) ->
+                            mnesia:dirty_write({emqx_user, {get_old_type(), Login}, Password, CreatedAt})
+                          end, Auths)
+    end.
 -endif.
 
 do_import_auth_mnesia_by_old_data(Auths) ->
@@ -390,9 +476,11 @@ do_import_auth_mnesia_by_old_data(Auths) ->
             CreatedAt = erlang:system_time(millisecond),
             lists:foreach(fun(#{<<"login">> := Login,
                                 <<"password">> := Password}) ->
-                            mnesia:dirty_write({emqx_user, {username, Login}, base64:decode(Password), CreatedAt})
+                            mnesia:dirty_write({emqx_user, {get_old_type(), Login}, base64:decode(Password), CreatedAt})
                           end, Auths)
     end.
+
+
 do_import_auth_mnesia(Auths) ->
     case ets:info(emqx_user) of
         undefined -> ok;
@@ -418,7 +506,7 @@ do_import_acl_mnesia_by_old_data(Acls) ->
                                          true -> allow;
                                          false -> deny
                                      end,
-                            mnesia:dirty_write({emqx_acl, {{username, Login}, Topic}, any_to_atom(Action), Allow1, CreatedAt})
+                            mnesia:dirty_write({emqx_acl, {{get_old_type(), Login}, Topic}, any_to_atom(Action), Allow1, CreatedAt})
                           end, Acls)
     end.
 do_import_acl_mnesia(Acls) ->
@@ -490,8 +578,8 @@ export() ->
     case file:write_file(NFilename, emqx_json:encode(Data)) of
         ok ->
             case file:read_file_info(NFilename) of
-                {ok, #file_info{size = Size, ctime = {{Y, M, D}, {H, MM, S}}}} ->
-                    CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S]),
+                {ok, #file_info{size = Size, ctime = {{Y1, M1, D1}, {H1, MM1, S1}}}} ->
+                    CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y1, M1, D1, H1, MM1, S1]),
                     {ok, #{filename => list_to_binary(NFilename),
                            size => Size,
                            created_at => list_to_binary(CreatedAt),
@@ -526,11 +614,14 @@ do_export_extra_data() ->
 do_export_extra_data() -> [].
 -endif.
 
-import(Filename) ->
+import(Filename, OverridesJson) ->
     case file:read_file(Filename) of
         {ok, Json} ->
-            Data = emqx_json:decode(Json, [return_maps]),
+            Imported = emqx_json:decode(Json, [return_maps]),
+            Overrides = emqx_json:decode(OverridesJson, [return_maps]),
+            Data = maps:merge(Imported, Overrides),
             Version = to_version(maps:get(<<"version">>, Data)),
+            read_global_auth_type(Data, Version),
             case lists:member(Version, ?VERSIONS) of
                 true  ->
                     try
@@ -538,7 +629,7 @@ import(Filename) ->
                         logger:debug("The emqx data has been imported successfully"),
                         ok
                     catch Class:Reason:Stack ->
-                        logger:error("The emqx data import failed: ~0p", [{Class,Reason,Stack}]),
+                        logger:error("The emqx data import failed: ~0p", [{Class, Reason, Stack}]),
                         {error, import_failed}
                     end;
                 false ->
@@ -568,3 +659,35 @@ do_import_extra_data(Data, _Version) ->
 -else.
 do_import_extra_data(_Data, _Version) -> ok.
 -endif.
+
+-ifndef(EMQX_ENTERPRISE).
+covert_empty_headers(Headers) ->
+    case Headers of
+        [] -> #{};
+        Other -> Other
+    end.
+-endif.
+
+read_global_auth_type(Data, Version) when Version =:= "4.0" orelse
+                                          Version =:= "4.1" orelse
+                                          Version =:= "4.2" ->
+    case Data of
+        #{<<"auth.mnesia.as">> := <<"username">>} -> application:set_env(emqx_auth_mnesia, as, username);
+        #{<<"auth.mnesia.as">> := <<"clientid">>} -> application:set_env(emqx_auth_mnesia, as, clientid);
+        _ ->
+            logger:error("While importing data from EMQX versions prior to 4.3 "
+                         "it is necessary to specify the value of \"auth.mnesia.as\" parameter "
+                         "as it was configured in etc/plugins/emqx_auth_mnesia.conf.\n"
+                         "Use the following command to import data:\n"
+                         "  $ emqx_ctl data import <filename> --env '{\"auth.mnesia.as\":\"username\"}'\n"
+                         "or\n"
+                         "  $ emqx_ctl data import <filename> --env '{\"auth.mnesia.as\":\"clientid\"}'",
+                         []),
+            error(import_failed)
+    end;
+read_global_auth_type(_Data, _Version) ->
+    ok.
+
+get_old_type() ->
+    {ok, Type} = application:get_env(emqx_auth_mnesia, as),
+    Type.

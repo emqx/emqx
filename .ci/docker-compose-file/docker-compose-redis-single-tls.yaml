@@ -1,0 +1,19 @@
+version: '3.9'
+
+services:
+  redis_server:
+    container_name: redis
+    image: redis:${REDIS_TAG}
+    volumes:
+      - ../../apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs:/tls
+    command:
+      - redis-server
+      - "--bind 0.0.0.0 ::"
+      - --requirepass public
+      - --tls-port 6380
+      - --tls-cert-file /tls/redis.crt
+      - --tls-key-file /tls/redis.key
+      - --tls-ca-cert-file /tls/ca.crt
+    restart: always
+    networks:
+      - emqx_bridge

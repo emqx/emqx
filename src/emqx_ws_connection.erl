@@ -348,9 +348,6 @@ websocket_info({incoming, Packet = ?CONNECT_PACKET(ConnPkt)}, State) ->
     NState = State#state{serialize = Serialize},
     handle_incoming(Packet, cancel_idle_timer(NState));
 
-websocket_info({incoming, ?PACKET(?PINGREQ)}, State) ->
-    return(enqueue(?PACKET(?PINGRESP), State));
-
 websocket_info({incoming, Packet}, State) ->
     handle_incoming(Packet, State);
 

@@ -29,12 +29,12 @@
 start(_Type, _Args) ->
     {ok, Sup} = emqx_coap_sup:start_link(),
     coap_server_registry:add_handler([<<"mqtt">>], emqx_coap_resource, undefined),
-    coap_server_registry:add_handler([<<"ps">>], emqx_coap_ps_resource, undefined),
-    _ = emqx_coap_ps_topics:start_link(),
+    coap_server_registry:add_handler([<<"ps">>], emqx_coap_pubsub_resource, undefined),
+    _ = emqx_coap_pubsub_topics:start_link(),
     emqx_coap_server:start(application:get_all_env(?APP)),
     {ok,Sup}.
 
 stop(_State) ->
     coap_server_registry:remove_handler([<<"mqtt">>], emqx_coap_resource, undefined),
-    coap_server_registry:remove_handler([<<"ps">>], emqx_coap_ps_resource, undefined),
+    coap_server_registry:remove_handler([<<"ps">>], emqx_coap_pubsub_resource, undefined),
     emqx_coap_server:stop(application:get_all_env(?APP)).

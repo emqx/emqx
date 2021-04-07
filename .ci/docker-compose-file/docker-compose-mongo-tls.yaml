@@ -1,0 +1,18 @@
+version: '3.9'
+
+services:
+  mongo_server:
+    container_name: mongo
+    image: mongo:${MONGO_TAG}
+    restart: always
+    environment:
+      MONGO_INITDB_DATABASE: mqtt
+    volumes:
+        - ../../apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/mongodb.pem/:/etc/certs/mongodb.pem
+    networks:
+      - emqx_bridge
+    command:
+      --ipv6
+      --bind_ip_all
+      --sslMode requireSSL
+      --sslPEMKeyFile /etc/certs/mongodb.pem
