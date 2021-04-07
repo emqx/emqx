@@ -1,0 +1,94 @@
+{
+  "version": "4.2",
+  "date": "2021-04-07 11:27:10",
+  "modules": [
+    {
+      "id": "module:b8d9cb41",
+      "type": "internal_acl",
+      "config": {
+        "acl_rule_file": "etc/acl.conf"
+      },
+      "enabled": true,
+      "created_at": "undefined",
+      "description": ""
+    },
+    {
+      "id": "module:0c9501cf",
+      "type": "recon",
+      "config": {},
+      "enabled": true,
+      "created_at": "undefined",
+      "description": ""
+    },
+    {
+      "id": "module:1292cc54",
+      "type": "presence",
+      "config": {
+        "qos": 0
+      },
+      "enabled": true,
+      "created_at": "undefined",
+      "description": ""
+    },
+    {
+      "id": "module:146f7ae4",
+      "type": "retainer",
+      "config": {
+        "storage_type": "ram",
+        "max_retained_messages": 0,
+        "max_payload_size": "1MB",
+        "expiry_interval": 0
+      },
+      "enabled": true,
+      "created_at": "undefined",
+      "description": ""
+    }
+  ],
+  "rules": [],
+  "resources": [],
+  "blacklist": [],
+  "apps": [
+    {
+      "id": "admin",
+      "secret": "public",
+      "name": "Default",
+      "desc": "Application user",
+      "status": true,
+      "expired": "undefined"
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "password": "AdzLv1Gqo3caj/jqu5EbINEahTo=",
+      "tags": "administrator"
+    }
+  ],
+  "auth_mnesia": [
+    {
+      "login": "emqx_c",
+      "type": "username",
+      "password": "tTwXNjVjNGExNTQyMzc4YTU1Y2MyMjYxZjFmNmU3ZjY5ODYyMDE5MTUzMDU2NTQ5ZjVkNGNmN2E3MTM0MWQwMTdjM2U=",
+      "created_at": 1617794829294
+    },
+    {
+      "login": "emqx_clientid",
+      "type": "clientid",
+      "password": "vTDjrzdjODIzNGExZmMwM2Q4MzU5N2FiYjYwODI4ZjM4YmIyZDQ5YjVjMjFkYjBkOTg4ZjhmODY2MTIzZTQ4NDU2M2E=",
+      "created_at": 1617794829697
+    }
+  ],
+  "acl_mnesia": [
+    {
+      "type": "username",
+      "type_value": "emqx_c",
+      "topic": "Topic/A",
+      "action": "pubsub",
+      "access": "allow",
+      "created_at": 1617794828874
+    }
+  ],
+  "schemas": [],
+  "configs": [],
+  "listeners_state": []
+}

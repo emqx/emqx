@@ -44,7 +44,7 @@
         , import_blacklist/1
         , import_applications/1
         , import_users/1
-        , import_auth_clientid/1 %% BACKW: 4.1.x
+        , import_auth_clientid/2 %% BACKW: 4.1.x
         , import_auth_username/1 %% BACKW: 4.1.x
         , import_auth_mnesia/2
         , import_acl_mnesia/2
@@ -408,12 +408,18 @@ import_users(Users) ->
                       emqx_dashboard_admin:force_add_user(Username, NPassword, Tags)
                   end, Users).
 
-import_auth_clientid(Lists) ->
+import_auth_clientid(Lists, Version) ->
     case ets:info(emqx_user) of
         undefined -> ok;
         _ ->
-            lists:foreach(fun(#{<<"clientid">> := Clientid, <<"password">> := Password}) ->
-                            mnesia:dirty_write({emqx_user, {clientid, Clientid}, base64:decode(Password), erlang:system_time(millisecond)})
+            lists:foreach(fun(#{<<"clientid">> := Clientid, <<"password">> := Password0}) ->
+                                  Password = case Version of
+                                                 "4.1" -> base64:decode(Password0);
+                                                 _     -> ensure_binary(Password0)
+                                             end,
+                                  mnesia:dirty_write({emqx_user, {clientid, Clientid}
+                                                               , Password
+                                                               ,  erlang:system_time(millisecond)})
                           end, Lists)
     end.
 
@@ -522,7 +528,7 @@ do_import_acl_mnesia(Acls) ->
                                 Value ->
                                     {{any_to_atom(maps:get(<<"type">>, Map)), Value}, maps:get(<<"topic">>, Map)}
                             end,
-                            mnesia:dirty_write({emqx_acl ,Filter, any_to_atom(Action), any_to_atom(Access), CreatedAt})
+                            mnesia:dirty_write({emqx_acl, Filter, any_to_atom(Action), any_to_atom(Access), CreatedAt})
                           end, Acls)
     end.
 
@@ -645,7 +651,7 @@ do_import_data(Data, Version) ->
     import_blacklist(maps:get(<<"blacklist">>, Data, [])),
     import_applications(maps:get(<<"apps">>, Data, [])),
     import_users(maps:get(<<"users">>, Data, [])),
-    import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
+    import_auth_clientid(maps:get(<<"auth_clientid">>, Data, []), Version),
     import_auth_username(maps:get(<<"auth_username">>, Data, [])),
     import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, []), Version),
     import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, []), Version).
@@ -691,3 +697,8 @@ read_global_auth_type(_Data, _Version) ->
 get_old_type() ->
     {ok, Type} = application:get_env(emqx_auth_mnesia, as),
     Type.
+
+ensure_binary(A) when is_binary(A) ->
+    A;
+ensure_binary(A) ->
+    list_to_binary(A).
