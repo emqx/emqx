@@ -19,6 +19,15 @@ e.g. For an Erlang plugin named `plugin_foo`:
 }.
 ```
 
+Note: The `-emqx_plugin(?MODULE)` attribute should be added to
+`<plugin-name>_app.erl` file to indicate that this is an EMQ X Broker plugin.
+
+For example:
+```erlang
+%% plugin_foo_app.erl
+-emqx_plugin(?MODULE)
+```
+
 ## Build a release
 
 ```
