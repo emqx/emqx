@@ -4,13 +4,13 @@
     {
       "username": "admin",
       "tags": "administrator",
-      "password": "C5J9Qhy+/NYRnAnrK0E6Z5Aqp3I="
+      "password": "R0TpDmJtE/d5rIXAm6YY61RI0mg="
     }
   ],
   "schemas": [],
   "rules": [],
   "resources": [],
-  "date": "2021-04-06 15:32:54",
+  "date": "2021-04-07 14:28:58",
   "blacklist": [],
   "auth_username": [],
   "auth_mnesia": [
@@ -22,7 +22,7 @@
   ],
   "auth_clientid": [
     {
-      "password": "8vxdUDM2YTgzMGJjYTlkYjEzMmI2NTQ1MzE0ZGYxMGNjZDMxNmI0ZDQyOTA1NjRlZTNkODAzYTI0MWQyY2Y0Yjg5MTQ=",
+      "password": "MctXdjZkYzRhMDUwMTc4MDM0OWY4YTg1NTg4Y2ZlOThjYWIyMDk3M2UzNjgzYzYyZWYwOTAzMTk2N2E4OWVjZDk4Mjk=",
       "clientid": "emqx_clientid"
     }
   ],

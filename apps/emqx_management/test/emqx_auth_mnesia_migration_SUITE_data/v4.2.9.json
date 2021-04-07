@@ -1,6 +1,6 @@
 {
   "version": "4.2",
-  "date": "2021-04-06 15:33:05",
+  "date": "2021-04-07 14:29:08",
   "rules": [],
   "resources": [],
   "blacklist": [],
@@ -17,14 +17,14 @@
   "users": [
     {
       "username": "admin",
-      "password": "cZv6y9wEMhK3kpUV4gz/MJOKUWI=",
+      "password": "gCBXISkivpaeKetFcPSm+Eaxyxs=",
       "tags": "administrator"
     }
   ],
   "auth_clientid": [
     {
       "clientid": "emqx_clientid",
-      "password": "��a�03bfa8dc2c7a1e58ee990e71f419d2fa40f8e7b25b8f8406cbc65fc531ed344d"
+      "password": "z�7d413fee461607065c161072f3707dc0a01bd1fc8476eb7be703a74a66701bb14"
     }
   ],
   "auth_username": [],
