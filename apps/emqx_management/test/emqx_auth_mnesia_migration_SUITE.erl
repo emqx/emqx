@@ -25,6 +25,12 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_auth_mnesia/include/emqx_auth_mnesia.hrl").
 
+-ifdef(EMQX_ENTERPRISE).
+-define(VERSIONS, ["e4.1", "e4.2"]).
+-else.
+-define(VERSIONS, ["v4.1", "v4.2"]).
+-endif.
+
 all() ->
     [{group, Id} || {Id, _, _} <- groups()].
 
@@ -32,7 +38,7 @@ groups() ->
     [{username, [], cases()}, {clientid, [], cases()}].
 
 cases() ->
-    [t_import_4_2, t_import_4_1].
+    [t_import].
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([emqx_management, emqx_dashboard, emqx_auth_mnesia]),
@@ -60,13 +66,16 @@ end_per_testcase(_, _Config) ->
     mnesia:clear_table(emqx_user),
     ok.
 
-t_import_4_2(Config) ->
-    test_import(Config, "v4.2.json").
+t_import(Config) ->
+    test_import(Config, ?VERSIONS).
 
-t_import_4_1(Config) ->
-    test_import(Config, "v4.1.json").
+test_import(Config, [V | Versions]) ->
+    do_import(Config, V),
+    test_import(Config, Versions);
+test_import(_Config, []) -> ok.
 
-test_import(Config, File) ->
+do_import(Config, V) ->
+    File = V ++ ".json",
     Type = proplists:get_value(cred_type, Config),
     mnesia:clear_table(emqx_acl),
     mnesia:clear_table(emqx_user),
