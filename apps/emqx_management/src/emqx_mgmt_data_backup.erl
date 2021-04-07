@@ -493,8 +493,8 @@ do_import_auth_mnesia(Auths) ->
         _ ->
             lists:foreach(fun(#{<<"login">> := Login,
                                 <<"type">> := Type,
-                                <<"password">> := Password,
-                                <<"created_at">> := CreatedAt }) ->
+                                <<"password">> := Password } = Map) ->
+                            CreatedAt = maps:get(<<"created_at">>, Map, erlang:system_time(millisecond)),
                             mnesia:dirty_write({emqx_user, {any_to_atom(Type), Login}, base64:decode(Password), CreatedAt})
                           end, Auths)
     end.
@@ -520,15 +520,15 @@ do_import_acl_mnesia(Acls) ->
         undefined -> ok;
         _ ->
             lists:foreach(fun(Map = #{<<"action">> := Action,
-                                      <<"access">> := Access,
-                                      <<"created_at">> := CreatedAt}) ->
-                            Filter = case maps:get(<<"type_value">>, Map, undefined) of
+                                      <<"access">> := Access}) ->
+                            Topic = maps:get(<<"topic">>, Map),
+                            Login = case maps:get(<<"type_value">>, Map, undefined) of
                                 undefined ->
-                                    {any_to_atom(maps:get(<<"type">>, Map)), maps:get(<<"topic">>, Map)};
+                                    all;
                                 Value ->
-                                    {{any_to_atom(maps:get(<<"type">>, Map)), Value}, maps:get(<<"topic">>, Map)}
+                                    {any_to_atom(maps:get(<<"type">>, Map)), Value}
                             end,
-                            mnesia:dirty_write({emqx_acl, Filter, any_to_atom(Action), any_to_atom(Access), CreatedAt})
+                            emqx_acl_mnesia_cli:add_acl(Login, Topic, any_to_atom(Action), any_to_atom(Access))
                           end, Acls)
     end.
 

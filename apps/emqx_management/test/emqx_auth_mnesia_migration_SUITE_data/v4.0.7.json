@@ -4,13 +4,13 @@
   "schemas": [],
   "rules": [],
   "resources": [],
-  "date": "2021-04-06 15:32:45",
+  "date": "2021-04-07 14:28:49",
   "blacklist": [],
   "auth_username": [],
   "auth_mnesia": [],
   "auth_clientid": [
     {
-      "password": "*Y¨cabaca59dfcd78d3622f493a3cb8c9e8a02890ee06e8ba264d362930f40b0ce1",
+      "password": "��Pd56c0fcdcd7636dcf8ed1ea48cd3d58acab74030157551f7f7f8684804b9239e",
       "clientid": "emqx_clientid"
     }
   ],
