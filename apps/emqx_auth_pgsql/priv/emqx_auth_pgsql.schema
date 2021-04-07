@@ -101,7 +101,7 @@
   SslOpts = fun(Prefix) ->
                 Verify = case cuttlefish:conf_get(Prefix ++ ".verify", Conf, false) of
                              true -> verify_peer;
-                             flase -> verify_none
+                             false -> verify_none
                          end,
                 Filter([{keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
                         {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
