@@ -8,7 +8,7 @@ on:
 jobs:
   sync_to_enterprise:
     runs-on: ubuntu-20.04
-    if: github.repository == '${{ github.repository_owner }}/emqx'
+    if: github.repository == 'emqx/emqx'
     steps:
       - name: git-sync
         uses: Rory-Z/git-sync@v3.0.1
