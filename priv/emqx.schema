@@ -1020,7 +1020,7 @@ end}.
   {default, off}
 ]}.
 
-{mapping, "zone.$name.conn_congestion.wont_clear_alarm_in", "emqx.zones", [
+{mapping, "zone.$name.conn_congestion.min_alarm_sustain_duration", "emqx.zones", [
   {default, "1m"},
   {datatype, {duration, ms}}
 ]}.
@@ -1156,8 +1156,8 @@ end}.
                    {ratelimit, {conn_bytes_in, Ratelimit(Val)}};
                (["conn_congestion", "alarm"], Val) ->
                    {conn_congestion_alarm_enabled, Val};
-               (["conn_congestion", "wont_clear_alarm_in"], Val) ->
-                   {conn_congestion_wont_clear_alarm_in, Val};
+               (["conn_congestion", "min_alarm_sustain_duration"], Val) ->
+                   {conn_congestion_min_alarm_sustain_duration, Val};
                (["quota", "conn_messages_routing"], Val) ->
                    {quota, {conn_messages_routing, Ratelimit(Val)}};
                (["quota", "overall_messages_routing"], Val) ->

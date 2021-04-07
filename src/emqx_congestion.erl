@@ -65,7 +65,8 @@ alarm_congestion(Socket, Transport, Channel, Reason) ->
 
 cancel_alarm_congestion(Socket, Transport, Channel, Reason) ->
     Zone = emqx_channel:info(zone, Channel),
-    WontClearIn = emqx_zone:get_env(Zone, conn_congestion_wont_clear_alarm_in, ?WONT_CLEAR_IN),
+    WontClearIn = emqx_zone:get_env(Zone, conn_congestion_min_alarm_sustain_duration,
+                    ?WONT_CLEAR_IN),
     case has_alarm_sent(Reason) andalso long_time_since_last_alarm(Reason, WontClearIn) of
         true -> do_cancel_alarm_congestion(Socket, Transport, Channel, Reason);
         false -> ok
