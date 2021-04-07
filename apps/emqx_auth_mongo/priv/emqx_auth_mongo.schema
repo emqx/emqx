@@ -134,7 +134,7 @@
   SslOpts = fun(Prefix) ->
                 Verify = case cuttlefish:conf_get(Prefix ++ ".verify", Conf, false) of
                              true -> verify_peer;
-                             flase -> verify_none
+                             false -> verify_none
                          end,
                 Filter([{verify, Verify},
                         {server_name_indication, case cuttlefish:conf_get(Prefix ++ ".server_name_indication", Conf, undefined) of
