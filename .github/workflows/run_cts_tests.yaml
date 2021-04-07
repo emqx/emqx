@@ -351,7 +351,6 @@ jobs:
         if: matrix.node_type == 'single' && matrix.connect_type == 'tls'
         run: |
           cat <<-EOF >> "$GITHUB_ENV"
-          EMQX_AUTH__REIDS__PASSWORD=public
           EMQX_AUTH__REDIS__TYPE=single
           EMQX_AUTH__REDIS__SERVER=${redis_${{ matrix.network_type }}_address}:6380
           EOF
@@ -377,6 +376,7 @@ jobs:
       - name: run test cases
         run: |
           export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
+          export EMQX_AUTH__REIDS__PASSWORD=public
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_redis"

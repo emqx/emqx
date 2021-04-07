@@ -80,7 +80,7 @@ do
         continue;
     fi
     if [ "${node}" = "cluster" ] ; then
-      yes "yes" | redis-cli --cluster create "$LOCAL_IP:7000" "$LOCAL_IP:7001" "$LOCAL_IP:7002";
+      yes "yes" | redis-cli --cluster create "$LOCAL_IP:7000" "$LOCAL_IP:7001" "$LOCAL_IP:7002" --pass public --no-auth-warning;
     elif [ "${node}" = "sentinel" ] ; then
       cp /data/conf/sentinel.conf /_sentinel.conf
       redis-server /_sentinel.conf --sentinel;
