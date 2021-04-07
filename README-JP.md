@@ -11,18 +11,22 @@
 
 [English](./README.md) | [简体中文](./README-CN.md) | 日本語
 
-*EMQ X* ブローカーは、数千万のクライアントを同時に処理できるIoT、M2M、モバイルアプリケーション向けの、完全なオープンソース、高拡張性、高可用性、分散型MQTTメッセージングブローカーです。
+*EMQ X* は、高い拡張性と可用性をもつ、分散型のMQTTブローカーです。数千万のクライアントを同時に処理するIoT、M2M、モバイルアプリケーション向けです。
 
-バージョン3.0以降、*EMQ X* ブローカーはMQTTV5.0プロトコル仕様を完全にサポートし、MQTT V3.1およびV3.1.1と下位互換性があります。MQTT-SN、CoAP、LwM2M、WebSocket、STOMPなどの通信プロトコルをサポートしています。 1つのクラスター上で1,000万以上の同時MQTT接続に拡張することができます。
+version 3.0 以降、*EMQ X* は MQTT V5.0 の仕様を完全にサポートしており、MQTT V3.1およびV3.1.1とも下位互換性があります。
+MQTT-SN、CoAP、LwM2M、WebSocket、STOMPなどの通信プロトコルをサポートしています。 MQTTの同時接続数は1つのクラスター上で1,000万以上にまでスケールできます。
 
 - 新機能の一覧については、[EMQ Xリリースノート](https://github.com/emqx/emqx/releases)を参照してください。
 - 詳細はこちら[EMQ X公式ウェブサイト](https://www.emqx.io/)をご覧ください。
 
 ## インストール
 
-*EMQ X* ブローカーはクロスプラットフォームで、Linux、Unix、macOS、Windowsをサポートしています。これは、*EMQ X* ブローカーをx86_64アーキテクチャサーバー、またはRaspberryPiなどのARMデバイスにデプロイできることを意味します。
+*EMQ X* はクロスプラットフォームで、Linux、Unix、macOS、Windowsをサポートしています。
+そのため、x86_64アーキテクチャサーバー、またはRaspberryPiなどのARMデバイスに *EMQ X* をデプロイすることもできます。
 
-#### EMQ X Dockerイメージによるインストール
+Windows上における *EMQ X* のビルドと実行については、[Windows.md](./Windows.md)をご参照ください。
+
+#### Docker イメージによる EMQ X のインストール
 
 ```
 docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
@@ -30,24 +34,30 @@ docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p
 
 #### バイナリパッケージによるインストール
 
-対応するオペレーティングシステムのバイナリソフトウェアパッケージは、[EMQ Xのダウンロード](https://www.emqx.io/downloads)ページから取得できます。
+それぞれのOSに対応したバイナリソフトウェアパッケージは、[EMQ Xのダウンロード](https://www.emqx.io/downloads)ページから取得できます。
 
 - [シングルノードインストール](https://docs.emqx.io/broker/latest/en/getting-started/installation.html)
 - [マルチノードインストール](https://docs.emqx.io/broker/latest/en/advanced/cluster.html)
 
 ## ソースからビルド
 
-バージョン3.0以降、*EMQ X* ブローカーをビルドするには Erlang/OTP R21+ が必要です。
+version 3.0 以降の *EMQ X* をビルドするには Erlang/OTP R21+ が必要です。
 
-```
+version 4.3 以降の場合：
+
+```bash
 git clone https://github.com/emqx/emqx-rel.git
-
-cd emqx-rel && make
-
-cd _rel/emqx && ./bin/emqx console
+cd emqx-rel
+make
+_build/emqx/rel/emqx/bin/emqx console
 ```
 
 ## クイックスタート
+
+emqx をソースコードからビルドした場合は、
+`cd _buid/emqx/rel/emqx`でリリースビルドのディレクトリに移動してください。
+
+リリースパッケージからインストールした場合は、インストール先のルートディレクトリに移動してください。
 
 ```
 # Start emqx
@@ -60,7 +70,21 @@ cd _rel/emqx && ./bin/emqx console
 ./bin/emqx stop
 ```
 
-*EMQ X* ブローカーを起動したら、ブラウザで http://localhost:18083 にアクセスしてダッシュボードを表示できます。
+*EMQ X* の起動後、ブラウザで http://localhost:18083 にアクセスするとダッシュボードが表示されます。
+
+## テスト
+
+### 全てのテストケースを実行する
+
+```
+make eunit ct
+```
+
+### common test の一部を実行する
+
+```bash
+make apps/emqx_bridge_mqtt-ct
+```
 
 ### Dialyzer
 ##### アプリケーションの型情報を解析する
@@ -73,30 +97,28 @@ make dialyzer
 DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 ```
 
-## FAQ
+## コミュニティ
 
-よくある質問については、[EMQ X FAQ](https://docs.emqx.io/broker/latest/en/faq/faq.html)にアクセスしてください。
+### FAQ
 
-## ロードマップ
+よくある質問については、[EMQ X FAQ](https://docs.emqx.io/broker/latest/en/faq/faq.html)をご確認ください。
 
-[EMQ X Roadmap uses Github milestones](https://github.com/emqx/emqx/milestones)からプロジェクトの進捗状況を追跡できます。
+### 質問する
 
-## コミュニティ、ディスカッション、貢献、サポート
+質問や知識共有の場として[GitHub Discussions](https://github.com/emqx/emqx/discussions)を用意しています。
 
-次のチャネルを通じて、EMQコミュニティおよび開発者に連絡できます。
+### 提案
 
-- [Slack](https://slack-invite.emqx.io/)
-- [Twitter](https://twitter.com/emqtt)
-- [Facebook](https://www.facebook.com/emqxmqtt)
-- [Reddit](https://www.reddit.com/r/emqx/)
-- [Forum](https://groups.google.com/d/forum/emqtt)
-- [Blog](https://medium.com/@emqtt)
+大規模な改善のご提案がある場合は、[EIP](https://github.com/emqx/eip)にPRをどうぞ。
 
-バグ、問題、機能のリクエストは、[emqx/emqx](https://github.com/emqx/emqx/issues)に送信してください。
+### 自作プラグイン
 
-## MQTT仕様
+プラグインを自作することができます。[lib-extra/README.md](./lib-extra/README.md)をご確認ください。
 
-次のリンクから、MQTTプロトコルについて学習および確認できます。
+
+## MQTTの仕様について
+
+下記のサイトで、MQTTのプロトコルについて学習・確認できます。
 
 [MQTT Version 3.1.1](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html)
 
