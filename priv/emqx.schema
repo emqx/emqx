@@ -200,7 +200,7 @@ end}.
 %% Node
 %%--------------------------------------------------------------------
 
-%% @doc Node name
+%% @Doc Node name
 {mapping, "node.name", "vm_args.-name", [
   {default, "emqx@127.0.0.1"},
   {override_env, "NODE_NAME"}
@@ -2478,4 +2478,25 @@ end}.
   , {url,             cuttlefish:conf_get("telemetry.url", Conf)}
   , {report_interval, cuttlefish:conf_get("telemetry.report_interval", Conf)}
   ]
+end}.
+
+
+%%--------------------------------------------------------------------
+%% RLOG
+%%--------------------------------------------------------------------
+{mapping, "rlog.role", "ekka.node_role", [
+  {default, core},
+  {datatype, {enum, [core, replicant]}},
+  {override_env, "NODE_ROLE"}
+]}.
+
+{mapping, "rlog.core_nodes", "ekka.core_nodes", [
+  {default, ""},
+  {datatype, string},
+  {override_env, "CORE_NODES"}
+]}.
+
+{translation, "ekka.core_nodes", fun(Conf) ->
+    Setting = cuttlefish:conf_get("rlog.core_nodes", Conf),
+    lists:map(fun erlang:list_to_atom/1, string:lexemes(Setting, " "))
 end}.
