@@ -71,7 +71,7 @@ update(Username, Password, Salt, IterationCount) ->
     end.
 
 delete(Username) ->
-    ret(mnesia:transaction(fun mnesia:delete/3, [?SCRAM_AUTH_TAB, Username, write])).
+    ret(ekka_mnesia:transaction(fun mnesia:delete/3, [?SCRAM_AUTH_TAB, Username, write])).
 
 lookup(Username) ->
     case mnesia:dirty_read(?SCRAM_AUTH_TAB, Username) of
@@ -99,7 +99,7 @@ do_add(Username, Password, Salt, IterationCount) ->
                            server_key = base64:encode(ServerKey),
                            salt = base64:encode(Salt),
                            iteration_count = IterationCount},
-    ret(mnesia:transaction(fun mnesia:write/3, [?SCRAM_AUTH_TAB, AuthInfo, write])).
+    ret(ekka_mnesia:transaction(fun mnesia:write/3, [?SCRAM_AUTH_TAB, AuthInfo, write])).
 
 ret({atomic, ok})     -> ok;
 ret({aborted, Error}) -> {error, Error}.
@@ -125,7 +125,7 @@ check_client_first(ClientFirst) ->
                server_key := ServerKey0,
                salt := Salt0,
                iteration_count := IterationCount}} ->
-            StoredKey = base64:decode(StoredKey0), 
+            StoredKey = base64:decode(StoredKey0),
             ServerKey = base64:decode(ServerKey0),
             Salt = base64:decode(Salt0),
             ServerNonce = nonce(),
@@ -200,7 +200,7 @@ check_server_final(ServerFinal, #{password := Password,
     case base64:encode(ServerSignature) =:= proplists:get_value(verifier, NewAttributes) of
         true ->
             {ok, <<>>, #{}};
-        false -> 
+        false ->
             {stop, invalid_server_final}
     end.
 
@@ -307,4 +307,3 @@ to_list(V) when is_integer(V) ->
     integer_to_list(V);
 to_list(_) ->
     error(bad_type).
-

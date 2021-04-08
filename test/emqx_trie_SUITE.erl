@@ -191,7 +191,6 @@ t_delete3(_) ->
 clear_tables() -> emqx_trie:clear_tables().
 
 trans(Fun) ->
-    mnesia:transaction(Fun).
+    ekka_mnesia:transaction(Fun).
 trans(Fun, Args) ->
-    mnesia:transaction(Fun, Args).
-
+    ekka_mnesia:transaction(Fun, Args).

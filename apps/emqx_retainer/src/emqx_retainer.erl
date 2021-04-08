@@ -115,7 +115,7 @@ clean(Topic) when is_binary(Topic) ->
                           [_M] -> mnesia:delete({?TAB, Tokens}), 1
                       end
                   end,
-            {atomic, N} = mnesia:transaction(Fun), N
+            {atomic, N} = ekka_mnesia:transaction(Fun), N
     end.
 
 %%--------------------------------------------------------------------
@@ -205,7 +205,7 @@ store_retained(Msg = #message{topic = Topic, payload = Payload}, Env) ->
                                                msg = Msg,
                                                expiry_time = get_expiry_time(Msg, Env)});
         {true, false} ->
-            {atomic, _} = mnesia:transaction(
+            {atomic, _} = ekka_mnesia:transaction(
                 fun() ->
                     case mnesia:read(?TAB, Topic) of
                         [_] ->
@@ -256,7 +256,7 @@ expire_messages() ->
     NowMs = erlang:system_time(millisecond),
     MsHd = #retained{topic = '$1', msg = '_', expiry_time = '$3'},
     Ms = [{MsHd, [{'=/=','$3',0}, {'<','$3',NowMs}], ['$1']}],
-    {atomic, _} = mnesia:transaction(
+    {atomic, _} = ekka_mnesia:transaction(
         fun() ->
             Keys = mnesia:select(?TAB, Ms, write),
             lists:foreach(fun(Key) -> mnesia:delete({?TAB, Key}) end, Keys)

@@ -48,7 +48,7 @@ add_user(Login, Password) ->
               password = encrypted_data(Password),
               created_at = erlang:system_time(millisecond)
              },
-    ret(mnesia:transaction(fun insert_user/1, [User])).
+    ret(ekka_mnesia:transaction(fun insert_user/1, [User])).
 
 insert_user(User = #emqx_user{login = Login}) ->
     case mnesia:read(?TABLE, Login) of
@@ -59,7 +59,7 @@ insert_user(User = #emqx_user{login = Login}) ->
 %% @doc Update User
 -spec(update_user(tuple(), binary()) -> ok | {error, any()}).
 update_user(Login, NewPassword) ->
-    ret(mnesia:transaction(fun do_update_user/2, [Login, encrypted_data(NewPassword)])).
+    ret(ekka_mnesia:transaction(fun do_update_user/2, [Login, encrypted_data(NewPassword)])).
 
 do_update_user(Login, NewPassword) ->
     case mnesia:read(?TABLE, Login) of
@@ -78,7 +78,7 @@ lookup_user(Login) ->
 %% @doc Remove user
 -spec(remove_user(tuple()) -> ok | {error, any()}).
 remove_user(Login) ->
-    ret(mnesia:transaction(fun mnesia:delete/1, [{?TABLE, Login}])).
+    ret(ekka_mnesia:transaction(fun mnesia:delete/1, [{?TABLE, Login}])).
 
 %% @doc All logins
 -spec(all_users() -> list()).

@@ -181,7 +181,7 @@ get_rules_ordered_by_ts() ->
         Query = qlc:q([E || E <- mnesia:table(?RULE_TAB)]),
         qlc:e(qlc:keysort(#rule.created_at, Query, [{order, ascending}]))
     end,
-    {atomic, List} = mnesia:transaction(F),
+    {atomic, List} = ekka_mnesia:transaction(F),
     List.
 
 -spec(get_rules_for(Topic :: binary()) -> list(emqx_rule_engine:rule())).
@@ -488,7 +488,7 @@ get_all_records(Tab) ->
 
 trans(Fun) -> trans(Fun, []).
 trans(Fun, Args) ->
-    case mnesia:transaction(Fun, Args) of
+    case ekka_mnesia:transaction(Fun, Args) of
         {atomic, Result} -> Result;
         {aborted, Reason} -> error(Reason)
     end.

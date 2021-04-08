@@ -123,7 +123,7 @@ handle_cast(Msg, State) ->
 handle_info({membership, {mnesia, down, Node}}, State) ->
     global:trans({?LOCK, self()},
                  fun() ->
-                     mnesia:transaction(fun cleanup_channels/1, [Node])
+                     ekka_mnesia:transaction(fun cleanup_channels/1, [Node])
                  end),
     {noreply, State};
 
@@ -150,4 +150,3 @@ cleanup_channels(Node) ->
 
 delete_channel(Chan) ->
     mnesia:delete_object(?TAB, Chan, write).
-
