@@ -62,6 +62,8 @@
 -module(emqx_bridge_worker).
 -behaviour(gen_statem).
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 %% APIs
 -export([ start_link/1
         , start_link/2
@@ -479,11 +481,16 @@ retry_inflight(State, [#{q_ack_ref := QAckRef, batch := Batch} | Inflight]) ->
         {error, State1} -> {error, State1}
     end.
 
-pop_and_send(#{inflight := Inflight, max_inflight := Max } = State) when length(Inflight) >= Max ->
+pop_and_send(#{inflight := Inflight, max_inflight := Max } = State) ->
+    pop_and_send_loop(State, Max - length(Inflight)).
+
+pop_and_send_loop(State, 0) ->
+    ?tp(debug, inflight_full, #{}),
     {ok, State};
-pop_and_send(#{replayq := Q, connect_module := Module} = State) ->
+pop_and_send_loop(#{replayq := Q, connect_module := Module} = State, N) ->
     case replayq:is_empty(Q) of
         true ->
+            ?tp(debug, replayq_drained, #{}),
             {ok, State};
         false ->
             BatchSize = case Module of
@@ -492,7 +499,10 @@ pop_and_send(#{replayq := Q, connect_module := Module} = State) ->
             end,
             Opts = #{count_limit => BatchSize, bytes_limit => 999999999},
             {Q1, QAckRef, Batch} = replayq:pop(Q, Opts),
-            do_send(State#{replayq := Q1}, QAckRef, Batch)
+            case do_send(State#{replayq := Q1}, QAckRef, Batch) of
+                {ok, NewState} -> pop_and_send_loop(NewState, N - 1);
+                {error, NewState} -> {error, NewState}
+            end
     end.
 
 %% Assert non-empty batch because we have a is_empty check earlier.
@@ -500,7 +510,7 @@ do_send(#{inflight := Inflight,
           connect_module := Module,
           connection := Connection,
           mountpoint := Mountpoint,
-          if_record_metrics := IfRecordMetrics} = State, QAckRef, Batch) ->
+          if_record_metrics := IfRecordMetrics} = State, QAckRef, [_ | _] = Batch) ->
     ExportMsg = fun(Message) ->
                     bridges_metrics_inc(IfRecordMetrics, 'bridge.mqtt.message_sent'),
                     emqx_bridge_msg:to_export(Module, Mountpoint, Message)
@@ -511,7 +521,7 @@ do_send(#{inflight := Inflight,
                                                    send_ack_ref => map_set(Refs),
                                                    batch => Batch}]}};
         {error, Reason} ->
-            ?LOG(info, "batch_produce_failed ~p", [Reason]),
+            ?LOG(info, "mqtt_bridge_produce_failed ~p", [Reason]),
             {error, State}
     end.
 
@@ -543,7 +553,9 @@ do_ack([#{send_ack_ref := Refs} = First | Rest], Ref) ->
     end.
 
 %% Drop the consecutive header of the inflight list having empty send_ack_ref
-drop_acked_batches(_Q, []) -> [];
+drop_acked_batches(_Q, []) ->
+    ?tp(debug, inflight_drained, #{}),
+    [];
 drop_acked_batches(Q, [#{send_ack_ref := Refs,
                          q_ack_ref := QAckRef} | Rest] = All) ->
     case maps:size(Refs) of
