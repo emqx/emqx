@@ -26,7 +26,7 @@
 
 -rest_api(#{name   => clean_acl_cache_node,
             method => 'DELETE',
-            path   => "/:atom:node/acl-cache",
+            path   => "nodes/:atom:node/acl-cache",
             func   => clean_node,
             descr  => "Clean acl cache on specific node"}).
 
