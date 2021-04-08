@@ -88,8 +88,17 @@ insert(Topic) when is_binary(Topic) ->
         [TrieNode = #trie_node{topic = undefined}] ->
             write_trie_node(TrieNode#trie_node{topic = Topic});
         [] ->
+            Paths = triples(Topic),
+            case length(ekka_mnesia:running_nodes()) > 1 andalso length(Paths) > 4 of
+                true ->
+                    %% take whole table lock to save mnesia remote lock overheads.
+                    mnesia:write_lock_table(?TRIE_TAB),
+                    mnesia:write_lock_table(?TRIE_NODE_TAB);
+                false ->
+                    skip
+            end,
             %% Add trie path
-            ok = lists:foreach(fun add_path/1, triples(Topic)),
+            ok = lists:foreach(fun add_path/1, Paths),
             %% Add last node
             write_trie_node(#trie_node{node_id = Topic, topic = Topic})
     end.
