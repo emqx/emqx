@@ -67,6 +67,13 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_bridge_mqtt]).
 
+init_per_testcase(_TestCase, Config) ->
+    ok = snabbkaffe:start_trace(),
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    ok = snabbkaffe:stop().
+
 t_mngr(Config) when is_list(Config) ->
     Subs = [{<<"a">>, 1}, {<<"b">>, 2}],
     Cfg = #{address => node(),
@@ -188,7 +195,6 @@ t_stub_normal(Config) when is_list(Config) ->
            },
     {ok, Pid} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
     ClientId = <<"ClientId">>,
-    snabbkaffe:start_trace(),
     try
         {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),
         {ok, _} = emqtt:connect(ConnPid),
@@ -202,7 +208,6 @@ t_stub_normal(Config) when is_list(Config) ->
         ?SNK_WAIT(replayq_drained),
         emqtt:disconnect(ConnPid)
     after
-        snabbkaffe:stop(),
         ok = emqx_bridge_worker:stop(Pid)
     end.
 
@@ -218,7 +223,6 @@ t_stub_overflow(Config) when is_list(Config) ->
            },
     {ok, Worker} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
     ClientId = <<"ClientId">>,
-    snabbkaffe:start_trace(),
     try
         {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),
         {ok, _} = emqtt:connect(ConnPid),
@@ -236,7 +240,6 @@ t_stub_overflow(Config) when is_list(Config) ->
         ?SNK_WAIT(replayq_drained),
         emqtt:disconnect(ConnPid)
     after
-        snabbkaffe:stop(),
         ok = emqx_bridge_worker:stop(Worker)
     end.
 
@@ -252,7 +255,6 @@ t_stub_random_order(Config) when is_list(Config) ->
            },
     {ok, Worker} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
     ClientId = <<"ClientId">>,
-    snabbkaffe:start_trace(),
     try
         {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),
         {ok, _} = emqtt:connect(ConnPid),
@@ -268,7 +270,6 @@ t_stub_random_order(Config) when is_list(Config) ->
         ?SNK_WAIT(replayq_drained),
         emqtt:disconnect(ConnPid)
     after
-        snabbkaffe:stop(),
         ok = emqx_bridge_worker:stop(Worker)
     end.
 
