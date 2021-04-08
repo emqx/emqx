@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - v*
+    branches:
+      - job-matrix
   release:
     types:
       - published
@@ -170,10 +172,7 @@ jobs:
         timeout-minutes: 10
         run: |
           docker-compose -f .ci/docker-compose-file/docker-compose.yaml up -d --build
-          sleep 60
-          docker exec -i erlang "curl -fsSL https://get.docker.com -o get-docker.sh"
-          docker exec -i erlang "sh get-docker.sh"
-          docker exec -i -w /tmp erlang sh -c "docker-compose"
+          sleep 30
       - name: set git token
         run: |
           if make emqx-ee --dry-run > /dev/null 2>&1; then
