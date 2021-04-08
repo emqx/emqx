@@ -106,13 +106,20 @@ format_listen_on(ListenOn) -> format(ListenOn).
 start_listener(#{proto := Proto, name := Name, listen_on := ListenOn, opts := Options}) ->
     ID = identifier(Proto, Name),
     case start_listener(Proto, ListenOn, Options) of
-        {ok, _} -> io:format("Start ~s listener on ~s successfully.~n",
-                             [ID, format(ListenOn)]);
+        {ok, _} ->
+            console_print("Start ~s listener on ~s successfully.~n", [ID, format(ListenOn)]);
         {error, Reason} ->
             io:format(standard_error, "Failed to start mqtt listener ~s on ~s: ~0p~n",
                       [ID, format(ListenOn), Reason]),
             error(Reason)
     end.
+
+-ifndef(TEST).
+console_print(Fmt, Args) ->
+    io:format(Fmt, Args).
+-else.
+console_print(_Fmt, _Args) -> ok.
+-endif.
 
 %% Start MQTT/TCP listener
 -spec(start_listener(esockd:proto(), esockd:listen_on(), [esockd:option()])
