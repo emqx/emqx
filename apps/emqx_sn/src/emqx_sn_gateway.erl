@@ -390,7 +390,7 @@ asleep(cast, {incoming, ?SN_DISCONNECT_MSG(Duration)}, State) ->
     ok = send_message(?SN_DISCONNECT_MSG(undefined), State),
     case Duration of
         undefined ->
-            handle_incoming(?PACKET(?DISCONNECT), State);
+            handle_incoming(?DISCONNECT_PACKET(), State);
         _Other ->
             goto_asleep_state(Duration, State)
     end;
@@ -547,6 +547,9 @@ handle_event(info, asleep_timeout, asleep, State) ->
 handle_event(info, asleep_timeout, StateName, State) ->
     ?LOG(debug, "asleep timer timeout on StateName=~p, ignore it", [StateName], State),
     {keep_state, State};
+
+handle_event(cast, {close, Reason}, _StateName, State) ->
+    stop(Reason, State);
 
 handle_event(cast, {event, connected}, _StateName, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
