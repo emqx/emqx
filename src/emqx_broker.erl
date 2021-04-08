@@ -419,7 +419,7 @@ safe_update_stats(Tab, Stat, MaxStat) ->
 -compile({inline, [call/2, cast/2, pick/1]}).
 
 call(Broker, Req) ->
-    gen_server:call(Broker, Req).
+    gen_server:call(Broker, Req, infinity).
 
 cast(Broker, Msg) ->
     gen_server:cast(Broker, Msg).
@@ -436,9 +436,14 @@ init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #{pool => Pool, id => Id}}.
 
-handle_call({subscribe, Topic}, _From, State) ->
-    Ok = emqx_router:do_add_route(Topic),
-    {reply, Ok, State};
+handle_call({subscribe, Topic}, {FromPid, _Tag}, State) ->
+    case is_process_alive(FromPid) of
+        true ->
+            Res = emqx_router:do_add_route(Topic),
+            {reply, Res, State};
+        false ->
+            {noreply, State}
+    end;
 
 handle_call({subscribe, Topic, I}, _From, State) ->
     Ok = case get(Shard = {Topic, I}) of
