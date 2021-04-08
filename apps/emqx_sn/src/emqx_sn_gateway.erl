@@ -219,7 +219,7 @@ idle(cast, {connack, ConnAck}, State) ->
     {next_state, connected, State};
 
 idle(timeout, _Timeout, State) ->
-    stop({shutdown, idle_timeout}, State);
+    stop(idle_timeout, State);
 
 idle(EventType, EventContent, State) ->
     handle_event(EventType, EventContent, idle, State).
@@ -374,10 +374,10 @@ connected(cast, {connack, ConnAck}, State) ->
 
 connected(cast, {shutdown, Reason, Packet}, State) ->
     ok = handle_outgoing(Packet, State),
-    {stop, {shutdown, Reason}, State};
+    stop(Reason, State);
 
 connected(cast, {shutdown, Reason}, State) ->
-    {stop, {shutdown, Reason}, State};
+    stop(Reason, State);
 
 connected(cast, {close, Reason}, State) ->
     ?LOG(debug, "Force to close the socket due to ~p", [Reason], State),
@@ -614,11 +614,11 @@ handle_return({ok, NChannel}, State, AddEvents) ->
 handle_return({ok, Replies, NChannel}, State, AddEvents) ->
     {keep_state, State#state{channel = NChannel}, outgoing_events(append(Replies, AddEvents))};
 handle_return({shutdown, Reason, NChannel}, State, _AddEvents) ->
-    stop({shutdown, Reason}, State#state{channel = NChannel});
+    stop(Reason, State#state{channel = NChannel});
 handle_return({shutdown, Reason, OutPacket, NChannel}, State, _AddEvents) ->
     NState = State#state{channel = NChannel},
     ok = handle_outgoing(OutPacket, NState),
-    stop({shutdown, Reason}, NState).
+    stop(Reason, NState).
 
 outgoing_events(Actions) ->
     lists:map(fun outgoing_event/1, Actions).
@@ -772,22 +772,26 @@ goto_asleep_state(Duration, State=#state{asleep_timer = AsleepTimer}) ->
 -compile({inline, [shutdown/2, shutdown/3]}).
 shutdown(Reason, State) ->
     ?LOG(error, "shutdown due to ~p", [Reason], State),
-    stop({shutdown, Reason}, State).
+    stop(Reason, State).
 
 shutdown(Reason, Reply, State) ->
     ?LOG(error, "shutdown due to ~p", [Reason], State),
-    stop({shutdown, Reason}, Reply, State).
+    stop(Reason, Reply, State).
 
 -compile({inline, [stop/2, stop/3]}).
+stop({shutdown, Reason}, State) ->
+    stop(Reason, State);
 stop(Reason, State) ->
     case Reason of
         %% FIXME: The Will-Msg should publish when a Session terminated!
-        asleep_timeout                    -> do_publish_will(State);
-        {shutdown, keepalive_timeout}     -> do_publish_will(State);
-        _                                 -> ok
+        asleep_timeout -> do_publish_will(State);
+        keepalive_timeout -> do_publish_will(State);
+        _ -> ok
     end,
-    {stop, Reason, State}.
+    {stop, {shutdown, Reason}, State}.
 
+stop({shutdown, Reason}, Reply, State) ->
+    stop(Reason, Reply, State);
 stop(Reason, Reply, State) ->
     {stop, Reason, Reply, State}.
 
