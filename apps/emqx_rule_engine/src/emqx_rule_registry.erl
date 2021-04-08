@@ -67,6 +67,10 @@
         , unregister_resource_types_of/1
         ]).
 
+-export([ load_hooks_for_rule/1
+        , unload_hooks_for_rule/1
+        ]).
+
 %% for debug purposes
 -export([dump/0]).
 
@@ -216,8 +220,8 @@ remove_rules(Rules) ->
     gen_server:call(?REGISTRY, {remove_rules, Rules}, ?T_CALL).
 
 %% @private
-insert_rule(Rule = #rule{for = Topics}) ->
-    lists:foreach(fun emqx_rule_events:load/1, Topics),
+insert_rule(Rule) ->
+    _ = ?CLUSTER_CALL(load_hooks_for_rule, [Rule]),
     mnesia:write(?RULE_TAB, Rule, write).
 
 %% @private
@@ -226,15 +230,21 @@ delete_rule(RuleId) when is_binary(RuleId) ->
         {ok, Rule} -> delete_rule(Rule);
         not_found -> ok
     end;
-delete_rule(Rule = #rule{id = Id, for = Topics}) ->
+delete_rule(Rule) ->
+    _ = ?CLUSTER_CALL(unload_hooks_for_rule, [Rule]),
+    mnesia:delete_object(?RULE_TAB, Rule, write).
+
+load_hooks_for_rule(#rule{for = Topics}) ->
+    lists:foreach(fun emqx_rule_events:load/1, Topics).
+
+unload_hooks_for_rule(#rule{id = Id, for = Topics}) ->
     lists:foreach(fun(Topic) ->
             case get_rules_with_same_event(Topic) of
                 [#rule{id = Id}] -> %% we are now deleting the last rule
                     emqx_rule_events:unload(Topic);
                 _ -> ok
             end
-        end, Topics),
-    mnesia:delete_object(?RULE_TAB, Rule, write).
+        end, Topics).
 
 %%------------------------------------------------------------------------------
 %% Action Management
