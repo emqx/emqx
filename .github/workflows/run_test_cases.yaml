@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - v*
+      - e*
   release:
     types:
       - published
