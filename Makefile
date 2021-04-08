@@ -5,7 +5,7 @@ BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 export EMQX_DESC ?= EMQ X
-export EMQX_CE_DASHBOARD_VERSION ?= v4.3.0-beta.1
+export EMQX_CE_DASHBOARD_VERSION ?= v4.3.0-rc.1
 ifeq ($(OS),Windows_NT)
 	export REBAR_COLOR=none
 endif
