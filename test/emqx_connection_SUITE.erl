@@ -414,8 +414,8 @@ t_oom_shutdown(_) ->
     with_conn(
       fun(Pid) ->
               Pid ! {tcp_passive, foo},
-              ?block_until(#{?snk_kind := check_oom}, 100),
-              ?block_until(#{?snk_kind := terminate}, 10),
+              {ok, _} = ?block_until(#{?snk_kind := check_oom}, 1000),
+              {ok, _} = ?block_until(#{?snk_kind := terminate}, 100),
               Trace = snabbkaffe:collect_trace(),
               ?assertEqual(1, length(?of_kind(terminate, Trace))),
               receive
