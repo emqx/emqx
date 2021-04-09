@@ -1251,7 +1251,10 @@ t_asleep_test06_to_awake_qos2_dl_msg(_) ->
     UdpData = wrap_receive_response(Socket),
     MsgId_udp = check_publish_msg_on_udp({Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId_tom, Payload1}, UdpData),
     send_pubrec_msg(Socket, MsgId_udp),
+    ?assertMatch(<<_:8, ?SN_PUBREL:8, _/binary>>, receive_response(Socket)),
+    send_pubcomp_msg(Socket, MsgId_udp),
 
+    %% verify the pingresp is received after receiving all the buffered qos2 msgs
     ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
     gen_udp:close(Socket).
 

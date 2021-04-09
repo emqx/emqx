@@ -48,6 +48,9 @@
         , terminate/2
         ]).
 
+%% Export for emqx_sn
+-export([do_deliver/2]).
+
 %% Exports for CT
 -export([set_field/3]).
 
