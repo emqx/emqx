@@ -214,12 +214,19 @@ generate_config() {
             EMQX_LICENSE_CONF_OPTION="-i ${EMQX_LICENSE_CONF}"
         fi
 
+        set +e
         # shellcheck disable=SC2086
-        CONFIG="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -v -i "$REL_DIR"/emqx.schema $EMQX_LICENSE_CONF_OPTION -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)"
+        CUTTLEFISH_OUTPUT="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -v -i "$REL_DIR"/emqx.schema $EMQX_LICENSE_CONF_OPTION -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)"
+        # shellcheck disable=SC2181
+        RESULT=$?
+        set -e
+        if [ $RESULT -gt 0 ]; then
+            echo "$CUTTLEFISH_OUTPUT"
+            exit $RESULT
+        fi
         # print override from environment variables (EMQX_*)
-        echo "$CONFIG" | sed -e '$d'
-        CONFIG_ARGS=$(echo "$CONFIG" | tail -n 1)
-
+        echo "$CUTTLEFISH_OUTPUT" | sed -e '$d'
+        CONFIG_ARGS=$(echo "$CUTTLEFISH_OUTPUT" | tail -n 1)
 
         ## Merge cuttlefish generated *.args into the vm.args
         CUTTLE_GEN_ARG_FILE=$(echo "$CONFIG_ARGS" | sed -n 's/^.*\(vm_args[[:space:]]\)//p' | awk '{print $1}')
