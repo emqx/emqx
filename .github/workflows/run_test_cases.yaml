@@ -36,7 +36,8 @@ jobs:
           id: set_edition
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
-                echo "EDITION=enterprise" >> $GITHUB_ENV
+                echo "EDITION=enterprise" >> $G
+            ITHUB_ENV
             else
                 echo "EDITION=opensource" >> $GITHUB_ENV
             fi

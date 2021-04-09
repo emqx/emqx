@@ -151,7 +151,7 @@ jobs:
       - uses: actions/checkout@v1
       - name: docker-compose up
         timeout-minutes: 10
-        run: docker-compose -f .ci/docker-compose-file/docker-compose.yaml up -d --build
+        run: docker-compose -f .ci/docker-compose-file/docker-compose-siblings.yaml up -d --build
       - name: fetch matrix
         run: |
           docker exec -i erlang sh -c "make ensure-rebar3"
@@ -169,9 +169,9 @@ jobs:
     steps:
       - uses: actions/checkout@v1
       - name: docker-compose up
-        timeout-minutes: 10
+        timeout-minutes: 30
         run: |
-          docker-compose -f .ci/docker-compose-file/docker-compose.yaml up -d --build
+          docker-compose -f .ci/docker-compose-file/docker-compose-siblings.yaml up -d --build
           sleep 30
       - name: set git token
         run: |
@@ -184,12 +184,11 @@ jobs:
           export EMQX_CT_MATRIX_OVERRIDE="$EMQX_CT_MATRIX_OVERRIDE"
           printenv > .env
           cat .env
-          echo "EMQX_CT_MATRIX_OVERRIDE : $EMQX_CT_MATRIX_OVERRIDE"
+          ls -al /var/run/
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mysql "
           docker exec  --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_mysql --sname test -c -v"
       - uses: actions/upload-artifact@v1
-        if: failure()
         with:
           name: logs_mysql
           path: _build/test/logs
