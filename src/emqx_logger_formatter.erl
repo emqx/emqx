@@ -246,14 +246,10 @@ truncate(String,Size) ->
             String
     end.
 
-%% Convert microseconds-timestamp into local datatime string in milliseconds
-format_time(SysTime,#{})
-  when is_integer(SysTime) ->
-    Ms = SysTime rem 1000000 div 1000,
-    {Date, _Time = {H, Mi, S}} = calendar:system_time_to_local_time(SysTime, microsecond),
-    format_time({Date, {H, Mi, S, Ms}}).
-format_time({{Y, M, D}, {H, Mi, S, Ms}}) ->
-    io_lib:format("~b-~2..0b-~2..0b ~2..0b:~2..0b:~2..0b.~3..0b", [Y, M, D, H, Mi, S, Ms]).
+format_time(SysTime, Config) when is_integer(SysTime) ->
+    Offset = maps:get(time_offset, Config, ""),
+    calendar:system_time_to_rfc3339(SysTime, [{unit,microsecond},
+                                              {offset,Offset}]).
 
 format_mfa({M,F,A},_) when is_atom(M), is_atom(F), is_integer(A) ->
     atom_to_list(M)++":"++atom_to_list(F)++"/"++integer_to_list(A);
@@ -313,11 +309,30 @@ do_check_config([{template,T}|Config]) ->
         ok -> do_check_config(Config);
         error -> {error,{invalid_formatter_template,?MODULE,T}}
     end;
-
+do_check_config([{time_offset, Offset} | Config]) ->
+    case lists:member(Offset, ["", "0", "Z", "z"]) orelse check_time_offset(Offset) of
+        true -> do_check_config(Config);
+        error -> {error, {time_offset, ?MODULE, Offset}}
+    end;
 do_check_config([C|_]) ->
     {error,{invalid_formatter_config,?MODULE,C}};
 do_check_config([]) ->
     ok.
+
+check_time_offset([S, H1, H2, $:, M1, M2]) ->
+    (S =:= $+ orelse S =:= $-) andalso
+    try
+        begin
+            H = list_to_integer([H1, H2]),
+            M = list_to_integer([M1, M2]),
+            H >=0 andalso H =< 14 andalso
+            M >= 0 andalso M =< 59
+        end
+    catch
+        _ : _ ->
+            error
+    end;
+check_time_offset(_) -> error.
 
 check_limit(L) when is_integer(L), L>0 ->
     ok;

@@ -75,7 +75,7 @@ all() ->
 default(_Config) ->
     String1 = format(info,{"~p",[term]},#{},#{}),
     ct:log(String1),
-    ?assertMatch([_Date, _Time,"info:","term\n"], string:lexemes(String1," ")),
+    ?assertMatch([_DateTime,"info:","term\n"], string:lexemes(String1, " ")),
 
     Time = timestamp(),
     ExpectedTimestamp = default_time_format(Time),
@@ -581,8 +581,8 @@ update_config(_Config) ->
     ct:log("lines1: ~p", [Lines1]),
     ct:log("c1: ~p",[C1]),
     [Line1 | _] = Lines1,
-    [_Date, WithOutDate1] = string:split(Line1," "),
-    [_, "notice: "++D1] = string:split(WithOutDate1," "),
+    [_DateTime1, WithOutDate1] = string:split(Line1, " "),
+    ["notice:", D1] = string:split(WithOutDate1, " "),
     ?assert(length(D1)<1000),
     ?assertMatch(#{chars_limit := unlimited}, C1),
 
@@ -591,8 +591,8 @@ update_config(_Config) ->
     ct:log("Lines5: ~p", [Lines5]),
     ct:log("c5: ~p",[C5]),
     [Line5 | _] = Lines5,
-    [_Date, WithOutDate5] = string:split(Line5," "),
-    [_, "error: "++_D5] = string:split(WithOutDate5," "),
+    [_DateTime2, WithOutDate5] = string:split(Line5, " "),
+    ["error:", _D5] = string:split(WithOutDate5, " "),
 
     ?assertMatch({error,{invalid_formatter_config,bad}},
         logger:update_formatter_config(?MODULE,bad)),
@@ -616,13 +616,8 @@ format(Log,Config) ->
     lists:flatten(emqx_logger_formatter:format(Log,Config)).
 
 default_time_format(SysTime) when is_integer(SysTime) ->
-    Ms = SysTime rem 1000000 div 1000,
-    {Date, _Time = {H, Mi, S}} = calendar:system_time_to_local_time(SysTime, microsecond),
-    default_time_format({Date, {H, Mi, S, Ms}});
-default_time_format({{Y, M, D}, {H, Mi, S, Ms}}) ->
-    io_lib:format("~b-~2..0b-~2..0b ~2..0b:~2..0b:~2..0b.~3..0b", [Y, M, D, H, Mi, S, Ms]);
-default_time_format({{Y, M, D}, {H, Mi, S}}) ->
-    io_lib:format("~b-~2..0b-~2..0b ~2..0b:~2..0b:~2..0b", [Y, M, D, H, Mi, S]).
+    calendar:system_time_to_rfc3339(SysTime, [{unit,microsecond},
+                                              {offset,""}]).
 
 integer(Str) ->
     is_integer(list_to_integer(Str)).
