@@ -1,7 +1,7 @@
 version: '3.9'
 
 services:
-  redis_cluster:
+  redis_server:
     image: redis:${REDIS_TAG}
     container_name: redis
     volumes:

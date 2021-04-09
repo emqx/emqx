@@ -61,19 +61,19 @@ REDIS_LOAD_FLG=true;
 while $REDIS_LOAD_FLG;
 do
     sleep 1;
-    redis-cli -p 7000 info 1> /data/conf/r7000i.log 2> /dev/null;
+    redis-cli --pass public --no-auth-warning -p 7000 info 1> /data/conf/r7000i.log 2> /dev/null;
     if [ -s /data/conf/r7000i.log ]; then
         :
     else
         continue;
     fi
-    redis-cli -p 7001 info 1> /data/conf/r7001i.log 2> /dev/null;
+    redis-cli --pass public --no-auth-warning -p 7001 info 1> /data/conf/r7001i.log 2> /dev/null;
     if [ -s /data/conf/r7001i.log ]; then
         :
     else
         continue;
     fi
-    redis-cli -p 7002 info 1> /data/conf/r7002i.log 2> /dev/null;
+    redis-cli --pass public --no-auth-warning -p 7002 info 1> /data/conf/r7002i.log 2> /dev/null;
     if [ -s /data/conf/r7002i.log ]; then
         :
     else
@@ -82,7 +82,14 @@ do
     if [ "${node}" = "cluster" ] ; then
       yes "yes" | redis-cli --cluster create "$LOCAL_IP:7000" "$LOCAL_IP:7001" "$LOCAL_IP:7002" --pass public --no-auth-warning;
     elif [ "${node}" = "sentinel" ] ; then
-      cp /data/conf/sentinel.conf /_sentinel.conf
+      tee /_sentinel.conf>/dev/null << EOF
+port 26379
+bind 0.0.0.0 ::
+daemonize yes
+logfile /var/log/redis-server.log
+dir /tmp
+sentinel monitor mymaster $LOCAL_IP 7000 1
+EOF
       redis-server /_sentinel.conf --sentinel;
     fi
     REDIS_LOAD_FLG=false;
