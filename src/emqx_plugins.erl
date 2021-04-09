@@ -232,7 +232,8 @@ generate_configs(App) ->
         {_, true} ->
             Schema = cuttlefish_schema:files([SchemaFile]),
             Conf = cuttlefish_conf:file(ConfFile),
-            cuttlefish_generator:map(Schema, Conf);
+            LogFun = fun(Key, Value) -> ?LOG(info, "~s = ~p", [string:join(Key, "."), Value]) end,
+            cuttlefish_generator:map(Schema, Conf, undefined, LogFun);
         {false, false} ->
             error({config_not_found, {ConfigFile, ConfFile, SchemaFile}})
     end.
