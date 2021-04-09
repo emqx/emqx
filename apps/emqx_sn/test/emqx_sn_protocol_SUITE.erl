@@ -1483,6 +1483,10 @@ t_awake_test02_to_disconnected(_) ->
 
     timer:sleep(100),
 
+    % goto awake state
+    send_pingreq_msg(Socket, <<"test">>),
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% send disconnect message, and goto disconnected state
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
