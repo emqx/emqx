@@ -507,7 +507,7 @@ handle_event(info, {datagram, SockPid, Data}, StateName,
         error:Error:Stacktrace ->
             ?LOG(info, "Parse frame error: ~p at state ~s, Stacktrace: ~p",
                  [Error, StateName, Stacktrace], State),
-            shutdown(frame_error, State)
+            stop(frame_error, State)
     end;
 
 handle_event(info, {deliver, _Topic, Msg}, asleep,
@@ -600,7 +600,7 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
         {reply, Reply, NChannel} ->
             {reply, Reply, State#state{channel = NChannel}};
         {shutdown, Reason, Reply, NChannel} ->
-            shutdown(Reason, Reply, State#state{channel = NChannel})
+            stop(Reason, Reply, State#state{channel = NChannel})
     end.
 
 handle_info(Info, State = #state{channel = Channel}) ->
@@ -771,20 +771,10 @@ goto_asleep_state(Duration, State=#state{asleep_timer = AsleepTimer}) ->
 %%--------------------------------------------------------------------
 %% Helper funcs
 %%--------------------------------------------------------------------
-
--compile({inline, [shutdown/2, shutdown/3]}).
-shutdown(Reason, State) ->
-    ?LOG(error, "shutdown due to ~p", [Reason], State),
-    stop(Reason, State).
-
-shutdown(Reason, Reply, State) ->
-    ?LOG(error, "shutdown due to ~p", [Reason], State),
-    stop(Reason, Reply, State).
-
--compile({inline, [stop/2, stop/3]}).
 stop({shutdown, Reason}, State) ->
     stop(Reason, State);
 stop(Reason, State) ->
+    ?LOG(error, "stop due to ~p", [Reason], State),
     case Reason of
         %% FIXME: The Will-Msg should publish when a Session terminated!
         asleep_timeout -> do_publish_will(State);
@@ -796,7 +786,8 @@ stop(Reason, State) ->
 stop({shutdown, Reason}, Reply, State) ->
     stop(Reason, Reply, State);
 stop(Reason, Reply, State) ->
-    {stop, Reason, Reply, State}.
+    ?LOG(error, "stop due to ~p", [Reason], State),
+    {stop, {shutdown, Reason}, Reply, State}.
 
 mqttsn_to_mqtt(?SN_PUBACK, MsgId)  ->
     ?PUBACK_PACKET(MsgId);
