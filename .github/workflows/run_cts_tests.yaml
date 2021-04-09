@@ -306,8 +306,6 @@ jobs:
         exclude:
         - redis_tag: 5
           connect_type: tls
-        - node_type: sentinel
-          connect_type: tls
 
     steps:
       - uses: actions/checkout@v1
