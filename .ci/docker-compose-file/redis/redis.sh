@@ -49,12 +49,22 @@ if [ "${node}" = "cluster" ] ; then
     redis-server /data/conf/redis.conf --port 7002 --cluster-config-file /data/conf/nodes.7002.conf --cluster-enabled yes;
   fi
 elif [ "${node}" = "sentinel" ] ; then
+  if $tls ; then
+    redis-server /data/conf/redis-tls.conf --port 7000 --cluster-config-file /data/conf/nodes.7000.conf \
+                                           --tls-port 8000 --cluster-enabled no;
+    redis-server /data/conf/redis-tls.conf --port 7001 --cluster-config-file /data/conf/nodes.7001.conf \
+                                           --tls-port 8001 --cluster-enabled no --slaveof "$LOCAL_IP" 8000;
+    redis-server /data/conf/redis-tls.conf --port 7002 --cluster-config-file /data/conf/nodes.7002.conf \
+                                           --tls-port 8002 --cluster-enabled no --slaveof "$LOCAL_IP" 8000;
+
+  else
     redis-server /data/conf/redis.conf --port 7000 --cluster-config-file /data/conf/nodes.7000.conf \
                                        --cluster-enabled no;
     redis-server /data/conf/redis.conf --port 7001 --cluster-config-file /data/conf/nodes.7001.conf \
                                        --cluster-enabled no --slaveof "$LOCAL_IP" 7000;
     redis-server /data/conf/redis.conf --port 7002 --cluster-config-file /data/conf/nodes.7002.conf \
                                        --cluster-enabled no --slaveof "$LOCAL_IP" 7000;
+  fi
 fi
 REDIS_LOAD_FLG=true;
 
@@ -88,8 +98,21 @@ bind 0.0.0.0 ::
 daemonize yes
 logfile /var/log/redis-server.log
 dir /tmp
+EOF
+      if $tls ; then
+          cat >>/_sentinel.conf<<EOF
+tls-port 26380
+tls-replication yes
+tls-cert-file /tls/redis.crt
+tls-key-file /tls/redis.key
+tls-ca-cert-file /tls/ca.crt
+sentinel monitor mymaster $LOCAL_IP 8000 1
+EOF
+      else
+          cat >>/_sentinel.conf<<EOF
 sentinel monitor mymaster $LOCAL_IP 7000 1
 EOF
+      fi
       redis-server /_sentinel.conf --sentinel;
     fi
     REDIS_LOAD_FLG=false;

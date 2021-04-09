@@ -1,0 +1,12 @@
+version: '3.9'
+
+services:
+  redis_server:
+    container_name: redis
+    image: redis:${REDIS_TAG}
+    volumes:
+      - ../../apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs:/tls
+      - ./redis/:/data/conf
+    command: bash -c "/bin/bash /data/conf/redis.sh --node sentinel --tls-enabled && tail -f /var/log/redis-server.log"
+    networks:
+      - emqx_bridge
