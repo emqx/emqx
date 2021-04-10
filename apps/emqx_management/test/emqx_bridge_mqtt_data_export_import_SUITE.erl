@@ -87,7 +87,7 @@ remove_resource(Id) ->
     emqx_rule_registry:remove_resource_params(Id).
 
 import(FilePath, Version) ->
-    ok = emqx_mgmt_data_backup:import(get_data_path() ++ "/" ++FilePath),
+    ok = emqx_mgmt_data_backup:import(get_data_path() ++ "/" ++ FilePath, <<"{}">>),
     lists:foreach(fun(#resource{id = Id, config = Config} = _Resource) ->
         case Id of
             <<"brigde">> ->

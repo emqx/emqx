@@ -14,9 +14,9 @@
                 "url": "http://www.emqx.io"
             },
             "content_type": "application/json",
-            "connect_timeout" : 5,
-            "request_timeout" : 5,
-            "pool_size" : 8,
+            "connect_timeout": 5,
+            "request_timeout": 5,
+            "pool_size": 8,
             "created_at": null,
             "description": "webhook"
         }
@@ -41,7 +41,26 @@
     ],
     "auth_clientid": [],
     "auth_username": [],
-    "auth_mnesia": [],
-    "acl_mnesia": [],
+    "auth_mnesia": [
+        {
+            "login": "emqx_c",
+            "password": "ceb5e917f7930ae8f0dc3ceb496a428f7e644736eebca36a2b8f6bbac756171a",
+            "is_superuser": true
+        }
+    ],
+    "acl_mnesia": [
+        {
+            "login": "emqx_c",
+            "topic": "Topic/A",
+            "action": "sub",
+            "allow": true
+        },
+        {
+            "login": "emqx_c",
+            "topic": "Topic/A",
+            "action": "pub",
+            "allow": true
+        }
+    ],
     "schemas": []
 }
