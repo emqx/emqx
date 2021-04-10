@@ -40,10 +40,10 @@ all() ->
 
 matrix() ->
     [{ImportAs, Version} || ImportAs <- [clientid, username]
-                          , Version <- ["v4.2.9", "v4.1.5"]].
+                          , Version <- ["v4.2.10", "v4.1.5"]].
 
 all() ->
-    [t_matrix, t_import_4_0].
+    [t_matrix, t_import_4_0, t_import_no_auth].
 
 -endif. %% EMQX_ENTERPRISE
 
@@ -82,11 +82,18 @@ t_matrix(Config) ->
 
 %% This version is special, since it doesn't have mnesia ACL plugin
 t_import_4_0(Config) ->
+    do_import_no_auth("v4.0.11.json", Config).
+
+t_import_no_auth(Config) ->
+    do_import_no_auth("v4.2.10-no-auth.json", Config).
+
+%% Test that importing configs that don't contain any mnesia ACL data
+%% doesn't require additional overrides:
+do_import_no_auth(File, Config) ->
     mnesia:clear_table(emqx_acl),
     mnesia:clear_table(emqx_user),
-    Filename = filename:join(proplists:get_value(data_dir, Config), "v4.0.7.json"),
-    Overrides = emqx_json:encode(#{<<"auth.mnesia.as">> => atom_to_binary(clientid)}),
-    ?assertMatch(ok, emqx_mgmt_data_backup:import(Filename, Overrides)),
+    Filename = filename:join(proplists:get_value(data_dir, Config), File),
+    ?assertMatch(ok, emqx_mgmt_data_backup:import(Filename, "{}")),
     timer:sleep(100),
     test_clientid_import().
 
@@ -121,9 +128,9 @@ do_import(Config, Type, V) ->
 
 test_clientid_import() ->
     [#emqx_user{password = _Pass}] = ets:lookup(emqx_user, {clientid, <<"emqx_clientid">>}),
-    %% Req = #{clientid => <<"emqx_clientid">>,
-    %%         password => <<"emqx_p">>
-    %%        },
-    %% ?assertMatch({stop, #{auth_result := success}},
-    %%              emqx_auth_mnesia:check(Req, #{}, #{hash_type => sha256})),
+    Req = #{clientid => <<"emqx_clientid">>,
+            password => <<"emqx_p">>
+           },
+    ?assertMatch({stop, #{auth_result := success}},
+                 emqx_auth_mnesia:check(Req, #{}, #{hash_type => sha256})),
     ok.
