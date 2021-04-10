@@ -337,7 +337,7 @@ connecting(#{reconnect_delay_ms := ReconnectDelayMs} = State) ->
     end.
 
 connected(state_timeout, connected, #{inflight := Inflight} = State) ->
-    case retry_inflight(State, Inflight) of
+    case retry_inflight(State#{inflight := []}, Inflight) of
         {ok, NewState} ->
             {keep_state, NewState, {next_event, internal, maybe_send}};
         {error, NewState} ->
@@ -348,10 +348,10 @@ connected(internal, maybe_send, State) ->
     {keep_state, NewState};
 
 connected(info, {disconnected, Conn, Reason},
-         #{connection := Connection, name := Name, reconnect_delay_ms := ReconnectDelayMs} = State) ->
+          #{connection := Connection, name := Name, reconnect_delay_ms := ReconnectDelayMs} = State) ->
+    ?tp(info, disconnected, #{name => Name, reason => Reason}),
     case Conn =:= maps:get(client_pid, Connection, undefined)  of
         true ->
-            ?LOG(info, "Bridge ~p diconnected~nreason=~p", [Name, Reason]),
             {next_state, idle, State#{connection => undefined}, {state_timeout, ReconnectDelayMs, reconnect}};
         false ->
             keep_state_and_data
@@ -434,12 +434,14 @@ do_connect(#{forwards := Forwards,
              subscriptions := Subs,
              connect_module := ConnectModule,
              connect_cfg := ConnectCfg,
+             inflight := Inflight,
              name := Name} = State) ->
     ok = subscribe_local_topics(Forwards, Name),
     case emqx_bridge_connect:start(ConnectModule, ConnectCfg#{subscriptions => Subs}) of
         {ok, Conn} ->
-            ?LOG(info, "Bridge ~p is connecting......", [Name]),
-            {ok, eval_bridge_handler(State#{connection => Conn}, connected)};
+            Res = eval_bridge_handler(State#{connection => Conn}, connected),
+            ?tp(info, connected, #{name => Name, inflight => length(Inflight)}),
+            {ok, Res};
         {error, Reason} ->
             {error, Reason, State}
     end.
@@ -475,10 +477,12 @@ collect(Acc) ->
 
 %% Retry all inflight (previously sent but not acked) batches.
 retry_inflight(State, []) -> {ok, State};
-retry_inflight(State, [#{q_ack_ref := QAckRef, batch := Batch} | Inflight]) ->
-    case do_send(State#{inflight := Inflight}, QAckRef, Batch) of
-        {ok, State1} -> retry_inflight(State1, Inflight);
-        {error, State1} -> {error, State1}
+retry_inflight(State, [#{q_ack_ref := QAckRef, batch := Batch} | Rest] = OldInf) ->
+    case do_send(State, QAckRef, Batch) of
+        {ok, State1} ->
+            retry_inflight(State1, Rest);
+        {error, #{inflight := NewInf} = State1} ->
+            {error, State1#{inflight := NewInf ++ OldInf}}
     end.
 
 pop_and_send(#{inflight := Inflight, max_inflight := Max } = State) ->
