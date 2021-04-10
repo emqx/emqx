@@ -95,7 +95,8 @@ remove_resource(Id) ->
     emqx_rule_registry:remove_resource_params(Id).
 
 import(FilePath, Version) ->
-    ok = emqx_mgmt_data_backup:import(get_data_path() ++ "/" ++ FilePath, <<"{}">>),
+    Overrides = emqx_json:encode(#{<<"auth.mnesia.as">> => atom_to_binary(clientid)}),
+    ok = emqx_mgmt_data_backup:import(get_data_path() ++ "/" ++ FilePath, Overrides),
     lists:foreach(fun(#resource{id = Id, config = Config} = _Resource) ->
         case Id of
             "webhook" ->
