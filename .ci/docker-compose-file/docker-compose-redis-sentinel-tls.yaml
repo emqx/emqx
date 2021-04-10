@@ -7,6 +7,6 @@ services:
     volumes:
       - ../../apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs:/tls
       - ./redis/:/data/conf
-    command: bash -c "/bin/bash /data/conf/redis.sh --node cluster --tls-enabled && tail -f /var/log/redis-server.log"
+    command: bash -c "/bin/bash /data/conf/redis.sh --node sentinel --tls-enabled && tail -f /var/log/redis-server.log"
     networks:
       - emqx_bridge

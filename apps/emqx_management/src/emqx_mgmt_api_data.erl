@@ -127,7 +127,7 @@ import(_Bindings, Params) ->
 
 do_import(Filename) ->
     FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
-    emqx_mgmt_data_backup:import(FullFilename).
+    emqx_mgmt_data_backup:import(FullFilename, "{}").
 
 download(#{filename := Filename}, _Params) ->
     FullFilename = filename:join([emqx:get_env(data_dir), Filename]),

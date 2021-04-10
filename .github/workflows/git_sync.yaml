@@ -19,11 +19,24 @@ jobs:
           destination_branch: ${{ github.ref }}
           destination_ssh_private_key: "${{ secrets.CI_SSH_PRIVATE_KEY }}"
       - name: create pull request
+        id: create_pull_request
+        run: |
+          set -euo pipefail
+          R=$(curl --silent --show-error \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
+            -X POST \
+            -d '{"title": "Sync code into enterprise from opensource", "head": "master", "base":"enterprise"}' \
+            https://api.github.com/repos/${{ github.repository_owner }}/emqx-enterprise/pulls)
+          echo $R | jq
+          echo "::set-output name=url::$(echo $R | jq '.url')"
+      - name: request reviewers for a pull request
+        if: steps.create_pull_request.outputs.url != 'null'
         run: |
           set -euo pipefail
           curl --silent --show-error \
           -H "Accept: application/vnd.github.v3+json" \
           -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
           -X POST \
-          -d '{"title": "Sync code into enterprise from opensource", "head": "master", "base":"enterprise"}' \
-          https://api.github.com/repos/${{ github.repository_owner }}/emqx-enterprise/pulls
+          -d '{"team_reviewers":["emqx-devs"]}' \
+          ${{ steps.create_pull_request.outputs.url }}/requested_reviewers

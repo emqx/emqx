@@ -5,8 +5,9 @@ services:
     container_name: redis 
     image: redis:${REDIS_TAG}
     command:
-        - redis-server
-        - "--bind 0.0.0.0 ::"
+      - redis-server
+      - "--bind 0.0.0.0 ::"
+      - --requirepass public
     restart: always
     networks:
       - emqx_bridge

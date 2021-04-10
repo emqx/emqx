@@ -71,14 +71,6 @@ init_per_testcase(data, Config) ->
     application:ensure_all_started(emqx_dashboard),
     ok = emqx_rule_registry:mnesia(boot),
     application:ensure_all_started(emqx_rule_engine),
-
-    meck:new(emqx_sys, [passthrough, no_history]),
-    meck:expect(emqx_sys, version, 0,
-                fun() ->
-                  Tag =os:cmd("git describe --abbrev=0 --tags") -- "\n",
-                  re:replace(Tag, "[v|e]", "", [{return ,list}])
-                end),
-
     Config;
 
 init_per_testcase(_, Config) ->
@@ -87,7 +79,6 @@ init_per_testcase(_, Config) ->
 end_per_testcase(data, _Config) ->
     application:stop(emqx_dahboard),
     application:stop(emqx_rule_engine),
-    meck:unload(emqx_sys),
     ok;
 
 end_per_testcase(_, _Config) ->
@@ -218,6 +209,7 @@ clients(_) ->
     {ok, _} = emqtt:connect(C1),
     {ok, C2} = emqtt:start_link(#{username => Username2, clientid => ClientId2}),
     {ok, _} = emqtt:connect(C2),
+
     timer:sleep(300),
 
     {ok, Clients1} = request_api(get, api_path(["clients", binary_to_list(ClientId1)])
@@ -238,7 +230,7 @@ clients(_) ->
                                                 "clients",
                                                 "username", binary_to_list(Username2)])
                                  , auth_header_()),
-     ?assertEqual(<<"client2">>, maps:get(<<"clientid">>, lists:nth(1, get(<<"data">>, Clients4)))),
+    ?assertEqual(<<"client2">>, maps:get(<<"clientid">>, lists:nth(1, get(<<"data">>, Clients4)))),
 
     {ok, Clients5} = request_api(get, api_path(["clients"]), "_limit=100&_page=1", auth_header_()),
     ?assertEqual(2, maps:get(<<"count">>, get(<<"meta">>, Clients5))),
@@ -261,6 +253,8 @@ clients(_) ->
 
     {ok, Ok} = request_api(delete, api_path(["clients", binary_to_list(ClientId1)]), auth_header_()),
     ?assertEqual(?SUCCESS, get(<<"code">>, Ok)),
+
+    timer:sleep(300),
 
     {ok, NotFound0} = request_api(delete, api_path(["clients", binary_to_list(ClientId1)]), auth_header_()),
     ?assertEqual(?ERROR12, get(<<"code">>, NotFound0)),

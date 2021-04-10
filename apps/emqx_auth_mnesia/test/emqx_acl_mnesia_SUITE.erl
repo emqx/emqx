@@ -86,11 +86,15 @@ t_management(_Config) ->
     ok = emqx_acl_mnesia_cli:add_acl({username, <<"test_username">>}, <<"topic/%u">>, sub, deny),
     ok = emqx_acl_mnesia_cli:add_acl({username, <<"test_username">>}, <<"topic/+">>, pub, allow),
     ok = emqx_acl_mnesia_cli:add_acl(all, <<"#">>, pubsub, deny),
+    %% Sleeps below are needed to hide the race condition between
+    %% mnesia and ets dirty select in check_acl, that make this test
+    %% flaky
+    timer:sleep(100),
 
     ?assertEqual(2, length(emqx_acl_mnesia_cli:lookup_acl({clientid, <<"test_clientid">>}))),
     ?assertEqual(2, length(emqx_acl_mnesia_cli:lookup_acl({username, <<"test_username">>}))),
-    ?assertEqual(1, length(emqx_acl_mnesia_cli:lookup_acl(all))),
-    ?assertEqual(5, length(emqx_acl_mnesia_cli:all_acls())),
+    ?assertEqual(2, length(emqx_acl_mnesia_cli:lookup_acl(all))),
+    ?assertEqual(6, length(emqx_acl_mnesia_cli:all_acls())),
 
     User1 = #{zone => external, clientid => <<"test_clientid">>},
     User2 = #{zone => external, clientid => <<"no_exist">>, username => <<"test_username">>},
@@ -105,11 +109,55 @@ t_management(_Config) ->
     deny  = emqx_access_control:check_acl(User3, subscribe, <<"topic/A/B">>),
     deny  = emqx_access_control:check_acl(User3, publish,   <<"topic/A/B">>),
 
+    %% Test merging of pubsub capability:
+    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pubsub, deny),
+    timer:sleep(100),
+    deny  = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
+    deny  = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
+    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pub, allow),
+    timer:sleep(100),
+    deny  = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
+    allow = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
+    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pubsub, allow),
+    timer:sleep(100),
+    allow = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
+    allow = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
+    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, sub, deny),
+    timer:sleep(100),
+    deny  = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
+    allow = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
+    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pub, deny),
+    timer:sleep(100),
+    deny  = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
+    deny  = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
+
+    %% Test implicit migration of pubsub to pub and sub:
+    ok = emqx_acl_mnesia_cli:remove_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>),
+    ok = mnesia:dirty_write(#emqx_acl{
+                               filter = {{clientid, <<"test_clientid">>}, <<"topic/mix">>},
+                               action = pubsub,
+                               access = allow,
+                               created_at = erlang:system_time(millisecond)
+                              }),
+    timer:sleep(100),
+    allow = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
+    allow = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
+    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pub, deny),
+    timer:sleep(100),
+    allow = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
+    deny  = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
+    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, sub, deny),
+    timer:sleep(100),
+    deny  = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
+    deny  = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
+
     ok = emqx_acl_mnesia_cli:remove_acl({clientid, <<"test_clientid">>}, <<"topic/%c">>),
     ok = emqx_acl_mnesia_cli:remove_acl({clientid, <<"test_clientid">>}, <<"topic/+">>),
+    ok = emqx_acl_mnesia_cli:remove_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>),
     ok = emqx_acl_mnesia_cli:remove_acl({username, <<"test_username">>}, <<"topic/%u">>),
     ok = emqx_acl_mnesia_cli:remove_acl({username, <<"test_username">>}, <<"topic/+">>),
     ok = emqx_acl_mnesia_cli:remove_acl(all, <<"#">>),
+    timer:sleep(100),
 
     ?assertEqual([], emqx_acl_mnesia_cli:all_acls()).
 
@@ -124,6 +172,7 @@ t_acl_cli(_Config) ->
 
     ?assertEqual(0, length(emqx_acl_mnesia_cli:cli(["list"]))),
 
+    emqx_acl_mnesia_cli:cli(["add", "clientid", "test_clientid", "topic/A", "pub", "deny"]),
     emqx_acl_mnesia_cli:cli(["add", "clientid", "test_clientid", "topic/A", "pub", "allow"]),
     R1 = emqx_ctl:format("Acl(clientid = ~p topic = ~p action = ~p access = ~p)~n",
                          [<<"test_clientid">>, <<"topic/A">>, pub, allow]),
@@ -136,11 +185,14 @@ t_acl_cli(_Config) ->
     ?assertEqual([R2], emqx_acl_mnesia_cli:cli(["show", "username", "test_username"])),
     ?assertEqual([R2], emqx_acl_mnesia_cli:cli(["list", "username"])),
 
+    emqx_acl_mnesia_cli:cli(["add", "_all", "#", "pub", "allow"]),
     emqx_acl_mnesia_cli:cli(["add", "_all", "#", "pubsub", "deny"]),
-    ?assertMatch(["Acl($all topic = <<\"#\">> action = pubsub access = deny)\n"],
-                 emqx_acl_mnesia_cli:cli(["list", "_all"])
+    ?assertMatch(["",
+                  "Acl($all topic = <<\"#\">> action = pub access = deny)",
+                  "Acl($all topic = <<\"#\">> action = sub access = deny)"],
+                 lists:sort(string:split(emqx_acl_mnesia_cli:cli(["list", "_all"]), "\n", all))
                 ),
-    ?assertEqual(3, length(emqx_acl_mnesia_cli:cli(["list"]))),
+    ?assertEqual(4, length(emqx_acl_mnesia_cli:cli(["list"]))),
 
     emqx_acl_mnesia_cli:cli(["del", "clientid", "test_clientid", "topic/A"]),
     emqx_acl_mnesia_cli:cli(["del", "username", "test_username", "topic/B"]),
@@ -169,7 +221,7 @@ t_rest_api(_Config) ->
                 }],
     {ok, _} = request_http_rest_add([], Params1),
     {ok, Re1} = request_http_rest_list(["clientid", "test_clientid"]),
-    ?assertMatch(3, length(get_http_data(Re1))),
+    ?assertMatch(4, length(get_http_data(Re1))),
     {ok, _} = request_http_rest_delete(["clientid", "test_clientid", "topic", "topic/A"]),
     {ok, _} = request_http_rest_delete(["clientid", "test_clientid", "topic", "topic/B"]),
     {ok, _} = request_http_rest_delete(["clientid", "test_clientid", "topic", "topic/C"]),
@@ -193,7 +245,7 @@ t_rest_api(_Config) ->
                 }],
     {ok, _} = request_http_rest_add([], Params2),
     {ok, Re2} = request_http_rest_list(["username", "test_username"]),
-    ?assertMatch(3, length(get_http_data(Re2))),
+    ?assertMatch(4, length(get_http_data(Re2))),
     {ok, _} = request_http_rest_delete(["username", "test_username", "topic", "topic/A"]),
     {ok, _} = request_http_rest_delete(["username", "test_username", "topic", "topic/B"]),
     {ok, _} = request_http_rest_delete(["username", "test_username", "topic", "topic/C"]),
@@ -214,7 +266,7 @@ t_rest_api(_Config) ->
                 }],
     {ok, _} = request_http_rest_add([], Params3),
     {ok, Re3} = request_http_rest_list(["$all"]),
-    ?assertMatch(3, length(get_http_data(Re3))),
+    ?assertMatch(4, length(get_http_data(Re3))),
     {ok, _} = request_http_rest_delete(["$all", "topic", "topic/A"]),
     {ok, _} = request_http_rest_delete(["$all", "topic", "topic/B"]),
     {ok, _} = request_http_rest_delete(["$all", "topic", "topic/C"]),

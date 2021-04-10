@@ -23,6 +23,8 @@
 
 *EMQ X* 是跨平台的，支持 Linux、Unix、macOS 以及 Windows。这意味着 *EMQ X* 可以部署在 x86_64 架构的服务器上，也可以部署在 Raspberry Pi 这样的 ARM 设备上。
 
+Windows 上编译和运行 *EMQ X* 的详情参考：[Windows.md](./Windows.md)
+
 #### EMQ X Docker 镜像安装
 
 ```
@@ -40,15 +42,28 @@ docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p
 
 3.0 版本开始，构建 *EMQ X* 需要 Erlang/OTP R21+。
 
+4.3 及以后的版本：
+
+```bash
+git clone https://github.com/emqx/emqx.git
+cd emqx
+make
+_build/emqx/rel/emqx/bin console
 ```
+
+对于 4.3 之前的版本，通过另外一个仓库构建：
+
+```bash
 git clone https://github.com/emqx/emqx-rel.git
-
-cd emqx-rel && make
-
-cd _rel/emqx && ./bin/emqx console
+cd emqx-rel
+make
+_build/emqx/rel/emqx/bin/emqx console
 ```
 
 ## 快速入门
+
+如果 emqx 从源码编译，`cd _build/emqx/rel/emqx`。
+如果 emqx 通过 zip 包安装，则切换到 emqx 的根目录。
 
 ```
 # Start emqx
@@ -63,6 +78,20 @@ cd _rel/emqx && ./bin/emqx console
 
 *EMQ X* 启动，可以使用浏览器访问 http://localhost:18083 来查看 Dashboard。
 
+## 测试
+
+### 执行所有测试
+
+```
+make eunit ct
+```
+
+### 执行部分应用的 common tests
+
+```bash
+make apps/emqx_bridge_mqtt-ct
+```
+
 ### 静态分析(Dialyzer)
 ##### 分析所有应用程序
 ```
@@ -74,15 +103,27 @@ make dialyzer
 DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 ```
 
-## FAQ
+## 社区
+
+### FAQ
 
 访问 [EMQ X FAQ](https://docs.emqx.cn/broker/latest/faq/faq.html) 以获取常见问题的帮助。
 
-## 产品路线
+### 问答
 
-通过 [EMQ X Roadmap uses Github milestones](https://github.com/emqx/emqx/milestones) 参与跟踪项目进度。
+[GitHub Discussions](https://github.com/emqx/emqx/discussions)
+[EMQ 中文问答社区](https://askemq.com)
 
-## 社区、讨论、贡献和支持
+### 参与设计
+
+如果对 EMQ X 有改进建议，可以向[EIP](https://github.com/emqx/eip) 提交 PR 和 ISSUE
+
+### 插件开发
+
+如果想集成或开发你自己的插件，参考 [lib-extra/README.md](./lib-extra/README.md)
+
+
+### 联系我们
 
 你可通过以下途径与 EMQ 社区及开发者联系:
 
@@ -90,7 +131,6 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 - [Twitter](https://twitter.com/emqtt)
 - [Facebook](https://www.facebook.com/emqxmqtt)
 - [Reddit](https://www.reddit.com/r/emqx/)
-- [Forum](https://askemq.com)
 - [Weibo](https://weibo.com/emqtt)
 - [Blog](https://www.emqx.cn/blog)
 

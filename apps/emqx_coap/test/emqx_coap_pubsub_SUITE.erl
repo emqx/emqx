@@ -633,9 +633,10 @@ t_case01_delete(_Config) ->
     %% DELETE the topic "a/b"
     UriD = "coap://127.0.0.1/ps/"++PercentEncodedTopic++"?c=client1&u=tom&p=secret",
     ReplyD = er_coap_client:request(delete, UriD),
-    ?LOGT("Reply=~p", [Reply1]),
+    ?LOGT("Reply=~p", [ReplyD]),
     {ok, deleted, #coap_content{}}= ReplyD,
 
+    timer:sleep(300), %% Waiting gen_server:cast/2 for deleting operation
     ?assertEqual(false, emqx_coap_pubsub_topics:is_topic_existed(TopicInPayload)),
     ?assertEqual(false, emqx_coap_pubsub_topics:is_topic_existed(TopicInPayload1)).
 

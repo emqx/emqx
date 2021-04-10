@@ -1,0 +1,53 @@
+{
+  "version": "4.1",
+  "users": [
+    {
+      "username": "admin",
+      "tags": "administrator",
+      "password": "R0TpDmJtE/d5rIXAm6YY61RI0mg="
+    }
+  ],
+  "schemas": [],
+  "rules": [],
+  "resources": [],
+  "date": "2021-04-07 14:28:58",
+  "blacklist": [],
+  "auth_username": [],
+  "auth_mnesia": [
+    {
+      "password": "Y2ViNWU5MTdmNzkzMGFlOGYwZGMzY2ViNDk2YTQyOGY3ZTY0NDczNmVlYmNhMzZhMmI4ZjZiYmFjNzU2MTcxYQ==",
+      "login": "emqx_c",
+      "is_superuser": true
+    }
+  ],
+  "auth_clientid": [
+    {
+      "password": "MctXdjZkYzRhMDUwMTc4MDM0OWY4YTg1NTg4Y2ZlOThjYWIyMDk3M2UzNjgzYzYyZWYwOTAzMTk2N2E4OWVjZDk4Mjk=",
+      "clientid": "emqx_clientid"
+    }
+  ],
+  "apps": [
+    {
+      "status": true,
+      "secret": "public",
+      "name": "Default",
+      "id": "admin",
+      "expired": "undefined",
+      "desc": "Application user"
+    }
+  ],
+  "acl_mnesia": [
+    {
+      "topic": "Topic/A",
+      "login": "emqx_c",
+      "allow": true,
+      "action": "sub"
+    },
+    {
+      "topic": "Topic/A",
+      "login": "emqx_c",
+      "allow": true,
+      "action": "pub"
+    }
+  ]
+}
