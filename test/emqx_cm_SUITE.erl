@@ -53,6 +53,7 @@ end_per_suite(_Config) ->
 
 t_reg_unreg_channel(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
+    ?assertEqual([], emqx_cm:lookup_channels(<<"clientid">>)),
     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
     ok = emqx_cm:insert_channel_info(<<"clientid">>, ?ChanInfo, []),
     ?assertEqual([self()], emqx_cm:lookup_channels(<<"clientid">>)),

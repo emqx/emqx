@@ -1,0 +1,94 @@
+version: '3'
+
+services:
+  emqx1:
+    build: .
+    image: myemqx
+    environment:
+      - "EMQX_NODE_NAME=emqx@10.0.0.2"
+      - "EMQX_CLUSTER__DISCOVERY=static"
+      - "EMQX_CLUSTER__STATIC__SEEDS=emqx@10.0.0.2,emqx@10.0.0.3,emqx@10.0.0.4,emqx@10.0.0.5"
+      - "EMQX_DB_BACKEND=${BACKEND}"
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+    networks:
+      emqx_net:
+        ipv4_address: 10.0.0.2
+
+  emqx2:
+    image: myemqx
+    environment:
+    - "EMQX_NODE_NAME=emqx@10.0.0.3"
+    - "EMQX_CLUSTER__DISCOVERY=static"
+    - "EMQX_CLUSTER__STATIC__SEEDS=emqx@10.0.0.2, emqx@10.0.0.3,emqx@10.0.0.4,emqx@10.0.0.5"
+    - "EMQX_DB_BACKEND=${BACKEND}"
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+    networks:
+      emqx_net:
+        ipv4_address: 10.0.0.3
+
+  emqx3:
+    image: myemqx
+    environment:
+    - "EMQX_NODE_NAME=emqx@10.0.0.4"
+    - "EMQX_NODE_ROLE=${ROLE}"
+    - "EMQX_CORE_NODES='emqx@10.0.0.2 emqx@10.0.0.3"
+    - "EMQX_CLUSTER__STATIC__SEEDS=emqx@10.0.0.2,emqx@10.0.0.3,emqx@10.0.0.4,emqx@10.0.0.5"
+    - "EMQX_DB_BACKEND=${BACKEND}"
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+    networks:
+      emqx_net:
+        ipv4_address: 10.0.0.4
+
+  emqx4:
+    image: myemqx
+    environment:
+    - "EMQX_NODE_NAME=emqx@10.0.0.5"
+    - "EMQX_NODE_ROLE=${ROLE}"
+    - "EMQX_CORE_NODES='emqx@10.0.0.2 emqx@10.0.0.3"
+    - "EMQX_CLUSTER__STATIC__SEEDS=emqx@10.0.0.2,emqx@10.0.0.3,emqx@10.0.0.4,emqx@10.0.0.5"
+    - "EMQX_DB_BACKEND=${BACKEND}"
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+    networks:
+      emqx_net:
+        ipv4_address: 10.0.0.5
+
+  lb:
+    build: ./haproxy
+    expose:
+      - 1883
+    networks:
+      emqx_net:
+        ipv4_address: 10.0.0.6
+
+  client:
+    image: emqtt_bench:latest
+    depends_on:
+      - emqx1
+      - emqx2
+    tty: true
+    networks:
+      emqx_net:
+
+networks:
+  emqx_net:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: "10.0.0.0/24"

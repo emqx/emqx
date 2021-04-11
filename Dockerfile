@@ -1,0 +1,12 @@
+FROM ubuntu:21.04
+
+COPY ./_build/emqx/rel/ /opt
+
+WORKDIR /opt/emqx
+
+EXPOSE 11883 1883 4369 4370 5369 6369 6370 8081 8083 8084 8883
+
+ENV EMQX_LOG_LEVEL=notice
+ENV EMQX_CLUSTER__DISCOVERY=static
+
+ENTRYPOINT bin/emqx foreground

@@ -200,7 +200,7 @@ end}.
 %% Node
 %%--------------------------------------------------------------------
 
-%% @Doc Node name
+%% @doc Node name
 {mapping, "node.name", "vm_args.-name", [
   {default, "emqx@127.0.0.1"},
   {override_env, "NODE_NAME"}
@@ -464,7 +464,8 @@ end}.
 
 {mapping, "log.level", "kernel.logger", [
   {default, warning},
-  {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
+  {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}},
+  {override_env, "LOG_LEVEL"}
 ]}.
 
 {mapping, "log.primary_log_level", "kernel.logger_level", [
@@ -2500,3 +2501,9 @@ end}.
     Setting = cuttlefish:conf_get("rlog.core_nodes", Conf),
     lists:map(fun erlang:list_to_atom/1, string:lexemes(Setting, " "))
 end}.
+
+{mapping, "rlog.db_backend", "ekka.db_backend", [
+  {default, mnesia},
+  {datatype, {enum, [mnesia, rlog]}},
+  {override_env, "DB_BACKEND"}
+]}.
