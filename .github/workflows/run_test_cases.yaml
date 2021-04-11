@@ -110,8 +110,9 @@ jobs:
             docker exec -i erlang bash -c "make ct"
         - name: run cover
           run: |
+            printenv > .env
             docker exec -i erlang bash -c "make cover"
-            docker exec -i erlang bash -c "make coveralls"
+            docker exec --env-file .env -i erlang bash -c "make coveralls"
         - uses: actions/upload-artifact@v1
           if: failure()
           with:
