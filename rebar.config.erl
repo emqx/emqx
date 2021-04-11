@@ -107,13 +107,13 @@ test_deps() ->
 
 common_compile_opts() ->
     [ debug_info % alwyas include debug_info
-    , deterministic
     , {compile_info, [{emqx_vsn, get_vsn()}]}
     | [{d, 'EMQX_ENTERPRISE'} || is_enterprise()]
     ].
 
 prod_compile_opts() ->
     [ compressed
+    , deterministic
     , warnings_as_errors
     | common_compile_opts()
     ].
