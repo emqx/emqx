@@ -239,12 +239,19 @@ relx_apps(ReleaseType) ->
     ++ [{N, load} || N <- relx_plugin_apps(ReleaseType)].
 
 relx_apps_per_rel(cloud) ->
-    [ {observer, load}
-    , luerl
+    [ luerl
     , xmerl
+    | [{observer, load} || is_app(observer)]
     ];
 relx_apps_per_rel(edge) ->
     [].
+
+is_app(Name) ->
+    case application:load(Name) of
+        ok -> true;
+        {error,{already_loaded, _}} -> true;
+        _ -> false
+    end.
 
 relx_plugin_apps(ReleaseType) ->
     [ emqx_retainer
