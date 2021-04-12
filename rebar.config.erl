@@ -44,9 +44,7 @@ filter_extra_deps([{Plugin, _} = P | More], Filter, Acc) ->
 
 overrides() ->
     [ {add, [ {extra_src_dirs, [{"etc", [{recursive,true}]}]}
-            , {erl_opts, [ deterministic
-                         , {compile_info, [{emqx_vsn, get_vsn()}]}
-                         ]}
+            , {erl_opts, [{compile_info, [{emqx_vsn, get_vsn()}]}]}
             ]}
     ] ++ community_plugin_overrides().
 
@@ -118,19 +116,26 @@ prod_compile_opts() ->
     | common_compile_opts()
     ].
 
+prod_overrides() ->
+    [{add, [ {erl_opts, [deterministic]}]}].
+
 profiles() ->
     Vsn = get_vsn(),
     [ {'emqx',          [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, bin)}
+                        , {overrides, prod_overrides()}
                         ]}
     , {'emqx-pkg',      [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, pkg)}
+                        , {overrides, prod_overrides()}
                         ]}
     , {'emqx-edge',     [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, bin)}
+                        , {overrides, prod_overrides()}
                         ]}
     , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, pkg)}
+                        , {overrides, prod_overrides()}
                         ]}
     , {check,           [ {erl_opts, common_compile_opts()}
                         ]}
