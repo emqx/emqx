@@ -325,9 +325,6 @@ peer2addr({Host, _}) ->
 peer2addr(Host) ->
     list_to_binary(inet:ntoa(Host)).
 
-ensure_to_binary(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
-ensure_to_binary(Bin) when is_binary(Bin) -> Bin.
-
 stringfy({shutdown, Reason}) ->
     stringfy(Reason);
 stringfy(Term) when is_atom(Term); is_binary(Term) ->
@@ -341,17 +338,6 @@ receive_http_request_body() ->
             Body
     after 100 ->
         exit(waiting_message_timeout)
-    end.
-
-receive_http_request_bodys() ->
-    receive_http_request_bodys_([]).
-
-receive_http_request_bodys_(Acc) ->
-    receive
-        {post, _, _, Body} ->
-           receive_http_request_bodys_([Body|Acc])
-    after 1000 ->
-          lists:reverse(Acc)
     end.
 
 filter_topictab(TopicTab, {undefined}) ->
@@ -398,9 +384,6 @@ topic_filter_env() ->
 
 payload_encode() ->
     oneof([base62, base64, undefined]).
-
-http_code() ->
-    oneof([socket_closed_remotely, others]).
 
 disconnected_conninfo() ->
     ?LET(Info, conninfo(),

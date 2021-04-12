@@ -3,7 +3,7 @@
   {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_telemetry_sup]},
-  {applications, [kernel,stdlib,emqx_modules]},
+  {applications, [kernel,stdlib]},
   {mod, {emqx_telemetry_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},

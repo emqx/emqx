@@ -154,6 +154,22 @@
             end
         end()).
 
+-define(CLUSTER_CALL(Func, Args), ?CLUSTER_CALL(Func, Args, ok)).
+
+-define(CLUSTER_CALL(Func, Args, ResParttern),
+    fun() -> case rpc:multicall(ekka_mnesia:running_nodes(), ?MODULE, Func, Args, 5000) of
+        {ResL, []} ->
+            case lists:filter(fun(ResParttern) -> false; (_) -> true end, ResL) of
+                [] -> ResL;
+                ErrL ->
+                    ?LOG(error, "cluster_call error found, ResL: ~p", [ResL]),
+                    throw({Func, ErrL})
+            end;
+        {ResL, BadNodes} ->
+            ?LOG(error, "cluster_call bad nodes found: ~p, ResL: ~p", [BadNodes, ResL]),
+            throw({Func, {failed_on_nodes, BadNodes}})
+   end end()).
+
 %% Tables
 -define(RULE_TAB, emqx_rule).
 -define(ACTION_TAB, emqx_rule_action).

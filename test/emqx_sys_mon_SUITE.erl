@@ -113,7 +113,7 @@ validate_sys_mon_info(PidOrPort, SysMonName,ValidateInfo, InfoOrPort) ->
             ct:pal("OK - received msg: ~p~n", [Info])
     after
         1000 ->
-            ct:fail("flase")
+            ct:fail(timeout)
     end,
     emqtt:stop(C).
 

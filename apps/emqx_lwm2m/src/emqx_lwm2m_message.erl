@@ -126,7 +126,7 @@ value(Value, ResourceId, ObjDefinition) ->
             Value;  % keep binary type since it is same as a string for jsx
         "Integer" ->
             Size = byte_size(Value)*8,
-            <<IntResult:Size>> = Value,
+            <<IntResult:Size/signed>> = Value,
             IntResult;
         "Float" ->
             Size = byte_size(Value)*8,
@@ -365,7 +365,7 @@ encode_int(Int) when Int >= 0 ->
     binary:encode_unsigned(Int);
 encode_int(Int) when Int < 0 ->
     Size = byte_size_of_signed(-Int) * 8,
-    <<Int:Size>>.
+    <<Int:Size/signed>>.
 
 byte_size_of_signed(UInt) ->
     byte_size_of_signed(UInt, 0).

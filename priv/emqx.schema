@@ -1015,6 +1015,16 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "zone.$name.conn_congestion.alarm", "emqx.zones", [
+  {datatype, flag},
+  {default, off}
+]}.
+
+{mapping, "zone.$name.conn_congestion.min_alarm_sustain_duration", "emqx.zones", [
+  {default, "1m"},
+  {datatype, {duration, ms}}
+]}.
+
 {mapping, "zone.$name.quota.conn_messages_routing", "emqx.zones", [
   {datatype, string}
 ]}.
@@ -1144,6 +1154,10 @@ end}.
                    {ratelimit, {conn_messages_in, Ratelimit(Val)}};
                (["rate_limit", "conn_bytes_in"], Val) ->
                    {ratelimit, {conn_bytes_in, Ratelimit(Val)}};
+               (["conn_congestion", "alarm"], Val) ->
+                   {conn_congestion_alarm_enabled, Val};
+               (["conn_congestion", "min_alarm_sustain_duration"], Val) ->
+                   {conn_congestion_min_alarm_sustain_duration, Val};
                (["quota", "conn_messages_routing"], Val) ->
                    {quota, {conn_messages_routing, Ratelimit(Val)}};
                (["quota", "overall_messages_routing"], Val) ->

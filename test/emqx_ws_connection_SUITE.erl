@@ -86,8 +86,7 @@ init_per_testcase(TestCase, Config) when
 init_per_testcase(_, Config) ->
     Config.
 
-
-end_per_testcase(TestCase, Config) when
+end_per_testcase(TestCase, _Config) when
         TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
         TestCase =/= t_ws_sub_protocols_mqtt,
         TestCase =/= t_ws_check_origin,

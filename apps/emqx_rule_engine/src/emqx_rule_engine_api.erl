@@ -273,13 +273,12 @@ do_create_resource(Create, ParsedParams) ->
             return({ok, record_to_map(Resource)});
         {error, {resource_type_not_found, Type}} ->
             return({error, 400, ?ERR_NO_RESOURCE_TYPE(Type)});
-        {error, {init_resource_failure, _}} ->
+        {error, {init_resource, _}} ->
             return({error, 500, <<"Init resource failure!">>});
         {error, Reason} ->
             ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
-
 
 list_resources(#{}, _Params) ->
     Data0 = lists:foldr(fun maybe_record_to_map/2, [], emqx_rule_registry:get_resources()),
@@ -345,7 +344,7 @@ update_resource(#{id := Id}, NewParams) ->
         {error, not_found} ->
             ?LOG(error, "Resource not found: ~0p", [Id]),
             return({error, 400, <<"Resource not found:", Id/binary>>});
-        {error, {init_resource_failure, _}} ->
+        {error, {init_resource, _}} ->
             ?LOG(error, "Init resource failure: ~0p", [Id]),
             return({error, 500, <<"Init resource failure:", Id/binary>>});
         {error, {dependency_exists, RuleId}} ->

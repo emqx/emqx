@@ -74,8 +74,13 @@ print_otp_version_warning() ->
 print_banner() ->
     io:format("Starting ~s on node ~s~n", [?APP, node()]).
 
+-ifndef(TEST).
 print_vsn() ->
     io:format("~s ~s is running now!~n", [get_description(), get_release()]).
+-else.
+print_vsn() ->
+    ok.
+-endif.
 
 get_description() ->
     {ok, Descr0} = application:get_key(?APP, description),
