@@ -44,8 +44,7 @@ filter_extra_deps([{Plugin, _} = P | More], Filter, Acc) ->
 
 overrides() ->
     [ {add, [ {extra_src_dirs, [{"etc", [{recursive,true}]}]}
-            , {erl_opts, [ deterministic
-                         , {compile_info, [{emqx_vsn, get_vsn()}]}
+            , {erl_opts, [ {compile_info, [{emqx_vsn, get_vsn()}]}
                          ]}
             ]}
     ] ++ community_plugin_overrides().
