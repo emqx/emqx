@@ -124,23 +124,30 @@ safe_stop(Pid, StopF, Timeout) ->
     end.
 
 send(Conn, Msgs) ->
-    send(Conn, Msgs, undefined).
-send(_Conn, [], PktId) ->
-    {ok, PktId};
-send(#{client_pid := ClientPid} = Conn, [Msg | Rest], _PktId) ->
+    send(Conn, Msgs, []).
+
+send(_Conn, [], []) ->
+    %% all messages in the batch are QoS-0
+    Ref = make_ref(),
+    %% QoS-0 messages do not have packet ID
+    %% the batch ack is simulated with a loop-back message
+    self() ! {batch_ack, Ref},
+    {ok, Ref};
+send(_Conn, [], PktIds) ->
+    %% PktIds is not an empty list if there is any non-QoS-0 message in the batch,
+    %% And the worker should wait for all acks
+    {ok, PktIds};
+send(#{client_pid := ClientPid} = Conn, [Msg | Rest], PktIds) ->
     case emqtt:publish(ClientPid, Msg) of
         ok ->
-            Ref = make_ref(),
-            self() ! {batch_ack, Ref},
-            send(Conn, Rest, Ref);
+            send(Conn, Rest, PktIds);
         {ok, PktId} ->
-            send(Conn, Rest, PktId);
+            send(Conn, Rest, [PktId | PktIds]);
         {error, Reason} ->
             %% NOTE: There is no partial sucess of a batch and recover from the middle
             %% only to retry all messages in one batch
             {error, Reason}
     end.
-
 
 handle_puback(#{packet_id := PktId, reason_code := RC}, Parent)
   when RC =:= ?RC_SUCCESS;

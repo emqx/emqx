@@ -44,9 +44,7 @@ filter_extra_deps([{Plugin, _} = P | More], Filter, Acc) ->
 
 overrides() ->
     [ {add, [ {extra_src_dirs, [{"etc", [{recursive,true}]}]}
-            , {erl_opts, [ deterministic
-                         , {compile_info, [{emqx_vsn, get_vsn()}]}
-                         ]}
+            , {erl_opts, [{compile_info, [{emqx_vsn, get_vsn()}]}]}
             ]}
     ] ++ community_plugin_overrides().
 
@@ -96,7 +94,7 @@ plugins(HasElixir) ->
 
 test_plugins() ->
     [ rebar3_proper,
-      {coveralls, {git, "https://github.com/emqx/coveralls-erl", {branch, "github"}}}
+      {coveralls, {git, "https://github.com/emqx/coveralls-erl", {branch, "fix-git-info"}}}
     ].
 
 test_deps() ->
@@ -107,30 +105,37 @@ test_deps() ->
 
 common_compile_opts() ->
     [ debug_info % alwyas include debug_info
-    , deterministic
     , {compile_info, [{emqx_vsn, get_vsn()}]}
     | [{d, 'EMQX_ENTERPRISE'} || is_enterprise()]
     ].
 
 prod_compile_opts() ->
     [ compressed
+    , deterministic
     , warnings_as_errors
     | common_compile_opts()
     ].
+
+prod_overrides() ->
+    [{add, [ {erl_opts, [deterministic]}]}].
 
 profiles() ->
     Vsn = get_vsn(),
     [ {'emqx',          [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, bin)}
+                        , {overrides, prod_overrides()}
                         ]}
     , {'emqx-pkg',      [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, pkg)}
+                        , {overrides, prod_overrides()}
                         ]}
     , {'emqx-edge',     [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, bin)}
+                        , {overrides, prod_overrides()}
                         ]}
     , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, pkg)}
+                        , {overrides, prod_overrides()}
                         ]}
     , {check,           [ {erl_opts, common_compile_opts()}
                         ]}
@@ -239,12 +244,19 @@ relx_apps(ReleaseType) ->
     ++ [{N, load} || N <- relx_plugin_apps(ReleaseType)].
 
 relx_apps_per_rel(cloud) ->
-    [ {observer, load}
-    , luerl
+    [ luerl
     , xmerl
+    | [{observer, load} || is_app(observer)]
     ];
 relx_apps_per_rel(edge) ->
     [].
+
+is_app(Name) ->
+    case application:load(Name) of
+        ok -> true;
+        {error,{already_loaded, _}} -> true;
+        _ -> false
+    end.
 
 relx_plugin_apps(ReleaseType) ->
     [ emqx_retainer
@@ -444,7 +456,6 @@ coveralls() ->
         Cfgs = [{coveralls_repo_token, Token},
                 {coveralls_service_job_id, os:getenv("GITHUB_RUN_ID")},
                 {coveralls_commit_sha, os:getenv("GITHUB_SHA")},
-                {coveralls_service_number, os:getenv("GITHUB_RUN_NUMBER")},
                 {coveralls_coverdata, "_build/test/cover/*.coverdata"},
                 {coveralls_service_name, "github"}],
         case os:getenv("GITHUB_EVENT_NAME") =:= "pull_request"

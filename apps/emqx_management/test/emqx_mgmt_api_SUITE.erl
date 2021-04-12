@@ -68,7 +68,7 @@ end_per_suite(_Config) ->
 
 init_per_testcase(data, Config) ->
     ok = emqx_dashboard_admin:mnesia(boot),
-    application:ensure_all_started(emqx_dahboard),
+    application:ensure_all_started(emqx_dashboard),
     ok = emqx_rule_registry:mnesia(boot),
     application:ensure_all_started(emqx_rule_engine),
     Config;

@@ -269,10 +269,10 @@ message_type(Type) ->
     io_lib:format("Unknown Type ~p", [Type]).
 
 format(?SN_PUBLISH_MSG(Flags, TopicId, MsgId, Data)) ->
-    io_lib:format("mqtt_sn_message SN_PUBLISH, ~p, TopicId=~w, MsgId=~w, Payload=~w",
+    io_lib:format("mqtt_sn_message SN_PUBLISH, ~s, TopicId=~w, MsgId=~w, Payload=~w",
                   [format_flag(Flags), TopicId, MsgId, Data]);
 format(?SN_PUBACK_MSG(Flags, MsgId, ReturnCode)) ->
-    io_lib:format("mqtt_sn_message SN_PUBACK, ~p, MsgId=~w, ReturnCode=~w",
+    io_lib:format("mqtt_sn_message SN_PUBACK, ~s, MsgId=~w, ReturnCode=~w",
                   [format_flag(Flags), MsgId, ReturnCode]);
 format(?SN_PUBREC_MSG(?SN_PUBCOMP, MsgId)) ->
     io_lib:format("mqtt_sn_message SN_PUBCOMP, MsgId=~w", [MsgId]);
@@ -281,13 +281,13 @@ format(?SN_PUBREC_MSG(?SN_PUBREC, MsgId)) ->
 format(?SN_PUBREC_MSG(?SN_PUBREL, MsgId)) ->
     io_lib:format("mqtt_sn_message SN_PUBREL, MsgId=~w", [MsgId]);
 format(?SN_SUBSCRIBE_MSG(Flags, Msgid, Topic)) ->
-    io_lib:format("mqtt_sn_message SN_SUBSCRIBE, ~p, MsgId=~w, TopicId=~w",
+    io_lib:format("mqtt_sn_message SN_SUBSCRIBE, ~s, MsgId=~w, TopicId=~w",
                   [format_flag(Flags), Msgid, Topic]);
 format(?SN_SUBACK_MSG(Flags, TopicId, MsgId, ReturnCode)) ->
-    io_lib:format("mqtt_sn_message SN_SUBACK, ~p, MsgId=~w, TopicId=~w, ReturnCode=~w",
+    io_lib:format("mqtt_sn_message SN_SUBACK, ~s, MsgId=~w, TopicId=~w, ReturnCode=~w",
                   [format_flag(Flags), MsgId, TopicId, ReturnCode]);
 format(?SN_UNSUBSCRIBE_MSG(Flags, Msgid, Topic)) ->
-    io_lib:format("mqtt_sn_message SN_UNSUBSCRIBE, ~p, MsgId=~w, TopicId=~w",
+    io_lib:format("mqtt_sn_message SN_UNSUBSCRIBE, ~s, MsgId=~w, TopicId=~w",
                   [format_flag(Flags), Msgid, Topic]);
 format(?SN_UNSUBACK_MSG(MsgId)) ->
     io_lib:format("mqtt_sn_message SN_UNSUBACK, MsgId=~w", [MsgId]);

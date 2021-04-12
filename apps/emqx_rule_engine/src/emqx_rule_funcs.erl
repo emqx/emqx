@@ -853,6 +853,7 @@ time_unit(<<"nanosecond">>) -> nanosecond.
 %% Here the emqx_rule_funcs module acts as a proxy, forwarding
 %% the function handling to the worker module.
 %% @end
+-ifdef(EMQX_ENTERPRISE).
 '$handle_undefined_function'(schema_decode, [SchemaId, Data|MoreArgs]) ->
     emqx_schema_parser:decode(SchemaId, Data, MoreArgs);
 '$handle_undefined_function'(schema_decode, Args) ->
@@ -868,6 +869,13 @@ time_unit(<<"nanosecond">>) -> nanosecond.
 
 '$handle_undefined_function'(Fun, Args) ->
     error({sql_function_not_supported, function_literal(Fun, Args)}).
+-else.
+'$handle_undefined_function'(sprintf, [Format|Args]) ->
+    erlang:apply(fun sprintf_s/2, [Format, Args]);
+
+'$handle_undefined_function'(Fun, Args) ->
+    error({sql_function_not_supported, function_literal(Fun, Args)}).
+-endif. % EMQX_ENTERPRISE
 
 map_path(Key) ->
     {path, [{key, P} || P <- string:split(Key, ".", all)]}.

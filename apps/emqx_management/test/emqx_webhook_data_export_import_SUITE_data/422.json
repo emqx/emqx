@@ -1,0 +1,43 @@
+{
+    "version": "4.2",
+    "date": "2021-03-23 23:22:30",
+    "rules": [],
+    "resources": [
+        {
+            "id": "webhook",
+            "type": "web_hook",
+            "config": {
+                "headers": {
+                    "k": "v"
+                },
+                "method": "POST",
+                "url": "http://www.emqx.io"
+            },
+            "created_at": null,
+            "description": "webhook"
+        }
+    ],
+    "blacklist": [],
+    "apps": [
+        {
+            "id": "admin",
+            "secret": "public",
+            "name": "Default",
+            "desc": "Application user",
+            "status": true,
+            "expired": "undefined"
+        }
+    ],
+    "users": [
+        {
+            "username": "admin",
+            "password": "mOTRLWt85F7GW+CSiBuRUZiRANw=",
+            "tags": "administrator"
+        }
+    ],
+    "auth_clientid": [],
+    "auth_username": [],
+    "auth_mnesia": [],
+    "acl_mnesia": [],
+    "schemas": []
+}
