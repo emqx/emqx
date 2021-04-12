@@ -240,6 +240,7 @@ import_resources_and_rules(Resources, Rules, _FromVersion) ->
     import_resources(Resources),
     import_rules(Rules).
 -else.
+
 import_resources_and_rules(Resources, Rules, FromVersion)
   when FromVersion =:= "4.0" orelse
        FromVersion =:= "4.1" orelse
@@ -249,7 +250,6 @@ import_resources_and_rules(Resources, Rules, FromVersion)
                       NActions = apply_new_config(Actions, Configs),
                       import_rule(Rule#{<<"actions">> := NActions})
                   end, Rules);
-
 import_resources_and_rules(Resources, Rules, _FromVersion) ->
     import_resources(Resources),
     import_rules(Rules).
@@ -264,42 +264,39 @@ compatible_version(#{<<"id">> := ID,
                                        <<"pool_size">> := PoolSize,
                                        <<"request_timeout">> := RequestTimeout,
                                        <<"url">> := URL}} = Resource, Acc) ->
-                    CovertFun = fun(Int) ->
-                        list_to_binary(integer_to_list(Int) ++ "s")
-                    end,
-                    Cfg = make_new_config(#{<<"pool_size">> => PoolSize,
-                                            <<"connect_timeout">> => CovertFun(ConnectTimeout),
-                                            <<"request_timeout">> => CovertFun(RequestTimeout),
-                                            <<"url">> => URL}),
-                    {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
-                    NHeaders = maps:put(<<"content-type">>, ContentType, covert_empty_headers(Headers)),
-                    [{ID, #{headers => NHeaders, method => Method}} | Acc];
+    CovertFun = fun(Int) ->
+        list_to_binary(integer_to_list(Int) ++ "s")
+    end,
+    Cfg = make_new_config(#{<<"pool_size">> => PoolSize,
+                            <<"connect_timeout">> => CovertFun(ConnectTimeout),
+                            <<"request_timeout">> => CovertFun(RequestTimeout),
+                            <<"url">> => URL}),
+    {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
+    NHeaders = maps:put(<<"content-type">>, ContentType, covert_empty_headers(Headers)),
+    [{ID, #{headers => NHeaders, method => Method}} | Acc];
 % 4.2.0
 compatible_version(#{<<"id">> := ID,
-                     <<"type">> := <<"web_hook">>,
-                     <<"config">> := #{<<"headers">> := Headers,
-                                       <<"method">> := Method,%% 4.2.0 Different here
-                                       <<"url">> := URL}} = Resource, Acc) ->
-                    Cfg = make_new_config(#{<<"url">> => URL}),
-                    {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
-                    NHeaders = maps:put(<<"content-type">>, <<"application/json">> , covert_empty_headers(Headers)),
-                    [{ID, #{headers => NHeaders, method => Method}} | Acc];
+                    <<"type">> := <<"web_hook">>,
+                    <<"config">> := #{<<"headers">> := Headers,
+                                    <<"method">> := Method,%% 4.2.0 Different here
+                                    <<"url">> := URL}} = Resource, Acc) ->
+    Cfg = make_new_config(#{<<"url">> => URL}),
+    {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
+    NHeaders = maps:put(<<"content-type">>, <<"application/json">> , covert_empty_headers(Headers)),
+    [{ID, #{headers => NHeaders, method => Method}} | Acc];
 
 %% bridge mqtt
 %% 4.2.0 - 4.2.5 bridge_mqtt, ssl enabled from on/off to true/false
 compatible_version(#{<<"type">> := <<"bridge_mqtt">>,
                      <<"id">> := ID, %% begin 4.2.0.
                      <<"config">> := #{<<"ssl">> := Ssl} = Config} = Resource, Acc) ->
-                     F = fun(B) ->
-                         case B of
-                               <<"on">> -> true;
-                               <<"off">> -> false;
-                               Other -> Other
-                         end
-                     end,
-                    NewConfig = Config#{<<"ssl">> := F(Ssl)},
-                    {ok, _Resource} = import_resource(Resource#{<<"config">> := NewConfig}),
-                    [{ID, NewConfig} | Acc];
+    NewConfig = Config#{<<"ssl">> := flag_to_boolean(Ssl),
+                        <<"pool_size">> => case maps:get(<<"pool_size">>, Config, undefined) of %% 4.0.x, compatible `pool_size`
+                                                undefined -> 8;
+                                                PoolSize -> PoolSize
+                                            end},
+    {ok, _Resource} = import_resource(Resource#{<<"config">> := NewConfig}),
+    [{ID, NewConfig} | Acc];
 
 % 4.2.3, add :content_type
 compatible_version(#{<<"id">> := ID,
@@ -308,14 +305,14 @@ compatible_version(#{<<"id">> := ID,
                                       <<"content_type">> := ContentType,%% 4.2.3 Different here
                                       <<"method">> := Method,
                                       <<"url">> := URL}} = Resource, Acc) ->
-                    Cfg = make_new_config(#{<<"url">> => URL}),
-                    {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
-                    NHeaders = maps:put(<<"content-type">>, ContentType, covert_empty_headers(Headers)),
-                    [{ID, #{headers => NHeaders, method => Method}} | Acc];
+    Cfg = make_new_config(#{<<"url">> => URL}),
+    {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
+    NHeaders = maps:put(<<"content-type">>, ContentType, covert_empty_headers(Headers)),
+    [{ID, #{headers => NHeaders, method => Method}} | Acc];
 % normal version
 compatible_version(Resource, Acc) ->
-                    {ok, _Resource} = import_resource(Resource),
-                    Acc.
+    {ok, _Resource} = import_resource(Resource),
+    Acc.
 
 make_new_config(Cfg) ->
     Config = #{<<"pool_size">> => 8,
@@ -667,19 +664,23 @@ do_import_extra_data(_Data, _Version) -> ok.
 -endif.
 
 -ifndef(EMQX_ENTERPRISE).
-covert_empty_headers(Headers) ->
-    case Headers of
-        [] -> #{};
-        Other -> Other
-    end.
+covert_empty_headers([]) -> #{};
+covert_empty_headers(Other) -> Other.
+
+flag_to_boolean(<<"on">>) -> true;
+flag_to_boolean(<<"off">>) -> false;
+flag_to_boolean(Other) -> Other.
 -endif.
 
 read_global_auth_type(Data, Version) when Version =:= "4.0" orelse
                                           Version =:= "4.1" orelse
                                           Version =:= "4.2" ->
+    ct:print("|>=> :~p~n", [Data]),
     case Data of
-        #{<<"auth.mnesia.as">> := <<"username">>} -> application:set_env(emqx_auth_mnesia, as, username);
-        #{<<"auth.mnesia.as">> := <<"clientid">>} -> application:set_env(emqx_auth_mnesia, as, clientid);
+        #{<<"auth.mnesia.as">> := <<"username">>} ->
+            application:set_env(emqx_auth_mnesia, as, username);
+        #{<<"auth.mnesia.as">> := <<"clientid">>} ->
+            application:set_env(emqx_auth_mnesia, as, clientid);
         _ ->
             logger:error("While importing data from EMQX versions prior to 4.3 "
                          "it is necessary to specify the value of \"auth.mnesia.as\" parameter "
