@@ -127,6 +127,19 @@ t_modules_cmd(_) ->
                  "Module emqx_mod_presence unloaded successfully.\n"),
     unmock_print().
 
+%% For: https://github.com/emqx/emqx/issues/4511
+t_join_cluster(_) ->
+    %% Started by emqx application
+    {error, {already_started, emqx_modules}} = application:start(emqx_modules),
+    %% After clustered
+    emqx:shutdown(),
+    emqx:reboot(),
+    {error,{already_started,emqx_modules}} = application:start(emqx_modules),
+    %% After emqx reboot, we should not interfere with other tests
+    _ = end_per_suite([]),
+    _ = init_per_suite([]),
+    ok.
+
 mock_print() ->
     catch meck:unload(emqx_ctl),
     meck:new(emqx_ctl, [non_strict, passthrough]),
