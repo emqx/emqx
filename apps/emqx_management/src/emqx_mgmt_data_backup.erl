@@ -675,7 +675,6 @@ flag_to_boolean(Other) -> Other.
 read_global_auth_type(Data, Version) when Version =:= "4.0" orelse
                                           Version =:= "4.1" orelse
                                           Version =:= "4.2" ->
-    ct:print("|>=> :~p~n", [Data]),
     case Data of
         #{<<"auth.mnesia.as">> := <<"username">>} ->
             application:set_env(emqx_auth_mnesia, as, username);
