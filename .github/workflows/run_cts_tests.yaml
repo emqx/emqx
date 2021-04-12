@@ -363,7 +363,6 @@ jobs:
           EMQX_AUTH__REDIS__TYPE=sentinel
           EMQX_AUTH__REDIS__SERVER=${redis_${{ matrix.network_type }}_address}:26379
           EMQX_AUTH__REDIS__SENTINEL=mymaster
-          EMQX_AUTH__REDIS__POOL=1
           EOF
       - name: setup
         if: matrix.node_type == 'cluster' && matrix.connect_type == 'tcp'
