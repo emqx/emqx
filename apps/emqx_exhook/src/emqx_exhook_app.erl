@@ -34,7 +34,6 @@
         , unload_server/1
         , unload_exhooks/0
         , init_hooks_cnter/0
-        , deinit_hooks_cnter/0
         ]).
 
 %%--------------------------------------------------------------------
@@ -57,7 +56,6 @@ start(_StartType, _StartArgs) ->
 prep_stop(State) ->
     emqx_ctl:unregister_command(exhook),
     _ = unload_exhooks(),
-    _ = deinit_hooks_cnter(),
     ok = unload_all_servers(),
     State.
 
@@ -94,5 +92,3 @@ init_hooks_cnter() ->
             ok
     end.
 
-deinit_hooks_cnter() ->
-    ets:delete(?CNTER).
