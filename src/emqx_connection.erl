@@ -374,12 +374,8 @@ handle_msg({Passive, _Sock}, State)
     handle_info(activate_socket, NState1);
 
 handle_msg(Deliver = {deliver, _Topic, _Msg},
-           #state{active_n = MaxBatchSize, transport = Transport,
-                  socket = Socket, channel = Channel} = State) ->
-    Delivers0 = emqx_misc:drain_deliver(MaxBatchSize),
-    emqx_congestion:maybe_alarm_too_many_publish(Socket, Transport, Channel,
-        length(Delivers0), MaxBatchSize),
-    Delivers = [Deliver|Delivers0],
+           #state{active_n = ActiveN} = State) ->
+    Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 
 %% Something sent
@@ -548,12 +544,9 @@ handle_timeout(_TRef, limit_timeout, State) ->
                         },
     handle_info(activate_socket, NState);
 
-handle_timeout(_TRef, emit_stats, State = #state{active_n = MaxBatchSize,
-        channel = Channel, transport = Transport, socket = Socket}) ->
-    {_, MsgQLen} = erlang:process_info(self(), message_queue_len),
-    emqx_congestion:maybe_alarm_port_busy(Socket, Transport, Channel),
-    emqx_congestion:maybe_alarm_too_many_publish(Socket, Transport, Channel,
-        MsgQLen, MaxBatchSize),
+handle_timeout(_TRef, emit_stats, State = #state{channel = Channel, transport = Transport,
+        socket = Socket}) ->
+    emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
     {ok, State#state{stats_timer = undefined}};
@@ -666,7 +659,7 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
     Oct = iolist_size(IoData),
     ok = emqx_metrics:inc('bytes.sent', Oct),
     emqx_pd:inc_counter(outgoing_bytes, Oct),
-    emqx_congestion:maybe_alarm_port_busy(Socket, Transport, Channel),
+    emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
     case Transport:async_send(Socket, IoData, [nosuspend]) of
         ok -> ok;
         Error = {error, _Reason} ->

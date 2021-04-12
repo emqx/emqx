@@ -361,7 +361,7 @@ normalize_message(partition, #{occurred := Node}) ->
     list_to_binary(io_lib:format("Partition occurs at node ~s", [Node]));
 normalize_message(<<"resource", _/binary>>, #{type := Type, id := ID}) ->
     list_to_binary(io_lib:format("Resource ~s(~s) is down", [Type, ID]));
-normalize_message(<<"mqtt_conn/congested/", Info/binary>>, _) ->
-    list_to_binary(io_lib:format("MQTT connection congested: ~s", [Info]));
+normalize_message(<<"conn_congestion/", Info/binary>>, _) ->
+    list_to_binary(io_lib:format("connection congested: ~s", [Info]));
 normalize_message(_Name, _UnknownDetails) ->
     <<"Unknown alarm">>.
