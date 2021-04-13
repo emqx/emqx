@@ -40,7 +40,7 @@ eunit: $(REBAR)
 
 .PHONY: proper
 proper: $(REBAR)
-	@ENABLE_COVER_COMPILE=1 $(REBAR) as test proper -d test/props -c
+	@ENABLE_COVER_COMPILE=1 $(REBAR) proper -d test/props -c
 
 .PHONY: ct
 ct: $(REBAR)
@@ -55,6 +55,14 @@ $1-ct:
 	$(REBAR) ct --name 'test@127.0.0.1' -v --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
+
+## apps/name-prop targets
+.PHONY: $(APPS:%=%-prop)
+define gen-app-prop-target
+$1-prop:
+	$(REBAR) proper -d test/props -v -m $(shell $(CURDIR)/scripts/find-props.sh $1)
+endef
+$(foreach app,$(APPS),$(eval $(call gen-app-prop-target,$(app))))
 
 .PHONY: cover
 cover: $(REBAR)

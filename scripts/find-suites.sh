@@ -12,4 +12,4 @@ TESTDIR="test"
 if [ "$1" != "emqx" ]; then
     TESTDIR="$1/test"
 fi
-find "${TESTDIR}" -name "*_SUITE.erl" | tr -d '\r' | tr '\n' ','
+find "${TESTDIR}" -name "*_SUITE.erl" 2>/dev/null | xargs | tr ' ' ','
