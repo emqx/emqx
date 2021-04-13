@@ -378,8 +378,10 @@ encode_payload(Payload, base62) -> emqx_base62:encode(Payload);
 encode_payload(Payload, base64) -> base64:encode(Payload);
 encode_payload(Payload, plain) -> Payload.
 
-stringfy(Term) when is_atom(Term); is_binary(Term) ->
+stringfy(Term) when is_binary(Term) ->
     Term;
+stringfy(Term) when is_atom(Term) ->
+    atom_to_binary(Term, utf8);
 stringfy(Term) ->
     unicode:characters_to_binary((io_lib:format("~0p", [Term]))).
 
