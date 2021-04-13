@@ -253,7 +253,7 @@ websocket_init([Req, Opts]) ->
                    #{src_address := SrcAddr, src_port := SrcPort} ->
                        {SrcAddr, SrcPort};
                    _ ->
-                       cowboy_req:peer(Req)
+                       get_peer(Req, Opts)
                end,
     Sockname = cowboy_req:sock(Req),
     Peercert = cowboy_req:cert(Req),
@@ -724,6 +724,34 @@ classify([Event|More], Packets, Cmds, Events) ->
     classify(More, Packets, Cmds, [Event|Events]).
 
 trigger(Event) -> erlang:send(self(), Event).
+
+get_peer(Req, Opts) ->
+    {PeerAddr, PeerPort} = cowboy_req:peer(Req),
+    AddrHeader = cowboy_req:header(proplists:get_value(proxy_address_header, Opts), Req, <<>>),
+    ClientAddr = case string:tokens(binary_to_list(AddrHeader), ", ") of
+                     [] ->
+                         undefined;
+                     AddrList ->
+                         hd(AddrList)
+                 end,
+    Addr = case inet:parse_address(ClientAddr) of
+               {ok, A} ->
+                   A;
+               _ ->
+                   PeerAddr
+           end,
+    PortHeader = cowboy_req:header(proplists:get_value(proxy_port_header, Opts), Req, <<>>),
+    ClientPort = case string:tokens(binary_to_list(PortHeader), ", ") of
+                     [] ->
+                         undefined;
+                     PortList ->
+                         hd(PortList)
+                 end,
+    try
+        {Addr, list_to_integer(ClientPort)}
+    catch
+        _:_  -> {Addr, PeerPort}
+    end.
 
 %%--------------------------------------------------------------------
 %% For CT tests
