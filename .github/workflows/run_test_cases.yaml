@@ -28,6 +28,21 @@ jobs:
         - name: dialyzer
           run: make dialyzer
 
+    run_proper_test:
+        runs-on: ubuntu-20.04
+        container: emqx/build-env:erl23.2.7-ubuntu20.04
+
+        steps:
+        - uses: actions/checkout@v2
+        - name: set git credentials
+          run: |
+            if make emqx-ee --dry-run > /dev/null 2>&1; then
+              echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+              git config --global credential.helper store
+            fi
+        - name: proper
+          run: make proper
+
     run_common_test:
         runs-on: ubuntu-20.04
 
