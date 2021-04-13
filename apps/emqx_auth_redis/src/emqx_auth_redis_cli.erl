@@ -38,7 +38,7 @@ connect(Opts) ->
     Host = case Sentinel =:= "" of
         true -> get_value(host, Opts);
         false ->
-            _ = eredis_sentinel:start_link(get_value(servers, Opts)),
+            _ = eredis_sentinel:start_link(get_value(servers, Opts), get_value(options, Opts, [])),
             "sentinel:" ++ Sentinel
     end,
     case eredis:start_link(Host,
