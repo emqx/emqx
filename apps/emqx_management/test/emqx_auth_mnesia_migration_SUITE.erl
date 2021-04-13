@@ -60,15 +60,15 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_modules, emqx_management, emqx_dashboard, emqx_management, emqx_auth_mnesia]),
+    emqx_ct_helpers:stop_apps([emqx_modules, emqx_management, emqx_dashboard, emqx_auth_mnesia]),
     ekka_mnesia:ensure_stopped().
 
 init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_, _Config) ->
-    mnesia:clear_table(emqx_acl),
-    mnesia:clear_table(emqx_user),
+    ok = mnesia:clear_table(emqx_acl),
+    ok = mnesia:clear_table(emqx_user),
     ok.
 
 t_matrix(Config) ->
