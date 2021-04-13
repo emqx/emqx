@@ -1,0 +1,102 @@
+{
+    "version": "4.2",
+    "date": "2021-04-13 16:42:34",
+    "modules": [
+        {
+            "id": "module:3dc04a9c",
+            "type": "retainer",
+            "config": {
+                "storage_type": "ram",
+                "max_retained_messages": 0,
+                "max_payload_size": "1MB",
+                "expiry_interval": 0
+            },
+            "enabled": true,
+            "created_at": "undefined",
+            "description": ""
+        },
+        {
+            "id": "module:5128901f",
+            "type": "recon",
+            "config": {},
+            "enabled": true,
+            "created_at": "undefined",
+            "description": ""
+        },
+        {
+            "id": "module:9d1596c8",
+            "type": "presence",
+            "config": {
+                "qos": 0
+            },
+            "enabled": true,
+            "created_at": "undefined",
+            "description": ""
+        },
+        {
+            "id": "module:43d43410",
+            "type": "internal_acl",
+            "config": {
+                "acl_rule_file": "etc/acl.conf"
+            },
+            "enabled": true,
+            "created_at": "undefined",
+            "description": ""
+        }
+    ],
+    "rules": [],
+    "resources": [
+        {
+            "id": "webhook",
+            "type": "web_hook",
+            "config": {
+                "cacertfile": {
+                    "filename": "",
+                    "file": ""
+                },
+                "certfile": {
+                    "filename": "",
+                    "file": ""
+                },
+                "connect_timeout": "5s",
+                "headers": {
+                    "k": "v"
+                },
+                "keyfile": {
+                    "filename": "",
+                    "file": ""
+                },
+                "method": "POST",
+                "pool_size": 8,
+                "request_timeout": "5s",
+                "url": "http://www.emqx.io",
+                "verify": false
+            },
+            "created_at": null,
+            "description": "webhook"
+        }
+    ],
+    "blacklist": [],
+    "apps": [
+        {
+            "id": "admin",
+            "secret": "public",
+            "name": "Default",
+            "desc": "Application user",
+            "status": true,
+            "expired": "undefined"
+        }
+    ],
+    "users": [
+        {
+            "username": "admin",
+            "password": "Hd8AMmbFs+LsqQXQxaV/WqLoGEk=",
+            "tags": "administrator"
+        }
+    ],
+    "auth_mnesia": [],
+    "acl_mnesia": [],
+    "schemas": [],
+    "configs": [],
+    "listeners_state": []
+}

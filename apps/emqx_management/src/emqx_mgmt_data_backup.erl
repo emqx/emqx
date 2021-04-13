@@ -412,7 +412,7 @@ import_auth_clientid(Lists) ->
             lists:foreach(fun(#{<<"clientid">> := Clientid, <<"password">> := Password}) ->
                                   mnesia:dirty_write({emqx_user, {clientid, Clientid}
                                                                , base64:decode(Password)
-                                                               ,  erlang:system_time(millisecond)})
+                                                               , erlang:system_time(millisecond)})
                           end, Lists)
     end.
 
@@ -633,7 +633,7 @@ import(Filename, OverridesJson) ->
                     end;
                 false ->
                     logger:error("Unsupported version: ~p", [Version]),
-                    {error, unsupported_version}
+                    {error, unsupported_version, Version}
             end;
         Error -> Error
     end.

@@ -4,7 +4,7 @@
         {
             "username": "admin",
             "tags": "administrator",
-            "password": "m/GtjNgri9GILklefVJH8BeTnNE="
+            "password": "GCX5nvOMK0hbiMB4AUyc25wI8fU="
         }
     ],
     "schemas": [],
@@ -49,7 +49,7 @@
             }
         }
     ],
-    "date": "2021-03-30 13:38:39",
+    "date": "2021-04-13 13:57:23",
     "blacklist": [],
     "auth_username": [],
     "auth_mnesia": [],
