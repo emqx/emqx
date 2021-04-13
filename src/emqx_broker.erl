@@ -437,12 +437,12 @@ init([Pool, Id]) ->
     {ok, #{pool => Pool, id => Id}}.
 
 handle_call({subscribe, Topic}, {FromPid, _Tag}, State) ->
-    case is_process_alive(FromPid) of
+    case sub_pre_check(FromPid) of
         true ->
             Res = emqx_router:do_add_route(Topic),
             {reply, Res, State};
         false ->
-            {noreply, State}
+            {reply, {error, req_dropped} ,State}
     end;
 
 handle_call({subscribe, Topic, I}, _From, State) ->
@@ -503,4 +503,21 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+sub_pre_check(Pid) ->
+    is_pid_links_port(Pid).
 
+-spec is_pid_links_port(pid()) -> boolean().
+is_pid_links_port(Pid) ->
+    case process_info(Pid, links) of
+        {links, Links} ->
+            has_port(Links);
+        undefined ->
+            false
+    end.
+
+has_port([])->
+    false;
+has_port([X | _]) when is_port(X) ->
+    true;
+has_port([X | T]) when is_pid(X) ->
+    has_port(T).
