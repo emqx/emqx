@@ -34,7 +34,7 @@ stop(_) -> ok.
 
 %% @doc Callback for `emqx_bridge_connect' behaviour
 -spec send(_, batch()) -> {ok, ack_ref()} | {error, any()}.
-send(#{stub_pid := Pid}, Batch) ->
+send(#{client_pid := Pid}, Batch) ->
     Ref = make_ref(),
     Pid ! {stub_message, self(), Ref, Batch},
     {ok, Ref}.

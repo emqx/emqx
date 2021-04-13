@@ -191,7 +191,7 @@ t_stub_normal(Config) when is_list(Config) ->
             connect_module => emqx_bridge_stub_conn,
             forward_mountpoint => <<"forwarded">>,
             start_type => auto,
-            stub_pid => self()
+            client_pid => self()
            },
     {ok, Pid} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
     ClientId = <<"ClientId">>,
@@ -218,7 +218,7 @@ t_stub_overflow(Config) when is_list(Config) ->
             connect_module => emqx_bridge_stub_conn,
             forward_mountpoint => <<"forwarded">>,
             start_type => auto,
-            stub_pid => self(),
+            client_pid => self(),
             max_inflight => MaxInflight
            },
     {ok, Worker} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
@@ -250,7 +250,7 @@ t_stub_random_order(Config) when is_list(Config) ->
             connect_module => emqx_bridge_stub_conn,
             forward_mountpoint => <<"forwarded">>,
             start_type => auto,
-            stub_pid => self(),
+            client_pid => self(),
             max_inflight => MaxInflight
            },
     {ok, Worker} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
@@ -266,6 +266,53 @@ t_stub_random_order(Config) when is_list(Config) ->
         Acks = stub_receive(MaxInflight),
         lists:foreach(fun({Pid, Ref}) -> Pid ! {batch_ack, Ref} end,
                       lists:reverse(Acks)),
+        ?SNK_WAIT(inflight_drained),
+        ?SNK_WAIT(replayq_drained),
+        emqtt:disconnect(ConnPid)
+    after
+        ok = emqx_bridge_worker:stop(Worker)
+    end.
+
+t_stub_retry_inflight(Config) when is_list(Config) ->
+    Topic = <<"to_stub_retry_inflight/a">>,
+    MaxInflight = 10,
+    Cfg = #{forwards => [Topic],
+            connect_module => emqx_bridge_stub_conn,
+            forward_mountpoint => <<"forwarded">>,
+            reconnect_delay_ms => 10,
+            start_type => auto,
+            client_pid => self(),
+            max_inflight => MaxInflight
+           },
+    {ok, Worker} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
+    ClientId = <<"ClientId2">>,
+    try
+        case ?block_until(#{?snk_kind := connected, inflight := 0}, 2000, 1000) of
+            {ok, #{inflight := 0}} -> ok;
+            Other -> ct:fail("~p", [Other])
+        end,
+        {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),
+        {ok, _} = emqtt:connect(ConnPid),
+        lists:foreach(
+          fun(I) ->
+                  Data = integer_to_binary(I),
+                  _ = emqtt:publish(ConnPid, Topic, Data, ?QOS_1)
+          end, lists:seq(1, MaxInflight)),
+        %% receive acks but do not ack
+        Acks1 = stub_receive(MaxInflight),
+        ?assertEqual(MaxInflight, length(Acks1)),
+        %% simulate a disconnect
+        Worker ! {disconnected, self(), test},
+        ?SNK_WAIT(disconnected),
+        case ?block_until(#{?snk_kind := connected, inflight := MaxInflight}, 2000, 20) of
+            {ok, _} -> ok;
+            Error -> ct:fail("~p", [Error])
+        end,
+        %% expect worker to retry inflight, so to receive acks again
+        Acks2 = stub_receive(MaxInflight),
+        ?assertEqual(MaxInflight, length(Acks2)),
+        lists:foreach(fun({Pid, Ref}) -> Pid ! {batch_ack, Ref} end,
+                      lists:reverse(Acks2)),
         ?SNK_WAIT(inflight_drained),
         ?SNK_WAIT(replayq_drained),
         emqtt:disconnect(ConnPid)
