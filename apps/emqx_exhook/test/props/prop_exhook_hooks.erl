@@ -488,9 +488,9 @@ pubsub_to_enum(subscribe) -> 'SUBSCRIBE'.
 %%--------------------------------------------------------------------
 
 do_setup() ->
+    logger:set_primary_config(#{level => warning}),
     _ = emqx_exhook_demo_svr:start(),
     emqx_ct_helpers:start_apps([emqx_exhook], fun set_special_cfgs/1),
-    emqx_logger:set_log_level(warning),
     %% waiting first loaded event
     {'on_provider_loaded', _} = emqx_exhook_demo_svr:take(),
     ok.
@@ -500,12 +500,14 @@ do_teardown(_) ->
     %% waiting last unloaded event
     {'on_provider_unloaded', _} = emqx_exhook_demo_svr:take(),
     _ = emqx_exhook_demo_svr:stop(),
+    logger:set_primary_config(#{level => notice}),
     timer:sleep(2000),
     ok.
 
 set_special_cfgs(emqx) ->
     application:set_env(emqx, allow_anonymous, false),
     application:set_env(emqx, enable_acl_cache, false),
+    application:set_env(emqx, modules_loaded_file, undefined),
     application:set_env(emqx, plugins_loaded_file,
                         emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins"));
 set_special_cfgs(emqx_exhook) ->
@@ -528,7 +530,7 @@ unsub_properties() ->
     #{}.
 
 shutdown_reason() ->
-    oneof([utf8(), {shutdown, atom()}]).
+    oneof([utf8(), {shutdown, emqx_ct_proper_types:limited_atom()}]).
 
 authresult() ->
     #{auth_result => connack_return_code()}.
