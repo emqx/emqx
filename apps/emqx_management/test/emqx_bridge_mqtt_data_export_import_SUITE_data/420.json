@@ -7,7 +7,7 @@
             "id": "rpc",
             "type": "bridge_rpc",
             "config": {
-                "address": "emqx@127.0.0.1",
+                "address": "test@127.0.0.1",
                 "batch_size": 32,
                 "disk_cache": "off",
                 "mountpoint": "bridge/emqx/${node}/",
@@ -31,7 +31,7 @@
                 "disk_cache": "off",
                 "keepalive": "60s",
                 "keyfile": "etc/certs/client-key.pem",
-                "mountpoint": "bridge/aws/${node}/",
+                "mountpoint": "bridge/emqx/${node}/",
                 "password": "",
                 "pool_size": 8,
                 "proto_ver": "mqttv4",
