@@ -53,12 +53,13 @@ prop_confs() ->
 %%--------------------------------------------------------------------
 
 do_setup() ->
-    application:set_env(kernel, logger_level, error),
+    logger:set_primary_config(#{level => warning}),
     emqx_ct_helpers:start_apps([], fun set_special_cfgs/1),
     ok.
 
 do_teardown(_) ->
     emqx_ct_helpers:stop_apps([]),
+    logger:set_primary_config(#{level => info}),
     ok.
 
 set_special_cfgs(_) ->
@@ -113,7 +114,10 @@ cuttlefish_conf_option(K, V)
 %%--------------------------------------------------------------------
 
 confs() ->
-    nof([{"web.hook.encode_payload", oneof(["base64", "base62"])},
+    nof([{"web.hook.headers.content-type",
+           oneof(["application/json"])},
+         {"web.hook.body.encoding_of_payload_field",
+           oneof(["plain", "base64", "base62"])},
          {"web.hook.rule.client.connect.1", rule_spec()},
          {"web.hook.rule.client.connack.1", rule_spec()},
          {"web.hook.rule.client.connected.1", rule_spec()},

@@ -135,13 +135,7 @@ json_basic() ->
     oneof([true, false, null, number(), json_string()]).
 
 latin_atom() ->
-    ?LET(L, list(latin_char()), list_to_atom(L)).
-
-latin_char() ->
-    L = lists:concat([lists:seq($0, $9),
-                      lists:seq($a, $z),
-                      lists:seq($A, $Z)]),
-    oneof(L).
+    emqx_ct_proper_types:limited_latin_atom().
 
 json_string() -> utf8().
 
