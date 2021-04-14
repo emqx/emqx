@@ -1,0 +1,15 @@
+version: '3.9'
+
+services:
+  python:
+    container_name: python 
+    image: python:3.7.2-alpine3.9
+    depends_on:
+      - emqx1
+      - emqx2
+    tty: true
+    networks:
+        emqx_bridge:
+    volumes:
+      - ./python:/scripts
+
