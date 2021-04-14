@@ -88,7 +88,7 @@ prop_nodes_with_key() ->
 %%--------------------------------------------------------------------
 
 do_setup() ->
-    {ok, _} = net_kernel:start([?NODENAME]),
+    ensure_distributed_nodename(),
     ok = logger:set_primary_config(#{level => warning}),
     {ok, _Apps} = application:ensure_all_started(gen_rpc),
     ok = application:set_env(gen_rpc, call_receive_timeout, 1),
@@ -102,6 +102,20 @@ do_teardown(_) ->
     ok = net_kernel:stop(),
     ok = application:stop(gen_rpc),
     ok = meck:unload(gen_rpc).
+
+ensure_distributed_nodename() ->
+    case net_kernel:start([?NODENAME]) of
+        {ok, _} ->
+            ok;
+        {error, {already_started, _}} ->
+            net_kernel:stop(),
+            net_kernel:start([?NODENAME]);
+        {error, {{shutdown, {_, _, {'EXIT', nodistribution}}}, _}} ->
+            %% start epmd first
+            spawn_link(fun() -> os:cmd("epmd") end),
+            timer:sleep(100),
+            net_kernel:start([?NODENAME])
+    end.
 
 %%--------------------------------------------------------------------
 %% Generator
