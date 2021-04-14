@@ -1647,7 +1647,11 @@ end}.
 ]}.
 
 {mapping, "listener.ws.$name.peer_cert_as_username", "emqx.listeners", [
-  {datatype, {enum, [cn, dn, crt]}}
+  {datatype, {enum, [cn]}}
+]}.
+
+{mapping, "listener.ws.$name.peer_cert_as_clientid", "emqx.listeners", [
+  {datatype, {enum, [cn]}}
 ]}.
 
 {mapping, "listener.ws.$name.check_origin_enable", "emqx.listeners", [

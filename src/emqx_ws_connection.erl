@@ -248,15 +248,21 @@ check_origin_header(Req, Opts) ->
     end.
 
 websocket_init([Req, Opts]) ->
-    Peername = case proplists:get_bool(proxy_protocol, Opts)
-                    andalso maps:get(proxy_header, Req) of
-                   #{src_address := SrcAddr, src_port := SrcPort} ->
-                       {SrcAddr, SrcPort};
-                   _ ->
-                       get_peer(Req, Opts)
-               end,
+    {Peername, Peercert} =
+        case proplists:get_bool(proxy_protocol, Opts)
+        andalso maps:get(proxy_header, Req) of
+            #{src_address := SrcAddr, src_port := SrcPort, ssl := SSL} ->
+                ProxyName = {SrcAddr, SrcPort},
+                %% Notice: Only CN is available in Proxy Protocol V2 additional info
+                ProxySSL = case maps:get(cn, SSL, undefined) of
+                             undeined -> nossl;
+                             CN -> [{pp2_ssl_cn, CN}]
+                           end,
+                {ProxyName, ProxySSL};
+            _ ->
+                {get_peer(Req, Opts), cowboy_req:cert(Req)}
+        end,
     Sockname = cowboy_req:sock(Req),
-    Peercert = cowboy_req:cert(Req),
     WsCookie = try cowboy_req:parse_cookies(Req)
                catch
                    error:badarg ->
