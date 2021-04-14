@@ -1,14 +1,40 @@
-version: '3'
+version: '3.9'
 
 services:
+  haproxy:
+    container_name: haproxy
+    image: haproxy:2.3
+    depends_on:
+      - emqx1
+      - emqx2
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
+      - ../../etc/certs:/usr/local/etc/haproxy/certs
+#   ports:
+#     - "1883:1883"
+#     - "8883:8883"
+#     - "8083:8083"
+#     - "8084:8084"
+    networks:
+      - emqx_bridge
+    working_dir: /usr/local/etc/haproxy
+    command:
+      - bash
+      - -c
+      - |
+        cat /usr/local/etc/haproxy/certs/cert.pem /usr/local/etc/haproxy/certs/key.pem > /usr/local/etc/haproxy/certs/emqx.pem
+        haproxy -f /usr/local/etc/haproxy/haproxy.cfg
+
   emqx1:
     container_name: node1.emqx.io
-    image: ${TARGET}:build-alpine-amd64
+    image: $TARGET:$EMQX_TAG
     environment:
     - "EMQX_NAME=emqx"
     - "EMQX_HOST=node1.emqx.io"
     - "EMQX_CLUSTER__DISCOVERY=static"
     - "EMQX_CLUSTER__STATIC__SEEDS=emqx@node1.emqx.io, emqx@node2.emqx.io"
+    - "EMQX_LISTENER__TCP__EXTERNAL__PROXY_PROTOCOL=on"
+    - "EMQX_LISTENER__WS__EXTERNAL__PROXY_PROTOCOL=on"
     - "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s"
     - "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
     - "EMQX_LOG__LEVEL=debug"
@@ -25,18 +51,20 @@ services:
       timeout: 25s
       retries: 5
     networks:
-      emqx-bridge:
+      emqx_bridge:
         aliases:
         - node1.emqx.io
 
   emqx2:
     container_name: node2.emqx.io
-    image: ${TARGET}:build-alpine-amd64
+    image: $TARGET:$EMQX_TAG
     environment:
     - "EMQX_NAME=emqx"
     - "EMQX_HOST=node2.emqx.io"
     - "EMQX_CLUSTER__DISCOVERY=static"
     - "EMQX_CLUSTER__STATIC__SEEDS=emqx@node1.emqx.io, emqx@node2.emqx.io"
+    - "EMQX_LISTENER__TCP__EXTERNAL__PROXY_PROTOCOL=on"
+    - "EMQX_LISTENER__WS__EXTERNAL__PROXY_PROTOCOL=on"
     - "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s"
     - "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
     - "EMQX_LOG__LEVEL=debug"
@@ -53,22 +81,16 @@ services:
       timeout: 25s
       retries: 5
     networks:
-      emqx-bridge:
+      emqx_bridge:
         aliases:
         - node2.emqx.io
 
-  client:
-    container_name: paho_client
-    image: python:3.7.2-alpine3.9
-    depends_on:
-      - emqx1
-      - emqx2
-    tty: true
-    networks:
-        emqx-bridge:
-    volumes:
-      - ./scripts:/scripts
-
 networks:
-  emqx-bridge:
+  emqx_bridge:
     driver: bridge
+    name: emqx_bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.100.239.0/24
+          gateway: 172.100.239.1
