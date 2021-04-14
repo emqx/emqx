@@ -671,7 +671,6 @@ flag_to_boolean(Other) -> Other.
 read_global_auth_type(Data, Version) when Version =:= "4.0" orelse
                                           Version =:= "4.1" orelse
                                           Version =:= "4.2" ->
-    ct:print("|>=> :~p~n", [Data]),
     case {maps:get(<<"auth_mnesia">>, Data, []), maps:get(<<"acl_mnesia">>, Data, [])} of
         {[], []} ->
             %% Auth mnesia plugin is not used:
