@@ -89,6 +89,12 @@ on_client_disconnected(ClientInfo, Reason, _ConnInfo) ->
     cast('client.disconnected', Req).
 
 on_client_authenticate(ClientInfo, AuthResult) ->
+    %% XXX: Bool is missing more information about the atom of the result
+    %%      So, the `Req` has missed detailed info too.
+    %%
+    %%      The return value of `call_fold` just a bool, that has missed
+    %%      detailed info too.
+    %%
     Bool = maps:get(auth_result, AuthResult, undefined) == success,
     Req = #{clientinfo => clientinfo(ClientInfo),
             result => Bool
@@ -287,8 +293,6 @@ stringfy(Term) ->
 %% Acc funcs
 
 %% see exhook.proto
-merge_responsed_bool(Req, #{type := 'IGNORE'}) ->
-    {ok, Req};
 merge_responsed_bool(Req, #{type := Type, value := {bool_result, NewBool}})
   when is_boolean(NewBool) ->
     NReq = Req#{result => NewBool},
@@ -296,18 +300,20 @@ merge_responsed_bool(Req, #{type := Type, value := {bool_result, NewBool}})
         'CONTINUE' -> {ok, NReq};
         'STOP_AND_RETURN' -> {stop, NReq}
     end;
-merge_responsed_bool(Req, Resp) ->
+merge_responsed_bool(_Req, #{type := 'IGNORE'}) ->
+    ignore;
+merge_responsed_bool(_Req, Resp) ->
     ?LOG(warning, "Unknown responsed value ~0p to merge to callback chain", [Resp]),
-    {ok, Req}.
+    ignore.
 
-merge_responsed_message(Req, #{type := 'IGNORE'}) ->
-    {ok, Req};
 merge_responsed_message(Req, #{type := Type, value := {message, NMessage}}) ->
     NReq = Req#{message => NMessage},
     case Type of
         'CONTINUE' -> {ok, NReq};
         'STOP_AND_RETURN' -> {stop, NReq}
     end;
-merge_responsed_message(Req, Resp) ->
+merge_responsed_message(_Req, #{type := 'IGNORE'}) ->
+    ignore;
+merge_responsed_message(_Req, Resp) ->
     ?LOG(warning, "Unknown responsed value ~0p to merge to callback chain", [Resp]),
-    {ok, Req}.
+    ignore.
