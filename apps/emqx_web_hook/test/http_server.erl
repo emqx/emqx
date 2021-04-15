@@ -21,6 +21,9 @@
 %%--------------------------------------------------------------------
 
 start_link() ->
+    stop_http(),
+    stop_https(),
+    timer:sleep(100),
     gen_server:start_link(?MODULE, [], []).
 
 init([]) ->
@@ -74,11 +77,11 @@ start_https(Port) ->
     io:format(standard_error, "[TEST LOG] Start https server on 8888 successfully!~n", []).
 
 stop_http() ->
-    ok = cowboy:stop_listener(http),
+    cowboy:stop_listener(http),
     io:format("[TEST LOG] Stopped http server on 9999").
 
 stop_https() ->
-    ok = cowboy:stop_listener(https),
+    cowboy:stop_listener(https),
     io:format("[TEST LOG] Stopped https server on 8888").
 
 compile_router() ->
