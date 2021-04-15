@@ -441,12 +441,12 @@ import_acl_mnesia(Acls, _) ->
 -else.
 import_auth_mnesia(Auths, FromVersion) when FromVersion =:= "4.3" ->
     do_import_auth_mnesia(Auths);
-import_auth_mnesia(Auths, FromVersion) ->
+import_auth_mnesia(Auths, _FromVersion) ->
     do_import_auth_mnesia_by_old_data(Auths).
 
-import_acl_mnesia(Acls, _) when FromVersion =:= "4.3" ->
+import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.3" ->
     do_import_acl_mnesia(Acls);
-import_acl_mnesia(Acls, FromVersion) ->
+import_acl_mnesia(Acls, _FromVersion) ->
     do_import_acl_mnesia_by_old_data(Acls).
 
 -endif.
