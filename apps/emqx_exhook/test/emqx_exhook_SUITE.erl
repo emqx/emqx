@@ -40,8 +40,8 @@ end_per_suite(_Cfg) ->
 set_special_cfgs(emqx) ->
     application:set_env(emqx, allow_anonymous, false),
     application:set_env(emqx, enable_acl_cache, false),
-    application:set_env(emqx, plugins_loaded_file,
-                        emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins"));
+    application:set_env(emqx, plugins_loaded_file, undefined),
+    application:set_env(emqx, modules_loaded_file, undefined);
 set_special_cfgs(emqx_exhook) ->
     ok.
 
@@ -49,5 +49,48 @@ set_special_cfgs(emqx_exhook) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-t_hooks(_Cfg) ->
-    ok.
+t_noserver_nohook(_) ->
+    emqx_exhook:disable(default),
+    ?assertEqual([], ets:tab2list(emqx_hooks)),
+
+    Opts = proplists:get_value(
+             default,
+             application:get_env(emqx_exhook, servers, [])
+            ),
+    ok = emqx_exhook:enable(default, Opts),
+    ?assertNotEqual([], ets:tab2list(emqx_hooks)).
+
+t_cli_list(_) ->
+    meck_print(),
+    ?assertEqual( [[emqx_exhook_server:format(Svr) || Svr <- emqx_exhook:list()]]
+                , emqx_exhook_cli:cli(["server", "list"])
+                ),
+    unmeck_print().
+
+t_cli_enable_disable(_) ->
+    meck_print(),
+    ?assertEqual([already_started], emqx_exhook_cli:cli(["server", "enable", "default"])),
+    ?assertEqual(ok, emqx_exhook_cli:cli(["server", "disable", "default"])),
+    ?assertEqual([], emqx_exhook_cli:cli(["server", "list"])),
+
+    ?assertEqual([not_running], emqx_exhook_cli:cli(["server", "disable", "default"])),
+    ?assertEqual(ok, emqx_exhook_cli:cli(["server", "enable", "default"])),
+    unmeck_print().
+
+t_cli_stats(_) ->
+    meck_print(),
+    _ = emqx_exhook_cli:cli(["server", "stats"]),
+    _ = emqx_exhook_cli:cli(x),
+    unmeck_print().
+
+%%--------------------------------------------------------------------
+%% Utils
+%%--------------------------------------------------------------------
+
+meck_print() ->
+    meck:new(emqx_ctl, [passthrough, no_history, no_link]),
+    meck:expect(emqx_ctl, print, fun(_) -> ok end),
+    meck:expect(emqx_ctl, print, fun(_, Args) -> Args end).
+
+unmeck_print() ->
+    meck:unload(emqx_ctl).
