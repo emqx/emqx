@@ -1572,6 +1572,14 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.ws.$name.peer_cert_as_username", "emqx.listeners", [
+  {datatype, {enum, [cn]}}
+]}.
+
+{mapping, "listener.ws.$name.peer_cert_as_clientid", "emqx.listeners", [
+  {datatype, {enum, [cn]}}
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT/WebSocket/SSL Listeners
 
