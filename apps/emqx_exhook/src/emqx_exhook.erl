@@ -36,6 +36,7 @@
 %% Mgmt APIs
 %%--------------------------------------------------------------------
 
+%% XXX: Only return the running servers
 -spec list() -> [emqx_exhook_server:server()].
 list() ->
     [server(Name) || Name <- running()].

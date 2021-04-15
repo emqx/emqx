@@ -83,7 +83,7 @@
 
 -spec load(atom(), list()) -> {ok, server()} | {error, term()} .
 load(Name0, Opts0) ->
-    Name = prefix(Name0),
+    Name = to_list(Name0),
     {SvrAddr, ClientOpts} = channel_opts(Opts0),
     case emqx_exhook_sup:start_grpc_client_channel(
            Name,
@@ -110,12 +110,12 @@ load(Name0, Opts0) ->
     end.
 
 %% @private
-prefix(Name) when is_atom(Name) ->
-    "exhook:" ++ atom_to_list(Name);
-prefix(Name) when is_binary(Name) ->
-    "exhook:" ++ binary_to_list(Name);
-prefix(Name) when is_list(Name) ->
-    "exhook:" ++ Name.
+to_list(Name) when is_atom(Name) ->
+    atom_to_list(Name);
+to_list(Name) when is_binary(Name) ->
+    binary_to_list(Name);
+to_list(Name) when is_list(Name) ->
+    Name.
 
 %% @private
 channel_opts(Opts) ->
