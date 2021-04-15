@@ -439,20 +439,16 @@ import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.0" orelse
 import_acl_mnesia(Acls, _) ->
     do_import_acl_mnesia(Acls).
 -else.
-import_auth_mnesia(Auths, FromVersion) when FromVersion =:= "4.0" orelse
-                                            FromVersion =:= "4.1" orelse
-                                            FromVersion =:= "4.2" ->
-    do_import_auth_mnesia_by_old_data(Auths);
-import_auth_mnesia(Auths, _) ->
-    do_import_auth_mnesia(Auths).
+import_auth_mnesia(Auths, FromVersion) when FromVersion =:= "4.3" ->
+    do_import_auth_mnesia(Auths);
+import_auth_mnesia(Auths, FromVersion) ->
+    do_import_auth_mnesia_by_old_data(Auths).
 
-import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.0" orelse
-                                          FromVersion =:= "4.1" orelse
-                                          FromVersion =:= "4.2" ->
-    do_import_acl_mnesia_by_old_data(Acls);
+import_acl_mnesia(Acls, _) when FromVersion =:= "4.3" ->
+    do_import_acl_mnesia(Acls);
+import_acl_mnesia(Acls, FromVersion) ->
+    do_import_acl_mnesia_by_old_data(Acls).
 
-import_acl_mnesia(Acls, _) ->
-    do_import_acl_mnesia(Acls).
 -endif.
 
 do_import_auth_mnesia_by_old_data(Auths) ->
@@ -607,8 +603,8 @@ import(Filename, OverridesJson) ->
             Overrides = emqx_json:decode(OverridesJson, [return_maps]),
             Data = maps:merge(Imported, Overrides),
             Version = to_version(maps:get(<<"version">>, Data)),
-            read_global_auth_type(Data, Version),
-            case lists:member(Version, ?VERSIONS) of
+            read_global_auth_type(Data, Version);
+            case is_version_supported2(Version) of
                 true  ->
                     try
                         do_import_data(Data, Version),
@@ -655,15 +651,40 @@ flag_to_boolean(<<"off">>) -> false;
 flag_to_boolean(Other) -> Other.
 -endif.
 
-read_global_auth_type(Data, Version) when Version =:= "4.0" orelse
-                                          Version =:= "4.1" orelse
-                                          Version =:= "4.2" ->
+is_version_supported("4.1") ->
+    true;
+is_version_supported("4.3") ->
+    true; 
+is_version_supported(Version) ->
+    case re:run(Version, "^4.[02].\\d+$", [{capture, none}]) of
+        match ->
+            case re:split(Version, "[.]", [{return, list}]) of
+                ["4", "0", V] ->
+                    list_to_integer(V) >= 13;
+                ["4", "2", V] ->
+                    list_to_integer(V) >= 11;
+                _ ->
+                    false
+            end;
+        nomatch ->
+            false
+    end.
+
+is_version_supported2(Version) ->
+    lists:member(Version, ?VERSIONS) orelse is_version_supported(Version).
+
+read_global_auth_type(Data, Version) ->
     case {maps:get(<<"auth_mnesia">>, Data, []), maps:get(<<"acl_mnesia">>, Data, [])} of
         {[], []} ->
             %% Auth mnesia plugin is not used:
             ok;
         _ ->
-            do_read_global_auth_type(Data)
+            case is_version_supported(Version) of
+                false ->
+                    error(unsupported_version);
+                true ->
+                    do_read_global_auth_type(Data)
+            end
     end;
 read_global_auth_type(_Data, _Version) ->
     ok.
