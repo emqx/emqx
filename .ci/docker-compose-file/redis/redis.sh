@@ -90,7 +90,11 @@ do
         continue;
     fi
     if [ "${node}" = "cluster" ] ; then
-      yes "yes" | redis-cli --cluster create "$LOCAL_IP:7000" "$LOCAL_IP:7001" "$LOCAL_IP:7002" --pass public --no-auth-warning;
+      if $tls ; then
+       yes "yes" | redis-cli --cluster create "$LOCAL_IP:8000" "$LOCAL_IP:8001" "$LOCAL_IP:8002" --pass public --no-auth-warning --tls true --cacert /tls/ca.crt --cert /tls/redis.crt --key /tls/redis.key;
+      else
+        yes "yes" | redis-cli --cluster create "$LOCAL_IP:7000" "$LOCAL_IP:7001" "$LOCAL_IP:7002" --pass public --no-auth-warning;
+      fi
     elif [ "${node}" = "sentinel" ] ; then
       tee /_sentinel.conf>/dev/null << EOF
 port 26379
