@@ -376,7 +376,10 @@ unsub_properties() ->
     #{}.
 
 shutdown_reason() ->
-    oneof([any(), {shutdown, emqx_ct_proper_types:limited_atom()}]).
+    oneof([disconnected, not_autherised,
+           "list_reason", <<"binary_reason">>,
+           {tuple, reason},
+           {shutdown, emqx_ct_proper_types:limited_atom()}]).
 
 empty_env() ->
     {undefined}.
