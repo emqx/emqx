@@ -685,9 +685,7 @@ read_global_auth_type(Data, Version) ->
                 true ->
                     do_read_global_auth_type(Data)
             end
-    end;
-read_global_auth_type(_Data, _Version) ->
-    ok.
+    end.
 
 do_read_global_auth_type(Data) ->
     case Data of
