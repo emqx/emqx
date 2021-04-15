@@ -603,7 +603,7 @@ import(Filename, OverridesJson) ->
             Overrides = emqx_json:decode(OverridesJson, [return_maps]),
             Data = maps:merge(Imported, Overrides),
             Version = to_version(maps:get(<<"version">>, Data)),
-            read_global_auth_type(Data, Version);
+            read_global_auth_type(Data, Version),
             case is_version_supported2(Version) of
                 true  ->
                     try
