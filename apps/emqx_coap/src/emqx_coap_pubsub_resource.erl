@@ -65,7 +65,7 @@ coap_get(ChId, ?PS_PREFIX, TopicPath, Query, Content=#coap_content{format = Form
             end;
         {error, auth_failure} ->
             put(mqtt_client_pid, undefined),
-            {error, uauthorized};
+            {error, unauthorized};
         {error, bad_request} ->
             put(mqtt_client_pid, undefined),
             {error, bad_request};
