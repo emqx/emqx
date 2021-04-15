@@ -56,7 +56,7 @@ coap_get(ChId, ?MQTT_PREFIX, Path, Query, _Content) ->
             #coap_content{};
         {error, auth_failure} ->
             put(mqtt_client_pid, undefined),
-            {error, forbidden};
+            {error, unauthorized};
         {error, bad_request} ->
             put(mqtt_client_pid, undefined),
             {error, bad_request};
