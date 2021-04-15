@@ -179,13 +179,13 @@ t_discard_session(_) ->
 t_takeover_session(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
     {error, not_found} = emqx_cm:takeover_session(<<"clientid">>),
-    erlang:spawn(fun() ->
-                     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-                     receive
-                         {'$gen_call', From, {takeover, 'begin'}} ->
-                             gen_server:reply(From, test), ok
-                     end
-                 end),
+    erlang:spawn_link(fun() ->
+        ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
+        receive
+            {'$gen_call', From, {takeover, 'begin'}} ->
+                gen_server:reply(From, test), ok
+        end
+    end),
     timer:sleep(100),
     {ok, emqx_connection, _, test} = emqx_cm:takeover_session(<<"clientid">>),
     emqx_cm:unregister_channel(<<"clientid">>).
@@ -198,12 +198,13 @@ t_kick_session(_) ->
     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
     ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, []),
     test = emqx_cm:kick_session(<<"clientid">>),
-    erlang:spawn(fun() ->
-                     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-                     ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, []),
+    erlang:spawn_link(
+        fun() ->
+            ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
+            ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, []),
 
-                     timer:sleep(1000)
-                 end),
+            timer:sleep(1000)
+        end),
     ct:sleep(100),
     test = emqx_cm:kick_session(<<"clientid">>),
     ok = emqx_cm:unregister_channel(<<"clientid">>),

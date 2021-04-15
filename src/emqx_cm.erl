@@ -92,6 +92,8 @@
 %% Server name
 -define(CM, ?MODULE).
 
+-define(T_TAKEOVER, 15000).
+
 %% @doc Start the channel manager.
 -spec(start_link() -> startlink_ret()).
 start_link() ->
@@ -223,7 +225,7 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                       case takeover_session(ClientId) of
                           {ok, ConnMod, ChanPid, Session} ->
                               ok = emqx_session:resume(ClientInfo, Session),
-                              Pendings = ConnMod:call(ChanPid, {takeover, 'end'}),
+                              Pendings = ConnMod:call(ChanPid, {takeover, 'end'}, ?T_TAKEOVER),
                               register_channel(ClientId, Self, ConnInfo),
                               {ok, #{session  => Session,
                                      present  => true,
@@ -265,7 +267,7 @@ takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
         undefined ->
             {error, not_found};
         ConnMod when is_atom(ConnMod) ->
-            Session = ConnMod:call(ChanPid, {takeover, 'begin'}),
+            Session = ConnMod:call(ChanPid, {takeover, 'begin'}, ?T_TAKEOVER),
             {ok, ConnMod, ChanPid, Session}
     end;
 
@@ -295,7 +297,7 @@ discard_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chann_conn_mod(ClientId, ChanPid) of
         undefined -> ok;
         ConnMod when is_atom(ConnMod) ->
-            ConnMod:call(ChanPid, discard)
+            ConnMod:call(ChanPid, discard, ?T_TAKEOVER)
     end;
 
 discard_session(ClientId, ChanPid) ->
@@ -318,7 +320,7 @@ kick_session(ClientId) ->
 kick_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chan_info(ClientId, ChanPid) of
         #{conninfo := #{conn_mod := ConnMod}} ->
-            ConnMod:call(ChanPid, kick);
+            ConnMod:call(ChanPid, kick, ?T_TAKEOVER);
         undefined ->
             {error, not_found}
     end;
