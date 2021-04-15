@@ -67,8 +67,8 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_, _Config) ->
-    ok = mnesia:clear_table(emqx_acl),
-    ok = mnesia:clear_table(emqx_user),
+    {atomic,ok} = mnesia:clear_table(emqx_acl),
+    {atomic,ok} = mnesia:clear_table(emqx_user),
     ok.
 
 t_matrix(Config) ->
