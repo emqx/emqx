@@ -293,6 +293,8 @@ stringfy(Term) ->
 %% Acc funcs
 
 %% see exhook.proto
+merge_responsed_bool(_Req, #{type := 'IGNORE'}) ->
+    ignore;
 merge_responsed_bool(Req, #{type := Type, value := {bool_result, NewBool}})
   when is_boolean(NewBool) ->
     NReq = Req#{result => NewBool},
@@ -300,20 +302,18 @@ merge_responsed_bool(Req, #{type := Type, value := {bool_result, NewBool}})
         'CONTINUE' -> {ok, NReq};
         'STOP_AND_RETURN' -> {stop, NReq}
     end;
-merge_responsed_bool(_Req, #{type := 'IGNORE'}) ->
-    ignore;
 merge_responsed_bool(_Req, Resp) ->
     ?LOG(warning, "Unknown responsed value ~0p to merge to callback chain", [Resp]),
     ignore.
 
+merge_responsed_message(_Req, #{type := 'IGNORE'}) ->
+    ignore;
 merge_responsed_message(Req, #{type := Type, value := {message, NMessage}}) ->
     NReq = Req#{message => NMessage},
     case Type of
         'CONTINUE' -> {ok, NReq};
         'STOP_AND_RETURN' -> {stop, NReq}
     end;
-merge_responsed_message(_Req, #{type := 'IGNORE'}) ->
-    ignore;
 merge_responsed_message(_Req, Resp) ->
     ?LOG(warning, "Unknown responsed value ~0p to merge to callback chain", [Resp]),
     ignore.
