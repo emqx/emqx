@@ -660,7 +660,7 @@ is_version_supported(Version) ->
         match ->
             try lists:map(fun erlang:list_to_integer/1, string:tokens(Version, ".")) of 
                 [4, 2, N] -> N >= 11;
-                [4, 0, N] -> N >= 13
+                [4, 0, N] -> N >= 13;
                 _ -> false
             catch 
                 _ : _ -> false
