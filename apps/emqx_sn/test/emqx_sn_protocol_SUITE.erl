@@ -808,25 +808,34 @@ t_publish_qos2_case03(_) ->
 t_will_case01(_) ->
     QoS = 1,
     Duration = 1,
+    WillMsg = <<10, 11, 12, 13, 14>>,
+    WillTopic = <<"abc">>,
     {ok, Socket} = gen_udp:open(0, [binary]),
     ClientId = <<"test">>,
+
+    ok = emqx_broker:subscribe(WillTopic),
+
     send_connect_msg_with_will(Socket, Duration, ClientId),
     ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
 
-    send_willtopic_msg(Socket, <<"abc">>, QoS),
+    send_willtopic_msg(Socket, WillTopic, QoS),
     ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
 
-    send_willmsg_msg(Socket, <<10, 11, 12, 13, 14>>),
+    send_willmsg_msg(Socket, WillMsg),
     ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
 
     send_pingreq_msg(Socket, undefined),
     ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
 
     % wait udp client keepalive timeout
-    timer:sleep(10000),
+    timer:sleep(2000),
 
-    receive_response(Socket), % ignore PUBACK
-
+    receive
+        {deliver, WillTopic, #message{payload = WillMsg}} -> ok;
+        Msg -> ct:print("recevived --- unex: ~p", [Msg])
+    after
+        1000 -> ct:fail(wait_willmsg_timeout)
+    end,
     send_disconnect_msg(Socket, undefined),
     ?assertEqual(udp_receive_timeout, receive_response(Socket)),
 
