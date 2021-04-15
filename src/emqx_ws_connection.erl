@@ -34,7 +34,9 @@
         , stats/1
         ]).
 
--export([call/2]).
+-export([ call/2
+        , call/3
+        ]).
 
 %% WebSocket callbacks
 -export([ init/2
@@ -151,7 +153,10 @@ stats(#state{channel = Channel}) ->
 
 %% kick|discard|takeover
 -spec(call(pid(), Req :: term()) -> Reply :: term()).
-call(WsPid, Req) when is_pid(WsPid) ->
+call(WsPid, Req) ->
+    call(WsPid, Req, 5000).
+
+call(WsPid, Req, Timeout) when is_pid(WsPid) ->
     Mref = erlang:monitor(process, WsPid),
     WsPid ! {call, {self(), Mref}, Req},
     receive
@@ -160,7 +165,7 @@ call(WsPid, Req) when is_pid(WsPid) ->
             Reply;
         {'DOWN', Mref, _, _, Reason} ->
             exit(Reason)
-    after 5000 ->
+    after Timeout ->
         erlang:demonitor(Mref, [flush]),
         exit(timeout)
     end.
