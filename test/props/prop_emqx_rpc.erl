@@ -101,7 +101,9 @@ do_setup() ->
 do_teardown(_) ->
     ok = net_kernel:stop(),
     ok = application:stop(gen_rpc),
-    ok = meck:unload(gen_rpc).
+    ok = meck:unload(gen_rpc),
+    %% wait for tcp close
+    timer:sleep(1500).
 
 ensure_distributed_nodename() ->
     case net_kernel:start([?NODENAME]) of
