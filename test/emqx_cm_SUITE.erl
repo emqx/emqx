@@ -34,7 +34,7 @@
 %%--------------------------------------------------------------------
 %% CT callbacks
 %%--------------------------------------------------------------------
-suite() -> [{timetrap, {minutes, 1}}].
+suite() -> [{timetrap, {minutes, 2}}].
 
 all() -> emqx_ct:all(?MODULE).
 
@@ -86,6 +86,7 @@ t_get_set_chan_stats(_) ->
 t_open_session(_) ->
     ok = meck:new(emqx_connection, [passthrough, no_history]),
     ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),
+    ok = meck:expect(emqx_connection, call, fun(_, _, _) -> ok end),
 
     ClientInfo = #{zone => external,
                    clientid => <<"clientid">>,
@@ -165,6 +166,7 @@ t_discard_session(_) ->
 
     ok = meck:new(emqx_connection, [passthrough, no_history]),
     ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),
+    ok = meck:expect(emqx_connection, call, fun(_, _, _) -> ok end),
     ok = emqx_cm:discard_session(<<"clientid">>),
     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
     ok = emqx_cm:discard_session(<<"clientid">>),
@@ -172,6 +174,7 @@ t_discard_session(_) ->
     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
     ok = emqx_cm:discard_session(<<"clientid">>),
     ok = meck:expect(emqx_connection, call, fun(_, _) -> error(testing) end),
+    ok = meck:expect(emqx_connection, call, fun(_, _, _) -> error(testing) end),
     ok = emqx_cm:discard_session(<<"clientid">>),
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ok = meck:unload(emqx_connection).
@@ -194,6 +197,7 @@ t_kick_session(_) ->
     Info = #{conninfo := ConnInfo} = ?ChanInfo,
     ok = meck:new(emqx_connection, [passthrough, no_history]),
     ok = meck:expect(emqx_connection, call, fun(_, _) -> test end),
+    ok = meck:expect(emqx_connection, call, fun(_, _, _) -> test end),
     {error, not_found} = emqx_cm:kick_session(<<"clientid">>),
     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
     ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, []),
