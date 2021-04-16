@@ -1,0 +1,52 @@
+{
+    "version":"4.0",
+    "users":[
+        {
+            "username":"admin",
+            "tags":"administrator",
+            "password":"Tc7LLR/wbleSDfRkENwtN2CxYbU="
+        }
+    ],
+    "schemas":[
+
+    ],
+    "rules":[
+
+    ],
+    "resources":[
+
+    ],
+    "date":"2021-04-16 18:35:21",
+    "blacklist":[
+
+    ],
+    "auth_clientid":[
+
+    ],
+    "auth_mnesia":[
+        {
+            "password":"ZWZhMWYzNzVkNzYxOTRmYTUxYTM1NTZhOTdlNjQxZTYxNjg1ZjkxNGQ0NDY5NzlkYTUwYTU1MWE0MzMzZmZkNw==",
+            "login":"emqx_c",
+            "is_superuser":true
+        }
+    ],
+    "auth_username": [
+        {
+          "password": "ARLrzTRhZTI1MzgxNjdjMDU5ODFhZDU3ZTdmNzJiOWM5MWUwMTFkNDk4OGUyZWUyYmU0ZTE2ZTg2OWNhMGQyYWQ5ZmU=",
+          "username": "emqx_username"
+        }
+      ],
+    "apps":[
+        {
+            "status":true,
+            "secret":"public",
+            "name":"Default",
+            "id":"admin",
+            "expired":"undefined",
+            "desc":"Application user"
+        }
+    ],
+    "acl_mnesia":[
+
+    ]
+}

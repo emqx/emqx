@@ -25,27 +25,12 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_auth_mnesia/include/emqx_auth_mnesia.hrl").
 
--ifdef(EMQX_ENTERPRISE).
-
-matrix() ->
-    [ {username, "e4.2.9"}
-    , {clientid, "e4.1.1"}
-    , {username, "e4.1.1"}
-    ].
-
-all() ->
-    [t_matrix].
-
--else. %% ! EMQX_ENTERPRISE
-
 matrix() ->
     [{ImportAs, Version} || ImportAs <- [clientid, username]
                           , Version <- ["v4.2.10", "v4.1.5"]].
 
 all() ->
     [t_import_4_0, t_import_4_1, t_import_4_2].
-
--endif. %% EMQX_ENTERPRISE
 
 groups() ->
     [{username, [], cases()}, {clientid, [], cases()}].
@@ -70,7 +55,40 @@ end_per_testcase(_, _Config) ->
     {atomic,ok} = mnesia:clear_table(emqx_acl),
     {atomic,ok} = mnesia:clear_table(emqx_user),
     ok.
+-ifdef(EMQX_ENTERPRISE).
+t_import_4_0(Config) ->
+    Overrides = emqx_json:encode(#{<<"auth.mnesia.as">> => atom_to_binary(clientid)}),
+    ?assertMatch(ok, do_import("e4.0.10.json", Config, Overrides)),
+    timer:sleep(100),
+    ct:pal("---~p~n", [ets:tab2list(emqx_user)]),
+    test_import(username, {<<"emqx_username">>, <<"public">>}),
+    test_import(clientid, {<<"emqx_c">>, <<"public">>}),
 
+    Overrides1 = emqx_json:encode(#{<<"auth.mnesia.as">> => atom_to_binary(username)}),
+    ?assertMatch(ok, do_import("e4.0.10.json", Config, Overrides1)),
+    timer:sleep(100),
+    test_import(username, {<<"emqx_c">>, <<"public">>}),
+    test_import(username, {<<"emqx_username">>, <<"public">>}).
+t_import_4_1(Config) ->
+    Overrides = emqx_json:encode(#{<<"auth.mnesia.as">> => atom_to_binary(clientid)}),
+    ?assertMatch(ok, do_import("e4.1.1.json", Config, Overrides)),
+    timer:sleep(100),
+    test_import(clientid, {<<"emqx_c">>, <<"public">>}),
+    test_import(clientid, {<<"emqx_c">>, <<"public">>}),
+
+    Overrides1 = emqx_json:encode(#{<<"auth.mnesia.as">> => atom_to_binary(username)}),
+    ?assertMatch(ok, do_import("e4.1.1.json", Config, Overrides1)),
+    timer:sleep(100),
+    test_import(username, {<<"emqx_c">>, <<"public">>}),
+    test_import(clientid, {<<"emqx_clientid">>, <<"public">>}).
+
+t_import_4_2(Config) ->
+    ?assertMatch(ok, do_import("e4.2.9.json", Config, "{}")),
+    timer:sleep(100),
+    test_import(username, {<<"emqx_c">>, <<"public">>}),
+    test_import(clientid, {<<"emqx_clientid">>, <<"public">>}).
+
+-else.
 t_import_4_0(Config) ->
     ?assertMatch(ok, do_import("v4.0.11-no-auth.json", Config)),
     timer:sleep(100),
@@ -131,6 +149,7 @@ t_import_4_2(Config) ->
                      access = allow
                     }],
                  lists:sort(ets:tab2list(emqx_acl))).
+-endif.
 
 do_import(File, Config) ->
     do_import(File, Config, "{}").
