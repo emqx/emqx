@@ -60,7 +60,7 @@ start_link(Tab, PredefTopics) ->
 stop({_Tab, Pid}) ->
     gen_server:stop(Pid, normal, infinity).
 
--spec(register_topic(registry(), binary(), binary()) -> integer() | {error, term()}).
+-spec(register_topic(registry(), pid(), binary()) -> integer() | {error, term()}).
 register_topic({_, Pid}, ClientPid, TopicName) when is_binary(TopicName) ->
     case emqx_topic:wildcard(TopicName) of
         false ->
@@ -72,7 +72,7 @@ register_topic({_, Pid}, ClientPid, TopicName) when is_binary(TopicName) ->
         true  -> {error, wildcard_topic}
     end.
 
--spec(lookup_topic(registry(), binary(), pos_integer()) -> undefined | binary()).
+-spec(lookup_topic(registry(), pid(), pos_integer()) -> undefined | binary()).
 lookup_topic({Tab, _Pid}, ClientPid, TopicId) when is_integer(TopicId) ->
     case lookup_element(Tab, {predef, TopicId}, 2) of
         undefined ->
@@ -80,7 +80,7 @@ lookup_topic({Tab, _Pid}, ClientPid, TopicId) when is_integer(TopicId) ->
         Topic -> Topic
     end.
 
--spec(lookup_topic_id(registry(), binary(), binary())
+-spec(lookup_topic_id(registry(), pid(), binary())
       -> undefined
        | pos_integer()
        | {predef, integer()}).
@@ -96,7 +96,7 @@ lookup_topic_id({Tab, _Pid}, ClientPid, TopicName) when is_binary(TopicName) ->
 lookup_element(Tab, Key, Pos) ->
     try ets:lookup_element(Tab, Key, Pos) catch error:badarg -> undefined end.
 
--spec(unregister_topic(registry(), binary()) -> ok).
+-spec(unregister_topic(registry(), pid()) -> ok).
 unregister_topic({_Tab, Pid}, ClientPid) ->
     gen_server:call(Pid, {unregister, ClientPid}).
 
