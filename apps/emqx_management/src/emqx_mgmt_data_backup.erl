@@ -229,6 +229,8 @@ import_resource(#{<<"id">> := Id,
                      null -> undefined;
                      _ -> CreatedAt
                  end,
+    ct:pal("import_resource |>=> :~p~n", [Config]),
+
     emqx_rule_engine:create_resource(#{id => Id,
                                        type => any_to_atom(Type),
                                        config => Config,
