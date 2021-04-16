@@ -223,11 +223,5 @@ pipeline([Fun | More], Params) ->
             {error, Reason}
     end.
 
--if(?OTP_RELEASE >= 23).
 urldecode(S) ->
-    [{R, _}] = uri_string:dissect_query(S), R.
--else.
-urldecode(S) ->
-    http_uri:decode(S).
--endif.
-
+    emqx_http_lib:uri_decode(S).
