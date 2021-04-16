@@ -652,8 +652,10 @@ flag_to_boolean(Other) -> Other.
 -endif.
 
 is_version_supported(Data, Version) ->
-    case {maps:get(<<"auth_clientid">>, Data, []), maps:get(<<"auth_username">>, Data, [])} of
-        {[], []} -> lists:member(Version, ?VERSIONS);
+    case { maps:get(<<"auth_clientid">>, Data, [])
+         , maps:get(<<"auth_username">>, Data, [])
+         , maps:get(<<"auth_mnesia">>, Data, [])} of
+        {[], [], []} -> lists:member(Version, ?VERSIONS);
         _ -> is_version_supported2(Version)
     end.
 
