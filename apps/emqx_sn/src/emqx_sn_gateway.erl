@@ -32,7 +32,9 @@
         , stats/1
         ]).
 
--export([call/2]).
+-export([ call/2
+        , call/3
+        ]).
 
 %% SUB/UNSUB Asynchronously, called by plugins.
 -export([ subscribe/2
@@ -691,7 +693,10 @@ stats(#state{socket = Socket, channel = Channel}) ->
     lists:append([SockStats, ConnStats, ChanStats, ProcStats]).
 
 call(Pid, Req) ->
-    gen_server:call(Pid, Req, infinity).
+    call(Pid, Req, infinity).
+
+call(Pid, Req, Timeout) ->
+    gen_server:call(Pid, Req, Timeout).
 
 %%--------------------------------------------------------------------
 %% Internal Functions

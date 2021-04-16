@@ -32,6 +32,7 @@
         ]).
 
 -export([ call/2
+        , call/3
         , cast/2
         ]).
 
@@ -154,7 +155,10 @@ stats(#state{socket  = Socket,
     lists:append([SockStats, ConnStats, ChanStats, ProcStats]).
 
 call(Pid, Req) ->
-    gen_server:call(Pid, Req, infinity).
+    call(Pid, Req, infinity).
+
+call(Pid, Req, Timeout) ->
+    gen_server:call(Pid, Req, Timeout).
 
 cast(Pid, Req) ->
     gen_server:cast(Pid, Req).
