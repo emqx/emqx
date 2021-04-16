@@ -1,0 +1,37 @@
+{
+    "version":"4.0.13",
+    "users":[
+        {
+            "username":"admin",
+            "tags":"administrator",
+            "password":"p6C65OF0BQhvPmCziM2yRa8JN5o="
+        }
+    ],
+    "schemas":[],
+    "rules":[],
+    "resources":[],
+    "date":"2021-04-16 11:20:00",
+    "blacklist":[],
+    "auth_username":[
+        {
+            "username":"user_for_test",
+            "password":"ARLrzTRhZTI1MzgxNjdjMDU5ODFhZDU3ZTdmNzJiOWM5MWUwMTFkNDk4OGUyZWUyYmU0ZTE2ZTg2OWNhMGQyYWQ5ZmU="
+        }
+    ],
+    "auth_clientid":[
+        {
+            "password":"JBgSnzIxOWNiMDU1ZWFiNDAwMjVhOTQzZThlZjkxN2JlZWE4MGE4YzlmM2I5MjQ4OGI1NjllY2Q4NGQ4NjhjYzQ1NDM=",
+            "clientid":"client_for_test"
+        }
+    ],
+    "apps":[
+        {
+            "status":true,
+            "secret":"public",
+            "name":"Default",
+            "id":"admin",
+            "expired":"undefined",
+            "desc":"Application user"
+        }
+    ]
+}

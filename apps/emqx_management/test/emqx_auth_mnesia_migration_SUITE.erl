@@ -43,7 +43,7 @@ matrix() ->
                           , Version <- ["v4.2.10", "v4.1.5"]].
 
 all() ->
-    [t_matrix, t_import_4_0, t_import_no_auth].
+    [t_import_4_0, t_import_4_1, t_import_4_2].
 
 -endif. %% EMQX_ENTERPRISE
 
@@ -71,41 +71,55 @@ end_per_testcase(_, _Config) ->
     {atomic,ok} = mnesia:clear_table(emqx_user),
     ok.
 
-t_matrix(Config) ->
-    [begin
-         ct:pal("Testing import of ~p from ~p", [ImportAs, FromVersion]),
-         do_import(Config, ImportAs, FromVersion),
-         test_clientid_import(),
-         ct:pal("ok")
-     end
-     || {ImportAs, FromVersion} <- matrix()].
-
-%% This version is special, since it doesn't have mnesia ACL plugin
 t_import_4_0(Config) ->
-    do_import_no_auth("v4.0.11.json", Config).
-
-t_import_no_auth(Config) ->
-    do_import_no_auth("v4.2.10-no-auth.json", Config).
-
-%% Test that importing configs that don't contain any mnesia ACL data
-%% doesn't require additional overrides:
-do_import_no_auth(File, Config) ->
-    mnesia:clear_table(emqx_acl),
-    mnesia:clear_table(emqx_user),
-    Filename = filename:join(proplists:get_value(data_dir, Config), File),
-    ?assertMatch(ok, emqx_mgmt_data_backup:import(Filename, "{}")),
+    ?assertMatch(ok, do_import("v4.0.11-no-auth.json", Config)),
     timer:sleep(100),
-    test_clientid_import().
+    ?assertMatch(0, ets:info(emqx_user, size)),
 
-do_import(Config, Type, V) ->
-    File = V ++ ".json",
-    mnesia:clear_table(emqx_acl),
-    mnesia:clear_table(emqx_user),
-    Filename = filename:join(proplists:get_value(data_dir, Config), File),
-    Overrides = emqx_json:encode(#{<<"auth.mnesia.as">> => atom_to_binary(Type)}),
-    ?assertMatch(ok, emqx_mgmt_data_backup:import(Filename, Overrides)),
-    Records = lists:sort(ets:tab2list(emqx_acl)),
-    %% Check importing of records related to emqx_auth_mnesia
+    ?assertMatch({error, unsupported_version, "4.0"}, do_import("v4.0.11.json", Config)),
+
+    ?assertMatch(ok, do_import("v4.0.13.json", Config)),
+    timer:sleep(100),
+    test_import(clientid, {<<"client_for_test">>, <<"public">>}),
+    test_import(username, {<<"user_for_test">>, <<"public">>}).
+
+t_import_4_1(Config) ->
+    Overrides = emqx_json:encode(#{<<"auth.mnesia.as">> => atom_to_binary(clientid)}),
+    ?assertMatch(ok, do_import("v4.1.5.json", Config, Overrides)),
+    timer:sleep(100),
+    test_import(clientid, {<<"user_mnesia">>, <<"public">>}),
+    test_import(clientid, {<<"client_for_test">>, <<"public">>}),
+    test_import(username, {<<"user_for_test">>, <<"public">>}),
+
+    Overrides1 = emqx_json:encode(#{<<"auth.mnesia.as">> => atom_to_binary(username)}),
+    ?assertMatch(ok, do_import("v4.1.5.json", Config, Overrides1)),
+    timer:sleep(100),
+    test_import(username, {<<"user_mnesia">>, <<"public">>}),
+    test_import(clientid, {<<"client_for_test">>, <<"public">>}),
+    test_import(username, {<<"user_for_test">>, <<"public">>}).
+
+t_import_4_2(Config) ->
+    ?assertMatch(ok, do_import("v4.2.10-no-auth.json", Config)),
+    timer:sleep(100),
+    ?assertMatch(0, ets:info(emqx_user, size)),
+
+    Overrides = emqx_json:encode(#{<<"auth.mnesia.as">> => atom_to_binary(clientid)}),
+    ?assertMatch({error, unsupported_version, "4.2"}, do_import("v4.2.10.json", Config, Overrides)),
+
+    Overrides1 = emqx_json:encode(#{<<"auth.mnesia.as">> => atom_to_binary(clientid)}),
+    ?assertMatch(ok, do_import("v4.2.11.json", Config, Overrides1)),
+    timer:sleep(100),
+    test_import(clientid, {<<"user_mnesia">>, <<"public">>}),
+    test_import(clientid, {<<"client_for_test">>, <<"public">>}),
+    test_import(username, {<<"user_for_test">>, <<"public">>}),
+
+    Overrides2 = emqx_json:encode(#{<<"auth.mnesia.as">> => atom_to_binary(username)}),
+    ?assertMatch(ok, do_import("v4.2.11.json", Config, Overrides2)),
+    timer:sleep(100),
+    test_import(username, {<<"user_mnesia">>, <<"public">>}),
+    test_import(clientid, {<<"client_for_test">>, <<"public">>}),
+    test_import(username, {<<"user_for_test">>, <<"public">>}),
+
     ?assertMatch([#emqx_acl{
                      filter = {{Type,<<"emqx_c">>}, <<"Topic/A">>},
                      action = pub,
@@ -116,21 +130,27 @@ do_import(Config, Type, V) ->
                      action = sub,
                      access = allow
                     }],
-                 lists:sort(Records)),
-    ?assertMatch([_, _], ets:tab2list(emqx_user)),
-    ?assertMatch([_], ets:lookup(emqx_user, {Type, <<"emqx_c">>})),
-    Req = #{clientid => <<"blah">>}
-          #{Type => <<"emqx_c">>,
-            password => <<"emqx_p">>
-           },
+                 lists:sort(ets:tab2list(emqx_acl))).
+
+do_import(File, Config) ->
+    do_import(File, Config, "{}").
+
+do_import(File, Config, Overrides) ->
+    mnesia:clear_table(emqx_acl),
+    mnesia:clear_table(emqx_user),
+    Filename = filename:join(proplists:get_value(data_dir, Config), File),
+    emqx_mgmt_data_backup:import(Filename, Overrides).
+
+test_import(username, {Username, Password}) ->
+    [#emqx_user{password = _}] = ets:lookup(emqx_user, {username, Username}),
+    Req = #{clientid => <<"anyname">>,
+            username => Username,
+            password => Password},
+    ?assertMatch({stop, #{auth_result := success}},
+                 emqx_auth_mnesia:check(Req, #{}, #{hash_type => sha256}));
+test_import(clientid, {ClientID, Password}) ->
+    [#emqx_user{password = _}] = ets:lookup(emqx_user, {clientid, ClientID}),
+    Req = #{clientid => ClientID,
+            password => Password},
     ?assertMatch({stop, #{auth_result := success}},
                  emqx_auth_mnesia:check(Req, #{}, #{hash_type => sha256})).
-
-test_clientid_import() ->
-    [#emqx_user{password = _Pass}] = ets:lookup(emqx_user, {clientid, <<"emqx_clientid">>}),
-    Req = #{clientid => <<"emqx_clientid">>,
-            password => <<"emqx_p">>
-           },
-    ?assertMatch({stop, #{auth_result := success}},
-                 emqx_auth_mnesia:check(Req, #{}, #{hash_type => sha256})),
-    ok.

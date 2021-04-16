@@ -439,33 +439,16 @@ import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.0" orelse
 import_acl_mnesia(Acls, _) ->
     do_import_acl_mnesia(Acls).
 -else.
-import_auth_mnesia(Auths, FromVersion) when FromVersion =:= "4.0" orelse
-                                            FromVersion =:= "4.1" ->
-    do_import_auth_mnesia_by_old_data(Auths);
-import_auth_mnesia(Auths, "4.2") ->
-    %% 4.2 contains a bug where password is not base64-encoded
-    do_import_auth_mnesia_4_2(Auths);
-import_auth_mnesia(Auths, _) ->
-    do_import_auth_mnesia(Auths).
+import_auth_mnesia(Auths, FromVersion) when FromVersion =:= "4.3" ->
+    do_import_auth_mnesia(Auths);
+import_auth_mnesia(Auths, _FromVersion) ->
+    do_import_auth_mnesia_by_old_data(Auths).
 
-import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.0" orelse
-                                          FromVersion =:= "4.1" orelse
-                                          FromVersion =:= "4.2" ->
-    do_import_acl_mnesia_by_old_data(Acls);
+import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.3" ->
+    do_import_acl_mnesia(Acls);
+import_acl_mnesia(Acls, _FromVersion) ->
+    do_import_acl_mnesia_by_old_data(Acls).
 
-import_acl_mnesia(Acls, _) ->
-    do_import_acl_mnesia(Acls).
-
-do_import_auth_mnesia_4_2(Auths) ->
-    case ets:info(emqx_user) of
-        undefined -> ok;
-        _ ->
-            CreatedAt = erlang:system_time(millisecond),
-            lists:foreach(fun(#{<<"login">> := Login,
-                                <<"password">> := Password}) ->
-                            mnesia:dirty_write({emqx_user, {get_old_type(), Login}, Password, CreatedAt})
-                          end, Auths)
-    end.
 -endif.
 
 do_import_auth_mnesia_by_old_data(Auths) ->
@@ -620,8 +603,8 @@ import(Filename, OverridesJson) ->
             Overrides = emqx_json:decode(OverridesJson, [return_maps]),
             Data = maps:merge(Imported, Overrides),
             Version = to_version(maps:get(<<"version">>, Data)),
-            read_global_auth_type(Data, Version),
-            case lists:member(Version, ?VERSIONS) of
+            read_global_auth_type(Data),
+            case is_version_supported(Data, Version) of
                 true  ->
                     try
                         do_import_data(Data, Version),
@@ -668,18 +651,40 @@ flag_to_boolean(<<"off">>) -> false;
 flag_to_boolean(Other) -> Other.
 -endif.
 
-read_global_auth_type(Data, Version) when Version =:= "4.0" orelse
-                                          Version =:= "4.1" orelse
-                                          Version =:= "4.2" ->
+is_version_supported(Data, Version) ->
+    case { maps:get(<<"auth_clientid">>, Data, [])
+         , maps:get(<<"auth_username">>, Data, [])
+         , maps:get(<<"auth_mnesia">>, Data, [])} of
+        {[], [], []} -> lists:member(Version, ?VERSIONS);
+        _ -> is_version_supported2(Version)
+    end.
+
+is_version_supported2("4.1") ->
+    true;
+is_version_supported2("4.3") ->
+    true; 
+is_version_supported2(Version) ->
+    case re:run(Version, "^4.[02].\\d+$", [{capture, none}]) of
+        match ->
+            try lists:map(fun erlang:list_to_integer/1, string:tokens(Version, ".")) of 
+                [4, 2, N] -> N >= 11;
+                [4, 0, N] -> N >= 13;
+                _ -> false
+            catch 
+                _ : _ -> false
+            end;
+        nomatch ->
+            false
+    end.
+
+read_global_auth_type(Data) ->
     case {maps:get(<<"auth_mnesia">>, Data, []), maps:get(<<"acl_mnesia">>, Data, [])} of
         {[], []} ->
             %% Auth mnesia plugin is not used:
             ok;
         _ ->
             do_read_global_auth_type(Data)
-    end;
-read_global_auth_type(_Data, _Version) ->
-    ok.
+    end.
 
 do_read_global_auth_type(Data) ->
     case Data of
