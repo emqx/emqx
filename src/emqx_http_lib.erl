@@ -114,7 +114,7 @@ atom_scheme(Other) -> throw({unsupported_scheme, Other}).
 do_uri_encode(Char) ->
     case reserved(Char) of
 	    true ->
-	        [ $% | http_util:integer_to_hexlist(Char)];
+	        [ $% | integer_to_hexlist(Char)];
 	    false ->
 	        [Char]
     end.
@@ -151,3 +151,10 @@ reserved($^) -> true;
 reserved($%) -> true;
 reserved($\s) -> true;
 reserved(_) -> false.
+
+integer_to_hexlist(Int) ->
+    integer_to_list(Int, 16).
+
+hex2dec(X) when (X>=$0) andalso (X=<$9) -> X-$0;
+hex2dec(X) when (X>=$A) andalso (X=<$F) -> X-$A+10;
+hex2dec(X) when (X>=$a) andalso (X=<$f) -> X-$a+10.
