@@ -603,8 +603,8 @@ import(Filename, OverridesJson) ->
             Overrides = emqx_json:decode(OverridesJson, [return_maps]),
             Data = maps:merge(Imported, Overrides),
             Version = to_version(maps:get(<<"version">>, Data)),
-            read_global_auth_type(Data, Version),
-            case is_version_supported2(Version) of
+            read_global_auth_type(Data),
+            case is_version_supported(Data, Version) of
                 true  ->
                     try
                         do_import_data(Data, Version),
@@ -651,11 +651,17 @@ flag_to_boolean(<<"off">>) -> false;
 flag_to_boolean(Other) -> Other.
 -endif.
 
-is_version_supported("4.1") ->
+is_version_supported(Data, Version) ->
+    case {maps:get(<<"auth_clientid">>, Data, []), maps:get(<<"auth_username">>, Data, [])} of
+        {[], []} -> lists:member(Version, ?VERSIONS);
+        _ -> is_version_supported2(Version)
+    end.
+
+is_version_supported2("4.1") ->
     true;
-is_version_supported("4.3") ->
+is_version_supported2("4.3") ->
     true; 
-is_version_supported(Version) ->
+is_version_supported2(Version) ->
     case re:run(Version, "^4.[02].\\d+$", [{capture, none}]) of
         match ->
             try lists:map(fun erlang:list_to_integer/1, string:tokens(Version, ".")) of 
@@ -669,21 +675,13 @@ is_version_supported(Version) ->
             false
     end.
 
-is_version_supported2(Version) ->
-    lists:member(Version, ?VERSIONS) orelse is_version_supported(Version).
-
-read_global_auth_type(Data, Version) ->
+read_global_auth_type(Data) ->
     case {maps:get(<<"auth_mnesia">>, Data, []), maps:get(<<"acl_mnesia">>, Data, [])} of
         {[], []} ->
             %% Auth mnesia plugin is not used:
             ok;
         _ ->
-            case is_version_supported(Version) of
-                false ->
-                    error(unsupported_version);
-                true ->
-                    do_read_global_auth_type(Data)
-            end
+            do_read_global_auth_type(Data)
     end.
 
 do_read_global_auth_type(Data) ->

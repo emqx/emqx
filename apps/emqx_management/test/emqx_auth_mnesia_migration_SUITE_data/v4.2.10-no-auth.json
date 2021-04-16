@@ -21,12 +21,7 @@
       "tags": "administrator"
     }
   ],
-  "auth_clientid": [
-    {
-      "clientid": "emqx_clientid",
-      "password": "uAP84TgyMjAyNGFhY2NlMWVlNDI2NTk1MzFiZjA4YzBjY2RjNjViZmZhNjkzYjhkMDE4NTg0ZWExYjFkZGY0MTBjYWM="
-    }
-  ],
+  "auth_clientid": [],
   "auth_username": [],
   "auth_mnesia": [],
   "acl_mnesia": [],

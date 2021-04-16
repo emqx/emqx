@@ -12,18 +12,23 @@
   "resources": [],
   "date": "2021-04-07 14:28:58",
   "blacklist": [],
-  "auth_username": [],
+  "auth_username": [
+    {
+      "username":"user_for_test",
+      "password": "ARLrzTRhZTI1MzgxNjdjMDU5ODFhZDU3ZTdmNzJiOWM5MWUwMTFkNDk4OGUyZWUyYmU0ZTE2ZTg2OWNhMGQyYWQ5ZmU="
+    }
+  ],
   "auth_mnesia": [
     {
-      "password": "Y2ViNWU5MTdmNzkzMGFlOGYwZGMzY2ViNDk2YTQyOGY3ZTY0NDczNmVlYmNhMzZhMmI4ZjZiYmFjNzU2MTcxYQ==",
-      "login": "emqx_c",
+      "password": "ARLrzTRhZTI1MzgxNjdjMDU5ODFhZDU3ZTdmNzJiOWM5MWUwMTFkNDk4OGUyZWUyYmU0ZTE2ZTg2OWNhMGQyYWQ5ZmU=",
+      "login": "user_mnesia",
       "is_superuser": true
     }
   ],
   "auth_clientid": [
     {
-      "password": "MctXdjZkYzRhMDUwMTc4MDM0OWY4YTg1NTg4Y2ZlOThjYWIyMDk3M2UzNjgzYzYyZWYwOTAzMTk2N2E4OWVjZDk4Mjk=",
-      "clientid": "emqx_clientid"
+      "password": "ARLrzTRhZTI1MzgxNjdjMDU5ODFhZDU3ZTdmNzJiOWM5MWUwMTFkNDk4OGUyZWUyYmU0ZTE2ZTg2OWNhMGQyYWQ5ZmU=",
+      "clientid": "client_for_test"
     }
   ],
   "apps": [
