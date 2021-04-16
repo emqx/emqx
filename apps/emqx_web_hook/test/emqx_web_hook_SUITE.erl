@@ -106,18 +106,22 @@ t_valid(Config) ->
                                , {proto_ver, v5}
                                , {keepalive, 60}
                                ]),
-    {ok, _} = emqtt:connect(C),
-    emqtt:subscribe(C, <<"TopicA">>, qos2),
-    emqtt:publish(C, <<"TopicA">>, <<"Payload...">>, qos2),
-    emqtt:unsubscribe(C, <<"TopicA">>),
-    emqtt:disconnect(C),
-    [begin
-        Maps = emqx_json:decode(P, [return_maps]),
-        validate_hook_resp(Maps),
-        validate_hook_headers(Headers)
-    end
-    || {{P, _Bool}, Headers} <- http_server:get_received_data()],
-    http_server:stop(ServerPid),
+    try 
+        {ok, _} = emqtt:connect(C),
+        emqtt:subscribe(C, <<"TopicA">>, qos2),
+        emqtt:publish(C, <<"TopicA">>, <<"Payload...">>, qos2),
+        emqtt:unsubscribe(C, <<"TopicA">>),
+        emqtt:disconnect(C),
+        timer:sleep(100),
+        [begin
+            Maps = emqx_json:decode(P, [return_maps]),
+            validate_hook_resp(Maps),
+            validate_hook_headers(Headers)
+        end
+    || {{P, _Bool}, Headers} <- http_server:get_received_data()]
+    after
+        http_server:stop(ServerPid)
+    end,
     Config.
 
 t_check_hooked(_) ->
