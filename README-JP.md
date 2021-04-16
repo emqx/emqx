@@ -9,7 +9,7 @@
 
 [![The best IoT MQTT open source team looks forward to your joining](https://www.emqx.io/static/img/github_readme_en_bg.png)](https://www.emqx.io/careers)
 
-[English](./README.md) | [简体中文](./README-CN.md) | 日本語
+[English](./README.md) | [简体中文](./README-CN.md) | 日本語 | [русский](./README-RU.md)
 
 *EMQ X* は、高い拡張性と可用性をもつ、分散型のMQTTブローカーです。数千万のクライアントを同時に処理するIoT、M2M、モバイルアプリケーション向けです。
 
@@ -55,7 +55,7 @@ _build/emqx/rel/emqx/bin/emqx console
 ## クイックスタート
 
 emqx をソースコードからビルドした場合は、
-`cd _buid/emqx/rel/emqx`でリリースビルドのディレクトリに移動してください。
+`cd _build/emqx/rel/emqx`でリリースビルドのディレクトリに移動してください。
 
 リリースパッケージからインストールした場合は、インストール先のルートディレクトリに移動してください。
 
