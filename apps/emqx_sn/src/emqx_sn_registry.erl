@@ -61,10 +61,10 @@ stop({_Tab, Pid}) ->
     gen_server:stop(Pid, normal, infinity).
 
 -spec(register_topic(registry(), binary(), binary()) -> integer() | {error, term()}).
-register_topic({_, Pid}, ClientId, TopicName) when is_binary(TopicName) ->
+register_topic({_, Pid}, ClientPid, TopicName) when is_binary(TopicName) ->
     case emqx_topic:wildcard(TopicName) of
         false ->
-            gen_server:call(Pid, {register, ClientId, TopicName});
+            gen_server:call(Pid, {register, ClientPid, TopicName});
         %% TopicId: in case of “accepted” the value that will be used as topic
         %% id by the gateway when sending PUBLISH messages to the client (not
         %% relevant in case of subscriptions to a short topic name or to a topic
@@ -73,10 +73,10 @@ register_topic({_, Pid}, ClientId, TopicName) when is_binary(TopicName) ->
     end.
 
 -spec(lookup_topic(registry(), binary(), pos_integer()) -> undefined | binary()).
-lookup_topic({Tab, _Pid}, ClientId, TopicId) when is_integer(TopicId) ->
+lookup_topic({Tab, _Pid}, ClientPid, TopicId) when is_integer(TopicId) ->
     case lookup_element(Tab, {predef, TopicId}, 2) of
         undefined ->
-            lookup_element(Tab, {ClientId, TopicId}, 2);
+            lookup_element(Tab, {ClientPid, TopicId}, 2);
         Topic -> Topic
     end.
 
@@ -84,10 +84,10 @@ lookup_topic({Tab, _Pid}, ClientId, TopicId) when is_integer(TopicId) ->
       -> undefined
        | pos_integer()
        | {predef, integer()}).
-lookup_topic_id({Tab, _Pid}, ClientId, TopicName) when is_binary(TopicName) ->
+lookup_topic_id({Tab, _Pid}, ClientPid, TopicName) when is_binary(TopicName) ->
     case lookup_element(Tab, {predef, TopicName}, 2) of
         undefined ->
-            lookup_element(Tab, {ClientId, TopicName}, 2);
+            lookup_element(Tab, {ClientPid, TopicName}, 2);
         TopicId ->
             {predef, TopicId}
     end.
@@ -97,16 +97,16 @@ lookup_element(Tab, Key, Pos) ->
     try ets:lookup_element(Tab, Key, Pos) catch error:badarg -> undefined end.
 
 -spec(unregister_topic(registry(), binary()) -> ok).
-unregister_topic({_Tab, Pid}, ClientId) ->
-    gen_server:call(Pid, {unregister, ClientId}).
+unregister_topic({_Tab, Pid}, ClientPid) ->
+    gen_server:call(Pid, {unregister, ClientPid}).
 
 %%-----------------------------------------------------------------------------
 
 init([Tab, PredefTopics]) ->
     %% {predef, TopicId}     -> TopicName
     %% {predef, TopicName}   -> TopicId
-    %% {ClientId, TopicId}   -> TopicName
-    %% {ClientId, TopicName} -> TopicId
+    %% {ClientPid, TopicId}   -> TopicName
+    %% {ClientPid, TopicName} -> TopicId
     _ = ets:new(Tab, [set, public, named_table, {read_concurrency, true}]),
     MaxPredefId = lists:foldl(
                     fun({TopicId, TopicName}, AccId) ->
@@ -116,27 +116,27 @@ init([Tab, PredefTopics]) ->
                     end, 0, PredefTopics),
     {ok, #state{tab = Tab, max_predef_topic_id = MaxPredefId}}.
 
-handle_call({register, ClientId, TopicName}, _From,
+handle_call({register, ClientPid, TopicName}, _From,
             State = #state{tab = Tab, max_predef_topic_id = PredefId}) ->
-    case lookup_topic_id({Tab, self()}, ClientId, TopicName) of
+    case lookup_topic_id({Tab, self()}, ClientPid, TopicName) of
         {predef, PredefTopicId}  when is_integer(PredefTopicId) ->
             {reply, PredefTopicId, State};
         TopicId when is_integer(TopicId) ->
             {reply, TopicId, State};
         undefined ->
-            case next_topic_id(Tab, PredefId, ClientId) of
+            case next_topic_id(Tab, PredefId, ClientPid) of
                 TopicId when TopicId >= 16#FFFF ->
                     {reply, {error, too_large}, State};
                 TopicId ->
-                    _ = ets:insert(Tab, {{ClientId, next_topic_id}, TopicId + 1}),
-                    _ = ets:insert(Tab, {{ClientId, TopicName}, TopicId}),
-                    _ = ets:insert(Tab, {{ClientId, TopicId}, TopicName}),
+                    _ = ets:insert(Tab, {{ClientPid, next_topic_id}, TopicId + 1}),
+                    _ = ets:insert(Tab, {{ClientPid, TopicName}, TopicId}),
+                    _ = ets:insert(Tab, {{ClientPid, TopicId}, TopicName}),
                     {reply, TopicId, State}
             end
     end;
 
-handle_call({unregister, ClientId}, _From, State = #state{tab = Tab}) ->
-    ets:match_delete(Tab, {{ClientId, '_'}, '_'}),
+handle_call({unregister, ClientPid}, _From, State = #state{tab = Tab}) ->
+    ets:match_delete(Tab, {{ClientPid, '_'}, '_'}),
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
@@ -159,8 +159,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%-----------------------------------------------------------------------------
 
-next_topic_id(Tab, PredefId, ClientId) ->
-    case ets:lookup(Tab, {ClientId, next_topic_id}) of
+next_topic_id(Tab, PredefId, ClientPid) ->
+    case ets:lookup(Tab, {ClientPid, next_topic_id}) of
         [{_, Id}] -> Id;
         []        -> PredefId + 1
     end.
