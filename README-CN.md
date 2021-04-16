@@ -5,7 +5,7 @@
 [![Coverage Status](https://coveralls.io/repos/github/emqx/emqx/badge.svg)](https://coveralls.io/github/emqx/emqx)
 [![Docker Pulls](https://img.shields.io/docker/pulls/emqx/emqx)](https://hub.docker.com/r/emqx/emqx)
 [![Slack Invite](<https://slack-invite.emqx.io/badge.svg>)](https://slack-invite.emqx.io)
-[![Twitter](https://img.shields.io/badge/Twitter-EMQ%20X-1DA1F2?logo=twitter)](https://twitter.com/emqtt)
+[![Twitter](https://img.shields.io/badge/Twitter-EMQ%20X-1DA1F2?logo=twitter)](https://twitter.com/EMQTech)
 [![Community](https://img.shields.io/badge/Community-EMQ%20X-yellow)](https://askemq.com)
 
 [![最棒的物联网 MQTT 开源团队期待您的加入](https://www.emqx.io/static/img/github_readme_cn_bg.png)](https://careers.emqx.cn/)
@@ -128,7 +128,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 你可通过以下途径与 EMQ 社区及开发者联系:
 
 - [Slack](https://slack-invite.emqx.io)
-- [Twitter](https://twitter.com/emqtt)
+- [Twitter](https://twitter.com/EMQTech)
 - [Facebook](https://www.facebook.com/emqxmqtt)
 - [Reddit](https://www.reddit.com/r/emqx/)
 - [Weibo](https://weibo.com/emqtt)
