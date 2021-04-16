@@ -15,7 +15,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.2.7-ubuntu20.04
+    container: emqx/build-env:erl23.2.7.1-emqx-1-ubuntu20.04
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles}}
@@ -267,7 +267,7 @@ jobs:
         cd -
     - name: build emqx packages
       env:
-        ERL_OTP: erl23.2.7
+        ERL_OTP: erl23.2.7.1-emqx-1
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}

@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         erl_otp:
-        - erl23.2.7
+        - erl23.2.7.1-emqx-1
         os:
         - ubuntu20.04
         - centos7
