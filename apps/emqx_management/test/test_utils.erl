@@ -1,5 +1,5 @@
-%% @author: 
-%% @description: 
+%% @author:
+%% @description:
 -module(test_utils).
 %% ====================================================================
 %% API functions
@@ -14,6 +14,6 @@
 %% ====================================================================
 resource_is_alive(Id) ->
     {ok, #resource_params{status = #{is_alive := Alive}} = Params} = emqx_rule_registry:find_resource_params(Id),
-    ct:print("Id: ~p, Alive: ~p, Resource ===> :~p~n", [Id, Alive, Params]),
+    ct:pal("Id: ~p, Alive: ~p, Resource ===> :~p~n", [Id, Alive, Params]),
     ?assertEqual(true, Alive),
     Alive.

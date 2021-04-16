@@ -234,13 +234,6 @@ import_resource(#{<<"id">> := Id,
                                        config => Config,
                                        created_at => NCreatedAt,
                                        description => Desc}).
-
--ifdef(EMQX_ENTERPRISE).
-import_resources_and_rules(Resources, Rules, _FromVersion) ->
-    import_resources(Resources),
-    import_rules(Rules).
--else.
-
 import_resources_and_rules(Resources, Rules, FromVersion)
   when FromVersion =:= "4.0" orelse
        FromVersion =:= "4.1" orelse
@@ -356,7 +349,6 @@ apply_new_config([Action = #{<<"args">> := #{<<"$resource">> := ResourceId,
                      <<"forward_topic">> => ForwardTopic},
             apply_new_config(More, Configs, [Action#{<<"args">> := Args} | Acc]).
 
--endif.
 
 actions_to_prop_list(Actions) ->
     [action_to_prop_list(Act) || Act <- Actions].
@@ -663,14 +655,12 @@ do_import_extra_data(Data, _Version) ->
 do_import_extra_data(_Data, _Version) -> ok.
 -endif.
 
--ifndef(EMQX_ENTERPRISE).
 covert_empty_headers([]) -> #{};
 covert_empty_headers(Other) -> Other.
 
 flag_to_boolean(<<"on">>) -> true;
 flag_to_boolean(<<"off">>) -> false;
 flag_to_boolean(Other) -> Other.
--endif.
 
 -ifndef(EMQX_ENTERPRISE).
 is_version_supported(Data, Version) ->
