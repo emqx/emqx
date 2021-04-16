@@ -38,7 +38,7 @@
       {load_module, emqx_channel, brutal_purge, soft_purge, []},
       {load_module, emqx_mod_topic_metrics, brutal_purge, soft_purge, []},
       {load_module, emqx_json, brutal_purge, soft_purge, []},
-      {load_module, emqx_ws_connection, brutal_purge, soft_purge, []}
+      {load_module, emqx_ws_connection, brutal_purge, soft_purge, []},
       {apply, {application, set_env,
                 [emqx, force_shutdown_policy,
                  #{message_queue_len => DefaultLen,
