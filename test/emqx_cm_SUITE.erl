@@ -84,28 +84,31 @@ t_get_set_chan_stats(_) ->
     ?assertEqual(undefined, emqx_cm:get_chan_stats(<<"clientid">>)).
 
 t_open_session(_) ->
-    ok = meck:new(emqx_connection, [passthrough, no_history]),
-    ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),
+    try
+        ok = meck:new(emqx_connection, [passthrough, no_history]),
+        ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),
 
-    ClientInfo = #{zone => external,
-                   clientid => <<"clientid">>,
-                   username => <<"username">>,
-                   peerhost => {127,0,0,1}},
-    ConnInfo = #{socktype => tcp,
-                 peername => {{127,0,0,1}, 5000},
-                 sockname => {{127,0,0,1}, 1883},
-                 peercert => nossl,
-                 conn_mod => emqx_connection,
-                 receive_maximum => 100},
-    {ok, #{session := Session1, present := false}}
-        = emqx_cm:open_session(true, ClientInfo, ConnInfo),
-    ?assertEqual(100, emqx_session:info(inflight_max, Session1)),
-    {ok, #{session := Session2, present := false}}
-        = emqx_cm:open_session(true, ClientInfo, ConnInfo),
-    ?assertEqual(100, emqx_session:info(inflight_max, Session2)),
+        ClientInfo = #{zone => external,
+                    clientid => <<"clientid">>,
+                    username => <<"username">>,
+                    peerhost => {127,0,0,1}},
+        ConnInfo = #{socktype => tcp,
+                    peername => {{127,0,0,1}, 5000},
+                    sockname => {{127,0,0,1}, 1883},
+                    peercert => nossl,
+                    conn_mod => emqx_connection,
+                    receive_maximum => 100},
+        {ok, #{session := Session1, present := false}}
+            = emqx_cm:open_session(true, ClientInfo, ConnInfo),
+        ?assertEqual(100, emqx_session:info(inflight_max, Session1)),
+        {ok, #{session := Session2, present := false}}
+            = emqx_cm:open_session(true, ClientInfo, ConnInfo),
+        ?assertEqual(100, emqx_session:info(inflight_max, Session2)),
 
-    emqx_cm:unregister_channel(<<"clientid">>),
-    ok = meck:unload(emqx_connection).
+        emqx_cm:unregister_channel(<<"clientid">>)
+    after
+        ok = meck:unload(emqx_connection)
+    end.
 
 t_open_session_race_condition(_) ->
     ClientInfo = #{zone => external,
@@ -160,21 +163,24 @@ t_open_session_race_condition(_) ->
     ?assertEqual([], emqx_cm:lookup_channels(<<"clientid">>)).
 
 t_discard_session(_) ->
-    #{conninfo := ConnInfo} = ?ChanInfo,
-    ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
+    try
+        #{conninfo := ConnInfo} = ?ChanInfo,
+        ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
 
-    ok = meck:new(emqx_connection, [passthrough, no_history]),
-    ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),
-    ok = emqx_cm:discard_session(<<"clientid">>),
-    ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-    ok = emqx_cm:discard_session(<<"clientid">>),
-    ok = emqx_cm:unregister_channel(<<"clientid">>),
-    ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-    ok = emqx_cm:discard_session(<<"clientid">>),
-    ok = meck:expect(emqx_connection, call, fun(_, _) -> error(testing) end),
-    ok = emqx_cm:discard_session(<<"clientid">>),
-    ok = emqx_cm:unregister_channel(<<"clientid">>),
-    ok = meck:unload(emqx_connection).
+        ok = meck:new(emqx_connection, [passthrough, no_history]),
+        ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),
+        ok = emqx_cm:discard_session(<<"clientid">>),
+        ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
+        ok = emqx_cm:discard_session(<<"clientid">>),
+        ok = emqx_cm:unregister_channel(<<"clientid">>),
+        ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
+        ok = emqx_cm:discard_session(<<"clientid">>),
+        ok = meck:expect(emqx_connection, call, fun(_, _) -> error(testing) end),
+        ok = emqx_cm:discard_session(<<"clientid">>),
+        ok = emqx_cm:unregister_channel(<<"clientid">>)
+    after
+        ok = meck:unload(emqx_connection)
+    end.
 
 t_takeover_session(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
@@ -191,24 +197,27 @@ t_takeover_session(_) ->
     emqx_cm:unregister_channel(<<"clientid">>).
 
 t_kick_session(_) ->
-    Info = #{conninfo := ConnInfo} = ?ChanInfo,
-    ok = meck:new(emqx_connection, [passthrough, no_history]),
-    ok = meck:expect(emqx_connection, call, fun(_, _) -> test end),
-    {error, not_found} = emqx_cm:kick_session(<<"clientid">>),
-    ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, []),
-    test = emqx_cm:kick_session(<<"clientid">>),
-    erlang:spawn_link(
-        fun() ->
-            ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-            ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, []),
+    try
+        Info = #{conninfo := ConnInfo} = ?ChanInfo,
+        ok = meck:new(emqx_connection, [passthrough, no_history]),
+        ok = meck:expect(emqx_connection, call, fun(_, _) -> test end),
+        {error, not_found} = emqx_cm:kick_session(<<"clientid">>),
+        ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
+        ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, []),
+        test = emqx_cm:kick_session(<<"clientid">>),
+        erlang:spawn_link(
+            fun() ->
+                ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
+                ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, []),
 
-            timer:sleep(1000)
-        end),
-    ct:sleep(100),
-    test = emqx_cm:kick_session(<<"clientid">>),
-    ok = emqx_cm:unregister_channel(<<"clientid">>),
-    ok = meck:unload(emqx_connection).
+                timer:sleep(1000)
+            end),
+        ct:sleep(100),
+        test = emqx_cm:kick_session(<<"clientid">>),
+        ok = emqx_cm:unregister_channel(<<"clientid">>)
+    after
+        ok = meck:unload(emqx_connection)
+    end.
 
 t_all_channels(_) ->
     ?assertEqual(true, is_list(emqx_cm:all_channels())).
