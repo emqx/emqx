@@ -63,7 +63,7 @@ _build/emqx/rel/emqx/bin/emqx console
 
 ## Quick Start
 
-If emqx is built from source, `cd _buid/emqx/rel/emqx`.
+If emqx is built from source, `cd _build/emqx/rel/emqx`.
 Or change to the installation root directory if emqx is installed from a release package.
 
 ```bash
