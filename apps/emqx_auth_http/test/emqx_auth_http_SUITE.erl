@@ -46,9 +46,9 @@ groups() ->
     [{Name, Cases} || Name <- [http_inet, http_inet6, https_inet, https_inet6]].
 
 init_per_group(GrpName, Cfg) ->
-    [Schema, Inet] = [list_to_atom(X) || X <- string:tokens(atom_to_list(GrpName), "_")],
-    http_auth_server:start(Schema, Inet),
-    Fun = fun(App) -> set_special_configs(App, Schema, Inet) end,
+    [Scheme, Inet] = [list_to_atom(X) || X <- string:tokens(atom_to_list(GrpName), "_")],
+    http_auth_server:start(Scheme, Inet),
+    Fun = fun(App) -> set_special_configs(App, Scheme, Inet) end,
     emqx_ct_helpers:start_apps([emqx_auth_http], Fun),
     Cfg.
 
@@ -63,8 +63,8 @@ set_special_configs(emqx, _Schmea, _Inet) ->
     application:set_env(emqx, plugins_loaded_file,
                         emqx_ct_helpers:deps_path(emqx, LoadedPluginPath));
 
-set_special_configs(emqx_auth_http, Schema, Inet) ->
-    ServerAddr = http_server(Schema, Inet),
+set_special_configs(emqx_auth_http, Scheme, Inet) ->
+    ServerAddr = http_server(Scheme, Inet),
 
     AuthReq = #{method => get,
                 url => ServerAddr ++ "/mqtt/auth",
@@ -79,7 +79,7 @@ set_special_configs(emqx_auth_http, Schema, Inet) ->
                headers => [{"content-type", "application/json"}],
                params => [{"access", "%A"}, {"username", "%u"}, {"clientid", "%c"}, {"ipaddr", "%a"}, {"topic", "%t"}, {"mountpoint", "%m"}]},
 
-    Schema =:= https andalso set_https_client_opts(),
+    Scheme =:= https andalso set_https_client_opts(),
 
     application:set_env(emqx_auth_http, auth_req, maps:to_list(AuthReq)),
     application:set_env(emqx_auth_http, super_req, maps:to_list(SuperReq)),
