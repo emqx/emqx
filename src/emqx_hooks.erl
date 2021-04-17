@@ -38,6 +38,11 @@
         , lookup/1
         ]).
 
+-export([ callback_action/1
+        , callback_filter/1
+        , callback_priority/1
+        ]).
+
 %% gen_server Function Exports
 -export([ init/1
         , handle_call/3
@@ -86,6 +91,19 @@ start_link() ->
 -spec(stop() -> ok).
 stop() ->
     gen_server:stop(?SERVER, normal, infinity).
+
+%%--------------------------------------------------------------------
+%% Test APIs
+%%--------------------------------------------------------------------
+
+%% @doc Get callback action.
+callback_action(#callback{action = A}) -> A.
+
+%% @doc Get callback filter.
+callback_filter(#callback{filter = F}) -> F.
+
+%% @doc Get callback priority.
+callback_priority(#callback{priority= P}) -> P.
 
 %%--------------------------------------------------------------------
 %% Hooks API
