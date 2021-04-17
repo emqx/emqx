@@ -60,6 +60,10 @@ end}.
   end
 end}.
 
+%% @doc URL for ACL checks. Example: http://127.0.0.1:80/mqtt/acl
+%% ACL checks are disabled for this plugin if this config is
+%% commented out from the config file, or when the overriding
+%% environment variable is set to empty string.
 {mapping, "auth.http.acl_req.url", "emqx_auth_http.acl_req", [
   {datatype, string}
 ]}.
