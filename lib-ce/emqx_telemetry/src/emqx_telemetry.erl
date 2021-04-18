@@ -21,7 +21,8 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
- -include_lib("kernel/include/file.hrl").
+-include_lib("kernel/include/file.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -logger_header("[Telemetry]").
 
@@ -159,16 +160,18 @@ init([Opts]) ->
              end,
     case official_version(emqx_app:get_release()) of
         true ->
-            {ok, ensure_report_timer(NState), {continue, first_report}};
+            _ = erlang:send(self(), first_report),
+            {ok, NState};
         false ->
             {ok, NState#state{enabled = false}}
-    end. 
+    end.
 
 handle_call(enable, _From, State = #state{uuid = UUID}) ->
     mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
                                               uuid = UUID,
                                               enabled = true}),
-    {reply, ok, ensure_report_timer(State#state{enabled = true})};
+    _ = erlang:send(self(), first_report),
+    {reply, ok, State#state{enabled = true}};
 
 handle_call(disable, _From, State = #state{uuid = UUID}) ->
     mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
@@ -193,14 +196,19 @@ handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
-handle_continue(first_report, State) ->
-    report_telemetry(State),
-    {noreply, State};
-
 handle_continue(Continue, State) ->
     ?LOG(error, "Unexpected continue: ~p", [Continue]),
     {noreply, State}.
 
+handle_info(first_report, State) ->
+    case is_pid(erlang:whereis(emqx)) of
+        true ->
+            report_telemetry(State),
+            {noreply, ensure_report_timer(State)};
+        false ->
+            _ = erlang:send_after(1000, self(), first_report),
+            {noreply, State}
+    end;
 handle_info({timeout, TRef, time_to_report_telemetry_data}, State = #state{timer = TRef,
                                                                            enabled = false}) ->
     {noreply, State};
@@ -223,12 +231,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 official_version(Version) ->
-    case re:run(Version,
-                "^\\d+\\.\\d+(?:(-(?:alpha|beta|rc)\\.[1-9][0-9]*)|\\.\\d+)$",
-                [{capture, none}]) of
-        match -> true;
-        nomatch -> false
-    end.
+    Pt = "^\\d+\\.\\d+(?:(-(?:alpha|beta|rc)\\.[1-9][0-9]*)|\\.\\d+)$",
+    match =:= re:run(Version, Pt, [{capture, none}]).
 
 ensure_report_timer(State = #state{report_interval = ReportInterval}) ->
     State#state{timer = emqx_misc:start_timer(ReportInterval, time_to_report_telemetry_data)}.
@@ -361,9 +365,11 @@ report_telemetry(State = #state{url = URL}) ->
     Data = get_telemetry(State),
     case emqx_json:safe_encode(Data) of
         {ok, Bin} ->
-            httpc_request(post, URL, [], Bin);
+            httpc_request(post, URL, [], Bin),
+            ?tp(debug, telemetry_data_reported, #{});
         {error, Reason} ->
-            ?LOG(debug, "Encode ~p failed due to ~p", [Data, Reason])
+            %% debug? why?
+            ?tp(debug, telemetry_data_encode_error, #{data => Data, reason => Reason})
     end.
 
 httpc_request(Method, URL, Headers, Body) ->
