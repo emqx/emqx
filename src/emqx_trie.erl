@@ -133,7 +133,7 @@ lock_tables() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-%% @doc Topic to triples.
+%% Topic to triples.
 -spec(triples(emqx_topic:topic()) -> list(triple())).
 triples(Topic) when is_binary(Topic) ->
     triples(emqx_topic:words(Topic), root, []).
@@ -149,8 +149,7 @@ join(root, W) ->
 join(Parent, W) ->
     emqx_topic:join([Parent, W]).
 
-%% @private
-%% @doc Add a path to the trie.
+%% Add a path to the trie.
 add_path({Node, Word, Child}) ->
     Edge = #trie_edge{node_id = Node, word = Word},
     case mnesia:wread({?TRIE_NODE_TAB, Node}) of
@@ -166,8 +165,7 @@ add_path({Node, Word, Child}) ->
             write_trie(#trie{edge = Edge, node_id = Child})
     end.
 
-%% @private
-%% @doc Match node with word or '+'.
+%% Match node with word or '+'.
 match_node(root, [NodeId = <<$$, _/binary>>|Words]) ->
     match_node(NodeId, Words, []);
 
@@ -185,8 +183,7 @@ match_node(NodeId, [W|Words], ResAcc) ->
         end
     end, 'match_#'(NodeId, ResAcc), [W, '+']).
 
-%% @private
-%% @doc Match node with '#'.
+%% Match node with '#'.
 'match_#'(NodeId, ResAcc) ->
     case mnesia:read(?TRIE_TAB, #trie_edge{node_id = NodeId, word = '#'}) of
         [#trie{node_id = ChildId}] ->
@@ -194,8 +191,7 @@ match_node(NodeId, [W|Words], ResAcc) ->
         [] -> ResAcc
     end.
 
-%% @private
-%% @doc Delete paths from the trie.
+%% Delete paths from the trie.
 delete_path([]) ->
     ok;
 delete_path([{NodeId, Word, _} | RestPath]) ->
@@ -212,11 +208,9 @@ delete_path([{NodeId, Word, _} | RestPath]) ->
             mnesia:abort({node_not_found, NodeId})
     end.
 
-%% @private
 write_trie(Trie) ->
     mnesia:write(?TRIE_TAB, Trie, write).
 
-%% @private
 write_trie_node(TrieNode) ->
     mnesia:write(?TRIE_NODE_TAB, TrieNode, write).
 
