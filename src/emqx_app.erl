@@ -37,13 +37,13 @@ start(_Type, _Args) ->
     print_otp_version_warning(),
     print_banner(),
     %% Load application first for ekka_mnesia scanner
-    _ = load_ce_modules(),
+    _ = application:load(emqx_modules),
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),
     ok = start_autocluster(),
     ok = emqx_plugins:init(),
     _ = emqx_plugins:load(),
-    _ = start_ce_modules(),
+    _ = application:ensure_all_started(emqx_modules),
     emqx_boot:is_enabled(listeners) andalso (ok = emqx_listeners:start()),
     register(emqx, self()),
     ok = emqx_alarm_handler:load(),
@@ -60,18 +60,6 @@ set_backtrace_depth() ->
     Depth = application:get_env(?APP, backtrace_depth, 16),
     _ = erlang:system_flag(backtrace_depth, Depth),
     ok.
-
--ifndef(EMQX_ENTERPRISE).
-load_ce_modules() ->
-    application:load(emqx_modules).
-start_ce_modules() ->
-    application:ensure_all_started(emqx_modules).
--else.
-load_ce_modules() ->
-    ok.
-start_ce_modules() ->
-    ok.
--endif.
 
 %%--------------------------------------------------------------------
 %% Print Banner
