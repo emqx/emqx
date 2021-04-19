@@ -185,7 +185,7 @@ do_unsubscribe(Topic, SubPid, SubOpts) ->
 do_unsubscribe(undefined, Topic, SubPid, SubOpts) ->
     case maps:get(shard, SubOpts, 0) of
         0 -> true = ets:delete_object(?SUBSCRIBER, {Topic, SubPid}),
-             cast(pick(Topic), {unsubscribed, Topic});
+             cast(pick(Topic), {unsubscribed, {Topic, SubPid}});
         I -> true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
              cast(pick({Topic, I}), {unsubscribed, Topic, I})
     end;
@@ -338,7 +338,7 @@ subscriber_down(SubPid) ->
                   true = ets:delete(?SUBOPTION, {SubPid, Topic}),
                   case maps:get(shard, SubOpts, 0) of
                       0 -> true = ets:delete_object(?SUBSCRIBER, {Topic, SubPid}),
-                           ok = cast(pick(Topic), {unsubscribed, Topic});
+                           ok = cast(pick(Topic), {unsubscribed, {Topic, SubPid}});
                       I -> true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
                            ok = cast(pick({Topic, I}), {unsubscribed, Topic, I})
                   end;
@@ -434,13 +434,18 @@ pick(Topic) ->
 
 init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    {ok, #{pool => Pool, id => Id}}.
+    process_flag(message_queue_data, off_heap),
+    {ok, #{pool => Pool, id => Id, unsub_queue => []}}.
 
-handle_call({subscribe, Topic}, {FromPid, _Tag}, State) ->
+handle_call({subscribe, Topic}, {FromPid, _Tag}, #{unsub_queue := UnSubQ} = State) ->
+    IsInUnsub =lists:member(Topic, UnSubQ),
     case sub_pre_check(FromPid) of
-        true ->
+        true when not IsInUnsub->
             Res = emqx_router:do_add_route(Topic),
             {reply, Res, State};
+        true when IsInUnsub ->
+            NewState = State#{unsub_queue := UnSubQ -- [Topic]},
+            {reply, ok , NewState};
         false ->
             {reply, {error, req_dropped} ,State}
     end;
@@ -467,14 +472,17 @@ handle_cast({subscribe, Topic}, State) ->
     end,
     {noreply, State};
 
-handle_cast({unsubscribed, Topic}, State) ->
-    case ets:member(?SUBSCRIBER, Topic) of
-        false ->
-            _ = emqx_router:do_delete_route(Topic),
-            ok;
-        true -> ok
-    end,
-    {noreply, State};
+handle_cast({unsubscribed, {Topic, Caller}}, #{unsub_queue := UnSubQ} = State) ->
+    HasPort = is_pid_links_port(Caller),
+    NewState = case ets:member(?SUBSCRIBER, Topic) of
+                   false when HasPort ->
+                       _ = emqx_router:do_delete_route(Topic),
+                       State;
+                   false when not HasPort ->
+                       State#{unsub_queue => [Topic | UnSubQ]};
+                   true -> State
+               end,
+    {noreply, NewState};
 
 handle_cast({unsubscribed, Topic, I}, State) ->
     case ets:member(?SUBSCRIBER, {shard, Topic, I}) of
