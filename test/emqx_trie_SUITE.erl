@@ -23,9 +23,26 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(TRIE, emqx_trie).
--define(TRIE_TABS, [emqx_trie, emqx_trie_node]).
+-define(TRIE_TABS, [emqx_topic]).
 
-all() -> emqx_ct:all(?MODULE).
+all() ->
+    [{group, compact},
+     {group, not_compact}
+    ].
+
+groups() ->
+    Cases = emqx_ct:all(?MODULE),
+    [{compact, Cases}, {not_compact, Cases}].
+
+init_per_group(compact, Config) ->
+    emqx_trie:put_compaction_flag(true),
+    Config;
+init_per_group(not_compact, Config) ->
+    emqx_trie:put_compaction_flag(false),
+    Config.
+
+end_per_group(_, _) ->
+    emqx_trie:put_default_compaction_flag().
 
 init_per_suite(Config) ->
     application:load(emqx),
@@ -38,6 +55,7 @@ end_per_suite(_Config) ->
     ekka_mnesia:delete_schema().
 
 init_per_testcase(_TestCase, Config) ->
+    clear_tables(),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
@@ -47,49 +65,45 @@ t_mnesia(_) ->
     ok = ?TRIE:mnesia(copy).
 
 t_insert(_) ->
-    TN = #trie_node{node_id = <<"sensor">>,
-                    edge_count = 3,
-                    topic = <<"sensor">>,
-                    flags = undefined
-                   },
     Fun = fun() ->
               ?TRIE:insert(<<"sensor/1/metric/2">>),
               ?TRIE:insert(<<"sensor/+/#">>),
-              ?TRIE:insert(<<"sensor/#">>),
-              ?TRIE:insert(<<"sensor">>),
-              ?TRIE:insert(<<"sensor">>),
-              ?TRIE:lookup(<<"sensor">>)
+              ?TRIE:insert(<<"sensor/#">>)
           end,
-    ?assertEqual({atomic, [TN]}, trans(Fun)).
+    ?assertEqual({atomic, ok}, trans(Fun)),
+    ?assertEqual([<<"sensor/#">>], ?TRIE:match(<<"sensor">>)).
 
 t_match(_) ->
-    Machted = [<<"sensor/+/#">>, <<"sensor/#">>],
-    Fun = fun() ->
+    Machted = [<<"sensor/#">>, <<"sensor/+/#">>],
+    trans(fun() ->
               ?TRIE:insert(<<"sensor/1/metric/2">>),
               ?TRIE:insert(<<"sensor/+/#">>),
-              ?TRIE:insert(<<"sensor/#">>),
-              ?TRIE:match(<<"sensor/1">>)
-            end,
-    ?assertEqual({atomic, Machted}, trans(Fun)).
+              ?TRIE:insert(<<"sensor/#">>)
+            end),
+    ?assertEqual(Machted, lists:sort(?TRIE:match(<<"sensor/1">>))).
 
 t_match2(_) ->
-    Matched = {[<<"+/+/#">>, <<"+/#">>, <<"#">>], []},
-    Fun = fun() ->
+    Matched = [<<"#">>, <<"+/#">>, <<"+/+/#">>],
+    trans(fun() ->
               ?TRIE:insert(<<"#">>),
               ?TRIE:insert(<<"+/#">>),
-              ?TRIE:insert(<<"+/+/#">>),
-              {?TRIE:match(<<"a/b/c">>),
-               ?TRIE:match(<<"$SYS/broker/zenmq">>)}
-          end,
-    ?assertEqual({atomic, Matched}, trans(Fun)).
+              ?TRIE:insert(<<"+/+/#">>)
+          end),
+    ?assertEqual(Matched, lists:sort(?TRIE:match(<<"a/b/c">>))),
+    ?assertEqual([], ?TRIE:match(<<"$SYS/broker/zenmq">>)).
 
 t_match3(_) ->
     Topics = [<<"d/#">>, <<"a/b/c">>, <<"a/b/+">>, <<"a/#">>, <<"#">>, <<"$SYS/#">>],
     trans(fun() -> [emqx_trie:insert(Topic) || Topic <- Topics] end),
     Matched = mnesia:async_dirty(fun emqx_trie:match/1, [<<"a/b/c">>]),
     ?assertEqual(4, length(Matched)),
-    SysMatched = mnesia:async_dirty(fun emqx_trie:match/1, [<<"$SYS/a/b/c">>]),
+    SysMatched = emqx_trie:match(<<"$SYS/a/b/c">>),
     ?assertEqual([<<"$SYS/#">>], SysMatched).
+
+t_match4(_) ->
+    Topics = [<<"/#">>, <<"/+">>, <<"/+/a/b/c">>],
+    trans(fun() -> lists:foreach(fun emqx_trie:insert/1, Topics) end),
+    ?assertEqual([<<"/#">>, <<"/+/a/b/c">>], lists:sort(emqx_trie:match(<<"/0/a/b/c">>))).
 
 t_empty(_) ->
     ?assert(?TRIE:empty()),
@@ -99,53 +113,48 @@ t_empty(_) ->
     ?assert(?TRIE:empty()).
 
 t_delete(_) ->
-    TN = #trie_node{node_id = <<"sensor/1">>,
-                    edge_count = 2,
-                    topic = undefined,
-                    flags = undefined},
-    Fun = fun() ->
+    trans(fun() ->
               ?TRIE:insert(<<"sensor/1/#">>),
               ?TRIE:insert(<<"sensor/1/metric/2">>),
-              ?TRIE:insert(<<"sensor/1/metric/3">>),
+              ?TRIE:insert(<<"sensor/1/metric/3">>)
+          end),
+    trans(fun() ->
               ?TRIE:delete(<<"sensor/1/metric/2">>),
               ?TRIE:delete(<<"sensor/1/metric">>),
-              ?TRIE:delete(<<"sensor/1/metric">>),
-              ?TRIE:lookup(<<"sensor/1">>)
-          end,
-    ?assertEqual({atomic, [TN]}, trans(Fun)).
+              ?TRIE:delete(<<"sensor/1/metric">>)
+          end),
+    ?assertEqual([<<"sensor/1/#">>], ?TRIE:match(<<"sensor/1/x">>)).
 
 t_delete2(_) ->
-    Fun = fun() ->
+    trans(fun() ->
               ?TRIE:insert(<<"sensor">>),
               ?TRIE:insert(<<"sensor/1/metric/2">>),
-              ?TRIE:insert(<<"sensor/+/metric/3">>),
+              ?TRIE:insert(<<"sensor/+/metric/3">>)
+          end),
+    trans(fun() ->
               ?TRIE:delete(<<"sensor">>),
               ?TRIE:delete(<<"sensor/1/metric/2">>),
               ?TRIE:delete(<<"sensor/+/metric/3">>),
-              ?TRIE:delete(<<"sensor/+/metric/3">>),
-              {?TRIE:lookup(<<"sensor">>), ?TRIE:lookup(<<"sensor/1">>)}
-          end,
-    ?assertEqual({atomic, {[], []}}, trans(Fun)).
+              ?TRIE:delete(<<"sensor/+/metric/3">>)
+          end),
+    ?assertEqual([], ?TRIE:match(<<"sensor">>)),
+    ?assertEqual([], ?TRIE:match(<<"sensor/1">>)).
 
 t_delete3(_) ->
-    Fun = fun() ->
+    trans(fun() ->
               ?TRIE:insert(<<"sensor/+">>),
               ?TRIE:insert(<<"sensor/+/metric/2">>),
-              ?TRIE:insert(<<"sensor/+/metric/3">>),
+              ?TRIE:insert(<<"sensor/+/metric/3">>)
+          end),
+    trans(fun() ->
               ?TRIE:delete(<<"sensor/+/metric/2">>),
               ?TRIE:delete(<<"sensor/+/metric/3">>),
               ?TRIE:delete(<<"sensor">>),
               ?TRIE:delete(<<"sensor/+">>),
-              ?TRIE:delete(<<"sensor/+/unknown">>),
-              {?TRIE:lookup(<<"sensor">>), ?TRIE:lookup(<<"sensor/+">>)}
-          end,
-    ?assertEqual({atomic, {[], []}}, trans(Fun)).
-
-t_triples(_) ->
-    Triples = [{root,<<"a">>,<<"a">>},
-               {<<"a">>,<<"b">>,<<"a/b">>},
-               {<<"a/b">>,<<"c">>,<<"a/b/c">>}],
-    ?assertEqual(Triples, emqx_trie:triples(<<"a/b/c">>)).
+              ?TRIE:delete(<<"sensor/+/unknown">>)
+          end),
+    ?assertEqual([], ?TRIE:match(<<"sensor">>)),
+    ?assertEqual([], ?TRIE:lookup_topic(<<"sensor/+">>)).
 
 clear_tables() ->
     lists:foreach(fun mnesia:clear_table/1, ?TRIE_TABS).

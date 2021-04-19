@@ -133,12 +133,11 @@ match_routes(Topic) when is_binary(Topic) ->
             lists:append([lookup_routes(To) || To <- [Topic | Matched]])
     end.
 
-%% @private
 %% Optimize: routing table will be replicated to all router nodes.
 match_trie(Topic) ->
     case emqx_trie:empty() of
         true -> [];
-        false -> mnesia:ets(fun emqx_trie:match/1, [Topic])
+        false -> emqx_trie:match(Topic)
     end.
 
 -spec(lookup_routes(emqx_topic:topic()) -> [emqx_types:route()]).
