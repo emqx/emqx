@@ -2264,6 +2264,18 @@ end}.
   {datatype, {enum, [key, tab, global]}}
 ]}.
 
+%% @doc Enable trie path compaction.
+%% Enabling it significantly improves wildcard topic subscribe rate,
+%% if wildcard topics have unique prefixes like: 'sensor/{{id}}/+/',
+%% where ID is unique per subscriber.
+%%
+%% Topic match performance (when publishing) may degrade if messages
+%% are mostly published to topics with large number of levels.
+{mapping, "broker.perf.trie_compaction", "emqx.trie_compaction", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
 %%--------------------------------------------------------------------
 %% System Monitor
 %%--------------------------------------------------------------------
