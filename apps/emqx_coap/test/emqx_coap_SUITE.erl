@@ -130,7 +130,7 @@ t_observe_wildcard(_Config) ->
     ?assert(is_pid(SubPid)),
 
     %% Publish a message
-    emqx:publish(emqx_message:make(Topic, Payload)),
+    emqx:publish(emqx_message:make(<<"a/b">>, Payload)),
 
     Notif = receive_notification(),
     ?LOGT("observer get Notif=~p", [Notif]),
