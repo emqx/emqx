@@ -27,7 +27,6 @@
 %% Trie APIs
 -export([ insert/1
         , match/1
-        , lookup/1
         , delete/1
         ]).
 
@@ -38,172 +37,182 @@
 -compile(nowarn_export_all).
 -endif.
 
--type(triple() :: {root | binary(), emqx_topic:word(), binary()}).
+-record(emqx_topic,
+        { path :: binary()
+        , prefix_count = 0 :: non_neg_integer()
+        , topic_count = 0 :: non_neg_integer()
+        }).
 
-%% Mnesia tables
--define(TRIE_TAB, emqx_trie).
--define(TRIE_NODE_TAB, emqx_trie_node).
-
--elvis([{elvis_style, function_naming_convention, disable}]).
+-define(TOPICS_TAB, emqx_topic).
+-define(TPATH, emqx_topic).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
-%% @doc Create or replicate trie tables.
+%% @doc Create or replicate topics table.
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
     %% Optimize storage
     StoreProps = [{ets, [{read_concurrency, true},
                          {write_concurrency, true}]}],
-    %% Trie table
-    ok = ekka_mnesia:create_table(?TRIE_TAB, [
+    ok = ekka_mnesia:create_table(?TOPICS_TAB, [
                 {ram_copies, [node()]},
-                {record_name, trie},
-                {attributes, record_info(fields, trie)},
-                {storage_properties, StoreProps}]),
-    %% Trie node table
-    ok = ekka_mnesia:create_table(?TRIE_NODE_TAB, [
-                {ram_copies, [node()]},
-                {record_name, trie_node},
-                {attributes, record_info(fields, trie_node)},
+                {record_name, ?TPATH},
+                {attributes, record_info(fields, ?TPATH)},
                 {storage_properties, StoreProps}]);
-
 mnesia(copy) ->
-    %% Copy trie table
-    ok = ekka_mnesia:copy_table(?TRIE_TAB, ram_copies),
-    %% Copy trie_node table
-    ok = ekka_mnesia:copy_table(?TRIE_NODE_TAB, ram_copies).
+    %% Copy topics table
+    ok = ekka_mnesia:copy_table(?TOPICS_TAB, ram_copies).
 
 %%--------------------------------------------------------------------
-%% Trie APIs
+%% Topics APIs
 %%--------------------------------------------------------------------
 
 %% @doc Insert a topic filter into the trie.
 -spec(insert(emqx_topic:topic()) -> ok).
 insert(Topic) when is_binary(Topic) ->
-    case mnesia:wread({?TRIE_NODE_TAB, Topic}) of
-        [#trie_node{topic = Topic}] ->
-            ok;
-        [TrieNode = #trie_node{topic = undefined}] ->
-            write_trie_node(TrieNode#trie_node{topic = Topic});
-        [] ->
-            %% Add trie path
-            ok = lists:foreach(fun add_path/1, triples(Topic)),
-            %% Add last node
-            write_trie_node(#trie_node{node_id = Topic, topic = Topic})
-    end.
-
-%% @doc Find trie nodes that match the topic name.
--spec(match(emqx_topic:topic()) -> list(emqx_topic:topic())).
-match(Topic) when is_binary(Topic) ->
-    TrieNodes = match_node(root, emqx_topic:words(Topic)),
-    [Name || #trie_node{topic = Name} <- TrieNodes, Name =/= undefined].
-
-%% @doc Lookup a trie node.
--spec(lookup(NodeId :: binary()) -> [trie_node()]).
-lookup(NodeId) ->
-    mnesia:read(?TRIE_NODE_TAB, NodeId).
+    Paths = make_paths(Topic),
+    lists:foreach(fun insert_tpath/1, Paths).
 
 %% @doc Delete a topic filter from the trie.
 -spec(delete(emqx_topic:topic()) -> ok).
 delete(Topic) when is_binary(Topic) ->
-    case mnesia:wread({?TRIE_NODE_TAB, Topic}) of
-        [#trie_node{edge_count = 0}] ->
-            ok = mnesia:delete({?TRIE_NODE_TAB, Topic}),
-            delete_path(lists:reverse(triples(Topic)));
-        [TrieNode] ->
-            write_trie_node(TrieNode#trie_node{topic = undefined});
-        [] -> ok
-    end.
+    Paths = make_paths(Topic),
+    lists:foreach(fun delete_tpath/1, Paths).
+
+%% @doc Find trie nodes that match the topic name.
+-spec(match(emqx_topic:topic()) -> list(emqx_topic:topic())).
+match(Topic) when is_binary(Topic) ->
+    Words = emqx_topic:words(Topic),
+    false = emqx_topic:wildcard(Words), %% assert
+    do_match(Words).
 
 %% @doc Is the trie empty?
 -spec(empty() -> boolean()).
-empty() ->
-    ets:info(?TRIE_TAB, size) == 0.
+empty() -> ets:info(?TOPICS_TAB, size) == 0.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-%% Topic to triples.
--spec(triples(emqx_topic:topic()) -> list(triple())).
-triples(Topic) when is_binary(Topic) ->
-    triples(emqx_topic:words(Topic), root, []).
+make_paths(Topic) ->
+    Words = emqx_topic:words(Topic),
+    case emqx_topic:wildcard(Words) of
+        true ->
+            Prefixes0 = make_prefixes(compact(Words)),
+            Prefixes = lists:map(fun emqx_topic:join/1, Prefixes0),
+            [topic_path(Topic) | lists:map(fun prefix_path/1, Prefixes)];
+        false -> [topic_path(Topic)]
+    end.
 
-triples([], _Parent, Acc) ->
-    lists:reverse(Acc);
-triples([W|Words], Parent, Acc) ->
-    Node = join(Parent, W),
-    triples(Words, Node, [{Parent, W, Node}|Acc]).
+%% a/b/+/c/d => [a/b, +, c]
+compact(Words) ->
+    [I || I <- compact(Words, empty, []), I =/= empty].
 
-join(root, W) ->
-    emqx_topic:join([W]);
-join(Parent, W) ->
-    emqx_topic:join([Parent, W]).
+compact([], Prefix, Acc) ->
+    lists:reverse([Prefix | Acc]);
+compact(['+' | T], Prefix, Acc) ->
+    compact(T, empty, ['+', Prefix | Acc]);
+compact(['#' | T], Prefix, Acc) ->
+    compact(T, empty, ['#', Prefix | Acc]);
+compact([H | T], Prefix, Acc) ->
+    compact(T, join(Prefix, H), Acc).
 
-%% Add a path to the trie.
-add_path({Node, Word, Child}) ->
-    Edge = #trie_edge{node_id = Node, word = Word},
-    case mnesia:wread({?TRIE_NODE_TAB, Node}) of
-        [TrieNode = #trie_node{edge_count = Count}] ->
-            case mnesia:wread({?TRIE_TAB, Edge}) of
-                [] ->
-                    ok = write_trie_node(TrieNode#trie_node{edge_count = Count + 1}),
-                    write_trie(#trie{edge = Edge, node_id = Child});
-                [_] -> ok
-            end;
+join(empty, '+') -> <<"+">>;
+join(empty, '#') -> <<"#">>;
+join(empty, Word) -> Word;
+join(Prefix, Word) -> emqx_topic:join([Prefix, Word]).
+
+topic_path(Topic) ->
+    #?TPATH{path = Topic, prefix_count = 0, topic_count = 1}.
+
+prefix_path(Prefix) ->
+    #?TPATH{path = Prefix, prefix_count = 1, topic_count = 0}.
+
+make_prefixes(Words) ->
+    make_prefixes(Words, [], []).
+
+make_prefixes([_LastWord], _Prefix, Acc) ->
+    lists:reverse(lists:map(fun lists:reverse/1, Acc));
+make_prefixes([H | T], Prefix0, Acc0) ->
+    Prefix = [H | Prefix0],
+    Acc = [Prefix | Acc0],
+    make_prefixes(T, Prefix, Acc).
+
+insert_tpath(#?TPATH{ path = Path
+                    , prefix_count = PcInc
+                    , topic_count = TcInc
+                    } = Tp0) ->
+    Tp = case mnesia:wread({?TOPICS_TAB, Path}) of
+             [#?TPATH{prefix_count = Pc, topic_count = Tc} = Tp1] ->
+                 Tp1#?TPATH{prefix_count = Pc + PcInc, topic_count = Tc + TcInc};
+             [] ->
+                 Tp0
+         end,
+    ok = mnesia:write(Tp).
+
+delete_tpath(#?TPATH{ path = Path
+                    , prefix_count = PcInc
+                    , topic_count = TcInc
+                    } = Tp0) ->
+    Tp = case mnesia:wread({?TOPICS_TAB, Path}) of
+             [#?TPATH{prefix_count = Pc, topic_count = Tc} = Tp1] ->
+                 Tp1#?TPATH{prefix_count = Pc - PcInc, topic_count = Tc - TcInc};
+             [] ->
+                 Tp0
+         end,
+    case Tp#?TPATH.topic_count =:= 0 andalso Tp#?TPATH.prefix_count =:= 0 of
+        true ->
+            ok = mnesia:delete(?TOPICS_TAB, Path, write);
+        false ->
+            ok = mnesia:write(Tp)
+    end.
+
+lookup_topic(Topic) when is_binary(Topic) ->
+    case ets:lookup(?TOPICS_TAB, Topic) of
+        [#?TPATH{topic_count = Tc}] ->
+            [Topic || Tc > 0];
         [] ->
-            ok = write_trie_node(#trie_node{node_id = Node, edge_count = 1}),
-            write_trie(#trie{edge = Edge, node_id = Child})
+            []
     end.
 
-%% Match node with word or '+'.
-match_node(root, [NodeId = <<$$, _/binary>>|Words]) ->
-    match_node(NodeId, Words, []);
-
-match_node(NodeId, Words) ->
-    match_node(NodeId, Words, []).
-
-match_node(NodeId, [], ResAcc) ->
-    mnesia:read(?TRIE_NODE_TAB, NodeId) ++ 'match_#'(NodeId, ResAcc);
-
-match_node(NodeId, [W|Words], ResAcc) ->
-    lists:foldl(fun(WArg, Acc) ->
-        case mnesia:read(?TRIE_TAB, #trie_edge{node_id = NodeId, word = WArg}) of
-            [#trie{node_id = ChildId}] -> match_node(ChildId, Words, Acc);
-            [] -> Acc
-        end
-    end, 'match_#'(NodeId, ResAcc), [W, '+']).
-
-%% Match node with '#'.
-'match_#'(NodeId, ResAcc) ->
-    case mnesia:read(?TRIE_TAB, #trie_edge{node_id = NodeId, word = '#'}) of
-        [#trie{node_id = ChildId}] ->
-            mnesia:read(?TRIE_NODE_TAB, ChildId) ++ ResAcc;
-        [] -> ResAcc
+has_prefix(Prefix) ->
+    case ets:lookup(?TOPICS_TAB, Prefix) of
+        [#?TPATH{prefix_count = Pc}] -> Pc > 0;
+        [] -> false
     end.
 
-%% Delete paths from the trie.
-delete_path([]) ->
-    ok;
-delete_path([{NodeId, Word, _} | RestPath]) ->
-    ok = mnesia:delete({?TRIE_TAB, #trie_edge{node_id = NodeId, word = Word}}),
-    case mnesia:wread({?TRIE_NODE_TAB, NodeId}) of
-        [#trie_node{edge_count = 1, topic = undefined}] ->
-            ok = mnesia:delete({?TRIE_NODE_TAB, NodeId}),
-            delete_path(RestPath);
-        [TrieNode = #trie_node{edge_count = 1, topic = _}] ->
-            write_trie_node(TrieNode#trie_node{edge_count = 0});
-        [TrieNode = #trie_node{edge_count = C}] ->
-            write_trie_node(TrieNode#trie_node{edge_count = C-1});
-        [] ->
-            mnesia:abort({node_not_found, NodeId})
+do_match([<<"$", _/binary>> = Prefix | Words]) ->
+    do_match(Words, Prefix, []);
+do_match(Words) ->
+    do_match(Words, empty, []).
+
+do_match([], Topic, Acc) ->
+    lookup_topic(Topic) ++ Acc;
+do_match([Word | Words], Prefix, Acc0) ->
+    Acc = match_multi_level(Prefix) ++
+          match_single_level(Words, Prefix) ++
+          Acc0,
+    do_match(Words, join(Prefix, Word), Acc).
+
+match_multi_level(Prefix) ->
+    MlTopic = join(Prefix, '#'),
+    lookup_topic(MlTopic).
+
+match_single_level([], Prefix) ->
+    %% no more remaining words
+    SlTopic = join(Prefix, '+'),
+    lookup_topic(SlTopic);
+match_single_level(Words, Prefix) ->
+    SlTopic = join(Prefix, '+'),
+    case has_prefix(SlTopic) of
+        true ->
+            %% there is foo/+ prefix
+            %% the input topic has more levels down
+            %% go deeper
+            do_match(Words, SlTopic, []);
+        false ->
+            []
     end.
-
-write_trie(Trie) ->
-    mnesia:write(?TRIE_TAB, Trie, write).
-
-write_trie_node(TrieNode) ->
-    mnesia:write(?TRIE_NODE_TAB, TrieNode, write).
 
