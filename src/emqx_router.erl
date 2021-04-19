@@ -259,7 +259,7 @@ delete_trie_route(Route = #route{topic = Topic}) ->
 %% @private
 -spec(trans(function(), list(any())) -> ok | {error, term()}).
 trans(Fun, Args) ->
-    mnesia:sync_dirty(Fun, Args).
+    mnesia:async_dirty(Fun, Args).
 
 lock_router() ->
     %% @todo also check emqx_trie and emqx_trie_route table?
