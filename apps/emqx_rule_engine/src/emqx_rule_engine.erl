@@ -396,6 +396,7 @@ refresh_rules() ->
     lists:foreach(fun(#rule{id = RuleId} = Rule) ->
         try refresh_rule(Rule)
         catch Error:Reason:ST ->
+            emqx_rule_registry:add_rule(Rule#rule{enabled = false}),
             logger:critical(
                 "Can not re-build rule ~p: ~0p. The rule is disabled."
                 "Fix the issue and enable it manually.\n"
