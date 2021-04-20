@@ -27,7 +27,8 @@
 -type ack_ref() :: emqx_bridge_worker:ack_ref().
 -type batch() :: emqx_bridge_worker:batch().
 
-start(Cfg) ->
+start(#{client_pid := Pid} = Cfg) ->
+    Pid ! {self(), ?MODULE, ready},
     {ok, Cfg}.
 
 stop(_) -> ok.
