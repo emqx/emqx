@@ -42,14 +42,9 @@ jobs:
                 -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
                 -f .ci/docker-compose-file/docker-compose-python.yaml \
                 up -d
-            while [ "$(docker inspect -f '{{ .State.Health.Status}}' node1.emqx.io)" != "healthy" ] || [ "$(docker inspect -f '{{ .State.Health.Status}}' node2.emqx.io)" != "healthy" ]; do
-              if [ $(docker ps -a -f name=fvt_tests_emqx -f status=exited -q | wc -l) -ne 0 ]; then
-                  echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']:emqx stop";
-                  exit;
-              else
-                  echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']:waiting emqx";
-                  sleep 5;
-              fi;
+            while ! docker exec -i node1.emqx.io bash -c "emqx eval \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = maps:get(running_nodes, ekka_cluster:info()).\"" > /dev/null 2>&1; do
+                echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']:waiting emqx";
+                sleep 5;
             done
         - name: make paho tests
           run: |
