@@ -647,6 +647,23 @@ t_now_timestamp_1(_) ->
             apply_func(now_timestamp, [atom_to_binary(Unit, utf8)])))
      || Unit <- [second,millisecond,microsecond,nanosecond]].
 
+t_unix_ts_to_rfc3339(_) ->
+    [begin
+        BUnit = atom_to_binary(Unit, utf8),
+        Epoch = apply_func(now_timestamp, [BUnit]),
+        DateTime = apply_func(unix_ts_to_rfc3339, [Epoch, BUnit]),
+        ?assertEqual(Epoch,
+            calendar:rfc3339_to_system_time(binary_to_list(DateTime), [{unit, Unit}]))
+     end || Unit <- [second,millisecond,microsecond,nanosecond]].
+
+t_rfc3339_to_unix_ts(_) ->
+    [begin
+        BUnit = atom_to_binary(Unit, utf8),
+        Epoch = apply_func(now_timestamp, [BUnit]),
+        DateTime = apply_func(unix_ts_to_rfc3339, [Epoch, BUnit]),
+        ?assertEqual(Epoch, emqx_rule_funcs:rfc3339_to_unix_ts(DateTime, BUnit))
+     end || Unit <- [second,millisecond,microsecond,nanosecond]].
+
 %%------------------------------------------------------------------------------
 %% Utility functions
 %%------------------------------------------------------------------------------
