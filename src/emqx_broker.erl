@@ -419,7 +419,7 @@ safe_update_stats(Tab, Stat, MaxStat) ->
 -compile({inline, [call/2, cast/2, pick/1]}).
 
 call(Broker, Req) ->
-    gen_server:call(Broker, Req).
+    gen_server:call(Broker, Req, infinity).
 
 cast(Broker, Msg) ->
     gen_server:cast(Broker, Msg).
