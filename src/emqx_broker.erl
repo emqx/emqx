@@ -435,7 +435,12 @@ pick(Topic) ->
 init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     process_flag(message_queue_data, off_heap),
-    {ok, #{pool => Pool, id => Id, unsub_queue => []}}.
+    {ok, #{pool => Pool,
+           id => Id,
+           unsub_queue => [],
+           unsub_queue_flush_timer => undefined
+          }
+    }.
 
 handle_call({subscribe, Topic}, {FromPid, _Tag}, #{unsub_queue := UnSubQ} = State) ->
     IsInUnsub =lists:member(Topic, UnSubQ),
@@ -472,14 +477,27 @@ handle_cast({subscribe, Topic}, State) ->
     end,
     {noreply, State};
 
-handle_cast({unsubscribed, {Topic, Caller}}, #{unsub_queue := UnSubQ} = State) ->
+handle_cast({unsubscribed, {Topic, Caller}}, #{unsub_queue := UnSubQ,
+                                               unsub_queue_flush_timer := UnsubT
+                                              } = State) ->
     HasPort = is_pid_links_port(Caller),
+    IsWildcard = emqx_topic:wildcard(Topic),
     NewState = case ets:member(?SUBSCRIBER, Topic) of
-                   false when HasPort ->
+                   false when IsWildcard andalso not HasPort ->
+                       NewUnsubT = case UnsubT of
+                                       undefined ->
+                                           Wait = application:get_env(emqx, flush_unsub_timer, 60000),
+                                           {ok, TRef} = timer:send_after(Wait, flush_unsub_queue),
+                                           TRef;
+                                       OldTref ->
+                                           OldTref
+                                   end,
+                       State#{unsub_queue => [Topic | UnSubQ],
+                              unsub_queue_timer => NewUnsubT
+                             };
+                   false ->
                        _ = emqx_router:do_delete_route(Topic),
                        State;
-                   false when not HasPort ->
-                       State#{unsub_queue => [Topic | UnSubQ]};
                    true -> State
                end,
     {noreply, NewState};
@@ -497,6 +515,11 @@ handle_cast({unsubscribed, Topic, I}, State) ->
 handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
+
+handle_info(flush_unsub_queue, #{unsub_queue := Q} = State) ->
+    handle_flush_unsub_queue(Q, 100),
+    {noreply, State#{unsub_queue => [],
+                     unsub_queue_timer => undefined}};
 
 handle_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
@@ -529,3 +552,18 @@ has_port([X | _]) when is_port(X) ->
     true;
 has_port([X | T]) when is_pid(X) ->
     has_port(T).
+
+handle_flush_unsub_queue(Q, BatchSize) ->
+    handle_flush_unsub_queue(Q, BatchSize, []).
+
+handle_flush_unsub_queue([], _, Res) ->
+    Res;
+handle_flush_unsub_queue(Queue, BatchSize, Res) ->
+    {Batch, Left} = case length(Queue) < BatchSize of
+                        true ->
+                            lists:split(BatchSize, Queue);
+                        false ->
+                            {Queue, []}
+                    end,
+    Unsuccess = emqx_router:do_batch_delete_trie_route(Batch),
+    handle_flush_unsub_queue(Left, BatchSize, Res ++ Unsuccess).

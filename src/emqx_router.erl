@@ -43,6 +43,7 @@
 -export([ delete_route/1
         , delete_route/2
         , do_delete_route/1
+        , do_batch_delete_trie_route/1
         , do_delete_route/2
         ]).
 
@@ -176,6 +177,25 @@ do_delete_route(Topic, Dest) ->
                 unlock_router()
             end;
         false -> delete_direct_route(Route)
+    end.
+
+-spec do_batch_delete_trie_route([emqx_topic:topic()]) -> [emqx_topic:topic()].
+do_batch_delete_trie_route(Topics) ->
+    do_batch_delete_trie_route(Topics, node()).
+
+do_batch_delete_trie_route(Topics, Dest) ->
+    lock_router(),
+    try trans(fun() ->
+                      lists:filtermap(fun(Topic) ->
+                                              Route = #route{topic = Topic, dest = Dest},
+                                              case delete_trie_route(Route) of
+                                                  ok -> false;
+                                                  {error, _} -> true
+                                              end
+                                      end, Topics)
+              end, [])
+    after
+        unlock_router()
     end.
 
 -spec(topics() -> list(emqx_topic:topic())).
