@@ -32,7 +32,7 @@
         , stats/1
         ]).
 
--export([call/2]).
+-export([call/2, call/3]).
 
 %% SUB/UNSUB Asynchronously, called by plugins.
 -export([ subscribe/2
@@ -65,6 +65,8 @@
 
 -type(maybe(T) :: T | undefined).
 
+-type(pending_msgs() :: #{integer() => [#mqtt_sn_message{}]}).
+
 -record(will_msg, {retain = false  :: boolean(),
                    qos    = ?QOS_0 :: emqx_mqtt_types:qos(),
                    topic           :: maybe(binary()),
@@ -91,7 +93,7 @@
                 idle_timeout         :: integer(),
                 enable_qos3 = false  :: boolean(),
                 has_pending_pingresp = false :: boolean(),
-                is_waiting_regack   = false :: boolean()
+                pending_topic_ids = #{} :: pending_msgs()
                }).
 
 -define(INFO_KEYS, [socktype, peername, sockname, sockstate]). %, active_n]).
@@ -333,12 +335,12 @@ connected(cast, {incoming, ?SN_UNSUBSCRIBE_MSG(Flags, MsgId, TopicId)}, State) -
 connected(cast, {incoming, PingReq = ?SN_PINGREQ_MSG(_ClientId)}, State) ->
     handle_ping(PingReq, State);
 
-connected(cast, {incoming, ?SN_REGACK_MSG(_TopicId, _MsgId, ?SN_RC_ACCEPTED)}, State) ->
-    {keep_state, State#state{is_waiting_regack = false}};
+connected(cast, {incoming, ?SN_REGACK_MSG(TopicId, _MsgId, ?SN_RC_ACCEPTED)}, State) ->
+    {keep_state, replay_no_reg_pending_publishes(TopicId, State)};
 connected(cast, {incoming, ?SN_REGACK_MSG(TopicId, MsgId, ReturnCode)}, State) ->
     ?LOG(error, "client does not accept register TopicId=~p, MsgId=~p, ReturnCode=~p",
          [TopicId, MsgId, ReturnCode]),
-    {keep_state, State#state{is_waiting_regack = false}};
+    {keep_state, State};
 
 connected(cast, {incoming, ?SN_DISCONNECT_MSG(Duration)}, State) ->
     State0 = send_message(?SN_DISCONNECT_MSG(undefined), State),
@@ -445,13 +447,13 @@ asleep(cast, {incoming, ?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, _ClientId)}
 asleep(EventType, EventContent, State) ->
     handle_event(EventType, EventContent, asleep, State).
 
-awake(cast, {incoming, ?SN_REGACK_MSG(_TopicId, _MsgId, ?SN_RC_ACCEPTED)}, State) ->
-    {keep_state, State#state{is_waiting_regack = false}};
+awake(cast, {incoming, ?SN_REGACK_MSG(TopicId, _MsgId, ?SN_RC_ACCEPTED)}, State) ->
+    {keep_state, replay_no_reg_pending_publishes(TopicId, State)};
 
 awake(cast, {incoming, ?SN_REGACK_MSG(TopicId, MsgId, ReturnCode)}, State) ->
     ?LOG(error, "client does not accept register TopicId=~p, MsgId=~p, ReturnCode=~p",
          [TopicId, MsgId, ReturnCode]),
-    {keep_state, State#state{is_waiting_regack = false}};
+    {keep_state, State};
 
 awake(cast, {incoming, PingReq = ?SN_PINGREQ_MSG(_ClientId)}, State) ->
     handle_ping(PingReq, State);
@@ -514,13 +516,11 @@ handle_event(info, {datagram, SockPid, Data}, StateName,
             stop(frame_error, State)
     end;
 
-handle_event(info, {deliver, _Topic, Msg}, StateName,
-             State = #state{channel = Channel, is_waiting_regack = HasPendingRegAck})
-                    when StateName =:= asleep;
-                         HasPendingRegAck =:= true ->
+handle_event(info, {deliver, _Topic, Msg}, asleep,
+             State = #state{channel = Channel, pending_topic_ids = Pendings}) ->
     % section 6.14, Support of sleeping clients
-    ?LOG(debug, "enqueue downlink message, state_name: ~p, is_waiting_regack: ~p, msg: ~0p",
-         [StateName, HasPendingRegAck, Msg]),
+    ?LOG(debug, "enqueue downlink message in asleep state, msg: ~0p, pending_topic_ids: ~0p",
+         [Msg, Pendings]),
     Session = emqx_session:enqueue(Msg, emqx_channel:get_session(Channel)),
     {keep_state, State#state{channel = emqx_channel:set_session(Session, Channel)}};
 
@@ -683,7 +683,10 @@ stats(#state{socket = Socket, channel = Channel}) ->
     lists:append([SockStats, ConnStats, ChanStats, ProcStats]).
 
 call(Pid, Req) ->
-    gen_server:call(Pid, Req, infinity).
+    call(Pid, Req, infinity).
+
+call(Pid, Req, Timeout) ->
+    gen_server:call(Pid, Req, Timeout).
 
 %%--------------------------------------------------------------------
 %% Internal Functions
@@ -749,8 +752,7 @@ mqtt2sn(?PUBACK_PACKET(MsgId, _ReasonCode), _State) ->
     ?SN_PUBACK_MSG(TopicIdFinal, MsgId, ?SN_RC_ACCEPTED).
 
 send_register(TopicName, TopicId, MsgId, State) ->
-    send_message(?SN_REGISTER_MSG(TopicId, MsgId, TopicName),
-        State#state{is_waiting_regack = true}).
+    send_message(?SN_REGISTER_MSG(TopicId, MsgId, TopicName), State).
 
 send_connack(State) ->
     send_message(?SN_CONNACK_MSG(?SN_RC_ACCEPTED), State).
@@ -1059,28 +1061,41 @@ handle_outgoing(Packets, State) when is_list(Packets) ->
         handle_outgoing(Packet, State0)
     end, State, Packets);
 
-handle_outgoing(PubPkt = ?PUBLISH_PACKET(QoS, TopicName, PacketId, Payload),
+handle_outgoing(PubPkt = ?PUBLISH_PACKET(_, TopicName, _, _),
                 State = #state{registry = Registry}) ->
-    #mqtt_packet{header = #mqtt_packet_header{dup = Dup, retain = Retain}} = PubPkt,
-    MsgId = message_id(PacketId),
-    ?LOG(debug, "Handle outgoing: ~0p", [PubPkt]),
-
+    ?LOG(debug, "Handle outgoing publish: ~0p", [PubPkt]),
     TopicId = emqx_sn_registry:lookup_topic_id(Registry, self(), TopicName),
     case (TopicId == undefined) andalso (byte_size(TopicName) =/= 2) of
-        true ->
-            register_and_notify_client(TopicName, Payload, Dup, QoS, Retain, MsgId, State);
+        true -> register_and_notify_client(PubPkt, State);
         false -> send_message(mqtt2sn(PubPkt, State), State)
     end;
 
 handle_outgoing(Packet, State) ->
     send_message(mqtt2sn(Packet, State), State).
 
-register_and_notify_client(TopicName, Payload, Dup, QoS, Retain, MsgId,
-                           State = #state{registry = Registry}) ->
+cache_no_reg_publish_message(Pendings, TopicId, PubPkt, State) ->
+    ?LOG(debug, "cache non-registered publish message for topic-id: ~p, msg: ~0p, pendings: ~0p",
+        [TopicId, PubPkt, Pendings]),
+    Msgs = maps:get(pending_topic_ids, Pendings, []),
+    Pendings#{TopicId => Msgs ++ [mqtt2sn(PubPkt, State)]}.
+
+replay_no_reg_pending_publishes(TopicId, #state{pending_topic_ids = Pendings} = State0) ->
+    ?LOG(debug, "replay non-registered publish message for topic-id: ~p, pendings: ~0p",
+        [TopicId, Pendings]),
+    State = lists:foldl(fun(Msg, State1) ->
+        send_message(Msg, State1)
+    end, State0, maps:get(TopicId, Pendings, [])),
+    State#state{pending_topic_ids = maps:remove(TopicId, Pendings)}.
+
+register_and_notify_client(?PUBLISH_PACKET(QoS, TopicName, PacketId, Payload) = PubPkt,
+        State = #state{registry = Registry, pending_topic_ids = Pendings}) ->
+    MsgId = message_id(PacketId),
+    #mqtt_packet{header = #mqtt_packet_header{dup = Dup, retain = Retain}} = PubPkt,
     TopicId = emqx_sn_registry:register_topic(Registry, self(), TopicName),
     ?LOG(debug, "Register TopicId=~p, TopicName=~p, Payload=~p, Dup=~p, QoS=~p, "
                 "Retain=~p, MsgId=~p", [TopicId, TopicName, Payload, Dup, QoS, Retain, MsgId]),
-    send_register(TopicName, TopicId, MsgId, State).
+    NewPendings = cache_no_reg_publish_message(Pendings, TopicId, PubPkt, State),
+    send_register(TopicName, TopicId, MsgId, State#state{pending_topic_ids = NewPendings}).
 
 message_id(undefined) ->
     rand:uniform(16#FFFF);
