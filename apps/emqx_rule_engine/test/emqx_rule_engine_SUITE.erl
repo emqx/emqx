@@ -706,7 +706,7 @@ t_disable_rule(_Config) ->
                 types=[], params_spec = #{},
                 title = #{en => <<"Simple Action">>},
                 description = #{en => <<"Simple Action">>}}),
-    {ok, #rule{actions = [#action_instance{id = ActInsId0}]}} = emqx_rule_engine:create_rule(
+    {ok, #rule{actions = [#action_instance{}]}} = emqx_rule_engine:create_rule(
         #{id => <<"simple_rule_2">>,
           rawsql => <<"select * from \"t/#\"">>,
           actions => [#{name => 'simple_action_2', args => #{}}]
