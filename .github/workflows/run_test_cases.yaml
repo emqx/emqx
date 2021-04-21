@@ -43,8 +43,31 @@ jobs:
         - name: proper
           run: make proper
 
+    run_common_test_prepare:
+        runs-on: ubuntu-20.04
+
+        outputs:
+          apps: ${{ steps.get_apps.outputs.apps }}
+
+        steps:
+        - uses: actions/checkout@v2
+        - name: get apps
+          id: get_apps
+          shell: bash
+          run: |
+            apps=$(./scripts/find-apps.sh | sed -r 's/^(.*)$/"\1"/g' | tr '\r\n' ',' | sed -r 's/,$//g')
+            apps_json=$(echo "[$apps]")
+            echo $apps_json | jq .
+            echo "::set-output name=apps::$apps_json"
+
     run_common_test:
         runs-on: ubuntu-20.04
+
+        needs: run_common_test_prepare
+
+        strategy:
+          matrix:
+            apps: ${{ fromJSON(needs.run_common_test_prepare.outputs.apps) }}
 
         steps:
         - uses: actions/checkout@v2
@@ -117,12 +140,13 @@ jobs:
                  != $(docker ps -a --filter name=client | wc -l) ]; do
               sleep 5
             done
-        - name: run eunit
+        - name: run tests
           run: |
-            docker exec -i erlang bash -c "make eunit"
-        - name: run common test
-          run: |
-            docker exec -i erlang bash -c "make ct"
+            if [ ! -z "$(./scripts/find-suites.sh apps/emqx_plugin_libs ${{ matrix.apps }})" ]; then
+                docker exec -i erlang bash -c "make ensure-rebar3"
+                docker exec -i erlang bash -c "make ${{ matrix.apps }}-eunit"
+                docker exec -i erlang bash -c "make ${{ matrix.apps }}-ct"
+            fi
         - name: run cover
           run: |
             printenv > .env

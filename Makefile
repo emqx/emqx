@@ -30,6 +30,8 @@ ensure-rebar3:
 
 $(REBAR): ensure-rebar3
 
+APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
+
 .PHONY: get-dashboard
 get-dashboard:
 	@$(SCRIPTS)/get-dashboard.sh
@@ -38,31 +40,37 @@ get-dashboard:
 eunit: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit -v -c
 
+## app/name-eunit targets are intended for local tests hence cover is not enabled
+.PHONY: $(APPS:%=%-eunit)
+define gen-app-eunit-target
+$1-eunit:
+	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit --name 'test@127.0.0.1' -v --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
+endef
+$(foreach app,$(APPS),$(eval $(call gen-app-eunit-target,$(app))))
+
 .PHONY: proper
 proper: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) proper -d test/props -c
-
-.PHONY: ct
-ct: $(REBAR)
-	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name 'test@127.0.0.1' -c -v
-
-APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
-
-## app/name-ct targets are intended for local tests hence cover is not enabled
-.PHONY: $(APPS:%=%-ct)
-define gen-app-ct-target
-$1-ct:
-	$(REBAR) ct --name 'test@127.0.0.1' -v --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
-endef
-$(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
 
 ## apps/name-prop targets
 .PHONY: $(APPS:%=%-prop)
 define gen-app-prop-target
 $1-prop:
-	$(REBAR) proper -d test/props -v -m $(shell $(CURDIR)/scripts/find-props.sh $1)
+	@ENABLE_COVER_COMPILE=1 $(REBAR) proper -d test/props -v -m $(shell $(CURDIR)/scripts/find-props.sh $1)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-prop-target,$(app))))
+
+.PHONY: ct
+ct: $(REBAR)
+	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name 'test@127.0.0.1' -c -v
+
+## app/name-ct targets are intended for local tests hence cover is not enabled
+.PHONY: $(APPS:%=%-ct)
+define gen-app-ct-target
+$1-ct:
+	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name 'test@127.0.0.1' -v --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
+endef
+$(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
 
 .PHONY: cover
 cover: $(REBAR)
