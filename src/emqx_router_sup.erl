@@ -34,6 +34,10 @@ init([]) ->
                type     => worker,
                modules  => [emqx_router_helper]},
 
+    ok = persistent_term:put(emqx_route_lock_type,
+                             application:get_env(emqx, route_lock_type, key)
+                            ),
+
     %% Router pool
     RouterPool = emqx_pool_sup:spec([router_pool, hash,
                                      {emqx_router, start_link, []}]),
