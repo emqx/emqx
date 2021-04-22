@@ -31,7 +31,7 @@
 -type(trace_who() :: {clientid | topic, binary()}).
 
 -define(TRACER, ?MODULE).
--define(FORMAT, {emqx_logger_formatter,
+-define(FORMAT, {logger_formatter,
                   #{template =>
                       [time, " [", level, "] ",
                        {clientid,
@@ -41,7 +41,9 @@
                           [{peername,
                               [peername, " "],
                               []}]},
-                       msg, "\n"]}}).
+                       msg, "\n"],
+                    single_line => true
+                   }}).
 -define(TOPIC_TRACE_ID(T), "trace_topic_"++T).
 -define(CLIENT_TRACE_ID(C), "trace_clientid_"++C).
 -define(TOPIC_TRACE(T), {topic, T}).
