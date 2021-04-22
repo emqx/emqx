@@ -31,7 +31,9 @@
         , delete/1
         ]).
 
--export([empty/0]).
+-export([ empty/0
+        , lock_tables/0
+        ]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -119,6 +121,11 @@ delete(Topic) when is_binary(Topic) ->
 -spec(empty() -> boolean()).
 empty() ->
     ets:info(?TRIE_TAB, size) == 0.
+
+-spec lock_tables() -> ok.
+lock_tables() ->
+    mnesia:write_lock_table(?TRIE_TAB),
+    mnesia:write_lock_table(?TRIE_NODE_TAB).
 
 %%--------------------------------------------------------------------
 %% Internal functions
