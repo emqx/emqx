@@ -457,7 +457,7 @@ end}.
 
 {mapping, "log.to", "kernel.logger", [
   {default, file},
-  {datatype, {enum, [off, file, console, both]}}
+  {datatype, {enum, [file, console, both]}}
 ]}.
 
 {mapping, "log.level", "kernel.logger", [
@@ -468,11 +468,6 @@ end}.
 {mapping, "log.primary_log_level", "kernel.logger_level", [
    {default, warning},
    {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
-]}.
-
-{mapping, "log.logger_sasl_compatible", "kernel.logger_sasl_compatible", [
-  {default, true},
-  {datatype, {enum, [true, false]}}
 ]}.
 
 {mapping, "log.dir", "kernel.logger", [
@@ -560,12 +555,6 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "log.sasl", "sasl.sasl_error_logger", [
-  {default, off},
-  {datatype, flag},
-  hidden
-]}.
-
 {mapping, "log.error_logger", "kernel.error_logger", [
   {default, silent},
   {datatype, {enum, [silent]}},
@@ -649,7 +638,7 @@ end}.
     %% For the default logger that outputs to console
     DefaultHandler =
         if LogTo =:= console orelse LogTo =:= both ->
-                [{handler, default, logger_std_h,
+                [{handler, console, logger_std_h,
                     #{level => LogLevel,
                       config => #{type => standard_io},
                       formatter => Formatter}}];
