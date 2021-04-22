@@ -145,16 +145,18 @@ handler_id(?TOPIC_TRACE(Topic)) ->
 handler_id(?CLIENT_TRACE(ClientId)) ->
     list_to_atom(?CLIENT_TRACE_ID(handler_name(ClientId))).
 
-filter_by_meta_key(#{meta:=Meta}=LogEvent, {MetaKey, MetaValue}) ->
-    case maps:find(MetaKey, Meta) of
-        {ok, MetaValue} -> LogEvent;
-        {ok, Topic} when MetaKey =:= topic ->
-            case emqx_topic:match(Topic, MetaValue) of
-                true -> LogEvent;
-                false -> ignore
-            end;
-        _ -> ignore
+filter_by_meta_key(#{meta := Meta} = Log, {Key, Value}) ->
+    case is_meta_match(Key, Value, Meta) of
+        true -> Log;
+        false -> ignore
     end.
+
+is_meta_match(clientid, ClientId, #{clientid := ClientIdStr}) ->
+    ClientId =:= iolist_to_binary(ClientIdStr);
+is_meta_match(topic, TopicFilter, #{topic := TopicMeta}) ->
+    emqx_topic:match(TopicMeta, TopicFilter);
+is_meta_match(_, _, _) ->
+    false.
 
 handler_name(Bin) ->
     case byte_size(Bin) of

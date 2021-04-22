@@ -32,7 +32,6 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
-    
 
 t_start_traces(_Config) ->
     {ok, T} = emqtt:start_link([{host, "localhost"},
