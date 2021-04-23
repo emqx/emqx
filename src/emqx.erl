@@ -69,10 +69,6 @@
 
 -define(APP, ?MODULE).
 
--define(COPYRIGHT, "Copyright (c) 2020 EMQ Technologies Co., Ltd").
-
--define(LICENSE_MESSAGE, "Licensed under the Apache License, Version 2.0").
-
 %% @hidden Path to the file which has debug_info encryption secret in it.
 %% Evaluate this function if there is a need to access encrypted debug_info.
 %% NOTE: Do not change the API to accept the secret text because it may
