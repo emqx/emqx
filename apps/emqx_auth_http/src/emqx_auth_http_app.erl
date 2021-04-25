@@ -53,15 +53,14 @@ translate_env(EnvName) ->
             {ok, PoolSize} = application:get_env(?APP, pool_size),
             {ok, ConnectTimeout} = application:get_env(?APP, connect_timeout),
             URL = proplists:get_value(url, Req),
-            {ok, #{host := Host0,
+            {ok, #{host := Host,
                    path := Path0,
                    port := Port,
                    scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
             Path = path(Path0),
-            {Inet, Host} = parse_host(Host0),
             MoreOpts = case Scheme of
                         http ->
-                            [{transport_opts, [Inet]}];
+                            [{transport_opts, [ipv6_probe]}];
                         https ->
                             CACertFile = application:get_env(?APP, cacertfile, undefined),
                             CertFile = application:get_env(?APP, certfile, undefined),
@@ -86,7 +85,7 @@ translate_env(EnvName) ->
                                        , {ciphers, emqx_tls_lib:default_ciphers()}
                                        | TLSOpts
                                        ],
-                            [{transport, ssl}, {transport_opts, [Inet | NTLSOpts]}]
+                            [{transport, ssl}, {transport_opts, [ipv6_probe | NTLSOpts]}]
                         end,
             PoolOpts = [{host, Host},
                         {port, Port},
@@ -145,17 +144,6 @@ unload_hooks() ->
     _ = ehttpc_sup:stop_pool('emqx_auth_http/super_req'),
     _ = ehttpc_sup:stop_pool('emqx_auth_http/acl_req'),
     ok.
-
-parse_host(Host) ->
-    case inet:parse_address(Host) of
-        {ok, Addr} when size(Addr) =:= 4 -> {inet, Addr};
-        {ok, Addr} when size(Addr) =:= 8 -> {inet6, Addr};
-        {error, einval} ->
-            case inet:getaddr(Host, inet6) of
-                {ok, _} -> {inet6, Host};
-                {error, _} -> {inet, Host}
-            end
-    end.
 
 to_lower(Headers) ->
     [{string:to_lower(K), V} || {K, V} <- Headers].
