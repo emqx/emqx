@@ -78,4 +78,10 @@ EXPOSE 1883 8081 8083 8084 8883 11883 18083 4369 4370 5369 6369 6370
 
 ENTRYPOINT ["/usr/bin/docker-entrypoint.sh"]
 
+# The default rpc port discovery 'stateless' is mostly for clusters
+# having static node names. So it's troulbe-free for multiple emqx nodes
+# running on the same host.
+# When start emqx in docker, it's mostly one emqx node in one container
+ENV EMQX_RPC__PORT_DISCOVERY=manual
+
 CMD ["/opt/emqx/bin/emqx", "foreground"]
