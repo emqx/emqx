@@ -118,7 +118,8 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
         false ->
             ok = emqx_router_helper:monitor(Dest),
             case emqx_topic:wildcard(Topic) of
-                true  -> trans(fun insert_trie_route/1, [Route]);
+                true  ->
+                    maybe_trans(fun insert_trie_route/1, [Route]);
                 false -> insert_direct_route(Route)
             end
     end.
@@ -164,7 +165,8 @@ do_delete_route(Topic) when is_binary(Topic) ->
 do_delete_route(Topic, Dest) ->
     Route = #route{topic = Topic, dest = Dest},
     case emqx_topic:wildcard(Topic) of
-        true  -> trans(fun delete_trie_route/1, [Route]);
+        true  ->
+            maybe_trans(fun delete_trie_route/1, [Route]);
         false -> delete_direct_route(Route)
     end.
 
@@ -247,6 +249,24 @@ delete_trie_route(Route = #route{topic = Topic}) ->
     end.
 
 %% @private
+-spec(maybe_trans(function(), list(any())) -> ok | {error, term()}).
+maybe_trans(Fun, Args) ->
+    case persistent_term:get(emqx_route_lock_type) of
+        key ->
+            trans(Fun, Args);
+        global ->
+            lock_router(),
+            try mnesia:sync_dirty(Fun, Args)
+            after
+                unlock_router()
+            end;
+        tab ->
+            trans(fun() ->
+                          emqx_trie:lock_tables(),
+                          apply(Fun, Args)
+                  end, [])
+    end.
+
 -spec(trans(function(), list(any())) -> ok | {error, term()}).
 trans(Fun, Args) ->
     case mnesia:transaction(Fun, Args) of
@@ -254,3 +274,17 @@ trans(Fun, Args) ->
         {aborted, Reason} -> {error, Reason}
     end.
 
+lock_router() ->
+    %% if Retry is not 0, global:set_lock could sleep a random time up to 8s.
+    %% Considering we have a limited number of brokers, it is safe to use sleep 1 ms.
+    case global:set_lock({?MODULE, self()}, [node() | nodes()], 0) of
+        false ->
+            %% Force to sleep 1ms instead.
+            timer:sleep(1),
+            lock_router();
+        true ->
+            ok
+    end.
+
+unlock_router() ->
+    global:del_lock({?MODULE, self()}).
