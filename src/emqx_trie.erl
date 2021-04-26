@@ -105,8 +105,19 @@ delete(Topic) when is_binary(Topic) ->
 -spec(match(emqx_topic:topic()) -> list(emqx_topic:topic())).
 match(Topic) when is_binary(Topic) ->
     Words = emqx_topic:words(Topic),
-    false = emqx_topic:wildcard(Words), % assert
-    do_match(Words).
+    case emqx_topic:wildcard(Words) of
+        true ->
+            %% In MQTT spec, clients are not allowed to
+            %% publish messages to a wildcard topic.
+            %% Here we refuse to match wildcard topic.
+            %%
+            %% NOTE: this does not imply emqx allows clients
+            %% publishing to wildcard topics.
+            %% Such clients will get disconnected.
+            [];
+        false ->
+            do_match(Words)
+    end.
 
 %% @doc Is the trie empty?
 -spec(empty() -> boolean()).
