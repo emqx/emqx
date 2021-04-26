@@ -141,8 +141,12 @@ compact(Words) ->
         false -> Words
     end.
 
+%% join split words into compacted segments
+%% each segment ends with one wildcard word
+%% e.g.
 %% a/b/c/+/d/# => [a/b/c/+, d/#]
 %% a/+/+/b => [a/+, +, b]
+%% a/+/+/+/+/b => [a/+, +, +, +, b]
 do_compact(Words) ->
     do_compact(Words, empty, []).
 
@@ -317,7 +321,10 @@ do_compact_test() ->
     ?assertEqual([<<"/+">>], do_compact(words(<<"/+">>))),
     ?assertEqual([<<"/#">>], do_compact(words(<<"/#">>))),
     ?assertEqual([<<"a/b/+">>, <<"c">>], do_compact(words(<<"a/b/+/c">>))),
-    ?assertEqual([<<"a/+">>, <<"+">>, <<"b">>], do_compact(words(<<"a/+/+/b">>))).
+    ?assertEqual([<<"a/+">>, <<"+">>, <<"b">>], do_compact(words(<<"a/+/+/b">>))),
+    ?assertEqual([<<"a/+">>, <<"+">>, <<"+">>, <<"+">>, <<"b">>],
+                 do_compact(words(<<"a/+/+/+/+/b">>))),
+    ok.
 
 clear_tables() -> mnesia:clear_table(?TRIE).
 
