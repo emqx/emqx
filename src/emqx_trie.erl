@@ -74,6 +74,7 @@ mnesia(boot) ->
                 {ram_copies, [node()]},
                 {record_name, ?TRIE},
                 {attributes, record_info(fields, ?TRIE)},
+                {type, ordered_set},
                 {storage_properties, StoreProps}]);
 mnesia(copy) ->
     %% Copy topics table
