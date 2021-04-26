@@ -180,7 +180,8 @@ create_rule(Params = #{rawsql := Sql, actions := ActArgs}) ->
                         actions = Actions,
                         enabled = Enabled,
                         created_at = erlang:system_time(millisecond),
-                        description = maps:get(description, Params, "")
+                        description = maps:get(description, Params, ""),
+                        state = normal
                     },
                     ok = emqx_rule_registry:add_rule(Rule),
                     ok = emqx_rule_metrics:create_rule_metrics(RuleId),
@@ -390,11 +391,11 @@ refresh_rules() ->
     lists:foreach(fun(#rule{id = RuleId} = Rule) ->
         try refresh_rule(Rule)
         catch Error:Reason:ST ->
-            emqx_rule_registry:add_rule(Rule#rule{enabled = false}),
-            logger:critical(
-                "Can not re-build rule ~p: ~0p. The rule is disabled."
-                "Fix the issue and enable it manually.\n"
-                "Stacktrace: ~0p",
+            emqx_rule_registry:add_rule(Rule#rule{enabled = false, state = force_down}),
+            logger:error(
+                "Can not re-build rule ~s. The rule is force disabled. "
+                "Fix the issue and enable it manually. "
+                "Reason: ~0p, Stacktrace: ~0p",
                 [RuleId, {Error,Reason}, ST])
         end
     end, emqx_rule_registry:get_rules()).
