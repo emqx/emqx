@@ -26,9 +26,9 @@
                               [{scheme, https}, {host, Host}, {port, Port},
                                {ssl_options,
                                  Filter([{ssl, true},
-                                         {certfile, cuttlefish:conf_get(Prefix ++ ".ssl.certfile", Conf)},
-                                         {keyfile, cuttlefish:conf_get(Prefix ++ ".ssl.keyfile", Conf)},
-                                         {cacertfile, cuttlefish:conf_get(Prefix ++ ".ssl.cacertfile", Conf)}
+                                         {certfile, cuttlefish:conf_get(Prefix ++ ".ssl.certfile", Conf, undefined)},
+                                         {keyfile, cuttlefish:conf_get(Prefix ++ ".ssl.keyfile", Conf, undefined)},
+                                         {cacertfile, cuttlefish:conf_get(Prefix ++ ".ssl.cacertfile", Conf, undefined)}
                                         ])}];
                           _ -> error(invalid_server_options)
                       end
