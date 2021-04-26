@@ -42,7 +42,7 @@
                               [peername, " "],
                               []}]},
                        msg, "\n"],
-                    single_line => true
+                    single_line => false
                    }}).
 -define(TOPIC_TRACE_ID(T), "trace_topic_"++T).
 -define(CLIENT_TRACE_ID(C), "trace_clientid_"++C).
