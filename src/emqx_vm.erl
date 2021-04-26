@@ -382,7 +382,7 @@ read_otp_version() ->
         {error, enoent} ->
             %% running tests etc.
             OtpMajor = erlang:system_info(otp_release),
-            OtpVsnFile = file:read_file(filename:join([ReleasesDir, OtpMajor, "OTP_VERSION"])),
+            OtpVsnFile = filename:join([ReleasesDir, OtpMajor, "OTP_VERSION"]),
             {ok, Vsn} = file:read_file(OtpVsnFile),
             Vsn
     end.
