@@ -249,40 +249,30 @@ create_resource(#{type := Type, config := Config0} = Params) ->
 
 -spec(update_resource(resource_id(), map()) -> ok | {error, Reason :: term()}).
 update_resource(ResId, NewParams) ->
-    try
-        lists:foreach(fun(#rule{id = RuleId, enabled = Enabled, actions = Actions}) ->
-            lists:foreach(
-                fun (#action_instance{args = #{<<"$resource">> := ResId1}})
-                    when ResId =:= ResId1, Enabled =:= true ->
-                        throw({dependency_exists, RuleId});
-                    (_) -> ok
-                end, Actions)
-            end, ets:tab2list(?RULE_TAB)),
-        do_update_resource_check(ResId, NewParams)
-    catch _ : Reason ->
-        {error, Reason}
+    case emqx_rule_registry:find_enabled_rules_depends_on_resource(ResId) of
+        [] -> check_and_update_resource(ResId, NewParams);
+        Rules ->
+            {error, {dependent_rules_exists, [Id || #rule{id = Id} <- Rules]}}
     end.
 
-do_update_resource_check(Id, NewParams) ->
+check_and_update_resource(Id, NewParams) ->
     case emqx_rule_registry:find_resource(Id) of
-        {ok, #resource{id = Id,
-                       type = Type,
-                       config = OldConfig,
-                       description = OldDescription} = _OldResource} ->
+        {ok, #resource{id = Id, type = Type, config = OldConfig, description = OldDescr}} ->
             try
                 Conifg = maps:get(<<"config">>, NewParams, OldConfig),
-                Descr = maps:get(<<"description">>, NewParams, OldDescription),
-                do_update_resource(#{id => Id, config => Conifg, type => Type,
-                                     description => Descr}),
-                ok
-            catch _ : Reason ->
+                Descr = maps:get(<<"description">>, NewParams, OldDescr),
+                do_check_and_update_resource(#{id => Id, config => Conifg, type => Type,
+                    description => Descr})
+            catch Error:Reason:ST ->
+                ?LOG(error, "check_and_update_resource failed: ~0p", [{Error, Reason, ST}]),
                 {error, Reason}
             end;
         _Other ->
             {error, not_found}
     end.
 
-do_update_resource(#{id := Id, type := Type, description := NewDescription, config := NewConfig}) ->
+do_check_and_update_resource(#{id := Id, type := Type, description := NewDescription,
+                               config := NewConfig}) ->
     case emqx_rule_registry:find_resource_type(Type) of
         {ok, #resource_type{on_create = {Module, Create},
                             params_spec = ParamSpec}} ->
@@ -296,7 +286,8 @@ do_update_resource(#{id := Id, type := Type, description := NewDescription, conf
                         config = Config,
                         description = NewDescription,
                         created_at = erlang:system_time(millisecond)
-                    });
+                    }),
+                    ok;
                {error, Reason} ->
                     error({error, Reason})
             end

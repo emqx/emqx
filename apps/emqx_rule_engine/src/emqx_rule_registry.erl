@@ -63,6 +63,8 @@
 %% Resource Types
 -export([ get_resource_types/0
         , find_resource_type/1
+        , find_rules_depends_on_resource/1
+        , find_enabled_rules_depends_on_resource/1
         , register_resource_types/1
         , unregister_resource_types_of/1
         ]).
@@ -368,19 +370,32 @@ remove_resource_params(ResId) ->
 
 %% @private
 delete_resource(ResId) ->
-    lists:foreach(fun(#rule{id = Id, actions = Actions}) ->
-        lists:foreach(
-            fun (#action_instance{args = #{<<"$resource">> := ResId1}})
-                when ResId =:= ResId1 ->
-                    throw({dependency_exists, {rule, Id}});
-                (_) -> ok
-            end, Actions)
-    end, get_rules()),
+    case find_enabled_rules_depends_on_resource(ResId) of
+        [] -> ok;
+        Rules ->
+            throw({dependent_rules_exists, [Id || #rule{id = Id} <- Rules]})
+    end,
     mnesia:delete(?RES_TAB, ResId, write).
 
 %% @private
 insert_resource(Resource) ->
     mnesia:write(?RES_TAB, Resource, write).
+
+find_enabled_rules_depends_on_resource(ResId) ->
+    [R || #rule{enabled = true} = R <- find_rules_depends_on_resource(ResId)].
+
+find_rules_depends_on_resource(ResId) ->
+    lists:foldl(fun(#rule{actions = Actions} = R, Rules) ->
+        case search_action_despends_on_resource(ResId, Actions) of
+            false -> Rules;
+            {value, _} -> [R | Rules]
+        end
+    end, [], get_rules()).
+
+search_action_despends_on_resource(ResId, Actions) ->
+    lists:search(fun(#action_instance{args = #{<<"$resource">> := ResId0}}) ->
+        ResId0 =:= ResId
+    end, Actions).
 
 %%------------------------------------------------------------------------------
 %% Resource Type Management
