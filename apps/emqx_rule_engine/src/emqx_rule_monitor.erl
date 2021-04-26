@@ -104,7 +104,8 @@ retry_loop(resource, ResId, Interval) ->
             try
                 {ok, #resource_type{on_create = {M, F}}} =
                     emqx_rule_registry:find_resource_type(Type),
-                emqx_rule_engine:init_resource(M, F, ResId, Config)
+                ok = emqx_rule_engine:init_resource(M, F, ResId, Config),
+                enable_rules_of_resource(ResId)
             catch
                 Err:Reason:ST ->
                     ?LOG(warning, "init_resource failed: ~p, ~0p",
@@ -115,3 +116,10 @@ retry_loop(resource, ResId, Interval) ->
         not_found ->
             ok
     end.
+
+enable_rules_of_resource(ResId) ->
+    lists:foreach(
+        fun (#rule{enabled = false} = Rule) ->
+                emqx_rule_registry:add_rule(Rule#rule{enabled = false});
+            (_) -> ok
+        end, emqx_rule_registry:find_rules_depends_on_resource(ResId)).
