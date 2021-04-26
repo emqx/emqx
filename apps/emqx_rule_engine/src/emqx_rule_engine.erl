@@ -356,9 +356,12 @@ delete_resource(ResId) ->
             {ok, #resource_type{on_destroy = {ModD, Destroy}}}
                 = emqx_rule_registry:find_resource_type(ResType),
             try
-                ok = emqx_rule_registry:remove_resource(ResId),
-                _ = ?CLUSTER_CALL(clear_resource, [ModD, Destroy, ResId]),
-                ok
+                case emqx_rule_registry:remove_resource(ResId) of
+                    ok ->
+                        _ = ?CLUSTER_CALL(clear_resource, [ModD, Destroy, ResId]),
+                        ok;
+                    {error, _} = R -> R
+                end
             catch
                 throw:Reason -> {error, Reason}
             end;

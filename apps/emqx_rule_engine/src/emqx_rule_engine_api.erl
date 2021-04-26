@@ -350,7 +350,7 @@ update_resource(#{id := Id}, NewParams) ->
             return({error, 400, ?ERR_DEP_RULES_EXISTS(RuleIds)});
         {error, Reason} ->
             ?LOG(error, "Resource update failed: ~0p", [Reason]),
-            return({error, 500, <<"Resource update failed!">>})
+            return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
 delete_resource(#{id := Id}, _Params) ->
