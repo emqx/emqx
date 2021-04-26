@@ -40,6 +40,7 @@
 -export([ get_ets_list/0
         , get_ets_info/0
         , get_ets_info/1
+        , get_otp_version/0
         ]).
 
 -export([cpu_util/0]).
@@ -367,3 +368,21 @@ compat_windows(Fun) ->
             end
     end.
 
+%% @doc Return on which Eralng/OTP the current vm is running.
+get_otp_version() ->
+    string:trim(binary_to_list(read_otp_version())).
+
+read_otp_version() ->
+    ReleasesDir = filename:join([code:root_dir(), "releases"]),
+    Filename = filename:join([ReleasesDir, emqx_app:get_release(), "BUILT_ON"]),
+    case file:read_file(Filename) of
+        {ok, Vsn} ->
+            %% running on EQM X release
+            Vsn;
+        {error, enoent} ->
+            %% running tests etc.
+            OtpMajor = erlang:system_info(otp_release),
+            OtpVsnFile = file:read_file(filename:join([ReleasesDir, OtpMajor, "OTP_VERSION"])),
+            {ok, Vsn} = file:read_file(OtpVsnFile),
+            Vsn
+    end.
