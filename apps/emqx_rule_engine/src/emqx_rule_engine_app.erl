@@ -29,7 +29,6 @@ start(_Type, _Args) ->
     _ = emqx_rule_engine_sup:start_locker(),
     ok = emqx_rule_engine:load_providers(),
     ok = emqx_rule_engine:refresh_resources(),
-    timer:sleep(3000),
     ok = emqx_rule_engine:refresh_rules(),
     ok = emqx_rule_engine_cli:load(),
     {ok, Sup}.
