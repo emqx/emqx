@@ -81,6 +81,7 @@
         , enabled :: boolean()
         , created_at :: integer() %% epoch in millisecond precision
         , description :: binary()
+        , state = normal :: atom()
         }).
 
 -record(resource,
