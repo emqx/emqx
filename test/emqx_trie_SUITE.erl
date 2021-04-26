@@ -23,7 +23,6 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(TRIE, emqx_trie).
--define(TRIE_TABS, [emqx_topic]).
 
 all() ->
     [{group, compact},
@@ -156,8 +155,7 @@ t_delete3(_) ->
     ?assertEqual([], ?TRIE:match(<<"sensor">>)),
     ?assertEqual([], ?TRIE:lookup_topic(<<"sensor/+">>)).
 
-clear_tables() ->
-    lists:foreach(fun mnesia:clear_table/1, ?TRIE_TABS).
+clear_tables() -> emqx_trie:clear_tables().
 
 trans(Fun) ->
     mnesia:transaction(Fun).
