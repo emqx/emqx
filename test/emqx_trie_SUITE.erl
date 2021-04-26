@@ -81,6 +81,16 @@ t_match(_) ->
             end),
     ?assertEqual(Machted, lists:sort(?TRIE:match(<<"sensor/1">>))).
 
+t_match_invalid(_) ->
+    trans(fun() ->
+              ?TRIE:insert(<<"sensor/1/metric/2">>),
+              ?TRIE:insert(<<"sensor/+/#">>),
+              ?TRIE:insert(<<"sensor/#">>)
+            end),
+    ?assertEqual([], lists:sort(?TRIE:match(<<"sensor/+">>))),
+    ?assertEqual([], lists:sort(?TRIE:match(<<"#">>))).
+
+
 t_match2(_) ->
     Matched = [<<"#">>, <<"+/#">>, <<"+/+/#">>],
     trans(fun() ->
