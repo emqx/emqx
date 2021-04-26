@@ -452,7 +452,9 @@ from_clientinfo(ClientInfo) ->
       protocol => stringfy(maps:get(protocol, ClientInfo)),
       mountpoint => maybe(maps:get(mountpoint, ClientInfo, <<>>)),
       is_superuser => maps:get(is_superuser, ClientInfo, false),
-      anonymous => maps:get(anonymous, ClientInfo, true)
+      anonymous => maps:get(anonymous, ClientInfo, true),
+      cn => maybe(maps:get(cn, ClientInfo, <<>>)),
+      dn => maybe(maps:get(dn, ClientInfo, <<>>))
     }.
 
 from_message(Msg) ->
