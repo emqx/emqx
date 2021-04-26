@@ -335,6 +335,12 @@ message ClientInfo {
   bool  is_superuser = 9;
 
   bool  anonymous = 10;
+
+  // common name of client TLS cert
+  string cn = 11;
+
+  // subject of client TLS cert
+  string dn = 12;
 }
 
 message Message {

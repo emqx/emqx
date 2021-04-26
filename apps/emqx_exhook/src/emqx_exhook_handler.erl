@@ -254,7 +254,9 @@ clientinfo(ClientInfo =
       protocol => stringfy(Protocol),
       mountpoint => maybe(Mountpoiont),
       is_superuser => maps:get(is_superuser, ClientInfo, false),
-      anonymous => maps:get(anonymous, ClientInfo, true)}.
+      anonymous => maps:get(anonymous, ClientInfo, true),
+      cn => maybe(maps:get(cn, ClientInfo, undefined)),
+      dn => maybe(maps:get(dn, ClientInfo, undefined))}.
 
 message(#message{id = Id, qos = Qos, from = From, topic = Topic, payload = Payload, timestamp = Ts}) ->
     #{node => stringfy(node()),
