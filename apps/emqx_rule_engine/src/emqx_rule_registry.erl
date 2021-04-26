@@ -356,7 +356,7 @@ find_resource_params(Id) ->
         [] -> not_found
     end.
 
--spec(remove_resource(emqx_rule_engine:resource() | emqx_rule_engine:resource_id()) -> ok).
+-spec(remove_resource(emqx_rule_engine:resource() | emqx_rule_engine:resource_id()) -> ok | {error, term()}).
 remove_resource(Resource) when is_record(Resource, resource) ->
     trans(fun delete_resource/1, [Resource#resource.id]);
 
@@ -371,11 +371,10 @@ remove_resource_params(ResId) ->
 %% @private
 delete_resource(ResId) ->
     case find_enabled_rules_depends_on_resource(ResId) of
-        [] -> ok;
+        [] -> mnesia:delete(?RES_TAB, ResId, write);
         Rules ->
-            throw({dependent_rules_exists, [Id || #rule{id = Id} <- Rules]})
-    end,
-    mnesia:delete(?RES_TAB, ResId, write).
+            {error, {dependent_rules_exists, [Id || #rule{id = Id} <- Rules]}}
+    end.
 
 %% @private
 insert_resource(Resource) ->
@@ -490,6 +489,6 @@ get_all_records(Tab) ->
 trans(Fun) -> trans(Fun, []).
 trans(Fun, Args) ->
     case mnesia:transaction(Fun, Args) of
-        {atomic, ok} -> ok;
+        {atomic, Result} -> Result;
         {aborted, Reason} -> error(Reason)
     end.
