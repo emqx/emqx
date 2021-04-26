@@ -221,7 +221,7 @@ do_match(Words, Prefix) ->
     match(is_compact(), Words, Prefix, []).
 
 match(_IsCompact, [], Topic, Acc) ->
-    match_any_level(Topic) ++ %% try match foo/bar/#
+    'match_#'(Topic) ++ %% try match foo/bar/#
     lookup_topic(Topic) ++ %% try match foo/bar
     Acc;
 match(IsCompact, [Word | Words], Prefix, Acc0) ->
@@ -251,12 +251,12 @@ match(IsCompact, [Word | Words], Prefix, Acc0) ->
             %%   - a/x
             %%   - a/x/y
             %% *with '+', '#' replaced at each level
-            Acc1 = match_any_level(Prefix) ++ Acc0,
+            Acc1 = 'match_#'(Prefix) ++ Acc0,
             Acc = match(IsCompact, Words, join(Prefix, '+'), Acc1),
             match(IsCompact, Words, join(Prefix, Word), Acc)
     end.
 
-match_any_level(Prefix) ->
+'match_#'(Prefix) ->
     MlTopic = join(Prefix, '#'),
     lookup_topic(MlTopic).
 
