@@ -81,6 +81,8 @@
 
 -record(emqx_shared_subscription, {group, topic, subpid}).
 
+-rlog_shard({route_shard, ?TAB}).
+
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
