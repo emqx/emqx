@@ -388,15 +388,10 @@ refresh_resource(#resource{id = ResId}) ->
 
 -spec(refresh_rules() -> ok).
 refresh_rules() ->
-    lists:foreach(fun(#rule{id = RuleId} = Rule) ->
+    lists:foreach(fun(#rule{} = Rule) ->
         try refresh_rule(Rule)
-        catch Error:Reason:ST ->
-            emqx_rule_registry:add_rule(Rule#rule{enabled = false, state = force_down}),
-            logger:error(
-                "Can not re-build rule ~s. The rule is force disabled. "
-                "Fix the issue and enable it manually. "
-                "Reason: ~0p, Stacktrace: ~0p",
-                [RuleId, {Error,Reason}, ST])
+        catch _:_ ->
+            emqx_rule_registry:add_rule(Rule#rule{enabled = false, state = refresh_failed_at_bootup})
         end
     end, emqx_rule_registry:get_rules()).
 
@@ -468,14 +463,18 @@ may_update_rule_params(Rule, Params = #{rawsql := SQL}) ->
                 maps:remove(rawsql, Params));
         Reason -> throw(Reason)
     end;
-may_update_rule_params(Rule = #rule{enabled = OldEnb, actions = Actions},
+may_update_rule_params(Rule = #rule{enabled = OldEnb, actions = Actions, state = OldState},
          Params = #{enabled := NewEnb}) ->
-     case {OldEnb, NewEnb} of
-         {false, true} -> refresh_rule(Rule);
-         {true, false} -> clear_actions(Actions);
-         _ -> ok
-     end,
-     may_update_rule_params(Rule#rule{enabled = NewEnb}, maps:remove(enabled, Params));
+    State = case {OldEnb, NewEnb} of
+        {false, true} ->
+            refresh_rule(Rule),
+            force_enabled;
+        {true, false} ->
+            clear_actions(Actions),
+            force_disabled;
+        _NoChange -> OldState
+    end,
+    may_update_rule_params(Rule#rule{enabled = NewEnb, state = State}, maps:remove(enabled, Params));
 may_update_rule_params(Rule, Params = #{description := Descr}) ->
     may_update_rule_params(Rule#rule{description = Descr}, maps:remove(description, Params));
 may_update_rule_params(Rule, Params = #{on_action_failed := OnFailed}) ->
