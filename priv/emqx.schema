@@ -2031,9 +2031,11 @@ end}.
 %% key:   mnesia translational updates with per-key locks. recommended for single node setup.
 %% tab:   mnesia translational updates with table lock. recommended for multi-nodes setup.
 %% global: global lock protected updates. recommended for larger cluster.
+%% spawn: same as `key', but transaction is done in another proc, ideal for handling bursty traffic.
+%%
 {mapping, "broker.perf.route_lock_type", "emqx.route_lock_type", [
   {default, key},
-  {datatype, {enum, [key, tab, global]}}
+  {datatype, {enum, [key, tab, global, spawn]}}
 ]}.
 
 %%--------------------------------------------------------------------
