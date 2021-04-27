@@ -91,7 +91,7 @@ do_parse(URI) ->
             normalise_parse_result(Map2)
     end.
 
-normalise_parse_result(#{host := _, scheme := Scheme0} = Map) ->
+normalise_parse_result(#{host := Host, scheme := Scheme0} = Map) ->
     Scheme = atom_scheme(Scheme0),
     DefaultPort = case https =:= Scheme of
                       true  -> 443;
@@ -101,7 +101,8 @@ normalise_parse_result(#{host := _, scheme := Scheme0} = Map) ->
                N when is_number(N) -> N;
                _ -> DefaultPort
            end,
-    Map#{ scheme => Scheme
+    Map#{ scheme := Scheme
+        , host := emqx_misc:maybe_parse_ip(Host)
         , port => Port
         }.
 

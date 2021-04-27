@@ -43,6 +43,7 @@
         , now_to_secs/1
         , now_to_ms/1
         , index_of/2
+        , maybe_parse_ip/1
         , ipv6_probe/1
         ]).
 
@@ -50,6 +51,14 @@
         , bin2hexstr_a_f/1
         , hexstr2bin/1
         ]).
+
+%% @doc Parse v4 or v6 string format address to tuple.
+%% `Host' itself is returned if it's not an ip string.
+maybe_parse_ip(Host) ->
+    case inet:parse_address(Host) of
+        {ok, Addr} when is_tuple(Addr) -> Addr;
+        {error, einval} -> Host
+    end.
 
 %% @doc Add `ipv6_probe' socket option if it's supported.
 ipv6_probe(Opts) ->
@@ -65,7 +74,7 @@ ipv6_probe(Opts) ->
     end.
 
 ipv6_probe(false, Opts) -> Opts;
-ipv6_probe(true, Opts) -> [ipv6_probe | Opts].
+ipv6_probe(true, Opts) -> [{ipv6_probe, true} | Opts].
 
 %% @doc Merge options
 -spec(merge_opts(Opts, Opts) -> Opts when Opts :: proplists:proplist()).
@@ -279,6 +288,6 @@ hexchar2int(I) when I >= $a andalso I =< $f -> I - $a + 10.
 -include_lib("eunit/include/eunit.hrl").
 
 ipv6_probe_test() ->
-    ?assertEqual([ipv6_probe], ipv6_probe([])).
+    ?assertEqual([{ipv6_probe, true}], ipv6_probe([])).
 
 -endif.
