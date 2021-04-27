@@ -60,7 +60,7 @@ translate_env(EnvName) ->
             Path = path(Path0),
             MoreOpts = case Scheme of
                         http ->
-                            [{transport_opts, [ipv6_probe]}];
+                            [{transport_opts, emqx_misc:ipv6_probe([])}];
                         https ->
                             CACertFile = application:get_env(?APP, cacertfile, undefined),
                             CertFile = application:get_env(?APP, certfile, undefined),
@@ -85,7 +85,7 @@ translate_env(EnvName) ->
                                        , {ciphers, emqx_tls_lib:default_ciphers()}
                                        | TLSOpts
                                        ],
-                            [{transport, ssl}, {transport_opts, [ipv6_probe | NTLSOpts]}]
+                            [{transport, ssl}, {transport_opts, emqx_misc:ipv6_probe(NTLSOpts)}]
                         end,
             PoolOpts = [{host, Host},
                         {port, Port},
