@@ -138,10 +138,10 @@ set_https_client_opts() ->
     application:set_env(emqx_auth_http, server_name_indication, "disable").
 
 %% @private
-http_server(http, inet) -> "http://127.0.0.1:8991";
-http_server(http, inet6) -> "http://[::1]:8991";
-http_server(https, inet) -> "https://127.0.0.1:8991";
-http_server(https, inet6) -> "https://[::1]:8991".
+http_server(http, inet) -> "http://127.0.0.1:8991"; % ipv4
+http_server(http, inet6) -> "http://localhost:8991"; % test hostname resolution
+http_server(https, inet) -> "https://localhost:8991"; % test hostname resolution
+http_server(https, inet6) -> "https://[::1]:8991". % ipv6
 
 %%------------------------------------------------------------------------------
 %% Testcases
