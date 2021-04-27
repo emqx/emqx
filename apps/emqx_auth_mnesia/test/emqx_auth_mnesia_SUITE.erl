@@ -57,7 +57,7 @@ end_per_suite(_Config) ->
 
 init_per_testcase(t_check_as_clientid, Config) ->
     Params = #{
-            hash_type => application:get_env(emqx_auth_mnesia, hash_type, sha256),
+            hash_type => application:get_env(emqx_auth_mnesia, password_hash, sha256),
             key_as => clientid
             },
     emqx:hook('client.authenticate', fun emqx_auth_mnesia:check/3, [Params]),
@@ -65,7 +65,7 @@ init_per_testcase(t_check_as_clientid, Config) ->
 
 init_per_testcase(_, Config) ->
     Params = #{
-            hash_type => application:get_env(emqx_auth_mnesia, hash_type, sha256),
+            hash_type => application:get_env(emqx_auth_mnesia, password_hash, sha256),
             key_as => username
             },
     emqx:hook('client.authenticate', fun emqx_auth_mnesia:check/3, [Params]),
