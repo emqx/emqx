@@ -263,7 +263,25 @@ maybe_trans(Fun, Args) ->
             trans(fun() ->
                           emqx_trie:lock_tables(),
                           apply(Fun, Args)
-                  end, [])
+                  end, []);
+        spawn ->
+            %% trigger selective receive optimization of compiler,
+            %% ideal for handling busty traffic.
+            Ref = erlang:make_ref(),
+            Owner = self(),
+            {WPid, RefMon} = spawn_monitor(fun() ->
+                                                Res = trans(Fun, Args),
+                                                Owner ! {Ref, Res}
+                                        end),
+            receive
+                {Ref, TransRes} ->
+                    receive
+                        {'DOWN', RefMon, process, WPid, normal} -> ok
+                    end,
+                    TransRes;
+                {'DOWN', RefMon, process, WPid, _Info} ->
+                    {error, trans_crash}
+            end
     end.
 
 -spec(trans(function(), list(any())) -> ok | {error, term()}).
