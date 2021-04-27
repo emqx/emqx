@@ -119,7 +119,7 @@ retry_loop(resource, ResId, Interval) ->
 
 enable_rules_of_resource(ResId) ->
     lists:foreach(
-        fun (#rule{enabled = false, state = force_down} = Rule) ->
-                emqx_rule_registry:add_rule(Rule#rule{enabled = true});
+        fun (#rule{enabled = false, state = refresh_failed_at_bootup} = Rule) ->
+                emqx_rule_registry:add_rule(Rule#rule{enabled = true, state = normal});
             (_) -> ok
         end, emqx_rule_registry:find_rules_depends_on_resource(ResId)).
