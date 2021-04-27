@@ -470,10 +470,10 @@ may_update_rule_params(Rule = #rule{enabled = OldEnb, actions = Actions, state =
     State = case {OldEnb, NewEnb} of
         {false, true} ->
             refresh_rule(Rule),
-            force_enabled;
+            force_changed;
         {true, false} ->
             clear_actions(Actions),
-            force_disabled;
+            force_changed;
         _NoChange -> OldState
     end,
     may_update_rule_params(Rule#rule{enabled = NewEnb, state = State}, maps:remove(enabled, Params));
