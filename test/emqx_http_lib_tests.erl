@@ -62,13 +62,18 @@ uri_parse_test_() ->
        end
       }
     , {"normalise",
-       fun() -> ?assertMatch({ok, #{scheme := https}},
+       fun() -> ?assertMatch({ok, #{scheme := https, host := {127, 0, 0, 1}}},
                              emqx_http_lib:uri_parse("HTTPS://127.0.0.1"))
        end
       }
     , {"unsupported_scheme",
        fun() -> ?assertEqual({error, {unsupported_scheme, <<"wss">>}},
                              emqx_http_lib:uri_parse("wss://127.0.0.1"))
+       end
+      }
+    , {"ipv6 host",
+       fun() -> ?assertMatch({ok, #{scheme := http, host := T}} when size(T) =:= 8,
+                             emqx_http_lib:uri_parse("http://[::1]:80"))
        end
       }
     ].
