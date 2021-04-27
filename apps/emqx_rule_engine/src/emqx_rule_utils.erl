@@ -204,7 +204,7 @@ http_connectivity(Url) ->
 http_connectivity(Url, Timeout) ->
     case emqx_http_lib:uri_parse(Url) of
         {ok, #{host := Host, port := Port}} ->
-            tcp_connectivity(str(Host), Port, Timeout);
+            tcp_connectivity(Host, Port, Timeout);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -220,7 +220,7 @@ tcp_connectivity(Host, Port) ->
                        Timeout :: integer())
         -> ok | {error, Reason :: term()}).
 tcp_connectivity(Host, Port, Timeout) ->
-    case gen_tcp:connect(Host, Port, [], Timeout) of
+    case gen_tcp:connect(Host, Port, emqx_misc:ipv6_probe([]), Timeout) of
         {ok, Sock} -> gen_tcp:close(Sock), ok;
         {error, Reason} -> {error, Reason}
     end.
