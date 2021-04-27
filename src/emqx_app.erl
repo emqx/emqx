@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -83,19 +83,25 @@ print_otp_version_warning() -> ok.
 print_otp_version_warning() ->
     io:format("WARNING: Running on Erlang/OTP version ~p. Recommended: 23~n",
               [?OTP_RELEASE]).
--endif.
+-endif. % OTP_RELEASE
 
+-ifndef(TEST).
 
 print_banner() ->
     io:format("Starting ~s on node ~s~n", [?APP, node()]).
 
--ifndef(TEST).
 print_vsn() ->
     io:format("~s ~s is running now!~n", [get_description(), get_release()]).
--else.
+
+-else. % TEST
+
 print_vsn() ->
     ok.
--endif.
+
+print_banner() ->
+    ok.
+
+-endif. % TEST
 
 get_description() ->
     {ok, Descr0} = application:get_key(?APP, description),

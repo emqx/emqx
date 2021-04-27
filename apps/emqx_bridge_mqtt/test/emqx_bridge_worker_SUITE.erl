@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -194,6 +194,12 @@ t_stub_normal(Config) when is_list(Config) ->
             client_pid => self()
            },
     {ok, Pid} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
+    receive
+        {Pid, emqx_bridge_stub_conn, ready} -> ok
+    after
+        5000 ->
+            error(timeout)
+    end,
     ClientId = <<"ClientId">>,
     try
         {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),
@@ -203,6 +209,9 @@ t_stub_normal(Config) when is_list(Config) ->
             {stub_message, WorkerPid, BatchRef, _Batch} ->
                 WorkerPid ! {batch_ack, BatchRef},
                 ok
+        after
+            5000 ->
+                error(timeout)
         end,
         ?SNK_WAIT(inflight_drained),
         ?SNK_WAIT(replayq_drained),

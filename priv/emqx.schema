@@ -457,7 +457,7 @@ end}.
 
 {mapping, "log.to", "kernel.logger", [
   {default, file},
-  {datatype, {enum, [off, file, console, both]}}
+  {datatype, {enum, [file, console, both]}}
 ]}.
 
 {mapping, "log.level", "kernel.logger", [
@@ -468,11 +468,6 @@ end}.
 {mapping, "log.primary_log_level", "kernel.logger_level", [
    {default, warning},
    {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
-]}.
-
-{mapping, "log.logger_sasl_compatible", "kernel.logger_sasl_compatible", [
-  {default, true},
-  {datatype, {enum, [true, false]}}
 ]}.
 
 {mapping, "log.dir", "kernel.logger", [
@@ -488,6 +483,12 @@ end}.
 {mapping, "log.chars_limit", "kernel.logger", [
   {default, -1},
   {datatype, integer}
+]}.
+
+%% @doc format logs in a single line.
+{mapping, "log.single_line", "kernel.logger", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
 ]}.
 
 {mapping, "log.rotation", "kernel.logger", [
@@ -554,12 +555,6 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "log.sasl", "sasl.sasl_error_logger", [
-  {default, off},
-  {datatype, flag},
-  hidden
-]}.
-
 {mapping, "log.error_logger", "kernel.error_logger", [
   {default, silent},
   {datatype, {enum, [silent]}},
@@ -592,7 +587,8 @@ end}.
                      -1 -> unlimited;
                      V -> V
                  end,
-    Formatter = {emqx_logger_formatter,
+    SingleLine = cuttlefish:conf_get("log.single_line", Conf),
+    Formatter = {logger_formatter,
                   #{template =>
                       [time," [",level,"] ",
                        {clientid,
@@ -603,7 +599,9 @@ end}.
                               [peername," "],
                               []}]},
                        msg,"\n"],
-                    chars_limit => CharsLimit}},
+                    chars_limit => CharsLimit,
+                    single_line => SingleLine
+                   }},
     {BustLimitOn, {MaxBurstCount, TimeWindow}} =
         case string:tokens(cuttlefish:conf_get("log.burst_limit", Conf), ", ") of
             ["disabled"] -> {false, {20000, 1000}};
@@ -640,7 +638,7 @@ end}.
     %% For the default logger that outputs to console
     DefaultHandler =
         if LogTo =:= console orelse LogTo =:= both ->
-                [{handler, default, logger_std_h,
+                [{handler, console, logger_std_h,
                     #{level => LogLevel,
                       config => #{type => standard_io},
                       formatter => Formatter}}];
@@ -2254,6 +2252,28 @@ end}.
 {mapping, "broker.route_batch_clean", "emqx.route_batch_clean", [
   {default, on},
   {datatype, flag}
+]}.
+
+%% @doc performance toggle for subscribe/unsubscribe wildcard topic
+%%      change this toggle only if you have many wildcard topics.
+%% key:   mnesia translational updates with per-key locks. recommended for single node setup.
+%% tab:   mnesia translational updates with table lock. recommended for multi-nodes setup.
+%% global: global lock protected updates. recommended for larger cluster.
+{mapping, "broker.perf.route_lock_type", "emqx.route_lock_type", [
+  {default, key},
+  {datatype, {enum, [key, tab, global]}}
+]}.
+
+%% @doc Enable trie path compaction.
+%% Enabling it significantly improves wildcard topic subscribe rate,
+%% if wildcard topics have unique prefixes like: 'sensor/{{id}}/+/',
+%% where ID is unique per subscriber.
+%%
+%% Topic match performance (when publishing) may degrade if messages
+%% are mostly published to topics with large number of levels.
+{mapping, "broker.perf.trie_compaction", "emqx.trie_compaction", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
 ]}.
 
 %%--------------------------------------------------------------------

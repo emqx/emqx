@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -47,33 +47,13 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_auth_mnesia], fun set_special_configs/1),
+    ok = emqx_ct_helpers:start_apps([emqx_management, emqx_auth_mnesia], fun set_special_configs/1),
     create_default_app(),
     Config.
 
 end_per_suite(_Config) ->
     delete_default_app(),
-    emqx_ct_helpers:stop_apps([emqx_modules, emqx_management, emqx_auth_mnesia]).
-
-init_per_testcase(t_check_as_clientid, Config) ->
-    Params = #{
-            hash_type => application:get_env(emqx_auth_mnesia, hash_type, sha256),
-            key_as => clientid
-            },
-    emqx:hook('client.authenticate', fun emqx_auth_mnesia:check/3, [Params]),
-    Config;
-
-init_per_testcase(_, Config) ->
-    Params = #{
-            hash_type => application:get_env(emqx_auth_mnesia, hash_type, sha256),
-            key_as => username
-            },
-    emqx:hook('client.authenticate', fun emqx_auth_mnesia:check/3, [Params]),
-    Config.
-
-end_per_suite(_, Config) ->
-    emqx:unhook('client.authenticate', fun emqx_auth_mnesia:check/3),
-    Config.
+    emqx_ct_helpers:stop_apps([emqx_management, emqx_auth_mnesia]).
 
 set_special_configs(emqx) ->
     application:set_env(emqx, allow_anonymous, true),
@@ -274,6 +254,30 @@ t_username_rest_api(_Config) ->
     {ok, _} = request_http_rest_delete(Path),
     {ok, Result5} = request_http_rest_lookup([Path]),
     ?assertMatch(#{}, get_http_data(Result5)).
+
+t_password_hash(_) ->
+    clean_all_users(),
+    {ok, Default} = application:get_env(emqx_auth_mnesia, password_hash),
+    application:set_env(emqx_auth_mnesia, password_hash, plain),
+
+    %% change the password_hash to 'plain'
+    application:stop(emqx_auth_mnesia),
+    ok = application:start(emqx_auth_mnesia),
+
+    Params = #{<<"username">> => ?USERNAME, <<"password">> => ?PASSWORD},
+    {ok, _} = request_http_rest_add(["auth_username"], Params),
+
+    %% check
+    User = #{username => ?USERNAME,
+             clientid => undefined,
+             password => ?PASSWORD,
+             zone     => external},
+    {ok, #{auth_result := success,
+           anonymous := false}} = emqx_access_control:authenticate(User),
+
+    application:set_env(emqx_auth_mnesia, password_hash, Default),
+    application:stop(emqx_auth_mnesia),
+    ok = application:start(emqx_auth_mnesia).
 
 %%------------------------------------------------------------------------------
 %% Helpers

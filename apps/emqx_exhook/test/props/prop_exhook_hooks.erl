@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -452,7 +452,9 @@ from_clientinfo(ClientInfo) ->
       protocol => stringfy(maps:get(protocol, ClientInfo)),
       mountpoint => maybe(maps:get(mountpoint, ClientInfo, <<>>)),
       is_superuser => maps:get(is_superuser, ClientInfo, false),
-      anonymous => maps:get(anonymous, ClientInfo, true)
+      anonymous => maps:get(anonymous, ClientInfo, true),
+      cn => maybe(maps:get(cn, ClientInfo, <<>>)),
+      dn => maybe(maps:get(dn, ClientInfo, <<>>))
     }.
 
 from_message(Msg) ->

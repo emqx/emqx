@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -180,6 +180,10 @@
 %% Date functions
 -export([ now_rfc3339/0
         , now_rfc3339/1
+        , unix_ts_to_rfc3339/1
+        , unix_ts_to_rfc3339/2
+        , rfc3339_to_unix_ts/1
+        , rfc3339_to_unix_ts/2
         , now_timestamp/0
         , now_timestamp/1
         ]).
@@ -834,9 +838,22 @@ now_rfc3339() ->
     now_rfc3339(<<"second">>).
 
 now_rfc3339(Unit) ->
+    unix_ts_to_rfc3339(now_timestamp(Unit), Unit).
+
+unix_ts_to_rfc3339(Epoch) ->
+    unix_ts_to_rfc3339(Epoch, <<"second">>).
+
+unix_ts_to_rfc3339(Epoch, Unit) when is_integer(Epoch) ->
     emqx_rule_utils:bin(
         calendar:system_time_to_rfc3339(
-            now_timestamp(Unit), [{unit, time_unit(Unit)}])).
+            Epoch, [{unit, time_unit(Unit)}])).
+
+rfc3339_to_unix_ts(DateTime) ->
+    rfc3339_to_unix_ts(DateTime, <<"second">>).
+
+rfc3339_to_unix_ts(DateTime, Unit) when is_binary(DateTime) ->
+    calendar:rfc3339_to_system_time(binary_to_list(DateTime),
+        [{unit, time_unit(Unit)}]).
 
 now_timestamp() ->
     erlang:system_time(second).

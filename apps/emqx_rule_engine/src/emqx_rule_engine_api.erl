@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -180,6 +180,7 @@
 -define(ERR_NO_ACTION(NAME), list_to_binary(io_lib:format("Action ~s Not Found", [(NAME)]))).
 -define(ERR_NO_RESOURCE(RESID), list_to_binary(io_lib:format("Resource ~s Not Found", [(RESID)]))).
 -define(ERR_NO_RESOURCE_TYPE(TYPE), list_to_binary(io_lib:format("Resource Type ~s Not Found", [(TYPE)]))).
+-define(ERR_DEP_RULES_EXISTS(RULEIDS), list_to_binary(io_lib:format("Found rules ~0p depends on this resource, disable them first", [(RULEIDS)]))).
 -define(ERR_BADARGS(REASON),
         begin
             R0 = list_to_binary(io_lib:format("~0p", [REASON])),
@@ -342,23 +343,22 @@ update_resource(#{id := Id}, NewParams) ->
         ok ->
             return(ok);
         {error, not_found} ->
-            ?LOG(error, "Resource not found: ~0p", [Id]),
             return({error, 400, <<"Resource not found:", Id/binary>>});
         {error, {init_resource, _}} ->
-            ?LOG(error, "Init resource failure: ~0p", [Id]),
             return({error, 500, <<"Init resource failure:", Id/binary>>});
-        {error, {dependency_exists, RuleId}} ->
-            ?LOG(error, "Dependency exists: ~0p", [RuleId]),
-            return({error, 500, <<"Dependency exists:", RuleId/binary>>});
+        {error, {dependent_rules_exists, RuleIds}} ->
+            return({error, 400, ?ERR_DEP_RULES_EXISTS(RuleIds)});
         {error, Reason} ->
             ?LOG(error, "Resource update failed: ~0p", [Reason]),
-            return({error, 500, <<"Resource update failed!">>})
+            return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
 delete_resource(#{id := Id}, _Params) ->
     case emqx_rule_engine:delete_resource(Id) of
         ok -> return(ok);
         {error, not_found} -> return(ok);
+        {error, {dependent_rules_exists, RuleIds}} ->
+            return({error, 400, ?ERR_DEP_RULES_EXISTS(RuleIds)});
         {error, Reason} ->
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.

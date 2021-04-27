@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -104,7 +104,8 @@ retry_loop(resource, ResId, Interval) ->
             try
                 {ok, #resource_type{on_create = {M, F}}} =
                     emqx_rule_registry:find_resource_type(Type),
-                emqx_rule_engine:init_resource(M, F, ResId, Config)
+                ok = emqx_rule_engine:init_resource(M, F, ResId, Config),
+                refresh_and_enable_rules_of_resource(ResId)
             catch
                 Err:Reason:ST ->
                     ?LOG(warning, "init_resource failed: ~p, ~0p",
@@ -115,3 +116,12 @@ retry_loop(resource, ResId, Interval) ->
         not_found ->
             ok
     end.
+
+refresh_and_enable_rules_of_resource(ResId) ->
+    lists:foreach(
+        fun (#rule{id = Id, enabled = false, state = refresh_failed_at_bootup} = Rule) ->
+                emqx_rule_engine:refresh_rule(Rule),
+                emqx_rule_registry:add_rule(Rule#rule{enabled = true, state = normal}),
+                ?LOG(info, "rule ~s is refreshed and re-enabled", [Id]);
+            (_) -> ok
+        end, emqx_rule_registry:find_rules_depends_on_resource(ResId)).

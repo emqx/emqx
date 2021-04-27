@@ -106,8 +106,9 @@ test_deps() ->
 common_compile_opts() ->
     [ debug_info % alwyas include debug_info
     , {compile_info, [{emqx_vsn, get_vsn()}]}
-    | [{d, 'EMQX_ENTERPRISE'} || is_enterprise()]
-    ].
+    ] ++
+    [{d, 'EMQX_ENTERPRISE'} || is_enterprise()] ++
+    [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].
 
 prod_compile_opts() ->
     [ compressed

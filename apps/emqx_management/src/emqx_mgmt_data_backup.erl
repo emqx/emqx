@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -234,13 +234,6 @@ import_resource(#{<<"id">> := Id,
                                        config => Config,
                                        created_at => NCreatedAt,
                                        description => Desc}).
-
--ifdef(EMQX_ENTERPRISE).
-import_resources_and_rules(Resources, Rules, _FromVersion) ->
-    import_resources(Resources),
-    import_rules(Rules).
--else.
-
 import_resources_and_rules(Resources, Rules, FromVersion)
   when FromVersion =:= "4.0" orelse
        FromVersion =:= "4.1" orelse
@@ -356,7 +349,6 @@ apply_new_config([Action = #{<<"args">> := #{<<"$resource">> := ResourceId,
                      <<"forward_topic">> => ForwardTopic},
             apply_new_config(More, Configs, [Action#{<<"args">> := Args} | Acc]).
 
--endif.
 
 actions_to_prop_list(Actions) ->
     [action_to_prop_list(Act) || Act <- Actions].
@@ -596,6 +588,26 @@ do_export_extra_data() ->
 do_export_extra_data() -> [].
 -endif.
 
+-ifdef(EMQX_ENTERPRISE).
+import(Filename, OverridesJson) ->
+    case file:read_file(Filename) of
+        {ok, Json} ->
+            Imported = emqx_json:decode(Json, [return_maps]),
+            Overrides = emqx_json:decode(OverridesJson, [return_maps]),
+            Data = maps:merge(Imported, Overrides),
+            Version = to_version(maps:get(<<"version">>, Data)),
+            read_global_auth_type(Data),
+            try
+                do_import_data(Data, Version),
+                logger:debug("The emqx data has been imported successfully"),
+                ok
+            catch Class:Reason:Stack ->
+                logger:error("The emqx data import failed: ~0p", [{Class, Reason, Stack}]),
+                {error, import_failed}
+            end;
+        Error -> Error
+    end.
+-else.
 import(Filename, OverridesJson) ->
     case file:read_file(Filename) of
         {ok, Json} ->
@@ -620,6 +632,7 @@ import(Filename, OverridesJson) ->
             end;
         Error -> Error
     end.
+-endif.
 
 do_import_data(Data, Version) ->
     do_import_extra_data(Data, Version),
@@ -642,15 +655,14 @@ do_import_extra_data(Data, _Version) ->
 do_import_extra_data(_Data, _Version) -> ok.
 -endif.
 
--ifndef(EMQX_ENTERPRISE).
 covert_empty_headers([]) -> #{};
 covert_empty_headers(Other) -> Other.
 
 flag_to_boolean(<<"on">>) -> true;
 flag_to_boolean(<<"off">>) -> false;
 flag_to_boolean(Other) -> Other.
--endif.
 
+-ifndef(EMQX_ENTERPRISE).
 is_version_supported(Data, Version) ->
     case { maps:get(<<"auth_clientid">>, Data, [])
          , maps:get(<<"auth_username">>, Data, [])
@@ -662,7 +674,7 @@ is_version_supported(Data, Version) ->
 is_version_supported2("4.1") ->
     true;
 is_version_supported2("4.3") ->
-    true; 
+    true;
 is_version_supported2(Version) ->
     case re:run(Version, "^4.[02].\\d+$", [{capture, none}]) of
         match ->
@@ -670,12 +682,13 @@ is_version_supported2(Version) ->
                 [4, 2, N] -> N >= 11;
                 [4, 0, N] -> N >= 13;
                 _ -> false
-            catch 
+            catch
                 _ : _ -> false
             end;
         nomatch ->
             false
     end.
+-endif.
 
 read_global_auth_type(Data) ->
     case {maps:get(<<"auth_mnesia">>, Data, []), maps:get(<<"acl_mnesia">>, Data, [])} of
@@ -686,6 +699,18 @@ read_global_auth_type(Data) ->
             do_read_global_auth_type(Data)
     end.
 
+-ifdef(EMQX_ENTERPRISE).
+do_read_global_auth_type(Data) ->
+    case Data of
+        #{<<"auth.mnesia.as">> := <<"username">>} ->
+            application:set_env(emqx_auth_mnesia, as, username);
+        #{<<"auth.mnesia.as">> := <<"clientid">>} ->
+            application:set_env(emqx_auth_mnesia, as, clientid);
+        _ ->
+            ok
+    end.
+
+-else.
 do_read_global_auth_type(Data) ->
     case Data of
         #{<<"auth.mnesia.as">> := <<"username">>} ->
@@ -703,6 +728,7 @@ do_read_global_auth_type(Data) ->
                          []),
             error(import_failed)
     end.
+-endif.
 
 get_old_type() ->
     {ok, Type} = application:get_env(emqx_auth_mnesia, as),

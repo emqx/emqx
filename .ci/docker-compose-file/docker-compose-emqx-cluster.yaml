@@ -10,7 +10,8 @@ services:
     volumes:
       - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
       - ../../etc/certs:/usr/local/etc/haproxy/certs
-#   ports:
+    ports:
+      - "18083:18083"
 #     - "1883:1883"
 #     - "8883:8883"
 #     - "8083:8083"
@@ -28,16 +29,10 @@ services:
   emqx1:
     container_name: node1.emqx.io
     image: $TARGET:$EMQX_TAG
+    env_file:
+      - conf.cluster.env
     environment:
-    - "EMQX_NAME=emqx"
-    - "EMQX_HOST=node1.emqx.io"
-    - "EMQX_CLUSTER__DISCOVERY=static"
-    - "EMQX_CLUSTER__STATIC__SEEDS=emqx@node1.emqx.io, emqx@node2.emqx.io"
-    - "EMQX_LISTENER__TCP__EXTERNAL__PROXY_PROTOCOL=on"
-    - "EMQX_LISTENER__WS__EXTERNAL__PROXY_PROTOCOL=on"
-    - "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s"
-    - "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
-    - "EMQX_LOG__LEVEL=debug"
+      - "EMQX_HOST=node1.emqx.io"
     command:
         - /bin/sh
         - -c
@@ -58,16 +53,10 @@ services:
   emqx2:
     container_name: node2.emqx.io
     image: $TARGET:$EMQX_TAG
+    env_file:
+      - conf.cluster.env
     environment:
-    - "EMQX_NAME=emqx"
-    - "EMQX_HOST=node2.emqx.io"
-    - "EMQX_CLUSTER__DISCOVERY=static"
-    - "EMQX_CLUSTER__STATIC__SEEDS=emqx@node1.emqx.io, emqx@node2.emqx.io"
-    - "EMQX_LISTENER__TCP__EXTERNAL__PROXY_PROTOCOL=on"
-    - "EMQX_LISTENER__WS__EXTERNAL__PROXY_PROTOCOL=on"
-    - "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s"
-    - "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
-    - "EMQX_LOG__LEVEL=debug"
+      - "EMQX_HOST=node2.emqx.io"
     command:
       - /bin/sh
       - -c

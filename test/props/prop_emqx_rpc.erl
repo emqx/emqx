@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -91,11 +91,11 @@ do_setup() ->
     ensure_distributed_nodename(),
     ok = logger:set_primary_config(#{level => warning}),
     {ok, _Apps} = application:ensure_all_started(gen_rpc),
-    ok = application:set_env(gen_rpc, call_receive_timeout, 1),
+    ok = application:set_env(gen_rpc, call_receive_timeout, 100),
     ok = meck:new(gen_rpc, [passthrough, no_history]),
     ok = meck:expect(gen_rpc, multicall,
                      fun(Nodes, Mod, Fun, Args) ->
-                             gen_rpc:multicall(Nodes, Mod, Fun, Args, 1)
+                             gen_rpc:multicall(Nodes, Mod, Fun, Args, 100)
                      end).
 
 do_teardown(_) ->
@@ -150,7 +150,7 @@ node_prefix() ->
     oneof(["emqxct", text_like()]).
 
 text_like() ->
-    ?SUCHTHAT(Text, list(range($a, $z)), (length(Text) =< 5 andalso length(Text) > 0)).
+    ?SUCHTHAT(Text, list(range($a, $z)), (length(Text) =< 100 andalso length(Text) > 0)).
 
 hostname() ->
     oneof(["127.0.0.1", "localhost"]).

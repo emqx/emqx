@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -138,7 +138,15 @@ critical(Metadata, Format, Args) when is_map(Metadata) ->
 set_metadata_clientid(<<>>) ->
     ok;
 set_metadata_clientid(ClientId) ->
-    set_proc_metadata(#{clientid => ClientId}).
+    try
+        %% try put string format client-id metadata so
+        %% so the log is not like <<"...">>
+        Id = unicode:characters_to_list(ClientId, utf8),
+        set_proc_metadata(#{clientid => Id})
+    catch
+        _: _->
+            ok
+    end.
 
 -spec(set_metadata_peername(peername_str()) -> ok).
 set_metadata_peername(Peername) ->

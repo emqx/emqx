@@ -1,4 +1,4 @@
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -36,35 +36,75 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    [{group, http_inet},
+    [
+     {group, http_inet},
      {group, http_inet6},
      {group, https_inet},
-     {group, https_inet6}].
+     {group, https_inet6},
+     pub_sub_no_acl,
+     no_hook_if_config_unset
+    ].
 
 groups() ->
     Cases = emqx_ct:all(?MODULE),
     [{Name, Cases} || Name <- [http_inet, http_inet6, https_inet, https_inet6]].
 
 init_per_group(GrpName, Cfg) ->
-    [Schema, Inet] = [list_to_atom(X) || X <- string:tokens(atom_to_list(GrpName), "_")],
-    http_auth_server:start(Schema, Inet),
-    Fun = fun(App) -> set_special_configs(App, Schema, Inet) end,
-    emqx_ct_helpers:start_apps([emqx_auth_http], Fun),
+    [Scheme, Inet] = [list_to_atom(X) || X <- string:tokens(atom_to_list(GrpName), "_")],
+    ok = setup(Scheme, Inet),
     Cfg.
 
 end_per_group(_GrpName, _Cfg) ->
-    http_auth_server:stop(),
-    emqx_ct_helpers:stop_apps([emqx_auth_http, emqx]).
+    teardown().
 
-set_special_configs(emqx, _Schmea, _Inet) ->
+init_per_testcase(pub_sub_no_acl, Cfg) ->
+    Scheme = http,
+    Inet = inet,
+    http_auth_server:start(Scheme, Inet),
+    Fun = fun(App) -> set_special_configs(App, Scheme, Inet, no_acl) end,
+    emqx_ct_helpers:start_apps([emqx_auth_http], Fun),
+    ?assert(is_hooked('client.authenticate')),
+    ?assertNot(is_hooked('client.check_acl')),
+    Cfg;
+init_per_testcase(no_hook_if_config_unset, Cfg) ->
+    setup(http, inet),
+    Cfg;
+init_per_testcase(_, Cfg) ->
+    %% init per group
+    Cfg.
+
+end_per_testcase(pub_sub_no_acl, _Cfg) ->
+    teardown();
+end_per_testcase(no_hook_if_config_unset, _Cfg) ->
+    teardown();
+end_per_testcase(_, _Cfg) ->
+    %% teardown per group
+    ok.
+
+setup(Scheme, Inet) ->
+    http_auth_server:start(Scheme, Inet),
+    Fun = fun(App) -> set_special_configs(App, Scheme, Inet, normal) end,
+    emqx_ct_helpers:start_apps([emqx_auth_http], Fun),
+    ?assert(is_hooked('client.authenticate')),
+    ?assert(is_hooked('client.check_acl')).
+
+teardown() ->
+    http_auth_server:stop(),
+    application:stop(emqx_auth_http),
+    ?assertNot(is_hooked('client.authenticate')),
+    ?assertNot(is_hooked('client.check_acl')),
+    emqx_ct_helpers:stop_apps([emqx]).
+
+set_special_configs(emqx, _Scheme, _Inet, _AuthConfig) ->
     application:set_env(emqx, allow_anonymous, true),
     application:set_env(emqx, enable_acl_cache, false),
     LoadedPluginPath = filename:join(["test", "emqx_SUITE_data", "loaded_plugins"]),
     application:set_env(emqx, plugins_loaded_file,
                         emqx_ct_helpers:deps_path(emqx, LoadedPluginPath));
 
-set_special_configs(emqx_auth_http, Schema, Inet) ->
-    ServerAddr = http_server(Schema, Inet),
+set_special_configs(emqx_auth_http, Scheme, Inet, PluginConfig) ->
+    [application:unset_env(?APP, Par) || Par <- [acl_req, auth_req]],
+    ServerAddr = http_server(Scheme, Inet),
 
     AuthReq = #{method => get,
                 url => ServerAddr ++ "/mqtt/auth",
@@ -79,11 +119,14 @@ set_special_configs(emqx_auth_http, Schema, Inet) ->
                headers => [{"content-type", "application/json"}],
                params => [{"access", "%A"}, {"username", "%u"}, {"clientid", "%c"}, {"ipaddr", "%a"}, {"topic", "%t"}, {"mountpoint", "%m"}]},
 
-    Schema =:= https andalso set_https_client_opts(),
+    Scheme =:= https andalso set_https_client_opts(),
 
     application:set_env(emqx_auth_http, auth_req, maps:to_list(AuthReq)),
     application:set_env(emqx_auth_http, super_req, maps:to_list(SuperReq)),
-    application:set_env(emqx_auth_http, acl_req, maps:to_list(AclReq)).
+    case PluginConfig of
+        normal -> ok = application:set_env(emqx_auth_http, acl_req, maps:to_list(AclReq));
+        no_acl -> ok
+    end.
 
 %% @private
 set_https_client_opts() ->
@@ -104,7 +147,7 @@ http_server(https, inet6) -> "https://[::1]:8991".
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_check_acl(_) ->
+t_check_acl(Cfg) when is_list(Cfg) ->
     SuperUser = ?USER(<<"superclient">>, <<"superuser">>, mqtt, {127,0,0,1}, external),
     deny = emqx_access_control:check_acl(SuperUser, subscribe, <<"users/testuser/1">>),
     deny = emqx_access_control:check_acl(SuperUser, publish, <<"anytopic">>),
@@ -125,7 +168,7 @@ t_check_acl(_) ->
     deny = emqx_access_control:check_acl(User2, publish, <<"a/b/c">>),
     deny  = emqx_access_control:check_acl(User2, subscribe, <<"$SYS/testuser/1">>).
 
-t_check_auth(_) ->
+t_check_auth(Cfg) when is_list(Cfg) ->
     User1 = ?USER(<<"client1">>, <<"testuser1">>, mqtt, {127,0,0,1}, external, undefined),
     User2 = ?USER(<<"client2">>, <<"testuser2">>, mqtt, {127,0,0,1}, exteneral, undefined),
     User3 = ?USER(<<"client3">>, undefined, mqtt, {127,0,0,1}, exteneral, undefined),
@@ -142,8 +185,7 @@ t_check_auth(_) ->
 
     {error, bad_username_or_password} = emqx_access_control:authenticate(User3#{password => <<"pwd">>}).
 
-t_sub_pub(_) ->
-    ct:pal("start client"),
+pub_sub_no_acl(Cfg) when is_list(Cfg) ->
     {ok, T1} = emqtt:start_link([{host, "localhost"},
                                  {clientid, <<"client1">>},
                                  {username, <<"testuser1">>},
@@ -164,12 +206,52 @@ t_sub_pub(_) ->
     emqtt:disconnect(T1),
     emqtt:disconnect(T2).
 
-t_comment_config(_) ->
-    AuthCount = length(emqx_hooks:lookup('client.authenticate')),
-    AclCount = length(emqx_hooks:lookup('client.check_acl')),
+t_pub_sub(Cfg) when is_list(Cfg) ->
+    {ok, T1} = emqtt:start_link([{host, "localhost"},
+                                 {clientid, <<"client1">>},
+                                 {username, <<"testuser1">>},
+                                 {password, <<"pass1">>}]),
+    {ok, _} = emqtt:connect(T1),
+    emqtt:publish(T1, <<"topic">>, <<"body">>, [{qos, 0}, {retain, true}]),
+    timer:sleep(1000),
+    {ok, T2} = emqtt:start_link([{host, "localhost"},
+                                 {clientid, <<"client2">>},
+                                 {username, <<"testuser2">>},
+                                 {password, <<"pass2">>}]),
+    {ok, _} = emqtt:connect(T2),
+    emqtt:subscribe(T2, <<"topic">>),
+    receive
+        {publish, _Topic, Payload} ->
+            ?assertEqual(<<"body">>, Payload)
+        after 1000 -> false end,
+    emqtt:disconnect(T1),
+    emqtt:disconnect(T2).
+
+no_hook_if_config_unset(Cfg) when is_list(Cfg) ->
+    ?assert(is_hooked('client.authenticate')),
+    ?assert(is_hooked('client.check_acl')),
     application:stop(?APP),
     [application:unset_env(?APP, Par) || Par <- [acl_req, auth_req]],
     application:start(?APP),
     ?assertEqual([], emqx_hooks:lookup('client.authenticate')),
-    ?assertEqual(AuthCount - 1, length(emqx_hooks:lookup('client.authenticate'))),
-    ?assertEqual(AclCount - 1, length(emqx_hooks:lookup('client.check_acl'))).
+    ?assertNot(is_hooked('client.authenticate')),
+    ?assertNot(is_hooked('client.check_acl')).
+
+is_hooked(HookName) ->
+    Callbacks = emqx_hooks:lookup(HookName),
+    F = fun(Callback) ->
+                case emqx_hooks:callback_action(Callback) of
+                    {emqx_auth_http, check, _} ->
+                        'client.authenticate' = HookName, % assert
+                        true;
+                    {emqx_acl_http, check_acl, _} ->
+                        'client.check_acl' = HookName, % assert
+                        true;
+                    _ ->
+                        false
+                end
+        end,
+    case lists:filter(F, Callbacks) of
+        [_] -> true;
+        [] -> false
+    end.

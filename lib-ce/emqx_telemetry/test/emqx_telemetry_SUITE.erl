@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -import(proplists, [get_value/2]).
 
@@ -73,6 +74,16 @@ t_enable(_) ->
     ?assertEqual(true, emqx_telemetry:is_enabled()),
     ok = emqx_telemetry:disable(),
     ?assertEqual(false, emqx_telemetry:is_enabled()).
+
+t_send_after_enable(_) ->
+    ok = emqx_telemetry:disable(),
+    ok = snabbkaffe:start_trace(),
+    try
+        ok = emqx_telemetry:enable(),
+        ?assertMatch({ok, _}, ?block_until(#{?snk_kind := telemetry_data_reported}, 2000, 100))
+    after
+        ok = snabbkaffe:stop()
+    end.
 
 bin(L) when is_list(L) ->
     list_to_binary(L);

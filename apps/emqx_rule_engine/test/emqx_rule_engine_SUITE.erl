@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -706,7 +706,7 @@ t_disable_rule(_Config) ->
                 types=[], params_spec = #{},
                 title = #{en => <<"Simple Action">>},
                 description = #{en => <<"Simple Action">>}}),
-    {ok, #rule{actions = [#action_instance{id = ActInsId0}]}} = emqx_rule_engine:create_rule(
+    {ok, #rule{actions = [#action_instance{}]}} = emqx_rule_engine:create_rule(
         #{id => <<"simple_rule_2">>,
           rawsql => <<"select * from \"t/#\"">>,
           actions => [#{name => 'simple_action_2', args => #{}}]

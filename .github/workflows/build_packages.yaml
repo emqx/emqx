@@ -15,7 +15,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.2.7-ubuntu20.04
+    container: emqx/build-env:erl23.2.7.1-emqx-1-ubuntu20.04
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles}}
@@ -83,7 +83,7 @@ jobs:
 
         $version = $( "${{ github.ref }}" -replace "^(.*)/(.*)/" )
         if ($version -match "^v[0-9]+\.[0-9]+(\.[0-9]+)?") {
-          $regex = "[0-9]+\.[0-9]+(-alpha|-beta|-rc)?\.[0-9]"
+          $regex = "[0-9]+\.[0-9]+(-alpha|-beta|-rc)?\.[0-9]+"
           $pkg_name = "${{ matrix.profile }}-windows-$([regex]::matches($version, $regex).value).zip"
           }
         else {
@@ -267,7 +267,7 @@ jobs:
         cd -
     - name: build emqx packages
       env:
-        ERL_OTP: erl23.2.7
+        ERL_OTP: erl23.2.7.1-emqx-1
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}

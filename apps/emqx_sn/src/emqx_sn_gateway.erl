@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -32,7 +32,9 @@
         , stats/1
         ]).
 
--export([call/2, call/3]).
+-export([ call/2
+        , call/3
+        ]).
 
 %% SUB/UNSUB Asynchronously, called by plugins.
 -export([ subscribe/2
@@ -782,9 +784,10 @@ stop(Reason, State) ->
     ?LOG(stop_log_level(Reason), "stop due to ~p", [Reason]),
     case Reason of
         %% FIXME: The Will-Msg should publish when a Session terminated!
-        asleep_timeout -> do_publish_will(State);
-        keepalive_timeout -> do_publish_will(State);
-        _ -> ok
+        Reason when Reason =:= normal ->
+            ok;
+        _ ->
+            do_publish_will(State)
     end,
     {stop, {shutdown, Reason}, State}.
 
