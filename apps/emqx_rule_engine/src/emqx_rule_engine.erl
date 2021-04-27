@@ -388,11 +388,13 @@ refresh_resource(#resource{id = ResId}) ->
 
 -spec(refresh_rules() -> ok).
 refresh_rules() ->
-    lists:foreach(fun(#rule{} = Rule) ->
-        try refresh_rule(Rule)
-        catch _:_ ->
-            emqx_rule_registry:add_rule(Rule#rule{enabled = false, state = refresh_failed_at_bootup})
-        end
+    lists:foreach(fun
+        (#rule{enabled = true} = Rule) ->
+            try refresh_rule(Rule)
+            catch _:_ ->
+                emqx_rule_registry:add_rule(Rule#rule{enabled = false, state = refresh_failed_at_bootup})
+            end;
+        (_) -> ok
     end, emqx_rule_registry:get_rules()).
 
 refresh_rule(#rule{id = RuleId, for = Topics, actions = Actions}) ->
