@@ -2255,7 +2255,7 @@ end}.
 ]}.
 
 %% @doc performance toggle for subscribe/unsubscribe wildcard topic
-%%      change this toggle only if you have many wildcard topics.
+%%      change this toggle only when there are many wildcard topics.
 %% key:   mnesia translational updates with per-key locks. recommended for single node setup.
 %% tab:   mnesia translational updates with table lock. recommended for multi-nodes setup.
 %% global: global lock protected updates. recommended for larger cluster.
@@ -2271,6 +2271,9 @@ end}.
 %%
 %% Topic match performance (when publishing) may degrade if messages
 %% are mostly published to topics with large number of levels.
+%%
+%% NOTE: This is a cluster-wide configuration.
+%% It rquires all nodes to be stopped before changing it.
 {mapping, "broker.perf.trie_compaction", "emqx.trie_compaction", [
   {default, true},
   {datatype, {enum, [true, false]}}
