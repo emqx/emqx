@@ -264,32 +264,31 @@ maybe_trans(Fun, Args) ->
             trans(fun() ->
                           emqx_trie:lock_tables(),
                           apply(Fun, Args)
-                  end, []);
-        spawn ->
-            %% trigger selective receive optimization of compiler,
-            %% ideal for handling busty traffic.
-            Ref = erlang:make_ref(),
-            Owner = self(),
-            {WPid, RefMon} = spawn_monitor(fun() ->
-                                                Res = trans(Fun, Args),
-                                                Owner ! {Ref, Res}
-                                        end),
-            receive
-                {Ref, TransRes} ->
-                    receive
-                        {'DOWN', RefMon, process, WPid, normal} -> ok
-                    end,
-                    TransRes;
-                {'DOWN', RefMon, process, WPid, _Info} ->
-                    {error, trans_crash}
-            end
+                  end, [])
     end.
 
 -spec(trans(function(), list(any())) -> ok | {error, term()}).
 trans(Fun, Args) ->
-    case mnesia:transaction(Fun, Args) of
-        {atomic, Ok} -> Ok;
-        {aborted, Reason} -> {error, Reason}
+    %% trigger selective receive optimization of compiler,
+    %% ideal for handling bursty traffic.
+    Ref = erlang:make_ref(),
+    Owner = self(),
+    {WPid, RefMon} = spawn_monitor(
+                       fun() ->
+                               Res = case mnesia:transaction(Fun, Args) of
+                                         {atomic, Ok} -> Ok;
+                                         {aborted, Reason} -> {error, Reason}
+                                     end,
+                               Owner ! {Ref, Res}
+                       end),
+    receive
+        {Ref, TransRes} ->
+            receive
+                {'DOWN', RefMon, process, WPid, normal} -> ok
+            end,
+            TransRes;
+        {'DOWN', RefMon, process, WPid, Info} ->
+            {error, {trans_crash, Info}}
     end.
 
 lock_router() ->
