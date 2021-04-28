@@ -15,7 +15,11 @@
      {update, emqx_ws_connection, {advanced, []}},
      {load_module, emqx_os_mon, brutal_purge, soft_purge, []},
      {load_module, emqx_shared_sub, brutal_purge, soft_purge, []},
-     {resume, [esockd_acceptor,emqx_connection, emqx_ws_connection]}
+     {resume, [esockd_acceptor,emqx_connection, emqx_ws_connection]},
+     {load_module, emqx_router_sup, soft_purge, soft_purge, []},
+     {load_module, emqx_broker, soft_purge, soft_purge, []},
+     {load_module, emqx_trie, soft_purge, soft_purge, []},
+     {load_module, emqx_router, soft_purge, soft_purge, [emqx_trie]}
    ]},
    {"4.2.1", [
      {add_module, emqx_congestion},
@@ -29,7 +33,11 @@
      {update, emqx_ws_connection, {advanced, []}},
      {load_module, emqx_os_mon, brutal_purge, soft_purge, []},
      {load_module, emqx_shared_sub, brutal_purge, soft_purge, []},
-     {resume, [esockd_acceptor, emqx_connection, emqx_ws_connection]}
+     {resume, [esockd_acceptor, emqx_connection, emqx_ws_connection]},
+     {load_module, emqx_router_sup, soft_purge, soft_purge, []},
+     {load_module, emqx_broker, soft_purge, soft_purge, []},
+     {load_module, emqx_trie, soft_purge, soft_purge, []},
+     {load_module, emqx_router, soft_purge, soft_purge, [emqx_trie]}
    ]},
    {<<"4.2.[23]">>, [
      {add_module, emqx_congestion},
@@ -40,7 +48,11 @@
      {load_module, emqx_connection, brutal_purge, soft_purge, []},
      {load_module, emqx_ws_connection, brutal_purge, soft_purge, []},
      {load_module, emqx_os_mon, brutal_purge, soft_purge, []},
-     {load_module, emqx_shared_sub, brutal_purge, soft_purge, []}
+     {load_module, emqx_shared_sub, brutal_purge, soft_purge, []},
+     {load_module, emqx_router_sup, soft_purge, soft_purge, []},
+     {load_module, emqx_broker, soft_purge, soft_purge, []},
+     {load_module, emqx_trie, soft_purge, soft_purge, []},
+     {load_module, emqx_router, soft_purge, soft_purge, [emqx_trie]}
    ]},
    {<<"4.2.4">>, [
      {load_module, emqx_frame, brutal_purge, soft_purge, []},
@@ -49,7 +61,11 @@
      {load_module, emqx_congestion, brutal_purge, soft_purge, []},
      {load_module, emqx_connection, brutal_purge, soft_purge, []},
      {load_module, emqx_ws_connection, brutal_purge, soft_purge, []},
-     {load_module, emqx_alarm, brutal_purge, soft_purge, []}
+     {load_module, emqx_alarm, brutal_purge, soft_purge, []},
+     {load_module, emqx_router_sup, soft_purge, soft_purge, []},
+     {load_module, emqx_broker, soft_purge, soft_purge, []},
+     {load_module, emqx_trie, soft_purge, soft_purge, []},
+     {load_module, emqx_router, soft_purge, soft_purge, [emqx_trie]}
    ]},
    {<<"4.2.5">>, [
      {load_module, emqx_channel, brutal_purge, soft_purge, []},
@@ -57,7 +73,11 @@
      {load_module, emqx_congestion, brutal_purge, soft_purge, []},
      {load_module, emqx_connection, brutal_purge, soft_purge, []},
      {load_module, emqx_ws_connection, brutal_purge, soft_purge, []},
-     {load_module, emqx_alarm, brutal_purge, soft_purge, []}
+     {load_module, emqx_alarm, brutal_purge, soft_purge, []},
+     {load_module, emqx_router_sup, soft_purge, soft_purge, []},
+     {load_module, emqx_broker, soft_purge, soft_purge, []},
+     {load_module, emqx_trie, soft_purge, soft_purge, []},
+     {load_module, emqx_router, soft_purge, soft_purge, [emqx_trie]}
    ]},
    {<<".*">>, []}
  ],
@@ -75,7 +95,12 @@
      {load_module, emqx_channel, brutal_purge, soft_purge, []},
      {load_module, emqx_session, brutal_purge, soft_purge, []},
      {resume, [esockd_acceptor, emqx_connection, emqx_ws_connection]},
-     {delete_module, emqx_congestion}
+     {delete_module, emqx_congestion},
+     {load_module, emqx_session, brutal_purge, soft_purge, []},
+     {load_module, emqx_router_sup, soft_purge, soft_purge, []},
+     {load_module, emqx_broker, soft_purge, soft_purge, []},
+     {load_module, emqx_trie, soft_purge, soft_purge, [emqx_router]},
+     {load_module, emqx_router, soft_purge, soft_purge, []}
    ]},
    {"4.2.1", [
      {load_module, emqx_shared_sub, brutal_purge, soft_purge, []},
@@ -89,7 +114,12 @@
      {update, emqx_ws_connection, {advanced, []}},
      {load_module, emqx_alarm, brutal_purge, soft_purge, []},
      {resume, [esockd_acceptor, emqx_connection, emqx_ws_connection]},
-     {delete_module, emqx_congestion}
+     {delete_module, emqx_congestion},
+     {load_module, emqx_session, brutal_purge, soft_purge, []},
+     {load_module, emqx_router_sup, soft_purge, soft_purge, []},
+     {load_module, emqx_broker, soft_purge, soft_purge, []},
+     {load_module, emqx_trie, soft_purge, soft_purge, [emqx_router]},
+     {load_module, emqx_router, soft_purge, soft_purge, []}
    ]},
    {<<"4.2.[23]">>, [
      {load_module, emqx_shared_sub, brutal_purge, soft_purge, []},
@@ -100,7 +130,12 @@
      {load_module, emqx_session, brutal_purge, soft_purge, []},
      {load_module, emqx_alarm, brutal_purge, soft_purge, []},
      {load_module, emqx_frame, brutal_purge, soft_purge, []},
-     {delete_module, emqx_congestion}
+     {delete_module, emqx_congestion},
+     {load_module, emqx_session, brutal_purge, soft_purge, []},
+     {load_module, emqx_router_sup, soft_purge, soft_purge, []},
+     {load_module, emqx_broker, soft_purge, soft_purge, []},
+     {load_module, emqx_trie, soft_purge, soft_purge, [emqx_router]},
+     {load_module, emqx_router, soft_purge, soft_purge, []}
    ]},
    {<<"4.2.4">>, [
      {load_module, emqx_frame, brutal_purge, soft_purge, []},
@@ -109,7 +144,11 @@
      {load_module, emqx_connection, brutal_purge, soft_purge, []},
      {load_module, emqx_ws_connection, brutal_purge, soft_purge, []},
      {load_module, emqx_alarm, brutal_purge, soft_purge, []},
-     {load_module, emqx_session, brutal_purge, soft_purge, []}
+     {load_module, emqx_session, brutal_purge, soft_purge, []},
+     {load_module, emqx_router_sup, soft_purge, soft_purge, []},
+     {load_module, emqx_broker, soft_purge, soft_purge, []},
+     {load_module, emqx_trie, soft_purge, soft_purge, [emqx_router]},
+     {load_module, emqx_router, soft_purge, soft_purge, []}
    ]},
    {<<"4.2.5">>, [
      {load_module, emqx_channel, brutal_purge, soft_purge, []},
@@ -117,7 +156,11 @@
      {load_module, emqx_congestion, brutal_purge, soft_purge, []},
      {load_module, emqx_connection, brutal_purge, soft_purge, []},
      {load_module, emqx_ws_connection, brutal_purge, soft_purge, []},
-     {load_module, emqx_alarm, brutal_purge, soft_purge, []}
+     {load_module, emqx_alarm, brutal_purge, soft_purge, []},
+     {load_module, emqx_router_sup, soft_purge, soft_purge, []},
+     {load_module, emqx_broker, soft_purge, soft_purge, []},
+     {load_module, emqx_trie, soft_purge, soft_purge, [emqx_router]},
+     {load_module, emqx_router, soft_purge, soft_purge, []}
    ]},
    {<<".*">>, []}
  ]
