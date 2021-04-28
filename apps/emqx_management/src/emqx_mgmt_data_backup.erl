@@ -322,6 +322,8 @@ apply_new_config(Actions, Configs) ->
 
 apply_new_config([], _Configs, Acc) ->
     Acc;
+apply_new_config(Actions, [], []) ->
+    Actions;
 apply_new_config([Action = #{<<"name">> := <<"data_to_webserver">>,
                              <<"args">> := #{<<"$resource">> := ID,
                                             <<"path">> := Path,
@@ -678,7 +680,7 @@ is_version_supported2("4.3") ->
 is_version_supported2(Version) ->
     case re:run(Version, "^4.[02].\\d+$", [{capture, none}]) of
         match ->
-            try lists:map(fun erlang:list_to_integer/1, string:tokens(Version, ".")) of 
+            try lists:map(fun erlang:list_to_integer/1, string:tokens(Version, ".")) of
                 [4, 2, N] -> N >= 11;
                 [4, 0, N] -> N >= 13;
                 _ -> false
