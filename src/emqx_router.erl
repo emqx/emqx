@@ -251,7 +251,7 @@ delete_trie_route(Route = #route{topic = Topic}) ->
 %% @private
 -spec(maybe_trans(function(), list(any())) -> ok | {error, term()}).
 maybe_trans(Fun, Args) ->
-    case persistent_term:get(emqx_route_lock_type) of
+    case persistent_term:get(emqx_route_lock_type, key) of
         key ->
             trans(Fun, Args);
         global ->
