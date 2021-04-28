@@ -2105,16 +2105,16 @@ end}.
   {datatype, flag}
 ]}.
 
-%% @doc performance toggle for subscribe/unsubscribe wildcard topic
-%%      change this toggle only if you have many wildcard topics.
+%% @doc Performance toggle for subscribe/unsubscribe wildcard topic.
+%%      Change this toggle only when there are many wildcard topics.
 %% key:   mnesia translational updates with per-key locks. recommended for single node setup.
 %% tab:   mnesia translational updates with table lock. recommended for multi-nodes setup.
 %% global: global lock protected updates. recommended for larger cluster.
-%% spawn: same as `key', but transaction is done in another proc, ideal for handling bursty traffic.
+%% NOTE: when changing from/to 'global' lock, it requires all nodes in the cluster
 %%
 {mapping, "broker.perf.route_lock_type", "emqx.route_lock_type", [
   {default, key},
-  {datatype, {enum, [key, tab, global, spawn]}}
+  {datatype, {enum, [key, tab, global]}}
 ]}.
 
 %%--------------------------------------------------------------------
