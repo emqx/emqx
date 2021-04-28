@@ -270,7 +270,7 @@ t_connect_limit_timeout(_) ->
     meck:unload(proplists).
 
 t_connect_emit_stats_timeout(_) ->
-    IdleTimeout = 2000,
+    IdleTimeout = 2000 + 200,
     emqx_zone:set_env(external, idle_timeout, IdleTimeout),
 
     {ok, Client} = emqtt:start_link([{proto_ver, v5},{keepalive, 60}]),
