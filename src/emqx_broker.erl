@@ -434,10 +434,11 @@ pick(Topic) ->
 
 init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    {ok, #{pool => Pool, id => Id}}.
+    {Worker, WorkerMRef} = emqx_router:start_trans_worker(),
+    {ok, #{pool => Pool, id => Id, worker_ref => WorkerMRef, worker => Worker}}.
 
-handle_call({subscribe, Topic}, _From, State) ->
-    Ok = emqx_router:do_add_route(Topic),
+handle_call({subscribe, Topic}, _From, #{worker := Worker} = State) ->
+    Ok = emqx_router:do_add_route(Topic, node(), Worker),
     {reply, Ok, State};
 
 handle_call({subscribe, Topic, I}, _From, State) ->
@@ -454,18 +455,18 @@ handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
-handle_cast({subscribe, Topic}, State) ->
-    case emqx_router:do_add_route(Topic) of
+handle_cast({subscribe, Topic}, #{worker_ref := Worker} = State) ->
+    case emqx_router:do_add_route(Topic, node(), Worker) of
         ok -> ok;
         {error, Reason} ->
             ?LOG(error, "Failed to add route: ~p", [Reason])
     end,
     {noreply, State};
 
-handle_cast({unsubscribed, Topic}, State) ->
+handle_cast({unsubscribed, Topic}, #{worker := Worker} = State) ->
     case ets:member(?SUBSCRIBER, Topic) of
         false ->
-            _ = emqx_router:do_delete_route(Topic),
+            _ = emqx_router:do_delete_route(Topic, node(), Worker),
             ok;
         true -> ok
     end,
@@ -485,6 +486,10 @@ handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
+handle_info({'DOWN', Ref, process, Worker, _Info}, #{worker_ref := Ref, worker := Worker} = State) ->
+    {Worker, WorkerMonRef} = emqx_router:start_trans_worker(),
+    {noreply, State#{ worker => Worker, worker_ref => WorkerMonRef }};
+
 handle_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
@@ -498,4 +503,3 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-

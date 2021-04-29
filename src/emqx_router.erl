@@ -38,12 +38,14 @@
         , add_route/2
         , do_add_route/1
         , do_add_route/2
+        , do_add_route/3
         ]).
 
 -export([ delete_route/1
         , delete_route/2
         , do_delete_route/1
         , do_delete_route/2
+        , do_delete_route/3
         ]).
 
 -export([ match_routes/1
@@ -62,6 +64,12 @@
         , handle_info/2
         , terminate/2
         , code_change/3
+        ]).
+
+%% trans worker helpers
+-export([ start_trans_worker/0
+        , trans_worker_loop/1
+        , trans_worker_loop/2
         ]).
 
 -type(group() :: binary()).
@@ -112,6 +120,9 @@ do_add_route(Topic) when is_binary(Topic) ->
 
 -spec(do_add_route(emqx_topic:topic(), dest()) -> ok | {error, term()}).
 do_add_route(Topic, Dest) when is_binary(Topic) ->
+    do_add_route(Topic, Dest, undefined).
+
+do_add_route(Topic, Dest, Worker) when is_binary(Topic) ->
     Route = #route{topic = Topic, dest = Dest},
     case lists:member(Route, lookup_routes(Topic)) of
         true  -> ok;
@@ -119,7 +130,7 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
             ok = emqx_router_helper:monitor(Dest),
             case emqx_topic:wildcard(Topic) of
                 true  ->
-                    maybe_trans(fun insert_trie_route/1, [Route]);
+                    maybe_trans(Worker, fun insert_trie_route/1, [Route]);
                 false -> insert_direct_route(Route)
             end
     end.
@@ -162,10 +173,12 @@ do_delete_route(Topic) when is_binary(Topic) ->
 
 -spec(do_delete_route(emqx_topic:topic(), dest()) -> ok | {error, term()}).
 do_delete_route(Topic, Dest) ->
+    do_delete_route(Topic, Dest, undefined).
+do_delete_route(Topic, Dest, Worker) ->
     Route = #route{topic = Topic, dest = Dest},
     case emqx_topic:wildcard(Topic) of
         true  ->
-            maybe_trans(fun delete_trie_route/1, [Route]);
+            maybe_trans(Worker, fun delete_trie_route/1, [Route]);
         false -> delete_direct_route(Route)
     end.
 
@@ -192,14 +205,15 @@ pick(Topic) ->
 
 init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    {ok, #{pool => Pool, id => Id}}.
+    {Worker, WorkerMRef} = start_trans_worker(),
+    {ok, #{pool => Pool, id => Id, worker_ref => WorkerMRef, worker => Worker} }.
 
-handle_call({add_route, Topic, Dest}, _From, State) ->
-    Ok = do_add_route(Topic, Dest),
+handle_call({add_route, Topic, Dest}, _From, #{worker := Worker} = State) ->
+    Ok = do_add_route(Topic, Dest, Worker),
     {reply, Ok, State};
 
-handle_call({delete_route, Topic, Dest}, _From, State) ->
-    Ok = do_delete_route(Topic, Dest),
+handle_call({delete_route, Topic, Dest}, _From, #{worker := Worker} = State) ->
+    Ok = do_delete_route(Topic, Dest, Worker),
     {reply, Ok, State};
 
 handle_call(Req, _From, State) ->
@@ -210,6 +224,10 @@ handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
+handle_info({'DOWN', Ref, process, Worker, _Info},
+            #{worker_ref := Ref, worker := Worker} = State) ->
+    {Worker, WorkerMRef} = start_trans_worker(),
+    {noreply, State#{ worker_ref => WorkerMRef, worker => Worker }};
 handle_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
@@ -220,10 +238,32 @@ terminate(_Reason, #{pool := Pool, id := Id}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+%% --------------------------------------------------------------------
+%% Trans worker helpers
+%% --------------------------------------------------------------------
+start_trans_worker() ->
+    spawn_monitor(?MODULE, trans_worker_loop, [self()]).
+
+trans_worker_loop(Owner) ->
+    OwnerRef = erlang:monitor(process, Owner),
+    trans_worker_loop(Owner, OwnerRef).
+
+trans_worker_loop(Owner, OwnerRef) ->
+    receive
+        {work, WorkRef, Fun, Args} ->
+            Res = case mnesia:transaction(Fun, Args) of
+                      {atomic, Ok} -> Ok;
+                      {aborted, Reason} -> {error, Reason}
+                  end,
+            Owner ! {WorkRef, Res},
+            ?MODULE:trans_worker_loop(Owner, OwnerRef);
+        {'DOWN', OwnerRef, process, Owner, _Info} ->
+            ok
+    end.
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
 insert_direct_route(Route) ->
     mnesia:async_dirty(fun mnesia:write/3, [?ROUTE_TAB, Route, sticky_write]).
 
@@ -248,11 +288,11 @@ delete_trie_route(Route = #route{topic = Topic}) ->
     end.
 
 %% @private
--spec(maybe_trans(function(), list(any())) -> ok | {error, term()}).
-maybe_trans(Fun, Args) ->
+-spec(maybe_trans(pid(), function(), list(any())) -> ok | {error, term()}).
+maybe_trans(Worker, Fun, Args) ->
     case persistent_term:get(emqx_route_lock_type) of
         key ->
-            trans(Fun, Args);
+            trans(Worker, Fun, Args);
         global ->
             lock_router(),
             try mnesia:sync_dirty(Fun, Args)
@@ -260,34 +300,24 @@ maybe_trans(Fun, Args) ->
                 unlock_router()
             end;
         tab ->
-            trans(fun() ->
+            trans(Worker,
+                  fun() ->
                           emqx_trie:lock_tables(),
                           apply(Fun, Args)
                   end, [])
     end.
 
--spec(trans(function(), list(any())) -> ok | {error, term()}).
-trans(Fun, Args) ->
+-spec(trans(pid(), function(), list(any())) -> ok | {error, term()}).
+trans(Worker, Fun, Args) when is_pid(Worker) ->
     %% trigger selective receive optimization of compiler,
     %% ideal for handling bursty traffic.
-    Ref = erlang:make_ref(),
-    Owner = self(),
-    {WPid, RefMon} = spawn_monitor(
-                       fun() ->
-                               Res = case mnesia:transaction(Fun, Args) of
-                                         {atomic, Ok} -> Ok;
-                                         {aborted, Reason} -> {error, Reason}
-                                     end,
-                               Owner ! {Ref, Res}
-                       end),
+    MonRef = erlang:monitor(process, Worker),
+    Worker ! {work, MonRef, Fun, Args},
     receive
-        {Ref, TransRes} ->
-            receive
-                {'DOWN', RefMon, process, WPid, normal} -> ok
-            end,
+        {MonRef, TransRes} ->
             TransRes;
-        {'DOWN', RefMon, process, WPid, Info} ->
-            {error, {trans_crash, Info}}
+        {'DOWN', MonRef, process, Worker, Info} ->
+            {error, {trans_worker_crash, Info}}
     end.
 
 lock_router() ->
