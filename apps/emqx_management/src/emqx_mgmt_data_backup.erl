@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -44,7 +44,7 @@
         , import_blacklist/1
         , import_applications/1
         , import_users/1
-        , import_auth_clientid/2 %% BACKW: 4.1.x
+        , import_auth_clientid/1 %% BACKW: 4.1.x
         , import_auth_username/1 %% BACKW: 4.1.x
         , import_auth_mnesia/2
         , import_acl_mnesia/2
@@ -234,13 +234,6 @@ import_resource(#{<<"id">> := Id,
                                        config => Config,
                                        created_at => NCreatedAt,
                                        description => Desc}).
-
--ifdef(EMQX_ENTERPRISE).
-import_resources_and_rules(Resources, Rules, _FromVersion) ->
-    import_resources(Resources),
-    import_rules(Rules).
--else.
-
 import_resources_and_rules(Resources, Rules, FromVersion)
   when FromVersion =:= "4.0" orelse
        FromVersion =:= "4.1" orelse
@@ -329,6 +322,8 @@ apply_new_config(Actions, Configs) ->
 
 apply_new_config([], _Configs, Acc) ->
     Acc;
+apply_new_config(Actions, [], []) ->
+    Actions;
 apply_new_config([Action = #{<<"name">> := <<"data_to_webserver">>,
                              <<"args">> := #{<<"$resource">> := ID,
                                             <<"path">> := Path,
@@ -356,7 +351,6 @@ apply_new_config([Action = #{<<"args">> := #{<<"$resource">> := ResourceId,
                      <<"forward_topic">> => ForwardTopic},
             apply_new_config(More, Configs, [Action#{<<"args">> := Args} | Acc]).
 
--endif.
 
 actions_to_prop_list(Actions) ->
     [action_to_prop_list(Act) || Act <- Actions].
@@ -405,18 +399,14 @@ import_users(Users) ->
                       emqx_dashboard_admin:force_add_user(Username, NPassword, Tags)
                   end, Users).
 
-import_auth_clientid(Lists, Version) ->
+import_auth_clientid(Lists) ->
     case ets:info(emqx_user) of
         undefined -> ok;
         _ ->
-            lists:foreach(fun(#{<<"clientid">> := Clientid, <<"password">> := Password0}) ->
-                                  Password = case Version of
-                                                 "4.1" -> base64:decode(Password0);
-                                                 _     -> ensure_binary(Password0)
-                                             end,
+            lists:foreach(fun(#{<<"clientid">> := Clientid, <<"password">> := Password}) ->
                                   mnesia:dirty_write({emqx_user, {clientid, Clientid}
-                                                               , Password
-                                                               ,  erlang:system_time(millisecond)})
+                                                               , base64:decode(Password)
+                                                               , erlang:system_time(millisecond)})
                           end, Lists)
     end.
 
@@ -443,33 +433,16 @@ import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.0" orelse
 import_acl_mnesia(Acls, _) ->
     do_import_acl_mnesia(Acls).
 -else.
-import_auth_mnesia(Auths, FromVersion) when FromVersion =:= "4.0" orelse
-                                            FromVersion =:= "4.1" ->
-    do_import_auth_mnesia_by_old_data(Auths);
-import_auth_mnesia(Auths, "4.2") ->
-    %% 4.2 contains a bug where password is not base64-encoded
-    do_import_auth_mnesia_4_2(Auths);
-import_auth_mnesia(Auths, _) ->
-    do_import_auth_mnesia(Auths).
+import_auth_mnesia(Auths, FromVersion) when FromVersion =:= "4.3" ->
+    do_import_auth_mnesia(Auths);
+import_auth_mnesia(Auths, _FromVersion) ->
+    do_import_auth_mnesia_by_old_data(Auths).
 
-import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.0" orelse
-                                          FromVersion =:= "4.1" orelse
-                                          FromVersion =:= "4.2" ->
-    do_import_acl_mnesia_by_old_data(Acls);
+import_acl_mnesia(Acls, FromVersion) when FromVersion =:= "4.3" ->
+    do_import_acl_mnesia(Acls);
+import_acl_mnesia(Acls, _FromVersion) ->
+    do_import_acl_mnesia_by_old_data(Acls).
 
-import_acl_mnesia(Acls, _) ->
-    do_import_acl_mnesia(Acls).
-
-do_import_auth_mnesia_4_2(Auths) ->
-    case ets:info(emqx_user) of
-        undefined -> ok;
-        _ ->
-            CreatedAt = erlang:system_time(millisecond),
-            lists:foreach(fun(#{<<"login">> := Login,
-                                <<"password">> := Password}) ->
-                            mnesia:dirty_write({emqx_user, {get_old_type(), Login}, Password, CreatedAt})
-                          end, Auths)
-    end.
 -endif.
 
 do_import_auth_mnesia_by_old_data(Auths) ->
@@ -617,6 +590,7 @@ do_export_extra_data() ->
 do_export_extra_data() -> [].
 -endif.
 
+-ifdef(EMQX_ENTERPRISE).
 import(Filename, OverridesJson) ->
     case file:read_file(Filename) of
         {ok, Json} ->
@@ -624,8 +598,27 @@ import(Filename, OverridesJson) ->
             Overrides = emqx_json:decode(OverridesJson, [return_maps]),
             Data = maps:merge(Imported, Overrides),
             Version = to_version(maps:get(<<"version">>, Data)),
-            read_global_auth_type(Data, Version),
-            case lists:member(Version, ?VERSIONS) of
+            read_global_auth_type(Data),
+            try
+                do_import_data(Data, Version),
+                logger:debug("The emqx data has been imported successfully"),
+                ok
+            catch Class:Reason:Stack ->
+                logger:error("The emqx data import failed: ~0p", [{Class, Reason, Stack}]),
+                {error, import_failed}
+            end;
+        Error -> Error
+    end.
+-else.
+import(Filename, OverridesJson) ->
+    case file:read_file(Filename) of
+        {ok, Json} ->
+            Imported = emqx_json:decode(Json, [return_maps]),
+            Overrides = emqx_json:decode(OverridesJson, [return_maps]),
+            Data = maps:merge(Imported, Overrides),
+            Version = to_version(maps:get(<<"version">>, Data)),
+            read_global_auth_type(Data),
+            case is_version_supported(Data, Version) of
                 true  ->
                     try
                         do_import_data(Data, Version),
@@ -637,10 +630,11 @@ import(Filename, OverridesJson) ->
                     end;
                 false ->
                     logger:error("Unsupported version: ~p", [Version]),
-                    {error, unsupported_version}
+                    {error, unsupported_version, Version}
             end;
         Error -> Error
     end.
+-endif.
 
 do_import_data(Data, Version) ->
     do_import_extra_data(Data, Version),
@@ -648,7 +642,7 @@ do_import_data(Data, Version) ->
     import_blacklist(maps:get(<<"blacklist">>, Data, [])),
     import_applications(maps:get(<<"apps">>, Data, [])),
     import_users(maps:get(<<"users">>, Data, [])),
-    import_auth_clientid(maps:get(<<"auth_clientid">>, Data, []), Version),
+    import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
     import_auth_username(maps:get(<<"auth_username">>, Data, [])),
     import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, []), Version),
     import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, []), Version).
@@ -663,19 +657,63 @@ do_import_extra_data(Data, _Version) ->
 do_import_extra_data(_Data, _Version) -> ok.
 -endif.
 
--ifndef(EMQX_ENTERPRISE).
 covert_empty_headers([]) -> #{};
 covert_empty_headers(Other) -> Other.
 
 flag_to_boolean(<<"on">>) -> true;
 flag_to_boolean(<<"off">>) -> false;
 flag_to_boolean(Other) -> Other.
+
+-ifndef(EMQX_ENTERPRISE).
+is_version_supported(Data, Version) ->
+    case { maps:get(<<"auth_clientid">>, Data, [])
+         , maps:get(<<"auth_username">>, Data, [])
+         , maps:get(<<"auth_mnesia">>, Data, [])} of
+        {[], [], []} -> lists:member(Version, ?VERSIONS);
+        _ -> is_version_supported2(Version)
+    end.
+
+is_version_supported2("4.1") ->
+    true;
+is_version_supported2("4.3") ->
+    true;
+is_version_supported2(Version) ->
+    case re:run(Version, "^4.[02].\\d+$", [{capture, none}]) of
+        match ->
+            try lists:map(fun erlang:list_to_integer/1, string:tokens(Version, ".")) of
+                [4, 2, N] -> N >= 11;
+                [4, 0, N] -> N >= 13;
+                _ -> false
+            catch
+                _ : _ -> false
+            end;
+        nomatch ->
+            false
+    end.
 -endif.
 
-read_global_auth_type(Data, Version) when Version =:= "4.0" orelse
-                                          Version =:= "4.1" orelse
-                                          Version =:= "4.2" ->
-    ct:print("|>=> :~p~n", [Data]),
+read_global_auth_type(Data) ->
+    case {maps:get(<<"auth_mnesia">>, Data, []), maps:get(<<"acl_mnesia">>, Data, [])} of
+        {[], []} ->
+            %% Auth mnesia plugin is not used:
+            ok;
+        _ ->
+            do_read_global_auth_type(Data)
+    end.
+
+-ifdef(EMQX_ENTERPRISE).
+do_read_global_auth_type(Data) ->
+    case Data of
+        #{<<"auth.mnesia.as">> := <<"username">>} ->
+            application:set_env(emqx_auth_mnesia, as, username);
+        #{<<"auth.mnesia.as">> := <<"clientid">>} ->
+            application:set_env(emqx_auth_mnesia, as, clientid);
+        _ ->
+            ok
+    end.
+
+-else.
+do_read_global_auth_type(Data) ->
     case Data of
         #{<<"auth.mnesia.as">> := <<"username">>} ->
             application:set_env(emqx_auth_mnesia, as, username);
@@ -691,15 +729,9 @@ read_global_auth_type(Data, Version) when Version =:= "4.0" orelse
                          "  $ emqx_ctl data import <filename> --env '{\"auth.mnesia.as\":\"clientid\"}'",
                          []),
             error(import_failed)
-    end;
-read_global_auth_type(_Data, _Version) ->
-    ok.
+    end.
+-endif.
 
 get_old_type() ->
     {ok, Type} = application:get_env(emqx_auth_mnesia, as),
     Type.
-
-ensure_binary(A) when is_binary(A) ->
-    A;
-ensure_binary(A) ->
-    list_to_binary(A).

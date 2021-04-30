@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -135,13 +135,7 @@ json_basic() ->
     oneof([true, false, null, number(), json_string()]).
 
 latin_atom() ->
-    ?LET(L, list(latin_char()), list_to_atom(L)).
-
-latin_char() ->
-    L = lists:concat([lists:seq($0, $9),
-                      lists:seq($a, $z),
-                      lists:seq($A, $Z)]),
-    oneof(L).
+    emqx_ct_proper_types:limited_latin_atom().
 
 json_string() -> utf8().
 

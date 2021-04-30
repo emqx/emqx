@@ -9,27 +9,25 @@
 -module(http_server).
 -behaviour(gen_server).
 
--export([start_link/0]).
--export([get_received_data/0]).
+-export([start_link/3]).
 -export([stop/1]).
 -export([code_change/3, handle_call/3, handle_cast/2, handle_info/2, init/1, init/2, terminate/2]).
--define(HTTP_PORT, 9999).
--define(HTTPS_PORT, 8888).
--record(state, {}).
+-record(state, {parent :: pid()}).
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
-start_link() ->
-    gen_server:start_link(?MODULE, [], []).
+start_link(Parent, BasePort, Opts) ->
+    stop_http(),
+    stop_https(),
+    timer:sleep(100),
+    gen_server:start_link(?MODULE, {Parent, BasePort, Opts}, []).
 
-init([]) ->
-    EtsOptions = [named_table, public, set, {write_concurrency, true},
-                                            {read_concurrency, true}],
-    emqx_web_hook_http_test = ets:new(emqx_web_hook_http_test, EtsOptions),
-    ok = start_http(?HTTP_PORT),
-    ok = start_https(?HTTPS_PORT),
-    {ok, #state{}}.
+init({Parent, BasePort, Opts}) ->
+    ok = start_http(Parent, [{port, BasePort} | Opts]),
+    ok = start_https(Parent, [{port, BasePort + 1} | Opts]),
+    Parent ! {self(), ready},
+    {ok, #state{parent = Parent}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ignored, State}.
@@ -47,9 +45,6 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-get_received_data() ->
-    ets:tab2list(emqx_web_hook_http_test).
-
 stop(Pid) ->
     ok = gen_server:stop(Pid).
 
@@ -57,37 +52,39 @@ stop(Pid) ->
 %% Callbacks
 %%--------------------------------------------------------------------
 
-start_http(Port) ->
-    {ok, _Pid1} = cowboy:start_clear(http, [{port, Port}], #{
-        env => #{dispatch => compile_router()}
+start_http(Parent, Opts) ->
+    {ok, _Pid1} = cowboy:start_clear(http, Opts, #{
+        env => #{dispatch => compile_router(Parent)}
     }),
-    io:format(standard_error, "[TEST LOG] Start http server on 9999 successfully!~n", []).
+    Port = proplists:get_value(port, Opts),
+    io:format(standard_error, "[TEST LOG] Start http server on ~p successfully!~n", [Port]).
 
-start_https(Port) ->
+start_https(Parent, Opts) ->
     Path = emqx_ct_helpers:deps_path(emqx_web_hook, "test/emqx_web_hook_SUITE_data/"),
     SslOpts = [{keyfile, Path ++ "/server-key.pem"},
                {cacertfile, Path ++ "/ca.pem"},
                {certfile, Path ++ "/server-cert.pem"}],
 
-    {ok, _Pid2} = cowboy:start_tls(https, [{port, Port}] ++ SslOpts,
-                                   #{env => #{dispatch => compile_router()}}),
-    io:format(standard_error, "[TEST LOG] Start https server on 8888 successfully!~n", []).
+    {ok, _Pid2} = cowboy:start_tls(https, Opts ++ SslOpts,
+                                   #{env => #{dispatch => compile_router(Parent)}}),
+    Port = proplists:get_value(port, Opts),
+    io:format(standard_error, "[TEST LOG] Start https server on ~p successfully!~n", [Port]).
 
 stop_http() ->
-    ok = cowboy:stop_listener(http),
-    io:format("[TEST LOG] Stopped http server on 9999").
+    cowboy:stop_listener(http),
+    io:format("[TEST LOG] Stopped http server").
 
 stop_https() ->
-    ok = cowboy:stop_listener(https),
-    io:format("[TEST LOG] Stopped https server on 8888").
+    cowboy:stop_listener(https),
+    io:format("[TEST LOG] Stopped https server").
 
-compile_router() ->
+compile_router(Parent) ->
     {ok, _} = application:ensure_all_started(cowboy),
     cowboy_router:compile([
-        {'_', [{"/", ?MODULE, #{}}]}
+        {'_', [{"/", ?MODULE, #{parent => Parent}}]}
     ]).
 
-init(Req, State) ->
+init(Req, #{parent := Parent} = State) ->
     Method = cowboy_req:method(Req),
     Headers = cowboy_req:headers(Req),
     [Params] = case Method of
@@ -96,7 +93,7 @@ init(Req, State) ->
                      {ok, PostVals, _} = cowboy_req:read_urlencoded_body(Req),
                      PostVals
              end,
-    ets:insert(emqx_web_hook_http_test, {Params, Headers}),
+    Parent ! {?MODULE, Params, Headers},
     {ok, reply(Req, ok), State}.
 
 reply(Req, ok) ->

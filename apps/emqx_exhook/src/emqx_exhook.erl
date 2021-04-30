@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -36,6 +36,7 @@
 %% Mgmt APIs
 %%--------------------------------------------------------------------
 
+%% XXX: Only return the running servers
 -spec list() -> [emqx_exhook_server:server()].
 list() ->
     [server(Name) || Name <- running()].
@@ -96,7 +97,8 @@ call_fold(Hookpoint, Req, AccFun, [ServiceName|More]) ->
         {ok, Resp} ->
             case AccFun(Req, Resp) of
                 {stop, NReq} -> {stop, NReq};
-                {ok, NReq} -> call_fold(Hookpoint, NReq, AccFun, More)
+                {ok, NReq} -> call_fold(Hookpoint, NReq, AccFun, More);
+                _ -> call_fold(Hookpoint, Req, AccFun, More)
             end;
         _ ->
             call_fold(Hookpoint, Req, AccFun, More)

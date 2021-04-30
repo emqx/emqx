@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -419,7 +419,7 @@ safe_update_stats(Tab, Stat, MaxStat) ->
 -compile({inline, [call/2, cast/2, pick/1]}).
 
 call(Broker, Req) ->
-    gen_server:call(Broker, Req).
+    gen_server:call(Broker, Req, infinity).
 
 cast(Broker, Msg) ->
     gen_server:cast(Broker, Msg).

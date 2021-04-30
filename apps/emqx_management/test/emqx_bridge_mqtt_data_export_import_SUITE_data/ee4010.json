@@ -1,0 +1,68 @@
+{
+    "version": "4.0",
+    "users": [
+        {
+            "username": "admin",
+            "tags": "administrator",
+            "password": "GCX5nvOMK0hbiMB4AUyc25wI8fU="
+        }
+    ],
+    "schemas": [],
+    "rules": [],
+    "resources": [
+        {
+            "type": "bridge_mqtt",
+            "id": "bridge",
+            "description": "bridge",
+            "created_at": null,
+            "config": {
+                "username": "user",
+                "ssl": "off",
+                "retry_interval": "20s",
+                "reconnect_interval": "30s",
+                "proto_ver": "mqttv4",
+                "password": "passwd",
+                "mountpoint": "bridge/emqx/${node}/",
+                "keyfile": "etc/certs/client-key.pem",
+                "keepalive": "60s",
+                "disk_cache": "off",
+                "clientid": "bridge_aws",
+                "ciphers": "ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES256-GCM-SHA384",
+                "certfile": "etc/certs/client-cert.pem",
+                "cacertfile": "etc/certs/cacert.pem",
+                "bridge_mode": true,
+                "address": "127.0.0.1:1883"
+            }
+        },
+        {
+            "type": "bridge_rpc",
+            "id": "rpc",
+            "description": "rpc",
+            "created_at": null,
+            "config": {
+                "reconnect_interval": "30s",
+                "pool_size": 8,
+                "mountpoint": "bridge/emqx/${node}/",
+                "disk_cache": "off",
+                "batch_size": 32,
+                "address": "test@127.0.0.1"
+            }
+        }
+    ],
+    "date": "2021-04-13 13:57:23",
+    "blacklist": [],
+    "auth_username": [],
+    "auth_mnesia": [],
+    "auth_clientid": [],
+    "apps": [
+        {
+            "status": true,
+            "secret": "public",
+            "name": "Default",
+            "id": "admin",
+            "expired": "undefined",
+            "desc": "Application user"
+        }
+    ],
+    "acl_mnesia": []
+}

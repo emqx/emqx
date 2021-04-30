@@ -1,0 +1,92 @@
+{
+    "version": "4.2",
+    "date": "2021-04-13 11:35:13",
+    "modules": [
+        {
+            "id": "module:b9294d70",
+            "type": "recon",
+            "config": {},
+            "enabled": true,
+            "created_at": "undefined",
+            "description": ""
+        },
+        {
+            "id": "module:c7c7b692",
+            "type": "presence",
+            "config": {
+                "qos": 0
+            },
+            "enabled": true,
+            "created_at": "undefined",
+            "description": ""
+        },
+        {
+            "id": "module:486adc4b",
+            "type": "internal_acl",
+            "config": {
+                "acl_rule_file": "etc/acl.conf"
+            },
+            "enabled": true,
+            "created_at": "undefined",
+            "description": ""
+        },
+        {
+            "id": "module:411cf85d",
+            "type": "retainer",
+            "config": {
+                "storage_type": "ram",
+                "max_retained_messages": 0,
+                "max_payload_size": "1MB",
+                "expiry_interval": 0
+            },
+            "enabled": true,
+            "created_at": "undefined",
+            "description": ""
+        },
+        {
+            "id": "module:127b92c3",
+            "type": "hot_confs",
+            "config": {},
+            "enabled": true,
+            "created_at": "undefined",
+            "description": ""
+        }
+    ],
+    "rules": [],
+    "resources": [
+        {
+            "id": "webhook",
+            "type": "web_hook",
+            "config": {
+                "headers": {
+                    "k": "v"
+                },
+                "method": "POST",
+                "url": "http://www.emqx.io"
+            },
+            "created_at": null,
+            "description": "webhook"
+        }
+    ],
+    "blacklist": [],
+    "apps": [
+        {
+            "id": "admin",
+            "secret": "public",
+            "name": "Default",
+            "desc": "Application user",
+            "status": true,
+            "expired": "undefined"
+        }
+    ],
+    "users": [
+        {
+            "username": "admin",
+            "password": "bx1P63qGDhKvZYdltxX4NVY2kS4=",
+            "tags": "administrator"
+        }
+    ],
+    "auth_mnesia": [],
+    "acl_mnesia": [],
+    "schemas": []
+}

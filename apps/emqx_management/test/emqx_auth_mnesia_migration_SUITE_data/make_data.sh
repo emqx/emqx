@@ -56,16 +56,27 @@ export_data() {
     cat "${filename}.json"
 }
 
+
+collect_4_2_no_mnesia_auth () {
+    container "4.2.10"
+
+    # Add clientid
+    docker exec emqx emqx_ctl clientid add emqx_clientid emqx_p
+
+    export_data "v4.2.10-no-auth"
+}
+
 collect_4_2 () {
-    container "4.2.9"
+    container "4.2.10"
     create_acls "api/v4/mqtt_acl"
     create_user mqtt_user
 
     # Add clientid
     docker exec emqx emqx_ctl clientid add emqx_clientid emqx_p
 
-    export_data "v4.2.9"
+    export_data "v4.2.10"
 }
+
 
 collect_e4_2 () {
     container "4.2.5" "ee"
@@ -77,7 +88,7 @@ collect_e4_2 () {
     # Add clientid
     docker exec emqx emqx_ctl clientid add emqx_clientid emqx_p
 
-    export_data "e4.2.9"
+    export_data "e4.2.5"
 }
 
 collect_e4_1 () {
@@ -105,17 +116,18 @@ collect_4_1 () {
 }
 
 collect_4_0 () {
-    container "v4.0.7"
+    container "v4.0.11"
 
     # Add clientid
     docker exec emqx emqx_ctl clientid add emqx_clientid emqx_p
 
-    export_data "v4.0.7"
+    export_data "v4.0.11"
 }
 
 collect_4_0
 collect_4_1
 collect_4_2
+collect_4_2_no_mnesia_auth
 collect_e4_2
 collect_e4_1
 

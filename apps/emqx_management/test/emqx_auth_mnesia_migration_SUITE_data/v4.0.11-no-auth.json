@@ -4,16 +4,11 @@
   "schemas": [],
   "rules": [],
   "resources": [],
-  "date": "2021-04-07 14:28:49",
+  "date": "2021-04-10 11:45:26",
   "blacklist": [],
   "auth_username": [],
   "auth_mnesia": [],
-  "auth_clientid": [
-    {
-      "password": "��Pd56c0fcdcd7636dcf8ed1ea48cd3d58acab74030157551f7f7f8684804b9239e",
-      "clientid": "emqx_clientid"
-    }
-  ],
+  "auth_clientid": [],
   "apps": [
     {
       "status": true,

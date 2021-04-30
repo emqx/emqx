@@ -1,0 +1,70 @@
+{
+    "version": "4.1",
+    "users": [
+        {
+            "username": "admin",
+            "tags": "administrator",
+            "password": "tsYtP3TylchkM7J7YTc46Di0kPk="
+        }
+    ],
+    "schemas": [],
+    "rules": [],
+    "resources": [
+        {
+            "type": "bridge_rpc",
+            "id": "rpc",
+            "description": "rpc",
+            "created_at": null,
+            "config": {
+                "reconnect_interval": "30s",
+                "pool_size": 8,
+                "mountpoint": "bridge/emqx/${node}/",
+                "disk_cache": "off",
+                "batch_size": 32,
+                "address": "test@127.0.0.1"
+            }
+        },
+        {
+            "type": "bridge_mqtt",
+            "id": "bridge",
+            "description": "bridge",
+            "created_at": null,
+            "config": {
+                "username": "",
+                "ssl": "off",
+                "retry_interval": "20s",
+                "reconnect_interval": "30s",
+                "proto_ver": "mqttv4",
+                "pool_size": 8,
+                "password": "",
+                "mountpoint": "bridge/emqx/${node}/",
+                "keyfile": "etc/certs/client-key.pem",
+                "keepalive": "60s",
+                "disk_cache": "off",
+                "clientid": "client",
+                "ciphers": "ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES256-GCM-SHA384,ECDHE-ECDSA-AES256-SHA384,ECDHE-RSA-AES256-SHA384,ECDHE-ECDSA-DES-CBC3-SHA,ECDH-ECDSA-AES256-GCM-SHA384,ECDH-RSA-AES256-GCM-SHA384,ECDH-ECDSA-AES256-SHA384,ECDH-RSA-AES256-SHA384,DHE-DSS-AES256-GCM-SHA384,DHE-DSS-AES256-SHA256,AES256-GCM-SHA384,AES256-SHA256,ECDHE-ECDSA-AES128-GCM-SHA256,ECDHE-RSA-AES128-GCM-SHA256,ECDHE-ECDSA-AES128-SHA256,ECDHE-RSA-AES128-SHA256,ECDH-ECDSA-AES128-GCM-SHA256,ECDH-RSA-AES128-GCM-SHA256,ECDH-ECDSA-AES128-SHA256,ECDH-RSA-AES128-SHA256,DHE-DSS-AES128-GCM-SHA256,DHE-DSS-AES128-SHA256,AES128-GCM-SHA256,AES128-SHA256,ECDHE-ECDSA-AES256-SHA,ECDHE-RSA-AES256-SHA,DHE-DSS-AES256-SHA,ECDH-ECDSA-AES256-SHA,ECDH-RSA-AES256-SHA,AES256-SHA,ECDHE-ECDSA-AES128-SHA,ECDHE-RSA-AES128-SHA,DHE-DSS-AES128-SHA,ECDH-ECDSA-AES128-SHA,ECDH-RSA-AES128-SHA,AES128-SHA",
+                "certfile": "etc/certs/client-cert.pem",
+                "cacertfile": "etc/certs/cacert.pem",
+                "bridge_mode": false,
+                "append": true,
+                "address": "127.0.0.1:1883"
+            }
+        }
+    ],
+    "date": "2021-04-13 16:37:18",
+    "blacklist": [],
+    "auth_username": [],
+    "auth_mnesia": [],
+    "auth_clientid": [],
+    "apps": [
+        {
+            "status": true,
+            "secret": "public",
+            "name": "Default",
+            "id": "admin",
+            "expired": "undefined",
+            "desc": "Application user"
+        }
+    ],
+    "acl_mnesia": []
+}

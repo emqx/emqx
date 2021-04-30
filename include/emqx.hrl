@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -88,31 +88,6 @@
           topic :: binary(),
           dest  :: node() | {binary(), node()}
          }).
-
-%%--------------------------------------------------------------------
-%% Trie
-%%--------------------------------------------------------------------
-
--type(trie_node_id() :: binary() | atom()).
-
--record(trie_node, {
-          node_id        :: trie_node_id(),
-          edge_count = 0 :: non_neg_integer(),
-          topic          :: binary() | undefined,
-          flags          :: list(atom()) | undefined
-        }).
-
--record(trie_edge, {
-          node_id :: trie_node_id(),
-          word    :: binary() | atom()
-        }).
-
--record(trie, {
-          edge    :: #trie_edge{},
-          node_id :: trie_node_id()
-        }).
-
--type(trie_node() :: #trie_node{}).
 
 %%--------------------------------------------------------------------
 %% Plugin

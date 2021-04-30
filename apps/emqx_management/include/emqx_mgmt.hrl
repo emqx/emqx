@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -32,4 +32,4 @@
 -define(ERROR14, 114). %% OldPassword error
 -define(ERROR15, 115). %% bad topic
 
--define(VERSIONS, ["1", "3.2", "3.4", "4.0", "4.1", "4.2", "4.3"]).
+-define(VERSIONS, ["4.0", "4.1", "4.2", "4.3"]).

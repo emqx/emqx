@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -33,6 +33,10 @@ init([]) ->
                shutdown => 5000,
                type     => worker,
                modules  => [emqx_router_helper]},
+
+    ok = persistent_term:put(emqx_route_lock_type,
+                             application:get_env(emqx, route_lock_type, key)
+                            ),
 
     %% Router pool
     RouterPool = emqx_pool_sup:spec([router_pool, hash,

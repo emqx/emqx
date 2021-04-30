@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -301,10 +301,5 @@ format_msg(Message)
 format_msg(Message) when is_tuple(Message) ->
     iolist_to_binary(io_lib:format("~p", [Message])).
 
--if(?OTP_RELEASE >= 23).
 urldecode(S) ->
-    [{R, _}] = uri_string:dissect_query(S), R.
--else.
-urldecode(S) ->
-    http_uri:decode(S).
--endif.
+    emqx_http_lib:uri_decode(S).

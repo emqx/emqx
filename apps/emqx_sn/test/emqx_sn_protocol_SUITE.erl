@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -808,25 +808,34 @@ t_publish_qos2_case03(_) ->
 t_will_case01(_) ->
     QoS = 1,
     Duration = 1,
+    WillMsg = <<10, 11, 12, 13, 14>>,
+    WillTopic = <<"abc">>,
     {ok, Socket} = gen_udp:open(0, [binary]),
     ClientId = <<"test">>,
+
+    ok = emqx_broker:subscribe(WillTopic),
+
     send_connect_msg_with_will(Socket, Duration, ClientId),
     ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
 
-    send_willtopic_msg(Socket, <<"abc">>, QoS),
+    send_willtopic_msg(Socket, WillTopic, QoS),
     ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
 
-    send_willmsg_msg(Socket, <<10, 11, 12, 13, 14>>),
+    send_willmsg_msg(Socket, WillMsg),
     ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
 
     send_pingreq_msg(Socket, undefined),
     ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
 
     % wait udp client keepalive timeout
-    timer:sleep(10000),
+    timer:sleep(2000),
 
-    receive_response(Socket), % ignore PUBACK
-
+    receive
+        {deliver, WillTopic, #message{payload = WillMsg}} -> ok;
+        Msg -> ct:print("recevived --- unex: ~p", [Msg])
+    after
+        1000 -> ct:fail(wait_willmsg_timeout)
+    end,
     send_disconnect_msg(Socket, undefined),
     ?assertEqual(udp_receive_timeout, receive_response(Socket)),
 
@@ -1093,10 +1102,12 @@ t_asleep_test04_to_awake_qos1_dl_msg(_) ->
 
     %% send downlink data in asleep state. This message should be send to device once it wake up
     Payload1 = <<55, 66, 77, 88, 99>>,
+    Payload2 = <<55, 66, 77, 88, 100>>,
 
     {ok, C} = emqtt:start_link(),
     {ok, _} = emqtt:connect(C),
     {ok, _} = emqtt:publish(C, <<"a/b/c">>, Payload1, QoS),
+    {ok, _} = emqtt:publish(C, <<"a/b/c">>, Payload2, QoS),
     timer:sleep(100),
     ok = emqtt:disconnect(C),
 
@@ -1105,20 +1116,31 @@ t_asleep_test04_to_awake_qos1_dl_msg(_) ->
     % goto awake state, receive downlink messages, and go back to asleep
     send_pingreq_msg(Socket, <<"test">>),
 
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    %% get REGISTER first, since this topic has never been registered
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    UdpData2 = receive_response(Socket),
-    {TopicIdNew, MsgId3} = check_register_msg_on_udp(<<"a/b/c">>, UdpData2),
+    %% 1. get REGISTER first, since this topic has never been registered
+    UdpData1 = receive_response(Socket),
+    {TopicIdNew, MsgId3} = check_register_msg_on_udp(<<"a/b/c">>, UdpData1),
+
+    %% 2. but before we reply the REGACK, the sn-gateway should not send any PUBLISH
+    ?assertError(_, receive_publish(Socket)),
+
     send_regack_msg(Socket, TopicIdNew, MsgId3),
 
-    UdpData = receive_response(Socket),
-    MsgId_udp = check_publish_msg_on_udp({Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload1}, UdpData),
-    send_puback_msg(Socket, TopicIdNew, MsgId_udp),
+    UdpData2 = receive_response(Socket),
+    MsgId_udp2 = check_publish_msg_on_udp({Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload1}, UdpData2),
+    send_puback_msg(Socket, TopicIdNew, MsgId_udp2),
+
+    UdpData3 = receive_response(Socket),
+    MsgId_udp3 = check_publish_msg_on_udp({Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload2}, UdpData3),
+    send_puback_msg(Socket, TopicIdNew, MsgId_udp3),
 
     ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
 
     gen_udp:close(Socket).
+
+receive_publish(Socket) ->
+    UdpData3 = receive_response(Socket, 1000),
+    <<HeaderUdp:5/binary, _:16, _/binary>> = UdpData3,
+    <<_:8, ?SN_PUBLISH, _/binary>> = HeaderUdp.
 
 t_asleep_test05_to_awake_qos1_dl_msg(_) ->
     QoS = 1,

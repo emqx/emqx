@@ -1,0 +1,58 @@
+{
+  "version": "4.2.11",
+  "date": "2021-04-12 10:40:58",
+  "rules": [],
+  "resources": [],
+  "blacklist": [],
+  "apps": [
+    {
+      "id": "admin",
+      "secret": "public",
+      "name": "Default",
+      "desc": "Application user",
+      "status": true,
+      "expired": "undefined"
+    }
+  ],
+  "users": [
+    {
+      "username": "test",
+      "password": "8Vd7+gVg2J3nE1Xjyxqd59sA5mo=",
+      "tags": "administrator"
+    }
+  ],
+  "auth_clientid": [
+    {
+      "clientid": "client_for_test",
+      "password": "ARLrzTRhZTI1MzgxNjdjMDU5ODFhZDU3ZTdmNzJiOWM5MWUwMTFkNDk4OGUyZWUyYmU0ZTE2ZTg2OWNhMGQyYWQ5ZmU="
+    }
+  ],
+  "auth_username": [
+    {
+      "username": "user_for_test",
+      "password": "ARLrzTRhZTI1MzgxNjdjMDU5ODFhZDU3ZTdmNzJiOWM5MWUwMTFkNDk4OGUyZWUyYmU0ZTE2ZTg2OWNhMGQyYWQ5ZmU="
+    }
+  ],
+  "auth_mnesia": [
+    {
+      "login": "user_mnesia",
+      "password": "ARLrzTRhZTI1MzgxNjdjMDU5ODFhZDU3ZTdmNzJiOWM5MWUwMTFkNDk4OGUyZWUyYmU0ZTE2ZTg2OWNhMGQyYWQ5ZmU=",
+      "is_superuser": true
+    }
+  ],
+  "acl_mnesia": [
+    {
+      "login": "emqx_c",
+      "topic": "Topic/A",
+      "action": "sub",
+      "allow": true
+    },
+    {
+      "login": "emqx_c",
+      "topic": "Topic/A",
+      "action": "pub",
+      "allow": true
+    }
+  ],
+  "schemas": []
+}

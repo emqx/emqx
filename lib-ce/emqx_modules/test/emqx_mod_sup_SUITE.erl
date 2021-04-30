@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -28,7 +28,6 @@ all() -> emqx_ct:all(?MODULE).
 %%--------------------------------------------------------------------
 
 t_start(_) ->
-    {ok, _} = emqx_mod_sup:start_link(),
     ?assertEqual([], supervisor:which_children(emqx_mod_sup)).
 
 t_start_child(_) ->
@@ -41,7 +40,6 @@ t_start_child(_) ->
              type => worker,
              modules => [Mod]},
 
-    {ok, _} = emqx_mod_sup:start_link(),
     ok  = emqx_mod_sup:start_child(Mod, worker),
     ?assertError({already_started, _}, emqx_mod_sup:start_child(Spec)),
 

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -20,25 +20,25 @@
 -define(APP, emqx_exhook).
 
 -define(ENABLED_HOOKS,
-      [ {'client.connect',      {?MODULE, on_client_connect,       []}}
-      , {'client.connack',      {?MODULE, on_client_connack,       []}}
-      , {'client.connected',    {?MODULE, on_client_connected,     []}}
-      , {'client.disconnected', {?MODULE, on_client_disconnected,  []}}
-      , {'client.authenticate', {?MODULE, on_client_authenticate,  []}}
-      , {'client.check_acl',    {?MODULE, on_client_check_acl,     []}}
-      , {'client.subscribe',    {?MODULE, on_client_subscribe,     []}}
-      , {'client.unsubscribe',  {?MODULE, on_client_unsubscribe,   []}}
-      , {'session.created',     {?MODULE, on_session_created,      []}}
-      , {'session.subscribed',  {?MODULE, on_session_subscribed,   []}}
-      , {'session.unsubscribed',{?MODULE, on_session_unsubscribed, []}}
-      , {'session.resumed',     {?MODULE, on_session_resumed,      []}}
-      , {'session.discarded',   {?MODULE, on_session_discarded,    []}}
-      , {'session.takeovered',  {?MODULE, on_session_takeovered,   []}}
-      , {'session.terminated',  {?MODULE, on_session_terminated,   []}}
-      , {'message.publish',     {?MODULE, on_message_publish,      []}}
-      , {'message.delivered',   {?MODULE, on_message_delivered,    []}}
-      , {'message.acked',       {?MODULE, on_message_acked,        []}}
-      , {'message.dropped',     {?MODULE, on_message_dropped,      []}}
+      [ {'client.connect',      {emqx_exhook_handler, on_client_connect,       []}}
+      , {'client.connack',      {emqx_exhook_handler, on_client_connack,       []}}
+      , {'client.connected',    {emqx_exhook_handler, on_client_connected,     []}}
+      , {'client.disconnected', {emqx_exhook_handler, on_client_disconnected,  []}}
+      , {'client.authenticate', {emqx_exhook_handler, on_client_authenticate,  []}}
+      , {'client.check_acl',    {emqx_exhook_handler, on_client_check_acl,     []}}
+      , {'client.subscribe',    {emqx_exhook_handler, on_client_subscribe,     []}}
+      , {'client.unsubscribe',  {emqx_exhook_handler, on_client_unsubscribe,   []}}
+      , {'session.created',     {emqx_exhook_handler, on_session_created,      []}}
+      , {'session.subscribed',  {emqx_exhook_handler, on_session_subscribed,   []}}
+      , {'session.unsubscribed',{emqx_exhook_handler, on_session_unsubscribed, []}}
+      , {'session.resumed',     {emqx_exhook_handler, on_session_resumed,      []}}
+      , {'session.discarded',   {emqx_exhook_handler, on_session_discarded,    []}}
+      , {'session.takeovered',  {emqx_exhook_handler, on_session_takeovered,   []}}
+      , {'session.terminated',  {emqx_exhook_handler, on_session_terminated,   []}}
+      , {'message.publish',     {emqx_exhook_handler, on_message_publish,      []}}
+      , {'message.delivered',   {emqx_exhook_handler, on_message_delivered,    []}}
+      , {'message.acked',       {emqx_exhook_handler, on_message_acked,        []}}
+      , {'message.dropped',     {emqx_exhook_handler, on_message_dropped,      []}}
       ]).
 
 -endif.

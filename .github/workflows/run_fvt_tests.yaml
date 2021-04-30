@@ -24,8 +24,10 @@ jobs:
               echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
               make deps-emqx-ee
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
+              echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             else
               echo "TARGET=emqx/emqx" >> $GITHUB_ENV
+              echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             fi
         - name: make emqx image
           run: make docker
@@ -33,19 +35,20 @@ jobs:
           timeout-minutes: 5
           run: |
             set -e -u -x
-            docker-compose -f .ci/fvt_tests/docker-compose.yaml up -d
-            while [ "$(docker inspect -f '{{ .State.Health.Status}}' node1.emqx.io)" != "healthy" ] || [ "$(docker inspect -f '{{ .State.Health.Status}}' node2.emqx.io)" != "healthy" ]; do
-              if [ $(docker ps -a -f name=fvt_tests_emqx -f status=exited -q | wc -l) -ne 0 ]; then
-                  echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']:emqx stop";
-                  exit;
-              else
-                  echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']:waiting emqx";
-                  sleep 5;
-              fi;
+            echo "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" >> .ci/docker-compose-file/conf.cluster.env
+            echo "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s" >> .ci/docker-compose-file/conf.cluster.env
+            echo "EMQX_MQTT__MAX_TOPIC_ALIAS=10" >> .ci/docker-compose-file/conf.cluster.env
+            docker-compose \
+                -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
+                -f .ci/docker-compose-file/docker-compose-python.yaml \
+                up -d
+            while ! docker exec -i node1.emqx.io bash -c "emqx eval \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = maps:get(running_nodes, ekka_cluster:info()).\"" > /dev/null 2>&1; do
+                echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']:waiting emqx";
+                sleep 5;
             done
         - name: make paho tests
           run: |
-            if ! docker exec -i paho_client /scripts/pytest.sh; then
+            if ! docker exec -i python /scripts/pytest.sh; then
               docker logs node1.emqx.io
               docker logs node2.emqx.io
               exit 1
@@ -149,7 +152,7 @@ jobs:
 
     relup_test:
         runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.2.7-ubuntu20.04
+        container: emqx/build-env:erl23.2.7.2-emqx-1-ubuntu20.04
         defaults:
           run:
             shell: bash

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -56,7 +56,7 @@ coap_get(ChId, ?MQTT_PREFIX, Path, Query, _Content) ->
             #coap_content{};
         {error, auth_failure} ->
             put(mqtt_client_pid, undefined),
-            {error, forbidden};
+            {error, unauthorized};
         {error, bad_request} ->
             put(mqtt_client_pid, undefined),
             {error, bad_request};

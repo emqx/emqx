@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -43,12 +43,38 @@
         , now_to_secs/1
         , now_to_ms/1
         , index_of/2
+        , maybe_parse_ip/1
+        , ipv6_probe/1
         ]).
 
 -export([ bin2hexstr_A_F/1
         , bin2hexstr_a_f/1
         , hexstr2bin/1
         ]).
+
+%% @doc Parse v4 or v6 string format address to tuple.
+%% `Host' itself is returned if it's not an ip string.
+maybe_parse_ip(Host) ->
+    case inet:parse_address(Host) of
+        {ok, Addr} when is_tuple(Addr) -> Addr;
+        {error, einval} -> Host
+    end.
+
+%% @doc Add `ipv6_probe' socket option if it's supported.
+ipv6_probe(Opts) ->
+    case persistent_term:get({?MODULE, ipv6_probe_supported}, unknown) of
+        unknown ->
+            %% e.g. 23.2.7.1-emqx-2-x86_64-unknown-linux-gnu-64
+            OtpVsn = emqx_vm:get_otp_version(),
+            Bool = (match =:= re:run(OtpVsn, "emqx", [{capture, none}])),
+            _ = persistent_term:put({?MODULE, ipv6_probe_supported}, Bool),
+            ipv6_probe(Bool, Opts);
+        Bool ->
+            ipv6_probe(Bool, Opts)
+    end.
+
+ipv6_probe(false, Opts) -> Opts;
+ipv6_probe(true, Opts) -> [{ipv6_probe, true} | Opts].
 
 %% @doc Merge options
 -spec(merge_opts(Opts, Opts) -> Opts when Opts :: proplists:proplist()).
@@ -258,3 +284,10 @@ hexchar2int(I) when I >= $0 andalso I =< $9 -> I - $0;
 hexchar2int(I) when I >= $A andalso I =< $F -> I - $A + 10;
 hexchar2int(I) when I >= $a andalso I =< $f -> I - $a + 10.
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+ipv6_probe_test() ->
+    ?assertEqual([{ipv6_probe, true}], ipv6_probe([])).
+
+-endif.

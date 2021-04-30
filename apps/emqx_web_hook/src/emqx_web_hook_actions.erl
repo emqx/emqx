@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -325,17 +325,18 @@ str(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 str(Bin) when is_binary(Bin) -> binary_to_list(Bin).
 
 pool_opts(Params = #{<<"url">> := URL}, ResId) ->
-    {ok, #{host := Host0,
+    {ok, #{host := Host,
            port := Port,
            scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
     PoolSize = maps:get(<<"pool_size">>, Params, 32),
     ConnectTimeout =
         cuttlefish_duration:parse(str(maps:get(<<"connect_timeout">>, Params, <<"5s">>))),
-    {Inet, Host} = parse_host(Host0),
-    TransportOpts = case Scheme =:= https of
-                        true  -> [Inet | get_ssl_opts(Params, ResId)];
-                        false -> [Inet]
-                    end,
+    TransportOpts0 =
+        case Scheme =:= https of
+            true  -> [get_ssl_opts(Params, ResId)];
+            false -> []
+        end,
+    TransportOpts = emqx_misc:ipv6_probe(TransportOpts0),
     Opts = case Scheme =:= https  of
                true  -> [{transport_opts, TransportOpts}, {transport, ssl}];
                false -> [{transport_opts, TransportOpts}]
@@ -353,17 +354,6 @@ pool_name(ResId) ->
 
 get_ssl_opts(Opts, ResId) ->
     [{ssl, true}, {ssl_opts, emqx_plugin_libs_ssl:save_files_return_opts(Opts, "rules", ResId)}].
-
-parse_host(Host) ->
-    case inet:parse_address(Host) of
-        {ok, Addr} when size(Addr) =:= 4 -> {inet, Addr};
-        {ok, Addr} when size(Addr) =:= 8 -> {inet6, Addr};
-        {error, einval} ->
-            case inet:getaddr(Host, inet6) of
-                {ok, _} -> {inet6, Host};
-                {error, _} -> {inet, Host}
-            end
-    end.
 
 test_http_connect(Conf) ->
     Url = fun() -> maps:get(<<"url">>, Conf) end,

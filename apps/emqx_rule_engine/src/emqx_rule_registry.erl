@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -63,6 +63,8 @@
 %% Resource Types
 -export([ get_resource_types/0
         , find_resource_type/1
+        , find_rules_depends_on_resource/1
+        , find_enabled_rules_depends_on_resource/1
         , register_resource_types/1
         , unregister_resource_types_of/1
         ]).
@@ -354,7 +356,7 @@ find_resource_params(Id) ->
         [] -> not_found
     end.
 
--spec(remove_resource(emqx_rule_engine:resource() | emqx_rule_engine:resource_id()) -> ok).
+-spec(remove_resource(emqx_rule_engine:resource() | emqx_rule_engine:resource_id()) -> ok | {error, term()}).
 remove_resource(Resource) when is_record(Resource, resource) ->
     trans(fun delete_resource/1, [Resource#resource.id]);
 
@@ -368,19 +370,31 @@ remove_resource_params(ResId) ->
 
 %% @private
 delete_resource(ResId) ->
-    lists:foreach(fun(#rule{id = Id, actions = Actions}) ->
-        lists:foreach(
-            fun (#action_instance{args = #{<<"$resource">> := ResId1}})
-                when ResId =:= ResId1 ->
-                    throw({dependency_exists, {rule, Id}});
-                (_) -> ok
-            end, Actions)
-    end, get_rules()),
-    mnesia:delete(?RES_TAB, ResId, write).
+    case find_enabled_rules_depends_on_resource(ResId) of
+        [] -> mnesia:delete(?RES_TAB, ResId, write);
+        Rules ->
+            {error, {dependent_rules_exists, [Id || #rule{id = Id} <- Rules]}}
+    end.
 
 %% @private
 insert_resource(Resource) ->
     mnesia:write(?RES_TAB, Resource, write).
+
+find_enabled_rules_depends_on_resource(ResId) ->
+    [R || #rule{enabled = true} = R <- find_rules_depends_on_resource(ResId)].
+
+find_rules_depends_on_resource(ResId) ->
+    lists:foldl(fun(#rule{actions = Actions} = R, Rules) ->
+        case search_action_despends_on_resource(ResId, Actions) of
+            false -> Rules;
+            {value, _} -> [R | Rules]
+        end
+    end, [], get_rules()).
+
+search_action_despends_on_resource(ResId, Actions) ->
+    lists:search(fun(#action_instance{args = #{<<"$resource">> := ResId0}}) ->
+        ResId0 =:= ResId
+    end, Actions).
 
 %%------------------------------------------------------------------------------
 %% Resource Type Management
@@ -475,6 +489,6 @@ get_all_records(Tab) ->
 trans(Fun) -> trans(Fun, []).
 trans(Fun, Args) ->
     case mnesia:transaction(Fun, Args) of
-        {atomic, ok} -> ok;
+        {atomic, Result} -> Result;
         {aborted, Reason} -> error(Reason)
     end.
