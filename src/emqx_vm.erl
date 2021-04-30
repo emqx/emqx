@@ -369,20 +369,29 @@ compat_windows(Fun) ->
     end.
 
 %% @doc Return on which Eralng/OTP the current vm is running.
+%% NOTE: This API reads a file, do not use it in critical code paths.
 get_otp_version() ->
-    string:trim(binary_to_list(read_otp_version())).
+    parse_built_on(read_otp_version()).
 
 read_otp_version() ->
     ReleasesDir = filename:join([code:root_dir(), "releases"]),
     Filename = filename:join([ReleasesDir, emqx_app:get_release(), "BUILT_ON"]),
     case file:read_file(Filename) of
-        {ok, Vsn} ->
+        {ok, BuiltOn} ->
             %% running on EQM X release
-            Vsn;
+            BuiltOn;
         {error, enoent} ->
             %% running tests etc.
             OtpMajor = erlang:system_info(otp_release),
             OtpVsnFile = filename:join([ReleasesDir, OtpMajor, "OTP_VERSION"]),
             {ok, Vsn} = file:read_file(OtpVsnFile),
             Vsn
+    end.
+
+parse_built_on(BuiltOn) ->
+    case binary:split(BuiltOn, <<"-">>, [global]) of
+        [Vsn, <<"emqx">>, N | _] ->
+            binary_to_list(Vsn) ++ "-emqx-" ++ binary_to_list(N);
+        [Vsn | _] ->
+            string:trim(binary_to_list(Vsn))
     end.
