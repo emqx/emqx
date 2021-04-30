@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -36,7 +36,9 @@
         ]).
 
 %% For Mgmt
--export([call/2]).
+-export([ call/2
+        , call/3
+        ]).
 
 -record(lwm2m_state, { peername
                      , endpoint_name
@@ -63,7 +65,10 @@
 %%--------------------------------------------------------------------
 
 call(Pid, Msg) ->
-    case catch gen_server:call(Pid, Msg) of
+    call(Pid, Msg, 5000).
+
+call(Pid, Msg, Timeout) ->
+    case catch gen_server:call(Pid, Msg, Timeout) of
         ok -> ok;
         {'EXIT', {{shutdown, kick},_}} -> ok;
         Error -> {error, Error}

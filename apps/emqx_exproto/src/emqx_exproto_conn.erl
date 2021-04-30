@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@
         ]).
 
 -export([ call/2
+        , call/3
         , cast/2
         ]).
 
@@ -154,7 +155,10 @@ stats(#state{socket  = Socket,
     lists:append([SockStats, ConnStats, ChanStats, ProcStats]).
 
 call(Pid, Req) ->
-    gen_server:call(Pid, Req, infinity).
+    call(Pid, Req, infinity).
+
+call(Pid, Req, Timeout) ->
+    gen_server:call(Pid, Req, Timeout).
 
 cast(Pid, Req) ->
     gen_server:cast(Pid, Req).

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -37,7 +37,9 @@
         , stop/1
         ]).
 
--export([call/2]).
+-export([ call/2
+        , call/3
+        ]).
 
 %% gen_server.
 -export([ init/1
@@ -93,6 +95,9 @@ publish(Pid, Topic, Payload) ->
 
 %% For emqx_management plugin
 call(Pid, Msg) ->
+    call(Pid, Msg, infinity).
+
+call(Pid, Msg, _) ->
     Pid ! Msg, ok.
 
 %%--------------------------------------------------------------------
@@ -100,8 +105,8 @@ call(Pid, Msg) ->
 %%--------------------------------------------------------------------
 
 init({ClientId, Username, Password, Channel}) ->
-    ?LOG(debug, "try to start adapter ClientId=~p, Username=~p, Password=~p, Channel=~p",
-         [ClientId, Username, Password, Channel]),
+    ?LOG(debug, "try to start adapter ClientId=~p, Username=~p, Password=~p, "
+                "Channel=~0p", [ClientId, Username, Password, Channel]),
     State0 = #state{peername = Channel,
                     clientid = ClientId,
                     username = Username,

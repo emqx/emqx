@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -40,6 +40,7 @@
 -export([ get_ets_list/0
         , get_ets_info/0
         , get_ets_info/1
+        , get_otp_version/0
         ]).
 
 -export([cpu_util/0]).
@@ -367,3 +368,30 @@ compat_windows(Fun) ->
             end
     end.
 
+%% @doc Return on which Eralng/OTP the current vm is running.
+%% NOTE: This API reads a file, do not use it in critical code paths.
+get_otp_version() ->
+    parse_built_on(read_otp_version()).
+
+read_otp_version() ->
+    ReleasesDir = filename:join([code:root_dir(), "releases"]),
+    Filename = filename:join([ReleasesDir, emqx_app:get_release(), "BUILT_ON"]),
+    case file:read_file(Filename) of
+        {ok, BuiltOn} ->
+            %% running on EQM X release
+            BuiltOn;
+        {error, enoent} ->
+            %% running tests etc.
+            OtpMajor = erlang:system_info(otp_release),
+            OtpVsnFile = filename:join([ReleasesDir, OtpMajor, "OTP_VERSION"]),
+            {ok, Vsn} = file:read_file(OtpVsnFile),
+            Vsn
+    end.
+
+parse_built_on(BuiltOn) ->
+    case binary:split(BuiltOn, <<"-">>, [global]) of
+        [Vsn, <<"emqx">>, N | _] ->
+            binary_to_list(Vsn) ++ "-emqx-" ++ binary_to_list(N);
+        [Vsn | _] ->
+            string:trim(binary_to_list(Vsn))
+    end.

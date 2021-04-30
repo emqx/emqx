@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -41,16 +41,15 @@ stop(_State) ->
 
 translate_env() ->
     {ok, URL} = application:get_env(?APP, url),
-    {ok, #{host := Host0,
+    {ok, #{host := Host,
            path := Path0,
            port := Port,
            scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
     Path = path(Path0),
-    {Inet, Host} = parse_host(Host0),
     PoolSize = application:get_env(?APP, pool_size, 32),
     MoreOpts = case Scheme of
                    http ->
-                       [{transport_opts, [Inet]}];
+                       [{transport_opts, emqx_misc:ipv6_probe([])}];
                    https ->
                        CACertFile = application:get_env(?APP, cacertfile, undefined),
                        CertFile = application:get_env(?APP, certfile, undefined),
@@ -75,7 +74,7 @@ translate_env() ->
                                   , {ciphers, emqx_tls_lib:default_ciphers()}
                                   | TLSOpts
                                   ],
-                       [{transport, ssl}, {transport_opts, [Inet | NTLSOpts]}]
+                       [{transport, ssl}, {transport_opts, emqx_misc:ipv6_probe(NTLSOpts)}]
                 end,
     PoolOpts = [{host, Host},
                 {port, Port},
@@ -98,14 +97,3 @@ path(Path) ->
 set_content_type(Headers) ->
     NHeaders = proplists:delete(<<"Content-Type">>, proplists:delete(<<"content-type">>, Headers)),
     [{<<"content-type">>, <<"application/json">>} | NHeaders].
-
-parse_host(Host) ->
-    case inet:parse_address(Host) of
-        {ok, Addr} when size(Addr) =:= 4 -> {inet, Addr};
-        {ok, Addr} when size(Addr) =:= 8 -> {inet6, Addr};
-        {error, einval} ->
-            case inet:getaddr(Host, inet6) of
-                {ok, _} -> {inet6, Host};
-                {error, _} -> {inet, Host}
-            end
-    end.

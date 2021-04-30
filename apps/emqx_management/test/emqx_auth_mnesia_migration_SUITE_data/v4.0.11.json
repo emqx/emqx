@@ -1,0 +1,28 @@
+{
+  "version": "4.0",
+  "users": [],
+  "schemas": [],
+  "rules": [],
+  "resources": [],
+  "date": "2021-04-10 11:45:26",
+  "blacklist": [],
+  "auth_username": [],
+  "auth_mnesia": [],
+  "auth_clientid": [
+    {
+      "password": "9Sv2tzJlNDlmNWZhYWQ5Yzc4MWUwNmFhZWI4NjFlMDM2OWEzYmE1OTkxOTBhOGQ4N2Y3MzExY2ZiZmIxNTFkMTdkZmY=",
+      "clientid": "emqx_clientid"
+    }
+  ],
+  "apps": [
+    {
+      "status": true,
+      "secret": "public",
+      "name": "Default",
+      "id": "admin",
+      "expired": "undefined",
+      "desc": "Application user"
+    }
+  ],
+  "acl_mnesia": []
+}

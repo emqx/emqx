@@ -1,0 +1,119 @@
+{
+    "version": "4.2",
+    "date": "2021-04-13 11:35:13",
+    "modules": [
+        {
+            "id": "module:b9294d70",
+            "type": "recon",
+            "config": {},
+            "enabled": true,
+            "created_at": "undefined",
+            "description": ""
+        },
+        {
+            "id": "module:c7c7b692",
+            "type": "presence",
+            "config": {
+                "qos": 0
+            },
+            "enabled": true,
+            "created_at": "undefined",
+            "description": ""
+        },
+        {
+            "id": "module:486adc4b",
+            "type": "internal_acl",
+            "config": {
+                "acl_rule_file": "etc/acl.conf"
+            },
+            "enabled": true,
+            "created_at": "undefined",
+            "description": ""
+        },
+        {
+            "id": "module:411cf85d",
+            "type": "retainer",
+            "config": {
+                "storage_type": "ram",
+                "max_retained_messages": 0,
+                "max_payload_size": "1MB",
+                "expiry_interval": 0
+            },
+            "enabled": true,
+            "created_at": "undefined",
+            "description": ""
+        },
+        {
+            "id": "module:127b92c3",
+            "type": "hot_confs",
+            "config": {},
+            "enabled": true,
+            "created_at": "undefined",
+            "description": ""
+        }
+    ],
+    "rules": [],
+    "resources": [
+        {
+            "id": "bridge",
+            "type": "bridge_mqtt",
+            "config": {
+                "address": "127.0.0.1:1883",
+                "append": true,
+                "bridge_mode": false,
+                "cacertfile": "etc/certs/cacert.pem",
+                "certfile": "etc/certs/client-cert.pem",
+                "ciphers": "ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES256-GCM-SHA384,ECDHE-ECDSA-AES256-SHA384,ECDHE-RSA-AES256-SHA384,ECDHE-ECDSA-DES-CBC3-SHA,ECDH-ECDSA-AES256-GCM-SHA384,ECDH-RSA-AES256-GCM-SHA384,ECDH-ECDSA-AES256-SHA384,ECDH-RSA-AES256-SHA384,DHE-DSS-AES256-GCM-SHA384,DHE-DSS-AES256-SHA256,AES256-GCM-SHA384,AES256-SHA256,ECDHE-ECDSA-AES128-GCM-SHA256,ECDHE-RSA-AES128-GCM-SHA256,ECDHE-ECDSA-AES128-SHA256,ECDHE-RSA-AES128-SHA256,ECDH-ECDSA-AES128-GCM-SHA256,ECDH-RSA-AES128-GCM-SHA256,ECDH-ECDSA-AES128-SHA256,ECDH-RSA-AES128-SHA256,DHE-DSS-AES128-GCM-SHA256,DHE-DSS-AES128-SHA256,AES128-GCM-SHA256,AES128-SHA256,ECDHE-ECDSA-AES256-SHA,ECDHE-RSA-AES256-SHA,DHE-DSS-AES256-SHA,ECDH-ECDSA-AES256-SHA,ECDH-RSA-AES256-SHA,AES256-SHA,ECDHE-ECDSA-AES128-SHA,ECDHE-RSA-AES128-SHA,DHE-DSS-AES128-SHA,ECDH-ECDSA-AES128-SHA,ECDH-RSA-AES128-SHA,AES128-SHA",
+                "clientid": "client",
+                "disk_cache": "off",
+                "keepalive": "60s",
+                "keyfile": "etc/certs/client-key.pem",
+                "mountpoint": "bridge/emqx/${node}/",
+                "password": "",
+                "pool_size": 8,
+                "proto_ver": "mqttv4",
+                "reconnect_interval": "30s",
+                "retry_interval": "20s",
+                "ssl": "off",
+                "username": ""
+            },
+            "created_at": null,
+            "description": "bridge"
+        },
+        {
+            "id": "rpc",
+            "type": "bridge_rpc",
+            "config": {
+                "address": "test@127.0.0.1",
+                "batch_size": 32,
+                "disk_cache": "off",
+                "mountpoint": "bridge/emqx/${node}/",
+                "pool_size": 8,
+                "reconnect_interval": "30s"
+            },
+            "created_at": null,
+            "description": "rpc"
+        }
+    ],
+    "blacklist": [],
+    "apps": [
+        {
+            "id": "admin",
+            "secret": "public",
+            "name": "Default",
+            "desc": "Application user",
+            "status": true,
+            "expired": "undefined"
+        }
+    ],
+    "users": [
+        {
+            "username": "admin",
+            "password": "bx1P63qGDhKvZYdltxX4NVY2kS4=",
+            "tags": "administrator"
+        }
+    ],
+    "auth_mnesia": [],
+    "acl_mnesia": [],
+    "schemas": []
+}

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2019-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -50,6 +50,7 @@ init_per_testcase(TestCase, Config) when
     ->
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
+    ok = meck:expect(cowboy_req, header, fun(_, _, _) -> <<>> end),
     ok = meck:expect(cowboy_req, peer, fun(_) -> {{127,0,0,1}, 3456} end),
     ok = meck:expect(cowboy_req, sock, fun(_) -> {{127,0,0,1}, 18083} end),
     ok = meck:expect(cowboy_req, cert, fun(_) -> undefined end),
@@ -122,6 +123,22 @@ t_info(_) ->
       sockname  := {{127,0,0,1}, 18083},
       sockstate := running
      } = SockInfo.
+
+t_header(_) ->
+    ok = meck:expect(cowboy_req, header, fun(<<"x-forwarded-for">>, _, _) -> <<"100.100.100.100, 99.99.99.99">>;
+                                            (<<"x-forwarded-port">>, _, _) -> <<"1000">> end),
+    {ok, St, _} = ?ws_conn:websocket_init([req, [{zone, external},
+                                                 {proxy_address_header, <<"x-forwarded-for">>},
+                                                 {proxy_port_header, <<"x-forwarded-port">>}]]),
+    WsPid = spawn(fun() ->
+        receive {call, From, info} ->
+            gen_server:reply(From, ?ws_conn:info(St))
+        end end),
+    #{sockinfo := SockInfo} = ?ws_conn:call(WsPid, info),
+    #{socktype  := ws,
+        peername  := {{100,100,100,100}, 1000},
+        sockstate := running
+    } = SockInfo.
 
 t_info_limiter(_) ->
     St = st(#{limiter => emqx_limiter:init(external, [])}),

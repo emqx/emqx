@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -36,11 +36,14 @@ start(_Type, _Args) ->
     set_backtrace_depth(),
     print_otp_version_warning(),
     print_banner(),
+    %% Load application first for ekka_mnesia scanner
+    _ = load_ce_modules(),
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),
     ok = start_autocluster(),
     ok = emqx_plugins:init(),
     _ = emqx_plugins:load(),
+    _ = start_ce_modules(),
     emqx_boot:is_enabled(listeners) andalso (ok = emqx_listeners:start()),
     register(emqx, self()),
     ok = emqx_alarm_handler:load(),
@@ -58,6 +61,18 @@ set_backtrace_depth() ->
     _ = erlang:system_flag(backtrace_depth, Depth),
     ok.
 
+-ifndef(EMQX_ENTERPRISE).
+load_ce_modules() ->
+    application:load(emqx_modules).
+start_ce_modules() ->
+    application:ensure_all_started(emqx_modules).
+-else.
+load_ce_modules() ->
+    ok.
+start_ce_modules() ->
+    ok.
+-endif.
+
 %%--------------------------------------------------------------------
 %% Print Banner
 %%--------------------------------------------------------------------
@@ -68,19 +83,25 @@ print_otp_version_warning() -> ok.
 print_otp_version_warning() ->
     io:format("WARNING: Running on Erlang/OTP version ~p. Recommended: 23~n",
               [?OTP_RELEASE]).
--endif.
+-endif. % OTP_RELEASE
 
+-ifndef(TEST).
 
 print_banner() ->
     io:format("Starting ~s on node ~s~n", [?APP, node()]).
 
--ifndef(TEST).
 print_vsn() ->
     io:format("~s ~s is running now!~n", [get_description(), get_release()]).
--else.
+
+-else. % TEST
+
 print_vsn() ->
     ok.
--endif.
+
+print_banner() ->
+    ok.
+
+-endif. % TEST
 
 get_description() ->
     {ok, Descr0} = application:get_key(?APP, description),

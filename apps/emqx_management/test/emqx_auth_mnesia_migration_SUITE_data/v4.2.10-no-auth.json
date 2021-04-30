@@ -1,0 +1,29 @@
+{
+  "version": "4.2",
+  "date": "2021-04-12 10:41:10",
+  "rules": [],
+  "resources": [],
+  "blacklist": [],
+  "apps": [
+    {
+      "id": "admin",
+      "secret": "public",
+      "name": "Default",
+      "desc": "Application user",
+      "status": true,
+      "expired": "undefined"
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "password": "e5M8oWEwQVqjdqceQIthC+3cPoY=",
+      "tags": "administrator"
+    }
+  ],
+  "auth_clientid": [],
+  "auth_username": [],
+  "auth_mnesia": [],
+  "acl_mnesia": [],
+  "schemas": []
+}

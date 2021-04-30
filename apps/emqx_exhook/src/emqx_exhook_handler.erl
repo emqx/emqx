@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -89,6 +89,12 @@ on_client_disconnected(ClientInfo, Reason, _ConnInfo) ->
     cast('client.disconnected', Req).
 
 on_client_authenticate(ClientInfo, AuthResult) ->
+    %% XXX: Bool is missing more information about the atom of the result
+    %%      So, the `Req` has missed detailed info too.
+    %%
+    %%      The return value of `call_fold` just a bool, that has missed
+    %%      detailed info too.
+    %%
     Bool = maps:get(auth_result, AuthResult, undefined) == success,
     Req = #{clientinfo => clientinfo(ClientInfo),
             result => Bool
@@ -96,8 +102,8 @@ on_client_authenticate(ClientInfo, AuthResult) ->
 
     case call_fold('client.authenticate', Req,
                    fun merge_responsed_bool/2) of
-        {StopOrOk, #{result := Bool}} when is_boolean(Bool) ->
-            Result = case Bool of true -> success; _ -> not_authorized end,
+        {StopOrOk, #{result := Result0}} when is_boolean(Result0) ->
+            Result = case Result0 of true -> success; _ -> not_authorized end,
             {StopOrOk, AuthResult#{auth_result => Result, anonymous => false}};
         _ ->
             {ok, AuthResult}
@@ -116,8 +122,8 @@ on_client_check_acl(ClientInfo, PubSub, Topic, Result) ->
            },
     case call_fold('client.check_acl', Req,
                    fun merge_responsed_bool/2) of
-        {StopOrOk, #{result := Bool}} when is_boolean(Bool) ->
-            NResult = case Bool of true -> allow; _ -> deny end,
+        {StopOrOk, #{result := Result0}} when is_boolean(Result0) ->
+            NResult = case Result0 of true -> allow; _ -> deny end,
             {StopOrOk, NResult};
         _ -> {ok, Result}
     end.
@@ -248,7 +254,9 @@ clientinfo(ClientInfo =
       protocol => stringfy(Protocol),
       mountpoint => maybe(Mountpoiont),
       is_superuser => maps:get(is_superuser, ClientInfo, false),
-      anonymous => maps:get(anonymous, ClientInfo, true)}.
+      anonymous => maps:get(anonymous, ClientInfo, true),
+      cn => maybe(maps:get(cn, ClientInfo, undefined)),
+      dn => maybe(maps:get(dn, ClientInfo, undefined))}.
 
 message(#message{id = Id, qos = Qos, from = From, topic = Topic, payload = Payload, timestamp = Ts}) ->
     #{node => stringfy(node()),
@@ -287,8 +295,8 @@ stringfy(Term) ->
 %% Acc funcs
 
 %% see exhook.proto
-merge_responsed_bool(Req, #{type := 'IGNORE'}) ->
-    {ok, Req};
+merge_responsed_bool(_Req, #{type := 'IGNORE'}) ->
+    ignore;
 merge_responsed_bool(Req, #{type := Type, value := {bool_result, NewBool}})
   when is_boolean(NewBool) ->
     NReq = Req#{result => NewBool},
@@ -296,18 +304,18 @@ merge_responsed_bool(Req, #{type := Type, value := {bool_result, NewBool}})
         'CONTINUE' -> {ok, NReq};
         'STOP_AND_RETURN' -> {stop, NReq}
     end;
-merge_responsed_bool(Req, Resp) ->
+merge_responsed_bool(_Req, Resp) ->
     ?LOG(warning, "Unknown responsed value ~0p to merge to callback chain", [Resp]),
-    {ok, Req}.
+    ignore.
 
-merge_responsed_message(Req, #{type := 'IGNORE'}) ->
-    {ok, Req};
+merge_responsed_message(_Req, #{type := 'IGNORE'}) ->
+    ignore;
 merge_responsed_message(Req, #{type := Type, value := {message, NMessage}}) ->
     NReq = Req#{message => NMessage},
     case Type of
         'CONTINUE' -> {ok, NReq};
         'STOP_AND_RETURN' -> {stop, NReq}
     end;
-merge_responsed_message(Req, Resp) ->
+merge_responsed_message(_Req, Resp) ->
     ?LOG(warning, "Unknown responsed value ~0p to merge to callback chain", [Resp]),
-    {ok, Req}.
+    ignore.

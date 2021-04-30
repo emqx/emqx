@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -179,18 +179,44 @@ on_client_disconnected(Req, Md) ->
 -spec on_client_authenticate(emqx_exhook_pb:client_authenticate_request(), grpc:metadata())
     -> {ok, emqx_exhook_pb:valued_response(), grpc:metadata()}
      | {error, grpc_cowboy_h:error_response()}.
-on_client_authenticate(Req, Md) ->
+on_client_authenticate(#{clientinfo := #{username := Username}} = Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
     %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
-    {ok, #{type => 'IGNORE'}, Md}.
+    %% some cases for testing
+    case Username of
+        <<"baduser">> ->
+            {ok, #{type => 'STOP_AND_RETURN',
+                   value => {bool_result, false}}, Md};
+        <<"gooduser">> ->
+            {ok, #{type => 'STOP_AND_RETURN',
+                   value => {bool_result, true}}, Md};
+        <<"normaluser">> ->
+            {ok, #{type => 'CONTINUE',
+                   value => {bool_result, true}}, Md};
+        _ ->
+            {ok, #{type => 'IGNORE'}, Md}
+    end.
 
 -spec on_client_check_acl(emqx_exhook_pb:client_check_acl_request(), grpc:metadata())
     -> {ok, emqx_exhook_pb:valued_response(), grpc:metadata()}
      | {error, grpc_cowboy_h:error_response()}.
-on_client_check_acl(Req, Md) ->
+on_client_check_acl(#{clientinfo := #{username := Username}} = Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
     %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
-    {ok, #{type => 'STOP_AND_RETURN', value => {bool_result, true}}, Md}.
+    %% some cases for testing
+    case Username of
+        <<"baduser">> ->
+            {ok, #{type => 'STOP_AND_RETURN',
+                   value => {bool_result, false}}, Md};
+        <<"gooduser">> ->
+            {ok, #{type => 'STOP_AND_RETURN',
+                   value => {bool_result, true}}, Md};
+        <<"normaluser">> ->
+            {ok, #{type => 'CONTINUE',
+                   value => {bool_result, true}}, Md};
+        _ ->
+            {ok, #{type => 'IGNORE'}, Md}
+    end.
 
 -spec on_client_subscribe(emqx_exhook_pb:client_subscribe_request(), grpc:metadata())
     -> {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}
@@ -267,10 +293,26 @@ on_session_terminated(Req, Md) ->
 -spec on_message_publish(emqx_exhook_pb:message_publish_request(), grpc:metadata())
     -> {ok, emqx_exhook_pb:valued_response(), grpc:metadata()}
      | {error, grpc_cowboy_h:error_response()}.
-on_message_publish(Req, Md) ->
+on_message_publish(#{message := #{from := From} = Msg} = Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
     %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
-    {ok, #{}, Md}.
+    %% some cases for testing
+    case From of
+        <<"baduser">> ->
+            NMsg = Msg#{qos => 0,
+                        topic => <<"">>,
+                        payload => <<"">>
+                       },
+            {ok, #{type => 'STOP_AND_RETURN',
+                   value => {message, NMsg}}, Md};
+        <<"gooduser">> ->
+            NMsg = Msg#{topic => From,
+                        payload => From},
+            {ok, #{type => 'STOP_AND_RETURN',
+                   value => {message, NMsg}}, Md};
+        _ ->
+            {ok, #{type => 'IGNORE'}, Md}
+    end.
 
 -spec on_message_delivered(emqx_exhook_pb:message_delivered_request(), grpc:metadata())
     -> {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}

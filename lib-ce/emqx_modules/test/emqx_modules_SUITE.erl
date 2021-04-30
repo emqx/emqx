@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -126,6 +126,19 @@ t_modules_cmd(_) ->
     ?assertEqual(emqx_modules:cli(["unload", "emqx_mod_presence"]),
                  "Module emqx_mod_presence unloaded successfully.\n"),
     unmock_print().
+
+%% For: https://github.com/emqx/emqx/issues/4511
+t_join_cluster(_) ->
+    %% Started by emqx application
+    {error, {already_started, emqx_modules}} = application:start(emqx_modules),
+    %% After clustered
+    emqx:shutdown(),
+    emqx:reboot(),
+    {error,{already_started,emqx_modules}} = application:start(emqx_modules),
+    %% After emqx reboot, we should not interfere with other tests
+    _ = end_per_suite([]),
+    _ = init_per_suite([]),
+    ok.
 
 mock_print() ->
     catch meck:unload(emqx_ctl),

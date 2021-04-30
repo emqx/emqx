@@ -1,0 +1,98 @@
+{
+    "version": "4.3",
+    "rules": [],
+    "resources": [
+        {
+            "id": "webhook",
+            "type": "web_hook",
+            "config": {
+                "cacertfile": {
+                    "filename": "",
+                    "file": ""
+                },
+                "certfile": {
+                    "filename": "",
+                    "file": ""
+                },
+                "connect_timeout": "5s",
+                "keyfile": {
+                    "filename": "",
+                    "file": ""
+                },
+                "pool_size": 8,
+                "request_timeout": "5s",
+                "url": "http://www.emqx.io",
+                "verify": false
+            },
+            "created_at": 1618304340172,
+            "description": "webhook"
+        }
+    ],
+    "blacklist": [],
+    "apps": [
+        {
+            "id": "admin",
+            "secret": "public",
+            "name": "Default",
+            "desc": "Application user",
+            "status": true,
+            "expired": "undefined"
+        }
+    ],
+    "users": [
+        {
+            "username": "admin",
+            "password": "qq8hg9pOkmYiHqzi3+bcUaK2CGA=",
+            "tags": "administrator"
+        }
+    ],
+    "auth_mnesia": [],
+    "acl_mnesia": [],
+    "modules": [
+        {
+            "id": "module:aabeddbf",
+            "type": "recon",
+            "config": {},
+            "enabled": true,
+            "created_at": 1618304311061,
+            "description": ""
+        },
+        {
+            "id": "module:cbe6d976",
+            "type": "internal_acl",
+            "config": {
+                "acl_rule_file": "etc/acl.conf"
+            },
+            "enabled": true,
+            "created_at": 1618304311061,
+            "description": ""
+        },
+        {
+            "id": "module:46375e06",
+            "type": "retainer",
+            "config": {
+                "storage_type": "ram",
+                "max_retained_messages": 0,
+                "max_payload_size": "1MB",
+                "expiry_interval": 0
+            },
+            "enabled": true,
+            "created_at": 1618304311061,
+            "description": ""
+        },
+        {
+            "id": "module:091eb7c3",
+            "type": "presence",
+            "config": {
+                "qos": 0
+            },
+            "enabled": true,
+            "created_at": 1618304311061,
+            "description": ""
+        }
+    ],
+    "schemas": [],
+    "configs": [],
+    "listeners_state": [],
+    "date": "2021-04-13 17:59:52"
+}

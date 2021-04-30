@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -36,6 +36,11 @@
         , run/2
         , run_fold/3
         , lookup/1
+        ]).
+
+-export([ callback_action/1
+        , callback_filter/1
+        , callback_priority/1
         ]).
 
 %% gen_server Function Exports
@@ -86,6 +91,19 @@ start_link() ->
 -spec(stop() -> ok).
 stop() ->
     gen_server:stop(?SERVER, normal, infinity).
+
+%%--------------------------------------------------------------------
+%% Test APIs
+%%--------------------------------------------------------------------
+
+%% @doc Get callback action.
+callback_action(#callback{action = A}) -> A.
+
+%% @doc Get callback filter.
+callback_filter(#callback{filter = F}) -> F.
+
+%% @doc Get callback priority.
+callback_priority(#callback{priority= P}) -> P.
 
 %%--------------------------------------------------------------------
 %% Hooks API

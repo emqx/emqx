@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,6 +18,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx_rule_engine/include/rule_engine.hrl").
 -compile([export_all, nowarn_export_all]).
+
+% -define(EMQX_ENTERPRISE, true).
+
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
@@ -47,10 +50,55 @@ end_per_suite(Cfg) ->
 
 get_data_path() ->
     emqx_ct_helpers:deps_path(emqx_management, "test/emqx_webhook_data_export_import_SUITE_data/").
+
+remove_resource(Id) ->
+    emqx_rule_registry:remove_resource(Id),
+    emqx_rule_registry:remove_resource_params(Id).
+
+import(FilePath, Version) ->
+    ok = emqx_mgmt_data_backup:import(get_data_path() ++ "/" ++ FilePath, <<"{}">>),
+    lists:foreach(fun(#resource{id = Id, config = Config} = _Resource) ->
+        case Id of
+            <<"webhook">> ->
+                test_utils:resource_is_alive(Id),
+                handle_config(Config, Version),
+                remove_resource(Id);
+            _ -> ok
+        end
+    end, emqx_rule_registry:get_resources()).
+
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------
+-ifdef(EMQX_ENTERPRISE).
 
+t_importee4010(_) ->
+    import("ee4010.json", ee4010),
+    {ok, _} = emqx_mgmt_data_backup:export().
+
+t_importee410(_) ->
+    import("ee410.json", ee410),
+    {ok, _} = emqx_mgmt_data_backup:export().
+
+t_importee411(_) ->
+    import("ee411.json", ee411),
+    {ok, _} = emqx_mgmt_data_backup:export().
+
+t_importee420(_) ->
+    import("ee420.json", ee420),
+    {ok, _} = emqx_mgmt_data_backup:export().
+
+t_importee425(_) ->
+    import("ee425.json", ee425),
+    {ok, _} = emqx_mgmt_data_backup:export().
+
+t_importee430(_) ->
+    import("ee430.json", ee430),
+    {ok, _} = emqx_mgmt_data_backup:export().
+
+%%--------------------------------------------------------------------
+%% handle_config
+%%--------------------------------------------------------------------
 handle_config(Config, 409) ->
     handle_config(Config, 422);
 
@@ -87,24 +135,10 @@ handle_config(Config, 430) ->
     ?assertEqual(true, is_map(maps:get(<<"certfile">>, Config))),
     ?assertEqual(true, is_map(maps:get(<<"keyfile">>, Config))),
     ?assertEqual(8, maps:get(<<"pool_size">>, Config));
-
 handle_config(_, _) -> ok.
+-endif.
 
-remove_resource(Id) ->
-    emqx_rule_registry:remove_resource(Id),
-    emqx_rule_registry:remove_resource_params(Id).
-
-import(FilePath, Version) ->
-    Overrides = emqx_json:encode(#{<<"auth.mnesia.as">> => atom_to_binary(clientid)}),
-    ok = emqx_mgmt_data_backup:import(get_data_path() ++ "/" ++ FilePath, Overrides),
-    lists:foreach(fun(#resource{id = Id, config = Config} = _Resource) ->
-        case Id of
-            "webhook" ->
-            handle_config(Config, Version),
-            remove_resource(Id);
-            _ -> ok
-        end
-    end, emqx_rule_registry:get_resources()).
+-ifndef(EMQX_ENTERPRISE).
 
 t_import422(_) ->
     import("422.json", 422),
@@ -129,3 +163,41 @@ t_import409(_) ->
 t_import415(_) ->
     import("415.json", 415),
     {ok, _} = emqx_mgmt_data_backup:export().
+
+%%--------------------------------------------------------------------
+%% handle_config
+%%--------------------------------------------------------------------
+
+handle_config(Config, ee4010) ->
+    ?assertEqual(<<"http://www.emqx.io">>, maps:get(<<"url">>, Config));
+
+handle_config(Config, ee410) ->
+    ?assertEqual(<<"http://www.emqx.io">>, maps:get(<<"url">>, Config));
+
+handle_config(Config, ee411) ->
+    ?assertEqual(<<"http://www.emqx.io">>, maps:get(<<"url">>, Config));
+
+handle_config(Config, ee420) ->
+    ?assertEqual(<<"http://www.emqx.io">>, maps:get(<<"url">>, Config));
+
+handle_config(Config, ee425) ->
+    ?assertEqual(<<"http://www.emqx.io">>, maps:get(<<"url">>, Config)),
+    ?assertEqual(<<"5s">>, maps:get(<<"connect_timeout">>, Config)),
+    ?assertEqual(<<"5s">>, maps:get(<<"request_timeout">>, Config)),
+    ?assertEqual(false, maps:get(<<"verify">>, Config)),
+    ?assertEqual(8, maps:get(<<"pool_size">>, Config));
+
+handle_config(Config, ee435) ->
+    handle_config(Config, ee430);
+
+handle_config(Config, ee430) ->
+    ?assertEqual(<<"http://www.emqx.io">>, maps:get(<<"url">>, Config)),
+    ?assertEqual(<<"5s">>, maps:get(<<"connect_timeout">>, Config)),
+    ?assertEqual(<<"5s">>, maps:get(<<"request_timeout">>, Config)),
+    ?assertEqual(false, maps:get(<<"verify">>, Config)),
+    ?assertEqual(8, maps:get(<<"pool_size">>, Config));
+
+handle_config(Config, _) ->
+    io:format("|>=> :~p~n", [Config]).
+
+-endif.

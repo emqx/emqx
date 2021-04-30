@@ -21,7 +21,7 @@
                 "mountpoint": "bridge/emqx/${node}/",
                 "disk_cache": "off",
                 "batch_size": 32,
-                "address": "emqx@127.0.0.1"
+                "address": "test@127.0.0.1"
             }
         },
         {

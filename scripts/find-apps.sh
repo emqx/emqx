@@ -10,6 +10,9 @@ find_app() {
     find "${appdir}" -mindepth 1 -maxdepth 1 -type d
 }
 
+# append emqx application first
+echo 'emqx'
+
 find_app 'apps'
 if [ -f 'EMQX_ENTERPRISE' ]; then
     find_app 'lib-ee'

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@
 %%--------------------------------------------------------------------
 %% CT callbacks
 %%--------------------------------------------------------------------
+suite() -> [{timetrap, {minutes, 2}}].
 
 all() -> emqx_ct:all(?MODULE).
 
@@ -85,6 +86,7 @@ t_get_set_chan_stats(_) ->
 t_open_session(_) ->
     ok = meck:new(emqx_connection, [passthrough, no_history]),
     ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),
+    ok = meck:expect(emqx_connection, call, fun(_, _, _) -> ok end),
 
     ClientInfo = #{zone => external,
                    clientid => <<"clientid">>,
@@ -164,6 +166,7 @@ t_discard_session(_) ->
 
     ok = meck:new(emqx_connection, [passthrough, no_history]),
     ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),
+    ok = meck:expect(emqx_connection, call, fun(_, _, _) -> ok end),
     ok = emqx_cm:discard_session(<<"clientid">>),
     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
     ok = emqx_cm:discard_session(<<"clientid">>),
@@ -171,6 +174,7 @@ t_discard_session(_) ->
     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
     ok = emqx_cm:discard_session(<<"clientid">>),
     ok = meck:expect(emqx_connection, call, fun(_, _) -> error(testing) end),
+    ok = meck:expect(emqx_connection, call, fun(_, _, _) -> error(testing) end),
     ok = emqx_cm:discard_session(<<"clientid">>),
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ok = meck:unload(emqx_connection).
@@ -178,13 +182,13 @@ t_discard_session(_) ->
 t_takeover_session(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
     {error, not_found} = emqx_cm:takeover_session(<<"clientid">>),
-    erlang:spawn(fun() ->
-                     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-                     receive
-                         {'$gen_call', From, {takeover, 'begin'}} ->
-                             gen_server:reply(From, test), ok
-                     end
-                 end),
+    erlang:spawn_link(fun() ->
+        ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
+        receive
+            {'$gen_call', From, {takeover, 'begin'}} ->
+                gen_server:reply(From, test), ok
+        end
+    end),
     timer:sleep(100),
     {ok, emqx_connection, _, test} = emqx_cm:takeover_session(<<"clientid">>),
     emqx_cm:unregister_channel(<<"clientid">>).
@@ -193,16 +197,18 @@ t_kick_session(_) ->
     Info = #{conninfo := ConnInfo} = ?ChanInfo,
     ok = meck:new(emqx_connection, [passthrough, no_history]),
     ok = meck:expect(emqx_connection, call, fun(_, _) -> test end),
+    ok = meck:expect(emqx_connection, call, fun(_, _, _) -> test end),
     {error, not_found} = emqx_cm:kick_session(<<"clientid">>),
     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
     ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, []),
     test = emqx_cm:kick_session(<<"clientid">>),
-    erlang:spawn(fun() ->
-                     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-                     ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, []),
+    erlang:spawn_link(
+        fun() ->
+            ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
+            ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, []),
 
-                     timer:sleep(1000)
-                 end),
+            timer:sleep(1000)
+        end),
     ct:sleep(100),
     test = emqx_cm:kick_session(<<"clientid">>),
     ok = emqx_cm:unregister_channel(<<"clientid">>),

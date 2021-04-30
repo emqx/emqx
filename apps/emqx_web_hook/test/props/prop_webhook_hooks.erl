@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -211,9 +211,9 @@ prop_session_terminated() ->
 prop_message_publish() ->
     ?ALL({Msg, Env, Encode}, {message(), topic_filter_env(), payload_encode()},
         begin
-            application:set_env(emqx_web_hook, encode_payload, Encode),
+            application:set_env(emqx_web_hook, encoding_of_payload_field, Encode),
             {ok, Msg} = emqx_web_hook:on_message_publish(Msg, Env),
-            application:unset_env(emqx_web_hook, encode_payload),
+            application:unset_env(emqx_web_hook, encoding_of_payload_field),
 
             (not emqx_message:is_sys(Msg))
                 andalso filter_topic_match(emqx_message:topic(Msg), Env)
@@ -237,9 +237,9 @@ prop_message_publish() ->
 prop_message_delivered() ->
     ?ALL({ClientInfo, Msg, Env, Encode}, {clientinfo(), message(), topic_filter_env(), payload_encode()},
         begin
-            application:set_env(emqx_web_hook, encode_payload, Encode),
+            application:set_env(emqx_web_hook, encoding_of_payload_field, Encode),
             ok = emqx_web_hook:on_message_delivered(ClientInfo, Msg, Env),
-            application:unset_env(emqx_web_hook, encode_payload),
+            application:unset_env(emqx_web_hook, encoding_of_payload_field),
 
             (not emqx_message:is_sys(Msg))
                 andalso filter_topic_match(emqx_message:topic(Msg), Env)
@@ -265,9 +265,9 @@ prop_message_delivered() ->
 prop_message_acked() ->
     ?ALL({ClientInfo, Msg, Env, Encode}, {clientinfo(), message(), empty_env(), payload_encode()},
         begin
-            application:set_env(emqx_web_hook, encode_payload, Encode),
+            application:set_env(emqx_web_hook, encoding_of_payload_field, Encode),
             ok = emqx_web_hook:on_message_acked(ClientInfo, Msg, Env),
-            application:unset_env(emqx_web_hook, encode_payload),
+            application:unset_env(emqx_web_hook, encoding_of_payload_field),
 
             (not emqx_message:is_sys(Msg))
                 andalso filter_topic_match(emqx_message:topic(Msg), Env)
@@ -305,7 +305,7 @@ do_setup() ->
     meck:new(ehttpc, [passthrough, no_history]),
     meck:expect(ehttpc, request,
                 fun(_ClientId, Method, {Path, Headers, Body}) ->
-                    Self ! {Method, Path, Headers, Body}, {ok, ok, ok}
+                    Self ! {Method, Path, Headers, Body}, {ok, 200, ok}
                 end),
 
     meck:new(emqx_metrics, [passthrough, no_history]),
@@ -327,8 +327,10 @@ peer2addr(Host) ->
 
 stringfy({shutdown, Reason}) ->
     stringfy(Reason);
-stringfy(Term) when is_atom(Term); is_binary(Term) ->
+stringfy(Term) when is_binary(Term) ->
     Term;
+stringfy(Term) when is_atom(Term) ->
+    atom_to_binary(Term, utf8);
 stringfy(Term) ->
     unicode:characters_to_binary(io_lib:format("~0p", [Term])).
 
@@ -374,7 +376,10 @@ unsub_properties() ->
     #{}.
 
 shutdown_reason() ->
-    oneof([any(), {shutdown, atom()}]).
+    oneof([disconnected, not_autherised,
+           "list_reason", <<"binary_reason">>,
+           {tuple, reason},
+           {shutdown, emqx_ct_proper_types:limited_atom()}]).
 
 empty_env() ->
     {undefined}.
@@ -383,7 +388,7 @@ topic_filter_env() ->
     oneof([{<<"#">>}, {undefined}, {topic()}]).
 
 payload_encode() ->
-    oneof([base62, base64, undefined]).
+    oneof([base62, base64, plain]).
 
 disconnected_conninfo() ->
     ?LET(Info, conninfo(),

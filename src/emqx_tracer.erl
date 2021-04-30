@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@
 -type(trace_who() :: {clientid | topic, binary()}).
 
 -define(TRACER, ?MODULE).
--define(FORMAT, {emqx_logger_formatter,
+-define(FORMAT, {logger_formatter,
                   #{template =>
                       [time, " [", level, "] ",
                        {clientid,
@@ -41,7 +41,9 @@
                           [{peername,
                               [peername, " "],
                               []}]},
-                       msg, "\n"]}}).
+                       msg, "\n"],
+                    single_line => false
+                   }}).
 -define(TOPIC_TRACE_ID(T), "trace_topic_"++T).
 -define(CLIENT_TRACE_ID(C), "trace_clientid_"++C).
 -define(TOPIC_TRACE(T), {topic, T}).
@@ -143,16 +145,18 @@ handler_id(?TOPIC_TRACE(Topic)) ->
 handler_id(?CLIENT_TRACE(ClientId)) ->
     list_to_atom(?CLIENT_TRACE_ID(handler_name(ClientId))).
 
-filter_by_meta_key(#{meta:=Meta}=LogEvent, {MetaKey, MetaValue}) ->
-    case maps:find(MetaKey, Meta) of
-        {ok, MetaValue} -> LogEvent;
-        {ok, Topic} when MetaKey =:= topic ->
-            case emqx_topic:match(Topic, MetaValue) of
-                true -> LogEvent;
-                false -> ignore
-            end;
-        _ -> ignore
+filter_by_meta_key(#{meta := Meta} = Log, {Key, Value}) ->
+    case is_meta_match(Key, Value, Meta) of
+        true -> Log;
+        false -> ignore
     end.
+
+is_meta_match(clientid, ClientId, #{clientid := ClientIdStr}) ->
+    ClientId =:= iolist_to_binary(ClientIdStr);
+is_meta_match(topic, TopicFilter, #{topic := TopicMeta}) ->
+    emqx_topic:match(TopicMeta, TopicFilter);
+is_meta_match(_, _, _) ->
+    false.
 
 handler_name(Bin) ->
     case byte_size(Bin) of
