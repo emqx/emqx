@@ -406,9 +406,15 @@ jobs:
         aws s3 cp --recursive _packages/${{ matrix.profile }} s3://${{ secrets.AWS_S3_BUCKET }}/$broker/${{ env.version }}
         aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_CLOUDFRONT_ID }} --paths "/$broker/${{ env.version }}/*"
     - uses: Rory-Z/upload-release-asset@v1
-      if: github.event_name == 'release'
+      if: github.event_name == 'release' && matrix.profile != 'emqx-ee'
       with:
         repo: emqx
+        path: "_packages/${{ matrix.profile }}/emqx-*"
+        token: ${{ github.token }}
+    - uses: Rory-Z/upload-release-asset@v1
+      if: github.event_name == 'release' && matrix.profile == 'emqx-ee'
+      with:
+        repo: emqx-enterprise
         path: "_packages/${{ matrix.profile }}/emqx-*"
         token: ${{ github.token }}
     - name: update to emqx.io
