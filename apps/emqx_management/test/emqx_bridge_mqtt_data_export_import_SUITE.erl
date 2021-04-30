@@ -51,11 +51,6 @@ end_per_suite(Cfg) ->
 get_data_path() ->
     emqx_ct_helpers:deps_path(emqx_management, "test/emqx_bridge_mqtt_data_export_import_SUITE_data/").
 
-remove_resource(Id) ->
-    timer:sleep(1000),
-    emqx_rule_registry:remove_resource(Id),
-    emqx_rule_registry:remove_resource_params(Id).
-
 import(FilePath, Version) ->
     ok = emqx_mgmt_data_backup:import(get_data_path() ++ "/" ++ FilePath, <<"{}">>),
     lists:foreach(fun(#resource{id = Id, config = Config} = _Resource) ->
@@ -63,12 +58,10 @@ import(FilePath, Version) ->
         case Id of
             <<"bridge">> ->
                 test_utils:resource_is_alive(Id),
-                handle_config(Config, Version, bridge),
-                remove_resource(Id);
+                handle_config(Config, Version, bridge);
             <<"rpc">> ->
                 test_utils:resource_is_alive(Id),
-                handle_config(Config, Version, rpc),
-                remove_resource(Id);
+                handle_config(Config, Version, rpc);
             _ -> ok
         end
     end, emqx_rule_registry:get_resources()).
