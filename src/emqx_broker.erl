@@ -438,8 +438,12 @@ init([Pool, Id]) ->
     {ok, #{pool => Pool, id => Id, worker_ref => WorkerMRef, worker => Worker}}.
 
 handle_call({subscribe, Topic}, _From, #{worker := Worker} = State) ->
-    Ok = emqx_router:do_add_route(Topic, node(), Worker),
-    {reply, Ok, State};
+    case emqx_router:do_add_route(Topic, node(), Worker) of
+        {error, {trans_worker_crash, _Info}} = Error ->
+            {reply, Error, restart_worker(State)};
+        Ok ->
+            {reply, Ok, State}
+    end;
 
 handle_call({subscribe, Topic, I}, _From, State) ->
     Ok = case get(Shard = {Topic, I}) of
@@ -455,22 +459,29 @@ handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
-handle_cast({subscribe, Topic}, #{worker_ref := Worker} = State) ->
+handle_cast({subscribe, Topic}, #{worker := Worker} = State) ->
     case emqx_router:do_add_route(Topic, node(), Worker) of
         ok -> ok;
+        {error, {trans_worker_crash, _Info}} ->
+            {noreply, restart_worker(State)};
         {error, Reason} ->
-            ?LOG(error, "Failed to add route: ~p", [Reason])
-    end,
-    {noreply, State};
+            ?LOG(error, "Failed to add route: ~p", [Reason]),
+            {noreply, State}
+    end;
 
 handle_cast({unsubscribed, Topic}, #{worker := Worker} = State) ->
-    case ets:member(?SUBSCRIBER, Topic) of
-        false ->
-            _ = emqx_router:do_delete_route(Topic, node(), Worker),
-            ok;
-        true -> ok
-    end,
-    {noreply, State};
+    NewState = case ets:member(?SUBSCRIBER, Topic) of
+                   false ->
+                       case emqx_router:do_delete_route(Topic, node(), Worker) of
+                           {error, {trans_worker_crash, _Info}} ->
+                               restart_worker(State);
+                           _Ok ->
+                               State
+                       end;
+                   true ->
+                       State
+               end,
+    {noreply, NewState};
 
 handle_cast({unsubscribed, Topic, I}, State) ->
     case ets:member(?SUBSCRIBER, {shard, Topic, I}) of
@@ -486,9 +497,12 @@ handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({'DOWN', Ref, process, Worker, _Info}, #{worker_ref := Ref, worker := Worker} = State) ->
-    {Worker, WorkerMonRef} = emqx_router:start_trans_worker(),
-    {noreply, State#{ worker => Worker, worker_ref => WorkerMonRef }};
+handle_info({'DOWN', Ref, process, Worker, _Info},
+            #{worker_ref := Ref, worker := Worker} = State) ->
+    %% Handles trans worker exits unexpectedly, this is unlikely to happen.
+    %% Usually if trans worker crash and exits due to ongoing work, the restart
+    %% will be called immediately in handle_call or handle_cast callbacks.
+    {noreply, restart_worker(State)};
 
 handle_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
@@ -503,3 +517,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+restart_worker(#{worker_ref := OldRef} = State) when is_map(State) ->
+    erlang:demonitor(OldRef, [flush]),
+    {Worker, WorkerMRef} = emqx_router:start_trans_worker(),
+    State#{worker_ref => WorkerMRef, worker => Worker}.

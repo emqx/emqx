@@ -209,12 +209,20 @@ init([Pool, Id]) ->
     {ok, #{pool => Pool, id => Id, worker_ref => WorkerMRef, worker => Worker} }.
 
 handle_call({add_route, Topic, Dest}, _From, #{worker := Worker} = State) ->
-    Ok = do_add_route(Topic, Dest, Worker),
-    {reply, Ok, State};
+    case do_add_route(Topic, Dest, Worker) of
+        {error, {trans_worker_crash, _Info}} = Error->
+            {reply, Error, restart_worker(State)};
+        Ok ->
+            {reply, Ok, State}
+    end;
 
 handle_call({delete_route, Topic, Dest}, _From, #{worker := Worker} = State) ->
-    Ok = do_delete_route(Topic, Dest, Worker),
-    {reply, Ok, State};
+    case do_delete_route(Topic, Dest, Worker) of
+        {error, {trans_worker_crash, _Info}} = Error->
+            {reply, Error, restart_worker(State)};
+        Ok ->
+            {reply, Ok, State}
+    end;
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
@@ -226,8 +234,10 @@ handle_cast(Msg, State) ->
 
 handle_info({'DOWN', Ref, process, Worker, _Info},
             #{worker_ref := Ref, worker := Worker} = State) ->
-    {Worker, WorkerMRef} = start_trans_worker(),
-    {noreply, State#{ worker_ref => WorkerMRef, worker => Worker }};
+    %% Handles trans worker exits unexpectedly, this is unlikely to happen.
+    %% Usually if trans worker crash and exits due to ongoing work, the restart
+    %% will be called immediately in handle_call or handle_cast callbacks.
+    {noreply, restart_worker(State)};
 handle_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
@@ -315,6 +325,8 @@ trans(Worker, Fun, Args) when is_pid(Worker) ->
     Worker ! {work, MonRef, Fun, Args},
     receive
         {MonRef, TransRes} ->
+            %% note! Caller should remember to flush 'DownMsg'
+            true = erlang:demonitor(MonRef),
             TransRes;
         {'DOWN', MonRef, process, Worker, Info} ->
             {error, {trans_worker_crash, Info}}
@@ -334,3 +346,8 @@ lock_router() ->
 
 unlock_router() ->
     global:del_lock({?MODULE, self()}).
+
+restart_worker(#{worker_ref := OldRef} = State) when is_map(State) ->
+    erlang:demonitor(OldRef, [flush]),
+    {Worker, WorkerMRef} = emqx_router:start_trans_worker(),
+    State#{worker_ref => WorkerMRef, worker => Worker}.
