@@ -206,6 +206,45 @@ t_stats_fun(_) ->
     ?assertEqual(2, emqx_stats:getstat('suboptions.count')),
     ?assertEqual(2, emqx_stats:getstat('suboptions.max')).
 
+t_worker_kill(_)->
+    TargetBroker = hd(supervisor:which_children(
+                  element(2,lists:keyfind(pool_sup, 1,
+                                          supervisor:which_children(emqx_broker_sup))))),
+    TargetBrokerPid = element(2, TargetBroker),
+    #{worker := Worker, worker_ref := Ref} = sys:get_state(TargetBrokerPid),
+    true = erlang:is_process_alive(Worker),
+    spawn(fun() -> link(Worker), exit(abnormal) end),
+    ok = wait_die(Worker),
+    #{worker := NewWorker, worker_ref := NewRef} = sys:get_state(TargetBrokerPid),
+    ?assertNotEqual(NewWorker, Worker),
+    ?assertNotEqual(NewRef, Ref),
+    ok.
+
+t_worker_exit_work(_)->
+    %% must be wildcard to trigger
+    Topic = <<  "topic/#" >>,
+    TargetBrokerPid = gproc_pool:pick_worker(broker_pool, Topic),
+    #{worker := Worker, worker_ref := Ref} = sys:get_state(TargetBrokerPid),
+    true = erlang:is_process_alive(Worker),
+    ct:pal("~p", [erlang:process_info(Worker)]),
+    ok = meck:new(mnesia, [passthrough,no_history]),
+    ok = meck:expect(mnesia, transaction, fun(_,_) -> meck:exception(error, boom) end),
+    emqx_broker:subscribe(Topic, <<"clientid">>),
+    ok = wait_die(Worker),
+    #{worker := NewWorker, worker_ref := NewRef} = sys:get_state(TargetBrokerPid),
+    ?assertNotEqual(Worker, NewWorker),
+    ?assertNotEqual(Ref, NewRef),
+    ok = meck:unload(mnesia),
+    ok.
+
+wait_die(Worker) ->
+    case erlang:is_process_alive(Worker) of
+        true ->
+            timer:sleep(10),
+            wait_die(Worker);
+        false ->
+            ok
+    end.
 recv_msgs(Count) ->
     recv_msgs(Count, []).
 
