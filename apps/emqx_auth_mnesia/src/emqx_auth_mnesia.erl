@@ -32,6 +32,8 @@
         , description/0
         ]).
 
+-rlog_shard({emqx_auth_mnesia_shard, ?TABLE}).
+
 init(#{clientid_list := ClientidList, username_list := UsernameList}) ->
     ok = ekka_mnesia:create_table(?TABLE, [
             {disc_copies, [node()]},
@@ -42,6 +44,7 @@ init(#{clientid_list := ClientidList, username_list := UsernameList}) ->
     _ = [ add_default_user({{username, iolist_to_binary(Username)}, iolist_to_binary(Password)})
       || {Username, Password} <- UsernameList],
     ok = ekka_mnesia:copy_table(?TABLE, disc_copies).
+
 
 %% @private
 add_default_user({Login, Password}) when is_tuple(Login) ->

@@ -29,6 +29,8 @@
         , description/0
         ]).
 
+-rlog_shard({emqx_auth_mnesia_shard, emqx_acl}).
+
 init() ->
     ok = ekka_mnesia:create_table(emqx_acl, [
             {type, bag},

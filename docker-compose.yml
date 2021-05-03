@@ -5,6 +5,7 @@ services:
     build: .
     image: myemqx
     environment:
+      - "EMQX_LOADED_PLUGINS=emqx_auth_mnesia"
       - "EMQX_NODE_NAME=emqx@10.0.0.2"
       - "EMQX_CLUSTER__DISCOVERY=static"
       - "EMQX_CLUSTER__STATIC__SEEDS=emqx@10.0.0.2,emqx@10.0.0.3,emqx@10.0.0.4,emqx@10.0.0.5"
@@ -21,6 +22,7 @@ services:
   emqx2:
     image: myemqx
     environment:
+    - "EMQX_LOADED_PLUGINS=emqx_auth_mnesia"
     - "EMQX_NODE_NAME=emqx@10.0.0.3"
     - "EMQX_CLUSTER__DISCOVERY=static"
     - "EMQX_CLUSTER__STATIC__SEEDS=emqx@10.0.0.2, emqx@10.0.0.3,emqx@10.0.0.4,emqx@10.0.0.5"
@@ -37,6 +39,7 @@ services:
   emqx3:
     image: myemqx
     environment:
+    - "EMQX_LOADED_PLUGINS=emqx_auth_mnesia"
     - "EMQX_NODE_NAME=emqx@10.0.0.4"
     - "EMQX_NODE_ROLE=${ROLE}"
     - "EMQX_CORE_NODES='emqx@10.0.0.2 emqx@10.0.0.3"
@@ -54,6 +57,7 @@ services:
   emqx4:
     image: myemqx
     environment:
+    - "EMQX_LOADED_PLUGINS=emqx_auth_mnesia"
     - "EMQX_NODE_NAME=emqx@10.0.0.5"
     - "EMQX_NODE_ROLE=${ROLE}"
     - "EMQX_CORE_NODES='emqx@10.0.0.2 emqx@10.0.0.3"

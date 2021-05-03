@@ -39,6 +39,7 @@ start(_StartType, _StartArgs) ->
     emqx_ctl:register_command(acl, {emqx_acl_mnesia_cli, cli}, []),
     _ = load_auth_hook(),
     _ = load_acl_hook(),
+    ok = ekka_rlog:wait_for_shards([emqx_auth_mnesia_shard], infinity),
     {ok, Sup}.
 
 prep_stop(State) ->
