@@ -485,6 +485,12 @@ end}.
   {datatype, integer}
 ]}.
 
+{mapping, "log.supervisor_reports", "kernel.logger", [
+  {default, error},
+  {datatype, {enum, [error, progress]}},
+  hidden
+]}.
+
 %% @doc format logs in a single line.
 {mapping, "log.single_line", "kernel.logger", [
   {default, false},
@@ -635,13 +641,21 @@ end}.
                   BasicConf#{max_no_bytes => MaxNoBytes}
                 end,
 
+    Filters = case cuttlefish:conf_get("log.supervisor_reports", Conf) of
+                  error -> [{drop_progress_reports, {fun logger_filters:progress/2, stop}}];
+                  progress -> []
+              end,
+
     %% For the default logger that outputs to console
     DefaultHandler =
         if LogTo =:= console orelse LogTo =:= both ->
                 [{handler, console, logger_std_h,
                     #{level => LogLevel,
                       config => #{type => standard_io},
-                      formatter => Formatter}}];
+                      formatter => Formatter,
+                      filters => Filters
+                     }
+                 }];
            true ->
                 [{handler, default, undefined}]
         end,
@@ -653,7 +667,9 @@ end}.
                     #{level => LogLevel,
                       config => FileConf(cuttlefish:conf_get("log.file", Conf)),
                       formatter => Formatter,
-                      filesync_repeat_interval => no_repeat}}];
+                      filesync_repeat_interval => no_repeat,
+                      filters => Filters
+                     }}];
            true -> []
         end,
 
