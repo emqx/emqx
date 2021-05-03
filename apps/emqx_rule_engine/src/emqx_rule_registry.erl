@@ -106,6 +106,12 @@
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
 
+-rlog_shard({emqx_rule_engine_shard, ?RULE_TAB}).
+-rlog_shard({emqx_rule_engine_shard, ?ACTION_TAB}).
+-rlog_shard({emqx_rule_engine_shard, ?RES_TAB}).
+-rlog_shard({emqx_rule_engine_shard, ?RES_TYPE_TAB}).
+
+
 %% @doc Create or replicate tables.
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
