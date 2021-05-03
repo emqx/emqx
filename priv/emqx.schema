@@ -498,10 +498,16 @@ end}.
   {datatype, [{enum, [unlimited]}, integer]}
 ]}.
 
-%% @doc format logs in a single line.
-{mapping, "log.single_line", "kernel.logger", [
+%% @doc format logs as JSON objects
+{mapping, "log.use_json_formatter", "kernel.logger", [
   {default, false},
   {datatype, {enum, [true, false]}}
+]}.
+
+%% @doc format logs in a single line.
+{mapping, "log.single_line", "kernel.logger", [
+  {default, formatter_default},
+  {datatype, {enum, [formatter_default, true, false]}}
 ]}.
 
 {mapping, "log.rotation", "kernel.logger", [
@@ -600,8 +606,24 @@ end}.
                      -1 -> unlimited;
                      V -> V
                  end,
-    SingleLine = cuttlefish:conf_get("log.single_line", Conf),
-    Formatter = {logger_formatter,
+    SingleLine0 = cuttlefish:conf_get("log.single_line", Conf),
+    AsJson = cuttlefish:conf_get("log.use_json_formatter", Conf),
+    SingleLine = case SingleLine0 =:= formatter_default of
+                     true ->
+                         %% single-line when logging in JSON format
+                         AsJson;
+                     false ->
+                         SingleLine0
+                 end,
+    Formatter =
+    case AsJson of
+        true ->
+            {emqx_logger_jsonfmt,
+                  #{chars_limit => CharsLimit,
+                    single_line => SingleLine
+                   }};
+        false ->
+            {logger_formatter,
                   #{template =>
                       [time," [",level,"] ",
                        {clientid,
@@ -614,7 +636,8 @@ end}.
                        msg,"\n"],
                     chars_limit => CharsLimit,
                     single_line => SingleLine
-                   }},
+                   }}
+    end,
     {BustLimitOn, {MaxBurstCount, TimeWindow}} =
         case string:tokens(cuttlefish:conf_get("log.burst_limit", Conf), ", ") of
             ["disabled"] -> {false, {20000, 1000}};
