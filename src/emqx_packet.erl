@@ -46,6 +46,24 @@
 
 -export([format/1]).
 
+-define(TYPE_NAMES,
+        { 'CONNECT'
+        , 'CONNACK'
+        , 'PUBLISH'
+        , 'PUBACK'
+        , 'PUBREC'
+        , 'PUBREL'
+        , 'PUBCOMP'
+        , 'SUBSCRIBE'
+        , 'SUBACK'
+        , 'UNSUBSCRIBE'
+        , 'UNSUBACK'
+        , 'PINGREQ'
+        , 'PINGRESP'
+        , 'DISCONNECT'
+        , 'AUTH'
+        }).
+
 -type(connect() :: #mqtt_packet_connect{}).
 -type(publish() :: #mqtt_packet_publish{}).
 -type(subscribe() :: #mqtt_packet_subscribe{}).
@@ -61,9 +79,13 @@ type(#mqtt_packet{header = #mqtt_packet_header{type = Type}}) ->
     Type.
 
 %% @doc Name of MQTT packet type.
--spec(type_name(emqx_types:packet()) -> atom()).
-type_name(Packet) when is_record(Packet, mqtt_packet) ->
-    lists:nth(type(Packet), ?TYPE_NAMES).
+-spec(type_name(emqx_types:packet() | non_neg_integer()) -> atom() | string()).
+type_name(#mqtt_packet{} = Packet) ->
+    type_name(type(Packet));
+type_name(0) -> 'FORBIDDEN';
+type_name(Type) when Type > 0 andalso Type =< tuple_size(?TYPE_NAMES) ->
+    element(Type, ?TYPE_NAMES);
+type_name(Type) -> "UNKNOWN("++ integer_to_list(Type) ++")".
 
 %% @doc Dup flag of MQTT packet.
 -spec(dup(emqx_types:packet()) -> boolean()).
@@ -417,12 +439,11 @@ format_header(#mqtt_packet_header{type = Type,
                                   dup = Dup,
                                   qos = QoS,
                                   retain = Retain}, S) ->
-    S1 = if
-             S == undefined -> <<>>;
-             true -> [", ", S]
+    S1 = case S == undefined of
+             true -> <<>>;
+             false -> [", ", S]
          end,
-    io_lib:format("~s(Q~p, R~p, D~p~s)",
-                  [lists:nth(Type, ?TYPE_NAMES), QoS, i(Retain), i(Dup), S1]).
+    io_lib:format("~s(Q~p, R~p, D~p~s)", [type_name(Type), QoS, i(Retain), i(Dup), S1]).
 
 format_variable(undefined, _) ->
     undefined;
