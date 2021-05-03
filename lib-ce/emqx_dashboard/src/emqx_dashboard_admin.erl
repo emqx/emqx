@@ -56,6 +56,8 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
+-rlog_shard({emqx_dashboard_shard, mqtt_admin}).
+
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(mqtt_admin, [
                 {type, set},

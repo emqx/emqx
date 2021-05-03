@@ -56,8 +56,7 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
--rlog_shard({route_shard, ?TRIE_TAB}).
--rlog_shard({route_shard, ?TRIE_NODE_TAB}).
+-rlog_shard({route_shard, ?TRIE}).
 
 put_compaction_flag(Bool) when is_boolean(Bool) ->
     _ = persistent_term:put({?MODULE, compaction}, Bool),

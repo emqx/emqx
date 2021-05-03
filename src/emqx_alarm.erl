@@ -293,7 +293,7 @@ deactivate_all_alarms() ->
 clear_table(TableName) ->
     case mnesia:clear_table(TableName) of
         {aborted, Reason} ->
-            ?LOG(warning, "Faile to clear table ~p reason: ~p",
+            ?LOG(warning, "Failed to clear table ~p reason: ~p",
                  [TableName, Reason]);
         {atomic, ok} ->
             ok
