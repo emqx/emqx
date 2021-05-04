@@ -1,0 +1,44 @@
+#!/bin/bash
+set -euo pipefail
+shopt -s nullglob
+
+ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+
+echo "Running node dump in ${ROOT_DIR}"
+
+cd "${ROOT_DIR}"
+
+DUMP="log/node_dump_$(date +"%y%m%d_%H%M%S").tar.gz"
+
+collect() {
+    echo "========================================================"
+    echo "    $@"
+    echo "========================================================"
+    eval $@ || echo "Unavailable"
+    echo -e '\n'
+}
+
+{
+    collect bin/emqx_ctl broker
+
+    collect uname -a
+    collect uptime
+    collect free -h
+    collect netstat -tnl
+
+    collect bin/emqx_ctl plugins list
+    collect bin/emqx_ctl modules list
+
+    collect bin/emqx_ctl vm all
+    collect bin/emqx_ctl listeners
+} > log/sysinfo.txt
+
+bin/emqx eval 'ets:tab2list(ac_tab)' > log/conf.dump
+
+tar czf $DUMP log/*.log.* log/run_erl.log* log/sysinfo.txt log/conf.dump
+
+## Cleanup:
+rm log/sysinfo.txt
+rm log/conf.dump
+
+echo "Created a node dump ${DUMP}"
