@@ -77,7 +77,10 @@
 -define(NACK(Reason), {shared_sub_nack, Reason}).
 -define(NO_ACK, no_ack).
 
--record(state, {pmon}).
+-record(state, { pmon
+               , worker
+               , worker_ref
+               }).
 
 -record(emqx_shared_subscription, {group, topic, subpid}).
 
@@ -300,7 +303,11 @@ init([]) ->
     {atomic, PMon} = mnesia:transaction(fun init_monitors/0),
     ok = emqx_tables:new(?SHARED_SUBS, [protected, bag]),
     ok = emqx_tables:new(?ALIVE_SUBS, [protected, set, {read_concurrency, true}]),
-    {ok, update_stats(#state{pmon = PMon})}.
+    {Worker, WorkerMRef} = emqx_router:start_trans_worker(),
+    {ok, update_stats(#state{ pmon = PMon
+                            , worker_ref = WorkerMRef
+                            , worker = Worker})
+                            }.
 
 init_monitors() ->
     mnesia:foldl(
@@ -308,20 +315,23 @@ init_monitors() ->
           emqx_pmon:monitor(SubPid, Mon)
       end, emqx_pmon:new(), ?TAB).
 
-handle_call({subscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PMon}) ->
+handle_call({subscribe, Group, Topic, SubPid}, _From,
+            State = #state{pmon = PMon, worker = Worker}) ->
     mnesia:dirty_write(?TAB, record(Group, Topic, SubPid)),
     case ets:member(?SHARED_SUBS, {Group, Topic}) of
         true  -> ok;
-        false -> ok = emqx_router:do_add_route(Topic, {Group, node()})
+        false ->
+            %% @todo we need more error handling here
+            ok = emqx_router:do_add_route(Topic, {Group, node()}, Worker)
     end,
     ok = maybe_insert_alive_tab(SubPid),
     true = ets:insert(?SHARED_SUBS, {{Group, Topic}, SubPid}),
     {reply, ok, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
 
-handle_call({unsubscribe, Group, Topic, SubPid}, _From, State) ->
+handle_call({unsubscribe, Group, Topic, SubPid}, _From, #state{worker = Worker} = State) ->
     mnesia:dirty_delete_object(?TAB, record(Group, Topic, SubPid)),
     true = ets:delete_object(?SHARED_SUBS, {{Group, Topic}, SubPid}),
-    delete_route_if_needed({Group, Topic}),
+    delete_route_if_needed({Group, Topic}, Worker),
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
@@ -343,9 +353,16 @@ handle_info({mnesia_table_event, {delete_object, OldRecord, _}}, State = #state{
 handle_info({mnesia_table_event, _Event}, State) ->
     {noreply, State};
 
-handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{pmon = PMon}) ->
+handle_info({'DOWN', Ref, process, Worker, _Info},
+            #state{worker_ref = Ref, worker = Worker} = State) ->
+    %% Handles trans worker exits unexpectedly, this is unlikely to happen.
+    %% Usually if trans worker crash and exits due to ongoing work, the restart
+    %% will be called immediately in handle_call or handle_cast callbacks.
+    {noreply, restart_worker(State)};
+
+handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{pmon = PMon, worker = Worker}) ->
     ?LOG(info, "Shared subscriber down: ~p", [SubPid]),
-    cleanup_down(SubPid),
+    cleanup_down(SubPid, Worker),
     {noreply, update_stats(State#state{pmon = emqx_pmon:erase(SubPid, PMon)})};
 
 handle_info(Info, State) ->
@@ -366,13 +383,13 @@ code_change(_OldVsn, State, _Extra) ->
 maybe_insert_alive_tab(Pid) when ?IS_LOCAL_PID(Pid) -> ok;
 maybe_insert_alive_tab(Pid) when is_pid(Pid) -> ets:insert(?ALIVE_SUBS, {Pid}), ok.
 
-cleanup_down(SubPid) ->
+cleanup_down(SubPid, Worker) ->
     ?IS_LOCAL_PID(SubPid) orelse ets:delete(?ALIVE_SUBS, SubPid),
     lists:foreach(
         fun(Record = #emqx_shared_subscription{topic = Topic, group = Group}) ->
             ok = mnesia:dirty_delete_object(?TAB, Record),
             true = ets:delete_object(?SHARED_SUBS, {{Group, Topic}, SubPid}),
-            delete_route_if_needed({Group, Topic})
+            delete_route_if_needed({Group, Topic}, Worker)
         end, mnesia:dirty_match_object(#emqx_shared_subscription{_ = '_', subpid = SubPid})).
 
 update_stats(State) ->
@@ -392,8 +409,13 @@ is_alive_sub(Pid) when ?IS_LOCAL_PID(Pid) ->
 is_alive_sub(Pid) ->
     [] =/= ets:lookup(?ALIVE_SUBS, Pid).
 
-delete_route_if_needed({Group, Topic}) ->
+delete_route_if_needed({Group, Topic}, Worker) ->
     case ets:member(?SHARED_SUBS, {Group, Topic}) of
         true -> ok;
-        false -> ok = emqx_router:do_delete_route(Topic, {Group, node()})
+        false -> ok = emqx_router:do_delete_route(Topic, {Group, node()}, Worker)
     end.
+
+restart_worker(#state{worker_ref = OldRef} = State) ->
+    erlang:demonitor(OldRef, [flush]),
+    {Worker, WorkerMRef} = emqx_router:start_trans_worker(),
+    State#state{worker_ref = WorkerMRef, worker = Worker}.

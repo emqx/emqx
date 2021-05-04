@@ -296,7 +296,7 @@ last_message(ExpectedPayload, Pids) ->
 
 t_dispatch(_) ->
     ok = ensure_config(random),
-    Topic = <<"foo">>,
+    Topic = <<"foo/#">>,
     ?assertEqual({error, no_subscribers},
                  emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})),
     emqx:subscribe(Topic, #{qos => 2, share => <<"group1">>}),
