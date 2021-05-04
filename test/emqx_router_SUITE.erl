@@ -72,16 +72,6 @@ t_add_delete(_) ->
     ?R:delete_route(<<"a/+/b">>, node()),
     ?assertEqual([], ?R:topics()).
 
-t_do_add_delete(_) ->
-    ?R:do_add_route(<<"a/b/c">>),
-    ?R:do_add_route(<<"a/b/c">>, node()),
-    ?R:do_add_route(<<"a/+/b">>, node()),
-    ?assertEqual([<<"a/+/b">>, <<"a/b/c">>], lists:sort(?R:topics())),
-
-    ?R:do_delete_route(<<"a/b/c">>, node()),
-    ?R:do_delete_route(<<"a/+/b">>),
-    ?assertEqual([], ?R:topics()).
-
 t_match_routes(_) ->
     ?R:add_route(<<"a/b/c">>),
     ?R:add_route(<<"a/+/c">>, node()),

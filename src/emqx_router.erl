@@ -36,15 +36,11 @@
 %% Route APIs
 -export([ add_route/1
         , add_route/2
-        , do_add_route/1
-        , do_add_route/2
         , do_add_route/3
         ]).
 
 -export([ delete_route/1
         , delete_route/2
-        , do_delete_route/1
-        , do_delete_route/2
         , do_delete_route/3
         ]).
 
@@ -114,14 +110,7 @@ add_route(Topic) when is_binary(Topic) ->
 add_route(Topic, Dest) when is_binary(Topic) ->
     call(pick(Topic), {add_route, Topic, Dest}).
 
--spec(do_add_route(emqx_topic:topic()) -> ok | {error, term()}).
-do_add_route(Topic) when is_binary(Topic) ->
-    do_add_route(Topic, node()).
-
--spec(do_add_route(emqx_topic:topic(), dest()) -> ok | {error, term()}).
-do_add_route(Topic, Dest) when is_binary(Topic) ->
-    do_add_route(Topic, Dest, undefined).
-
+-spec(do_add_route(emqx_topic:topic(), dest(), pid()) -> ok | {error, term()}).
 do_add_route(Topic, Dest, Worker) when is_binary(Topic) ->
     Route = #route{topic = Topic, dest = Dest},
     case lists:member(Route, lookup_routes(Topic)) of
@@ -167,13 +156,7 @@ delete_route(Topic) when is_binary(Topic) ->
 delete_route(Topic, Dest) when is_binary(Topic) ->
     call(pick(Topic), {delete_route, Topic, Dest}).
 
--spec(do_delete_route(emqx_topic:topic()) -> ok | {error, term()}).
-do_delete_route(Topic) when is_binary(Topic) ->
-    do_delete_route(Topic, node()).
-
--spec(do_delete_route(emqx_topic:topic(), dest()) -> ok | {error, term()}).
-do_delete_route(Topic, Dest) ->
-    do_delete_route(Topic, Dest, undefined).
+-spec(do_delete_route(emqx_topic:topic(), dest(), pid()) -> ok | {error, term()}).
 do_delete_route(Topic, Dest, Worker) ->
     Route = #route{topic = Topic, dest = Dest},
     case emqx_topic:wildcard(Topic) of
@@ -300,7 +283,7 @@ delete_trie_route(Route = #route{topic = Topic}) ->
 %% @private
 -spec(maybe_trans(pid(), function(), list(any())) -> ok | {error, term()}).
 maybe_trans(Worker, Fun, Args) ->
-    case persistent_term:get(emqx_route_lock_type) of
+    case persistent_term:get(emqx_route_lock_type, key) of
         key ->
             trans(Worker, Fun, Args);
         global ->
