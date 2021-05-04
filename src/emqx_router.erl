@@ -266,28 +266,38 @@ maybe_trans(Fun, Args) ->
                   end, [])
     end.
 
+%% The created fun only terminates with explicit exception
+-dialyzer({nowarn_function, [trans/2]}).
+
 -spec(trans(function(), list(any())) -> ok | {error, term()}).
 trans(Fun, Args) ->
-    %% trigger selective receive optimization of compiler,
-    %% ideal for handling bursty traffic.
-    Ref = erlang:make_ref(),
-    Owner = self(),
-    {WPid, RefMon} = spawn_monitor(
-                       fun() ->
-                               Res = case mnesia:transaction(Fun, Args) of
-                                         {atomic, Ok} -> Ok;
-                                         {aborted, Reason} -> {error, Reason}
-                                     end,
-                               Owner ! {Ref, Res}
-                       end),
+    {WPid, RefMon} =
+        spawn_monitor(
+            %% NOTE: this is under the assumption that crashes in Fun
+            %% are caught by mnesia:transaction/2.
+            %% Future changes should keep in mind that this process
+            %% always exit with database write result.
+            fun() ->
+                    Res = case mnesia:transaction(Fun, Args) of
+                              {atomic, Ok} -> Ok;
+                              {aborted, Reason} -> {error, Reason}
+                          end,
+                    exit({shutdown, Res})
+            end),
+    %% Receive a 'shutdown' exit to pass result from the short-lived process.
+    %% so the receive below can be receive-mark optimized by the compiler.
+    %%
+    %% If the result is sent as a regular message, we'll have to
+    %% either demonitor (with flush which is essentially a 'receive' since
+    %% the process is no longer alive after the result has been received),
+    %% or use a plain 'receive' to drain the normal 'DOWN' message.
+    %% However the compiler does not optimize this second 'receive'.
     receive
-        {Ref, TransRes} ->
-            receive
-                {'DOWN', RefMon, process, WPid, normal} -> ok
-            end,
-            TransRes;
         {'DOWN', RefMon, process, WPid, Info} ->
-            {error, {trans_crash, Info}}
+            case Info of
+                {shutdown, Result} -> Result;
+                _ -> {error, {trans_crash, Info}}
+            end
     end.
 
 lock_router() ->
