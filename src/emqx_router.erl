@@ -308,8 +308,17 @@ trans(Worker, Fun, Args) when is_pid(Worker) ->
     Worker ! {work, MonRef, Fun, Args},
     receive
         {MonRef, TransRes} ->
-            %% note! Caller should remember to flush 'DownMsg'
-            true = erlang:demonitor(MonRef),
+            case erlang:demonitor(MonRef, [info]) of
+                true -> %% likely, no flush
+                    ok;
+                false -> %% unlikely to happen
+                    receive
+                        {_, MonRef, _, _, _} ->
+                            ok
+                    after 0 ->
+                            ok
+                    end
+               end,
             TransRes;
         {'DOWN', MonRef, process, Worker, Info} ->
             {error, {trans_worker_crash, Info}}
