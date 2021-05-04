@@ -644,10 +644,21 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [Packet|Packets], NState)
     catch
-        error:Reason:Stk ->
-            ?LOG(error, "~nParse failed for ~0p~n~0p~nFrame data:~0p",
-                 [Reason, Stk, Data]),
-            {[{frame_error, Reason}|Packets], State}
+        throw : ?FRAME_ERROR(Reason) ->
+            ?SLOG(info, #{ reason => Reason
+                         , at_state => emqx_frame:describe_state(ParseState)
+                         , input_bytes => Data
+                         , parsed_packets => Packets
+                         }),
+            {[{frame_error, Reason} | Packets], State};
+        error : Reason : Stacktrace ->
+            ?SLOG(info, #{ at_state => emqx_frame:describe_state(ParseState)
+                         , input_bytes => Data
+                         , parsed_packets => Packets
+                         , exception => Reason
+                         , stacktrace => Stacktrace
+                         }),
+            {[{frame_error, Reason} | Packets], State}
     end.
 
 -compile({inline, [next_incoming_msgs/1]}).
