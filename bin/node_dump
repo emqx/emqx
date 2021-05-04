@@ -12,14 +12,15 @@ DUMP="log/node_dump_$(date +"%y%m%d_%H%M%S").tar.gz"
 
 collect() {
     echo "========================================================"
-    echo "    $@"
+    echo "    $*"
     echo "========================================================"
-    eval $@ || echo "Unavailable"
+    eval "$*" || echo "Unavailable"
     echo -e '\n'
 }
 
 {
     collect bin/emqx_ctl broker
+    collect bin/emqx eval "'emqx_node_dump:sys_info()'"
 
     collect uname -a
     collect uptime
@@ -33,9 +34,9 @@ collect() {
     collect bin/emqx_ctl listeners
 } > log/sysinfo.txt
 
-bin/emqx eval 'ets:tab2list(ac_tab)' > log/conf.dump
+bin/emqx eval 'emqx_node_dump:app_env_dump()' > log/conf.dump
 
-tar czf $DUMP log/*.log.* log/run_erl.log* log/sysinfo.txt log/conf.dump
+tar czf "${DUMP}" log/*.log.* log/run_erl.log* log/sysinfo.txt log/conf.dump
 
 ## Cleanup:
 rm log/sysinfo.txt
