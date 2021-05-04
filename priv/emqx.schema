@@ -491,6 +491,13 @@ end}.
   hidden
 ]}.
 
+%% @doc Maximum depth in Erlang term log formatting
+%% and message queue inspection.
+{mapping, "log.max_depth", "kernel.error_logger_format_depth", [
+  {default, 20},
+  {datatype, [{enum, [unlimited]}, integer]}
+]}.
+
 %% @doc format logs in a single line.
 {mapping, "log.single_line", "kernel.logger", [
   {default, false},
