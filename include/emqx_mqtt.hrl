@@ -540,4 +540,7 @@
 -define(SHARE(Group, Topic), emqx_topic:join([<<?SHARE>>, Group, Topic])).
 -define(IS_SHARE(Topic), case Topic of <<?SHARE, _/binary>> -> true; _ -> false end).
 
+-define(FRAME_ERROR(Reason), {frame_error, Reason}).
+-define(THROW_FRAME_ERROR(Reason), erlang:throw(?FRAME_ERROR(Reason))).
+
 -endif.

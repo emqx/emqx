@@ -41,10 +41,18 @@
 
 -define(LOG(Level, Format), ?LOG(Level, Format, [])).
 
--define(LOG(Level, Format, Args),
-        begin
-          (logger:log(Level,#{},#{report_cb => fun(_) -> {'$logger_header'()++(Format), (Args)} end,
-                                  mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY},
-                                  line => ?LINE}))
+-define(LOG(Level, Format, Args), ?LOG(Level, Format, Args, #{})).
+
+-define(LOG(Level, Format, Args, Meta),
+        case logger:allow(Level, ?MODULE) of
+            true ->
+                logger:log(Level, (Format), (Args),
+                           (Meta)#{ mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}
+                                  , line => ?LINE
+                                  });
+            false ->
+                ok
         end).
 
+%% structured logging
+-define(SLOG(Level, Message, Meta), ?LOG(Level, Message, [], Meta)).

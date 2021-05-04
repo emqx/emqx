@@ -432,7 +432,7 @@ handle_msg({connack, ConnAck}, State) ->
     handle_outgoing(ConnAck, State);
 
 handle_msg({close, Reason}, State) ->
-    ?LOG(debug, "Force to close the socket due to ~p", [Reason]),
+    ?SLOG(debug, "force_socket_close", #{reason => Reason}),
     handle_info({sock_closed, Reason}, close_socket(State));
 
 handle_msg({event, connected}, State = #state{channel = Channel}) ->
@@ -587,10 +587,23 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [Packet|Packets], NState)
     catch
-        error:Reason:Stk ->
-            ?LOG(error, "~nParse failed for ~0p~n~0p~nFrame data:~0p",
-                 [Reason, Stk, Data]),
-            {[{frame_error, Reason}|Packets], State}
+        throw : ?FRAME_ERROR(Reason) ->
+            ?SLOG(warning, frame_error,
+                  #{ reason => Reason
+                   , at_state => emqx_frame:describe_state(ParseState)
+                   , input_bytes => Data
+                   , parsed_packets => Packets
+                   }),
+            {[{frame_error, Reason} | Packets], State};
+        error : Reason : Stacktrace ->
+            ?SLOG(error, "parse_frame_exception",
+                  #{ at_state => emqx_frame:describe_state(ParseState)
+                   , input_bytes => Data
+                   , parsed_packets => Packets
+                   , exception => Reason
+                   , stacktrace => Stacktrace
+                   }),
+            {[{frame_error, Reason} | Packets], State}
     end.
 
 -compile({inline, [next_incoming_msgs/1]}).

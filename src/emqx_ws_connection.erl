@@ -537,9 +537,21 @@ parse_incoming(Data, State = #state{parse_state = ParseState}) ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, postpone({incoming, Packet}, NState))
     catch
-        error:Reason:Stk ->
-            ?LOG(error, "~nParse failed for ~0p~n~0p~nFrame data: ~0p",
-                 [Reason, Stk, Data]),
+        throw : ?FRAME_ERROR(Reason) ->
+            ?SLOG(warning, frame_error,
+                  #{ reason => Reason
+                   , at_state => emqx_frame:describe_state(ParseState)
+                   , input_bytes => Data
+                   }),
+            FrameError = {frame_error, Reason},
+            postpone({incoming, FrameError}, State);
+        error : Reason : Stacktrace ->
+            ?SLOG(error, "parse_frame_exception",
+                  #{ at_state => emqx_frame:describe_state(ParseState)
+                   , input_bytes => Data
+                   , exception => Reason
+                   , stacktrace => Stacktrace
+                   }),
             FrameError = {frame_error, Reason},
             postpone({incoming, FrameError}, State)
     end.

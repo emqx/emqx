@@ -34,6 +34,10 @@
         , serialize/2
         ]).
 
+
+-export([ describe_state/1
+        ]).
+
 -export_type([ options/0
              , parse_state/0
              , parse_result/0
@@ -47,7 +51,9 @@
                      version => emqx_types:version()
                     }).
 
--type(parse_state() :: {none, options()} | {cont_state(), options()}).
+-define(NONE(Options), {none, Options}).
+
+-type(parse_state() :: ?NONE(options()) | {cont_state(), options()}).
 
 -type(parse_result() :: {more, parse_state()}
                       | {ok, emqx_types:packet(), binary(), parse_state()}).
@@ -61,27 +67,42 @@
 
 -type(serialize_opts() :: options()).
 
--define(none(Options), {none, Options}).
-
 -define(DEFAULT_OPTIONS,
         #{strict_mode => false,
           max_size    => ?MAX_PACKET_SIZE,
           version     => ?MQTT_PROTO_V4
          }).
 
+-define(PARSE_ERR(Reason), ?THROW_FRAME_ERROR(Reason)).
+
 -dialyzer({no_match, [serialize_utf8_string/2]}).
+
+%% @doc Describe state for logging.
+describe_state(?NONE(_Opts)) -> <<"clean">>;
+describe_state({{len, _}, _Opts}) -> <<"parsing_varint_length">>;
+describe_state({{body, State}, _Opts}) ->
+    #{ hdr := Hdr
+     , len := Len
+     } = State,
+    Desc = #{ parsed_header => Hdr
+            , expected_bytes => Len
+            },
+    case maps:get(rest, State, undefined) of
+        undefined -> Desc;
+        Body -> Desc#{received_bytes => body_bytes(Body)}
+    end.
 
 %%--------------------------------------------------------------------
 %% Init Parse State
 %%--------------------------------------------------------------------
 
--spec(initial_parse_state() -> {none, options()}).
+-spec(initial_parse_state() -> ?NONE(options())).
 initial_parse_state() ->
     initial_parse_state(#{}).
 
--spec(initial_parse_state(options()) -> {none, options()}).
+-spec(initial_parse_state(options()) -> ?NONE(options())).
 initial_parse_state(Options) when is_map(Options) ->
-    ?none(merge_opts(Options)).
+    ?NONE(merge_opts(Options)).
 
 %% @pivate
 merge_opts(Options) ->
@@ -96,10 +117,10 @@ parse(Bin) ->
     parse(Bin, initial_parse_state()).
 
 -spec(parse(binary(), parse_state()) -> parse_result()).
-parse(<<>>, {none, Options}) ->
-    {more, {none, Options}};
+parse(<<>>, ?NONE(Options)) ->
+    {more, ?NONE(Options)};
 parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>,
-      {none, Options = #{strict_mode := StrictMode}}) ->
+      ?NONE(Options = #{strict_mode := StrictMode})) ->
     %% Validate header if strict mode.
     StrictMode andalso validate_header(Type, Dup, QoS, Retain),
     Header = #mqtt_packet_header{type   = Type,
@@ -140,14 +161,14 @@ parse_remaining_len(Rest, Header, Options) ->
 
 parse_remaining_len(_Bin, _Header, _Multiplier, Length, #{max_size := MaxSize})
   when Length > MaxSize ->
-    error(frame_too_large);
+    ?PARSE_ERR(frame_too_large);
 parse_remaining_len(<<>>, Header, Multiplier, Length, Options) ->
     {more, {{len, #{hdr => Header, len => {Multiplier, Length}}}, Options}};
 %% Match DISCONNECT without payload
 parse_remaining_len(<<0:8, Rest/binary>>,
                     Header = #mqtt_packet_header{type = ?DISCONNECT}, 1, 0, Options) ->
     Packet = packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}),
-    {ok, Packet, Rest, ?none(Options)};
+    {ok, Packet, Rest, ?NONE(Options)};
 %% Match PINGREQ.
 parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, Options) ->
     parse_frame(Rest, Header, 0, Options);
@@ -156,14 +177,14 @@ parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, Options) ->
     parse_frame(Rest, Header, 2, Options);
 parse_remaining_len(<<1:1, _Len:7, _Rest/binary>>, _Header, Multiplier, _Value, _Options)
         when Multiplier > 2097152 ->
-    error(malformed_variable_byte_integer);
+    ?PARSE_ERR(malformed_variable_byte_integer);
 parse_remaining_len(<<1:1, Len:7, Rest/binary>>, Header, Multiplier, Value, Options) ->
     parse_remaining_len(Rest, Header, Multiplier * ?HIGHBIT, Value + Len * Multiplier, Options);
 parse_remaining_len(<<0:1, Len:7, Rest/binary>>, Header, Multiplier, Value,
                     Options = #{max_size := MaxSize}) ->
     FrameLen = Value + Len * Multiplier,
     case FrameLen > MaxSize of
-        true -> error(frame_too_large);
+        true -> ?PARSE_ERR(frame_too_large);
         false -> parse_frame(Rest, Header, FrameLen, Options)
     end.
 
@@ -186,18 +207,18 @@ parse_frame(Body, Header, Length, Options) ->
     parse_frame(Body, _SplitTail = <<>>, Header, Length, Options).
 
 parse_frame(Body, Tail, Header, 0, Options) ->
-    {ok, packet(Header), flatten_body(Body, Tail), ?none(Options)};
+    {ok, packet(Header), flatten_body(Body, Tail), ?NONE(Options)};
 parse_frame(Body, Tail, Header, Length, Options) ->
     case body_bytes(Body) >= Length of
         true ->
             <<FrameBin:Length/binary, Rest/binary>> = flatten_body(Body, Tail),
             case parse_packet(Header, FrameBin, Options) of
                 {Variable, Payload} ->
-                    {ok, packet(Header, Variable, Payload), Rest, ?none(Options)};
+                    {ok, packet(Header, Variable, Payload), Rest, ?NONE(Options)};
                 Variable = #mqtt_packet_connect{proto_ver = Ver} ->
-                    {ok, packet(Header, Variable), Rest, ?none(Options#{version := Ver})};
+                    {ok, packet(Header, Variable), Rest, ?NONE(Options#{version := Ver})};
                 Variable ->
-                    {ok, packet(Header, Variable), Rest, ?none(Options)}
+                    {ok, packet(Header, Variable), Rest, ?NONE(Options)}
             end;
         false ->
             {more, {{body, #{hdr => Header,
@@ -740,7 +761,7 @@ serialize_binary_data(Bin) ->
     [<<(byte_size(Bin)):16/big-unsigned-integer>>, Bin].
 
 serialize_utf8_string(undefined, false) ->
-    error(utf8_string_undefined);
+    ?PARSE_ERR(utf8_string_undefined);
 serialize_utf8_string(undefined, true) ->
     <<>>;
 serialize_utf8_string(String, _AllowNull) ->
@@ -788,13 +809,13 @@ validate_header(?PINGREQ, 0, 0, 0)      -> ok;
 validate_header(?PINGRESP, 0, 0, 0)     -> ok;
 validate_header(?DISCONNECT, 0, 0, 0)   -> ok;
 validate_header(?AUTH, 0, 0, 0)         -> ok;
-validate_header(_Type, _Dup, _QoS, _Rt) -> error(bad_frame_header).
+validate_header(_Type, _Dup, _QoS, _Rt) -> ?PARSE_ERR(bad_frame_header).
 
 -compile({inline, [validate_packet_id/1]}).
-validate_packet_id(0) -> error(bad_packet_id);
+validate_packet_id(0) -> ?PARSE_ERR(bad_packet_id);
 validate_packet_id(_) -> ok.
 
-validate_subqos([3|_]) -> error(bad_subqos);
+validate_subqos([3|_]) -> ?PARSE_ERR(bad_subqos);
 validate_subqos([_|T]) -> validate_subqos(T);
 validate_subqos([])    -> ok.
 
