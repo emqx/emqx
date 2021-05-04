@@ -251,13 +251,16 @@ set_props(Props, #mqtt_packet_auth{} = Pkt) ->
 %% @doc Check PubSub Packet.
 -spec(check(emqx_types:packet()|publish()|subscribe()|unsubscribe())
       -> ok | {error, emqx_types:reason_code()}).
-check(#mqtt_packet{variable = PubPkt}) when is_record(PubPkt, mqtt_packet_publish) ->
+check(#mqtt_packet{header = #mqtt_packet_header{type = ?PUBLISH},
+                   variable = PubPkt}) when not is_tuple(PubPkt) ->
+    %% publish without any data
+    %% disconnect instead of crash
+    {error, ?RC_PROTOCOL_ERROR};
+check(#mqtt_packet{variable = #mqtt_packet_publish{} = PubPkt}) ->
     check(PubPkt);
-
-check(#mqtt_packet{variable = SubPkt}) when is_record(SubPkt, mqtt_packet_subscribe) ->
+check(#mqtt_packet{variable = #mqtt_packet_subscribe{} = SubPkt}) ->
     check(SubPkt);
-
-check(#mqtt_packet{variable = UnsubPkt}) when is_record(UnsubPkt, mqtt_packet_unsubscribe) ->
+check(#mqtt_packet{variable = #mqtt_packet_unsubscribe{} = UnsubPkt}) ->
     check(UnsubPkt);
 
 %% A Topic Alias of 0 is not permitted.

@@ -156,7 +156,6 @@ parse_remaining_len(<<0:1, Len:7, Rest/binary>>, Header, Multiplier, Value,
 
 parse_frame(Bin, Header, 0, Options) ->
     {ok, packet(Header), Bin, ?none(Options)};
-
 parse_frame(Bin, Header, Length, Options) ->
     case Bin of
         <<FrameBin:Length/binary, Rest/binary>> ->
