@@ -82,7 +82,7 @@
           timer = undefined :: undefined | reference()
         }).
 
-%% The count of 100-nanosecond intervals between the UUID epoch 
+%% The count of 100-nanosecond intervals between the UUID epoch
 %% 1582-10-15 00:00:00 and the UNIX epoch 1970-01-01 00:00:00.
 -define(GREGORIAN_EPOCH_OFFSET, 16#01b21dd213814000).
 
@@ -93,6 +93,8 @@
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
+
+-rlog_shard({emqx_telemetry_shard, ?TELEMETRY}).
 
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TELEMETRY,

@@ -27,9 +27,9 @@
 start(_Type, _Args) ->
     emqx_ctl:register_command(telemetry, {emqx_telemetry_api, cli}),
     Env = application:get_all_env(emqx_telemetry),
+    ok = ekka_rlog:wait_for_shards([emqx_telemetry_shard], infinity),
     emqx_telemetry_sup:start_link(Env).
 
 stop(_State) ->
     emqx_ctl:unregister_command(telemetry),
     ok.
-

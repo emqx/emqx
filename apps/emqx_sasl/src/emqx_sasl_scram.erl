@@ -41,12 +41,15 @@
 -compile(nowarn_export_all).
 -endif.
 
+-rlog_shard({emqx_scram_auth_shard, ?SCRAM_AUTH_TAB}).
+
 init() ->
     ok = ekka_mnesia:create_table(?SCRAM_AUTH_TAB, [
             {disc_copies, [node()]},
             {attributes, record_info(fields, ?SCRAM_AUTH_TAB)},
             {storage_properties, [{ets, [{read_concurrency, true}]}]}]),
-    ok = ekka_mnesia:copy_table(?SCRAM_AUTH_TAB, disc_copies).
+    ok = ekka_mnesia:copy_table(?SCRAM_AUTH_TAB, disc_copies),
+    ok = ekka_rlog:wait_for_shards([emqx_scram_auth_shard], infinity).
 
 add(Username, Password, Salt) ->
     add(Username, Password, Salt, 4096).

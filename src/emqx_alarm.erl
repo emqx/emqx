@@ -99,6 +99,9 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
+-rlog_shard({emqx_shard, ?ACTIVATED_ALARM}).
+-rlog_shard({emqx_shard, ?DEACTIVATED_ALARM}).
+
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?ACTIVATED_ALARM,
              [{type, set},

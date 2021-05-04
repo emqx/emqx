@@ -50,6 +50,8 @@
 
 -record(channel, {chid, pid}).
 
+-rlog_shard({emqx_shard, ?TAB}).
+
 %% @doc Start the global channel registry.
 -spec(start_link() -> startlink_ret()).
 start_link() ->

@@ -55,6 +55,8 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
+-rlog_shard({emqx_shard, ?BANNED_TAB}).
+
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?BANNED_TAB, [
                 {type, set},
@@ -160,4 +162,3 @@ expire_banned_items(Now) ->
               mnesia:delete_object(?BANNED_TAB, B, sticky_write);
          (_, _Acc) -> ok
       end, ok, ?BANNED_TAB).
-
