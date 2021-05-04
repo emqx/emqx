@@ -308,8 +308,9 @@ trans(Worker, Fun, Args) when is_pid(Worker) ->
     Worker ! {work, MonRef, Fun, Args},
     receive
         {MonRef, TransRes} ->
-            %% note! Caller should remember to flush 'DownMsg'
-            true = erlang:demonitor(MonRef),
+            %% most likely flush won't happen.
+            %% flush will only happen when demonitor failed (Worker is already dead)
+            erlang:demonitor(MonRef, [flush]),
             TransRes;
         {'DOWN', MonRef, process, Worker, Info} ->
             {error, {trans_worker_crash, Info}}
