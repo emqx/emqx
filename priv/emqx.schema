@@ -499,9 +499,9 @@ end}.
 ]}.
 
 %% @doc format logs as JSON objects
-{mapping, "log.use_json_formatter", "kernel.logger", [
-  {default, false},
-  {datatype, {enum, [true, false]}}
+{mapping, "log.formatter", "kernel.logger", [
+  {default, text},
+  {datatype, {enum, [text, json]}}
 ]}.
 
 %% @doc format logs in a single line.
@@ -607,22 +607,23 @@ end}.
                      V -> V
                  end,
     SingleLine0 = cuttlefish:conf_get("log.single_line", Conf),
-    AsJson = cuttlefish:conf_get("log.use_json_formatter", Conf),
+    FmtName = cuttlefish:conf_get("log.formatter", Conf),
     SingleLine = case SingleLine0 =:= formatter_default of
-                     true ->
-                         %% single-line when logging in JSON format
-                         AsJson;
+                     true when FmtName =:= text ->
+                         false;
+                     true when FmtName =:= json ->
+                         true;
                      false ->
                          SingleLine0
                  end,
     Formatter =
-    case AsJson of
-        true ->
+    case FmtName of
+        json ->
             {emqx_logger_jsonfmt,
                   #{chars_limit => CharsLimit,
                     single_line => SingleLine
                    }};
-        false ->
+        text ->
             {emqx_logger_textfmt,
                   #{template =>
                       [time," [",level,"] ",
