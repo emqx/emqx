@@ -12,6 +12,8 @@ DUMP="log/node_dump_$(date +"%Y%m%d_%H%M%S").tar.gz"
 CONF_DUMP="log/conf.dump"
 SYSINFO="log/sysinfo.txt"
 
+LOG_MAX_AGE_DAYS=3
+
 collect() {
     echo "========================================================"
     echo "    $*"
@@ -20,6 +22,28 @@ collect() {
     echo -e '\n'
 }
 
+show_help() {
+    echo "Collect information about the EMQ X node
+
+USAGE:
+
+    bin/node_dump [-a DAYS]
+
+OPTIONS:
+
+    -a n  Set maximum age of collected log files in days (3 by default)"
+    exit 1
+}
+
+while getopts "a:h" opt; do
+    case "${opt}" in
+        a) LOG_MAX_AGE_DAYS="${OPTARG}" ;;
+        h) show_help ;;
+        *) ;;
+    esac
+done
+
+# Collect system info:
 {
     collect bin/emqx_ctl broker
     collect bin/emqx eval "'emqx_node_dump:sys_info()'"
@@ -36,12 +60,14 @@ collect() {
     collect bin/emqx_ctl listeners
 } > "${SYSINFO}"
 
+# Collect information about the configuration:
 {
     collect bin/emqx eval "'emqx_node_dump:app_env_dump()'"
 } > "${CONF_DUMP}"
 
+# Pack files
 {
-    find log -mtime -3 \( -name '*.log.*' -or -name 'run_erl.log*' \)
+    find log -mtime -"${LOG_MAX_AGE_DAYS}" \( -name '*.log.*' -or -name 'run_erl.log*' \)
     echo "${SYSINFO}"
     echo "${CONF_DUMP}"
 } | tar czf "${DUMP}" -T -
