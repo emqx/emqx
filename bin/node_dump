@@ -8,7 +8,7 @@ echo "Running node dump in ${ROOT_DIR}"
 
 cd "${ROOT_DIR}"
 
-DUMP="log/node_dump_$(date +"%y%m%d_%H%M%S").tar.gz"
+DUMP="log/node_dump_$(date +"%Y%m%d_%H%M%S").tar.gz"
 
 collect() {
     echo "========================================================"
@@ -40,6 +40,9 @@ tar czf "${DUMP}" log/*.log.* log/run_erl.log* log/sysinfo.txt log/conf.dump
 
 ## Cleanup:
 rm log/sysinfo.txt
-rm log/conf.dump
+#rm log/conf.dump
 
 echo "Created a node dump ${DUMP}"
+echo -e "\nWarning: this script tries to obfuscate secrets, but make sure to
+inspect log/conf.dump file manually before uploading the node dump
+to a public location."

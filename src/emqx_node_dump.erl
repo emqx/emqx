@@ -36,35 +36,40 @@ censor([{{env, App, Key}, Val} | Rest]) ->
 censor([_ | Rest]) ->
     censor(Rest).
 
-censor(Path, L) when is_list(L) ->
-    [censor(Path, I) || I <- L];
+censor(Path, {Key, Val}) when is_atom(Key) ->
+    {Key, censor([Key|Path], Val)};
 censor(Path, M) when is_map(M) ->
     Fun = fun(Key, Val) ->
                   censor([Key|Path], Val)
           end,
     maps:map(Fun, M);
-censor(Path, {Key, Val}) when is_atom(Key) ->
-    {Key, censor([Key|Path], Val)};
+censor(Path, L = [Fst|_]) when is_tuple(Fst) ->
+    [censor(Path, I) || I <- L];
 censor(Path, Val) ->
     case Path of
-        [password|_] when is_binary(Val) ->
-            <<"censored">>;
-        [password|_] when is_list(Val) ->
-            "censored";
+        [password|_] ->
+            obfuscate_value(Val);
+        [secret|_]  ->
+            obfuscate_value(Val);
         _ ->
             Val
     end.
+
+obfuscate_value(Val) when is_binary(Val) ->
+    <<"********">>;
+obfuscate_value(_Val) ->
+    "********".
 
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
 censor_test() ->
-    ?assertMatch( [{{env, emqx, listeners}, #{password := <<"censored">>}}]
+    ?assertMatch( [{{env, emqx, listeners}, #{password := <<"********">>}}]
                 , censor([foo, {{env, emqx, listeners}, #{password => <<"secret">>}}, {app, bar}])
                 ),
-    ?assertMatch( [{{env, emqx, listeners}, [{foo, 1}, {password, <<"censored">>}]}]
-                , censor([{{env, emqx, listeners}, [{foo, 1}, {password, <<"secret">>}]}])
+    ?assertMatch( [{{env, emqx, listeners}, [{foo, 1}, {password, "********"}]}]
+                , censor([{{env, emqx, listeners}, [{foo, 1}, {password, "secret"}]}])
                 ).
 
 -endif. %% TEST
