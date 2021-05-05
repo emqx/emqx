@@ -623,7 +623,7 @@ end}.
                     single_line => SingleLine
                    }};
         false ->
-            {logger_formatter,
+            {emqx_logger_textfmt,
                   #{template =>
                       [time," [",level,"] ",
                        {clientid,
