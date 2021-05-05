@@ -271,24 +271,20 @@ maybe_trans(Fun, Args) ->
 trans(Fun, Args) ->
     %% trigger selective receive optimization of compiler,
     %% ideal for handling bursty traffic.
-    Ref = erlang:make_ref(),
-    Owner = self(),
-    {WPid, RefMon} = spawn_monitor(
+    {_, RefMon} = spawn_monitor(
                        fun() ->
                                Res = case mnesia:transaction(Fun, Args) of
                                          {atomic, Ok} -> Ok;
                                          {aborted, Reason} -> {error, Reason}
                                      end,
-                               Owner ! {Ref, Res}
+                               exit({shutdown, Res})
                        end),
     receive
-        {Ref, TransRes} ->
-            receive
-                {'DOWN', RefMon, process, WPid, normal} -> ok
-            end,
-            TransRes;
-        {'DOWN', RefMon, process, WPid, Info} ->
-            {error, {trans_crash, Info}}
+        {'DOWN', RefMon, process, _, Info} ->
+            case Info of
+                {shutdown, Res} -> Res;
+                _ -> {error, {trans_crash, Info}}
+            end
     end.
 
 lock_router() ->
