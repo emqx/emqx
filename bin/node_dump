@@ -9,6 +9,8 @@ echo "Running node dump in ${ROOT_DIR}"
 cd "${ROOT_DIR}"
 
 DUMP="log/node_dump_$(date +"%Y%m%d_%H%M%S").tar.gz"
+CONF_DUMP="log/conf.dump"
+SYSINFO="log/sysinfo.txt"
 
 collect() {
     echo "========================================================"
@@ -32,22 +34,21 @@ collect() {
 
     collect bin/emqx_ctl vm all
     collect bin/emqx_ctl listeners
-} > log/sysinfo.txt
+} > "${SYSINFO}"
 
 {
     collect bin/emqx eval "'emqx_node_dump:app_env_dump()'"
-} > log/conf.dump
+} > "${CONF_DUMP}"
 
-# Collect log files that are not older than 3 days:
-LOGS=$(find log -mtime -3 \( -name '*.log.*' -or -name 'run_erl.log*' \))
-
-tar czf "${DUMP}" ${LOGS} \
-    log/sysinfo.txt \
-    log/conf.dump
+{
+    find log -mtime -3 \( -name '*.log.*' -or -name 'run_erl.log*' \)
+    echo "${SYSINFO}"
+    echo "${CONF_DUMP}"
+} | tar czf "${DUMP}" -T -
 
 ## Cleanup:
-rm log/sysinfo.txt
-#rm log/conf.dump # Keep it for inspection
+rm "${SYSINFO}"
+#rm "${CONF_DUMP}" # Keep it for inspection
 
 echo "Created a node dump ${DUMP}"
 echo -e "\nWARNING: this script tries to obfuscate secrets, but make sure to
