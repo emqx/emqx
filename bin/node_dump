@@ -34,15 +34,22 @@ collect() {
     collect bin/emqx_ctl listeners
 } > log/sysinfo.txt
 
-bin/emqx eval 'emqx_node_dump:app_env_dump()' > log/conf.dump
+{
+    collect bin/emqx eval "'emqx_node_dump:app_env_dump()'"
+} > log/conf.dump
 
-tar czf "${DUMP}" log/*.log.* log/run_erl.log* log/sysinfo.txt log/conf.dump
+# Collect log files that are not older than 3 days:
+LOGS=$(find log -mtime -3 \( -name '*.log.*' -or -name 'run_erl.log*' \))
+
+tar czf "${DUMP}" ${LOGS} \
+    log/sysinfo.txt \
+    log/conf.dump
 
 ## Cleanup:
 rm log/sysinfo.txt
-#rm log/conf.dump
+#rm log/conf.dump # Keep it for inspection
 
 echo "Created a node dump ${DUMP}"
-echo -e "\nWarning: this script tries to obfuscate secrets, but make sure to
+echo -e "\nWARNING: this script tries to obfuscate secrets, but make sure to
 inspect log/conf.dump file manually before uploading the node dump
 to a public location."
