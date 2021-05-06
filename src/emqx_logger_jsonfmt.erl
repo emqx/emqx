@@ -25,7 +25,7 @@
 %% e.g. logger:log(info, _Data = #{foo => bar}, _Meta = #{metaf1 => 2})
 %% will results in a JSON object look like below:
 %%
-%% {"time": 1620226963427808, "level": "info", msg": "foo: bar", "metaf1": 2}
+%% {"time": 1620226963427808, "level": "info", "msg": "foo: bar", "metaf1": 2}
 
 -module(emqx_logger_jsonfmt).
 
