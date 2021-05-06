@@ -55,7 +55,7 @@ format(Msg, Meta, Config) ->
         try Meta#{msg => format_msg(Msg, Meta, Config)}
         catch
             C:R:S ->
-                Meta#{ msg => "emqx_logger_jsfmt_format_error"
+                Meta#{ msg => "emqx_logger_jsonfmt_format_error"
                      , fmt_raw_input => Msg
                      , fmt_error => C
                      , fmt_reason => R
@@ -203,13 +203,15 @@ json_kv('$kind', Kind, Data, Config) -> %% snabbkaffe
 json_kv(K0, V, Data, Config) ->
     K = json_key(K0),
     case is_map(V) of
-        true -> maps:put(json(K, Config), json_obj(V, Config), Data);
+        true -> maps:put(json(K, Config), best_effort_json_obj(V, Config), Data);
         false -> maps:put(json(K, Config), json(V, Config), Data)
     end.
 
-json_key('') -> throw({badkey, ''});
-json_key("") -> throw({badkey, ""});
-json_key(<<>>) -> throw({badkey, <<>>});
+json_key('' = K) -> throw({badkey, K});
+json_key("" = K) -> throw({badkey, K});
+json_key("\"\"" = K) -> throw({badkey, K});
+json_key(<<>> = K) -> throw({badkey, K});
+json_key(<<"\"\"">> = K) -> throw({badkey, K});
 json_key(A) when is_atom(A) -> atom_to_binary(A, utf8);
 json_key(Term) ->
     try unicode:characters_to_binary(Term, utf8) of
@@ -249,7 +251,7 @@ filter(Map) ->
     Keys = lists:filter(
              fun(K) ->
                      try json_key(K), true
-                     catch _ : _ -> false
+                     catch throw : {badkey, _} -> false
                      end
              end, maps:keys(Map)),
     maps:with(Keys, Map).
