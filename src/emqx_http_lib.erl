@@ -19,6 +19,7 @@
 -export([ uri_encode/1
         , uri_decode/1
         , uri_parse/1
+        , normalise_headers/1
         ]).
 
 -export_type([uri_map/0]).
@@ -90,6 +91,21 @@ do_parse(URI) ->
             Map2 = uri_string:parse(unicode:characters_to_list(["http://", URI])),
             normalise_parse_result(Map2)
     end.
+
+%% @doc Return HTTP headers list with keys lower-cased and
+%% underscores replaced with hyphens
+%% NOTE: assuming the input Headers list is a proplists,
+%% that is, when a key is duplicated, list header overrides tail
+%% e.g. [{"Content_Type", "applicaiton/binary"}, {"content-type", "applicaiton/json"}]
+%% results in: [{"content-type", "applicaiton/binary"}]
+normalise_headers(Headers0) ->
+    F = fun({K0, V}) ->
+                K = re:replace(K0, "_", "-", [{return,list}]),
+                {string:lowercase(K), V}
+        end,
+    Headers = lists:map(F, Headers0),
+    Keys = proplists:get_keys(Headers),
+    [{K, proplists:get_value(K, Headers)} || K <- Keys].
 
 normalise_parse_result(#{host := Host, scheme := Scheme0} = Map) ->
     Scheme = atom_scheme(Scheme0),

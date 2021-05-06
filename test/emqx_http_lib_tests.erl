@@ -77,3 +77,8 @@ uri_parse_test_() ->
        end
       }
     ].
+
+normalise_headers_test() ->
+    ?assertEqual([{"content-type", "applicaiton/binary"}],
+                 emqx_http_lib:normalise_headers([{"Content_Type", "applicaiton/binary"},
+                                                  {"content-type", "applicaiton/json"}])).
