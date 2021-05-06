@@ -96,7 +96,7 @@ translate_env(EnvName) ->
                         {retry_timeout, 1000}] ++ MoreOpts,
             Method = proplists:get_value(method, Req),
             Headers = proplists:get_value(headers, Req),
-            NHeaders = ensure_content_type_header(Method, to_lower(Headers)),
+            NHeaders = ensure_content_type_header(Method, emqx_http_lib:normalise_headers(Headers)),
             NReq = lists:keydelete(headers, 1, Req),
             {ok, Timeout} = application:get_env(?APP, timeout),
             application:set_env(?APP, EnvName, [{path, Path},
@@ -144,9 +144,6 @@ unload_hooks() ->
     _ = ehttpc_sup:stop_pool('emqx_auth_http/super_req'),
     _ = ehttpc_sup:stop_pool('emqx_auth_http/acl_req'),
     ok.
-
-to_lower(Headers) ->
-    [{string:to_lower(K), V} || {K, V} <- Headers].
 
 ensure_content_type_header(Method, Headers)
   when Method =:= post orelse Method =:= put ->
