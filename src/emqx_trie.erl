@@ -122,7 +122,7 @@ match(Topic) when is_binary(Topic) ->
 
 %% @doc Is the trie empty?
 -spec(empty() -> boolean()).
-empty() -> ets:info(?TRIE, size) == 0.
+empty() -> ets:first(?TRIE) =:= '$end_of_table'.
 
 -spec lock_tables() -> ok.
 lock_tables() ->
