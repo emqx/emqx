@@ -505,7 +505,8 @@ do_import_acl_mnesia(Acls) ->
 -ifdef(EMQX_ENTERPRISE).
 import_modules(Modules) ->
     case ets:info(emqx_modules) of
-        undefined -> [];
+        undefined ->
+            ok;
         _ ->
            lists:foreach(fun(#{<<"id">> := Id,
                                <<"type">> := Type,
@@ -649,9 +650,9 @@ do_import_data(Data, Version) ->
 
 -ifdef(EMQX_ENTERPRISE).
 do_import_extra_data(Data, _Version) ->
-    import_confs(maps:get(<<"configs">>, Data, []), maps:get(<<"listeners_state">>, Data, [])),
-    import_modules(maps:get(<<"modules">>, Data, [])),
-    import_schemas(maps:get(<<"schemas">>, Data, [])),
+    _ = import_confs(maps:get(<<"configs">>, Data, []), maps:get(<<"listeners_state">>, Data, [])),
+    _ = import_modules(maps:get(<<"modules">>, Data, [])),
+    _ = import_schemas(maps:get(<<"schemas">>, Data, [])),
     ok.
 -else.
 do_import_extra_data(_Data, _Version) -> ok.
