@@ -92,8 +92,11 @@
 ]}.
 
 {translation, "emqx_web_hook.headers", fun(Conf) ->
+  Tr = fun("content_type") -> "content-type";
+          (Other) -> Other
+       end,
   Headers = cuttlefish_variable:filter_by_prefix("web.hook.headers", Conf),
-  [{K, V} || {[_, _, _, K], V} <- Headers]
+  [{Tr(K), V} || {[_, _, _, K], V} <- Headers]
 end}.
 
 {translation, "emqx_web_hook.rules", fun(Conf) ->
