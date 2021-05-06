@@ -941,6 +941,41 @@ t_will_test5(_) ->
 
     gen_udp:close(Socket).
 
+t_will_case06(_) ->
+    QoS = 1,
+    Duration = 1,
+    WillMsg = <<10, 11, 12, 13, 14>>,
+    WillTopic = <<"abc">>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = <<"test">>,
+
+    ok = emqx_broker:subscribe(WillTopic),
+
+    send_connect_msg_with_will1(Socket, Duration, ClientId),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+
+    send_willtopic_msg(Socket, WillTopic, QoS),
+    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+
+    send_willmsg_msg(Socket, WillMsg),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    send_pingreq_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
+    % wait udp client keepalive timeout
+    timer:sleep(2000),
+
+    receive
+        {deliver, WillTopic, #message{payload = WillMsg}} -> ok;
+        Msg -> ct:print("recevived --- unex: ~p", [Msg])
+    after
+        1000 -> ct:fail(wait_willmsg_timeout)
+    end,
+    send_disconnect_msg(Socket, undefined),
+
+    gen_udp:close(Socket).
+
 t_asleep_test01_timeout(_) ->
     QoS = 1,
     Duration = 1,
@@ -1559,6 +1594,15 @@ send_connect_msg_with_will(Socket, Duration, ClientId) ->
     Length = 10,
     Will = 1,
     CleanSession = 1,
+    ProtocolId = 1,
+    ConnectPacket = <<Length:8, ?SN_CONNECT:8, ?FNU:4, Will:1, CleanSession:1,
+                      ?FNU:2, ProtocolId:8, Duration:16, ClientId/binary>>,
+    ok = gen_udp:send(Socket, ?HOST, ?PORT, ConnectPacket).
+
+send_connect_msg_with_will1(Socket, Duration, ClientId) ->
+    Length = 10,
+    Will = 1,
+    CleanSession = 0,
     ProtocolId = 1,
     ConnectPacket = <<Length:8, ?SN_CONNECT:8, ?FNU:4, Will:1, CleanSession:1,
                       ?FNU:2, ProtocolId:8, Duration:16, ClientId/binary>>,
