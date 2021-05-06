@@ -1,6 +1,5 @@
-#!/bin/bash
-set -euo pipefail
-shopt -s nullglob
+#!/bin/sh
+set -eu
 
 ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 
@@ -19,7 +18,7 @@ collect() {
     echo "    $*"
     echo "========================================================"
     eval "$*" || echo "Unavailable"
-    echo -e '\n'
+    echo
 }
 
 show_help() {
@@ -36,7 +35,7 @@ OPTIONS:
 }
 
 while getopts "a:h" opt; do
-    case "${opt}" in
+     case "${opt}" in
         a) LOG_MAX_AGE_DAYS="${OPTARG}" ;;
         h) show_help ;;
         *) ;;
@@ -50,7 +49,7 @@ done
 
     collect uname -a
     collect uptime
-    collect free -h
+    collect free
     collect netstat -tnl
 
     collect bin/emqx_ctl plugins list
@@ -77,6 +76,7 @@ rm "${SYSINFO}"
 #rm "${CONF_DUMP}" # Keep it for inspection
 
 echo "Created a node dump ${DUMP}"
-echo -e "\nWARNING: this script tries to obfuscate secrets, but make sure to
+echo
+echo "WARNING: this script tries to obfuscate secrets, but make sure to
 inspect log/conf.dump file manually before uploading the node dump
 to a public location."
