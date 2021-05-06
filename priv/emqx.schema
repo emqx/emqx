@@ -506,8 +506,8 @@ end}.
 
 %% @doc format logs in a single line.
 {mapping, "log.single_line", "kernel.logger", [
-  {default, formatter_default},
-  {datatype, {enum, [formatter_default, true, false]}}
+  {default, true},
+  {datatype, {enum, [true, false]}}
 ]}.
 
 {mapping, "log.rotation", "kernel.logger", [
@@ -606,16 +606,8 @@ end}.
                      -1 -> unlimited;
                      V -> V
                  end,
-    SingleLine0 = cuttlefish:conf_get("log.single_line", Conf),
+    SingleLine = cuttlefish:conf_get("log.single_line", Conf),
     FmtName = cuttlefish:conf_get("log.formatter", Conf),
-    SingleLine = case SingleLine0 =:= formatter_default of
-                     true when FmtName =:= text ->
-                         false;
-                     true when FmtName =:= json ->
-                         true;
-                     false ->
-                         SingleLine0
-                 end,
     Formatter =
     case FmtName of
         json ->
