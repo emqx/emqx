@@ -168,8 +168,8 @@ validate_params_and_headers(ClientState, ClientId) ->
                 end
             catch
                 throw : {unknown_client, Other} ->
-                    ct:pal("ignored_event_from_other_client ~p~n~p~n~p",
-                           [Other, Params, Headers]),
+                    ct:pal("ignored_event_from_other_client ~p~nexpecting:~p~n~p~n~p",
+                           [Other, ClientId, Params, Headers]),
                     validate_params_and_headers(ClientState, ClientId) %% continue looping
             end
     after
