@@ -2,7 +2,7 @@
 
 # This script helps to build release artifacts.
 # arg1: profile, e.g. emqx | emqx-edge | emqx-pkg | emqx-edge-pkg
-# arg2: artifact, e.g. tar | relup | zip | pkg
+# arg2: artifact, e.g. rel | relup | zip | pkg
 
 set -euo pipefail
 
@@ -62,7 +62,7 @@ log() {
     echo "===< $msg"
 }
 
-make_tar() {
+make_rel() {
     ./rebar3 as "$PROFILE" tar
 }
 
@@ -117,8 +117,8 @@ make_zip() {
 log "building artifact=$ARTIFACT for profile=$PROFILE"
 
 case "$ARTIFACT" in
-    tar)
-        make_tar
+    rel)
+        make_rel
         ;;
     relup)
         make_relup
@@ -132,8 +132,6 @@ case "$ARTIFACT" in
             log "Skipped making deb/rpm package for $SYSTEM"
             exit 0
         fi
-        # build the tar which is going to be used as the base of deb and rpm packages
-        make_tar
         make -C "deploy/packages/${PKGERDIR}" clean
         EMQX_REL="$(pwd)" EMQX_BUILD="${PROFILE}" SYSTEM="${SYSTEM}" make -C "deploy/packages/${PKGERDIR}"
         ;;
