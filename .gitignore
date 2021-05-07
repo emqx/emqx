@@ -46,3 +46,4 @@ emqx_dialyzer_*_plt
 dist.zip
 scripts/git-token
 etc/*.seg
+_upgrade_base/
