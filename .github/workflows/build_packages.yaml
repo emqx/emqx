@@ -15,7 +15,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.2.7.2-emqx-1-ubuntu20.04
+    container: emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles}}
@@ -255,8 +255,8 @@ jobs:
             old_vsns=($(git tag -l "v$pre_vsn.[0-9]" | sed "s/v$vsn//"))
         fi
 
-        mkdir -p tmp/relup_packages/$PROFILE
-        cd tmp/relup_packages/$PROFILE
+        mkdir -p _upgrade_base
+        cd _upgrade_base
         for tag in ${old_vsns[@]};do
           if [ ! -z "$(echo  $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.AWS_S3_BUCKET }}/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip) | grep -oE "^[23]+")" ];then
             wget https://s3-${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.AWS_S3_BUCKET }}/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip
@@ -267,7 +267,7 @@ jobs:
         cd -
     - name: build emqx packages
       env:
-        ERL_OTP: erl23.2.7.2-emqx-1
+        ERL_OTP: erl23.2.7.2-emqx-2
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
@@ -406,9 +406,15 @@ jobs:
         aws s3 cp --recursive _packages/${{ matrix.profile }} s3://${{ secrets.AWS_S3_BUCKET }}/$broker/${{ env.version }}
         aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_CLOUDFRONT_ID }} --paths "/$broker/${{ env.version }}/*"
     - uses: Rory-Z/upload-release-asset@v1
-      if: github.event_name == 'release'
+      if: github.event_name == 'release' && matrix.profile != 'emqx-ee'
       with:
         repo: emqx
+        path: "_packages/${{ matrix.profile }}/emqx-*"
+        token: ${{ github.token }}
+    - uses: Rory-Z/upload-release-asset@v1
+      if: github.event_name == 'release' && matrix.profile == 'emqx-ee'
+      with:
+        repo: emqx-enterprise
         path: "_packages/${{ matrix.profile }}/emqx-*"
         token: ${{ github.token }}
     - name: update to emqx.io

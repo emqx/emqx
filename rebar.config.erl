@@ -310,12 +310,14 @@ relx_overlay(ReleaseType) ->
     , {mkdir, "data/"}
     , {mkdir, "data/mnesia"}
     , {mkdir, "data/configs"}
+    , {mkdir, "data/patches"}
     , {mkdir, "data/scripts"}
     , {template, "data/loaded_plugins.tmpl", "data/loaded_plugins"}
     , {template, "data/loaded_modules.tmpl", "data/loaded_modules"}
     , {template, "data/emqx_vars", "releases/emqx_vars"}
     , {copy, "bin/emqx", "bin/emqx"}
     , {copy, "bin/emqx_ctl", "bin/emqx_ctl"}
+    , {copy, "bin/node_dump", "bin/node_dump"}
     , {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript"}
     , {copy, "bin/emqx", "bin/emqx-{{release_version}}"} %% for relup
     , {copy, "bin/emqx_ctl", "bin/emqx_ctl-{{release_version}}"} %% for relup

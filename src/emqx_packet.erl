@@ -46,6 +46,24 @@
 
 -export([format/1]).
 
+-define(TYPE_NAMES,
+        { 'CONNECT'
+        , 'CONNACK'
+        , 'PUBLISH'
+        , 'PUBACK'
+        , 'PUBREC'
+        , 'PUBREL'
+        , 'PUBCOMP'
+        , 'SUBSCRIBE'
+        , 'SUBACK'
+        , 'UNSUBSCRIBE'
+        , 'UNSUBACK'
+        , 'PINGREQ'
+        , 'PINGRESP'
+        , 'DISCONNECT'
+        , 'AUTH'
+        }).
+
 -type(connect() :: #mqtt_packet_connect{}).
 -type(publish() :: #mqtt_packet_publish{}).
 -type(subscribe() :: #mqtt_packet_subscribe{}).
@@ -61,9 +79,13 @@ type(#mqtt_packet{header = #mqtt_packet_header{type = Type}}) ->
     Type.
 
 %% @doc Name of MQTT packet type.
--spec(type_name(emqx_types:packet()) -> atom()).
-type_name(Packet) when is_record(Packet, mqtt_packet) ->
-    lists:nth(type(Packet), ?TYPE_NAMES).
+-spec(type_name(emqx_types:packet() | non_neg_integer()) -> atom() | string()).
+type_name(#mqtt_packet{} = Packet) ->
+    type_name(type(Packet));
+type_name(0) -> 'FORBIDDEN';
+type_name(Type) when Type > 0 andalso Type =< tuple_size(?TYPE_NAMES) ->
+    element(Type, ?TYPE_NAMES);
+type_name(Type) -> "UNKNOWN("++ integer_to_list(Type) ++")".
 
 %% @doc Dup flag of MQTT packet.
 -spec(dup(emqx_types:packet()) -> boolean()).
@@ -229,13 +251,16 @@ set_props(Props, #mqtt_packet_auth{} = Pkt) ->
 %% @doc Check PubSub Packet.
 -spec(check(emqx_types:packet()|publish()|subscribe()|unsubscribe())
       -> ok | {error, emqx_types:reason_code()}).
-check(#mqtt_packet{variable = PubPkt}) when is_record(PubPkt, mqtt_packet_publish) ->
+check(#mqtt_packet{header = #mqtt_packet_header{type = ?PUBLISH},
+                   variable = PubPkt}) when not is_tuple(PubPkt) ->
+    %% publish without any data
+    %% disconnect instead of crash
+    {error, ?RC_PROTOCOL_ERROR};
+check(#mqtt_packet{variable = #mqtt_packet_publish{} = PubPkt}) ->
     check(PubPkt);
-
-check(#mqtt_packet{variable = SubPkt}) when is_record(SubPkt, mqtt_packet_subscribe) ->
+check(#mqtt_packet{variable = #mqtt_packet_subscribe{} = SubPkt}) ->
     check(SubPkt);
-
-check(#mqtt_packet{variable = UnsubPkt}) when is_record(UnsubPkt, mqtt_packet_unsubscribe) ->
+check(#mqtt_packet{variable = #mqtt_packet_unsubscribe{} = UnsubPkt}) ->
     check(UnsubPkt);
 
 %% A Topic Alias of 0 is not permitted.
@@ -417,12 +442,11 @@ format_header(#mqtt_packet_header{type = Type,
                                   dup = Dup,
                                   qos = QoS,
                                   retain = Retain}, S) ->
-    S1 = if
-             S == undefined -> <<>>;
-             true -> [", ", S]
+    S1 = case S == undefined of
+             true -> <<>>;
+             false -> [", ", S]
          end,
-    io_lib:format("~s(Q~p, R~p, D~p~s)",
-                  [lists:nth(Type, ?TYPE_NAMES), QoS, i(Retain), i(Dup), S1]).
+    io_lib:format("~s(Q~p, R~p, D~p~s)", [type_name(Type), QoS, i(Retain), i(Dup), S1]).
 
 format_variable(undefined, _) ->
     undefined;

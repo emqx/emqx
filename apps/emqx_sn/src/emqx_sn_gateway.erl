@@ -610,8 +610,9 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
             stop(Reason, Reply, State#state{channel = NChannel})
     end.
 
-handle_info(Info, State = #state{channel = Channel}) ->
-   handle_return(emqx_channel:handle_info(Info, Channel), State).
+handle_info({sock_closed, Reason} = Info, State = #state{channel = Channel}) ->
+    maybe_send_will_msg(Reason, State),
+    handle_return(emqx_channel:handle_info(Info, Channel), State).
 
 handle_timeout(TRef, TMsg, State = #state{channel = Channel}) ->
     handle_return(emqx_channel:handle_timeout(TRef, TMsg, Channel), State).
@@ -782,20 +783,20 @@ stop({shutdown, Reason}, State) ->
     stop(Reason, State);
 stop(Reason, State) ->
     ?LOG(stop_log_level(Reason), "stop due to ~p", [Reason]),
-    case Reason of
-        %% FIXME: The Will-Msg should publish when a Session terminated!
-        Reason when Reason =:= normal ->
-            ok;
-        _ ->
-            do_publish_will(State)
-    end,
+    maybe_send_will_msg(Reason, State),
     {stop, {shutdown, Reason}, State}.
 
 stop({shutdown, Reason}, Reply, State) ->
     stop(Reason, Reply, State);
 stop(Reason, Reply, State) ->
     ?LOG(stop_log_level(Reason), "stop due to ~p", [Reason]),
+    maybe_send_will_msg(Reason, State),
     {stop, {shutdown, Reason}, Reply, State}.
+
+maybe_send_will_msg(normal, _State) ->
+    ok;
+maybe_send_will_msg(_Reason, State) ->
+    do_publish_will(State).
 
 stop_log_level(Reason) when ?is_non_error_reason(Reason) ->
     debug;

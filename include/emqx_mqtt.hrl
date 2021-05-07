@@ -96,23 +96,6 @@
 -define(DISCONNECT,  14). %% Client or Server is disconnecting
 -define(AUTH,        15). %% Authentication exchange
 
--define(TYPE_NAMES, [
-        'CONNECT',
-        'CONNACK',
-        'PUBLISH',
-        'PUBACK',
-        'PUBREC',
-        'PUBREL',
-        'PUBCOMP',
-        'SUBSCRIBE',
-        'SUBACK',
-        'UNSUBSCRIBE',
-        'UNSUBACK',
-        'PINGREQ',
-        'PINGRESP',
-        'DISCONNECT',
-        'AUTH']).
-
 %%--------------------------------------------------------------------
 %% MQTT V3.1.1 Connect Return Codes
 %%--------------------------------------------------------------------

@@ -152,7 +152,7 @@ jobs:
 
     relup_test:
         runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.2.7.2-emqx-1-ubuntu20.04
+        container: emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04
         defaults:
           run:
             shell: bash
@@ -213,9 +213,9 @@ jobs:
 
             pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
             if  [ $PROFILE = "emqx" ]; then
-                old_vsns="$(git tag -l "v$pre_vsn.[0-9]" | tr "\n" " " | sed "s/v$vsn//")"
+                old_vsns="$(git tag -l "v$pre_vsn.[0-9]" | xargs echo -n | sed "s/v$vsn//")"
             else
-                old_vsns="$(git tag -l "e$pre_vsn.[0-9]" | tr "\n" " " | sed "s/v$vsn//")"
+                old_vsns="$(git tag -l "e$pre_vsn.[0-9]" | xargs echo -n | sed "s/v$vsn//")"
             fi
             echo "OLD_VSNS=$old_vsns" >> $GITHUB_ENV
         - name: download emqx

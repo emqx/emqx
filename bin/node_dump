@@ -1,0 +1,82 @@
+#!/bin/sh
+set -eu
+
+ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+
+echo "Running node dump in ${ROOT_DIR}"
+
+cd "${ROOT_DIR}"
+
+DUMP="log/node_dump_$(date +"%Y%m%d_%H%M%S").tar.gz"
+CONF_DUMP="log/conf.dump"
+SYSINFO="log/sysinfo.txt"
+
+LOG_MAX_AGE_DAYS=3
+
+collect() {
+    echo "========================================================"
+    echo "    $*"
+    echo "========================================================"
+    eval "$*" || echo "Unavailable"
+    echo
+}
+
+show_help() {
+    echo "Collect information about the EMQ X node
+
+USAGE:
+
+    bin/node_dump [-a DAYS]
+
+OPTIONS:
+
+    -a n  Set maximum age of collected log files in days (3 by default)"
+    exit 1
+}
+
+while getopts "a:h" opt; do
+     case "${opt}" in
+        a) LOG_MAX_AGE_DAYS="${OPTARG}" ;;
+        h) show_help ;;
+        *) ;;
+    esac
+done
+
+# Collect system info:
+{
+    collect bin/emqx_ctl broker
+    collect bin/emqx eval "'emqx_node_dump:sys_info()'"
+
+    collect uname -a
+    collect uptime
+    collect free
+    collect netstat -tnl
+
+    collect bin/emqx_ctl plugins list
+    collect bin/emqx_ctl modules list
+
+    collect bin/emqx_ctl vm all
+    collect bin/emqx_ctl listeners
+} > "${SYSINFO}"
+
+# Collect information about the configuration:
+{
+    collect bin/emqx eval "'emqx_node_dump:app_env_dump()'"
+} > "${CONF_DUMP}"
+
+# Pack files
+{
+    find log -mtime -"${LOG_MAX_AGE_DAYS}" \( -name '*.log.*' -or -name 'run_erl.log*' \)
+    echo "${SYSINFO}"
+    echo "${CONF_DUMP}"
+} | tar czf "${DUMP}" -T -
+
+## Cleanup:
+rm "${SYSINFO}"
+#rm "${CONF_DUMP}" # Keep it for inspection
+
+echo "Created a node dump ${DUMP}"
+echo
+echo "WARNING: this script tries to obfuscate secrets, but make sure to
+inspect log/conf.dump file manually before uploading the node dump
+to a public location."

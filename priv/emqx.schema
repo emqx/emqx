@@ -494,9 +494,28 @@ end}.
   {datatype, integer}
 ]}.
 
+{mapping, "log.supervisor_reports", "kernel.logger", [
+  {default, error},
+  {datatype, {enum, [error, progress]}},
+  hidden
+]}.
+
+%% @doc Maximum depth in Erlang term log formatting
+%% and message queue inspection.
+{mapping, "log.max_depth", "kernel.error_logger_format_depth", [
+  {default, 20},
+  {datatype, [{enum, [unlimited]}, integer]}
+]}.
+
+%% @doc format logs as JSON objects
+{mapping, "log.formatter", "kernel.logger", [
+  {default, text},
+  {datatype, {enum, [text, json]}}
+]}.
+
 %% @doc format logs in a single line.
 {mapping, "log.single_line", "kernel.logger", [
-  {default, false},
+  {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
 
@@ -617,7 +636,16 @@ end}.
                      V -> V
                  end,
     SingleLine = cuttlefish:conf_get("log.single_line", Conf),
-    Formatter = {logger_formatter,
+    FmtName = cuttlefish:conf_get("log.formatter", Conf),
+    Formatter =
+    case FmtName of
+        json ->
+            {emqx_logger_jsonfmt,
+                  #{chars_limit => CharsLimit,
+                    single_line => SingleLine
+                   }};
+        text ->
+            {emqx_logger_textfmt,
                   #{template =>
                       [time," [",level,"] ",
                        {clientid,
@@ -630,7 +658,8 @@ end}.
                        msg,"\n"],
                     chars_limit => CharsLimit,
                     single_line => SingleLine
-                   }},
+                   }}
+    end,
     {BustLimitOn, {MaxBurstCount, TimeWindow}} =
         case string:tokens(cuttlefish:conf_get("log.burst_limit", Conf), ", ") of
             ["disabled"] -> {false, {20000, 1000}};
@@ -664,13 +693,21 @@ end}.
                   BasicConf#{max_no_bytes => MaxNoBytes}
                 end,
 
+    Filters = case cuttlefish:conf_get("log.supervisor_reports", Conf) of
+                  error -> [{drop_progress_reports, {fun logger_filters:progress/2, stop}}];
+                  progress -> []
+              end,
+
     %% For the default logger that outputs to console
     DefaultHandler =
         if LogTo =:= console orelse LogTo =:= both ->
                 [{handler, console, logger_std_h,
                     #{level => LogLevel,
                       config => #{type => standard_io},
-                      formatter => Formatter}}];
+                      formatter => Formatter,
+                      filters => Filters
+                     }
+                 }];
            true ->
                 [{handler, default, undefined}]
         end,
@@ -682,7 +719,9 @@ end}.
                     #{level => LogLevel,
                       config => FileConf(cuttlefish:conf_get("log.file", Conf)),
                       formatter => Formatter,
-                      filesync_repeat_interval => no_repeat}}];
+                      filesync_repeat_interval => no_repeat,
+                      filters => Filters
+                     }}];
            true -> []
         end,
 
