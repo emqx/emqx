@@ -465,6 +465,15 @@ end}.
   {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
 ]}.
 
+%% @doc Timezone offset to display in logs,
+%% "system" use system time zone
+%% "utc" for Universal Coordinated Time (UTC)
+%% "+hh:mm" or "-hh:mm" for a specified offset
+{mapping, "log.time_offset", "kernel.logger", [
+  {default, "system"},
+  {datatype, string}
+]}.
+
 {mapping, "log.primary_log_level", "kernel.logger_level", [
    {default, warning},
    {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
@@ -510,7 +519,7 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
-{mapping, "log.rotation", "kernel.logger", [
+{mapping, "log.rotation.enable", "kernel.logger", [
   {default, on},
   {datatype, flag}
 ]}.
@@ -598,7 +607,27 @@ end}.
 {translation, "kernel.logger", fun(Conf) ->
     LogTo = cuttlefish:conf_get("log.to", Conf),
     LogLevel = cuttlefish:conf_get("log.level", Conf),
-    LogType = case cuttlefish:conf_get("log.rotation", Conf) of
+    LogTimeoffset =
+        case cuttlefish:conf_get("log.time_offset", Conf) of
+            "system" -> "";
+            "utc" -> "0";
+            [S, H1, H2, $:, M1, M2] = HHMM ->
+                (S =:= $+ orelse S =:= $-) andalso
+                try
+                    begin
+                        H = list_to_integer([H1, H2]),
+                        M = list_to_integer([M1, M2]),
+                        H >=0 andalso H =< 14 andalso
+                        M >= 0 andalso M =< 59
+                    end
+                catch
+                    _ : _ ->
+                        error({"invalid_log_time_offset", HHMM})
+                end andalso HHMM;
+            Other ->
+                error({"invalid_log_time_offset", Other})
+        end,
+    LogType = case cuttlefish:conf_get("log.rotation.enable", Conf) of
                   true -> wrap;
                   false -> halt
               end,
@@ -1227,7 +1256,7 @@ end}.
 %%--------------------------------------------------------------------
 %% TCP Listeners
 
-{mapping, "listener.tcp.$name", "emqx.listeners", [
+{mapping, "listener.tcp.$name.endpoint", "emqx.listeners", [
   {datatype, [integer, ip]}
 ]}.
 
@@ -1334,7 +1363,7 @@ end}.
 %%--------------------------------------------------------------------
 %% SSL Listeners
 
-{mapping, "listener.ssl.$name", "emqx.listeners", [
+{mapping, "listener.ssl.$name.endpoint", "emqx.listeners", [
   {datatype, [integer, ip]}
 ]}.
 
@@ -1502,7 +1531,7 @@ end}.
 %%--------------------------------------------------------------------
 %% MQTT/WebSocket Listeners
 
-{mapping, "listener.ws.$name", "emqx.listeners", [
+{mapping, "listener.ws.$name.endpoint", "emqx.listeners", [
   {datatype, [integer, ip]}
 ]}.
 
@@ -1696,7 +1725,7 @@ end}.
 %%--------------------------------------------------------------------
 %% MQTT/WebSocket/SSL Listeners
 
-{mapping, "listener.wss.$name", "emqx.listeners", [
+{mapping, "listener.wss.$name.endpoint", "emqx.listeners", [
   {datatype, [integer, ip]}
 ]}.
 
@@ -1952,7 +1981,6 @@ end}.
 ]}.
 
 {translation, "emqx.listeners", fun(Conf) ->
-
     Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
 
     Atom = fun(undefined) -> undefined; (S) -> list_to_atom(S) end,
@@ -2101,7 +2129,7 @@ end}.
 
     TcpListeners = fun(Type, Name) ->
                       Prefix = string:join(["listener", Type, Name], "."),
-                      ListenOnN = case cuttlefish:conf_get(Prefix, Conf, undefined) of
+                      ListenOnN = case cuttlefish:conf_get(Prefix ++ ".endpoint", Conf, undefined) of
                           undefined -> [];
                           ListenOn  -> Listen_fix(ListenOn)
                       end,
@@ -2117,7 +2145,7 @@ end}.
                    end,
     SslListeners = fun(Type, Name) ->
                        Prefix = string:join(["listener", Type, Name], "."),
-                       case cuttlefish:conf_get(Prefix, Conf, undefined) of
+                       case cuttlefish:conf_get(Prefix ++ ".endpoint", Conf, undefined) of
                            undefined ->
                                [];
                            ListenOn ->
@@ -2133,12 +2161,11 @@ end}.
                                ]
                        end
                    end,
-
-    lists:flatten([TcpListeners(Type, Name) || {["listener", Type, Name], ListenOn}
+    lists:flatten([TcpListeners(Type, Name) || {["listener", Type, Name, "endpoint"], ListenOn}
                                                <- cuttlefish_variable:filter_by_prefix("listener.tcp", Conf)
                                                ++ cuttlefish_variable:filter_by_prefix("listener.ws", Conf)]
                   ++
-                  [SslListeners(Type, Name) || {["listener", Type, Name], ListenOn}
+                  [SslListeners(Type, Name) || {["listener", Type, Name, "endpoint"], ListenOn}
                                                <- cuttlefish_variable:filter_by_prefix("listener.ssl", Conf)
                                                ++ cuttlefish_variable:filter_by_prefix("listener.wss", Conf)])
 end}.
