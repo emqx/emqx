@@ -134,7 +134,7 @@ case "$ARTIFACT" in
         ;;
     pkg)
         if [ -z "${PKGERDIR:-}" ]; then
-            # zip should have been built as a Makefile dependency
+            make_zip
             log "Skipped making deb/rpm package for $SYSTEM"
             exit 0
         fi
