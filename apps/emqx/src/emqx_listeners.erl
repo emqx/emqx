@@ -141,7 +141,7 @@ start_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
     start_http_listener(fun cowboy:start_tls/3, 'mqtt:wss', ListenOn,
                         ranch_opts(Options), ws_opts(Options));
 
-%% MQTT over QUIC
+%% Start MQTT/QUIC listener
 start_listener(quic, ListenOn, Options) ->
     SSLOpts = proplists:get_value(ssl_options, Options),
     ListenOpts = [ {cert, proplists:get_value(certfile, SSLOpts)}
@@ -253,6 +253,8 @@ stop_listener(Proto, ListenOn, _Opts) when Proto == http; Proto == ws ->
     cowboy:stop_listener(ws_name('mqtt:ws', ListenOn));
 stop_listener(Proto, ListenOn, _Opts) when Proto == https; Proto == wss ->
     cowboy:stop_listener(ws_name('mqtt:wss', ListenOn));
+stop_listener(quic, _ListenOn, _Opts) ->
+    quicer:stop_listener('mqtt:quic');
 stop_listener(Proto, ListenOn, _Opts) ->
     esockd:close(Proto, ListenOn).
 

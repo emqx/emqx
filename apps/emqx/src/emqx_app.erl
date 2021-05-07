@@ -49,6 +49,9 @@ start(_Type, _Args) ->
     ok = emqx_plugins:init(),
     _ = emqx_plugins:load(),
     _ = start_ce_modules(),
+    %% @fixme unsure why we need this.
+    quicer_nif:open_lib(),
+    quicer_nif:reg_open(),
     emqx_boot:is_enabled(listeners) andalso (ok = emqx_listeners:start()),
     register(emqx, self()),
     ok = emqx_alarm_handler:load(),
