@@ -241,7 +241,7 @@ jobs:
         - name: run relup test
           run: |
             set -e -x -u
-            if [ -n "{$OLD_VSNS// }" ]; then
+            if [ -n "$OLD_VSNS" ]; then
                 mkdir -p packages
                 cp emqx/_packages/emqx/*.zip packages
                 cp emqx/*.zip packages
