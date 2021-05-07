@@ -68,17 +68,26 @@ make_rel() {
 
 ## unzip previous version .zip files to _build/$PROFILE/rel/emqx/releases before making relup
 make_relup() {
+    local lib_dir="_build/$PROFILE/rel/emqx/lib"
     local releases_dir="_build/$PROFILE/rel/emqx/releases"
     local releases=()
     if [ -d "$releases_dir" ]; then
-        while read -r dir; do
+        while read -r zip; do
+            local tmp_dir=$(mktemp -d -t emqx.XXXXXXXXXX)
+            unzip -q $zip "emqx/releases/*" -d $tmp_dir
+            unzip -q $zip "emqx/lib/*" -d $tmp_dir
+            cp -r -n  $tmp_dir/emqx/releases/* $releases_dir
+            cp -r -n  $tmp_dir/emqx/lib/* $lib_dir
+            rm -rf $tmp_dir
+
             local version
-            version="$(basename "$dir")"
+            version="$(echo $zip | grep -oE "[0-9]+\.[0-9]+\.[0-9]+")"
             # skip current version
             if [ "$version" != "$PKG_VSN" ]; then
+                log "find versions: $version"
                 releases+=( "$version" )
             fi
-        done < <(find "_build/$PROFILE/rel/emqx/releases" -maxdepth 1 -name '*.*.*' -type d)
+        done < <(find -maxdepth 1 -regex ".*$PROFILE-$SYSTEM-[0-9]+\.[0-9]+\.[0-9]+-$ARCH\.zip")
     fi
     if [ ${#releases[@]} -eq 0 ]; then
         log "No previous release found, relup ignored"
