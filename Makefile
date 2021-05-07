@@ -111,30 +111,33 @@ xref: $(REBAR)
 dialyzer: $(REBAR)
 	@$(REBAR) as check dialyzer
 
-.PHONY: $(REL_PROFILES:%=relup-%)
-$(REL_PROFILES:%=relup-%): $(REBAR)
-ifneq ($(OS),Windows_NT)
-	@$(BUILD) $(@:relup-%=%) relup
-endif
+## rel target is to create release package without relup
+.PHONY: $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel)
+$(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(REBAR) get-dashboard $(CONF_SEGS)
+	@$(BUILD) $(subst -rel,,$(@)) rel
 
-.PHONY: $(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar)
-$(REL_PROFILES:%=%-tar) $(PKG_PROFILES:%=%-tar): $(REBAR) get-dashboard $(CONF_SEGS)
-	@$(BUILD) $(subst -tar,,$(@)) tar
+## relup target is to create relup instructions
+.PHONY: $(REL_PROFILES:%=%-relup)
+define gen-relup-target
+$1-relup: $1-rel
+	@$(BUILD) $1 relup
+endef
+ALL_ZIPS = $(REL_PROFILES)
+$(foreach zt,$(ALL_ZIPS),$(eval $(call gen-relup-target,$(zt))))
 
-## zip targets depend on the corresponding relup and tar artifacts
+## zip target is to create a release package .zip with relup
 .PHONY: $(REL_PROFILES:%=%-zip)
 define gen-zip-target
-$1-zip: relup-$1 $1-tar
+$1-zip: $1-relup
 	@$(BUILD) $1 zip
 endef
-ALL_ZIPS = $(REL_PROFILES) $(PKG_PROFILES)
+ALL_ZIPS = $(REL_PROFILES)
 $(foreach zt,$(ALL_ZIPS),$(eval $(call gen-zip-target,$(zt))))
 
-## A pkg target depend on a regular release profile zip to include relup,
-## and also a -pkg suffixed profile tar (without relup) for making deb/rpm package
+## A pkg target depend on a regular release
 .PHONY: $(PKG_PROFILES)
 define gen-pkg-target
-$1: $(subst -pkg,,$1)-zip $1-tar
+$1: $1-rel
 	@$(BUILD) $1 pkg
 endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
