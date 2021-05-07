@@ -26,8 +26,8 @@
 ]}.
 
 {mapping, "lwm2m.auto_observe", "emqx_lwm2m.auto_observe", [
-  {datatype, flag},
-  {default, off}
+  {datatype, string},
+  {default, "off"}  %% BACKW: v4.3.0
 ]}.
 
 {mapping, "lwm2m.lb", "emqx_lwm2m.options", [
@@ -38,6 +38,14 @@
 {mapping, "lwm2m.opts.$name", "emqx_lwm2m.options", [
   {datatype, bytesize}
 ]}.
+
+{translation, "emqx_lwm2m.auto_observe", fun(Conf) ->
+  case cuttlefish:conf_get("lwm2m.auto_observe", Conf, "off") of
+    "off" -> false; %% BACKW: v4.3.0
+    "on"  -> true;  %% BACKW: v4.3.0
+    Str -> string:tokens(Str, ", ")
+  end
+end}.
 
 {translation, "emqx_lwm2m.bind_udp", fun(Conf) ->
   Options = cuttlefish_variable:filter_by_prefix("lwm2m.bind.udp", Conf),
