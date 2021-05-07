@@ -1,5 +1,5 @@
 $(shell $(CURDIR)/scripts/git-hooks-init.sh)
-REBAR_VERSION = 3.14.3-emqx-6
+REBAR_VERSION = 3.14.3-emqx-7
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
@@ -111,15 +111,17 @@ xref: $(REBAR)
 dialyzer: $(REBAR)
 	@$(REBAR) as check dialyzer
 
+COMMON_DEPS := $(REBAR) get-dashboard $(CONF_SEGS)
+
 ## rel target is to create release package without relup
 .PHONY: $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel)
-$(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(REBAR) get-dashboard $(CONF_SEGS)
+$(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS)
 	@$(BUILD) $(subst -rel,,$(@)) rel
 
 ## relup target is to create relup instructions
 .PHONY: $(REL_PROFILES:%=%-relup)
 define gen-relup-target
-$1-relup: $1-rel
+$1-relup: $(COMMON_DEPS)
 	@$(BUILD) $1 relup
 endef
 ALL_ZIPS = $(REL_PROFILES)
