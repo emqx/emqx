@@ -35,6 +35,7 @@
         , contains_topic/3
         , contains_topic_match/2
         , contains_topic_match/3
+        , null/0
         ]).
 
 %% Arithmetic Funcs
@@ -299,6 +300,9 @@ find_topic_filter(Filter, TopicFilters, Func) ->
     catch
         throw:Result -> Result
     end.
+
+null() ->
+    undefined.
 
 %%------------------------------------------------------------------------------
 %% Arithmetic Funcs
