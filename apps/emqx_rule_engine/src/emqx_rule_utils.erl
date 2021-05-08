@@ -228,6 +228,7 @@ tcp_connectivity(Host, Port, Timeout) ->
 unwrap(<<"${", Val/binary>>) ->
     binary:part(Val, {0, byte_size(Val)-1}).
 
+sql_data(undefined) -> null;
 sql_data(List) when is_list(List) -> List;
 sql_data(Bin) when is_binary(Bin) -> Bin;
 sql_data(Num) when is_number(Num) -> Num;
