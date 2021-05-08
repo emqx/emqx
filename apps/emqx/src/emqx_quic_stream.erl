@@ -47,7 +47,7 @@ peercert(_S) ->
     nossl.
 
 getstat(Socket, Stats) ->
-    case quicer:getstats(Socket, Stats) of
+    case quicer:getstat(Socket, Stats) of
         {error, _} -> {error, closed};
         Res -> {ok, Res}
     end.
