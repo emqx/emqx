@@ -123,6 +123,8 @@ jobs:
     strategy:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        erl_otp:
+          - 23.2.7.2
         exclude:
           - profile: emqx-edge
 
@@ -141,12 +143,12 @@ jobs:
     - name: build erlang
       timeout-minutes: 60
       run: |
-        kerl build 23.2.7
-        kerl install 23.2.7 $HOME/.kerl/23.2.7
+        kerl build ${{ matrix.erl_otp }}
+        kerl install ${{ matrix.erl_otp }} $HOME/.kerl/${{ matrix.erl_otp }}
     - name: build
       run: |
-        . $HOME/.kerl/23.2.7/activate
-        make -C source ${{ matrix.profile }}-pkg
+        . $HOME/.kerl/${{ matrix.erl_otp }}/activate
+        make -C source ${{ matrix.profile }}-zip
     - name: test
       run: |
         cd source

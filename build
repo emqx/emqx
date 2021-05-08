@@ -134,7 +134,6 @@ case "$ARTIFACT" in
         ;;
     pkg)
         if [ -z "${PKGERDIR:-}" ]; then
-            make_zip
             log "Skipped making deb/rpm package for $SYSTEM"
             exit 0
         fi
