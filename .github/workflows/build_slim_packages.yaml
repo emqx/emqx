@@ -83,8 +83,8 @@ jobs:
         make ${EMQX_NAME}-zip
     - name: test
       run: |
-        pkg_name=$(basename _packages/emqx/emqx-*.zip)
-        unzip _packages/emqx/$pkg_name
+        pkg_name=$(basename _packages/${EMQX_NAME}/emqx-*.zip)
+        unzip _packages/${EMQX_NAME}/$pkg_name
         gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
