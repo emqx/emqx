@@ -28,6 +28,7 @@ all() -> emqx_ct:all(?MODULE).
 init_per_suite(Config) ->
     NewConfig = generate_config(),
     application:ensure_all_started(esockd),
+    application:ensure_all_started(quicer),
     application:ensure_all_started(cowboy),
     lists:foreach(fun set_app_env/1, NewConfig),
     Config.

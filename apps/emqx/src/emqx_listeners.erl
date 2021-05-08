@@ -143,6 +143,9 @@ start_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
 
 %% Start MQTT/QUIC listener
 start_listener(quic, ListenOn, Options) ->
+    %% @fixme unsure why we need reopen lib and reopen config.
+    quicer_nif:open_lib(),
+    quicer_nif:reg_open(),
     SSLOpts = proplists:get_value(ssl_options, Options),
     ListenOpts = [ {cert, proplists:get_value(certfile, SSLOpts)}
                  , {key, proplists:get_value(keyfile, SSLOpts)}
