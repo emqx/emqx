@@ -13,7 +13,6 @@ RUNNER_LIB_DIR="{{ runner_lib_dir }}"
 RUNNER_ETC_DIR="{{ runner_etc_dir }}"
 RUNNER_DATA_DIR="{{ runner_data_dir }}"
 RUNNER_USER="{{ runner_user }}"
-LIB_EKKA_DIR="${RUNNER_LIB_DIR}/ekka-$(grep ekka "${RUNNER_ROOT_DIR}/releases/RELEASES" | awk -F '\"' '{print $2}')"
 
 EMQX_LICENSE_CONF=''
 export EMQX_DESCRIPTION='{{ emqx_description }}'
