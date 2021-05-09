@@ -19,6 +19,7 @@ main(Args) ->
                     ok
             end
     end,
+    ok = add_libs_dir(),
     ok = do_with_halt(Args, "mnesia_dir", fun create_mnesia_dir/2),
     ok = do_with_halt(Args, "chkconfig", fun("-config", X) -> chkconfig(X) end),
     ok = do_with_halt(Args, "chkconfig", fun chkconfig/1),
@@ -288,3 +289,22 @@ join([], Sep) when is_list(Sep) ->
     [];
 join([H|T], Sep) ->
     H ++ lists:append([Sep ++ X || X <- T]).
+
+add_libs_dir() ->
+    [_ | _] = RootDir = os:getenv("RUNNER_ROOT_DIR"),
+    RelFile = filename:join([RootDir, "releases",
+                             os:getenv("REL_VSN"),
+                             "emqx.rel"
+                            ]),
+    {ok, [{release, {_, _RelVsn}, {erts, _ErtsVsn}, Libs}]} = file:consult(RelFile),
+    lists:foreach(
+      fun({Name, Vsn}) -> add_lib_dir(RootDir, Name, Vsn);
+         ({Name, Vsn, _}) -> add_lib_dir(RootDir, Name, Vsn)
+      end, Libs).
+
+add_lib_dir(RootDir, Name, Vsn) ->
+    LibDir = filename:join([RootDir, lib, atom_to_list(Name) ++ "-" ++ Vsn, ebin]),
+    case code:add_pathz(LibDir) of
+        true -> ok;
+        {error, _} -> error(LibDir)
+    end.
