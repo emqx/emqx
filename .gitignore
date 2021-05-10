@@ -21,6 +21,7 @@ eunit.coverdata
 test/ct.cover.spec
 ct.coverdata
 .idea/
+.vscode/
 _build
 .rebar3
 rebar3.crashdump
