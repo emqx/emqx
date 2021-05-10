@@ -46,6 +46,13 @@ jobs:
                 echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']:waiting emqx";
                 sleep 5;
             done
+        - name: verify EMQX_LOADED_PLUGINS override working
+          run: |
+            expected="{emqx_sn, true}."
+            output=$(docker exec -i node1.emqx.io bash -c "cat data/loaded_plugins" | tail -n1)
+            if [ "$expected" != "$output" ]; then
+                exit 1
+            fi    
         - name: make paho tests
           run: |
             if ! docker exec -i python /scripts/pytest.sh; then
