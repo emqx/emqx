@@ -150,6 +150,8 @@ start_listener(quic, ListenOn, Options) ->
     ListenOpts = [ {cert, proplists:get_value(certfile, SSLOpts)}
                  , {key, proplists:get_value(keyfile, SSLOpts)}
                  , {alpn, ["mqtt"]}
+                 , {peer_unidi_stream_count, 1}
+                 , {peer_bidi_stream_count, 10}
                  , {conn_acceptors, 32}
                  ],
     ConnectionOpts = [ {conn_callback, emqx_quic_connection}
