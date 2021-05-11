@@ -16,7 +16,7 @@
   "editable": true,
   "gnetId": null,
   "graphTooltip": 0,
-  "id": 1,
+  "id": 3,
   "links": [],
   "panels": [
     {
@@ -25,10 +25,16 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "links": []
+        },
+        "overrides": []
+      },
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
-        "h": 7,
+        "h": 10,
         "w": 24,
         "x": 0,
         "y": 0
@@ -53,9 +59,10 @@
       "links": [],
       "nullPointMode": "null",
       "options": {
-        "dataLinks": []
+        "alertThreshold": true
       },
       "percentage": false,
+      "pluginVersion": "7.5.5",
       "pointradius": 5,
       "points": false,
       "renderer": "flot",
@@ -65,23 +72,33 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(emqx_client_connected{instance=~\".*\",job=\"emqx\"})",
+          "exemplar": true,
+          "expr": "sum(emqx_connections_count{instance=~\".*\",job=\"emqx\"})",
+          "hide": false,
+          "interval": "",
+          "legendFormat": "Clients",
+          "refId": "A"
+        },
+        {
+          "exemplar": true,
+          "expr": "sum(rate(emqx_client_connected{instance=~\".*\",job=\"emqx\"}[$__interval]))",
           "format": "time_series",
           "instant": false,
           "interval": "1m",
           "intervalFactor": 1,
-          "legendFormat": "connected",
-          "refId": "A",
+          "legendFormat": "connected rate",
+          "refId": "B",
           "step": 60
         },
         {
-          "expr": "sum(emqx_client_disconnected{instance=~\".*\",job=\"emqx\"})",
+          "exemplar": true,
+          "expr": "sum(rate(emqx_client_disconnected{instance=~\".*\",job=\"emqx\"}[$__interval]))",
           "format": "time_series",
           "instant": false,
           "interval": "1m",
           "intervalFactor": 1,
-          "legendFormat": "disconnected",
-          "refId": "B",
+          "legendFormat": "disconnected rate",
+          "refId": "C",
           "step": 60
         }
       ],
@@ -136,13 +153,19 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "links": []
+        },
+        "overrides": []
+      },
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
-        "h": 7,
+        "h": 8,
         "w": 24,
         "x": 0,
-        "y": 7
+        "y": 10
       },
       "hiddenSeries": false,
       "id": 11,
@@ -161,9 +184,10 @@
       "links": [],
       "nullPointMode": "null",
       "options": {
-        "dataLinks": []
+        "alertThreshold": true
       },
       "percentage": false,
+      "pluginVersion": "7.5.5",
       "pointradius": 5,
       "points": false,
       "renderer": "flot",
@@ -173,20 +197,22 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(emqx_messages_received{instance=~\".*\",job=\"emqx\"}[5m]))",
+          "exemplar": true,
+          "expr": "sum(rate(emqx_messages_received{instance=~\".*\",job=\"emqx\"}[$__interval]))",
           "format": "time_series",
           "interval": "1m",
           "intervalFactor": 1,
-          "legendFormat": "Messages received",
+          "legendFormat": "received",
           "refId": "A",
           "step": 120
         },
         {
-          "expr": "sum(rate(emqx_messages_sent{instance=~\".*\",job=\"emqx\"}[5m]))",
+          "exemplar": true,
+          "expr": "sum(rate(emqx_messages_sent{instance=~\".*\",job=\"emqx\"}[$__interval]))",
           "format": "time_series",
           "interval": "1m",
           "intervalFactor": 1,
-          "legendFormat": "Messages sent",
+          "legendFormat": "sent",
           "refId": "B",
           "step": 120
         }
@@ -240,13 +266,19 @@
       "dashes": false,
       "datasource": "Prometheus",
       "decimals": 0,
+      "fieldConfig": {
+        "defaults": {
+          "links": []
+        },
+        "overrides": []
+      },
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 18
       },
       "hiddenSeries": false,
       "id": 13,
@@ -266,9 +298,10 @@
       "links": [],
       "nullPointMode": "null",
       "options": {
-        "dataLinks": []
+        "alertThreshold": true
       },
       "percentage": false,
+      "pluginVersion": "7.5.5",
       "pointradius": 5,
       "points": false,
       "renderer": "flot",
@@ -337,13 +370,19 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "links": []
+        },
+        "overrides": []
+      },
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 25
       },
       "hiddenSeries": false,
       "id": 8,
@@ -362,9 +401,10 @@
       "links": [],
       "nullPointMode": "null",
       "options": {
-        "dataLinks": []
+        "alertThreshold": true
       },
       "percentage": false,
+      "pluginVersion": "7.5.5",
       "pointradius": 5,
       "points": false,
       "renderer": "flot",
@@ -374,7 +414,8 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "emqx_subscribers_count{instance=~\".*\",job=\"emqx\"}",
+          "exemplar": true,
+          "expr": "emqx_subscriptions_count{instance=~\".*\",job=\"emqx\"}",
           "format": "time_series",
           "interval": "",
           "intervalFactor": 1,
@@ -443,13 +484,19 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "links": []
+        },
+        "overrides": []
+      },
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 28
+        "y": 32
       },
       "hiddenSeries": false,
       "id": 9,
@@ -468,9 +515,10 @@
       "links": [],
       "nullPointMode": "null",
       "options": {
-        "dataLinks": []
+        "alertThreshold": true
       },
       "percentage": false,
+      "pluginVersion": "7.5.5",
       "pointradius": 5,
       "points": false,
       "renderer": "flot",
@@ -480,18 +528,20 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(emqx_bytes_received{instance=~\".*\",job=\"emqx\"}[5m]))",
+          "exemplar": true,
+          "expr": "sum(rate(emqx_bytes_received{instance=~\".*\",job=\"emqx\"}[$__interval]))",
           "format": "time_series",
-          "interval": "1m",
+          "interval": "",
           "intervalFactor": 1,
           "legendFormat": "Bytes received",
           "refId": "A",
           "step": 60
         },
         {
-          "expr": "sum(rate(emqx_bytes_sent{instance=~\".*\",job=\"emqx\"}[5m]))",
+          "exemplar": true,
+          "expr": "sum(rate(emqx_bytes_sent{instance=~\".*\",job=\"emqx\"}[$__interval]))",
           "format": "time_series",
-          "interval": "1m",
+          "interval": "",
           "intervalFactor": 1,
           "legendFormat": "Bytes sent",
           "refId": "B",
@@ -541,7 +591,7 @@
     }
   ],
   "refresh": false,
-  "schemaVersion": 22,
+  "schemaVersion": 27,
   "style": "dark",
   "tags": [],
   "templating": {
@@ -579,8 +629,5 @@
   "timezone": "browser",
   "title": "EMQ Dashboard",
   "uid": "5sreUw6Wz",
-  "variables": {
-    "list": []
-  },
-  "version": 6
+  "version": 11
 }
