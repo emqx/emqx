@@ -8,6 +8,9 @@ ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 # shellcheck disable=SC1090
 . "$ROOT_DIR"/releases/emqx_vars
 
+export RUNNER_ROOT_DIR
+export REL_VSN
+
 # shellcheck disable=SC2012,SC2086
 LATEST_VM_ARGS="$(ls -t $RUNNER_DATA_DIR/configs/vm.*.args | head -1)"
 if [ -z "$LATEST_VM_ARGS" ]; then
