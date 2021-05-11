@@ -6,24 +6,24 @@
 %%--------------------------------------------------------------------
 
 %% @doc Cluster name
-{mapping, "cluster.name", "ekka.cluster_name", [
+{mapping, "cluster.name", "ekka.cluster.name", [
   {default, emqxcl},
   {datatype, atom}
 ]}.
 
 %% @doc Cluster discovery
-{mapping, "cluster.discovery", "ekka.cluster_discovery", [
+{mapping, "cluster.discovery_strategy", "ekka.cluster.discovery_strategy", [
   {default, manual},
   {datatype, atom}
 ]}.
 
 %% @doc Clean down node from the cluster
-{mapping, "cluster.autoclean", "ekka.cluster_autoclean", [
+{mapping, "cluster.autoclean", "ekka.cluster.autoclean", [
   {datatype, {duration, ms}}
 ]}.
 
 %% @doc Cluster autoheal
-{mapping, "cluster.autoheal", "ekka.cluster_autoheal", [
+{mapping, "cluster.autoheal", "ekka.cluster.autoheal", [
   {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
@@ -31,49 +31,49 @@
 %%--------------------------------------------------------------------
 %% Cluster by static node list
 
-{mapping, "cluster.static.seeds", "ekka.cluster_discovery", [
+{mapping, "cluster.static.seeds", "ekka.cluster.discovery", [
   {datatype, string}
 ]}.
 
 %%--------------------------------------------------------------------
 %% Cluster by UDP Multicast
 
-{mapping, "cluster.mcast.addr", "ekka.cluster_discovery", [
+{mapping, "cluster.mcast.addr", "ekka.cluster.discovery", [
   {default, "239.192.0.1"},
   {datatype, string}
 ]}.
 
-{mapping, "cluster.mcast.ports", "ekka.cluster_discovery", [
+{mapping, "cluster.mcast.ports", "ekka.cluster.discovery", [
   {default, "4369"},
   {datatype, string}
 ]}.
 
-{mapping, "cluster.mcast.iface", "ekka.cluster_discovery", [
+{mapping, "cluster.mcast.iface", "ekka.cluster.discovery", [
   {datatype, string},
   {default, "0.0.0.0"}
 ]}.
 
-{mapping, "cluster.mcast.ttl", "ekka.cluster_discovery", [
+{mapping, "cluster.mcast.ttl", "ekka.cluster.discovery", [
   {datatype, integer},
   {default, 255}
 ]}.
 
-{mapping, "cluster.mcast.loop", "ekka.cluster_discovery", [
+{mapping, "cluster.mcast.loop", "ekka.cluster.discovery", [
   {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
 
-{mapping, "cluster.mcast.sndbuf", "ekka.cluster_discovery", [
+{mapping, "cluster.mcast.sndbuf", "ekka.cluster.discovery", [
   {datatype, bytesize},
   {default, "16KB"}
 ]}.
 
-{mapping, "cluster.mcast.recbuf", "ekka.cluster_discovery", [
+{mapping, "cluster.mcast.recbuf", "ekka.cluster.discovery", [
   {datatype, bytesize},
   {default, "16KB"}
 ]}.
 
-{mapping, "cluster.mcast.buffer", "ekka.cluster_discovery", [
+{mapping, "cluster.mcast.buffer", "ekka.cluster.discovery", [
   {datatype, bytesize},
   {default, "32KB"}
 ]}.
@@ -81,7 +81,7 @@
 %%--------------------------------------------------------------------
 %% Cluster by DNS A Record
 
-{mapping, "cluster.dns.name", "ekka.cluster_discovery", [
+{mapping, "cluster.dns.name", "ekka.cluster.discovery", [
   {datatype, string}
 ]}.
 
@@ -92,67 +92,67 @@
   hidden
 ]}.
 
-{mapping, "cluster.dns.app", "ekka.cluster_discovery", [
+{mapping, "cluster.dns.app", "ekka.cluster.discovery", [
   {datatype, string}
 ]}.
 
 %%--------------------------------------------------------------------
 %% Cluster using etcd
 
-{mapping, "cluster.etcd.server", "ekka.cluster_discovery", [
+{mapping, "cluster.etcd.server", "ekka.cluster.discovery", [
   {datatype, string}
 ]}.
 
-{mapping, "cluster.etcd.prefix", "ekka.cluster_discovery", [
+{mapping, "cluster.etcd.prefix", "ekka.cluster.discovery", [
   {datatype, string}
 ]}.
 
-{mapping, "cluster.etcd.node_ttl", "ekka.cluster_discovery", [
+{mapping, "cluster.etcd.node_ttl", "ekka.cluster.discovery", [
   {datatype, {duration, ms}},
   {default, "1m"}
 ]}.
 
-{mapping, "cluster.etcd.ssl.keyfile", "ekka.cluster_discovery", [
+{mapping, "cluster.etcd.ssl.keyfile", "ekka.cluster.discovery", [
   {datatype, string}
 ]}.
 
-{mapping, "cluster.etcd.ssl.certfile", "ekka.cluster_discovery", [
+{mapping, "cluster.etcd.ssl.certfile", "ekka.cluster.discovery", [
   {datatype, string}
 ]}.
 
-{mapping, "cluster.etcd.ssl.cacertfile", "ekka.cluster_discovery", [
+{mapping, "cluster.etcd.ssl.cacertfile", "ekka.cluster.discovery", [
   {datatype, string}
 ]}.
 
 %%--------------------------------------------------------------------
 %% Cluster on K8s
 
-{mapping, "cluster.k8s.apiserver", "ekka.cluster_discovery", [
+{mapping, "cluster.k8s.apiserver", "ekka.cluster.discovery", [
   {datatype, string}
 ]}.
 
-{mapping, "cluster.k8s.service_name", "ekka.cluster_discovery", [
+{mapping, "cluster.k8s.service_name", "ekka.cluster.discovery", [
   {datatype, string}
 ]}.
 
-{mapping, "cluster.k8s.address_type", "ekka.cluster_discovery", [
+{mapping, "cluster.k8s.address_type", "ekka.cluster.discovery", [
   {datatype, {enum, [ip, dns, hostname]}}
 ]}.
 
-{mapping, "cluster.k8s.app_name", "ekka.cluster_discovery", [
+{mapping, "cluster.k8s.app_name", "ekka.cluster.discovery", [
   {datatype, string}
 ]}.
 
-{mapping, "cluster.k8s.namespace", "ekka.cluster_discovery", [
+{mapping, "cluster.k8s.namespace", "ekka.cluster.discovery", [
   {datatype, string}
 ]}.
 
-{mapping, "cluster.k8s.suffix", "ekka.cluster_discovery", [
+{mapping, "cluster.k8s.suffix", "ekka.cluster.discovery", [
     {datatype, string},
     {default, ""}
   ]}.
 
-{translation, "ekka.cluster_discovery", fun(Conf) ->
+{translation, "ekka.cluster.discovery", fun(Conf) ->
   Strategy = cuttlefish:conf_get("cluster.discovery", Conf),
   Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
   IpPort = fun(S) ->
@@ -345,11 +345,6 @@ end}.
 %% Log
 %%--------------------------------------------------------------------
 
-{mapping, "log.to", "kernel.logger", [
-  {default, file},
-  {datatype, {enum, [file, console, both]}}
-]}.
-
 {mapping, "log.level", "kernel.logger", [
   {default, warning},
   {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
@@ -364,7 +359,7 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "log.primary_log_level", "kernel.logger_level", [
+{mapping, "log.primary_level", "kernel.logger_level", [
    {default, warning},
    {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
 ]}.
@@ -409,7 +404,7 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
-{mapping, "log.rotation.enable", "kernel.logger", [
+{mapping, "log.file_log_handlers.type", "kernel.logger", [
   {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
@@ -419,14 +414,14 @@ end}.
   {datatype, bytesize}
 ]}.
 
-{mapping, "log.size", "kernel.logger", [
-  {default, infinity},
-  {datatype, [bytesize, atom]}
-]}.
-
 {mapping, "log.rotation.count", "kernel.logger", [
   {default, 5},
   {datatype, integer}
+]}.
+
+{mapping, "log.size", "kernel.logger", [
+  {default, infinity},
+  {datatype, [bytesize, atom]}
 ]}.
 
 {mapping, "log.$level.file", "kernel.logger", [
@@ -469,8 +464,8 @@ end}.
 ]}.
 
 {mapping, "log.burst_limit", "kernel.logger", [
-  {default, "disabled"},
-  {datatype, string}
+  {default, false},
+  {datatype, {enum, [true, false]}}
 ]}.
 
 {mapping, "log.error_logger", "kernel.error_logger", [
@@ -550,16 +545,7 @@ end}.
                     single_line => SingleLine
                    }}
     end,
-    {BustLimitOn, {MaxBurstCount, TimeWindow}} =
-        case string:tokens(cuttlefish:conf_get("log.burst_limit", Conf), ", ") of
-            ["disabled"] -> {false, {20000, 1000}};
-            [Count, Window] ->
-                {true, {list_to_integer(Count),
-                        case cuttlefish_duration:parse(Window, ms) of
-                          Secs when is_integer(Secs) -> Secs;
-                          {error, Reason1} -> error(Reason1)
-                        end}}
-        end,
+
     FileConf =  fun(Filename) ->
                   BasicConf =
                   #{type => LogType,
@@ -572,9 +558,9 @@ end}.
                     overload_kill_qlen => cuttlefish:conf_get("log.overload_kill_qlen", Conf),
                     overload_kill_mem_size => cuttlefish:conf_get("log.overload_kill_mem_size", Conf),
                     overload_kill_restart_after => cuttlefish:conf_get("log.overload_kill_restart_after", Conf),
-                    burst_limit_enable => BustLimitOn,
-                    burst_limit_max_count => MaxBurstCount,
-                    burst_limit_window_time => TimeWindow
+                    burst_limit_enable => cuttlefish:conf_get("log.burst_limit", Conf),
+                    burst_limit_max_count => cuttlefish:conf_get("log.burst_limit_max_count", Conf),
+                    burst_limit_window_time => cuttlefish:conf_get("log.burst_limit_window_time", Conf),
                     },
                   MaxNoBytes = case LogType of
                     wrap -> cuttlefish:conf_get("log.rotation.size", Conf);
@@ -963,12 +949,12 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "zone.$name.conn_congestion.alarm", "emqx.zones", [
+{mapping, "zone.$name.conn_congestion.alarm.enable", "emqx.zones", [
   {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
 
-{mapping, "zone.$name.conn_congestion.min_alarm_sustain_duration", "emqx.zones", [
+{mapping, "zone.$name.conn_congestion.alarm.min_sustain_duration", "emqx.zones", [
   {default, "1m"},
   {datatype, {duration, ms}}
 ]}.
