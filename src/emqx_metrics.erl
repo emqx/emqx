@@ -65,6 +65,10 @@
         , code_change/3
         ]).
 
+%% BACKW: v4.3.0
+-export([ upgrade_retained_delayed_counter_type/0
+        ]).
+
 -export_type([metric_idx/0]).
 
 -compile({inline, [inc/1, inc/2, dec/1, dec/2]}).
@@ -145,8 +149,8 @@
          {counter, 'messages.dropped.expired'},  % QoS2 Messages expired
          {counter, 'messages.dropped.no_subscribers'},  % Messages dropped
          {counter, 'messages.forward'},       % Messages forward
-         {gauge,   'messages.retained'},      % Messages retained
-         {gauge,   'messages.delayed'},       % Messages delayed
+         {counter, 'messages.retained'},      % Messages retained
+         {counter, 'messages.delayed'},       % Messages delayed
          {counter, 'messages.delivered'},     % Messages delivered
          {counter, 'messages.acked'}          % Messages acked
         ]).
@@ -194,6 +198,19 @@ start_link() ->
 
 -spec(stop() -> ok).
 stop() -> gen_server:stop(?SERVER).
+
+%% BACKW: v4.3.0
+upgrade_retained_delayed_counter_type() ->
+    case ets:info(?TAB, name) of
+        ?TAB ->
+            [M1] = ets:lookup(?TAB, 'messages.retained'),
+            [M2] = ets:lookup(?TAB, 'messages.delayed'),
+            true = ets:insert(?TAB, M1#metric{type = counter}),
+            true = ets:insert(?TAB, M2#metric{type = counter}),
+            ok;
+        _ ->
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Metrics API
