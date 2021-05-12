@@ -290,6 +290,7 @@ relx_plugin_apps_per_rel(cloud) ->
     , emqx_exhook
     , emqx_exproto
     , emqx_prometheus
+    , emqx_statsd
     , emqx_psk_file
     ];
 relx_plugin_apps_per_rel(edge) ->
