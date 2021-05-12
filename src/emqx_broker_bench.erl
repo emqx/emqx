@@ -26,7 +26,8 @@ run1(Factor, Limit) ->
     start(#{factor => Factor,
             limit => Limit,
             sub_ptn => <<"device/{{id}}/+/{{num}}/#">>,
-            pub_ptn => <<"device/{{id}}/xays/{{num}}/foo/bar/baz">>}).
+            pub_ptn => <<"device/{{id}}/foo/{{num}}/bar">>
+           }).
 
 %% setting fields:
 %% - factor: spawn broker-pool-size * factor number of callers
@@ -36,14 +37,33 @@ run1(Factor, Limit) ->
 %%            replaced by worker id and {{num}} replaced by topic number.
 %% - pub_ptn: topic pattern used to benchmark publish (match) performance
 %%            e.g. a/x/{{id}}/{{num}}/foo/bar
-start(#{factor := Factor} = Settings) ->
+start(#{factor := Factor, limit := Limit} = Settings) ->
+    T1 = erlang:system_time(),
     BrokerPoolSize = emqx_vm:schedulers() * 2,
-    Pids = start_callers(BrokerPoolSize * Factor, Settings),
-    R = collect_results(Pids, #{subscribe => 0, match => 0}),
+    WorkersCnt = BrokerPoolSize * Factor,
+    Pids = start_callers(WorkersCnt, Settings),
+
+    lists:foreach(fun(Pid) -> Pid ! start_subscribe end, Pids),
+    SubsTime = collect_results(Pids, subscribe_time),
+    T2 = erlang:system_time(),
+    Span1 = sec_span(T2, T1),
+    io:format(user, "InsertTotalTime(seconds): ~p~n", [Span1]),
+    io:format(user, "InsertTimeAverage: ~p~n", [SubsTime / 1000000 / WorkersCnt]),
+    io:format(user, "InsertRps: ~p~n", [WorkersCnt * Limit / Span1]),
+
+    lists:foreach(fun(Pid) -> Pid ! start_lookup end, Pids),
+    LkupTime = collect_results(Pids, lookup_time),
+    T3 = erlang:system_time(),
+    Span2 = sec_span(T3, T2),
+    io:format(user, "LookupTotalTime(seconds): ~p~n", [Span2]),
+    io:format(user, "LookupTimeAverage: ~p~n", [LkupTime / 1000000 / WorkersCnt]),
+    io:format(user, "LookupRps: ~p~n", [WorkersCnt * Limit / Span2]),
+
     io:format(user, "mnesia table(s) RAM: ~p~n", [ram_bytes()]),
-    io:format(user, "~p~n", [erlang:memory()]),
-    io:format(user, "~p~n", [R]),
+    io:format(user, "erlang memory: ~p~n", [erlang:memory()]),
     lists:foreach(fun(Pid) -> Pid ! stop end, Pids).
+
+sec_span(T2, T1) -> abs(T2 - T1) / 1000000000.
 
 ram_bytes() ->
     Wordsize = erlang:system_info(wordsize),
@@ -60,25 +80,34 @@ start_callers(0, _) -> [];
 start_callers(N, Settings) ->
     [start_caller(Settings#{id => N}) | start_callers(N - 1, Settings)].
 
-collect_results([], R) -> R;
-collect_results([Pid | Pids], Acc = #{subscribe := Sr, match := Mr}) ->
-    receive
-        {Pid, #{subscribe := Srd, match := Mrd}} ->
-            collect_results(Pids, Acc#{subscribe := Sr + Srd, match := Mr + Mrd})
-    end.
+collect_results(Pids, Tag) ->
+    collect_results(Pids, Tag, 0).
 
-%% ops per second
-rps(T, N) -> round(N / (T / 1000000)).
+collect_results([], _Tag, R) -> R;
+collect_results([Pid | Pids], Tag, R) ->
+    receive
+        {Pid, Tag, N} ->
+            collect_results(Pids, Tag, N + R)
+    end.
 
 start_caller(#{id := Id, limit := N, sub_ptn := SubPtn, pub_ptn := PubPtn}) ->
     Parent = self(),
     proc_lib:spawn_link(
         fun() ->
                 SubTopics = make_topics(SubPtn, Id, N),
+                receive
+                    start_subscribe ->
+                        ok
+                end,
                 {Ts, _} = timer:tc(fun() -> subscribe(SubTopics) end),
+                _ = erlang:send(Parent, {self(), subscribe_time, Ts}),
                 PubTopics = make_topics(PubPtn, Id, N),
+                receive
+                    start_lookup ->
+                        ok
+                end,
                 {Tm, _} = timer:tc(fun() -> match(PubTopics) end),
-                _ = erlang:send(Parent, {self(), #{subscribe => rps(Ts, N), match => rps(Tm, N)}}),
+                _ = erlang:send(Parent, {self(), lookup_time, Tm}),
                 receive
                     stop ->
                         ok
@@ -87,7 +116,7 @@ start_caller(#{id := Id, limit := N, sub_ptn := SubPtn, pub_ptn := PubPtn}) ->
 
 match([]) -> ok;
 match([Topic | Topics]) ->
-    _ = emqx_router:lookup_routes(Topic),
+    _ = emqx_router:match_routes(Topic),
     match(Topics).
 
 subscribe([]) -> ok;
