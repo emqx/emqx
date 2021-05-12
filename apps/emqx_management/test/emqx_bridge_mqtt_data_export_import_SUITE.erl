@@ -177,7 +177,6 @@ handle_config(Config, ee435, Id) ->
 remove_resources() ->
     timer:sleep(500),
     lists:foreach(fun(#resource{id = Id}) ->
-        emqx_rule_registry:remove_resource(Id),
-        emqx_rule_registry:remove_resource_params(Id)
+        emqx_rule_engine:delete_resource(Id)
     end, emqx_rule_registry:get_resources()),
     timer:sleep(500).
