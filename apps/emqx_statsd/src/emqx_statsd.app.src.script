@@ -1,0 +1,25 @@
+%%-*- mode: erlang -*-
+%% .app.src.script
+
+RemoveLeadingV =
+    fun(Tag) ->
+        case re:run(Tag, "v\[0-9\]+\.\[0-9\]+\.*") of
+            nomatch ->
+                Tag;
+            {match, _} ->
+                %% if it is a version number prefixed by 'v' then remove the 'v'
+                "v" ++ Vsn = Tag,
+                Vsn
+        end
+    end,
+
+case os:getenv("EMQX_DEPS_DEFAULT_VSN") of
+    false -> CONFIG; % env var not defined
+    []    -> CONFIG; % env var set to empty string
+    Tag ->
+       [begin
+           AppConf0 = lists:keystore(vsn, 1, AppConf, {vsn, RemoveLeadingV(Tag)}),
+           {application, App, AppConf0}
+        end || Conf = {application, App, AppConf} <- CONFIG]
+end.
+
