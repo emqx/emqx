@@ -3,7 +3,7 @@ name: Check Apps Version
 on: [pull_request]
 
 jobs:
-  check_deps_integrity:
+  check_apps_version:
     runs-on: ubuntu-20.04
 
     steps:
