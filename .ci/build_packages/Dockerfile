@@ -7,6 +7,8 @@ COPY . /emqx
 
 WORKDIR /emqx
 
+RUN make ${EMQX_NAME}-zip || cat rebar3.crashdump
+
 RUN make ${EMQX_NAME}-pkg || cat rebar3.crashdump
 
 RUN /emqx/.ci/build_packages/tests.sh

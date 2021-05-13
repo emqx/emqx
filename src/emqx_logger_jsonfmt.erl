@@ -48,7 +48,7 @@
 -spec format(logger:log_event(), config()) -> iodata().
 format(#{level := Level, msg := Msg, meta := Meta}, Config0) when is_map(Config0) ->
     Config = add_default_config(Config0),
-    format(Msg, Meta#{level => Level}, Config).
+    [format(Msg, Meta#{level => Level}, Config) , "\n"].
 
 format(Msg, Meta, Config) ->
     Data0 =

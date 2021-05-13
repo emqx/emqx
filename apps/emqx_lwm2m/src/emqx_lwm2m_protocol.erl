@@ -275,13 +275,24 @@ do_send_to_broker(EventType, Payload, Lwm2mState) ->
 %% Auto Observe
 %%--------------------------------------------------------------------
 
+auto_observe_object_list(true = _Expected, Registered) ->
+    Registered;
+auto_observe_object_list(Expected, Registered) ->
+    Expected1 = lists:map(fun(S) -> iolist_to_binary(S) end, Expected),
+    lists:filter(fun(S) -> lists:member(S, Expected1) end, Registered).
+
 send_auto_observe(CoapPid, RegInfo) ->
     %% - auto observe the objects
     case proplists:get_value(auto_observe, lwm2m_coap_responder:options(), false) of
-        true ->
+        false ->
+            ?LOG(info, "Auto Observe Disabled", []);
+        TrueOrObjList ->
+            Objectlists = auto_observe_object_list(
+                            TrueOrObjList,
+                            maps:get(<<"objectList">>, RegInfo, [])
+                           ),
             AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
-            auto_observe(AlternatePath, maps:get(<<"objectList">>, RegInfo, []), CoapPid);
-        _ -> ?LOG(info, "Auto Observe Disabled", [])
+            auto_observe(AlternatePath, Objectlists, CoapPid)
     end.
 
 auto_observe(AlternatePath, ObjectList, CoapPid) ->
