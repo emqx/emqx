@@ -1,6 +1,6 @@
 {application,emqx_lwm2m,
              [{description,"EMQ X LwM2M Gateway"},
-              {vsn, "4.3.0"}, % strict semver, bump manually!
+              {vsn, "4.3.1"}, % strict semver, bump manually!
               {modules,[]},
               {registered,[emqx_lwm2m_sup]},
               {applications,[kernel,stdlib,lwm2m_coap]},
