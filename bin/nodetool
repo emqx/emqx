@@ -292,25 +292,11 @@ join([H|T], Sep) ->
 
 add_libs_dir() ->
     [_ | _] = RootDir = os:getenv("RUNNER_ROOT_DIR"),
-    RelFile = filename:join([RootDir, "releases",
-                             os:getenv("REL_VSN"),
-                             "emqx.rel"
-                            ]),
-    case file:consult(RelFile) of
-        {ok, [{release, {_, _RelVsn}, {erts, _ErtsVsn}, Libs}]} ->
-            lists:foreach(
-              fun({Name, Vsn}) -> add_lib_dir(RootDir, Name, Vsn);
-                 ({Name, Vsn, _}) -> add_lib_dir(RootDir, Name, Vsn)
-              end, Libs);
-        {error, enoent} ->
-            %% rel file is deleted by release handler
-            add_libs_dir2(RootDir)
-    end.
-
-add_libs_dir2(RootDir) ->
+    CurrentVsn = os:getenv("REL_VSN"),
     RelFile = filename:join([RootDir, "releases", "RELEASES"]),
     case file:consult(RelFile) of
-        {ok, [[Release]]} ->
+        {ok, [Releases]} ->
+            Release = lists:keyfind(CurrentVsn, 3, Releases),
             {release, _Name, _AppVsn, _ErtsVsn, Libs, _State} = Release,
             lists:foreach(
               fun({Name, Vsn, _}) ->
