@@ -256,9 +256,9 @@ jobs:
         if [ $PROFILE = "emqx" ];then broker="emqx-ce"; else broker="$PROFILE"; fi
         if [ $PROFILE = "emqx-ee" ];then edition='enterprise'; else edition='opensource'; fi
 
-        vsn="$(grep -E "define.+EMQX_RELEASE.+${edition}" include/emqx_release.hrl | cut -d '"' -f2)"
+        vsn="$(./pkg-vsn.sh)"
         pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
-        if  [ $PROFILE = "emqx-ee" ]; then
+        if [ $PROFILE = "emqx-ee" ]; then
             old_vsns=($(git tag -l "e$pre_vsn.[0-9]" | sed "s/e$vsn//"))
         else
             old_vsns=($(git tag -l "v$pre_vsn.[0-9]" | sed "s/v$vsn//"))
@@ -268,8 +268,8 @@ jobs:
         cd _upgrade_base
         for tag in ${old_vsns[@]};do
           if [ ! -z "$(echo  $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.AWS_S3_BUCKET }}/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip) | grep -oE "^[23]+")" ];then
-            wget https://s3-${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.AWS_S3_BUCKET }}/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip
-            wget https://s3-${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.AWS_S3_BUCKET }}/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256
             echo "$(cat $PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256) $PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip" | sha256sum -c || exit 1
           fi
         done
