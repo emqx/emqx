@@ -214,24 +214,26 @@ jobs:
                 broker="emqx-ee"
                 edition='enterprise'
             fi
+            echo "BROKER=$broker" >> $GITHUB_ENV
 
-            vsn="$(grep -E "define.+EMQX_RELEASE.+${edition}" include/emqx_release.hrl | cut -d '"' -f2)"
+            vsn="$(./pkg-vsn.sh)"
             echo "VSN=$vsn" >> $GITHUB_ENV
 
             pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
-            if  [ $PROFILE = "emqx" ]; then
+            if [ $PROFILE = "emqx" ]; then
                 old_vsns="$(git tag -l "v$pre_vsn.[0-9]" | xargs echo -n | sed "s/v$vsn//")"
             else
-                old_vsns="$(git tag -l "e$pre_vsn.[0-9]" | xargs echo -n | sed "s/v$vsn//")"
+                old_vsns="$(git tag -l "e$pre_vsn.[0-9]" | xargs echo -n | sed "s/e$vsn//")"
             fi
             echo "OLD_VSNS=$old_vsns" >> $GITHUB_ENV
         - name: download emqx
           run: |
             set -e -x -u
-            cd emqx
+            mkdir -p emqx/_upgrade_base
+            cd emqx/_upgrade_base
             old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
             for old_vsn in ${old_vsns[@]}; do
-              wget https://s3-${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.AWS_S3_BUCKET }}/$broker/$old_vsn/$PROFILE-ubuntu20.04-${old_vsn#[e|v]}-x86_64.zip
+              wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$old_vsn/$PROFILE-ubuntu20.04-${old_vsn#[e|v]}-amd64.zip
             done
         - name: build emqx
           run: make -C emqx ${PROFILE}-zip
@@ -251,7 +253,7 @@ jobs:
             if [ -n "$OLD_VSNS" ]; then
                 mkdir -p packages
                 cp emqx/_packages/emqx/*.zip packages
-                cp emqx/*.zip packages
+                cp emqx/_upgrade_base/*.zip packages
                 lux -v \
                 --timeout 600000 \
                 --var PACKAGE_PATH=$(pwd)/packages \
