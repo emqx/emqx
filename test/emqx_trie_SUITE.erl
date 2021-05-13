@@ -105,7 +105,10 @@ t_match3(_) ->
     Topics = [<<"d/#">>, <<"a/b/c">>, <<"a/b/+">>, <<"a/#">>, <<"#">>, <<"$SYS/#">>],
     trans(fun() -> [emqx_trie:insert(Topic) || Topic <- Topics] end),
     Matched = mnesia:async_dirty(fun emqx_trie:match/1, [<<"a/b/c">>]),
-    ?assertEqual(4, length(Matched)),
+    case length(Matched) of
+        4 -> ok;
+        _ -> error({unexpected, Matched})
+    end,
     SysMatched = emqx_trie:match(<<"$SYS/a/b/c">>),
     ?assertEqual([<<"$SYS/#">>], SysMatched).
 
@@ -113,6 +116,26 @@ t_match4(_) ->
     Topics = [<<"/#">>, <<"/+">>, <<"/+/a/b/c">>],
     trans(fun() -> lists:foreach(fun emqx_trie:insert/1, Topics) end),
     ?assertEqual([<<"/#">>, <<"/+/a/b/c">>], lists:sort(emqx_trie:match(<<"/0/a/b/c">>))).
+
+t_match5(_) ->
+    T = <<"a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z">>,
+    Topics = [<<"#">>, <<T/binary, "/#">>, <<T/binary, "/+">>],
+    trans(fun() -> lists:foreach(fun emqx_trie:insert/1, Topics) end),
+    ?assertEqual([<<"#">>, <<T/binary, "/#">>], lists:sort(emqx_trie:match(T))),
+    ?assertEqual([<<"#">>, <<T/binary, "/#">>, <<T/binary, "/+">>],
+                 lists:sort(emqx_trie:match(<<T/binary, "/1">>))).
+
+t_match6(_) ->
+    T = <<"a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z">>,
+    W = <<"+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/#">>,
+    trans(fun() -> emqx_trie:insert(W) end),
+    ?assertEqual([W], emqx_trie:match(T)).
+
+t_match7(_) ->
+    T = <<"a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z">>,
+    W = <<"a/+/c/+/e/+/g/+/i/+/k/+/m/+/o/+/q/+/s/+/u/+/w/+/y/+/#">>,
+    trans(fun() -> emqx_trie:insert(W) end),
+    ?assertEqual([W], emqx_trie:match(T)).
 
 t_empty(_) ->
     ?assert(?TRIE:empty()),
