@@ -2318,7 +2318,7 @@ end}.
 %% NOTE: This is a cluster-wide configuration.
 %% It rquires all nodes to be stopped before changing it.
 {mapping, "broker.perf.trie_compaction", "emqx.trie_compaction", [
-  {default, true},
+  {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
 
