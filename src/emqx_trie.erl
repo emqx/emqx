@@ -194,6 +194,11 @@ delete_key(Key) ->
             ok
     end.
 
+%% micro-optimization: no need to lookup when topic is not wildcard
+%% because we only insert wildcards to emqx_trie
+lookup_topic(_Topic, false) -> [];
+lookup_topic(Topic, true) -> lookup_topic(Topic).
+
 lookup_topic(Topic) when is_binary(Topic) ->
     case ets:lookup(?TRIE, ?TOPIC(Topic)) of
         [#?TRIE{count = C}] -> [Topic || C > 0];
@@ -220,20 +225,20 @@ do_match(Words) ->
 
 do_match(Words, Prefix) ->
     case is_compact() of
-        true -> match_compact(Words, Prefix, []);
-        false -> match_no_compact(Words, Prefix, [])
+        true -> match_compact(Words, Prefix, false, []);
+        false -> match_no_compact(Words, Prefix, false, [])
     end.
 
-match_no_compact([], Topic, Acc) ->
-    'match_#'(Topic) ++ %% try match foo/bar/#
-    lookup_topic(Topic) ++ %% try match foo/bar
+match_no_compact([], Topic, IsWildcard, Acc) ->
+    'match_#'(Topic) ++ %% try match foo/+/# or foo/bar/#
+    lookup_topic(Topic, IsWildcard) ++ %% e.g. foo/+
     Acc;
-match_no_compact([Word | Words], Prefix, Acc0) ->
+match_no_compact([Word | Words], Prefix, IsWildcard, Acc0) ->
     case has_prefix(Prefix) of
         true ->
             Acc1 = 'match_#'(Prefix) ++ Acc0,
-            Acc = match_no_compact(Words, join(Prefix, '+'), Acc1),
-            match_no_compact(Words, join(Prefix, Word), Acc);
+            Acc = match_no_compact(Words, join(Prefix, '+'), true, Acc1),
+            match_no_compact(Words, join(Prefix, Word), IsWildcard, Acc);
         false ->
             %% non-compact paths in database
             %% if there is no prefix matches the current topic prefix
@@ -250,20 +255,20 @@ match_no_compact([Word | Words], Prefix, Acc0) ->
             Acc0
     end.
 
-match_compact([], Topic, Acc) ->
+match_compact([], Topic, IsWildcard, Acc) ->
     'match_#'(Topic) ++ %% try match foo/bar/#
-    lookup_topic(Topic) ++ %% try match foo/bar
+    lookup_topic(Topic, IsWildcard) ++ %% try match foo/bar
     Acc;
-match_compact([Word | Words], Prefix, Acc0) ->
+match_compact([Word | Words], Prefix, IsWildcard, Acc0) ->
     Acc1 = 'match_#'(Prefix) ++ Acc0,
-    Acc = match_compact(Words, join(Prefix, Word), Acc1),
+    Acc = match_compact(Words, join(Prefix, Word), IsWildcard, Acc1),
     WildcardPrefix = join(Prefix, '+'),
     %% go deeper to match current_prefix/+ only when:
     %% 1. current word is the last
     %% OR
     %% 2. there is a prefix = 'current_prefix/+'
     case Words =:= [] orelse has_prefix(WildcardPrefix) of
-        true -> match_compact(Words, WildcardPrefix, Acc);
+        true -> match_compact(Words, WildcardPrefix, true, Acc);
         false -> Acc
     end.
 

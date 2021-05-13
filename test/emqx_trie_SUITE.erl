@@ -102,11 +102,11 @@ t_match2(_) ->
     ?assertEqual([], ?TRIE:match(<<"$SYS/broker/zenmq">>)).
 
 t_match3(_) ->
-    Topics = [<<"d/#">>, <<"a/b/c">>, <<"a/b/+">>, <<"a/#">>, <<"#">>, <<"$SYS/#">>],
+    Topics = [<<"d/#">>, <<"a/b/+">>, <<"a/#">>, <<"#">>, <<"$SYS/#">>],
     trans(fun() -> [emqx_trie:insert(Topic) || Topic <- Topics] end),
     Matched = mnesia:async_dirty(fun emqx_trie:match/1, [<<"a/b/c">>]),
     case length(Matched) of
-        4 -> ok;
+        3 -> ok;
         _ -> error({unexpected, Matched})
     end,
     SysMatched = emqx_trie:match(<<"$SYS/a/b/c">>),
