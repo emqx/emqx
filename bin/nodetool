@@ -296,11 +296,30 @@ add_libs_dir() ->
                              os:getenv("REL_VSN"),
                              "emqx.rel"
                             ]),
-    {ok, [{release, {_, _RelVsn}, {erts, _ErtsVsn}, Libs}]} = file:consult(RelFile),
-    lists:foreach(
-      fun({Name, Vsn}) -> add_lib_dir(RootDir, Name, Vsn);
-         ({Name, Vsn, _}) -> add_lib_dir(RootDir, Name, Vsn)
-      end, Libs).
+    case file:consult(RelFile) of
+        {ok, [{release, {_, _RelVsn}, {erts, _ErtsVsn}, Libs}]} ->
+            lists:foreach(
+              fun({Name, Vsn}) -> add_lib_dir(RootDir, Name, Vsn);
+                 ({Name, Vsn, _}) -> add_lib_dir(RootDir, Name, Vsn)
+              end, Libs);
+        {error, enoent} ->
+            %% rel file is deleted by release handler
+            add_libs_dir2(RootDir)
+    end.
+
+add_libs_dir2(RootDir) ->
+    RelFile = filename:join([RootDir, "releases", "RELEASES"]),
+    case file:consult(RelFile) of
+        {ok, [[Release]]} ->
+            {release, _Name, _AppVsn, _ErtsVsn, Libs, _State} = Release,
+            lists:foreach(
+              fun({Name, Vsn, _}) ->
+                      add_lib_dir(RootDir, Name, Vsn)
+              end, Libs);
+        {error, Reason} ->
+            %% rel file was been deleted by release handler
+            error({failed_to_read_RELEASES_file, RelFile, Reason})
+    end.
 
 add_lib_dir(RootDir, Name, Vsn) ->
     LibDir = filename:join([RootDir, lib, atom_to_list(Name) ++ "-" ++ Vsn, ebin]),
