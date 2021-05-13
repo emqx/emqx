@@ -72,7 +72,6 @@ run(#{subscribers := Subs,
     io:format(user, "LookupRps: ~p~n", [rps(Pubs * PubOps, T2)]),
 
     io:format(user, "mnesia table(s) RAM: ~p~n", [ram_bytes()]),
-    io:format(user, "erlang memory: ~p~n", [erlang:memory()]),
 
     io:format(user, "unsubscribe ...~n", []),
     {T3, ok} =
