@@ -201,16 +201,8 @@ stop() -> gen_server:stop(?SERVER).
 
 %% BACKW: v4.3.0
 upgrade_retained_delayed_counter_type() ->
-    case ets:info(?TAB, name) of
-        ?TAB ->
-            [M1] = ets:lookup(?TAB, 'messages.retained'),
-            [M2] = ets:lookup(?TAB, 'messages.delayed'),
-            true = ets:insert(?TAB, M1#metric{type = counter}),
-            true = ets:insert(?TAB, M2#metric{type = counter}),
-            ok;
-        _ ->
-            ok
-    end.
+    Ks = ['messages.retained', 'messages.delayed'],
+    gen_server:call(?SERVER, {set_type_to_counter, Ks}).
 
 %%--------------------------------------------------------------------
 %% Metrics API
@@ -466,6 +458,13 @@ handle_call({create, Type, Name}, _From, State = #state{next_idx = NextIdx}) ->
             true = ets:insert(?TAB, Metric),
             {reply, {ok, NextIdx}, State#state{next_idx = NextIdx + 1}}
     end;
+
+handle_call({set_type_to_counter, Keys}, _From, State) ->
+    lists:foreach(
+      fun(K) ->
+        ets:update_element(?TAB, K, {#metric.type, counter})
+      end, Keys),
+    {reply, ok, State};
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
