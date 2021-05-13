@@ -202,7 +202,7 @@ stop() -> gen_server:stop(?SERVER).
 %% BACKW: v4.3.0
 upgrade_retained_delayed_counter_type() ->
     Ks = ['messages.retained', 'messages.delayed'],
-    gen_server:call(?SERVER, {set_type_to_counter, Ks}).
+    gen_server:call(?SERVER, {set_type_to_counter, Ks}, infinity).
 
 %%--------------------------------------------------------------------
 %% Metrics API
