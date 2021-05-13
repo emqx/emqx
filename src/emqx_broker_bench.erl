@@ -30,7 +30,7 @@ run1(Subs, SubOps, Pubs, PubOps) ->
           sub_ops => SubOps,
           pub_ops => PubOps,
           sub_ptn => <<"device/{{id}}/+/{{num}}/#">>,
-          pub_ptn => <<"device/{{id}}/foo/{{num}}/bar">>
+          pub_ptn => <<"device/{{id}}/foo/{{num}}/bar/1/2/3/4/5">>
          }).
 
 %% setting fields:
