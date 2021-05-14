@@ -111,13 +111,6 @@
     ???{"data":600,"code":0}
     ?SH-PROMPT
 
-[shell http_server]
-    !http_server:stop().
-    ?ok
-    ?>
-    !halt(3).
-    ?SH-PROMPT:
-
 [shell emqx2]
     !cat log/emqx.log.1 |grep -v 691c29ba |tail -n 100
     -error
@@ -140,6 +133,13 @@
     ?SH-PROMPT:
 
     !rm -rf $PACKAGE_PATH/emqx
+    ?SH-PROMPT:
+
+[shell http_server]
+    !http_server:stop().
+    ?ok
+    ?>
+    !halt(3).
     ?SH-PROMPT:
 
 [endloop]
