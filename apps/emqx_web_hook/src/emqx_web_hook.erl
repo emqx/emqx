@@ -338,7 +338,7 @@ send_http_request(ClientID, Params) ->
             ?LOG(warning, "HTTP request failed with status code: ~p", [StatusCode]),
             ok;
         {error, Reason} ->
-            ?LOG(error, "HTTP request error: ~p", [Reason]),
+            ?LOG(error, "HTTP request path ~p error: ~p", [Path, Reason]),
             ok
     end.
 
