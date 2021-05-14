@@ -2280,7 +2280,9 @@ end}.
     [random, %% randomly pick a subscriber
      round_robin, %% round robin alive subscribers one message after another
      sticky, %% pick a random subscriber and stick to it
-     hash %% hash client ID to a group member
+     hash, %% hash client ID to a group member
+     hash_clientid,
+     hash_topic
     ]}}
 ]}.
 
