@@ -16,7 +16,6 @@ while read -r app; do
     now_app_version=$(grep -E 'vsn' "$src_file" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
     if [ "$old_app_version" = "$now_app_version" ]; then
         changed="$(git diff --name-only "$latest_release"...HEAD \
-                    -- "$app_path/etc" \
                     -- "$app_path/src" \
                     -- "$app_path/priv" \
                     -- "$app_path/c_src" | wc -l)"
