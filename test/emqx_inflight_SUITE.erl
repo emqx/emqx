@@ -23,7 +23,7 @@
 -include_lib("emqx_ct_helpers/include/emqx_ct.hrl").
 
 all() -> emqx_ct:all(?MODULE).
-    
+
 t_contain(_) ->
     Inflight = emqx_inflight:insert(k, v, emqx_inflight:new()),
     ?assert(emqx_inflight:contain(k, Inflight)),
@@ -41,12 +41,12 @@ t_insert(_) ->
     ?assertEqual(2, emqx_inflight:size(Inflight)),
     ?assertEqual({value, 1}, emqx_inflight:lookup(a, Inflight)),
     ?assertEqual({value, 2}, emqx_inflight:lookup(b, Inflight)),
-    ?catch_error({key_exists, a}, emqx_inflight:insert(a, 1, Inflight)).
+    ?assertError({key_exists, a}, emqx_inflight:insert(a, 1, Inflight)).
 
 t_update(_) ->
     Inflight = emqx_inflight:insert(k, v, emqx_inflight:new()),
     ?assertEqual(Inflight, emqx_inflight:update(k, v, Inflight)),
-    ?catch_error(function_clause, emqx_inflight:update(badkey, v, Inflight)).
+    ?assertError(function_clause, emqx_inflight:update(badkey, v, Inflight)).
 
 t_resize(_) ->
     Inflight = emqx_inflight:insert(k, v, emqx_inflight:new(2)),

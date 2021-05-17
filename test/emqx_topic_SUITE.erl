@@ -127,20 +127,20 @@ t_validate(_) ->
     true = validate({filter, <<"x">>}),
     true = validate({name, <<"x//y">>}),
 	true = validate({filter, <<"sport/tennis/#">>}),
-    ok = ?catch_error(empty_topic, validate({name, <<>>})),
-    ok = ?catch_error(topic_name_error, validate({name, <<"abc/#">>})),
-    ok = ?catch_error(topic_too_long, validate({name, long_topic()})),
-    ok = ?catch_error('topic_invalid_#', validate({filter, <<"abc/#/1">>})),
-    ok = ?catch_error(topic_invalid_char, validate({filter, <<"abc/#xzy/+">>})),
-    ok = ?catch_error(topic_invalid_char, validate({filter, <<"abc/xzy/+9827">>})),
-	ok = ?catch_error(topic_invalid_char, validate({filter, <<"sport/tennis#">>})),
-    ok = ?catch_error('topic_invalid_#', validate({filter, <<"sport/tennis/#/ranking">>})).
+    ok = ?assertError(empty_topic, validate({name, <<>>})),
+    ok = ?assertError(topic_name_error, validate({name, <<"abc/#">>})),
+    ok = ?assertError(topic_too_long, validate({name, long_topic()})),
+    ok = ?assertError('topic_invalid_#', validate({filter, <<"abc/#/1">>})),
+    ok = ?assertError(topic_invalid_char, validate({filter, <<"abc/#xzy/+">>})),
+    ok = ?assertError(topic_invalid_char, validate({filter, <<"abc/xzy/+9827">>})),
+	ok = ?assertError(topic_invalid_char, validate({filter, <<"sport/tennis#">>})),
+    ok = ?assertError('topic_invalid_#', validate({filter, <<"sport/tennis/#/ranking">>})).
 
 t_sigle_level_validate(_) ->
     true = validate({filter, <<"+">>}),
     true = validate({filter, <<"+/tennis/#">>}),
     true = validate({filter, <<"sport/+/player1">>}),
-    ok = ?catch_error(topic_invalid_char, validate({filter, <<"sport+">>})).
+    ok = ?assertError(topic_invalid_char, validate({filter, <<"sport+">>})).
 
 t_prepend(_) ->
     ?assertEqual(<<"ab">>, prepend(undefined, <<"ab">>)),
@@ -192,13 +192,13 @@ long_topic() ->
     iolist_to_binary([[integer_to_list(I), "/"] || I <- lists:seq(0, 66666)]).
 
 t_parse(_) ->
-    ok = ?catch_error({invalid_topic_filter, <<"$queue/t">>},
+    ok = ?assertError({invalid_topic_filter, <<"$queue/t">>},
                       parse(<<"$queue/t">>, #{share => <<"g">>})),
-    ok = ?catch_error({invalid_topic_filter, <<"$share/g/t">>},
+    ok = ?assertError({invalid_topic_filter, <<"$share/g/t">>},
                       parse(<<"$share/g/t">>, #{share => <<"g">>})),
-    ok = ?catch_error({invalid_topic_filter, <<"$share/t">>},
+    ok = ?assertError({invalid_topic_filter, <<"$share/t">>},
                       parse(<<"$share/t">>)),
-    ok = ?catch_error({invalid_topic_filter, <<"$share/+/t">>},
+    ok = ?assertError({invalid_topic_filter, <<"$share/+/t">>},
                       parse(<<"$share/+/t">>)),
     ?assertEqual({<<"a/b/+/#">>, #{}}, parse(<<"a/b/+/#">>)),
     ?assertEqual({<<"a/b/+/#">>, #{qos => 1}}, parse({<<"a/b/+/#">>, #{qos => 1}})),

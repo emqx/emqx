@@ -30,14 +30,14 @@ t_id(_) ->
       fun({Id, Prop}) ->
               ?assertEqual(Id, emqx_mqtt_props:id(element(1, Prop)))
       end),
-    ?catch_error({bad_property, 'Bad-Property'}, emqx_mqtt_props:id('Bad-Property')).
+    ?assertError({bad_property, 'Bad-Property'}, emqx_mqtt_props:id('Bad-Property')).
 
 t_name(_) ->
     foreach_prop(
       fun({Id, Prop}) ->
               ?assertEqual(emqx_mqtt_props:name(Id), element(1, Prop))
       end),
-    ?catch_error({unsupported_property, 16#FF}, emqx_mqtt_props:name(16#FF)).
+    ?assertError({unsupported_property, 16#FF}, emqx_mqtt_props:name(16#FF)).
 
 t_filter(_) ->
     ConnProps = #{'Session-Expiry-Interval' => 1,
@@ -60,7 +60,7 @@ t_validate(_) ->
                  },
     ok = emqx_mqtt_props:validate(ConnProps),
     BadProps = #{'Unknown-Property' => 10},
-    ?catch_error({bad_property,'Unknown-Property'},
+    ?assertError({bad_property,'Unknown-Property'},
                  emqx_mqtt_props:validate(BadProps)).
 
 t_validate_value(_) ->
@@ -68,11 +68,11 @@ t_validate_value(_) ->
     ok = emqx_mqtt_props:validate(#{'Reason-String' => <<"Unknown Reason">>}),
     ok = emqx_mqtt_props:validate(#{'User-Property' => {<<"Prop">>, <<"Val">>}}),
     ok = emqx_mqtt_props:validate(#{'User-Property' => [{<<"Prop">>, <<"Val">>}]}),
-    ?catch_error({bad_property_value, {'Payload-Format-Indicator', 16#FFFF}},
+    ?assertError({bad_property_value, {'Payload-Format-Indicator', 16#FFFF}},
                  emqx_mqtt_props:validate(#{'Payload-Format-Indicator' => 16#FFFF})),
-    ?catch_error({bad_property_value, {'Server-Keep-Alive', 16#FFFFFF}},
+    ?assertError({bad_property_value, {'Server-Keep-Alive', 16#FFFFFF}},
                  emqx_mqtt_props:validate(#{'Server-Keep-Alive' => 16#FFFFFF})),
-    ?catch_error({bad_property_value, {'Will-Delay-Interval', -16#FF}},
+    ?assertError({bad_property_value, {'Will-Delay-Interval', -16#FF}},
                  emqx_mqtt_props:validate(#{'Will-Delay-Interval' => -16#FF})).
 
 foreach_prop(Fun) ->
