@@ -20,7 +20,6 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx_ct_helpers/include/emqx_ct.hrl").
 
 -import(emqx_topic,
         [ wildcard/1
@@ -126,21 +125,21 @@ t_validate(_) ->
     true = validate({filter, <<"abc/#">>}),
     true = validate({filter, <<"x">>}),
     true = validate({name, <<"x//y">>}),
-	true = validate({filter, <<"sport/tennis/#">>}),
-    ok = ?catch_error(empty_topic, validate({name, <<>>})),
-    ok = ?catch_error(topic_name_error, validate({name, <<"abc/#">>})),
-    ok = ?catch_error(topic_too_long, validate({name, long_topic()})),
-    ok = ?catch_error('topic_invalid_#', validate({filter, <<"abc/#/1">>})),
-    ok = ?catch_error(topic_invalid_char, validate({filter, <<"abc/#xzy/+">>})),
-    ok = ?catch_error(topic_invalid_char, validate({filter, <<"abc/xzy/+9827">>})),
-	ok = ?catch_error(topic_invalid_char, validate({filter, <<"sport/tennis#">>})),
-    ok = ?catch_error('topic_invalid_#', validate({filter, <<"sport/tennis/#/ranking">>})).
+    true = validate({filter, <<"sport/tennis/#">>}),
+    ?assertError(empty_topic, validate({name, <<>>})),
+    ?assertError(topic_name_error, validate({name, <<"abc/#">>})),
+    ?assertError(topic_too_long, validate({name, long_topic()})),
+    ?assertError('topic_invalid_#', validate({filter, <<"abc/#/1">>})),
+    ?assertError(topic_invalid_char, validate({filter, <<"abc/#xzy/+">>})),
+    ?assertError(topic_invalid_char, validate({filter, <<"abc/xzy/+9827">>})),
+    ?assertError(topic_invalid_char, validate({filter, <<"sport/tennis#">>})),
+    ?assertError('topic_invalid_#', validate({filter, <<"sport/tennis/#/ranking">>})).
 
 t_sigle_level_validate(_) ->
     true = validate({filter, <<"+">>}),
     true = validate({filter, <<"+/tennis/#">>}),
     true = validate({filter, <<"sport/+/player1">>}),
-    ok = ?catch_error(topic_invalid_char, validate({filter, <<"sport+">>})).
+    ?assertError(topic_invalid_char, validate({filter, <<"sport+">>})).
 
 t_prepend(_) ->
     ?assertEqual(<<"ab">>, prepend(undefined, <<"ab">>)),
@@ -192,14 +191,14 @@ long_topic() ->
     iolist_to_binary([[integer_to_list(I), "/"] || I <- lists:seq(0, 66666)]).
 
 t_parse(_) ->
-    ok = ?catch_error({invalid_topic_filter, <<"$queue/t">>},
-                      parse(<<"$queue/t">>, #{share => <<"g">>})),
-    ok = ?catch_error({invalid_topic_filter, <<"$share/g/t">>},
-                      parse(<<"$share/g/t">>, #{share => <<"g">>})),
-    ok = ?catch_error({invalid_topic_filter, <<"$share/t">>},
-                      parse(<<"$share/t">>)),
-    ok = ?catch_error({invalid_topic_filter, <<"$share/+/t">>},
-                      parse(<<"$share/+/t">>)),
+    ?assertError({invalid_topic_filter, <<"$queue/t">>},
+                 parse(<<"$queue/t">>, #{share => <<"g">>})),
+    ?assertError({invalid_topic_filter, <<"$share/g/t">>},
+                 parse(<<"$share/g/t">>, #{share => <<"g">>})),
+    ?assertError({invalid_topic_filter, <<"$share/t">>},
+                 parse(<<"$share/t">>)),
+    ?assertError({invalid_topic_filter, <<"$share/+/t">>},
+                 parse(<<"$share/+/t">>)),
     ?assertEqual({<<"a/b/+/#">>, #{}}, parse(<<"a/b/+/#">>)),
     ?assertEqual({<<"a/b/+/#">>, #{qos => 1}}, parse({<<"a/b/+/#">>, #{qos => 1}})),
     ?assertEqual({<<"topic">>, #{share => <<"$queue">>}}, parse(<<"$queue/topic">>)),
