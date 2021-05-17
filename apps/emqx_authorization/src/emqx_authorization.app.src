@@ -1,0 +1,16 @@
+{application, emqx_authorization,
+ [{description, "An OTP application"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {emqx_authorization_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    mnesia
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.
