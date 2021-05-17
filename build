@@ -2,7 +2,7 @@
 
 # This script helps to build release artifacts.
 # arg1: profile, e.g. emqx | emqx-edge | emqx-pkg | emqx-edge-pkg
-# arg2: artifact, e.g. tar | relup | zip | pkg
+# arg2: artifact, e.g. rel | relup | zip | pkg
 
 set -euo pipefail
 
@@ -62,42 +62,48 @@ log() {
     echo "===< $msg"
 }
 
-make_tar() {
-    ./rebar3 as "$PROFILE" tar
+make_rel() {
+    # shellcheck disable=SC1010
+    ./rebar3 as "$PROFILE" do release,tar
 }
 
 ## unzip previous version .zip files to _build/$PROFILE/rel/emqx/releases before making relup
 make_relup() {
+    local lib_dir="_build/$PROFILE/rel/emqx/lib"
     local releases_dir="_build/$PROFILE/rel/emqx/releases"
+    mkdir -p "$lib_dir" "$releases_dir"
     local releases=()
     if [ -d "$releases_dir" ]; then
-        while read -r dir; do
-            local version
-            version="$(basename "$dir")"
-            # skip current version
-            if [ "$version" != "$PKG_VSN" ]; then
-                releases+=( "$version" )
+        while read -r zip; do
+            local base_vsn
+            base_vsn="$(echo "$zip" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-e]{8})?")"
+            if [ ! -d "$releases_dir/$base_vsn" ]; then
+                local tmp_dir
+                tmp_dir="$(mktemp -d -t emqx.XXXXXXX)"
+                unzip -q "$zip" "emqx/releases/*" -d "$tmp_dir"
+                unzip -q "$zip" "emqx/lib/*" -d "$tmp_dir"
+                cp -r -n "$tmp_dir/emqx/releases"/* "$releases_dir"
+                cp -r -n "$tmp_dir/emqx/lib"/* "$lib_dir"
+                rm -rf "$tmp_dir"
             fi
-        done < <(find "_build/$PROFILE/rel/emqx/releases" -maxdepth 1 -name '*.*.*' -type d)
+            releases+=( "$base_vsn" )
+        done < <(find _upgrade_base -maxdepth 1 -name "*$PROFILE-$SYSTEM*-$ARCH.zip" -type f)
     fi
     if [ ${#releases[@]} -eq 0 ]; then
-        log "No previous release found, relup ignored"
+        log "No upgrade base found, relup ignored"
         return 0
     fi
-    if [ ${#releases[@]} -gt 1 ]; then
-        log "Found more than one previous versions in $releases_dir:"
-        log "${releases[@]}"
-        log "ERROR: So far we can not support multi base-version relup creation"
-        return 1
-    fi
-    local base_version="${releases[0]}"
-    # TODO: comma separate base-versions when supported
-    ./rebar3 as "$PROFILE" relup --relname emqx --relvsn "${PKG_VSN}" --upfrom "$base_version"
+    RELX_BASE_VERSIONS="$(IFS=, ; echo "${releases[*]}")"
+    export RELX_BASE_VERSIONS
+    ./rebar3 as "$PROFILE" relup --relname emqx --relvsn "${PKG_VSN}"
 }
 
 ## make_zip turns .tar.gz into a .zip with a slightly different name.
 ## It assumes the .tar.gz has been built -- relies on Makefile dependency
 make_zip() {
+    # build the tarball again to ensure relup is included
+    make_rel
+
     tard="/tmp/emqx_untar_${PKG_VSN}"
     rm -rf "${tard}"
     mkdir -p "${tard}/emqx"
@@ -117,8 +123,8 @@ make_zip() {
 log "building artifact=$ARTIFACT for profile=$PROFILE"
 
 case "$ARTIFACT" in
-    tar)
-        make_tar
+    rel)
+        make_rel
         ;;
     relup)
         make_relup
@@ -128,12 +134,9 @@ case "$ARTIFACT" in
         ;;
     pkg)
         if [ -z "${PKGERDIR:-}" ]; then
-            # zip should have been built as a Makefile dependency
             log "Skipped making deb/rpm package for $SYSTEM"
             exit 0
         fi
-        # build the tar which is going to be used as the base of deb and rpm packages
-        make_tar
         make -C "deploy/packages/${PKGERDIR}" clean
         EMQX_REL="$(pwd)" EMQX_BUILD="${PROFILE}" SYSTEM="${SYSTEM}" make -C "deploy/packages/${PKGERDIR}"
         ;;

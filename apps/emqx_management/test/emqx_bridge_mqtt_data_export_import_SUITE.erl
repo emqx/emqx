@@ -28,24 +28,13 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
-    ok = ekka_mnesia:start(),
-    ok = emqx_rule_registry:mnesia(boot),
-    ok = emqx_rule_engine:load_providers(),
-    emqx_ct_helpers:start_apps([emqx_web_hook,
-                                emqx_bridge_mqtt,
-                                emqx_rule_engine,
-                                emqx_modules,
-                                emqx_management,
-                                emqx_dashboard]),
+    application:load(emqx_modules),
+    application:load(emqx_bridge_mqtt),
+    emqx_ct_helpers:start_apps([emqx_rule_engine, emqx_management]),
     Cfg.
 
 end_per_suite(Cfg) ->
-    emqx_ct_helpers:stop_apps([emqx_dashboard,
-                               emqx_management,
-                               emqx_modules,
-                               emqx_rule_engine,
-                               emqx_bridge_mqtt,
-                               emqx_web_hook]),
+    emqx_ct_helpers:stop_apps([emqx_management, emqx_rule_engine]),
     Cfg.
 
 get_data_path() ->
@@ -53,8 +42,8 @@ get_data_path() ->
 
 import(FilePath, Version) ->
     ok = emqx_mgmt_data_backup:import(get_data_path() ++ "/" ++ FilePath, <<"{}">>),
+    timer:sleep(500),
     lists:foreach(fun(#resource{id = Id, config = Config} = _Resource) ->
-        timer:sleep(2000),
         case Id of
             <<"bridge">> ->
                 test_utils:resource_is_alive(Id),
@@ -74,19 +63,23 @@ import(FilePath, Version) ->
 
 t_import420(_) ->
     import("420.json", 420),
-    {ok, _} = emqx_mgmt_data_backup:export().
+    {ok, _} = emqx_mgmt_data_backup:export(),
+    remove_resources().
 
 t_import430(_) ->
     import("430.json", 430),
-    {ok, _} = emqx_mgmt_data_backup:export().
+    {ok, _} = emqx_mgmt_data_backup:export(),
+    remove_resources().
 
 t_import409(_) ->
     import("409.json", 409),
-    {ok, _} = emqx_mgmt_data_backup:export().
+    {ok, _} = emqx_mgmt_data_backup:export(),
+    remove_resources().
 
 t_import415(_) ->
     import("415.json", 415),
-    {ok, _} = emqx_mgmt_data_backup:export().
+    {ok, _} = emqx_mgmt_data_backup:export(),
+    remove_resources().
 
 
 handle_config(Config, 420, bridge) ->
@@ -126,27 +119,33 @@ handle_config(_, _, _) -> ok.
 
 t_importee4010(_) ->
     import("ee4010.json", ee4010),
-    {ok, _} = emqx_mgmt_data_backup:export().
+    {ok, _} = emqx_mgmt_data_backup:export(),
+    remove_resources().
 
 t_importee410(_) ->
     import("ee410.json", ee410),
-    {ok, _} = emqx_mgmt_data_backup:export().
+    {ok, _} = emqx_mgmt_data_backup:export(),
+    remove_resources().
 
 t_importee411(_) ->
     import("ee411.json", ee411),
-    {ok, _} = emqx_mgmt_data_backup:export().
+    {ok, _} = emqx_mgmt_data_backup:export(),
+    remove_resources().
 
 t_importee420(_) ->
     import("ee420.json", ee420),
-    {ok, _} = emqx_mgmt_data_backup:export().
+    {ok, _} = emqx_mgmt_data_backup:export(),
+    remove_resources().
 
 t_importee425(_) ->
     import("ee425.json", ee425),
-    {ok, _} = emqx_mgmt_data_backup:export().
+    {ok, _} = emqx_mgmt_data_backup:export(),
+    remove_resources().
 
 t_importee430(_) ->
     import("ee430.json", ee430),
-    {ok, _} = emqx_mgmt_data_backup:export().
+    {ok, _} = emqx_mgmt_data_backup:export(),
+    remove_resources().
 
 %%--------------------------------------------------------------------
 %% handle_config
@@ -176,3 +175,10 @@ handle_config(Config, ee430, rpc) ->
 handle_config(Config, ee435, Id) ->
     handle_config(Config, ee430, Id).
 -endif.
+
+remove_resources() ->
+    timer:sleep(500),
+    lists:foreach(fun(#resource{id = Id}) ->
+        emqx_rule_engine:delete_resource(Id)
+    end, emqx_rule_registry:get_resources()),
+    timer:sleep(500).

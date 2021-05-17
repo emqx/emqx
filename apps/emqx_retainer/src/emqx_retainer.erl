@@ -200,7 +200,7 @@ sort_retained(Msgs)  ->
 store_retained(Msg = #message{topic = Topic, payload = Payload}, Env) ->
     case {is_table_full(Env), is_too_big(size(Payload), Env)} of
         {false, false} ->
-            ok = emqx_metrics:set('messages.retained', retained_count()),
+            ok = emqx_metrics:inc('messages.retained'),
             mnesia:dirty_write(?TAB, #retained{topic = topic2tokens(Topic),
                                                msg = Msg,
                                                expiry_time = get_expiry_time(Msg, Env)});

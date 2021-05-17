@@ -1,0 +1,12 @@
+name: Check Apps Version
+
+on: [pull_request]
+
+jobs:
+  check_apps_version:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v1
+      - name: Check apps version
+        run: ./scripts/apps-version-check.sh

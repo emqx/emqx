@@ -367,13 +367,7 @@ end}.
   {datatype, integer}
 ]}.
 
-%% Default TCP port for outgoing connections
-{mapping, "rpc.tcp_client_port", "gen_rpc.tcp_client_port", [
-  {default, 5369},
-  {datatype, integer}
-]}.
-
-%% Default TCP port for outgoing connections
+%% Number of tcp connections when connecting to RPC server
 {mapping, "rpc.tcp_client_num", "gen_rpc.tcp_client_num", [
   {default, 0},
   {datatype, integer},
@@ -450,6 +444,14 @@ end}.
 {validator, "range:gt_0_lt_256", "must greater than 0 and less than 256",
   fun(X) -> X >= 0 andalso X < 256 end
 }.
+
+%% Force client to use server listening port, because we do no provide
+%% per-node listening port manual mapping from configs.
+%% i.e. all nodes in the cluster should agree to the same
+%% listening port number.
+{translation, "gen_rpc.tcp_client_port", fun(_, _, Conf) ->
+    cuttlefish:conf_get("rpc.tcp_server_port", Conf)
+end}.
 
 %%--------------------------------------------------------------------
 %% Log
@@ -2278,7 +2280,9 @@ end}.
     [random, %% randomly pick a subscriber
      round_robin, %% round robin alive subscribers one message after another
      sticky, %% pick a random subscriber and stick to it
-     hash %% hash client ID to a group member
+     hash, %% hash client ID to a group member
+     hash_clientid,
+     hash_topic
     ]}}
 ]}.
 

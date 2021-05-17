@@ -475,7 +475,7 @@ terminate(Reason, State = #state{channel = Channel, transport = Transport,
         E : C : S ->
             ?tp(warning, unclean_terminate, #{exception => E, context => C, stacktrace => S})
     end,
-    ?tp(debug, terminate, #{}),
+    ?tp(info, terminate, #{reason => Reason}),
     maybe_raise_excption(Reason).
 
 %% close socket, discard new state, always return ok.

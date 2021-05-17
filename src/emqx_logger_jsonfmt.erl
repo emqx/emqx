@@ -48,7 +48,7 @@
 -spec format(logger:log_event(), config()) -> iodata().
 format(#{level := Level, msg := Msg, meta := Meta}, Config0) when is_map(Config0) ->
     Config = add_default_config(Config0),
-    format(Msg, Meta#{level => Level}, Config).
+    [format(Msg, Meta#{level => Level}, Config) , "\n"].
 
 format(Msg, Meta, Config) ->
     Data0 =
@@ -207,17 +207,16 @@ json_kv(K0, V, Data, Config) ->
         false -> maps:put(json(K, Config), json(V, Config), Data)
     end.
 
-json_key('' = K) -> throw({badkey, K});
-json_key("" = K) -> throw({badkey, K});
-json_key("\"\"" = K) -> throw({badkey, K});
-json_key(<<>> = K) -> throw({badkey, K});
-json_key(<<"\"\"">> = K) -> throw({badkey, K});
-json_key(A) when is_atom(A) -> atom_to_binary(A, utf8);
+json_key(A) when is_atom(A) -> json_key(atom_to_binary(A, utf8));
 json_key(Term) ->
     try unicode:characters_to_binary(Term, utf8) of
-        OK when is_binary(OK) -> OK;
-        _ -> throw({badkey, Term})
-    catch _:_ -> throw({badkey, Term})
+        OK when is_binary(OK) andalso OK =/= <<>> ->
+            OK;
+        _ ->
+            throw({badkey, Term})
+    catch
+        _:_ ->
+            throw({badkey, Term})
     end.
 
 -ifdef(TEST).
@@ -262,7 +261,7 @@ p_report_cb() ->
                        , fun ?MODULE:report_cb_crash/2
                        , fun logger:format_otp_report/1
                        , fun logger:format_report/1
-                       , format_reportundefined
+                       , format_report_undefined
                        ]).
 
 report_cb_1(Input) -> {"~p", [Input]}.

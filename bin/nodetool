@@ -19,6 +19,7 @@ main(Args) ->
                     ok
             end
     end,
+    ok = add_libs_dir(),
     ok = do_with_halt(Args, "mnesia_dir", fun create_mnesia_dir/2),
     ok = do_with_halt(Args, "chkconfig", fun("-config", X) -> chkconfig(X) end),
     ok = do_with_halt(Args, "chkconfig", fun chkconfig/1),
@@ -288,3 +289,27 @@ join([], Sep) when is_list(Sep) ->
     [];
 join([H|T], Sep) ->
     H ++ lists:append([Sep ++ X || X <- T]).
+
+add_libs_dir() ->
+    [_ | _] = RootDir = os:getenv("RUNNER_ROOT_DIR"),
+    CurrentVsn = os:getenv("REL_VSN"),
+    RelFile = filename:join([RootDir, "releases", "RELEASES"]),
+    case file:consult(RelFile) of
+        {ok, [Releases]} ->
+            Release = lists:keyfind(CurrentVsn, 3, Releases),
+            {release, _Name, _AppVsn, _ErtsVsn, Libs, _State} = Release,
+            lists:foreach(
+              fun({Name, Vsn, _}) ->
+                      add_lib_dir(RootDir, Name, Vsn)
+              end, Libs);
+        {error, Reason} ->
+            %% rel file was been deleted by release handler
+            error({failed_to_read_RELEASES_file, RelFile, Reason})
+    end.
+
+add_lib_dir(RootDir, Name, Vsn) ->
+    LibDir = filename:join([RootDir, lib, atom_to_list(Name) ++ "-" ++ Vsn, ebin]),
+    case code:add_pathz(LibDir) of
+        true -> ok;
+        {error, _} -> error(LibDir)
+    end.

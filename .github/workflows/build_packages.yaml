@@ -123,6 +123,8 @@ jobs:
     strategy:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        erl_otp:
+          - 23.2.7.2
         exclude:
           - profile: emqx-edge
 
@@ -135,23 +137,30 @@ jobs:
       run: unzip -q source.zip
     - name: prepare
       run: |
+        brew update
         brew install curl zip unzip gnu-sed kerl unixodbc freetds
         echo "/usr/local/bin" >> $GITHUB_PATH
         git config --global credential.helper store
+    - uses: actions/cache@v2
+      id: cache
+      with:
+        path: ~/.kerl
+        key: erl${{ matrix.erl_otp }}-macos10.15
     - name: build erlang
+      if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
       run: |
-        kerl build 23.2.7
-        kerl install 23.2.7 $HOME/.kerl/23.2.7
+        kerl build ${{ matrix.erl_otp }}
+        kerl install ${{ matrix.erl_otp }} $HOME/.kerl/${{ matrix.erl_otp }}
     - name: build
       run: |
-        . $HOME/.kerl/23.2.7/activate
-        make -C source ${{ matrix.profile }}-pkg
+        . $HOME/.kerl/${{ matrix.erl_otp }}/activate
+        make -C source ${{ matrix.profile }}-zip
     - name: test
       run: |
         cd source
         pkg_name=$(basename _packages/${{ matrix.profile }}/${{ matrix.profile }}-*.zip)
-        unzip _packages/${{ matrix.profile }}/$pkg_name
+        unzip -q _packages/${{ matrix.profile }}/$pkg_name
         gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
@@ -247,20 +256,20 @@ jobs:
         if [ $PROFILE = "emqx" ];then broker="emqx-ce"; else broker="$PROFILE"; fi
         if [ $PROFILE = "emqx-ee" ];then edition='enterprise'; else edition='opensource'; fi
 
-        vsn="$(grep -E "define.+EMQX_RELEASE.+${edition}" include/emqx_release.hrl | cut -d '"' -f2)"
+        vsn="$(./pkg-vsn.sh)"
         pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
-        if  [ $PROFILE = "emqx-ee" ]; then
+        if [ $PROFILE = "emqx-ee" ]; then
             old_vsns=($(git tag -l "e$pre_vsn.[0-9]" | sed "s/e$vsn//"))
         else
             old_vsns=($(git tag -l "v$pre_vsn.[0-9]" | sed "s/v$vsn//"))
         fi
 
-        mkdir -p tmp/relup_packages/$PROFILE
-        cd tmp/relup_packages/$PROFILE
+        mkdir -p _upgrade_base
+        cd _upgrade_base
         for tag in ${old_vsns[@]};do
           if [ ! -z "$(echo  $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.AWS_S3_BUCKET }}/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip) | grep -oE "^[23]+")" ];then
-            wget https://s3-${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.AWS_S3_BUCKET }}/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip
-            wget https://s3-${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.AWS_S3_BUCKET }}/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256
             echo "$(cat $PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256) $PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip" | sha256sum -c || exit 1
           fi
         done

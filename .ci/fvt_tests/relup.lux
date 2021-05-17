@@ -21,20 +21,15 @@
 
 [shell emqx]
     !cd $PACKAGE_PATH
-    !unzip -q -o emqx-ubuntu20.04-$old_vsn-x86_64.zip
+    !unzip -q -o emqx-ubuntu20.04-$(echo $old_vsn | sed  -r 's/[v|e]//g')-amd64.zip
     ?SH-PROMPT
 
     !cd emqx
     !sed -i 's|listener.wss.external[ \t]*=.*|listener.wss.external = 8085|g' etc/emqx.conf
     !sed -i '/emqx_telemetry/d' data/loaded_plugins
     !./bin/emqx start
-    ?EMQ X Broker $old_vsn is started successfully!
-
-    !./bin/emqx_ctl status
-    """?
-    Node 'emqx@127.0.0.1' is started
-    emqx $old_vsn is running
-    """
+    ?EMQ X .* is started successfully!
+    ?SH-PROMPT
 
 [shell emqx2]
     !cd $PACKAGE_PATH
@@ -45,13 +40,7 @@
 
     !sed -i '/emqx_telemetry/d' data/loaded_plugins
     !./bin/emqx start
-    ?EMQ X Broker $old_vsn is started successfully!
-
-    !./bin/emqx_ctl status
-    """?
-    Node 'emqx2@127.0.0.1' is started
-    emqx $old_vsn is running
-    """
+    ?EMQ X (.*) is started successfully!
     ?SH-PROMPT
 
     !./bin/emqx_ctl cluster join emqx@127.0.0.1
@@ -86,7 +75,7 @@
     ???sent
 
 [shell emqx]
-    !cp -f ../emqx-ubuntu20.04-$VSN-x86_64.zip releases/
+    !cp -f ../emqx-ubuntu20.04-$VSN-amd64.zip releases/
     !./bin/emqx install $VSN
     ?SH-PROMPT
     !./bin/emqx versions |grep permanent | grep -oE "[0-9].[0-9].[0-9]"
@@ -101,7 +90,7 @@
     ?SH-PROMPT
 
 [shell emqx2]
-    !cp -f ../emqx-ubuntu20.04-$VSN-x86_64.zip releases/
+    !cp -f ../emqx-ubuntu20.04-$VSN-amd64.zip releases/
     !./bin/emqx install $VSN
     ?SH-PROMPT
     !./bin/emqx versions |grep permanent | grep -oE "[0-9].[0-9].[0-9]"
@@ -121,13 +110,6 @@
     !curl http://127.0.0.1:8080/counter
     ???{"data":600,"code":0}
     ?SH-PROMPT
-
-[shell http_server]
-    !http_server:stop().
-    ?ok
-    ?>
-    !halt(3).
-    ?SH-PROMPT:
 
 [shell emqx2]
     !cat log/emqx.log.1 |grep -v 691c29ba |tail -n 100
@@ -151,6 +133,13 @@
     ?SH-PROMPT:
 
     !rm -rf $PACKAGE_PATH/emqx
+    ?SH-PROMPT:
+
+[shell http_server]
+    !http_server:stop().
+    ?ok
+    ?>
+    !halt(3).
     ?SH-PROMPT:
 
 [endloop]
