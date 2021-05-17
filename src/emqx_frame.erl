@@ -191,6 +191,7 @@ parse_remaining_len(<<0:1, Len:7, Rest/binary>>, Header, Multiplier, Value,
 body_bytes(B) when is_binary(B) -> size(B);
 body_bytes(?Q(Bytes, _)) -> Bytes.
 
+append_body(H, <<>>) -> H;
 append_body(H, T) when is_binary(H) andalso size(H) < 1024 ->
     <<H/binary, T/binary>>;
 append_body(H, T) when is_binary(H) ->
