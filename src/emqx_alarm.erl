@@ -294,7 +294,7 @@ deactivate_all_alarms() ->
 
 %% Delete all records from the given table, ignore result.
 clear_table(TableName) ->
-    case mnesia:clear_table(TableName) of
+    case ekka_mnesia:clear_table(TableName) of
         {aborted, Reason} ->
             ?LOG(warning, "Failed to clear table ~p reason: ~p",
                  [TableName, Reason]);
