@@ -503,6 +503,7 @@ do_import_acl_mnesia(Acls) ->
     end.
 
 -ifdef(EMQX_ENTERPRISE).
+-dialyzer({nowarn_function, [import_modules/1]}).
 import_modules(Modules) ->
     case ets:info(emqx_modules) of
         undefined ->
