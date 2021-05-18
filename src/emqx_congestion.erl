@@ -48,7 +48,10 @@ maybe_alarm_conn_congestion(Socket, Transport, Channel) ->
 
 cancel_alarms(Socket, Transport, Channel) ->
     lists:foreach(fun(Reason) ->
-        do_cancel_alarm_congestion(Socket, Transport, Channel, Reason)
+        case has_alarm_sent(Reason) of
+            true -> do_cancel_alarm_congestion(Socket, Transport, Channel, Reason);
+            false -> ok
+        end
     end, ?ALL_ALARM_REASONS).
 
 is_alarm_enabled(Channel) ->
