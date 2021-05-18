@@ -2,10 +2,12 @@
 {VSN,
  [
    {"4.3.1", [
+     {load_module, emqx_congestion, brutal_purge, soft_purge, []},
      {load_module, emqx_node_dump, brutal_purge, soft_purge, []}
    ]},
    {"4.3.0", [
      {load_module, emqx_logger_jsonfmt, brutal_purge, soft_purge, []},
+     {load_module, emqx_congestion, brutal_purge, soft_purge, []},
      {load_module, emqx_connection, brutal_purge, soft_purge, []},
      {load_module, emqx_frame, brutal_purge, soft_purge, []},
      {load_module, emqx_trie, brutal_purge, soft_purge, []},
@@ -16,11 +18,13 @@
  ],
  [
    {"4.3.1", [
+     {load_module, emqx_congestion, brutal_purge, soft_purge, []},
      {load_module, emqx_node_dump, brutal_purge, soft_purge, []}
    ]},
    {"4.3.0", [
      {load_module, emqx_logger_jsonfmt, brutal_purge, soft_purge, []},
      {load_module, emqx_connection, brutal_purge, soft_purge, []},
+     {load_module, emqx_congestion, brutal_purge, soft_purge, []},
      {load_module, emqx_frame, brutal_purge, soft_purge, []},
      {load_module, emqx_trie, brutal_purge, soft_purge, []},
      %% Just load the module. We don't need to change the 'messages.retained'
