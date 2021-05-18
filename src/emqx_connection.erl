@@ -683,7 +683,10 @@ handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
     end;
 
 handle_info({sock_error, Reason}, State) ->
-    Reason =/= closed andalso ?LOG(error, "Socket error: ~p", [Reason]),
+    case Reason =/= closed andalso Reason =/= einval of
+        true -> ?LOG(warning, "socket_error: ~p", [Reason]);
+        false -> ok
+    end,
     handle_info({sock_closed, Reason}, close_socket(State));
 
 handle_info(Info, State) ->
