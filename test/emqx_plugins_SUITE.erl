@@ -30,24 +30,20 @@ init_per_suite(Config) ->
 
     DataPath = proplists:get_value(data_dir, Config),
     AppPath = filename:join([DataPath, "emqx_mini_plugin"]),
-    Cmd = lists:flatten(io_lib:format("cd ~s && make && cp -r etc _build/default/lib/emqx_mini_plugin/", [AppPath])),
+    Cmd = lists:flatten(io_lib:format("cd ~s && make", [AppPath])),
 
     ct:pal("Executing ~s~n", [Cmd]),
     ct:pal("~n ~s~n", [os:cmd(Cmd)]),
 
-    code:add_path(filename:join([AppPath, "_build", "default", "lib", "emqx_mini_plugin", "ebin"])),
-
     put(loaded_file, filename:join([DataPath, "loaded_plugins"])),
     emqx_ct_helpers:boot_modules([]),
-    emqx_ct_helpers:start_apps([], fun set_sepecial_cfg/1),
+    emqx_ct_helpers:start_apps([], fun(_) -> set_sepecial_cfg(DataPath) end),
 
     Config.
-    
-set_sepecial_cfg(_) ->
-    ExpandPath = filename:dirname(code:lib_dir(emqx_mini_plugin)),
 
+set_sepecial_cfg(PluginsDir) ->
     application:set_env(emqx, plugins_loaded_file, get(loaded_file)),
-    application:set_env(emqx, expand_plugins_dir, ExpandPath),
+    application:set_env(emqx, expand_plugins_dir, PluginsDir),
     ok.
 
 end_per_suite(_Config) ->
@@ -58,7 +54,6 @@ t_load(_) ->
     ?assertEqual(ok, emqx_plugins:unload()),
 
     ?assertEqual({error, not_found}, emqx_plugins:load(not_existed_plugin)),
-    ?assertEqual({error, parse_config_file_failed}, emqx_plugins:load(emqx_mini_plugin)),
     ?assertEqual({error, not_started}, emqx_plugins:unload(emqx_mini_plugin)),
 
     application:set_env(emqx, expand_plugins_dir, undefined),
@@ -75,8 +70,9 @@ t_init_config(_) ->
     file:delete(ConfFile),
     ?assertEqual({ok,test}, application:get_env(emqx_mini_plugin, mininame)).
 
-t_load_expand_plugin(_) ->
-    ?assertEqual({error, load_app_fail}, emqx_plugins:load_expand_plugin("./not_existed_path/")).
+t_load_ext_plugin(_) ->
+    ?assertError({plugin_app_file_not_found, _},
+                 emqx_plugins:load_ext_plugin("./not_existed_path/")).
 
 t_list(_) ->
     ?assertMatch([{plugin, _, _, _, _, _, _, _} | _ ], emqx_plugins:list()).
