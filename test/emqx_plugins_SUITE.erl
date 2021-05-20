@@ -37,11 +37,11 @@ init_per_suite(Config) ->
 
     put(loaded_file, filename:join([DataPath, "loaded_plugins"])),
     emqx_ct_helpers:boot_modules([]),
-    emqx_ct_helpers:start_apps([], fun(_) -> set_sepecial_cfg(DataPath) end),
+    emqx_ct_helpers:start_apps([], fun(_) -> set_special_cfg(DataPath) end),
 
     Config.
 
-set_sepecial_cfg(PluginsDir) ->
+set_special_cfg(PluginsDir) ->
     application:set_env(emqx, plugins_loaded_file, get(loaded_file)),
     application:set_env(emqx, expand_plugins_dir, PluginsDir),
     ok.

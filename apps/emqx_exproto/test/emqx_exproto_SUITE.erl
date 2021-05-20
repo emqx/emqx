@@ -55,7 +55,7 @@ metrics() ->
 init_per_group(GrpName, Cfg) ->
     put(grpname, GrpName),
     Svrs = emqx_exproto_echo_svr:start(),
-    emqx_ct_helpers:start_apps([emqx_exproto], fun set_sepecial_cfg/1),
+    emqx_ct_helpers:start_apps([emqx_exproto], fun set_special_cfg/1),
     emqx_logger:set_log_level(debug),
     [{servers, Svrs}, {listener_type, GrpName} | Cfg].
 
@@ -63,7 +63,7 @@ end_per_group(_, Cfg) ->
     emqx_ct_helpers:stop_apps([emqx_exproto]),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
-set_sepecial_cfg(emqx_exproto) ->
+set_special_cfg(emqx_exproto) ->
     LisType = get(grpname),
     Listeners = application:get_env(emqx_exproto, listeners, []),
     SockOpts = socketopts(LisType),
@@ -77,7 +77,7 @@ set_sepecial_cfg(emqx_exproto) ->
     NListeners = [{Proto, LisType, LisOn, UpgradeOpts(Opts)}
                   || {Proto, _Type, LisOn, Opts} <- Listeners],
     application:set_env(emqx_exproto, listeners, NListeners);
-set_sepecial_cfg(emqx) ->
+set_special_cfg(emqx) ->
     application:set_env(emqx, allow_anonymous, true),
     application:set_env(emqx, enable_acl_cache, false),
     ok.
