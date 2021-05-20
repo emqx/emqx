@@ -7,7 +7,8 @@
      {load_module, emqx_congestion, brutal_purge, soft_purge, []},
      {load_module, emqx_node_dump, brutal_purge, soft_purge, []},
      {load_module, emqx_channel, brutal_purge, soft_purge, []},
-     {load_module, emqx_app, brutal_purge, soft_purge, []}
+     {load_module, emqx_app, brutal_purge, soft_purge, []},
+     {load_module, emqx_plugins, brutal_purge, soft_purge, []}
    ]},
    {"4.3.0", [
      {load_module, emqx_logger_jsonfmt, brutal_purge, soft_purge, []},
@@ -19,6 +20,7 @@
      {load_module, emqx_node_dump, brutal_purge, soft_purge, []},
      {load_module, emqx_channel, brutal_purge, soft_purge, []},
      {load_module, emqx_app, brutal_purge, soft_purge, []},
+     {load_module, emqx_plugins, brutal_purge, soft_purge, []},
      %%
      {load_module, emqx_metrics, brutal_purge, soft_purge, []},
      {apply, {emqx_metrics, upgrade_retained_delayed_counter_type, []}}
@@ -32,7 +34,8 @@
      {load_module, emqx_congestion, brutal_purge, soft_purge, []},
      {load_module, emqx_node_dump, brutal_purge, soft_purge, []},
      {load_module, emqx_channel, brutal_purge, soft_purge, []},
-     {load_module, emqx_app, brutal_purge, soft_purge, []}
+     {load_module, emqx_app, brutal_purge, soft_purge, []},
+     {load_module, emqx_plugins, brutal_purge, soft_purge, []}
    ]},
    {"4.3.0", [
      {load_module, emqx_logger_jsonfmt, brutal_purge, soft_purge, []},
@@ -44,6 +47,7 @@
      {load_module, emqx_node_dump, brutal_purge, soft_purge, []},
      {load_module, emqx_channel, brutal_purge, soft_purge, []},
      {load_module, emqx_app, brutal_purge, soft_purge, []},
+     {load_module, emqx_plugins, brutal_purge, soft_purge, []},
      %% Just load the module. We don't need to change the 'messages.retained'
      %% and 'messages.retained' counter type.
      {load_module, emqx_metrics, brutal_purge, soft_purge, []},
