@@ -22,8 +22,8 @@
         , compile/1
         , lookup/0
         , update/1
+        , check_authorization/4
         ]).
-
 
 init() ->
     Rules = [
@@ -34,7 +34,7 @@ init() ->
             ],
     ok = application:set_env(?APP, rules, Rules),
     NRules = [compile(Rule) || Rule <- Rules],
-    ok = emqx_hooks:add('client.check_acl', {?MODULE, check_acl, [NRules]},  999999).
+    ok = emqx_hooks:add('client.check_acl', {?MODULE, check_authorization, [NRules]},  -1).
 
 lookup() ->
     application:get_env(?APP, rules, []).
@@ -44,11 +44,11 @@ update(Rules) ->
     NRules = [compile(Rule) || Rule <- Rules],
     Action = find_action_in_hooks(),
     ok = emqx_hooks:del('client.check_acl', Action),
-    ok = emqx_hooks:add('client.check_acl', {?MODULE, check_acl, [Rules]},  999999).
+    ok = emqx_hooks:add('client.check_acl', {?MODULE, check_authorization, [NRules]},  -1).
 
 find_action_in_hooks() ->
     Callbacks = emqx_hooks:lookup('client.check_acl'),
-    [Action] = [Action || {callback,{?MODULE, check_acl, _} = Action, _, _} <- Callbacks ],
+    [Action] = [Action || {callback,{?MODULE, check_authorization, _} = Action, _, _} <- Callbacks ],
     Action.
 
 %%--------------------------------------------------------------------
@@ -56,32 +56,45 @@ find_action_in_hooks() ->
 %%--------------------------------------------------------------------
 
 -spec(compile(rule()) -> rule()).
-compile(#{<<"topics">> := TopicFilters,
+compile(#{<<"topics">> := Topics,
           <<"action">> := Action,
           <<"access">> := Access
-         } = Rule ) when ?ALLOW_DENY(Access), ?PUBSUB(Action) ->
+         } = Rule ) when ?ALLOW_DENY(Access), ?PUBSUB(Action), is_list(Topics) ->
     Principal = compile(principal, maps:get(<<"principal">>, Rule, <<"all">>)),
-    NTopicFilters = [compile(topic, Topic) || Topic <- TopicFilters],
+    NTopics = [compile(topic, Topic) || Topic <- Topics],
     Rule#{<<"principal">> => Principal,
-          <<"topics">> => NTopicFilters
+          <<"topics">> => NTopics
+         };
+compile(#{<<"topics">> := Topics,
+          <<"action">> := Action,
+          <<"access">> := Access
+         } = Rule ) when ?ALLOW_DENY(Access), ?PUBSUB(Action), is_tuple(Topics) orelse is_binary(Topics) ->
+    Principal = compile(principal, maps:get(<<"principal">>, Rule, <<"all">>)),
+    NTopics= compile(topic, Topics),
+    Rule#{<<"principal">> => Principal,
+          <<"topics">> => [NTopics]
          }.
 
 compile(principal, <<"all">>) -> <<"all">>;
 compile(principal, #{<<"username">> := Username}) ->
     {ok, MP} = re:compile(bin(Username)),
-    #{username => MP};
+    #{<<"username">> => MP};
 compile(principal, #{<<"clientid">> := Clientid}) ->
     {ok, MP} = re:compile(bin(Clientid)),
-    #{clientid => MP};
+    #{<<"clientid">> => MP};
 compile(principal, #{<<"ipaddress">> := IpAddress}) ->
-    #{ipaddress => esockd_cidr:parse(IpAddress, true)};
+    #{<<"ipaddress">> => esockd_cidr:parse(binary_to_list(IpAddress), true)};
+compile(principal, #{<<"and">> := Principals}) when is_list(Principals) ->
+    #{<<"and">> => [compile(principal, Principal) || Principal <- Principals]};
+compile(principal, #{<<"or">> := Principals}) when is_list(Principals) ->
+    #{<<"or">> => [compile(principal, Principal) || Principal <- Principals]};
 
-compile(topic, {eq, Topic}) ->
-    {eq, emqx_topic:words(bin(Topic))};
+compile(topic, #{<<"eq">> := Topic}) ->
+    #{<<"eq">> => emqx_topic:words(bin(Topic))};
 compile(topic, Topic) ->
     Words = emqx_topic:words(bin(Topic)),
     case pattern(Words) of
-        true  -> {pattern, Words};
+        true  -> #{<<"pattern">> => Words};
         false -> Words
     end.
 
@@ -97,14 +110,84 @@ bin(B) when is_binary(B) ->
 %% ACL callbacks
 %%--------------------------------------------------------------------
 
-% %% @doc Check ACL
-% -spec(check_acl(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_topic:topic(),
-%                 emqx_access_rule:acl_result(), acl_rules())
-%       -> {ok, allow} | {ok, deny} | ok).
-% check_acl(Client, PubSub, Topic, _AclResult, Rules) ->
-%     case match(Client, Topic, lookup(PubSub, Rules)) of
-%         {matched, allow} -> {ok, allow};
-%         {matched, deny}  -> {ok, deny};
-%         nomatch          -> ok
-%     end.
-%
+%% @doc Check ACL
+-spec(check_authorization(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_topic:topic(),rules())
+      -> {matched, allow} | {matched, deny} | {nomatch, deny}).
+check_authorization(Client, PubSub, Topic,
+                    [Rule = #{<<"access">> := Access} | Tail]) ->
+    case match(Client, PubSub, Topic, Rule) of
+        true -> {matched, binary_to_existing_atom(Access, utf8)};
+        false -> check_authorization(Client, PubSub, Topic, Tail)
+    end;
+check_authorization(_Client, _PubSub, _Topic, []) ->
+    {nomatch, deny}.
+
+match(Client, PubSub, Topic,
+      #{<<"principal">> := Principal,
+        <<"topics">> := TopicFilters,
+        <<"action">> := Action
+       }) ->
+    match_action(PubSub, Action) andalso
+    match_principal(Client, Principal) andalso
+    match_topics(Client, Topic, TopicFilters).
+
+match_action(publish, <<"pub">>) -> true;
+match_action(subscribe, <<"sub">>) -> true;
+match_action(_, <<"pubsub">>) -> true;
+match_action(_, _) -> false.
+
+match_principal(_, <<"all">>) -> true;
+match_principal(#{username := Username}, #{<<"username">> := MP}) ->
+    case re:run(Username, MP) of
+        {match, _} -> true;
+        _ -> false
+    end;
+match_principal(#{clientid := Clientid}, #{<<"clientid">> := MP}) ->
+    case re:run(Clientid, MP) of
+        {match, _} -> true;
+        _ -> false
+    end;
+match_principal(#{peerhost := undefined}, #{<<"ipaddress">> := _CIDR}) ->
+    false;
+match_principal(#{peerhost := IpAddress}, #{<<"ipaddress">> := CIDR}) ->
+    esockd_cidr:match(IpAddress, CIDR);
+match_principal(ClientInfo, #{<<"and">> := Principals}) when is_list(Principals) ->
+    lists:foldl(fun(Principal, Access) ->
+                  match_principal(ClientInfo, Principal) andalso Access
+                end, true, Principals);
+match_principal(ClientInfo, #{<<"or">> := Principals}) when is_list(Principals) ->
+    lists:foldl(fun(Principal, Access) ->
+                  match_principal(ClientInfo, Principal) orelse Access
+                end, false, Principals);
+match_principal(_, _) -> false.
+
+match_topics(_ClientInfo, _Topic, []) ->
+    false;
+match_topics(ClientInfo, Topic, [#{<<"pattern">> := PatternFilter}|Filters]) ->
+    TopicFilter = feed_var(ClientInfo, PatternFilter),
+    match_topic(emqx_topic:words(Topic), TopicFilter)
+        orelse match_topics(ClientInfo, Topic, Filters);
+match_topics(ClientInfo, Topic, [TopicFilter|Filters]) ->
+   match_topic(emqx_topic:words(Topic), TopicFilter)
+       orelse match_topics(ClientInfo, Topic, Filters).
+
+match_topic(Topic, #{<<"eq">> := TopicFilter}) ->
+    Topic == TopicFilter;
+match_topic(Topic, TopicFilter) ->
+    emqx_topic:match(Topic, TopicFilter).
+
+feed_var(ClientInfo, Pattern) ->
+    feed_var(ClientInfo, Pattern, []).
+feed_var(_ClientInfo, [], Acc) ->
+    lists:reverse(Acc);
+feed_var(ClientInfo = #{clientid := undefined}, [<<"%c">>|Words], Acc) ->
+    feed_var(ClientInfo, Words, [<<"%c">>|Acc]);
+feed_var(ClientInfo = #{clientid := ClientId}, [<<"%c">>|Words], Acc) ->
+    feed_var(ClientInfo, Words, [ClientId |Acc]);
+feed_var(ClientInfo = #{username := undefined}, [<<"%u">>|Words], Acc) ->
+    feed_var(ClientInfo, Words, [<<"%u">>|Acc]);
+feed_var(ClientInfo = #{username := Username}, [<<"%u">>|Words], Acc) ->
+    feed_var(ClientInfo, Words, [Username|Acc]);
+feed_var(ClientInfo, [W|Words], Acc) ->
+    feed_var(ClientInfo, Words, [W|Acc]).
+

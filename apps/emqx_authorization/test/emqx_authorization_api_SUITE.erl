@@ -62,18 +62,23 @@ set_special_configs(_App) ->
 %%------------------------------------------------------------------------------
 
 t_api(_Config) ->
-    Rule1 = #{<<"principal">> => #{<<"clientid">> => <<"test">>},
+    Rule1 = #{<<"principal">> =>
+                    #{<<"and">> => [#{<<"username">> => <<"^test?">>},
+                                    #{<<"clientid">> => <<"^test?">>}
+                                   ]},
               <<"action">> => <<"sub">>,
-              <<"topics">> => [<<"Topic/push">>],
+              <<"topics">> => <<"%u">>,
               <<"access">> => <<"allow">>
             },
     {ok, _} = request_http_rest_add(["authorization/push"], [Rule1]),
     {ok, Result1} = request_http_rest_lookup(["authorization"]),
     ?assertMatch([Rule1 | _ ], get_http_data(Result1)),
 
-    Rule2 = #{<<"principal">> => #{<<"username">> => <<"test">>},
+    Rule2 = #{<<"principal">> => #{<<"ipaddress">> => <<"127.0.0.1">>},
               <<"action">> => <<"pub">>,
-              <<"topics">> => [<<"Topic/append">>],
+              <<"topics">> => [#{<<"eq">> => <<"#">>},
+                               #{<<"eq">> => <<"+">>}
+                              ],
               <<"access">> => <<"deny">>
             },
     {ok, _} = request_http_rest_add(["authorization/append"], [Rule2]),

@@ -94,7 +94,27 @@ check([], NRules) ->
     {ok, lists:reverse(NRules)}.
 
 check_rule(Rule) when is_list(Rule) ->
-    check_rule(maps:from_list(Rule));
+    NRule = maps:from_list(Rule),
+    Principal = case maps:get(<<"principal">>, NRule, <<"all">>)of
+                    [{<<"and">>, AndList}] ->
+                         #{<<"and">> => [maps:from_list(P) || P <- AndList]};
+                    #{<<"or">> := List} ->
+                         #{<<"or">> => [maps:from_list(P) || P <- List]};
+                    P when is_list(P) -> maps:from_list(P);
+                    <<"all">> -> <<"all">>
+                 end,
+    Topics = case maps:get(<<"topics">>, NRule, []) of
+                 T when is_tuple(T) orelse is_binary(T) -> T;
+                 T when is_list(T) ->
+                     [begin
+                          case is_list(Topic) of
+                              true -> maps:from_list(Topic);
+                              false -> Topic
+                          end
+                      end || Topic <- T]
+             end,
+    check_rule(NRule#{<<"principal">> => Principal,
+                      <<"topics">> => Topics});
 
 check_rule(#{<<"principal">> := <<"all">> } = Rule ) ->
     check_rule(maps:remove(<<"principal">>, Rule));
@@ -104,9 +124,8 @@ check_rule(#{<<"principal">> := Principal,
              <<"action">> := Action,
              <<"access">> := Access
             } = Rule ) when ?ALLOW_DENY(Access), ?PUBSUB(Action) ->
-    NPrincipal = maps:from_list(Principal),
-    case check_item(topics, Topics) andalso check_item(principal, NPrincipal) of
-       true -> {ok, Rule#{<<"principal">> => NPrincipal}};
+    case check_item(topics, Topics) andalso check_item(principal, Principal) of
+       true -> {ok, Rule };
        false -> {error, data_format_check_failed}
     end ;
 check_rule(#{<<"topics">> := Topics,
@@ -121,12 +140,28 @@ check_rule(#{<<"topics">> := Topics,
 check_rule(_) -> {error, data_format_check_failed}.
 
 check_item(topics, Topics) when is_list(Topics) ->
-    Filter = lists:filter(fun is_binary/1, Topics),
-    length(Filter) > 0 andalso length(Filter) =:= length(Topics);
+    lists:foldl(fun(Topic, Acc) ->
+                    check_item(topic, Topic) andalso Acc
+                end, true, Topics);
+check_item(topics, Topics) when is_binary(Topics) orelse is_tuple(Topics) ->
+    check_item(topic, Topics);
+
+check_item(topic, Topic) when is_binary(Topic) -> true;
+check_item(topic, #{<<"eq">> := Topic}) when is_binary(Topic) -> true;
+
 check_item(principal, <<"all">>) -> true;
 check_item(principal, #{<<"username">> := Username}) when is_binary(Username) -> true;
 check_item(principal, #{<<"clientid">> := Clientid}) when is_binary(Clientid) -> true;
 check_item(principal, #{<<"ipaddress">> := IpAddress}) when is_binary(IpAddress) -> true;
+check_item(principal, #{<<"and">> := List}) when is_list(List) ->
+    lists:foldl(fun(Principal, Acc) ->
+                    check_item(principal, Principal) andalso Acc
+                end, true, List);
+check_item(principal, #{<<"or">> := List}) when is_list(List) ->
+    lists:foldl(fun(Principal, Acc) ->
+                    check_item(principal, Principal) andalso Acc
+                end, true, List);
+
 check_item(_, _) -> false.
 
 %%--------------------------------------------------------------------

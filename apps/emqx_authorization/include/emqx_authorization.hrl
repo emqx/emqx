@@ -1,4 +1,5 @@
 -type(rule() :: #{binary() => any()}).
+-type(rules() :: [rule()]).
 
 -define(APP, emqx_authorization).
 
