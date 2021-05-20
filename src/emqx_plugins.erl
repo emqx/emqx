@@ -225,10 +225,11 @@ filter_plugins(Names) ->
                     end, Names).
 
 load_plugins(Names, Persistent) ->
-    Plugins = list(), NotFound = Names -- names(Plugins),
+    Plugins = list(),
+    NotFound = Names -- names(Plugins),
     case NotFound of
         []       -> ok;
-        NotFound -> ?LOG(alert, "Cannot find plugins: ~p", [NotFound])
+        NotFound -> ?LOG(alert, "cannot_find_plugins: ~p", [NotFound])
     end,
     NeedToLoad = Names -- NotFound -- names(started_app),
     lists:foreach(fun(Name) ->
