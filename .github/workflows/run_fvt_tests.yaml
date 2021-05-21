@@ -70,6 +70,10 @@ jobs:
 
         steps:
         - uses: actions/checkout@v1
+        - uses: gleam-lang/setup-erlang@v1.1.2
+          id: install_erlang
+          with:
+            otp-version: 23.2
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
