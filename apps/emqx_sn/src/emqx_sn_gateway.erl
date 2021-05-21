@@ -439,12 +439,11 @@ asleep(cast, {incoming, ?SN_PUBREC_MSG(PubRec, MsgId)}, State)
 %    4) emq-sn regard this CONNECT as a signal to connected state, not a bootup CONNECT. For this reason, will procedure is lost
 % this should be a bug in mqtt-sn channel.
 asleep(cast, {incoming, ?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, _ClientId)},
-       State = #state{keepalive_interval = _Interval}) ->
-    % device wakeup and goto connected state
-    % keepalive timer may timeout in asleep state and delete itself, need to restart keepalive
-    % TODO: Fixme later.
-    %% self() ! {keepalive, start, Interval},
-    {next_state, connected, send_connack(State)};
+       State = #state{channel = Channel, asleep_timer = Timer}) ->
+    NChannel = emqx_channel:ensure_keepalive(#{}, Channel),
+    emqx_sn_asleep_timer:cancel(Timer),
+    {next_state, connected, send_connack(State#state{channel = NChannel,
+                                                     asleep_timer = emqx_sn_asleep_timer:init()})};
 
 asleep(EventType, EventContent, State) ->
     handle_event(EventType, EventContent, asleep, State).
@@ -771,10 +770,13 @@ send_message(Msg = #mqtt_sn_message{type = Type},
 
 goto_asleep_state(State) ->
     goto_asleep_state(undefined, State).
-goto_asleep_state(Duration, State=#state{asleep_timer = AsleepTimer}) ->
+goto_asleep_state(Duration, State=#state{asleep_timer = AsleepTimer,
+                                         channel = Channel}) ->
     ?LOG(debug, "goto_asleep_state Duration=~p", [Duration]),
     NewTimer = emqx_sn_asleep_timer:ensure(Duration, AsleepTimer),
-    {next_state, asleep, State#state{asleep_timer = NewTimer}, hibernate}.
+    NChannel = emqx_channel:clear_keepalive(Channel),
+    {next_state, asleep, State#state{asleep_timer = NewTimer,
+                                     channel = NChannel}, hibernate}.
 
 %%--------------------------------------------------------------------
 %% Helper funcs
