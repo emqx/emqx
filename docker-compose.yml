@@ -80,15 +80,6 @@ services:
       emqx_net:
         ipv4_address: 10.0.0.6
 
-  client:
-    image: emqtt_bench:latest
-    depends_on:
-      - emqx1
-      - emqx2
-    tty: true
-    networks:
-      emqx_net:
-
 networks:
   emqx_net:
     driver: bridge
