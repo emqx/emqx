@@ -267,6 +267,7 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_sn
     , emqx_coap
     , emqx_stomp
+    , emqx_authentication
     , emqx_auth_http
     , emqx_auth_mysql
     , emqx_auth_jwt
