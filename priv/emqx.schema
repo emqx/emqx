@@ -103,6 +103,10 @@
   {datatype, string}
 ]}.
 
+{mapping, "cluster.etcd.version", "ekka.cluster_discovery", [
+  {datatype, {enum, [v2, v3]}}
+]}.
+
 {mapping, "cluster.etcd.prefix", "ekka.cluster_discovery", [
   {datatype, string}
 ]}.
@@ -180,6 +184,7 @@
                                         end, Options)
                             end,
                  [{server, string:tokens(cuttlefish:conf_get("cluster.etcd.server", Conf), ",")},
+                  {version, cuttlefish:conf_get("cluster.etcd.version", Conf, v3)},
                   {prefix, cuttlefish:conf_get("cluster.etcd.prefix", Conf, "emqcl")},
                   {node_ttl, cuttlefish:conf_get("cluster.etcd.node_ttl", Conf, 60)},
                   {ssl_options, SslOpts(Conf)}];
