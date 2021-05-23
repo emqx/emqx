@@ -41,8 +41,13 @@
         , stats/1
         ]).
 
+-export([ async_set_keepalive/4
+        , async_set_socket_options/2
+        ]).
+
 -export([ call/2
         , call/3
+        , cast/2
         ]).
 
 %% Callback
@@ -56,7 +61,7 @@
         ]).
 
 %% Internal callback
--export([wakeup_from_hib/2, recvloop/2]).
+-export([wakeup_from_hib/2, recvloop/2, get_state/1]).
 
 %% Export for CT
 -export([set_field/3]).
@@ -183,6 +188,35 @@ stats(#state{transport = Transport,
     ChanStats = emqx_channel:stats(Channel),
     ProcStats = emqx_misc:proc_stats(),
     lists:append([SockStats, ConnStats, ChanStats, ProcStats]).
+
+%% @doc Set TCP keepalive socket options to override system defaults.
+%% Idle: The number of seconds a connection needs to be idle before
+%%       TCP begins sending out keep-alive probes (Linux default 7200).
+%% Interval: The number of seconds between TCP keep-alive probes
+%%           (Linux default 75).
+%% Probes: The maximum number of TCP keep-alive probes to send before
+%%         giving up and killing the connection if no response is
+%%         obtained from the other end (Linux default 9).
+%%
+%% NOTE: This API sets TCP socket options, which has nothing to do with
+%%       the MQTT layer's keepalive (PINGREQ and PINGRESP).
+async_set_keepalive(Pid, Idle, Interval, Probes) ->
+    Options = [ {keepalive, true}
+              , {raw, 6, 4, <<Idle:32/native>>}
+              , {raw, 6, 5, <<Interval:32/native>>}
+              , {raw, 6, 6, <<Probes:32/native>>}
+              ],
+    async_set_socket_options(Pid, Options).
+
+%% @doc Set custom socket options.
+%% This API is made async because the call might be originated from
+%% a hookpoint callback (otherwise deadlock).
+%% If failed to set, the error message is logged.
+async_set_socket_options(Pid, Options) ->
+    cast(Pid, {async_set_socket_options, Options}).
+
+cast(Pid, Req) ->
+    gen_server:cast(Pid, Req).
 
 call(Pid, Req) ->
     call(Pid, Req, infinity).
@@ -366,6 +400,9 @@ handle_msg({'$gen_call', From, Req}, State) ->
             gen_server:reply(From, Reply),
             stop(Reason, NState)
     end;
+handle_msg({'$gen_cast', Req}, State) ->
+    NewState = handle_cast(Req, State),
+    {ok, NewState};
 
 handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     ?LOG(debug, "RECV ~0p", [Data]),
@@ -693,6 +730,22 @@ handle_info(Info, State) ->
     with_channel(handle_info, [Info], State).
 
 %%--------------------------------------------------------------------
+%% Handle Info
+
+handle_cast({async_set_socket_options, Opts},
+            State = #state{transport = Transport,
+                           socket    = Socket
+                          }) ->
+    case Transport:setopts(Socket, Opts) of
+        ok -> ?tp(info, "custom_socket_options_successfully", #{opts => Opts});
+        Err -> ?tp(error, "failed_to_set_custom_socket_optionn", #{reason => Err})
+    end,
+    State;
+handle_cast(Req, State) ->
+    ?tp(error, "received_unknown_cast", #{cast => Req}),
+    State.
+
+%%--------------------------------------------------------------------
 %% Ensure rate limit
 
 ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
@@ -820,3 +873,7 @@ set_field(Name, Value, State) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, state)),
     setelement(Pos+1, State, Value).
 
+get_state(Pid) ->
+    State = sys:get_state(Pid),
+    maps:from_list(lists:zip(record_info(fields, state),
+                             tl(tuple_to_list(State)))).
