@@ -52,7 +52,7 @@ censor([Key | _], Val) ->
     end.
 
 is_sensitive(Key) when is_atom(Key) ->
-    is_sensitive(atom_to_binary(Key));
+    is_sensitive(atom_to_binary(Key, utf8));
 is_sensitive(Key) when is_list(Key) ->
     try iolist_to_binary(Key) of
         Bin ->
