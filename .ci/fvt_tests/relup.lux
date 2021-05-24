@@ -1,3 +1,4 @@
+[config var=PROFILE]
 [config var=PACKAGE_PATH]
 [config var=BENCH_PATH]
 [config var=ONE_MORE_EMQX_PATH]
@@ -21,7 +22,7 @@
 
 [shell emqx]
     !cd $PACKAGE_PATH
-    !unzip -q -o emqx-ubuntu20.04-$(echo $old_vsn | sed  -r 's/[v|e]//g')-amd64.zip
+    !unzip -q -o $PROFILE-ubuntu20.04-$(echo $old_vsn | sed  -r 's/[v|e]//g')-amd64.zip
     ?SH-PROMPT
 
     !cd emqx
@@ -33,8 +34,8 @@
 
 [shell emqx2]
     !cd $PACKAGE_PATH
-    !cp -f $ONE_MORE_EMQX_PATH/one_more_emqx.sh .
-    !./one_more_emqx.sh emqx2
+    !cp -f $ONE_MORE_EMQX_PATH/one_more_$(echo $PROFILE | sed 's/-/_/g').sh .
+    !./one_more_$(echo $PROFILE | sed 's/-/_/g').sh emqx2
     ?SH-PROMPT
     !cd emqx2
 
@@ -75,7 +76,7 @@
     ???sent
 
 [shell emqx]
-    !cp -f ../emqx-ubuntu20.04-$VSN-amd64.zip releases/
+    !cp -f ../$PROFILE-ubuntu20.04-$VSN-amd64.zip releases/
     !./bin/emqx install $VSN
     ?SH-PROMPT
     !./bin/emqx versions |grep permanent | grep -oE "[0-9].[0-9].[0-9]"
@@ -90,7 +91,7 @@
     ?SH-PROMPT
 
 [shell emqx2]
-    !cp -f ../emqx-ubuntu20.04-$VSN-amd64.zip releases/
+    !cp -f ../$PROFILE-ubuntu20.04-$VSN-amd64.zip releases/
     !./bin/emqx install $VSN
     ?SH-PROMPT
     !./bin/emqx versions |grep permanent | grep -oE "[0-9].[0-9].[0-9]"
