@@ -1,6 +1,6 @@
 {application, emqx_authentication,
  [{description, "EMQ X Authentication"},
-  {vsn, "4.3.0"},
+  {vsn, "0.1.0"},
   {modules, []},
   {registered, [emqx_authentication_sup, emqx_authentication_registry]},
   {applications, [kernel,stdlib]},
