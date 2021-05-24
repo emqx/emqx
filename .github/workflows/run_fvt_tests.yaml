@@ -260,7 +260,7 @@ jobs:
             set -e -x -u
             if [ -n "$OLD_VSNS" ]; then
                 mkdir -p packages
-                cp emqx/_packages/emqx/*.zip packages
+                cp emqx/_packages/${PROFILE}/*.zip packages
                 cp emqx/_upgrade_base/*.zip packages
                 lux -v \
                 --timeout 600000 \
