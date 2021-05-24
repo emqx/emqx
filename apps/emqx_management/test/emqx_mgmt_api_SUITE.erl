@@ -322,7 +322,7 @@ t_plugins(_) ->
                                  auth_header_()),
     [Plugin3] = filter(get(<<"data">>, Plugins3), <<"name">>, <<"emqx_auth_mnesia">>),
     ?assertEqual(<<"emqx_auth_mnesia">>, maps:get(<<"name">>, Plugin3)),
-    ?assertEqual(false, maps:get(<<"active">>, Plugin3)),
+    ?assertEqual(true, maps:get(<<"active">>, Plugin3)),
 
     {ok, _} = request_api(put,
                           api_path(["nodes",

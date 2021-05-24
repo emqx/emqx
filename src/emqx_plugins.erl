@@ -61,7 +61,7 @@ init() ->
 %% @doc Load all plugins when the broker started.
 -spec(load() -> ok | ignore | {error, term()}).
 load() ->
-    load_expand_plugins(),
+    ok = load_ext_plugins(emqx:get_env(expand_plugins_dir)),
     case emqx:get_env(plugins_loaded_file) of
         undefined -> ignore; %% No plugins available
         File ->
@@ -148,46 +148,61 @@ init_config(CfgFile) ->
                       [application:set_env(App, Par, Val) || {Par, Val} <- Envs]
                   end, AppsEnv).
 
-load_expand_plugins() ->
-    case emqx:get_env(expand_plugins_dir) of
-        undefined -> ok;
-        ExpandPluginsDir ->
-            Plugins = filelib:wildcard("*", ExpandPluginsDir),
-            lists:foreach(fun(Plugin) ->
-                PluginDir = filename:join(ExpandPluginsDir, Plugin),
+%% load external plugins which are placed in etc/plugins dir
+load_ext_plugins(undefined) -> ok;
+load_ext_plugins(Dir) ->
+    lists:foreach(
+        fun(Plugin) ->
+                PluginDir = filename:join(Dir, Plugin),
                 case filelib:is_dir(PluginDir) of
-                    true  -> load_expand_plugin(PluginDir);
+                    true  -> load_ext_plugin(PluginDir);
                     false -> ok
                 end
-            end, Plugins)
-    end.
+        end, filelib:wildcard("*", Dir)).
 
-load_expand_plugin(PluginDir) ->
-    init_expand_plugin_config(PluginDir),
+load_ext_plugin(PluginDir) ->
+    ?LOG(debug, "loading_extra_plugin: ~s", [PluginDir]),
     Ebin = filename:join([PluginDir, "ebin"]),
+    AppFile = filename:join([Ebin, "*.app"]),
+    AppName = case filelib:wildcard(AppFile) of
+                  [App] ->
+                      list_to_atom(filename:basename(App, ".app"));
+                  [] ->
+                      ?LOG(alert, "plugin_app_file_not_found: ~s", [AppFile]),
+                      error({plugin_app_file_not_found, AppFile})
+              end,
+    ok = load_plugin_app(AppName, Ebin),
+    ok = load_plugin_conf(AppName, PluginDir).
+
+load_plugin_app(AppName, Ebin) ->
     _ = code:add_patha(Ebin),
     Modules = filelib:wildcard(filename:join([Ebin, "*.beam"])),
-    lists:foreach(fun(Mod) ->
-        Module = list_to_atom(filename:basename(Mod, ".beam")),
-        code:load_file(Module)
-    end, Modules),
-    case filelib:wildcard(Ebin ++ "/*.app") of
-        [App|_] -> application:load(list_to_atom(filename:basename(App, ".app")));
-        _ -> ?LOG(alert, "Plugin not found."),
-             {error, load_app_fail}
+    lists:foreach(
+        fun(BeamFile) ->
+                Module = list_to_atom(filename:basename(BeamFile, ".beam")),
+                case code:ensure_loaded(Module) of
+                    {module, Module} -> ok;
+                    {error, Reason} -> error({failed_to_load_plugin_beam, BeamFile, Reason})
+                end
+        end, Modules),
+    case application:load(AppName) of
+        ok -> ok;
+        {error, {already_loaded, _}} -> ok
     end.
 
-init_expand_plugin_config(PluginDir) ->
-    Priv = PluginDir ++ "/priv",
-    Etc  = PluginDir ++ "/etc",
-    Schema = filelib:wildcard(Priv ++ "/*.schema"),
-    Conf = case filelib:wildcard(Etc ++ "/*.conf") of
-        [] -> [];
-        [Conf1] -> cuttlefish_conf:file(Conf1)
-    end,
+load_plugin_conf(AppName, PluginDir) ->
+    Priv = filename:join([PluginDir, "priv"]),
+    Etc  = filename:join([PluginDir, "etc"]),
+    Schema = filelib:wildcard(filename:join([Priv, "*.schema"])),
+    ConfFile = filename:join([Etc, atom_to_list(AppName) ++ ".conf"]),
+    Conf = case filelib:is_file(ConfFile) of
+               true -> cuttlefish_conf:file(ConfFile);
+               false -> error({conf_file_not_found, ConfFile})
+           end,
+    ?LOG(debug, "loading_extra_plugin_config conf=~s, schema=~s", [ConfFile, Schema]),
     AppsEnv = cuttlefish_generator:map(cuttlefish_schema:files(Schema), Conf),
-    lists:foreach(fun({AppName, Envs}) ->
-        [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
+    lists:foreach(fun({AppName1, Envs}) ->
+        [application:set_env(AppName1, Par, Val) || {Par, Val} <- Envs]
     end, AppsEnv).
 
 ensure_file(File) ->
@@ -210,10 +225,11 @@ filter_plugins(Names) ->
                     end, Names).
 
 load_plugins(Names, Persistent) ->
-    Plugins = list(), NotFound = Names -- names(Plugins),
+    Plugins = list(),
+    NotFound = Names -- names(Plugins),
     case NotFound of
         []       -> ok;
-        NotFound -> ?LOG(alert, "Cannot find plugins: ~p", [NotFound])
+        NotFound -> ?LOG(alert, "cannot_find_plugins: ~p", [NotFound])
     end,
     NeedToLoad = Names -- NotFound -- names(started_app),
     lists:foreach(fun(Name) ->
@@ -223,19 +239,31 @@ load_plugins(Names, Persistent) ->
 
 generate_configs(App) ->
     ConfigFile = filename:join([emqx:get_env(plugins_etc_dir), App]) ++ ".config",
-    ConfFile = filename:join([emqx:get_env(plugins_etc_dir), App]) ++ ".conf",
-    SchemaFile = filename:join([code:priv_dir(App), App]) ++ ".schema",
-    case {filelib:is_file(ConfigFile), filelib:is_file(ConfFile) andalso filelib:is_file(SchemaFile)} of
-        {true, _} ->
+    case filelib:is_file(ConfigFile) of
+        true ->
             {ok, [Configs]} = file:consult(ConfigFile),
             Configs;
-        {_, true} ->
+        false ->
+            do_generate_configs(App)
+    end.
+
+do_generate_configs(App) ->
+    Name1 = filename:join([emqx:get_env(plugins_etc_dir), App]) ++ ".conf",
+    Name2 = filename:join([code:lib_dir(App), "etc", App]) ++ ".conf",
+    ConfFile = case {filelib:is_file(Name1), filelib:is_file(Name2)} of
+                   {true, _} -> Name1;
+                   {false, true} -> Name2;
+                   {false, false} -> error({config_not_found, [Name1, Name2]})
+               end,
+    SchemaFile = filename:join([code:priv_dir(App), App]) ++ ".schema",
+    case filelib:is_file(SchemaFile) of
+        true ->
             Schema = cuttlefish_schema:files([SchemaFile]),
             Conf = cuttlefish_conf:file(ConfFile),
             LogFun = fun(Key, Value) -> ?LOG(info, "~s = ~p", [string:join(Key, "."), Value]) end,
             cuttlefish_generator:map(Schema, Conf, undefined, LogFun);
-        {false, false} ->
-            error({config_not_found, {ConfigFile, ConfFile, SchemaFile}})
+        false ->
+            error({schema_not_found, SchemaFile})
     end.
 
 apply_configs([]) ->
