@@ -264,6 +264,7 @@ jobs:
                 cp emqx/_upgrade_base/*.zip packages
                 lux -v \
                 --timeout 600000 \
+                --var PROFILE=$PROFILE \
                 --var PACKAGE_PATH=$(pwd)/packages \
                 --var BENCH_PATH=$(pwd)/emqtt-bench \
                 --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
