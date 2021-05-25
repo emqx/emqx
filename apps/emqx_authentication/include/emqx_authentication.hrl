@@ -25,6 +25,7 @@
         { name
         , type %% service_type
         , provider
+        , params
         , state
         }).
 

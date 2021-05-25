@@ -139,8 +139,9 @@ import_user_credentials(Filename, csv,
                           password_hash_algorithm := Algorithm}) ->
     case file:open(Filename, [read, binary]) of
         {ok, File} ->
-            import(UserGroup, File, Algorithm),
-            file:close(File);
+            Result = import(UserGroup, File, Algorithm),
+            file:close(File),
+            Result;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -211,7 +212,10 @@ do_import(_UserGroup, [_ | _More], _Algorithm) ->
 do_import(UserGroup, File, Algorithm)  ->
     case file:read_line(File) of
         {ok, Line} ->
-            case binary:split(Line, <<",">>, [global]) of
+            case binary:split(Line, [<<",">>, <<"\n">>], [global]) of
+                [UserIdentity, Password, <<>>] ->
+                    add(UserGroup, UserIdentity, Password, Algorithm),
+                    do_import(UserGroup, File, Algorithm);
                 [UserIdentity, Password] ->
                     add(UserGroup, UserIdentity, Password, Algorithm),
                     do_import(UserGroup, File, Algorithm);
