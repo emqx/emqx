@@ -40,6 +40,7 @@ stop(_State) ->
 start_phase(start_trails_http, _StartType, []) ->
   Port = 18080, %% todo make configurable
   Trails = trails:trails([emqx_api_nodes,
+                          emqx_api_zones,
                           cowboy_swagger_handler]),
   trails:store(Trails),
   Dispatch      = trails:single_host_compile(Trails),
