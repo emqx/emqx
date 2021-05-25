@@ -31,6 +31,8 @@
         , range_get/3
         ]).
 
+-compile({no_auto_import,[alias/1]}).
+
 -type(input() :: map()).
 -type(alias() :: atom()).
 -type(collection() :: {alias(), [term()]}).

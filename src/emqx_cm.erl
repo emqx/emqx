@@ -22,6 +22,7 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -logger_header("[CM]").
 
@@ -110,6 +111,7 @@ start_link() ->
 insert_channel_info(ClientId, Info, Stats) ->
     Chan = {ClientId, self()},
     true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, Stats}),
+    ?tp(debug, insert_channel_info, #{client_id => ClientId}),
     ok.
 
 %% @private
@@ -279,18 +281,25 @@ takeover_session(ClientId, ChanPid) ->
 discard_session(ClientId) when is_binary(ClientId) ->
     case lookup_channels(ClientId) of
         [] -> ok;
-        ChanPids ->
-            lists:foreach(
-              fun(ChanPid) ->
-                      try
-                          discard_session(ClientId, ChanPid)
-                      catch
-                          _:{noproc,_}:_Stk -> ok;
-                          _:{{shutdown,_},_}:_Stk -> ok;
-                          _:Error:_Stk ->
-                              ?LOG(error, "Failed to discard ~0p: ~0p", [ChanPid, Error])
-                      end
-              end, ChanPids)
+        ChanPids -> lists:foreach(fun(Pid) -> do_discard_session(ClientId, Pid) end, ChanPids)
+    end.
+
+do_discard_session(ClientId, Pid) ->
+    try
+        discard_session(ClientId, Pid)
+    catch
+        _ : noproc -> % emqx_ws_connection: call
+            ?tp(debug, "session_already_gone", #{pid => Pid}),
+            ok;
+        _ : {noproc, _} -> % emqx_connection: gen_server:call
+            ?tp(debug, "session_already_gone", #{pid => Pid}),
+            ok;
+        _ : {{shutdown, _}, _} ->
+            ?tp(debug, "session_already_shutdown", #{pid => Pid}),
+            ok;
+        _ : Error : St ->
+            ?tp(error, "failed_to_discard_session",
+                #{pid => Pid, reason => Error, stacktrace=>St})
     end.
 
 discard_session(ClientId, ChanPid) when node(ChanPid) == node() ->

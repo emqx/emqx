@@ -28,7 +28,9 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
-    emqx_ct_helpers:start_apps([emqx_bridge_mqtt, emqx_rule_engine]),
+    application:load(emqx_modules),
+    application:load(emqx_bridge_mqtt),
+    emqx_ct_helpers:start_apps([emqx_rule_engine, emqx_management]),
     Cfg.
 
 end_per_suite(Cfg) ->

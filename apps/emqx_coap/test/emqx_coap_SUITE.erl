@@ -28,16 +28,16 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_coap], fun set_sepecial_cfg/1),
+    emqx_ct_helpers:start_apps([emqx_coap], fun set_special_cfg/1),
     Config.
 
-set_sepecial_cfg(emqx_coap) ->
+set_special_cfg(emqx_coap) ->
     Opts = application:get_env(emqx_coap, dtls_opts,[]),
     Opts2 = [{keyfile, emqx_ct_helpers:deps_path(emqx, "etc/certs/key.pem")},
              {certfile, emqx_ct_helpers:deps_path(emqx, "etc/certs/cert.pem")}],
     application:set_env(emqx_coap, dtls_opts, emqx_misc:merge_opts(Opts, Opts2)),
     application:set_env(emqx_coap, enable_stats, true);
-set_sepecial_cfg(_) ->
+set_special_cfg(_) ->
     ok.
 
 end_per_suite(Config) ->

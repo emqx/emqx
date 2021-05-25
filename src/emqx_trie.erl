@@ -194,6 +194,11 @@ delete_key(Key) ->
             ok
     end.
 
+%% micro-optimization: no need to lookup when topic is not wildcard
+%% because we only insert wildcards to emqx_trie
+lookup_topic(_Topic, false) -> [];
+lookup_topic(Topic, true) -> lookup_topic(Topic).
+
 lookup_topic(Topic) when is_binary(Topic) ->
     case ets:lookup(?TRIE, ?TOPIC(Topic)) of
         [#?TRIE{count = C}] -> [Topic || C > 0];
@@ -219,15 +224,22 @@ do_match(Words) ->
     do_match(Words, empty).
 
 do_match(Words, Prefix) ->
-    match(is_compact(), Words, Prefix, []).
+    case is_compact() of
+        true -> match_compact(Words, Prefix, false, []);
+        false -> match_no_compact(Words, Prefix, false, [])
+    end.
 
-match(_IsCompact, [], Topic, Acc) ->
-    'match_#'(Topic) ++ %% try match foo/bar/#
-    lookup_topic(Topic) ++ %% try match foo/bar
+match_no_compact([], Topic, IsWildcard, Acc) ->
+    'match_#'(Topic) ++ %% try match foo/+/# or foo/bar/#
+    lookup_topic(Topic, IsWildcard) ++ %% e.g. foo/+
     Acc;
-match(IsCompact, [Word | Words], Prefix, Acc0) ->
-    case {has_prefix(Prefix), IsCompact} of
-        {false, false} ->
+match_no_compact([Word | Words], Prefix, IsWildcard, Acc0) ->
+    case has_prefix(Prefix) of
+        true ->
+            Acc1 = 'match_#'(Prefix) ++ Acc0,
+            Acc = match_no_compact(Words, join(Prefix, '+'), true, Acc1),
+            match_no_compact(Words, join(Prefix, Word), IsWildcard, Acc);
+        false ->
             %% non-compact paths in database
             %% if there is no prefix matches the current topic prefix
             %% we can simpliy return from here
@@ -240,21 +252,24 @@ match(IsCompact, [Word | Words], Prefix, Acc0) ->
             %% then at the second level, we lookup prefix a/x,
             %% no such prefix to be found, meaning there is no point
             %% searching for 'a/x/y', 'a/x/+' or 'a/x/#'
-            Acc0;
-        _ ->
-            %% compact paths in database
-            %% we have to enumerate all possible prefixes
-            %% e.g. a/+/b/# results with below entries in database
-            %%   - a/+
-            %%   - a/+/b/#
-            %% when matching a/x/y, we need to enumerate
-            %%   - a
-            %%   - a/x
-            %%   - a/x/y
-            %% *with '+', '#' replaced at each level
-            Acc1 = 'match_#'(Prefix) ++ Acc0,
-            Acc = match(IsCompact, Words, join(Prefix, '+'), Acc1),
-            match(IsCompact, Words, join(Prefix, Word), Acc)
+            Acc0
+    end.
+
+match_compact([], Topic, IsWildcard, Acc) ->
+    'match_#'(Topic) ++ %% try match foo/bar/#
+    lookup_topic(Topic, IsWildcard) ++ %% try match foo/bar
+    Acc;
+match_compact([Word | Words], Prefix, IsWildcard, Acc0) ->
+    Acc1 = 'match_#'(Prefix) ++ Acc0,
+    Acc = match_compact(Words, join(Prefix, Word), IsWildcard, Acc1),
+    WildcardPrefix = join(Prefix, '+'),
+    %% go deeper to match current_prefix/+ only when:
+    %% 1. current word is the last
+    %% OR
+    %% 2. there is a prefix = 'current_prefix/+'
+    case Words =:= [] orelse has_prefix(WildcardPrefix) of
+        true -> match_compact(Words, WildcardPrefix, true, Acc);
+        false -> Acc
     end.
 
 'match_#'(Prefix) ->

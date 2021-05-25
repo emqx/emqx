@@ -133,7 +133,8 @@ t_mgmt_cmd(_) ->
 t_status_cmd(_) ->
     % ct:pal("start testing status command"),
     mock_print(),
-    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:status([]), "is running")),
+    %% init internal status seem to be always 'starting' when running ct tests
+    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:status([]), "Node\s.*@.*\sis\sstart(ed|ing)")),
     meck:unload().
 
 t_broker_cmd(_) ->

@@ -37,11 +37,11 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx, emqx_auth_jwt], fun set_special_configs/1),
+    emqx_ct_helpers:start_apps([emqx_auth_jwt], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_auth_jwt, emqx]).
+    emqx_ct_helpers:stop_apps([emqx_auth_jwt]).
 
 set_special_configs(emqx) ->
     application:set_env(emqx, allow_anonymous, false),
@@ -97,6 +97,8 @@ t_check_auth(_) ->
 
 t_check_claims(_) ->
     application:set_env(emqx_auth_jwt, verify_claims, [{sub, <<"value">>}]),
+    application:stop(emqx_auth_jwt), application:start(emqx_auth_jwt),
+
     Plain = #{clientid => <<"client1">>, username => <<"plain">>, zone => external},
     Jwt = sign([{client_id, <<"client1">>},
                 {username, <<"plain">>},
@@ -113,8 +115,9 @@ t_check_claims(_) ->
 
 t_check_claims_clientid(_) ->
     application:set_env(emqx_auth_jwt, verify_claims, [{clientid, <<"%c">>}]),
+    application:stop(emqx_auth_jwt), application:start(emqx_auth_jwt),
     Plain = #{clientid => <<"client23">>, username => <<"plain">>, zone => external},
-    Jwt = sign([{client_id, <<"client23">>},
+    Jwt = sign([{clientid, <<"client23">>},
                 {username, <<"plain">>},
                 {exp, os:system_time(seconds) + 3}], <<"HS256">>, <<"emqxsecret">>),
     Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
@@ -128,6 +131,8 @@ t_check_claims_clientid(_) ->
 
 t_check_claims_username(_) ->
     application:set_env(emqx_auth_jwt, verify_claims, [{username, <<"%u">>}]),
+    application:stop(emqx_auth_jwt), application:start(emqx_auth_jwt),
+
     Plain = #{clientid => <<"client23">>, username => <<"plain">>, zone => external},
     Jwt = sign([{client_id, <<"client23">>},
                 {username, <<"plain">>},

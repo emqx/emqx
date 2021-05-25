@@ -16,6 +16,10 @@ jobs:
 
         steps:
         - uses: actions/checkout@v1
+        - uses: gleam-lang/setup-erlang@v1.1.2
+          id: install_erlang
+          with:
+            otp-version: 23.2
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -52,7 +56,7 @@ jobs:
             output=$(docker exec -i node1.emqx.io bash -c "cat data/loaded_plugins" | tail -n1)
             if [ "$expected" != "$output" ]; then
                 exit 1
-            fi    
+            fi
         - name: make paho tests
           run: |
             if ! docker exec -i python /scripts/pytest.sh; then
@@ -66,6 +70,10 @@ jobs:
 
         steps:
         - uses: actions/checkout@v1
+        - uses: gleam-lang/setup-erlang@v1.1.2
+          id: install_erlang
+          with:
+            otp-version: 23.2
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -252,10 +260,11 @@ jobs:
             set -e -x -u
             if [ -n "$OLD_VSNS" ]; then
                 mkdir -p packages
-                cp emqx/_packages/emqx/*.zip packages
+                cp emqx/_packages/${PROFILE}/*.zip packages
                 cp emqx/_upgrade_base/*.zip packages
                 lux -v \
                 --timeout 600000 \
+                --var PROFILE=$PROFILE \
                 --var PACKAGE_PATH=$(pwd)/packages \
                 --var BENCH_PATH=$(pwd)/emqtt-bench \
                 --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
