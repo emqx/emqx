@@ -58,7 +58,8 @@ groups() ->
        t_serialize_parse_connack_v5
       ]},
      {publish, [parallel],
-      [t_serialize_parse_qos0_publish,
+      [t_parse_sticky_frames,
+       t_serialize_parse_qos0_publish,
        t_serialize_parse_qos1_publish,
        t_serialize_parse_qos2_publish,
        t_serialize_parse_publish_v5
@@ -285,6 +286,24 @@ t_serialize_parse_connack_v5(_) ->
              },
     Packet = ?CONNACK_PACKET(?RC_SUCCESS, 0, Props),
     ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+
+t_parse_sticky_frames(_) ->
+    Payload = lists:duplicate(10, 0),
+    P = #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
+                                                  dup    = false,
+                                                  qos    = ?QOS_0,
+                                                  retain = false},
+                     variable = #mqtt_packet_publish{topic_name = <<"a/b">>,
+                                                     packet_id  = undefined},
+                     payload  = iolist_to_binary(Payload)
+                    },
+    Bin = serialize_to_binary(P),
+    Size = size(Bin),
+    <<H:(Size-2)/binary, TailTwoBytes/binary>> = Bin,
+    {more, PState1} = emqx_frame:parse(H), %% needs 2 more bytes
+    %% feed 3 bytes as if the next 1 byte belongs to the next packet.
+    {ok, _, <<42>>, PState2} = emqx_frame:parse(iolist_to_binary([TailTwoBytes, 42]), PState1),
+    ?assertMatch({none, _}, PState2).
 
 t_serialize_parse_qos0_publish(_) ->
     Bin = <<48,14,0,7,120,120,120,47,121,121,121,104,101,108,108,111>>,
