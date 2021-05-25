@@ -20,8 +20,8 @@ mkdir -p "$RUNNER_LOG_DIR"
 # Make sure data directory exists
 mkdir -p "$RUNNER_DATA_DIR"
 
-# cuttlefish try to read environment variables starting with "EMQX_"
-export CUTTLEFISH_ENV_OVERRIDE_PREFIX='EMQX_'
+# hocon try to read environment variables starting with "EMQX_"
+export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
 
 relx_usage() {
     command="$1"
@@ -123,8 +123,8 @@ fi
 # Echo to stderr on errors
 echoerr() { echo "$@" 1>&2; }
 
-# By default, use cuttlefish to generate app.config and vm.args
-CUTTLEFISH="${USE_CUTTLEFISH:-yes}"
+# By default, use hocon to generate app.config and vm.args
+HOCON="${USE_HOCON:-yes}"
 
 SED_REPLACE="sed -i "
 case $(sed --help 2>&1) in
@@ -202,7 +202,7 @@ generate_config() {
     ## changing the config 'log.rotation.size'
     rm -rf "${RUNNER_LOG_DIR}"/*.siz
 
-    if [ "$CUTTLEFISH" != "yes" ]; then
+    if [ "$HOCON" != "yes" ]; then
         # Note: we have added a parameter '-vm_args' to this. It
         # appears redundant but it is not! the erlang vm allows us to
         # access all arguments to the erl command EXCEPT '-args_file',
@@ -217,25 +217,26 @@ generate_config() {
 
         set +e
         # shellcheck disable=SC2086
-        CUTTLEFISH_OUTPUT="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -v -i "$REL_DIR"/emqx.schema $EMQX_LICENSE_CONF_OPTION -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)"
+        HOCON_OUTPUT="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)"
+        echo $HOCON_OUTPUT
         # shellcheck disable=SC2181
         RESULT=$?
         set -e
         if [ $RESULT -gt 0 ]; then
-            echo "$CUTTLEFISH_OUTPUT"
+            echo "$HOCON_OUTPUT"
             exit $RESULT
         fi
         # print override from environment variables (EMQX_*)
-        echo "$CUTTLEFISH_OUTPUT" | sed -e '$d'
-        CONFIG_ARGS=$(echo "$CUTTLEFISH_OUTPUT" | tail -n 1)
+        echo "$HOCON_OUTPUT" | sed -e '$d'
+        CONFIG_ARGS=$(echo "$HOCON_OUTPUT" | tail -n 1)
 
-        ## Merge cuttlefish generated *.args into the vm.args
-        CUTTLE_GEN_ARG_FILE=$(echo "$CONFIG_ARGS" | sed -n 's/^.*\(vm_args[[:space:]]\)//p' | awk '{print $1}')
+        ## Merge hocon generated *.args into the vm.args
+        HOCON_GEN_ARG_FILE=$(echo "$CONFIG_ARGS" | sed -n 's/^.*\(vm_args[[:space:]]\)//p' | awk '{print $1}')
         TMP_ARG_FILE="$RUNNER_DATA_DIR/configs/vm.args.tmp"
         cp "$RUNNER_ETC_DIR/vm.args" "$TMP_ARG_FILE"
         echo "" >> "$TMP_ARG_FILE"
         echo "-pa ${REL_DIR}/consolidated" >> "$TMP_ARG_FILE"
-        sed '/^#/d' "$CUTTLE_GEN_ARG_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
+        sed '/^#/d' "$HOCON_GEN_ARG_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
             ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
             ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
             TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" | awk '{print $NF}')
@@ -247,7 +248,7 @@ generate_config() {
                 fi
             fi
         done
-        mv -f "$TMP_ARG_FILE" "$CUTTLE_GEN_ARG_FILE"
+        mv -f "$TMP_ARG_FILE" "$HOCON_GEN_ARG_FILE"
     fi
 
     # shellcheck disable=SC2086
@@ -303,7 +304,7 @@ if [ -z "$NAME_ARG" ]; then
             NODENAME="$(grep -E '^-name' "$LATEST_VM_ARGS" | awk '{print $2}')"
         else
             # for boot commands, inspect emqx.conf for node name
-            NODENAME=$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -i "$REL_DIR"/emqx.schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.name)
+            NODENAME=$(grep -E '^[ \t]*node.name[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | awk -F"= " '{print $NF}'| tr -d \")
         fi
     fi
     if [ -z "$NODENAME" ]; then
@@ -329,7 +330,7 @@ PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 COOKIE="${EMQX_NODE_COOKIE:-}"
 if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        COOKIE=$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -i "$REL_DIR"/emqx.schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie)
+        COOKIE=$(grep -E '^[ \t]*node.cookie[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | awk -F"= " '{print $NF}')
     else
         # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $RUNNER_DATA_DIR/configs/vm.*.args | head -1)"
