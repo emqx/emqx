@@ -22,6 +22,7 @@
 
 -export([ start/2
         , stop/1
+        , start_phase/3
         ]).
 
 start(_Type, _Args) ->
@@ -32,4 +33,20 @@ start(_Type, _Args) ->
     {ok, Sup}.
 
 stop(_State) ->
+    ok = cowboy:stop_listener(emqx_api),
     emqx_mgmt_http:stop_listeners().
+
+-spec start_phase(atom(), application:start_type(), []) -> ok | {error, term()}.
+start_phase(start_trails_http, _StartType, []) ->
+  Port = 18080, %% todo make configurable
+  Trails = trails:trails([emqx_api_nodes,
+                          cowboy_swagger_handler]),
+  trails:store(Trails),
+  Dispatch      = trails:single_host_compile(Trails),
+  RanchOptions  = [{port, Port}],
+  CowboyOptions = #{ env      => #{dispatch => Dispatch}
+                   , compress => true
+                   , timeout  => 12000
+                   },
+  {ok, _} = cowboy:start_clear(emqx_api, RanchOptions, CowboyOptions),
+  ok.
