@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(STATS_KYES, [recv_pkt, recv_msg, send_pkt, send_msg,
                      recv_oct, recv_cnt, send_oct, send_cnt,
@@ -37,6 +38,19 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
+
+init_per_testcase(TestCase, Config) ->
+    case erlang:function_exported(?MODULE, TestCase, 2) of
+        true -> ?MODULE:TestCase(init, Config);
+        false -> Config
+    end.
+
+end_per_testcase(TestCase, Config) ->
+    case erlang:function_exported(?MODULE, TestCase, 2) of
+        true -> ?MODULE:TestCase('end', Config);
+        false -> ok
+    end,
+    Config.
 
 t_conn_stats(_) ->
     with_client(fun(CPid) ->
@@ -134,3 +148,41 @@ with_client(TestFun, _Options) ->
             emqtt:stop(C)
     end.
 
+t_async_set_keepalive(init, Config) ->
+    ok = snabbkaffe:start_trace(),
+    Config;
+t_async_set_keepalive('end', _Config) ->
+    snabbkaffe:stop(),
+    ok.
+
+t_async_set_keepalive(_) ->
+    ClientID = <<"client-tcp-keepalive">>,
+    {ok, Client} = emqtt:start_link([{host, "localhost"},
+                                     {proto_ver,v5},
+                                     {clientid, ClientID},
+                                     {clean_start, false}]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _} = ?block_until(#{?snk_kind := insert_channel_info,
+                             client_id := ClientID}, 2000, 100),
+    [Pid] = emqx_cm:lookup_channels(ClientID),
+    State = emqx_connection:get_state(Pid),
+    Transport = maps:get(transport, State),
+    Socket = maps:get(socket, State),
+    ?assert(is_port(Socket)),
+    Opts = [{raw, 6, 4, 4}, {raw, 6, 5, 4}, {raw, 6, 6, 4}],
+    {ok, [ {raw, 6, 4, <<Idle:32/native>>}
+         , {raw, 6, 5, <<Interval:32/native>>}
+         , {raw, 6, 6, <<Probes:32/native>>}
+         ]} = Transport:getopts(Socket, Opts),
+    ct:pal("Idle=~p, Interval=~p, Probes=~p", [Idle, Interval, Probes]),
+    emqx_connection:async_set_keepalive(Pid, Idle + 1, Interval + 1, Probes + 1),
+    {ok, _} = ?block_until(#{?snk_kind := "custom_socket_options_successfully"}, 1000),
+    {ok, [ {raw, 6, 4, <<NewIdle:32/native>>}
+         , {raw, 6, 5, <<NewInterval:32/native>>}
+         , {raw, 6, 6, <<NewProbes:32/native>>}
+         ]} = Transport:getopts(Socket, Opts),
+    ?assertEqual(NewIdle, Idle + 1),
+    ?assertEqual(NewInterval, Interval + 1),
+    ?assertEqual(NewProbes, Probes + 1),
+    emqtt:stop(Client),
+    ok.

@@ -45,15 +45,27 @@ censor(Path, M) when is_map(M) ->
     maps:map(Fun, M);
 censor(Path, L = [Fst|_]) when is_tuple(Fst) ->
     [censor(Path, I) || I <- L];
-censor(Path, Val) ->
-    case Path of
-        [password|_] ->
-            obfuscate_value(Val);
-        [secret|_]  ->
-            obfuscate_value(Val);
-        _ ->
-            Val
+censor([Key | _], Val) ->
+    case is_sensitive(Key) of
+        true -> obfuscate_value(Val);
+        false -> Val
     end.
+
+is_sensitive(Key) when is_atom(Key) ->
+    is_sensitive(atom_to_binary(Key));
+is_sensitive(Key) when is_list(Key) ->
+    try iolist_to_binary(Key) of
+        Bin ->
+            is_sensitive(Bin)
+    catch
+        _ : _ ->
+            false
+    end;
+is_sensitive(Key) when is_binary(Key) ->
+    lists:any(fun(Pattern) -> re:run(Key, Pattern) =/= nomatch end,
+              ["passwd", "password", "secret"]);
+is_sensitive(Key) when is_tuple(Key) ->
+    false.
 
 obfuscate_value(Val) when is_binary(Val) ->
     <<"********">>;

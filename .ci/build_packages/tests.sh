@@ -31,7 +31,7 @@ emqx_test(){
                 echo "running ${packagename} start"
                 "${PACKAGE_PATH}"/emqx/bin/emqx start || ( tail "${PACKAGE_PATH}"/emqx/log/emqx.log.1 && exit 1 )
                 IDLE_TIME=0
-                while [ -z "$("${PACKAGE_PATH}"/emqx/bin/emqx_ctl status |grep 'is running'|awk '{print $1}')" ]
+                while ! "${PACKAGE_PATH}"/emqx/bin/emqx_ctl status | grep -qE 'Node\s.*@.*\sis\sstarted'
                 do
                     if [ $IDLE_TIME -gt 10 ]
                     then
@@ -103,7 +103,7 @@ running_test(){
 
     emqx start || ( tail /var/log/emqx/emqx.log.1 && exit 1 )
     IDLE_TIME=0
-    while [ -z "$(emqx_ctl status |grep 'is running'|awk '{print $1}')" ]
+    while ! emqx_ctl status | grep -qE 'Node\s.*@.*\sis\sstarted'
     do
         if [ $IDLE_TIME -gt 10 ]
         then
@@ -121,7 +121,7 @@ running_test(){
     || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] ;then
         service emqx start || ( tail /var/log/emqx/emqx.log.1 && exit 1 )
         IDLE_TIME=0
-        while [ -z "$(emqx_ctl status |grep 'is running'|awk '{print $1}')" ]
+        while ! emqx_ctl status | grep -E 'Node\s.*@.*\sis\sstarted'
         do
             if [ $IDLE_TIME -gt 10 ]
             then

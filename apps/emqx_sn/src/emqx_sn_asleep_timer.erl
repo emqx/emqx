@@ -18,6 +18,7 @@
 
 -export([ init/0
         , ensure/2
+        , cancel/1
         ]).
 
 -record(asleep_state, {
@@ -42,8 +43,8 @@ init() ->
 -spec(ensure(undefined | integer(), asleep_state()) -> asleep_state()).
 ensure(undefined, State = #asleep_state{duration = Duration}) ->
     ensure(Duration, State);
-ensure(Duration, State = #asleep_state{tref = TRef}) ->
-    _ = cancel(TRef),
+ensure(Duration, State) ->
+    cancel(State),
     State#asleep_state{duration = Duration, tref = start(Duration)}.
 
 %%--------------------------------------------------------------------
@@ -55,6 +56,10 @@ ensure(Duration, State = #asleep_state{tref = TRef}) ->
 start(Duration) ->
     erlang:send_after(timer:seconds(Duration), self(), asleep_timeout).
 
-cancel(undefined) -> ok;
-cancel(TRef) when is_reference(TRef) ->
-    erlang:cancel_timer(TRef).
+cancel(#asleep_state{tref = Timer}) when is_reference(Timer) ->
+    case erlang:cancel_timer(Timer) of
+        false ->
+            receive {timeout, Timer, _} -> ok after 0 -> ok end;
+        _ -> ok
+    end;
+cancel(_) -> ok.

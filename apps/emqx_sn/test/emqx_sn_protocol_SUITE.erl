@@ -856,7 +856,7 @@ t_will_test2(_) ->
     send_pingreq_msg(Socket, undefined),
     ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
 
-    timer:sleep(10000),
+    timer:sleep(4000),
 
     receive_response(Socket), % ignore PUBACK
     receive_response(Socket), % ignore PUBCOMP
@@ -878,7 +878,7 @@ t_will_test3(_) ->
     send_pingreq_msg(Socket, undefined),
     ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
 
-    timer:sleep(10000),
+    timer:sleep(4000),
 
     ?assertEqual(udp_receive_timeout, receive_response(Socket)),
 
@@ -906,7 +906,7 @@ t_will_test4(_) ->
     send_willmsgupd_msg(Socket, <<"1A2B3C">>),
     ?assertEqual(<<3, ?SN_WILLMSGRESP, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
 
-    timer:sleep(10000),
+    timer:sleep(4000),
 
     receive_response(Socket), % ignore PUBACK
 
@@ -1359,7 +1359,7 @@ t_asleep_test07_to_connected(_) ->
     timer:sleep(1500),
     % asleep timer should get timeout, without any effect
 
-    timer:sleep(9000),
+    timer:sleep(4000),
     % keepalive timer should get timeout
 
     gen_udp:close(Socket).
@@ -1517,7 +1517,7 @@ t_awake_test01_to_connected(_) ->
     timer:sleep(1500),
     % asleep timer should get timeout
 
-    timer:sleep(9000),
+    timer:sleep(4000),
     % keepalive timer should get timeout
     gen_udp:close(Socket).
 

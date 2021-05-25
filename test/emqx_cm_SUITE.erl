@@ -21,6 +21,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(CM, emqx_cm).
 -define(ChanInfo,#{conninfo =>
@@ -178,6 +179,18 @@ t_discard_session(_) ->
     ok = emqx_cm:discard_session(<<"clientid">>),
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ok = meck:unload(emqx_connection).
+
+t_discard_session_race(_) ->
+    ok = snabbkaffe:start_trace(),
+    #{conninfo := ConnInfo0} = ?ChanInfo,
+    ConnInfo = ConnInfo0#{conn_mod := emqx_ws_connection},
+    {Pid, Ref} = spawn_monitor(fun() -> receive stop -> exit(normal) end end),
+    ok = emqx_cm:register_channel(<<"clientid">>, Pid, ConnInfo),
+    Pid ! stop,
+    receive {'DOWN', Ref, process, Pid, normal} -> ok end,
+    ok = emqx_cm:discard_session(<<"clientid">>),
+    {ok, _} = ?block_until(#{?snk_kind := "session_already_gone", pid := Pid}, 1000),
+    snabbkaffe:stop().
 
 t_takeover_session(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,

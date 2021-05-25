@@ -408,7 +408,7 @@ refresh_resource_status() ->
         fun(#resource{id = ResId, type = ResType}) ->
             case emqx_rule_registry:find_resource_type(ResType) of
                 {ok, #resource_type{on_status = {Mod, OnStatus}}} ->
-                    fetch_resource_status(Mod, OnStatus, ResId);
+                    _ = fetch_resource_status(Mod, OnStatus, ResId);
                 _ -> ok
             end
         end, emqx_rule_registry:get_resources()).
@@ -588,27 +588,26 @@ clear_action(Module, Destroy, ActionInstId) ->
 fetch_resource_status(Module, OnStatus, ResId) ->
     case emqx_rule_registry:find_resource_params(ResId) of
         {ok, ResParams = #resource_params{params = Params, status = #{is_alive := LastIsAlive}}} ->
-            try
-                NewStatus =
-                    case Module:OnStatus(ResId, Params) of
-                        #{is_alive := LastIsAlive} = Status -> Status;
-                        #{is_alive := true} = Status ->
-                            {ok, Type} = find_type(ResId),
-                            Name = alarm_name_of_resource_down(Type, ResId),
-                            emqx_alarm:deactivate(Name),
-                            Status;
-                        #{is_alive := false} = Status ->
-                            {ok, Type} = find_type(ResId),
-                            Name = alarm_name_of_resource_down(Type, ResId),
-                            emqx_alarm:activate(Name, #{id => ResId, type => Type}),
-                            Status
-                    end,
-                emqx_rule_registry:add_resource_params(ResParams#resource_params{status = NewStatus}),
-                NewStatus
+            NewStatus = try
+                case Module:OnStatus(ResId, Params) of
+                    #{is_alive := LastIsAlive} = Status -> Status;
+                    #{is_alive := true} = Status ->
+                        {ok, Type} = find_type(ResId),
+                        Name = alarm_name_of_resource_down(Type, ResId),
+                        emqx_alarm:deactivate(Name),
+                        Status;
+                    #{is_alive := false} = Status ->
+                        {ok, Type} = find_type(ResId),
+                        Name = alarm_name_of_resource_down(Type, ResId),
+                        emqx_alarm:activate(Name, #{id => ResId, type => Type}),
+                        Status
+                end
             catch _Error:Reason:STrace ->
                 ?LOG(error, "get resource status for ~p failed: ~0p", [ResId, {Reason, STrace}]),
                 #{is_alive => false}
-            end;
+            end,
+            emqx_rule_registry:add_resource_params(ResParams#resource_params{status = NewStatus}),
+            NewStatus;
         not_found ->
             #{is_alive => false}
     end.
