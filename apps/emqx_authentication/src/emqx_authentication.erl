@@ -92,7 +92,7 @@ enable() ->
     % end.
 
 disable() ->
-    emqx:unhook('client.authenticate', {}),
+    emqx:unhook('client.authenticate', fun emqx_authentication:authenticate/1),
     % emqx:unhook('client.enhanced_authenticate', {}),
     ok.
 
