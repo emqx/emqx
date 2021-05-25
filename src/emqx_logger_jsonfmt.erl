@@ -32,6 +32,9 @@
 -export([format/2]).
 
 -ifdef(TEST).
+-include_lib("proper/include/proper.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
 -export([report_cb_1/1, report_cb_2/2, report_cb_crash/2]).
 -endif.
 
@@ -220,8 +223,6 @@ json_key(Term) ->
     end.
 
 -ifdef(TEST).
--include_lib("proper/include/proper.hrl").
--include_lib("eunit/include/eunit.hrl").
 
 no_crash_test_() ->
     Opts = [{numtests, 1000}, {to_file, user}],
