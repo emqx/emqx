@@ -1,6 +1,13 @@
-%% -*-: erlang -*-
+%% -*- mode: erlang -*-
 {VSN,
  [
+   {"4.3.2", [
+     {load_module, emqx_logger_textfmt, brutal_purge, soft_purge, []},
+     {load_module, emqx_bridge_worker, brutal_purge, soft_purge, []},
+     {load_module, emqx_connection, brutal_purge, soft_purge, []},
+     {load_module, emqx_cm, brutal_purge, soft_purge, []},
+     {load_module, emqx_telemetry, brutal_purge, soft_purge, []}
+   ]},
    {"4.3.1", [
      {load_module, emqx_connection, brutal_purge, soft_purge, []},
      {load_module, emqx_frame, brutal_purge, soft_purge, []},

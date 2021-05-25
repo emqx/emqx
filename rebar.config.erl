@@ -46,6 +46,8 @@ overrides() ->
     [ {add, [ {extra_src_dirs, [{"etc", [{recursive,true}]}]}
             , {erl_opts, [{compile_info, [{emqx_vsn, get_vsn()}]}]}
             ]}
+    , {add, snabbkaffe,
+       [{erl_opts, common_compile_opts()}]}
     ] ++ community_plugin_overrides().
 
 community_plugin_overrides() ->
@@ -106,6 +108,7 @@ test_deps() ->
 common_compile_opts() ->
     [ debug_info % alwyas include debug_info
     , {compile_info, [{emqx_vsn, get_vsn()}]}
+    , {d, snk_kind, msg}
     ] ++
     [{d, 'EMQX_ENTERPRISE'} || is_enterprise()] ++
     [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].
