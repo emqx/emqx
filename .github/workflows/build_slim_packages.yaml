@@ -88,6 +88,8 @@ jobs:
     - name: build
       run: |
         . $HOME/.kerl/${{ matrix.erl_otp }}/activate
+        make ensure-rebar3
+        export PATH="$(pwd):$PATH"
         make ${EMQX_NAME}-zip
     - name: test
       run: |

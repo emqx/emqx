@@ -34,12 +34,13 @@ fi
 
 get_assets(){
     # Get the download URL of our desired asset
-    download_url="$(curl --silent --show-error \
-        --header "${AUTH}" \
-        --header "Accept: application/vnd.github.v3+json" \
-        "https://api.github.com/repos/emqx/${DASHBOARD_REPO}/releases/tags/${VERSION}" \
-        | jq --raw-output ".assets[] | select(.name==\"${RELEASE_ASSET_FILE}\").url" \
-        | tr -d '\n' | tr -d '\r')"
+    release_url="https://api.github.com/repos/emqx/${DASHBOARD_REPO}/releases/tags/${VERSION}"
+    release_info="$(curl --silent --show-error --header "${AUTH}" --header "Accept: application/vnd.github.v3+json" "$release_url")"
+    if ! download_url="$(echo "$release_info" | jq --raw-output ".assets[] | select(.name==\"${RELEASE_ASSET_FILE}\").url" | tr -d '\n' | tr -d '\r')"; then
+        echo "failed to query $release_url"
+        echo "${release_info}"
+        exit 1
+    fi
     # Get GitHub's S3 redirect URL
     redirect_url=$(curl --silent --show-error \
         --header "${AUTH}" \
