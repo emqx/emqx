@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@
 -include("emqx_authentication.hrl").
 
 -export([ create/3
+        , update/4
         , authenticate/2
         , destroy/1
         ]).
@@ -87,6 +88,9 @@ create(ChainID, ServiceName, #{<<"user_identity_type">> := Type,
               user_identity_type => binary_to_atom(Type, utf8),
               password_hash_algorithm => binary_to_atom(Algorithm, utf8)},
     {ok, State}.
+
+update(ChainID, ServiceName, Params, _State) ->
+    create(ChainID, ServiceName, Params).
 
 authenticate(ClientInfo = #{password := Password},
              #{user_group := UserGroup,

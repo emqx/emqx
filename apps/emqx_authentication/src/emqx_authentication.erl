@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -29,13 +29,15 @@
 -export([ create_chain/1
         , delete_chain/1
         , lookup_chain/1
-        , add_services_to_chain/2
-        , delete_services_from_chain/2
+        , list_chains/0
+        , add_services/2
+        , delete_services/2
+        , update_service/3
         , lookup_service/2
         , list_services/1
-        , move_service_to_the_front_of_chain/2
-        , move_service_to_the_end_of_chain/2
-        , move_service_to_the_nth_of_chain/3
+        , move_service_to_the_front/2
+        , move_service_to_the_end/2
+        , move_service_to_the_nth/3
         ]).
 
 -export([ import_user_credentials/4
@@ -135,7 +137,7 @@ register_service_types([{_App, Mod, #{name := Name,
     register_service_types(Types, [ServiceType | Acc]).
 
 create_chain(Params = #{chain_id := ChainID}) ->
-    ServiceParams = maps:get(service_params, Params, []),
+    ServiceParams = maps:get(services, Params, []),
     case validate_service_params(ServiceParams) of
         {ok, NServiceParams} ->
             trans(
@@ -167,7 +169,7 @@ delete_chain(ChainID) ->
                 [] ->
                     {error, {not_found, {chain, ChainID}}};
                 [#chain{services = Services}] ->
-                    ok = delete_services(Services),
+                    ok = delete_services_(Services),
                     mnesia:delete(?CHAIN_TAB, ChainID, write)
             end
         end).
@@ -180,7 +182,11 @@ lookup_chain(ChainID) ->
             {ok, serialize_chain(Chain)}
     end.
 
-add_services_to_chain(ChainID, ServiceParams) ->
+list_chains() ->
+    Chains = ets:tab2list(?CHAIN_TAB),
+    [serialize_chain(Chain) || Chain <- Chains].
+
+add_services(ChainID, ServiceParams) ->
     case validate_service_params(ServiceParams) of
         {ok, NServiceParams} ->
             UpdateFun = fun(Chain = #chain{services = Services}) ->
@@ -203,13 +209,13 @@ add_services_to_chain(ChainID, ServiceParams) ->
             {error, Reason}
     end.
 
-delete_services_from_chain(ChainID, ServiceNames) ->
+delete_services(ChainID, ServiceNames) ->
     case no_duplicate_names(ServiceNames) of
         ok ->
             UpdateFun = fun(Chain = #chain{services = Services}) ->
                             case extract_services(ServiceNames, Services) of
                                 {ok, Extracted, Rest} ->
-                                    ok = delete_services(Extracted),
+                                    ok = delete_services_(Extracted),
                                     NChain = Chain#chain{services = Rest},
                                     mnesia:write(?CHAIN_TAB, NChain, write);
                                 {error, Reason} ->
@@ -220,6 +226,31 @@ delete_services_from_chain(ChainID, ServiceNames) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+update_service(ChainID, ServiceName, NewParams) ->
+    UpdateFun = fun(Chain = #chain{services = Services}) ->
+                    case proplists:get_value(ServiceName, Services, undefined) of
+                        undefined ->
+                            {error, {not_found, {service, ServiceName}}};
+                        #service{type     = Type,
+                                 provider = Provider,
+                                 params   = OriginalParams,
+                                 state    = State} = Service ->
+                            Params = maps:merge(OriginalParams, NewParams),
+                            {ok, #service_type{params_spec = ParamsSpec}} = find_service_type(Type),
+                            NParams = emqx_rule_validator:validate_params(Params, ParamsSpec),
+                            case Provider:update(ChainID, ServiceName, NParams, State) of
+                                {ok, NState} ->
+                                    NService = Service#service{params = Params,
+                                                               state = NState},
+                                    NServices = lists:keyreplace(ServiceName, 1, Services, [{ServiceName, NService}]),
+                                    mnesia:write(?CHAIN_TAB, Chain#chain{services = NServices}, write);
+                                {error, Reason} ->
+                                    {error, Reason}
+                            end
+                    end
+                 end,
+    update_chain(ChainID, UpdateFun).
 
 lookup_service(ChainID, ServiceName) ->
     case mnesia:dirty_read(?CHAIN_TAB, ChainID) of
@@ -242,9 +273,9 @@ list_services(ChainID) ->
             {ok, [serialize_service(Service) || Service <- Services]}
     end.
 
-move_service_to_the_front_of_chain(ChainID, ServiceName) ->
+move_service_to_the_front(ChainID, ServiceName) ->
     UpdateFun = fun(Chain = #chain{services = Services}) ->
-                    case move_service_to_the_front(ServiceName, Services) of
+                    case move_service_to_the_front_(ServiceName, Services) of
                         {ok, NServices} ->
                             NChain = Chain#chain{services = NServices},
                             mnesia:write(?CHAIN_TAB, NChain, write);
@@ -254,9 +285,9 @@ move_service_to_the_front_of_chain(ChainID, ServiceName) ->
                  end,
     update_chain(ChainID, UpdateFun).
 
-move_service_to_the_end_of_chain(ChainID, ServiceName) ->
+move_service_to_the_end(ChainID, ServiceName) ->
     UpdateFun = fun(Chain = #chain{services = Services}) ->
-                    case move_service_to_the_end(ServiceName, Services) of
+                    case move_service_to_the_end_(ServiceName, Services) of
                         {ok, NServices} ->
                             NChain = Chain#chain{services = NServices},
                             mnesia:write(?CHAIN_TAB, NChain, write);
@@ -266,9 +297,9 @@ move_service_to_the_end_of_chain(ChainID, ServiceName) ->
                  end,
     update_chain(ChainID, UpdateFun).
 
-move_service_to_the_nth_of_chain(ChainID, ServiceName, N) ->
+move_service_to_the_nth(ChainID, ServiceName, N) ->
     UpdateFun = fun(Chain = #chain{services = Services}) ->
-                    case move_service_to_nth(ServiceName, Services, N) of
+                    case move_service_to_the_nth_(ServiceName, Services, N) of
                         {ok, NServices} ->
                             NChain = Chain#chain{services = NServices},
                             mnesia:write(?CHAIN_TAB, NChain, write);
@@ -380,15 +411,15 @@ create_services(ChainID, [#{name := Name,
                                state = State},
             create_services(ChainID, More, [{Name, Service} | Acc]);
         {error, Reason} ->
-            delete_services(Acc),
+            delete_services_(Acc),
             {error, Reason}
     end.
 
-delete_services([]) ->
+delete_services_([]) ->
     ok;
-delete_services([{_, #service{provider = Provider, state = State}} | More]) ->
+delete_services_([{_, #service{provider = Provider, state = State}} | More]) ->
     Provider:destroy(State),
-    delete_services(More).
+    delete_services_(More).
 
 extract_services(ServiceNames, Services) ->
     extract_services(ServiceNames, Services, []).
@@ -403,43 +434,43 @@ extract_services([ServiceName | More], Services, Acc) ->
             {error, {not_found, {service, ServiceName}}}
     end.
     
-move_service_to_the_front(ServiceName, Services) ->
-    move_service_to_the_front(ServiceName, Services, []).
+move_service_to_the_front_(ServiceName, Services) ->
+    move_service_to_the_front_(ServiceName, Services, []).
 
-move_service_to_the_front(ServiceName, [], _) ->
+move_service_to_the_front_(ServiceName, [], _) ->
     {error, {not_found, {service, ServiceName}}};
-move_service_to_the_front(ServiceName, [{ServiceName, _} = Service | More], Passed) ->
+move_service_to_the_front_(ServiceName, [{ServiceName, _} = Service | More], Passed) ->
     {ok, [Service | (lists:reverse(Passed) ++ More)]};
-move_service_to_the_front(ServiceName, [Service | More], Passed) ->
-    move_service_to_the_front(ServiceName, More, [Service | Passed]).
+move_service_to_the_front_(ServiceName, [Service | More], Passed) ->
+    move_service_to_the_front_(ServiceName, More, [Service | Passed]).
 
-move_service_to_the_end(ServiceName, Services) ->
-    move_service_to_the_end(ServiceName, Services, []).
+move_service_to_the_end_(ServiceName, Services) ->
+    move_service_to_the_end_(ServiceName, Services, []).
 
-move_service_to_the_end(ServiceName, [], _) ->
+move_service_to_the_end_(ServiceName, [], _) ->
     {error, {not_found, {service, ServiceName}}};
-move_service_to_the_end(ServiceName, [{ServiceName, _} = Service | More], Passed) ->
+move_service_to_the_end_(ServiceName, [{ServiceName, _} = Service | More], Passed) ->
     {ok, lists:reverse(Passed) ++ More ++ [Service]};
-move_service_to_the_end(ServiceName, [Service | More], Passed) ->
-    move_service_to_the_end(ServiceName, More, [Service | Passed]).
+move_service_to_the_end_(ServiceName, [Service | More], Passed) ->
+    move_service_to_the_end_(ServiceName, More, [Service | Passed]).
 
-move_service_to_nth(ServiceName, Services, N)
+move_service_to_the_nth_(ServiceName, Services, N)
   when N =< length(Services) andalso N > 0 ->
-    move_service_to_nth(ServiceName, Services, N, []);
-move_service_to_nth(_, _, _) ->
+    move_service_to_the_nth_(ServiceName, Services, N, []);
+move_service_to_the_nth_(_, _, _) ->
     {error, out_of_range}.
 
-move_service_to_nth(ServiceName, [], _, _) ->
+move_service_to_the_nth_(ServiceName, [], _, _) ->
     {error, {not_found, {service, ServiceName}}};
-move_service_to_nth(ServiceName, [{ServiceName, _} = Service | More], N, Passed)
+move_service_to_the_nth_(ServiceName, [{ServiceName, _} = Service | More], N, Passed)
   when N =< length(Passed) ->
     {L1, L2} = lists:split(N - 1, lists:reverse(Passed)),
     {ok, L1 ++ [Service] ++ L2 ++ More};
-move_service_to_nth(ServiceName, [{ServiceName, _} = Service | More], N, Passed) ->
+move_service_to_the_nth_(ServiceName, [{ServiceName, _} = Service | More], N, Passed) ->
     {L1, L2} = lists:split(N - length(Passed) - 1, More),
     {ok, lists:reverse(Passed) ++ L1 ++ [Service] ++ L2};
-move_service_to_nth(ServiceName, [Service | More], N, Passed) ->
-    move_service_to_nth(ServiceName, More, N, [Service | Passed]).
+move_service_to_the_nth_(ServiceName, [Service | More], N, Passed) ->
+    move_service_to_the_nth_(ServiceName, More, N, [Service | Passed]).
 
 update_chain(ChainID, UpdateFun) ->
     trans(
@@ -477,7 +508,6 @@ serialize_chain(#chain{id = ID,
     #{id => ID,
       services => [serialize_service(Service) || Service <- Services],
       created_at => CreatedAt}.
-
 
 serialize_service({_, #service{name = Name,
                                type = Type,
