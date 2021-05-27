@@ -1,9 +1,23 @@
-# DONOT EDIT! generated from .github/workflows/.templates/generate
-# instead, edit .github/workflows/.templates/build_packages.yaml and re-generate
+{% if not slim %}
+name: Cross build packages
+{% else %}
 name: Build slim packages
+{% endif %}
 
 on:
+{% if not slim %}
+  schedule:
+    - cron:  '0 */6 * * *'
+  push:
+    tags:
+      - v*
+      - e*
+  release:
+    types:
+      - published
+{% else %}
   pull_request:
+{% endif %}
   workflow_dispatch:
 
 jobs:
@@ -196,8 +210,23 @@ jobs:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         arch:
           - amd64
+            {%- if not slim %}
+          - arm64
+            {%- endif %}
         os:
           - ubuntu20.04
+            {%- if not slim %}
+          - ubuntu18.04
+          - ubuntu16.04
+          - debian10
+          - debian9
+          # - opensuse
+          - centos8
+          - centos7
+          - centos6
+          - raspbian10
+          - raspbian9
+            {%- endif %}
         exclude:
         - os: centos6
           arch: arm64
@@ -314,6 +343,12 @@ jobs:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         arch:
           - [amd64, x86_64]
+            {%- if not slim %}
+          - [arm64v8, aarch64]
+          - [arm32v7, arm]
+          - [i386, i386]
+          - [s390x, s390x]
+            {%- endif %}
         exclude:
           - profile: emqx-ee
             arch: [i386, i386]
@@ -352,4 +387,116 @@ jobs:
       with:
         name: source
 
+{% if not slim %}
+  upload:
+    runs-on: ubuntu-20.04
 
+    if: startsWith(github.ref, 'refs/tags/')
+
+    needs: [prepare, mac, linux, docker]
+
+    strategy:
+      matrix:
+        profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: get_version
+      run: |
+        echo 'version<<EOF' >> $GITHUB_ENV
+        echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g" >> $GITHUB_ENV
+        echo 'EOF' >> $GITHUB_ENV
+    - uses: actions/download-artifact@v2
+      with:
+        name: ${{ matrix.profile }}
+        path: ./_packages/${{ matrix.profile }}
+    - name: install dos2unix
+      run: sudo apt-get update && sudo apt install -y dos2unix
+    - name: get packages
+      run: |
+        set -e -u
+        cd _packages/${{ matrix.profile }}
+        for var in $( ls |grep emqx |grep -v sha256); do
+          dos2unix $var.sha256
+          echo "$(cat $var.sha256) $var" | sha256sum -c || exit 1
+        done
+        cd -
+    - name: upload aws s3
+      run: |
+        set -e -u
+        if [ "${{ matrix.profile }}"  == "emqx" ];then
+            broker="emqx-ce"
+        else
+            broker=${{ matrix.profile }}
+        fi
+        aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws configure set default.region ${{ secrets.AWS_DEFAULT_REGION }}
+
+        aws s3 cp --recursive _packages/${{ matrix.profile }} s3://${{ secrets.AWS_S3_BUCKET }}/$broker/${{ env.version }}
+        aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_CLOUDFRONT_ID }} --paths "/$broker/${{ env.version }}/*"
+    - uses: Rory-Z/upload-release-asset@v1
+      if: github.event_name == 'release' && matrix.profile != 'emqx-ee'
+      with:
+        repo: emqx
+        path: "_packages/${{ matrix.profile }}/emqx-*"
+        token: ${{ github.token }}
+    - uses: Rory-Z/upload-release-asset@v1
+      if: github.event_name == 'release' && matrix.profile == 'emqx-ee'
+      with:
+        repo: emqx-enterprise
+        path: "_packages/${{ matrix.profile }}/emqx-*"
+        token: ${{ github.token }}
+    - name: update to emqx.io
+      if: github.event_name == 'release'
+      run: |
+        set -e -x -u
+        curl -w %{http_code} \
+             --insecure \
+             -H "Content-Type: application/json" \
+             -H "token: ${{ secrets.EMQX_IO_TOKEN }}" \
+             -X POST \
+             -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ env.version }}\" }" \
+             ${{ secrets.EMQX_IO_RELEASE_API }}
+    - name: push docker image to docker hub
+      if: github.event_name == 'release'
+      run: |
+        set -e -x -u
+        sudo make docker-prepare
+        cd _packages/${{ matrix.profile }} && for var in $(ls |grep docker |grep -v sha256); do unzip $var; sudo docker load < ${var%.*}; rm -f ${var%.*}; done && cd -
+        echo ${{ secrets.DOCKER_HUB_TOKEN }} |sudo docker login -u ${{ secrets.DOCKER_HUB_USER }} --password-stdin
+        sudo TARGET=emqx/${{ matrix.profile }} make docker-push
+        sudo TARGET=emqx/${{ matrix.profile }} make docker-manifest-list
+    - name: update repo.emqx.io
+      if: github.event_name == 'release' && endsWith(github.repository, 'enterprise') && matrix.profile == 'emqx-ee'
+      run: |
+        curl --silent --show-error \
+          -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          -X POST \
+          -d "{\"ref\":\"v1.0.1\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ee\": \"true\"}}" \
+          "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_repos.yaml/dispatches"
+    - name: update repo.emqx.io
+      if: github.event_name == 'release' && endsWith(github.repository, 'emqx') && matrix.profile == 'emqx'
+      run: |
+        curl --silent --show-error \
+          -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          -X POST \
+          -d "{\"ref\":\"v1.0.1\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ce\": \"true\"}}" \
+          "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_repos.yaml/dispatches"
+    - name: update homebrew packages
+      if: github.event_name == 'release' && endsWith(github.repository, 'emqx') && matrix.profile == 'emqx'
+      run: |
+        if [ -z $(echo $version | grep -oE "(alpha|beta|rc)\.[0-9]") ]; then
+            curl --silent --show-error \
+              -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -X POST \
+              -d "{\"ref\":\"v1.0.1\",\"inputs\":{\"version\": \"${{ env.version }}\"}}" \
+              "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_homebrew.yaml/dispatches"
+        fi
+    - uses: geekyeggo/delete-artifact@v1
+      with:
+        name: ${{ matrix.profile }}
+{% endif %}

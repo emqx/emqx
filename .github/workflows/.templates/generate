@@ -1,0 +1,98 @@
+#!/usr/bin/env escript
+
+% can't use jinja-cli because it's a template of template (read: '{{' '}}'), so...
+% here is a poor man's jinja template rendered in Erlang
+% used to render poor man's GitHub action work-flows
+
+-mode(compile).
+
+main(Args0) ->
+    Arg0 = escript:script_name(),
+    Args = parse_args(Arg0, Args0),
+    ThisDir = filename:dirname(Arg0),
+    TemplFile = filename:join([ThisDir, "build_packages.yaml"]),
+    {ok, Bin} = file:read_file(TemplFile),
+    Lines0 = binary:split(Bin, <<"\n">>, [global]),
+    Lines = render(Args, Lines0),
+    io:format(user, "# DONOT EDIT! generated from ~s~n", [Arg0]),
+    io:format(user, "# instead, edit ~s and re-generate~n", [TemplFile]),
+    lists:foreach(fun(L) -> io:format(user, "~s~n", [L]) end, Lines).
+
+parse_args(Arg0, []) -> usage(Arg0);
+parse_args(Arg0, Args) ->
+    try
+        do_parse_args(Args, #{})
+    catch
+        C : E : S ->
+            io:format(standard_error, "~p:~p~n~p~n", [C, E, S]),
+            usage(Arg0)
+    end.
+
+do_parse_args([], Res) -> Res;
+do_parse_args(["--slim", Bool | T], Res) ->
+    do_parse_args(T, Res#{slim => bool(Bool)}).
+
+bool(Bool) ->
+    case list_to_atom(Bool) of
+        B when is_boolean(B) -> B;
+        Other -> throw({bad_boolean, Other})
+    end.
+
+usage(Arg0) ->
+    io:format(user, "usage: ~s --slim <true|false>~n", [Arg0]),
+    halt(1).
+
+render(Args, Lines) ->
+    render(Args, Lines, _Stack = [], _Acc = []).
+
+render(_Args, [], Stack, Acc) ->
+    [] = Stack, %% assert
+    lists:reverse(Acc);
+render(Args, [Line | Lines], Stack, Acc) ->
+    {IsCollection, NewStack} = parse(Line, Args, Stack),
+    NewAcc = case IsCollection of
+                 true -> [Line | Acc];
+                 false -> Acc
+             end,
+    render(Args, Lines, NewStack, NewAcc).
+
+parse(Line, Args, Stack) ->
+    case trim(binary_to_list(Line)) of
+        "{%" ++ Cond0 ->
+            "}%" ++ Cond = lists:reverse(Cond0),
+            {false, parse_cond(trim(lists:reverse(Cond), $-), Stack)};
+        _ ->
+            {is_feed(Stack, Args), Stack}
+    end.
+
+trim(X) ->
+    trim(X, $\s).
+
+trim(X, C) ->
+    lists:reverse(trim_h(lists:reverse(trim_h(X, C)), C)).
+
+trim_h([C | X], C) -> trim_h(X, C);
+trim_h(X, _) -> X.
+
+is_feed([], _) -> true;
+is_feed([{is, BoolName} | _], Args) ->
+    maps:get(BoolName, Args);
+is_feed([{is_not, BoolName} | _], Args) ->
+    not maps:get(BoolName, Args).
+
+parse_cond(Cond, Stack) ->
+    case [I || I <- re:split(Cond, <<" ">>), I =/= <<>>] of
+        [<<"if">>, <<"not">>, BoolName] ->
+            [{is_not, binary_to_atom(BoolName)} | Stack];
+        [<<"if">>, BoolName] ->
+            [{is, binary_to_atom(BoolName)} | Stack];
+        [<<"else">>] ->
+            is_not(Stack);
+        [<<"endif">>] ->
+            tl(Stack)
+    end.
+
+is_not([{is, BoolName} | Stack]) ->
+    [{is_not, BoolName} | Stack];
+is_not([{is_not, BoolName} | Stack]) ->
+    [{is, BoolName} | Stack].

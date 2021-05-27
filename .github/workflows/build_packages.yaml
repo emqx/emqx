@@ -1,3 +1,5 @@
+# DONOT EDIT! generated from .github/workflows/.templates/generate
+# instead, edit .github/workflows/.templates/build_packages.yaml and re-generate
 name: Cross build packages
 
 on:
@@ -97,8 +99,7 @@ jobs:
         }
         make ensure-rebar3
         copy rebar3 "${{ steps.install_erlang.outputs.erlpath }}\bin"
-        ls "${{ steps.install_erlang.outputs.erlpath }}\bin"
-        rebar3 --help
+        rebar3 --version
         make ${{ matrix.profile }}
         mkdir -p _packages/${{ matrix.profile }}
         Compress-Archive -Path _build/${{ matrix.profile }}/rel/emqx -DestinationPath _build/${{ matrix.profile }}/rel/$pkg_name
@@ -128,7 +129,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
-          - 23.2.7.2
+          - 23.2.7.2-emqx-2
         exclude:
           - profile: emqx-edge
 
@@ -154,6 +155,7 @@ jobs:
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
       run: |
+        export OTP_GITHUB_URL="https://github.com/emqx/otp"
         kerl build ${{ matrix.erl_otp }}
         kerl install ${{ matrix.erl_otp }} $HOME/.kerl/${{ matrix.erl_otp }}
     - name: build
@@ -484,3 +486,4 @@ jobs:
     - uses: geekyeggo/delete-artifact@v1
       with:
         name: ${{ matrix.profile }}
+
