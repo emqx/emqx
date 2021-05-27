@@ -1,0 +1,15 @@
+%% -*- mode: erlang -*-
+{VSN,
+ [
+   {"4.3.0", [
+     {load_module, emqx_telemetry, brutal_purge, soft_purge, []}
+   ]},
+   {<<".*">>, []}
+ ],
+ [
+   {"4.3.0", [
+     {load_module, emqx_telemetry, brutal_purge, soft_purge, []}
+   ]},
+   {<<".*">>, []}
+ ]
+}.
