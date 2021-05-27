@@ -1,6 +1,9 @@
 %% -*-: erlang -*-
 {VSN,
   [
+    {"4.3.1", [
+      {load_module, emqx_mod_api_topic_metrics, brutal_purge, soft_purge, []}
+    ]},
     {"4.3.0", [
       {update, emqx_mod_delayed, {advanced, []}},
       {load_module, emqx_mod_api_topic_metrics, brutal_purge, soft_purge, []}
@@ -8,6 +11,9 @@
     {<<".*">>, []}
   ],
   [
+    {"4.3.1", [
+      {load_module, emqx_mod_api_topic_metrics, brutal_purge, soft_purge, []}
+    ]},
     {"4.3.0", [
       {update, emqx_mod_delayed, {advanced, []}},
       {load_module, emqx_mod_api_topic_metrics, brutal_purge, soft_purge, []}
