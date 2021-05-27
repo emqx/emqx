@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  ubuntu:
     runs-on: ubuntu-20.04
 
     strategy:
@@ -47,7 +47,7 @@ jobs:
         name: ${{ matrix.os }}
         path: _packages/**/*.zip
 
-  mac:
+  macos:
     runs-on: macos-10.15
 
     strategy:
@@ -117,3 +117,65 @@ jobs:
       with:
         name: macos
         path: _packages/**/*.zip
+
+  windows:
+    runs-on: windows-2019
+
+    needs: prepare
+    if: endsWith(github.repository, 'emqx')
+
+    strategy:
+      matrix:
+        profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        exclude:
+          - profile: emqx-edge
+
+    steps:
+    - uses: actions/download-artifact@v2
+      with:
+        name: source
+        path: .
+    - name: unzip source code
+      run: Expand-Archive -Path source.zip -DestinationPath ./
+    - uses: ilammy/msvc-dev-cmd@v1
+    - uses: gleam-lang/setup-erlang@v1.1.0
+      id: install_erlang
+      with:
+        otp-version: 23.2
+    - name: build
+      env:
+        PYTHON: python
+      run: |
+        $env:PATH = "${{ steps.install_erlang.outputs.erlpath }}\bin;$env:PATH"
+
+        $version = $( "${{ github.ref }}" -replace "^(.*)/(.*)/" )
+        if ($version -match "^v[0-9]+\.[0-9]+(\.[0-9]+)?") {
+          $regex = "[0-9]+\.[0-9]+(-alpha|-beta|-rc)?\.[0-9]+"
+          $pkg_name = "${{ matrix.profile }}-windows-$([regex]::matches($version, $regex).value).zip"
+          }
+        else {
+          $pkg_name = "${{ matrix.profile }}-windows-$($version -replace '/').zip"
+          }
+        cd source
+        ## We do not build/release bcrypt for windows package
+        Remove-Item -Recurse -Force -Path _build/default/lib/bcrypt/
+        if (Test-Path rebar.lock) {
+            Remove-Item -Force -Path rebar.lock
+        }
+        make ensure-rebar3
+        copy rebar3 "${{ steps.install_erlang.outputs.erlpath }}\bin"
+        rebar3 --version
+        make ${{ matrix.profile }}
+        mkdir -p _packages/${{ matrix.profile }}
+        Compress-Archive -Path _build/${{ matrix.profile }}/rel/emqx -DestinationPath _build/${{ matrix.profile }}/rel/$pkg_name
+        mv _build/${{ matrix.profile }}/rel/$pkg_name _packages/${{ matrix.profile }}
+        Get-FileHash -Path "_packages/${{ matrix.profile }}/$pkg_name" | Format-List | grep 'Hash' | awk '{print $3}'  > _packages/${{ matrix.profile }}/$pkg_name.sha256
+    - name: run emqx
+      timeout-minutes: 1
+      run: |
+        cd source
+        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
+        Start-Sleep -s 5
+        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
+        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
+        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
