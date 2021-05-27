@@ -89,7 +89,7 @@ jobs:
       run: |
         . $HOME/.kerl/${{ matrix.erl_otp }}/activate
         make ensure-rebar3
-        export PATH="$(pwd):$PATH"
+        sudo cp rebar3 /usr/local/bin/rebar3
         make ${EMQX_NAME}-zip
     - name: test
       run: |
