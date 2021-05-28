@@ -79,7 +79,7 @@ jobs:
         path: ~/.kerl
         key: erl${{ matrix.erl_otp }}-macos10.15
     - name: build erlang
-      # if: steps.cache.outputs.cache-hit != 'true'
+      if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
       run: |
         export OTP_GITHUB_URL="https://github.com/emqx/otp"
