@@ -5,14 +5,8 @@
 -mode(compile).
 
 main([]) ->
-    AppsDir = case filelib:is_file("EMQX_ENTERPRISE") of
-                  true -> "lib-ee";
-                  false -> "lib-ce"
-              end,
-    true = filelib:is_dir(AppsDir),
     Files = ["rebar.config"] ++
-            apps_rebar_config("apps") ++
-            apps_rebar_config(AppsDir),
+            apps_rebar_config("apps"),
     Deps = collect_deps(Files, #{}),
     case count_bad_deps(Deps) of
         0 ->

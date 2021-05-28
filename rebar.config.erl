@@ -71,14 +71,8 @@ is_cover_enabled() ->
 is_enterprise() ->
     filelib:is_regular("EMQX_ENTERPRISE").
 
-alternative_lib_dir() ->
-    case is_enterprise() of
-        true -> "lib-ee";
-        false -> "lib-ce"
-    end.
-
 project_app_dirs() ->
-    ["apps/*", alternative_lib_dir() ++ "/*", "."].
+    ["apps/*", "."].
 
 plugins(HasElixir) ->
     [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {tag, "2.0.0"}}}
@@ -178,13 +172,7 @@ overlay_vars_rel(RelType) ->
                  cloud -> "vm.args";
                  edge -> "vm.args.edge"
              end,
-    [ {enable_plugin_emqx_rule_engine, RelType =:= cloud}
-    , {enable_plugin_emqx_bridge_mqtt, RelType =:= edge}
-    , {enable_plugin_emqx_modules, false} %% modules is not a plugin in ce
-    , {enable_plugin_emqx_recon, true}
-    , {enable_plugin_emqx_retainer, true}
-    , {enable_plugin_emqx_telemetry, true}
-    , {vm_args_file, VmArgs}
+    [ {vm_args_file, VmArgs}
     ].
 
 %% vars per packaging type, bin(zip/tar.gz/docker) or pkg(rpm/deb)
@@ -237,17 +225,16 @@ relx_apps(ReleaseType) ->
     , {ekka, load}
     , {emqx_plugin_libs, load}
     , observer_cli
+    , {emqx_management, load}
+    , emqx_dashboard
     ]
-    ++ [emqx_modules || not is_enterprise()]
     ++ [emqx_license || is_enterprise()]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
     ++ relx_apps_per_rel(ReleaseType)
     ++ [{N, load} || N <- relx_plugin_apps(ReleaseType)].
 
 relx_apps_per_rel(cloud) ->
-    [ luerl
-    , xmerl
-    | [{observer, load} || is_app(observer)]
+    [ {observer, load} || is_app(observer)
     ];
 relx_apps_per_rel(edge) ->
     [].
@@ -259,47 +246,13 @@ is_app(Name) ->
         _ -> false
     end.
 
-relx_plugin_apps(ReleaseType) ->
-    [ emqx_retainer
-    , emqx_management
+relx_plugin_apps(_ReleaseType) ->
+    [ emqx_management
     , emqx_dashboard
-    , emqx_bridge_mqtt
-    , emqx_sn
-    , emqx_coap
-    , emqx_stomp
-    , emqx_auth_http
-    , emqx_auth_mysql
-    , emqx_auth_jwt
-    , emqx_auth_mnesia
-    , emqx_web_hook
-    , emqx_recon
-    , emqx_rule_engine
-    , emqx_sasl
     ]
-    ++ [emqx_telemetry || not is_enterprise()]
-    ++ relx_plugin_apps_per_rel(ReleaseType)
-    ++ relx_plugin_apps_enterprise(is_enterprise())
     ++ relx_plugin_apps_extra().
 
-relx_plugin_apps_per_rel(cloud) ->
-    [ emqx_lwm2m
-    , emqx_auth_ldap
-    , emqx_auth_pgsql
-    , emqx_auth_redis
-    , emqx_auth_mongo
-    , emqx_lua_hook
-    , emqx_exhook
-    , emqx_exproto
-    , emqx_prometheus
-    , emqx_psk_file
-    ];
-relx_plugin_apps_per_rel(edge) ->
-    [].
 
-relx_plugin_apps_enterprise(true) ->
-    [list_to_atom(A) || A <- filelib:wildcard("*", "lib-ee"),
-                        filelib:is_dir(filename:join(["lib-ee", A]))];
-relx_plugin_apps_enterprise(false) -> [].
 
 relx_plugin_apps_extra() ->
     {_HasElixir, ExtraDeps} = extra_deps(),
@@ -312,8 +265,6 @@ relx_overlay(ReleaseType) ->
     , {mkdir, "data/configs"}
     , {mkdir, "data/patches"}
     , {mkdir, "data/scripts"}
-    , {template, "data/loaded_plugins.tmpl", "data/loaded_plugins"}
-    , {template, "data/loaded_modules.tmpl", "data/loaded_modules"}
     , {template, "data/emqx_vars", "releases/emqx_vars"}
     , {copy, "bin/emqx", "bin/emqx"}
     , {copy, "bin/emqx_ctl", "bin/emqx_ctl"}
@@ -351,8 +302,7 @@ etc_overlay(ReleaseType) ->
     ++ extra_overlay(ReleaseType).
 
 extra_overlay(cloud) ->
-    [ {copy,"{{base_dir}}/lib/emqx_lwm2m/lwm2m_xml","etc/"}
-    , {copy, "{{base_dir}}/lib/emqx_psk_file/etc/psk.txt", "etc/psk.txt"}
+    [
     ];
 extra_overlay(edge) ->
     [].
@@ -386,8 +336,7 @@ community_plugin_etc_overlays(App0) ->
 %% the overlay should be hand-coded but not to rely on build-time wildcards.
 find_conf_files(App) ->
     Dir1 = filename:join(["apps", App, "etc"]),
-    Dir2 = filename:join([alternative_lib_dir(), App, "etc"]),
-    filelib:wildcard("*.conf", Dir1) ++ filelib:wildcard("*.conf", Dir2).
+    filelib:wildcard("*.conf", Dir1).
 
 env(Name, Default) ->
     case os:getenv(Name) of
@@ -427,8 +376,7 @@ provide_bcrypt_release(ReleaseType) ->
 
 erl_opts_i() ->
     [{i, "apps"}] ++
-    [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "*", "include"]))] ++
-    [{i, Dir}  || Dir <- filelib:wildcard(filename:join([alternative_lib_dir(), "*", "include"]))].
+    [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "*", "include"]))].
 
 dialyzer(Config) ->
     {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),
@@ -440,7 +388,7 @@ dialyzer(Config) ->
             [ list_to_atom(App) || App <- string:tokens(Value, ",")]
     end,
 
-    AppNames = [emqx | list_dir("apps")] ++ list_dir(alternative_lib_dir()),
+    AppNames = [emqx | list_dir("apps")],
 
     KnownApps = [Name ||  Name <- AppsToAnalyse, lists:member(Name, AppNames)],
 
