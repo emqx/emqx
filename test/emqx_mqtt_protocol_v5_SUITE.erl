@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(mqtt_protocol_v5_SUITE).
+-module(emqx_mqtt_protocol_v5_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -37,6 +37,7 @@ init_per_suite(Config) ->
     %% Meck emqtt
     ok = meck:new(emqtt, [non_strict, passthrough, no_history, no_link]),
     %% Start Apps
+    emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
     Config.
 
@@ -288,6 +289,9 @@ t_connect_emit_stats_timeout(_) ->
 
 %% [MQTT-3.1.2-22]
 t_connect_keepalive_timeout(_) ->
+    %% Prevent the emqtt client bringing us down on the disconnect.
+    process_flag(trap_exit, true),
+
     Keepalive = 2,
 
     {ok, Client} = emqtt:start_link([{proto_ver, v5},
