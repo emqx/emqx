@@ -1,0 +1,17 @@
+{application, emqx_resource,
+ [{description, "An OTP application"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {emqx_resource_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    gproc,
+    hocon
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.

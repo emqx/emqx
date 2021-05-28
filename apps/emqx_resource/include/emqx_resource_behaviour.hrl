@@ -1,0 +1,3 @@
+-include_lib("emqx_resource/include/emqx_resource.hrl").
+-behaviour(emqx_resource).
+-compile({parse_transform, emqx_resource_transform}).
