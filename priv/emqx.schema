@@ -2269,7 +2269,7 @@ end}.
 
 {mapping, "broker.session_locking_strategy", "emqx.session_locking_strategy", [
   {default, quorum},
-  {datatype, {enum, [local,one,quorum,all]}}
+  {datatype, {enum, [local,leader,quorum,all]}}
 ]}.
 
 %% @doc Shared Subscription Dispatch Strategy.
