@@ -13,7 +13,6 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
-
 -module(emqx_resource_instance).
 
 -behaviour(gen_server).

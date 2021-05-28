@@ -273,6 +273,7 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_auth_mnesia
     , emqx_web_hook
     , emqx_recon
+    , emqx_resource
     , emqx_rule_engine
     , emqx_sasl
     ]
