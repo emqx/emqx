@@ -2559,17 +2559,9 @@ start_apps() ->
                                    local_path("etc/emqx_rule_engine.conf")}]].
 
 start_apps(App, SchemaFile, ConfigFile) ->
-    read_schema_configs(App, SchemaFile, ConfigFile),
+    emqx_ct_helpers:read_schema_configs(SchemaFile, ConfigFile),
     set_special_configs(App),
     {ok, _} = application:ensure_all_started(App).
-
-read_schema_configs(App, SchemaFile, ConfigFile) ->
-    ct:pal("Read configs - SchemaFile: ~p, ConfigFile: ~p", [SchemaFile, ConfigFile]),
-    Schema = cuttlefish_schema:files([SchemaFile]),
-    {ok, Conf} = hocon:load(ConfigFile, #{format => proplists}),
-    NewConfig = cuttlefish_generator:map(Schema, Conf),
-    Vals = proplists:get_value(App, NewConfig, []),
-    [application:set_env(App, Par, Value) || {Par, Value} <- Vals].
 
 deps_path(App, RelativePath) ->
     %% Note: not lib_dir because etc dir is not sym-link-ed to _build dir
