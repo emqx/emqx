@@ -24,17 +24,18 @@
         , destroy/1
         ]).
 
--export([ import_user_credentials/3
-        , add_user_credential/2
-        , delete_user_credential/2
-        , update_user_credential/2
-        , lookup_user_credential/2
+-export([ import_users/2
+        , add_user/2
+        , delete_user/2
+        , update_user/3
+        , lookup_user/2
+        , list_users/1
         ]).
 
 -service_type(#{
     name => mnesia,
     params_spec => #{
-        user_identity_type => #{
+        user_id_type => #{
             order => 1,
             type => string,
             required => true,
@@ -51,13 +52,13 @@
     }
 }).
 
--record(user_credential,
-        { user_identity :: {user_group(), user_identity()}
+-record(user_info,
+        { user_id :: {user_group(), user_id()}
         , password_hash :: binary()
         }).
 
 -type(user_group() :: {chain_id(), service_name()}).
--type(user_identity() :: binary()).
+-type(user_id() :: binary()).
 
 -export([mnesia/1]).
 
@@ -65,6 +66,8 @@
 -copy_mnesia({mnesia, [copy]}).
 
 -define(TAB, mnesia_basic_auth).
+
+%% TODO: Support salt
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -75,17 +78,17 @@
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
                 {disc_copies, [node()]},
-                {record_name, user_credential},
-                {attributes, record_info(fields, user_credential)},
+                {record_name, user_info},
+                {attributes, record_info(fields, user_info)},
                 {storage_properties, [{ets, [{read_concurrency, true}]}]}]);
 
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?TAB, disc_copies).
 
-create(ChainID, ServiceName, #{<<"user_identity_type">> := Type,
+create(ChainID, ServiceName, #{<<"user_id_type">> := Type,
                                <<"password_hash_algorithm">> := Algorithm}) ->
     State = #{user_group => {ChainID, ServiceName},
-              user_identity_type => binary_to_atom(Type, utf8),
+              user_id_type => binary_to_atom(Type, utf8),
               password_hash_algorithm => binary_to_atom(Algorithm, utf8)},
     {ok, State}.
 
@@ -94,13 +97,13 @@ update(ChainID, ServiceName, Params, _State) ->
 
 authenticate(ClientInfo = #{password := Password},
              #{user_group := UserGroup,
-               user_identity_type := Type,
+               user_id_type := Type,
                password_hash_algorithm := Algorithm}) ->
-    UserIdentity = get_user_identity(ClientInfo, Type),
-    case mnesia:dirty_read(?TAB, {UserGroup, UserIdentity}) of
+    UserID = get_user_identity(ClientInfo, Type),
+    case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
         [] ->
             ignore;
-        [#user_credential{password_hash = Hash}] ->
+        [#user_info{password_hash = Hash}] ->
             case Hash =:= emqx_passwd:hash(Algorithm, Password) of
                 true ->
                     ok;
@@ -112,117 +115,133 @@ authenticate(ClientInfo = #{password := Password},
 destroy(#{user_group := UserGroup}) ->
     trans(
         fun() ->
-            MatchSpec = [{#user_credential{user_identity = {UserGroup, '_'}, _ = '_'}, [], ['$_']}],
-            lists:foreach(fun delete_user_credential/1, mnesia:select(?TAB, MatchSpec, write))
+            MatchSpec = [{#user_info{user_id = {UserGroup, '_'}, _ = '_'}, [], ['$_']}],
+            lists:foreach(fun delete_user2/1, mnesia:select(?TAB, MatchSpec, write))
         end).
+
+import_users(Filename0, State) ->
+    Filename = to_binary(Filename0),
+    case filename:extension(Filename) of
+        <<".json">> ->
+            import_users_from_json(Filename, State);
+        <<".csv">> ->
+            import_users_from_csv(Filename, State);
+        <<>> ->
+            {error, unknown_file_format};
+        Extension ->
+            {error, {unsupported_file_format, Extension}}
+    end.
+
+add_user(#{<<"user_id">> := UserID,
+           <<"password">> := Password},
+         #{user_group := UserGroup,
+           password_hash_algorithm := Algorithm}) ->
+    trans(
+        fun() ->
+            case mnesia:read(?TAB, {UserGroup, UserID}, write) of
+                [] ->
+                    add(UserGroup, UserID, Password, Algorithm),
+                    {ok, #{user_id => UserID}};
+                [_] ->
+                    {error, already_exist}
+            end
+        end).
+
+delete_user(UserID, #{user_group := UserGroup}) ->
+    trans(
+        fun() ->
+            case mnesia:read(?TAB, {UserGroup, UserID}, write) of
+                [] ->
+                    {error, not_found};
+                [_] ->
+                    mnesia:delete(?TAB, {UserGroup, UserID}, write)
+            end
+        end).
+
+update_user(UserID, #{<<"password">> := Password},
+            #{user_group := UserGroup,
+              password_hash_algorithm := Algorithm}) ->
+    trans(
+        fun() ->
+            case mnesia:read(?TAB, {UserGroup, UserID}, write) of
+                [] ->
+                    {error, not_found};
+                [_] ->
+                    add(UserGroup, UserID, Password, Algorithm),
+                    {ok, #{user_id => UserID}}
+            end
+        end).
+
+lookup_user(UserID, #{user_group := UserGroup}) ->
+    case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
+        [#user_info{user_id = {_, UserID}}] ->
+            {ok, #{user_id => UserID}};
+        [] ->
+            {error, not_found}
+    end.
+
+list_users(#{user_group := UserGroup}) ->
+    Users = [#{user_id => UserID} || #user_info{user_id = {UserGroup0, UserID}} <- ets:tab2list(?TAB), UserGroup0 =:= UserGroup],
+    {ok, Users}.
+
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
 
 %% Example:
 %% {
-%%     "myuser1":"mypassword1",
-%%     "myuser2":"mypassword2"
+%%     "myuser1":"password_hash1",
+%%     "myuser2":"password_hash2"
 %% }
-import_user_credentials(Filename, json, 
-                        #{user_group := UserGroup,
-                          password_hash_algorithm := Algorithm}) ->
+import_users_from_json(Filename, #{user_group := UserGroup}) ->
     case file:read_file(Filename) of
         {ok, Bin} ->
             case emqx_json:safe_decode(Bin) of
                 {ok, List} ->
-                    import(UserGroup, List, Algorithm);
+                    import(UserGroup, List);
                 {error, Reason} ->
                     {error, Reason}
             end;
         {error, Reason} ->
             {error, Reason}
-    end;
+    end.
+
 %% Example:
-%% myuser1,mypassword1
-%% myuser2,mypassword2
-import_user_credentials(Filename, csv,
-                        #{user_group := UserGroup,
-                          password_hash_algorithm := Algorithm}) ->
+%% myuser1,password_hash1
+%% myuser2,password_hash2
+import_users_from_csv(Filename, #{user_group := UserGroup}) ->
     case file:open(Filename, [read, binary]) of
         {ok, File} ->
-            Result = import(UserGroup, File, Algorithm),
+            Result = import(UserGroup, File),
             file:close(File),
             Result;
         {error, Reason} ->
             {error, Reason}
     end.
 
-add_user_credential(#{user_identity := UserIdentity, password := Password},
-                    #{user_group := UserGroup,
-                      password_hash_algorithm := Algorithm}) ->
-    trans(
-        fun() ->
-            case mnesia:read(?TAB, {UserGroup, UserIdentity}, write) of
-                [] ->
-                    add(UserGroup, UserIdentity, Password, Algorithm);
-                [_] ->
-                    {error, already_exist}
-            end
-        end).
+import(UserGroup, ListOrFile) ->
+    trans(fun do_import/2, [UserGroup, ListOrFile]).
 
-delete_user_credential(UserIdentity, #{user_group := UserGroup}) ->
-    trans(
-        fun() ->
-            case mnesia:read(?TAB, {UserGroup, UserIdentity}, write) of
-                [] ->
-                    {error, not_found};
-                [_] ->
-                    mnesia:delete(?TAB, {UserGroup, UserIdentity}, write)
-            end
-        end).
-
-update_user_credential(#{user_identity := UserIdentity, password := Password},
-                       #{user_group := UserGroup,
-                         password_hash_algorithm := Algorithm}) ->
-    trans(
-        fun() ->
-            case mnesia:read(?TAB, {UserGroup, UserIdentity}, write) of
-                [] ->
-                    {error, not_found};
-                [_] ->
-                    add(UserGroup, UserIdentity, Password, Algorithm)
-            end
-        end).
-
-lookup_user_credential(UserIdentity, #{user_group := UserGroup}) ->
-    case mnesia:dirty_read(?TAB, {UserGroup, UserIdentity}) of
-        [#user_credential{user_identity = {_, UserIdentity},
-                          password_hash = PassHash}] ->
-            {ok, #{user_identity => UserIdentity,
-                   password_hash => PassHash}};
-        [] -> {error, not_found}
-    end.
-
-%%------------------------------------------------------------------------------
-%% Internal functions
-%%------------------------------------------------------------------------------
-
-import(UserGroup, ListOrFile, Algorithm) ->
-    trans(fun do_import/3, [UserGroup, ListOrFile, Algorithm]).
-
-do_import(_UserGroup, [], _Algorithm) ->
+do_import(_UserGroup, []) ->
     ok;
-do_import(UserGroup, [{UserIdentity, Password} | More], Algorithm)
-  when is_binary(UserIdentity) andalso is_binary(Password) ->
-    add(UserGroup, UserIdentity, Password, Algorithm),
-    do_import(UserGroup, More, Algorithm);
-do_import(_UserGroup, [_ | _More], _Algorithm) ->
+do_import(UserGroup, [{UserID, PasswordHash} | More])
+  when is_binary(UserID) andalso is_binary(PasswordHash) ->
+    import_user(UserGroup, UserID, PasswordHash),
+    do_import(UserGroup, More);
+do_import(_UserGroup, [_ | _More]) ->
     {error, bad_format};
 
-%% Importing 5w credentials needs 1.7 seconds 
-do_import(UserGroup, File, Algorithm)  ->
+%% Importing 5w users needs 1.7 seconds 
+do_import(UserGroup, File)  ->
     case file:read_line(File) of
         {ok, Line} ->
             case binary:split(Line, [<<",">>, <<"\n">>], [global]) of
-                [UserIdentity, Password, <<>>] ->
-                    add(UserGroup, UserIdentity, Password, Algorithm),
-                    do_import(UserGroup, File, Algorithm);
-                [UserIdentity, Password] ->
-                    add(UserGroup, UserIdentity, Password, Algorithm),
-                    do_import(UserGroup, File, Algorithm);
+                [UserID, PasswordHash, <<>>] ->
+                    import_user(UserGroup, UserID, PasswordHash),
+                    do_import(UserGroup, File);
+                [UserID, PasswordHash] ->
+                    import_user(UserGroup, UserID, PasswordHash),
+                    do_import(UserGroup, File);
                 _ ->
                     {error, bad_format}
             end;
@@ -233,13 +252,18 @@ do_import(UserGroup, File, Algorithm)  ->
     end.
 
 -compile({inline, [add/4]}).
-add(UserGroup, UserIdentity, Password, Algorithm) ->
-    Credential = #user_credential{user_identity = {UserGroup, UserIdentity},
-                                  password_hash = emqx_passwd:hash(Algorithm, Password)},
+add(UserGroup, UserID, Password, Algorithm) ->
+    Credential = #user_info{user_id = {UserGroup, UserID},
+                            password_hash = emqx_passwd:hash(Algorithm, Password)},
     mnesia:write(?TAB, Credential, write).
 
-delete_user_credential(UserCredential) ->
-    mnesia:delete_object(?TAB, UserCredential, write).
+import_user(UserGroup, UserID, PasswordHash) ->
+    Credential = #user_info{user_id = {UserGroup, UserID},
+                            password_hash = PasswordHash},
+    mnesia:write(?TAB, Credential, write).
+
+delete_user2(UserInfo) ->
+    mnesia:delete_object(?TAB, UserInfo, write).
 
 %% TODO: Support other type
 get_user_identity(#{username := Username}, username) ->
@@ -259,6 +283,10 @@ trans(Fun, Args) ->
     end.
 
 
+to_binary(B) when is_binary(B) ->
+    B;
+to_binary(L) when is_list(L) ->
+    iolist_to_binary(L).
 
 
 

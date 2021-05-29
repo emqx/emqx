@@ -40,11 +40,12 @@
         , move_service_to_the_nth/3
         ]).
 
--export([ import_user_credentials/4
-        , add_user_credential/3
-        , delete_user_credential/3
-        , update_user_credential/3
-        , lookup_user_credential/3
+-export([ import_users/3
+        , add_user/3
+        , delete_user/3
+        , update_user/4
+        , lookup_user/3
+        , list_users/2
         ]).
 
 -export([mnesia/1]).
@@ -101,7 +102,7 @@ disable() ->
 authenticate(#{chain_id := ChainID} = ClientInfo) ->
     case mnesia:dirty_read(?CHAIN_TAB, ChainID) of
         [#chain{services = []}] ->
-            {error, todo};
+            {error, no_services};
         [#chain{services = Services}] ->
             do_authenticate(Services, ClientInfo);
         [] ->
@@ -109,7 +110,7 @@ authenticate(#{chain_id := ChainID} = ClientInfo) ->
     end.
 
 do_authenticate([], _) ->
-    {error, user_credential_not_found};
+    {error, user_not_found};
 do_authenticate([{_, #service{provider = Provider, state = State}} | More], ClientInfo) ->
     case Provider:authenticate(ClientInfo, State) of
         ignore -> do_authenticate(More, ClientInfo);
@@ -136,55 +137,44 @@ register_service_types([{_App, Mod, #{name := Name,
                                 params_spec = ParamsSpec},
     register_service_types(Types, [ServiceType | Acc]).
 
-create_chain(Params = #{chain_id := ChainID}) ->
-    ServiceParams = maps:get(services, Params, []),
-    case validate_service_params(ServiceParams) of
-        {ok, NServiceParams} ->
-            trans(
-                fun() ->
-                    case mnesia:read(?CHAIN_TAB, ChainID, write) of
-                        [] ->
-                            case create_services(ChainID, NServiceParams) of
-                                {ok, Services} ->
-                                    Chain = #chain{id = ChainID,
-                                                   services = Services,
-                                                   created_at = erlang:system_time(millisecond)},
-                                    mnesia:write(?CHAIN_TAB, Chain, write),
-                                    {ok, ChainID};
-                                {error, Reason} ->
-                                    {error, Reason}
-                            end;
-                        [_ | _] ->
-                            {error, {already_exists, {chain, ChainID}}}
-                    end
-                end);
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-delete_chain(ChainID) ->
+create_chain(#{id := ID}) ->
     trans(
         fun() ->
-            case mnesia:read(?CHAIN_TAB, ChainID, write) of
+            case mnesia:read(?CHAIN_TAB, ID, write) of
                 [] ->
-                    {error, {not_found, {chain, ChainID}}};
-                [#chain{services = Services}] ->
-                    ok = delete_services_(Services),
-                    mnesia:delete(?CHAIN_TAB, ChainID, write)
+                    Chain = #chain{id = ID,
+                                   services = [],
+                                   created_at = erlang:system_time(millisecond)},
+                    mnesia:write(?CHAIN_TAB, Chain, write),
+                    {ok, serialize_chain(Chain)};
+                [_ | _] ->
+                    {error, {already_exists, {chain, ID}}}
             end
         end).
 
-lookup_chain(ChainID) ->
-    case mnesia:dirty_read(?CHAIN_TAB, ChainID) of
+delete_chain(ID) ->
+    trans(
+        fun() ->
+            case mnesia:read(?CHAIN_TAB, ID, write) of
+                [] ->
+                    {error, {not_found, {chain, ID}}};
+                [#chain{services = Services}] ->
+                    ok = delete_services_(Services),
+                    mnesia:delete(?CHAIN_TAB, ID, write)
+            end
+        end).
+
+lookup_chain(ID) ->
+    case mnesia:dirty_read(?CHAIN_TAB, ID) of
         [] ->
-            {error, {not_found, {chain, ChainID}}};
+            {error, {not_found, {chain, ID}}};
         [Chain] ->
             {ok, serialize_chain(Chain)}
     end.
 
 list_chains() ->
     Chains = ets:tab2list(?CHAIN_TAB),
-    [serialize_chain(Chain) || Chain <- Chains].
+    {ok, [serialize_chain(Chain) || Chain <- Chains]}.
 
 add_services(ChainID, ServiceParams) ->
     case validate_service_params(ServiceParams) of
@@ -195,8 +185,10 @@ add_services(ChainID, ServiceParams) ->
                                 ok ->
                                     case create_services(ChainID, NServiceParams) of
                                         {ok, NServices} ->
+                                            io:format("~p~n", [NServices]),
                                             NChain = Chain#chain{services = Services ++ NServices},
-                                            mnesia:write(?CHAIN_TAB, NChain, write);
+                                            ok = mnesia:write(?CHAIN_TAB, NChain, write),
+                                            {ok, serialize_services(NServices)};
                                         {error, Reason} ->
                                             {error, Reason}
                                     end;
@@ -243,8 +235,9 @@ update_service(ChainID, ServiceName, NewParams) ->
                                 {ok, NState} ->
                                     NService = Service#service{params = Params,
                                                                state = NState},
-                                    NServices = lists:keyreplace(ServiceName, 1, Services, [{ServiceName, NService}]),
-                                    mnesia:write(?CHAIN_TAB, Chain#chain{services = NServices}, write);
+                                    NServices = lists:keyreplace(ServiceName, 1, Services, {ServiceName, NService}),
+                                    ok = mnesia:write(?CHAIN_TAB, Chain#chain{services = NServices}, write),
+                                    {ok, serialize_service({ServiceName, NService})};
                                 {error, Reason} ->
                                     {error, Reason}
                             end
@@ -270,7 +263,7 @@ list_services(ChainID) ->
         [] ->
             {error, {not_found, {chain, ChainID}}};
         [#chain{services = Services}] ->
-            {ok, [serialize_service(Service) || Service <- Services]}
+            {ok, serialize_services(Services)}
     end.
 
 move_service_to_the_front(ChainID, ServiceName) ->
@@ -309,20 +302,23 @@ move_service_to_the_nth(ChainID, ServiceName, N) ->
                  end,
     update_chain(ChainID, UpdateFun).
 
-import_user_credentials(ChainID, ServiceName, Filename, FileFormat) ->
-    call_service(ChainID, ServiceName, import_user_credentials, [Filename, FileFormat]).
+import_users(ChainID, ServiceName, Filename) ->
+    call_service(ChainID, ServiceName, import_users, [Filename]).
 
-add_user_credential(ChainID, ServiceName, Credential) ->
-    call_service(ChainID, ServiceName, add_user_credential, [Credential]).
+add_user(ChainID, ServiceName, UserInfo) ->
+    call_service(ChainID, ServiceName, add_user, [UserInfo]).
 
-delete_user_credential(ChainID, ServiceName, UserIdentity) ->
-    call_service(ChainID, ServiceName, delete_user_credential, [UserIdentity]).
+delete_user(ChainID, ServiceName, UserID) ->
+    call_service(ChainID, ServiceName, delete_user, [UserID]).
 
-update_user_credential(ChainID, ServiceName, Credential) ->
-    call_service(ChainID, ServiceName, update_user_credential, [Credential]).
+update_user(ChainID, ServiceName, UserID, NewUserInfo) ->
+    call_service(ChainID, ServiceName, update_user, [UserID, NewUserInfo]).
 
-lookup_user_credential(ChainID, ServiceName, UserIdentity) ->
-    call_service(ChainID, ServiceName, lookup_user_credential, [UserIdentity]).
+lookup_user(ChainID, ServiceName, UserID) ->
+    call_service(ChainID, ServiceName, lookup_user, [UserID]).
+
+list_users(ChainID, ServiceName) ->
+    call_service(ChainID, ServiceName, list_users, []).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -506,8 +502,11 @@ serialize_chain(#chain{id = ID,
                        services = Services,
                        created_at = CreatedAt}) ->
     #{id => ID,
-      services => [serialize_service(Service) || Service <- Services],
+      services => serialize_services(Services),
       created_at => CreatedAt}.
+
+serialize_services(Services) ->
+    [serialize_service(Service) || Service <- Services].
 
 serialize_service({_, #service{name = Name,
                                type = Type,
