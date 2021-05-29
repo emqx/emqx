@@ -49,7 +49,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
       {{- if .Values.recreatePods }}
       annotations:
-        recreated-pods-at: {{ now | quote }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | quote }}
       {{- end }}
     spec:
       volumes:
