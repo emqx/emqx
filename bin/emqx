@@ -199,15 +199,15 @@ generate_config() {
     ## changing the config 'log.rotation.size'
     rm -rf "${RUNNER_LOG_DIR}"/*.siz
 
-    EMQX_LICENSE_CONF_OPTION=""
-    if [ "${EMQX_LICENSE_CONF:-}" != "" ]; then
-        EMQX_LICENSE_CONF_OPTION="-i ${EMQX_LICENSE_CONF}"
-    fi
+    ## todo: include license conf option to hocon escript
+    ## EMQX_LICENSE_CONF_OPTION=""
+    ## if [ "${EMQX_LICENSE_CONF:-}" != "" ]; then
+    ##     EMQX_LICENSE_CONF_OPTION="-i ${EMQX_LICENSE_CONF}"
+    ## fi
 
     set +e
     # shellcheck disable=SC2086
     HOCON_OUTPUT="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)"
-    echo $HOCON_OUTPUT
     # shellcheck disable=SC2181
     RESULT=$?
     set -e
@@ -292,6 +292,7 @@ if [ -z "$NAME_ARG" ]; then
             NODENAME="$(grep -E '^-name' "$LATEST_VM_ARGS" | awk '{print $2}')"
         else
             # for boot commands, inspect emqx.conf for node name
+            # todo: use get command from hocon escript
             NODENAME=$(grep -E '^[ \t]*node.name[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | awk -F"= " '{print $NF}'| tr -d \")
         fi
     fi
@@ -318,7 +319,7 @@ PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 COOKIE="${EMQX_NODE_COOKIE:-}"
 if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        COOKIE=$(grep -E '^[ \t]*node.cookie[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | awk -F"= " '{print $NF}')
+        COOKIE=$(grep -E '^[ \t]*node.cookie[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | awk -F"= " '{print $NF}'| tr -d \")
     else
         # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $RUNNER_DATA_DIR/configs/vm.*.args | head -1)"
