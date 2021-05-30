@@ -136,7 +136,7 @@ handle_info({mnesia_table_event, Event}, State) ->
 handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
     global:trans({?LOCK, self()},
                  fun() ->
-                     ekka_mnesia:transaction(fun cleanup_routes/1, [Node])
+                     ekka_mnesia:transaction(route_shard, fun cleanup_routes/1, [Node])
                  end),
     ok = mnesia:dirty_delete(?ROUTING_NODE, Node),
     {noreply, State#{nodes := lists:delete(Node, Nodes)}, hibernate};

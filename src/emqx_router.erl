@@ -227,7 +227,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 insert_direct_route(Route) ->
-    {atomic, Ret} = ekka_mnesia:transaction(
+    {atomic, Ret} = ekka_mnesia:transaction(route_shard,
       fun() ->
               mnesia:write(?ROUTE_TAB, Route, sticky_write)
       end),
@@ -241,7 +241,7 @@ insert_trie_route(Route = #route{topic = Topic}) ->
     mnesia:write(?ROUTE_TAB, Route, sticky_write).
 
 delete_direct_route(Route) ->
-    {atomic, Ret} = ekka_mnesia:transaction(
+    {atomic, Ret} = ekka_mnesia:transaction(route_shard,
       fun() ->
               mnesia:delete_object(?ROUTE_TAB, Route, sticky_write)
       end),
@@ -288,7 +288,7 @@ trans(Fun, Args) ->
             %% Future changes should keep in mind that this process
             %% always exit with database write result.
             fun() ->
-                    Res = case ekka_mnesia:transaction(Fun, Args) of
+                    Res = case ekka_mnesia:transaction(route_shard, Fun, Args) of
                               {atomic, Ok} -> Ok;
                               {aborted, Reason} -> {error, Reason}
                           end,

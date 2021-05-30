@@ -104,7 +104,7 @@ add_app(AppId, Name, Secret, Desc, Status, Expired) when is_binary(AppId) ->
                      _  -> mnesia:abort(alread_existed)
                  end
              end,
-    case ekka_mnesia:transaction(AddFun) of
+    case ekka_mnesia:transaction(emqx_management_shard, AddFun) of
         {atomic, ok} -> {ok, Secret1};
         {aborted, Reason} -> {error, Reason}
     end.
@@ -118,7 +118,7 @@ force_add_app(AppId, Name, Secret, Desc, Status, Expired) ->
                                         status = Status,
                                         expired = Expired})
              end,
-    case ekka_mnesia:transaction(AddFun) of
+    case ekka_mnesia:transaction(emqx_management_shard, AddFun) of
         {atomic, ok} -> ok;
         {aborted, Reason} -> {error, Reason}
     end.
@@ -156,7 +156,8 @@ lookup_app(AppId) when is_binary(AppId) ->
 update_app(AppId, Status) ->
     case mnesia:dirty_read(mqtt_app, AppId) of
         [App = #mqtt_app{}] ->
-            case ekka_mnesia:transaction(fun() -> mnesia:write(App#mqtt_app{status = Status}) end) of
+            case ekka_mnesia:transaction(emqx_management_shard,
+                                         fun() -> mnesia:write(App#mqtt_app{status = Status}) end) of
                 {atomic, ok} -> ok;
                 {aborted, Reason} -> {error, Reason}
             end;
@@ -168,10 +169,12 @@ update_app(AppId, Status) ->
 update_app(AppId, Name, Desc, Status, Expired) ->
     case mnesia:dirty_read(mqtt_app, AppId) of
         [App = #mqtt_app{}] ->
-            case ekka_mnesia:transaction(fun() -> mnesia:write(App#mqtt_app{name = Name,
-                                                                       desc = Desc,
-                                                                       status = Status,
-                                                                       expired = Expired}) end) of
+            case ekka_mnesia:transaction(emqx_management_shard,
+                                         fun() -> mnesia:write(App#mqtt_app{name = Name,
+                                                                            desc = Desc,
+                                                                            status = Status,
+                                                                            expired = Expired})
+                                         end) of
                 {atomic, ok} -> ok;
                 {aborted, Reason} -> {error, Reason}
             end;
@@ -181,7 +184,8 @@ update_app(AppId, Name, Desc, Status, Expired) ->
 
 -spec(del_app(appid()) -> ok | {error, term()}).
 del_app(AppId) when is_binary(AppId) ->
-    case ekka_mnesia:transaction(fun mnesia:delete/1, [{mqtt_app, AppId}]) of
+    case ekka_mnesia:transaction(emqx_management_shard,
+                                 fun mnesia:delete/1, [{mqtt_app, AppId}]) of
         {atomic, Ok} -> Ok;
         {aborted, Reason} -> {error, Reason}
     end.

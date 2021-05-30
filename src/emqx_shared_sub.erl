@@ -299,7 +299,7 @@ subscribers(Group, Topic) ->
 
 init([]) ->
     {ok, _} = mnesia:subscribe({table, ?TAB, simple}),
-    {atomic, PMon} = ekka_mnesia:transaction(fun init_monitors/0),
+    {atomic, PMon} = ekka_mnesia:transaction(route_shard, fun init_monitors/0),
     ok = emqx_tables:new(?SHARED_SUBS, [protected, bag]),
     ok = emqx_tables:new(?ALIVE_SUBS, [protected, set, {read_concurrency, true}]),
     {ok, update_stats(#state{pmon = PMon})}.

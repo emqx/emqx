@@ -125,7 +125,7 @@ handle_cast(Msg, State) ->
 handle_info({membership, {mnesia, down, Node}}, State) ->
     global:trans({?LOCK, self()},
                  fun() ->
-                     ekka_mnesia:transaction(fun cleanup_channels/1, [Node])
+                     ekka_mnesia:transaction(route_shard, fun cleanup_channels/1, [Node])
                  end),
     {noreply, State};
 

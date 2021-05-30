@@ -570,5 +570,3 @@ max_row_limit() ->
     application:get_env(?APP, max_row_limit, ?MAX_ROW_LIMIT).
 
 table_size(Tab) -> ets:info(Tab, size).
-
-

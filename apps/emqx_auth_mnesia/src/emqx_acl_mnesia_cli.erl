@@ -47,6 +47,7 @@ add_acl(Login, Topic, Action, Access) ->
              created_at = erlang:system_time(millisecond)
             },
     ret(ekka_mnesia:transaction(
+          emqx_auth_mnesia_shard,
           fun() ->
                   OldRecords = mnesia:wread({?TABLE, Filter}),
                   case Action of
@@ -71,7 +72,7 @@ lookup_acl(Login) ->
 %% @doc Remove acl
 -spec(remove_acl(login() | all, emqx_topic:topic()) -> ok | {error, any()}).
 remove_acl(Login, Topic) ->
-    ret(ekka_mnesia:transaction(fun mnesia:delete/1, [{?TABLE, {Login, Topic}}])).
+    ret(ekka_mnesia:transaction(emqx_auth_mnesia_shard, fun mnesia:delete/1, [{?TABLE, {Login, Topic}}])).
 
 %% @doc All logins
 -spec(all_acls() -> list()).

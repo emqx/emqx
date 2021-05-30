@@ -74,7 +74,7 @@ update(Username, Password, Salt, IterationCount) ->
     end.
 
 delete(Username) ->
-    ret(ekka_mnesia:transaction(fun mnesia:delete/3, [?SCRAM_AUTH_TAB, Username, write])).
+    ret(ekka_mnesia:transaction(emqx_scram_auth_shard, fun mnesia:delete/3, [?SCRAM_AUTH_TAB, Username, write])).
 
 lookup(Username) ->
     case mnesia:dirty_read(?SCRAM_AUTH_TAB, Username) of
@@ -102,7 +102,7 @@ do_add(Username, Password, Salt, IterationCount) ->
                            server_key = base64:encode(ServerKey),
                            salt = base64:encode(Salt),
                            iteration_count = IterationCount},
-    ret(ekka_mnesia:transaction(fun mnesia:write/3, [?SCRAM_AUTH_TAB, AuthInfo, write])).
+    ret(ekka_mnesia:transaction(emqx_scram_auth_shard, fun mnesia:write/3, [?SCRAM_AUTH_TAB, AuthInfo, write])).
 
 ret({atomic, ok})     -> ok;
 ret({aborted, Error}) -> {error, Error}.
