@@ -1,23 +1,26 @@
-%% -*-: erlang -*-
+%% -*- mode: erlang -*-
 {VSN,
  [ {"4.3.2",
     [ {load_module, emqx_mgmt, brutal_purge, soft_purge, []}
+    , {load_module, emqx_mgmt_api_data, brutal_purge, soft_purge, []}
     ]},
    {<<"4.3.[0-1]">>,
     [ {load_module, emqx_mgmt_data_backup, brutal_purge, soft_purge, []}
     , {load_module, emqx_mgmt_cli, brutal_purge, soft_purge, []}
     , {load_module, emqx_mgmt, brutal_purge, soft_purge, []}
+    , {load_module, emqx_mgmt_api_data, brutal_purge, soft_purge, []}
     ]},
    {<<".*">>, []}
  ],
- [
-   {"4.3.2",
+ [ {"4.3.2",
     [ {load_module, emqx_mgmt, brutal_purge, soft_purge, []}
+    , {load_module, emqx_mgmt_api_data, brutal_purge, soft_purge, []}
     ]},
    {<<"4.3.[0-1]">>,
     [ {load_module, emqx_mgmt_data_backup, brutal_purge, soft_purge, []}
     , {load_module, emqx_mgmt_cli, brutal_purge, soft_purge, []}
     , {load_module, emqx_mgmt, brutal_purge, soft_purge, []}
+    , {load_module, emqx_mgmt_api_data, brutal_purge, soft_purge, []}
     ]},
    {<<".*">>, []}
  ]

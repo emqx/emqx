@@ -110,7 +110,8 @@ get_list_exported() ->
 import(_Bindings, Params) ->
     case proplists:get_value(<<"filename">>, Params) of
         undefined ->
-            minirest:return({error, missing_required_params});
+            Result = import_content(Params),
+            minirest:return(Result);
         Filename ->
             case proplists:get_value(<<"node">>, Params) of
                 undefined ->
@@ -127,11 +128,11 @@ import(_Bindings, Params) ->
     end.
 
 do_import(Filename) ->
-    FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
+    FullFilename = fullname(Filename),
     emqx_mgmt_data_backup:import(FullFilename, "{}").
 
 download(#{filename := Filename}, _Params) ->
-    FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
+    FullFilename = fullname(Filename),
     case file:read_file(FullFilename) of
         {ok, Bin} ->
             {ok, #{filename => list_to_binary(Filename),
@@ -145,7 +146,7 @@ upload(Bindings, Params) ->
 
 do_upload(_Bindings, #{<<"filename">> := Filename,
                        <<"file">> := Bin}) ->
-    FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
+    FullFilename = fullname(Filename),
     case file:write_file(FullFilename, Bin) of
         ok ->
             minirest:return({ok, [{node, node()}]});
@@ -153,18 +154,33 @@ do_upload(_Bindings, #{<<"filename">> := Filename,
             minirest:return({error, Reason})
     end;
 do_upload(Bindings, Params = #{<<"file">> := _}) ->
-    Seconds = erlang:system_time(second),
-    {{Y, M, D}, {H, MM, S}} = emqx_mgmt_util:datetime(Seconds),
-    Filename = io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]),
-    do_upload(Bindings, Params#{<<"filename">> => Filename});
+    do_upload(Bindings, Params#{<<"filename">> => tmp_filename()});
 do_upload(_Bindings, _Params) ->
     minirest:return({error, missing_required_params}).
 
 delete(#{filename := Filename}, _Params) ->
-    FullFilename = filename:join([emqx:get_env(data_dir), Filename]),
+    FullFilename = fullname(Filename),
     case file:delete(FullFilename) of
         ok ->
             minirest:return();
         {error, Reason} ->
             minirest:return({error, Reason})
     end.
+
+import_content(Content) ->
+    File = dump_to_tmp_file(Content),
+    do_import(File).
+
+dump_to_tmp_file(Content) ->
+    Bin = emqx_json:encode(Content),
+    Filename = tmp_filename(),
+    ok = file:write_file(fullname(Filename), Bin),
+    Filename.
+
+fullname(Name) ->
+    filename:join(emqx:get_env(data_dir), Name).
+
+tmp_filename() ->
+    Seconds = erlang:system_time(second),
+    {{Y, M, D}, {H, MM, S}} = emqx_mgmt_util:datetime(Seconds),
+    io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]).
