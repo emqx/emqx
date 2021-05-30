@@ -185,7 +185,7 @@ handle_call({activate_alarm, Name, Details}, _From, State = #state{actions = Act
                                      details = Details,
                                      message = normalize_message(Name, Details),
                                      activate_at = erlang:system_time(microsecond)},
-            mnesia:dirty_write(?ACTIVATED_ALARM, Alarm),
+            ekka_mnesia:dirty_write(?ACTIVATED_ALARM, Alarm),
             do_actions(activate, Alarm, Actions),
             {reply, ok, State}
     end;
@@ -264,8 +264,8 @@ deactivate_alarm(Details, SizeLimit, Actions, #activated_alarm{
     DeActAlarm = make_deactivated_alarm(ActivateAt, Name, Details,
                     normalize_message(Name, Details),
                     erlang:system_time(microsecond)),
-    mnesia:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
-    mnesia:dirty_delete(?ACTIVATED_ALARM, Name),
+    ekka_mnesia:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
+    ekka_mnesia:dirty_delete(?ACTIVATED_ALARM, Name),
     do_actions(deactivate, DeActAlarm, Actions).
 
 make_deactivated_alarm(ActivateAt, Name, Details, Message, DeActivateAt) ->
@@ -282,7 +282,7 @@ deactivate_all_alarms() ->
                              details = Details,
                              message = Message,
                              activate_at = ActivateAt}) ->
-            mnesia:dirty_write(?DEACTIVATED_ALARM,
+            ekka_mnesia:dirty_write(?DEACTIVATED_ALARM,
                 #deactivated_alarm{
                     activate_at = ActivateAt,
                     name = Name,
@@ -314,7 +314,7 @@ delete_expired_deactivated_alarms('$end_of_table', _Checkpoint) ->
 delete_expired_deactivated_alarms(ActivatedAt, Checkpoint) ->
     case ActivatedAt =< Checkpoint of
         true ->
-            mnesia:dirty_delete(?DEACTIVATED_ALARM, ActivatedAt),
+            ekka_mnesia:dirty_delete(?DEACTIVATED_ALARM, ActivatedAt),
             NActivatedAt = mnesia:dirty_next(?DEACTIVATED_ALARM, ActivatedAt),
             delete_expired_deactivated_alarms(NActivatedAt, Checkpoint);
         false ->
