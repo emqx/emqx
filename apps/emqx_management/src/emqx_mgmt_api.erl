@@ -239,21 +239,29 @@ pick_params_to_qs([{Key, Value}|Params], QsKits, Acc1, Acc2) ->
             end
     end.
 
-qs(<<"_gte_", Key/binary>>, Value, Type) ->
-    {binary_to_existing_atom(Key, utf8), '>=', to_type(Value, Type)};
-qs(<<"_lte_", Key/binary>>, Value, Type) ->
-    {binary_to_existing_atom(Key, utf8), '=<', to_type(Value, Type)};
-qs(<<"_like_", Key/binary>>, Value, Type) ->
-    {binary_to_existing_atom(Key, utf8), like, to_type(Value, Type)};
-qs(<<"_match_", Key/binary>>, Value, Type) ->
-    {binary_to_existing_atom(Key, utf8), match, to_type(Value, Type)};
-qs(Key, Value, Type) ->
-    {binary_to_existing_atom(Key, utf8), '=:=', to_type(Value, Type)}.
-
 qs(K1, V1, K2, V2, Type) ->
     {Key, Op1, NV1} = qs(K1, V1, Type),
     {Key, Op2, NV2} = qs(K2, V2, Type),
     {Key, Op1, NV1, Op2, NV2}.
+
+qs(K, Value0, Type) ->
+    try
+        qs(K, to_type(Value0, Type))
+    catch
+        throw : bad_value_type ->
+            throw({bad_value_type, {K, Type, Value0}})
+    end.
+
+qs(<<"_gte_", Key/binary>>, Value) ->
+    {binary_to_existing_atom(Key, utf8), '>=', Value};
+qs(<<"_lte_", Key/binary>>, Value) ->
+    {binary_to_existing_atom(Key, utf8), '=<', Value};
+qs(<<"_like_", Key/binary>>, Value) ->
+    {binary_to_existing_atom(Key, utf8), like, Value};
+qs(<<"_match_", Key/binary>>, Value) ->
+    {binary_to_existing_atom(Key, utf8), match, Value};
+qs(Key, Value) ->
+    {binary_to_existing_atom(Key, utf8), '=:=', Value}.
 
 is_fuzzy_key(<<"_like_", _/binary>>) ->
     true;
@@ -265,11 +273,19 @@ is_fuzzy_key(_) ->
 %%--------------------------------------------------------------------
 %% Types
 
-to_type(V, atom) -> to_atom(V);
-to_type(V, integer) -> to_integer(V);
-to_type(V, timestamp) -> to_timestamp(V);
-to_type(V, ip) -> aton(V);
-to_type(V, _) -> V.
+to_type(V, TargetType) ->
+    try
+        to_type_(V, TargetType)
+    catch
+        _ : _ ->
+            throw(bad_value_type)
+    end.
+
+to_type_(V, atom) -> to_atom(V);
+to_type_(V, integer) -> to_integer(V);
+to_type_(V, timestamp) -> to_timestamp(V);
+to_type_(V, ip) -> aton(V);
+to_type_(V, _) -> V.
 
 to_atom(A) when is_atom(A) ->
     A;
