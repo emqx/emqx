@@ -130,7 +130,7 @@ jobs:
             docker exec --env-file .env -i erlang bash -c "make coveralls"
         - name: cat rebar.crashdump
           if: failure()
-          run: if [ -f 'rebar3.crashdump' ];then cat 'rebar3.crashdump' fi
+          run: if [ -f 'rebar3.crashdump' ];then cat 'rebar3.crashdump'; fi
         - uses: actions/upload-artifact@v1
           if: failure()
           with:

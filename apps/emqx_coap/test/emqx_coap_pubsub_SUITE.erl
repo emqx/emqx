@@ -173,7 +173,7 @@ t_case01_publish_post(_Config) ->
     ?assertEqual(<<"42">>, CT2),
 
     %% post to publish message to topic maintopic/topic1
-    FullTopicStr = http_uri:encode(binary_to_list(FullTopic)),
+    FullTopicStr = emqx_http_lib:uri_encode(binary_to_list(FullTopic)),
     URI2 = "coap://127.0.0.1/ps/"++FullTopicStr++"?c=client1&u=tom&p=secret",
     PubPayload = <<"PUBLISH">>,
 
@@ -286,7 +286,7 @@ t_case01_publish_put(_Config) ->
     ?assertEqual(<<"42">>, CT2),
 
     %% put to publish message to topic maintopic/topic1
-    FullTopicStr = http_uri:encode(binary_to_list(FullTopic)),
+    FullTopicStr = emqx_http_lib:uri_encode(binary_to_list(FullTopic)),
     URI2 = "coap://127.0.0.1/ps/"++FullTopicStr++"?c=client1&u=tom&p=secret",
     PubPayload = <<"PUBLISH">>,
 
@@ -430,7 +430,7 @@ t_case01_subscribe(_Config) ->
 t_case02_subscribe(_Config) ->
     Topic = <<"a/b">>,
     TopicStr = binary_to_list(Topic),
-    PercentEncodedTopic = http_uri:encode(TopicStr),
+    PercentEncodedTopic = emqx_http_lib:uri_encode(TopicStr),
     Payload = <<"payload">>,
 
     %% post to publish a new topic "a/b", and the topic is created
@@ -477,7 +477,7 @@ t_case03_subscribe(_Config) ->
     %% Subscribe to the unexisted topic "a/b", got not_found
     Topic = <<"a/b">>,
     TopicStr = binary_to_list(Topic),
-    PercentEncodedTopic = http_uri:encode(TopicStr),
+    PercentEncodedTopic = emqx_http_lib:uri_encode(TopicStr),
     Uri = "coap://127.0.0.1/ps/"++PercentEncodedTopic++"?c=client1&u=tom&p=secret",
     {error, not_found} = er_coap_observer:observe(Uri),
 
@@ -487,7 +487,7 @@ t_case04_subscribe(_Config) ->
     %% Subscribe to the wildcad topic "+/b", got bad_request
     Topic = <<"+/b">>,
     TopicStr = binary_to_list(Topic),
-    PercentEncodedTopic = http_uri:encode(TopicStr),
+    PercentEncodedTopic = emqx_http_lib:uri_encode(TopicStr),
     Uri = "coap://127.0.0.1/ps/"++PercentEncodedTopic++"?c=client1&u=tom&p=secret",
     {error, bad_request} = er_coap_observer:observe(Uri),
 
@@ -582,7 +582,7 @@ t_case04_read(_Config) ->
 t_case05_read(_Config) ->
     Topic = <<"a/b">>,
     TopicStr = binary_to_list(Topic),
-    PercentEncodedTopic = http_uri:encode(TopicStr),
+    PercentEncodedTopic = emqx_http_lib:uri_encode(TopicStr),
     Payload = <<"payload">>,
 
     %% post to publish a new topic "a/b", and the topic is created
@@ -609,7 +609,7 @@ t_case05_read(_Config) ->
 t_case01_delete(_Config) ->
     TopicInPayload = <<"a/b">>,
     TopicStr = binary_to_list(TopicInPayload),
-    PercentEncodedTopic = http_uri:encode(TopicStr),
+    PercentEncodedTopic = emqx_http_lib:uri_encode(TopicStr),
     Payload = list_to_binary("<"++PercentEncodedTopic++">;ct=42"),
     URI = "coap://127.0.0.1/ps/"++"?c=client1&u=tom&p=secret",
 
@@ -621,7 +621,7 @@ t_case01_delete(_Config) ->
 
     %% Client post to CREATE topic "a/b/c"
     TopicInPayload1 = <<"a/b/c">>,
-    PercentEncodedTopic1 = http_uri:encode(binary_to_list(TopicInPayload1)),
+    PercentEncodedTopic1 = emqx_http_lib:uri_encode(binary_to_list(TopicInPayload1)),
     Payload1 = list_to_binary("<"++PercentEncodedTopic1++">;ct=42"),
     Reply1 = er_coap_client:request(post, URI, #coap_content{format = <<"application/link-format">>, payload = Payload1}),
     ?LOGT("Reply =~p", [Reply1]),
@@ -643,7 +643,7 @@ t_case01_delete(_Config) ->
 t_case02_delete(_Config) ->
     TopicInPayload = <<"a/b">>,
     TopicStr = binary_to_list(TopicInPayload),
-    PercentEncodedTopic = http_uri:encode(TopicStr),
+    PercentEncodedTopic = emqx_http_lib:uri_encode(TopicStr),
 
     %% DELETE the unexisted topic "a/b"
     Uri1 = "coap://127.0.0.1/ps/"++PercentEncodedTopic++"?c=client1&u=tom&p=secret",

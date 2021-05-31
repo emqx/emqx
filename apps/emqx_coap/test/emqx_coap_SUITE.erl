@@ -120,7 +120,7 @@ t_observe_acl_deny(_Config) ->
     ok = meck:unload(emqx_access_control).
 
 t_observe_wildcard(_Config) ->
-    Topic = <<"+/b">>, TopicStr = http_uri:encode(binary_to_list(Topic)),
+    Topic = <<"+/b">>, TopicStr = emqx_http_lib:uri_encode(binary_to_list(Topic)),
     Payload = <<"123">>,
     Uri = "coap://127.0.0.1/mqtt/"++TopicStr++"?c=client1&u=tom&p=secret",
     {ok, Pid, N, Code, Content} = er_coap_observer:observe(Uri),
@@ -143,7 +143,7 @@ t_observe_wildcard(_Config) ->
     [] = emqx:subscribers(Topic).
 
 t_observe_pub(_Config) ->
-    Topic = <<"+/b">>, TopicStr = http_uri:encode(binary_to_list(Topic)),
+    Topic = <<"+/b">>, TopicStr = emqx_http_lib:uri_encode(binary_to_list(Topic)),
     Uri = "coap://127.0.0.1/mqtt/"++TopicStr++"?c=client1&u=tom&p=secret",
     {ok, Pid, N, Code, Content} = er_coap_observer:observe(Uri),
     ?LOGT("observer Pid=~p, N=~p, Code=~p, Content=~p", [Pid, N, Code, Content]),
@@ -152,7 +152,7 @@ t_observe_pub(_Config) ->
     ?assert(is_pid(SubPid)),
 
     Topic2 = <<"a/b">>, Payload2 = <<"UFO">>,
-    TopicStr2 = http_uri:encode(binary_to_list(Topic2)),
+    TopicStr2 = emqx_http_lib:uri_encode(binary_to_list(Topic2)),
     URI2 = "coap://127.0.0.1/mqtt/"++TopicStr2++"?c=client1&u=tom&p=secret",
 
     Reply2 = er_coap_client:request(put, URI2, #coap_content{format = <<"application/octet-stream">>, payload = Payload2}),
@@ -164,7 +164,7 @@ t_observe_pub(_Config) ->
     ?assertEqual(Payload2, PayloadRecv2),
 
     Topic3 = <<"j/b">>, Payload3 = <<"ET629">>,
-    TopicStr3 = http_uri:encode(binary_to_list(Topic3)),
+    TopicStr3 = emqx_http_lib:uri_encode(binary_to_list(Topic3)),
     URI3 = "coap://127.0.0.1/mqtt/"++TopicStr3++"?c=client2&u=mike&p=guess",
     Reply3 = er_coap_client:request(put, URI3, #coap_content{format = <<"application/octet-stream">>, payload = Payload3}),
     {ok,changed, _} = Reply3,
@@ -186,7 +186,7 @@ t_one_clientid_sub_2_topics(_Config) ->
     [SubPid] = emqx:subscribers(Topic1),
     ?assert(is_pid(SubPid)),
 
-    Topic2 = <<"x/y">>, TopicStr2 = http_uri:encode(binary_to_list(Topic2)),
+    Topic2 = <<"x/y">>, TopicStr2 = emqx_http_lib:uri_encode(binary_to_list(Topic2)),
     Payload2 = <<"456">>,
     Uri2 = "coap://127.0.0.1/mqtt/"++TopicStr2++"?c=client1&u=tom&p=secret",
     {ok, Pid2, N2, Code2, Content2} = er_coap_observer:observe(Uri2),
@@ -217,7 +217,7 @@ t_invalid_parameter(_Config) ->
     %% "cid=client2" is invaid
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     Topic3 = <<"a/b">>, Payload3 = <<"ET629">>,
-    TopicStr3 = http_uri:encode(binary_to_list(Topic3)),
+    TopicStr3 = emqx_http_lib:uri_encode(binary_to_list(Topic3)),
     URI3 = "coap://127.0.0.1/mqtt/"++TopicStr3++"?cid=client2&u=tom&p=simple",
     Reply3 = er_coap_client:request(put, URI3, #coap_content{format = <<"application/octet-stream">>, payload = Payload3}),
     ?assertMatch({error,bad_request}, Reply3),
