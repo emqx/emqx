@@ -175,6 +175,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%------------------------------------------------------------------------------
 
+%% suppress the race condition check, as these functions are protected in gproc workers
+-dialyzer({nowarn_function, [do_update/4, do_create/3, do_restart/1, do_stop/1, do_health_check/1]}).
 do_update(InstId, ResourceType, NewConfig, Params) ->
     case lookup(InstId) of
         {ok, #{mod := ResourceType, state := ResourceState, config := OldConfig}} ->
