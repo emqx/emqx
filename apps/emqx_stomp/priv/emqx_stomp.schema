@@ -1,7 +1,7 @@
 %%-*- mode: erlang -*-
 %% emqx_stomp config mapping
 
-{mapping, "stomp.listener", "emqx_stomp.listener", [
+{mapping, "stomp.listener.port", "emqx_stomp.listener", [
   {default, 61613},
   {datatype, [integer, ip]}
 ]}.
@@ -72,7 +72,7 @@
 ]}.
 
 {translation, "emqx_stomp.listener", fun(Conf) ->
-  Port = cuttlefish:conf_get("stomp.listener", Conf),
+  Port = cuttlefish:conf_get("stomp.listener.port", Conf),
   Acceptors = cuttlefish:conf_get("stomp.listener.acceptors", Conf),
   MaxConnections = cuttlefish:conf_get("stomp.listener.max_connections", Conf),
   Filter = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,

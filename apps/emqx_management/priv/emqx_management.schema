@@ -21,7 +21,7 @@
   {datatype, string}
 ]}.
 
-{mapping, "management.listener.http", "emqx_management.listeners", [
+{mapping, "management.listener.http.port", "emqx_management.listeners", [
   {datatype, [integer, ip]}
 ]}.
 
@@ -85,7 +85,7 @@
   {datatype, {enum, [true, false]}}
 ]}.
 
-{mapping, "management.listener.https", "emqx_management.listeners", [
+{mapping, "management.listener.https.port", "emqx_management.listeners", [
   {datatype, [integer, ip]}
 ]}.
 
@@ -225,7 +225,7 @@ end}.
     lists:foldl(
       fun(Proto, Acc) ->
           Prefix = "management.listener." ++ atom_to_list(Proto),
-          case cuttlefish:conf_get(Prefix, Conf, undefined) of
+          case cuttlefish:conf_get(Prefix ++ ".port", Conf, undefined) of
               undefined -> Acc;
               Port ->
                   [{Proto, Port, TcpOpts(Prefix) ++ Opts(Prefix)

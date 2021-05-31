@@ -45,7 +45,7 @@
   {datatype, string}
 ]}.
 
-{mapping, "auth.mongo.ssl", "emqx_auth_mongo.server", [
+{mapping, "auth.mongo.ssl.enable", "emqx_auth_mongo.server", [
   {default, off},
   {datatype, {enum, [on, off, true, false]}} %% FIXME: ture/false is compatible with 4.0-4.2 version format, plan to delete in 5.0
 ]}.
@@ -130,8 +130,6 @@
     true -> [];
     false -> [{r_mode, R}]
   end,
-
-
   Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
   SslOpts = fun(Prefix) ->
                 Verify = case cuttlefish:conf_get(Prefix ++ ".verify", Conf, false) of
@@ -149,8 +147,14 @@
             end,
 
   %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
-  Ssl = case cuttlefish:conf_get("auth.mongo.ssl", Conf) of
-          on -> [{ssl, true}, {ssl_opts, SslOpts("auth.mongo.ssl")}];
+  GenSsl = case cuttlefish:conf_get("auth.mongo.ssl.cacertfile", Conf, undefined) of
+               undefined -> [{ssl, true}, {ssl_opts, SslOpts("auth.mongo.ssl_opts")}];
+               _ -> [{ssl, true}, {ssl_opts, SslOpts("auth.mongo.ssl")}]
+           end,
+
+  %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
+  Ssl = case cuttlefish:conf_get("auth.mongo.ssl.enable", Conf) of
+          on -> GenSsl;
           off -> [];
           true -> [{ssl, true}, {ssl_opts, SslOpts("auth.mongo.ssl_opts")}];
           false -> []

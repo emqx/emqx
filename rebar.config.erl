@@ -106,7 +106,7 @@ test_plugins() ->
 
 test_deps() ->
     [ {bbmustache, "1.10.0"}
-    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.9"}}}
+    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {branch, "hocon"}}}
     , meck
     ].
 
@@ -188,6 +188,7 @@ overlay_vars_rel(RelType) ->
              end,
     [ {enable_plugin_emqx_rule_engine, RelType =:= cloud}
     , {enable_plugin_emqx_bridge_mqtt, RelType =:= edge}
+    , {enable_plugin_emqx_resource, true}
     , {enable_plugin_emqx_modules, false} %% modules is not a plugin in ce
     , {enable_plugin_emqx_recon, true}
     , {enable_plugin_emqx_retainer, true}
@@ -281,6 +282,7 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_auth_mnesia
     , emqx_web_hook
     , emqx_recon
+    , emqx_resource
     , emqx_rule_engine
     , emqx_sasl
     ]
