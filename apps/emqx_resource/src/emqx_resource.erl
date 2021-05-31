@@ -71,7 +71,9 @@
         , list_instances_verbose/0 %% list all the instances
         , get_instance/1 %% return the data of the instance
         , get_instance_by_type/1 %% return all the instances of the same resource type
-        , load_instances/1 %% load instances from config files
+        , load_instances_from_dir/1 %% load instances from a directory
+        , load_instance_from_file/1 %% load an instance from a config file
+        , load_instance_from_config/1 %% load an instance from a map or json-string config
         % , dependents/1
         % , inc_counter/2 %% increment the counter of the instance
         % , inc_counter/3 %% increment the counter by a given integer
@@ -208,9 +210,17 @@ list_instances_verbose() ->
 get_instance_by_type(ResourceType) ->
     emqx_resource_instance:lookup_by_type(ResourceType).
 
--spec load_instances(Dir :: string()) -> ok.
-load_instances(Dir) ->
-    emqx_resource_instance:load(Dir).
+-spec load_instances_from_dir(Dir :: string()) -> ok.
+load_instances_from_dir(Dir) ->
+    emqx_resource_instance:load_dir(Dir).
+
+-spec load_instance_from_file(File :: string()) -> ok.
+load_instance_from_file(File) ->
+    emqx_resource_instance:load_file(File).
+
+-spec load_instance_from_config(binary() | map()) -> ok.
+load_instance_from_config(Config) ->
+    emqx_resource_instance:load_config(Config).
 
 -spec call_start(instance_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
@@ -240,7 +250,7 @@ parse_config(ResourceType, RawConfig) when is_binary(RawConfig) ->
         Error -> Error
     end;
 parse_config(ResourceType, RawConfigTerm) ->
-    parse_config(ResourceType, jsx:encode(#{<<"config">> => RawConfigTerm})).
+    parse_config(ResourceType, jsx:encode(#{config => RawConfigTerm})).
 
 -spec do_parse_config(resource_type(), map()) -> {ok, resource_config()} | {error, term()}.
 do_parse_config(ResourceType, MapConfig) ->
@@ -261,7 +271,7 @@ resource_type_from_str(ResourceType) ->
             false -> {error, {invalid_resource, Mod}}
         end
     catch error:badarg ->
-        {error, {not_found, ResourceType}}
+        {error, {resourec_not_found, ResourceType}}
     end.
 
 call_instance(InstId, Query) ->
