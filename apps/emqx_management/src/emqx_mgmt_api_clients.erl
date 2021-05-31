@@ -140,15 +140,32 @@
 -define(format_fun, {?MODULE, format_channel_info}).
 
 list(Bindings, Params) when map_size(Bindings) == 0 ->
-    minirest:return({ok, emqx_mgmt_api:cluster_query(Params, ?CLIENT_QS_SCHEMA, ?query_fun)});
+    fence(fun() ->
+        emqx_mgmt_api:cluster_query(Params, ?CLIENT_QS_SCHEMA, ?query_fun)
+    end);
 
 list(#{node := Node}, Params) when Node =:= node() ->
-    minirest:return({ok, emqx_mgmt_api:node_query(Node, Params, ?CLIENT_QS_SCHEMA, ?query_fun)});
+    fence(fun() ->
+        emqx_mgmt_api:node_query(Node, Params, ?CLIENT_QS_SCHEMA, ?query_fun)
+    end);
 
 list(Bindings = #{node := Node}, Params) ->
     case rpc:call(Node, ?MODULE, list, [Bindings, Params]) of
         {badrpc, Reason} -> minirest:return({error, ?ERROR1, Reason});
         Res -> Res
+    end.
+
+%% @private
+fence(Func) ->
+    try
+        minirest:return({ok, Func()})
+    catch
+        throw : {bad_value_type, {_Key, Type, Value}} ->
+            Reason = iolist_to_binary(
+                       io_lib:format("Can't convert ~p to ~p type",
+                                     [Value, Type])
+                      ),
+            minirest:return({error, ?ERROR8, Reason})
     end.
 
 lookup(#{node := Node, clientid := ClientId}, _Params) ->
