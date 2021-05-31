@@ -1,7 +1,7 @@
 {application, emqx,
  [{id, "emqx"},
   {description, "EMQ X"},
-  {vsn, "4.3.2"}, % strict semver, bump manually!
+  {vsn, "4.3.3"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},
   {applications, [kernel,stdlib,gproc,gen_rpc,esockd,cowboy,sasl,os_mon]},

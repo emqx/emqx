@@ -1,6 +1,6 @@
 {application, emqx_modules,
  [{description, "EMQ X Module Management"},
-  {vsn, "4.3.1"},
+  {vsn, "4.3.2"},
   {modules, []},
   {applications, [kernel,stdlib]},
   {mod, {emqx_modules_app, []}},

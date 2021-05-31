@@ -1,7 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-latest_release=$(git describe --tags "$(git rev-list --tags --max-count=1 --remotes=refs/remote/origin)")
+remote="refs/remote/$(git remote -v | grep fetch | grep 'emqx/emqx' | awk '{print $1}')"
+latest_release=$(git describe --tags "$(git rev-list --tags --max-count=1 --remotes="$remote")")
 
 bad_app_count=0
 

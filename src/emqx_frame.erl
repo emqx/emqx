@@ -121,17 +121,8 @@ parse(Bin, {{body, #{hdr := Header,
                      len := Length,
                      rest := Body}
              }, Options}) when is_binary(Bin) ->
-    BodyBytes = body_bytes(Body),
-    {NewBodyPart, Tail} = split(BodyBytes + size(Bin) - Length, Bin),
-    NewBody = append_body(Body, NewBodyPart),
-    parse_frame(NewBody, Tail, Header, Length, Options).
-
-%% split given binary with the first N bytes
-split(N, Bin) when N =< 0 ->
-    {Bin, <<>>};
-split(N, Bin) when N =< size(Bin) ->
-    <<H:N/binary, T/binary>> = Bin,
-    {H, T}.
+    NewBody = append_body(Body, Bin),
+    parse_frame(NewBody, Header, Length, Options).
 
 parse_remaining_len(<<>>, Header, Options) ->
     {more, {{len, #{hdr => Header, len => {1, 0}}}, Options}};
@@ -178,19 +169,15 @@ append_body(H, T) when is_binary(H) ->
 append_body(?Q(Bytes, Q), T) ->
     ?Q(Bytes + iolist_size(T), queue:in(T, Q)).
 
-flatten_body(Body, Tail) when is_binary(Body) -> <<Body/binary, Tail/binary>>;
-flatten_body(?Q(_, Q), Tail) -> iolist_to_binary([queue:to_list(Q), Tail]).
+flatten_body(Body) when is_binary(Body) -> Body;
+flatten_body(?Q(_, Q)) -> iolist_to_binary(queue:to_list(Q)).
 
+parse_frame(Body, Header, 0, Options) ->
+    {ok, packet(Header), flatten_body(Body), ?none(Options)};
 parse_frame(Body, Header, Length, Options) ->
-    %% already appended
-    parse_frame(Body, _SplitTail = <<>>, Header, Length, Options).
-
-parse_frame(Body, Tail, Header, 0, Options) ->
-    {ok, packet(Header), flatten_body(Body, Tail), ?none(Options)};
-parse_frame(Body, Tail, Header, Length, Options) ->
     case body_bytes(Body) >= Length of
         true ->
-            <<FrameBin:Length/binary, Rest/binary>> = flatten_body(Body, Tail),
+            <<FrameBin:Length/binary, Rest/binary>> = flatten_body(Body),
             case parse_packet(Header, FrameBin, Options) of
                 {Variable, Payload} ->
                     {ok, packet(Header, Variable, Payload), Rest, ?none(Options)};
@@ -202,7 +189,7 @@ parse_frame(Body, Tail, Header, Length, Options) ->
         false ->
             {more, {{body, #{hdr => Header,
                              len => Length,
-                             rest => append_body(Body, Tail)
+                             rest => Body
                             }}, Options}}
     end.
 

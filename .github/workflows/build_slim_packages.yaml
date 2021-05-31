@@ -53,7 +53,7 @@ jobs:
     strategy:
       matrix:
         erl_otp:
-        - 23.2.7.2
+        - 23.2.7.2-emqx-2
 
     steps:
     - uses: actions/checkout@v1
@@ -82,11 +82,14 @@ jobs:
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
       run: |
+        export OTP_GITHUB_URL="https://github.com/emqx/otp"
         kerl build ${{ matrix.erl_otp }}
         kerl install ${{ matrix.erl_otp }} $HOME/.kerl/${{ matrix.erl_otp }}
     - name: build
       run: |
         . $HOME/.kerl/${{ matrix.erl_otp }}/activate
+        make ensure-rebar3
+        sudo cp rebar3 /usr/local/bin/rebar3
         make ${EMQX_NAME}-zip
     - name: test
       run: |

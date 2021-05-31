@@ -95,6 +95,10 @@ jobs:
         if (Test-Path rebar.lock) {
             Remove-Item -Force -Path rebar.lock
         }
+        make ensure-rebar3
+        copy rebar3 "${{ steps.install_erlang.outputs.erlpath }}\bin"
+        ls "${{ steps.install_erlang.outputs.erlpath }}\bin"
+        rebar3 --help
         make ${{ matrix.profile }}
         mkdir -p _packages/${{ matrix.profile }}
         Compress-Archive -Path _build/${{ matrix.profile }}/rel/emqx -DestinationPath _build/${{ matrix.profile }}/rel/$pkg_name
@@ -155,6 +159,8 @@ jobs:
     - name: build
       run: |
         . $HOME/.kerl/${{ matrix.erl_otp }}/activate
+        make -C source ensure-rebar3
+        sudo cp source/rebar3 /usr/local/bin/rebar3
         make -C source ${{ matrix.profile }}-zip
     - name: test
       run: |

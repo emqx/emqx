@@ -72,7 +72,7 @@
 
 [shell bench]
     !cd $BENCH_PATH
-    !./emqtt_bench pub -c 10 -I 1000 -t t/%i -s 64 -L 600
+    !./emqtt_bench pub -c 10 -I 1000 -t t/%i -s 64 -L 300
     ???sent
 
 [shell emqx]
@@ -109,7 +109,7 @@
     ???publish complete
     ??SH-PROMPT:
     !curl http://127.0.0.1:8080/counter
-    ???{"data":600,"code":0}
+    ???{"data":300,"code":0}
     ?SH-PROMPT
 
 [shell emqx2]

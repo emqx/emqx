@@ -172,7 +172,14 @@ load_ext_plugin(PluginDir) ->
                       error({plugin_app_file_not_found, AppFile})
               end,
     ok = load_plugin_app(AppName, Ebin),
-    ok = load_plugin_conf(AppName, PluginDir).
+    try
+        ok = load_plugin_conf(AppName, PluginDir)
+    catch
+        throw : {conf_file_not_found, ConfFile} ->
+            %% this is maybe a dependency of an external plugin
+            ?LOG(debug, "config_load_error_ignored for app=~p, path=~s", [AppName, ConfFile]),
+            ok
+    end.
 
 load_plugin_app(AppName, Ebin) ->
     _ = code:add_patha(Ebin),
@@ -180,8 +187,8 @@ load_plugin_app(AppName, Ebin) ->
     lists:foreach(
         fun(BeamFile) ->
                 Module = list_to_atom(filename:basename(BeamFile, ".beam")),
-                case code:ensure_loaded(Module) of
-                    {module, Module} -> ok;
+                case code:load_file(Module) of
+                    {module, _} -> ok;
                     {error, Reason} -> error({failed_to_load_plugin_beam, BeamFile, Reason})
                 end
         end, Modules),
@@ -193,12 +200,12 @@ load_plugin_app(AppName, Ebin) ->
 load_plugin_conf(AppName, PluginDir) ->
     Priv = filename:join([PluginDir, "priv"]),
     Etc  = filename:join([PluginDir, "etc"]),
-    Schema = filelib:wildcard(filename:join([Priv, "*.schema"])),
     ConfFile = filename:join([Etc, atom_to_list(AppName) ++ ".conf"]),
     Conf = case filelib:is_file(ConfFile) of
                true -> cuttlefish_conf:file(ConfFile);
-               false -> error({conf_file_not_found, ConfFile})
+               false -> throw({conf_file_not_found, ConfFile})
            end,
+    Schema = filelib:wildcard(filename:join([Priv, "*.schema"])),
     ?LOG(debug, "loading_extra_plugin_config conf=~s, schema=~s", [ConfFile, Schema]),
     AppsEnv = cuttlefish_generator:map(cuttlefish_schema:files(Schema), Conf),
     lists:foreach(fun({AppName1, Envs}) ->
