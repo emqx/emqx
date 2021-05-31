@@ -108,11 +108,7 @@ normalise_headers(Headers0) ->
     [{K, proplists:get_value(K, Headers)} || K <- Keys].
 
 normalise_parse_result(#{host := Host, scheme := Scheme0} = Map) ->
-    Scheme = atom_scheme(Scheme0),
-    DefaultPort = case https =:= Scheme of
-                      true  -> 443;
-                      false -> 80
-                  end,
+    {Scheme, DefaultPort} = atom_scheme_and_default_port(Scheme0),
     Port = case maps:get(port, Map, undefined) of
                N when is_number(N) -> N;
                _ -> DefaultPort
@@ -122,11 +118,14 @@ normalise_parse_result(#{host := Host, scheme := Scheme0} = Map) ->
         , port => Port
         }.
 
-%% NOTE: so far we only support http schemes.
-atom_scheme(Scheme) when is_list(Scheme) -> atom_scheme(list_to_binary(Scheme));
-atom_scheme(<<"https">>) -> https;
-atom_scheme(<<"http">>) -> http;
-atom_scheme(Other) -> throw({unsupported_scheme, Other}).
+%% NOTE: so far we only support http/coap schemes.
+atom_scheme_and_default_port(Scheme) when is_list(Scheme) ->
+    atom_scheme_and_default_port(list_to_binary(Scheme));
+atom_scheme_and_default_port(<<"http">> ) -> {http,   80};
+atom_scheme_and_default_port(<<"https">>) -> {https, 443};
+atom_scheme_and_default_port(<<"coap">> ) -> {coap,  5683};
+atom_scheme_and_default_port(<<"coaps">>) -> {coaps, 5684};
+atom_scheme_and_default_port(Other) -> throw({unsupported_scheme, Other}).
 
 do_uri_encode(Char) ->
     case reserved(Char) of

@@ -1886,8 +1886,11 @@ std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic) ->
     timer:sleep(100).
 
 resolve_uri(Uri) ->
-    {ok, {Scheme, _UserInfo, Host, PortNo, Path, Query}} =
-        emqx_http_lib:uri_parse(Uri, [{scheme_defaults, [{coap, ?DEFAULT_COAP_PORT}, {coaps, ?DEFAULT_COAPS_PORT}]}]),
+    {ok, #{scheme := Scheme,
+           host := Host,
+           port := PortNo,
+           path := Path} = URIMap} = emqx_http_lib:uri_parse(Uri),
+    Query = maps:get(query, URIMap, ""),
     {ok, PeerIP} = inet:getaddr(Host, inet),
     {Scheme, {PeerIP, PortNo}, split_path(Path), split_query(Query)}.
 
@@ -1896,7 +1899,7 @@ split_path([$/]) -> [];
 split_path([$/ | Path]) -> split_segments(Path, $/, []).
 
 split_query([]) -> [];
-split_query([$? | Path]) -> split_segments(Path, $&, []).
+split_query(Path) -> split_segments(Path, $&, []).
 
 split_segments(Path, Char, Acc) ->
     case string:rchr(Path, Char) of
