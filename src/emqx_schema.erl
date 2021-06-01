@@ -1,5 +1,12 @@
 -module(emqx_schema).
 
+% tmp
+-dialyzer(no_return).
+-dialyzer(no_match).
+-dialyzer(no_contracts).
+-dialyzer(no_unused).
+-dialyzer(no_fail_call).
+
 -include_lib("typerefl/include/types.hrl").
 
 -type log_level() :: debug | info | notice | warning | error | critical | alert | emergency | all.
