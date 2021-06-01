@@ -89,14 +89,9 @@ enable() ->
         ok -> ok;
         {error, already_exists} -> ok
     end.
-    % case emqx:hook('client.enhanced_authenticate', fun emqx_authentication:enhanced_authenticate/2) of
-    %     ok -> ok;
-    %     {error, already_exists} -> ok
-    % end.
 
 disable() ->
     emqx:unhook('client.authenticate', fun emqx_authentication:authenticate/1),
-    % emqx:unhook('client.enhanced_authenticate', {}),
     ok.
 
 authenticate(#{chain_id := ChainID} = ClientInfo) ->

@@ -287,7 +287,3 @@ to_binary(B) when is_binary(B) ->
     B;
 to_binary(L) when is_list(L) ->
     iolist_to_binary(L).
-
-
-
-

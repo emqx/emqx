@@ -398,10 +398,10 @@ serialize_type(service_type) ->
     "Service type".
 
 get_missed_params(Actual, Expected) ->
-    Keys = lists:fold(fun(Key, Acc) ->
-                          case maps:is_key(Key, Actual) of
-                              true -> Acc;
-                              false -> [Key | Acc]
-                          end
-                      end, [], Expected),
+    Keys = lists:foldl(fun(Key, Acc) ->
+                           case maps:is_key(Key, Actual) of
+                               true -> Acc;
+                               false -> [Key | Acc]
+                           end
+                       end, [], Expected),
     lists:reverse(Keys).
