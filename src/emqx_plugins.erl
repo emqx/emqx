@@ -16,15 +16,28 @@
 
 -module(emqx_plugins).
 
+-behaviour(gen_server).
+
 -include("emqx.hrl").
 -include("logger.hrl").
 
 -logger_header("[Plugins]").
 
--export([init/0]).
+%% API functions
+-export([start_link/0]).
+
+%% gen_server callbacks
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -export([ load/0
         , load/1
+        , async_load/0
         , unload/0
         , unload/1
         , reload/1
@@ -33,6 +46,10 @@
         , generate_configs/1
         , apply_configs/1
         ]).
+
+-record(state, {}).
+
+-define(MAX_WAIT_TIME, 30000).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -47,16 +64,59 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-%% @doc Init plugins' config
--spec(init() -> ok).
-init() ->
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+init([]) ->
+    process_flag(trap_exit, true),
     case emqx:get_env(plugins_etc_dir) of
         undefined  -> ok;
         PluginsEtc ->
             CfgFiles = [filename:join(PluginsEtc, File) ||
                         File <- filelib:wildcard("*.config", PluginsEtc)],
             lists:foreach(fun init_config/1, CfgFiles)
-    end.
+    end,
+    async_load(),
+    {ok, #state{}}.
+
+async_load() ->
+    gen_server:cast(?MODULE, async_load).
+
+handle_call(_Request, _From, State) ->
+    {reply, ok, State}.
+
+%% when starting the emqx application, load applications asynchronously
+%% to avoid deadlock if one of the plugins specified 'emqx' in its
+%% 'applications' list of .app.src file
+handle_cast(async_load, State) ->
+    Ref = make_ref(),
+    ParentPid = self(),
+    Pid = spawn_link(fun() -> ParentPid ! {load_reply, Ref, load()} end),
+    receive
+        {load_reply, Ref, {error, Reason}} ->
+            ?LOG(error, "Load plugins failed: ~p", [Reason]);
+        {load_reply, Ref, ok} ->
+            ?LOG(info, "All plugins are loaded");
+        {load_reply, Ref, ignore} ->
+            ?LOG(info, "No plugins available");
+        {'EXIT', Pid, Reason} ->
+            ?LOG(error, "Load plugins failed: ~p", [Reason])
+    after ?MAX_WAIT_TIME ->
+        ?LOG(error, "load plugins timeout")
+    end,
+    {noreply, State};
+
+handle_cast(_Msg, State) ->
+    {noreply, State}.
+
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
 
 %% @doc Load all plugins when the broker started.
 -spec(load() -> ok | ignore | {error, term()}).

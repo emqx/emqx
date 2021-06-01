@@ -3,7 +3,7 @@
   {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},
-  {applications, [kernel,stdlib,gen_coap]},
+  {applications, [kernel,stdlib,emqx,gen_coap]},
   {mod, {emqx_coap_app, []}},
   {env, []},
   {licenses, ["Apache-2.0"]},
