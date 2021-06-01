@@ -22,7 +22,7 @@ stop(_State) ->
 
 load_config() ->
     case hocon:load("etc/plugins/emqx_connector.conf", #{format => map}) of
-        {ok, #{<<"emqx_connectors">> := Connectors}} ->
+        {ok, #{<<"connectors">> := Connectors}} ->
             lists:foreach(fun load_connector/1, Connectors);
         {error, Reason} ->
             error(Reason)

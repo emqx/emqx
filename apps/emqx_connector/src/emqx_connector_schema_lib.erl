@@ -6,6 +6,7 @@
         ]).
 
 -export([ to_ip_port/1
+        , ip_port_to_string/1
         ]).
 
 -typerefl_from_string({ip_port/0, emqx_connector_schema_lib, to_ip_port}).
@@ -100,3 +101,6 @@ to_ip_port(Str) ->
              end;
          _ -> {error, Str}
      end.
+
+ip_port_to_string({Ip, Port}) ->
+    inet:ntoa(Ip) ++ ":" ++ integer_to_list(Port).

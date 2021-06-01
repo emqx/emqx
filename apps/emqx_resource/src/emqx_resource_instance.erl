@@ -110,8 +110,8 @@ load_config(RawConfig) when is_binary(RawConfig) ->
         Error -> Error
     end;
 
-load_config(#{<<"id">> := Id, <<"resource_type">> := ResourceTypeStr,
-              <<"config">> := MapConfig}) ->
+load_config(#{<<"id">> := Id, <<"resource_type">> := ResourceTypeStr} = Config) ->
+    MapConfig = maps:get(<<"config">>, Config, #{}),
     case emqx_resource:resource_type_from_str(ResourceTypeStr) of
         {ok, ResourceType} -> parse_and_load_config(Id, ResourceType, MapConfig);
         Error -> Error
@@ -130,8 +130,11 @@ create_local(InstId, ResourceType, InstConf) ->
     end.
 
 save_config_to_disk(InstId, ResourceType, Config) ->
+    %% TODO: send an event to the config handler, and the hander (single process)
+    %% will dump configs for all instances (from an ETS table) to a file.
     file:write_file(filename:join([emqx_data_dir(), binary_to_list(InstId) ++ ".conf"]),
-        jsx:encode(#{id => InstId, resource_type => ResourceType, config => Config})).
+        jsx:encode(#{id => InstId, resource_type => ResourceType,
+                     config => emqx_resource:call_config_to_file(Config)})).
 
 emqx_data_dir() ->
     "data".

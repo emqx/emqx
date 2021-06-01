@@ -5,7 +5,9 @@
 
 -emqx_resource_api_path("connectors/mysql").
 
--export([fields/1]).
+-export([ fields/1
+        , on_config_to_file/1
+        ]).
 
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
@@ -18,9 +20,13 @@
 
 -export([do_health_check/1]).
 
+%%=====================================================================
 fields("config") ->
     emqx_connector_schema_lib:relational_db_fields() ++
     emqx_connector_schema_lib:ssl_fields().
+
+on_config_to_file(#{server := Server} = Config) ->
+    Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}.
 
 %% ===================================================================
 
@@ -58,7 +64,7 @@ on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := PoolName} = State) ->
     case Result = ecpool:pick_and_do(PoolName, {mysql, query, [SQL]}, no_handover) of
         {error, Reason} ->
             logger:debug("mysql connector ~p do sql query failed, sql: ~p, reason: ~p", [InstId, SQL, Reason]),
-            emqx_resource:query_failure(AfterQuery);
+            emqx_resource:query_failed(AfterQuery);
         _ ->
             emqx_resource:query_success(AfterQuery)
     end,

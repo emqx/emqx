@@ -34,7 +34,7 @@ get(Mod, #{id := Id}, _Params) ->
 
 put(Mod, #{id := Id}, Params) ->
     ConfigParams = proplists:get_value(<<"config">>, Params),
-    ResourceTypeStr = proplists:get_value(<<"resource_type">>, Params),
+    ResourceTypeStr = proplists:get_value(<<"resource_type">>, Params, #{}),
     case emqx_resource:resource_type_from_str(ResourceTypeStr) of
         {ok, ResourceType} ->
             do_put(Mod, stringnify(Id), ConfigParams, ResourceType, Params);

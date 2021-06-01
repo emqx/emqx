@@ -65,6 +65,7 @@
         , call_health_check/3 %% verify if the resource is working normally
         , call_stop/3   %% stop the instance
         , call_config_merge/4 %% merge the config when updating
+        , call_config_to_file/2
         ]).
 
 -export([ list_instances/0 %% list all the instances, id only.
@@ -85,11 +86,14 @@
                     , on_health_check/2
                     , on_api_reply_format/1
                     , on_config_merge/3
+                    , on_config_to_file/1
                     ]).
 
 -callback on_api_reply_format(resource_data()) -> map().
 
 -callback on_config_merge(resource_config(), resource_config(), term()) -> resource_config().
+
+-callback on_config_to_file(resource_config()) -> jsx:json_term().
 
 %% when calling emqx_resource:start/1
 -callback on_start(instance_id(), resource_config()) ->
@@ -241,6 +245,10 @@ call_stop(InstId, Mod, ResourceState) ->
 call_config_merge(Mod, OldConfig, NewConfig, Params) ->
     ?SAFE_CALL(Mod:on_config_merge(OldConfig, NewConfig, Params)).
 
+-spec call_config_to_file(module(), resource_config()) -> jsx:json_term().
+call_config_to_file(Mod, Config) ->
+    ?SAFE_CALL(Mod:on_config_to_file(Config)).
+
 -spec parse_config(resource_type(), binary() | term()) ->
     {ok, resource_config()} | {error, term()}.
 parse_config(ResourceType, RawConfig) when is_binary(RawConfig) ->
@@ -271,7 +279,7 @@ resource_type_from_str(ResourceType) ->
             false -> {error, {invalid_resource, Mod}}
         end
     catch error:badarg ->
-        {error, {resourec_not_found, ResourceType}}
+        {error, {resource_not_found, ResourceType}}
     end.
 
 call_instance(InstId, Query) ->
