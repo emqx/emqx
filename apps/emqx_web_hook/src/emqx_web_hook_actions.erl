@@ -353,7 +353,7 @@ pool_name(ResId) ->
     list_to_atom("webhook:" ++ str(ResId)).
 
 get_ssl_opts(Opts, ResId) ->
-    [{ssl, true}, {ssl_opts, emqx_plugin_libs_ssl:save_files_return_opts(Opts, "rules", ResId)}].
+    emqx_plugin_libs_ssl:save_files_return_opts(Opts, "rules", ResId).
 
 test_http_connect(Conf) ->
     Url = fun() -> maps:get(<<"url">>, Conf) end,
