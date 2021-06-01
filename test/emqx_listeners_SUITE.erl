@@ -65,10 +65,9 @@ mustache_vars() ->
     ].
 
 generate_config() ->
-    Schema = cuttlefish_schema:files([local_path(["priv", "emqx.schema"])]),
     ConfFile = render_config_file(),
-    {ok, Conf} = hocon:load(ConfFile, #{format => proplists}),
-    cuttlefish_generator:map(Schema, Conf).
+    {ok, Conf} = hocon:load(ConfFile, #{format => richmap}),
+    hocon_schema:generate(emqx_schema, Conf).
 
 set_app_env({App, Lists}) ->
     lists:foreach(fun({acl_file, _Var}) ->
