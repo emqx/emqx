@@ -65,7 +65,8 @@
         , call_health_check/3 %% verify if the resource is working normally
         , call_stop/3   %% stop the instance
         , call_config_merge/4 %% merge the config when updating
-        , call_config_to_file/2
+        , call_jsonify/2
+        , call_api_reply_format/2
         ]).
 
 -export([ list_instances/0 %% list all the instances, id only.
@@ -84,16 +85,16 @@
 
 -optional_callbacks([ on_query/4
                     , on_health_check/2
-                    , on_api_reply_format/1
                     , on_config_merge/3
-                    , on_config_to_file/1
+                    , on_jsonify/1
+                    , on_api_reply_format/1
                     ]).
 
--callback on_api_reply_format(resource_data()) -> map().
+-callback on_api_reply_format(resource_data()) -> jsx:json_term().
 
 -callback on_config_merge(resource_config(), resource_config(), term()) -> resource_config().
 
--callback on_config_to_file(resource_config()) -> jsx:json_term().
+-callback on_jsonify(resource_config()) -> jsx:json_term().
 
 %% when calling emqx_resource:start/1
 -callback on_start(instance_id(), resource_config()) ->
@@ -243,11 +244,28 @@ call_stop(InstId, Mod, ResourceState) ->
 -spec call_config_merge(module(), resource_config(), resource_config(), term()) ->
     resource_config().
 call_config_merge(Mod, OldConfig, NewConfig, Params) ->
-    ?SAFE_CALL(Mod:on_config_merge(OldConfig, NewConfig, Params)).
+    case erlang:function_exported(Mod, on_jsonify, 1) of
+        true ->
+            ?SAFE_CALL(Mod:on_config_merge(OldConfig, NewConfig, Params));
+        false when is_map(OldConfig), is_map(NewConfig) ->
+            maps:merge(OldConfig, NewConfig);
+        false ->
+            NewConfig
+    end.
 
--spec call_config_to_file(module(), resource_config()) -> jsx:json_term().
-call_config_to_file(Mod, Config) ->
-    ?SAFE_CALL(Mod:on_config_to_file(Config)).
+-spec call_jsonify(module(), resource_config()) -> jsx:json_term().
+call_jsonify(Mod, Config) ->
+    case erlang:function_exported(Mod, on_jsonify, 1) of
+        false -> Config;
+        true -> ?SAFE_CALL(Mod:on_jsonify(Config))
+    end.
+
+-spec call_api_reply_format(module(), resource_data()) -> jsx:json_term().
+call_api_reply_format(Mod, Data) ->
+    case erlang:function_exported(Mod, on_api_reply_format, 1) of
+        false -> emqx_resource_api:default_api_reply_format(Data);
+        true -> ?SAFE_CALL(Mod:on_api_reply_format(Data))
+    end.
 
 -spec parse_config(resource_type(), binary() | term()) ->
     {ok, resource_config()} | {error, term()}.

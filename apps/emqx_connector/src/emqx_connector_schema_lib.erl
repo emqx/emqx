@@ -118,4 +118,4 @@ to_ip_port(Str) ->
      end.
 
 ip_port_to_string({Ip, Port}) ->
-    inet:ntoa(Ip) ++ ":" ++ integer_to_list(Port).
+    iolist_to_binary([inet:ntoa(Ip), ":", integer_to_list(Port)]).

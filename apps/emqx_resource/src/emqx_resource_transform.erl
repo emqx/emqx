@@ -57,7 +57,8 @@ forms(_, []) -> [].
 form(Mod, Form) ->
     case Form of
         ?Q("-emqx_resource_api_path('@Path').") ->
-            {fix_spec_attrs() ++ fix_api_attrs(erl_syntax:concrete(Path)) ++ fix_api_exports(),
+            {fix_spec_attrs() ++ fix_api_attrs(Mod, erl_syntax:concrete(Path))
+             ++ fix_api_exports(),
              [],
              fix_spec_funcs(Mod) ++ fix_api_funcs(Mod)};
         _ ->
@@ -75,18 +76,17 @@ fix_spec_funcs(_Mod) ->
     , ?Q("structs() -> [\"config\"].")
     ].
 
-fix_api_attrs(Path0) ->
-    BaseName = filename:basename(Path0),
-    Path = "/" ++ BaseName,
+fix_api_attrs(Mod, Path) ->
+    BaseName = atom_to_list(Mod),
     [erl_syntax:revert(
         erl_syntax:attribute(?Q("rest_api"), [
             erl_syntax:abstract(#{
-                name => list_to_atom(Name ++ "_log_tracers"),
+                name => list_to_atom(Act ++ "_" ++ BaseName),
                 method => Method,
                 path => mk_path(Path, WithId),
                 func => Func,
-                descr => Name ++ " the " ++ BaseName})]))
-       || {Name, Method, WithId, Func} <- [
+                descr => Act ++ " the " ++ BaseName})]))
+       || {Act, Method, WithId, Func} <- [
             {"list", 'GET', noid, api_get_all},
             {"get", 'GET', id, api_get},
             {"update", 'PUT', id, api_put},
@@ -110,5 +110,5 @@ fix_api_funcs(Mod) ->
             emqx_resource_api:delete('@Mod@', Binding, Params)."))
     ].
 
-mk_path(Path, id) -> Path ++ "/:bin:id";
+mk_path(Path, id) -> string:trim(Path, trailing, "/") ++ "/:bin:id";
 mk_path(Path, noid) -> Path.
