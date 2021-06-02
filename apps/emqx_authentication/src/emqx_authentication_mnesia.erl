@@ -52,6 +52,8 @@
     }
 }).
 
+
+
 -record(user_info,
         { user_id :: {user_group(), user_id()}
         , password_hash :: binary()
@@ -188,17 +190,13 @@ list_users(#{user_group := UserGroup}) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-%% Example:
-%% {
-%%     "myuser1":"password_hash1",
-%%     "myuser2":"password_hash2"
-%% }
+%% Example: data/user-credentials.json
 import_users_from_json(Filename, #{user_group := UserGroup}) ->
     case file:read_file(Filename) of
         {ok, Bin} ->
-            case emqx_json:safe_decode(Bin) of
+            case emqx_json:safe_decode(Bin, [return_maps]) of
                 {ok, List} ->
-                    import(UserGroup, List);
+                    trans(fun import/2, [UserGroup, List]);
                 {error, Reason} ->
                     {error, Reason}
             end;
@@ -206,50 +204,74 @@ import_users_from_json(Filename, #{user_group := UserGroup}) ->
             {error, Reason}
     end.
 
-%% Example:
-%% myuser1,password_hash1
-%% myuser2,password_hash2
+%% Example: data/user-credentials.csv
 import_users_from_csv(Filename, #{user_group := UserGroup}) ->
     case file:open(Filename, [read, binary]) of
         {ok, File} ->
-            Result = import(UserGroup, File),
-            file:close(File),
-            Result;
+            case get_csv_header(File) of
+                {ok, Seq} ->
+                    Result = trans(fun import/3, [UserGroup, File, Seq]),
+                    file:close(File),
+                    Result;
+                {error, Reason} ->
+                    {error, Reason}
+            end;
         {error, Reason} ->
             {error, Reason}
     end.
 
-import(UserGroup, ListOrFile) ->
-    trans(fun do_import/2, [UserGroup, ListOrFile]).
-
-do_import(_UserGroup, []) ->
+import(_UserGroup, []) ->
     ok;
-do_import(UserGroup, [{UserID, PasswordHash} | More])
+import(UserGroup, [#{<<"user_id">> := UserID, <<"password_hash">> := PasswordHash} | More])
   when is_binary(UserID) andalso is_binary(PasswordHash) ->
     import_user(UserGroup, UserID, PasswordHash),
-    do_import(UserGroup, More);
-do_import(_UserGroup, [_ | _More]) ->
-    {error, bad_format};
+    import(UserGroup, More);
+import(_UserGroup, [_ | _More]) ->
+    {error, bad_format}.
 
 %% Importing 5w users needs 1.7 seconds 
-do_import(UserGroup, File)  ->
+import(UserGroup, File, Seq) ->
     case file:read_line(File) of
         {ok, Line} ->
-            case binary:split(Line, [<<",">>, <<"\n">>], [global]) of
-                [UserID, PasswordHash, <<>>] ->
-                    import_user(UserGroup, UserID, PasswordHash),
-                    do_import(UserGroup, File);
-                [UserID, PasswordHash] ->
+            Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
+            case get_user_info_by_seq(Fields, Seq) of
+                {ok, #{user_id := UserID,
+                       password_hash := PasswordHash}} ->
                     import_user(UserGroup, UserID, PasswordHash),
-                    do_import(UserGroup, File);
-                _ ->
-                    {error, bad_format}
+                    import(UserGroup, File, Seq);
+                {error, Reason} ->
+                    {error, Reason}
             end;
         eof ->
             ok;
         {error, Reason} ->
             {error, Reason}
     end.
+
+get_csv_header(File) ->
+    case file:read_line(File) of
+        {ok, Line} ->
+            Seq = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
+            {ok, Seq};
+        eof ->
+            {error, empty_file};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+get_user_info_by_seq(Fields, Seq) ->
+    get_user_info_by_seq(Fields, Seq, #{}).
+
+get_user_info_by_seq([], [], #{user_id := _, password_hash := _} = Acc) ->
+    {ok, Acc};
+get_user_info_by_seq(_, [], _) ->
+    {error, bad_format};
+get_user_info_by_seq([UserID | More1], [<<"user_id">> | More2], Acc) ->
+    get_user_info_by_seq(More1, More2, Acc#{user_id => UserID});
+get_user_info_by_seq([PasswordHash | More1], [<<"password_hash">> | More2], Acc) ->
+    get_user_info_by_seq(More1, More2, Acc#{password_hash => PasswordHash});
+get_user_info_by_seq(_, _, _) ->
+    {error, bad_format}.
 
 -compile({inline, [add/4]}).
 add(UserGroup, UserID, Password, Algorithm) ->
