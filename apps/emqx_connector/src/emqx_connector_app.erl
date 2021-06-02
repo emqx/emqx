@@ -11,6 +11,8 @@
 
 -export([start/2, stop/1]).
 
+-export([load_config/0]).
+
 start(_StartType, _StartArgs) ->
     load_config(),
     emqx_connector_sup:start_link().

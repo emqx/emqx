@@ -134,7 +134,7 @@ save_config_to_disk(InstId, ResourceType, Config) ->
     %% will dump configs for all instances (from an ETS table) to a file.
     file:write_file(filename:join([emqx_data_dir(), binary_to_list(InstId) ++ ".conf"]),
         jsx:encode(#{id => InstId, resource_type => ResourceType,
-                     config => emqx_resource:call_config_to_file(Config)})).
+                     config => emqx_resource:call_config_to_file(ResourceType, Config)})).
 
 emqx_data_dir() ->
     "data".

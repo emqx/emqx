@@ -6,7 +6,8 @@
   {applications,
    [kernel,
     stdlib,
-    emqx_resource
+    emqx_resource,
+    ecpool
    ]},
   {env,[]},
   {modules, []},

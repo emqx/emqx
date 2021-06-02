@@ -1,7 +1,7 @@
 %%-*- mode: erlang -*-
 %% emqx_connector config mapping
 
-{mapping, "connectors", "connectors", [
+{mapping, "connectors", "emqx_connector.connectors", [
   {default, []},
   {datatype, string}
 ]}.
