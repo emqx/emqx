@@ -39,6 +39,7 @@ start_pool(Name, Mod, Options) ->
 stop_pool(Name) ->
     case ecpool:stop_sup_pool(Name) of
         ok -> logger:log(info, "Destroyed ~0p Successfully", [Name]);
+        {error, not_found} -> ok;
         {error, Reason} ->
             logger:log(error, "Destroy ~0p failed, ~0p", [Name, Reason]),
             error({stop_pool_failed, Name})
