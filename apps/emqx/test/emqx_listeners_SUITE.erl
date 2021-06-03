@@ -48,7 +48,7 @@ t_restart_listeners(_) ->
     ok = emqx_listeners:stop().
 
 render_config_file() ->
-    Path = local_path(["..", "..", "..", "..", "etc", "emqx.conf"]),
+    Path = local_path(["etc", "emqx.conf"]),
     {ok, Temp} = file:read_file(Path),
     Vars0 = mustache_vars(),
     Vars = [{atom_to_list(N), iolist_to_binary(V)} || {N, V} <- Vars0],
@@ -91,4 +91,4 @@ get_base_dir(Module) ->
 
 get_base_dir() ->
     get_base_dir(?MODULE).
-    
+
