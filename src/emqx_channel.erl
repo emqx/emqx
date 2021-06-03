@@ -49,7 +49,10 @@
         ]).
 
 %% Export for emqx_sn
--export([do_deliver/2]).
+-export([ do_deliver/2
+        , ensure_keepalive/2
+        , clear_keepalive/1
+        ]).
 
 %% Exports for CT
 -export([set_field/3]).
@@ -1512,6 +1515,14 @@ ensure_keepalive_timer(Interval, Channel = #channel{clientinfo = #{zone := Zone}
     Keepalive = emqx_keepalive:init(round(timer:seconds(Interval) * Backoff)),
     ensure_timer(alive_timer, Channel#channel{keepalive = Keepalive}).
 
+clear_keepalive(Channel = #channel{timers = Timers}) ->
+    case maps:get(alive_timer, Timers, undefined) of
+        undefined ->
+            Channel;
+        TRef ->
+            emqx_misc:cancel_timer(TRef),
+            Channel#channel{timers = maps:without([alive_timer], Timers)}
+    end.
 %%--------------------------------------------------------------------
 %% Maybe Resume Session
 

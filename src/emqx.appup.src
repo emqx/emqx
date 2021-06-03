@@ -79,6 +79,9 @@
      {load_module, emqx_trie, soft_purge, soft_purge, []},
      {load_module, emqx_router, soft_purge, soft_purge, [emqx_trie]}
    ]},
+   {<<"4.2.6">>, [
+     {load_module, emqx_channel, brutal_purge, soft_purge, []}
+   ]},
    {<<".*">>, []}
  ],
  [
@@ -158,6 +161,9 @@
      {load_module, emqx_broker, soft_purge, soft_purge, []},
      {load_module, emqx_trie, soft_purge, soft_purge, [emqx_router]},
      {load_module, emqx_router, soft_purge, soft_purge, []}
+   ]},
+   {<<"4.2.6">>, [
+     {load_module, emqx_channel, brutal_purge, soft_purge, []}
    ]},
    {<<".*">>, []}
  ]
