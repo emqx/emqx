@@ -223,7 +223,7 @@ load_instances_from_dir(Dir) ->
 load_instance_from_file(File) ->
     emqx_resource_instance:load_file(File).
 
--spec load_instance_from_config(binary() | map()) -> ok.
+-spec load_instance_from_config(binary() | map()) -> {ok, resource_data()} | {error, term()}.
 load_instance_from_config(Config) ->
     emqx_resource_instance:load_config(Config).
 
