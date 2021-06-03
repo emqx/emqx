@@ -23,10 +23,13 @@
 -export([start_link/2]).
 
 %% load resource instances from *.conf files
--export([ load/1
+-export([ load_dir/1
+        , load_file/1
+        , load_config/1
         , lookup/1
         , list_all/0
         , lookup_by_type/1
+        , create_local/3
         ]).
 
 -export([ hash_call/2
@@ -82,8 +85,8 @@ lookup_by_type(ResourceType) ->
     [Data || #{mod := Mod} = Data <- list_all()
              , Mod =:= ResourceType].
 
--spec load(Dir :: string()) -> ok.
-load(Dir) ->
+-spec load_dir(Dir :: string()) -> ok.
+load_dir(Dir) ->
     lists:foreach(fun load_file/1, filelib:wildcard(filename:join([Dir, "*.conf"]))).
 
 load_file(File) ->
@@ -91,39 +94,50 @@ load_file(File) ->
         {error, Reason} ->
             logger:error("load resource from ~p failed: ~p", [File, Reason]);
         RawConfig ->
-            case hocon:binary(RawConfig, #{format => map}) of
-                {ok, #{<<"id">> := Id, <<"resource_type">> := ResourceTypeStr,
-                       <<"config">> := MapConfig}} ->
-                    case emqx_resource:resource_type_from_str(ResourceTypeStr) of
-                        {ok, ResourceType} ->
-                            parse_and_load_config(Id, ResourceType, MapConfig);
-                        {error, Reason} ->
-                            logger:error("no such resource type: ~s, ~p",
-                                [ResourceTypeStr, Reason])
-                    end;
+            case load_config(RawConfig) of
+                {ok, Data} ->
+                    logger:debug("loaded resource instance from file: ~p, data: ~p",
+                        [File, Data]);
                 {error, Reason} ->
                     logger:error("load resource from ~p failed: ~p", [File, Reason])
             end
     end.
 
-parse_and_load_config(InstId, ResourceType, MapConfig) ->
-    case emqx_resource:parse_config(ResourceType, MapConfig) of
-        {error, Reason} ->
-            logger:error("parse config for resource ~p of type ~p failed: ~p",
-                [InstId, ResourceType, Reason]);
-        {ok, InstConf} ->
-            create_instance_local(InstId, ResourceType, InstConf)
+-spec load_config(binary() | map()) -> {ok, resource_data()} | {error, term()}.
+load_config(RawConfig) when is_binary(RawConfig) ->
+    case hocon:binary(RawConfig, #{format => map}) of
+        {ok, ConfigTerm} -> load_config(ConfigTerm);
+        Error -> Error
+    end;
+
+load_config(#{<<"id">> := Id, <<"resource_type">> := ResourceTypeStr} = Config) ->
+    MapConfig = maps:get(<<"config">>, Config, #{}),
+    case emqx_resource:resource_type_from_str(ResourceTypeStr) of
+        {ok, ResourceType} -> parse_and_load_config(Id, ResourceType, MapConfig);
+        Error -> Error
     end.
 
-create_instance_local(InstId, ResourceType, InstConf) ->
-    case do_create(InstId, ResourceType, InstConf) of
-        {ok, Data} ->
-            logger:debug("created ~p resource instance: ~p from config: ~p, Data: ~p",
-                [ResourceType, InstId, InstConf, Data]);
-        {error, Reason} ->
-            logger:error("create ~p resource instance: ~p failed: ~p, config: ~p",
-                [ResourceType, InstId, Reason, InstConf])
+parse_and_load_config(InstId, ResourceType, MapConfig) ->
+    case emqx_resource:parse_config(ResourceType, MapConfig) of
+        {ok, InstConf} -> create_local(InstId, ResourceType, InstConf);
+        Error -> Error
     end.
+
+create_local(InstId, ResourceType, InstConf) ->
+    case hash_call(InstId, {create, InstId, ResourceType, InstConf}, 15000) of
+        {ok, Data} -> {ok, Data};
+        Error -> Error
+    end.
+
+save_config_to_disk(InstId, ResourceType, Config) ->
+    %% TODO: send an event to the config handler, and the hander (single process)
+    %% will dump configs for all instances (from an ETS table) to a file.
+    file:write_file(filename:join([emqx_data_dir(), binary_to_list(InstId) ++ ".conf"]),
+        jsx:encode(#{id => InstId, resource_type => ResourceType,
+                     config => emqx_resource:call_jsonify(ResourceType, Config)})).
+
+emqx_data_dir() ->
+    "data".
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -205,7 +219,13 @@ do_create(InstId, ResourceType, Config) ->
                         #{mod => ResourceType, config => Config,
                           state => ResourceState, status => stopped}}),
                     _ = do_health_check(InstId),
-                    {ok, force_lookup(InstId)};
+                    case save_config_to_disk(InstId, ResourceType, Config) of
+                        ok -> {ok, force_lookup(InstId)};
+                        {error, Reason} ->
+                            logger:error("save config for ~p resource ~p to disk failed: ~p",
+                                [ResourceType, InstId, Reason]),
+                            {error, Reason}
+                    end;
                 {error, Reason} ->
                     logger:error("start ~s resource ~s failed: ~p", [ResourceType, InstId, Reason]),
                     {error, Reason}

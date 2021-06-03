@@ -65,13 +65,17 @@
         , call_health_check/3 %% verify if the resource is working normally
         , call_stop/3   %% stop the instance
         , call_config_merge/4 %% merge the config when updating
+        , call_jsonify/2
+        , call_api_reply_format/2
         ]).
 
 -export([ list_instances/0 %% list all the instances, id only.
         , list_instances_verbose/0 %% list all the instances
         , get_instance/1 %% return the data of the instance
         , get_instance_by_type/1 %% return all the instances of the same resource type
-        , load_instances/1 %% load instances from config files
+        , load_instances_from_dir/1 %% load instances from a directory
+        , load_instance_from_file/1 %% load an instance from a config file
+        , load_instance_from_config/1 %% load an instance from a map or json-string config
         % , dependents/1
         % , inc_counter/2 %% increment the counter of the instance
         % , inc_counter/3 %% increment the counter by a given integer
@@ -81,13 +85,16 @@
 
 -optional_callbacks([ on_query/4
                     , on_health_check/2
-                    , on_api_reply_format/1
                     , on_config_merge/3
+                    , on_jsonify/1
+                    , on_api_reply_format/1
                     ]).
 
--callback on_api_reply_format(resource_data()) -> map().
+-callback on_api_reply_format(resource_data()) -> jsx:json_term().
 
 -callback on_config_merge(resource_config(), resource_config(), term()) -> resource_config().
+
+-callback on_jsonify(resource_config()) -> jsx:json_term().
 
 %% when calling emqx_resource:start/1
 -callback on_start(instance_id(), resource_config()) ->
@@ -208,9 +215,17 @@ list_instances_verbose() ->
 get_instance_by_type(ResourceType) ->
     emqx_resource_instance:lookup_by_type(ResourceType).
 
--spec load_instances(Dir :: string()) -> ok.
-load_instances(Dir) ->
-    emqx_resource_instance:load(Dir).
+-spec load_instances_from_dir(Dir :: string()) -> ok.
+load_instances_from_dir(Dir) ->
+    emqx_resource_instance:load_dir(Dir).
+
+-spec load_instance_from_file(File :: string()) -> ok.
+load_instance_from_file(File) ->
+    emqx_resource_instance:load_file(File).
+
+-spec load_instance_from_config(binary() | map()) -> ok.
+load_instance_from_config(Config) ->
+    emqx_resource_instance:load_config(Config).
 
 -spec call_start(instance_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
@@ -229,7 +244,28 @@ call_stop(InstId, Mod, ResourceState) ->
 -spec call_config_merge(module(), resource_config(), resource_config(), term()) ->
     resource_config().
 call_config_merge(Mod, OldConfig, NewConfig, Params) ->
-    ?SAFE_CALL(Mod:on_config_merge(OldConfig, NewConfig, Params)).
+    case erlang:function_exported(Mod, on_jsonify, 1) of
+        true ->
+            ?SAFE_CALL(Mod:on_config_merge(OldConfig, NewConfig, Params));
+        false when is_map(OldConfig), is_map(NewConfig) ->
+            maps:merge(OldConfig, NewConfig);
+        false ->
+            NewConfig
+    end.
+
+-spec call_jsonify(module(), resource_config()) -> jsx:json_term().
+call_jsonify(Mod, Config) ->
+    case erlang:function_exported(Mod, on_jsonify, 1) of
+        false -> Config;
+        true -> ?SAFE_CALL(Mod:on_jsonify(Config))
+    end.
+
+-spec call_api_reply_format(module(), resource_data()) -> jsx:json_term().
+call_api_reply_format(Mod, Data) ->
+    case erlang:function_exported(Mod, on_api_reply_format, 1) of
+        false -> emqx_resource_api:default_api_reply_format(Data);
+        true -> ?SAFE_CALL(Mod:on_api_reply_format(Data))
+    end.
 
 -spec parse_config(resource_type(), binary() | term()) ->
     {ok, resource_config()} | {error, term()}.
@@ -240,7 +276,7 @@ parse_config(ResourceType, RawConfig) when is_binary(RawConfig) ->
         Error -> Error
     end;
 parse_config(ResourceType, RawConfigTerm) ->
-    parse_config(ResourceType, jsx:encode(#{<<"config">> => RawConfigTerm})).
+    parse_config(ResourceType, jsx:encode(#{config => RawConfigTerm})).
 
 -spec do_parse_config(resource_type(), map()) -> {ok, resource_config()} | {error, term()}.
 do_parse_config(ResourceType, MapConfig) ->
@@ -261,7 +297,7 @@ resource_type_from_str(ResourceType) ->
             false -> {error, {invalid_resource, Mod}}
         end
     catch error:badarg ->
-        {error, {not_found, ResourceType}}
+        {error, {resource_not_found, ResourceType}}
     end.
 
 call_instance(InstId, Query) ->

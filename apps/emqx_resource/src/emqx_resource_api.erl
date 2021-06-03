@@ -20,6 +20,9 @@
         , put/3
         , delete/3
         ]).
+
+-export([default_api_reply_format/1]).
+
 get_all(Mod, _Binding, _Params) ->
     {200, #{code => 0, data =>
         [format_data(Mod, Data) || Data <- emqx_resource:list_instances_verbose()]}}.
@@ -34,7 +37,7 @@ get(Mod, #{id := Id}, _Params) ->
 
 put(Mod, #{id := Id}, Params) ->
     ConfigParams = proplists:get_value(<<"config">>, Params),
-    ResourceTypeStr = proplists:get_value(<<"resource_type">>, Params),
+    ResourceTypeStr = proplists:get_value(<<"resource_type">>, Params, #{}),
     case emqx_resource:resource_type_from_str(ResourceTypeStr) of
         {ok, ResourceType} ->
             do_put(Mod, stringnify(Id), ConfigParams, ResourceType, Params);
@@ -63,15 +66,11 @@ delete(_Mod, #{id := Id}, _Params) ->
     end.
 
 format_data(Mod, Data) ->
-    case erlang:function_exported(Mod, on_api_reply_format, 1) of
-        false ->
-            default_api_reply_format(Data);
-        true ->
-            Mod:on_api_reply_format(Data)
-    end.
+    emqx_resource:call_api_reply_format(Mod, Data).
 
-default_api_reply_format(#{id := Id, status := Status, config := Config}) ->
-    #{node => node(), id => Id, status => Status, config => Config}.
+default_api_reply_format(#{id := Id, mod := Mod, status := Status, config := Config}) ->
+    #{node => node(), id => Id, status => Status, resource_type => Mod,
+      config => emqx_resource:call_jsonify(Mod, Config)}.
 
 stringnify(Bin) when is_binary(Bin) -> Bin;
 stringnify(Str) when is_list(Str) -> list_to_binary(Str);
