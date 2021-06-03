@@ -43,7 +43,8 @@
 start(_Type, _Args) ->
     Addr = application:get_env(emqx_sn, port, 1884),
     GwId = application:get_env(emqx_sn, gateway_id, 1),
-    {ok, Sup} = emqx_sn_sup:start_link(Addr, GwId),
+    PredefTopics = application:get_env(emqx_sn, predefined, []),
+    {ok, Sup} = emqx_sn_sup:start_link(Addr, GwId, PredefTopics),
     start_listeners(),
     {ok, Sup}.
 
@@ -57,13 +58,7 @@ stop(_State) ->
 
 -spec start_listeners() -> ok.
 start_listeners() ->
-    PredefTopics = application:get_env(emqx_sn, predefined, []),
-    ListenCfs = [begin
-                    TabName = tabname(Proto, ListenOn),
-                    {ok, RegistryPid} = emqx_sn_sup:start_registry_proc(emqx_sn_sup, TabName, PredefTopics),
-                    {Proto, ListenOn, [{registry, {TabName, RegistryPid}} | Options]}
-                 end || {Proto, ListenOn, Options} <- listeners_confs()],
-    lists:foreach(fun start_listener/1, ListenCfs).
+    lists:foreach(fun start_listener/1, listeners_confs()).
 
 -spec start_listener(listener()) -> ok.
 start_listener({Proto, ListenOn, Options}) ->
@@ -151,7 +146,3 @@ format({Addr, Port}) when is_list(Addr) ->
     io_lib:format("~s:~w", [Addr, Port]);
 format({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
-
-tabname(Proto, ListenOn) ->
-    list_to_atom(lists:flatten(["emqx_sn_registry__", atom_to_list(Proto), "_", format(ListenOn)])).
-

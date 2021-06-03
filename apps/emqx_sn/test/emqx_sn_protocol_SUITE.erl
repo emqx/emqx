@@ -1084,7 +1084,7 @@ t_asleep_test03_to_awake_qos1_dl_msg(_) ->
     {ok, C} = emqtt:start_link(),
     {ok, _} = emqtt:connect(C),
     {ok, _} = emqtt:publish(C, TopicName1, Payload1, QoS),
-    timer:sleep(500),
+    timer:sleep(100),
     ok = emqtt:disconnect(C),
 
     timer:sleep(50),
