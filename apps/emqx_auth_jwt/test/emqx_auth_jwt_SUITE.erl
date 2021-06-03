@@ -33,6 +33,7 @@ groups() ->
                                  , t_check_claims
                                  , t_check_claims_clientid
                                  , t_check_claims_username
+                                 , t_check_claims_kid_in_header
                                  ]}
     ].
 
@@ -60,6 +61,12 @@ set_special_configs(emqx_auth_jwt) ->
 
 set_special_configs(_) ->
     ok.
+
+sign(Payload, Header, Key) when is_map(Header) ->
+    Jwk = jose_jwk:from_oct(Key),
+    Jwt = emqx_json:encode(Payload),
+    {_, Token} = jose_jws:compact(jose_jwt:sign(Jwk, Header, Jwt)),
+    Token;
 
 sign(Payload, Alg, Key) ->
     Jwk = jose_jwk:from_oct(Key),
@@ -145,3 +152,15 @@ t_check_claims_username(_) ->
     Result3 = emqx_access_control:authenticate(Plain#{password => Jwt_Error}),
     ct:pal("Auth result for the invalid jwt: ~p~n", [Result3]),
     ?assertEqual({error, invalid_signature}, Result3).
+
+t_check_claims_kid_in_header(_) ->
+    application:set_env(emqx_auth_jwt, verify_claims, []),
+    Plain = #{clientid => <<"client23">>, username => <<"plain">>, zone => external},
+    Jwt = sign([{clientid, <<"client23">>},
+                {username, <<"plain">>},
+                {exp, os:system_time(seconds) + 3}],
+               #{<<"alg">> => <<"HS256">>,
+                 <<"kid">> => <<"a_kid_str">>}, <<"emqxsecret">>),
+    Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
+    ct:pal("Auth result: ~p~n", [Result0]),
+    ?assertMatch({ok, #{auth_result := success, jwt_claims := _}}, Result0).
