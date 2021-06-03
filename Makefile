@@ -15,6 +15,8 @@ REL_PROFILES := emqx emqx-edge
 PKG_PROFILES := emqx-pkg emqx-edge-pkg
 PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
+CT_NODE_NAME ?= 'test@127.0.0.1'
+
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
 
 .PHONY: default
@@ -44,7 +46,7 @@ proper: $(REBAR)
 
 .PHONY: ct
 ct: $(REBAR)
-	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name 'test@127.0.0.1' -c -v
+	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v
 
 APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
 
@@ -52,7 +54,7 @@ APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
 .PHONY: $(APPS:%=%-ct)
 define gen-app-ct-target
 $1-ct:
-	$(REBAR) ct --name 'test@127.0.0.1' -v --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
+	$(REBAR) ct --name $(CT_NODE_NAME) -v --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
 
@@ -63,6 +65,14 @@ $1-prop:
 	$(REBAR) proper -d test/props -v -m $(shell $(CURDIR)/scripts/find-props.sh $1)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-prop-target,$(app))))
+
+.PHONY: ct-suite
+ct-suite: $(REBAR)
+ifneq ($(TESTCASE),)
+	$(REBAR) ct -v --readable=false --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE)
+else
+	$(REBAR) ct -v --readable=false --name $(CT_NODE_NAME) --suite $(SUITE)
+endif
 
 .PHONY: cover
 cover: $(REBAR)
