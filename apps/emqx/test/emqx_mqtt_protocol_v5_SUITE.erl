@@ -109,7 +109,6 @@ clean_retained(Topic) ->
 
 t_basic_test(_) ->
     Topic = nth(1, ?TOPICS),
-    ct:print("Basic test starting"),
     {ok, C} = emqtt:start_link([{proto_ver, v5}]),
     {ok, _} = emqtt:connect(C),
     {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
@@ -357,6 +356,57 @@ t_connect_session_expiry_interval(_) ->
     ?assertEqual({ok, iolist_to_binary(Payload)}, maps:find(payload, Msg)),
     ?assertEqual({ok, 2}, maps:find(qos, Msg)),
     ok = emqtt:disconnect(Client3).
+
+t_persistent_session_without_client_id(_) ->
+    process_flag(trap_exit, true), %% Emqtt client dies
+    {ok, Client0} = emqtt:start_link([
+                                        {proto_ver, v5},
+                                        {properties, #{'Session-Expiry-Interval' => 7200}},
+                                        {clean_start, false}
+                                    ]),
+    {error, {client_identifier_not_valid, _}} = emqtt:connect(Client0),
+    ok.
+
+t_assigned_clientid_persistent_session(_) ->
+    {ok, Client1} = emqtt:start_link([
+                                        {proto_ver, v5},
+                                        {properties, #{'Session-Expiry-Interval' => 7200}},
+                                        {clean_start, true}
+                                    ]),
+    {ok, _} = emqtt:connect(Client1),
+
+    AssignedClientId = client_info(clientid, Client1),
+    ok = emqtt:disconnect(Client1),
+
+    {ok, Client2} = emqtt:start_link([
+                                        {clientid, AssignedClientId},
+                                        {proto_ver, v5},
+                                        {clean_start, false}
+                                        ]),
+    {ok, _} = emqtt:connect(Client2),
+    ?assertEqual(1, client_info(session_present, Client2)),
+    ok = emqtt:disconnect(Client2).
+
+t_persistent_session_cancel_on_disconnect(_) ->
+    ClientId = <<"t_persistent_session_cancel_on_disconnect">>,
+    {ok, Client1} = emqtt:start_link([
+                                        {proto_ver, v5},
+                                        {clientid, ClientId},
+                                        {properties, #{'Session-Expiry-Interval' => 16#FFFFFFFF}},
+                                        {clean_start, true}
+                                    ]),
+    {ok, _} = emqtt:connect(Client1),
+    ok = emqtt:disconnect(Client1, 0, #{'Session-Expiry-Interval' => 0}),
+
+    {ok, Client2} = emqtt:start_link([
+                                        {clientid, ClientId},
+                                        {proto_ver, v5},
+                                        {clean_start, false}
+                                        ]),
+    {ok, _} = emqtt:connect(Client2),
+    ?assertEqual(0, client_info(session_present, Client2)),
+    ok = emqtt:disconnect(Client2).
+
 
 %% [MQTT-3.1.3-9]
 %% !!!REFACTOR NEED:
