@@ -18,32 +18,26 @@
 
 -behaviour(supervisor).
 
--export([ start_link/2
-        , start_registry_proc/3
+-export([ start_link/3
         , init/1
         ]).
 
-start_registry_proc(Sup, TabName, PredefTopics) ->
-    Registry = #{id       => TabName,
-                 start    => {emqx_sn_registry, start_link, [TabName, PredefTopics]},
-                 restart  => permanent,
-                 shutdown => 5000,
-                 type     => worker,
-                 modules  => [emqx_sn_registry]},
-    handle_ret(supervisor:start_child(Sup, Registry)).
+start_link(Addr, GwId, PredefTopics) ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [Addr, GwId, PredefTopics]).
 
-start_link(Addr, GwId) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [Addr, GwId]).
-
-init([{_Ip, Port}, GwId]) ->
+init([{_Ip, Port}, GwId, PredefTopics]) ->
     Broadcast = #{id       => emqx_sn_broadcast,
                   start    => {emqx_sn_broadcast, start_link, [GwId, Port]},
                   restart  => permanent,
                   shutdown => brutal_kill,
                   type     => worker,
                   modules  => [emqx_sn_broadcast]},
-    {ok, {{one_for_one, 10, 3600}, [Broadcast]}}.
+    Registry = #{id       => emqx_sn_registry,
+                  start    => {emqx_sn_registry, start_link, [PredefTopics]},
+                  restart  => permanent,
+                  shutdown => brutal_kill,
+                  type     => worker,
+                  modules  => [emqx_sn_registry]},
+    {ok, {{one_for_one, 10, 3600}, [Broadcast, Registry]}}.
 
-handle_ret({ok, Pid, _Info}) -> {ok, Pid};
-handle_ret(Ret) -> Ret.
 

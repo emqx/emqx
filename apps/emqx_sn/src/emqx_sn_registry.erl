@@ -23,16 +23,16 @@
 -define(LOG(Level, Format, Args),
         emqx_logger:Level("MQTT-SN(registry): " ++ Format, Args)).
 
--export([ start_link/2
-        , stop/1
+-export([ start_link/1
+        , stop/0
         ]).
 
--export([ register_topic/3
-        , unregister_topic/2
+-export([ register_topic/2
+        , unregister_topic/1
         ]).
 
--export([ lookup_topic/3
-        , lookup_topic_id/3
+-export([ lookup_topic/2
+        , lookup_topic_id/2
         ]).
 
 %% gen_server callbacks
@@ -46,25 +46,45 @@
 
 -define(TAB, ?MODULE).
 
--record(state, {tab, max_predef_topic_id = 0}).
+-record(state, {max_predef_topic_id = 0}).
 
--type(registry() :: {ets:tab(), pid()}).
+-record(emqx_sn_registry, {key, value}).
+
+%% Mnesia bootstrap
+-export([mnesia/1]).
+
+-boot_mnesia({mnesia, [boot]}).
+-copy_mnesia({mnesia, [copy]}).
+
+
+%% @doc Create or replicate tables.
+-spec(mnesia(boot | copy) -> ok).
+mnesia(boot) ->
+    %% Optimize storage
+    StoreProps = [{ets, [{read_concurrency, true}]}],
+    ok = ekka_mnesia:create_table(?MODULE, [
+            {attributes, record_info(fields, emqx_sn_registry)},
+            {ram_copies, [node()]},
+            {storage_properties, StoreProps}]);
+
+mnesia(copy) ->
+    ok = ekka_mnesia:copy_table(?MODULE, ram_copies).
 
 %%-----------------------------------------------------------------------------
 
--spec(start_link(atom(), list()) -> {ok, pid()} | ignore | {error, Reason :: term()}).
-start_link(Tab, PredefTopics) ->
-    gen_server:start_link(?MODULE, [Tab, PredefTopics], []).
+-spec(start_link(list()) -> {ok, pid()} | ignore | {error, Reason :: term()}).
+start_link(PredefTopics) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [PredefTopics], []).
 
--spec(stop(registry()) -> ok).
-stop({_Tab, Pid}) ->
-    gen_server:stop(Pid, normal, infinity).
+-spec(stop() -> ok).
+stop() ->
+    gen_server:stop(?MODULE, normal, infinity).
 
--spec(register_topic(registry(), binary(), binary()) -> integer() | {error, term()}).
-register_topic({_, Pid}, ClientId, TopicName) when is_binary(TopicName) ->
+-spec(register_topic(binary(), binary()) -> integer() | {error, term()}).
+register_topic(ClientId, TopicName) when is_binary(TopicName) ->
     case emqx_topic:wildcard(TopicName) of
         false ->
-            gen_server:call(Pid, {register, ClientId, TopicName});
+            gen_server:call(?MODULE, {register, ClientId, TopicName});
         %% TopicId: in case of “accepted” the value that will be used as topic
         %% id by the gateway when sending PUBLISH messages to the client (not
         %% relevant in case of subscriptions to a short topic name or to a topic
@@ -72,22 +92,22 @@ register_topic({_, Pid}, ClientId, TopicName) when is_binary(TopicName) ->
         true  -> {error, wildcard_topic}
     end.
 
--spec(lookup_topic(registry(), binary(), pos_integer()) -> undefined | binary()).
-lookup_topic({Tab, _Pid}, ClientId, TopicId) when is_integer(TopicId) ->
-    case lookup_element(Tab, {predef, TopicId}, 2) of
+-spec(lookup_topic(binary(), pos_integer()) -> undefined | binary()).
+lookup_topic(ClientId, TopicId) when is_integer(TopicId) ->
+    case lookup_element(?TAB, {predef, TopicId}, 3) of
         undefined ->
-            lookup_element(Tab, {ClientId, TopicId}, 2);
+            lookup_element(?TAB, {ClientId, TopicId}, 3);
         Topic -> Topic
     end.
 
--spec(lookup_topic_id(registry(), binary(), binary())
+-spec(lookup_topic_id(binary(), binary())
       -> undefined
        | pos_integer()
        | {predef, integer()}).
-lookup_topic_id({Tab, _Pid}, ClientId, TopicName) when is_binary(TopicName) ->
-    case lookup_element(Tab, {predef, TopicName}, 2) of
+lookup_topic_id(ClientId, TopicName) when is_binary(TopicName) ->
+    case lookup_element(?TAB, {predef, TopicName}, 3) of
         undefined ->
-            lookup_element(Tab, {ClientId, TopicName}, 2);
+            lookup_element(?TAB, {ClientId, TopicName}, 3);
         TopicId ->
             {predef, TopicId}
     end.
@@ -96,47 +116,59 @@ lookup_topic_id({Tab, _Pid}, ClientId, TopicName) when is_binary(TopicName) ->
 lookup_element(Tab, Key, Pos) ->
     try ets:lookup_element(Tab, Key, Pos) catch error:badarg -> undefined end.
 
--spec(unregister_topic(registry(), binary()) -> ok).
-unregister_topic({_Tab, Pid}, ClientId) ->
-    gen_server:call(Pid, {unregister, ClientId}).
+-spec(unregister_topic(binary()) -> ok).
+unregister_topic(ClientId) ->
+    gen_server:call(?MODULE, {unregister, ClientId}).
 
 %%-----------------------------------------------------------------------------
 
-init([Tab, PredefTopics]) ->
+init([PredefTopics]) ->
     %% {predef, TopicId}     -> TopicName
     %% {predef, TopicName}   -> TopicId
     %% {ClientId, TopicId}   -> TopicName
     %% {ClientId, TopicName} -> TopicId
-    _ = ets:new(Tab, [set, public, named_table, {read_concurrency, true}]),
     MaxPredefId = lists:foldl(
                     fun({TopicId, TopicName}, AccId) ->
-                        _ = ets:insert(Tab, {{predef, TopicId}, TopicName}),
-                        _ = ets:insert(Tab, {{predef, TopicName}, TopicId}),
+                        mnesia:dirty_write(#emqx_sn_registry{key = {predef, TopicId},
+                                                             value = TopicName}),
+                        mnesia:dirty_write(#emqx_sn_registry{key = {predef, TopicName},
+                                                             value = TopicId}),
                         if TopicId > AccId -> TopicId; true -> AccId end
                     end, 0, PredefTopics),
-    {ok, #state{tab = Tab, max_predef_topic_id = MaxPredefId}}.
+    {ok, #state{max_predef_topic_id = MaxPredefId}}.
 
 handle_call({register, ClientId, TopicName}, _From,
-            State = #state{tab = Tab, max_predef_topic_id = PredefId}) ->
-    case lookup_topic_id({Tab, self()}, ClientId, TopicName) of
+            State = #state{max_predef_topic_id = PredefId}) ->
+    case lookup_topic_id(ClientId, TopicName) of
         {predef, PredefTopicId}  when is_integer(PredefTopicId) ->
             {reply, PredefTopicId, State};
         TopicId when is_integer(TopicId) ->
             {reply, TopicId, State};
         undefined ->
-            case next_topic_id(Tab, PredefId, ClientId) of
+            case next_topic_id(?TAB, PredefId, ClientId) of
                 TopicId when TopicId >= 16#FFFF ->
                     {reply, {error, too_large}, State};
                 TopicId ->
-                    _ = ets:insert(Tab, {{ClientId, next_topic_id}, TopicId + 1}),
-                    _ = ets:insert(Tab, {{ClientId, TopicName}, TopicId}),
-                    _ = ets:insert(Tab, {{ClientId, TopicId}, TopicName}),
-                    {reply, TopicId, State}
+                    Fun = fun() ->
+                        mnesia:write(#emqx_sn_registry{key = {ClientId, next_topic_id},
+                                                            value = TopicId + 1}),
+                        mnesia:write(#emqx_sn_registry{key = {ClientId, TopicName},
+                                                            value = TopicId}),
+                        mnesia:write(#emqx_sn_registry{key = {ClientId, TopicId},
+                                                            value = TopicName})
+                    end,
+                    case mnesia:transaction(Fun) of
+                        {atomic, ok} ->
+                            {reply, TopicId, State};
+                        {aborted, Error} ->
+                            {reply, {error, Error}, State}
+                    end
             end
     end;
 
-handle_call({unregister, ClientId}, _From, State = #state{tab = Tab}) ->
-    ets:match_delete(Tab, {{ClientId, '_'}, '_'}),
+handle_call({unregister, ClientId}, _From, State) ->
+    Registry = mnesia:dirty_match_object({?TAB, {ClientId, '_'}, '_'}),
+    lists:foreach(fun(R) -> mnesia:dirty_delete_object(R) end, Registry),
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
@@ -160,7 +192,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%-----------------------------------------------------------------------------
 
 next_topic_id(Tab, PredefId, ClientId) ->
-    case ets:lookup(Tab, {ClientId, next_topic_id}) of
-        [{_, Id}] -> Id;
+    case mnesia:dirty_read(Tab, {ClientId, next_topic_id}) of
+        [#emqx_sn_registry{value = Id}] -> Id;
         []        -> PredefId + 1
     end.
