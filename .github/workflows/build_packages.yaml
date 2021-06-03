@@ -133,7 +133,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
-          - 23.2.7.2
+          - erl23.2.7.2-emqx-2
         exclude:
           - profile: emqx-edge
 
