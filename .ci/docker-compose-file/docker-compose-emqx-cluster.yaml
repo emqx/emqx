@@ -9,7 +9,7 @@ services:
       - emqx2
     volumes:
       - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
-      - ../../etc/certs:/usr/local/etc/haproxy/certs
+      - ../../apps/emqx/etc/certs:/usr/local/etc/haproxy/certs
     ports:
       - "18083:18083"
 #     - "1883:1883"
