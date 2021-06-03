@@ -336,7 +336,7 @@ relx_overlay(ReleaseType) ->
     , {copy, "bin/nodetool", "bin/nodetool-{{release_version}}"}
     , {copy, "_build/default/lib/cuttlefish/cuttlefish", "bin/cuttlefish"}
     , {copy, "_build/default/lib/cuttlefish/cuttlefish", "bin/cuttlefish-{{release_version}}"}
-    , {copy, "priv/emqx.schema", "releases/{{release_version}}/"}
+    , {copy, "{{base_dir}}/lib/emqx/priv/emqx.schema", "releases/{{release_version}}/"}
     ] ++ case is_enterprise() of
              true -> ee_etc_overlay(ReleaseType);
              false -> etc_overlay(ReleaseType)
@@ -349,7 +349,7 @@ etc_overlay(ReleaseType) ->
                 [community_plugin_etc_overlays(App) || App <- relx_plugin_apps_extra()],
     [ {mkdir, "etc/"}
     , {mkdir, "etc/plugins"}
-    , {template, "etc/BUILT_ON", "releases/{{release_version}}/BUILT_ON"}
+    , {template, "{{base_dir}}/lib/emqx/etc/BUILT_ON", "releases/{{release_version}}/BUILT_ON"}
     , {copy, "{{base_dir}}/lib/emqx/etc/certs","etc/"}
     ] ++
     lists:map(
@@ -366,18 +366,20 @@ extra_overlay(edge) ->
     [].
 emqx_etc_overlay(cloud) ->
     emqx_etc_overlay_common() ++
-    [ {"etc/emqx_cloud/vm.args","etc/vm.args"}
+    [ {"{{base_dir}}/lib/emqx/etc/emqx_cloud/vm.args","etc/vm.args"}
     ];
 emqx_etc_overlay(edge) ->
     emqx_etc_overlay_common() ++
-    [ {"etc/emqx_edge/vm.args","etc/vm.args"}
+    [ {"{{base_dir}}/lib/emqx/etc/emqx_edge/vm.args","etc/vm.args"}
     ].
 
 emqx_etc_overlay_common() ->
-    ["etc/acl.conf", "etc/emqx.conf", "etc/ssl_dist.conf",
+    [{"{{base_dir}}/lib/emqx/etc/acl.conf", "etc/acl.conf"},
+     {"{{base_dir}}/lib/emqx/etc/emqx.conf", "etc/emqx.conf"},
+     {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"},
      %% TODO: check why it has to end with .paho
      %% and why it is put to etc/plugins dir
-     {"etc/acl.conf.paho", "etc/plugins/acl.conf.paho"}].
+     {"{{base_dir}}/lib/emqx/etc/acl.conf.paho", "etc/plugins/acl.conf.paho"}].
 
 plugin_etc_overlays(App0) ->
     App = atom_to_list(App0),

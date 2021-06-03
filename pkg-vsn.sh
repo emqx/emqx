@@ -13,7 +13,7 @@ else
 fi
 
 ## emqx_release.hrl is the single source of truth for release version
-RELEASE="$(grep -E "define.+EMQX_RELEASE.+${EDITION}" include/emqx_release.hrl | cut -d '"' -f2)"
+RELEASE="$(grep -E "define.+EMQX_RELEASE.+${EDITION}" apps/emqx/include/emqx_release.hrl | cut -d '"' -f2)"
 
 ## git commit hash is added as suffix in case the git tag and release version is not an exact match
 if [ -d .git ] && ! git describe --tags --match "[e|v]${RELEASE}" --exact >/dev/null 2>&1; then
