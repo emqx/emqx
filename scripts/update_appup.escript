@@ -3,7 +3,10 @@
 
 main(_Args) ->
     ChangedFiles = string:lexemes(os:cmd("git diff --name-only origin/master..HEAD"), "\n"),
-    AppModules = group_modules(lists:filtermap(fun filter_erlang_modules/1, ChangedFiles)),
+    AppModules0 = lists:filtermap(fun filter_erlang_modules/1, ChangedFiles),
+    %% emqx_app must always be included as we bump version number in emqx_release.hrl for each release
+    AppModules1 = [{emqx, emqx_app} | AppModules0],
+    AppModules = group_modules(AppModules1),
     io:format("Changed modules: ~p~n", [AppModules]),
     _ = maps:map(fun process_app/2, AppModules),
     ok.
