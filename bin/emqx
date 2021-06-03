@@ -293,7 +293,7 @@ if [ -z "$NAME_ARG" ]; then
         else
             # for boot commands, inspect emqx.conf for node name
             # todo: use get command from hocon escript
-            NODENAME=$(grep -E '^[ \t]*node.name[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | awk -F"= " '{print $NF}'| tr -d \")
+            NODENAME="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
         fi
     fi
     if [ -z "$NODENAME" ]; then
@@ -319,7 +319,7 @@ PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 COOKIE="${EMQX_NODE_COOKIE:-}"
 if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        COOKIE=$(grep -E '^[ \t]*node.cookie[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | awk -F"= " '{print $NF}'| tr -d \")
+        COOKIE="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
     else
         # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $RUNNER_DATA_DIR/configs/vm.*.args | head -1)"
