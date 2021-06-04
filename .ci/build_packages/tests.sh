@@ -171,4 +171,4 @@ relup_test(){
 
 emqx_prepare
 emqx_test
-relup_test $CODE_PATH/pkg-vsn.sh
+relup_test "$CODE_PATH"/pkg-vsn.sh
