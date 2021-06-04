@@ -34,6 +34,8 @@
         , apply_configs/1
         ]).
 
+-export([funlog/2]).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -267,8 +269,7 @@ do_generate_configs(App) ->
         true ->
             Schema = cuttlefish_schema:files([SchemaFile]),
             Conf = cuttlefish_conf:file(ConfFile),
-            LogFun = fun(Key, Value) -> ?LOG(info, "~s = ~p", [string:join(Key, "."), Value]) end,
-            cuttlefish_generator:map(Schema, Conf, undefined, LogFun);
+            cuttlefish_generator:map(Schema, Conf, undefined, fun ?MODULE:funlog/2);
         false ->
             error({schema_not_found, SchemaFile})
     end.
@@ -411,3 +412,7 @@ plugin_type(protocol) -> protocol;
 plugin_type(backend) -> backend;
 plugin_type(bridge) -> bridge;
 plugin_type(_) -> feature.
+
+
+funlog(Key, Value) ->
+    ?LOG(info, "~s = ~p", [string:join(Key, "."), Value]).
