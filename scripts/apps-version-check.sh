@@ -16,7 +16,7 @@ while read -r app_path; do
     app=$(basename "$app_path")
     src_file="$app_path/src/$app.app.src"
     old_app_version="$(get_vsn "$latest_release" "$src_file")"
-    ## TODO: delete it after 4.3.3 is released
+    ## TODO: delete it after new version is released with emqx app in apps dir
     if [ "$app" = 'emqx' ] && [ "$old_app_version" = '' ]; then
         old_app_version="$(get_vsn "$latest_release" 'src/emqx.app.src')"
     fi
@@ -25,6 +25,10 @@ while read -r app_path; do
         exit 1
     fi
     now_app_version="$(get_vsn 'HEAD' "$src_file")"
+    ## TODO: delete it after new version is released with emqx app in apps dir
+    if [ "$app" = 'emqx' ] && [ "$now_app_version" = '' ]; then
+        now_app_version="$(get_vsn 'HEAD' 'src/emqx.app.src')"
+    fi
     if [ -z "$now_app_version" ]; then
         echo "failed_to_get_new_app_vsn for $app"
         exit 1
