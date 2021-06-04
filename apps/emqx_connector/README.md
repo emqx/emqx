@@ -1,8 +1,12 @@
 # emqx_connector
 
-A connector is an object that maintains the data related to external resources.
+This application is a collection of `connectors`.
 
-For example, a mysql connector is an object that maintains all the mysql connection
+A `connector` is a callback module of `emqx_resource` that maintains the data related to
+external resources. Put all resource related callback modules in a single application is good as
+we can put some util functions/modules here for reusing purpose.
+
+For example, a mysql connector is an emqx resource that maintains all the mysql connection
 related parameters (configs) and the TCP connections to the mysql server.
 
 An mysql connector can be used as following:

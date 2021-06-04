@@ -46,7 +46,7 @@ put(Mod, #{id := Id}, Params) ->
     end.
 
 do_put(Mod, Id, ConfigParams, ResourceType, Params) ->
-    case emqx_resource:parse_config(ResourceType, ConfigParams) of
+    case emqx_resource:check_config(ResourceType, ConfigParams) of
         {ok, Config} ->
             case emqx_resource:update(Id, ResourceType, Config, Params) of
                 {ok, Data} ->

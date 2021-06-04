@@ -13,19 +13,29 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-module(emqx_data_bridge_sup).
 
--module(emqx_connector_app).
+-behaviour(supervisor).
 
--behaviour(application).
+-export([start_link/0]).
 
--emqx_plugin(?MODULE).
+-export([init/1]).
 
--export([start/2, stop/1]).
+-define(SERVER, ?MODULE).
 
-start(_StartType, _StartArgs) ->
-    emqx_connector_sup:start_link().
+start_link() ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-stop(_State) ->
-    ok.
+init([]) ->
+    SupFlags = #{strategy => one_for_one,
+                 intensity => 10,
+                 period => 10},
+    ChildSpecs = [
+        #{id => emqx_data_bridge_monitor,
+          start => {emqx_data_bridge_monitor, start_link, []},
+          restart => permanent,
+          type => worker,
+          modules => [emqx_data_bridge_monitor]}],
+    {ok, {SupFlags, ChildSpecs}}.
 
 %% internal functions

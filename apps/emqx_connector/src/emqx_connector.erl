@@ -14,27 +14,3 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_connector).
-
--export([ load_from_config/1
-        , load_connectors/1
-        , load_connector/1
-        ]).
-
-load_from_config(Filename) ->
-    case hocon:load(Filename, #{format => map}) of
-        {ok, #{<<"connectors">> := Connectors}} ->
-            load_connectors(Connectors);
-        {error, Reason} ->
-            error(Reason)
-    end.
-
-load_connectors(Connectors) ->
-    lists:foreach(fun load_connector/1, Connectors).
-
-load_connector(Config) ->
-    case emqx_resource:load_instance_from_config(Config) of
-        {ok, _} -> ok;
-        {error, already_created} -> ok;
-        {error, Reason} ->
-            error({load_connector, Reason})
-    end.

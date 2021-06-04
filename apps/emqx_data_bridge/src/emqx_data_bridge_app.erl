@@ -13,8 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
-
--module(emqx_connector_app).
+-module(emqx_data_bridge_app).
 
 -behaviour(application).
 
@@ -23,7 +22,9 @@
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
-    emqx_connector_sup:start_link().
+    {ok, Sup} = emqx_data_bridge_sup:start_link(),
+    ok = emqx_data_bridge:load_bridges(),
+    {ok, Sup}.
 
 stop(_State) ->
     ok.

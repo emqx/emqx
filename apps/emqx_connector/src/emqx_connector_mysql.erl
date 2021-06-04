@@ -20,8 +20,7 @@
 
 -emqx_resource_api_path("connectors/mysql").
 
--export([ fields/1
-        , on_jsonify/1
+-export([ on_jsonify/1
         , on_api_reply_format/1
         ]).
 
@@ -37,36 +36,38 @@
 -export([do_health_check/1]).
 
 %%=====================================================================
-fields("config") ->
+schema() ->
     emqx_connector_schema_lib:relational_db_fields() ++
     emqx_connector_schema_lib:ssl_fields().
 
-on_jsonify(#{server := Server, user := User, database := DB, password := Passwd,
-             cacertfile := CAFile, keyfile := KeyFile, certfile := CertFile} = Config) ->
+on_jsonify(#{<<"server">> := Server, <<"user">> := User, <<"database">> := DB,
+             <<"password">> := Passwd, <<"cacertfile">> := CAFile,
+             <<"keyfile">> := KeyFile, <<"certfile">> := CertFile} = Config) ->
     Config#{
-        user => list_to_binary(User),
-        database => list_to_binary(DB),
-        password => list_to_binary(Passwd),
-        server => emqx_connector_schema_lib:ip_port_to_string(Server),
-        cacertfile => list_to_binary(CAFile),
-        keyfile => list_to_binary(KeyFile),
-        certfile => list_to_binary(CertFile)
+        <<"user">> => list_to_binary(User),
+        <<"database">> => list_to_binary(DB),
+        <<"password">> => list_to_binary(Passwd),
+        <<"server">> => emqx_connector_schema_lib:ip_port_to_string(Server),
+        <<"cacertfile">> => list_to_binary(CAFile),
+        <<"keyfile">> => list_to_binary(KeyFile),
+        <<"certfile">> => list_to_binary(CertFile)
     }.
 
 on_api_reply_format(ResourceData) ->
     #{config := Conf} = Reply0 = emqx_resource_api:default_api_reply_format(ResourceData),
-    Reply0#{config => maps:without([cacertfile, keyfile, certfile, verify], Conf)}.
+    Reply0#{config => maps:without([<<"cacertfile">>, <<"keyfile">>,
+                <<"certfile">>, <<"verify">>], Conf)}.
 
 %% ===================================================================
 
-on_start(InstId, #{server := {Host, Port},
-                   database := DB,
-                   user := User,
-                   password := Password,
-                   auto_reconnect := AutoReconn,
-                   pool_size := PoolSize} = Config) ->
+on_start(InstId, #{<<"server">> := {Host, Port},
+                   <<"database">> := DB,
+                   <<"user">> := User,
+                   <<"password">> := Password,
+                   <<"auto_reconnect">> := AutoReconn,
+                   <<"pool_size">> := PoolSize} = Config) ->
     logger:info("starting mysql connector: ~p, config: ~p", [InstId, Config]),
-    SslOpts = case maps:get(ssl, Config) of
+    SslOpts = case maps:get(<<"ssl">>, Config) of
         true ->
             [{ssl, [{server_name_indication, disable} |
                     emqx_plugin_libs_ssl:save_files_return_opts(Config, "connectors", InstId)]}];
