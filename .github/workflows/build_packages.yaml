@@ -304,7 +304,7 @@ jobs:
           -f .ci/build_packages/Dockerfile \
           --build-arg BUILD_FROM=emqx/build-env:$ERL_OTP-$SYSTEM \
           --build-arg EMQX_NAME=$PROFILE \
-          --output type=tar,dest=/tmp/cross-build-$PROFILE-for-$SYSTEM.tar . || df -h
+          --output type=tar,dest=/tmp/cross-build-$PROFILE-for-$SYSTEM.tar .
 
         mkdir -p /tmp/packages/$PROFILE
         tar -xvf /tmp/cross-build-$PROFILE-for-$SYSTEM.tar --wildcards emqx/_packages/$PROFILE/*

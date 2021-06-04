@@ -149,9 +149,9 @@ running_test(){
 }
 
 relup_test(){
-    TARGET_VERSION="$1"
+    TARGET_VERSION="$("$CODE_PATH"/pkg-vsn.sh)"
     if [ -d "${RELUP_PACKAGE_PATH}" ];then
-        cd "${RELUP_PACKAGE_PATH }"
+        cd "${RELUP_PACKAGE_PATH}"
 
         for var in "${EMQX_NAME}"-*-"${ARCH}".zip;do
             packagename=$(basename "${var}")
@@ -161,7 +161,7 @@ relup_test(){
             ./emqx/bin/emqx versions
             cp "${PACKAGE_PATH}/${EMQX_NAME}"-*-"${TARGET_VERSION}-${ARCH}".zip ./emqx/releases
             ./emqx/bin/emqx install "${TARGET_VERSION}"
-            [ "$(./emqx/bin/emqx versions |grep permanent | grep -oE "[0-9].[0-9].[0-9]")" = "${TARGET_VERSION}" ] || exit 1
+            [ "$(./emqx/bin/emqx versions |grep permanent | awk '{print $2}')" = "${TARGET_VERSION}" ] || exit 1
             ./emqx/bin/emqx_ctl status
             ./emqx/bin/emqx stop
             rm -rf emqx
@@ -171,4 +171,4 @@ relup_test(){
 
 emqx_prepare
 emqx_test
-relup_test "$CODE_PATH"/pkg-vsn.sh
+relup_test
