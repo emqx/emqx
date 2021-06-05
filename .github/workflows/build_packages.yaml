@@ -268,7 +268,7 @@ jobs:
         if [ $PROFILE = "emqx" ];then
             broker="emqx-ce"
         fi
-        if [[ "$SYSTEM" =~ "raspbian*" ]];then
+        if [ ! -z "$(echo $SYSTEM | grep -oE 'raspbian')" ]; then
             export ARCH="arm"
         fi
 
