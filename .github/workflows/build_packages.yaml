@@ -219,7 +219,7 @@ jobs:
           - centos7
           - centos6
           - raspbian10
-          - raspbian9
+          # - raspbian9
         exclude:
         - os: centos6
           arch: arm64
