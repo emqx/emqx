@@ -246,6 +246,7 @@ relx_apps(ReleaseType) ->
     , {ekka, load}
     , {emqx_plugin_libs, load}
     , observer_cli
+    , emqx_http_lib
     ]
     ++ [emqx_modules || not is_enterprise()]
     ++ [emqx_license || is_enterprise()]
