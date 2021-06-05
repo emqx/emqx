@@ -3,10 +3,6 @@ name: Cross build packages
 on:
   schedule:
     - cron:  '0 */6 * * *'
-  push:
-    tags:
-      - v*
-      - e*
   release:
     types:
       - published
