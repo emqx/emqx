@@ -1,5 +1,5 @@
 $(shell $(CURDIR)/scripts/git-hooks-init.sh)
-REBAR_VERSION = 3.14.3-emqx-7
+REBAR_VERSION = 3.14.3-emqx-8
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts

@@ -3,10 +3,6 @@ name: Cross build packages
 on:
   schedule:
     - cron:  '0 */6 * * *'
-  push:
-    tags:
-      - v*
-      - e*
   release:
     types:
       - published
@@ -19,25 +15,34 @@ jobs:
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles}}
+      old_vsns: ${{ steps.set_profile.outputs.old_vsns}}
 
     steps:
       - uses: actions/checkout@v2
         with:
           path: source
+          fetch-depth: 0
       - name: set profile
         id: set_profile
         shell: bash
         run: |
-          if make -C source emqx-ee --dry-run > /dev/null 2>&1; then
+          cd source
+          vsn="$(./pkg-vsn.sh)"
+          pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
+          if make emqx-ee --dry-run > /dev/null 2>&1; then
+            old_vsns="$(git tag -l "e$pre_vsn.[0-9]" | xargs echo -n | sed "s/e$vsn//")"
+            echo "::set-output name=old_vsns::$old_vsns"
             echo "::set-output name=profiles::[\"emqx-ee\"]"
           else
+            old_vsns="$(git tag -l "v$pre_vsn.[0-9]" | xargs echo -n | sed "s/v$vsn//")"
+            echo "::set-output name=old_vsns::$old_vsns"
             echo "::set-output name=profiles::[\"emqx\", \"emqx-edge\"]"
           fi
       - name: get_all_deps
         if: endsWith(github.repository, 'emqx')
         run: |
           make -C source deps-all
-          zip -ryq source.zip source
+          zip -ryq source.zip source/* source/.[^.]*
       - name: get_all_deps
         if: endsWith(github.repository, 'enterprise')
         run: |
@@ -45,7 +50,7 @@ jobs:
           git config --global credential.helper store
           echo "${{ secrets.CI_GIT_TOKEN }}" >> source/scripts/git-token
           make -C source deps-all
-          zip -ryq source.zip source
+          zip -ryq source.zip source/* source/.[^.]*
       - uses: actions/upload-artifact@v2
         with:
           name: source
@@ -251,35 +256,29 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-    - name: downloads emqx zip packages
+    - name: downloads old emqx zip packages
       env:
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
+        OLD_VSNS: ${{ needs.prepare.outputs.old_vsns }}
       run: |
-        set -e -u -x
-        cd source
-        if [ $PROFILE = "emqx" ];then broker="emqx-ce"; else broker="$PROFILE"; fi
-        if [ $PROFILE = "emqx-ee" ];then edition='enterprise'; else edition='opensource'; fi
-
-        vsn="$(./pkg-vsn.sh)"
-        pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
-        if [ $PROFILE = "emqx-ee" ]; then
-            old_vsns=($(git tag -l "e$pre_vsn.[0-9]" | sed "s/e$vsn//"))
-        else
-            old_vsns=($(git tag -l "v$pre_vsn.[0-9]" | sed "s/v$vsn//"))
+        set -e -x -u
+        broker=$PROFILE
+        if [ $PROFILE = "emqx" ];then
+            broker="emqx-ce"
         fi
 
-        mkdir -p _upgrade_base
-        cd _upgrade_base
-        for tag in ${old_vsns[@]};do
-          if [ ! -z "$(echo  $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.AWS_S3_BUCKET }}/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip) | grep -oE "^[23]+")" ];then
+        mkdir -p source/_upgrade_base
+        cd source/_upgrade_base
+        old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
+        for tag in ${old_vsns[@]}; do
+          if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip) | grep -oE "^[23]+")" ];then
             wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip
             wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256
             echo "$(cat $PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256) $PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip" | sha256sum -c || exit 1
           fi
         done
-        cd -
     - name: build emqx packages
       env:
         ERL_OTP: erl23.2.7.2-emqx-2

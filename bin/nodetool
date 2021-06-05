@@ -63,7 +63,6 @@ main(Args) ->
             %% a "pong"
             io:format("pong\n");
         ["stop"] ->
-            rpc:call(TargetNode, emqx_plugins, unload, [], 60000),
             io:format("~p\n", [rpc:call(TargetNode, init, stop, [], 60000)]);
         ["restart", "-config", ConfigFile | _RestArgs1] ->
             io:format("~p\n", [rpc:call(TargetNode, emqx, restart, [ConfigFile], 60000)]);
