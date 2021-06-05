@@ -1084,7 +1084,7 @@ t_asleep_test03_to_awake_qos1_dl_msg(_) ->
     {ok, C} = emqtt:start_link(),
     {ok, _} = emqtt:connect(C),
     {ok, _} = emqtt:publish(C, TopicName1, Payload1, QoS),
-    timer:sleep(500),
+    timer:sleep(100),
     ok = emqtt:disconnect(C),
 
     timer:sleep(50),
@@ -1278,6 +1278,7 @@ t_asleep_test06_to_awake_qos2_dl_msg(_) ->
     CleanSession = 0,
     ReturnCode = 0,
     send_register_msg(Socket, TopicName_tom, MsgId1),
+    timer:sleep(50),
     TopicId_tom = check_regack_msg_on_udp(MsgId1, receive_response(Socket)),
     send_subscribe_msg_predefined_topic(Socket, QoS, TopicId_tom, MsgId1),
     ?assertEqual(<<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1,

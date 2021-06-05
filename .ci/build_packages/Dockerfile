@@ -7,6 +7,8 @@ COPY . /emqx
 
 WORKDIR /emqx
 
+RUN rm -rf _build/${EMQX_NAME}/lib _build/${EMQX_NAME}-pkg/lib
+
 RUN make ${EMQX_NAME}-zip || cat rebar3.crashdump
 
 RUN make ${EMQX_NAME}-pkg || cat rebar3.crashdump

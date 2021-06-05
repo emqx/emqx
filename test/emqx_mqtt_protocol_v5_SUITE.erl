@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(mqtt_protocol_v5_SUITE).
+-module(emqx_mqtt_protocol_v5_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -import(lists, [nth/2]).
 
@@ -37,12 +38,26 @@ init_per_suite(Config) ->
     %% Meck emqtt
     ok = meck:new(emqtt, [non_strict, passthrough, no_history, no_link]),
     %% Start Apps
+    emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
     ok = meck:unload(emqtt),
     emqx_ct_helpers:stop_apps([]).
+
+init_per_testcase(TestCase, Config) ->
+    case erlang:function_exported(?MODULE, TestCase, 2) of
+        true -> ?MODULE:TestCase(init, Config);
+        _ -> Config
+    end.
+
+end_per_testcase(TestCase, Config) ->
+    case erlang:function_exported(?MODULE, TestCase, 2) of
+        true -> ?MODULE:TestCase('end', Config);
+        false -> ok
+    end,
+    Config.
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -273,21 +288,33 @@ t_connect_limit_timeout(_) ->
     emqx_zone:set_env(external, publish_limit, undefined),
     meck:unload(proplists).
 
-t_connect_emit_stats_timeout(_) ->
-    IdleTimeout = 2000,
-    emqx_zone:set_env(external, idle_timeout, IdleTimeout),
+t_connect_emit_stats_timeout(init, Config) ->
+    NewIdleTimeout = 1000,
+    OldIdleTimeout = emqx_zone:get_env(external, idle_timeout),
+    emqx_zone:set_env(external, idle_timeout, NewIdleTimeout),
+    ok = snabbkaffe:start_trace(),
+    [{idle_timeout, NewIdleTimeout}, {old_idle_timeout, OldIdleTimeout} | Config];
+t_connect_emit_stats_timeout('end', Config) ->
+    snabbkaffe:stop(),
+    {_, OldIdleTimeout} = lists:keyfind(old_idle_timeout, 1, Config),
+    emqx_zone:set_env(external, idle_timeout, OldIdleTimeout),
+    ok.
 
+t_connect_emit_stats_timeout(Config) ->
+    {_, IdleTimeout} = lists:keyfind(idle_timeout, 1, Config),
     {ok, Client} = emqtt:start_link([{proto_ver, v5},{keepalive, 60}]),
     {ok, _} = emqtt:connect(Client),
     [ClientPid] = emqx_cm:lookup_channels(client_info(clientid, Client)),
-
     ?assert(is_reference(emqx_connection:info(stats_timer, sys:get_state(ClientPid)))),
-    timer:sleep(IdleTimeout),
+    ?block_until(#{?snk_kind := cancel_stats_timer}, IdleTimeout * 2, _BackInTime = 0),
     ?assertEqual(undefined, emqx_connection:info(stats_timer, sys:get_state(ClientPid))),
     ok = emqtt:disconnect(Client).
 
 %% [MQTT-3.1.2-22]
 t_connect_keepalive_timeout(_) ->
+    %% Prevent the emqtt client bringing us down on the disconnect.
+    process_flag(trap_exit, true),
+
     Keepalive = 2,
 
     {ok, Client} = emqtt:start_link([{proto_ver, v5},

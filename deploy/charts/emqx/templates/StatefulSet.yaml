@@ -47,6 +47,10 @@ spec:
         version: {{ .Chart.AppVersion }}
         app.kubernetes.io/name: {{ include "emqx.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
+      {{- if .Values.recreatePods }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | quote }}
+      {{- end }}
     spec:
       volumes:
       - name: emqx-loaded-plugins

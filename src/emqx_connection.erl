@@ -349,6 +349,7 @@ ensure_stats_timer(_Timeout, State) -> State.
 
 -compile({inline, [cancel_stats_timer/1]}).
 cancel_stats_timer(State = #state{stats_timer = TRef}) when is_reference(TRef) ->
+    ?tp(debug, cancel_stats_timer, #{}),
     ok = emqx_misc:cancel_timer(TRef),
     State#state{stats_timer = undefined};
 cancel_stats_timer(State) -> State.
