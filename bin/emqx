@@ -199,15 +199,15 @@ generate_config() {
     ## changing the config 'log.rotation.size'
     rm -rf "${RUNNER_LOG_DIR}"/*.siz
 
-    ## todo: include license conf option to hocon escript
-    ## EMQX_LICENSE_CONF_OPTION=""
-    ## if [ "${EMQX_LICENSE_CONF:-}" != "" ]; then
-    ##     EMQX_LICENSE_CONF_OPTION="-i ${EMQX_LICENSE_CONF}"
-    ## fi
+    EMQX_LICENSE_CONF_OPTION=""
+    if [ "${EMQX_LICENSE_CONF:-}" != "" ]; then
+        EMQX_LICENSE_CONF_OPTION="-c ${EMQX_LICENSE_CONF}"
+    fi
 
     set +e
+    # disable shellcheck; let EMQX_LICENSE_CONF_OPTION split
     # shellcheck disable=SC2086
-    HOCON_OUTPUT="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)"
+    HOCON_OUTPUT="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf $EMQX_LICENSE_CONF_OPTION -d "$RUNNER_DATA_DIR"/configs generate)"
     # shellcheck disable=SC2181
     RESULT=$?
     set -e
