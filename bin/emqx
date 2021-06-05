@@ -20,8 +20,8 @@ mkdir -p "$RUNNER_LOG_DIR"
 # Make sure data directory exists
 mkdir -p "$RUNNER_DATA_DIR"
 
-# cuttlefish try to read environment variables starting with "EMQX_"
-export CUTTLEFISH_ENV_OVERRIDE_PREFIX='EMQX_'
+# hocon try to read environment variables starting with "EMQX_"
+export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
 
 relx_usage() {
     command="$1"
@@ -123,9 +123,6 @@ fi
 # Echo to stderr on errors
 echoerr() { echo "$@" 1>&2; }
 
-# By default, use cuttlefish to generate app.config and vm.args
-CUTTLEFISH="${USE_CUTTLEFISH:-yes}"
-
 SED_REPLACE="sed -i "
 case $(sed --help 2>&1) in
     *GNU*) SED_REPLACE="sed -i ";;
@@ -202,53 +199,45 @@ generate_config() {
     ## changing the config 'log.rotation.size'
     rm -rf "${RUNNER_LOG_DIR}"/*.siz
 
-    if [ "$CUTTLEFISH" != "yes" ]; then
-        # Note: we have added a parameter '-vm_args' to this. It
-        # appears redundant but it is not! the erlang vm allows us to
-        # access all arguments to the erl command EXCEPT '-args_file',
-        # so in order to get access to this file location from within
-        # the vm, we need to pass it in twice.
-        CONFIG_ARGS=" -config $RUNNER_ETC_DIR/app.config -args_file $RUNNER_ETC_DIR/vm.args -vm_args $RUNNER_ETC_DIR/vm.args "
-    else
-        EMQX_LICENSE_CONF_OPTION=""
-        if [ "${EMQX_LICENSE_CONF:-}" != "" ]; then
-            EMQX_LICENSE_CONF_OPTION="-i ${EMQX_LICENSE_CONF}"
-        fi
+    ## todo: include license conf option to hocon escript
+    ## EMQX_LICENSE_CONF_OPTION=""
+    ## if [ "${EMQX_LICENSE_CONF:-}" != "" ]; then
+    ##     EMQX_LICENSE_CONF_OPTION="-i ${EMQX_LICENSE_CONF}"
+    ## fi
 
-        set +e
-        # shellcheck disable=SC2086
-        CUTTLEFISH_OUTPUT="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -v -i "$REL_DIR"/emqx.schema $EMQX_LICENSE_CONF_OPTION -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)"
-        # shellcheck disable=SC2181
-        RESULT=$?
-        set -e
-        if [ $RESULT -gt 0 ]; then
-            echo "$CUTTLEFISH_OUTPUT"
-            exit $RESULT
-        fi
-        # print override from environment variables (EMQX_*)
-        echo "$CUTTLEFISH_OUTPUT" | sed -e '$d'
-        CONFIG_ARGS=$(echo "$CUTTLEFISH_OUTPUT" | tail -n 1)
-
-        ## Merge cuttlefish generated *.args into the vm.args
-        CUTTLE_GEN_ARG_FILE=$(echo "$CONFIG_ARGS" | sed -n 's/^.*\(vm_args[[:space:]]\)//p' | awk '{print $1}')
-        TMP_ARG_FILE="$RUNNER_DATA_DIR/configs/vm.args.tmp"
-        cp "$RUNNER_ETC_DIR/vm.args" "$TMP_ARG_FILE"
-        echo "" >> "$TMP_ARG_FILE"
-        echo "-pa ${REL_DIR}/consolidated" >> "$TMP_ARG_FILE"
-        sed '/^#/d' "$CUTTLE_GEN_ARG_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
-            ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
-            ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
-            TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" | awk '{print $NF}')
-            if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
-                if [ -n "$TMP_ARG_VALUE" ]; then
-                    sh -c "$SED_REPLACE 's/^$ARG_KEY.*$/$ARG_LINE/' $TMP_ARG_FILE"
-                else
-                    echo "$ARG_LINE" >> "$TMP_ARG_FILE"
-                fi
-            fi
-        done
-        mv -f "$TMP_ARG_FILE" "$CUTTLE_GEN_ARG_FILE"
+    set +e
+    # shellcheck disable=SC2086
+    HOCON_OUTPUT="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)"
+    # shellcheck disable=SC2181
+    RESULT=$?
+    set -e
+    if [ $RESULT -gt 0 ]; then
+        echo "$HOCON_OUTPUT"
+        exit $RESULT
     fi
+    # print override from environment variables (EMQX_*)
+    echo "$HOCON_OUTPUT" | sed -e '$d'
+    CONFIG_ARGS=$(echo "$HOCON_OUTPUT" | tail -n 1)
+
+    ## Merge hocon generated *.args into the vm.args
+    HOCON_GEN_ARG_FILE=$(echo "$CONFIG_ARGS" | sed -n 's/^.*\(vm_args[[:space:]]\)//p' | awk '{print $1}')
+    TMP_ARG_FILE="$RUNNER_DATA_DIR/configs/vm.args.tmp"
+    cp "$RUNNER_ETC_DIR/vm.args" "$TMP_ARG_FILE"
+    echo "" >> "$TMP_ARG_FILE"
+    echo "-pa ${REL_DIR}/consolidated" >> "$TMP_ARG_FILE"
+    sed '/^#/d' "$HOCON_GEN_ARG_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
+        ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
+        ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
+        TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" | awk '{print $NF}')
+        if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
+            if [ -n "$TMP_ARG_VALUE" ]; then
+                sh -c "$SED_REPLACE 's/^$ARG_KEY.*$/$ARG_LINE/' $TMP_ARG_FILE"
+            else
+                echo "$ARG_LINE" >> "$TMP_ARG_FILE"
+            fi
+        fi
+    done
+    mv -f "$TMP_ARG_FILE" "$HOCON_GEN_ARG_FILE"
 
     # shellcheck disable=SC2086
     if ! relx_nodetool chkconfig $CONFIG_ARGS; then
@@ -303,7 +292,8 @@ if [ -z "$NAME_ARG" ]; then
             NODENAME="$(grep -E '^-name' "$LATEST_VM_ARGS" | awk '{print $2}')"
         else
             # for boot commands, inspect emqx.conf for node name
-            NODENAME=$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -i "$REL_DIR"/emqx.schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.name)
+            # todo: use get command from hocon escript
+            NODENAME="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
         fi
     fi
     if [ -z "$NODENAME" ]; then
@@ -329,7 +319,7 @@ PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 COOKIE="${EMQX_NODE_COOKIE:-}"
 if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        COOKIE=$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -i "$REL_DIR"/emqx.schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie)
+        COOKIE="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
     else
         # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $RUNNER_DATA_DIR/configs/vm.*.args | head -1)"

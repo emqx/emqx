@@ -65,16 +65,17 @@ mustache_vars() ->
     ].
 
 generate_config() ->
-    Schema = cuttlefish_schema:files([local_path(["priv", "emqx.schema"])]),
     ConfFile = render_config_file(),
-    Conf = conf_parse:file(ConfFile),
-    cuttlefish_generator:map(Schema, Conf).
+    {ok, Conf} = hocon:load(ConfFile, #{format => richmap}),
+    hocon_schema:generate(emqx_schema, Conf).
 
 set_app_env({App, Lists}) ->
     lists:foreach(fun({acl_file, _Var}) ->
                       application:set_env(App, acl_file, local_path(["etc", "acl.conf"]));
                      ({plugins_loaded_file, _Var}) ->
-                      application:set_env(App, plugins_loaded_file, local_path(["test", "emqx_SUITE_data","loaded_plugins"]));
+                      application:set_env(App,
+                                          plugins_loaded_file,
+                                          local_path(["test", "emqx_SUITE_data","loaded_plugins"]));
                      ({Par, Var}) ->
                       application:set_env(App, Par, Var)
                   end, Lists).
@@ -91,4 +92,4 @@ get_base_dir(Module) ->
 
 get_base_dir() ->
     get_base_dir(?MODULE).
-    
+

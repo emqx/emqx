@@ -86,7 +86,7 @@ jobs:
         if: matrix.connect_type == 'tls'
         run: |
           cat <<-EOF >> "$GITHUB_ENV"
-          EMQX_AUTH__MONGO__SSL=on
+          EMQX_AUTH__MONGO__SSL__ENABLE=on
           EMQX_AUTH__MONGO__SSL__CACERTFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/ca.pem
           EMQX_AUTH__MONGO__SSL__CERTFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-cert.pem
           EMQX_AUTH__MONGO__SSL__KEYFILE=/emqx/apps/emqx_auth_mongo/test/emqx_auth_mongo_SUITE_data/client-key.pem
@@ -98,7 +98,7 @@ jobs:
           MONGO_TAG: ${{ matrix.mongo_tag }}
         if: matrix.connect_type == 'tcp'
         run: |
-          echo EMQX_AUTH__MONGO__SSL=off >> "$GITHUB_ENV"
+          echo EMQX_AUTH__MONGO__SSL__ENABLE=off >> "$GITHUB_ENV"
       - name: setup
         if: matrix.network_type == 'ipv4'
         run: |
@@ -160,10 +160,10 @@ jobs:
         if: matrix.connect_type == 'tls'
         run: |
           cat <<-EOF >> "$GITHUB_ENV"
+            EMQX_AUTH__MYSQL__SSL__ENABLE=on
             EMQX_AUTH__MYSQL__USERNAME=ssluser
             EMQX_AUTH__MYSQL__PASSWORD=public
             EMQX_AUTH__MYSQL__DATABASE=mqtt
-            EMQX_AUTH__MYSQL__SSL=on
             EMQX_AUTH__MYSQL__SSL__CACERTFILE=/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem
             EMQX_AUTH__MYSQL__SSL__CERTFILE=/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem
             EMQX_AUTH__MYSQL__SSL__KEYFILE=/emqx/apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-key.pem
@@ -179,7 +179,7 @@ jobs:
             EMQX_AUTH__MYSQL__USERNAME=root
             EMQX_AUTH__MYSQL__PASSWORD=public
             EMQX_AUTH__MYSQL__DATABASE=mqtt
-            EMQX_AUTH__MYSQL__SSL=off
+            EMQX_AUTH__MYSQL__SSL__ENABLE=off
           EOF
       - name: setup
         if: matrix.network_type == 'ipv4'
@@ -239,7 +239,7 @@ jobs:
         if: matrix.connect_type == 'tls'
         run: |
           cat <<-EOF >> "$GITHUB_ENV"
-          EMQX_AUTH__PGSQL__SSL=on
+          EMQX_AUTH__PGSQL__SSL__ENABLE=on
           EMQX_AUTH__PGSQL__SSL__CACERTFILE=/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/ca.pem
           EMQX_AUTH__PGSQL__SSL__CERTFILE=/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/client-cert.pem
           EMQX_AUTH__PGSQL__SSL__KEYFILE=/emqx/apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data/client-key.pem
@@ -251,7 +251,7 @@ jobs:
           PGSQL_TAG: ${{ matrix.pgsql_tag }}
         if: matrix.connect_type == 'tcp'
         run: |
-          echo EMQX_AUTH__PGSQL__SSL=off >> "$GITHUB_ENV"
+          echo EMQX_AUTH__PGSQL__SSL__ENABLE=off >> "$GITHUB_ENV"
       - name: setup
         if: matrix.network_type == 'ipv4'
         run: |
@@ -318,7 +318,7 @@ jobs:
         if: matrix.connect_type == 'tls'
         run: |
           cat <<-EOF >> "$GITHUB_ENV"
-          EMQX_AUTH__REDIS__SSL=on
+          EMQX_AUTH__REDIS__SSL__ENABLE=on
           EMQX_AUTH__REDIS__SSL__CACERTFILE=/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/ca.crt
           EMQX_AUTH__REDIS__SSL__CERTFILE=/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.crt
           EMQX_AUTH__REDIS__SSL__KEYFILE=/emqx/apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs/redis.key
@@ -330,7 +330,7 @@ jobs:
           REDIS_TAG: ${{ matrix.redis_tag }}
         if: matrix.connect_type == 'tcp'
         run: |
-          echo EMQX_AUTH__REDIS__SSL=off >> "$GITHUB_ENV"
+          echo EMQX_AUTH__REDIS__SSL__ENABLE=off >> "$GITHUB_ENV"
       - name: get server address
         run: |
           ipv4_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' redis)

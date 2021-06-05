@@ -30,7 +30,7 @@
   {datatype, string}
 ]}.
 
-{mapping, "auth.mysql.ssl", "emqx_auth_mysql.server", [
+{mapping, "auth.mysql.ssl.enable", "emqx_auth_mysql.server", [
   {default, off},
   {datatype, flag}
 ]}.
@@ -94,7 +94,7 @@
              {keep_alive, true}],
   Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
   Options1 =
-      case cuttlefish:conf_get("auth.mysql.ssl", Conf) of
+      case cuttlefish:conf_get("auth.mysql.ssl.enable", Conf) of
             true ->
                 %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
                 CA = cuttlefish:conf_get(
