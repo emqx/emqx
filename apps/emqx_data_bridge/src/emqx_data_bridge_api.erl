@@ -64,7 +64,7 @@ create_bridge(#{name := Name}, Params) ->
         {error, already_created} ->
             {400, #{code => 102, message => <<"bridge already created: ", Name/binary>>}};
         {error, Reason0} ->
-            Reason = emqx_data_bridge_api:stringnify(Reason0),
+            Reason = emqx_resource_api:stringnify(Reason0),
             {500, #{code => 102, message => <<"create bridge ", Name/binary,
                         " failed:", Reason/binary>>}}
     end.
@@ -72,7 +72,7 @@ create_bridge(#{name := Name}, Params) ->
 update_bridge(#{name := Name}, Params) ->
     Config = proplists:get_value(<<"config">>, Params),
     BridgeType = proplists:get_value(<<"type">>, Params),
-    case emqx_resource:check_and_udpate(
+    case emqx_resource:check_and_update(
             emqx_data_bridge:resource_id(Name),
             emqx_data_bridge:resource_type(BridgeType), Config, []) of
         {ok, Data} ->
@@ -80,7 +80,7 @@ update_bridge(#{name := Name}, Params) ->
         {error, not_found} ->
             {400, #{code => 102, message => <<"bridge not_found: ", Name/binary>>}};
         {error, Reason0} ->
-            Reason = emqx_data_bridge_api:stringnify(Reason0),
+            Reason = emqx_resource_api:stringnify(Reason0),
             {500, #{code => 102, message => <<"update bridge ", Name/binary,
                         " failed:", Reason/binary>>}}
     end.
@@ -89,7 +89,7 @@ delete_bridge(#{name := Name}, _Params) ->
     case emqx_resource:remove(emqx_data_bridge:resource_id(Name)) of
         ok -> {200, #{code => 0, data => #{}}};
         {error, Reason} ->
-            {500, #{code => 102, message => emqx_data_bridge_api:stringnify(Reason)}}
+            {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
     end.
 
 is_bridge(#{id := <<"bridge:", _/binary>>}) ->

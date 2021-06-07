@@ -19,7 +19,6 @@
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
 -export([ on_jsonify/1
-        , on_api_reply_format/1
         ]).
 
 %% callbacks of behaviour emqx_resource
@@ -50,11 +49,6 @@ on_jsonify(#{<<"server">> := Server, <<"user">> := User, <<"database">> := DB,
         <<"keyfile">> => list_to_binary(KeyFile),
         <<"certfile">> => list_to_binary(CertFile)
     }.
-
-on_api_reply_format(ResourceData) ->
-    #{config := Conf} = Reply0 = emqx_resource_api:default_api_reply_format(ResourceData),
-    Reply0#{config => maps:without([<<"cacertfile">>, <<"keyfile">>,
-                <<"certfile">>, <<"verify">>], Conf)}.
 
 %% ===================================================================
 

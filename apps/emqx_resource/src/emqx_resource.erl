@@ -73,7 +73,6 @@
         , call_stop/3   %% stop the instance
         , call_config_merge/4 %% merge the config when updating
         , call_jsonify/2
-        , call_api_reply_format/2
         ]).
 
 -export([ list_instances/0 %% list all the instances, id only.
@@ -270,13 +269,6 @@ call_jsonify(Mod, Config) ->
     case erlang:function_exported(Mod, on_jsonify, 1) of
         false -> Config;
         true -> ?SAFE_CALL(Mod:on_jsonify(Config))
-    end.
-
--spec call_api_reply_format(module(), resource_data()) -> jsx:json_term().
-call_api_reply_format(Mod, Data) ->
-    case erlang:function_exported(Mod, on_api_reply_format, 1) of
-        false -> emqx_resource_api:default_api_reply_format(Data);
-        true -> ?SAFE_CALL(Mod:on_api_reply_format(Data))
     end.
 
 -spec check_config(resource_type(), binary() | term()) ->
