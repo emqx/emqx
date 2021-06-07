@@ -133,7 +133,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
-          - 23.2.7.2
+          - erl23.2.7.2-emqx-2
         exclude:
           - profile: emqx-edge
 
@@ -219,7 +219,7 @@ jobs:
           - centos7
           - centos6
           - raspbian10
-          - raspbian9
+          # - raspbian9
         exclude:
         - os: centos6
           arch: arm64
@@ -268,7 +268,7 @@ jobs:
         if [ $PROFILE = "emqx" ];then
             broker="emqx-ce"
         fi
-        if [[ "$SYSTEM" =~ "raspbian*" ]];then
+        if [ ! -z "$(echo $SYSTEM | grep -oE 'raspbian')" ]; then
             export ARCH="arm"
         fi
 
