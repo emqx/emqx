@@ -22,7 +22,7 @@
 parse_transform(Forms, _Opts) ->
     Mod = hd([M || {attribute, _, module, M} <- Forms]),
     AST = trans(Mod, proplists:delete(eof, Forms)),
-    debug_print(Mod, AST),
+    _ = debug_print(Mod, AST),
     AST.
 
 -ifdef(RESOURCE_DEBUG).
