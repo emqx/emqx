@@ -32,7 +32,7 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
             -X POST \
-            -d '{"title": "Sync code from opensource $GITHUB_REF to entperprise $EE_REF", "head": "$GITHUB_REF", "base":"$EE_REF"}' \
+            -d "{\"title\": \"Sync code from opensource $GITHUB_REF to entperprise $EE_REF\", \"head\": \"$GITHUB_REF\", \"base\":\"$EE_REF\"}" \
             https://api.github.com/repos/${{ github.repository_owner }}/emqx-enterprise/pulls)
           echo $R | jq
           echo "::set-output name=url::$(echo $R | jq '.url')"
