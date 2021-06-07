@@ -2,6 +2,7 @@
 
 -export([ load_bridges/0
         , resource_type/1
+        , bridge_type/1
         , name_to_resource_id/1
         , resource_id_to_name/1
         , list_bridges/0
@@ -14,6 +15,8 @@ load_bridges() ->
     emqx_data_bridge_monitor:ensure_all_started(Bridges).
 
 resource_type(<<"mysql">>) -> emqx_connector_mysql.
+
+bridge_type(emqx_connector_mysql) -> <<"mysql">>.
 
 name_to_resource_id(BridgeName) ->
     <<"bridge:", BridgeName/binary>>.

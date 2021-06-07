@@ -94,5 +94,6 @@ delete_bridge(#{name := Name}, _Params) ->
     end.
 
 format_api_reply(#{resource_type := Type, id := Id, config := Conf, status := Status}) ->
-    #{type => Type, name => emqx_data_bridge:resource_id_to_name(Id),
+    #{type => emqx_data_bridge:bridge_type(Type),
+      name => emqx_data_bridge:resource_id_to_name(Id),
       config => Conf, status => Status}.
