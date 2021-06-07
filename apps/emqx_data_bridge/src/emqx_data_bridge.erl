@@ -2,7 +2,10 @@
 
 -export([ load_bridges/0
         , resource_type/1
-        , resource_id/1
+        , name_to_resource_id/1
+        , resource_id_to_name/1
+        , list_bridges/0
+        , is_bridge/1
         ]).
 
 load_bridges() ->
@@ -12,5 +15,16 @@ load_bridges() ->
 
 resource_type(<<"mysql">>) -> emqx_connector_mysql.
 
-resource_id(BridgeName) ->
+name_to_resource_id(BridgeName) ->
     <<"bridge:", BridgeName/binary>>.
+
+resource_id_to_name(<<"bridge:", BridgeName/binary>> = _ResourceId) ->
+    BridgeName.
+
+list_bridges() ->
+    emqx_resource_api:list_instances(fun emqx_data_bridge:is_bridge/1).
+
+is_bridge(#{id := <<"bridge:", _/binary>>}) ->
+    true;
+is_bridge(_Data) ->
+    false.
