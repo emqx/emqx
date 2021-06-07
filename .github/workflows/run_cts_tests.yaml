@@ -48,7 +48,7 @@ jobs:
           export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
-          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_ldap"
+          docker exec -i erlang sh -c "./rebar3 eunit --application=emqx_auth_ldap"
           docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_ldap"
       - uses: actions/upload-artifact@v1
         if: failure()
@@ -117,7 +117,7 @@ jobs:
           export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
-          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mongo"
+          docker exec -i erlang sh -c "./rebar3 eunit --application=emqx_auth_mongo"
           docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_mongo"
       - uses: actions/upload-artifact@v1
         if: failure()
@@ -199,7 +199,7 @@ jobs:
           export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
-          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mysql"
+          docker exec -i erlang sh -c "./rebar3 eunit --application=emqx_auth_mysql"
           docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_mysql"
       - uses: actions/upload-artifact@v1
         if: failure()
@@ -273,7 +273,7 @@ jobs:
                  CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
-          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_pgsql"
+          docker exec -i erlang sh -c "./rebar3 eunit --application=emqx_auth_pgsql"
           docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_pgsql"
       - uses: actions/upload-artifact@v1
         if: failure()
@@ -394,7 +394,7 @@ jobs:
           export EMQX_AUTH__REIDS__PASSWORD=public
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
-          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_redis"
+          docker exec -i erlang sh -c "./rebar3 eunit --application=emqx_auth_redis"
           docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_redis"
       - uses: actions/upload-artifact@v1
         if: failure()

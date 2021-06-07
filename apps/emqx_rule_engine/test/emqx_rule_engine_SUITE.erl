@@ -2553,25 +2553,20 @@ stop_apps() ->
 start_apps() ->
     [start_apps(App, SchemaFile, ConfigFile) ||
         {App, SchemaFile, ConfigFile}
-            <- [{emqx, deps_path(emqx, "priv/emqx.schema"),
-                       deps_path(emqx, "etc/emqx.conf.rendered")},
+            <- [{emqx, emqx_schema, deps_path(emqx, "etc/emqx.conf")},
                 {emqx_rule_engine, local_path("priv/emqx_rule_engine.schema"),
                                    local_path("etc/emqx_rule_engine.conf")}]].
 
-start_apps(App, SchemaFile, ConfigFile) ->
-    emqx_ct_helpers:read_schema_configs(SchemaFile, ConfigFile),
-    set_special_configs(App),
-    {ok, _} = application:ensure_all_started(App).
+start_apps(App, Schema, ConfigFile) ->
+    emqx_ct_helpers:start_app(App, Schema, ConfigFile, fun set_special_configs/1).
 
 deps_path(App, RelativePath) ->
-    %% Note: not lib_dir because etc dir is not sym-link-ed to _build dir
-    %% but priv dir is
-    Path0 = code:priv_dir(App),
+    Path0 = code:lib_dir(App),
     Path = case file:read_link(Path0) of
                {ok, Resolved} -> Resolved;
                {error, _} -> Path0
            end,
-    filename:join([Path, "..", RelativePath]).
+    filename:join([Path, RelativePath]).
 
 local_path(RelativePath) ->
     deps_path(emqx_rule_engine, RelativePath).

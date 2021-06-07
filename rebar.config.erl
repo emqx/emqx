@@ -106,7 +106,7 @@ test_plugins() ->
 
 test_deps() ->
     [ {bbmustache, "1.10.0"}
-    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {branch, "hocon"}}}
+    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "2.0.0"}}}
     , meck
     ].
 
@@ -326,6 +326,7 @@ relx_overlay(ReleaseType) ->
     , {template, "data/loaded_plugins.tmpl", "data/loaded_plugins"}
     , {template, "data/loaded_modules.tmpl", "data/loaded_modules"}
     , {template, "data/emqx_vars", "releases/emqx_vars"}
+    , {template, "data/BUILT_ON", "releases/{{release_version}}/BUILT_ON"}
     , {copy, "bin/emqx", "bin/emqx"}
     , {copy, "bin/emqx_ctl", "bin/emqx_ctl"}
     , {copy, "bin/node_dump", "bin/node_dump"}
@@ -351,7 +352,6 @@ etc_overlay(ReleaseType) ->
                 [community_plugin_etc_overlays(App) || App <- relx_plugin_apps_extra()],
     [ {mkdir, "etc/"}
     , {mkdir, "etc/plugins"}
-    , {template, "etc/BUILT_ON", "releases/{{release_version}}/BUILT_ON"}
     , {copy, "{{base_dir}}/lib/emqx/etc/certs","etc/"}
     ] ++
     lists:map(
@@ -368,18 +368,20 @@ extra_overlay(edge) ->
     [].
 emqx_etc_overlay(cloud) ->
     emqx_etc_overlay_common() ++
-    [ {"etc/emqx_cloud/vm.args","etc/vm.args"}
+    [ {"{{base_dir}}/lib/emqx/etc/emqx_cloud/vm.args","etc/vm.args"}
     ];
 emqx_etc_overlay(edge) ->
     emqx_etc_overlay_common() ++
-    [ {"etc/emqx_edge/vm.args","etc/vm.args"}
+    [ {"{{base_dir}}/lib/emqx/etc/emqx_edge/vm.args","etc/vm.args"}
     ].
 
 emqx_etc_overlay_common() ->
-    ["etc/acl.conf", "etc/emqx.conf", "etc/ssl_dist.conf",
+    [{"{{base_dir}}/lib/emqx/etc/acl.conf", "etc/acl.conf"},
+     {"{{base_dir}}/lib/emqx/etc/emqx.conf", "etc/emqx.conf"},
+     {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"},
      %% TODO: check why it has to end with .paho
      %% and why it is put to etc/plugins dir
-     {"etc/acl.conf.paho", "etc/plugins/acl.conf.paho"}].
+     {"{{base_dir}}/lib/emqx/etc/acl.conf.paho", "etc/plugins/acl.conf.paho"}].
 
 plugin_etc_overlays(App0) ->
     App = atom_to_list(App0),
