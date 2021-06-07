@@ -407,7 +407,8 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
     case emqx_packet:check(Packet) of
         ok ->
             TopicFilters0 = parse_topic_filters(TopicFilters),
-            TupleTopicFilters0 = check_sub_acls(TopicFilters0, Channel),
+            TopicFilters1 = put_subid_in_subopts(Properties, TopicFilters0),
+            TupleTopicFilters0 = check_sub_acls(TopicFilters1, Channel),
             case emqx_zone:get_env(Zone, acl_deny_action, ignore) =:= disconnect andalso
                  lists:any(fun({_TopicFilter, ReasonCode}) ->
                                     ReasonCode =:= ?RC_NOT_AUTHORIZED
@@ -419,8 +420,7 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
                                       _Fun(lists:keyreplace(Key, 1, TupleList, Tuple), More);
                                 _Fun(TupleList, []) -> TupleList
                               end,
-                    TopicFilters1 = [ TopicFilter || {TopicFilter, 0} <- TupleTopicFilters0],
-                    TopicFilters2 = put_subid_in_subopts(Properties, TopicFilters1),
+                    TopicFilters2 = [ TopicFilter || {TopicFilter, 0} <- TupleTopicFilters0],
                     TopicFilters3 = run_hooks('client.subscribe',
                                               [ClientInfo, Properties],
                                               TopicFilters2),

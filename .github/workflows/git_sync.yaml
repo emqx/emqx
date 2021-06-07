@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - main-v*
 
 jobs:
   sync_to_enterprise:
@@ -22,11 +23,16 @@ jobs:
         id: create_pull_request
         run: |
           set -euo pipefail
+          if [ "$GITHUB_REF" = "refs/heads/master" ]; then
+            EE_REF="refs/heads/enterprise"
+          else
+            EE_REF="${GITHUB_REF}-enterprise"
+          fi
           R=$(curl --silent --show-error \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
             -X POST \
-            -d '{"title": "Sync code into enterprise from opensource", "head": "master", "base":"enterprise"}' \
+            -d "{\"title\": \"Sync code from opensource $GITHUB_REF to entperprise $EE_REF\", \"head\": \"$GITHUB_REF\", \"base\":\"$EE_REF\"}" \
             https://api.github.com/repos/${{ github.repository_owner }}/emqx-enterprise/pulls)
           echo $R | jq
           echo "::set-output name=url::$(echo $R | jq '.url')"

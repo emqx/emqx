@@ -41,7 +41,8 @@
         , stats/1
         ]).
 
--export([ async_set_keepalive/4
+-export([ async_set_keepalive/3
+        , async_set_keepalive/4
         , async_set_socket_options/2
         ]).
 
@@ -200,6 +201,9 @@ stats(#state{transport = Transport,
 %%
 %% NOTE: This API sets TCP socket options, which has nothing to do with
 %%       the MQTT layer's keepalive (PINGREQ and PINGRESP).
+async_set_keepalive(Idle, Interval, Probes) ->
+    async_set_keepalive(self(), Idle, Interval, Probes).
+
 async_set_keepalive(Pid, Idle, Interval, Probes) ->
     Options = [ {keepalive, true}
               , {raw, 6, 4, <<Idle:32/native>>}
@@ -345,6 +349,7 @@ ensure_stats_timer(_Timeout, State) -> State.
 
 -compile({inline, [cancel_stats_timer/1]}).
 cancel_stats_timer(State = #state{stats_timer = TRef}) when is_reference(TRef) ->
+    ?tp(debug, cancel_stats_timer, #{}),
     ok = emqx_misc:cancel_timer(TRef),
     State#state{stats_timer = undefined};
 cancel_stats_timer(State) -> State.

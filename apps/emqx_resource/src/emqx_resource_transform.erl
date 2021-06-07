@@ -29,7 +29,7 @@ parse_transform(Forms, _Opts) ->
 
 debug_print(Mod, Ts) ->
     {ok, Io} = file:open("./" ++ atom_to_list(Mod) ++ ".trans.erl", [write]),
-    do_debug_print(Io, Ts),
+    _ = do_debug_print(Io, Ts),
     file:close(Io).
 
 do_debug_print(Io, Ts) when is_list(Ts) ->

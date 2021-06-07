@@ -1,0 +1,11 @@
+Bcrypt = {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}},
+AddBcrypt = fun(C) ->
+    {deps, Deps0} = lists:keyfind(deps, 1, C),
+    Deps = [Bcrypt | Deps0],
+    lists:keystore(deps, 1, C, {deps, Deps})
+end,
+
+case os:type() of
+    {win32, _} -> CONFIG;
+    _ -> AddBcrypt(CONFIG)
+end.

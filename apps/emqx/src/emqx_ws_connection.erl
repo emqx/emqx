@@ -257,13 +257,16 @@ websocket_init([Req, Opts]) ->
         case proplists:get_bool(proxy_protocol, Opts)
         andalso maps:get(proxy_header, Req) of
             #{src_address := SrcAddr, src_port := SrcPort, ssl := SSL} ->
-                ProxyName = {SrcAddr, SrcPort},
+                SourceName = {SrcAddr, SrcPort},
                 %% Notice: Only CN is available in Proxy Protocol V2 additional info
-                ProxySSL = case maps:get(cn, SSL, undefined) of
+                SourceSSL = case maps:get(cn, SSL, undefined) of
                              undeined -> nossl;
                              CN -> [{pp2_ssl_cn, CN}]
                            end,
-                {ProxyName, ProxySSL};
+                {SourceName, SourceSSL};
+            #{src_address := SrcAddr, src_port := SrcPort} ->
+                SourceName = {SrcAddr, SrcPort},
+                {SourceName , nossl};
             _ ->
                 {get_peer(Req, Opts), cowboy_req:cert(Req)}
         end,

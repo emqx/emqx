@@ -35,15 +35,9 @@ format(#{msg := Msg0, meta := Meta} = Event, Config) ->
     logger_formatter:format(Event#{msg := Msg}, Config).
 
 maybe_merge({report, Report}, Meta) when is_map(Report) ->
-    {report, maps:merge(rename(Report), filter(Meta))};
+    {report, maps:merge(Report, filter(Meta))};
 maybe_merge(Report, _Meta) ->
     Report.
 
 filter(Meta) ->
     maps:without(?WITHOUT_MERGE, Meta).
-
-rename(#{'$kind' := Kind} = Meta0) -> % snabbkaffe
-    Meta = maps:remove('$kind', Meta0),
-    Meta#{msg => Kind};
-rename(Meta) ->
-    Meta.

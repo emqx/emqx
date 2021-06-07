@@ -553,6 +553,23 @@ t_data(_) ->
     application:stop(emqx_dahboard),
     ok.
 
+t_data_import_content(_) ->
+    ok = emqx_rule_registry:mnesia(boot),
+    ok = emqx_dashboard_admin:mnesia(boot),
+    application:ensure_all_started(emqx_rule_engine),
+    application:ensure_all_started(emqx_dashboard),
+    {ok, Data} = request_api(post, api_path(["data","export"]), [], auth_header_(), [#{}]),
+    #{<<"filename">> := Filename} = emqx_ct_http:get_http_data(Data),
+    Dir = emqx:get_env(data_dir),
+    {ok, Bin} = file:read_file(filename:join(Dir, Filename)),
+    Content = emqx_json:decode(Bin),
+    %% TODO: enable when 5.0 if we are still using data export/import
+    %?assertMatch({ok, "{\"code\":0}"}, request_api(post, api_path(["data","import"]), [], auth_header_(), Content)),
+    ?assertMatch({ok, "{\"message\":\"5.0\",\"code\":\"unsupported_version\"}"},
+                 request_api(post, api_path(["data","import"]), [], auth_header_(), Content)),
+    application:stop(emqx_rule_engine),
+    application:stop(emqx_dahboard).
+
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).
 

@@ -2,10 +2,15 @@
 
 -export([do/2]).
 
-do(_Dir, CONFIG) ->
-    {HasElixir, C1} = deps(CONFIG),
-    Config = dialyzer(C1),
-    maybe_dump(Config ++ [{overrides, overrides()}] ++ coveralls() ++ config(HasElixir)).
+do(Dir, CONFIG) ->
+    case iolist_to_binary(Dir) of
+        <<".">> ->
+            {HasElixir, C1} = deps(CONFIG),
+            Config = dialyzer(C1),
+            maybe_dump(Config ++ [{overrides, overrides()}] ++ coveralls() ++ config(HasElixir));
+        _ ->
+            CONFIG
+    end.
 
 bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
@@ -46,6 +51,8 @@ overrides() ->
     [ {add, [ {extra_src_dirs, [{"etc", [{recursive,true}]}]}
             , {erl_opts, [{compile_info, [{emqx_vsn, get_vsn()}]}]}
             ]}
+    , {add, snabbkaffe,
+       [{erl_opts, common_compile_opts()}]}
     ] ++ community_plugin_overrides().
 
 community_plugin_overrides() ->
@@ -99,13 +106,14 @@ test_plugins() ->
 
 test_deps() ->
     [ {bbmustache, "1.10.0"}
-    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {branch, "hocon"}}}
+    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "2.0.0"}}}
     , meck
     ].
 
 common_compile_opts() ->
     [ debug_info % alwyas include debug_info
     , {compile_info, [{emqx_vsn, get_vsn()}]}
+    , {d, snk_kind, msg}
     ] ++
     [{d, 'EMQX_ENTERPRISE'} || is_enterprise()] ++
     [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].
@@ -240,6 +248,7 @@ relx_apps(ReleaseType) ->
     , {ekka, load}
     , {emqx_plugin_libs, load}
     , observer_cli
+    , emqx_http_lib
     ]
     ++ [emqx_modules || not is_enterprise()]
     ++ [emqx_license || is_enterprise()]
@@ -321,6 +330,7 @@ relx_overlay(ReleaseType) ->
     , {template, "data/loaded_plugins.tmpl", "data/loaded_plugins"}
     , {template, "data/loaded_modules.tmpl", "data/loaded_modules"}
     , {template, "data/emqx_vars", "releases/emqx_vars"}
+    , {template, "data/BUILT_ON", "releases/{{release_version}}/BUILT_ON"}
     , {copy, "bin/emqx", "bin/emqx"}
     , {copy, "bin/emqx_ctl", "bin/emqx_ctl"}
     , {copy, "bin/node_dump", "bin/node_dump"}
@@ -332,9 +342,8 @@ relx_overlay(ReleaseType) ->
     , {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"}
     , {copy, "bin/nodetool", "bin/nodetool"}
     , {copy, "bin/nodetool", "bin/nodetool-{{release_version}}"}
-    , {copy, "_build/default/lib/cuttlefish/cuttlefish", "bin/cuttlefish"}
-    , {copy, "_build/default/lib/cuttlefish/cuttlefish", "bin/cuttlefish-{{release_version}}"}
-    , {copy, "priv/emqx.schema", "releases/{{release_version}}/"}
+    , {copy, "_build/default/lib/hocon/hocon", "bin/hocon"}
+    , {copy, "_build/default/lib/hocon/hocon", "bin/hocon-{{release_version}}"}
     ] ++ case is_enterprise() of
              true -> ee_etc_overlay(ReleaseType);
              false -> etc_overlay(ReleaseType)
@@ -347,7 +356,6 @@ etc_overlay(ReleaseType) ->
                 [community_plugin_etc_overlays(App) || App <- relx_plugin_apps_extra()],
     [ {mkdir, "etc/"}
     , {mkdir, "etc/plugins"}
-    , {template, "etc/BUILT_ON", "releases/{{release_version}}/BUILT_ON"}
     , {copy, "{{base_dir}}/lib/emqx/etc/certs","etc/"}
     ] ++
     lists:map(
@@ -364,18 +372,20 @@ extra_overlay(edge) ->
     [].
 emqx_etc_overlay(cloud) ->
     emqx_etc_overlay_common() ++
-    [ {"etc/emqx_cloud/vm.args","etc/vm.args"}
+    [ {"{{base_dir}}/lib/emqx/etc/emqx_cloud/vm.args","etc/vm.args"}
     ];
 emqx_etc_overlay(edge) ->
     emqx_etc_overlay_common() ++
-    [ {"etc/emqx_edge/vm.args","etc/vm.args"}
+    [ {"{{base_dir}}/lib/emqx/etc/emqx_edge/vm.args","etc/vm.args"}
     ].
 
 emqx_etc_overlay_common() ->
-    ["etc/acl.conf", "etc/emqx.conf", "etc/ssl_dist.conf",
+    [{"{{base_dir}}/lib/emqx/etc/acl.conf", "etc/acl.conf"},
+     {"{{base_dir}}/lib/emqx/etc/emqx.conf", "etc/emqx.conf"},
+     {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"},
      %% TODO: check why it has to end with .paho
      %% and why it is put to etc/plugins dir
-     {"etc/acl.conf.paho", "etc/plugins/acl.conf.paho"}].
+     {"{{base_dir}}/lib/emqx/etc/acl.conf.paho", "etc/plugins/acl.conf.paho"}].
 
 plugin_etc_overlays(App0) ->
     App = atom_to_list(App0),

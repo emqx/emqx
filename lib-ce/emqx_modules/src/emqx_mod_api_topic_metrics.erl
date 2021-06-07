@@ -53,6 +53,12 @@
         , unregister/2
         ]).
 
+-export([ get_topic_metrics/2
+        , register_topic_metrics/2
+        , unregister_topic_metrics/2
+        , unregister_all_topic_metrics/1
+        ]).
+
 list(#{topic := Topic0}, _Params) ->
     execute_when_enabled(fun() ->
         Topic = emqx_mgmt_util:urldecode(Topic0),

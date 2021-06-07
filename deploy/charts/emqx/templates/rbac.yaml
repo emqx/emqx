@@ -5,7 +5,11 @@ metadata:
   name: {{ include "emqx.fullname" . }}
 ---
 kind: Role
+{{- if semverCompare ">=1.17-0" .Capabilities.KubeVersion.GitVersion }}
+apiVersion: rbac.authorization.k8s.io/v1
+{{- else }}
 apiVersion: rbac.authorization.k8s.io/v1beta1
+{{- end }}
 metadata:
   namespace: {{ .Release.Namespace }}
   name: {{ include "emqx.fullname" . }}
@@ -20,7 +24,11 @@ rules:
   - list
 ---
 kind: RoleBinding
+{{- if semverCompare ">=1.17-0" .Capabilities.KubeVersion.GitVersion }}
+apiVersion: rbac.authorization.k8s.io/v1
+{{- else }}
 apiVersion: rbac.authorization.k8s.io/v1beta1
+{{- end }}
 metadata:
   namespace: {{ .Release.Namespace }}
   name: {{ include "emqx.fullname" . }}

@@ -48,7 +48,7 @@ t_restart_listeners(_) ->
     ok = emqx_listeners:stop().
 
 render_config_file() ->
-    Path = local_path(["..", "..", "..", "..", "etc", "emqx.conf"]),
+    Path = local_path(["etc", "emqx.conf"]),
     {ok, Temp} = file:read_file(Path),
     Vars0 = mustache_vars(),
     Vars = [{atom_to_list(N), iolist_to_binary(V)} || {N, V} <- Vars0],
@@ -65,10 +65,9 @@ mustache_vars() ->
     ].
 
 generate_config() ->
-    Schema = cuttlefish_schema:files([local_path(["priv", "emqx.schema"])]),
     ConfFile = render_config_file(),
-    {ok, Conf} = hocon:load(ConfFile, #{format => proplists}),
-    cuttlefish_generator:map(Schema, Conf).
+    {ok, Conf} = hocon:load(ConfFile, #{format => richmap}),
+    hocon_schema:generate(emqx_schema, Conf).
 
 set_app_env({App, Lists}) ->
     lists:foreach(fun({acl_file, _Var}) ->
