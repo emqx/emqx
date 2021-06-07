@@ -167,7 +167,7 @@ do_update(InstId, ResourceType, NewConfig, Params) ->
         {ok, #{mod := Mod}} when Mod =/= ResourceType ->
             {error, updating_to_incorrect_resource_type};
         {error, not_found} ->
-            do_create(InstId, ResourceType, NewConfig)
+            {error, not_found}
     end.
 
 do_create(InstId, ResourceType, Config) ->

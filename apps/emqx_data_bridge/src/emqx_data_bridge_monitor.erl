@@ -54,11 +54,11 @@ load_bridges(Configs) ->
 
 load_bridge(#{<<"name">> := Name, <<"type">> := Type,
               <<"config">> := Config}) ->
-    case emqx_resource:check_and_load_instance(Name, resource_type(Type), Config) of
+    case emqx_resource:check_and_create_local(
+            emqx_data_bridge:resource_id(Name),
+            emqx_data_bridge:resource_type(Type), Config) of
         {ok, _} -> ok;
         {error, already_created} -> ok;
         {error, Reason} ->
             error({load_bridge, Reason})
     end.
-
-resource_type(<<"mysql">>) -> emqx_connector_mysql.

@@ -38,7 +38,10 @@
 %% APIs for instances
 
 -export([ check_config/2
-        , check_and_load_instance/3
+        , check_and_create/3
+        , check_and_create_local/3
+        , check_and_update/4
+        , check_and_update_local/4
         , resource_type_from_str/1
         ]).
 
@@ -46,10 +49,13 @@
 %% provisional solution: rpc:multical to all the nodes for creating/updating/removing
 %% todo: replicate operations
 -export([ create/3 %% store the config and start the instance
+        , create_local/3
         , create_dry_run/3 %% run start/2, health_check/2 and stop/1 sequentially
+        , create_dry_run_local/3
         , update/4 %% update the config, stop the old instance and start the new one
-                   %% it will create a new resource when the id does not exist
+        , update_local/4
         , remove/1 %% remove the config and stop the instance
+        , remove_local/1
         ]).
 
 %% Calls to the callback module with current resource state
@@ -73,7 +79,7 @@
 -export([ list_instances/0 %% list all the instances, id only.
         , list_instances_verbose/0 %% list all the instances
         , get_instance/1 %% return the data of the instance
-        , get_instance_by_type/1 %% return all the instances of the same resource type
+        , list_instances_by_type/1 %% return all the instances of the same resource type
         % , dependents/1
         % , inc_counter/2 %% increment the counter of the instance
         % , inc_counter/3 %% increment the counter by a given integer
@@ -152,22 +158,42 @@ query_failed({_, {OnFailed, Args}}) ->
 -spec create(instance_id(), resource_type(), resource_config()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 create(InstId, ResourceType, Config) ->
-    ?CLUSTER_CALL(call_instance, [InstId, {create, InstId, ResourceType, Config}], {ok, _}).
+    ?CLUSTER_CALL(create_local, [InstId, ResourceType, Config], {ok, _}).
+
+-spec create_local(instance_id(), resource_type(), resource_config()) ->
+    {ok, resource_data()} | {error, Reason :: term()}.
+create_local(InstId, ResourceType, Config) ->
+    call_instance(InstId, {create, InstId, ResourceType, Config}).
 
 -spec create_dry_run(instance_id(), resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run(InstId, ResourceType, Config) ->
-    ?CLUSTER_CALL(call_instance, [InstId, {create_dry_run, InstId, ResourceType, Config}]).
+    ?CLUSTER_CALL(create_dry_run_local, [InstId, ResourceType, Config]).
+
+-spec create_dry_run_local(instance_id(), resource_type(), resource_config()) ->
+    ok | {error, Reason :: term()}.
+create_dry_run_local(InstId, ResourceType, Config) ->
+    call_instance(InstId, {create_dry_run, InstId, ResourceType, Config}).
 
 -spec update(instance_id(), resource_type(), resource_config(), term()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 update(InstId, ResourceType, Config, Params) ->
-    ?CLUSTER_CALL(call_instance, [InstId, {update, InstId, ResourceType, Config, Params}], {ok, _}).
+    ?CLUSTER_CALL(update_local, [InstId, ResourceType, Config, Params], {ok, _}).
+
+-spec update_local(instance_id(), resource_type(), resource_config(), term()) ->
+    {ok, resource_data()} | {error, Reason :: term()}.
+update_local(InstId, ResourceType, Config, Params) ->
+    call_instance(InstId, {update, InstId, ResourceType, Config, Params}).
 
 -spec remove(instance_id()) -> ok | {error, Reason :: term()}.
 remove(InstId) ->
-    ?CLUSTER_CALL(call_instance, [InstId, {remove, InstId}]).
+    ?CLUSTER_CALL(remove_local, [InstId]).
 
+-spec remove_local(instance_id()) -> ok | {error, Reason :: term()}.
+remove_local(InstId) ->
+    call_instance(InstId, {remove, InstId}).
+
+%% =================================================================================
 -spec query(instance_id(), Request :: term()) -> Result :: term().
 query(InstId, Request) ->
     query(InstId, Request, undefined).
@@ -209,8 +235,8 @@ list_instances() ->
 list_instances_verbose() ->
     emqx_resource_instance:list_all().
 
--spec get_instance_by_type(module()) -> [resource_data()].
-get_instance_by_type(ResourceType) ->
+-spec list_instances_by_type(module()) -> [resource_data()].
+list_instances_by_type(ResourceType) ->
     emqx_resource_instance:lookup_by_type(ResourceType).
 
 -spec call_start(instance_id(), module(), resource_config()) ->
@@ -271,11 +297,33 @@ do_check_config(ResourceType, MapConfig) ->
         Config -> {ok, maps:get(<<"config">>, hocon:richmap_to_map(Config))}
     end.
 
--spec check_and_load_instance(instance_id(), resource_type(), binary() | term()) ->
+-spec check_and_create(instance_id(), resource_type(), binary() | term()) ->
     {ok, resource_data()} | {error, term()}.
-check_and_load_instance(InstId, ResourceType, Config) ->
+check_and_create(InstId, ResourceType, Config) ->
+    check_and_do(ResourceType, Config,
+        fun(InstConf) -> create(InstId, ResourceType, InstConf) end).
+
+-spec check_and_create_local(instance_id(), resource_type(), binary() | term()) ->
+    {ok, resource_data()} | {error, term()}.
+check_and_create_local(InstId, ResourceType, Config) ->
+    check_and_do(ResourceType, Config,
+        fun(InstConf) -> create_local(InstId, ResourceType, InstConf) end).
+
+-spec check_and_update(instance_id(), resource_type(), binary() | term(), term()) ->
+    {ok, resource_data()} | {error, term()}.
+check_and_update(InstId, ResourceType, Config, Params) ->
+    check_and_do(ResourceType, Config,
+        fun(InstConf) -> update(InstId, ResourceType, InstConf, Params) end).
+
+-spec check_and_update_local(instance_id(), resource_type(), binary() | term(), term()) ->
+    {ok, resource_data()} | {error, term()}.
+check_and_update_local(InstId, ResourceType, Config, Params) ->
+    check_and_do(ResourceType, Config,
+        fun(InstConf) -> update_local(InstId, ResourceType, InstConf, Params) end).
+
+check_and_do(ResourceType, Config, Do) when is_function(Do) ->
     case check_config(ResourceType, Config) of
-        {ok, InstConf} -> emqx_resource_instance:create_local(InstId, ResourceType, InstConf);
+        {ok, InstConf} -> Do(InstConf);
         Error -> Error
     end.
 

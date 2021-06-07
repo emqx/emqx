@@ -18,8 +18,6 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
--emqx_resource_api_path("connectors/mysql").
-
 -export([ on_jsonify/1
         , on_api_reply_format/1
         ]).
