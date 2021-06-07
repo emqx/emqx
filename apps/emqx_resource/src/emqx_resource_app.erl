@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,26 +14,20 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--ifndef(EMQX_RELEASE_HRL).
--define(EMQX_RELEASE_HRL, true).
+-module(emqx_resource_app).
 
-%% NOTE: this is the release version which is not always the same
-%% as the emqx app version defined in emqx.app.src
-%% App (plugin) versions are bumped independently.
-%% e.g. EMQX_RELEASE being 4.3.1 does no always imply emqx app
-%% should be 4.3.1, as it might be the case that only one of the
-%% plugins had a bug to fix. So for a hot beam upgrade, only the app
-%% with beam files changed needs an upgrade.
+-behaviour(application).
 
-%% NOTE: This version number should be manually bumped for each release
+-include("emqx_resource.hrl").
 
--ifndef(EMQX_ENTERPRISE).
+-emqx_plugin(?MODULE).
 
--define(EMQX_RELEASE, {opensource, "4.3.3"}).
+-export([start/2, stop/1]).
 
--else.
+start(_StartType, _StartArgs) ->
+    emqx_resource_sup:start_link().
 
+stop(_State) ->
+    ok.
 
--endif.
-
--endif.
+%% internal functions

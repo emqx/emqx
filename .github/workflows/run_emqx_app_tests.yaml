@@ -1,0 +1,26 @@
+name: Check emqx app standalone
+
+on:
+  push:
+    tags:
+      - v*
+      - e*
+  pull_request:
+
+jobs:
+    check_all:
+        runs-on: ubuntu-20.04
+        container: emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04
+
+        steps:
+        - uses: actions/checkout@v2
+        - name: run
+          run: |
+            make ensure-rebar3
+            cp rebar3 apps/emqx/
+            cd apps/emqx
+            ./rebar3 xref
+            ./rebar3 dialyzer
+            ./rebar3 eunit -v
+            ./rebar3 ct -v
+            ./rebar3 proper -d test/props

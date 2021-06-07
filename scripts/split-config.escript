@@ -13,7 +13,7 @@
 -define(BASE, <<"emqx">>).
 
 main(_) ->
-    {ok, Bin} = file:read_file("etc/emqx.conf"),
+    {ok, Bin} = file:read_file(conf_file()),
     Lines = binary:split(Bin, <<"\n">>, [global]),
     Sections0 = parse_sections(Lines),
     {value, _, Sections1} = lists:keytake(<<"modules">>, 1, Sections0),
@@ -23,6 +23,10 @@ main(_) ->
         iolist_to_binary(["include {{ platform_etc_dir }}/", Name, ".conf"])
     end, IncludeNames),
     ok = dump_sections([{N, Base ++ Includes}| Sections2]).
+
+etc_dir() -> filename:join(["apps", "emqx", "etc"]).
+
+conf_file() -> filename:join([etc_dir(), "emqx.conf"]).
 
 parse_sections(Lines) ->
     {ok, P} = re:compile("#+\s*CONFIG_SECTION_(BGN|END)\s*=\s*([^\s-]+)\s*="),
@@ -57,7 +61,7 @@ parse_sections([Line | Lines], Parse, Section, Sections) ->
 
 dump_sections([]) -> ok;
 dump_sections([{Name, Lines0} | Rest]) ->
-    Filename = filename:join(["etc", iolist_to_binary([Name, ".conf.seg"])]),
+    Filename = filename:join([etc_dir(), iolist_to_binary([Name, ".conf.seg"])]),
     Lines = [[L, "\n"] || L <- Lines0],
     ok = file:write_file(Filename, Lines),
     dump_sections(Rest).
