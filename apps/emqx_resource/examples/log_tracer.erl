@@ -2,8 +2,6 @@
 
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
--emqx_resource_api_path("/log_tracer").
-
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
         , on_stop/2
