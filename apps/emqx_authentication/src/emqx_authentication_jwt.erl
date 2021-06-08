@@ -46,28 +46,32 @@
             order => 4,
             type => string
         },
-        jwt_certfile => #{
+        secret_base64_encoded => #{
             order => 5,
-            type => file
+            type => boolean    
         },
-        cacertfile => #{
+        jwt_certfile => #{
             order => 6,
             type => file
         },
-        keyfile => #{
+        cacertfile => #{
             order => 7,
             type => file
         },
-        certfile => #{
+        keyfile => #{
             order => 8,
             type => file
         },
-        verify => #{
+        certfile => #{
             order => 9,
+            type => file
+        },
+        verify => #{
+            order => 10,
             type => boolean
         },
         server_name_indication => #{
-            order => 10,
+            order => 11,
             type => string
         }
     }
@@ -80,6 +84,7 @@
             refresh_interval       => [use_jwks],
             algorithm              => [use_jwks],
             secret                 => [algorithm],
+            secret_base64_encoded  => [algorithm],
             jwt_certfile           => [algorithm],
             cacertfile             => [jwks_endpoint],
             keyfile                => [jwks_endpoint],
@@ -132,8 +137,15 @@ destroy(#{jwks_connector := Connector}) ->
 
 do_create(#{use_jwks := false,
             algorithm := 'hmac-based',
-            secret := Secret,
+            secret := Secret0,
+            secret_base64_encoded := Base64Encoded,
             verify_claims := VerifyClaims}) ->
+    Secret = case Base64Encoded of
+                 true ->
+                     base64:decode(Secret0);
+                 false ->
+                     Secret0
+             end,
     JWK = jose_jwk:from_oct(Secret),
     {ok, #{jwk => JWK,
            jwks_connector => undefined,
@@ -295,6 +307,9 @@ handle_option(secret = Opt, unbound, #{algorithm := 'hmac-based'}) ->
     throw({error, {options, {Opt, unbound}}});
 handle_option(secret = Opt, Value, #{algorithm := 'hmac-based'} = OptsMap) ->
     OptsMap#{Opt => Value};
+handle_option(secret_base64_encoded = Opt, Value0, #{algorithm := 'hmac-based'} = OptsMap) ->
+    Value = validate_option(Opt, Value0),
+    OptsMap#{Opt => Value};
 handle_option(jwt_certfile = Opt, unbound, #{algorithm := 'public-key'}) ->
     throw({error, {options, {Opt, unbound}}});
 handle_option(jwt_certfile = Opt, Value, #{algorithm := 'public-key'} = OptsMap) ->
@@ -330,6 +345,10 @@ validate_option(algorithm, <<"hmac-based">>) ->
     'hmac-based';
 validate_option(algorithm, <<"public-key">>) ->
     'public-key';
+validate_option(secret_base64_encoded, unbound) ->
+    false;
+validate_option(secret_base64_encoded, Value) when is_boolean(Value) ->
+    Value;
 validate_option(verify, unbound) ->
     verify_none;
 validate_option(verify, true) ->
