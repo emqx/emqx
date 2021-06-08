@@ -67,6 +67,8 @@ code_change(_OldVsn, State, _Extra) ->
 load_bridges(Configs) ->
     lists:foreach(fun load_bridge/1, Configs).
 
+%% TODO: move this monitor into emqx_resource
+%% emqx_resource:check_and_create_local(ResourceId, ResourceType, Config, #{keep_retry => true}).
 load_bridge(#{<<"name">> := Name, <<"type">> := Type,
               <<"config">> := Config}) ->
     case emqx_resource:check_and_create_local(
