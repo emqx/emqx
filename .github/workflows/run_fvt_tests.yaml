@@ -191,7 +191,7 @@ jobs:
         - uses: actions/checkout@v2
           with:
             repository: hawk/lux
-            ref: lux-2.4
+            ref: lux-2.6
             path: lux
         - uses: actions/checkout@v2
           with:
