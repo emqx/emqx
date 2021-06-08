@@ -44,8 +44,7 @@ emqx_test(){
                 echo "running ${packagename} start"
                 "${PACKAGE_PATH}"/emqx/bin/emqx start || ( tail "${PACKAGE_PATH}"/emqx/log/emqx.log.1 && exit 1 )
                 IDLE_TIME=0
-                while ! "${PACKAGE_PATH}"/emqx/bin/emqx_ctl status | grep -qE 'Node\s.*@.*\sis\sstarted'
-                do
+                while ! curl http://localhost:8081/status >/dev/null 2>&1; do
                     if [ $IDLE_TIME -gt 10 ]
                     then
                         echo "emqx running error"
@@ -116,8 +115,7 @@ running_test(){
 
     emqx start || ( tail /var/log/emqx/emqx.log.1 && exit 1 )
     IDLE_TIME=0
-    while ! emqx_ctl status | grep -qE 'Node\s.*@.*\sis\sstarted'
-    do
+   while ! curl http://localhost:8081/status >/dev/null 2>&1; do
         if [ $IDLE_TIME -gt 10 ]
         then
             echo "emqx running error"
@@ -134,8 +132,7 @@ running_test(){
     || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] ;then
         service emqx start || ( tail /var/log/emqx/emqx.log.1 && exit 1 )
         IDLE_TIME=0
-        while ! emqx_ctl status | grep -E 'Node\s.*@.*\sis\sstarted'
-        do
+        while ! curl http://localhost:8081/status >/dev/null 2>&1; do
             if [ $IDLE_TIME -gt 10 ]
             then
                 echo "emqx service error"
@@ -157,12 +154,10 @@ relup_test(){
             packagename=$(basename "${var}")
             unzip "$packagename"
             ./emqx/bin/emqx start || ( tail emqx/log/emqx.log.1 && exit 1 )
-            ./emqx/bin/emqx_ctl status
             ./emqx/bin/emqx versions
             cp "${PACKAGE_PATH}/${EMQX_NAME}"-*-"${TARGET_VERSION}-${ARCH}".zip ./emqx/releases
             ./emqx/bin/emqx install "${TARGET_VERSION}"
             [ "$(./emqx/bin/emqx versions |grep permanent | awk '{print $2}')" = "${TARGET_VERSION}" ] || exit 1
-            ./emqx/bin/emqx_ctl status
             ./emqx/bin/emqx stop
             rm -rf emqx
         done
