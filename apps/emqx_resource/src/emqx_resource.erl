@@ -37,7 +37,11 @@
 
 %% APIs for instances
 
--export([ parse_config/2
+-export([ check_config/2
+        , check_and_create/3
+        , check_and_create_local/3
+        , check_and_update/4
+        , check_and_update_local/4
         , resource_type_from_str/1
         ]).
 
@@ -45,10 +49,13 @@
 %% provisional solution: rpc:multical to all the nodes for creating/updating/removing
 %% todo: replicate operations
 -export([ create/3 %% store the config and start the instance
+        , create_local/3
         , create_dry_run/3 %% run start/2, health_check/2 and stop/1 sequentially
+        , create_dry_run_local/3
         , update/4 %% update the config, stop the old instance and start the new one
-                   %% it will create a new resource when the id does not exist
+        , update_local/4
         , remove/1 %% remove the config and stop the instance
+        , remove_local/1
         ]).
 
 %% Calls to the callback module with current resource state
@@ -66,16 +73,12 @@
         , call_stop/3   %% stop the instance
         , call_config_merge/4 %% merge the config when updating
         , call_jsonify/2
-        , call_api_reply_format/2
         ]).
 
 -export([ list_instances/0 %% list all the instances, id only.
         , list_instances_verbose/0 %% list all the instances
         , get_instance/1 %% return the data of the instance
-        , get_instance_by_type/1 %% return all the instances of the same resource type
-        , load_instances_from_dir/1 %% load instances from a directory
-        , load_instance_from_file/1 %% load an instance from a config file
-        , load_instance_from_config/1 %% load an instance from a map or json-string config
+        , list_instances_by_type/1 %% return all the instances of the same resource type
         % , dependents/1
         % , inc_counter/2 %% increment the counter of the instance
         % , inc_counter/3 %% increment the counter by a given integer
@@ -154,22 +157,42 @@ query_failed({_, {OnFailed, Args}}) ->
 -spec create(instance_id(), resource_type(), resource_config()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 create(InstId, ResourceType, Config) ->
-    ?CLUSTER_CALL(call_instance, [InstId, {create, InstId, ResourceType, Config}], {ok, _}).
+    ?CLUSTER_CALL(create_local, [InstId, ResourceType, Config], {ok, _}).
+
+-spec create_local(instance_id(), resource_type(), resource_config()) ->
+    {ok, resource_data()} | {error, Reason :: term()}.
+create_local(InstId, ResourceType, Config) ->
+    call_instance(InstId, {create, InstId, ResourceType, Config}).
 
 -spec create_dry_run(instance_id(), resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run(InstId, ResourceType, Config) ->
-    ?CLUSTER_CALL(call_instance, [InstId, {create_dry_run, InstId, ResourceType, Config}]).
+    ?CLUSTER_CALL(create_dry_run_local, [InstId, ResourceType, Config]).
+
+-spec create_dry_run_local(instance_id(), resource_type(), resource_config()) ->
+    ok | {error, Reason :: term()}.
+create_dry_run_local(InstId, ResourceType, Config) ->
+    call_instance(InstId, {create_dry_run, InstId, ResourceType, Config}).
 
 -spec update(instance_id(), resource_type(), resource_config(), term()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 update(InstId, ResourceType, Config, Params) ->
-    ?CLUSTER_CALL(call_instance, [InstId, {update, InstId, ResourceType, Config, Params}], {ok, _}).
+    ?CLUSTER_CALL(update_local, [InstId, ResourceType, Config, Params], {ok, _}).
+
+-spec update_local(instance_id(), resource_type(), resource_config(), term()) ->
+    {ok, resource_data()} | {error, Reason :: term()}.
+update_local(InstId, ResourceType, Config, Params) ->
+    call_instance(InstId, {update, InstId, ResourceType, Config, Params}).
 
 -spec remove(instance_id()) -> ok | {error, Reason :: term()}.
 remove(InstId) ->
-    ?CLUSTER_CALL(call_instance, [InstId, {remove, InstId}]).
+    ?CLUSTER_CALL(remove_local, [InstId]).
 
+-spec remove_local(instance_id()) -> ok | {error, Reason :: term()}.
+remove_local(InstId) ->
+    call_instance(InstId, {remove, InstId}).
+
+%% =================================================================================
 -spec query(instance_id(), Request :: term()) -> Result :: term().
 query(InstId, Request) ->
     query(InstId, Request, undefined).
@@ -211,21 +234,9 @@ list_instances() ->
 list_instances_verbose() ->
     emqx_resource_instance:list_all().
 
--spec get_instance_by_type(module()) -> [resource_data()].
-get_instance_by_type(ResourceType) ->
+-spec list_instances_by_type(module()) -> [resource_data()].
+list_instances_by_type(ResourceType) ->
     emqx_resource_instance:lookup_by_type(ResourceType).
-
--spec load_instances_from_dir(Dir :: string()) -> ok.
-load_instances_from_dir(Dir) ->
-    emqx_resource_instance:load_dir(Dir).
-
--spec load_instance_from_file(File :: string()) -> ok.
-load_instance_from_file(File) ->
-    emqx_resource_instance:load_file(File).
-
--spec load_instance_from_config(binary() | map()) -> {ok, resource_data()} | {error, term()}.
-load_instance_from_config(Config) ->
-    emqx_resource_instance:load_config(Config).
 
 -spec call_start(instance_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
@@ -260,31 +271,52 @@ call_jsonify(Mod, Config) ->
         true -> ?SAFE_CALL(Mod:on_jsonify(Config))
     end.
 
--spec call_api_reply_format(module(), resource_data()) -> jsx:json_term().
-call_api_reply_format(Mod, Data) ->
-    case erlang:function_exported(Mod, on_api_reply_format, 1) of
-        false -> emqx_resource_api:default_api_reply_format(Data);
-        true -> ?SAFE_CALL(Mod:on_api_reply_format(Data))
-    end.
-
--spec parse_config(resource_type(), binary() | term()) ->
+-spec check_config(resource_type(), binary() | term()) ->
     {ok, resource_config()} | {error, term()}.
-parse_config(ResourceType, RawConfig) when is_binary(RawConfig) ->
+check_config(ResourceType, RawConfig) when is_binary(RawConfig) ->
     case hocon:binary(RawConfig, #{format => richmap}) of
         {ok, MapConfig} ->
-            do_parse_config(ResourceType, MapConfig);
+            do_check_config(ResourceType, MapConfig);
         Error -> Error
     end;
-parse_config(ResourceType, RawConfigTerm) ->
-    parse_config(ResourceType, jsx:encode(#{config => RawConfigTerm})).
+check_config(ResourceType, RawConfigTerm) ->
+    check_config(ResourceType, jsx:encode(#{config => RawConfigTerm})).
 
--spec do_parse_config(resource_type(), map()) -> {ok, resource_config()} | {error, term()}.
-do_parse_config(ResourceType, MapConfig) ->
-    case ?SAFE_CALL(hocon_schema:generate(ResourceType, MapConfig)) of
+-spec do_check_config(resource_type(), map()) -> {ok, resource_config()} | {error, term()}.
+do_check_config(ResourceType, MapConfig) ->
+    case ?SAFE_CALL(hocon_schema:check(ResourceType, MapConfig)) of
         {error, Reason} -> {error, Reason};
-        Config ->
-            InstConf = maps:from_list(proplists:get_value(config, Config)),
-            {ok, InstConf}
+        Config -> {ok, maps:get(<<"config">>, hocon_schema:richmap_to_map(Config))}
+    end.
+
+-spec check_and_create(instance_id(), resource_type(), binary() | term()) ->
+    {ok, resource_data()} | {error, term()}.
+check_and_create(InstId, ResourceType, Config) ->
+    check_and_do(ResourceType, Config,
+        fun(InstConf) -> create(InstId, ResourceType, InstConf) end).
+
+-spec check_and_create_local(instance_id(), resource_type(), binary() | term()) ->
+    {ok, resource_data()} | {error, term()}.
+check_and_create_local(InstId, ResourceType, Config) ->
+    check_and_do(ResourceType, Config,
+        fun(InstConf) -> create_local(InstId, ResourceType, InstConf) end).
+
+-spec check_and_update(instance_id(), resource_type(), binary() | term(), term()) ->
+    {ok, resource_data()} | {error, term()}.
+check_and_update(InstId, ResourceType, Config, Params) ->
+    check_and_do(ResourceType, Config,
+        fun(InstConf) -> update(InstId, ResourceType, InstConf, Params) end).
+
+-spec check_and_update_local(instance_id(), resource_type(), binary() | term(), term()) ->
+    {ok, resource_data()} | {error, term()}.
+check_and_update_local(InstId, ResourceType, Config, Params) ->
+    check_and_do(ResourceType, Config,
+        fun(InstConf) -> update_local(InstId, ResourceType, InstConf, Params) end).
+
+check_and_do(ResourceType, Config, Do) when is_function(Do) ->
+    case check_config(ResourceType, Config) of
+        {ok, InstConf} -> Do(InstConf);
+        Error -> Error
     end.
 
 %% =================================================================================

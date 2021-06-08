@@ -2,7 +2,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([fields/1]).
+-export([schema/0]).
 
 -reflect_type([t_level/0, t_cache_logs_in/0]).
 
@@ -10,15 +10,14 @@
 
 -type t_cache_logs_in() :: memory | file.
 
-fields("config") ->
+schema() ->
     [ {condition, fun condition/1}
     , {level, fun level/1}
     , {enable_cache, fun enable_cache/1}
     , {cache_logs_in, fun cache_logs_in/1}
     , {cache_log_dir, fun cache_log_dir/1}
     , {bulk, fun bulk/1}
-    ];
-fields(_) -> [].
+    ].
 
 condition(mapping) -> "config.condition";
 condition(type) -> map();

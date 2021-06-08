@@ -13,21 +13,19 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_resource_api).
 
--export([ list_instances/1
-        , format_data/1
-        , stringnify/1
-        ]).
+-module(emqx_connector_app).
 
-list_instances(Filter) ->
-    [format_data(Data) || Data <- emqx_resource:list_instances_verbose(), Filter(Data)].
+-behaviour(application).
 
-format_data(#{id := Id, mod := Mod, status := Status, config := Config}) ->
-    #{id => Id, status => Status, resource_type => Mod,
-      config => emqx_resource:call_jsonify(Mod, Config)}.
+-emqx_plugin(?MODULE).
 
-stringnify(Bin) when is_binary(Bin) -> Bin;
-stringnify(Str) when is_list(Str) -> list_to_binary(Str);
-stringnify(Reason) ->
-    iolist_to_binary(io_lib:format("~p", [Reason])).
+-export([start/2, stop/1]).
+
+start(_StartType, _StartArgs) ->
+    emqx_connector_sup:start_link().
+
+stop(_State) ->
+    ok.
+
+%% internal functions

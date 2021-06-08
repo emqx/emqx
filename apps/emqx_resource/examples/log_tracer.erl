@@ -14,10 +14,10 @@
         ]).
 
 %% callbacks for emqx_resource config schema
--export([fields/1]).
+-export([schema/0]).
 
-fields(ConfPath) ->
-    log_tracer_schema:fields(ConfPath).
+schema() ->
+    log_tracer_schema:schema().
 
 on_start(InstId, Config) ->
     io:format("== the demo log tracer ~p started.~nconfig: ~p~n", [InstId, Config]),

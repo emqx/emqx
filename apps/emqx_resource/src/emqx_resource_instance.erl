@@ -23,10 +23,7 @@
 -export([start_link/2]).
 
 %% load resource instances from *.conf files
--export([ load_dir/1
-        , load_file/1
-        , load_config/1
-        , lookup/1
+-export([ lookup/1
         , list_all/0
         , lookup_by_type/1
         , create_local/3
@@ -85,44 +82,8 @@ lookup_by_type(ResourceType) ->
     [Data || #{mod := Mod} = Data <- list_all()
              , Mod =:= ResourceType].
 
--spec load_dir(Dir :: string()) -> ok.
-load_dir(Dir) ->
-    lists:foreach(fun load_file/1, filelib:wildcard(filename:join([Dir, "*.conf"]))).
-
-load_file(File) ->
-    case ?SAFE_CALL(hocon_token:read(File)) of
-        {error, Reason} ->
-            logger:error("load resource from ~p failed: ~p", [File, Reason]);
-        RawConfig ->
-            case load_config(RawConfig) of
-                {ok, Data} ->
-                    logger:debug("loaded resource instance from file: ~p, data: ~p",
-                        [File, Data]);
-                {error, Reason} ->
-                    logger:error("load resource from ~p failed: ~p", [File, Reason])
-            end
-    end.
-
--spec load_config(binary() | map()) -> {ok, resource_data()} | {error, term()}.
-load_config(RawConfig) when is_binary(RawConfig) ->
-    case hocon:binary(RawConfig, #{format => map}) of
-        {ok, ConfigTerm} -> load_config(ConfigTerm);
-        Error -> Error
-    end;
-
-load_config(#{<<"id">> := Id, <<"resource_type">> := ResourceTypeStr} = Config) ->
-    MapConfig = maps:get(<<"config">>, Config, #{}),
-    case emqx_resource:resource_type_from_str(ResourceTypeStr) of
-        {ok, ResourceType} -> parse_and_load_config(Id, ResourceType, MapConfig);
-        Error -> Error
-    end.
-
-parse_and_load_config(InstId, ResourceType, MapConfig) ->
-    case emqx_resource:parse_config(ResourceType, MapConfig) of
-        {ok, InstConf} -> create_local(InstId, ResourceType, InstConf);
-        Error -> Error
-    end.
-
+-spec create_local(instance_id(), resource_type(), resource_config()) ->
+    {ok, resource_data()} | {error, term()}.
 create_local(InstId, ResourceType, InstConf) ->
     case hash_call(InstId, {create, InstId, ResourceType, InstConf}, 15000) of
         {ok, Data} -> {ok, Data};
@@ -206,7 +167,7 @@ do_update(InstId, ResourceType, NewConfig, Params) ->
         {ok, #{mod := Mod}} when Mod =/= ResourceType ->
             {error, updating_to_incorrect_resource_type};
         {error, not_found} ->
-            do_create(InstId, ResourceType, NewConfig)
+            {error, not_found}
     end.
 
 do_create(InstId, ResourceType, Config) ->

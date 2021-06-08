@@ -13,21 +13,24 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_resource_api).
+-module(emqx_connector_sup).
 
--export([ list_instances/1
-        , format_data/1
-        , stringnify/1
-        ]).
+-behaviour(supervisor).
 
-list_instances(Filter) ->
-    [format_data(Data) || Data <- emqx_resource:list_instances_verbose(), Filter(Data)].
+-export([start_link/0]).
 
-format_data(#{id := Id, mod := Mod, status := Status, config := Config}) ->
-    #{id => Id, status => Status, resource_type => Mod,
-      config => emqx_resource:call_jsonify(Mod, Config)}.
+-export([init/1]).
 
-stringnify(Bin) when is_binary(Bin) -> Bin;
-stringnify(Str) when is_list(Str) -> list_to_binary(Str);
-stringnify(Reason) ->
-    iolist_to_binary(io_lib:format("~p", [Reason])).
+-define(SERVER, ?MODULE).
+
+start_link() ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+
+init([]) ->
+    SupFlags = #{strategy => one_for_all,
+                 intensity => 0,
+                 period => 1},
+    ChildSpecs = [],
+    {ok, {SupFlags, ChildSpecs}}.
+
+%% internal functions
