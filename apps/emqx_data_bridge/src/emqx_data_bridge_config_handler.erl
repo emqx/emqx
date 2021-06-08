@@ -35,6 +35,7 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+%% TODO: trigger the `updated` message from emqx_resource.
 notify_updated() ->
     gen_server:cast(?MODULE, updated).
 
@@ -45,6 +46,7 @@ handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
 
+%% TODO: change the config handler as a behavoir that calls back the Mod:format_config/1
 handle_cast(updated, State) ->
     Configs = [format_conf(Data) || Data <- emqx_data_bridge:list_bridges()],
     emqx_config_handler ! {emqx_data_bridge, Configs},

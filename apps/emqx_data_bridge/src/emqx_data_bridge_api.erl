@@ -37,7 +37,7 @@
            }).
 
 -rest_api(#{ name => update_data_bridge
-           , method => 'POST'
+           , method => 'PUT'
            , path => "/data_bridges/:bin:name"
            , func => update_bridge
            , descr => "Update an existing data bridge"

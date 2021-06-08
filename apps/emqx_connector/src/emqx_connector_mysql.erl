@@ -52,7 +52,6 @@ on_jsonify(#{<<"server">> := Server, <<"user">> := User, <<"database">> := DB,
     }.
 
 %% ===================================================================
-
 on_start(InstId, #{<<"server">> := {Host, Port},
                    <<"database">> := DB,
                    <<"user">> := User,

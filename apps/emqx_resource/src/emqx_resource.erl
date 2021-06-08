@@ -255,13 +255,9 @@ call_stop(InstId, Mod, ResourceState) ->
 -spec call_config_merge(module(), resource_config(), resource_config(), term()) ->
     resource_config().
 call_config_merge(Mod, OldConfig, NewConfig, Params) ->
-    case erlang:function_exported(Mod, on_jsonify, 1) of
-        true ->
-            ?SAFE_CALL(Mod:on_config_merge(OldConfig, NewConfig, Params));
-        false when is_map(OldConfig), is_map(NewConfig) ->
-            maps:merge(OldConfig, NewConfig);
-        false ->
-            NewConfig
+    case erlang:function_exported(Mod, on_config_merge, 3) of
+        true -> ?SAFE_CALL(Mod:on_config_merge(OldConfig, NewConfig, Params));
+        false -> NewConfig
     end.
 
 -spec call_jsonify(module(), resource_config()) -> jsx:json_term().
