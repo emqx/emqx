@@ -1,22 +1,17 @@
 # emqx_resource
 
-The `emqx_resource` is an application that manages configuration specs and runtime states
-for components that need to be configured and manipulated from the emqx-dashboard.
+The `emqx_resource` is a behavior that manages configuration specs and runtime states
+for resources like mysql or redis backends.
 
-It is intended to be used by resources, actions, acl, auth, backend_logics and more.
-
-It reads the configuration spec from *.spec (in HOCON format) and provide APIs for
-creating, updating and destroying resource instances among all nodes in the cluster.
-
-It handles the problem like storing the configs and runtime states for both resource
-and resource instances, and how porting them between different emqx_resource versions.
-
-It may maintain the config and data in JSON or HOCON files in data/ dir.
-
-After restarting the emqx_resource, it re-creates all the resource instances.
+It is intended to be used by the emqx_data_bridges and all other resources that need CRUD operations
+to their configs, and need to initialize the states when creating.
 
 There can be foreign references between resource instances via resource-id.
 So they may find each other via this Id.
+
+The main idea of the emqx resource is to put all the `general` code in a common lib, including
+the config operations (like config validation, config dump back to files), and the state management.
+And we put all the `specific` codes to the callback modules.
 
 ## Try it out
 

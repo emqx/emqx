@@ -10,15 +10,15 @@ marp: true
 
 <!-- _class: lead -->
 
-# EMQX Resource
+# EMQ X Resource
 
 ---
 
 ## What is it for
 
-The [emqx_resource](https://github.com/terry-xiaoyu/emqx_resource) for managing configurations and runtime states for dashboard components .
+The [emqx_resource](https://github.com/emqx/emqx/tree/master/apps/emqx_resource) is a behavior that manages configuration specs and runtime states for resources like mysql or redis backends.
 
-![bg right](https://docs.emqx.cn/assets/img/rule_action_1@2x.73766093.png)
+It is intended to be used by the emqx_data_bridges and all other resources that need CRUD operations to their configs, and need to initialize the states when creating.
 
 ---
 
@@ -26,122 +26,129 @@ The [emqx_resource](https://github.com/terry-xiaoyu/emqx_resource) for managing 
 
 # The Demo
 
-The little log tracer
+The data_bridge for mysql
 
 ---
+## The callback module 'emqx_mysql_connector'
 
-- The hocon schema file (log_tracer_schema.erl):
-
-https://github.com/terry-xiaoyu/emqx_resource/blob/main/examples/log_tracer_schema.erl
-
-- The callback file (log_tracer.erl):
-
-https://github.com/terry-xiaoyu/emqx_resource/blob/main/examples/log_tracer.erl
-
+1. include the emqx_resource_behaviour.hrl:
+```
+-include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
+```
 ---
-
-Start the demo log tracer
-
+2. provide the hocon schema for validating the configs:
 ```
-./demo.sh
-```
-
-Load instance from config files (auto loaded)
-
-```
-## This will load all of the "*.conf" file under that directory:
-
-emqx_resource:load_instances("./_build/default/lib/emqx_resource/examples").
-```
-
-The config file is validated against the schema (`*_schema.erl`) before loaded.
-
----
-
-# List Types and Instances
-
-- To list all the available resource types:
-
-```
-emqx_resource:list_types().
-emqx_resource:list_instances().
-```
-
-- And there's `*_verbose` versions for these `list_*` APIs:
-
-```
-emqx_resource:list_types_verbose().
-emqx_resource:list_instances_verbose().
+schema() ->
+  emqx_connector_schema_lib:relational_db_fields() ++
+  emqx_connector_schema_lib:ssl_fields().
+...
 ```
 
 ---
-# Instance management
-
-- To get a resource types and instances:
+3. write the callback functions for starting or stopping the resource instance:
 
 ```
-emqx_resource:get_type(log_tracer).
-emqx_resource:get_instance("log_tracer_clientid_shawn").
-```
+on_start/2,
+on_stop/2,
+on_query/4,
+on_health_check/2
 
-- To create a resource instances:
+```
+---
+## Start the emqx_data_bridge
 
 ```
-emqx_resource:create("log_tracer2", log_tracer,
-#{bulk => <<"1KB">>,cache_log_dir => <<"/tmp">>,
-  cache_logs_in => <<"memory">>,chars_limit => 1024,
-  condition => #{<<"app">> => <<"emqx">>},
-  enable_cache => true,level => debug}).
+application:ensure_all_started(emqx_data_bridge).
 ```
 
 ---
 
-- To update a resource:
+## To use the mysql resource from code:
 
 ```
-emqx_resource:update("log_tracer2", log_tracer, #{bulk => <<"100KB">>}, []).
+emqx_resource:query(ResourceID, {sql, SQL}).
 ```
 
-- To delete a resource:
-
 ```
-emqx_resource:remove("log_tracer2").
-```
+(emqx@127.0.0.1)2> emqx_resource:list_instances_verbose().
+[#{config =>
+       #{<<"auto_reconnect">> => true,<<"cacertfile">> => [],
+         <<"certfile">> => [],<<"database">> => "mqtt",
+         <<"keyfile">> => [],<<"password">> => "public",
+         <<"pool_size">> => 1,
+         <<"server">> => {{127,0,0,1},3306},
+         <<"ssl">> => false,<<"user">> => "root",
+         <<"verify">> => false},
+   id => <<"bridge:mysql-def">>,mod => emqx_connector_mysql,
+   state => #{poolname => 'bridge:mysql-def'},
+   status => started}]
 
----
-
-<!-- _class: lead -->
-
-# HTTP APIs Demo
-
----
-
-# Get a log tracer
-
-To list current log tracers:
-
-```
-curl -s -XGET 'http://localhost:9900/log_tracer' | jq .
+(emqx@127.0.0.1)3> emqx_resource:query(<<"bridge:mysql-def">>, {sql, <<"SELECT count(1)">>}).
+{ok,[<<"count(1)">>],[[1]]}
 ```
 
 ---
 
-## Update or Create
-
-To update an existing log tracer or create a new one:
+## To get all available data bridges:
 
 ```
-INST='{
-  "resource_type": "log_tracer",
-  "config": {
-    "condition": {
-      "app": "emqx"
-    },
-    "level": "debug",
-    "cache_log_dir": "/tmp",
-    "bulk": "10KB",
-    "chars_limit": 1024
-  }
-}'
-curl -sv -XPUT 'http://localhost:9900/log_tracer/log_tracer2' -d $INST | jq .
+curl -q --basic -u admin:public -X GET "http://localhost:8081/api/v4/data_bridges/" | jq .
+```
+
+---
+
+## Create
+
+To create a mysql data bridge:
+
+```
+BridgeMySQL='{
+    "type": "mysql",
+    "status": "started",
+    "name": "mysql-def",
+    "config": {
+      "verify": false,
+      "user": "root",
+      "ssl": false,
+      "server": "127.0.0.1:3306",
+      "pool_size": 1,
+      "password": "public",
+      "keyfile": "",
+      "database": "mqtt",
+      "certfile": "",
+      "cacertfile": "",
+      "auto_reconnect": true
+    }
+  }'
+
+curl -q --basic -u admin:public -X POST "http://localhost:8081/api/v4/data_bridges/mysql-aaaa" -d $BridgeMySQL | jq .
+```
+
+---
+
+## Update
+
+To update an existing data bridge:
+
+```
+BridgeMySQL='{
+    "type": "mysql",
+    "status": "started",
+    "name": "mysql-def",
+    "config": {
+      "verify": false,
+      "user": "root",
+      "ssl": false,
+      "server": "127.0.0.1:3306",
+      "pool_size": 2,
+      "password": "public",
+      "keyfile": "",
+      "database": "mqtt",
+      "certfile": "",
+      "cacertfile": "",
+      "auto_reconnect": true
+    }
+  }'
+
+curl -q --basic -u admin:public -X PUT "http://localhost:8081/api/v4/data_bridges/mysql-aaaa" -d $BridgeMySQL | jq .
 ```
