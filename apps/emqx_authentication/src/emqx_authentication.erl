@@ -180,7 +180,6 @@ add_services(ChainID, ServiceParams) ->
                                 ok ->
                                     case create_services(ChainID, NServiceParams) of
                                         {ok, NServices} ->
-                                            io:format("~p~n", [NServices]),
                                             NChain = Chain#chain{services = Services ++ NServices},
                                             ok = mnesia:write(?CHAIN_TAB, NChain, write),
                                             {ok, serialize_services(NServices)};

@@ -52,8 +52,6 @@
     }
 }).
 
-
-
 -record(user_info,
         { user_id :: {user_group(), user_id()}
         , password_hash :: binary()
