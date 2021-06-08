@@ -284,7 +284,7 @@ check_config(ResourceType, RawConfigTerm) ->
 
 -spec do_check_config(resource_type(), map()) -> {ok, resource_config()} | {error, term()}.
 do_check_config(ResourceType, MapConfig) ->
-    case ?SAFE_CALL(hocon_schema:check(ResourceType, MapConfig)) of
+    case ?SAFE_CALL(emqx_resource_schema:check(ResourceType, MapConfig)) of
         {error, Reason} -> {error, Reason};
         Config -> {ok, maps:get(<<"config">>, hocon_schema:richmap_to_map(Config))}
     end.

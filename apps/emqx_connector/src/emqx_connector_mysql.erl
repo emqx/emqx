@@ -18,7 +18,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
--export([ on_jsonify/1
+-export([ schema/0
         ]).
 
 %% callbacks of behaviour emqx_resource
@@ -26,6 +26,7 @@
         , on_stop/2
         , on_query/4
         , on_health_check/2
+        , on_jsonify/1
         ]).
 
 -export([connect/1]).

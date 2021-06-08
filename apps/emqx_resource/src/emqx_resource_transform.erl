@@ -65,16 +65,7 @@ form(Mod, Form) ->
 
 fix_spec_attrs() ->
     [ ?Q("-export([emqx_resource_schema/0]).")
-    , ?Q("-export([structs/0, fields/1]).")
-    , ?Q("-behaviour(hocon_schema).")
     ].
 fix_spec_funcs(_Mod) ->
     [ ?Q("emqx_resource_schema() -> <<\"demo_swagger_schema\">>.")
-    , ?Q("structs() -> [\"config\"].")
-    , ?Q("fields(\"config\") -> "
-           "[fun (type) -> \"schema\"; "
-           "    (_) -> undefined "
-           " end];"
-         "fields(\"schema\") -> schema()."
-        )
     ].
