@@ -32,20 +32,19 @@
         , list_users/1
         ]).
 
+%% TODO: support bcrypt
 -service_type(#{
     name => mnesia,
     params_spec => #{
         user_id_type => #{
             order => 1,
             type => string,
-            required => true,
             enum => [<<"username">>, <<"clientid">>, <<"ip">>, <<"common name">>, <<"issuer">>],
             default => <<"username">>
         },
         password_hash_algorithm => #{
             order => 2,
             type => string,
-            required => true,
             enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>],
             default => <<"sha256">>
         }
@@ -55,6 +54,7 @@
 -record(user_info,
         { user_id :: {user_group(), user_id()}
         , password_hash :: binary()
+        , salt :: binary()
         }).
 
 -type(user_group() :: {chain_id(), service_name()}).
@@ -66,8 +66,6 @@
 -copy_mnesia({mnesia, [copy]}).
 
 -define(TAB, mnesia_basic_auth).
-
-%% TODO: Support salt
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -103,8 +101,8 @@ authenticate(ClientInfo = #{password := Password},
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
         [] ->
             ignore;
-        [#user_info{password_hash = Hash}] ->
-            case Hash =:= emqx_passwd:hash(Algorithm, Password) of
+        [#user_info{password_hash = Hash, salt = Salt}] ->
+            case Hash =:= emqx_passwd:hash(Algorithm, <<Salt/binary, Password/binary>>) of
                 true ->
                     ok;
                 false ->
@@ -220,9 +218,11 @@ import_users_from_csv(Filename, #{user_group := UserGroup}) ->
 
 import(_UserGroup, []) ->
     ok;
-import(UserGroup, [#{<<"user_id">> := UserID, <<"password_hash">> := PasswordHash} | More])
+import(UserGroup, [#{<<"user_id">> := UserID,
+                     <<"password_hash">> := PasswordHash,
+                     <<"salt">> := Salt} | More])
   when is_binary(UserID) andalso is_binary(PasswordHash) ->
-    import_user(UserGroup, UserID, PasswordHash),
+    import_user(UserGroup, UserID, PasswordHash, Salt),
     import(UserGroup, More);
 import(_UserGroup, [_ | _More]) ->
     {error, bad_format}.
@@ -234,8 +234,9 @@ import(UserGroup, File, Seq) ->
             Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
             case get_user_info_by_seq(Fields, Seq) of
                 {ok, #{user_id := UserID,
-                       password_hash := PasswordHash}} ->
-                    import_user(UserGroup, UserID, PasswordHash),
+                       password_hash := PasswordHash,
+                       salt := Salt}} ->
+                    import_user(UserGroup, UserID, PasswordHash, Salt),
                     import(UserGroup, File, Seq);
                 {error, Reason} ->
                     {error, Reason}
@@ -260,7 +261,7 @@ get_csv_header(File) ->
 get_user_info_by_seq(Fields, Seq) ->
     get_user_info_by_seq(Fields, Seq, #{}).
 
-get_user_info_by_seq([], [], #{user_id := _, password_hash := _} = Acc) ->
+get_user_info_by_seq([], [], #{user_id := _, password_hash := _, salt := _} = Acc) ->
     {ok, Acc};
 get_user_info_by_seq(_, [], _) ->
     {error, bad_format};
@@ -268,18 +269,27 @@ get_user_info_by_seq([UserID | More1], [<<"user_id">> | More2], Acc) ->
     get_user_info_by_seq(More1, More2, Acc#{user_id => UserID});
 get_user_info_by_seq([PasswordHash | More1], [<<"password_hash">> | More2], Acc) ->
     get_user_info_by_seq(More1, More2, Acc#{password_hash => PasswordHash});
+get_user_info_by_seq([Salt | More1], [<<"salt">> | More2], Acc) ->
+    get_user_info_by_seq(More1, More2, Acc#{salt => Salt});
 get_user_info_by_seq(_, _, _) ->
     {error, bad_format}.
 
 -compile({inline, [add/4]}).
 add(UserGroup, UserID, Password, Algorithm) ->
+    Salt = case Algorithm of
+               <<"plain">> -> <<>>;
+               _ -> crypto:strong_rand_bytes(16)
+           end,
+    SaltedPassword = <<Salt/binary, Password/binary>>,
     Credential = #user_info{user_id = {UserGroup, UserID},
-                            password_hash = emqx_passwd:hash(Algorithm, Password)},
+                            password_hash = emqx_passwd:hash(Algorithm, SaltedPassword),
+                            salt = Salt},
     mnesia:write(?TAB, Credential, write).
 
-import_user(UserGroup, UserID, PasswordHash) ->
+import_user(UserGroup, UserID, PasswordHash, Salt) ->
     Credential = #user_info{user_id = {UserGroup, UserID},
-                            password_hash = PasswordHash},
+                            password_hash = PasswordHash,
+                            salt = base64:decode(Salt)},
     mnesia:write(?TAB, Credential, write).
 
 delete_user2(UserInfo) ->
