@@ -16,25 +16,26 @@
 
 -define(APP, emqx_authentication).
 
--record(chain,
-        { id
-        , services
-        , created_at}).
-
--record(service,
-        { name
-        , type %% service_type
-        , provider
-        , params
-        , state
-        }).
+-type(service_type_name() :: atom()).
+-type(service_name() :: binary()).
+-type(chain_id() :: binary()).
 
 -record(service_type,
-        { name
-        , provider
-        , params_spec
+        { name :: service_type_name()
+        , provider :: module()
+        , params_spec :: #{atom() => term()}
         }).
 
+-record(service,
+        { name :: service_name()
+        , type :: service_type_name()
+        , provider :: module()
+        , params :: map()
+        , state :: map()
+        }).
 
--type(chain_id() :: binary()).
--type(service_name() :: binary()).
+-record(chain,
+        { id :: chain_id()
+        , services :: [#service{}]
+        , created_at :: integer()
+        }).
