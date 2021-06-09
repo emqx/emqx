@@ -72,7 +72,7 @@
 
 [shell bench]
     !cd $BENCH_PATH
-    !./emqtt_bench pub -c 10 -I 1000 -t t/%i -s 64 -L 300
+    !./emqtt_bench pub -c 1 -I 1000 -t t/%i -s 64 -L 30
     ???sent
 
 [shell emqx]

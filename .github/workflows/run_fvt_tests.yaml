@@ -259,7 +259,7 @@ jobs:
                 mkdir -p packages
                 cp emqx/_packages/${PROFILE}/*.zip packages
                 cp emqx/_upgrade_base/*.zip packages
-                lux -v \
+                lux \
                 --timeout 600000 \
                 --var PROFILE=$PROFILE \
                 --var PACKAGE_PATH=$(pwd)/packages \

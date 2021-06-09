@@ -1,0 +1,28 @@
+name: 'Check Profile'
+inputs:
+  source:  # id of input
+    description: 'source path'
+    required: true
+    default: ${{ github.workspace }}
+outputs:
+  profile:
+    description: "opensource or enterprise"
+    value: ${{ steps.random-number-generator.outputs.random-id }}
+runs:
+  using: "composite"
+  steps:
+    - name: check profile
+      run: |
+        if make -C ${{ inputs.source }} emqx-ee --dry-run > /dev/null 2>&1; then
+          echo "::set-output name=profiles::[\"emqx-ee\"]"
+        else
+          echo "::set-output name=profiles::[\"emqx\", \"emqx-edge\"]"
+        fi
+
+    - run: echo Hello ${{ inputs.who-to-greet }}.
+      shell: bash
+    - id: random-number-generator
+      run: echo "::set-output name=random-id::$(echo $RANDOM)"
+      shell: bash
+    - run: ${{ github.action_path }}/goodbye.sh
+      shell: bash
