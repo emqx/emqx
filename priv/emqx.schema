@@ -620,7 +620,7 @@ end}.
         text ->
             {emqx_logger_textfmt,
                   #{template =>
-                      [time," [",level,"] ",
+                      [time, " ", pid, " [",level,"] ",
                        {clientid,
                           [{peername,
                               [clientid,"@",peername," "],
