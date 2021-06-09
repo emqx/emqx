@@ -19,6 +19,7 @@
 -behaviour(application).
 
 -export([ start/2
+        , prep_stop/1
         , stop/1
         , get_description/0
         , get_release/0
@@ -49,6 +50,14 @@ start(_Type, _Args) ->
     ok = emqx_alarm_handler:load(),
     print_vsn(),
     {ok, Sup}.
+
+-spec(prep_stop(State :: term()) -> term()).
+prep_stop(_State) ->
+    spawn(
+      fun() ->
+          group_leader(whereis(init), self()),
+          emqx_plugins:unload()
+      end).
 
 -spec(stop(State :: term()) -> term()).
 stop(_State) ->
