@@ -17,10 +17,11 @@
 -module(emqx_lwm2m_protocol).
 
 -include("emqx_lwm2m.hrl").
-
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+
+-logger_header("[LWM2M-PROTO]").
 
 %% API.
 -export([ send_ul_data/3
@@ -57,8 +58,6 @@
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 
 -define(SUBOPTS, #{rh => 0, rap => 0, nl => 0, qos => 0, is_new => true}).
-
--logger_header("[LWM2M-PROTO]").
 
 %%--------------------------------------------------------------------
 %% APIs

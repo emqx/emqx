@@ -16,6 +16,8 @@
 
 -module(emqx_lwm2m_app).
 
+-include("emqx_lwm2m.hrl").
+
 -behaviour(application).
 
 -emqx_plugin(protocol).
@@ -24,9 +26,6 @@
         , stop/1
         , prep_stop/1
         ]).
-
--include("emqx_lwm2m.hrl").
-
 
 start(_Type, _Args) ->
     Pid = emqx_lwm2m_sup:start_link(),
