@@ -45,8 +45,13 @@
         password_hash_algorithm => #{
             order => 2,
             type => string,
-            enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>],
+            enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
             default => <<"sha256">>
+        },
+        salt_rounds => #{
+            order => 3,
+            type => number,
+            default => 10 
         }
     }
 }).
@@ -84,10 +89,13 @@ mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?TAB, disc_copies).
 
 create(ChainID, ServiceName, #{<<"user_id_type">> := Type,
-                               <<"password_hash_algorithm">> := Algorithm}) ->
+                               <<"password_hash_algorithm">> := Algorithm,
+                               <<"salt_rounds">> := SaltRounds}) ->
+    Algorithm =:= <<"bcrypt">> andalso ({ok, _} = application:ensure_all_started(bcrypt)),
     State = #{user_group => {ChainID, ServiceName},
               user_id_type => binary_to_atom(Type, utf8),
-              password_hash_algorithm => binary_to_atom(Algorithm, utf8)},
+              password_hash_algorithm => binary_to_atom(Algorithm, utf8),
+              salt_rounds => SaltRounds},
     {ok, State}.
 
 update(ChainID, ServiceName, Params, _State) ->
@@ -101,12 +109,10 @@ authenticate(ClientInfo = #{password := Password},
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
         [] ->
             ignore;
-        [#user_info{password_hash = Hash, salt = Salt}] ->
-            case Hash =:= emqx_passwd:hash(Algorithm, <<Salt/binary, Password/binary>>) of
-                true ->
-                    ok;
-                false ->
-                    {stop, bad_password}
+        [#user_info{password_hash = PasswordHash, salt = Salt}] ->
+            case PasswordHash =:= hash(Algorithm, Password, Salt) of
+                true -> ok;
+                false -> {stop, bad_password}
             end
     end.
 
@@ -132,13 +138,12 @@ import_users(Filename0, State) ->
 
 add_user(#{<<"user_id">> := UserID,
            <<"password">> := Password},
-         #{user_group := UserGroup,
-           password_hash_algorithm := Algorithm}) ->
+         #{user_group := UserGroup} = State) ->
     trans(
         fun() ->
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
-                    add(UserGroup, UserID, Password, Algorithm),
+                    add(UserID, Password, State),
                     {ok, #{user_id => UserID}};
                 [_] ->
                     {error, already_exist}
@@ -157,15 +162,14 @@ delete_user(UserID, #{user_group := UserGroup}) ->
         end).
 
 update_user(UserID, #{<<"password">> := Password},
-            #{user_group := UserGroup,
-              password_hash_algorithm := Algorithm}) ->
+            #{user_group := UserGroup} = State) ->
     trans(
         fun() ->
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
                     {error, not_found};
                 [_] ->
-                    add(UserGroup, UserID, Password, Algorithm),
+                    add(UserID, Password, State),
                     {ok, #{user_id => UserID}}
             end
         end).
@@ -219,10 +223,10 @@ import_users_from_csv(Filename, #{user_group := UserGroup}) ->
 import(_UserGroup, []) ->
     ok;
 import(UserGroup, [#{<<"user_id">> := UserID,
-                     <<"password_hash">> := PasswordHash,
-                     <<"salt">> := Salt} | More])
+                     <<"password_hash">> := PasswordHash} = UserInfo | More])
   when is_binary(UserID) andalso is_binary(PasswordHash) ->
-    import_user(UserGroup, UserID, PasswordHash, Salt),
+    Salt = maps:get(<<"salt">>, UserInfo, <<>>),
+    insert_user(UserGroup, UserID, PasswordHash, Salt),
     import(UserGroup, More);
 import(_UserGroup, [_ | _More]) ->
     {error, bad_format}.
@@ -234,9 +238,9 @@ import(UserGroup, File, Seq) ->
             Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
             case get_user_info_by_seq(Fields, Seq) of
                 {ok, #{user_id := UserID,
-                       password_hash := PasswordHash,
-                       salt := Salt}} ->
-                    import_user(UserGroup, UserID, PasswordHash, Salt),
+                       password_hash := PasswordHash} = UserInfo} ->
+                    Salt = maps:get(salt, UserInfo, <<>>),
+                    insert_user(UserGroup, UserID, PasswordHash, Salt),
                     import(UserGroup, File, Seq);
                 {error, Reason} ->
                     {error, Reason}
@@ -263,6 +267,8 @@ get_user_info_by_seq(Fields, Seq) ->
 
 get_user_info_by_seq([], [], #{user_id := _, password_hash := _, salt := _} = Acc) ->
     {ok, Acc};
+get_user_info_by_seq([], [], #{user_id := _, password_hash := _} = Acc) ->
+    {ok, Acc};
 get_user_info_by_seq(_, [], _) ->
     {error, bad_format};
 get_user_info_by_seq([UserID | More1], [<<"user_id">> | More2], Acc) ->
@@ -274,22 +280,39 @@ get_user_info_by_seq([Salt | More1], [<<"salt">> | More2], Acc) ->
 get_user_info_by_seq(_, _, _) ->
     {error, bad_format}.
 
--compile({inline, [add/4]}).
-add(UserGroup, UserID, Password, Algorithm) ->
-    Salt = case Algorithm of
-               <<"plain">> -> <<>>;
-               _ -> crypto:strong_rand_bytes(16)
-           end,
-    SaltedPassword = <<Salt/binary, Password/binary>>,
-    Credential = #user_info{user_id = {UserGroup, UserID},
-                            password_hash = emqx_passwd:hash(Algorithm, SaltedPassword),
-                            salt = Salt},
-    mnesia:write(?TAB, Credential, write).
+-compile({inline, [add/3]}).
+add(UserID, Password, #{user_group := UserGroup,
+                        password_hash_algorithm := Algorithm} = State) ->
+    Salt = gen_salt(State),
+    PasswordHash = hash(Algorithm, Password, Salt),
+    case Algorithm of
+        bcrypt -> insert_user(UserGroup, UserID, PasswordHash);
+        _ -> insert_user(UserGroup, UserID, PasswordHash, Salt)
+    end.
 
-import_user(UserGroup, UserID, PasswordHash, Salt) ->
-    Credential = #user_info{user_id = {UserGroup, UserID},
-                            password_hash = PasswordHash,
-                            salt = base64:decode(Salt)},
+gen_salt(#{password_hash_algorithm := plain}) ->
+    <<>>;
+gen_salt(#{password_hash_algorithm := bcrypt,
+           salt_rounds := Rounds}) ->
+    {ok, Salt} = bcrypt:gen_salt(Rounds),
+    Salt;
+gen_salt(_) ->
+    <<X:128/big-unsigned-integer>> = crypto:strong_rand_bytes(16),
+    iolist_to_binary(io_lib:format("~32.16.0b", [X])).
+
+hash(bcrypt, Password, Salt) ->
+    {ok, Hash} = bcrypt:hashpw(Password, Salt),
+    list_to_binary(Hash);
+hash(Algorithm, Password, Salt) ->
+    emqx_passwd:hash(Algorithm, <<Salt/binary, Password/binary>>).
+
+insert_user(UserGroup, UserID, PasswordHash) ->
+    insert_user(UserGroup, UserID, PasswordHash, <<>>).
+
+insert_user(UserGroup, UserID, PasswordHash, Salt) ->
+     Credential = #user_info{user_id = {UserGroup, UserID},
+                             password_hash = PasswordHash,
+                             salt = Salt},
     mnesia:write(?TAB, Credential, write).
 
 delete_user2(UserInfo) ->
