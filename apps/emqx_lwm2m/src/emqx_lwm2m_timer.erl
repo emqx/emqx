@@ -29,9 +29,6 @@
                      , message
                      }).
 
--define(LOG(Level, Format, Args),
-    logger:Level("LWM2M-TIMER: " ++ Format, Args)).
-
 cancel_timer(#timer_state{tref = TRef}) when is_reference(TRef) ->
     _ = erlang:cancel_timer(TRef), ok.
 
@@ -42,6 +39,5 @@ refresh_timer(NewInterval, State=#timer_state{message = Msg}) ->
 
 %% start timer in seconds
 start_timer(Interval, Msg) ->
-    ?LOG(debug, "start_timer of ~p secs", [Interval]),
     TRef = erlang:send_after(timer:seconds(Interval), self(), Msg),
     #timer_state{interval = Interval, tref = TRef, message = Msg}.

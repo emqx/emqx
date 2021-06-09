@@ -17,9 +17,8 @@
 -module(emqx_lwm2m_coap_resource).
 
 -include_lib("emqx/include/emqx.hrl").
-
+-include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
-
 -include_lib("lwm2m_coap/include/coap.hrl").
 
 -behaviour(lwm2m_coap_resource).
@@ -45,7 +44,7 @@
 
 -define(PREFIX, <<"rd">>).
 
--define(LOG(Level, Format, Args), logger:Level("LWM2M-RESOURCE: " ++ Format, Args)).
+-logger_header("[LWM2M-RESOURCE]").
 
 -dialyzer([{nowarn_function, [coap_discover/2]}]).
 % we use {'absolute', string(), [{atom(), binary()}]} as coap_uri()
@@ -55,18 +54,27 @@ coap_discover(_Prefix, _Args) ->
     [{absolute, "mqtt", []}].
 
 coap_get(ChId, [?PREFIX], Query, Content, Lwm2mState) ->
-    ?LOG(debug, "~p ~p GET Query=~p, Content=~p", [self(),ChId, Query, Content]),
+    emqx_logger:set_metadata_peername(esockd:format(ChId)),
+
+    ?LOG(debug, "GET Query=~p, Content=~p", [Query, Content]),
     {ok, #coap_content{}, Lwm2mState};
+
 coap_get(ChId, Prefix, Query, Content, Lwm2mState) ->
-    ?LOG(error, "ignore bad put request ChId=~p, Prefix=~p, Query=~p, Content=~p", [ChId, Prefix,  Query, Content]),
+    emqx_logger:set_metadata_peername(esockd:format(ChId)),
+
+    ?LOG(error, "ignore bad put request Prefix=~p, Query=~0p, Content=~0p",
+                 [Prefix,  Query, Content]),
     {error, bad_request, Lwm2mState}.
 
 % LWM2M REGISTER COMMAND
 coap_post(ChId, [?PREFIX], Query, Content = #coap_content{uri_path = [?PREFIX]}, Lwm2mState) ->
-    ?LOG(debug, "~p ~p REGISTER command Query=~p, Content=~p", [self(), ChId, Query, Content]),
+    emqx_logger:set_metadata_peername(esockd:format(ChId)),
+
+    ?LOG(debug, "REGISTER command Query=~0p, Content=~0p", [Query, Content]),
     case parse_options(Query) of
         {error, {bad_opt, _CustomOption}} ->
-            ?LOG(error, "Reject REGISTER from ~p due to wrong option", [ChId]),
+            ?LOG(error, "Reject REGISTER due to wrong option: ~0p",
+                 [_CustomOption]),
             {error, bad_request, Lwm2mState};
         {ok, LwM2MQuery} ->
             process_register(ChId, LwM2MQuery, Content#coap_content.payload, Lwm2mState)
@@ -74,43 +82,59 @@ coap_post(ChId, [?PREFIX], Query, Content = #coap_content{uri_path = [?PREFIX]},
 
 % LWM2M UPDATE COMMAND
 coap_post(ChId, [?PREFIX], Query, Content = #coap_content{uri_path = LocationPath}, Lwm2mState) ->
-    ?LOG(debug, "~p ~p UPDATE command location=~p, Query=~p, Content=~p", [self(), ChId, LocationPath, Query, Content]),
+    emqx_logger:set_metadata_peername(esockd:format(ChId)),
+
+    ?LOG(debug, "UPDATE command location=~0p, Query=~0p, Content=~0p",
+                [LocationPath, Query, Content]),
     case parse_options(Query) of
         {error, {bad_opt, _CustomOption}} ->
-            ?LOG(error, "Reject UPDATE from ~p due to wrong option, Query=~p", [ChId, Query]),
+            ?LOG(error, "Reject UPDATE due to wrong option: ~0p, Query=~0p",
+                         [_CustomOption, Query]),
             {error, bad_request, Lwm2mState};
         {ok, LwM2MQuery} ->
             process_update(ChId, LwM2MQuery, LocationPath, Content#coap_content.payload, Lwm2mState)
     end;
 
 coap_post(ChId, Prefix, Query, Content, Lwm2mState) ->
-    ?LOG(error, "bad post request ChId=~p, Prefix=~p, Query=~p, Content=~p", [ChId, Prefix, Query, Content]),
+    emqx_logger:set_metadata_peername(esockd:format(ChId)),
+
+    ?LOG(error, "bad post request Prefix=~0p, Query=~0p, Content=~0p",
+                 [Prefix, Query, Content]),
     {error, bad_request, Lwm2mState}.
 
-coap_put(_ChId, Prefix, Query, Content, Lwm2mState) ->
-    ?LOG(error, "put has error, Prefix=~p, Query=~p, Content=~p", [Prefix, Query, Content]),
+coap_put(ChId, Prefix, Query, Content, Lwm2mState) ->
+    emqx_logger:set_metadata_peername(esockd:format(ChId)),
+
+    ?LOG(error, "put has error, Prefix=~p, Query=~p, Content=~p",
+                [Prefix, Query, Content]),
     {error, bad_request, Lwm2mState}.
 
 % LWM2M DE-REGISTER COMMAND
 coap_delete(ChId, [?PREFIX], #coap_content{uri_path = Location}, Lwm2mState) ->
+    emqx_logger:set_metadata_peername(esockd:format(ChId)),
+
     LocationPath = binary_util:join_path(Location),
-    ?LOG(debug, "~p ~p DELETE command location=~p", [self(), ChId, LocationPath]),
+    ?LOG(debug, "DELETE command location=~0p", [LocationPath]),
     case get(lwm2m_context) of
         #lwm2m_context{location = LocationPath} ->
             lwm2m_coap_responder:stop(deregister),
             {ok, Lwm2mState};
         undefined ->
-            ?LOG(error, "Reject DELETE from ~p, Location: ~p not found", [ChId, Location]),
+            ?LOG(error, "Reject DELETE, Location: ~p not found", [Location]),
             {error, forbidden, Lwm2mState};
         TrueLocation ->
-            ?LOG(error, "Reject DELETE from ~p, Wrong Location: ~p, registered location record: ~p", [ChId, Location, TrueLocation]),
+            ?LOG(error, "Reject DELETE, Wrong Location: ~0p, registered "
+                        "location record: ~0p", [Location, TrueLocation]),
             {error, not_found, Lwm2mState}
     end;
 coap_delete(_ChId, _Prefix, _Content, Lwm2mState) ->
     {error, forbidden, Lwm2mState}.
 
 coap_observe(ChId, Prefix, Name, Ack, Lwm2mState) ->
-    ?LOG(error, "unsupported observe request ChId=~p, Prefix=~p, Name=~p, Ack=~p", [ChId, Prefix, Name, Ack]),
+    emqx_logger:set_metadata_peername(esockd:format(ChId)),
+
+    ?LOG(error, "unsupported observe request Prefix=~p, Name=~p, Ack=~p",
+                [Prefix, Name, Ack]),
     {error, method_not_allowed, Lwm2mState}.
 
 coap_unobserve(Lwm2mState) ->
@@ -118,15 +142,20 @@ coap_unobserve(Lwm2mState) ->
     {ok, Lwm2mState}.
 
 coap_response(ChId, Ref, CoapMsgType, CoapMsgMethod, CoapMsgPayload, CoapMsgOpts, Lwm2mState) ->
-    ?LOG(info, "~p, RCV CoAP response, CoapMsgType: ~p, CoapMsgMethod: ~p, CoapMsgPayload: ~p,
-                    CoapMsgOpts: ~p, Ref: ~p",
-        [ChId, CoapMsgType, CoapMsgMethod, CoapMsgPayload, CoapMsgOpts, Ref]),
+    emqx_logger:set_metadata_peername(esockd:format(ChId)),
+
+    ?LOG(info, "RCV CoAP response, CoapMsgType: ~0p, CoapMsgMethod: ~0p, "
+               "CoapMsgPayload: ~0p, CoapMsgOpts: ~0p, Ref: ~0p",
+               [CoapMsgType, CoapMsgMethod, CoapMsgPayload, CoapMsgOpts, Ref]),
+
     MqttPayload = emqx_lwm2m_cmd_handler:coap2mqtt(CoapMsgMethod, CoapMsgPayload, CoapMsgOpts, Ref),
     Lwm2mState2 = emqx_lwm2m_protocol:send_ul_data(maps:get(<<"msgType">>, MqttPayload), MqttPayload, Lwm2mState),
     {noreply, Lwm2mState2}.
 
-coap_ack(_ChId, Ref, Lwm2mState) ->
-    ?LOG(info, "~p, RCV CoAP Empty ACK, Ref: ~p", [_ChId, Ref]),
+coap_ack(ChId, Ref, Lwm2mState) ->
+    emqx_logger:set_metadata_peername(esockd:format(ChId)),
+
+    ?LOG(info, "RCV CoAP Empty ACK, Ref: ~p", [Ref]),
     AckRef = maps:put(<<"msgType">>, <<"ack">>, Ref),
     MqttPayload = emqx_lwm2m_cmd_handler:ack2mqtt(AckRef),
     Lwm2mState2 = emqx_lwm2m_protocol:send_ul_data(maps:get(<<"msgType">>, MqttPayload), MqttPayload, Lwm2mState),
@@ -178,7 +207,6 @@ handle_info(emit_stats, Lwm2mState) ->
 handle_info(Message, Lwm2mState) ->
     ?LOG(error, "Unknown Message ~p", [Message]),
     {noreply, Lwm2mState}.
-
 
 handle_call(info, _From, Lwm2mState) ->
     {Info, Lwm2mState2} = emqx_lwm2m_protocol:get_info(Lwm2mState),

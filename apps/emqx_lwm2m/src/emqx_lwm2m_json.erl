@@ -23,8 +23,7 @@
         ]).
 
 -include("emqx_lwm2m.hrl").
-
--define(LOG(Level, Format, Args), logger:Level("LWM2M-JSON: " ++ Format, Args)).
+-include_lib("emqx/include/logger.hrl").
 
 tlv_to_json(BaseName, TlvData) ->
     DecodedTlv = emqx_lwm2m_tlv:parse(TlvData),

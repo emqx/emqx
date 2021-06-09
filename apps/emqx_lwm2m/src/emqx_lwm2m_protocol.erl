@@ -19,7 +19,7 @@
 -include("emqx_lwm2m.hrl").
 
 -include_lib("emqx/include/emqx.hrl").
-
+-include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 %% API.
@@ -58,7 +58,7 @@
 
 -define(SUBOPTS, #{rh => 0, rap => 0, nl => 0, qos => 0, is_new => true}).
 
--define(LOG(Level, Format, Args), logger:Level("LWM2M-PROTO: " ++ Format, Args)).
+-logger_header("[LWM2M-PROTO]").
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -75,6 +75,8 @@ call(Pid, Msg, Timeout) ->
     end.
 
 init(CoapPid, EndpointName, Peername = {_Peerhost, _Port}, RegInfo = #{<<"lt">> := LifeTime, <<"lwm2m">> := Ver}) ->
+    emqx_logger:set_metadata_clientid(EndpointName),
+
     Mountpoint = proplists:get_value(mountpoint, lwm2m_coap_responder:options(), ""),
     Lwm2mState = #lwm2m_state{peername = Peername,
                               endpoint_name = EndpointName,
@@ -104,6 +106,7 @@ init(CoapPid, EndpointName, Peername = {_Peerhost, _Port}, RegInfo = #{<<"lt">> 
             end),
             emqx_cm:insert_channel_info(EndpointName, info(Lwm2mState1), stats(Lwm2mState1)),
 
+            ?LOG(debug, "start_timer of ~p secs", [LifeTime]),
             {ok, Lwm2mState1#lwm2m_state{life_timer = emqx_lwm2m_timer:start_timer(LifeTime, {life_timer, expired})}};
         {error, Error} ->
             _ = run_hooks('client.connack', [conninfo(Lwm2mState), not_authorized], undefined),

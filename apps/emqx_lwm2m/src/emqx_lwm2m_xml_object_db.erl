@@ -17,6 +17,7 @@
 -module(emqx_lwm2m_xml_object_db).
 
 -include("emqx_lwm2m.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("xmerl/include/xmerl.hrl").
 
 % This module is for future use. Disabled now.
@@ -37,8 +38,7 @@
         , code_change/3
         ]).
 
--define(LOG(Level, Format, Args),
-    logger:Level("LWM2M-OBJ-DB: " ++ Format, Args)).
+-logger_header("[LWM2M-OBJ-DB]").
 
 -define(LWM2M_OBJECT_DEF_TAB, lwm2m_object_def_tab).
 -define(LWM2M_OBJECT_NAME_TO_ID_TAB, lwm2m_object_name_to_id_tab).

@@ -16,16 +16,14 @@
 
 -module(emqx_lwm2m_message).
 
+-include("emqx_lwm2m.hrl").
+
 -export([ tlv_to_json/2
         , json_to_tlv/2
         , text_to_json/2
         , opaque_to_json/2
         , translate_json/1
         ]).
-
--include("emqx_lwm2m.hrl").
-
--define(LOG(Level, Format, Args), logger:Level("LWM2M-JSON: " ++ Format, Args)).
 
 tlv_to_json(BaseName, TlvData) ->
     DecodedTlv = emqx_lwm2m_tlv:parse(TlvData),

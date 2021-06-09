@@ -17,6 +17,7 @@
 -module(emqx_lwm2m_xml_object).
 
 -include("emqx_lwm2m.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("xmerl/include/xmerl.hrl").
 
 -export([ get_obj_def/2
@@ -26,8 +27,7 @@
         , get_resource_name/2
         ]).
 
--define(LOG(Level, Format, Args),
-    logger:Level("LWM2M-OBJ: " ++ Format, Args)).
+-logger_header("[LWM2M-OBJ]").
 
 % This module is for future use. Disabled now.
 

@@ -28,9 +28,6 @@
         , stop_listener/2
         ]).
 
--define(LOG(Level, Format, Args),
-    logger:Level("LwM2M: " ++ Format, Args)).
-
 start(Envs) ->
     start_listeners(Envs).
 
