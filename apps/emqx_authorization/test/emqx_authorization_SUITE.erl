@@ -43,9 +43,10 @@ set_special_configs(emqx) ->
 set_special_configs(_App) ->
     ok.
 
--define(RULE1, #{<<"topics">> => [<<"#">>],
-                 <<"action">> => <<"pubsub">>,
-                 <<"access">> => <<"deny">>}
+-define(RULE1, #{<<"principal">> => all,
+                 <<"topics">> => [<<"#">>],
+                 <<"action">> => pubsub,
+                 <<"access">> => deny}
        ).
 -define(RULE2, #{<<"principal">> =>
                     #{<<"ipaddress">> => <<"127.0.0.1">>},
@@ -53,24 +54,24 @@ set_special_configs(_App) ->
                         [#{<<"eq">> => <<"#">>},
                          #{<<"eq">> => <<"+">>}
                         ] ,
-                 <<"action">> => <<"pubsub">>,
-                 <<"access">> => <<"allow">>}
+                 <<"action">> => pubsub,
+                 <<"access">> => allow}
        ).
 -define(RULE3,#{<<"principal">> => 
-                    #{<<"and">> => [#{<<"username">> => <<"^test?">>},
-                                    #{<<"clientid">> => <<"^test?">>}
+                    #{<<"and">> => [#{<<"username">> => "^test?"},
+                                    #{<<"clientid">> => "^test?"}
                                    ]},
                 <<"topics">> => [<<"test">>],
-                <<"action">> => <<"pub">>,
-                <<"access">> => <<"allow">>}
+                <<"action">> => pub,
+                <<"access">> => allow}
        ).
 -define(RULE4,#{<<"principal">> => 
                     #{<<"or">> => [#{<<"username">> => <<"^test">>},
                                    #{<<"clientid">> => <<"test?">>}
                                   ]},
                 <<"topics">> => [<<"%u">>,<<"%c">>],
-                <<"action">> => <<"pub">>,
-                <<"access">> => <<"deny">>}
+                <<"action">> => pub,
+                <<"access">> => deny}
        ).
 
 
@@ -78,21 +79,21 @@ set_special_configs(_App) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 t_compile(_) ->
-    ?assertEqual(#{<<"access">> => <<"deny">>,
-                   <<"action">> => <<"pubsub">>,
-                   <<"principal">> => <<"all">>,
+    ?assertEqual(#{<<"access">> => deny,
+                   <<"action">> => pubsub,
+                   <<"principal">> => all,
                    <<"topics">> => [['#']]
                   },emqx_authorization:compile(?RULE1)),
-    ?assertEqual(#{<<"access">> => <<"allow">>,
-                   <<"action">> => <<"pubsub">>,
+    ?assertEqual(#{<<"access">> => allow,
+                   <<"action">> => pubsub,
                    <<"principal">> =>
                         #{<<"ipaddress">> => {{127,0,0,1},{127,0,0,1},32}},
                    <<"topics">> => [#{<<"eq">> => ['#']},
                                     #{<<"eq">> => ['+']}]
                   }, emqx_authorization:compile(?RULE2)),
     ?assertMatch(
-       #{<<"access">> := <<"allow">>,
-         <<"action">> := <<"pub">>,
+       #{<<"access">> := allow,
+         <<"action">> := pub,
          <<"principal">> := 
                 #{<<"and">> := [#{<<"username">> := {re_pattern, _, _, _, _}},
                                 #{<<"clientid">> := {re_pattern, _, _, _, _}}
@@ -101,8 +102,8 @@ t_compile(_) ->
          <<"topics">> := [[<<"test">>]]
         }, emqx_authorization:compile(?RULE3)),
     ?assertMatch(
-       #{<<"access">> := <<"deny">>,
-         <<"action">> := <<"pub">>,
+       #{<<"access">> := deny,
+         <<"action">> := pub,
          <<"principal">> :=
                 #{<<"or">> := [#{<<"username">> := {re_pattern, _, _, _, _}},
                                #{<<"clientid">> := {re_pattern, _, _, _, _}}
@@ -135,24 +136,24 @@ t_authorization(_) ->
     Rules3 = [emqx_authorization:compile(Rule) || Rule <- [?RULE3, ?RULE4]],
     Rules4 = [emqx_authorization:compile(Rule) || Rule <- [?RULE4, ?RULE1]],
 
-    ?assertEqual({nomatch, deny},
-        emqx_authorization:check_authorization(#{}, subscribe, <<"#">>, [])),
-    ?assertEqual({matched, deny},
-        emqx_authorization:check_authorization(ClientInfo1, subscribe, <<"+">>, Rules1)),
-    ?assertEqual({matched, allow},
-        emqx_authorization:check_authorization(ClientInfo1, subscribe, <<"+">>, Rules2)),
-    ?assertEqual({matched, allow},
-        emqx_authorization:check_authorization(ClientInfo1, publish, <<"test">>, Rules3)),
-    ?assertEqual({matched, deny},
-        emqx_authorization:check_authorization(ClientInfo1, publish, <<"test">>, Rules4)),
-    ?assertEqual({matched, deny},
-        emqx_authorization:check_authorization(ClientInfo2, subscribe, <<"#">>, Rules2)),
-    ?assertEqual({matched, deny},
-        emqx_authorization:check_authorization(ClientInfo3, publish, <<"test">>, Rules3)),
-    ?assertEqual({matched, deny},
-        emqx_authorization:check_authorization(ClientInfo3, publish, <<"fake">>, Rules4)),
-    ?assertEqual({matched, deny},
-        emqx_authorization:check_authorization(ClientInfo4, publish, <<"test">>, Rules3)),
-    ?assertEqual({matched, deny},
-        emqx_authorization:check_authorization(ClientInfo4, publish, <<"fake">>, Rules4)),
+    ?assertEqual(deny,
+        emqx_authorization:check_authorization(#{}, subscribe, <<"#">>, deny, [])),
+    ?assertEqual({ok, deny},
+        emqx_authorization:check_authorization(ClientInfo1, subscribe, <<"+">>, deny, Rules1)),
+    ?assertEqual({ok, allow},
+        emqx_authorization:check_authorization(ClientInfo1, subscribe, <<"+">>, deny, Rules2)),
+    ?assertEqual({ok, allow},
+        emqx_authorization:check_authorization(ClientInfo1, publish, <<"test">>, deny, Rules3)),
+    ?assertEqual({ok, deny},
+        emqx_authorization:check_authorization(ClientInfo1, publish, <<"test">>, deny, Rules4)),
+    ?assertEqual({ok, deny},
+        emqx_authorization:check_authorization(ClientInfo2, subscribe, <<"#">>, deny, Rules2)),
+    ?assertEqual({ok, deny},
+        emqx_authorization:check_authorization(ClientInfo3, publish, <<"test">>, deny, Rules3)),
+    ?assertEqual({ok, deny},
+        emqx_authorization:check_authorization(ClientInfo3, publish, <<"fake">>, deny, Rules4)),
+    ?assertEqual({ok, deny},
+        emqx_authorization:check_authorization(ClientInfo4, publish, <<"test">>, deny, Rules3)),
+    ?assertEqual({ok, deny},
+        emqx_authorization:check_authorization(ClientInfo4, publish, <<"fake">>, deny, Rules4)),
     ok.

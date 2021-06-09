@@ -9,6 +9,8 @@
 
 -export([start/2, stop/1]).
 
+-emqx_plugin(?MODULE).
+
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_authorization_sup:start_link(),
     ok = emqx_authorization:init(),

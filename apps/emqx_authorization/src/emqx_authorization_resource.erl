@@ -1,50 +1,35 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
-
--module(emqx_authorization).
+-module(emqx_authorization_resource).
 
 -include("emqx_authorization.hrl").
+-include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
--export([ init/0
-        , compile/1
-        , lookup/0
-        , update/1
-        , check_authorization/5
+-emqx_resource_api_path("/authorization").
+
+%% callbacks of behaviour emqx_resource
+-export([ on_start/2
+        , on_stop/2
+        , on_health_check/2
         ]).
 
-init() ->
-    % {ok, Conf} = hocon:load("etc/plugins/emqx_authorization.conf",#{format => richmap}),
-    RawConf = proplists:get_value(rules, application:get_all_env(?APP), []),
-    {ok, MapConf} = hocon:binary(jsx:encode(#{rules => RawConf}), #{format => richmap}),
-    CheckConf = hocon_schema:check(emqx_authorization_schema, MapConf),
-    #{<<"rules">> := Rules} = hocon_schema:richmap_to_map(CheckConf),
-    ok = application:set_env(?APP, rules, Rules),
-    NRules = [compile(Rule) || Rule <- Rules],
-    ok = emqx_hooks:add('client.check_acl', {?MODULE, check_authorization, [NRules]},  -1).
+%% callbacks for emqx_resource config schema
+-export([fields/1]).
+-export([check_authorization/4]).
 
-lookup() ->
-    application:get_env(?APP, rules, []).
+fields(ConfPath) ->
+    emqx_authorization_schema:fields(ConfPath).
 
-update(Rules) ->
-    ok = application:set_env(?APP, rules, Rules),
-    NRules = [compile(Rule) || Rule <- Rules],
-    Action = find_action_in_hooks(),
-    ok = emqx_hooks:del('client.check_acl', Action),
+on_start(_InstId, Config) ->
+    io:format("Rules: ================++~p~n",[Config]),
+    % Rules = maps:get(relus, Config, []),
+    NRules = [compile(Rule) || Rule <- Config],
     ok = emqx_hooks:add('client.check_acl', {?MODULE, check_authorization, [NRules]},  -1),
-    ok = emqx_acl_cache:empty_acl_cache().
+    {ok, #{}}.
+
+on_stop(_InstId, _State) ->
+    Action = find_action_in_hooks(),
+    emqx_hooks:del('client.check_acl', Action).
+
+on_health_check(_InstId, State) -> {ok, State}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -61,29 +46,28 @@ compile(#{<<"topics">> := Topics,
           <<"access">> := Access,
           <<"principal">> := Principal
          } = Rule ) when ?ALLOW_DENY(Access), ?PUBSUB(Action), is_list(Topics) ->
-    NTopics = [compile_topic(Topic) || Topic <- Topics],
-    Rule#{<<"principal">> => compile_principal(Principal),
+    NTopics = [compile(topic, Topic) || Topic <- Topics],
+    Rule#{<<"principal">> => Principal,
           <<"topics">> => NTopics
-         };
-compile(Rule) -> Rule.
+         }.
 
-compile_principal(all) -> all;
-compile_principal(#{<<"username">> := Username}) ->
+compile(principal, all) -> all;
+compile(principal, #{<<"username">> := Username}) ->
     {ok, MP} = re:compile(bin(Username)),
     #{<<"username">> => MP};
-compile_principal(#{<<"clientid">> := Clientid}) ->
+compile(principal, #{<<"clientid">> := Clientid}) ->
     {ok, MP} = re:compile(bin(Clientid)),
     #{<<"clientid">> => MP};
-compile_principal(#{<<"ipaddress">> := IpAddress}) ->
+compile(principal, #{<<"ipaddress">> := IpAddress}) ->
     #{<<"ipaddress">> => esockd_cidr:parse(binary_to_list(IpAddress), true)};
-compile_principal(#{<<"and">> := Principals}) when is_list(Principals) ->
-    #{<<"and">> => [compile_principal(Principal) || Principal <- Principals]};
-compile_principal(#{<<"or">> := Principals}) when is_list(Principals) ->
-    #{<<"or">> => [compile_principal(Principal) || Principal <- Principals]}.
+compile(principal, #{<<"and">> := Principals}) when is_list(Principals) ->
+    #{<<"and">> => [compile(principal, Principal) || Principal <- Principals]};
+compile(principal, #{<<"or">> := Principals}) when is_list(Principals) ->
+    #{<<"or">> => [compile(principal, Principal) || Principal <- Principals]};
 
-compile_topic(#{<<"eq">> := Topic}) ->
+compile(topic, #{<<"eq">> := Topic}) ->
     #{<<"eq">> => emqx_topic:words(bin(Topic))};
-compile_topic(Topic) when is_binary(Topic)->
+compile(topic, Topic) ->
     Words = emqx_topic:words(bin(Topic)),
     case pattern(Words) of
         true  -> #{<<"pattern">> => Words};
@@ -103,15 +87,16 @@ bin(B) when is_binary(B) ->
 %%--------------------------------------------------------------------
 
 %% @doc Check ACL
--spec(check_authorization(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_topic:topic(), emqx_access_rule:acl_result(), rules())
-      -> {ok, allow} | {ok, deny} | deny).
-check_authorization(Client, PubSub, Topic, DefaultResult,
+-spec(check_authorization(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_topic:topic(),rules())
+      -> {matched, allow} | {matched, deny} | {nomatch, deny}).
+check_authorization(Client, PubSub, Topic,
                     [Rule = #{<<"access">> := Access} | Tail]) ->
     case match(Client, PubSub, Topic, Rule) of
-        true -> {ok, Access};
-        false -> check_authorization(Client, PubSub, Topic, DefaultResult, Tail)
+        true -> {matched, binary_to_existing_atom(Access, utf8)};
+        false -> check_authorization(Client, PubSub, Topic, Tail)
     end;
-check_authorization(_Client, _PubSub, _Topic, DefaultResult, []) -> DefaultResult.
+check_authorization(_Client, _PubSub, _Topic, []) ->
+    {nomatch, deny}.
 
 match(Client, PubSub, Topic,
       #{<<"principal">> := Principal,
@@ -122,14 +107,12 @@ match(Client, PubSub, Topic,
     match_principal(Client, Principal) andalso
     match_topics(Client, Topic, TopicFilters).
 
-match_action(publish, pub) -> true;
-match_action(subscribe, sub) -> true;
-match_action(_, pubsub) -> true;
+match_action(publish, <<"pub">>) -> true;
+match_action(subscribe, <<"sub">>) -> true;
+match_action(_, <<"pubsub">>) -> true;
 match_action(_, _) -> false.
 
-match_principal(_, all) -> true;
-match_principal(#{username := undefined}, #{<<"username">> := _MP}) ->
-    false;
+match_principal(_, <<"all">>) -> true;
 match_principal(#{username := Username}, #{<<"username">> := MP}) ->
     case re:run(Username, MP) of
         {match, _} -> true;

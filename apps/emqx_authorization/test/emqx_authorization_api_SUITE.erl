@@ -70,7 +70,7 @@ t_api(_Config) ->
               <<"topics">> => <<"%u">>,
               <<"access">> => <<"allow">>
             },
-    {ok, _} = request_http_rest_add(["authorization/push"], [Rule1]),
+    {ok, _} = request_http_rest_add(["authorization/push"], #{rules => [Rule1]}),
     {ok, Result1} = request_http_rest_lookup(["authorization"]),
     ?assertMatch([Rule1 | _ ], get_http_data(Result1)),
 
@@ -81,11 +81,11 @@ t_api(_Config) ->
                               ],
               <<"access">> => <<"deny">>
             },
-    {ok, _} = request_http_rest_add(["authorization/append"], [Rule2]),
+    {ok, _} = request_http_rest_add(["authorization/append"], #{rules => [Rule2]}),
     {ok, Result2} = request_http_rest_lookup(["authorization"]),
     ?assertEqual(Rule2, lists:last(get_http_data(Result2))),
 
-    {ok, _} = request_http_rest_update(["authorization"], []),
+    {ok, _} = request_http_rest_update(["authorization"], #{rules => []}),
     {ok, Result3} = request_http_rest_lookup(["authorization"]),
     ?assertEqual([], get_http_data(Result3)),
     ok.
