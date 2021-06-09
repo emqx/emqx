@@ -113,17 +113,20 @@ update(_ChainID, _ServiceName, Params, State) ->
     end.
 
 authenticate(ClientInfo = #{password := JWT}, #{jwk := JWK,
-                                                jwks_connector := Connector,
                                                 verify_claims := VerifyClaims0}) ->
-    JWKs = case Connector of
-               undefined ->
+    JWKs = case erlang:is_pid(JWK) of
+               false ->
                    [JWK];
-               _ ->
-                   {ok, JWKs0} = emqx_authentication_jwks_connector:get_jwks(Connector),
+               true ->
+                   {ok, JWKs0} = emqx_authentication_jwks_connector:get_jwks(JWK),
                    JWKs0
            end,
     VerifyClaims = replace_placeholder(VerifyClaims0, ClientInfo),
-    verify(JWT, JWKs, VerifyClaims).
+    case verify(JWT, JWKs, VerifyClaims) of
+        ok -> ok;
+        {error, invalid_signature} -> ignore;
+        {error, {claims, _}} -> {stop, bad_passowrd}
+    end.
 
 destroy(#{jwks_connector := undefined}) ->
     ok;
@@ -138,8 +141,7 @@ destroy(#{jwks_connector := Connector}) ->
 do_create(#{use_jwks := false,
             algorithm := 'hmac-based',
             secret := Secret0,
-            secret_base64_encoded := Base64Encoded,
-            verify_claims := VerifyClaims}) ->
+            secret_base64_encoded := Base64Encoded} = Opts) ->
     Secret = case Base64Encoded of
                  true ->
                      base64:decode(Secret0);
@@ -148,23 +150,20 @@ do_create(#{use_jwks := false,
              end,
     JWK = jose_jwk:from_oct(Secret),
     {ok, #{jwk => JWK,
-           jwks_connector => undefined,
-           verify_claims => VerifyClaims}};
+           verify_claims => maps:get(verify_claims, Opts)}};
+
 do_create(#{use_jwks := false,
             algorithm := 'public-key',
-            jwt_certfile := Certfile,
-            verify_claims := VerifyClaims}) ->
+            jwt_certfile := Certfile} = Opts) ->
     JWK = jose_jwk:from_pem_file(Certfile),
     {ok, #{jwk => JWK,
-           jwks_connector => undefined,
-           verify_claims => VerifyClaims}};
-do_create(#{use_jwks := true,
-            verify_claims := VerifyClaims} = Opts) ->
+           verify_claims => maps:get(verify_claims, Opts)}};
+
+do_create(#{use_jwks := true} = Opts) ->
     case emqx_authentication_jwks_connector:start_link(Opts) of
         {ok, Connector} ->
-            {ok, #{jwk => undefined,
-                   jwks_connector => Connector,
-                   verify_claims => VerifyClaims}};
+            {ok, #{jwk => Connector,
+                   verify_claims => maps:get(verify_claims, Opts)}};
         {error, Reason} ->
             {error, Reason}
     end.
