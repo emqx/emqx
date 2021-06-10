@@ -36,6 +36,6 @@
 
 -record(chain,
         { id :: chain_id()
-        , services :: [#service{}]
+        , services :: [{service_name(), #service{}}]
         , created_at :: integer()
         }).

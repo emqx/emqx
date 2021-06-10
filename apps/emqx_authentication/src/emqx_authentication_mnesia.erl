@@ -119,8 +119,8 @@ authenticate(ClientInfo = #{password := Password},
 destroy(#{user_group := UserGroup}) ->
     trans(
         fun() ->
-            MatchSpec = [{#user_info{user_id = {UserGroup, '_'}, _ = '_'}, [], ['$_']}],
-            lists:foreach(fun delete_user2/1, mnesia:select(?TAB, MatchSpec, write))
+            MatchSpec = [{{user_info, {UserGroup, '_'}, '_', '_'}, [], ['$_']}],
+            ok = lists:foreach(fun delete_user2/1, mnesia:select(?TAB, MatchSpec, write))
         end).
 
 import_users(Filename0, State) ->
@@ -211,7 +211,7 @@ import_users_from_csv(Filename, #{user_group := UserGroup}) ->
             case get_csv_header(File) of
                 {ok, Seq} ->
                     Result = trans(fun import/3, [UserGroup, File, Seq]),
-                    file:close(File),
+                    _ = file:close(File),
                     Result;
                 {error, Reason} ->
                     {error, Reason}

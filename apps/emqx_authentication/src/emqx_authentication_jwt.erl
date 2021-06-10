@@ -131,7 +131,7 @@ authenticate(ClientInfo = #{password := JWT}, #{jwk := JWK,
 destroy(#{jwks_connector := undefined}) ->
     ok;
 destroy(#{jwks_connector := Connector}) ->
-    emqx_authentication_jwks_connector:stop(Connector),
+    _ = emqx_authentication_jwks_connector:stop(Connector),
     ok.
 
 %%--------------------------------------------------------------------
@@ -171,7 +171,7 @@ do_create(#{use_jwks := true} = Opts) ->
 do_update(Opts, #{jwk_connector := undefined}) ->
     do_create(Opts);
 do_update(#{use_jwks := false} = Opts, #{jwk_connector := Connector}) ->
-    emqx_authentication_jwks_connector:stop(Connector),
+    _ = emqx_authentication_jwks_connector:stop(Connector),
     do_create(Opts);
 do_update(#{use_jwks := true} = Opts, #{jwk_connector := Connector} = State) ->
     ok = emqx_authentication_jwks_connector:update(Connector, Opts),
