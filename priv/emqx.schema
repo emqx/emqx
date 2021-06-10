@@ -582,17 +582,6 @@ end}.
   hidden
 ]}.
 
-%% disable lager
-{mapping, "lager.handlers", "lager.handlers", [
-  {default, []},
-  hidden
-]}.
-{mapping, "lager.crash_log", "lager.crash_log", [
-  {default, off},
-  {datatype, flag},
-  hidden
-]}.
-
 {translation, "kernel.logger_level", fun(_, _, Conf) ->
     cuttlefish:conf_get("log.level", Conf)
 end}.
