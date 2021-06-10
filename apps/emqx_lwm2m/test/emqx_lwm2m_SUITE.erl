@@ -40,6 +40,7 @@ all() ->
     , {group, test_grp_4_discover}
     , {group, test_grp_5_write_attr}
     , {group, test_grp_6_observe}
+    , {group, test_grp_8_object_19}
     ].
 
 suite() -> [{timetrap, {seconds, 90}}].
@@ -98,9 +99,9 @@ groups() ->
         ]},
         {test_grp_8_object_19, [RepeatOpt], [
             case80_specail_object_19_1_0_write,
-            case80_specail_object_19_0_0_notify,
-            case80_specail_object_19_0_0_response,
-            case80_normal_object_19_0_0_read
+            case80_specail_object_19_0_0_notify
+            %case80_specail_object_19_0_0_response,
+            %case80_normal_object_19_0_0_read
         ]},
         {test_grp_9_psm_queue_mode, [RepeatOpt], [
             case90_psm_mode,
@@ -1655,6 +1656,7 @@ case80_specail_object_19_1_0_write(Config) ->
                     <<"value">> => base64:encode(<<12345:32>>)
                 }
                },
+
     CommandJson = emqx_json:encode(Command),
     test_mqtt_broker:publish(CommandTopic, CommandJson, 0),
     timer:sleep(50),
@@ -1663,7 +1665,7 @@ case80_specail_object_19_1_0_write(Config) ->
     Path2 = get_coap_path(Options2),
     ?assertEqual(put, Method2),
     ?assertEqual(<<"/19/1/0">>, Path2),
-    ?assertEqual(<<12345:32>>, Payload2),
+    ?assertEqual(<<3:2, 0:1, 0:2, 4:3, 0, 12345:32>>, Payload2),
     timer:sleep(50),
 
     test_send_coap_response(UdpSock, "127.0.0.1", ?PORT, {ok, changed}, #coap_content{}, Request2, true),
@@ -1672,6 +1674,7 @@ case80_specail_object_19_1_0_write(Config) ->
     ReadResult = emqx_json:encode(#{
                                 <<"requestID">> => CmdId, <<"cacheID">> => CmdId,
                                 <<"data">> => #{
+                                    <<"reqPath">> => <<"/19/1/0">>,
                                     <<"code">> => <<"2.04">>,
                                     <<"codeMsg">> => <<"changed">>
                                 },
