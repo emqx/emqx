@@ -10,8 +10,14 @@ on:
 
 jobs:
   prepare:
+    strategy:
+      matrix:
+        container:
+          - "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
+          - "emqx/build-env:erl24.0.1-emqx-1-ubuntu20.04"
+
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04
+    container: ${{ matrix.container }}
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles}}
