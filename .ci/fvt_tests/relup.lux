@@ -28,6 +28,7 @@
     !cd emqx
     !sed -i 's|listener.wss.external[ \t]*=.*|listener.wss.external = 8085|g' etc/emqx.conf
     !sed -i '/emqx_telemetry/d' data/loaded_plugins
+
     !./bin/emqx start
     ?EMQ X .* is started successfully!
     ?SH-PROMPT
@@ -40,6 +41,7 @@
     !cd emqx2
 
     !sed -i '/emqx_telemetry/d' data/loaded_plugins
+
     !./bin/emqx start
     ?EMQ X (.*) is started successfully!
     ?SH-PROMPT
@@ -72,15 +74,22 @@
 
 [shell bench]
     !cd $BENCH_PATH
+
     !./emqtt_bench pub -c 10 -I 1000 -t t/%i -s 64 -L 300
     ???sent
 
 [shell emqx]
-    !cp -f ../$PROFILE-ubuntu20.04-$VSN-amd64.zip releases/
-    !./bin/emqx install $VSN
+    !echo "" > log/emqx.log.1
     ?SH-PROMPT
-    !./bin/emqx versions |grep permanent | grep -oE "[0-9].[0-9].[0-9]"
-    ?$VSN
+
+    !cp -f ../$PROFILE-ubuntu20.04-$VSN-amd64.zip releases/
+
+    !./bin/emqx install $VSN
+    ?Made release permanent: "$VSN"
+    ?SH-PROMPT
+
+    !./bin/emqx versions |grep permanent
+    ?(.*)$VSN
     ?SH-PROMPT
 
     !./bin/emqx_ctl cluster status
@@ -91,11 +100,17 @@
     ?SH-PROMPT
 
 [shell emqx2]
-    !cp -f ../$PROFILE-ubuntu20.04-$VSN-amd64.zip releases/
-    !./bin/emqx install $VSN
+    !echo "" > log/emqx.log.1
     ?SH-PROMPT
-    !./bin/emqx versions |grep permanent | grep -oE "[0-9].[0-9].[0-9]"
-    ?$VSN
+
+    !cp -f ../$PROFILE-ubuntu20.04-$VSN-amd64.zip releases/
+
+    !./bin/emqx install $VSN
+    ?Made release permanent: "$VSN"
+    ?SH-PROMPT
+
+    !./bin/emqx versions |grep permanent
+    ?(.*)$VSN
     ?SH-PROMPT
 
     !./bin/emqx_ctl cluster status
