@@ -826,15 +826,17 @@ do_connect(ClientId, CleanStart, WillFlag, Duration, State) ->
                                    clean_start = CleanStart,
                                    username    = State#state.username,
                                    password    = State#state.password,
+                                   proto_name  = <<"MQTT-SN">>,
                                    keepalive   = Duration,
-                                   properties  = OnlyOneInflight
+                                   properties  = OnlyOneInflight,
+                                   proto_ver   = 1
                                   },
     case WillFlag of
         true -> State0 = send_message(?SN_WILLTOPICREQ_MSG(), State),
                 NState = State0#state{connpkt  = ConnPkt,
-                                     clientid = ClientId,
-                                     keepalive_interval = Duration
-                                    },
+                                      clientid = ClientId,
+                                      keepalive_interval = Duration
+                                     },
                 {next_state, wait_for_will_topic, NState};
         false ->
             NState = State#state{clientid = ClientId,
