@@ -282,6 +282,7 @@ fields("listener") ->
     , {"ssl", ref("ssl_listener")}
     , {"ws", ref("ws_listener")}
     , {"wss", ref("wss_listener")}
+    , {"quic", ref("quic_listener")}
     ];
 
 fields("tcp_listener") ->
@@ -295,6 +296,9 @@ fields("ws_listener") ->
 
 fields("wss_listener") ->
     [ {"$name", ref("wss_listener_settings")}];
+
+fields("quic_listener") ->
+    [ {"$name", ref("quic_listener_settings")}];
 
 fields("listener_settings") ->
     [ {"endpoint", t(union(ip_port(), integer()))}
@@ -355,6 +359,32 @@ fields("wss_listener_settings") ->
                          , reuse_sessions => true}) ++ fields("listener_settings"),
     Settings = lists:ukeymerge(1, Ssl, fields("ws_listener_settings")),
     lists:keydelete("high_watermark", 1, Settings);
+
+fields("quic_listener_settings") ->
+    Unsupported = [ "max_connections"
+                  , "max_conn_rate"
+                  , "active_n"
+                  , "access"
+                  , "proxy_protocol"
+                  , "proxy_protocol_timeout"
+                  , "backlog"
+                  , "send_timeout"
+                  , "send_timeout_close"
+                  , "recvbuf"
+                  , "sndbuf"
+                  , "buffer"
+                  , "high_watermark"
+                  , "tune_buffer"
+                  , "nodelay"
+                  , "reuseaddr"
+                  ],
+    lists:foldl(fun(K, Acc) ->
+                        lists:keydelete(K, 1, Acc)
+                end,
+                [ {"certfile", t(string(), "emqx.certfile", undefined)}
+                , {"keyfile", t(string(), "emqx.keyfile", undefined)}
+                | fields("listener_settings")],
+                Unsupported);
 
 fields("access") ->
     [ {"$id", t(string(), undefined, undefined)}];
@@ -772,7 +802,9 @@ tr_listeners(Conf) ->
     lists:flatten([TcpListeners("tcp", Name) || Name <- keys("listener.tcp", Conf)]
                ++ [TcpListeners("ws", Name) || Name <- keys("listener.ws", Conf)]
                ++ [SslListeners("ssl", Name) || Name <- keys("listener.ssl", Conf)]
-               ++ [SslListeners("wss", Name) || Name <- keys("listener.wss", Conf)]).
+               ++ [SslListeners("wss", Name) || Name <- keys("listener.wss", Conf)]
+               ++ [SslListeners("quic", Name) || Name <- keys("listener.quic", Conf)]
+                 ).
 
 tr_modules(Conf) ->
     Subscriptions = fun() ->
