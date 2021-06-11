@@ -55,7 +55,7 @@ translate_env(EnvName) ->
             URL = proplists:get_value(url, Req),
             {ok, #{host := Host,
                    port := Port,
-                   scheme := Scheme}} = URIMap = emqx_http_lib:uri_parse(URL),
+                   scheme := Scheme} = URIMap} = emqx_http_lib:uri_parse(URL),
             Path = path(URIMap),
             MoreOpts = case Scheme of
                         http ->

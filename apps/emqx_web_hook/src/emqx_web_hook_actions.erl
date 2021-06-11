@@ -310,10 +310,10 @@ merge_path(CommonPath, <<>>) ->
     CommonPath;
 merge_path(CommonPath, Path0) ->
     case emqx_http_lib:uri_parse(Path0) of
-        #{path := Path1, 'query' := Query} ->
+        {ok, #{path := Path1, 'query' := Query}} ->
             Path2 = filename:join(CommonPath, Path1),
             <<Path2/binary, "?", Query/binary>>;
-        #{path := Path1} ->
+        {ok, #{path := Path1}} ->
             filename:join(CommonPath, Path1)
     end.
 

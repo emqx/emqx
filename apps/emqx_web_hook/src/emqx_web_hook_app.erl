@@ -43,7 +43,7 @@ translate_env() ->
     {ok, URL} = application:get_env(?APP, url),
     {ok, #{host := Host,
            port := Port,
-           scheme := Scheme}} = URIMap = emqx_http_lib:uri_parse(URL),
+           scheme := Scheme} = URIMap} = emqx_http_lib:uri_parse(URL),
     Path = path(URIMap),
     PoolSize = application:get_env(?APP, pool_size, 32),
     MoreOpts = case Scheme of
