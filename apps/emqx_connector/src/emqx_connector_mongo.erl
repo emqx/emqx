@@ -31,6 +31,8 @@
         ]).
 
 -export([connect/1]).
+
+-export([mongo_query/5]).
 %%=====================================================================
 schema() ->
     mongodb_fields() ++
@@ -71,10 +73,10 @@ on_stop(InstId, #{poolname := PoolName}) ->
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
 on_query(InstId, {Action, Collection, Selector, Docs}, AfterQuery, #{poolname := PoolName} = State) ->
-    logger:debug("mongodb connector ~p received sql query: ~p, at state: ~p", [InstId, SQL, State]),
+    logger:debug("mongodb connector ~p received request: ~p, at state: ~p", [InstId, {Action, Collection, Selector, Docs}, State]),
     case Result = ecpool:pick_and_do(PoolName, {?MODULE, mongo_query, [Action, Collection, Selector, Docs]}, no_handover) of
         {error, Reason} ->
-            logger:debug("mongodb connector ~p do sql query failed, sql: ~p, reason: ~p", [InstId, SQL, Reason]),
+            logger:debug("mongodb connector ~p do sql query failed, request: ~p, reason: ~p", [InstId, {Action, Collection, Selector, Docs}, Reason]),
             emqx_resource:query_failed(AfterQuery);
         _ ->
             emqx_resource:query_success(AfterQuery)
@@ -174,7 +176,7 @@ mongodb_fields() ->
     [ {mongo_type, fun mongo_type/1}
     , {servers, fun servers/1}
     , {pool_size, fun emqx_connector_schema_lib:pool_size/1}
-    , {login, fun emqx_connector_schema_lib:user/1}
+    , {login, fun emqx_connector_schema_lib:username/1}
     , {password, fun emqx_connector_schema_lib:password/1}
     , {auth_source, fun auth_source/1}
     , {database, fun emqx_connector_schema_lib:database/1}

@@ -29,7 +29,7 @@
 
 -export([ pool_size/1
         , database/1
-        , user/1
+        , username/1
         , password/1
         , servers/1
         , auto_reconnect/1
@@ -40,13 +40,13 @@
 
 -type database() :: binary().
 -type pool_size() :: integer().
--type user() :: binary().
+-type username() :: binary().
 -type password() :: binary().
 -type servers() :: list().
 
 -reflect_type([ database/0
               , pool_size/0
-              , user/0
+              , username/0
               , password/0
               , servers/0
              ]).
@@ -55,7 +55,7 @@ relational_db_fields() ->
     [ {server, fun server/1}
     , {database, fun database/1}
     , {pool_size, fun pool_size/1}
-    , {user, fun user/1}
+    , {username, fun username/1}
     , {password, fun password/1}
     , {auto_reconnect, fun auto_reconnect/1}
     ].
@@ -81,9 +81,9 @@ pool_size(default) -> 8;
 pool_size(validator) -> [?MIN(1), ?MAX(64)];
 pool_size(_) -> undefined.
 
-user(type) -> binary();
-user(default) -> "root";
-user(_) -> undefined.
+username(type) -> binary();
+username(default) -> "root";
+username(_) -> undefined.
 
 password(type) -> binary();
 password(default) -> "";
