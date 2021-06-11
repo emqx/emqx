@@ -376,7 +376,7 @@ end}.
 
 {translation, "gen_rpc.tcp_client_num", fun(Conf) ->
   case cuttlefish:conf_get("rpc.tcp_client_num", Conf) of
-    0 -> max(1, erlang:system_info(schedulers) div 2);
+    0 -> 1; %% keep allowing 0 for backward compatibility
     V -> V
   end
 end}.
