@@ -25,14 +25,10 @@
 check(SchemaMod, Conf) ->
     _ = erlang:erase(res_schema_mod),
     erlang:put(res_schema_mod, SchemaMod),
-    hocon_schema:check(?MODULE, Conf).
+    hocon_schema:check(?MODULE, Conf, #{atom_key => true}).
 
 structs() -> ["config"].
 
 fields("config") ->
-    [fun(type) -> "schema";
-        (_) -> undefined
-     end];
-fields("schema") ->
     SchemaMod = erlang:get(res_schema_mod),
     SchemaMod:schema().

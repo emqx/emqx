@@ -55,19 +55,19 @@ save_files_return_opts(Options, SubDir, ResId) ->
 save_files_return_opts(Options, Dir) ->
     GetD = fun(Key, Default) -> maps:get(Key, Options, Default) end,
     Get = fun(Key) -> GetD(Key, undefined) end,
-    KeyFile = Get(<<"keyfile">>),
-    CertFile = Get(<<"certfile">>),
-    CAFile = GetD(<<"cacertfile">>, Get(<<"cafile">>)),
+    KeyFile = Get(keyfile),
+    CertFile = Get(certfile),
+    CAFile = GetD(cacertfile, Get(cafile)),
     Key = do_save_file(KeyFile, Dir),
     Cert = do_save_file(CertFile, Dir),
     CA = do_save_file(CAFile, Dir),
-    Verify = case GetD(<<"verify">>, false) of
+    Verify = case GetD(verify, false) of
                   false -> verify_none;
                   _ -> verify_peer
              end,
-    SNI = Get(<<"server_name_indication">>),
-    Versions = emqx_tls_lib:integral_versions(Get(<<"tls_versions">>)),
-    Ciphers = emqx_tls_lib:integral_ciphers(Versions, Get(<<"ciphers">>)),
+    SNI = Get(server_name_indication),
+    Versions = emqx_tls_lib:integral_versions(Get(tls_versions)),
+    Ciphers = emqx_tls_lib:integral_ciphers(Versions, Get(ciphers)),
     filter([{keyfile, Key}, {certfile, Cert}, {cacertfile, CA},
             {verify, Verify}, {server_name_indication, SNI}, {versions, Versions}, {ciphers, Ciphers}]).
 
@@ -83,7 +83,7 @@ filter([]) -> [];
 filter([{_, ""} | T]) -> filter(T);
 filter([H | T]) -> [H | filter(T)].
 
-do_save_file(#{<<"filename">> := FileName, <<"file">> := Content}, Dir)
+do_save_file(#{filename := FileName, file := Content}, Dir)
   when FileName =/= undefined andalso Content =/= undefined ->
     do_save_file(ensure_str(FileName), iolist_to_binary(Content), Dir);
 do_save_file(FilePath, _) when is_binary(FilePath) ->
