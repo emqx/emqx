@@ -32,13 +32,15 @@ load_bridges() ->
 resource_type(<<"mysql">>) -> emqx_connector_mysql;
 resource_type(<<"pgsql">>) -> emqx_connector_pgsql;
 resource_type(<<"mongo">>) -> emqx_connector_mongo;
-resource_type(<<"redis">>) -> emqx_connector_redis.
+resource_type(<<"redis">>) -> emqx_connector_redis;
+resource_type(<<"ldap">>) -> emqx_connector_ldap.
 
 
 bridge_type(emqx_connector_mysql) -> <<"mysql">>;
 bridge_type(emqx_connector_pgsql) -> <<"pgsql">>;
 bridge_type(emqx_connector_mongo) -> <<"mongo">>;
-bridge_type(emqx_connector_redis) -> <<"redis">>.
+bridge_type(emqx_connector_redis) -> <<"redis">>;
+bridge_type(emqx_connector_ldap) -> <<"ldap">>.
 
 
 name_to_resource_id(BridgeName) ->
