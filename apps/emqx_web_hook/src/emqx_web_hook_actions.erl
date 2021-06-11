@@ -292,7 +292,7 @@ parse_action_params(Params = #{<<"url">> := URL}) ->
         Headers = headers(maps:get(<<"headers">>, Params, undefined)),
         NHeaders = ensure_content_type_header(Headers, Method),
         #{method => Method,
-          path => path(filename:join(CommonPath, maps:get(<<"path">>, Params, <<>>))),
+          path => merge_path(CommonPath, maps:get(<<"path">>, Params, <<>>)),
           headers => NHeaders,
           body => maps:get(<<"body">>, Params, <<>>),
           request_timeout => cuttlefish_duration:parse(str(maps:get(<<"request_timeout">>, Params, <<"5s">>))),
@@ -306,8 +306,16 @@ ensure_content_type_header(Headers, Method) when Method =:= post orelse Method =
 ensure_content_type_header(Headers, _Method) ->
     lists:keydelete("content-type", 1, Headers).
 
-path(<<>>) -> <<"/">>;
-path(Path) -> Path.
+merge_path(CommonPath, <<>>) ->
+    CommonPath;
+merge_path(CommonPath, Path0) ->
+    case emqx_http_lib:uri_parse(Path0) of
+        #{path := Path1, 'query' := Query} ->
+            Path2 = filename:join(CommonPath, Path1),
+            <<Path2/binary, "?", Query/binary>>;
+        #{path := Path1} ->
+            filename:join(CommonPath, Path1)
+    end.
 
 method(GET) when GET == <<"GET">>; GET == <<"get">> -> get;
 method(POST) when POST == <<"POST">>; POST == <<"post">> -> post;

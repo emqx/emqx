@@ -42,10 +42,9 @@ stop(_State) ->
 translate_env() ->
     {ok, URL} = application:get_env(?APP, url),
     {ok, #{host := Host,
-           path := Path0,
            port := Port,
-           scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
-    Path = path(Path0),
+           scheme := Scheme}} = URIMap = emqx_http_lib:uri_parse(URL),
+    Path = path(URIMap),
     PoolSize = application:get_env(?APP, pool_size, 32),
     MoreOpts = case Scheme of
                    http ->
@@ -89,9 +88,13 @@ translate_env() ->
     NHeaders = set_content_type(Headers),
     application:set_env(?APP, headers, NHeaders).
 
-path("") ->
+path(#{path := "", 'query' := Query}) ->
+    "?" ++ Query;
+path(#{path := Path, 'query' := Query}) ->
+    Path ++ "?" ++ Query;
+path(#{path := ""}) ->
     "/";
-path(Path) ->
+path(#{path := Path}) ->
     Path.
 
 set_content_type(Headers) ->

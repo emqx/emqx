@@ -3,13 +3,13 @@
 {VSN,
   [
     {<<"4.3.[0-3]">>, [
-     {restart_application, emqx_web_hook}
+     {restart_application, emqx_auth_http}
     ]},
     {<<".*">>, []}
   ],
   [
     {<<"4.3.[0-3]">>, [
-     {restart_application, emqx_web_hook}
+     {restart_application, emqx_auth_http}
     ]},
     {<<".*">>, []}
   ]
