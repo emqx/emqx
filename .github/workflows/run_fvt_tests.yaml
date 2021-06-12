@@ -198,7 +198,7 @@ jobs:
         - uses: actions/checkout@v2
           with:
             repository: hawk/lux
-            ref: lux-2.4
+            ref: lux-2.6
             path: lux
         - uses: actions/checkout@v2
           with:
@@ -260,14 +260,15 @@ jobs:
             make
             make install
         - name: run relup test
+          timeout-minutes: 20
           run: |
             set -e -x -u
             if [ -n "$OLD_VSNS" ]; then
                 mkdir -p packages
                 cp emqx/_packages/${PROFILE}/*.zip packages
                 cp emqx/_upgrade_base/*.zip packages
-                lux -v \
-                --timeout 600000 \
+                lux \
+                --case_timeout infinity \
                 --var PROFILE=$PROFILE \
                 --var PACKAGE_PATH=$(pwd)/packages \
                 --var BENCH_PATH=$(pwd)/emqtt-bench \

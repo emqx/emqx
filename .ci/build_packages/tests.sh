@@ -150,17 +150,20 @@ relup_test(){
     if [ -d "${RELUP_PACKAGE_PATH}" ];then
         cd "${RELUP_PACKAGE_PATH}"
 
-        for var in "${EMQX_NAME}"-*-"${ARCH}".zip;do
-            packagename=$(basename "${var}")
-            unzip "$packagename"
-            ./emqx/bin/emqx start || ( tail emqx/log/emqx.log.1 && exit 1 )
-            ./emqx/bin/emqx versions
-            cp "${PACKAGE_PATH}/${EMQX_NAME}"-*-"${TARGET_VERSION}-${ARCH}".zip ./emqx/releases
-            ./emqx/bin/emqx install "${TARGET_VERSION}"
-            [ "$(./emqx/bin/emqx versions |grep permanent | awk '{print $2}')" = "${TARGET_VERSION}" ] || exit 1
-            ./emqx/bin/emqx stop
-            rm -rf emqx
-        done
+        find . -maxdepth 1 -name "${EMQX_NAME}-*-${ARCH}.zip" |
+            while read -r pkg; do
+                packagename=$(basename "${pkg}")
+                unzip "$packagename"
+                ./emqx/bin/emqx start || ( tail emqx/log/emqx.log.1 && exit 1 )
+                ./emqx/bin/emqx_ctl status
+                ./emqx/bin/emqx versions
+                cp "${PACKAGE_PATH}/${EMQX_NAME}"-*-"${TARGET_VERSION}-${ARCH}".zip ./emqx/releases
+                ./emqx/bin/emqx install "${TARGET_VERSION}"
+                [ "$(./emqx/bin/emqx versions |grep permanent | awk '{print $2}')" = "${TARGET_VERSION}" ] || exit 1
+                ./emqx/bin/emqx_ctl status
+                ./emqx/bin/emqx stop
+                rm -rf emqx
+            done
    fi
 }
 

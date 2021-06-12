@@ -139,7 +139,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
-          - erl23.2.7.2-emqx-2
+          - 23.2.7.2-emqx-2
         exclude:
           - profile: emqx-edge
 
@@ -164,7 +164,11 @@ jobs:
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
+      env:
+        KERL_BUILD_BACKEND: git
+        OTP_GITHUB_URL: https://github.com/emqx/otp
       run: |
+        kerl update releases
         kerl build ${{ matrix.erl_otp }}
         kerl install ${{ matrix.erl_otp }} $HOME/.kerl/${{ matrix.erl_otp }}
     - name: build
