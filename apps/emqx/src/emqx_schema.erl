@@ -1180,18 +1180,16 @@ ceiling(X) ->
 
 %% types
 
-t(T) ->
-    fun (type) -> T; (_) -> undefined end.
+t(Type) -> hoconsc:t(Type).
 
-t(T, M, D) ->
-    fun (type) -> T; (mapping) -> M; (default) -> D; (_) -> undefined end.
+t(Type, Mapping, Default) ->
+    hoconsc:t(Type, #{mapping => Mapping, default => Default}).
 
-t(T, M, D, O) ->
-    fun (type) -> T;
-        (mapping) -> M;
-        (default) -> D;
-        (override_env) -> O;
-        (_) -> undefined end.
+t(Type, Mapping, Default, OverrideEnv) ->
+    hoconsc:t(Type, #{ mapping => Mapping
+                     , default => Default
+                     , override_env => OverrideEnv
+                     }).
 
 ref(Field) ->
     fun (type) -> Field; (_) -> undefined end.
