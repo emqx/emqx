@@ -37,7 +37,7 @@ emqx_test(){
             "zip")
                 packagename=$(basename "${PACKAGE_PATH}/${EMQX_NAME}"-*.zip)
                 unzip -q "${PACKAGE_PATH}/${packagename}"
-                export EMQX_ZONE__EXTERNAL__SERVER__KEEPALIVE=60 \
+                export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60 \
                        EMQX_MQTT__MAX_TOPIC_ALIAS=10
                 sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
