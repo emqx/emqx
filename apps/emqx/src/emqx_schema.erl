@@ -1,6 +1,5 @@
 -module(emqx_schema).
 
-% tmp
 -dialyzer(no_return).
 -dialyzer(no_match).
 -dialyzer(no_contracts).

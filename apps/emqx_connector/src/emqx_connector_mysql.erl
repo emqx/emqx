@@ -18,7 +18,8 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
--export([ schema/0
+-export([ structs/0
+        , fields/1
         ]).
 
 %% callbacks of behaviour emqx_resource
@@ -34,6 +35,10 @@
 -export([do_health_check/1]).
 
 %%=====================================================================
+
+structs() -> ["config"].
+fields("config") -> schema().
+
 schema() ->
     emqx_connector_schema_lib:relational_db_fields() ++
     emqx_connector_schema_lib:ssl_fields().
