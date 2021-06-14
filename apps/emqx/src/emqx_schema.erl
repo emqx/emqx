@@ -60,6 +60,7 @@ fields("cluster") ->
     , {"dns", ref("dns")}
     , {"etcd", ref("etcd")}
     , {"k8s", ref("k8s")}
+    , {"rlog", ref("rlog")}
     ];
 
 fields("static") ->
@@ -96,6 +97,12 @@ fields("k8s") ->
     , {"app_name", t(string())}
     , {"namespace", t(string())}
     , {"suffix", t(string(), undefined, "")}
+    ];
+
+fields("rlog") ->
+    [ {"backend", t(union([mnesia, rlog]), "ekka.db_backend", mnesia)}
+    , {"role", t(union([core, replicant]), "ekka.node_role", core)}
+    , {"core_nodes", t(comma_separated_list(), "ekka.core_nodes", [])}
     ];
 
 fields("node") ->

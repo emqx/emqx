@@ -24,7 +24,11 @@
         , get_release/0
         ]).
 
+-include("emqx.hrl").
+
 -define(APP, emqx).
+
+-define(EMQX_SHARDS, []).
 
 -include("emqx_release.hrl").
 
@@ -39,6 +43,7 @@ start(_Type, _Args) ->
     %% Load application first for ekka_mnesia scanner
     _ = load_ce_modules(),
     ekka:start(),
+    ok = ekka_rlog:wait_for_shards(?EMQX_SHARDS, infinity),
     {ok, Sup} = emqx_sup:start_link(),
     ok = start_autocluster(),
     ok = emqx_plugins:init(),
