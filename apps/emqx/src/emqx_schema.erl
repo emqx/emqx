@@ -117,6 +117,7 @@ fields("node") ->
     , {"dist_listen_min", t(integer(), "kernel.inet_dist_listen_min", undefined)}
     , {"dist_listen_max", t(integer(), "kernel.inet_dist_listen_max", undefined)}
     , {"backtrace_depth", t(integer(), "emqx.backtrace_depth", 16)}
+    , {"start_pg", t(boolean(), "kernel.start_pg", true)}
     ];
 
 fields("rpc") ->
