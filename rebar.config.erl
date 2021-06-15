@@ -78,14 +78,12 @@ is_cover_enabled() ->
 is_enterprise() ->
     filelib:is_regular("EMQX_ENTERPRISE").
 
-alternative_lib_dir() ->
-    case is_enterprise() of
-        true -> "lib-ee";
-        false -> "lib-ce"
-    end.
-
 project_app_dirs() ->
-    ["apps/*", alternative_lib_dir() ++ "/*", "."].
+    ["apps/*"] ++
+    case is_enterprise() of
+        true -> ["lib-ee/*"];
+        false -> []
+    end.
 
 plugins(HasElixir) ->
     [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {tag, "2.0.0"}}}
@@ -343,8 +341,6 @@ relx_overlay(ReleaseType) ->
     , {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"}
     , {copy, "bin/nodetool", "bin/nodetool"}
     , {copy, "bin/nodetool", "bin/nodetool-{{release_version}}"}
-    , {copy, "_build/default/lib/hocon/hocon", "bin/hocon"}
-    , {copy, "_build/default/lib/hocon/hocon", "bin/hocon-{{release_version}}"}
     ] ++ case is_enterprise() of
              true -> ee_etc_overlay(ReleaseType);
              false -> etc_overlay(ReleaseType)
@@ -403,8 +399,13 @@ community_plugin_etc_overlays(App0) ->
 %% the overlay should be hand-coded but not to rely on build-time wildcards.
 find_conf_files(App) ->
     Dir1 = filename:join(["apps", App, "etc"]),
-    Dir2 = filename:join([alternative_lib_dir(), App, "etc"]),
-    filelib:wildcard("*.conf", Dir1) ++ filelib:wildcard("*.conf", Dir2).
+    filelib:wildcard("*.conf", Dir1) ++
+    case is_enterprise() of
+        true ->
+            Dir2 = filename:join(["lib-ee", App, "etc"]),
+            filelib:wildcard("*.conf", Dir2);
+        false -> []
+    end.
 
 env(Name, Default) ->
     case os:getenv(Name) of
@@ -445,7 +446,11 @@ provide_bcrypt_release(ReleaseType) ->
 erl_opts_i() ->
     [{i, "apps"}] ++
     [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "*", "include"]))] ++
-    [{i, Dir}  || Dir <- filelib:wildcard(filename:join([alternative_lib_dir(), "*", "include"]))].
+    case is_enterprise() of
+        true ->
+            [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["lib-ee", "*", "include"]))];
+        false -> []
+    end.
 
 dialyzer(Config) ->
     {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),
@@ -457,7 +462,11 @@ dialyzer(Config) ->
             [ list_to_atom(App) || App <- string:tokens(Value, ",")]
     end,
 
-    AppNames = [emqx | list_dir("apps")] ++ list_dir(alternative_lib_dir()),
+    AppNames = [list_dir("apps")] ++ 
+               case is_enterprise() of
+                    true -> [list_dir("lib-ee")];
+                    false -> []
+               end,
 
     KnownApps = [Name ||  Name <- AppsToAnalyse, lists:member(Name, AppNames)],
 

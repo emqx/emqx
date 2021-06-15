@@ -18,14 +18,10 @@
 
 -export([check/2]).
 
--export([structs/0, fields/1]).
-
--behaviour(hocon_schema).
-
 check(SchemaMod, Conf) ->
     _ = erlang:erase(res_schema_mod),
     erlang:put(res_schema_mod, SchemaMod),
-    hocon_schema:check(?MODULE, Conf, #{atom_key => true}).
+    hocon_schema:check(?MODULE, Conf, #{atom_key => true, nullable => false}).
 
 structs() -> ["config"].
 

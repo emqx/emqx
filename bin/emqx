@@ -20,8 +20,21 @@ mkdir -p "$RUNNER_LOG_DIR"
 # Make sure data directory exists
 mkdir -p "$RUNNER_DATA_DIR"
 
+# Make sure data/configs exists
+CONFIGS_DIR="$RUNNER_DATA_DIR/configs"
+mkdir -p "$CONFIGS_DIR"
+
 # hocon try to read environment variables starting with "EMQX_"
 export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
+
+export ROOTDIR="$RUNNER_ROOT_DIR"
+export ERTS_DIR="$ROOTDIR/erts-$ERTS_VSN"
+export BINDIR="$ERTS_DIR/bin"
+export EMU="beam"
+export PROGNAME="erl"
+export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
+export ERTS_LIB_DIR="$ERTS_DIR/../lib"
+MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
 
 relx_usage() {
     command="$1"
@@ -179,6 +192,12 @@ relx_nodetool() {
                                 -setcookie "$COOKIE" "$command" "$@"
 }
 
+call_hocon() {
+    export RUNNER_ROOT_DIR
+    export REL_VSN
+    "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" hocon "$@"
+}
+
 # Run an escript in the node's environment
 relx_escript() {
     shift; scriptpath="$1"; shift
@@ -204,39 +223,48 @@ generate_config() {
         EMQX_LICENSE_CONF_OPTION="-c ${EMQX_LICENSE_CONF}"
     fi
 
-    set +e
-    # disable shellcheck; let EMQX_LICENSE_CONF_OPTION split
+    ## timestamp for each generation
+    local NOW_TIME
+    NOW_TIME="$(call_hocon now_time)"
+
+    ## ths command populates two files: app.<time>.config and vm.<time>.args
+    ## disable SC2086 to allow EMQX_LICENSE_CONF_OPTION to split
     # shellcheck disable=SC2086
-    HOCON_OUTPUT="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf $EMQX_LICENSE_CONF_OPTION -d "$RUNNER_DATA_DIR"/configs generate)"
-    # shellcheck disable=SC2181
-    RESULT=$?
-    set -e
-    if [ $RESULT -gt 0 ]; then
-        echo "$HOCON_OUTPUT"
-        exit $RESULT
-    fi
-    # print override from environment variables (EMQX_*)
-    echo "$HOCON_OUTPUT" | sed -e '$d'
-    CONFIG_ARGS=$(echo "$HOCON_OUTPUT" | tail -n 1)
+    call_hocon -t "$NOW_TIME" -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf $EMQX_LICENSE_CONF_OPTION -d "$RUNNER_DATA_DIR"/configs generate
+
+    ## filenames are per-hocon convention
+    local CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
+    local HOCON_GEN_ARG_FILE="$CONFIGS_DIR/vm.$NOW_TIME.args"
+
+    CONFIG_ARGS="-config $CONF_FILE -args_file $HOCON_GEN_ARG_FILE"
 
     ## Merge hocon generated *.args into the vm.args
-    HOCON_GEN_ARG_FILE=$(echo "$CONFIG_ARGS" | sed -n 's/^.*\(vm_args[[:space:]]\)//p' | awk '{print $1}')
-    TMP_ARG_FILE="$RUNNER_DATA_DIR/configs/vm.args.tmp"
+    TMP_ARG_FILE="$CONFIGS_DIR/vm.args.tmp"
     cp "$RUNNER_ETC_DIR/vm.args" "$TMP_ARG_FILE"
     echo "" >> "$TMP_ARG_FILE"
     echo "-pa ${REL_DIR}/consolidated" >> "$TMP_ARG_FILE"
+    ## read lines from generated vm.<time>.args file
+    ## drop comment lines, and empty lines using sed
+    ## pipe the lines to a while loop
     sed '/^#/d' "$HOCON_GEN_ARG_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
+        ## in the loop, split the 'key[:space:]value' pair
         ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
         ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
+        ## use the key to look up in vm.args file for the value
         TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" | awk '{print $NF}')
+        ## compare generated (to override) value to original (to be overriden) value
         if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
+            ## if they are different
             if [ -n "$TMP_ARG_VALUE" ]; then
+                ## if the old value is present, replace it with generated value
                 sh -c "$SED_REPLACE 's/^$ARG_KEY.*$/$ARG_LINE/' $TMP_ARG_FILE"
             else
+                ## otherwise append generated value to the end
                 echo "$ARG_LINE" >> "$TMP_ARG_FILE"
             fi
         fi
     done
+    ## rename the generated vm.<time>.args file
     mv -f "$TMP_ARG_FILE" "$HOCON_GEN_ARG_FILE"
 
     # shellcheck disable=SC2086
@@ -284,16 +312,16 @@ if [ -z "$NAME_ARG" ]; then
         if [ "$IS_BOOT_COMMAND" = 'no' ]; then
             # for non-boot commands, inspect vm.<time>.args for node name
             # shellcheck disable=SC2012,SC2086
-            LATEST_VM_ARGS="$(ls -t $RUNNER_DATA_DIR/configs/vm.*.args | head -1)"
+            LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
             if [ -z "$LATEST_VM_ARGS" ]; then
-                echo "For command $1, there is no vm.*.args config file found in $RUNNER_DATA_DIR/configs/"
+                echo "For command $1, there is no vm.*.args config file found in $CONFIGS_DIR/"
                 exit 1
             fi
             NODENAME="$(grep -E '^-name' "$LATEST_VM_ARGS" | awk '{print $2}')"
         else
             # for boot commands, inspect emqx.conf for node name
             # todo: use get command from hocon escript
-            NODENAME="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
+            NODENAME="$(call_hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
         fi
     fi
     if [ -z "$NODENAME" ]; then
@@ -319,12 +347,12 @@ PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 COOKIE="${EMQX_NODE_COOKIE:-}"
 if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        COOKIE="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
+        COOKIE="$(call_hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
     else
         # shellcheck disable=SC2012,SC2086
-        LATEST_VM_ARGS="$(ls -t $RUNNER_DATA_DIR/configs/vm.*.args | head -1)"
+        LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
         if [ -z "$LATEST_VM_ARGS" ]; then
-            echo "For command $1, there is no vm.*.args config file found in $RUNNER_DATA_DIR/configs/"
+            echo "For command $1, there is no vm.*.args config file found in $CONFIGS_DIR/"
             exit 1
         fi
         COOKIE="$(grep -E '^-setcookie' "$LATEST_VM_ARGS" | awk '{print $2}')"
@@ -343,15 +371,6 @@ if [ -z "$PROTO_DIST" ]; then
 else
     PROTO_DIST_ARG="-proto_dist $PROTO_DIST"
 fi
-
-export ROOTDIR="$RUNNER_ROOT_DIR"
-export ERTS_DIR="$ROOTDIR/erts-$ERTS_VSN"
-export BINDIR="$ERTS_DIR/bin"
-export EMU="beam"
-export PROGNAME="erl"
-export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
-ERTS_LIB_DIR="$ERTS_DIR/../lib"
-MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
 
 cd "$ROOTDIR"
 
