@@ -105,7 +105,6 @@ To create a mysql data bridge:
 BridgeMySQL='{
     "type": "mysql",
     "status": "started",
-    "name": "mysql-def",
     "config": {
       "verify": false,
       "user": "root",
@@ -134,7 +133,6 @@ To update an existing data bridge:
 BridgeMySQL='{
     "type": "mysql",
     "status": "started",
-    "name": "mysql-def",
     "config": {
       "verify": false,
       "user": "root",

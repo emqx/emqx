@@ -74,7 +74,10 @@ update_config(top, Config) ->
     emqx_config:put(Config),
     save_config_to_disk(Config);
 update_config(Handler, Config) ->
-    gen_server:cast(Handler, {handle_update_config, Config}).
+    case is_process_alive(whereis(Handler)) of
+        true -> gen_server:cast(Handler, {handle_update_config, Config});
+        false -> error({not_alive, Handler})
+    end.
 
 %%============================================================================
 %% callbacks of emqx_config_handler (the top-level handler)

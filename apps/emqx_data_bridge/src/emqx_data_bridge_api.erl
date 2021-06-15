@@ -76,7 +76,7 @@ create_bridge(#{name := Name}, Params) ->
             emqx_data_bridge:name_to_resource_id(Name),
             emqx_data_bridge:resource_type(BridgeType), Config) of
         {ok, Data} ->
-            emqx_config_handler:update_config(emqx_data_bridge, get_all_configs()),
+            update_config(),
             {200, #{code => 0, data => format_api_reply(emqx_resource_api:format_data(Data))}};
         {error, already_created} ->
             {400, #{code => 102, message => <<"bridge already created: ", Name/binary>>}};
@@ -93,7 +93,7 @@ update_bridge(#{name := Name}, Params) ->
             emqx_data_bridge:name_to_resource_id(Name),
             emqx_data_bridge:resource_type(BridgeType), Config, []) of
         {ok, Data} ->
-            emqx_config_handler:update_config(emqx_data_bridge, get_all_configs()),
+            update_config(),
             {200, #{code => 0, data => format_api_reply(emqx_resource_api:format_data(Data))}};
         {error, not_found} ->
             {400, #{code => 102, message => <<"bridge not_found: ", Name/binary>>}};
@@ -106,7 +106,7 @@ update_bridge(#{name := Name}, Params) ->
 delete_bridge(#{name := Name}, _Params) ->
     case emqx_resource:remove(emqx_data_bridge:name_to_resource_id(Name)) of
         ok ->
-            emqx_config_handler:update_config(emqx_data_bridge, get_all_configs()),
+            update_config(),
             {200, #{code => 0, data => #{}}};
         {error, Reason} ->
             {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
@@ -123,3 +123,6 @@ format_conf(#{resource_type := Type, id := Id, config := Conf}) ->
 
 get_all_configs() ->
     [format_conf(Data) || Data <- emqx_data_bridge:list_bridges()].
+
+update_config() ->
+    emqx_config_handler:update_config(emqx_data_bridge_config_handler, get_all_configs()).
