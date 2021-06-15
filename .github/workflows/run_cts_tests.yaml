@@ -46,6 +46,7 @@ jobs:
       - name: run test cases
         run: |
           export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
+          export HOCON_ENV_OVERRIDE_PREFIX=EMQX_
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --application=emqx_auth_ldap"
@@ -115,6 +116,7 @@ jobs:
       - name: run test cases
         run: |
           export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
+          export HOCON_ENV_OVERRIDE_PREFIX=EMQX_
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --application=emqx_auth_mongo"
@@ -197,6 +199,7 @@ jobs:
       - name: run test cases
         run: |
           export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
+          export HOCON_ENV_OVERRIDE_PREFIX=EMQX_
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --application=emqx_auth_mysql"
@@ -270,7 +273,8 @@ jobs:
           export EMQX_AUTH__PGSQL__USERNAME=root \
                  EMQX_AUTH__PGSQL__PASSWORD=public \
                  EMQX_AUTH__PGSQL__DATABASE=mqtt \
-                 CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
+                 CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_ \
+                 HOCON_ENV_OVERRIDE_PREFIX=EMQX_
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --application=emqx_auth_pgsql"

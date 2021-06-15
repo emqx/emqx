@@ -37,6 +37,7 @@ jobs:
           run: |
             set -e -u -x
             echo "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" >> .ci/docker-compose-file/conf.cluster.env
+            echo "HOCON_ENV_OVERRIDE_PREFIX=EMQX_" >> .ci/docker-compose-file/conf.cluster.env
             echo "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s" >> .ci/docker-compose-file/conf.cluster.env
             echo "EMQX_MQTT__MAX_TOPIC_ALIAS=10" >> .ci/docker-compose-file/conf.cluster.env
             docker-compose \
