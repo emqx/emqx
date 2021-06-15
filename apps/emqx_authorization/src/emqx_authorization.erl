@@ -18,14 +18,21 @@
 
 -include("emqx_authorization.hrl").
 
--export([ init/0
+-export([ register_metrics/0
+        , init/0
         , compile/1
         , lookup/0
         , update/1
         , check_authorization/5
+        , match/4
         ]).
 
+-spec(register_metrics() -> ok).
+register_metrics() ->
+    lists:foreach(fun emqx_metrics:ensure/1, ?ACL_METRICS).
+
 init() ->
+    ok = register_metrics(),
     % {ok, Conf} = hocon:load("etc/plugins/emqx_authorization.conf",#{format => richmap}),
     RawConf = proplists:get_value(rules, application:get_all_env(?APP), []),
     {ok, MapConf} = hocon:binary(jsx:encode(#{rules => RawConf}), #{format => richmap}),
@@ -60,12 +67,33 @@ compile(#{<<"topics">> := Topics,
           <<"action">> := Action,
           <<"access">> := Access,
           <<"principal">> := Principal
-         } = Rule ) when ?ALLOW_DENY(Access), ?PUBSUB(Action), is_list(Topics) ->
+         } = Rule) when ?ALLOW_DENY(Access), ?PUBSUB(Action), is_list(Topics) ->
     NTopics = [compile_topic(Topic) || Topic <- Topics],
     Rule#{<<"principal">> => compile_principal(Principal),
           <<"topics">> => NTopics
          };
-compile(Rule) -> Rule.
+compile(#{<<"principal">> := Principal,
+          <<"type">> := <<"mysql">>,
+          <<"config">> := Config,
+          <<"sql">> := _SQL
+         } = Rule) ->
+    ResourceID = iolist_to_binary([atom_to_list(?APP), "_", "mysql", "_", integer_to_list(erlang:system_time())]),
+    case emqx_resource:check_and_create_local(
+            ResourceID,
+            emqx_connector_mysql,
+            Config)
+    of
+        {ok, _} ->
+            Rule#{<<"resource_id">> => ResourceID,
+                  <<"principal">> => compile_principal(Principal)
+                 };
+        {error, already_created} ->
+            Rule#{<<"resource_id">> => ResourceID,
+                  <<"principal">> => compile_principal(Principal)
+                 };
+        {error, Reason} ->
+            error({load_mysql, Reason})
+    end.
 
 compile_principal(all) -> all;
 compile_principal(#{<<"username">> := Username}) ->
@@ -105,13 +133,27 @@ bin(B) when is_binary(B) ->
 %% @doc Check ACL
 -spec(check_authorization(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_topic:topic(), emqx_access_rule:acl_result(), rules())
       -> {ok, allow} | {ok, deny} | deny).
-check_authorization(Client, PubSub, Topic, DefaultResult,
-                    [Rule = #{<<"access">> := Access} | Tail]) ->
-    case match(Client, PubSub, Topic, Rule) of
-        true -> {ok, Access};
-        false -> check_authorization(Client, PubSub, Topic, DefaultResult, Tail)
+check_authorization(Client, PubSub, Topic, DefaultResult, Rules) ->
+    case do_check_authz(Client, PubSub, Topic, Rules) of
+        {matched, allow} -> emqx_metrics:inc(?ACL_METRICS(allow)), {stop, allow};
+        {matched, deny}  -> emqx_metrics:inc(?ACL_METRICS(deny)),  {stop, deny};
+        nomatch          -> DefaultResult
+    end.
+
+do_check_authz(Client, PubSub, Topic,
+               [Connector = #{<<"principal">> := Principal,
+                              <<"type">> := <<"mysql">>} | Tail] ) ->
+    case match_principal(Client, Principal) of
+        true -> emqx_authorization_mysql:check_authz(Client, PubSub, Topic, Connector);
+        false -> do_check_authz(Client, PubSub, Topic, Tail)
     end;
-check_authorization(_Client, _PubSub, _Topic, DefaultResult, []) -> DefaultResult.
+do_check_authz(Client, PubSub, Topic,
+               [#{<<"access">> := Access} = Rule | Tail]) ->
+    case match(Client, PubSub, Topic, Rule) of
+        true -> {matched, Access};
+        false -> do_check_authz(Client, PubSub, Topic, Tail)
+    end;
+do_check_authz(_Client, _PubSub, _Topic, []) -> nomatch.
 
 match(Client, PubSub, Topic,
       #{<<"principal">> := Principal,
