@@ -66,8 +66,8 @@
 %%     equal priority values.
 
 -type(hookpoint() :: atom()).
--type(action() :: function() | {function(), [term()]} | mfargs()).
--type(filter() :: function() | mfargs()).
+-type(action() :: mfargs()).
+-type(filter() :: mfargs()).
 
 -record(callback, {
           action :: action(),
@@ -118,8 +118,6 @@ add(HookPoint, Action) when is_function(Action); is_tuple(Action) ->
 
 -spec(add(hookpoint(), action(), filter() | integer() | list())
       -> ok_or_error(already_exists)).
-add(HookPoint, Action, InitArgs) when is_function(Action), is_list(InitArgs) ->
-    add(HookPoint, #callback{action = {Action, InitArgs}, priority = 0});
 add(HookPoint, Action, Filter) when is_function(Filter); is_tuple(Filter) ->
     add(HookPoint, #callback{action = Action, filter = Filter, priority = 0});
 add(HookPoint, Action, Priority) when is_integer(Priority) ->
@@ -197,10 +195,6 @@ safe_execute(Fun, Args) ->
     end.
 
 %% @doc execute a function.
-execute(Fun, Args) when is_function(Fun) ->
-    erlang:apply(Fun, Args);
-execute({Fun, InitArgs}, Args) when is_function(Fun) ->
-    erlang:apply(Fun, Args ++ InitArgs);
 execute({M, F, A}, Args) ->
     erlang:apply(M, F, Args ++ A).
 
@@ -284,8 +278,6 @@ del_callback(Action, [#callback{action = Action} | Callbacks], Acc) ->
     del_callback(Action, Callbacks, Acc);
 del_callback(Action = {M, F}, [#callback{action = {M, F, _A}} | Callbacks], Acc) ->
     del_callback(Action, Callbacks, Acc);
-del_callback(Func, [#callback{action = {Func, _A}} | Callbacks], Acc) ->
-    del_callback(Func, Callbacks, Acc);
 del_callback(Action, [Callback | Callbacks], Acc) ->
     del_callback(Action, Callbacks, [Callback | Acc]).
 
