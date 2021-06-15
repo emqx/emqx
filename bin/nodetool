@@ -317,7 +317,7 @@ add_libs_dir() ->
 
 add_lib_dir(RootDir, Name, Vsn) ->
     LibDir = filename:join([RootDir, lib, atom_to_list(Name) ++ "-" ++ Vsn, ebin]),
-    case code:add_pathz(LibDir) of
+    case code:add_patha(LibDir) of
         true -> ok;
         {error, _} -> error(LibDir)
     end.
