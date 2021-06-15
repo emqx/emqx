@@ -44,7 +44,7 @@ on_jsonify(Config) ->
     Config.
 
 %% ===================================================================
-on_start(InstId, #{servers := Servers,
+on_start(InstId, #{servers := Servers0,
                    port := Port,
                    bind_dn := BindDn,
                    bind_password :=  BindPassword,
@@ -52,6 +52,7 @@ on_start(InstId, #{servers := Servers,
                    pool_size := PoolSize,
                    auto_reconnect := AutoReconn} = Config) ->
     logger:info("starting redis connector: ~p, config: ~p", [InstId, Config]),
+    Servers = [begin proplists:get_value(host, S) end || S <- Servers0],
     SslOpts = init_ssl_opts(Config, InstId),
     Opts = [{servers, Servers},
             {port, Port},
@@ -102,8 +103,14 @@ connect(Opts) ->
     Timeout      = proplists:get_value(timeout, Opts, 30),
     BindDn       = proplists:get_value(bind_dn, Opts),
     BindPassword = proplists:get_value(bind_password, Opts),
-    SslOpts = proplists:get_value(sslopts, Opts),
-    LdapOpts = [{port, Port}, {timeout, Timeout}] ++ SslOpts,
+    SslOpts = case proplists:get_value(ssl, Opts, false) of
+        true ->
+            [{sslopts, proplists:get_value(sslopts, Opts, [])}, {ssl, true}];
+        false ->
+            [{ssl, false}]
+    end,
+    LdapOpts = [{port, Port},
+                {timeout, Timeout}] ++ SslOpts,
     {ok, LDAP} = eldap2:open(Servers, LdapOpts),
     ok = eldap2:simple_bind(LDAP, BindDn, BindPassword),
     {ok, LDAP}.

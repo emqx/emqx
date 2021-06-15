@@ -28,12 +28,14 @@
         , on_query/4
         , on_health_check/2
         , on_jsonify/1
-        , cmd/2
         ]).
 
 -export([do_health_check/1]).
 
 -export([connect/1]).
+
+-export([cmd/3]).
+
 %%=====================================================================
 schema() ->
     redis_fields() ++
@@ -98,10 +100,10 @@ do_health_check(Conn) ->
 reconn_interval(true) -> 15;
 reconn_interval(false) -> false.
 
-cmd(cluster, Command) ->
-    eredis_cluster:q(Command);
-cmd(_Type, Command) ->
-    eredis:q(Command).
+cmd(Conn, cluster, Command) ->
+    eredis_cluster:q(Conn, Command);
+cmd(Conn, _Type, Command) ->
+    eredis:q(Conn, Command).
 
 %% ===================================================================
 connect(Opts) ->

@@ -53,8 +53,8 @@ on_start(InstId, #{server := {Host, Port},
     logger:info("starting postgresql connector: ~p, config: ~p", [InstId, Config]),
     SslOpts = case maps:get(ssl, Config) of
         true ->
-            [{ssl, [{server_name_indication, disable} |
-                    emqx_plugin_libs_ssl:save_files_return_opts(Config, "connectors", InstId)]}];
+            [{ssl_opts, [{server_name_indication, disable} |
+                         emqx_plugin_libs_ssl:save_files_return_opts(Config, "connectors", InstId)]}];
         false ->
             []
     end,
@@ -94,8 +94,28 @@ do_health_check(Conn) ->
 reconn_interval(true) -> 15;
 reconn_interval(false) -> false.
 
-connect(Options) ->
-    epgsql:start_link(Options).
+connect(Opts) ->
+    Host     = proplists:get_value(host, Opts),
+    Username = proplists:get_value(username, Opts),
+    Password = proplists:get_value(password, Opts),
+    epgsql:connect(Host, Username, Password, conn_opts(Opts)).
 
 query(Conn, SQL) ->
     epgsql:squery(Conn, SQL).
+
+conn_opts(Opts) ->
+    conn_opts(Opts, []).
+conn_opts([], Acc) ->
+    Acc;
+conn_opts([Opt = {database, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([Opt = {ssl, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([Opt = {port, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([Opt = {timeout, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([Opt = {ssl_opts, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([_Opt|Opts], Acc) ->
+    conn_opts(Opts, Acc).
