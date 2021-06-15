@@ -21,13 +21,13 @@
 
 %% API functions
 -export([ start_link/0
-        , start_handler/2
+        , start_handler/3
         , update_config/2
+        , child_spec/2
         ]).
 
 %% emqx_config_handler callbacks
 -export([ handle_update_config/2
-        , config_key_path/0
         ]).
 
 %% gen_server callbacks
@@ -39,24 +39,35 @@
          code_change/3]).
 
 -type config() :: term().
--type config_map() :: #{atom() => config()}.
+-type config_map() :: #{atom() => config()} | [config_map()].
 -type handler_name() :: module().
 -type key_path() :: [atom()].
 
-%% the path of the config that maintained by the (sub) handler.
--callback config_key_path() -> key_path().
+-optional_callbacks([handle_update_config/2]).
 
 -callback handle_update_config(config(), config_map()) -> config_map().
 
--record(state, {handler_name :: handler_name(), parent :: handler_name()}).
+-record(state, {
+    handler_name :: handler_name(),
+    parent :: handler_name(),
+    key_path :: key_path()
+}).
 
 start_link() ->
-    start_handler(?MODULE, top).
+    start_handler(?MODULE, top, []).
 
--spec start_handler(handler_name(), handler_name()) ->
+-spec start_handler(handler_name(), handler_name(), key_path()) ->
     {ok, pid()} | {error, {already_started, pid()}} | {error, term()}.
-start_handler(HandlerName, Parent) ->
-    gen_server:start_link({local, HandlerName}, ?MODULE, {HandlerName, Parent}, []).
+start_handler(HandlerName, Parent, ConfKeyPath) ->
+    gen_server:start_link({local, HandlerName}, ?MODULE, {HandlerName, Parent, ConfKeyPath}, []).
+
+-spec child_spec(module(), key_path()) -> supervisor:child_spec().
+child_spec(Mod, KeyPath) ->
+    #{id => Mod,
+      start => {?MODULE, start_handler, [Mod, ?MODULE, KeyPath]},
+      restart => permanent,
+      type => worker,
+      modules => [?MODULE]}.
 
 -spec update_config(handler_name(), config()) -> ok.
 update_config(top, Config) ->
@@ -67,28 +78,29 @@ update_config(Handler, Config) ->
 
 %%============================================================================
 %% callbacks of emqx_config_handler (the top-level handler)
-config_key_path() -> [].
-
 handle_update_config(Config, undefined) ->
     handle_update_config(Config, #{});
 handle_update_config(Config, OldConfigMap) ->
     %% simply merge the config to the overall config
     maps:merge(OldConfigMap, Config).
 
-init({HandlerName, Parent}) ->
-    {ok, #state{handler_name = HandlerName, parent = Parent}}.
+init({HandlerName, Parent, ConfKeyPath}) ->
+    {ok, #state{handler_name = HandlerName, parent = Parent, key_path = ConfKeyPath}}.
 
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
 
 handle_cast({handle_update_config, Config}, #state{handler_name = HandlerName,
-        parent = Parent} = State) ->
+        parent = Parent, key_path = ConfKeyPath} = State) ->
     %% accumulate the config map of this config handler
-    OldConfigMap = emqx_config:get(HandlerName:config_key_path(), undefined),
-    AccConfig = HandlerName:handle_update_config(Config, OldConfigMap),
+    OldConfigMap = emqx_config:get(ConfKeyPath, undefined),
+    SubConfigMap = case erlang:function_exported(HandlerName, handle_update_config, 2) of
+        true -> HandlerName:handle_update_config(Config, OldConfigMap);
+        false -> wrap_sub_config(ConfKeyPath, Config)
+    end,
     %% then notify the parent handler
-    update_config(Parent, AccConfig),
+    update_config(Parent, SubConfigMap),
     {noreply, State};
 
 handle_cast(_Msg, State) ->
@@ -114,3 +126,6 @@ save_config_to_disk(ConfigMap) ->
 emqx_data_dir() ->
     %emqx_config:get([node, data_dir])
     "data".
+
+wrap_sub_config(ConfKeyPath, Config) ->
+    emqx_config:deep_put(ConfKeyPath, #{}, Config).
