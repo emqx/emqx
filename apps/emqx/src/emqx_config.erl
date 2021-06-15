@@ -20,7 +20,9 @@
 -export([ get/0
         , get/2
         , put/1
+        , put/2
         , deep_get/3
+        , deep_put/3
         ]).
 
 -spec get() -> term().
@@ -31,6 +33,7 @@ get() ->
 get(KeyPath, Default) ->
     deep_get(KeyPath, get(), Default).
 
+-spec deep_get([atom()], map(), term()) -> term().
 deep_get([], Map, _Default) ->
     Map;
 deep_get([Key | KeyPath], Map, Default) when is_map(Map) ->
@@ -41,5 +44,17 @@ deep_get([Key | KeyPath], Map, Default) when is_map(Map) ->
 deep_get([_Key | _KeyPath], _Map, Default) ->
     Default.
 
+-spec put(term()) -> ok.
 put(Config) ->
     persistent_term:put(?MODULE, Config).
+
+-spec put([atom()], term()) -> ok.
+put(KeyPath, Config) ->
+    put(deep_put(KeyPath, get(), Config)).
+
+-spec deep_put([atom()], map(), term()) -> ok.
+deep_put([], Map, Config) when is_map(Map) ->
+    Config;
+deep_put([Key | KeyPath], Map, Config) ->
+    SubMap = deep_put(KeyPath, maps:get(Key, Map, #{}), Config),
+    Map#{Key => SubMap}.
