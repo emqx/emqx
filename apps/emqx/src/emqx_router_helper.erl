@@ -53,6 +53,8 @@
 -define(ROUTING_NODE, emqx_routing_node).
 -define(LOCK, {?MODULE, cleanup_routes}).
 
+-rlog_shard({?ROUTE_SHARD, ?ROUTING_NODE}).
+
 -dialyzer({nowarn_function, [cleanup_routes/1]}).
 
 %%--------------------------------------------------------------------
@@ -87,7 +89,7 @@ monitor(Node) when is_atom(Node) ->
     case ekka:is_member(Node)
          orelse ets:member(?ROUTING_NODE, Node) of
         true  -> ok;
-        false -> mnesia:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
+        false -> ekka_mnesia:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
     end.
 
 %%--------------------------------------------------------------------
@@ -136,9 +138,9 @@ handle_info({mnesia_table_event, Event}, State) ->
 handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
     global:trans({?LOCK, self()},
                  fun() ->
-                     mnesia:transaction(fun cleanup_routes/1, [Node])
+                     ekka_mnesia:transaction(fun cleanup_routes/1, [Node])
                  end),
-    ok = mnesia:dirty_delete(?ROUTING_NODE, Node),
+    ok = ekka_mnesia:dirty_delete(?ROUTING_NODE, Node),
     {noreply, State#{nodes := lists:delete(Node, Nodes)}, hibernate};
 
 handle_info({membership, {mnesia, down, Node}}, State) ->
@@ -176,4 +178,3 @@ cleanup_routes(Node) ->
                 #route{_ = '_', dest = {'_', Node}}],
     [mnesia:delete_object(?ROUTE, Route, write)
      || Pat <- Patterns, Route <- mnesia:match_object(?ROUTE, Pat, write)].
-

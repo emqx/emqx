@@ -69,6 +69,7 @@
 -type(dest() :: node() | {group(), node()}).
 
 -define(ROUTE_TAB, emqx_route).
+-rlog_shard({?ROUTE_SHARD, ?ROUTE_TAB}).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -225,7 +226,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 insert_direct_route(Route) ->
-    mnesia:async_dirty(fun mnesia:write/3, [?ROUTE_TAB, Route, sticky_write]).
+    ekka_mnesia:dirty_write(?ROUTE_TAB, Route).
 
 insert_trie_route(Route = #route{topic = Topic}) ->
     case mnesia:wread({?ROUTE_TAB, Topic}) of
@@ -235,7 +236,7 @@ insert_trie_route(Route = #route{topic = Topic}) ->
     mnesia:write(?ROUTE_TAB, Route, sticky_write).
 
 delete_direct_route(Route) ->
-    mnesia:async_dirty(fun mnesia:delete_object/3, [?ROUTE_TAB, Route, sticky_write]).
+    ekka_mnesia:dirty_delete_object(?ROUTE_TAB, Route).
 
 delete_trie_route(Route = #route{topic = Topic}) ->
     case mnesia:wread({?ROUTE_TAB, Topic}) of
@@ -254,6 +255,8 @@ maybe_trans(Fun, Args) ->
         key ->
             trans(Fun, Args);
         global ->
+            %% Assert:
+            mnesia = ekka_rlog:backend(), %% TODO: do something smarter than just crash
             lock_router(),
             try mnesia:sync_dirty(Fun, Args)
             after
@@ -278,7 +281,7 @@ trans(Fun, Args) ->
             %% Future changes should keep in mind that this process
             %% always exit with database write result.
             fun() ->
-                    Res = case mnesia:transaction(Fun, Args) of
+                    Res = case ekka_mnesia:transaction(?ROUTE_SHARD, Fun, Args) of
                               {atomic, Ok} -> Ok;
                               {aborted, Reason} -> {error, Reason}
                           end,
