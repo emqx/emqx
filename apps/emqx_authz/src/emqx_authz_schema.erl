@@ -1,4 +1,4 @@
--module(emqx_authorization_schema).
+-module(emqx_authz_schema).
 
 -include_lib("typerefl/include/types.hrl").
 

@@ -13,12 +13,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authorization_api_SUITE).
+-module(emqx_authz_api_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_authorization.hrl").
+-include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -41,13 +41,13 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = emqx_ct_helpers:start_apps([emqx_management, emqx_authorization], fun set_special_configs/1),
+    ok = emqx_ct_helpers:start_apps([emqx_management, emqx_authz], fun set_special_configs/1),
     create_default_app(),
     Config.
 
 end_per_suite(_Config) ->
     delete_default_app(),
-    emqx_ct_helpers:stop_apps([emqx_authorization, emqx_management]).
+    emqx_ct_helpers:stop_apps([emqx_authz, emqx_management]).
 
 set_special_configs(emqx) ->
     application:set_env(emqx, allow_anonymous, true),
@@ -67,11 +67,11 @@ t_api(_Config) ->
                                     #{<<"clientid">> => <<"^test?">>}
                                    ]},
               <<"action">> => <<"sub">>,
-              <<"topics">> => <<"%u">>,
+              <<"topics">> => [<<"%u">>],
               <<"access">> => <<"allow">>
             },
-    {ok, _} = request_http_rest_add(["authorization/push"], #{rules => [Rule1]}),
-    {ok, Result1} = request_http_rest_lookup(["authorization"]),
+    {ok, _} = request_http_rest_add(["authz/push"], #{rules => [Rule1]}),
+    {ok, Result1} = request_http_rest_lookup(["authz"]),
     ?assertMatch([Rule1 | _ ], get_http_data(Result1)),
 
     Rule2 = #{<<"principal">> => #{<<"ipaddress">> => <<"127.0.0.1">>},
@@ -81,12 +81,12 @@ t_api(_Config) ->
                               ],
               <<"access">> => <<"deny">>
             },
-    {ok, _} = request_http_rest_add(["authorization/append"], #{rules => [Rule2]}),
-    {ok, Result2} = request_http_rest_lookup(["authorization"]),
+    {ok, _} = request_http_rest_add(["authz/append"], #{rules => [Rule2]}),
+    {ok, Result2} = request_http_rest_lookup(["authz"]),
     ?assertEqual(Rule2, lists:last(get_http_data(Result2))),
 
-    {ok, _} = request_http_rest_update(["authorization"], #{rules => []}),
-    {ok, Result3} = request_http_rest_lookup(["authorization"]),
+    {ok, _} = request_http_rest_update(["authz"], #{rules => []}),
+    {ok, Result3} = request_http_rest_lookup(["authz"]),
     ?assertEqual([], get_http_data(Result3)),
     ok.
 

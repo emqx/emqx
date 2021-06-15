@@ -14,9 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authorization_mysql).
+-module(emqx_authz_mysql).
 
--include("emqx_authorization.hrl").
+-include("emqx_authz.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -59,7 +59,7 @@ match(Client, PubSub, Topic, [Access, IpAddr, Username, ClientId, Action, TopicF
              <<"action">> => action(Action),
              <<"access">> =>  access(Access)
             },
-    case emqx_authorization:match(Client, PubSub, Topic, emqx_authorization:compile(Rule)) of
+    case emqx_authz:match(Client, PubSub, Topic, emqx_authz:compile(Rule)) of
         true -> {matched, access(Access)};
         false -> nomatch
     end.

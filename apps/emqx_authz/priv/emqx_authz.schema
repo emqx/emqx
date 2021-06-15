@@ -1,7 +1,7 @@
 %%-*- mode: erlang -*-
 %% emqx_data_bridge config mapping
 
-{mapping, "emqx_authorization.rules", "emqx_authorization.rules", [
+{mapping, "emqx_authz.rules", "emqx_authz.rules", [
   {default, []},
   {datatype, string}
 ]}.

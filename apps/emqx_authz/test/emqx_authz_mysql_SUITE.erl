@@ -18,7 +18,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_authorization.hrl").
+-include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -29,11 +29,11 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = emqx_ct_helpers:start_apps([emqx_authorization], fun set_special_configs/1),
+    ok = emqx_ct_helpers:start_apps([emqx_authz], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_authorization]).
+    emqx_ct_helpers:stop_apps([emqx_authz]).
 
 set_special_configs(emqx) ->
     application:set_env(emqx, allow_anonymous, true),
@@ -51,7 +51,7 @@ set_special_configs(_App) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_authorization(_) ->
+t_authz(_) ->
     ClientInfo1 = #{clientid => <<"test">>,
                     username => <<"test">>,
                     peerhost => {127,0,0,1}
@@ -65,27 +65,27 @@ t_authorization(_) ->
                    },
 
     ?assertEqual(nomatch,
-        emqx_authorization_mysql:do_check_authz(
+        emqx_authz_mysql:do_check_authz(
             #{}, subscribe, <<"#">>, []
          )),
     ?assertEqual({matched, deny},
-        emqx_authorization_mysql:do_check_authz(
+        emqx_authz_mysql:do_check_authz(
           ClientInfo1, subscribe, <<"+">>, ?RULE1 ++ ?RULE2
          )),
     ?assertEqual({matched, allow},
-        emqx_authorization_mysql:do_check_authz(
+        emqx_authz_mysql:do_check_authz(
           ClientInfo1, subscribe, <<"#">>, ?RULE2 ++ ?RULE1
          )),
     ?assertEqual({matched, deny},
-        emqx_authorization_mysql:do_check_authz(
+        emqx_authz_mysql:do_check_authz(
           ClientInfo2, subscribe, <<"#">>, ?RULE2 ++ ?RULE1
          )),
     ?assertEqual({matched, allow},
-        emqx_authorization_mysql:do_check_authz(
+        emqx_authz_mysql:do_check_authz(
           ClientInfo2, publish, <<"test">>, ?RULE3
          )),
     ?assertEqual(nomatch,
-        emqx_authorization_mysql:do_check_authz(
+        emqx_authz_mysql:do_check_authz(
           ClientInfo3, publish, <<"test">>, ?RULE3
          )),
     ok.

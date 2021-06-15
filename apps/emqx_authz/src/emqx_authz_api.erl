@@ -14,60 +14,60 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authorization_api).
+-module(emqx_authz_api).
 
--include("emqx_authorization.hrl").
+-include("emqx_authz.hrl").
 
--rest_api(#{name   => lookup_authorization,
+-rest_api(#{name   => lookup_authz,
             method => 'GET',
-            path   => "/authorization",
-            func   => lookup_authorization,
+            path   => "/authz",
+            func   => lookup_authz,
             descr  => "Lookup Authorization"
            }).
 
--rest_api(#{name   => update_authorization,
+-rest_api(#{name   => update_authz,
             method => 'PUT',
-            path   => "/authorization",
-            func   => update_authorization,
-            descr  => "Rewrite authorization list"
+            path   => "/authz",
+            func   => update_authz,
+            descr  => "Rewrite authz list"
            }).
 
--rest_api(#{name   => append_authorization,
+-rest_api(#{name   => append_authz,
             method => 'POST',
-            path   => "/authorization/append",
-            func   => append_authorization,
-            descr  => "Add a new rule at the end of the authorization list"
+            path   => "/authz/append",
+            func   => append_authz,
+            descr  => "Add a new rule at the end of the authz list"
            }).
 
--rest_api(#{name   => push_authorization,
+-rest_api(#{name   => push_authz,
             method => 'POST',
-            path   => "/authorization/push",
-            func   => push_authorization,
-            descr  => "Add a new rule at the start of the authorization list"
+            path   => "/authz/push",
+            func   => push_authz,
+            descr  => "Add a new rule at the start of the authz list"
            }).
 
--export([ lookup_authorization/2
-        , update_authorization/2
-        , append_authorization/2
-        , push_authorization/2
+-export([ lookup_authz/2
+        , update_authz/2
+        , append_authz/2
+        , push_authz/2
         ]).
 
-lookup_authorization(_Bindings, _Params) ->
-    minirest:return({ok, emqx_authorization:lookup()}).
+lookup_authz(_Bindings, _Params) ->
+    minirest:return({ok, emqx_authz:lookup()}).
 
-update_authorization(_Bindings, Params) ->
+update_authz(_Bindings, Params) ->
     Rules = get_rules(Params),
-    minirest:return(emqx_authorization:update(Rules)).
+    minirest:return(emqx_authz:update(Rules)).
 
-append_authorization(_Bindings, Params) ->
+append_authz(_Bindings, Params) ->
     Rules = get_rules(Params),
-    NRules = lists:append(emqx_authorization:lookup(), Rules),
-    minirest:return(emqx_authorization:update(NRules)).
+    NRules = lists:append(emqx_authz:lookup(), Rules),
+    minirest:return(emqx_authz:update(NRules)).
 
-push_authorization(_Bindings, Params) ->
+push_authz(_Bindings, Params) ->
     Rules = get_rules(Params),
-    NRules = lists:append(Rules, emqx_authorization:lookup()),
-    minirest:return(emqx_authorization:update(NRules)).
+    NRules = lists:append(Rules, emqx_authz:lookup()),
+    minirest:return(emqx_authz:update(NRules)).
 
 %%------------------------------------------------------------------------------
 %% Interval Funcs
@@ -75,7 +75,7 @@ push_authorization(_Bindings, Params) ->
 
 get_rules(Params) ->
     {ok, Conf} = hocon:binary(jsx:encode(Params), #{format => richmap}),
-    CheckConf = hocon_schema:check(emqx_authorization_schema, Conf),
+    CheckConf = hocon_schema:check(emqx_authz_schema, Conf),
     #{<<"rules">> := Rules} = hocon_schema:richmap_to_map(CheckConf),
     Rules.
 

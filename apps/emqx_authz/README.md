@@ -1,4 +1,4 @@
-emqx_authorization
+emqx_authz
 =====
 
 An OTP application

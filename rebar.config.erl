@@ -243,7 +243,7 @@ relx_apps(ReleaseType) ->
     , {mnesia, load}
     , {ekka, load}
     , {emqx_plugin_libs, load}
-    , {emqx_authorization, load}
+    , {emqx_authz, load}
     , observer_cli
     , emqx_http_lib
     , emqx_resource
@@ -284,7 +284,7 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_auth_mysql
     , emqx_auth_jwt
     , emqx_auth_mnesia
-    , emqx_authorization
+    , emqx_authz
     , emqx_web_hook
     , emqx_recon
     , emqx_rule_engine

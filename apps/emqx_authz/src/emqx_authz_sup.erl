@@ -1,9 +1,9 @@
 %%%-------------------------------------------------------------------
-%% @doc emqx_authorization top level supervisor.
+%% @doc emqx_authz top level supervisor.
 %% @end
 %%%-------------------------------------------------------------------
 
--module(emqx_authorization_sup).
+-module(emqx_authz_sup).
 
 -behaviour(supervisor).
 

@@ -1,9 +1,9 @@
--module(emqx_authorization_resource).
+-module(emqx_authz_resource).
 
--include("emqx_authorization.hrl").
+-include("emqx_authz.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
--emqx_resource_api_path("/authorization").
+-emqx_resource_api_path("/authz").
 
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
@@ -13,16 +13,16 @@
 
 %% callbacks for emqx_resource config schema
 -export([fields/1]).
--export([check_authorization/4]).
+-export([check_authz/4]).
 
 fields(ConfPath) ->
-    emqx_authorization_schema:fields(ConfPath).
+    emqx_authz_schema:fields(ConfPath).
 
 on_start(_InstId, Config) ->
     io:format("Rules: ================++~p~n",[Config]),
     % Rules = maps:get(relus, Config, []),
     NRules = [compile(Rule) || Rule <- Config],
-    ok = emqx_hooks:add('client.check_acl', {?MODULE, check_authorization, [NRules]},  -1),
+    ok = emqx_hooks:add('client.check_acl', {?MODULE, check_authz, [NRules]},  -1),
     {ok, #{}}.
 
 on_stop(_InstId, _State) ->
@@ -37,7 +37,7 @@ on_health_check(_InstId, State) -> {ok, State}.
 
 find_action_in_hooks() ->
     Callbacks = emqx_hooks:lookup('client.check_acl'),
-    [Action] = [Action || {callback,{?MODULE, check_authorization, _} = Action, _, _} <- Callbacks ],
+    [Action] = [Action || {callback,{?MODULE, check_authz, _} = Action, _, _} <- Callbacks ],
     Action.
 
 -spec(compile(rule()) -> rule()).
@@ -87,15 +87,15 @@ bin(B) when is_binary(B) ->
 %%--------------------------------------------------------------------
 
 %% @doc Check ACL
--spec(check_authorization(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_topic:topic(),rules())
+-spec(check_authz(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_topic:topic(),rules())
       -> {matched, allow} | {matched, deny} | {nomatch, deny}).
-check_authorization(Client, PubSub, Topic,
+check_authz(Client, PubSub, Topic,
                     [Rule = #{<<"access">> := Access} | Tail]) ->
     case match(Client, PubSub, Topic, Rule) of
         true -> {matched, binary_to_existing_atom(Access, utf8)};
-        false -> check_authorization(Client, PubSub, Topic, Tail)
+        false -> check_authz(Client, PubSub, Topic, Tail)
     end;
-check_authorization(_Client, _PubSub, _Topic, []) ->
+check_authz(_Client, _PubSub, _Topic, []) ->
     {nomatch, deny}.
 
 match(Client, PubSub, Topic,

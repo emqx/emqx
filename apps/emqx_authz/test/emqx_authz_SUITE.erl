@@ -13,12 +13,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authorization_SUITE).
+-module(emqx_authz_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_authorization.hrl").
+-include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -29,11 +29,11 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = emqx_ct_helpers:start_apps([emqx_authorization], fun set_special_configs/1),
+    ok = emqx_ct_helpers:start_apps([emqx_authz], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_authorization]).
+    emqx_ct_helpers:stop_apps([emqx_authz]).
 
 set_special_configs(emqx) ->
     application:set_env(emqx, allow_anonymous, true),
@@ -83,14 +83,14 @@ t_compile(_) ->
                    <<"action">> => pubsub,
                    <<"principal">> => all,
                    <<"topics">> => [['#']]
-                  },emqx_authorization:compile(?RULE1)),
+                  },emqx_authz:compile(?RULE1)),
     ?assertEqual(#{<<"access">> => allow,
                    <<"action">> => pubsub,
                    <<"principal">> =>
                         #{<<"ipaddress">> => {{127,0,0,1},{127,0,0,1},32}},
                    <<"topics">> => [#{<<"eq">> => ['#']},
                                     #{<<"eq">> => ['+']}]
-                  }, emqx_authorization:compile(?RULE2)),
+                  }, emqx_authz:compile(?RULE2)),
     ?assertMatch(
        #{<<"access">> := allow,
          <<"action">> := pub,
@@ -100,7 +100,7 @@ t_compile(_) ->
                                ]
                  },
          <<"topics">> := [[<<"test">>]]
-        }, emqx_authorization:compile(?RULE3)),
+        }, emqx_authz:compile(?RULE3)),
     ?assertMatch(
        #{<<"access">> := deny,
          <<"action">> := pub,
@@ -112,10 +112,10 @@ t_compile(_) ->
               <<"topics">> := [#{<<"pattern">> := [<<"%u">>]},
                                #{<<"pattern">> := [<<"%c">>]}
                               ]
-        }, emqx_authorization:compile(?RULE4)),
+        }, emqx_authz:compile(?RULE4)),
     ok.
 
-t_authorization(_) ->
+t_authz(_) ->
     ClientInfo1 = #{clientid => <<"test">>,
                     username => <<"test">>,
                     peerhost => {127,0,0,1}
@@ -131,29 +131,29 @@ t_authorization(_) ->
                     username => <<"test">>
                    },
 
-    Rules1 = [emqx_authorization:compile(Rule) || Rule <- [?RULE1, ?RULE2]],
-    Rules2 = [emqx_authorization:compile(Rule) || Rule <- [?RULE2, ?RULE1]],
-    Rules3 = [emqx_authorization:compile(Rule) || Rule <- [?RULE3, ?RULE4]],
-    Rules4 = [emqx_authorization:compile(Rule) || Rule <- [?RULE4, ?RULE1]],
+    Rules1 = [emqx_authz:compile(Rule) || Rule <- [?RULE1, ?RULE2]],
+    Rules2 = [emqx_authz:compile(Rule) || Rule <- [?RULE2, ?RULE1]],
+    Rules3 = [emqx_authz:compile(Rule) || Rule <- [?RULE3, ?RULE4]],
+    Rules4 = [emqx_authz:compile(Rule) || Rule <- [?RULE4, ?RULE1]],
 
     ?assertEqual(deny,
-        emqx_authorization:check_authorization(#{}, subscribe, <<"#">>, deny, [])),
-    ?assertEqual({ok, deny},
-        emqx_authorization:check_authorization(ClientInfo1, subscribe, <<"+">>, deny, Rules1)),
-    ?assertEqual({ok, allow},
-        emqx_authorization:check_authorization(ClientInfo1, subscribe, <<"+">>, deny, Rules2)),
-    ?assertEqual({ok, allow},
-        emqx_authorization:check_authorization(ClientInfo1, publish, <<"test">>, deny, Rules3)),
-    ?assertEqual({ok, deny},
-        emqx_authorization:check_authorization(ClientInfo1, publish, <<"test">>, deny, Rules4)),
-    ?assertEqual({ok, deny},
-        emqx_authorization:check_authorization(ClientInfo2, subscribe, <<"#">>, deny, Rules2)),
-    ?assertEqual({ok, deny},
-        emqx_authorization:check_authorization(ClientInfo3, publish, <<"test">>, deny, Rules3)),
-    ?assertEqual({ok, deny},
-        emqx_authorization:check_authorization(ClientInfo3, publish, <<"fake">>, deny, Rules4)),
-    ?assertEqual({ok, deny},
-        emqx_authorization:check_authorization(ClientInfo4, publish, <<"test">>, deny, Rules3)),
-    ?assertEqual({ok, deny},
-        emqx_authorization:check_authorization(ClientInfo4, publish, <<"fake">>, deny, Rules4)),
+        emqx_authz:check_authz(#{}, subscribe, <<"#">>, deny, [])),
+    ?assertEqual({stop, deny},
+        emqx_authz:check_authz(ClientInfo1, subscribe, <<"+">>, deny, Rules1)),
+    ?assertEqual({stop, allow},
+        emqx_authz:check_authz(ClientInfo1, subscribe, <<"+">>, deny, Rules2)),
+    ?assertEqual({stop, allow},
+        emqx_authz:check_authz(ClientInfo1, publish, <<"test">>, deny, Rules3)),
+    ?assertEqual({stop, deny},
+        emqx_authz:check_authz(ClientInfo1, publish, <<"test">>, deny, Rules4)),
+    ?assertEqual({stop, deny},
+        emqx_authz:check_authz(ClientInfo2, subscribe, <<"#">>, deny, Rules2)),
+    ?assertEqual({stop, deny},
+        emqx_authz:check_authz(ClientInfo3, publish, <<"test">>, deny, Rules3)),
+    ?assertEqual({stop, deny},
+        emqx_authz:check_authz(ClientInfo3, publish, <<"fake">>, deny, Rules4)),
+    ?assertEqual({stop, deny},
+        emqx_authz:check_authz(ClientInfo4, publish, <<"test">>, deny, Rules3)),
+    ?assertEqual({stop, deny},
+        emqx_authz:check_authz(ClientInfo4, publish, <<"fake">>, deny, Rules4)),
     ok.

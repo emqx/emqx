@@ -14,16 +14,16 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authorization).
+-module(emqx_authz).
 
--include("emqx_authorization.hrl").
+-include("emqx_authz.hrl").
 
 -export([ register_metrics/0
         , init/0
         , compile/1
         , lookup/0
         , update/1
-        , check_authorization/5
+        , check_authz/5
         , match/4
         ]).
 
@@ -33,14 +33,14 @@ register_metrics() ->
 
 init() ->
     ok = register_metrics(),
-    % {ok, Conf} = hocon:load("etc/plugins/emqx_authorization.conf",#{format => richmap}),
+    % {ok, Conf} = hocon:load("etc/plugins/emqx_authz.conf",#{format => richmap}),
     RawConf = proplists:get_value(rules, application:get_all_env(?APP), []),
     {ok, MapConf} = hocon:binary(jsx:encode(#{rules => RawConf}), #{format => richmap}),
-    CheckConf = hocon_schema:check(emqx_authorization_schema, MapConf),
+    CheckConf = hocon_schema:check(emqx_authz_schema, MapConf),
     #{<<"rules">> := Rules} = hocon_schema:richmap_to_map(CheckConf),
     ok = application:set_env(?APP, rules, Rules),
     NRules = [compile(Rule) || Rule <- Rules],
-    ok = emqx_hooks:add('client.check_acl', {?MODULE, check_authorization, [NRules]},  -1).
+    ok = emqx_hooks:add('client.check_acl', {?MODULE, check_authz, [NRules]},  -1).
 
 lookup() ->
     application:get_env(?APP, rules, []).
@@ -50,7 +50,7 @@ update(Rules) ->
     NRules = [compile(Rule) || Rule <- Rules],
     Action = find_action_in_hooks(),
     ok = emqx_hooks:del('client.check_acl', Action),
-    ok = emqx_hooks:add('client.check_acl', {?MODULE, check_authorization, [NRules]},  -1),
+    ok = emqx_hooks:add('client.check_acl', {?MODULE, check_authz, [NRules]},  -1),
     ok = emqx_acl_cache:empty_acl_cache().
 
 %%--------------------------------------------------------------------
@@ -59,7 +59,7 @@ update(Rules) ->
 
 find_action_in_hooks() ->
     Callbacks = emqx_hooks:lookup('client.check_acl'),
-    [Action] = [Action || {callback,{?MODULE, check_authorization, _} = Action, _, _} <- Callbacks ],
+    [Action] = [Action || {callback,{?MODULE, check_authz, _} = Action, _, _} <- Callbacks ],
     Action.
 
 -spec(compile(rule()) -> rule()).
@@ -131,9 +131,9 @@ bin(B) when is_binary(B) ->
 %%--------------------------------------------------------------------
 
 %% @doc Check ACL
--spec(check_authorization(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_topic:topic(), emqx_access_rule:acl_result(), rules())
+-spec(check_authz(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_topic:topic(), emqx_access_rule:acl_result(), rules())
       -> {ok, allow} | {ok, deny} | deny).
-check_authorization(Client, PubSub, Topic, DefaultResult, Rules) ->
+check_authz(Client, PubSub, Topic, DefaultResult, Rules) ->
     case do_check_authz(Client, PubSub, Topic, Rules) of
         {matched, allow} -> emqx_metrics:inc(?ACL_METRICS(allow)), {stop, allow};
         {matched, deny}  -> emqx_metrics:inc(?ACL_METRICS(deny)),  {stop, deny};
@@ -144,7 +144,7 @@ do_check_authz(Client, PubSub, Topic,
                [Connector = #{<<"principal">> := Principal,
                               <<"type">> := <<"mysql">>} | Tail] ) ->
     case match_principal(Client, Principal) of
-        true -> emqx_authorization_mysql:check_authz(Client, PubSub, Topic, Connector);
+        true -> emqx_authz_mysql:check_authz(Client, PubSub, Topic, Connector);
         false -> do_check_authz(Client, PubSub, Topic, Tail)
     end;
 do_check_authz(Client, PubSub, Topic,
