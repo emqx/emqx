@@ -1,6 +1,5 @@
 -module(emqx_schema).
 
-% tmp
 -dialyzer(no_return).
 -dialyzer(no_match).
 -dialyzer(no_contracts).
@@ -106,14 +105,14 @@ fields("rlog") ->
     ];
 
 fields("node") ->
-    [ {"name", t(string(), "vm_args.-name", "emqx@127.0.0.1", "NODE_NAME")}
+    [ {"name", t(string(), "vm_args.-name", "emqx@127.0.0.1", "EMQX_NODE_NAME")}
     , {"ssl_dist_optfile", t(string(), "vm_args.-ssl_dist_optfile", undefined)}
-    , {"cookie", t(string(), "vm_args.-setcookie", "emqxsecretcookie", "NODE_COOKIE")}
+    , {"cookie", t(string(), "vm_args.-setcookie", "emqxsecretcookie", "EMQX_NODE_COOKIE")}
     , {"data_dir", t(string(), "emqx.data_dir", undefined)}
     , {"heartbeat", t(flag(), undefined, false)}
     , {"async_threads", t(range(1, 1024), "vm_args.+A", undefined)}
     , {"process_limit", t(integer(), "vm_args.+P", undefined)}
-    , {"max_ports", t(range(1024, 134217727), "vm_args.+Q", undefined, "MAX_PORTS")}
+    , {"max_ports", t(range(1024, 134217727), "vm_args.+Q", undefined, "EMQX_MAX_PORTS")}
     , {"dist_buffer_size", fun node__dist_buffer_size/1}
     , {"global_gc_interval", t(duration_s(), "emqx.global_gc_interval", undefined)}
     , {"fullsweep_after", t(non_neg_integer(),
@@ -204,7 +203,7 @@ fields("acl") ->
     ];
 
 fields("mqtt") ->
-    [ {"max_packet_size", t(bytesize(), "emqx.max_packet_size", "1MB", "MAX_PACKET_SIZE")}
+    [ {"max_packet_size", t(bytesize(), "emqx.max_packet_size", "1MB", "EMQX_MAX_PACKET_SIZE")}
     , {"max_clientid_len", t(integer(), "emqx.max_clientid_len", 65535)}
     , {"max_topic_levels", t(integer(), "emqx.max_topic_levels", 0)}
     , {"max_qos_allowed", t(range(0, 2), "emqx.max_qos_allowed", 2)}
@@ -1180,18 +1179,16 @@ ceiling(X) ->
 
 %% types
 
-t(T) ->
-    fun (type) -> T; (_) -> undefined end.
+t(Type) -> hoconsc:t(Type).
 
-t(T, M, D) ->
-    fun (type) -> T; (mapping) -> M; (default) -> D; (_) -> undefined end.
+t(Type, Mapping, Default) ->
+    hoconsc:t(Type, #{mapping => Mapping, default => Default}).
 
-t(T, M, D, O) ->
-    fun (type) -> T;
-        (mapping) -> M;
-        (default) -> D;
-        (override_env) -> O;
-        (_) -> undefined end.
+t(Type, Mapping, Default, OverrideEnv) ->
+    hoconsc:t(Type, #{ mapping => Mapping
+                     , default => Default
+                     , override_env => OverrideEnv
+                     }).
 
 ref(Field) ->
     fun (type) -> Field; (_) -> undefined end.
