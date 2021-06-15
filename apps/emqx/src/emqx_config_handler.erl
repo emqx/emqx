@@ -23,7 +23,7 @@
 -export([ start_link/0
         , start_handler/3
         , update_config/2
-        , child_spec/2
+        , child_spec/3
         ]).
 
 %% emqx_config_handler callbacks
@@ -40,7 +40,7 @@
 
 -type config() :: term().
 -type config_map() :: #{atom() => config()} | [config_map()].
--type handler_name() :: module().
+-type handler_name() :: module() | top.
 -type key_path() :: [atom()].
 
 -optional_callbacks([handle_update_config/2]).
@@ -61,10 +61,10 @@ start_link() ->
 start_handler(HandlerName, Parent, ConfKeyPath) ->
     gen_server:start_link({local, HandlerName}, ?MODULE, {HandlerName, Parent, ConfKeyPath}, []).
 
--spec child_spec(module(), key_path()) -> supervisor:child_spec().
-child_spec(Mod, KeyPath) ->
+-spec child_spec(module(), handler_name(), key_path()) -> supervisor:child_spec().
+child_spec(Mod, Parent, KeyPath) ->
     #{id => Mod,
-      start => {?MODULE, start_handler, [Mod, ?MODULE, KeyPath]},
+      start => {?MODULE, start_handler, [Mod, Parent, KeyPath]},
       restart => permanent,
       type => worker,
       modules => [?MODULE]}.
