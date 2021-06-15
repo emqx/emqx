@@ -361,9 +361,7 @@ fields("wss_listener_settings") ->
     lists:keydelete("high_watermark", 1, Settings);
 
 fields("quic_listener_settings") ->
-    Unsupported = [ "max_connections"
-                  , "max_conn_rate"
-                  , "active_n"
+    Unsupported = [ "active_n"
                   , "access"
                   , "proxy_protocol"
                   , "proxy_protocol_timeout"
@@ -381,8 +379,9 @@ fields("quic_listener_settings") ->
     lists:foldl(fun(K, Acc) ->
                         lists:keydelete(K, 1, Acc)
                 end,
-                [ {"certfile", t(string(), "emqx.certfile", undefined)}
-                , {"keyfile", t(string(), "emqx.keyfile", undefined)}
+                [ {"certfile", t(string(), undefined, undefined)}
+                , {"keyfile", t(string(), undefined, undefined)}
+                , {"ciphers", t(comma_separated_list(), undefined, "TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256,TLS_CHACHA20_POLY1305_SHA256")}
                 | fields("listener_settings")],
                 Unsupported);
 
