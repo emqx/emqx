@@ -122,7 +122,7 @@ channel_opts(Opts) ->
     Scheme = proplists:get_value(scheme, Opts),
     Host = proplists:get_value(host, Opts),
     Port = proplists:get_value(port, Opts),
-    SvrAddr = lists:flatten(io_lib:format("~s://~s:~w", [Scheme, Host, Port])),
+    SvrAddr = format_http_uri(Scheme, Host, Port),
     ClientOpts = case Scheme of
                      https ->
                          SslOpts = lists:keydelete(ssl, 1, proplists:get_value(ssl_options, Opts, [])),
@@ -132,6 +132,13 @@ channel_opts(Opts) ->
                      _ -> #{}
                  end,
     {SvrAddr, ClientOpts}.
+
+format_http_uri(Scheme, Host0, Port) ->
+    Host = case is_tuple(Host0) of
+               true -> inet:ntoa(Host0);
+               _ -> Host0
+           end,
+    lists:flatten(io_lib:format("~s://~s:~w", [Scheme, Host, Port])).
 
 -spec unload(server()) -> ok.
 unload(#server{name = Name, hookspec = HookSpecs}) ->
