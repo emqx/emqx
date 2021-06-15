@@ -64,6 +64,7 @@ on_start(InstId, #{<<"server">> := {Host, Port},
                    <<"auto_reconnect">> := AutoReconn,
                    <<"pool_size">> := PoolSize} = Config) ->
     logger:info("starting mysql connector: ~p, config: ~p", [InstId, Config]),
+    {ok, _} = application:ensure_all_started(mysql),
     SslOpts = case maps:get(<<"ssl">>, Config) of
         true ->
             [{ssl, [{server_name_indication, disable} |
