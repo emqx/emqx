@@ -198,9 +198,7 @@ hook(HookPoint, Action) ->
 hook(HookPoint, Action, Priority) when is_integer(Priority) ->
     emqx_hooks:add(HookPoint, Action, Priority);
 hook(HookPoint, Action, Filter) when is_function(Filter); is_tuple(Filter) ->
-    emqx_hooks:add(HookPoint, Action, Filter);
-hook(HookPoint, Action, InitArgs) when is_list(InitArgs) ->
-    emqx_hooks:add(HookPoint, Action, InitArgs).
+    emqx_hooks:add(HookPoint, Action, Filter).
 
 -spec(hook(emqx_hooks:hookpoint(), emqx_hooks:action(), emqx_hooks:filter(), integer())
       -> ok | {error, already_exists}).

@@ -56,13 +56,13 @@
 %%--------------------------------------------------------------------
 
 load(Env) ->
-    _ = emqx:hook('session.subscribed', fun ?MODULE:on_session_subscribed/3, []),
-    _ = emqx:hook('message.publish', fun ?MODULE:on_message_publish/2, [Env]),
+    _ = emqx:hook('session.subscribed', {?MODULE, on_session_subscribed, []}),
+    _ = emqx:hook('message.publish', {?MODULE, on_message_publish, [Env]}),
     ok.
 
 unload() ->
-    emqx:unhook('message.publish', fun ?MODULE:on_message_publish/2),
-    emqx:unhook('session.subscribed', fun ?MODULE:on_session_subscribed/3).
+    emqx:unhook('message.publish', {?MODULE, on_message_publish}),
+    emqx:unhook('session.subscribed', {?MODULE, on_session_subscribed}).
 
 on_session_subscribed(_, _, #{share := ShareName}) when ShareName =/= undefined ->
     ok;
