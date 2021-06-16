@@ -212,21 +212,33 @@ set_chan_stats(ClientId, ChanPid, Stats) ->
                 pendings => list()}}
        | {error, Reason :: term()}).
 open_session(true, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
+    EI = maps:get(expiry_interval, ConnInfo, 0),
     Self = self(),
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId),
                      Session = create_session(ClientInfo, ConnInfo),
+                     emqx_session:db_put(ClientId, EI, Session),
                      register_channel(ClientId, Self, ConnInfo),
                      {ok, #{session => Session, present => false}}
                  end,
     emqx_cm_locker:trans(ClientId, CleanStart);
 
 open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
+    EI = maps:get(expiry_interval, ConnInfo, 0),
     Self = self(),
     ResumeStart = fun(_) ->
                       case takeover_session(ClientId) of
+                          {ok, Session} ->
+                              %% TODO: Any messages in the mean time was lost.
+                              ok = emqx_session:resume(ClientInfo, Session),
+                              emqx_session:db_put(ClientId, EI, Session),
+                              register_channel(ClientId, Self, ConnInfo),
+                              {ok, #{session  => Session,
+                                     present  => true,
+                                     pendings => []}};
                           {ok, ConnMod, ChanPid, Session} ->
                               ok = emqx_session:resume(ClientInfo, Session),
+                              emqx_session:db_put(ClientId, EI, Session),
                               Pendings = ConnMod:call(ChanPid, {takeover, 'end'}, ?T_TAKEOVER),
                               register_channel(ClientId, Self, ConnInfo),
                               {ok, #{session  => Session,
@@ -234,6 +246,7 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                                      pendings => Pendings}};
                           {error, not_found} ->
                               Session = create_session(ClientInfo, ConnInfo),
+                              emqx_session:db_put(ClientId, EI, Session),
                               register_channel(ClientId, Self, ConnInfo),
                               {ok, #{session => Session, present => false}}
                       end
@@ -252,7 +265,11 @@ create_session(ClientInfo, ConnInfo) ->
        | {ok, atom(), pid(), emqx_session:session()}).
 takeover_session(ClientId) ->
     case lookup_channels(ClientId) of
-        [] -> {error, not_found};
+        [] ->
+            case emqx_session:db_get(ClientId) of
+                [] -> {error, not_found};
+                [Session] -> {ok, Session}
+            end;
         [ChanPid] ->
             takeover_session(ClientId, ChanPid);
         ChanPids ->
@@ -267,7 +284,10 @@ takeover_session(ClientId) ->
 takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chann_conn_mod(ClientId, ChanPid) of
         undefined ->
-            {error, not_found};
+            case emqx_session:db_get(ClientId) of
+                [] -> {error, not_found};
+                [Session] -> {ok, Session}
+            end;
         ConnMod when is_atom(ConnMod) ->
             Session = ConnMod:call(ChanPid, {takeover, 'begin'}, ?T_TAKEOVER),
             {ok, ConnMod, ChanPid, Session}

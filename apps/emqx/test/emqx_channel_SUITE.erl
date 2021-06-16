@@ -46,6 +46,7 @@ init_per_suite(Config) ->
     ok = meck:expect(emqx_hooks, run_fold, fun(_Hook, _Args, Acc) -> Acc end),
     %% Session Meck
     ok = meck:new(emqx_session, [passthrough, no_history, no_link]),
+    meck:expect(emqx_session, db_put, fun(_, _, _) -> ok end),
     %% Metrics
     ok = meck:new(emqx_metrics, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),

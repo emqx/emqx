@@ -39,8 +39,14 @@ init_per_suite(Config) ->
     ok = meck:new(emqtt, [non_strict, passthrough, no_history, no_link]),
     %% Start Apps
     emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
+    emqx_ct_helpers:start_apps([], fun set_special_confs/1),
     Config.
+
+set_special_confs(emqx) ->
+    application:set_env(emqx, plugins_loaded_file,
+                        emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins"));
+set_special_confs(_) ->
+    ok.
 
 end_per_suite(_Config) ->
     ok = meck:unload(emqtt),
@@ -406,6 +412,62 @@ t_persistent_session_cancel_on_disconnect(_) ->
     {ok, _} = emqtt:connect(Client2),
     ?assertEqual(0, client_info(session_present, Client2)),
     ok = emqtt:disconnect(Client2).
+
+t_persistent_session_process_dies(_) ->
+    %% Emulate an error in the connect process,
+    %% or that the node of the process goes down.
+    %% A persistent session should survive anyway.
+    ClientId = <<"t_persistent_session_process_dies">>,
+    {ok, Client1} = emqtt:start_link([
+                                        {proto_ver, v5},
+                                        {clientid, ClientId},
+                                        {properties, #{'Session-Expiry-Interval' => 16#FFFFFFFF}},
+                                        {clean_start, true}
+                                    ]),
+    {ok, _} = emqtt:connect(Client1),
+    ok = emqtt:disconnect(Client1),
+
+    [ChannelPid] = emqx_cm:lookup_channels(ClientId),
+    ?assert(is_pid(ChannelPid)),
+    exit(ChannelPid, kill),
+
+    {ok, Client2} = emqtt:start_link([
+                                        {proto_ver, v5},
+                                        {clientid, ClientId},
+                                        {clean_start, false}
+                                    ]),
+    {ok, _} = emqtt:connect(Client2),
+    ?assertEqual(1, client_info(session_present, Client2)),
+    emqtt:disconnect(Client2).
+
+t_persistent_session_process_dies_session_expires(_) ->
+    %% Emulate an error in the connect process,
+    %% or that the node of the process goes down.
+    %% A persistent session should eventually expire.
+    ClientId = <<"t_persistent_session_process_dies_session_expires">>,
+    {ok, Client1} = emqtt:start_link([
+                                        {proto_ver, v5},
+                                        {clientid, ClientId},
+                                        {properties, #{'Session-Expiry-Interval' => 1}},
+                                        {clean_start, true}
+                                    ]),
+    {ok, _} = emqtt:connect(Client1),
+    ok = emqtt:disconnect(Client1),
+
+    [ChannelPid] = emqx_cm:lookup_channels(ClientId),
+    ?assert(is_pid(ChannelPid)),
+    exit(ChannelPid, kill),
+
+    timer:sleep(1000),
+
+    {ok, Client2} = emqtt:start_link([
+                                        {proto_ver, v5},
+                                        {clientid, ClientId},
+                                        {clean_start, false}
+                                    ]),
+    {ok, _} = emqtt:connect(Client2),
+    ?assertEqual(0, client_info(session_present, Client2)),
+    emqtt:disconnect(Client2).
 
 
 %% [MQTT-3.1.3-9]
