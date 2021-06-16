@@ -109,6 +109,6 @@ ensure_str(L) when is_list(L) -> L;
 ensure_str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
 key_to_atom(B) when is_binary(B) ->
-    binary_to_binary(B, utf8);
+    binary_to_atom(B, utf8);
 key_to_atom(A) when is_atom(A) ->
     A.
