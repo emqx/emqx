@@ -21,7 +21,7 @@
          save_file/2
         ]).
 
--type file_input_key() :: binary(). %% <<"file">> | <<"filename">>
+-type file_input_key() :: atom() | binary(). %% <<"file">> | <<"filename">>
 -type file_input() :: #{file_input_key() => binary()}.
 
 %% options are below paris
@@ -53,21 +53,21 @@ save_files_return_opts(Options, SubDir, ResId) ->
 %% Returns ssl options for Erlang's ssl application.
 -spec save_files_return_opts(opts_input(), file:name_all()) -> opts().
 save_files_return_opts(Options, Dir) ->
-    GetD = fun(Key, Default) -> maps:get(Key, Options, Default) end,
-    Get = fun(Key) -> GetD(Key, undefined) end,
-    KeyFile = Get(<<"keyfile">>),
-    CertFile = Get(<<"certfile">>),
-    CAFile = GetD(<<"cacertfile">>, Get(<<"cafile">>)),
+    GetD = fun(Key, Default) -> maps:get(key_to_atom(Key), Options, Default) end,
+    Get = fun(Key) -> GetD(key_to_atom(Key), undefined) end,
+    KeyFile = Get(keyfile),
+    CertFile = Get(certfile),
+    CAFile = GetD(cacertfile, Get(cafile)),
     Key = do_save_file(KeyFile, Dir),
     Cert = do_save_file(CertFile, Dir),
     CA = do_save_file(CAFile, Dir),
-    Verify = case GetD(<<"verify">>, false) of
+    Verify = case GetD(verify, false) of
                   false -> verify_none;
                   _ -> verify_peer
              end,
-    SNI = Get(<<"server_name_indication">>),
-    Versions = emqx_tls_lib:integral_versions(Get(<<"tls_versions">>)),
-    Ciphers = emqx_tls_lib:integral_ciphers(Versions, Get(<<"ciphers">>)),
+    SNI = Get(server_name_indication),
+    Versions = emqx_tls_lib:integral_versions(Get(tls_versions)),
+    Ciphers = emqx_tls_lib:integral_ciphers(Versions, Get(ciphers)),
     filter([{keyfile, Key}, {certfile, Cert}, {cacertfile, CA},
             {verify, Verify}, {server_name_indication, SNI}, {versions, Versions}, {ciphers, Ciphers}]).
 
@@ -83,7 +83,7 @@ filter([]) -> [];
 filter([{_, ""} | T]) -> filter(T);
 filter([H | T]) -> [H | filter(T)].
 
-do_save_file(#{<<"filename">> := FileName, <<"file">> := Content}, Dir)
+do_save_file(#{filename := FileName, file := Content}, Dir)
   when FileName =/= undefined andalso Content =/= undefined ->
     do_save_file(ensure_str(FileName), iolist_to_binary(Content), Dir);
 do_save_file(FilePath, _) when is_binary(FilePath) ->
@@ -108,3 +108,7 @@ do_save_file(FileName, Content, Dir) ->
 ensure_str(L) when is_list(L) -> L;
 ensure_str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
+key_to_atom(B) when is_binary(B) ->
+    binary_to_atom(B, utf8);
+key_to_atom(A) when is_atom(A) ->
+    A.

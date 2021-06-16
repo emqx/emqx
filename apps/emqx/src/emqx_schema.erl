@@ -12,6 +12,7 @@
 -type flag() :: true | false.
 -type duration() :: integer().
 -type duration_s() :: integer().
+-type duration_ms() :: integer().
 -type bytesize() :: integer().
 -type percent() :: float().
 -type file() :: string().
@@ -22,6 +23,7 @@
 -typerefl_from_string({flag/0, emqx_schema, to_flag}).
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
+-typerefl_from_string({duration_ms/0, emqx_schema, to_duration_ms}).
 -typerefl_from_string({bytesize/0, emqx_schema, to_bytesize}).
 -typerefl_from_string({percent/0, emqx_schema, to_percent}).
 -typerefl_from_string({comma_separated_list/0, emqx_schema, to_comma_separated_list}).
@@ -29,13 +31,13 @@
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
 
 % workaround: prevent being recognized as unused functions
--export([to_duration/1, to_duration_s/1, to_bytesize/1,
+-export([to_duration/1, to_duration_s/1, to_duration_ms/1, to_bytesize/1,
          to_flag/1, to_percent/1, to_comma_separated_list/1,
          to_bar_separated_list/1, to_ip_port/1]).
 
 -behaviour(hocon_schema).
 
--reflect_type([ log_level/0, flag/0, duration/0, duration_s/0,
+-reflect_type([ log_level/0, flag/0, duration/0, duration_s/0, duration_ms/0,
                 bytesize/0, percent/0, file/0,
                 comma_separated_list/0, bar_separated_list/0, ip_port/0]).
 
@@ -1205,6 +1207,12 @@ to_duration(Str) ->
 to_duration_s(Str) ->
     case hocon_postprocess:duration(Str) of
         I when is_integer(I) -> {ok, ceiling(I / 1000)};
+        _ -> {error, Str}
+    end.
+
+to_duration_ms(Str) ->
+    case hocon_postprocess:duration(Str) of
+        I when is_integer(I) -> {ok, ceiling(I)};
         _ -> {error, Str}
     end.
 

@@ -13,10 +13,13 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_connector_mysql).
+-module(emqx_connector_pgsql).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
+
+-export([ schema/0
+        ]).
 
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
@@ -28,7 +31,7 @@
 
 -export([connect/1]).
 
--export([schema/0]).
+-export([query/2]).
 
 -export([do_health_check/1]).
 
@@ -47,17 +50,17 @@ on_start(InstId, #{server := {Host, Port},
                    password := Password,
                    auto_reconnect := AutoReconn,
                    pool_size := PoolSize} = Config) ->
-    logger:info("starting mysql connector: ~p, config: ~p", [InstId, Config]),
+    logger:info("starting postgresql connector: ~p, config: ~p", [InstId, Config]),
     SslOpts = case maps:get(ssl, Config) of
         true ->
-            [{ssl, [{server_name_indication, disable} |
-                    emqx_plugin_libs_ssl:save_files_return_opts(Config, "connectors", InstId)]}];
+            [{ssl_opts, [{server_name_indication, disable} |
+                         emqx_plugin_libs_ssl:save_files_return_opts(Config, "connectors", InstId)]}];
         false ->
             []
     end,
     Options = [{host, Host},
                {port, Port},
-               {user, User},
+               {username, User},
                {password, Password},
                {database, DB},
                {auto_reconnect, reconn_interval(AutoReconn)},
@@ -67,14 +70,14 @@ on_start(InstId, #{server := {Host, Port},
     {ok, #{poolname => PoolName}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    logger:info("stopping mysql connector: ~p", [InstId]),
+    logger:info("stopping postgresql connector: ~p", [InstId]),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
 on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := PoolName} = State) ->
-    logger:debug("mysql connector ~p received sql query: ~p, at state: ~p", [InstId, SQL, State]),
-    case Result = ecpool:pick_and_do(PoolName, {mysql, query, [SQL]}, no_handover) of
+    logger:debug("postgresql connector ~p received sql query: ~p, at state: ~p", [InstId, SQL, State]),
+    case Result = ecpool:pick_and_do(PoolName, {?MODULE, query, [SQL]}, no_handover) of
         {error, Reason} ->
-            logger:debug("mysql connector ~p do sql query failed, sql: ~p, reason: ~p", [InstId, SQL, Reason]),
+            logger:debug("postgresql connector ~p do sql query failed, sql: ~p, reason: ~p", [InstId, SQL, Reason]),
             emqx_resource:query_failed(AfterQuery);
         _ ->
             emqx_resource:query_success(AfterQuery)
@@ -85,11 +88,34 @@ on_health_check(_InstId, #{poolname := PoolName} = State) ->
     emqx_plugin_libs_pool:health_check(PoolName, fun ?MODULE:do_health_check/1, State).
 
 do_health_check(Conn) ->
-    ok == element(1, mysql:query(Conn, <<"SELECT count(1) AS T">>)).
+    ok == element(1, epgsql:squery(Conn, "SELECT count(1) AS T")).
 
 %% ===================================================================
 reconn_interval(true) -> 15;
 reconn_interval(false) -> false.
 
-connect(Options) ->
-    mysql:start_link(Options).
+connect(Opts) ->
+    Host     = proplists:get_value(host, Opts),
+    Username = proplists:get_value(username, Opts),
+    Password = proplists:get_value(password, Opts),
+    epgsql:connect(Host, Username, Password, conn_opts(Opts)).
+
+query(Conn, SQL) ->
+    epgsql:squery(Conn, SQL).
+
+conn_opts(Opts) ->
+    conn_opts(Opts, []).
+conn_opts([], Acc) ->
+    Acc;
+conn_opts([Opt = {database, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([Opt = {ssl, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([Opt = {port, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([Opt = {timeout, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([Opt = {ssl_opts, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([_Opt|Opts], Acc) ->
+    conn_opts(Opts, Acc).
