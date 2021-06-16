@@ -78,23 +78,22 @@ apply(F, A2) when is_function(F),
          , atom()              => any()
          }.
 
--spec normalize_rawconf(map()) -> list({ Type :: udp | tcp | ssl | dtls
-                                       , ListenOn :: esockd:listen_on()
-                                       , SocketOpts :: esockd:option()
-                                       , Cfg :: map()
-                                       }).
+-spec normalize_rawconf(rawconf())
+    -> list({ Type :: udp | tcp | ssl | dtls
+            , ListenOn :: esockd:listen_on()
+            , SocketOpts :: esockd:option()
+            , Cfg :: map()
+            }).
 normalize_rawconf(RawConf = #{listeners := Liss}) ->
     Cfg0 = maps:without([listeners], RawConf),
     lists:foldr(fun(Lis, Acc) ->
         Type       = maps:get(type, Lis),
         ListenOn   = maps:get(listen_on, Lis),
         SocketOpts = esockd:parse_opt(maps:to_list(Lis)),
-
         RemainCfgs = maps:without(
                        [type, listen_on] ++ proplist:get_keys(SocketOpts),
                        Lis
                       ),
-        Cfg = Cfg0#{listener => RemainCfgs},
-        {Type, ListenOn, SocketOpts, Cfg}
+        Cfg = maps:merge(Cfg0, RemainCfgs),
+        [{Type, ListenOn, SocketOpts, Cfg}|Acc]
     end, [], Liss).
-

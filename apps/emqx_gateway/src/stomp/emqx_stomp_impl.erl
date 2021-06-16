@@ -31,7 +31,12 @@
         , on_insta_destroy/3
         ]).
 
+-define(TCP_OPTS, [binary, {packet, raw}, {reuseaddr, true}, {nodelay, true}]).
+
+%%--------------------------------------------------------------------
 %% APIs
+%%--------------------------------------------------------------------
+
 load() ->
     %% FIXME: Is the following concept belong to gateway???
     %%       >> No
@@ -67,56 +72,125 @@ unload() ->
     emqx_gateway_registry:unload(stomp).
 
 init([param1, param2]) ->
-    GwState = #{},
+    %% XXX: Start the top itself supervisors or process here. if needed
+    {ok, Sup} = supervisor:start_link({local, emqx_stomp_sup}, ?MODULE, []),
+    GwState = #{topsup => Sup},
     {ok, GwState}.
 
 %%--------------------------------------------------------------------
 %% emqx_gateway_registry callbacks
 %%--------------------------------------------------------------------
 
-on_insta_create(Insta = #instance{rawconf = RawConf0}, GwState) ->
-    %% Old
-    %% #{allow_anonymous => true,
-    %% default_user => [{login,"guest"},{passcode,"guest"}],
-    %% frame =>
-    %%     [{max_headers,10},
-    %%      {max_header_length,1024},
-    %%      {max_body_length,8192}],
-    %% listener => {61613,[{acceptors,4},{max_connections,512}]}}
+on_insta_create(_Insta = #instance{
+                            id = InstaId,
+                            rawconf = _RawConf
+                           }, _GwState) ->
+    %% FIXME: It should be assigned by params 
+    RawConf = #{ frame =>
+                    #{ max_headers => 10
+                     , max_headers_length => 1024
+                     , max_body_length => 8192
+                     }
+               , authenticator => allow_anonymous
+               , clientinfo_override => 
+                    #{ username => <<"guest">>
+                     , password => <<"guest">>
+                     }
+               , listeners =>
+                    [ #{ type => tcp
+                       , listen_on => 61613
+                       , acceptors => 4
+                       , max_connections => 512
+                       }
+                    ]
+               },
+    %% Step1. Fold the rawconfs to listeners
+    Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
+    %% Step2. Start listeners or escokd:specs
+    ListenerPids = lists:map(fun(Lis) ->
+                     start_listener(InstaId, Lis)
+                   end, Listeners),
+    %% FIXME: How to throw an exception to interrupt the restart logic ?
+    {ok, ListenerPids, _InstaState = #{}}.
 
-    %% #{
-    %%  
-    %%    frame: #{
-    %%      max_headers => 10,
-    %%      max_headers_length => 1024,
-    %%      max_body_length => 8192
-    %%    }
-    %% 
-    %%    # copy to ctx
-    %%    #authenticator => allow_anonymouse
-    %%    
-    %%    # put into ctx
-    %%    clientinfo_override => #{
-    %%      username => <<"guest">> 
-    %%      password => <<"guest">>
-    %%    }
-    %%
-    %%    listener: [
-    %%      #{type => tcp,
-    %%        listen_on => 
-    %%      }
-    %%    ]
-    %% }
-    %%
-    RawConf = #{}.
-
-    GwInstPid = spawn(fun() -> timer:sleep(3000) end),
-    {ok, GwInstPid, #{}}.
-
+%% @private
 on_insta_update(NewInsta, OldInstace, GwInstaState, GwState) ->
-    %% XXX:
-    ok.
+    InstaId = NewInsta#instance.id,
+    try
+        %% XXX: 1. How hot-upgrade the changes ???
+        %% XXX: 2. Check the New confs first before destroy old instance ???
+        on_insta_destroy(OldInstace, GwInstaState, GwState),
+        on_insta_create(NewInsta, GwState)
+    catch
+        Class : Reason : Stk ->
+            logger:error("Failed to update stomp instance ~s; "
+                         "reason: {~0p, ~0p} stacktrace: ~0p",
+                         [InstaId, Class, Reason, Stk]),
+            {error, {Class, Reason}}
+    end.
 
-on_insta_destroy(Insta = #instance{id = Id}, GwInstaState, GwState) ->
-    %% XXX:
-    emqx_stomp_sup:delete(Id).
+on_insta_destroy(_Insta = #instance{
+                             id = InstaId,
+                             rawconf = RawConf
+                            }, _GwInstaState, _GwState) ->
+    Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
+    lists:foreach(fun(Lis) ->
+        stop_listener(InstaId, Lis)
+    end, Listeners).
+
+%%--------------------------------------------------------------------
+%% Internal funcs
+%%--------------------------------------------------------------------
+
+start_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
+    case start_listener(InstaId, Type, ListenOn, SocketOpts, Cfg) of
+        {ok, Pid} ->
+            io:format("Start stomp ~s:~s listener on ~s successfully.~n",
+                      [InstaId, Type, format(ListenOn)]),
+            Pid;
+        {error, Reason} ->
+            io:format(standard_error,
+                      "Failed to start stomp ~s:~s listener on ~s: ~0p~n",
+                      [InstaId, Type, format(ListenOn), Reason]),
+            throw({badconf, Reason})
+    end.
+
+start_listener(InstaId, Type, ListenOn, SocketOpts, Cfg) ->
+    Name = name(InstaId, Type),
+    esockd:open(Name, ListenOn, merge_default(SocketOpts),
+                {emqx_stomp_connection, start_link, [Cfg]}).
+
+name(InstaId, Type) ->
+    list_to_atom(lists:concat([InstaId, ":", Type])).
+
+merge_default(Options) ->
+    case lists:keytake(tcp_options, 1, Options) of
+        {value, {tcp_options, TcpOpts}, Options1} ->
+            [{tcp_options, emqx_misc:merge_opts(?TCP_OPTS, TcpOpts)} | Options1];
+        false ->
+            [{tcp_options, ?TCP_OPTS} | Options]
+    end.
+
+format(Port) when is_integer(Port) ->
+    io_lib:format("0.0.0.0:~w", [Port]);
+format({Addr, Port}) when is_list(Addr) ->
+    io_lib:format("~s:~w", [Addr, Port]);
+format({Addr, Port}) when is_tuple(Addr) ->
+    io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
+
+stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
+    StopRet = stop_listener(InstaId, Type, ListenOn, SocketOpts, Cfg),
+    case StopRet of
+        ok -> io:format("Stop stomp ~s:~s listener on ~s successfully.~n",
+                        [InstaId, Type, format(ListenOn)]);
+        {error, Reason} ->
+            io:format(standard_error,
+                      "Failed to stop stomp ~s:~s listener on ~s: ~0p~n",
+                      [InstaId, Type, format(ListenOn), Reason]
+                     )
+    end,
+    StopRet.
+
+stop_listener(InstaId, Type, ListenOn, _SocketOpts, _Cfg) ->
+    Name = name(InstaId, Type),
+    esockd:close(Name, ListenOn).

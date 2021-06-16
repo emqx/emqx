@@ -17,8 +17,7 @@
 %% @doc Stomp Protocol Processor.
 -module(emqx_stomp_protocol).
 
--include("emqx_stomp.hrl").
-
+-include("src/stomp/include/emqx_stomp.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").

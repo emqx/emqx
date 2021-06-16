@@ -26,8 +26,9 @@
 
 %% @doc
 -callback on_insta_create(Insta :: instance(), GwState :: state())
-    -> {ok, GwInstaPid :: pid(), GwInstaState :: state()}
-     | {ok, Childspec :: supervisor:child_spec(), GwInstaState :: state()}.
+    -> {error, reason()}
+     | {ok, [GwInstaPid :: pid()], GwInstaState :: state()}
+     | {ok, [Childspec :: supervisor:child_spec()], GwInstaState :: state()}.
 
 %% @doc
 -callback on_insta_update(NewInsta :: instance(),
@@ -35,8 +36,8 @@
                           GwInstaState :: state(),
                           GwState :: state())
     -> ok
-     | {ok, GwInstaPid :: pid(), GwInstaState :: state()}
-     | {ok, Childspec :: supervisor:child_spec(), GwInstaState :: state()}
+     | {ok, [GwInstaPid :: pid()], GwInstaState :: state()}
+     | {ok, [Childspec :: supervisor:child_spec()], GwInstaState :: state()}
      | {error, reason()}.
 
 %% @doc

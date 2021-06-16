@@ -68,7 +68,7 @@
 
 -module(emqx_stomp_frame).
 
--include("emqx_stomp.hrl").
+-include("src/stomp/include/emqx_stomp.hrl").
 
 -export([ init_parer_state/1
         , parse/2

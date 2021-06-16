@@ -18,7 +18,7 @@
 
 -behaviour(gen_server).
 
--include("emqx_stomp.hrl").
+-include("src/stomp/include/emqx_stomp.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -logger_header("[Stomp-Conn]").

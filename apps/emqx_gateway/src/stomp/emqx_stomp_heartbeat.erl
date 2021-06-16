@@ -17,7 +17,7 @@
 %% @doc Stomp heartbeat.
 -module(emqx_stomp_heartbeat).
 
--include("emqx_stomp.hrl").
+-include("src/stomp/include/emqx_stomp.hrl").
 
 -export([ init/1
         , check/3
