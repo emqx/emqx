@@ -19,6 +19,7 @@
 
 -export([ childspec/2
         , childspec/3
+        , childspec/4
         , supervisor_ret/1
         , find_sup_child/2
         ]).
@@ -29,14 +30,20 @@
 -export([ normalize_rawconf/1
         ]).
 
--spec childspec(supervisor:worker(), Mod :: atom()) -> supervisor:child_spec().
+-spec childspec(supervisor:worker(), Mod :: atom())
+    -> supervisor:child_spec().
 childspec(Type, Mod) ->
-    childspec(Type, Mod, []).
+    childspec(Mod, Type, Mod, []).
 
 -spec childspec(supervisor:worker(), Mod :: atom(), Args :: list())
     -> supervisor:child_spec().
 childspec(Type, Mod, Args) ->
-    #{ id => Mod
+    childspec(Mod, Type, Mod, Args).
+
+-spec childspec(atom(), supervisor:worker(), Mod :: atom(), Args :: list())
+    -> supervisor:child_spec().
+childspec(Id, Type, Mod, Args) ->
+    #{ id => Id
      , start => {Mod, start_link, Args}
      , type => Type
      }.
@@ -91,7 +98,7 @@ normalize_rawconf(RawConf = #{listeners := Liss}) ->
         ListenOn   = maps:get(listen_on, Lis),
         SocketOpts = esockd:parse_opt(maps:to_list(Lis)),
         RemainCfgs = maps:without(
-                       [type, listen_on] ++ proplist:get_keys(SocketOpts),
+                       [type, listen_on] ++ proplists:get_keys(SocketOpts),
                        Lis
                       ),
         Cfg = maps:merge(Cfg0, RemainCfgs),

@@ -25,7 +25,10 @@
 -callback init(Options :: list()) -> {error, reason()} | {ok, GwState :: state()}.
 
 %% @doc
--callback on_insta_create(Insta :: instance(), GwState :: state())
+-callback on_insta_create(Insta :: instance(),
+                          Ctx :: emqx_gateway_ctx:context(),
+                          GwState :: state()
+                         )
     -> {error, reason()}
      | {ok, [GwInstaPid :: pid()], GwInstaState :: state()}
      | {ok, [Childspec :: supervisor:child_spec()], GwInstaState :: state()}.

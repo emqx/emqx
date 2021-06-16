@@ -64,7 +64,7 @@ start_link() ->
 
 -type gateway_options() :: list().
 
--type descriptor() :: #{ cbmod  := atom()
+-type descriptor() :: #{ cbkmod := atom()
                        , rgopts := registry_options()
                        , gwopts := gateway_options()
                        , state  => any()
@@ -74,7 +74,7 @@ start_link() ->
 
 load(GwId, RgOpts, GwOpts) ->
     CbMod = proplists:get_value(cbkmod, RgOpts, GwId),
-    Dscrptr = #{ cbmod  => CbMod
+    Dscrptr = #{ cbkmod => CbMod
                , rgopts => RgOpts
                , gwopts => GwOpts
                },
@@ -112,7 +112,7 @@ handle_call({load, GwId, Dscrptr}, _From, State = #state{types = Types}) ->
         notfound ->
             try
                 GwOpts = maps:get(gwopts, Dscrptr),
-                CbMod  = maps:get(cbmod,  Dscrptr),
+                CbMod  = maps:get(cbkmod, Dscrptr),
                 {ok, GwState} = CbMod:init(GwOpts),
                 NDscrptr = maps:put(state, GwState, Dscrptr),
                 NTypes = maps:put(GwId, NDscrptr, Types),

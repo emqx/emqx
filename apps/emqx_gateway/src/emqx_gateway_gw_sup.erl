@@ -42,7 +42,7 @@ start_link(GwId) ->
     supervisor:start_link({local, GwId}, ?MODULE, [GwId]).
 
 -spec create_insta(pid(), instance(), map()) -> {ok, GwInstaPid :: pid()} | {error, any()}.
-create_insta(Sup, Insta = #instance{id = InstaId}, GwState) ->
+create_insta(Sup, Insta = #instance{id = InstaId}, GwDscrptr) ->
     case emqx_gateway_utils:find_sup_child(Sup, InstaId) of
         {ok, _GwInstaPid} -> {error, alredy_existed};
         false ->
@@ -51,9 +51,10 @@ create_insta(Sup, Insta = #instance{id = InstaId}, GwState) ->
             Ctx = ctx(Sup, InstaId),
             %%
             ChildSpec = emqx_gateway_utils:childspec(
+                          InstaId,
                           worker,
                           emqx_gateway_insta_sup,
-                          [Insta, Ctx, GwState]
+                          [Insta, Ctx, GwDscrptr]
                          ),
             emqx_gateway_utils:supervisor_ret(
               supervisor:start_child(Sup, ChildSpec)
@@ -98,7 +99,7 @@ list_insta(Sup) ->
     lists:filtermap(
       fun({InstaId, GwInstaPid, _Type, _Mods}) ->
         is_gateway_insta_id(InstaId)
-          andalso emqx_gateway_insta_sup:instance(GwInstaPid)
+          andalso {true, emqx_gateway_insta_sup:instance(GwInstaPid)}
       end, supervisor:which_children(Sup)).
 
 %% Supervisor callback
@@ -113,7 +114,6 @@ init([GwId]) ->
                 },
     CmOpts = [{gwid, GwId}],
     CM = emqx_gateway_utils:childspec(worker, emqx_gateway_cm, [CmOpts]),
-
     %emqx_gateway_utils:childspec(worker, emqx_gateway_registy) %% FIXME:
     {ok, {SupFlags, [CM]}}.
 
@@ -123,7 +123,7 @@ init([GwId]) ->
 
 ctx(Sup, InstaId) ->
     {_, GwId} = erlang:process_info(Sup, registered_name),
-    CM = emqx_gateway_utils:find_sup_child(Sup, emqx_gateway_cm),
+    {ok, CM}  = emqx_gateway_utils:find_sup_child(Sup, emqx_gateway_cm),
     #{ instid => InstaId
      , gwid => GwId
      , cm => CM

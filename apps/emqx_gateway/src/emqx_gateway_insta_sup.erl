@@ -34,7 +34,9 @@
 -logger_header("[PGW-Insta-Sup]").
 
 %% APIs
--export([start_link/1]).
+-export([ start_link/3
+        , instance/1
+        ]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -47,8 +49,8 @@
 
 -record(state, {
           insta :: instance(),
-          mref  :: reference(),
-          child_pid :: pid(),
+          mrefs  :: [reference()],
+          child_pids :: [pid()],
           auth :: allow_anonymouse | binary(),
           insta_state :: emqx_gateway_impl:state()
          }).
@@ -57,18 +59,25 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-start_link(Insta) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Insta], []).
+start_link(Insta, Ctx, GwDscrptr) ->
+    gen_server:start_link(
+      {local, ?MODULE},
+      ?MODULE,
+      [Insta, Ctx, GwDscrptr],
+      []
+     ).
+
+instance(Pid) ->
+    gen_server:call(Pid, instance).
 
 %%--------------------------------------------------------------------
-%% gen_server callbacks
+% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Insta, Ctx0, GwState]) ->
-    #instance{
-       type = CbMod,
-       rawconf = RawConf} = Insta,
-
+init([Insta, Ctx0, GwDscrptr]) ->
+    #instance{rawconf = RawConf} = Insta,
+    #{cbkmod := CbMod,
+      state  := GwState} = GwDscrptr,
     %% Create authenticators
     Auth = case maps:get(authenticator, RawConf, allow_anonymouse) of
                allow_anonymouse -> allow_anonymouse;
@@ -79,18 +88,20 @@ init([Insta, Ctx0, GwState]) ->
     try
         case CbMod:on_insta_create(Insta, Ctx, GwState) of
             {error, Reason} -> throw({return_error, Reason});
-            {ok, InstaPidOrSpec, GwInstaState} ->
-                ChildPid = case erlang:is_pid(InstaPidOrSpec) of
-                               true ->
-                                   InstaPidOrSpec;
-                               _ ->
-                                   start_child_process(InstaPidOrSpec)
-                           end,
-                MRef = monitor(process, ChildPid),
+            {ok, [Indictor|_] = InstaPidOrSpecs, GwInstaState} ->
+                ChildPids = case erlang:is_pid(Indictor) of
+                                true ->
+                                    InstaPidOrSpecs;
+                                _ ->
+                                    start_child_process(InstaPidOrSpecs)
+                            end,
+                MRefs = lists:map(fun(Pid) ->
+                            monitor(process, Pid)
+                        end, ChildPids),
                 State = #state{
                            insta = Insta,
-                           mref = MRef,
-                           child_pid = ChildPid,
+                           mrefs = MRefs,
+                           child_pids = ChildPids,
                            insta_state = GwInstaState
                           },
                 {ok, State}
@@ -110,6 +121,9 @@ init([Insta, Ctx0, GwState]) ->
 
     %% TODO: 2. ClientInfo Override Fun??
 
+handle_call(instance, _From, State = #state{insta = Insta}) ->
+    {reply, Insta, State};
+
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -117,7 +131,7 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'EXIT', Pid, Reason}, State = #state{child_pid = Pid}) ->
+handle_info({'EXIT', Pid, Reason}, State = #state{child_pids = _Pids}) ->
     logger:error("Child process ~p exited: ~0p", [Pid, Reason]),
 
     %% TODO: Restart It??
@@ -127,12 +141,19 @@ handle_info({'EXIT', Pid, Reason}, State = #state{child_pid = Pid}) ->
     {noreply, State};
 
 handle_info({'DOWN', MRef, process, Pid, Reason},
-            State = #state{mref = MRef, child_pid = Pid}) ->
-    logger:error("Child process ~p exited: ~0p", [Pid, Reason]),
-
-    %% TODO: Restart It??
-
-    {noreply, State};
+            State = #state{mrefs = MRefs, child_pids = Pids}) ->
+    case lists:member(MRef, MRefs) andalso lists:member(Pid, Pids) of
+        true ->
+            logger:error("Child process ~p exited: ~0p", [Pid, Reason]),
+            %% TODO: Restart It??
+            {noreply, State#state{
+                        mrefs = MRefs -- [MRef],
+                        child_pids = Pids -- [Pid]
+                       }
+            };
+        _ ->
+            {noreply, State}
+    end;
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -157,6 +178,10 @@ cleanup_authenticator_for_gateway_insta(allow_anonymouse) ->
     ok;
 cleanup_authenticator_for_gateway_insta(_ChainId) ->
     todo.
+
+
+start_child_process(ChildSpecs) when is_list(ChildSpecs) ->
+    lists:map(fun start_child_process/1, ChildSpecs);
 
 start_child_process(_ChildSpec = #{start := {M, F, A}}) ->
     case erlang:apply(M, F, A) of

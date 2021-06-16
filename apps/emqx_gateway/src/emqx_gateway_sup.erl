@@ -51,9 +51,9 @@ start_link() ->
 create_gateway_insta(Insta = #instance{type = Type}) ->
     case emqx_gateway_registry:lookup(Type) of
         undefined -> {error, {unknown_type, Type}};
-        #{state := GwState} ->
+        GwDscrptr ->
             {ok, GwSup} = ensure_gateway_suptree_ready(gatewayid(Insta)),
-            emqx_gateway_gw_sup:create_insta(GwSup, Insta, GwState)
+            emqx_gateway_gw_sup:create_insta(GwSup, Insta, GwDscrptr)
     end.
 
 -spec remove_gateway_insta(atom(), atom()) -> ok | {error, any()}.
@@ -94,7 +94,7 @@ list_gateway_insta(Type) ->
 
 -spec list_gateway_insta() -> [{atom(), instance()}].
 list_gateway_insta() ->
-    list:map(
+    lists:map(
       fun(Type) ->
         {ok, Instas} = list_gateway_insta(Type),
         {Type, Instas}
@@ -104,7 +104,7 @@ list_gateway_insta() ->
 list_started_gateway() ->
     lists:filtermap(
       fun({Id, _Pid, _Type, _Mods}) ->
-        is_a_gateway_id(Id) andalso Id
+        is_a_gateway_id(Id) andalso {true, Id}
       end, supervisor:which_children(?MODULE)).
 
 -spec stop_all_suptree(atom()) -> ok.
@@ -146,6 +146,7 @@ ensure_gateway_suptree_ready(GwId) ->
     case lists:keyfind(GwId, 1, supervisor:which_children(?MODULE)) of
         false ->
             ChildSpec = emqx_gateway_utils:childspec(
+                          GwId,
                           supervisor,
                           emqx_gateway_gw_sup,
                           [GwId]

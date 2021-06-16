@@ -26,7 +26,7 @@
         ]).
 
 -export([ init/1
-        , on_insta_create/2
+        , on_insta_create/3
         , on_insta_update/4
         , on_insta_destroy/3
         ]).
@@ -72,9 +72,7 @@ unload() ->
     emqx_gateway_registry:unload(stomp).
 
 init([param1, param2]) ->
-    %% XXX: Start the top itself supervisors or process here. if needed
-    {ok, Sup} = supervisor:start_link({local, emqx_stomp_sup}, ?MODULE, []),
-    GwState = #{topsup => Sup},
+    GwState = #{},
     {ok, GwState}.
 
 %%--------------------------------------------------------------------
@@ -84,7 +82,7 @@ init([param1, param2]) ->
 on_insta_create(_Insta = #instance{
                             id = InstaId,
                             rawconf = _RawConf
-                           }, _GwState) ->
+                           }, Ctx, _GwState) ->
     %% FIXME: It should be assigned by params 
     RawConf = #{ frame =>
                     #{ max_headers => 10
@@ -108,19 +106,20 @@ on_insta_create(_Insta = #instance{
     Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
     %% Step2. Start listeners or escokd:specs
     ListenerPids = lists:map(fun(Lis) ->
-                     start_listener(InstaId, Lis)
+                     start_listener(InstaId, Ctx, Lis)
                    end, Listeners),
     %% FIXME: How to throw an exception to interrupt the restart logic ?
-    {ok, ListenerPids, _InstaState = #{}}.
+    %% FIXME: Assign ctx to InstaState
+    {ok, ListenerPids, _InstaState = #{ctx => Ctx}}.
 
 %% @private
-on_insta_update(NewInsta, OldInstace, GwInstaState, GwState) ->
+on_insta_update(NewInsta, OldInstace, GwInstaState = #{ctx := Ctx}, GwState) ->
     InstaId = NewInsta#instance.id,
     try
         %% XXX: 1. How hot-upgrade the changes ???
         %% XXX: 2. Check the New confs first before destroy old instance ???
         on_insta_destroy(OldInstace, GwInstaState, GwState),
-        on_insta_create(NewInsta, GwState)
+        on_insta_create(NewInsta, Ctx, GwState)
     catch
         Class : Reason : Stk ->
             logger:error("Failed to update stomp instance ~s; "
@@ -142,8 +141,8 @@ on_insta_destroy(_Insta = #instance{
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-start_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
-    case start_listener(InstaId, Type, ListenOn, SocketOpts, Cfg) of
+start_listener(InstaId, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
+    case start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
             io:format("Start stomp ~s:~s listener on ~s successfully.~n",
                       [InstaId, Type, format(ListenOn)]),
@@ -155,10 +154,10 @@ start_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
             throw({badconf, Reason})
     end.
 
-start_listener(InstaId, Type, ListenOn, SocketOpts, Cfg) ->
+start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
     Name = name(InstaId, Type),
     esockd:open(Name, ListenOn, merge_default(SocketOpts),
-                {emqx_stomp_connection, start_link, [Cfg]}).
+                {emqx_stomp_connection, start_link, [Cfg#{ctx => Ctx}]}).
 
 name(InstaId, Type) ->
     list_to_atom(lists:concat([InstaId, ":", Type])).
