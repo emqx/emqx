@@ -53,8 +53,8 @@ save_files_return_opts(Options, SubDir, ResId) ->
 %% Returns ssl options for Erlang's ssl application.
 -spec save_files_return_opts(opts_input(), file:name_all()) -> opts().
 save_files_return_opts(Options, Dir) ->
-    GetD = fun(Key, Default) -> maps:get(key_to_atom(Key), Options, Default) end,
-    Get = fun(Key) -> GetD(key_to_atom(Key), undefined) end,
+    GetD = fun(Key, Default) -> fuzzy_map_get(Key, Options, Default) end,
+    Get = fun(Key) -> GetD(Key, undefined) end,
     KeyFile = Get(keyfile),
     CertFile = Get(certfile),
     CAFile = GetD(cacertfile, Get(cafile)),
@@ -77,7 +77,7 @@ save_files_return_opts(Options, Dir) ->
 -spec save_file(file_input(), atom() | string() | binary()) -> string().
 save_file(Param, SubDir) ->
    Dir = filename:join([emqx:get_env(data_dir), SubDir]),
-   do_save_file( Param, Dir).
+   do_save_file(Param, Dir).
 
 filter([]) -> [];
 filter([{_, ""} | T]) -> filter(T);
@@ -86,10 +86,10 @@ filter([H | T]) -> [H | filter(T)].
 do_save_file(#{filename := FileName, file := Content}, Dir)
   when FileName =/= undefined andalso Content =/= undefined ->
     do_save_file(ensure_str(FileName), iolist_to_binary(Content), Dir);
-do_save_file(FilePath, _) when is_binary(FilePath) ->
-    ensure_str(FilePath);
 do_save_file(FilePath, _) when is_list(FilePath) ->
     FilePath;
+do_save_file(FilePath, _) when is_binary(FilePath) ->
+    ensure_str(FilePath);
 do_save_file(_, _) -> "".
 
 do_save_file("", _, _Dir) -> ""; %% ignore
@@ -108,7 +108,11 @@ do_save_file(FileName, Content, Dir) ->
 ensure_str(L) when is_list(L) -> L;
 ensure_str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
-key_to_atom(B) when is_binary(B) ->
-    binary_to_atom(B, utf8);
-key_to_atom(A) when is_atom(A) ->
-    A.
+-spec fuzzy_map_get(atom() | binary(), map(), any()) -> any().
+fuzzy_map_get(Key, Options, Default) ->
+    case maps:find(Key, Options) of
+        {ok, Val} -> Val;
+        error when is_atom(Key) ->
+            fuzzy_map_get(atom_to_binary(Key, utf8), Options, Default);
+        error -> Default
+    end.
