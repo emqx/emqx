@@ -21,7 +21,7 @@
          save_file/2
         ]).
 
--type file_input_key() :: binary(). %% <<"file">> | <<"filename">>
+-type file_input_key() :: atom() | binary(). %% <<"file">> | <<"filename">>
 -type file_input() :: #{file_input_key() => binary()}.
 
 %% options are below paris
@@ -53,8 +53,8 @@ save_files_return_opts(Options, SubDir, ResId) ->
 %% Returns ssl options for Erlang's ssl application.
 -spec save_files_return_opts(opts_input(), file:name_all()) -> opts().
 save_files_return_opts(Options, Dir) ->
-    GetD = fun(Key, Default) -> maps:get(Key, Options, Default) end,
-    Get = fun(Key) -> GetD(Key, undefined) end,
+    GetD = fun(Key, Default) -> maps:get(key_to_atom(Key), Options, Default) end,
+    Get = fun(Key) -> GetD(key_to_atom(Key), undefined) end,
     KeyFile = Get(keyfile),
     CertFile = Get(certfile),
     CAFile = GetD(cacertfile, Get(cafile)),
@@ -108,3 +108,7 @@ do_save_file(FileName, Content, Dir) ->
 ensure_str(L) when is_list(L) -> L;
 ensure_str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
+key_to_atom(B) when is_binary(B) ->
+    binary_to_binary(B, utf8);
+key_to_atom(A) when is_atom(A) ->
+    A.

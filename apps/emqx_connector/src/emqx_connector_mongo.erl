@@ -83,6 +83,7 @@ on_query(InstId, {Action, Collection, Selector, Docs}, AfterQuery, #{poolname :=
     end,
     Result.
 
+-dialyzer({nowarn_function, [on_health_check/2]}).
 on_health_check(_InstId, #{test_opts := TestOpts}) ->
     case mc_worker_api:connect(TestOpts) of
         {ok, TestConn} ->
