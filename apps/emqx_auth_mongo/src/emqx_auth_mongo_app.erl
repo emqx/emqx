@@ -41,8 +41,8 @@ start(_StartType, _StartArgs) ->
     {ok, Sup}.
 
 prep_stop(State) ->
-    ok = emqx:unhook('client.authenticate', fun emqx_auth_mongo:check/3),
-    ok = emqx:unhook('client.check_acl', fun emqx_acl_mongo:check_acl/5),
+    ok = emqx:unhook('client.authenticate', {emqx_auth_mongo, check}),
+    ok = emqx:unhook('client.check_acl', {emqx_acl_mongo, check_acl}),
     State.
 
 stop(_State) ->
@@ -51,12 +51,13 @@ stop(_State) ->
 reg_authmod(AuthQuery) ->
     emqx_auth_mongo:register_metrics(),
     SuperQuery = r(super_query, application:get_env(?APP, super_query, undefined)),
-    ok = emqx:hook('client.authenticate', fun emqx_auth_mongo:check/3,
-                   [#{authquery => AuthQuery, superquery => SuperQuery, pool => ?APP}]).
+    ok = emqx:hook('client.authenticate', {emqx_auth_mongo, check,
+                                           [#{authquery => AuthQuery, superquery => SuperQuery, pool => ?APP}]
+                                          }).
 
 reg_aclmod(AclQuery) ->
     emqx_acl_mongo:register_metrics(),
-    ok = emqx:hook('client.check_acl', fun emqx_acl_mongo:check_acl/5, [#{aclquery => AclQuery, pool => ?APP}]).
+    ok = emqx:hook('client.check_acl', {emqx_acl_mongo, check_acl, [#{aclquery => AclQuery, pool => ?APP}]}).
 
 %%--------------------------------------------------------------------
 %% Internal functions

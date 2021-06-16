@@ -42,8 +42,8 @@ start(_StartType, _StartArgs) ->
     {ok, Sup}.
 
 prep_stop(State) ->
-    emqx:unhook('client.authenticate', fun emqx_auth_mysql:check/3),
-    emqx:unhook('client.check_acl', fun emqx_acl_mysql:check_acl/5),
+    emqx:unhook('client.authenticate', {emqx_auth_mysql, check}),
+    emqx:unhook('client.check_acl', {emqx_acl_mysql, check_acl}),
     State.
 
 stop(_State) ->
@@ -57,11 +57,11 @@ load_auth_hook(AuthQuery) ->
                super_query => SuperQuery,
                hash_type   => HashType,
                pool => ?APP},
-    emqx:hook('client.authenticate', fun emqx_auth_mysql:check/3, [Params]).
+    emqx:hook('client.authenticate', {emqx_auth_mysql, check, [Params]}).
 
 load_acl_hook(AclQuery) ->
     ok = emqx_acl_mysql:register_metrics(),
-    emqx:hook('client.check_acl', fun emqx_acl_mysql:check_acl/5, [#{acl_query => AclQuery, pool =>?APP}]).
+    emqx:hook('client.check_acl', {emqx_acl_mysql, check_acl, [#{acl_query => AclQuery, pool =>?APP}]}).
 
 %%--------------------------------------------------------------------
 %% Internal function
