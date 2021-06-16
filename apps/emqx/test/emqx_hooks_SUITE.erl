@@ -40,15 +40,15 @@ all() -> emqx_ct:all(?MODULE).
     
 t_add_del_hook(_) ->
     {ok, _} = emqx_hooks:start_link(),
-    ok = emqx:hook(test_hook, fun ?MODULE:hook_fun1/1, []),
-    ok = emqx:hook(test_hook, fun ?MODULE:hook_fun2/1, []),
+    ok = emqx:hook(test_hook, {?MODULE, hook_fun1, []}),
+    ok = emqx:hook(test_hook, {?MODULE, hook_fun2, []}),
     ?assertEqual({error, already_exists},
-                 emqx:hook(test_hook, fun ?MODULE:hook_fun2/1, [])),
-    Callbacks = [{callback, {fun ?MODULE:hook_fun1/1, []}, undefined, 0},
-                 {callback, {fun ?MODULE:hook_fun2/1, []}, undefined, 0}],
+                 emqx:hook(test_hook, {?MODULE, hook_fun2, []})),
+    Callbacks = [{callback, {?MODULE, hook_fun1, []}, undefined, 0},
+                 {callback, {?MODULE, hook_fun2, []}, undefined, 0}],
     ?assertEqual(Callbacks, emqx_hooks:lookup(test_hook)),
-    ok = emqx:unhook(test_hook, fun ?MODULE:hook_fun1/1),
-    ok = emqx:unhook(test_hook, fun ?MODULE:hook_fun2/1),
+    ok = emqx:unhook(test_hook, {?MODULE, hook_fun1}),
+    ok = emqx:unhook(test_hook, {?MODULE, hook_fun2}),
     timer:sleep(200),
     ?assertEqual([], emqx_hooks:lookup(test_hook)),
 
@@ -71,21 +71,20 @@ t_add_del_hook(_) ->
 
 t_run_hooks(_) ->
     {ok, _} = emqx_hooks:start_link(),
-    ok = emqx:hook(foldl_hook, fun ?MODULE:hook_fun3/4, [init]),
     ok = emqx:hook(foldl_hook, {?MODULE, hook_fun3, [init]}),
-    ok = emqx:hook(foldl_hook, fun ?MODULE:hook_fun4/4, [init]),
-    ok = emqx:hook(foldl_hook, fun ?MODULE:hook_fun5/4, [init]),
+    ok = emqx:hook(foldl_hook, {?MODULE, hook_fun4, [init]}),
+    ok = emqx:hook(foldl_hook, {?MODULE, hook_fun5, [init]}),
     [r5,r4] = emqx:run_fold_hook(foldl_hook, [arg1, arg2], []),
     [] = emqx:run_fold_hook(unknown_hook, [], []),
 
-    ok = emqx:hook(foldl_hook2, fun ?MODULE:hook_fun9/2),
+    ok = emqx:hook(foldl_hook2, {?MODULE, hook_fun9, []}),
     ok = emqx:hook(foldl_hook2, {?MODULE, hook_fun10, []}),
     [r9] = emqx:run_fold_hook(foldl_hook2, [arg], []),
 
-    ok = emqx:hook(foreach_hook, fun ?MODULE:hook_fun6/2, [initArg]),
-    {error, already_exists} = emqx:hook(foreach_hook, fun ?MODULE:hook_fun6/2, [initArg]),
-    ok = emqx:hook(foreach_hook, fun ?MODULE:hook_fun7/2, [initArg]),
-    ok = emqx:hook(foreach_hook, fun ?MODULE:hook_fun8/2, [initArg]),
+    ok = emqx:hook(foreach_hook, {?MODULE, hook_fun6, [initArg]}),
+    {error, already_exists} = emqx:hook(foreach_hook, {?MODULE, hook_fun6, [initArg]}),
+    ok = emqx:hook(foreach_hook, {?MODULE, hook_fun7, [initArg]}),
+    ok = emqx:hook(foreach_hook, {?MODULE, hook_fun8, [initArg]}),
     ok = emqx:run_hook(foreach_hook, [arg]),
 
     ok = emqx:hook(foreach_filter1_hook, {?MODULE, hook_fun1, []}, {?MODULE, hook_filter1, []}, 0),
