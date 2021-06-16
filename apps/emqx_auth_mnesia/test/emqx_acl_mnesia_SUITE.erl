@@ -50,18 +50,6 @@ end_per_suite(_Config) ->
     delete_default_app(),
     emqx_ct_helpers:stop_apps([emqx_modules, emqx_management, emqx_auth_mnesia]).
 
-init_per_testcase(t_check_acl_as_clientid, Config) ->
-    emqx:hook('client.check_acl', fun emqx_acl_mnesia:check_acl/5, [#{key_as => clientid}]),
-    Config;
-
-init_per_testcase(_, Config) ->
-    emqx:hook('client.check_acl', fun emqx_acl_mnesia:check_acl/5, [#{key_as => username}]),
-    Config.
-
-end_per_testcase(_, Config) ->
-    emqx:unhook('client.check_acl', fun emqx_acl_mnesia:check_acl/5),
-    Config.
-
 set_special_configs(emqx) ->
     application:set_env(emqx, allow_anonymous, true),
     application:set_env(emqx, enable_acl_cache, false),

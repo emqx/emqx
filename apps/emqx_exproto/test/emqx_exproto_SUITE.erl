@@ -234,10 +234,8 @@ t_hook_connected_disconnected(Cfg) ->
     ConnAckBin = frame_connack(0),
 
     Parent = self(),
-    HookFun1 = fun(_, _) -> Parent ! connected, ok end,
-    HookFun2 = fun(_, _, _) -> Parent ! disconnected, ok end,
-    emqx:hook('client.connected', HookFun1),
-    emqx:hook('client.disconnected', HookFun2),
+    emqx:hook('client.connected', {?MODULE, hook_fun1, [Parent]}),
+    emqx:hook('client.disconnected',{?MODULE, hook_fun2, [Parent]}),
 
     send(Sock, ConnBin),
     {ok, ConnAckBin} = recv(Sock, 5000),
@@ -260,8 +258,8 @@ t_hook_connected_disconnected(Cfg) ->
     SockType =/= udp andalso begin
         {error, closed} = recv(Sock, 5000)
     end,
-    emqx:unhook('client.connected', HookFun1),
-    emqx:unhook('client.disconnected', HookFun2).
+    emqx:unhook('client.connected', {?MODULE, hook_fun1}),
+    emqx:unhook('client.disconnected', {?MODULE, hook_fun2}).
 
 t_hook_session_subscribed_unsubscribed(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
@@ -280,10 +278,8 @@ t_hook_session_subscribed_unsubscribed(Cfg) ->
     {ok, ConnAckBin} = recv(Sock, 5000),
 
     Parent = self(),
-    HookFun1 = fun(_, _, _) -> Parent ! subscribed, ok end,
-    HookFun2 = fun(_, _, _) -> Parent ! unsubscribed, ok end,
-    emqx:hook('session.subscribed', HookFun1),
-    emqx:hook('session.unsubscribed', HookFun2),
+    emqx:hook('session.subscribed', {?MODULE, hook_fun3, [Parent]}),
+    emqx:hook('session.unsubscribed', {?MODULE, hook_fun4, [Parent]}),
 
     SubBin = frame_subscribe(<<"t/#">>, 1),
     SubAckBin = frame_suback(0),
@@ -310,8 +306,8 @@ t_hook_session_subscribed_unsubscribed(Cfg) ->
     end,
 
     close(Sock),
-    emqx:unhook('session.subscribed', HookFun1),
-    emqx:unhook('session.unsubscribed', HookFun2).
+    emqx:unhook('session.subscribed', {?MODULE, hook_fun3}),
+    emqx:unhook('session.unsubscribed', {?MODULE, hook_fun4}).
 
 t_hook_message_delivered(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
@@ -335,18 +331,25 @@ t_hook_message_delivered(Cfg) ->
     send(Sock, SubBin),
     {ok, SubAckBin} = recv(Sock, 5000),
 
-    HookFun1 = fun(_, Msg) -> {ok, Msg#message{payload = <<"2">>}} end,
-    emqx:hook('message.delivered', HookFun1),
+    emqx:hook('message.delivered', {?MODULE, hook_fun5, []}),
 
     emqx:publish(emqx_message:make(<<"t/dn">>, <<"1">>)),
     PubBin1 = frame_publish(<<"t/dn">>, 0, <<"2">>),
     {ok, PubBin1} = recv(Sock, 5000),
 
     close(Sock),
-    emqx:unhook('message.delivered', HookFun1).
+    emqx:unhook('message.delivered', {?MODULE, hook_fun5}).
 
 %%--------------------------------------------------------------------
 %% Utils
+
+hook_fun1(_, _, Parent) -> Parent ! connected, ok.
+hook_fun2(_, _, _, Parent) -> Parent ! disconnected, ok.
+
+hook_fun3(_, _, _, Parent) -> Parent ! subscribed, ok.
+hook_fun4(_, _, _, Parent) -> Parent ! unsubscribed, ok.
+
+hook_fun5(_, Msg) -> {ok, Msg#message{payload = <<"2">>}}.
 
 rand_bytes() ->
     crypto:strong_rand_bytes(rand:uniform(256)).

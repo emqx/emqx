@@ -50,22 +50,22 @@ t_check_acl(_) ->
     ?assertEqual(allow, emqx_access_control:check_acl(clientinfo(), Publish, <<"t">>)).
 
 t_bypass_auth_plugins(_) ->
-    AuthFun = fun(#{zone := bypass_zone}, AuthRes) ->
-                      {stop, AuthRes#{auth_result => password_error}};
-                 (#{zone := _}, AuthRes) ->
-                      {stop, AuthRes#{auth_result => success}}
-              end,
     ClientInfo = clientinfo(),
     emqx_zone:set_env(bypass_zone, allow_anonymous, true),
     emqx_zone:set_env(zone, allow_anonymous, false),
     emqx_zone:set_env(bypass_zone, bypass_auth_plugins, true),
-    emqx:hook('client.authenticate', AuthFun, []),
+    emqx:hook('client.authenticate',{?MODULE, auth_fun, []}),
     ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo#{zone => bypass_zone})),
     ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo)).
 
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+auth_fun(#{zone := bypass_zone}, AuthRes) ->
+             {stop, AuthRes#{auth_result => password_error}};
+auth_fun(#{zone := _}, AuthRes) ->
+             {stop, AuthRes#{auth_result => success}}.
 
 clientinfo() -> clientinfo(#{}).
 clientinfo(InitProps) ->
