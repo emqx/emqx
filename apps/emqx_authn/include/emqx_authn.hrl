@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--define(APP, emqx_authentication).
+-define(APP, emqx_authn).
 
 -type(service_type_name() :: atom()).
 -type(service_name() :: binary()).

@@ -1,0 +1,4 @@
+{mapping, "emqx_authn.chains", "emqx_authn.chains", [
+  {default, []},
+  {datatype, string}
+]}.

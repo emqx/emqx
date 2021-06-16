@@ -14,9 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authentication_mnesia).
+-module(emqx_authn_mnesia).
 
--include("emqx_authentication.hrl").
+-include("emqx_authn.hrl").
 
 -export([ create/3
         , update/4

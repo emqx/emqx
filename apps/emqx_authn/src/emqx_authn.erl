@@ -14,9 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authentication).
+-module(emqx_authn).
 
--include("emqx_authentication.hrl").
+-include("emqx_authn.hrl").
 
 -export([ enable/0
         , disable/0
@@ -53,8 +53,8 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
--define(CHAIN_TAB, emqx_authentication_chain).
--define(SERVICE_TYPE_TAB, emqx_authentication_service_type).
+-define(CHAIN_TAB, emqx_authn_chain).
+-define(SERVICE_TYPE_TAB, emqx_authn_service_type).
 
 -rlog_shard({?AUTH_SHARD, ?CHAIN_TAB}).
 -rlog_shard({?AUTH_SHARD, ?SERVICE_TYPE_TAB}).
@@ -88,13 +88,13 @@ mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?SERVICE_TYPE_TAB, ram_copies).
 
 enable() ->
-    case emqx:hook('client.authenticate', {emqx_authentication, authenticate, []}) of
+    case emqx:hook('client.authenticate', fun emqx_authn:authenticate/1) of
         ok -> ok;
         {error, already_exists} -> ok
     end.
 
 disable() ->
-    emqx:unhook('client.authenticate', {emqx_authentication, authenticate}),
+    emqx:unhook('client.authenticate', fun emqx_authn:authenticate/1),
     ok.
 
 authenticate(#{chain_id := ChainID} = ClientInfo) ->

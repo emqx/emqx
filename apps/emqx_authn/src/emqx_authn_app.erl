@@ -14,7 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authentication_app).
+-module(emqx_authn_app).
+
+-include("emqx_authn.hrl").
 
 -behaviour(application).
 
@@ -28,10 +30,20 @@
         ]).
 
 start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqx_authentication_sup:start_link(),
+    {ok, Sup} = emqx_authn_sup:start_link(),
     ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
-    ok = emqx_authentication:register_service_types(),
+    ok = emqx_authn:register_service_types(),
+    recover_from_conf(),
     {ok, Sup}.
 
 stop(_State) ->
     ok.
+
+recover_from_conf() ->
+    RawConfig = application:get_all_env(?APP),
+    io:format("RawConfig: ~p~n", [RawConfig]),
+    {ok, MapConfig} = hocon:binary(jsx:encode(RawConfig), #{format => richmap}),
+    Config0 = hocon_schema:check(emqx_authn_schema, MapConfig),
+    Config = hocon_schema:richmap_to_map(Config0),
+    ok = application:set_env(?APP, chains, Config),
+    io:format("Config: ~p~n", [Config]).

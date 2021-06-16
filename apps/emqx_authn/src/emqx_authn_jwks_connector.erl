@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authentication_jwks_connector).
+-module(emqx_authn_jwks_connector).
 
 -behaviour(gen_server).
 

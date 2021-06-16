@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authentication_SUITE).
+-module(emqx_authn_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -22,18 +22,18 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(AUTH, emqx_authentication).
+-define(AUTH, emqx_authn).
 
 all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     application:set_env(ekka, strict_mode, true),
-    emqx_ct_helpers:start_apps([emqx_authentication]),
+    emqx_ct_helpers:start_apps([emqx_authn]),
     Config.
 
 end_per_suite(_) ->
-    emqx_ct_helpers:stop_apps([emqx_authentication]),
+    emqx_ct_helpers:stop_apps([emqx_authn]),
     ok.
 
 t_chain(_) ->
@@ -134,7 +134,7 @@ t_import(_) ->
                           password_hash_algorithm => <<"sha256">>}},
     ?assertEqual({ok, [ServiceParams]}, ?AUTH:add_services(ChainID, [ServiceParams])),
 
-    Dir = code:lib_dir(emqx_authentication, test),
+    Dir = code:lib_dir(emqx_authn, test),
     ?assertEqual(ok, ?AUTH:import_users(ChainID, ServiceName, filename:join([Dir, "data/user-credentials.json"]))),
     ?assertEqual(ok, ?AUTH:import_users(ChainID, ServiceName, filename:join([Dir, "data/user-credentials.csv"]))),
     ?assertMatch({ok, #{user_id := <<"myuser1">>}}, ?AUTH:lookup_user(ChainID, ServiceName, <<"myuser1">>)),

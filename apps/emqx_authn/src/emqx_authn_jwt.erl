@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authentication_jwt).
+-module(emqx_authn_jwt).
 
 -export([ create/3
         , update/4
@@ -118,7 +118,7 @@ authenticate(ClientInfo = #{password := JWT}, #{jwk := JWK,
                false ->
                    [JWK];
                true ->
-                   {ok, JWKs0} = emqx_authentication_jwks_connector:get_jwks(JWK),
+                   {ok, JWKs0} = emqx_authn_jwks_connector:get_jwks(JWK),
                    JWKs0
            end,
     VerifyClaims = replace_placeholder(VerifyClaims0, ClientInfo),
@@ -131,7 +131,7 @@ authenticate(ClientInfo = #{password := JWT}, #{jwk := JWK,
 destroy(#{jwks_connector := undefined}) ->
     ok;
 destroy(#{jwks_connector := Connector}) ->
-    _ = emqx_authentication_jwks_connector:stop(Connector),
+    _ = emqx_authn_jwks_connector:stop(Connector),
     ok.
 
 %%--------------------------------------------------------------------
@@ -160,7 +160,7 @@ do_create(#{use_jwks := false,
            verify_claims => maps:get(verify_claims, Opts)}};
 
 do_create(#{use_jwks := true} = Opts) ->
-    case emqx_authentication_jwks_connector:start_link(Opts) of
+    case emqx_authn_jwks_connector:start_link(Opts) of
         {ok, Connector} ->
             {ok, #{jwk => Connector,
                    verify_claims => maps:get(verify_claims, Opts)}};
@@ -171,10 +171,10 @@ do_create(#{use_jwks := true} = Opts) ->
 do_update(Opts, #{jwk_connector := undefined}) ->
     do_create(Opts);
 do_update(#{use_jwks := false} = Opts, #{jwk_connector := Connector}) ->
-    _ = emqx_authentication_jwks_connector:stop(Connector),
+    _ = emqx_authn_jwks_connector:stop(Connector),
     do_create(Opts);
 do_update(#{use_jwks := true} = Opts, #{jwk_connector := Connector} = State) ->
-    ok = emqx_authentication_jwks_connector:update(Connector, Opts),
+    ok = emqx_authn_jwks_connector:update(Connector, Opts),
     {ok, State}.
 
 replace_placeholder(L, Variables) ->

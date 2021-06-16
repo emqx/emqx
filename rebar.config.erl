@@ -285,7 +285,7 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_sn
     , emqx_coap
     , emqx_stomp
-    , emqx_authentication
+    , emqx_authn
     , emqx_statsd
     , emqx_rule_actions
     ]

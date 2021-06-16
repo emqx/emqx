@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authentication_api).
+-module(emqx_authn_api).
 
 -export([ create_chain/2
         , delete_chain/2
@@ -153,7 +153,7 @@ create_chain(Binding, Params) ->
     do_create_chain(uri_decode(Binding), maps:from_list(Params)).
 
 do_create_chain(_Binding, #{<<"id">> := ChainID}) ->
-    case emqx_authentication:create_chain(#{id => ChainID}) of
+    case emqx_authn:create_chain(#{id => ChainID}) of
         {ok, Chain} ->
             return({ok, Chain});
         {error, Reason} ->
@@ -166,7 +166,7 @@ delete_chain(Binding, Params) ->
     do_delete_chain(uri_decode(Binding), maps:from_list(Params)).
 
 do_delete_chain(#{id := ChainID}, _Params) ->
-    case emqx_authentication:delete_chain(ChainID) of
+    case emqx_authn:delete_chain(ChainID) of
         ok ->
             return(ok);
         {error, Reason} ->
@@ -177,7 +177,7 @@ lookup_chain(Binding, Params) ->
     do_lookup_chain(uri_decode(Binding), maps:from_list(Params)).
 
 do_lookup_chain(#{id := ChainID}, _Params) ->
-    case emqx_authentication:lookup_chain(ChainID) of
+    case emqx_authn:lookup_chain(ChainID) of
         {ok, Chain} ->
             return({ok, Chain});
         {error, Reason} ->
@@ -188,7 +188,7 @@ list_chains(Binding, Params) ->
     do_list_chains(uri_decode(Binding), maps:from_list(Params)).
 
 do_list_chains(_Binding, _Params) ->
-    {ok, Chains} = emqx_authentication:list_chains(),
+    {ok, Chains} = emqx_authn:list_chains(),
     return({ok, Chains}).
 
 add_service(Binding, Params) ->
@@ -197,7 +197,7 @@ add_service(Binding, Params) ->
 do_add_service(#{id := ChainID}, #{<<"name">> := Name,
                                    <<"type">> := Type,
                                    <<"params">> := Params}) ->
-    case emqx_authentication:add_services(ChainID, [#{name => Name,
+    case emqx_authn:add_services(ChainID, [#{name => Name,
                                                       type => binary_to_existing_atom(Type, utf8),
                                                       params => maps:from_list(Params)}]) of
         {ok, Services} ->
@@ -215,7 +215,7 @@ delete_service(Binding, Params) ->
 
 do_delete_service(#{id := ChainID,
                     service_name := ServiceName}, _Params) ->
-    case emqx_authentication:delete_services(ChainID, [ServiceName]) of
+    case emqx_authn:delete_services(ChainID, [ServiceName]) of
         ok ->
             return(ok);
         {error, Reason} ->
@@ -228,7 +228,7 @@ update_service(Binding, Params) ->
 %% TOOD: PUT method supports creation and update
 do_update_service(#{id := ChainID,
                     service_name := ServiceName}, Params) ->
-    case emqx_authentication:update_service(ChainID, ServiceName, Params) of
+    case emqx_authn:update_service(ChainID, ServiceName, Params) of
         {ok, Service} ->
             return({ok, Service});
         {error, Reason} ->
@@ -240,7 +240,7 @@ lookup_service(Binding, Params) ->
 
 do_lookup_service(#{id := ChainID,
                     service_name := ServiceName}, _Params) ->
-    case emqx_authentication:lookup_service(ChainID, ServiceName) of
+    case emqx_authn:lookup_service(ChainID, ServiceName) of
         {ok, Service} ->
             return({ok, Service});
         {error, Reason} ->
@@ -251,7 +251,7 @@ list_services(Binding, Params) ->
     do_list_services(uri_decode(Binding), maps:from_list(Params)).
 
 do_list_services(#{id := ChainID}, _Params) ->
-    case emqx_authentication:list_services(ChainID) of
+    case emqx_authn:list_services(ChainID) of
         {ok, Services} ->
             return({ok, Services});
         {error, Reason} ->
@@ -263,7 +263,7 @@ move_service(Binding, Params) ->
 
 do_move_service(#{id := ChainID,
                   service_name := ServiceName}, #{<<"position">> := <<"the front">>}) ->
-    case emqx_authentication:move_service_to_the_front(ChainID, ServiceName) of
+    case emqx_authn:move_service_to_the_front(ChainID, ServiceName) of
         ok ->
             return(ok);
         {error, Reason} ->
@@ -271,7 +271,7 @@ do_move_service(#{id := ChainID,
     end;
 do_move_service(#{id := ChainID,
                   service_name := ServiceName}, #{<<"position">> := <<"the end">>}) ->
-    case emqx_authentication:move_service_to_the_end(ChainID, ServiceName) of
+    case emqx_authn:move_service_to_the_end(ChainID, ServiceName) of
         ok ->
             return(ok);
         {error, Reason} ->
@@ -279,7 +279,7 @@ do_move_service(#{id := ChainID,
     end;
 do_move_service(#{id := ChainID,
                   service_name := ServiceName}, #{<<"position">> := N}) when is_number(N) ->
-    case emqx_authentication:move_service_to_the_nth(ChainID, ServiceName, N) of
+    case emqx_authn:move_service_to_the_nth(ChainID, ServiceName, N) of
         ok ->
             return(ok);
         {error, Reason} ->
@@ -293,7 +293,7 @@ import_users(Binding, Params) ->
 
 do_import_users(#{id := ChainID, service_name := ServiceName},
                 #{<<"filename">> := Filename}) ->
-    case emqx_authentication:import_users(ChainID, ServiceName, Filename) of
+    case emqx_authn:import_users(ChainID, ServiceName, Filename) of
         ok ->
             return(ok);
         {error, Reason} ->
@@ -308,7 +308,7 @@ add_user(Binding, Params) ->
 
 do_add_user(#{id := ChainID,
               service_name := ServiceName}, UserInfo) ->
-    case emqx_authentication:add_user(ChainID, ServiceName, UserInfo) of
+    case emqx_authn:add_user(ChainID, ServiceName, UserInfo) of
         {ok, User} ->
             return({ok, User});
         {error, Reason} ->
@@ -321,7 +321,7 @@ delete_user(Binding, Params) ->
 do_delete_user(#{id := ChainID,
                  service_name := ServiceName,
                  user_id := UserID}, _Params) ->
-    case emqx_authentication:delete_user(ChainID, ServiceName, UserID) of
+    case emqx_authn:delete_user(ChainID, ServiceName, UserID) of
         ok ->
             return(ok);
         {error, Reason} ->
@@ -334,7 +334,7 @@ update_user(Binding, Params) ->
 do_update_user(#{id := ChainID,
                  service_name := ServiceName,
                  user_id := UserID}, NewUserInfo) ->
-    case emqx_authentication:update_user(ChainID, ServiceName, UserID, NewUserInfo) of
+    case emqx_authn:update_user(ChainID, ServiceName, UserID, NewUserInfo) of
         {ok, User} ->
             return({ok, User});
         {error, Reason} ->
@@ -347,7 +347,7 @@ lookup_user(Binding, Params) ->
 do_lookup_user(#{id := ChainID,
                  service_name := ServiceName,
                  user_id := UserID}, _Params) ->
-    case emqx_authentication:lookup_user(ChainID, ServiceName, UserID) of
+    case emqx_authn:lookup_user(ChainID, ServiceName, UserID) of
         {ok, User} ->
             return({ok, User});
         {error, Reason} ->
@@ -359,7 +359,7 @@ list_users(Binding, Params) ->
 
 do_list_users(#{id := ChainID,
                 service_name := ServiceName}, _Params) ->
-    case emqx_authentication:list_users(ChainID, ServiceName) of
+    case emqx_authn:list_users(ChainID, ServiceName) of
         {ok, Users} ->
             return({ok, Users});
         {error, Reason} ->

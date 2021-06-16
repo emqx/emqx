@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authentication_sup).
+-module(emqx_authn_sup).
 
 -behaviour(supervisor).
 
