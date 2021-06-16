@@ -1,14 +1,14 @@
 %% -*-: erlang -*-
 {VSN,
   [
-    {"4.3.0", [
-      {load_module, emqx_retainer, brutal_purge, soft_purge, []}
+    {<<"4.3.[0-1]">>, [
+      {restart_application, emqx_retainer}
     ]},
     {<<".*">>, []}
   ],
   [
-    {"4.3.0", [
-      {load_module, emqx_retainer, brutal_purge, soft_purge, []}
+    {<<"4.3.[0-1]">>, [
+      {restart_application, emqx_retainer}
     ]},
     {<<".*">>, []}
   ]

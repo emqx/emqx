@@ -1,0 +1,13 @@
+%% -*-: erlang -*-
+{VSN,
+ [
+   {"4.3.0", [
+     {restart_application, emqx_psk_file}
+   ]}
+ ],
+ [
+   {"4.3.0", [
+     {restart_application, emqx_psk_file}
+   ]}
+ ]
+}.
