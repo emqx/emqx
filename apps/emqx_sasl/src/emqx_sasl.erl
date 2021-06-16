@@ -26,10 +26,10 @@
         ]).
 
 load() ->
-    emqx:hook('client.enhanced_authenticate', fun ?MODULE:check/3, []).
+    emqx:hook('client.enhanced_authenticate', {?MODULE, check, []}).
 
 unload() ->
-    emqx:unhook('client.enhanced_authenticate', fun ?MODULE:check/3).
+    emqx:unhook('client.enhanced_authenticate', {?MODULE, check}).
 
 init() ->
     emqx_sasl_scram:init().

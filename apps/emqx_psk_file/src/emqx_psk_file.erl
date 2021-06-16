@@ -38,11 +38,11 @@ load(Env) ->
     {ok, PskFile} = file:open(get_value(path, Env), [read, raw, binary, read_ahead]),
     preload_psks(PskFile, bin(get_value(delimiter, Env))),
     _ = file:close(PskFile),
-    emqx:hook('tls_handshake.psk_lookup', fun ?MODULE:on_psk_lookup/2, []).
+    emqx:hook('tls_handshake.psk_lookup', {?MODULE, on_psk_lookup, []}).
 
 %% Called when the plugin application stop
 unload() ->
-    emqx:unhook('tls_handshake.psk_lookup', fun ?MODULE:on_psk_lookup/2).
+    emqx:unhook('tls_handshake.psk_lookup', {?MODULE, on_psk_lookup}).
 
 on_psk_lookup(ClientPSKID, UserState) ->
     case ets:lookup(?TAB, ClientPSKID) of

@@ -42,8 +42,8 @@ start(_StartType, _StartArgs) ->
     {ok, Sup}.
 
 prep_stop(State) ->
-    emqx:unhook('client.authenticate', fun emqx_auth_mnesia:check/3),
-    emqx:unhook('client.check_acl', fun emqx_acl_mnesia:check_acl/5),
+    emqx:unhook('client.authenticate', {emqx_auth_mnesia, check}),
+    emqx:unhook('client.check_acl', {emqx_acl_mnesia, check_acl}),
     emqx_ctl:unregister_command(clientid),
     emqx_ctl:unregister_command(user),
     emqx_ctl:unregister_command(acl),
@@ -60,9 +60,9 @@ load_auth_hook() ->
     Params = #{
             hash_type => application:get_env(emqx_auth_mnesia, password_hash, sha256)
             },
-    emqx:hook('client.authenticate', fun emqx_auth_mnesia:check/3, [Params]).
+    emqx:hook('client.authenticate', {emqx_auth_mnesia, check, [Params]}).
 
 load_acl_hook() ->
     ok = emqx_acl_mnesia:init(),
     ok = emqx_acl_mnesia:register_metrics(),
-    emqx:hook('client.check_acl', fun emqx_acl_mnesia:check_acl/5, [#{}]).
+    emqx:hook('client.check_acl', {emqx_acl_mnesia, check_acl, [#{}]}).
