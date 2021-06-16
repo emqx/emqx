@@ -11,13 +11,11 @@
 
 -export([structs/0, fields/1]).
 
-structs() -> ["rules"].
+structs() -> ["authz"].
 
-fields("rules") ->
-    [ fun (type) -> {array, {union, ["base_rule", "connector_rule"]}};
-          (default) -> [];
-          (_) -> undefined
-      end
+fields("authz") ->
+    [ {rules, hoconsc:array({union,["simple_rule", "connector_rule"]})
+      }
     ];
 fields("connector_rule") ->
     [ {principal, fun (default) -> all;
@@ -38,8 +36,11 @@ fields("connector_rule") ->
     , {config, fun (type) -> map();
                     (_) -> undefined
                end}
+    , {sql, fun(type) -> binary();
+               (_) -> undefined
+            end}
     ];
-fields("base_rule") ->
+fields("simple_rule") ->
     [ {access,   fun access/1}
     , {action,   fun action/1}
     , {topics,   fun topics/1}
@@ -66,8 +67,12 @@ fields("andlist") ->
     [{'and', fun principal/1}];
 fields("orlist") ->
     [{'or', fun principal/1}];
-
-fields(_) -> [].
+fields("eq_topic") ->
+    [{eq, fun(type) -> binary();
+              (_) -> undefined
+          end
+     }
+    ].
 
 access(type) -> access();
 access(_) -> undefined.
@@ -75,7 +80,7 @@ access(_) -> undefined.
 action(type) -> action();
 action(_) -> undefined.
 
-topics(type) -> {array, {union, [binary(), {eq, binary()}]}};
+topics(type) -> {array, {union, [binary(), "eq_topic"]}};
 topics(_) -> undefined.
 
 username(type) -> binary();

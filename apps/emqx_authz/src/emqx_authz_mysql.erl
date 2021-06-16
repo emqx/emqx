@@ -93,7 +93,7 @@ topic(Topic) ->
     Topic.
 
 description() ->
-    "ACL with Mysql".
+    "AuthZ with Mysql".
 
 empty(null) -> true;
 empty("")   -> true;

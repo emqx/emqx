@@ -33,11 +33,8 @@ register_metrics() ->
 
 init() ->
     ok = register_metrics(),
-    % {ok, Conf} = hocon:load("etc/plugins/emqx_authz.conf",#{format => richmap}),
     RawConf = proplists:get_value(rules, application:get_all_env(?APP), []),
-    {ok, MapConf} = hocon:binary(jsx:encode(#{rules => RawConf}), #{format => richmap}),
-    CheckConf = hocon_schema:check(emqx_authz_schema, MapConf),
-    #{<<"rules">> := Rules} = hocon_schema:richmap_to_map(CheckConf),
+    #{<<"authz">> := #{<<"rules">> := Rules}} = hocon_schema:check_plain(emqx_authz_schema, #{<<"authz">> => #{<<"rules">> => RawConf}}),
     ok = application:set_env(?APP, rules, Rules),
     NRules = [compile(Rule) || Rule <- Rules],
     ok = emqx_hooks:add('client.check_acl', {?MODULE, check_authz, [NRules]},  -1).
@@ -73,7 +70,7 @@ compile(#{<<"topics">> := Topics,
           <<"topics">> => NTopics
          };
 compile(#{<<"principal">> := Principal,
-          <<"type">> := <<"mysql">>,
+          <<"type">> := mysql,
           <<"config">> := Config,
           <<"sql">> := _SQL
          } = Rule) ->
@@ -103,7 +100,7 @@ compile_principal(#{<<"clientid">> := Clientid}) ->
     {ok, MP} = re:compile(bin(Clientid)),
     #{<<"clientid">> => MP};
 compile_principal(#{<<"ipaddress">> := IpAddress}) ->
-    #{<<"ipaddress">> => esockd_cidr:parse(binary_to_list(IpAddress), true)};
+    #{<<"ipaddress">> => esockd_cidr:parse(b2l(IpAddress), true)};
 compile_principal(#{<<"and">> := Principals}) when is_list(Principals) ->
     #{<<"and">> => [compile_principal(Principal) || Principal <- Principals]};
 compile_principal(#{<<"or">> := Principals}) when is_list(Principals) ->
@@ -142,7 +139,7 @@ check_authz(Client, PubSub, Topic, DefaultResult, Rules) ->
 
 do_check_authz(Client, PubSub, Topic,
                [Connector = #{<<"principal">> := Principal,
-                              <<"type">> := <<"mysql">>} | Tail] ) ->
+                              <<"type">> := mysql} | Tail] ) ->
     case match_principal(Client, Principal) of
         true -> emqx_authz_mysql:check_authz(Client, PubSub, Topic, Connector);
         false -> do_check_authz(Client, PubSub, Topic, Tail)
@@ -225,3 +222,6 @@ feed_var(ClientInfo = #{username := Username}, [<<"%u">>|Words], Acc) ->
     feed_var(ClientInfo, Words, [Username|Acc]);
 feed_var(ClientInfo, [W|Words], Acc) ->
     feed_var(ClientInfo, Words, [W|Acc]).
+
+b2l(B) when is_list(B) -> B;
+b2l(B) when is_binary(B) -> binary_to_list(B).

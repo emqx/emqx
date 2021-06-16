@@ -83,7 +83,8 @@ t_api(_Config) ->
             },
     {ok, _} = request_http_rest_add(["authz/append"], #{rules => [Rule2]}),
     {ok, Result2} = request_http_rest_lookup(["authz"]),
-    ?assertEqual(Rule2, lists:last(get_http_data(Result2))),
+    ?assertEqual(Rule2#{<<"principal">> => #{<<"ipaddress">> => "127.0.0.1"}}, 
+                 lists:last(get_http_data(Result2))),
 
     {ok, _} = request_http_rest_update(["authz"], #{rules => []}),
     {ok, Result3} = request_http_rest_lookup(["authz"]),

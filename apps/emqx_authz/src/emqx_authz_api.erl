@@ -74,9 +74,10 @@ push_authz(_Bindings, Params) ->
 %%------------------------------------------------------------------------------
 
 get_rules(Params) ->
-    {ok, Conf} = hocon:binary(jsx:encode(Params), #{format => richmap}),
+    % #{<<"authz">> := #{<<"rules">> := Rules}} = hocon_schema:check_plain(emqx_authz_schema, #{<<"authz">> => Params}),
+    {ok, Conf} = hocon:binary(jsx:encode(#{<<"authz">> => Params}), #{format => richmap}),
     CheckConf = hocon_schema:check(emqx_authz_schema, Conf),
-    #{<<"rules">> := Rules} = hocon_schema:richmap_to_map(CheckConf),
+    #{<<"authz">> := #{<<"rules">> := Rules}} = hocon_schema:richmap_to_map(CheckConf),
     Rules.
 
 %%--------------------------------------------------------------------
