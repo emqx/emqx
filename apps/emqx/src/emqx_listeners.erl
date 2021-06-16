@@ -147,17 +147,17 @@ start_listener(quic, ListenOn, Options) ->
     quicer_nif:open_lib(),
     quicer_nif:reg_open(),
     SSLOpts = proplists:get_value(ssl_options, Options),
+    DefAcceptors = erlang:system_info(schedulers_online) * 8,
     ListenOpts = [ {cert, proplists:get_value(certfile, SSLOpts)}
                  , {key, proplists:get_value(keyfile, SSLOpts)}
                  , {alpn, ["mqtt"]}
-                 , {peer_unidi_stream_count, 1}
-                 , {peer_bidi_stream_count, 10}
-                 , {conn_acceptors, 32}
+                 , {conn_acceptors, proplists:get_value(acceptors, Options, DefAcceptors)}
+                 , {idle_timeout_ms, proplists:get_value(idle_timeout, Options, 60000)}
                  ],
     ConnectionOpts = [ {conn_callback, emqx_quic_connection}
-                     , {idle_timeout_ms, 5000}
                      , {peer_unidi_stream_count, 1}
-                     , {peer_bidi_stream_count, 10}],
+                     , {peer_bidi_stream_count, 10}
+                     ],
     StreamOpts = [],
     quicer:start_listener('mqtt:quic', ListenOn, {ListenOpts, ConnectionOpts, StreamOpts}).
 
