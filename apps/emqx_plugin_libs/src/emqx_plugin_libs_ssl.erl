@@ -32,8 +32,8 @@
 %% <<"verify">> => boolean()
 %% <<"tls_versions">> => binary()
 %% <<"ciphers">> => binary()
--type opts_key() :: binary().
--type opts_input() :: #{opts_key() => file_input() | boolean() | binary()}.
+-type opts_key() :: binary() | atom().
+-type opts_input() :: #{opts_key() => term()}.
 
 -type opt_key() :: keyfile | certfile | cacertfile | verify | versions | ciphers.
 -type opt_value() :: term().
