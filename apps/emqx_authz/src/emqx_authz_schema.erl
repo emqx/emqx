@@ -14,10 +14,10 @@
 structs() -> ["authz"].
 
 fields("authz") ->
-    [ {rules, hoconsc:array({union,["simple_rule", "connector_rule"]})
+    [ {rules, hoconsc:array({union,["simple_rule", "sql_connector", "redis_connector"]})
       }
     ];
-fields("connector_rule") ->
+fields("redis_connector") ->
     [ {principal, fun (default) -> all;
                       (type) -> {union,
                                  [all,
@@ -30,13 +30,48 @@ fields("connector_rule") ->
                       (_) -> undefined
                  end
       }
-    , {type, fun (type) -> {union, [mysql]};
+    , {type, fun (type) -> {enum, [redis]};
+                 (_) -> undefined
+             end}
+    , {config, fun (type) -> map();
+                   (_) -> undefined
+               end}
+    , {cmd, fun(type) -> binary();
+               (validator) -> fun(S) ->
+                                case size(S) > 0 of
+                                    true -> ok;
+                                    _ -> {error, "Request CMD"}
+                                end
+                              end;
+               (_) -> undefined
+            end}
+    ];
+fields("sql_connector") ->
+    [ {principal, fun (default) -> all;
+                      (type) -> {union,
+                                 [all,
+                                  "username",
+                                  "clientid",
+                                  "ipaddress",
+                                  "andlist",
+                                  "orlist"]
+                                };
+                      (_) -> undefined
+                 end
+      }
+    , {type, fun (type) -> {enum, [mysql, pgsql]};
                  (_) -> undefined
              end}
     , {config, fun (type) -> map();
                     (_) -> undefined
                end}
     , {sql, fun(type) -> binary();
+               (validator) -> fun(S) ->
+                                case size(S) > 0 of
+                                    true -> ok;
+                                    _ -> {error, "Request SQL"}
+                                end
+                              end;
                (_) -> undefined
             end}
     ];
