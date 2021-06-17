@@ -58,7 +58,7 @@ find_objectid(ObjectId) ->
                         false -> ObjectId
                     end,
     case ets:lookup(?LWM2M_OBJECT_DEF_TAB, ObjectIdInt) of
-        [] -> error(no_xml_definition);
+        [] -> {error, no_xml_definition};
         [{ObjectId, Xml}] -> Xml
     end.
 
@@ -121,8 +121,10 @@ load(BaseDir) ->
                true  -> BaseDir++"*.xml";
                false -> BaseDir++"/*.xml"
            end,
-    AllXmlFiles = filelib:wildcard(Wild),
-    load_loop(AllXmlFiles).
+    case filelib:wildcard(Wild) of
+        [] -> error(no_xml_files_found, BaseDir);
+        AllXmlFiles -> load_loop(AllXmlFiles)
+    end.
 
 load_loop([]) ->
     ok;
