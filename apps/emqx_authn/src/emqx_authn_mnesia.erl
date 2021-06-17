@@ -17,6 +17,9 @@
 -module(emqx_authn_mnesia).
 
 -include("emqx_authn.hrl").
+-include_lib("typerefl/include/types.hrl").
+
+-export([ fields/0 ]).
 
 -export([ create/3
         , update/4
@@ -32,29 +35,36 @@
         , list_users/1
         ]).
 
-%% TODO: support bcrypt
--service_type(#{
-    name => mnesia,
-    params_spec => #{
-        user_id_type => #{
-            order => 1,
-            type => string,
-            enum => [<<"username">>, <<"clientid">>, <<"ip">>, <<"common name">>, <<"issuer">>],
-            default => <<"username">>
-        },
-        password_hash_algorithm => #{
-            order => 2,
-            type => string,
-            enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
-            default => <<"sha256">>
-        },
-        salt_rounds => #{
-            order => 3,
-            type => number,
-            default => 10
-        }
-    }
-}).
+-type user_id_type() :: clientid | username.
+-type password_hash_algorithm() :: plain | md5 | sha | sha256 | sha512 | bcrypt.
+
+-reflect_type([ user_id_type/0
+              , password_hash_algorithm/0
+              ]).
+
+% %% TODO: support bcrypt
+% -service_type(#{
+%     name => mnesia,
+%     params_spec => #{
+%         user_id_type => #{
+%             order => 1,
+%             type => string,
+%             enum => [<<"username">>, <<"clientid">>, <<"ip">>, <<"common name">>, <<"issuer">>],
+%             default => <<"username">>
+%         },
+%         password_hash_algorithm => #{
+%             order => 2,
+%             type => string,
+%             enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
+%             default => <<"sha256">>
+%         },
+%         salt_rounds => #{
+%             order => 3,
+%             type => number,
+%             default => 10 
+%         }
+%     }
+% }).
 
 -record(user_info,
         { user_id :: {user_group(), user_id()}
@@ -73,6 +83,24 @@
 -define(TAB, mnesia_basic_auth).
 
 -rlog_shard({?AUTH_SHARD, ?TAB}).
+
+fields() ->
+    [ {user_id_type, fun user_id_type/1}
+    , {password_hash_algorithm, fun password_hash_algorithm/1}
+    , {salt_rounds, fun salt_rounds/1}
+    ].
+
+user_id_type(type) -> user_id_type();
+user_id_type(default) -> clientid;
+user_id_type(_) -> undefined.
+
+password_hash_algorithm(type) -> password_hash_algorithm();
+password_hash_algorithm(default) -> sha256;
+password_hash_algorithm(_) -> undefined.
+
+salt_rounds(type) -> integer();
+salt_rounds(default) -> 10;
+salt_rounds(_) -> undefined.
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap

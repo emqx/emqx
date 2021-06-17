@@ -24,8 +24,6 @@
 
 -export([authenticate/1]).
 
--export([register_service_types/0]).
-
 -export([ create_chain/1
         , delete_chain/1
         , lookup_chain/1
@@ -54,7 +52,6 @@
 -copy_mnesia({mnesia, [copy]}).
 
 -define(CHAIN_TAB, emqx_authn_chain).
--define(SERVICE_TYPE_TAB, emqx_authn_service_type).
 
 -rlog_shard({?AUTH_SHARD, ?CHAIN_TAB}).
 -rlog_shard({?AUTH_SHARD, ?SERVICE_TYPE_TAB}).
@@ -70,22 +67,14 @@ mnesia(boot) ->
     StoreProps = [{ets, [{read_concurrency, true}]}],
     %% Chain table
     ok = ekka_mnesia:create_table(?CHAIN_TAB, [
-                {disc_copies, [node()]},
+                {ram_copies, [node()]},
                 {record_name, chain},
                 {attributes, record_info(fields, chain)},
-                {storage_properties, StoreProps}]),
-    %% Service type table
-    ok = ekka_mnesia:create_table(?SERVICE_TYPE_TAB, [
-                {ram_copies, [node()]},
-                {record_name, service_type},
-                {attributes, record_info(fields, service_type)},
                 {storage_properties, StoreProps}]);
 
 mnesia(copy) ->
     %% Copy chain table
-    ok = ekka_mnesia:copy_table(?CHAIN_TAB, disc_copies),
-    %% Copy service type table
-    ok = ekka_mnesia:copy_table(?SERVICE_TYPE_TAB, ram_copies).
+    ok = ekka_mnesia:copy_table(?CHAIN_TAB, ram_copies).
 
 enable() ->
     case emqx:hook('client.authenticate', fun emqx_authn:authenticate/1) of
@@ -116,24 +105,6 @@ do_authenticate([{_, #service{provider = Provider, state = State}} | More], Clie
         {ok, NewClientInfo} -> {ok, NewClientInfo};
         {stop, Reason} -> {error, Reason}
     end.
-
-register_service_types() ->
-    Attrs = find_attrs(?APP, service_type),
-    register_service_types(Attrs).
-
-register_service_types(Attrs) ->
-    register_service_types(Attrs, []).
-
-register_service_types([], Acc) ->
-    do_register_service_types(Acc);
-register_service_types([{_App, Mod, #{name := Name,
-                                      params_spec := ParamsSpec}} | Types], Acc) ->
-    %% TODO: Temporary realization
-    ok = emqx_rule_validator:validate_spec(ParamsSpec),
-    ServiceType = #service_type{name = Name,
-                                provider = Mod,
-                                params_spec = ParamsSpec},
-    register_service_types(Types, [ServiceType | Acc]).
 
 create_chain(#{id := ID}) ->
     trans(
@@ -174,29 +145,24 @@ list_chains() ->
     Chains = ets:tab2list(?CHAIN_TAB),
     {ok, [serialize_chain(Chain) || Chain <- Chains]}.
 
-add_services(ChainID, ServiceParams) ->
-    case validate_service_params(ServiceParams) of
-        {ok, NServiceParams} ->
-            UpdateFun = fun(Chain = #chain{services = Services}) ->
-                            Names = [Name || {Name, _} <- Services] ++ [Name || #{name := Name} <- NServiceParams],
-                            case no_duplicate_names(Names) of
-                                ok ->
-                                    case create_services(ChainID, NServiceParams) of
-                                        {ok, NServices} ->
-                                            NChain = Chain#chain{services = Services ++ NServices},
-                                            ok = mnesia:write(?CHAIN_TAB, NChain, write),
-                                            {ok, serialize_services(NServices)};
-                                        {error, Reason} ->
-                                            {error, Reason}
-                                    end;
-                                {error, {duplicate, Name}} ->
-                                    {error, {already_exists, {service, Name}}}
-                            end
-                        end,
-            update_chain(ChainID, UpdateFun);
-        {error, Reason} ->
-            {error, Reason}
-    end.
+add_services(ChainID, ServiceConfig) ->
+    UpdateFun = fun(Chain = #chain{services = Services}) ->
+                    Names = [Name || {Name, _} <- Services] ++ [Name || #{name := Name} <- ServiceConfig],
+                    case no_duplicate_names(Names) of
+                        ok ->
+                            case create_services(ChainID, ServiceConfig) of
+                                {ok, NServices} ->
+                                    NChain = Chain#chain{services = Services ++ NServices},
+                                    ok = mnesia:write(?CHAIN_TAB, NChain, write),
+                                    {ok, serialize_service(NServices)};
+                                {error, Reason} ->
+                                    {error, Reason}
+                            end;
+                        {error, {duplicate, Name}} ->
+                            {error, {already_exists, {service, Name}}}
+                    end
+                end,
+    update_chain(ChainID, UpdateFun).
 
 delete_services(ChainID, ServiceNames) ->
     case no_duplicate_names(ServiceNames) of
@@ -216,21 +182,18 @@ delete_services(ChainID, ServiceNames) ->
             {error, Reason}
     end.
 
-update_service(ChainID, ServiceName, NewParams) ->
+update_service(ChainID, ServiceName, Config) ->
     UpdateFun = fun(Chain = #chain{services = Services}) ->
                     case proplists:get_value(ServiceName, Services, undefined) of
                         undefined ->
                             {error, {not_found, {service, ServiceName}}};
-                        #service{type     = Type,
-                                 provider = Provider,
-                                 params   = OriginalParams,
+                        #service{provider   = Provider,
+                                 config   = OriginalConfig,
                                  state    = State} = Service ->
-                            Params = maps:merge(OriginalParams, NewParams),
-                            {ok, #service_type{params_spec = ParamsSpec}} = find_service_type(Type),
-                            NParams = emqx_rule_validator:validate_params(Params, ParamsSpec),
-                            case Provider:update(ChainID, ServiceName, NParams, State) of
+                            NewConfig = maps:merge(OriginalConfig, Config),
+                            case Provider:update(ChainID, ServiceName, NewConfig, State) of
                                 {ok, NState} ->
-                                    NService = Service#service{params = Params,
+                                    NService = Service#service{config = NewConfig,
                                                                state = NState},
                                     NServices = lists:keyreplace(ServiceName, 1, Services, {ServiceName, NService}),
                                     ok = mnesia:write(?CHAIN_TAB, Chain#chain{services = NServices}, write),
@@ -247,11 +210,11 @@ lookup_service(ChainID, ServiceName) ->
         [] ->
             {error, {not_found, {chain, ChainID}}};
         [#chain{services = Services}] ->
-            case lists:keytake(ServiceName, 1, Services) of
-                {value, Service, _} ->
-                    {ok, serialize_service(Service)};
+            case lists:keyfind(ServiceName, 1, Services) of
                 false ->
-                    {error, {not_found, {service, ServiceName}}}
+                    {error, {not_found, {service, ServiceName}}};
+                Service ->
+                    {ok, serialize_service({ServiceName, Service})}
             end
     end.
 
@@ -321,59 +284,6 @@ list_users(ChainID, ServiceName) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-find_attrs(App, AttrName) ->
-    [{App, Mod, Attr} || {ok, Modules} <- [application:get_key(App, modules)],
-                         Mod <- Modules,
-                         {Name, Attrs} <- module_attributes(Mod), Name =:= AttrName,
-                         Attr <- Attrs].
-
-module_attributes(Module) ->
-    try Module:module_info(attributes)
-    catch
-        error:undef -> []
-    end.
-
-do_register_service_types(ServiceTypes) ->
-    trans(fun lists:foreach/2, [fun insert_service_type/1, ServiceTypes]).
-
-insert_service_type(ServiceType) ->
-    mnesia:write(?SERVICE_TYPE_TAB, ServiceType, write).
-
-find_service_type(Name) ->
-    case mnesia:dirty_read(?SERVICE_TYPE_TAB, Name) of
-        [ServiceType] -> {ok, ServiceType};
-        [] -> {error, not_found}
-    end.
-
-validate_service_params(ServiceParams) ->
-    case validate_service_names(ServiceParams) of
-        ok ->
-            validate_other_service_params(ServiceParams);
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-validate_service_names(ServiceParams) ->
-    Names = [Name || #{name := Name} <- ServiceParams],
-    no_duplicate_names(Names).
-
-validate_other_service_params(ServiceParams) ->
-    validate_other_service_params(ServiceParams, []).
-
-validate_other_service_params([], Acc) ->
-    {ok, lists:reverse(Acc)};
-validate_other_service_params([#{type := Type, params := Params} = ServiceParams | More], Acc) ->
-    case find_service_type(Type) of
-        {ok, #service_type{provider = Provider, params_spec = ParamsSpec}} ->
-            NParams = emqx_rule_validator:validate_params(Params, ParamsSpec),
-            validate_other_service_params(More,
-                                          [ServiceParams#{params => NParams,
-                                                          original_params => Params,
-                                                          provider => Provider} | Acc]);
-        {error, not_found} ->
-            {error, {not_found, {service_type, Type}}}
-    end.
-
 no_duplicate_names(Names) ->
     no_duplicate_names(Names, #{}).
 
@@ -385,28 +295,31 @@ no_duplicate_names([Name | More], Acc) ->
         true -> {error, {duplicate, Name}}
     end.
 
-create_services(ChainID, ServiceParams) ->
-    create_services(ChainID, ServiceParams, []).
+create_services(ChainID, ServiceConfig) ->
+    create_services(ChainID, ServiceConfig, []).
 
 create_services(_ChainID, [], Acc) ->
     {ok, lists:reverse(Acc)};
 create_services(ChainID, [#{name := Name,
                             type := Type,
-                            provider := Provider,
-                            params := Params,
-                            original_params := OriginalParams} | More], Acc) ->
-    case Provider:create(ChainID, Name, Params) of
+                            config := Config,
+                            original_config := OriginalConfig} | More], Acc) ->
+    Provider = service_provider(Type),
+    case Provider:create(ChainID, Name, Config) of
         {ok, State} ->
             Service = #service{name = Name,
                                type = Type,
                                provider = Provider,
-                               params = OriginalParams,
+                               config = OriginalConfig,
                                state = State},
             create_services(ChainID, More, [{Name, Service} | Acc]);
         {error, Reason} ->
             delete_services_(Acc),
             {error, Reason}
     end.
+
+service_provider(mnesia) -> emqx_authn_mnesia;
+service_provider(jwt) -> emqx_authn_jwt.
 
 delete_services_([]) ->
     ok;
@@ -484,8 +397,7 @@ call_service(ChainID, ServiceName, Func, Args) ->
             case proplists:get_value(ServiceName, Services, undefined) of
                 undefined ->
                     {error, {not_found, {service, ServiceName}}};
-                #service{provider = Provider,
-                         state = State} ->
+                #service{provider = Provider, state = State} ->
                     case erlang:function_exported(Provider, Func, length(Args) + 1) of
                         true ->
                             erlang:apply(Provider, Func, Args ++ [State]);
@@ -507,10 +419,10 @@ serialize_services(Services) ->
 
 serialize_service({_, #service{name = Name,
                                type = Type,
-                               params = Params}}) ->
+                               config = Config}}) ->
     #{name => Name,
       type => Type,
-      params => Params}.
+      config => Config}.
 
 trans(Fun) ->
     trans(Fun, []).

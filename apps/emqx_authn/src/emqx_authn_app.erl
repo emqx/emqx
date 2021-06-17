@@ -32,18 +32,32 @@
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_authn_sup:start_link(),
     ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
-    ok = emqx_authn:register_service_types(),
-    recover_from_conf(),
+    % ok = emqx_authn:register_service_types(),
+    % generate_config(),
+    initialize(),
     {ok, Sup}.
 
 stop(_State) ->
     ok.
 
-recover_from_conf() ->
-    RawConfig = application:get_all_env(?APP),
-    io:format("RawConfig: ~p~n", [RawConfig]),
-    {ok, MapConfig} = hocon:binary(jsx:encode(RawConfig), #{format => richmap}),
-    Config0 = hocon_schema:check(emqx_authn_schema, MapConfig),
-    Config = hocon_schema:richmap_to_map(Config0),
-    ok = application:set_env(?APP, chains, Config),
-    io:format("Config: ~p~n", [Config]).
+% generate_config() ->
+%     ConfFile = filename:join([emqx:get_env(plugins_etc_dir), ?APP]) ++ ".conf",
+%     {ok, RawConfig} = hocon:load(ConfFile),
+%     #{authn := Config} = hocon_schema:check_plain(emqx_authn_schema, RawConfig, #{atom_key => true}),
+%     ok = application:set_env(?APP, authn, Config).
+
+initialize() ->
+    ConfFile = filename:join([emqx:get_env(plugins_etc_dir), ?APP]) ++ ".conf",
+    {ok, RawConfig} = hocon:load(ConfFile),
+    #{authn := #{chains := Chains}} = hocon_schema:check_plain(emqx_authn_schema, RawConfig, #{atom_key => true}),
+    io:format("Chains: ~p~n", [Chains]),
+    ok.
+%     initialize_chains(Chains).
+
+% initialize_chains([]) ->
+%     ok;
+% initialize_chains([#{id := ChainID, providers := Providers} | More]) ->
+%     {ok, _} = emqx_authn:create_chain(#{id => ChainID}),
+%     {ok, _} = emqx_authn:add_providers(ChainID, Providers),
+%     initialize_chains(More).
+

@@ -24,55 +24,138 @@
 -export([structs/0, fields/1]).
 
 -reflect_type([ chain_id/0
-              , provider_name/0
-              , provider_type/0
+              , service_name/0
+              , algorithm/0
               ]).
 
--type(provider_name() :: binary()).
--type(provider_type() :: mnesia | jwt).
+structs() -> [authn].
 
-% structs() -> [chains].
+fields(authn) ->
+    [{chains, fun chains/1}];
 
-structs() -> [""].
-
-fields("") ->
-    [ {chains, hoconsc:t({array, "chain"}, #{default => []})}
-    ];
-
-% fields(chains) ->
-%     [fun chains/1];
-
-fields(chain) ->
+fields("chain") ->
     [ {id, fun chain_id/1}
-    , {providers, fun providers/1}
+    , {services, hoconsc:array({union, ["mnesia", "jwt"]})}
     ];
 
-fields(provider) ->
-    [ {name, fun provider_name/1}
-    , {type, fun provider_type/1}
-    , {config, fun config/1}
+fields("mnesia") ->
+    [ {name, fun service_name/1}
+    , {type, type(mnesia)}
+    , {config, config(mnesia)}
+    ];
+
+fields("jwt") ->
+    [ {name, fun service_name/1}
+    , {type, type(jwt)}
+    , {config, config(jwt)}
+    ];
+
+fields("mneisa_config") ->
+    [ {user_id_type, fun user_id_type/1}
+    , {password_hash_algorithm, fun password_hash_algorithm/1}
+    , {salt_rounds, fun salt_rounds/1}
     ].
 
-% chains(type) -> {array, "chain"};
-% chains(default) -> [];
-% chains(_) -> undefined.
+fields("jwt_config") ->
+    [ {use_jwks,               fun use_jwks/1}
+    , {jwks_endpoint,          fun jwks_endpoint/1}
+    , {refresh_interval,       fun refresh_interval/1}
+    , {algorithm,              fun algorithm/1}
+    , {secret,                 fun secret/1}
+    , {secret_base64_encoded,  fun secret_base64_encoded/1}
+    , {jwt_certfile,           fun jwt_certfile/1}
+    , {cacertfile,             fun cacertfile/1}
+    , {certfile,               fun certfile/1}
+    , {keyfile,                fun keyfile/1}
+    , {verify,                 fun verify/1}
+    , {server_name_indication, fun server_name_indication/1}
+    ].
+
+chains(type) -> {array, "chain"};
+chains(default) -> [];
+chains(_) -> undefined.
 
 chain_id(type) -> chain_id();
 chain_id(_) -> undefined.
 
-providers(type) -> {array, "provider"};
-providers(default) -> [];
-providers(_) -> undefined.
+service_name(type) -> service_name();
+service_name(validator) -> [required(service_name)];
+service_name(_) -> undefined.
 
-provider_name(type) -> provider_name();
-provider_name(validator) -> [required(provider_name)];
-provider_name(_) -> undefined.
+type(Type) ->
+    fun(type) -> {enum, [Type]};
+       (_) -> undefined
+    end.
 
-provider_type(type) -> provider_type();
-provider_type(_) -> undefined.
+config(Type) ->
+    fun(type) ->
+        case Type of
+            mnesia -> "mnesia_config";
+            jwt -> "jwt_config"
+        end;
+       (_) -> undefined
+    end.
 
-config(type) -> map();
-config(_) -> undefined.
+%%------------------------------------------------------------------------------
+%% Mnesia AuthN Provider Fields
+%%------------------------------------------------------------------------------
+
+user_id_type(type) -> user_id_type();
+user_id_type(default) -> clientid;
+user_id_type(_) -> undefined.
+
+password_hash_algorithm(type) -> password_hash_algorithm();
+password_hash_algorithm(default) -> sha256;
+password_hash_algorithm(_) -> undefined.
+
+salt_rounds(type) -> integer();
+salt_rounds(default) -> 10;
+salt_rounds(_) -> undefined.
+
+%%------------------------------------------------------------------------------
+%% JWT AuthN Provider Fields
+%%------------------------------------------------------------------------------
+
+use_jwks(type) -> boolean();
+use_jwks(default) -> false;
+use_jwks(_) -> undefined.
+
+jwks_endpoint(type) -> string();
+jwks_endpoint(_) -> undefined.
+
+refresh_interval(type) -> integer();
+refresh_interval(default) -> 300;
+refresh_interval(_) -> undefined.
+
+algorithm(type) -> algorithm();
+algorithm(default) -> 'hmac-based';
+algorithm(_) -> undefined.
+
+secret(type) -> string();
+secret(_) -> undefined.
+
+secret_base64_encoded(type) -> boolean();
+secret_base64_encoded(defualt) -> false;
+secret_base64_encoded(_) -> undefined.
+
+jwt_certfile(type) -> string();
+jwt_certfile(_) -> undefined.
+
+cacertfile(type) -> string();
+cacertfile(_) -> undefined.
+
+certfile(type) -> string();
+certfile(_) -> undefined.
+
+keyfile(type) -> string();
+keyfile(_) -> undefined.
+
+verify(type) -> boolean();
+verify(default) -> false;
+verify(_) -> undefined.
+
+server_name_indication(type) -> string();
+server_name_indication(_) -> undefined.
 
 required(Opt) ->
     fun(undefined) -> {error, {missing_required, Opt}};

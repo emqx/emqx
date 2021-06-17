@@ -16,6 +16,8 @@
 
 -module(emqx_authn_jwt).
 
+% -include_lib("typerefl/include/types.hrl").
+
 -export([ create/3
         , update/4
         , authenticate/2
