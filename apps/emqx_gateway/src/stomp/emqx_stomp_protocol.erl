@@ -44,6 +44,7 @@
         ]).
 
 -record(pstate, {
+          gwctx         :: emqx_gateway_ctx:context(),
           peername,
           heartfun,
           sendfun,
@@ -52,8 +53,6 @@
           proto_name,
           heart_beats,
           login,
-          allow_anonymous,
-          default_user,
           subscriptions = [],
           timers :: #{atom() => disable | undefined | reference()},
           transaction :: #{binary() => list()}
@@ -71,17 +70,16 @@
 
 %% @doc Init protocol
 init(#{peername := Peername,
-       sendfun := SendFun,
+       sendfun  := SendFun,
        heartfun := HeartFun}, Env) ->
-    AllowAnonymous = get_value(allow_anonymous, Env, false),
-    DefaultUser = get_value(default_user, Env),
-	#pstate{peername = Peername,
-                 heartfun = HeartFun,
-                 sendfun = SendFun,
-                 timers = #{},
-                 transaction = #{},
-                 allow_anonymous = AllowAnonymous,
-                 default_user = DefaultUser}.
+    Ctx = maps:get(ctx, Env),
+	#pstate{ gwctx = Ctx
+           , peername = Peername
+           , heartfun = HeartFun
+           , sendfun = SendFun
+           , timers = #{}
+           , transaction = #{}
+           }.
 
 info(#pstate{connected     = Connected,
                   proto_ver     = ProtoVer,
@@ -104,18 +102,25 @@ received(Frame = #stomp_frame{command = <<"STOMP">>}, State) ->
     received(Frame#stomp_frame{command = <<"CONNECT">>}, State);
 
 received(#stomp_frame{command = <<"CONNECT">>, headers = Headers},
-         State = #pstate{connected = false, allow_anonymous = AllowAnonymous, default_user = DefaultUser}) ->
+         State = #pstate{gwctx = Ctx, connected = false}) ->
     case negotiate_version(header(<<"accept-version">>, Headers)) of
         {ok, Version} ->
             Login = header(<<"login">>, Headers),
             Passc = header(<<"passcode">>, Headers),
-            case check_login(Login, Passc, AllowAnonymous, DefaultUser) of
+
+            %% TODO: First you need to complete the clientinfo override
+            %%
+            %%
+            %%  emqx_gateway_ctx:clientinfo(Ctx, ClientInfo, ConnInfo)
+            %%    -> NClientInfo
+            %%
+            case check_login(Ctx, Login, Passc) of
                 true ->
                     emqx_logger:set_metadata_clientid(Login),
 
                     Heartbeats = parse_heartbeats(header(<<"heart-beat">>, Headers, <<"0,0">>)),
                     NState = start_heartbeart_timer(Heartbeats, State#pstate{connected = true,
-                                                                                  proto_ver = Version, login = Login}),
+                                                                             proto_ver = Version, login = Login}),
                     send(connected_frame([{<<"version">>, Version},
                                           {<<"heart-beat">>, reverse_heartbeats(Heartbeats)}]), NState);
                 false ->
@@ -311,16 +316,13 @@ negotiate_version(Ver, [AcceptVer|_]) when Ver >= AcceptVer ->
 negotiate_version(Ver, [_|T]) ->
     negotiate_version(Ver, T).
 
-check_login(undefined, _, AllowAnonymous, _) ->
-    AllowAnonymous;
-check_login(_, _, _, undefined) ->
+check_login(_Ctx, undefined, _) ->
     false;
-check_login(Login, Passcode, _, DefaultUser) ->
-    case {list_to_binary(get_value(login, DefaultUser)),
-          list_to_binary(get_value(passcode, DefaultUser))} of
-        {Login, Passcode} -> true;
-        {_,     _       } -> false
-    end.
+check_login(_Ctx, _, undefined) ->
+    false;
+check_login(_Ctx, _Login, _Passcode) ->
+    %% TODO: Call emqx_gateway_ctx:auth(...).
+    true.
 
 add_action(Id, Action, ReceiptId, State = #pstate{transaction = Trans}) ->
     case maps:get(Id, Trans, undefined) of

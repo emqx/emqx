@@ -24,7 +24,7 @@
 %% @doc The instance running context
 -type context() ::
         #{ instid  := instance_id()
-         , gwid    := gateway_type()
+         , gwid    := gateway_id()
          , auth    := allow_anonymouse | emqx_authentication:chain_id()
          , cm      := pid()
          %%, metrics := metrics()

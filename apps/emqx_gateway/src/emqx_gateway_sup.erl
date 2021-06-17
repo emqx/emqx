@@ -50,7 +50,7 @@ start_link() ->
 -spec create_gateway_insta(instance()) -> {ok, pid()} | {error, any()}.
 create_gateway_insta(Insta = #instance{gwid = GwId}) ->
     case emqx_gateway_registry:lookup(GwId) of
-        undefined -> {error, {unknown_type, GwId}};
+        undefined -> {error, {unknown_gateway_id, GwId}};
         GwDscrptr ->
             {ok, GwSup} = ensure_gateway_suptree_ready(gatewayid(GwId)),
             emqx_gateway_gw_sup:create_insta(GwSup, Insta, GwDscrptr)
@@ -95,8 +95,8 @@ list_gateway_insta(GwId) ->
 -spec list_gateway_insta() -> [{atom(), instance()}].
 list_gateway_insta() ->
     lists:map(
-      fun(GwId) ->
-        {ok, Instas} = list_gateway_insta(GwId),
+      fun(SupId) ->
+        Instas = emqx_gateway_gw_sup(SupId),
         {GwId, Instas}
       end, list_started_gateway()).
 

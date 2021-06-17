@@ -115,7 +115,7 @@ limit(Opts) ->
                  max_body_length    = g(max_body_length,   Opts, ?MAX_BODY_LENGTH)}.
 
 g(Key, Opts, Val) ->
-    proplists:get_value(Key, Opts, Val).
+    maps:get(Key, Opts, Val).
 
 -spec parse(binary(), parser()) -> result().
 parse(<<>>, Parser) ->

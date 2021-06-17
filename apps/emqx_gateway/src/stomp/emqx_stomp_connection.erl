@@ -60,11 +60,11 @@ init([Transport, Sock, ProtoEnv]) ->
             ConnName = esockd:format(Peername),
             SendFun = {fun ?MODULE:send/4, [Transport, Sock, self()]},
             HrtBtFun = {fun ?MODULE:heartbeat/2, [Transport, Sock]},
-            Parser = emqx_stomp_frame:init_parer_state(ProtoEnv),
+            Parser = emqx_stomp_frame:init_parer_state(maps:get(frame, ProtoEnv)),
             PState = emqx_stomp_protocol:init(#{peername => Peername,
                                                 sendfun => SendFun,
                                                 heartfun => HrtBtFun}, ProtoEnv),
-            RateLimit = init_rate_limit(proplists:get_value(rate_limit, ProtoEnv)),
+            RateLimit = init_rate_limit(maps:get(rate_limit, ProtoEnv, undefined)),
             State = run_socket(#state{transport   = Transport,
                                       socket      = NewSock,
                                       peername    = Peername,
@@ -235,7 +235,8 @@ received(Bytes, State = #state{parser   = Parser,
     end.
 
 reset_parser(State = #state{proto_env = ProtoEnv}) ->
-    State#state{parser = emqx_stomp_frame:init_parer_state(ProtoEnv)}.
+    Parser = emqx_stomp_frame:init_parer_state(maps:get(frame, ProtoEnv)),
+    State#state{parser = Parser}.
 
 rate_limit(_Size, State = #state{rate_limit = undefined}) ->
     run_socket(State);
