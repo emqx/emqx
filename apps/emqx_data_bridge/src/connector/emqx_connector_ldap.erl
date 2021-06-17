@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector_ldap).
 
--include("emqx_connector.hrl").
+-include("emqx_data_bridge.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 

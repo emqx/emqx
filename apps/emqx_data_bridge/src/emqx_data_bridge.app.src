@@ -5,7 +5,8 @@
   {mod, {emqx_data_bridge_app, []}},
   {applications,
    [kernel,
-    stdlib
+    stdlib,
+    ecpool
    ]},
   {env,[]},
   {modules, []},
