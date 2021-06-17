@@ -1,21 +1,31 @@
 %% -*-: erlang -*-
-{"4.3.2",
+{"4.3.3",
  [ {"4.3.0",
-    [ {load_module, emqx_rule_funcs, brutal_purge, soft_purge, []},
-      {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
+    [ {load_module, emqx_rule_funcs, brutal_purge, soft_purge, []}
+    , {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
+    , {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
     ]},
    {"4.3.1",
     [ {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
+    , {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
+    ]},
+   {"4.3.2",
+    [ {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
     ]},
    {<<".*">>, []}
  ],
  [
    {"4.3.0",
-    [ {load_module, emqx_rule_funcs, brutal_purge, soft_purge, []},
-      {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
+    [ {load_module, emqx_rule_funcs, brutal_purge, soft_purge, []}
+    , {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
+    , {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
     ]},
    {"4.3.1",
     [ {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
+    , {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
+    ]},
+   {"4.3.2",
+    [ {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
     ]},
    {<<".*">>, []}
  ]
