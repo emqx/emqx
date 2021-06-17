@@ -17,6 +17,7 @@
 -type percent() :: float().
 -type file() :: string().
 -type comma_separated_list() :: list().
+-type comma_separated_atoms() :: [atom()].
 -type bar_separated_list() :: list().
 -type ip_port() :: tuple().
 
@@ -29,17 +30,20 @@
 -typerefl_from_string({comma_separated_list/0, emqx_schema, to_comma_separated_list}).
 -typerefl_from_string({bar_separated_list/0, emqx_schema, to_bar_separated_list}).
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
+-typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
 
 % workaround: prevent being recognized as unused functions
 -export([to_duration/1, to_duration_s/1, to_duration_ms/1, to_bytesize/1,
          to_flag/1, to_percent/1, to_comma_separated_list/1,
-         to_bar_separated_list/1, to_ip_port/1]).
+         to_bar_separated_list/1, to_ip_port/1,
+         to_comma_separated_atoms/1]).
 
 -behaviour(hocon_schema).
 
 -reflect_type([ log_level/0, flag/0, duration/0, duration_s/0, duration_ms/0,
                 bytesize/0, percent/0, file/0,
-                comma_separated_list/0, bar_separated_list/0, ip_port/0]).
+                comma_separated_list/0, bar_separated_list/0, ip_port/0,
+                comma_separated_atoms/0]).
 
 -export([structs/0, fields/1, translations/0, translation/1]).
 -export([t/1, t/3, t/4, ref/1]).
@@ -61,6 +65,7 @@ fields("cluster") ->
     , {"dns", ref("dns")}
     , {"etcd", ref("etcd")}
     , {"k8s", ref("k8s")}
+    , {"db_backend", t(union([mnesia, rlog]), "ekka.db_backend", mnesia)}
     , {"rlog", ref("rlog")}
     ];
 
@@ -101,9 +106,8 @@ fields("k8s") ->
     ];
 
 fields("rlog") ->
-    [ {"backend", t(union([mnesia, rlog]), "ekka.db_backend", mnesia)}
-    , {"role", t(union([core, replicant]), "ekka.node_role", core)}
-    , {"core_nodes", t(comma_separated_list(), "ekka.core_nodes", [])}
+    [ {"role", t(union([core, replicant]), "ekka.node_role", core)}
+    , {"core_nodes", t(comma_separated_atoms(), "ekka.core_nodes", [])}
     ];
 
 fields("node") ->
@@ -1227,6 +1231,9 @@ to_percent(Str) ->
 
 to_comma_separated_list(Str) ->
     {ok, string:tokens(Str, ", ")}.
+
+to_comma_separated_atoms(Str) ->
+    {ok, lists:map(fun list_to_atom/1, string:tokens(Str, ", "))}.
 
 to_bar_separated_list(Str) ->
     {ok, string:tokens(Str, "| ")}.

@@ -84,6 +84,8 @@
 %% Route
 %%--------------------------------------------------------------------
 
+-define(ROUTE_SHARD, route_shard).
+
 -record(route, {
           topic :: binary(),
           dest  :: node() | {binary(), node()}
