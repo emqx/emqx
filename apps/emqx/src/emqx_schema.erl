@@ -113,7 +113,11 @@ fields("rlog") ->
 fields("node") ->
     [ {"name", t(string(), "vm_args.-name", "emqx@127.0.0.1", "EMQX_NODE_NAME")}
     , {"ssl_dist_optfile", t(string(), "vm_args.-ssl_dist_optfile", undefined)}
-    , {"cookie", t(string(), "vm_args.-setcookie", "emqxsecretcookie", "EMQX_NODE_COOKIE")}
+    , {"cookie", hoconsc:t(string(), #{mapping => "vm_args.-setcookie",
+                                       default => "emqxsecretcookie",
+                                       sensitive => true,
+                                       override_env => "EMQX_NODE_COOKIE"
+                                      })}
     , {"data_dir", t(string(), "emqx.data_dir", undefined)}
     , {"heartbeat", t(flag(), undefined, false)}
     , {"async_threads", t(range(1, 1024), "vm_args.+A", undefined)}
@@ -1098,7 +1102,10 @@ ssl(Mapping, Defaults) ->
     , {"honor_cipher_order", t(flag(), M("honor_cipher_order"), D("honor_cipher_order"))}
     , {"handshake_timeout", t(duration(), M("handshake_timeout"), D("handshake_timeout"))}
     , {"depth", t(integer(), M("depth"), D("depth"))}
-    , {"password", t(string(), M("key_password"), D("key_password"))}
+    , {"password", hoconsc:t(string(), #{mapping => M("key_password"),
+                                         default => D("key_password"),
+                                         sensitive => true
+                                        })}
     , {"dhfile", t(string(), M("dhfile"), D("dhfile"))}
     , {"server_name_indication", t(union(disable, string()), M("server_name_indication"),
                                    D("server_name_indication"))}
