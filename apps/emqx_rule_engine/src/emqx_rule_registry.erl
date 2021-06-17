@@ -392,8 +392,11 @@ find_rules_depends_on_resource(ResId) ->
     end, [], get_rules()).
 
 search_action_despends_on_resource(ResId, Actions) ->
-    lists:search(fun(#action_instance{args = #{<<"$resource">> := ResId0}}) ->
-        ResId0 =:= ResId
+    lists:search(fun
+        (#action_instance{args = #{<<"$resource">> := ResId0}}) ->
+            ResId0 =:= ResId;
+        (_) ->
+            false
     end, Actions).
 
 %%------------------------------------------------------------------------------
