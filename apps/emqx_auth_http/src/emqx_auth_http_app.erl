@@ -54,10 +54,9 @@ translate_env(EnvName) ->
             {ok, ConnectTimeout} = application:get_env(?APP, connect_timeout),
             URL = proplists:get_value(url, Req),
             {ok, #{host := Host,
-                   path := Path0,
                    port := Port,
-                   scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
-            Path = path(Path0),
+                   scheme := Scheme} = URIMap} = emqx_http_lib:uri_parse(URL),
+            Path = path(URIMap),
             MoreOpts = case Scheme of
                         http ->
                             [{transport_opts, emqx_misc:ipv6_probe([])}];
@@ -151,8 +150,12 @@ ensure_content_type_header(Method, Headers)
 ensure_content_type_header(_Method, Headers) ->
     lists:keydelete("content-type", 1, Headers).
 
-path("") ->
+path(#{path := "", 'query' := Query}) ->
+    "?" ++ Query;
+path(#{path := Path, 'query' := Query}) ->
+    Path ++ "?" ++ Query;
+path(#{path := ""}) ->
     "/";
-path(Path) ->
+path(#{path := Path}) ->
     Path.
 
