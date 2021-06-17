@@ -48,17 +48,17 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 -spec create_gateway_insta(instance()) -> {ok, pid()} | {error, any()}.
-create_gateway_insta(Insta = #instance{type = Type}) ->
-    case emqx_gateway_registry:lookup(Type) of
-        undefined -> {error, {unknown_type, Type}};
+create_gateway_insta(Insta = #instance{gwid = GwId}) ->
+    case emqx_gateway_registry:lookup(GwId) of
+        undefined -> {error, {unknown_type, GwId}};
         GwDscrptr ->
-            {ok, GwSup} = ensure_gateway_suptree_ready(gatewayid(Insta)),
+            {ok, GwSup} = ensure_gateway_suptree_ready(gatewayid(GwId)),
             emqx_gateway_gw_sup:create_insta(GwSup, Insta, GwDscrptr)
     end.
 
 -spec remove_gateway_insta(atom(), atom()) -> ok | {error, any()}.
-remove_gateway_insta(InstaId, Type) ->
-    case emqx_gateway_utils:find_sup_child(?MODULE, Type) of
+remove_gateway_insta(InstaId, GwId) ->
+    case emqx_gateway_utils:find_sup_child(?MODULE, gatewayid(GwId)) of
         {ok, GwSup} ->
             emqx_gateway_gw_sup:remove_insta(GwSup, InstaId);
         _ -> ok
@@ -67,26 +67,26 @@ remove_gateway_insta(InstaId, Type) ->
 -spec update_gateway_insta(instance(), atom())
     -> ok
      | {error, any()}.
-update_gateway_insta(NewInsta, Type) ->
-    case emqx_gateway_utils:find_sup_child(?MODULE, Type) of
+update_gateway_insta(NewInsta, GwId) ->
+    case emqx_gateway_utils:find_sup_child(?MODULE, gatewayid(GwId)) of
         {ok, GwSup} ->
             emqx_gateway_gw_sup:update_insta(GwSup, NewInsta);
         _ -> {error, not_found}
     end.
 
-start_gateway_insta(_InstaId, _Type) ->
+start_gateway_insta(_InstaId, _GwId) ->
     todo.
 
-stop_gateway_insta(InstaId, Type) ->
-    case emqx_gateway_utils:find_sup_child(?MODULE, Type) of
+stop_gateway_insta(InstaId, GwId) ->
+    case emqx_gateway_utils:find_sup_child(?MODULE, gatewayid(GwId)) of
         {ok, GwSup} ->
             emqx_gateway_gw_sup:stop_insta(GwSup, InstaId);
         _ -> {error, not_found}
     end.
 
--spec list_gateway_insta(Type :: atom()) -> {ok, [instance()]} | {error, any()}.
-list_gateway_insta(Type) ->
-    case emqx_gateway_utils:find_sup_child(?MODULE, Type) of
+-spec list_gateway_insta(GwId :: atom()) -> {ok, [instance()]} | {error, any()}.
+list_gateway_insta(GwId) ->
+    case emqx_gateway_utils:find_sup_child(?MODULE, gatewayid(GwId)) of
         {ok, GwSup} ->
             {ok, emqx_gateway_gw_sup:list_insta(GwSup)};
         _ -> {error, not_found}
@@ -95,15 +95,15 @@ list_gateway_insta(Type) ->
 -spec list_gateway_insta() -> [{atom(), instance()}].
 list_gateway_insta() ->
     lists:map(
-      fun(Type) ->
-        {ok, Instas} = list_gateway_insta(Type),
-        {Type, Instas}
+      fun(GwId) ->
+        {ok, Instas} = list_gateway_insta(GwId),
+        {GwId, Instas}
       end, list_started_gateway()).
 
 -spec list_started_gateway() -> [GwId :: atom()].
 list_started_gateway() ->
     lists:filtermap(
-      fun({Id, _Pid, _Type, _Mods}) ->
+      fun({Id, _Pid, _GwId, _Mods}) ->
         is_a_gateway_id(Id) andalso {true, Id}
       end, supervisor:which_children(?MODULE)).
 
@@ -132,8 +132,8 @@ init([]) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-gatewayid(#instance{type = Type}) ->
-    list_to_atom(lists:concat(["gateway#", Type])).
+gatewayid(GwId) ->
+    list_to_atom(lists:concat(["gateway#", GwId])).
 
 is_a_gateway_id(Id) when is_atom(Id) ->
     is_a_gateway_id(atom_to_list(Id));
@@ -154,6 +154,6 @@ ensure_gateway_suptree_ready(GwId) ->
             emqx_gateway_utils:supervisor_ret(
               supervisor:start_child(?MODULE, ChildSpec)
              );
-        {_Id, Pid, _Type, _Mods} ->
+        {_Id, Pid, _GwId, _Mods} ->
             {ok, Pid}
     end.

@@ -45,10 +45,10 @@ list() ->
 -spec create(atom(), atom(), binary(), binary(), map())
     -> {ok, pid()}
      | {error, any()}.
-create(InstaId, Type, Name, Descr, RawConf) ->
+create(InstaId, GwId, Name, Descr, RawConf) ->
     Insta = #instance{
                id = InstaId,
-               type = Type,
+               gwid = GwId,
                name = Name,
                descr = Descr,
                rawconf = RawConf
@@ -56,17 +56,17 @@ create(InstaId, Type, Name, Descr, RawConf) ->
     emqx_gateway_sup:create_gateway_insta(Insta).
 
 -spec remove(atom(), atom()) -> ok | {error, any()}.
-remove(InstaId, Type) ->
-    emqx_gateway_sup:remove(InstaId, Type).
+remove(InstaId, GwId) ->
+    emqx_gateway_sup:remove(InstaId, GwId).
 
 -spec update(instance(), atom()) -> ok | {error, any()}.
-update(NewInsta, Type) ->
-    emqx_gateway_sup:update_gateway_insta(NewInsta, Type).
+update(NewInsta, GwId) ->
+    emqx_gateway_sup:update_gateway_insta(NewInsta, GwId).
 
 -spec start(atom(), atom()) -> ok | {error, any()}.
-start(InstaId, Type) ->
-    emqx_gateway_sup:start_gateway_insta(InstaId, Type).
+start(InstaId, GwId) ->
+    emqx_gateway_sup:start_gateway_insta(InstaId, GwId).
 
 -spec stop(atom(), atom()) -> ok | {error, any()}.
-stop(InstaId, Type) ->
-    emqx_gateway_sup:stop_gateway_insta(InstaId, Type).
+stop(InstaId, GwId) ->
+    emqx_gateway_sup:stop_gateway_insta(InstaId, GwId).

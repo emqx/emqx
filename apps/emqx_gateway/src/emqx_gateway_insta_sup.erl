@@ -158,10 +158,25 @@ handle_info({'DOWN', MRef, process, Pid, Reason},
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
-    %% Destory ctx
-    %%  1. auth
-    %%  2.
+terminate(_Reason, #state{insta = Insta = #instance{gwid = GwId},
+                         insta_state = GwInstaState, child_pids = Pids}) ->
+    %% Cleanup instances
+    %% Step1. Destory instance
+    Pids /= [] andalso
+        try
+            case emqx_gateway_registry:lookup(GwId) of
+                undefined -> throw({notfound_gateway_in_registry, GwId});
+                #{cbkmod := CbMod, state := GwState} ->
+                    CbMod:on_insta_destroy(Insta, GwInstaState, GwState)
+            end
+        catch
+            Class : Reason : Stk ->
+                logger:error("Destory instance crashed: {~0p, ~0p}; "
+                             "stacktrace: ~0p", [Class, Reason, Stk])
+        end,
+
+    %% Step2. Delete authenticator resources
+
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -178,7 +193,6 @@ cleanup_authenticator_for_gateway_insta(allow_anonymouse) ->
     ok;
 cleanup_authenticator_for_gateway_insta(_ChainId) ->
     todo.
-
 
 start_child_process(ChildSpecs) when is_list(ChildSpecs) ->
     lists:map(fun start_child_process/1, ChildSpecs);

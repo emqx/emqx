@@ -44,7 +44,7 @@
         ]).
 
 -record(state, {
-          types = #{} :: #{ atom() => descriptor() }
+          loaded = #{} :: #{ gateway_id() => descriptor() }
          }).
 
 %%--------------------------------------------------------------------
@@ -57,8 +57,6 @@ start_link() ->
 %%--------------------------------------------------------------------
 %% Mgmt
 %%--------------------------------------------------------------------
-
-%% Types
 
 -type registry_options() :: list().
 
@@ -105,18 +103,18 @@ call(Req) ->
 
 init([]) ->
     process_flag(trap_exit, true),
-    {ok, #state{types = #{}}}.
+    {ok, #state{loaded = #{}}}.
 
-handle_call({load, GwId, Dscrptr}, _From, State = #state{types = Types}) ->
-    case maps:get(GwId, Types, notfound) of
+handle_call({load, GwId, Dscrptr}, _From, State = #state{loaded = Gateways}) ->
+    case maps:get(GwId, Gateways, notfound) of
         notfound ->
             try
                 GwOpts = maps:get(gwopts, Dscrptr),
                 CbMod  = maps:get(cbkmod, Dscrptr),
                 {ok, GwState} = CbMod:init(GwOpts),
                 NDscrptr = maps:put(state, GwState, Dscrptr),
-                NTypes = maps:put(GwId, NDscrptr, Types),
-                {reply, ok, State#state{types = NTypes}}
+                NGateways = maps:put(GwId, NDscrptr, Gateways),
+                {reply, ok, State#state{loaded = NGateways}}
             catch
                 Class : Reason : Stk ->
                     logger:error("Load ~s crashed {~p, ~p}; stacktrace: ~0p",
@@ -127,21 +125,21 @@ handle_call({load, GwId, Dscrptr}, _From, State = #state{types = Types}) ->
             {reply, {error, already_existed}, State}
     end;
 
-handle_call({unload, GwId}, _From, State = #state{types = Types}) ->
-    case maps:get(GwId, Types, undefined) of
+handle_call({unload, GwId}, _From, State = #state{loaded = Gateways}) ->
+    case maps:get(GwId, Gateways, undefined) of
         undefined ->
             {reply, ok, State};
         _ ->
             emqx_gateway_sup:stop_all_suptree(GwId),
-            {reply, ok, State#state{types = maps:remove(GwId, Types)}}
+            {reply, ok, State#state{loaded = maps:remove(GwId, Gateways)}}
     end;
 
-handle_call(all, _From, State = #state{types = Types}) ->
-    Reply = maps:values(Types),
+handle_call(all, _From, State = #state{loaded = Gateways}) ->
+    Reply = maps:values(Gateways),
     {reply, Reply, State};
 
-handle_call({lookup, GwId}, _From, State = #state{types = Types}) ->
-    Reply = maps:get(GwId, Types, undefined),
+handle_call({lookup, GwId}, _From, State = #state{loaded = Gateways}) ->
+    Reply = maps:get(GwId, Gateways, undefined),
     {reply, Reply, State};
 
 handle_call(Req, _From, State) ->

@@ -19,14 +19,14 @@
 
 
 -type instance_id()   :: atom().
--type gateway_type()  :: atom().
+-type gateway_id()    :: atom().
 
 %% @doc The Gateway Instace defination
--record(instance, { id    :: instance_id()
-                  , type  :: gateway_type()
-                  , order :: non_neg_integer()  %% ??
-                  , name :: binary()
-                  , descr :: binary() | undefined
+-record(instance, { id     :: instance_id()
+                  , gwid   :: gateway_id()
+                  , order  :: non_neg_integer()  %% ??
+                  , name   :: binary()
+                  , descr  :: binary() | undefined
                   , rawconf = #{} :: map()
                   , enable = true :: boolean()  %% FIXME: Read from configuration ?
                   }).
