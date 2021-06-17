@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector_schema_lib).
 
--include("emqx_connector.hrl").
+-include("emqx_data_bridge.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -export([ relational_db_fields/0
