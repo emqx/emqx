@@ -56,12 +56,12 @@ setopts(_Socket, _Opts) ->
     ok.
 
 getopts(_Socket, _Opts) ->
-    %% todo
-    { ok, [{high_watermark, 0},
-           {high_msgq_watermark, 0},
-           {sndbuf, 0},
-           {recbuf, 0},
-           {buffer,80000}]}.
+    %% @todo
+    {ok, [{high_watermark, 0},
+          {high_msgq_watermark, 0},
+          {sndbuf, 0},
+          {recbuf, 0},
+          {buffer,80000}]}.
 
 fast_close(Stream) ->
     quicer:close_stream(Stream),
@@ -77,7 +77,7 @@ ensure_ok_or_exit(Fun, Args = [Sock|_]) when is_atom(Fun), is_list(Args) ->
         {error, Reason} ->
             fast_close(Sock),
             exit({shutdown, Reason});
-         Result -> Result
+        Result -> Result
     end.
 
 async_send(Stream, Data, Options) when is_list(Data) ->
