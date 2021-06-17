@@ -25,6 +25,7 @@
         , update/1
         , check_authz/5
         , match/4
+        , replvar/2
         ]).
 
 -spec(register_metrics() -> ok).
@@ -59,6 +60,7 @@ find_action_in_hooks() ->
     [Action] = [Action || {callback,{?MODULE, check_authz, _} = Action, _, _} <- Callbacks ],
     Action.
 
+
 -spec(compile(rule()) -> rule()).
 compile(#{<<"topics">> := Topics,
           <<"action">> := Action,
@@ -70,26 +72,29 @@ compile(#{<<"topics">> := Topics,
           <<"topics">> => NTopics
          };
 compile(#{<<"principal">> := Principal,
-          <<"type">> := mysql,
+          <<"type">> := DB,
           <<"config">> := Config,
-          <<"sql">> := _SQL
+          <<"sql">> := SQL
          } = Rule) ->
-    ResourceID = iolist_to_binary([atom_to_list(?APP), "_", "mysql", "_", integer_to_list(erlang:system_time())]),
+    Mod = list_to_existing_atom(io_lib:format("~s_~s",[?APP, DB])),
+    ResourceID = iolist_to_binary([atom_to_list(Mod), "_", integer_to_list(erlang:system_time())]),
     case emqx_resource:check_and_create_local(
             ResourceID,
-            emqx_connector_mysql,
+            list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
             Config)
     of
         {ok, _} ->
             Rule#{<<"resource_id">> => ResourceID,
-                  <<"principal">> => compile_principal(Principal)
+                  <<"principal">> => compile_principal(Principal),
+                  <<"sql">> => Mod:parse_query(SQL)
                  };
         {error, already_created} ->
             Rule#{<<"resource_id">> => ResourceID,
-                  <<"principal">> => compile_principal(Principal)
+                  <<"principal">> => compile_principal(Principal),
+                  <<"sql">> => Mod:parse_query(SQL)
                  };
         {error, Reason} ->
-            error({load_mysql, Reason})
+            error({load_sql_error, Reason})
     end.
 
 compile_principal(all) -> all;
@@ -118,10 +123,10 @@ compile_topic(Topic) when is_binary(Topic)->
 pattern(Words) ->
     lists:member(<<"%u">>, Words) orelse lists:member(<<"%c">>, Words).
 
-bin(L) when is_list(L) ->
-    list_to_binary(L);
-bin(B) when is_binary(B) ->
-    B.
+bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+bin(B) when is_binary(B) -> B;
+bin(L) when is_list(L) -> list_to_binary(L);
+bin(X) -> X.
 
 %%--------------------------------------------------------------------
 %% ACL callbacks
@@ -139,9 +144,14 @@ check_authz(Client, PubSub, Topic, DefaultResult, Rules) ->
 
 do_check_authz(Client, PubSub, Topic,
                [Connector = #{<<"principal">> := Principal,
-                              <<"type">> := mysql} | Tail] ) ->
+                              <<"type">> := DB} | Tail] ) ->
     case match_principal(Client, Principal) of
-        true -> emqx_authz_mysql:check_authz(Client, PubSub, Topic, Connector);
+        true ->
+            Mod = list_to_existing_atom(io_lib:format("~s_~s",[emqx_authz, DB])),
+            case Mod:check_authz(Client, PubSub, Topic, Connector) of
+                nomatch -> do_check_authz(Client, PubSub, Topic, Tail);
+                Matched -> Matched
+            end;
         false -> do_check_authz(Client, PubSub, Topic, Tail)
     end;
 do_check_authz(Client, PubSub, Topic,
@@ -225,3 +235,26 @@ feed_var(ClientInfo, [W|Words], Acc) ->
 
 b2l(B) when is_list(B) -> B;
 b2l(B) when is_binary(B) -> binary_to_list(B).
+
+replvar(Params, ClientInfo) ->
+    replvar(Params, ClientInfo, []).
+
+replvar([], _ClientInfo, Acc) ->
+    lists:reverse(Acc);
+
+replvar(["'%u'" | Params], ClientInfo, Acc) ->
+    replvar(Params, ClientInfo, [safe_get(username, ClientInfo) | Acc]);
+replvar(["'%c'" | Params], ClientInfo = #{clientid := ClientId}, Acc) ->
+    replvar(Params, ClientInfo, [ClientId | Acc]);
+replvar(["'%a'" | Params], ClientInfo = #{peerhost := IpAddr}, Acc) ->
+    replvar(Params, ClientInfo, [inet_parse:ntoa(IpAddr) | Acc]);
+replvar(["'%C'" | Params], ClientInfo, Acc) ->
+    replvar(Params, ClientInfo, [safe_get(cn, ClientInfo)| Acc]);
+replvar(["'%d'" | Params], ClientInfo, Acc) ->
+    replvar(Params, ClientInfo, [safe_get(dn, ClientInfo)| Acc]);
+replvar([Param | Params], ClientInfo, Acc) ->
+    replvar(Params, ClientInfo, [Param | Acc]).
+
+safe_get(K, ClientInfo) ->
+    bin(maps:get(K, ClientInfo, "undefined")).
+

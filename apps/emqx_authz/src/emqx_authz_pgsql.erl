@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authz_mysql).
+-module(emqx_authz_pgsql).
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -37,7 +37,11 @@ parse_query(Sql) ->
     case re:run(Sql, "'%[ucCad]'", [global, {capture, all, list}]) of
         {match, Variables} ->
             Params = [Var || [Var] <- Variables],
-            {re:replace(Sql, "'%[ucCad]'", "?", [global, {return, list}]), Params};
+            Vars = ["$" ++ integer_to_list(I) || I <- lists:seq(1, length(Params))],
+            NSql = lists:foldl(fun({Param, Var}, S) ->
+                       re:replace(S, Param, Var, [{return, list}])
+                   end, Sql, lists:zip(Params, Vars)),
+            {NSql, Params};
         nomatch ->
             {Sql, []}
     end.
@@ -51,7 +55,7 @@ check_authz(Client, PubSub, Topic,
         {ok, _Columns, Rows} ->
             do_check_authz(Client, PubSub, Topic, Rows);
         {error, Reason} ->
-            ?LOG(error, "[AuthZ] do_check_mysql error: ~p~n", [Reason]),
+            ?LOG(error, "[AuthZ] do_check_pgsql error: ~p~n", [Reason]),
             nomatch
     end.
 
@@ -65,7 +69,7 @@ do_check_authz(Client, PubSub, Topic, [Row | Tail]) ->
         nomatch -> do_check_authz(Client, PubSub, Topic, Tail)
     end.
 
-match(Client, PubSub, Topic, [Access, IpAddr, Username, ClientId, Action, TopicFilter]) ->
+match(Client, PubSub, Topic, {Access, IpAddr, Username, ClientId, Action, TopicFilter}) ->
     Rule = #{<<"principal">> => principal(IpAddr, Username, ClientId),
              <<"topics">> => [topic(TopicFilter)],
              <<"action">> => action(Action),
@@ -111,4 +115,3 @@ empty(null) -> true;
 empty("")   -> true;
 empty(<<>>) -> true;
 empty(_)    -> false.
-
