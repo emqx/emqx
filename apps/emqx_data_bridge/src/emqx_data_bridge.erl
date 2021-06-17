@@ -25,9 +25,8 @@
         ]).
 
 load_bridges() ->
-    ConfFile = filename:join([emqx:get_env(plugins_etc_dir), ?MODULE]) ++ ".conf",
-    {ok, #{<<"emqx_data_bridge">> := RawConfig}} = hocon:load(ConfFile),
-    Bridges = maps:get(<<"bridges">>, RawConfig, []),
+    Bridges = proplists:get_value(bridges,
+        application:get_all_env(emqx_data_bridge), []),
     emqx_data_bridge_monitor:ensure_all_started(Bridges).
 
 resource_type(<<"mysql">>) -> emqx_connector_mysql;

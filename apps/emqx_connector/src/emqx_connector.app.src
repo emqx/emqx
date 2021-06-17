@@ -1,11 +1,13 @@
-{application, emqx_data_bridge,
+{application, emqx_connector,
  [{description, "An OTP application"},
   {vsn, "0.1.0"},
   {registered, []},
-  {mod, {emqx_data_bridge_app, []}},
+  {mod, {emqx_connector_app, []}},
   {applications,
    [kernel,
-    stdlib
+    stdlib,
+    emqx_resource,
+    ecpool
    ]},
   {env,[]},
   {modules, []},
