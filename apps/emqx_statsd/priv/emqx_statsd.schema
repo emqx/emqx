@@ -1,0 +1,53 @@
+%% emqx_statsd config
+
+ {mapping, "statsd.host", "emqx_statsd.host", [
+   {default, "127.0.0.1"},
+   {datatype, string}
+ ]}.
+
+ {mapping, "statsd.port", "emqx_statsd.port", [
+   {default, 8125},
+   {datatype, integer}
+ ]}.
+
+ {mapping, "statsd.prefix", "emqx_statsd.prefix", [
+   {datatype, string}
+ ]}.
+
+ {mapping, "statsd.tag.$id.key", "emqx_statsd.tag", [
+   {datatype, string}
+ ]}.
+
+ {mapping, "statsd.tag.$id.value", "emqx_statsd.tag", [
+   {datatype, string}
+ ]}.
+
+ {mapping, "statsd.batch_size", "emqx_statsd.batch_size", [
+   {default, 10},
+   {datatype, integer}
+ ]}.
+
+ {mapping, "statsd.sample_time_interval", "emqx_statsd.sample_time_interval", [
+   {default, "2s"},
+   {datatype, {duration, ms}}
+ ]}.
+
+ {mapping, "statsd.flush_time_interval", "emqx_statsd.flush_time_interval", [
+   {default, "10s"},
+   {datatype, {duration, ms}}
+ ]}.
+
+ {translation, "emqx_stasd.host", fun(Conf) ->
+   {ok, IPAddress} = inet:parse_address(cuttlefish:conf_get("statsd.host", Conf, "127.0.0.1")),
+   IPAddress
+ end}.
+
+ {translation, "emqx_statsd.tag", fun(Conf) ->
+   Tags = cuttlefish_variable:filter_by_prefix("statsd.tag", Conf),
+   lists:foldl(
+     fun({["statsd", "tag", Id, "key"], Key}, AccIn) ->
+         [{Key, cuttlefish:conf_get("statsd." ++ Id ++ ".value", Conf)} | AccIn];
+        (_, AccIn) ->
+         AccIn
+     end, [], Tags)
+ end}.
