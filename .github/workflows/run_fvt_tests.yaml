@@ -261,6 +261,7 @@ jobs:
                 cp emqx/_packages/${PROFILE}/*.zip packages
                 cp emqx/_upgrade_base/*.zip packages
                 lux \
+                --multiplier 3000 \
                 --case_timeout infinity \
                 --var PROFILE=$PROFILE \
                 --var PACKAGE_PATH=$(pwd)/packages \
