@@ -93,13 +93,6 @@
 
 -define(REGISTRY, ?MODULE).
 
-%% Statistics
--define(STATS,
-        [ {?RULE_TAB, 'rules.count', 'rules.max'}
-        , {?ACTION_TAB, 'actions.count', 'actions.max'}
-        , {?RES_TAB, 'resources.count', 'resources.max'}
-        ]).
-
 -define(T_CALL, 10000).
 
 %%------------------------------------------------------------------------------
@@ -442,8 +435,6 @@ delete_resource_type(Type) ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    %% Enable stats timer
-    ok = emqx_stats:update_interval(rule_registery_stats, fun update_stats/0),
     _TableId = ets:new(?KV_TAB, [named_table, set, public, {write_concurrency, true},
                                  {read_concurrency, true}]),
     {ok, #{}}.
@@ -477,13 +468,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Private functions
 %%------------------------------------------------------------------------------
-
-update_stats() ->
-    lists:foreach(
-      fun({Tab, Stat, MaxStat}) ->
-              Size = mnesia:table_info(Tab, size),
-              emqx_stats:setstat(Stat, MaxStat, Size)
-      end, ?STATS).
 
 get_all_records(Tab) ->
     %mnesia:dirty_match_object(Tab, mnesia:table_info(Tab, wild_pattern)).
