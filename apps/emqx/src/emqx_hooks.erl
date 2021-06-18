@@ -118,7 +118,7 @@ add(HookPoint, Action) when is_function(Action); is_tuple(Action) ->
 
 -spec(add(hookpoint(), action(), filter() | integer() | list())
       -> ok_or_error(already_exists)).
-add(HookPoint, Action, Filter) when is_function(Filter); is_tuple(Filter) ->
+add(HookPoint, Action, {_M, _F, _A} = Filter) ->
     add(HookPoint, #callback{action = Action, filter = Filter, priority = 0});
 add(HookPoint, Action, Priority) when is_integer(Priority) ->
     add(HookPoint, #callback{action = Action, priority = Priority}).
@@ -185,12 +185,12 @@ filter_passed(undefined, _Args) -> true;
 filter_passed(Filter, Args) ->
     execute(Filter, Args).
 
-safe_execute(Fun, Args) ->
-    try execute(Fun, Args) of
+safe_execute({M, F, A}, Args) ->
+    try execute({M, F, A}, Args) of
         Result -> Result
     catch
         Error:Reason:Stacktrace ->
-            ?LOG(error, "Failed to execute ~0p: ~0p", [Fun, {Error, Reason, Stacktrace}]),
+            ?LOG(error, "Failed to execute ~0p: ~0p", [{M, F, A}, {Error, Reason, Stacktrace}]),
             ok
     end.
 
