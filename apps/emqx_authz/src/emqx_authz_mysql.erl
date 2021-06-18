@@ -51,25 +51,38 @@ check_authz(Client, PubSub, Topic,
              }) ->
     case emqx_resource:query(ResourceID, {sql, SQL, replvar(Params, Client)}) of
         {ok, _Columns, []} -> nomatch;
-        {ok, _Columns, Rows} ->
-            do_check_authz(Client, PubSub, Topic, Rows);
+        {ok, Columns, Rows} ->
+            do_check_authz(Client, PubSub, Topic, Columns, Rows);
         {error, Reason} ->
             ?LOG(error, "[AuthZ] do_check_mysql error: ~p~n", [Reason]),
             nomatch
     end.
 
-do_check_authz(_Client, _PubSub, _Topic, []) ->
+do_check_authz(_Client, _PubSub, _Topic, _Columns, []) ->
     nomatch;
-do_check_authz(Client, PubSub, Topic, [Row]) ->
-    match(Client, PubSub, Topic, Row);
-do_check_authz(Client, PubSub, Topic, [Row | Tail]) ->
-    case match(Client, PubSub, Topic, Row) of
+do_check_authz(Client, PubSub, Topic, Columns, [Row | Tail]) ->
+    case match(Client, PubSub, Topic, format_result(Columns, Row)) of
         {matched, Access} -> {matched, Access};
-        nomatch -> do_check_authz(Client, PubSub, Topic, Tail)
+        nomatch -> do_check_authz(Client, PubSub, Topic, Columns, Tail)
     end.
 
-match(Client, PubSub, Topic, [Access, IpAddr, Username, ClientId, Action, TopicFilter]) ->
-    Rule = #{<<"principal">> => principal(IpAddr, Username, ClientId),
+format_result(Columns, Row) ->
+    L = [ begin
+              K = lists:nth(I, Columns),
+              V = lists:nth(I, Row),
+              {K, V}
+          end || I <- lists:seq(1, length(Columns)) ],
+    maps:from_list(L).
+
+match(Client, PubSub, Topic,
+      #{<<"access">> := Access,
+        <<"action">> := Action,
+        <<"clientid">> := ClientId,
+        <<"username">> := Username,
+        <<"ipaddress">> := IpAddress,
+        <<"topic">> := TopicFilter
+       }) ->
+    Rule = #{<<"principal">> => principal(IpAddress, Username, ClientId),
              <<"topics">> => [topic(TopicFilter)],
              <<"action">> => action(Action),
              <<"access">> =>  access(Access)

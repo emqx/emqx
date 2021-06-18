@@ -38,6 +38,7 @@ end_per_suite(_Config) ->
 set_special_configs(emqx) ->
     application:set_env(emqx, allow_anonymous, true),
     application:set_env(emqx, enable_acl_cache, false),
+    application:set_env(emqx, acl_nomatch, deny),
     ok;
 
 set_special_configs(_App) ->

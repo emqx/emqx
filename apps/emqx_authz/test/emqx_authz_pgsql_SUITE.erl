@@ -29,20 +29,38 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
+    meck:new(emqx_resource, [non_strict, passthrough]),
+    meck:expect(emqx_resource, check_and_create_local, fun(_, _, _) -> {ok, meck_data} end ),
     ok = emqx_ct_helpers:start_apps([emqx_authz], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_authz]).
+    emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
+    meck:unload(emqx_resource).
 
 set_special_configs(emqx) ->
-    application:set_env(emqx, allow_anonymous, true),
+    application:set_env(emqx, allow_anonymous, false),
     application:set_env(emqx, enable_acl_cache, false),
+    application:set_env(emqx, acl_nomatch, deny),
     ok;
-
+set_special_configs(emqx_authz) ->
+    application:set_env(emqx_authz, rules,
+                        [#{<<"config">> =>#{},
+                           <<"principal">> => all,
+                           <<"sql">> => <<"fake sql">>,
+                           <<"type">> => pgsql}
+                        ]),
+    ok;
 set_special_configs(_App) ->
     ok.
 
+-define(COLUMNS, [ {column, <<"access">>, meck, meck, meck, meck, meck, meck, meck}
+                 , {column, <<"ipaddress">>, meck, meck, meck, meck, meck, meck, meck}
+                 , {column, <<"username">>, meck, meck, meck, meck, meck, meck, meck}
+                 , {column, <<"clientid">>, meck, meck, meck, meck, meck, meck, meck}
+                 , {column, <<"action">>, meck, meck, meck, meck, meck, meck, meck}
+                 , {column, <<"topic">>, meck, meck, meck, meck, meck, meck, meck}
+                 ]).
 -define(RULE1, [{0,null,<<"$all">>,null,3,<<"#">>}]).
 -define(RULE2, [{1,<<"127.0.0.1">>,null,null,3,<<"eq #">>}]).
 -define(RULE3, [{1,null,<<"^test?">>,<<"^test?">>,2,<<"test">>}]).
@@ -54,39 +72,50 @@ set_special_configs(_App) ->
 t_authz(_) ->
     ClientInfo1 = #{clientid => <<"test">>,
                     username => <<"test">>,
-                    peerhost => {127,0,0,1}
+                    peerhost => {127,0,0,1},
+                    zone => zone
                    },
     ClientInfo2 = #{clientid => <<"test">>,
                     username => <<"test">>,
-                    peerhost => {192,168,0,10}
+                    peerhost => {192,168,0,10},
+                    zone => zone
                    },
     ClientInfo3 = #{clientid => <<"test">>,
-                    username => <<"fake">>
+                    username => <<"fake">>,
+                    zone => zone
                    },
 
-    ?assertEqual(nomatch,
-        emqx_authz_pgsql:do_check_authz(
-            #{}, subscribe, <<"#">>, []
-         )),
-    ?assertEqual({matched, deny},
-        emqx_authz_pgsql:do_check_authz(
-          ClientInfo1, subscribe, <<"+">>, ?RULE1 ++ ?RULE2
-         )),
-    ?assertEqual({matched, allow},
-        emqx_authz_pgsql:do_check_authz(
-          ClientInfo1, subscribe, <<"#">>, ?RULE2 ++ ?RULE1
-         )),
-    ?assertEqual({matched, deny},
-        emqx_authz_pgsql:do_check_authz(
-          ClientInfo2, subscribe, <<"#">>, ?RULE2 ++ ?RULE1
-         )),
-    ?assertEqual({matched, allow},
-        emqx_authz_pgsql:do_check_authz(
-          ClientInfo2, publish, <<"test">>, ?RULE3
-         )),
-    ?assertEqual(nomatch,
-        emqx_authz_pgsql:do_check_authz(
-          ClientInfo3, publish, <<"test">>, ?RULE3
-         )),
+    meck:expect(emqx_resource, query,
+                fun(_, _) -> {ok, ?COLUMNS, []}
+                end),
+    % nomatch
+    ?assertEqual(deny,
+                 emqx_access_control:check_acl(#{zone => zone}, subscribe, <<"#">>)),
+    % nomatch
+    ?assertEqual(deny,
+                 emqx_access_control:check_acl(#{zone => zone}, publish, <<"#">>)),
+
+    meck:expect(emqx_resource, query,
+                fun(_, _) -> {ok, ?COLUMNS, ?RULE1 ++ ?RULE2}
+                end),
+    ?assertEqual(deny,
+        emqx_access_control:check_acl(ClientInfo1, subscribe, <<"+">>)),
+
+    meck:expect(emqx_resource, query,
+                fun(_, _) -> {ok, ?COLUMNS, ?RULE2 ++ ?RULE1}
+                end),
+    ?assertEqual(allow,
+        emqx_access_control:check_acl(ClientInfo1, subscribe, <<"#">>)),
+    ?assertEqual(deny,
+        emqx_access_control:check_acl(ClientInfo2, subscribe, <<"#">>)),
+
+    meck:expect(emqx_resource, query,
+                fun(_, _) -> {ok, ?COLUMNS, ?RULE3}
+                end),
+    ?assertEqual(allow,
+        emqx_access_control:check_acl(ClientInfo2, publish, <<"test">>)),
+    % nomatch
+    ?assertEqual(deny,
+        emqx_access_control:check_acl(ClientInfo3, publish, <<"test">>)),
     ok.
 

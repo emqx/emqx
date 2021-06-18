@@ -29,23 +29,34 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
+    meck:new(emqx_resource, [non_strict, passthrough]),
+    meck:expect(emqx_resource, check_and_create_local, fun(_, _, _) -> {ok, meck_data} end ),
     ok = emqx_ct_helpers:start_apps([emqx_authz], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_authz]).
+   emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
+    meck:unload(emqx_resource).
 
 set_special_configs(emqx) ->
     application:set_env(emqx, allow_anonymous, true),
     application:set_env(emqx, enable_acl_cache, false),
+    application:set_env(emqx, acl_nomatch, deny),
     ok;
-
+set_special_configs(emqx_authz) ->
+    application:set_env(emqx_authz, rules,
+                        [#{<<"config">> =>#{},
+                           <<"principal">> => all,
+                           <<"cmd">> => <<"fake cmd">>,
+                           <<"type">> => redis}
+                        ]),
+    ok;
 set_special_configs(_App) ->
     ok.
 
--define(RULE1, [<<"test/%u">>,<<"pub">>]).
--define(RULE2, [<<"test/%c">>,<<"pub">>]).
--define(RULE3, [<<"#">>,<<"sub">>]).
+-define(RULE1, [<<"test/%u">>, <<"pub">>]).
+-define(RULE2, [<<"test/%c">>, <<"pub">>]).
+-define(RULE3, [<<"#">>, <<"sub">>]).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -53,36 +64,37 @@ set_special_configs(_App) ->
 
 t_authz(_) ->
     ClientInfo = #{clientid => <<"clientid">>,
-                    username => <<"username">>
+                   username => <<"username">>,
+                   zone => zone
                    },
 
-    ?assertEqual(nomatch,
-        emqx_authz_redis:do_check_authz(
-            #{}, subscribe, <<"#">>, []
-         )),
-    ?assertEqual(nomatch,
-        emqx_authz_redis:do_check_authz(
-          ClientInfo, subscribe, <<"test/clientid">>, ?RULE1 ++ ?RULE2
-         )),
-    ?assertEqual({matched, allow},
-        emqx_authz_redis:do_check_authz(
-          ClientInfo, publish, <<"test/clientid">>, ?RULE1 ++ ?RULE2
-         )),
-    ?assertEqual(nomatch,
-        emqx_authz_redis:do_check_authz(
-          ClientInfo, subscribe, <<"test/username">>, ?RULE1 ++ ?RULE2
-         )),
-    ?assertEqual({matched, allow},
-        emqx_authz_redis:do_check_authz(
-          ClientInfo, publish, <<"test/clientid">>, ?RULE1 ++ ?RULE2
-         )),
-    ?assertEqual({matched, allow},
-        emqx_authz_redis:do_check_authz(
-          ClientInfo, subscribe, <<"#">>, ?RULE3
-         )),
-    ?assertEqual(nomatch,
-        emqx_authz_redis:do_check_authz(
-          ClientInfo, publish, <<"#">>, ?RULE3
-         )),
+    meck:expect(emqx_resource, query, fun(_, _) -> {ok, []} end),
+    % nomatch
+    ?assertEqual(deny,
+                 emqx_access_control:check_acl(#{zone => zone}, subscribe, <<"#">>)),
+    ?assertEqual(deny,
+                 emqx_access_control:check_acl(#{zone => zone}, publish, <<"#">>)),
+
+
+    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?RULE1 ++ ?RULE2} end),
+    % nomatch
+    ?assertEqual(deny,
+        emqx_access_control:check_acl(ClientInfo, subscribe, <<"+">>)),
+    % nomatch
+    ?assertEqual(deny,
+        emqx_access_control:check_acl(ClientInfo, subscribe, <<"test/username">>)),
+
+    ?assertEqual(allow,
+        emqx_access_control:check_acl(ClientInfo, publish, <<"test/clientid">>)),
+    ?assertEqual(allow,
+        emqx_access_control:check_acl(ClientInfo, publish, <<"test/clientid">>)),
+
+    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?RULE3} end),
+
+    ?assertEqual(allow,
+        emqx_access_control:check_acl(ClientInfo, subscribe, <<"#">>)),
+    % nomatch
+    ?assertEqual(deny,
+        emqx_access_control:check_acl(ClientInfo, publish, <<"#">>)),
     ok.
 

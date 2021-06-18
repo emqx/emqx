@@ -49,8 +49,6 @@ check_authz(Client, PubSub, Topic,
 
 do_check_authz(_Client, _PubSub, _Topic, []) ->
     nomatch;
-% do_check_authz(Client, PubSub, Topic, [TopicFilter, Action]) ->
-%     match(Client, PubSub, Topic, Row);
 do_check_authz(Client, PubSub, Topic, [TopicFilter, Action | Tail]) ->
     case match(Client, PubSub, Topic, 
                #{topics => TopicFilter,

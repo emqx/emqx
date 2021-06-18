@@ -59,9 +59,9 @@ check_acl_cache(ClientInfo, PubSub, Topic) ->
         AclResult -> AclResult
     end.
 
-do_check_acl(ClientInfo, PubSub, Topic) ->
-    % Default = emqx_zone:get_env(Zone, acl_nomatch, deny),
-    case run_hooks('client.check_acl', [ClientInfo, PubSub, Topic], deny) of
+do_check_acl(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
+    Default = emqx_zone:get_env(Zone, acl_nomatch, deny),
+    case run_hooks('client.check_acl', [ClientInfo, PubSub, Topic], Default) of
         allow  -> allow;
         _Other -> deny
     end.
