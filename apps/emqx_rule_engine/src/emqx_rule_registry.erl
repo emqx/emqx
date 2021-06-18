@@ -460,7 +460,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    emqx_stats:cancel_update(rule_registery_stats).
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
