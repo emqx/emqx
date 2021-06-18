@@ -66,6 +66,8 @@ remove_insta(Sup, InstaId) ->
     case emqx_gateway_utils:find_sup_child(Sup, InstaId) of
         false -> ok;
         {ok, _GwInstaPid} ->
+            %% TODO: ???
+            %%ok = emqx_gateway_insta_sup:stop(GwInstaPid),
             ok = supervisor:terminate_child(Sup, InstaId),
             ok = supervisor:delete_child(Sup, InstaId)
     end.
@@ -99,7 +101,7 @@ list_insta(Sup) ->
     lists:filtermap(
       fun({InstaId, GwInstaPid, _Type, _Mods}) ->
         is_gateway_insta_id(InstaId)
-          andalso {true, emqx_gateway_insta_sup:instance(GwInstaPid)}
+          andalso {true, emqx_gateway_insta_sup:info(GwInstaPid)}
       end, supervisor:which_children(Sup)).
 
 %% Supervisor callback

@@ -96,8 +96,8 @@ list_gateway_insta(GwId) ->
 list_gateway_insta() ->
     lists:map(
       fun(SupId) ->
-        Instas = emqx_gateway_gw_sup(SupId),
-        {GwId, Instas}
+        Instas = emqx_gateway_gw_sup:list_insta(SupId),
+        {SupId, Instas}
       end, list_started_gateway()).
 
 -spec list_started_gateway() -> [GwId :: atom()].

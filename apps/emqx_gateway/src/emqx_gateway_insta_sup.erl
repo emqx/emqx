@@ -35,7 +35,10 @@
 
 %% APIs
 -export([ start_link/3
-        , instance/1
+        , info/1
+        , stop/1
+        , disable/1
+        , enable/1
         ]).
 
 %% gen_server callbacks
@@ -48,10 +51,9 @@
         ]).
 
 -record(state, {
-          insta :: instance(),
-          mrefs  :: [reference()],
+          insta  :: instance(),
+          ctx    :: emqx_gateway_ctx:context(),
           child_pids :: [pid()],
-          auth :: allow_anonymouse | binary(),
           insta_state :: emqx_gateway_impl:state()
          }).
 
@@ -67,62 +69,73 @@ start_link(Insta, Ctx, GwDscrptr) ->
       []
      ).
 
-instance(Pid) ->
-    gen_server:call(Pid, instance).
+info(Pid) ->
+    gen_server:call(Pid, info).
+
+%% @doc Stop instance and exit process
+stop(Pid) ->
+    gen_server:call(Pid, stop).
+
+%% @doc Stop instance
+disable(Pid) ->
+    gen_server:call(Pid, disable).
+
+%% @doc Start instance
+enable(Pid) ->
+    gen_server:call(Pid, enable).
 
 %%--------------------------------------------------------------------
-% gen_server callbacks
+%% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Insta, Ctx0, GwDscrptr]) ->
+init([Insta, Ctx0, _GwDscrptr]) ->
     #instance{rawconf = RawConf} = Insta,
-    #{cbkmod := CbMod,
-      state  := GwState} = GwDscrptr,
-    %% Create authenticators
-    Auth = case maps:get(authenticator, RawConf, allow_anonymouse) of
-               allow_anonymouse -> allow_anonymouse;
+    Ctx   = do_init_context(RawConf, Ctx0),
+    State = #state{
+               insta = Insta,
+               ctx   = Ctx
+              },
+    case cb_insta_create(State) of
+        #state{child_pids = []} ->
+            do_deinit_context(Ctx),
+            {error, create_gateway_instance_failed};
+        NState ->
+            {ok, NState}
+    end.
+
+do_init_context(RawConf, Ctx) ->
+    Auth = case maps:get(authenticator, RawConf, allow_anonymous) of
+               allow_anonymous -> allow_anonymous;
                Funcs when is_list(Funcs) ->
                    create_authenticator_for_gateway_insta(Funcs)
            end,
-    Ctx = Ctx0#{auth => Auth},
-    try
-        case CbMod:on_insta_create(Insta, Ctx, GwState) of
-            {error, Reason} -> throw({return_error, Reason});
-            {ok, [Indictor|_] = InstaPidOrSpecs, GwInstaState} ->
-                ChildPids = case erlang:is_pid(Indictor) of
-                                true ->
-                                    InstaPidOrSpecs;
-                                _ ->
-                                    start_child_process(InstaPidOrSpecs)
-                            end,
-                MRefs = lists:map(fun(Pid) ->
-                            monitor(process, Pid)
-                        end, ChildPids),
-                State = #state{
-                           insta = Insta,
-                           mrefs = MRefs,
-                           child_pids = ChildPids,
-                           insta_state = GwInstaState
-                          },
-                {ok, State}
-        end
-    catch
-        Class : Reason1 : Stk ->
-            logger:error("Callback ~s:~s(~0p,~0p,~0p) crashed: "
-                         "{~p, ~p}, stacktrace: ~0p",
-                         [CbMod, on_insta_create, Insta, Ctx, GwState,
-                          Class, Reason1, Stk]),
-            {error, Reason1}
-    after
-        %% Clean authenticators
-        %% TODO:
-        cleanup_authenticator_for_gateway_insta(Auth)
-    end.
+    Ctx#{auth => Auth}.
 
-    %% TODO: 2. ClientInfo Override Fun??
+do_deinit_context(Ctx) ->
+    cleanup_authenticator_for_gateway_insta(maps:get(auth, Ctx)),
+    ok.
 
-handle_call(instance, _From, State = #state{insta = Insta}) ->
+handle_call(info, _From, State = #state{insta = Insta}) ->
     {reply, Insta, State};
+
+handle_call(disable, _From, State = #state{child_pids = ChildPids}) ->
+    case ChildPids == [] of
+        true ->
+            {reply, ok, cb_insta_destroy(State)};
+        _ ->
+            {reply, ok, State}
+    end;
+
+handle_call(enable, _From, State = #state{child_pids = ChildPids}) ->
+    case ChildPids == [] of
+        true ->
+            {reply, ok, State};
+        _ ->
+            {reply, ok, cb_insta_create(State)}
+    end;
+
+handle_call(stop, _From, State) ->
+    {stop, normal, ok, State};
 
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -131,52 +144,28 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'EXIT', Pid, Reason}, State = #state{child_pids = _Pids}) ->
-    logger:error("Child process ~p exited: ~0p", [Pid, Reason]),
-
-    %% TODO: Restart It??
-
-    %% Drain monitor message: 'DOWN'
-
-    {noreply, State};
-
-handle_info({'DOWN', MRef, process, Pid, Reason},
-            State = #state{mrefs = MRefs, child_pids = Pids}) ->
-    case lists:member(MRef, MRefs) andalso lists:member(Pid, Pids) of
+handle_info({'EXIT', Pid, Reason}, State = #state{child_pids = Pids}) ->
+    case lists:member(Pid, Pids) of
         true ->
-            logger:error("Child process ~p exited: ~0p", [Pid, Reason]),
-            %% TODO: Restart It??
-            {noreply, State#state{
-                        mrefs = MRefs -- [MRef],
-                        child_pids = Pids -- [Pid]
-                       }
-            };
+            logger:critical("Child process ~p exited: ~0p. "
+                            "Try restart instance ~s now!", [Pid, Reason]),
+            %% XXX: After process exited, do we need call destroy function??
+            NState = cb_insta_create(cb_insta_destroy(State)),
+            {noreply, NState};
         _ ->
+            logger:warning("Unexcepted process ~p exited!", [Pid]),
             {noreply, State}
     end;
 
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, #state{insta = Insta = #instance{gwid = GwId},
-                         insta_state = GwInstaState, child_pids = Pids}) ->
+terminate(_Reason, State = #state{ctx = Ctx, child_pids = Pids}) ->
     %% Cleanup instances
     %% Step1. Destory instance
-    Pids /= [] andalso
-        try
-            case emqx_gateway_registry:lookup(GwId) of
-                undefined -> throw({notfound_gateway_in_registry, GwId});
-                #{cbkmod := CbMod, state := GwState} ->
-                    CbMod:on_insta_destroy(Insta, GwInstaState, GwState)
-            end
-        catch
-            Class : Reason : Stk ->
-                logger:error("Destory instance crashed: {~0p, ~0p}; "
-                             "stacktrace: ~0p", [Class, Reason, Stk])
-        end,
-
+    Pids /= [] andalso (_ = cb_insta_destroy(State)),
     %% Step2. Delete authenticator resources
-
+    _ = do_deinit_context(Ctx),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -194,10 +183,59 @@ cleanup_authenticator_for_gateway_insta(allow_anonymouse) ->
 cleanup_authenticator_for_gateway_insta(_ChainId) ->
     todo.
 
-start_child_process(ChildSpecs) when is_list(ChildSpecs) ->
-    lists:map(fun start_child_process/1, ChildSpecs);
+cb_insta_destroy(State = #state{insta = Insta = #instance{gwid = GwId},
+                                insta_state = InstaState}) ->
+    try
+        #{cbkmod := CbMod,
+          state := GwState} = emqx_gateway_registry:lookup(GwId),
+        CbMod:on_insta_destroy(Insta, InstaState, GwState)
+    catch
+        Class : Reason : Stk ->
+            logger:error("Destroy instance (~0p, ~0p, _) crashed: "
+                         "{~p, ~p}, stacktrace: ~0p",
+                         [Insta, InstaState,
+                          Class, Reason, Stk]),
+            State#state{insta_state = undefined, child_pids = []}
+    end.
 
-start_child_process(_ChildSpec = #{start := {M, F, A}}) ->
+cb_insta_create(State = #state{insta = Insta = #instance{gwid = GwId},
+                               ctx   = Ctx}) ->
+    try
+        #{cbkmod := CbMod,
+          state := GwState} = emqx_gateway_registry:lookup(GwId),
+        case CbMod:on_insta_create(Insta, Ctx, GwState) of
+            {error, Reason} -> throw({callback_return_error, Reason});
+            {ok, InstaPidOrSpecs, InstaState} ->
+                ChildPids = start_child_process(InstaPidOrSpecs),
+                State#state{
+                  child_pids = ChildPids,
+                  insta_state = InstaState
+                }
+        end
+    catch
+        Class : Reason1 : Stk ->
+            logger:error("Create instance (~0p, ~0p, _) crashed: "
+                         "{~p, ~p}, stacktrace: ~0p",
+                         [Insta, Ctx,
+                          Class, Reason1, Stk]),
+            State#state{
+              child_pids = [],
+              insta_state = undefined
+             }
+    end.
+
+start_child_process([Indictor|_] = InstaPidOrSpecs) ->
+    case erlang:is_pid(Indictor) of
+        true ->
+            InstaPidOrSpecs;
+        _ ->
+            do_start_child_process(InstaPidOrSpecs)
+    end.
+
+do_start_child_process(ChildSpecs) when is_list(ChildSpecs) ->
+    lists:map(fun do_start_child_process/1, ChildSpecs);
+
+do_start_child_process(_ChildSpec = #{start := {M, F, A}}) ->
     case erlang:apply(M, F, A) of
         {ok, Pid} ->
             Pid;

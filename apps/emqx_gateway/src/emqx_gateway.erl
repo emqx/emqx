@@ -57,7 +57,7 @@ create(InstaId, GwId, Name, Descr, RawConf) ->
 
 -spec remove(atom(), atom()) -> ok | {error, any()}.
 remove(InstaId, GwId) ->
-    emqx_gateway_sup:remove(InstaId, GwId).
+    emqx_gateway_sup:remove_gateway_insta(InstaId, GwId).
 
 -spec update(instance(), atom()) -> ok | {error, any()}.
 update(NewInsta, GwId) ->

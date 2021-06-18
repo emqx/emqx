@@ -81,27 +81,8 @@ init([param1, param2]) ->
 
 on_insta_create(_Insta = #instance{
                             id = InstaId,
-                            rawconf = _RawConf
+                            rawconf = RawConf
                            }, Ctx, _GwState) ->
-    %% FIXME: It should be assigned by params 
-    RawConf = #{ frame =>
-                    #{ max_headers => 10
-                     , max_headers_length => 1024
-                     , max_body_length => 8192
-                     }
-               , authenticator => allow_anonymous
-               , clientinfo_override => 
-                    #{ username => <<"guest">>
-                     , password => <<"guest">>
-                     }
-               , listeners =>
-                    [ #{ type => tcp
-                       , listen_on => 61613
-                       , acceptors => 4
-                       , max_connections => 512
-                       }
-                    ]
-               },
     %% Step1. Fold the rawconfs to listeners
     Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
     %% Step2. Start listeners or escokd:specs
