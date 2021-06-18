@@ -186,9 +186,6 @@ overlay_vars_rel(RelType) ->
              end,
     [ {enable_plugin_emqx_rule_engine, RelType =:= cloud}
     , {enable_plugin_emqx_bridge_mqtt, RelType =:= edge}
-    , {enable_plugin_emqx_resource, true}
-    , {enable_plugin_emqx_connector, true}
-    , {enable_plugin_emqx_data_bridge, true}
     , {enable_plugin_emqx_modules, false} %% modules is not a plugin in ce
     , {enable_plugin_emqx_recon, true}
     , {enable_plugin_emqx_retainer, true}
@@ -247,6 +244,9 @@ relx_apps(ReleaseType) ->
     , {emqx_plugin_libs, load}
     , observer_cli
     , emqx_http_lib
+    , emqx_resource
+    , emqx_connector
+    , emqx_data_bridge
     ]
     ++ [emqx_modules || not is_enterprise()]
     ++ [emqx_license || is_enterprise()]
@@ -284,9 +284,6 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_auth_mnesia
     , emqx_web_hook
     , emqx_recon
-    , emqx_resource
-    , emqx_connector
-    , emqx_data_bridge
     , emqx_rule_engine
     , emqx_sasl
     ]
@@ -364,6 +361,7 @@ etc_overlay(ReleaseType) ->
 extra_overlay(cloud) ->
     [ {copy,"{{base_dir}}/lib/emqx_lwm2m/lwm2m_xml","etc/"}
     , {copy, "{{base_dir}}/lib/emqx_psk_file/etc/psk.txt", "etc/psk.txt"}
+    , {copy, "{{base_dir}}/lib/emqx_data_bridge/etc/emqx_data_bridge.conf", "etc/plugins/emqx_data_bridge.conf"}
     ];
 extra_overlay(edge) ->
     [].

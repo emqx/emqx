@@ -1,0 +1,1 @@
+-module(emqx_data_bridge_schema).

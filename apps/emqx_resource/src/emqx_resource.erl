@@ -84,7 +84,7 @@
         % , inc_counter/3 %% increment the counter by a given integer
         ]).
 
--define(EXT, "*.spec").
+-define(HOCON_CHECK_OPTS, #{atom_key => true, nullable => false}).
 
 -optional_callbacks([ on_query/4
                     , on_health_check/2
@@ -267,50 +267,49 @@ call_jsonify(Mod, Config) ->
         true -> ?SAFE_CALL(Mod:on_jsonify(Config))
     end.
 
--spec check_config(resource_type(), binary() | term()) ->
+-spec check_config(resource_type(), raw_resource_config()) ->
     {ok, resource_config()} | {error, term()}.
 check_config(ResourceType, RawConfig) when is_binary(RawConfig) ->
     case hocon:binary(RawConfig, #{format => richmap}) of
         {ok, MapConfig} ->
-            do_check_config(ResourceType, MapConfig);
+            case ?SAFE_CALL(hocon_schema:check(ResourceType, MapConfig, ?HOCON_CHECK_OPTS)) of
+                {error, Reason} -> {error, Reason};
+                Config -> {ok, maps:get(config, hocon_schema:richmap_to_map(Config))}
+            end;
         Error -> Error
     end;
 check_config(ResourceType, RawConfigTerm) ->
-    check_config(ResourceType, jsx:encode(#{config => RawConfigTerm})).
-
--spec do_check_config(resource_type(), map()) -> {ok, resource_config()} | {error, term()}.
-do_check_config(ResourceType, MapConfig) ->
-    case ?SAFE_CALL(emqx_resource_schema:check(ResourceType, MapConfig)) of
+    case ?SAFE_CALL(hocon_schema:check_plain(ResourceType, RawConfigTerm, ?HOCON_CHECK_OPTS)) of
         {error, Reason} -> {error, Reason};
-        Config -> {ok, maps:get(config, hocon_schema:richmap_to_map(Config))}
+        Config -> {ok, Config}
     end.
 
--spec check_and_create(instance_id(), resource_type(), binary() | term()) ->
+-spec check_and_create(instance_id(), resource_type(), raw_resource_config()) ->
     {ok, resource_data()} | {error, term()}.
-check_and_create(InstId, ResourceType, Config) ->
-    check_and_do(ResourceType, Config,
+check_and_create(InstId, ResourceType, RawConfig) ->
+    check_and_do(ResourceType, RawConfig,
         fun(InstConf) -> create(InstId, ResourceType, InstConf) end).
 
--spec check_and_create_local(instance_id(), resource_type(), binary() | term()) ->
+-spec check_and_create_local(instance_id(), resource_type(), raw_resource_config()) ->
     {ok, resource_data()} | {error, term()}.
-check_and_create_local(InstId, ResourceType, Config) ->
-    check_and_do(ResourceType, Config,
+check_and_create_local(InstId, ResourceType, RawConfig) ->
+    check_and_do(ResourceType, RawConfig,
         fun(InstConf) -> create_local(InstId, ResourceType, InstConf) end).
 
--spec check_and_update(instance_id(), resource_type(), binary() | term(), term()) ->
+-spec check_and_update(instance_id(), resource_type(), raw_resource_config(), term()) ->
     {ok, resource_data()} | {error, term()}.
-check_and_update(InstId, ResourceType, Config, Params) ->
-    check_and_do(ResourceType, Config,
+check_and_update(InstId, ResourceType, RawConfig, Params) ->
+    check_and_do(ResourceType, RawConfig,
         fun(InstConf) -> update(InstId, ResourceType, InstConf, Params) end).
 
--spec check_and_update_local(instance_id(), resource_type(), binary() | term(), term()) ->
+-spec check_and_update_local(instance_id(), resource_type(), raw_resource_config(), term()) ->
     {ok, resource_data()} | {error, term()}.
-check_and_update_local(InstId, ResourceType, Config, Params) ->
-    check_and_do(ResourceType, Config,
+check_and_update_local(InstId, ResourceType, RawConfig, Params) ->
+    check_and_do(ResourceType, RawConfig,
         fun(InstConf) -> update_local(InstId, ResourceType, InstConf, Params) end).
 
-check_and_do(ResourceType, Config, Do) when is_function(Do) ->
-    case check_config(ResourceType, Config) of
+check_and_do(ResourceType, RawConfig, Do) when is_function(Do) ->
+    case check_config(ResourceType, RawConfig) of
         {ok, InstConf} -> Do(InstConf);
         Error -> Error
     end.
