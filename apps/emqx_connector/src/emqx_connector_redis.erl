@@ -130,6 +130,7 @@ redis_sentinel_fields() ->
     ].
 
 sentinel_name(type) -> binary();
+sentinel_name(nullable) -> true;
 sentinel_name(_) -> undefined.
 
 redis_type(type) -> hoconsc:enum([single, sentinel, cluster]);
