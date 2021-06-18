@@ -11,121 +11,94 @@
 
 -export([structs/0, fields/1]).
 
-structs() -> ["authz"].
+structs() -> [authz].
 
-fields("authz") ->
-    [ {rules, hoconsc:array({union,["simple_rule", "sql_connector", "redis_connector"]})
-      }
+fields(authz) ->
+    [ {rules, rules()}
     ];
-fields("redis_connector") ->
-    [ {principal, fun (default) -> all;
-                      (type) -> {union,
-                                 [all,
-                                  "username",
-                                  "clientid",
-                                  "ipaddress",
-                                  "andlist",
-                                  "orlist"]
-                                };
-                      (_) -> undefined
-                 end
-      }
-    , {type, fun (type) -> {enum, [redis]};
-                 (_) -> undefined
-             end}
-    , {config, fun (type) -> map();
-                   (_) -> undefined
-               end}
-    , {cmd, fun(type) -> binary();
-               (validator) -> fun(S) ->
-                                case size(S) > 0 of
-                                    true -> ok;
-                                    _ -> {error, "Request CMD"}
-                                end
-                              end;
-               (_) -> undefined
-            end}
+fields(redis_connector) ->
+    [ {principal, principal()}
+    , {type, #{type => hoconsc:enum([redis])}}
+    , {config, #{type => map()}}
+    , {cmd, query()}
     ];
-fields("sql_connector") ->
-    [ {principal, fun (default) -> all;
-                      (type) -> {union,
-                                 [all,
-                                  "username",
-                                  "clientid",
-                                  "ipaddress",
-                                  "andlist",
-                                  "orlist"]
-                                };
-                      (_) -> undefined
-                 end
-      }
-    , {type, fun (type) -> {enum, [mysql, pgsql]};
-                 (_) -> undefined
-             end}
-    , {config, fun (type) -> map();
-                    (_) -> undefined
-               end}
-    , {sql, fun(type) -> binary();
-               (validator) -> fun(S) ->
-                                case size(S) > 0 of
-                                    true -> ok;
-                                    _ -> {error, "Request SQL"}
-                                end
-                              end;
-               (_) -> undefined
-            end}
+fields(sql_connector) ->
+    [ {principal, principal() }
+    , {type, #{type => hoconsc:enum([mysql, pgsql])}}
+    , {config, #{type => map()}}
+    , {sql, query()}
     ];
-fields("simple_rule") ->
-    [ {access,   fun access/1}
-    , {action,   fun action/1}
-    , {topics,   fun topics/1}
-    , {principal, fun (default) -> all;
-                      (type) -> {union,
-                                 [all,
-                                  "username",
-                                  "clientid",
-                                  "ipaddress",
-                                  "andlist",
-                                  "orlist"]
-                                };
-                      (_) -> undefined
-                 end
-      }
+fields(simple_rule) ->
+    [ {access,   #{type => access()}}
+    , {action,   #{type => action()}}
+    , {topics,   #{type => union_array(
+                             [ binary()
+                             , hoconsc:ref(eq_topic) 
+                             ]
+                            )}}
+    , {principal, principal()}
     ];
-fields("username") ->
-    [{username, fun username/1}];
-fields("clientid") ->
-    [{clientid, fun clientid/1}];
-fields("ipaddress") ->
-    [{ipaddress, fun ipaddress/1}];
-fields("andlist") ->
-    [{'and', fun principal/1}];
-fields("orlist") ->
-    [{'or', fun principal/1}];
-fields("eq_topic") ->
-    [{eq, fun(type) -> binary();
-              (_) -> undefined
-          end
+fields(username) ->
+    [{username, #{type => binary()}}];
+fields(clientid) ->
+    [{clientid, #{type => binary()}}];
+fields(ipaddress) ->
+    [{ipaddress, #{type => string()}}];
+fields(andlist) ->
+    [{'and', #{type => union_array(
+                         [ hoconsc:ref(username)
+                         , hoconsc:ref(clientid)
+                         , hoconsc:ref(ipaddress)
+                         ])
+              }
      }
-    ].
+    ];
+fields(orlist) ->
+    [{'or', #{type => union_array(
+                         [ hoconsc:ref(username)
+                         , hoconsc:ref(clientid)
+                         , hoconsc:ref(ipaddress)
+                         ])
+              }
+     }
+    ];
+fields(eq_topic) ->
+    [{eq, #{type => binary()}}].
 
-access(type) -> access();
-access(_) -> undefined.
 
-action(type) -> action();
-action(_) -> undefined.
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
-topics(type) -> {array, {union, [binary(), "eq_topic"]}};
-topics(_) -> undefined.
+union_array(Item) when is_list(Item) ->
+    hoconsc:array(hoconsc:union(Item)).
 
-username(type) -> binary();
-username(_) -> undefined.
+rules() -> 
+    #{type => union_array(
+                [ hoconsc:ref(simple_rule)
+                , hoconsc:ref(sql_connector)
+                , hoconsc:ref(redis_connector)
+                ])
+    }.
 
-clientid(type) -> binary();
-clientid(_) -> undefined.
+principal() ->
+    #{default => all,
+      type => hoconsc:union(
+                [ all
+                , hoconsc:ref(username)
+                , hoconsc:ref(clientid)
+                , hoconsc:ref(ipaddress)
+                , hoconsc:ref(andlist)
+                , hoconsc:ref(orlist)
+                ])
+     }.
 
-ipaddress(type) -> string();
-ipaddress(_) -> undefined.
-
-principal(type) -> {array, {union, ["username", "clientid", "ipaddress"]}};
-principal(_) -> undefined.
+query() ->
+    #{type => binary(),
+      validator => fun(S) ->
+                         case size(S) > 0 of
+                             true -> ok;
+                             _ -> {error, "Request query"}
+                         end
+                       end
+     }.

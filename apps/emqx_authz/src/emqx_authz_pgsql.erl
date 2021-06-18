@@ -21,15 +21,18 @@
 -include_lib("emqx/include/logger.hrl").
 
 %% ACL Callbacks
--export([ parse_query/1
+-export([ description/0
+        , parse_query/1
         , check_authz/4
-        , description/0
         ]).
 
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
+
+description() ->
+    "AuthZ with pgsql".
 
 parse_query(undefined) ->
     undefined;
@@ -50,7 +53,7 @@ check_authz(Client, PubSub, Topic,
             #{<<"resource_id">> := ResourceID,
               <<"sql">> := {SQL, Params}
              }) ->
-    case emqx_resource:query(ResourceID, {sql, SQL, emqx_authz:replvar(Params, Client)}) of
+    case emqx_resource:query(ResourceID, {sql, SQL, replvar(Params, Client)}) of
         {ok, _Columns, []} -> nomatch;
         {ok, _Columns, Rows} ->
             do_check_authz(Client, PubSub, Topic, Rows);
@@ -108,10 +111,35 @@ topic(<<"eq ", Topic/binary>>) ->
 topic(Topic) ->
     Topic.
 
-description() ->
-    "AuthZ with Mysql".
-
 empty(null) -> true;
 empty("")   -> true;
 empty(<<>>) -> true;
 empty(_)    -> false.
+
+replvar(Params, ClientInfo) ->
+    replvar(Params, ClientInfo, []).
+
+replvar([], _ClientInfo, Acc) ->
+    lists:reverse(Acc);
+
+replvar(["'%u'" | Params], ClientInfo, Acc) ->
+    replvar(Params, ClientInfo, [safe_get(username, ClientInfo) | Acc]);
+replvar(["'%c'" | Params], ClientInfo = #{clientid := ClientId}, Acc) ->
+    replvar(Params, ClientInfo, [ClientId | Acc]);
+replvar(["'%a'" | Params], ClientInfo = #{peerhost := IpAddr}, Acc) ->
+    replvar(Params, ClientInfo, [inet_parse:ntoa(IpAddr) | Acc]);
+replvar(["'%C'" | Params], ClientInfo, Acc) ->
+    replvar(Params, ClientInfo, [safe_get(cn, ClientInfo)| Acc]);
+replvar(["'%d'" | Params], ClientInfo, Acc) ->
+    replvar(Params, ClientInfo, [safe_get(dn, ClientInfo)| Acc]);
+replvar([Param | Params], ClientInfo, Acc) ->
+    replvar(Params, ClientInfo, [Param | Acc]).
+
+safe_get(K, ClientInfo) ->
+    bin(maps:get(K, ClientInfo, "undefined")).
+
+bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+bin(B) when is_binary(B) -> B;
+bin(L) when is_list(L) -> list_to_binary(L);
+bin(X) -> X.
+
