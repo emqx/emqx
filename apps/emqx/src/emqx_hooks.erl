@@ -66,8 +66,8 @@
 %%     equal priority values.
 
 -type(hookpoint() :: atom()).
--type(action() :: mfargs()).
--type(filter() :: mfargs()).
+-type(action() :: {module(), atom(), [term()] | undefined}).
+-type(filter() :: {module(), atom(), [term()] | undefined}).
 
 -record(callback, {
           action :: action(),
