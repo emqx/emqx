@@ -274,7 +274,7 @@ check_config(ResourceType, RawConfig) when is_binary(RawConfig) ->
         {ok, MapConfig} ->
             case ?SAFE_CALL(hocon_schema:check(ResourceType, MapConfig, ?HOCON_CHECK_OPTS)) of
                 {error, Reason} -> {error, Reason};
-                Config -> {ok, maps:get(config, hocon_schema:richmap_to_map(Config))}
+                Config -> {ok, hocon_schema:richmap_to_map(Config)}
             end;
         Error -> Error
     end;
