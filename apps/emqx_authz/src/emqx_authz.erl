@@ -79,9 +79,9 @@ create_resource(#{<<"type">> := DB,
 -spec(compile(rule()) -> rule()).
 compile(#{<<"topics">> := Topics,
           <<"action">> := Action,
-          <<"access">> := Access,
+          <<"permission">> := Permission,
           <<"principal">> := Principal
-         } = Rule) when ?ALLOW_DENY(Access), ?PUBSUB(Action), is_list(Topics) ->
+         } = Rule) when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(Topics) ->
     NTopics = [compile_topic(Topic) || Topic <- Topics],
     Rule#{<<"principal">> => compile_principal(Principal),
           <<"topics">> => NTopics
@@ -118,6 +118,8 @@ compile_principal(#{<<"and">> := Principals}) when is_list(Principals) ->
 compile_principal(#{<<"or">> := Principals}) when is_list(Principals) ->
     #{<<"or">> => [compile_principal(Principal) || Principal <- Principals]}.
 
+compile_topic(<<"eq ", Topic/binary>>) ->
+    compile_topic(#{<<"eq">> => Topic});
 compile_topic(#{<<"eq">> := Topic}) ->
     #{<<"eq">> => emqx_topic:words(bin(Topic))};
 compile_topic(Topic) when is_binary(Topic)->
@@ -143,7 +145,7 @@ b2l(B) when is_binary(B) -> binary_to_list(B).
 %%--------------------------------------------------------------------
 
 %% @doc Check ACL
--spec(check_authz(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_topic:topic(), emqx_access_rule:acl_result(), rules())
+-spec(check_authz(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_topic:topic(), emqx_permission_rule:acl_result(), rules())
       -> {ok, allow} | {ok, deny} | deny).
 check_authz(Client, PubSub, Topic, DefaultResult, Rules) ->
     case do_check_authz(Client, PubSub, Topic, Rules) of
@@ -165,9 +167,9 @@ do_check_authz(Client, PubSub, Topic,
         false -> do_check_authz(Client, PubSub, Topic, Tail)
     end;
 do_check_authz(Client, PubSub, Topic,
-               [#{<<"access">> := Access} = Rule | Tail]) ->
+               [#{<<"permission">> := Permission} = Rule | Tail]) ->
     case match(Client, PubSub, Topic, Rule) of
-        true -> {matched, Access};
+        true -> {matched, Permission};
         false -> do_check_authz(Client, PubSub, Topic, Tail)
     end;
 do_check_authz(_Client, _PubSub, _Topic, []) -> nomatch.
@@ -204,12 +206,12 @@ match_principal(#{peerhost := undefined}, #{<<"ipaddress">> := _CIDR}) ->
 match_principal(#{peerhost := IpAddress}, #{<<"ipaddress">> := CIDR}) ->
     esockd_cidr:match(IpAddress, CIDR);
 match_principal(ClientInfo, #{<<"and">> := Principals}) when is_list(Principals) ->
-    lists:foldl(fun(Principal, Access) ->
-                  match_principal(ClientInfo, Principal) andalso Access
+    lists:foldl(fun(Principal, Permission) ->
+                  match_principal(ClientInfo, Principal) andalso Permission
                 end, true, Principals);
 match_principal(ClientInfo, #{<<"or">> := Principals}) when is_list(Principals) ->
-    lists:foldl(fun(Principal, Access) ->
-                  match_principal(ClientInfo, Principal) orelse Access
+    lists:foldl(fun(Principal, Permission) ->
+                  match_principal(ClientInfo, Principal) orelse Permission
                 end, false, Principals);
 match_principal(_, _) -> false.
 

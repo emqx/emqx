@@ -3,9 +3,9 @@
 -include_lib("typerefl/include/types.hrl").
 
 -type action() :: pub | sub | pubsub.
--type access() :: allow | deny.
+-type permission() :: allow | deny.
 
--reflect_type([ access/0
+-reflect_type([ permission/0
               , action/0
               ]).
 
@@ -29,7 +29,7 @@ fields(sql_connector) ->
     , {sql, query()}
     ];
 fields(simple_rule) ->
-    [ {access,   #{type => access()}}
+    [ {permission,   #{type => permission()}}
     , {action,   #{type => action()}}
     , {topics,   #{type => union_array(
                              [ binary()

@@ -55,7 +55,7 @@ do_check_authz(Client, PubSub, Topic, [TopicFilter, Action | Tail]) ->
                  action => Action
                 }) 
     of
-        {matched, Access} -> {matched, Access};
+        {matched, Permission} -> {matched, Permission};
         nomatch -> do_check_authz(Client, PubSub, Topic, Tail)
     end.
 
@@ -65,17 +65,19 @@ match(Client, PubSub, Topic,
        }) ->
     Rule = #{<<"principal">> => all,
              <<"topics">> => [TopicFilter],
-             <<"action">> => action(Action),
-             <<"access">> => allow
+             <<"action">> => Action,
+             <<"permission">> => allow
             },
-    case emqx_authz:match(Client, PubSub, Topic, emqx_authz:compile(Rule)) of
+    #{<<"simple_rule">> := NRule
+     } = hocon_schema:check_plain(
+            emqx_authz_schema,
+            #{<<"simple_rule">> => Rule},
+            #{},
+            [simple_rule]),
+    case emqx_authz:match(Client, PubSub, Topic, emqx_authz:compile(NRule)) of
         true -> {matched, allow};
         false -> nomatch
     end.
-
-action(<<"sub">>) -> sub;
-action(<<"pub">>) -> pub;
-action(<<"pubsub">>) -> pubsub.
 
 replvar(Cmd, Client = #{cn := CN}) ->
     replvar(repl(Cmd, "%C", CN), maps:remove(cn, Client));

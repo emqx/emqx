@@ -66,7 +66,7 @@ do_check_authz(_Client, _PubSub, _Topic, _Columns, []) ->
     nomatch;
 do_check_authz(Client, PubSub, Topic, Columns, [Row | Tail]) ->
     case match(Client, PubSub, Topic, format_result(Columns, Row)) of
-        {matched, Access} -> {matched, Access};
+        {matched, Permission} -> {matched, Permission};
         nomatch -> do_check_authz(Client, PubSub, Topic, Columns, Tail)
     end.
 
@@ -79,7 +79,7 @@ format_result(Columns, Row) ->
     maps:from_list(L).
 
 match(Client, PubSub, Topic,
-      #{<<"access">> := Access,
+      #{<<"permission">> := Permission,
         <<"action">> := Action,
         <<"clientid">> := ClientId,
         <<"username">> := Username,
@@ -87,42 +87,29 @@ match(Client, PubSub, Topic,
         <<"topic">> := TopicFilter
        }) ->
     Rule = #{<<"principal">> => principal(IpAddress, Username, ClientId),
-             <<"topics">> => [topic(TopicFilter)],
-             <<"action">> => action(Action),
-             <<"access">> =>  access(Access)
+             <<"topics">> => [TopicFilter],
+             <<"action">> => Action,
+             <<"permission">> =>  Permission
             },
-    case emqx_authz:match(Client, PubSub, Topic, emqx_authz:compile(Rule)) of
-        true -> {matched, access(Access)};
+    #{<<"simple_rule">> :=
+      #{<<"permission">> := NPermission} = NRule
+     } = hocon_schema:check_plain(
+            emqx_authz_schema,
+            #{<<"simple_rule">> => Rule},
+            #{},
+            [simple_rule]),
+    case emqx_authz:match(Client, PubSub, Topic, emqx_authz:compile(NRule)) of
+        true -> {matched, NPermission};
         false -> nomatch
     end.
 
-principal(_, <<"$all">>, _) ->
-    all;
-principal(null, null, null) ->
-    throw(undefined_who);
 principal(CIDR, Username, ClientId) ->
     Cols = [{<<"ipaddress">>, CIDR}, {<<"username">>, Username}, {<<"clientid">>, ClientId}],
     case [#{C => V} || {C, V} <- Cols, not empty(V)] of
+        [] -> throw(undefined_who);
         [Who] -> Who;
         Conds -> #{<<"and">> => Conds}
     end.
-
-access(1)  -> allow;
-access(0)  -> deny;
-access(<<"1">>)  -> allow;
-access(<<"0">>)  -> deny.
-
-action(1) -> sub;
-action(2) -> pub;
-action(3) -> pubsub;
-action(<<"1">>) -> sub;
-action(<<"2">>) -> pub;
-action(<<"3">>) -> pubsub.
-
-topic(<<"eq ", Topic/binary>>) ->
-    #{<<"eq">> => Topic};
-topic(Topic) ->
-    Topic.
 
 empty(null) -> true;
 empty("")   -> true;

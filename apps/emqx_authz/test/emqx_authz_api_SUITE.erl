@@ -68,7 +68,7 @@ t_api(_Config) ->
                                    ]},
               <<"action">> => <<"sub">>,
               <<"topics">> => [<<"%u">>],
-              <<"access">> => <<"allow">>
+              <<"permission">> => <<"allow">>
             },
     {ok, _} = request_http_rest_add(["authz/push"], #{rules => [Rule1]}),
     {ok, Result1} = request_http_rest_lookup(["authz"]),
@@ -79,7 +79,7 @@ t_api(_Config) ->
               <<"topics">> => [#{<<"eq">> => <<"#">>},
                                #{<<"eq">> => <<"+">>}
                               ],
-              <<"access">> => <<"deny">>
+              <<"permission">> => <<"deny">>
             },
     {ok, _} = request_http_rest_add(["authz/append"], #{rules => [Rule2]}),
     {ok, Result2} = request_http_rest_lookup(["authz"]),
