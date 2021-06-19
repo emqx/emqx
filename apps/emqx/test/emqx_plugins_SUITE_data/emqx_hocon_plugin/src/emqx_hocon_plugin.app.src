@@ -1,0 +1,15 @@
+{application, emqx_hocon_plugin,
+ [{description, "An EMQ X plugin for hocon testcase"},
+  {vsn, "0.1"},
+  {modules, []},
+  {registered, []},
+  {mod, {emqx_hocon_plugin_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    typerefl
+   ]},
+  {env,[]},
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.

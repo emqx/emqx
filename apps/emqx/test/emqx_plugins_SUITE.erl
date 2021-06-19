@@ -30,10 +30,15 @@ init_per_suite(Config) ->
 
     DataPath = proplists:get_value(data_dir, Config),
     AppPath = filename:join([DataPath, "emqx_mini_plugin"]),
+    HoconPath = filename:join([DataPath, "emqx_hocon_plugin"]),
     Cmd = lists:flatten(io_lib:format("cd ~s && make", [AppPath])),
+    CmdPath = lists:flatten(io_lib:format("cd ~s && make", [HoconPath])),
 
     ct:pal("Executing ~s~n", [Cmd]),
     ct:pal("~n ~s~n", [os:cmd(Cmd)]),
+
+    ct:pal("Executing ~s~n", [CmdPath]),
+    ct:pal("~n ~s~n", [os:cmd(CmdPath)]),
 
     put(loaded_file, filename:join([DataPath, "loaded_plugins"])),
     emqx_ct_helpers:boot_modules([]),
@@ -55,6 +60,7 @@ t_load(_) ->
 
     ?assertEqual({error, not_found}, emqx_plugins:load(not_existed_plugin)),
     ?assertEqual({error, not_started}, emqx_plugins:unload(emqx_mini_plugin)),
+    ?assertEqual({error, not_started}, emqx_plugins:unload(emqx_hocon_plugin)),
 
     application:set_env(emqx, expand_plugins_dir, undefined),
     application:set_env(emqx, plugins_loaded_file, undefined),
@@ -78,7 +84,8 @@ t_list(_) ->
     ?assertMatch([{plugin, _, _, _, _, _, _, _} | _ ], emqx_plugins:list()).
 
 t_find_plugin(_) ->
-    ?assertMatch({plugin, emqx_mini_plugin, _, _, _, _, _, _}, emqx_plugins:find_plugin(emqx_mini_plugin)).
+    ?assertMatch({plugin, emqx_mini_plugin, _, _, _, _, _, _}, emqx_plugins:find_plugin(emqx_mini_plugin)),
+    ?assertMatch({plugin, emqx_hocon_plugin, _, _, _, _, _, _}, emqx_plugins:find_plugin(emqx_hocon_plugin)).
 
 t_plugin_type(_) ->
     ?assertEqual(auth, emqx_plugins:plugin_type(auth)),
@@ -92,11 +99,15 @@ t_with_loaded_file(_) ->
 
 t_plugin_loaded(_) ->
     ?assertEqual(ok, emqx_plugins:plugin_loaded(emqx_mini_plugin, false)),
-    ?assertEqual(ok, emqx_plugins:plugin_loaded(emqx_mini_plugin, true)).
+    ?assertEqual(ok, emqx_plugins:plugin_loaded(emqx_mini_plugin, true)),
+    ?assertEqual(ok, emqx_plugins:plugin_loaded(emqx_hocon_plugin, false)),
+    ?assertEqual(ok, emqx_plugins:plugin_loaded(emqx_hocon_plugin, true)).
 
 t_plugin_unloaded(_) ->
     ?assertEqual(ok, emqx_plugins:plugin_unloaded(emqx_mini_plugin, false)),
-    ?assertEqual(ok, emqx_plugins:plugin_unloaded(emqx_mini_plugin, true)).
+    ?assertEqual(ok, emqx_plugins:plugin_unloaded(emqx_mini_plugin, true)),
+    ?assertEqual(ok, emqx_plugins:plugin_unloaded(emqx_hocon_plugin, false)),
+    ?assertEqual(ok, emqx_plugins:plugin_unloaded(emqx_hocon_plugin, true)).
 
 t_plugin(_) ->
     try
@@ -105,7 +116,8 @@ t_plugin(_) ->
         _Error:Reason:_Stacktrace ->
             ?assertEqual({plugin_not_found,not_existed_plugin}, Reason)
     end,
-    ?assertMatch({plugin, emqx_mini_plugin, _, _, _, _, _, _}, emqx_plugins:plugin(emqx_mini_plugin, undefined)).
+    ?assertMatch({plugin, emqx_mini_plugin, _, _, _, _, _, _}, emqx_plugins:plugin(emqx_mini_plugin, undefined)),
+    ?assertMatch({plugin, emqx_hocon_plugin, _, _, _, _, _, _}, emqx_plugins:plugin(emqx_hocon_plugin, undefined)).
 
 t_filter_plugins(_) ->
     ?assertEqual([name1, name2], emqx_plugins:filter_plugins([name1, {name2,true}, {name3, false}])).
