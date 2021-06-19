@@ -175,7 +175,7 @@ load_ext_plugin(PluginDir) ->
               end,
     ok = load_plugin_app(AppName, Ebin),
     try
-        ok = generate_configs(AppName)
+        ok = generate_configs(AppName, PluginDir)
     catch
         throw : {conf_file_not_found, ConfFile} ->
             %% this is maybe a dependency of an external plugin
@@ -367,8 +367,16 @@ funlog(Key, Value) ->
     ?LOG(info, "~s = ~p", [string:join(Key, "."), Value]).
 
 generate_configs(App) ->
-    PluginConfDir = filename:join([code:lib_dir(App), "etc"]),
-    PluginSchemaDir = filename:join([code:lib_dir(App), "priv"]),
+    PluginConfDir = emqx:get_env(plugins_etc_dir),
+    PluginSchemaDir = code:priv_dir(App),
+    generate_configs(App, PluginConfDir, PluginSchemaDir).
+
+generate_configs(App, PluginDir) ->
+    PluginConfDir = filename:join([PluginDir, "etc"]),
+    PluginSchemaDir = filename:join([PluginDir, "priv"]),
+    generate_configs(App, PluginConfDir, PluginSchemaDir).
+
+generate_configs(App, PluginConfDir, PluginSchemaDir) ->
     ConfigFile = filename:join([PluginConfDir, App]) ++ ".config",
     case filelib:is_file(ConfigFile) of
         true ->
@@ -410,13 +418,14 @@ do_generate_hocon_configs(App, ConfName, SchemaFile) ->
     SchemaMod = lists:concat([App, "_schema"]),
     case {filelib:is_file(ConfName), filelib:is_file(SchemaFile)} of
         {true, true} ->
-            {ok, RawConfig} = hocon:load(ConfName),
-            Config = hocon_schema:check_plain(list_to_atom(SchemaMod), RawConfig, #{atom_key => true}),
+            {ok, RawConfig} = hocon:load(ConfName, #{format => richmap}),
+            Config = hocon_schema:check(list_to_atom(SchemaMod), RawConfig, #{atom_key => true,
+                                                                              return_plain => true}),
             emqx_config_handler:update_config(emqx_config_handler, Config);
         {true, false} ->
             error({schema_not_found, [SchemaFile]});
         {false, true} ->
-            error({config_not_found, [SchemaFile]});
+            error({config_not_found, [ConfName]});
         {false, false} ->
             error({conf_and_schema_not_found, [ConfName, SchemaFile]})
     end.
