@@ -28,11 +28,11 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_statsd_sup:start_link(),
-    emqx_statsd_sup:start_statsd(),
+    {ok, _} = emqx_statsd_sup:start_statsd(),
     ?LOG(info, "emqx statsd start: successfully"),
     {ok, Sup}.
 
- stop(_) ->
-    emqx_statsd_sup:stop_statsd(),
+stop(_) ->
+    ok = emqx_statsd_sup:stop_statsd(),
     ?LOG(info, "emqx statsd stop: successfully"),
     ok.
