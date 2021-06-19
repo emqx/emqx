@@ -25,23 +25,24 @@
         ]).
 
 load_bridges() ->
-    Bridges = proplists:get_value(bridges,
-        application:get_all_env(emqx_data_bridge), []),
+    ConfFile = filename:join([emqx:get_env(plugins_etc_dir), ?MODULE]) ++ ".conf",
+    {ok, RawConfig} = hocon:load(ConfFile, #{format => richmap}),
+    #{emqx_data_bridge := #{bridges := Bridges}} =
+        hocon_schema:check(emqx_data_bridge_schema, RawConfig,
+            #{atom_key => true, return_plain => true}),
     emqx_data_bridge_monitor:ensure_all_started(Bridges).
 
-resource_type(<<"mysql">>) -> emqx_connector_mysql;
-resource_type(<<"pgsql">>) -> emqx_connector_pgsql;
-resource_type(<<"mongo">>) -> emqx_connector_mongo;
-resource_type(<<"redis">>) -> emqx_connector_redis;
-resource_type(<<"ldap">>) -> emqx_connector_ldap.
+resource_type(mysql) -> emqx_connector_mysql;
+resource_type(pgsql) -> emqx_connector_pgsql;
+resource_type(mongo) -> emqx_connector_mongo;
+resource_type(redis) -> emqx_connector_redis;
+resource_type(ldap) -> emqx_connector_ldap.
 
-
-bridge_type(emqx_connector_mysql) -> <<"mysql">>;
-bridge_type(emqx_connector_pgsql) -> <<"pgsql">>;
-bridge_type(emqx_connector_mongo) -> <<"mongo">>;
-bridge_type(emqx_connector_redis) -> <<"redis">>;
-bridge_type(emqx_connector_ldap) -> <<"ldap">>.
-
+bridge_type(emqx_connector_mysql) -> mysql;
+bridge_type(emqx_connector_pgsql) -> pgsql;
+bridge_type(emqx_connector_mongo) -> mongo;
+bridge_type(emqx_connector_redis) -> redis;
+bridge_type(emqx_connector_ldap) -> ldap.
 
 name_to_resource_id(BridgeName) ->
     <<"bridge:", BridgeName/binary>>.

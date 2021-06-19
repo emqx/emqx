@@ -28,14 +28,19 @@
 
 -export([connect/1]).
 
--export([schema/0]).
+-export([structs/0, fields/1]).
 
 -export([do_health_check/1]).
 
 %%=====================================================================
-schema() ->
+%% Hocon schema
+structs() -> [""].
+
+fields("") ->
     emqx_connector_schema_lib:relational_db_fields() ++
     emqx_connector_schema_lib:ssl_fields().
+
+%%=====================================================================
 
 on_jsonify(#{server := Server}= Config) ->
     Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}.

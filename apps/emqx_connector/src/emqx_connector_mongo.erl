@@ -19,9 +19,6 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
--export([ schema/0
-        ]).
-
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
         , on_stop/2
@@ -32,9 +29,13 @@
 
 -export([connect/1]).
 
+-export([structs/0, fields/1]).
+
 -export([mongo_query/5]).
 %%=====================================================================
-schema() ->
+structs() -> [""].
+
+fields("") ->
     mongodb_fields() ++
     mongodb_topology_fields() ++
     mongodb_rs_set_name_fields() ++

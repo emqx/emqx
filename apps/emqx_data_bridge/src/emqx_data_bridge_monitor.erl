@@ -69,9 +69,8 @@ load_bridges(Configs) ->
 
 %% TODO: move this monitor into emqx_resource
 %% emqx_resource:check_and_create_local(ResourceId, ResourceType, Config, #{keep_retry => true}).
-load_bridge(#{<<"name">> := Name, <<"type">> := Type,
-              <<"config">> := Config}) ->
-    case emqx_resource:check_and_create_local(
+load_bridge(#{name := Name, type := Type, config := Config}) ->
+    case emqx_resource:create_local(
             emqx_data_bridge:name_to_resource_id(Name),
             emqx_data_bridge:resource_type(Type), Config) of
         {ok, _} -> ok;
