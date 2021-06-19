@@ -24,3 +24,9 @@ jobs:
             ./rebar3 eunit -v
             ./rebar3 ct -v
             ./rebar3 proper -d test/props
+        - uses: actions/upload-artifact@v1
+          if: failure()
+          with:
+            name: logs
+            path: apps/emqx/_build/test/logs
+
