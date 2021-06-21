@@ -1,0 +1,16 @@
+%% -*- mode: erlang -*-
+{VSN,
+ [ {"4.3.0",
+    %% load all plugins
+    %% NOTE: this depends on the fact that emqx_dashboard is always
+    %% the last application gets upgraded
+    [ {apply, {emqx_plugins, load, []}}
+    ]},
+   {<<".*">>, []}
+ ],
+ [ {"4.3.0",
+    [ {apply, {emqx_plugins, load, []}}
+    ]},
+   {<<".*">>, []}
+ ]
+}.
