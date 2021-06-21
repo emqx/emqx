@@ -22,6 +22,8 @@
 
 -include("emqx_dashboard.hrl").
 
+-rlog_shard({?DASHBOARD_SHARD, mqtt_admin}).
+
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
@@ -78,7 +80,7 @@ start_link() ->
 -spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
 add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password) ->
     Admin = #mqtt_admin{username = Username, password = hash(Password), tags = Tags},
-    return(mnesia:transaction(fun add_user_/1, [Admin])).
+    return(ekka_mnesia:transaction(?DASHBOARD_SHARD, fun add_user_/1, [Admin])).
 
 force_add_user(Username, Password, Tags) ->
     AddFun = fun() ->
@@ -86,7 +88,7 @@ force_add_user(Username, Password, Tags) ->
                                           password = Password,
                                           tags = Tags})
              end,
-    case mnesia:transaction(AddFun) of
+    case ekka_mnesia:transaction(?DASHBOARD_SHARD, AddFun) of
         {atomic, ok} -> ok;
         {aborted, Reason} -> {error, Reason}
     end.
@@ -108,11 +110,11 @@ remove_user(Username) when is_binary(Username) ->
                     end,
                     mnesia:delete({mqtt_admin, Username})
             end,
-    return(mnesia:transaction(Trans)).
+    return(ekka_mnesia:transaction(?DASHBOARD_SHARD, Trans)).
 
 -spec(update_user(binary(), binary()) -> ok | {error, term()}).
 update_user(Username, Tags) when is_binary(Username) ->
-    return(mnesia:transaction(fun update_user_/2, [Username, Tags])).
+    return(ekka_mnesia:transaction(?DASHBOARD_SHARD, fun update_user_/2, [Username, Tags])).
 
 %% @private
 update_user_(Username, Tags) ->
@@ -145,7 +147,7 @@ update_pwd(Username, Fun) ->
                     end,
                     mnesia:write(Fun(User))
             end,
-    return(mnesia:transaction(Trans)).
+    return(ekka_mnesia:transaction(?DASHBOARD_SHARD, Trans)).
 
 
 -spec(lookup_user(binary()) -> [mqtt_admin()]).
@@ -225,4 +227,3 @@ add_default_user(Username, Password) ->
         [] -> add_user(Username, Password, <<"administrator">>);
         _  -> ok
     end.
-
