@@ -246,6 +246,10 @@ jobs:
         - os: raspbian10
           profile: emqx-ee
 
+        erl_otp:
+          - erl23.2.7.2-emqx-2
+          - erl24.0.1-emqx-1
+
     defaults:
       run:
         shell: bash
@@ -294,7 +298,7 @@ jobs:
         done
     - name: build emqx packages
       env:
-        ERL_OTP: erl23.2.7.2-emqx-2
+        ERL_OTP: ${{ matrix.erl_otp }}
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
