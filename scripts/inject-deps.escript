@@ -35,6 +35,9 @@ deps(_Profile) ->
   base_deps().
 
 base_deps() ->
+  %% make sure emqx_dashboard depends on all other emqx_xxx apps
+  %% so the appup instructions for emqx_dashboard is always the last
+  %% to be executed
   [ {emqx_dashboard, [{re, "emqx_.*"}]}
   , {emqx_management, [{re, "emqx_.*"}, {exclude, emqx_dashboard}]}
   , {{re, "emqx_.*"}, [emqx]}
