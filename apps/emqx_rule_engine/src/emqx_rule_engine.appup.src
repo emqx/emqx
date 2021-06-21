@@ -4,16 +4,16 @@
     [ {load_module, emqx_rule_funcs, brutal_purge, soft_purge, []}
     , {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
     , {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
-    , {apply, {supervisor, restart_child, [emqx_rule_engine_sup, emqx_rule_registry]}}
+    , {apply, {emqx_stats, cancel_update, [rule_registery_stats]}}
     ]},
    {"4.3.1",
     [ {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
     , {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
-    , {apply, {supervisor, restart_child, [emqx_rule_engine_sup, emqx_rule_registry]}}
+    , {apply, {emqx_stats, cancel_update, [rule_registery_stats]}}
     ]},
    {"4.3.2",
     [ {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
-    , {apply, {supervisor, restart_child, [emqx_rule_engine_sup, emqx_rule_registry]}}
+    , {apply, {emqx_stats, cancel_update, [rule_registery_stats]}}
     ]},
    {<<".*">>, []}
  ],
@@ -22,16 +22,16 @@
     [ {load_module, emqx_rule_funcs, brutal_purge, soft_purge, []}
     , {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
     , {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
-    , {apply, {supervisor, restart_child, [emqx_rule_engine_sup, emqx_rule_registry]}}
+    , {apply, {emqx_stats, cancel_update, [rule_registery_stats]}}
     ]},
    {"4.3.1",
     [ {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
     , {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
-    , {apply, {supervisor, restart_child, [emqx_rule_engine_sup, emqx_rule_registry]}}
+    , {apply, {emqx_stats, cancel_update, [rule_registery_stats]}}
     ]},
    {"4.3.2",
     [ {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
-    , {apply, {supervisor, restart_child, [emqx_rule_engine_sup, emqx_rule_registry]}}
+    , {apply, {emqx_stats, cancel_update, [rule_registery_stats]}}
     ]},
    {<<".*">>, []}
  ]
