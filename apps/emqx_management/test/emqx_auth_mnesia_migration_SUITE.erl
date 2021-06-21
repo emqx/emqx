@@ -40,6 +40,7 @@ cases() ->
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([emqx_management, emqx_dashboard, emqx_auth_mnesia]),
+    application:set_env(ekka, strict_mode, true),
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
     Config.

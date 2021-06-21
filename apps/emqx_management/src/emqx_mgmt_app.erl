@@ -24,8 +24,11 @@
         , stop/1
         ]).
 
+-include("emqx_mgmt.hrl").
+
 start(_Type, _Args) ->
     {ok, Sup} = emqx_mgmt_sup:start_link(),
+    ok = ekka_rlog:wait_for_shards([?MANAGEMENT_SHARD], infinity),
     _ = emqx_mgmt_auth:add_default_app(),
     emqx_mgmt_http:start_listeners(),
     emqx_mgmt_cli:load(),

@@ -56,6 +56,7 @@ apps() ->
     [emqx_management, emqx_auth_mnesia, emqx_modules].
 
 init_per_suite(Config) ->
+    application:set_env(ekka, strict_mode, true),
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
     emqx_ct_helpers:start_apps(apps()),
