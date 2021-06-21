@@ -36,12 +36,9 @@ init([]) ->
           restart => permanent,
           type => worker,
           modules => [emqx_data_bridge_monitor]},
-        emqx_config_handler:child_spec(emqx_data_bridge_config_handler, emqx_config_handler,
-            config_key_path())
+        emqx_config_handler:child_spec(emqx_data_bridge_schema, emqx_config_handler,
+            emqx_data_bridge_schema, [emqx_data_bridge])
     ],
     {ok, {SupFlags, ChildSpecs}}.
 
 %% internal functions
-
-config_key_path() ->
-    [emqx_data_bridge, bridges].
