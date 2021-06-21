@@ -294,6 +294,9 @@ do_discard_session(ClientId, Pid) ->
         _ : {noproc, _} -> % emqx_connection: gen_server:call
             ?tp(debug, "session_already_gone", #{pid => Pid}),
             ok;
+        _ : {'EXIT', {noproc, _}} -> % rpc_call/3
+            ?tp(debug, "session_already_gone", #{pid => Pid}),
+            ok;
         _ : {{shutdown, _}, _} ->
             ?tp(debug, "session_already_shutdown", #{pid => Pid}),
             ok;
