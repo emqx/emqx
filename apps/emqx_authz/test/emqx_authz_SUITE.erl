@@ -33,6 +33,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
+    file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
     emqx_ct_helpers:stop_apps([emqx_authz]).
 
 set_special_configs(emqx) ->
@@ -40,7 +41,12 @@ set_special_configs(emqx) ->
     application:set_env(emqx, enable_acl_cache, false),
     application:set_env(emqx, acl_nomatch, deny),
     ok;
-
+set_special_configs(emqx_authz) ->
+    application:set_env(emqx, plugins_etc_dir,
+                        emqx_ct_helpers:deps_path(emqx_authz, "test")),
+    Conf = #{<<"authz">> => #{<<"rules">> => []}},
+    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf'), jsx:encode(Conf)),
+    ok;
 set_special_configs(_App) ->
     ok.
 

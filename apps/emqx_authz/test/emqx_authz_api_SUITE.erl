@@ -41,17 +41,26 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
+    application:load(emqx_modules),
     ok = emqx_ct_helpers:start_apps([emqx_management, emqx_authz], fun set_special_configs/1),
     create_default_app(),
     Config.
 
 end_per_suite(_Config) ->
     delete_default_app(),
+    file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
     emqx_ct_helpers:stop_apps([emqx_authz, emqx_management]).
 
 set_special_configs(emqx) ->
     application:set_env(emqx, allow_anonymous, true),
     application:set_env(emqx, enable_acl_cache, false),
+    ok;
+set_special_configs(emqx_authz) ->
+    application:set_env(emqx, plugins_etc_dir,
+                        emqx_ct_helpers:deps_path(emqx_authz, "test")),
+    Conf = #{<<"authz">> => #{<<"rules">> => []}},
+    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf'), jsx:encode(Conf)),
+
     ok;
 
 set_special_configs(_App) ->

@@ -33,8 +33,9 @@ register_metrics() ->
 
 init() ->
     ok = register_metrics(),
-    RawConf = proplists:get_value(rules, application:get_all_env(?APP), []),
-    #{<<"authz">> := #{<<"rules">> := Rules}} = hocon_schema:check_plain(emqx_authz_schema, #{<<"authz">> => #{<<"rules">> => RawConf}}),
+    Conf = filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf'),
+    {ok, RawConf} = hocon:load(Conf),
+    #{<<"authz">> := #{<<"rules">> := Rules}} = hocon_schema:check_plain(emqx_authz_schema, RawConf),
     ok = application:set_env(?APP, rules, Rules),
     NRules = [compile(Rule) || Rule <- Rules],
     ok = emqx_hooks:add('client.check_acl', {?MODULE, check_authz, [NRules]},  -1).

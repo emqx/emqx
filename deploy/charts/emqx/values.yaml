@@ -84,11 +84,7 @@ emqxLoadedPlugins: >
   {emqx_dashboard, true}.
   {emqx_telemetry, true}.
   {emqx_rule_engine, true}.
-  {emqx_resource, true}.
-  {emqx_connector, true}.
-  {emqx_data_bridge, true}.
   {emqx_bridge_mqtt, false}.
-  {emqx_authz, true}.
 
 emqxLoadedModules: >
   {emqx_mod_acl_internal, true}.

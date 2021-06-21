@@ -29,12 +29,14 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
+    application:ensure_all_started(emqx_resource),
     meck:new(emqx_resource, [non_strict, passthrough]),
     meck:expect(emqx_resource, check_and_create_local, fun(_, _, _) -> {ok, meck_data} end ),
-    ok = emqx_ct_helpers:start_apps([emqx_resource, emqx_authz], fun set_special_configs/1),
+    ok = emqx_ct_helpers:start_apps([emqx_authz], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
+    file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
     emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
     meck:unload(emqx_resource).
 
@@ -44,12 +46,16 @@ set_special_configs(emqx) ->
     application:set_env(emqx, acl_nomatch, deny),
     ok;
 set_special_configs(emqx_authz) ->
-    application:set_env(emqx_authz, rules,
-                        [#{<<"config">> =>#{},
-                           <<"principal">> => all,
-                           <<"sql">> => <<"fake sql">>,
-                           <<"type">> => mysql}
-                        ]),
+    application:set_env(emqx, plugins_etc_dir,
+                        emqx_ct_helpers:deps_path(emqx_authz, "test")),
+    Conf = #{<<"authz">> =>
+             #{<<"rules">> =>
+               [#{<<"config">> =>#{<<"meck">> => <<"fake">>},
+                  <<"principal">> => all,
+                  <<"sql">> => <<"fake sql">>,
+                  <<"type">> => mysql}
+               ]}},
+    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf'), jsx:encode(Conf)),
     ok;
 set_special_configs(_App) ->
     ok.
@@ -96,7 +102,7 @@ t_authz(_) ->
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?RULE2 ++ ?RULE1} end),
     ?assertEqual(allow, emqx_access_control:check_acl(ClientInfo1, subscribe, <<"#">>)),
-    ?assertEqual(deny, emqx_access_control:check_acl(ClientInfo2, subscribe, <<"+">>)),
+    ?assertEqual(deny, emqx_access_control:check_acl(ClientInfo1, subscribe, <<"+">>)),
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?RULE3 ++ ?RULE4} end),
     ?assertEqual(allow, emqx_access_control:check_acl(ClientInfo2, subscribe, <<"test/test_clientid">>)),
