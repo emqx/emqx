@@ -369,7 +369,6 @@ etc_overlay(ReleaseType) ->
 extra_overlay(cloud) ->
     [ {copy,"{{base_dir}}/lib/emqx_lwm2m/lwm2m_xml","etc/"}
     , {copy, "{{base_dir}}/lib/emqx_psk_file/etc/psk.txt", "etc/psk.txt"}
-    , {copy, "{{base_dir}}/lib/emqx_data_bridge/etc/emqx_data_bridge.conf", "etc/plugins/emqx_data_bridge.conf"}
     ];
 extra_overlay(edge) ->
     [].
@@ -386,6 +385,7 @@ emqx_etc_overlay_common() ->
     [{"{{base_dir}}/lib/emqx/etc/acl.conf", "etc/acl.conf"},
      {"{{base_dir}}/lib/emqx/etc/emqx.conf", "etc/emqx.conf"},
      {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"},
+     {"{{base_dir}}/lib/emqx_data_bridge/etc/emqx_data_bridge.conf", "etc/plugins/emqx_data_bridge.conf"},
      %% TODO: check why it has to end with .paho
      %% and why it is put to etc/plugins dir
      {"{{base_dir}}/lib/emqx/etc/acl.conf.paho", "etc/plugins/acl.conf.paho"}].
