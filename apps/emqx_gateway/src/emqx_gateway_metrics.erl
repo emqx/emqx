@@ -21,6 +21,10 @@
 %% APIs
 -export([start_link/0]).
 
+-export([ inc/2
+        , inc/3
+        ]).
+
 %% gen_server callbacks
 -export([ init/1
         , handle_call/3
@@ -38,6 +42,16 @@
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+-spec inc(atom(), atom()) -> ok.
+inc(_GwId, _Name) ->
+    %% TODO: step1: get ets table name
+    %%       step2: update counter
+    ok.
+
+-spec inc(atom(), atom(), non_neg_integer()) -> ok.
+inc(_GwId, _Name, _Oct) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -65,5 +79,4 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
-
 

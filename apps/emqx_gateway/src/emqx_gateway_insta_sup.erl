@@ -89,6 +89,7 @@ enable(Pid) ->
 %%--------------------------------------------------------------------
 
 init([Insta, Ctx0, _GwDscrptr]) ->
+    process_flag(trap_exit, true),
     #instance{rawconf = RawConf} = Insta,
     Ctx   = do_init_context(RawConf, Ctx0),
     State = #state{
@@ -98,7 +99,7 @@ init([Insta, Ctx0, _GwDscrptr]) ->
     case cb_insta_create(State) of
         #state{child_pids = []} ->
             do_deinit_context(Ctx),
-            {error, create_gateway_instance_failed};
+            {stop, create_gateway_instance_failed};
         NState ->
             {ok, NState}
     end.
@@ -153,11 +154,12 @@ handle_info({'EXIT', Pid, Reason}, State = #state{child_pids = Pids}) ->
             NState = cb_insta_create(cb_insta_destroy(State)),
             {noreply, NState};
         _ ->
-            logger:warning("Unexcepted process ~p exited!", [Pid]),
-            {noreply, State}
+            logger:info("Shutdown due to ~p:~0p", [Pid, Reason]),
+            {stop, State}
     end;
 
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    logger:warning("Unexcepted info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, State = #state{ctx = Ctx, child_pids = Pids}) ->

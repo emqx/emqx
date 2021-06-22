@@ -19,7 +19,7 @@
 -include("include/emqx_gateway.hrl").
 
 %% APIs
--export([ types/0
+-export([ registered_gateway/0
         , create/5
         , remove/2
         , update/2
@@ -28,17 +28,16 @@
         , list/0
         ]).
 
-types() ->
-    emqx_gateway_registry:types().
+registered_gateway() ->
+    emqx_gateway_registry:list().
 
 %%--------------------------------------------------------------------
 %% Gateway Instace APIs
 
-%% FIXME: Map is better ???
--spec list() -> [instance()].
+%% XXX: Map is better ???
+-spec list() -> [{gateway_id(), [instance()]}].
 list() ->
-    %% TODO:
-    [].
+    emqx_gateway_sup:list_gateway_insta().
 
 %% XXX: InstaId 是不是可以自己生成(保证全集群唯一)
 

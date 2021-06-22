@@ -14,7 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Stomp Frame Header.
+-ifndef(EMQX_STOMP_HRL).
+-define(EMQX_STOMP_HRL, true).
 
 -define(STOMP_VER, <<"1.2">>).
 
@@ -24,9 +25,44 @@
 %% STOMP Frame
 %%--------------------------------------------------------------------
 
--record(stomp_frame, {command, headers = [], body = <<>> :: iodata()}).
+%% client command
+-define(CMD_STOMP,       <<"STOMP">>).
+-define(CMD_CONNECT,     <<"CONNECT">>).
+-define(CMD_SEND,        <<"SEND">>).
+-define(CMD_SUBSCRIBE,   <<"SUBSCRIBE">>).
+-define(CMD_UNSUBSCRIBE, <<"UNSUBSCRIBE">>).
+-define(CMD_BEGIN,       <<"BEGIN">>).
+-define(CMD_COMMIT,      <<"COMMIT">>).
+-define(CMD_ABORT,       <<"ABORT">>).
+-define(CMD_ACK,         <<"ACK">>).
+-define(CMD_NACK,        <<"NACK">>).
+-define(CMD_DISCONNECT,  <<"DISCONNECT">>).
 
--type(stomp_frame() :: #stomp_frame{}).
+%% server command
+-define(CMD_CONNECTED, <<"CONNECTED">>).
+-define(CMD_MESSAGE,   <<"MESSAGE">>).
+-define(CMD_RECEIPT,   <<"RECEIPT">>).
+-define(CMD_ERROR,     <<"ERROR">>).
+
+-type client_command() :: binary().
+%-type client_command() :: ?CMD_SEND | ?CMD_SUBSCRIBE | ?CMD_UNSUBSCRIBE
+%                        | ?CMD_BEGIN | ?CMD_COMMIT | ?CMD_ABORT | ?CMD_ACK
+%                        | ?CMD_NACK | ?CMD_DISCONNECT | ?CMD_CONNECT
+%                        | ?CMD_STOMP.
+%
+-type server_command() :: binary().
+%-type server_command() :: ?CMD_CONNECTED | ?CMD_MESSAGE | ?CMD_RECEIPT
+%                        | ?CMD_ERROR.
+
+-record(stomp_frame, {
+          command :: client_command() | server_command(),
+          headers = [],
+          body = <<>> :: iodata()}
+       ).
+
+-type stomp_frame() :: #stomp_frame{}.
+
+-define(PACKET(CMD), #stomp_frame{command = CMD}).
 
 %%--------------------------------------------------------------------
 %% Frame Size Limits
@@ -46,3 +82,4 @@
 -define(MAX_HEADER_LENGTH, 1024).
 -define(MAX_BODY_LENGTH,   65536).
 
+-endif.
