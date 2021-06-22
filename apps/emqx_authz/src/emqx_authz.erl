@@ -67,7 +67,7 @@ create_resource(#{<<"type">> := DB,
                   <<"config">> := Config
                  } = Rule) ->
     ResourceID = iolist_to_binary([io_lib:format("~s_~s",[?APP, DB]), "_", integer_to_list(erlang:system_time())]),
-    case emqx_resource:check_and_create_local(
+    case emqx_resource:check_and_create(
             ResourceID,
             list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
             Config)
@@ -152,7 +152,6 @@ b2l(B) when is_binary(B) -> binary_to_list(B).
 -spec(check_authz(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_topic:topic(), emqx_permission_rule:acl_result(), rules())
       -> {ok, allow} | {ok, deny} | deny).
 check_authz(#{username := Username,
-              clientid := Clientid,
               peerhost := IpAddress
              } = Client, PubSub, Topic, DefaultResult, Rules) ->
     case do_check_authz(Client, PubSub, Topic, Rules) of
