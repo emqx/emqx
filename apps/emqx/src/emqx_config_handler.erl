@@ -20,15 +20,17 @@
 -behaviour(gen_server).
 
 %% API functions
--export([ start_link/0
-        , start_handler/4
+-export([ start_link/1
+        , start_handler/3
+        , child_spec/2
+        , child_spec/3
         , update_config/2
-        , child_spec/4
+        , merge_to_old_config/2
         ]).
 
 %% emqx_config_handler callbacks
-% -export([ handle_update_config/2
-%         ]).
+-export([ handle_update_config/2
+        ]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -44,71 +46,67 @@
 -type parent() :: handler_name() | root.
 -type schema_root_name() :: atom() | string() | binary().
 -type schema_root_names() :: all | [schema_root_name()].
-%-type key_path() :: [atom()].
+-type key_path() :: [atom()].
 
 -optional_callbacks([handle_update_config/2]).
 
--callback handle_update_config(update_request(), raw_config()) -> raw_config().
+-callback handle_update_config(update_request(), raw_config()) -> update_request().
 
 -type state() :: #{
     handler_name := handler_name(),
     parent := parent(),
-    schema_mod := module(),
-    schema_root_names := schema_root_names(),
     raw_config := raw_config(),
     atom() => term()
 }.
 
-start_link() ->
-    start_handler(?MODULE, root, emqx_schema, all).
+start_link(RawConfig) ->
+    start_handler(?MODULE, root, RawConfig).
 
--spec start_handler(handler_name(), parent(), module(), schema_root_names()) ->
+-spec start_handler(handler_name(), parent(), raw_config()) ->
     {ok, pid()} | {error, {already_started, pid()}} | {error, term()}.
-start_handler(HandlerName, Parent, SchemaMod, SchemaRootNames) ->
+start_handler(HandlerName, Parent, RawConfig) ->
     gen_server:start_link({local, HandlerName}, ?MODULE,
-        {HandlerName, Parent, SchemaMod, SchemaRootNames}, []).
+        {HandlerName, Parent, RawConfig}, []).
 
--spec child_spec(handler_name(), parent(), module(), schema_root_names()) ->
-    supervisor:child_spec().
-child_spec(HandlerName, Parent, SchemaMod, SchemaRootNames) ->
+-spec child_spec(handler_name(), parent()) -> supervisor:child_spec().
+child_spec(HandlerName, Parent) ->
+    child_spec(HandlerName, Parent, undefined).
+
+-spec child_spec(handler_name(), parent(), raw_config()) -> supervisor:child_spec().
+child_spec(HandlerName, Parent, RawConfig) ->
     #{id => HandlerName,
-      start => {?MODULE, start_handler, [HandlerName, Parent, SchemaMod, SchemaRootNames]},
+      start => {?MODULE, start_handler, [HandlerName, Parent, RawConfig]},
       restart => permanent,
       type => worker,
       modules => [?MODULE]}.
 
--spec update_config(handler_name(), update_request()) -> ok.
+-spec update_config(handler_name(), update_request()) -> ok | {error, term()}.
 update_config(Handler, UpdateReq) ->
-    case is_process_alive(whereis(Handler)) of
-        true -> gen_server:cast(Handler, {handle_update_config, UpdateReq});
-        false -> error({not_alive, Handler})
-    end.
+    gen_server:call(Handler, {update_config, UpdateReq}).
 
 %%============================================================================
 
--spec init({handler_name(), parent(), module(), schema_root_names()}) ->
+-spec init({handler_name(), parent(), raw_config()}) ->
     {ok, state()}.
-init({HandlerName, Parent, SchemaMod, SchemaRootNames, SchemaRootNames}) ->
-    {ok, #{handler_name => HandlerName, parent => Parent, schema_mod => SchemaMod,
-           raw_config => undefined, schema_root_names => SchemaRootNames}}.
+init({HandlerName, Parent, RawConfig}) ->
+    {ok, #{handler_name => HandlerName, parent => Parent, raw_config => RawConfig}}.
+
+handle_call({update_config, UpdateReq}, _From, #{handler_name := HandlerName,
+        parent := Parent, raw_config := OldConfig} = State) ->
+    %% The Mod:handle_update_config/2 returns an integrated config-request that
+    %% is going to be handled by its parent handler
+    IntegratedConf = case erlang:function_exported(HandlerName, handle_update_config, 2) of
+        true -> HandlerName:handle_update_config(UpdateReq, OldConfig);
+        false -> merge_to_old_config(UpdateReq, OldConfig)
+    end,
+    case continue_update_config(Parent, IntegratedConf) of
+        ok -> {reply, ok, State#{raw_config => IntegratedConf}};
+        Error -> {reply, Error, State}
+    end;
 
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
-
-handle_cast({handle_update_config, UpdateReq}, #{handler_name := HandlerName,
-        parent := Parent, raw_config := OldConfig, schema_mod := SchemaMod,
-        schema_root_names := SchemaRootName} = State) ->
-    %% accumulate the config map of this config handler
-    SubConfigMap = case erlang:function_exported(HandlerName, handle_update_config, 2) of
-        true -> HandlerName:handle_update_config(UpdateReq, OldConfig);
-        false -> merge_to_old_config(UpdateReq, OldConfig)
-    end,
-    {_, MappedConf} = hocon_schema:map(SchemaMod, SubConfigMap, SchemaRootName,
-        #{atom_key => true, return_plain => true}),
-    %% then notify the parent handler
-    maybe_update_to_parent(Parent, MappedConf),
-    {noreply, State};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -122,14 +120,10 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%============================================================================
--spec maybe_update_to_parent(parent(), update_request()) -> ok.
-maybe_update_to_parent(root, UpdateReq) ->
-    %% overwrite the full config map to disk and memory
-    emqx_config:put(UpdateReq),
-    save_config_to_disk(UpdateReq);
-maybe_update_to_parent(Parent, UpdateReq) ->
-    update_config(Parent, UpdateReq).
+%% callbacks for the top-level handler
+handle_update_config(UpdateReq, OldConfig) ->
+    FullRawConfig = merge_to_old_config(UpdateReq, OldConfig),
+    {maps:keys(UpdateReq), FullRawConfig}.
 
 %% default callback of config handlers
 merge_to_old_config(UpdateReq, undefined) ->
@@ -137,13 +131,56 @@ merge_to_old_config(UpdateReq, undefined) ->
 merge_to_old_config(UpdateReq, RawConfig) ->
     maps:merge(RawConfig, UpdateReq).
 
-save_config_to_disk(ConfigMap) ->
-    Filename = filename:join([emqx_data_dir(), "emqx_override.conf"]),
-    case file:write_file(Filename, jsx:encode(ConfigMap)) of
+%%============================================================================
+
+continue_update_config(root, {RootKeys, Config}) ->
+    %% this is the top-level handler, we save the configs to disk and memory
+    save_configs(RootKeys, Config);
+continue_update_config(Parent, ConfigReq) ->
+    %% update config to the parent handler
+    update_config(Parent, ConfigReq).
+
+save_configs(RootKeys, Config) ->
+    {AppEnvs, MappedConf} = hocon_schema:map(emqx_schema, Config, all,
+        #{atom_key => true, return_plain => true}),
+    lists:foreach(fun({AppName, Envs}) ->
+            [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
+        end, AppEnvs),
+    %% overwrite the config to disk and memory
+    emqx_config:put(MappedConf),
+    save_config_to_disk(RootKeys, Config).
+
+save_config_to_disk(RootKeys, Config) ->
+    FileName = emqx_override_file_name(),
+    OldConfig = read_old_config(FileName),
+    %% We don't save the overall config to file, but only the sub configs
+    %% under RootKeys
+    write_new_config(FileName,
+        maps:merge(OldConfig, maps:with(RootKeys, Config))).
+
+write_new_config(FileName, Config) ->
+    case file:write_file(FileName, jsx:prettify(jsx:encode(Config))) of
         ok -> ok;
-        {error, Reason} -> logger:error("write to ~s failed, ~p", [Filename, Reason])
+        {error, Reason} ->
+            logger:error("write to ~s failed, ~p", [Filename, Reason]),
+            {error, Reason}
     end.
 
-emqx_data_dir() ->
-    %emqx_config:get([node, data_dir])
-    "data".
+read_old_config(FileName) ->
+    case file:read_file(FileName) of
+        {ok, Text} ->
+            try jsx:decode(Text) of
+                Conf when is_map(Conf) -> Conf;
+                _ -> #{};
+            catch Err: Reason ->
+                #{}
+            end;
+        _ -> #{}
+    end.
+
+emqx_override_file_name() ->
+    filename:join(["data", "emqx_override.conf"]).
+
+bin(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
+bin(B) when is_binary(B) -> B;
+bin(S) when is_list(S) -> list_to_binary(S).
