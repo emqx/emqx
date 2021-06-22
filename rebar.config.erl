@@ -413,18 +413,8 @@ find_conf_files(App) ->
         false -> []
     end.
 
-env(Name, Default) ->
-    case os:getenv(Name) of
-        "" -> Default;
-        false -> Default;
-        Value -> Value
-    end.
-
 get_vsn() ->
-    PkgVsn = case env("PKG_VSN", false) of
-                 false -> os:cmd("./pkg-vsn.sh");
-                 Vsn -> Vsn
-             end,
+    PkgVsn = os:cmd("./pkg-vsn.sh"),
     re:replace(PkgVsn, "\n", "", [{return ,list}]).
 
 maybe_dump(Config) ->

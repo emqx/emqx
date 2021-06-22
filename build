@@ -12,7 +12,7 @@ ARTIFACT="$2"
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
-PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
+PKG_VSN="$(./pkg-vsn.sh)"
 export PKG_VSN
 
 if [ "$(uname -s)" = 'Darwin' ]; then
