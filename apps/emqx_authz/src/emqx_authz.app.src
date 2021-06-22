@@ -6,8 +6,7 @@
   {applications,
    [kernel,
     stdlib,
-    mnesia,
-    emqx_resource
+    emqx_connector
    ]},
   {env,[]},
   {modules, []},

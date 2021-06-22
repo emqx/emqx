@@ -157,15 +157,15 @@ check_authz(#{username := Username,
              } = Client, PubSub, Topic, DefaultResult, Rules) ->
     case do_check_authz(Client, PubSub, Topic, Rules) of
         {matched, allow} ->
-            ?LOG(debug, "Client succeeded authorizationa: Username: ~p, ID: ~p, IP: ~p, Topic: ~p, Permission: allow", [Username, Clientid, IpAddress, Topic]),
+            ?LOG(info, "Client succeeded authorizationa: Username: ~p, IP: ~p, Topic: ~p, Permission: allow", [Username, IpAddress, Topic]),
             emqx_metrics:inc(?ACL_METRICS(allow)),
             {stop, allow};
         {matched, deny} ->
-            ?LOG(debug, "Client failed authorizationa: Username: ~p, ID: ~p, IP: ~p, Topic: ~p, Permission: deny", [Username, Clientid, IpAddress, Topic]),
+            ?LOG(info, "Client failed authorizationa: Username: ~p, IP: ~p, Topic: ~p, Permission: deny", [Username, IpAddress, Topic]),
             emqx_metrics:inc(?ACL_METRICS(deny)),
             {stop, deny};
         nomatch ->
-            ?LOG(debug, "Client failed authorizationa: Username: ~p, ID: ~p, IP: ~p, Topic: ~p, Reasion: ~p", [Username, Clientid, IpAddress, Topic, "no-match rule"]),
+            ?LOG(info, "Client failed authorizationa: Username: ~p, IP: ~p, Topic: ~p, Reasion: ~p", [Username, IpAddress, Topic, "no-match rule"]),
             DefaultResult
     end.
 
