@@ -122,7 +122,14 @@ get_release() ->
             release_in_macro();
         {_, Vsn} -> %% For emqx release build
             VsnStr = release_in_macro(),
-            1 = string:str(Vsn, VsnStr), %% assert
+            case string:str(Vsn, VsnStr) of
+                1 -> ok;
+                _ ->
+                    erlang:error(#{ reason => version_mismatch
+                                  , source => VsnStr
+                                  , built_for => Vsn
+                                  })
+            end,
             Vsn
     end.
 
