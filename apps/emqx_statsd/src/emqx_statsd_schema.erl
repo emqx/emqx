@@ -17,22 +17,22 @@ fields("emqx_statsd") ->
     , {sample_time_interval, fun duration_s/1}
     , {flush_time_interval,  fun duration_s/1}].
 
-server(type) -> string();
+server(type) -> emqx_schema:ip_port();
 server(default) -> "192.168.1.1:8125";
-server(not_nullable) -> true;
+server(nullable) -> false;
 server(_) -> undefined.
 
 prefix(type) -> string();
 prefix(default) -> "emqx";
-prefix(not_nullable) -> false;
+prefix(nullable) -> true;
 prefix(_) -> undefined.
 
 batch_size(type) -> integer();
-batch_size(not_nullable) -> true;
+batch_size(nullable) -> false;
 batch_size(default) -> 10;
 batch_size(_) -> undefined.
 
 duration_s(type) -> emqx_schema:duration_s();
-duration_s(not_nullable) -> true;
+duration_s(nullable) -> false;
 duration_s(default) -> "10s";
 duration_s(_) -> undefined.
