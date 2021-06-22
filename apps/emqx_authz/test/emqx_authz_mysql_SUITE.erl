@@ -30,7 +30,7 @@ groups() ->
 
 init_per_suite(Config) ->
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_resource, check_and_create_local, fun(_, _, _) -> {ok, meck_data} end ),
+    meck:expect(emqx_resource, check_and_create, fun(_, _, _) -> {ok, meck_data} end ),
     ok = emqx_ct_helpers:start_apps([emqx_authz], fun set_special_configs/1),
     Config.
 
@@ -68,10 +68,10 @@ set_special_configs(_App) ->
                  , <<"permission">>
                  , <<"topic">>
                  ]).
--define(RULE1, [[<<"127.0.0.1">>, <<>>, <<>>, <<"pubsub">>, <<"deny">>, <<"#">>]]).
--define(RULE2, [[<<"127.0.0.1">>, <<>>, <<>>, <<"pubsub">>, <<"allow">>, <<"eq #">>]]).
--define(RULE3, [[<<>>, <<"^test">>, <<"^test">> ,<<"sub">>, <<"allow">>, <<"test/%c">>]]).
--define(RULE4, [[<<>>, <<"^test">>, <<"^test">> ,<<"pub">>, <<"allow">>, <<"test/%u">>]]).
+-define(RULE1, [[<<"127.0.0.1">>, <<>>, <<>>, <<"all">>, <<"deny">>, <<"#">>]]).
+-define(RULE2, [[<<"127.0.0.1">>, <<>>, <<>>, <<"all">>, <<"allow">>, <<"eq #">>]]).
+-define(RULE3, [[<<>>, <<"^test">>, <<"^test">> ,<<"subscribe">>, <<"allow">>, <<"test/%c">>]]).
+-define(RULE4, [[<<>>, <<"^test">>, <<"^test">> ,<<"publish">>, <<"allow">>, <<"test/%u">>]]).
 
 %%------------------------------------------------------------------------------
 %% Testcases

@@ -2,7 +2,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--type action() :: pub | sub | pubsub.
+-type action() :: publish | subscribe | all.
 -type permission() :: allow | deny.
 
 -reflect_type([ permission/0

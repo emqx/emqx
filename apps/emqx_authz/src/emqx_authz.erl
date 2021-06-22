@@ -149,7 +149,7 @@ b2l(B) when is_binary(B) -> binary_to_list(B).
 %%--------------------------------------------------------------------
 
 %% @doc Check ACL
--spec(check_authz(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_topic:topic(), emqx_permission_rule:acl_result(), rules())
+-spec(check_authz(emqx_types:clientinfo(), emqx_types:all(), emqx_topic:topic(), emqx_permission_rule:acl_result(), rules())
       -> {ok, allow} | {ok, deny} | deny).
 check_authz(#{username := Username,
               peerhost := IpAddress
@@ -197,9 +197,9 @@ match(Client, PubSub, Topic,
     match_principal(Client, Principal) andalso
     match_topics(Client, Topic, TopicFilters).
 
-match_action(publish, pub) -> true;
-match_action(subscribe, sub) -> true;
-match_action(_, pubsub) -> true;
+match_action(publish, publish) -> true;
+match_action(subscribe, subscribe) -> true;
+match_action(_, all) -> true;
 match_action(_, _) -> false.
 
 match_principal(_, all) -> true;

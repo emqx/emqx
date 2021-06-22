@@ -4,7 +4,7 @@
 -define(APP, emqx_authz).
 
 -define(ALLOW_DENY(A), ((A =:= allow) orelse (A =:= deny))).
--define(PUBSUB(A), ((A =:= sub) orelse (A =:= pub) orelse (A =:= pubsub))).
+-define(PUBSUB(A), ((A =:= subscribe) orelse (A =:= publish) orelse (A =:= all))).
 
 -record(acl_metrics, {
         allow = 'client.acl.allow',

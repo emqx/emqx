@@ -74,7 +74,7 @@ t_api(_Config) ->
                     #{<<"and">> => [#{<<"username">> => <<"^test?">>},
                                     #{<<"clientid">> => <<"^test?">>}
                                    ]},
-              <<"action">> => <<"sub">>,
+              <<"action">> => <<"subscribe">>,
               <<"topics">> => [<<"%u">>],
               <<"permission">> => <<"allow">>
             },
@@ -83,7 +83,7 @@ t_api(_Config) ->
     ?assertMatch([Rule1 | _ ], get_http_data(Result1)),
 
     Rule2 = #{<<"principal">> => #{<<"ipaddress">> => <<"127.0.0.1">>},
-              <<"action">> => <<"pub">>,
+              <<"action">> => <<"publish">>,
               <<"topics">> => [#{<<"eq">> => <<"#">>},
                                #{<<"eq">> => <<"+">>}
                               ],
