@@ -52,6 +52,8 @@
 
 -define(IS_COMPACT, true).
 
+-rlog_shard({?ROUTE_SHARD, ?TRIE}).
+
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
@@ -342,6 +344,6 @@ do_compact_test() ->
                  do_compact(words(<<"a/+/+/+/+/b">>))),
     ok.
 
-clear_tables() -> mnesia:clear_table(?TRIE).
+clear_tables() -> ekka_mnesia:clear_table(?TRIE).
 
 -endif. % TEST

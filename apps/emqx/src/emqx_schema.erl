@@ -1,6 +1,5 @@
 -module(emqx_schema).
 
-% tmp
 -dialyzer(no_return).
 -dialyzer(no_match).
 -dialyzer(no_contracts).
@@ -13,32 +12,38 @@
 -type flag() :: true | false.
 -type duration() :: integer().
 -type duration_s() :: integer().
+-type duration_ms() :: integer().
 -type bytesize() :: integer().
 -type percent() :: float().
 -type file() :: string().
 -type comma_separated_list() :: list().
+-type comma_separated_atoms() :: [atom()].
 -type bar_separated_list() :: list().
 -type ip_port() :: tuple().
 
 -typerefl_from_string({flag/0, emqx_schema, to_flag}).
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
+-typerefl_from_string({duration_ms/0, emqx_schema, to_duration_ms}).
 -typerefl_from_string({bytesize/0, emqx_schema, to_bytesize}).
 -typerefl_from_string({percent/0, emqx_schema, to_percent}).
 -typerefl_from_string({comma_separated_list/0, emqx_schema, to_comma_separated_list}).
 -typerefl_from_string({bar_separated_list/0, emqx_schema, to_bar_separated_list}).
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
+-typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
 
 % workaround: prevent being recognized as unused functions
--export([to_duration/1, to_duration_s/1, to_bytesize/1,
+-export([to_duration/1, to_duration_s/1, to_duration_ms/1, to_bytesize/1,
          to_flag/1, to_percent/1, to_comma_separated_list/1,
-         to_bar_separated_list/1, to_ip_port/1]).
+         to_bar_separated_list/1, to_ip_port/1,
+         to_comma_separated_atoms/1]).
 
 -behaviour(hocon_schema).
 
--reflect_type([ log_level/0, flag/0, duration/0, duration_s/0,
+-reflect_type([ log_level/0, flag/0, duration/0, duration_s/0, duration_ms/0,
                 bytesize/0, percent/0, file/0,
-                comma_separated_list/0, bar_separated_list/0, ip_port/0]).
+                comma_separated_list/0, bar_separated_list/0, ip_port/0,
+                comma_separated_atoms/0]).
 
 -export([structs/0, fields/1, translations/0, translation/1]).
 -export([t/1, t/3, t/4, ref/1]).
@@ -60,6 +65,8 @@ fields("cluster") ->
     , {"dns", ref("dns")}
     , {"etcd", ref("etcd")}
     , {"k8s", ref("k8s")}
+    , {"db_backend", t(union([mnesia, rlog]), "ekka.db_backend", mnesia)}
+    , {"rlog", ref("rlog")}
     ];
 
 fields("static") ->
@@ -98,15 +105,24 @@ fields("k8s") ->
     , {"suffix", t(string(), undefined, "")}
     ];
 
+fields("rlog") ->
+    [ {"role", t(union([core, replicant]), "ekka.node_role", core)}
+    , {"core_nodes", t(comma_separated_atoms(), "ekka.core_nodes", [])}
+    ];
+
 fields("node") ->
-    [ {"name", t(string(), "vm_args.-name", "emqx@127.0.0.1", "NODE_NAME")}
+    [ {"name", t(string(), "vm_args.-name", "emqx@127.0.0.1", "EMQX_NODE_NAME")}
     , {"ssl_dist_optfile", t(string(), "vm_args.-ssl_dist_optfile", undefined)}
-    , {"cookie", t(string(), "vm_args.-setcookie", "emqxsecretcookie", "NODE_COOKIE")}
+    , {"cookie", hoconsc:t(string(), #{mapping => "vm_args.-setcookie",
+                                       default => "emqxsecretcookie",
+                                       sensitive => true,
+                                       override_env => "EMQX_NODE_COOKIE"
+                                      })}
     , {"data_dir", t(string(), "emqx.data_dir", undefined)}
     , {"heartbeat", t(flag(), undefined, false)}
     , {"async_threads", t(range(1, 1024), "vm_args.+A", undefined)}
     , {"process_limit", t(integer(), "vm_args.+P", undefined)}
-    , {"max_ports", t(range(1024, 134217727), "vm_args.+Q", undefined, "MAX_PORTS")}
+    , {"max_ports", t(range(1024, 134217727), "vm_args.+Q", undefined, "EMQX_MAX_PORTS")}
     , {"dist_buffer_size", fun node__dist_buffer_size/1}
     , {"global_gc_interval", t(duration_s(), "emqx.global_gc_interval", undefined)}
     , {"fullsweep_after", t(non_neg_integer(),
@@ -198,7 +214,7 @@ fields("acl") ->
     ];
 
 fields("mqtt") ->
-    [ {"max_packet_size", t(bytesize(), "emqx.max_packet_size", "1MB", "MAX_PACKET_SIZE")}
+    [ {"max_packet_size", t(bytesize(), "emqx.max_packet_size", "1MB", "EMQX_MAX_PACKET_SIZE")}
     , {"max_clientid_len", t(integer(), "emqx.max_clientid_len", 65535)}
     , {"max_topic_levels", t(integer(), "emqx.max_topic_levels", 0)}
     , {"max_qos_allowed", t(range(0, 2), "emqx.max_qos_allowed", 2)}
@@ -1087,7 +1103,10 @@ ssl(Mapping, Defaults) ->
     , {"honor_cipher_order", t(flag(), M("honor_cipher_order"), D("honor_cipher_order"))}
     , {"handshake_timeout", t(duration(), M("handshake_timeout"), D("handshake_timeout"))}
     , {"depth", t(integer(), M("depth"), D("depth"))}
-    , {"password", t(string(), M("key_password"), D("key_password"))}
+    , {"password", hoconsc:t(string(), #{mapping => M("key_password"),
+                                         default => D("key_password"),
+                                         sensitive => true
+                                        })}
     , {"dhfile", t(string(), M("dhfile"), D("dhfile"))}
     , {"server_name_indication", t(union(disable, string()), M("server_name_indication"),
                                    D("server_name_indication"))}
@@ -1174,18 +1193,16 @@ ceiling(X) ->
 
 %% types
 
-t(T) ->
-    fun (type) -> T; (_) -> undefined end.
+t(Type) -> hoconsc:t(Type).
 
-t(T, M, D) ->
-    fun (type) -> T; (mapping) -> M; (default) -> D; (_) -> undefined end.
+t(Type, Mapping, Default) ->
+    hoconsc:t(Type, #{mapping => Mapping, default => Default}).
 
-t(T, M, D, O) ->
-    fun (type) -> T;
-        (mapping) -> M;
-        (default) -> D;
-        (override_env) -> O;
-        (_) -> undefined end.
+t(Type, Mapping, Default, OverrideEnv) ->
+    hoconsc:t(Type, #{ mapping => Mapping
+                     , default => Default
+                     , override_env => OverrideEnv
+                     }).
 
 ref(Field) ->
     fun (type) -> Field; (_) -> undefined end.
@@ -1205,6 +1222,12 @@ to_duration_s(Str) ->
         _ -> {error, Str}
     end.
 
+to_duration_ms(Str) ->
+    case hocon_postprocess:duration(Str) of
+        I when is_integer(I) -> {ok, ceiling(I)};
+        _ -> {error, Str}
+    end.
+
 to_bytesize(Str) ->
     case hocon_postprocess:bytesize(Str) of
         I when is_integer(I) -> {ok, I};
@@ -1216,6 +1239,9 @@ to_percent(Str) ->
 
 to_comma_separated_list(Str) ->
     {ok, string:tokens(Str, ", ")}.
+
+to_comma_separated_atoms(Str) ->
+    {ok, lists:map(fun list_to_atom/1, string:tokens(Str, ", "))}.
 
 to_bar_separated_list(Str) ->
     {ok, string:tokens(Str, "| ")}.

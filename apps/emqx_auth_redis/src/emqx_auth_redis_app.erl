@@ -33,8 +33,8 @@ start(_StartType, _StartArgs) ->
     {ok, Sup}.
 
 stop(_State) ->
-    emqx:unhook('client.authenticate', fun emqx_auth_redis:check/3),
-    emqx:unhook('client.check_acl', fun emqx_acl_redis:check_acl/5),
+    emqx:unhook('client.authenticate', {emqx_auth_redis, check}),
+    emqx:unhook('client.check_acl', {emqx_acl_redis, check_acl}),
     %% Ensure stop cluster pool if the server type is cluster
     eredis_cluster:stop_pool(?APP).
 
@@ -50,7 +50,7 @@ load_auth_hook(AuthCmd) ->
                type => Type,
                pool => ?APP},
     ok = emqx_auth_redis:register_metrics(),
-    emqx:hook('client.authenticate', fun emqx_auth_redis:check/3, [Config]).
+    emqx:hook('client.authenticate', {emqx_auth_redis, check, [Config]}).
 
 load_acl_hook(AclCmd) ->
     {ok, Timeout} = application:get_env(?APP, query_timeout),
@@ -60,7 +60,7 @@ load_acl_hook(AclCmd) ->
                type => Type,
                pool => ?APP},
     ok = emqx_acl_redis:register_metrics(),
-    emqx:hook('client.check_acl', fun emqx_acl_redis:check_acl/5, [Config]).
+    emqx:hook('client.check_acl', {emqx_acl_redis, check_acl, [Config]}).
 
 if_cmd_enabled(Par, Fun) ->
     case application:get_env(?APP, Par) of

@@ -14,6 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_connector_schema_lib).
+
+-include("emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -export([ relational_db_fields/0
@@ -22,24 +24,38 @@
 
 -export([ to_ip_port/1
         , ip_port_to_string/1
+        , to_servers/1
+        ]).
+
+-export([ pool_size/1
+        , database/1
+        , username/1
+        , password/1
+        , servers/1
+        , auto_reconnect/1
         ]).
 
 -typerefl_from_string({ip_port/0, emqx_connector_schema_lib, to_ip_port}).
+-typerefl_from_string({servers/0, emqx_connector_schema_lib, to_servers}).
 
--reflect_type([ip_port/0]).
+-type database() :: binary().
+-type pool_size() :: integer().
+-type username() :: binary().
+-type password() :: binary().
+-type servers() :: list().
 
--type ip_port() :: tuple().
-
--define(VALID, emqx_resource_validator).
--define(REQUIRED(MSG), ?VALID:required(MSG)).
--define(MAX(MAXV), ?VALID:max(number, MAXV)).
--define(MIN(MINV), ?VALID:min(number, MINV)).
+-reflect_type([ database/0
+              , pool_size/0
+              , username/0
+              , password/0
+              , servers/0
+             ]).
 
 relational_db_fields() ->
     [ {server, fun server/1}
     , {database, fun database/1}
     , {pool_size, fun pool_size/1}
-    , {user, fun user/1}
+    , {username, fun username/1}
     , {password, fun password/1}
     , {auto_reconnect, fun auto_reconnect/1}
     ].
@@ -52,12 +68,12 @@ ssl_fields() ->
     , {verify, fun verify/1}
     ].
 
-server(type) -> ip_port();
+server(type) -> emqx_schema:ip_port();
 server(validator) -> [?REQUIRED("the field 'server' is required")];
 server(_) -> undefined.
 
-database(type) -> string();
-database(validator) -> [?REQUIRED("the field 'server' is required")];
+database(type) -> binary();
+database(validator) -> [?REQUIRED("the field 'database' is required")];
 database(_) -> undefined.
 
 pool_size(type) -> integer();
@@ -65,11 +81,11 @@ pool_size(default) -> 8;
 pool_size(validator) -> [?MIN(1), ?MAX(64)];
 pool_size(_) -> undefined.
 
-user(type) -> string();
-user(default) -> "root";
-user(_) -> undefined.
+username(type) -> binary();
+username(default) -> "root";
+username(_) -> undefined.
 
-password(type) -> string();
+password(type) -> binary();
 password(default) -> "";
 password(_) -> undefined.
 
@@ -81,21 +97,25 @@ ssl(type) -> boolean();
 ssl(default) -> false;
 ssl(_) -> undefined.
 
-cacertfile(type) -> string();
+cacertfile(type) -> binary();
 cacertfile(default) -> "";
 cacertfile(_) -> undefined.
 
-keyfile(type) -> string();
+keyfile(type) -> binary();
 keyfile(default) -> "";
 keyfile(_) -> undefined.
 
-certfile(type) -> string();
+certfile(type) -> binary();
 certfile(default) -> "";
 certfile(_) -> undefined.
 
 verify(type) -> boolean();
 verify(default) -> false;
 verify(_) -> undefined.
+
+servers(type) -> servers();
+servers(validator) -> [?REQUIRED("the field 'servers' is required")];
+servers(_) -> undefined.
 
 to_ip_port(Str) ->
      case string:tokens(Str, ":") of
@@ -109,3 +129,13 @@ to_ip_port(Str) ->
 
 ip_port_to_string({Ip, Port}) ->
     iolist_to_binary([inet:ntoa(Ip), ":", integer_to_list(Port)]).
+
+to_servers(Str) ->
+    {ok, lists:map(fun(Server) ->
+             case string:tokens(Server, ":") of
+                 [Ip] ->
+                     [{host, Ip}];
+                 [Ip, Port] ->
+                     [{host, Ip}, {port, list_to_integer(Port)}]
+             end
+         end, string:tokens(Str, " , "))}.

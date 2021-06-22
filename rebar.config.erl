@@ -78,14 +78,12 @@ is_cover_enabled() ->
 is_enterprise() ->
     filelib:is_regular("EMQX_ENTERPRISE").
 
-alternative_lib_dir() ->
-    case is_enterprise() of
-        true -> "lib-ee";
-        false -> "lib-ce"
-    end.
-
 project_app_dirs() ->
-    ["apps/*", alternative_lib_dir() ++ "/*", "."].
+    ["apps/*"] ++
+    case is_enterprise() of
+        true -> ["lib-ee/*"];
+        false -> []
+    end.
 
 plugins(HasElixir) ->
     [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {tag, "2.0.0"}}}
@@ -188,9 +186,6 @@ overlay_vars_rel(RelType) ->
              end,
     [ {enable_plugin_emqx_rule_engine, RelType =:= cloud}
     , {enable_plugin_emqx_bridge_mqtt, RelType =:= edge}
-    , {enable_plugin_emqx_resource, true}
-    , {enable_plugin_emqx_connector, true}
-    , {enable_plugin_emqx_data_bridge, true}
     , {enable_plugin_emqx_modules, false} %% modules is not a plugin in ce
     , {enable_plugin_emqx_recon, true}
     , {enable_plugin_emqx_retainer, true}
@@ -249,6 +244,9 @@ relx_apps(ReleaseType) ->
     , {emqx_plugin_libs, load}
     , observer_cli
     , emqx_http_lib
+    , emqx_resource
+    , emqx_connector
+    , emqx_data_bridge
     ]
     ++ [emqx_modules || not is_enterprise()]
     ++ [emqx_license || is_enterprise()]
@@ -286,11 +284,9 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_auth_mnesia
     , emqx_web_hook
     , emqx_recon
-    , emqx_resource
-    , emqx_connector
-    , emqx_data_bridge
     , emqx_rule_engine
     , emqx_sasl
+    , emqx_statsd
     ]
     ++ [emqx_telemetry || not is_enterprise()]
     ++ relx_plugin_apps_per_rel(ReleaseType)
@@ -343,8 +339,6 @@ relx_overlay(ReleaseType) ->
     , {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"}
     , {copy, "bin/nodetool", "bin/nodetool"}
     , {copy, "bin/nodetool", "bin/nodetool-{{release_version}}"}
-    , {copy, "_build/default/lib/hocon/hocon", "bin/hocon"}
-    , {copy, "_build/default/lib/hocon/hocon", "bin/hocon-{{release_version}}"}
     ] ++ case is_enterprise() of
              true -> ee_etc_overlay(ReleaseType);
              false -> etc_overlay(ReleaseType)
@@ -384,6 +378,7 @@ emqx_etc_overlay_common() ->
     [{"{{base_dir}}/lib/emqx/etc/acl.conf", "etc/acl.conf"},
      {"{{base_dir}}/lib/emqx/etc/emqx.conf", "etc/emqx.conf"},
      {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"},
+     {"{{base_dir}}/lib/emqx_data_bridge/etc/emqx_data_bridge.conf", "etc/plugins/emqx_data_bridge.conf"},
      %% TODO: check why it has to end with .paho
      %% and why it is put to etc/plugins dir
      {"{{base_dir}}/lib/emqx/etc/acl.conf.paho", "etc/plugins/acl.conf.paho"}].
@@ -403,8 +398,13 @@ community_plugin_etc_overlays(App0) ->
 %% the overlay should be hand-coded but not to rely on build-time wildcards.
 find_conf_files(App) ->
     Dir1 = filename:join(["apps", App, "etc"]),
-    Dir2 = filename:join([alternative_lib_dir(), App, "etc"]),
-    filelib:wildcard("*.conf", Dir1) ++ filelib:wildcard("*.conf", Dir2).
+    filelib:wildcard("*.conf", Dir1) ++
+    case is_enterprise() of
+        true ->
+            Dir2 = filename:join(["lib-ee", App, "etc"]),
+            filelib:wildcard("*.conf", Dir2);
+        false -> []
+    end.
 
 env(Name, Default) ->
     case os:getenv(Name) of
@@ -445,7 +445,11 @@ provide_bcrypt_release(ReleaseType) ->
 erl_opts_i() ->
     [{i, "apps"}] ++
     [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "*", "include"]))] ++
-    [{i, Dir}  || Dir <- filelib:wildcard(filename:join([alternative_lib_dir(), "*", "include"]))].
+    case is_enterprise() of
+        true ->
+            [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["lib-ee", "*", "include"]))];
+        false -> []
+    end.
 
 dialyzer(Config) ->
     {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),
@@ -457,7 +461,11 @@ dialyzer(Config) ->
             [ list_to_atom(App) || App <- string:tokens(Value, ",")]
     end,
 
-    AppNames = [emqx | list_dir("apps")] ++ list_dir(alternative_lib_dir()),
+    AppNames = [list_dir("apps")] ++ 
+               case is_enterprise() of
+                    true -> [list_dir("lib-ee")];
+                    false -> []
+               end,
 
     KnownApps = [Name ||  Name <- AppsToAnalyse, lists:member(Name, AppNames)],
 

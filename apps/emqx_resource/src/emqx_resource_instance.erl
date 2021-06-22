@@ -90,16 +90,6 @@ create_local(InstId, ResourceType, InstConf) ->
         Error -> Error
     end.
 
-save_config_to_disk(InstId, ResourceType, Config) ->
-    %% TODO: send an event to the config handler, and the hander (single process)
-    %% will dump configs for all instances (from an ETS table) to a file.
-    file:write_file(filename:join([emqx_data_dir(), binary_to_list(InstId) ++ ".conf"]),
-        jsx:encode(#{id => InstId, resource_type => ResourceType,
-                     config => emqx_resource:call_jsonify(ResourceType, Config)})).
-
-emqx_data_dir() ->
-    "data".
-
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
@@ -180,13 +170,7 @@ do_create(InstId, ResourceType, Config) ->
                         #{mod => ResourceType, config => Config,
                           state => ResourceState, status => stopped}}),
                     _ = do_health_check(InstId),
-                    case save_config_to_disk(InstId, ResourceType, Config) of
-                        ok -> {ok, force_lookup(InstId)};
-                        {error, Reason} ->
-                            logger:error("save config for ~p resource ~p to disk failed: ~p",
-                                [ResourceType, InstId, Reason]),
-                            {error, Reason}
-                    end;
+                    {ok, force_lookup(InstId)};
                 {error, Reason} ->
                     logger:error("start ~s resource ~s failed: ~p", [ResourceType, InstId, Reason]),
                     {error, Reason}

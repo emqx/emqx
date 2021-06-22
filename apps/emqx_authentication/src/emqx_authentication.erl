@@ -85,13 +85,13 @@ mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?SERVICE_TYPE_TAB, ram_copies).
 
 enable() ->
-    case emqx:hook('client.authenticate', fun emqx_authentication:authenticate/1) of
+    case emqx:hook('client.authenticate', {emqx_authentication, authenticate, []}) of
         ok -> ok;
         {error, already_exists} -> ok
     end.
 
 disable() ->
-    emqx:unhook('client.authenticate', fun emqx_authentication:authenticate/1),
+    emqx:unhook('client.authenticate', {emqx_authentication, authenticate}),
     ok.
 
 authenticate(#{chain_id := ChainID} = ClientInfo) ->

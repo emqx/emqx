@@ -13,8 +13,6 @@ find_app() {
 find_app 'apps'
 if [ -f 'EMQX_ENTERPRISE' ]; then
     find_app 'lib-ee'
-else
-    find_app 'lib-ce'
 fi
 
 ## find directories in lib-extra

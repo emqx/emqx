@@ -48,6 +48,8 @@
 -define(TAB, emqx_channel_registry).
 -define(LOCK, {?MODULE, cleanup_down}).
 
+-rlog_shard({?ROUTE_SHARD, ?TAB}).
+
 -record(channel, {chid, pid}).
 
 %% @doc Start the global channel registry.
@@ -72,7 +74,7 @@ register_channel(ClientId) when is_binary(ClientId) ->
 
 register_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
     case is_enabled() of
-        true -> mnesia:dirty_write(?TAB, record(ClientId, ChanPid));
+        true -> ekka_mnesia:dirty_write(?TAB, record(ClientId, ChanPid));
         false -> ok
     end.
 
@@ -84,7 +86,7 @@ unregister_channel(ClientId) when is_binary(ClientId) ->
 
 unregister_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
     case is_enabled() of
-        true -> mnesia:dirty_delete_object(?TAB, record(ClientId, ChanPid));
+        true -> ekka_mnesia:dirty_delete_object(?TAB, record(ClientId, ChanPid));
         false -> ok
     end.
 
@@ -123,7 +125,7 @@ handle_cast(Msg, State) ->
 handle_info({membership, {mnesia, down, Node}}, State) ->
     global:trans({?LOCK, self()},
                  fun() ->
-                     mnesia:transaction(fun cleanup_channels/1, [Node])
+                     ekka_mnesia:transaction(?ROUTE_SHARD, fun cleanup_channels/1, [Node])
                  end),
     {noreply, State};
 
@@ -150,4 +152,3 @@ cleanup_channels(Node) ->
 
 delete_channel(Chan) ->
     mnesia:delete_object(?TAB, Chan, write).
-

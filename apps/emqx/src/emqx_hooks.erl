@@ -66,8 +66,8 @@
 %%     equal priority values.
 
 -type(hookpoint() :: atom()).
--type(action() :: function() | {function(), [term()]} | mfargs()).
--type(filter() :: function() | mfargs()).
+-type(action() :: {module(), atom(), [term()] | undefined}).
+-type(filter() :: {module(), atom(), [term()] | undefined}).
 
 -record(callback, {
           action :: action(),
@@ -118,9 +118,7 @@ add(HookPoint, Action) when is_function(Action); is_tuple(Action) ->
 
 -spec(add(hookpoint(), action(), filter() | integer() | list())
       -> ok_or_error(already_exists)).
-add(HookPoint, Action, InitArgs) when is_function(Action), is_list(InitArgs) ->
-    add(HookPoint, #callback{action = {Action, InitArgs}, priority = 0});
-add(HookPoint, Action, Filter) when is_function(Filter); is_tuple(Filter) ->
+add(HookPoint, Action, {_M, _F, _A} = Filter) ->
     add(HookPoint, #callback{action = Action, filter = Filter, priority = 0});
 add(HookPoint, Action, Priority) when is_integer(Priority) ->
     add(HookPoint, #callback{action = Action, priority = Priority}).
@@ -187,20 +185,16 @@ filter_passed(undefined, _Args) -> true;
 filter_passed(Filter, Args) ->
     execute(Filter, Args).
 
-safe_execute(Fun, Args) ->
-    try execute(Fun, Args) of
+safe_execute({M, F, A}, Args) ->
+    try execute({M, F, A}, Args) of
         Result -> Result
     catch
         Error:Reason:Stacktrace ->
-            ?LOG(error, "Failed to execute ~0p: ~0p", [Fun, {Error, Reason, Stacktrace}]),
+            ?LOG(error, "Failed to execute ~0p: ~0p", [{M, F, A}, {Error, Reason, Stacktrace}]),
             ok
     end.
 
 %% @doc execute a function.
-execute(Fun, Args) when is_function(Fun) ->
-    erlang:apply(Fun, Args);
-execute({Fun, InitArgs}, Args) when is_function(Fun) ->
-    erlang:apply(Fun, Args ++ InitArgs);
 execute({M, F, A}, Args) ->
     erlang:apply(M, F, Args ++ A).
 
@@ -284,8 +278,6 @@ del_callback(Action, [#callback{action = Action} | Callbacks], Acc) ->
     del_callback(Action, Callbacks, Acc);
 del_callback(Action = {M, F}, [#callback{action = {M, F, _A}} | Callbacks], Acc) ->
     del_callback(Action, Callbacks, Acc);
-del_callback(Func, [#callback{action = {Func, _A}} | Callbacks], Acc) ->
-    del_callback(Func, Callbacks, Acc);
 del_callback(Action, [Callback | Callbacks], Acc) ->
     del_callback(Action, Callbacks, [Callback | Acc]).
 
