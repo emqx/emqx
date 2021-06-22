@@ -17,6 +17,9 @@
 -module(emqx_authz).
 
 -include("emqx_authz.hrl").
+-include_lib("emqx/include/logger.hrl").
+
+-logger_header("[AuthZ]").
 
 -export([ register_metrics/0
         , init/0
@@ -148,11 +151,22 @@ b2l(B) when is_binary(B) -> binary_to_list(B).
 %% @doc Check ACL
 -spec(check_authz(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_topic:topic(), emqx_permission_rule:acl_result(), rules())
       -> {ok, allow} | {ok, deny} | deny).
-check_authz(Client, PubSub, Topic, DefaultResult, Rules) ->
+check_authz(#{username := Username,
+              clientid := Clientid,
+              peerhost := IpAddress
+             } = Client, PubSub, Topic, DefaultResult, Rules) ->
     case do_check_authz(Client, PubSub, Topic, Rules) of
-        {matched, allow} -> emqx_metrics:inc(?ACL_METRICS(allow)), {stop, allow};
-        {matched, deny}  -> emqx_metrics:inc(?ACL_METRICS(deny)),  {stop, deny};
-        nomatch          -> DefaultResult
+        {matched, allow} ->
+            ?LOG(debug, "Client succeeded authorizationa: Username: ~p, ID: ~p, IP: ~p, Topic: ~p, Permission: allow", [Username, Clientid, IpAddress, Topic]),
+            emqx_metrics:inc(?ACL_METRICS(allow)),
+            {stop, allow};
+        {matched, deny} ->
+            ?LOG(debug, "Client failed authorizationa: Username: ~p, ID: ~p, IP: ~p, Topic: ~p, Permission: deny", [Username, Clientid, IpAddress, Topic]),
+            emqx_metrics:inc(?ACL_METRICS(deny)),
+            {stop, deny};
+        nomatch ->
+            ?LOG(debug, "Client failed authorizationa: Username: ~p, ID: ~p, IP: ~p, Topic: ~p, Reasion: ~p", [Username, Clientid, IpAddress, Topic, "no-match rule"]),
+            DefaultResult
     end.
 
 do_check_authz(Client, PubSub, Topic,

@@ -41,8 +41,7 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    application:load(emqx_modules),
-    ok = emqx_ct_helpers:start_apps([emqx_management, emqx_authz], fun set_special_configs/1),
+    ok = emqx_ct_helpers:start_apps([emqx_authz, emqx_management], fun set_special_configs/1),
     create_default_app(),
     Config.
 
@@ -92,7 +91,7 @@ t_api(_Config) ->
             },
     {ok, _} = request_http_rest_add(["authz/append"], #{rules => [Rule2]}),
     {ok, Result2} = request_http_rest_lookup(["authz"]),
-    ?assertEqual(Rule2#{<<"principal">> => #{<<"ipaddress">> => "127.0.0.1"}}, 
+    ?assertEqual(Rule2#{<<"principal">> => #{<<"ipaddress">> => "127.0.0.1"}},
                  lists:last(get_http_data(Result2))),
 
     {ok, _} = request_http_rest_update(["authz"], #{rules => []}),

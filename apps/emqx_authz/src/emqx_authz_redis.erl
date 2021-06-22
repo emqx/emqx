@@ -43,7 +43,7 @@ check_authz(Client, PubSub, Topic,
         {ok, Rows} ->
             do_check_authz(Client, PubSub, Topic, Rows);
         {error, Reason} ->
-            ?LOG(error, "[AuthZ] do_check_redis error: ~p", [Reason]),
+            ?LOG(error, "[AuthZ] Query redis error: ~p", [Reason]),
             nomatch
     end.
 

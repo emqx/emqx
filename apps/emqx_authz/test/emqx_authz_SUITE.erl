@@ -132,10 +132,12 @@ t_authz(_) ->
                     peerhost => {192,168,0,10}
                    },
     ClientInfo3 = #{clientid => <<"test">>,
-                    username => <<"fake">>
+                    username => <<"fake">>,
+                    peerhost => {127,0,0,1}
                    },
     ClientInfo4 = #{clientid => <<"fake">>,
-                    username => <<"test">>
+                    username => <<"test">>,
+                    peerhost => {127,0,0,1}
                    },
 
     Rules1 = [emqx_authz:compile(Rule) || Rule <- [?RULE1, ?RULE2]],
@@ -144,7 +146,7 @@ t_authz(_) ->
     Rules4 = [emqx_authz:compile(Rule) || Rule <- [?RULE4, ?RULE1]],
 
     ?assertEqual(deny,
-        emqx_authz:check_authz(#{}, subscribe, <<"#">>, deny, [])),
+        emqx_authz:check_authz(ClientInfo1, subscribe, <<"#">>, deny, [])),
     ?assertEqual({stop, deny},
         emqx_authz:check_authz(ClientInfo1, subscribe, <<"+">>, deny, Rules1)),
     ?assertEqual({stop, allow},

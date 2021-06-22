@@ -58,7 +58,7 @@ check_authz(Client, PubSub, Topic,
         {ok, Columns, Rows} ->
             do_check_authz(Client, PubSub, Topic, Columns, Rows);
         {error, Reason} ->
-            ?LOG(error, "[AuthZ] do_check_pgsql error: ~p~n", [Reason]),
+            ?LOG(error, "[AuthZ] Query pgsql error: ~p~n", [Reason]),
             nomatch
     end.
 

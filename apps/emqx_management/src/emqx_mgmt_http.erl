@@ -84,8 +84,13 @@ listener_name(Proto) ->
     list_to_atom(atom_to_list(Proto) ++ ":management").
 
 http_handlers() ->
+    Apps = [ App || {App, _, _} <- application:which_applications(),
+                    case re:run(atom_to_list(App), "^emqx") of
+                        {match,[{0,4}]} -> true;
+                        _ -> false
+                    end],
     Plugins = lists:map(fun(Plugin) -> Plugin#plugin.name end, emqx_plugins:list()),
-    [{"/api/v4", minirest:handler(#{apps   => Plugins ++ [emqx_modules, emqx_authz] -- ?EXCEPT_PLUGIN,
+    [{"/api/v4", minirest:handler(#{apps   => Plugins ++ Apps -- ?EXCEPT_PLUGIN,
                                     except => ?EXCEPT,
                                     filter => fun(_) -> true end}),
                  [{authorization, fun authorize_appid/1}]}].

@@ -29,21 +29,22 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    application:ensure_all_started(emqx_resource),
-    meck:new(emqx_resource, [non_strict, passthrough]),
+    meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, check_and_create_local, fun(_, _, _) -> {ok, meck_data} end ),
     ok = emqx_ct_helpers:start_apps([emqx_authz], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-   file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
-   emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
-   meck:unload(emqx_resource).
+    file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
+    emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
+    meck:unload(emqx_resource).
 
 set_special_configs(emqx) ->
     application:set_env(emqx, allow_anonymous, true),
     application:set_env(emqx, enable_acl_cache, false),
     application:set_env(emqx, acl_nomatch, deny),
+    application:set_env(emqx, plugins_loaded_file,
+                        emqx_ct_helpers:deps_path(emqx, "test/loaded_plguins")),
     ok;
 set_special_configs(emqx_authz) ->
     application:set_env(emqx, plugins_etc_dir,
@@ -71,15 +72,16 @@ set_special_configs(_App) ->
 t_authz(_) ->
     ClientInfo = #{clientid => <<"clientid">>,
                    username => <<"username">>,
+                   peerhost => {127,0,0,1},
                    zone => zone
                    },
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, []} end),
     % nomatch
     ?assertEqual(deny,
-                 emqx_access_control:check_acl(#{zone => zone}, subscribe, <<"#">>)),
+                 emqx_access_control:check_acl(ClientInfo, subscribe, <<"#">>)),
     ?assertEqual(deny,
-                 emqx_access_control:check_acl(#{zone => zone}, publish, <<"#">>)),
+                 emqx_access_control:check_acl(ClientInfo, publish, <<"#">>)),
 
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?RULE1 ++ ?RULE2} end),
