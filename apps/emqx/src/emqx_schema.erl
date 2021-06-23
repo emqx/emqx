@@ -475,8 +475,7 @@ fields("telemetry") ->
     ];
 
 fields("emqx_data_bridge") ->
-    [ {"bridges", hoconsc:t(hoconsc:ref(emqx_data_bridge_schema, ""))}
-    ].
+    emqx_data_bridge_schema:fields("").
 
 translations() -> ["ekka", "vm_args", "gen_rpc", "kernel", "emqx"].
 
