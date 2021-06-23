@@ -52,7 +52,12 @@
 
 structs() -> ["cluster", "node", "rpc", "log", "lager",
               "acl", "mqtt", "zone", "listener", "module", "broker",
-              "plugins", "sysmon", "os_mon", "vm_mon", "alarm", "telemetry"].
+              "plugins", "sysmon", "os_mon", "vm_mon", "alarm", "telemetry"]
+             ++ includes().
+
+includes() ->
+    [ "emqx_data_bridge"
+    ].
 
 fields("cluster") ->
     [ {"name", t(atom(), "ekka.cluster_name", emqxcl)}
@@ -467,8 +472,11 @@ fields("telemetry") ->
     [ {"enabled", t(boolean(), undefined, false)}
     , {"url", t(string(), undefined, "https://telemetry-emqx-io.bigpar.vercel.app/api/telemetry")}
     , {"report_interval", t(duration_s(), undefined, "7d")}
-    ].
+    ];
 
+fields("emqx_data_bridge") ->
+    [ {"bridges", hoconsc:t(hoconsc:ref(emqx_data_bridge_schema, ""))}
+    ].
 
 translations() -> ["ekka", "vm_args", "gen_rpc", "kernel", "emqx"].
 

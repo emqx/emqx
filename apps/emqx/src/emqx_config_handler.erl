@@ -25,6 +25,7 @@
 -export([ start_link/0
         , add_handler/2
         , update_config/2
+        , get_raw_config/0
         , merge_to_old_config/2
         ]).
 
@@ -60,21 +61,29 @@
 }.
 
 start_link() ->
-    {ok, RawConf} = hocon:load(emqx_conf_name(), #{format => map}),
-    gen_server:start_link({local, ?MODULE}, ?MODULE, RawConf, []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, {}, []).
 
 -spec update_config(config_key_path(), update_request()) -> ok | {error, term()}.
 update_config(ConfKeyPath, UpdateReq) ->
     gen_server:call(?MODULE, {update_config, ConfKeyPath, UpdateReq}).
 
+-spec add_handler(config_key_path(), handler_name()) -> ok.
 add_handler(ConfKeyPath, HandlerName) ->
     gen_server:call(?MODULE, {add_child, ConfKeyPath, HandlerName}).
+
+-spec get_raw_config() -> raw_config().
+get_raw_config() ->
+    gen_server:call(?MODULE, get_raw_config).
 
 %%============================================================================
 
 -spec init(raw_config()) -> {ok, state()}.
-init(RawConf) ->
+init({}) ->
+    {ok, RawConf} = hocon:load(emqx_conf_name(), #{format => map}),
     {ok, #{raw_config => RawConf, handlers => #{?MOD => ?MODULE}}}.
+
+handle_call(get_raw_config, _From, State = #{raw_config := RawConf}) ->
+    {reply, RawConf, State};
 
 handle_call({add_child, ConfKeyPath, HandlerName}, _From,
             State = #{handlers := Handlers}) ->
@@ -109,22 +118,22 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-do_update_config([], #{?MOD := HandlerName}, OldConf, UpdateReq) ->
-    call_handle_update_config(HandlerName, OldConf, UpdateReq);
-do_update_config([ConfKey | ConfKeyPath], Handlers = #{?MOD := HandlerName},
+do_update_config([], Handlers, OldConf, UpdateReq) ->
+    call_handle_update_config(Handlers, OldConf, UpdateReq);
+do_update_config([ConfKey | ConfKeyPath], Handlers,
         OldConf, UpdateReq) ->
     SubOldConf = maps:get(bin(ConfKey), OldConf, undefined),
     case maps:find(ConfKey, Handlers) of
         false -> throw({handler_not_found, ConfKey});
         {ok, SubHandlers} ->
-            call_handle_update_config(HandlerName, OldConf,
-                do_update_config(ConfKeyPath, SubHandlers, SubOldConf, UpdateReq))
+            #{ConfKey => call_handle_update_config(Handlers, OldConf,
+                do_update_config(ConfKeyPath, SubHandlers, SubOldConf, UpdateReq))}
     end.
 
 call_handle_update_config(HandlerName, OldConf, UpdateReq) ->
     case erlang:function_exported(HandlerName, handle_update_config, 2) of
         true -> HandlerName:handle_update_config(UpdateReq, OldConf);
-        false -> merge_to_old_config(UpdateReq, OldConf)
+        false -> UpdateReq %% the default behaviour is overwriting the old config
     end.
 
 %% callbacks for the top-level handler

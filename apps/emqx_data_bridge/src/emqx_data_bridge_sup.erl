@@ -35,9 +35,7 @@ init([]) ->
           start => {emqx_data_bridge_monitor, start_link, []},
           restart => permanent,
           type => worker,
-          modules => [emqx_data_bridge_monitor]},
-        emqx_config_handler:child_spec(emqx_data_bridge_schema, emqx_config_handler,
-            emqx_data_bridge_schema, [emqx_data_bridge])
+          modules => [emqx_data_bridge_monitor]}
     ],
     {ok, {SupFlags, ChildSpecs}}.
 

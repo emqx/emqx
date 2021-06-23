@@ -10,9 +10,9 @@
 -define(TYPES, [mysql, pgsql, mongo, redis, ldap]).
 -define(BRIDGES, [hoconsc:ref(T) || T <- ?TYPES]).
 
-structs() -> [emqx_data_bridge].
+structs() -> [""].
 
-fields(emqx_data_bridge) ->
+fields("") ->
     [{bridges, #{type => hoconsc:array(hoconsc:union(?BRIDGES)),
                  default => []}}];
 
