@@ -51,15 +51,15 @@
 %%--------------------------------------------------------------------
 
 cli(["enable"]) ->
-    emqx_mgmt:enable_telemetry(),
+    enable_telemetry(),
     emqx_ctl:print("Enable telemetry successfully~n");
 
 cli(["disable"]) ->
-    emqx_mgmt:disable_telemetry(),
+    disable_telemetry(),
     emqx_ctl:print("Disable telemetry successfully~n");
 
 cli(["get", "status"]) ->
-    case emqx_mgmt:get_telemetry_status() of
+    case get_telemetry_status() of
         [{enabled, true}] ->
             emqx_ctl:print("Telemetry is enabled~n");
         [{enabled, false}] ->
@@ -67,7 +67,7 @@ cli(["get", "status"]) ->
     end;
 
 cli(["get", "data"]) ->
-    {ok, TelemetryData} = emqx_mgmt:get_telemetry_data(),
+    {ok, TelemetryData} = get_telemetry_data(),
     case emqx_json:safe_encode(TelemetryData, [pretty]) of
         {ok, Bin} ->
             emqx_ctl:print("~s~n", [Bin]);
@@ -97,7 +97,7 @@ enable(_Bindings, Params) ->
     end.
 
 get_status(_Bindings, _Params) ->
-    return(get_telemetry_status()).
+    return({ok, get_telemetry_status()}).
 
 get_data(_Bindings, _Params) ->
     return(get_telemetry_data()).
@@ -119,7 +119,7 @@ disable_telemetry(Node) ->
     rpc_call(Node, ?MODULE, disable_telemetry, [Node]).
 
 get_telemetry_status() ->
-    {ok, [{enabled, emqx_telemetry:is_enabled()}]}.
+    [{enabled, emqx_telemetry:is_enabled()}].
 
 get_telemetry_data() ->
     emqx_telemetry:get_telemetry().
