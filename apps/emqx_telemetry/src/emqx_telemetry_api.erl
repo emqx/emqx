@@ -119,7 +119,7 @@ disable_telemetry(Node) ->
     rpc_call(Node, ?MODULE, disable_telemetry, [Node]).
 
 get_telemetry_status() ->
-    {ok, [{enabled, emqx_telemetry:is_enabled()}]}.
+    [{enabled, emqx_telemetry:is_enabled()}].
 
 get_telemetry_data() ->
     emqx_telemetry:get_telemetry().
