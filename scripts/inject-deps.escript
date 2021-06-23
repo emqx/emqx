@@ -23,7 +23,6 @@ usage() ->
   "Usage: " ++ escript:script_name() ++ " emqx|emqx-edge".
 
 -type app() :: atom().
--type deps_overlay() :: {re, string()} | app().
 
 base_deps() ->
   %% make sure emqx_dashboard depends on all other emqx_xxx apps
@@ -80,8 +79,8 @@ list_apps(LibDir) ->
 
 is_app(_LibDir, "." ++ _) -> false; %% ignore hidden dir
 is_app(LibDir, AppName) ->
-  filelib:is_regular(filename:join([ebin_dir(LibDir, AppName), AppName ++ ".app"])) orelse
-  error({unknown_app, AppName}). %% wtf
+  Path = filename:join([ebin_dir(LibDir, AppName), AppName ++ ".app"]),
+  filelib:is_regular(Path) orelse error({unknown_app, AppName, Path}). %% wtf
 
 lib_dir(Profile) ->
   filename:join(["_build", Profile, lib]).
