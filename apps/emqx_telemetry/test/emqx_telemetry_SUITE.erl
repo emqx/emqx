@@ -41,7 +41,7 @@ t_uuid(_) ->
     ?assertEqual(5, length(Parts)),
     {ok, UUID2} = emqx_telemetry:get_uuid(),
     emqx_telemetry:stop(),
-    emqx_telemetry:start_link([true]),
+    emqx_telemetry:start_link([{enabled, true}]),
     {ok, UUID3} = emqx_telemetry:get_uuid(),
     ?assertEqual(UUID2, UUID3).
 

@@ -139,9 +139,10 @@ get_telemetry() ->
 %% Given the chance of having two nodes bootstraping with the write
 %% is very small, it should be safe to ignore.
 -dialyzer([{nowarn_function, [init/1]}]).
-init([Enabled]) ->
+init([Opts]) ->
     State = #state{url = ?TELEMETRY_URL,
                    report_interval = timer:seconds(?REPORT_INTERVAR)},
+    Enabled = proplists:get_value(enabled, Opts, true),
     NState = case mnesia:dirty_read(?TELEMETRY, ?UNIQUE_ID) of
                  [] ->
                      UUID = generate_uuid(),

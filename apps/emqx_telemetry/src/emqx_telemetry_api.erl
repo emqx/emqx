@@ -97,7 +97,7 @@ enable(_Bindings, Params) ->
     end.
 
 get_status(_Bindings, _Params) ->
-    return(get_telemetry_status()).
+    return({ok, get_telemetry_status()}).
 
 get_data(_Bindings, _Params) ->
     return(get_telemetry_data()).

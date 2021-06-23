@@ -33,7 +33,7 @@ start(_Type, _Args) ->
     Config = hocon_schema:check_plain(emqx_telemetry_schema, RawConfig, #{atom_key => true}),
     emqx_config_handler:update_config(emqx_config_handler, Config),
     Enabled = emqx_config:get([?APP, enabled], true),
-    emqx_telemetry_sup:start_link(Enabled).
+    emqx_telemetry_sup:start_link([{enabled, Enabled}]).
 
 stop(_State) ->
     emqx_ctl:unregister_command(telemetry),
