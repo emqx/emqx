@@ -33,3 +33,5 @@
 -define(ERROR15, 115). %% bad topic
 
 -define(VERSIONS, ["4.0", "4.1", "4.2", "4.3"]).
+
+-define(MANAGEMENT_SHARD, emqx_management_shard).
