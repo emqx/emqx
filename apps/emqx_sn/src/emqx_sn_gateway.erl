@@ -250,8 +250,9 @@ wait_for_will_topic(cast, {incoming, ?SN_ADVERTISE_MSG(_GwId, _Radius)}, _State)
     % ignore
     keep_state_and_data;
 
-wait_for_will_topic(cast, {incoming, ?SN_CONNECT_MSG(Flags, _ProtoId, Duration, ClientId)}, State) ->
-    do_2nd_connect(Flags, Duration, ClientId, State);
+wait_for_will_topic(cast, {incoming, ?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, _ClientId)}, _State) ->
+    ?LOG(warning, "Receive connect packet in wait_for_will_topic state", []),
+    keep_state_and_data;
 
 wait_for_will_topic(cast, {outgoing, Packet}, State) ->
     {keep_state, handle_outgoing(Packet, State)};
@@ -275,9 +276,9 @@ wait_for_will_msg(cast, {incoming, ?SN_ADVERTISE_MSG(_GwId, _Radius)}, _State) -
     % ignore
     keep_state_and_data;
 
-%% XXX: ?? Why we will handling the 2nd CONNECT packet ??
-wait_for_will_msg(cast, {incoming, ?SN_CONNECT_MSG(Flags, _ProtoId, Duration, ClientId)}, State) ->
-    do_2nd_connect(Flags, Duration, ClientId, State);
+wait_for_will_msg(cast, {incoming, ?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, _ClientId)}, _State) ->
+    ?LOG(warning, "Receive connect packet in wait_for_will_msg state", []),
+    keep_state_and_data;
 
 wait_for_will_msg(cast, {outgoing, Packet}, State) ->
     {keep_state, handle_outgoing(Packet, State)};
@@ -365,8 +366,9 @@ connected(cast, {incoming, ?SN_ADVERTISE_MSG(_GwId, _Radius)}, State) ->
     % ignore
     {keep_state, State};
 
-connected(cast, {incoming, ?SN_CONNECT_MSG(Flags, _ProtoId, Duration, ClientId)}, State) ->
-    do_2nd_connect(Flags, Duration, ClientId, State);
+connected(cast, {incoming, ?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, _ClientId)}, _State) ->
+    ?LOG(warning, "Receive connect packet in wait_for_will_topic state", []),
+    keep_state_and_data;
 
 connected(cast, {outgoing, Packet}, State) ->
     {keep_state, handle_outgoing(Packet, State)};
@@ -844,26 +846,6 @@ do_connect(ClientId, CleanStart, WillFlag, Duration, State) ->
                                 },
             handle_incoming(?CONNECT_PACKET(ConnPkt), NState)
     end.
-
-do_2nd_connect(Flags, Duration, ClientId, State = #state{sockname = Sockname,
-                                                         peername = Peername,
-                                                         channel  = Channel}) ->
-    emqx_logger:set_metadata_clientid(ClientId),
-    #mqtt_sn_flags{will = Will, clean_start = CleanStart} = Flags,
-    NChannel = case CleanStart of
-                   true ->
-                       emqx_channel:terminate(normal, Channel),
-                       emqx_sn_registry:unregister_topic(ClientId),
-                       emqx_channel:init(#{socktype => udp,
-                                           sockname => Sockname,
-                                           peername => Peername,
-                                           peercert => ?NO_PEERCERT,
-                                           conn_mod => ?MODULE
-                                          }, ?DEFAULT_CHAN_OPTIONS);
-                   false -> Channel
-               end,
-    NState = State#state{channel = NChannel},
-    do_connect(ClientId, CleanStart, Will, Duration, NState).
 
 handle_subscribe(?SN_NORMAL_TOPIC, TopicName, QoS, MsgId,
                  State=#state{channel = Channel}) ->
