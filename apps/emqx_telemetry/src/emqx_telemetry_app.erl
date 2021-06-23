@@ -18,16 +18,22 @@
 
 -behaviour(application).
 
--emqx_plugin(?MODULE).
+-define(APP, emqx_telemetry).
 
 -export([ start/2
         , stop/1
         ]).
 
 start(_Type, _Args) ->
-    emqx_ctl:register_command(telemetry, {emqx_telemetry_api, cli}),
-    Env = application:get_all_env(emqx_telemetry),
-    emqx_telemetry_sup:start_link(Env).
+    %% TODO
+    %% After the relevant code for building hocon configuration will be deleted
+    %% Get the configuration using emqx_config:get
+    ConfFile = filename:join([emqx:get_env(plugins_etc_dir), ?APP]) ++ ".conf",
+    {ok, RawConfig} = hocon:load(ConfFile),
+    Config = hocon_schema:check_plain(emqx_telemetry_schema, RawConfig, #{atom_key => true}),
+    emqx_config_handler:update_config(emqx_config_handler, Config),
+    Enabled = emqx_config:get([?APP, enabled], true),
+    emqx_telemetry_sup:start_link(Enabled).
 
 stop(_State) ->
     emqx_ctl:unregister_command(telemetry),

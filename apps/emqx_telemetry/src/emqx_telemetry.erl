@@ -24,7 +24,7 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--logger_header("[Telemetry]").
+-include("emqx_telemetry.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -82,7 +82,7 @@
           timer = undefined :: undefined | reference()
         }).
 
-%% The count of 100-nanosecond intervals between the UUID epoch 
+%% The count of 100-nanosecond intervals between the UUID epoch
 %% 1582-10-15 00:00:00 and the UNIX epoch 1970-01-01 00:00:00.
 -define(GREGORIAN_EPOCH_OFFSET, 16#01b21dd213814000).
 
@@ -139,17 +139,11 @@ get_telemetry() ->
 %% Given the chance of having two nodes bootstraping with the write
 %% is very small, it should be safe to ignore.
 -dialyzer([{nowarn_function, [init/1]}]).
-init([Opts]) ->
-    State = #state{url = get_value(url, Opts),
-                   report_interval = timer:seconds(get_value(report_interval, Opts))},
+init([Enabled]) ->
+    State = #state{url = ?TELEMETRY_URL,
+                   report_interval = timer:seconds(?REPORT_INTERVAR)},
     NState = case mnesia:dirty_read(?TELEMETRY, ?UNIQUE_ID) of
                  [] ->
-                     Enabled = case search_telemetry_enabled() of
-                                   {error, not_found} ->
-                                       get_value(enabled, Opts);
-                                   {M, F} ->
-                                       erlang:apply(M, F, [])
-                               end,
                      UUID = generate_uuid(),
                      mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
                                                                uuid = UUID,
@@ -236,14 +230,6 @@ official_version(Version) ->
 
 ensure_report_timer(State = #state{report_interval = ReportInterval}) ->
     State#state{timer = emqx_misc:start_timer(ReportInterval, time_to_report_telemetry_data)}.
-
-license() ->
-    case search_telemetry_license() of
-        {error, not_found} ->
-            [{edition, <<"community">>}];
-        {M, F} ->
-            erlang:apply(M, F, [])
-    end.
 
 os_info() ->
     case erlang:system_info(os_type) of
@@ -348,7 +334,7 @@ generate_uuid() ->
 get_telemetry(#state{uuid = UUID}) ->
     OSInfo = os_info(),
     [{emqx_version, bin(emqx_app:get_release())},
-     {license, license()},
+     {license, [{edition, <<"community">>}]},
      {os_name, bin(get_value(os_name, OSInfo))},
      {os_version, bin(get_value(os_version, OSInfo))},
      {otp_version, bin(otp_version())},
@@ -374,58 +360,6 @@ report_telemetry(State = #state{url = URL}) ->
 
 httpc_request(Method, URL, Headers, Body) ->
     httpc:request(Method, {URL, Headers, "application/json", Body}, [], []).
-
-ignore_lib_apps(Apps) ->
-    LibApps = [kernel, stdlib, sasl, appmon, eldap, erts,
-               syntax_tools, ssl, crypto, mnesia, os_mon,
-               inets, goldrush, gproc, runtime_tools,
-               snmp, otp_mibs, public_key, asn1, ssh, hipe,
-               common_test, observer, webtool, xmerl, tools,
-               test_server, compiler, debugger, eunit, et,
-               wx],
-    [AppName || {AppName, _, _} <- Apps, not lists:member(AppName, LibApps)].
-
-search_telemetry_license() ->
-    search_function(telemetry_license).
-
-search_telemetry_enabled() ->
-    search_function(telemetry_enabled).
-
-search_function(Name) ->
-    case search_attrs(Name) of
-        [] ->
-            {error, not_found};
-        Callbacks ->
-            case lists:filter(fun({M, F}) ->
-                                  erlang:function_exported(M, F, 0)
-                              end, Callbacks) of
-                [] -> {error, not_found};
-                [{M, F} | _] -> {M, F}
-            end
-    end.
-
-search_attrs(Name) ->
-    Apps = ignore_lib_apps(application:loaded_applications()),
-    search_attrs(Name, Apps).
-
-search_attrs(Name, Apps) ->
-    lists:foldl(fun(App, Acc) ->
-                    {ok, Modules} = application:get_key(App, modules),
-                    Attrs = lists:foldl(fun(Module, Acc0) ->
-                                                case proplists:get_value(Name, module_attributes(Module), undefined) of
-                                                    undefined -> Acc0;
-                                                    Attrs0 -> Acc0 ++ Attrs0
-                                                end
-                                            end, [], Modules),
-                    Acc ++ Attrs
-                end, [], Apps).
-
-module_attributes(Module) ->
-    try Module:module_info(attributes)
-    catch
-        error:undef -> [];
-        error:Reason -> error(Reason)
-    end.
 
 bin(L) when is_list(L) ->
     list_to_binary(L);

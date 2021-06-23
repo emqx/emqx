@@ -51,15 +51,15 @@
 %%--------------------------------------------------------------------
 
 cli(["enable"]) ->
-    emqx_mgmt:enable_telemetry(),
+    enable_telemetry(),
     emqx_ctl:print("Enable telemetry successfully~n");
 
 cli(["disable"]) ->
-    emqx_mgmt:disable_telemetry(),
+    disable_telemetry(),
     emqx_ctl:print("Disable telemetry successfully~n");
 
 cli(["get", "status"]) ->
-    case emqx_mgmt:get_telemetry_status() of
+    case get_telemetry_status() of
         [{enabled, true}] ->
             emqx_ctl:print("Telemetry is enabled~n");
         [{enabled, false}] ->
@@ -67,7 +67,7 @@ cli(["get", "status"]) ->
     end;
 
 cli(["get", "data"]) ->
-    {ok, TelemetryData} = emqx_mgmt:get_telemetry_data(),
+    {ok, TelemetryData} = get_telemetry_data(),
     case emqx_json:safe_encode(TelemetryData, [pretty]) of
         {ok, Bin} ->
             emqx_ctl:print("~s~n", [Bin]);
