@@ -169,9 +169,11 @@ jobs:
     - name: build
       run: |
         . $HOME/.kerl/${{ matrix.erl_otp }}/activate
-        make -C source ensure-rebar3
-        sudo cp source/rebar3 /usr/local/bin/rebar3
-        make -C source ${{ matrix.profile }}-zip
+        cd source
+        make ensure-rebar3
+        sudo cp rebar3 /usr/local/bin/rebar3
+        rm -rf _build/${{ matrix.profile }}/lib
+        make ${{ matrix.profile }}-zip
     - name: test
       run: |
         cd source
