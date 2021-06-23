@@ -142,9 +142,9 @@ get_telemetry() ->
 init([Opts]) ->
     State = #state{url = ?TELEMETRY_URL,
                    report_interval = timer:seconds(?REPORT_INTERVAR)},
-    Enabled = proplists:get_value(enabled, Opts, true),
     NState = case mnesia:dirty_read(?TELEMETRY, ?UNIQUE_ID) of
                  [] ->
+                     Enabled = proplists:get_value(enabled, Opts, true),
                      UUID = generate_uuid(),
                      mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
                                                                uuid = UUID,
