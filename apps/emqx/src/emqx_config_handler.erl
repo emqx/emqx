@@ -95,7 +95,7 @@ handle_call({add_child, ConfKeyPath, HandlerName}, _From,
 handle_call({update_config, ConfKeyPath, UpdateReq}, _From,
         #{raw_config := RawConf, handlers := Handlers} = State) ->
     try {RootKeys, Conf} = do_update_config(ConfKeyPath, Handlers, RawConf, UpdateReq),
-        {reply, save_configs(RootKeys, Conf), State}
+        {reply, save_configs(RootKeys, Conf), State#{raw_config => Conf}}
     catch
         throw: Reason ->
             {reply, {error, Reason}, State};
@@ -122,17 +122,24 @@ code_change(_OldVsn, State, _Extra) ->
 
 do_update_config([], Handlers, OldConf, UpdateReq) ->
     call_handle_update_config(Handlers, OldConf, UpdateReq);
-do_update_config([ConfKey | ConfKeyPath], Handlers,
-        OldConf, UpdateReq) ->
-    SubOldConf = maps:get(bin(ConfKey), OldConf, undefined),
+do_update_config([ConfKey | ConfKeyPath], Handlers, OldConf, UpdateReq) ->
+    SubOldConf = get_sub_config(ConfKey, OldConf),
     case maps:find(ConfKey, Handlers) of
         false -> throw({handler_not_found, ConfKey});
         {ok, SubHandlers} ->
-            #{ConfKey => call_handle_update_config(Handlers, OldConf,
-                do_update_config(ConfKeyPath, SubHandlers, SubOldConf, UpdateReq))}
+            NewUpdateReq = do_update_config(ConfKeyPath, SubHandlers, SubOldConf, UpdateReq),
+            call_handle_update_config(Handlers, OldConf, #{bin(ConfKey) => NewUpdateReq})
     end.
 
-call_handle_update_config(HandlerName, OldConf, UpdateReq) ->
+get_sub_config(_, undefined) ->
+    undefined;
+get_sub_config(ConfKey, OldConf) when is_map(OldConf) ->
+    maps:get(bin(ConfKey), OldConf, undefined);
+get_sub_config(_, OldConf) ->
+    OldConf.
+
+call_handle_update_config(Handlers, OldConf, UpdateReq) ->
+    HandlerName = maps:get(?MOD, Handlers, undefined),
     case erlang:function_exported(HandlerName, handle_update_config, 2) of
         true -> HandlerName:handle_update_config(UpdateReq, OldConf);
         false -> UpdateReq %% the default behaviour is overwriting the old config
@@ -151,15 +158,16 @@ merge_to_old_config(UpdateReq, RawConf) ->
 
 %%============================================================================
 save_configs(RootKeys, Conf) ->
-    save_config_to_memory(Conf),
+    save_config_to_memory(to_richmap(Conf)),
     save_config_to_disk(RootKeys, Conf).
 
-save_config_to_memory(Conf) ->
-    {MappedEnvs, NewConf} = hocon_schema:map_translate(emqx_schema, Conf, #{}),
+save_config_to_memory(RichMapConf) ->
+    {MappedEnvs, NewConf} = hocon_schema:map_translate(emqx_schema, RichMapConf, #{}),
     lists:foreach(fun({AppName, Envs}) ->
             [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
         end, MappedEnvs),
-    emqx_config:put(hocon_schema:richmap_to_map(NewConf)).
+    emqx_config:put(emqx_config:unsafe_atom_key_map(
+        hocon_schema:richmap_to_map(NewConf))).
 
 save_config_to_disk(RootKeys, Conf) ->
     FileName = emqx_override_conf_name(),
@@ -180,7 +188,7 @@ write_new_config(FileName, Conf) ->
 read_old_config(FileName) ->
     case file:read_file(FileName) of
         {ok, Text} ->
-            try jsx:decode(Text) of
+            try jsx:decode(Text, [{return_maps, true}]) of
                 Conf when is_map(Conf) -> Conf;
                 _ -> #{}
             catch _Err : _Reason ->
@@ -194,6 +202,10 @@ emqx_conf_name() ->
 
 emqx_override_conf_name() ->
     filename:join(["data", "emqx_override.conf"]).
+
+to_richmap(Map) ->
+    {ok, RichMap} = hocon:binary(jsx:encode(Map), #{format => richmap}),
+    RichMap.
 
 bin(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
 bin(B) when is_binary(B) -> B;

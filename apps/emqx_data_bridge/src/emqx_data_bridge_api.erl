@@ -128,13 +128,14 @@ update_config_and_reply(Name, BridgeType, Config, Data) ->
             {200, #{code => 0, data => format_api_reply(
                         emqx_resource_api:format_data(Data))}};
         {error, Reason} ->
-            {500, #{code => 102, message => Reason}}
+            {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
     end.
 
 delete_config_and_reply(Name) ->
     case emqx_data_bridge:update_config({delete, Name}) of
         ok -> {200, #{code => 0, data => #{}}};
-        {error, Reason} -> {500, #{code => 102, message => Reason}}
+        {error, Reason} ->
+            {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
     end.
 
 atom(B) when is_binary(B) ->

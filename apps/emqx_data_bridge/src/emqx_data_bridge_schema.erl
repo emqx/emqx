@@ -8,7 +8,7 @@
      {config, hoconsc:t(hoconsc:ref(list_to_atom("emqx_connector_"++atom_to_list(T)), ""))}]).
 
 -define(TYPES, [mysql, pgsql, mongo, redis, ldap]).
--define(BRIDGES, [hoconsc:ref(T) || T <- ?TYPES]).
+-define(BRIDGES, [hoconsc:ref(?MODULE, T) || T <- ?TYPES]).
 
 structs() -> [""].
 

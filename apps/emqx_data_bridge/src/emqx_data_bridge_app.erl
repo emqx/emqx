@@ -36,5 +36,7 @@ handle_update_config({update, Bridge = #{<<"name">> := Name}}, OldConf) ->
 handle_update_config({delete, Name}, OldConf) ->
     remove_bridge(Name, OldConf).
 
+remove_bridge(_Name, undefined) ->
+    [];
 remove_bridge(Name, OldConf) ->
     [B || B = #{<<"name">> := Name0} <- OldConf, Name0 =/= Name].
