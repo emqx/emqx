@@ -29,11 +29,20 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_testcase(_, Config) ->
     emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_telemetry]),
+    emqx_ct_helpers:start_apps([emqx_telemetry], fun set_special_configs/1),
     Config.
 
 end_per_testcase(_, _Config) ->
-    emqx_ct_helpers:stop_apps([emqx_telemetry, emqx_modules]).
+    emqx_ct_helpers:stop_apps([emqx_telemetry]).
+
+set_special_configs(emqx_telemetry) ->
+    application:set_env(emqx, plugins_etc_dir,
+                        emqx_ct_helpers:deps_path(emqx_telemetry, "test")),
+    Conf = #{<<"emqx_telemetry">> => #{<<"enabled">> => true}},
+    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_telemetry.conf'), jsx:encode(Conf)),
+    ok;
+set_special_configs(_App) ->
+    ok.
 
 t_uuid(_) ->
     UUID = emqx_telemetry:generate_uuid(),
@@ -41,9 +50,7 @@ t_uuid(_) ->
     ?assertEqual(5, length(Parts)),
     {ok, UUID2} = emqx_telemetry:get_uuid(),
     emqx_telemetry:stop(),
-    emqx_telemetry:start_link([{enabled, true},
-                               {url, "https://telemetry.emqx.io/api/telemetry"},
-                               {report_interval, 7 * 24 * 60 * 60}]),
+    emqx_telemetry:start_link([{enabled, true}]),
     {ok, UUID3} = emqx_telemetry:get_uuid(),
     ?assertEqual(UUID2, UUID3).
 
