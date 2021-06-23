@@ -16,9 +16,9 @@
 
 -define(APP, emqx_authn).
 
--type(chain_id() :: binary()).
--type(service_name() :: binary()).
--type(service_type() :: mnesia | jwt).
+-type chain_id() :: binary().
+-type service_name() :: binary().
+-type service_type() :: mnesia | jwt.
 
 -record(service,
         { name :: service_name()
@@ -35,5 +35,3 @@
         }).
 
 -define(AUTH_SHARD, emqx_authentication_shard).
-
--type(algorithm() :: 'hmac-based' | 'public-key').

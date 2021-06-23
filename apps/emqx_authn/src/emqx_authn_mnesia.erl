@@ -19,7 +19,9 @@
 -include("emqx_authn.hrl").
 -include_lib("typerefl/include/types.hrl").
 
--export([ fields/0 ]).
+-behaviour(hocon_schema).
+
+-export([ structs/0, fields/1 ]).
 
 -export([ create/3
         , update/4
@@ -36,35 +38,9 @@
         ]).
 
 -type user_id_type() :: clientid | username.
--type password_hash_algorithm() :: plain | md5 | sha | sha256 | sha512 | bcrypt.
 
--reflect_type([ user_id_type/0
-              , password_hash_algorithm/0
-              ]).
-
-% %% TODO: support bcrypt
-% -service_type(#{
-%     name => mnesia,
-%     params_spec => #{
-%         user_id_type => #{
-%             order => 1,
-%             type => string,
-%             enum => [<<"username">>, <<"clientid">>, <<"ip">>, <<"common name">>, <<"issuer">>],
-%             default => <<"username">>
-%         },
-%         password_hash_algorithm => #{
-%             order => 2,
-%             type => string,
-%             enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
-%             default => <<"sha256">>
-%         },
-%         salt_rounds => #{
-%             order => 3,
-%             type => number,
-%             default => 10 
-%         }
-%     }
-% }).
+-type user_group() :: {chain_id(), service_name()}.
+-type user_id() :: binary().
 
 -record(user_info,
         { user_id :: {user_group(), user_id()}
@@ -72,8 +48,7 @@
         , salt :: binary()
         }).
 
--type(user_group() :: {chain_id(), service_name()}).
--type(user_id() :: binary()).
+-reflect_type([ user_id_type/0 ]).
 
 -export([mnesia/1]).
 
@@ -83,25 +58,6 @@
 -define(TAB, mnesia_basic_auth).
 
 -rlog_shard({?AUTH_SHARD, ?TAB}).
-
-fields() ->
-    [ {user_id_type, fun user_id_type/1}
-    , {password_hash_algorithm, fun password_hash_algorithm/1}
-    , {salt_rounds, fun salt_rounds/1}
-    ].
-
-user_id_type(type) -> user_id_type();
-user_id_type(default) -> clientid;
-user_id_type(_) -> undefined.
-
-password_hash_algorithm(type) -> password_hash_algorithm();
-password_hash_algorithm(default) -> sha256;
-password_hash_algorithm(_) -> undefined.
-
-salt_rounds(type) -> integer();
-salt_rounds(default) -> 10;
-salt_rounds(_) -> undefined.
-
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
@@ -118,18 +74,54 @@ mnesia(boot) ->
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?TAB, disc_copies).
 
-create(ChainID, ServiceName, #{<<"user_id_type">> := Type,
-                               <<"password_hash_algorithm">> := Algorithm,
-                               <<"salt_rounds">> := SaltRounds}) ->
-    Algorithm =:= <<"bcrypt">> andalso ({ok, _} = application:ensure_all_started(bcrypt)),
+%%------------------------------------------------------------------------------
+%% Hocon Schema
+%%------------------------------------------------------------------------------
+
+structs() -> [config].
+
+fields(config) ->
+    [ {user_id_type, fun user_id_type/1}
+    , {password_hash_algorithm, fun password_hash_algorithm/1}
+    ];
+
+fields(bcrypt) ->
+    [ {name, {enum, [bcrypt]}}
+    , {salt_rounds, fun salt_rounds/1}
+    ];
+
+fields(other_algorithms) ->
+    [ {name, {enum, [plain, md5, sha, sha256, sha512]}}
+    ].
+
+user_id_type(type) -> user_id_type();
+user_id_type(default) -> clientid;
+user_id_type(_) -> undefined.
+
+password_hash_algorithm(type) -> {union, [hoconsc:ref(bcrypt), hoconsc:ref(other_algorithms)]};
+password_hash_algorithm(default) -> sha256;
+password_hash_algorithm(_) -> undefined.
+
+salt_rounds(type) -> integer();
+salt_rounds(default) -> 10;
+salt_rounds(_) -> undefined.
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
+
+create(ChainID, ServiceName, #{user_id_type := Type,
+                               password_hash_algorithm := Algorithm,
+                               salt_rounds := SaltRounds}) ->
+    Algorithm =:= bcrypt andalso ({ok, _} = application:ensure_all_started(bcrypt)),
     State = #{user_group => {ChainID, ServiceName},
-              user_id_type => binary_to_atom(Type, utf8),
-              password_hash_algorithm => binary_to_atom(Algorithm, utf8),
+              user_id_type => Type,
+              password_hash_algorithm => Algorithm,
               salt_rounds => SaltRounds},
     {ok, State}.
 
-update(ChainID, ServiceName, Params, _State) ->
-    create(ChainID, ServiceName, Params).
+update(ChainID, ServiceName, Config, _State) ->
+    create(ChainID, ServiceName, Config).
 
 authenticate(ClientInfo = #{password := Password},
              #{user_group := UserGroup,
@@ -139,7 +131,11 @@ authenticate(ClientInfo = #{password := Password},
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
         [] ->
             ignore;
-        [#user_info{password_hash = PasswordHash, salt = Salt}] ->
+        [#user_info{password_hash = PasswordHash, salt = Salt0}] ->
+            Salt = case Algorithm of
+                       bcrypt -> PasswordHash;
+                       _ -> Salt0
+                   end,
             case PasswordHash =:= hash(Algorithm, Password, Salt) of
                 true -> ok;
                 false -> {stop, bad_password}

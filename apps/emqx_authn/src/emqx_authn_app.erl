@@ -17,6 +17,7 @@
 -module(emqx_authn_app).
 
 -include("emqx_authn.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -behaviour(application).
 
@@ -32,32 +33,36 @@
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_authn_sup:start_link(),
     ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
-    % ok = emqx_authn:register_service_types(),
-    % generate_config(),
     initialize(),
     {ok, Sup}.
 
 stop(_State) ->
     ok.
 
-% generate_config() ->
-%     ConfFile = filename:join([emqx:get_env(plugins_etc_dir), ?APP]) ++ ".conf",
-%     {ok, RawConfig} = hocon:load(ConfFile),
-%     #{authn := Config} = hocon_schema:check_plain(emqx_authn_schema, RawConfig, #{atom_key => true}),
-%     ok = application:set_env(?APP, authn, Config).
-
 initialize() ->
     ConfFile = filename:join([emqx:get_env(plugins_etc_dir), ?APP]) ++ ".conf",
     {ok, RawConfig} = hocon:load(ConfFile),
-    #{authn := #{chains := Chains}} = hocon_schema:check_plain(emqx_authn_schema, RawConfig, #{atom_key => true}),
+    #{authn := #{chains := Chains}} = hocon_schema:check_plain(emqx_authn_schema, RawConfig, #{atom_key => true, nullable => true}),
     io:format("Chains: ~p~n", [Chains]),
-    ok.
-%     initialize_chains(Chains).
+    initialize_chains(Chains).
 
-% initialize_chains([]) ->
-%     ok;
-% initialize_chains([#{id := ChainID, providers := Providers} | More]) ->
-%     {ok, _} = emqx_authn:create_chain(#{id => ChainID}),
-%     {ok, _} = emqx_authn:add_providers(ChainID, Providers),
-%     initialize_chains(More).
+initialize_chains([]) ->
+    ok;
+initialize_chains([#{id := ChainID, services := Services} | More]) ->
+    case emqx_authn:create_chain(#{id => ChainID}) of
+        {ok, _} ->
+            initialize_services(ChainID, Services),
+            initialize_chains(More);
+        {error, Reason} ->
+            ?LOG(error, "Failed to create chain '~s': ~p", [ChainID, Reason])
+    end.
 
+initialize_services(_ChainID, []) ->
+    ok;
+initialize_services(ChainID, [#{name := Name} = Service | More]) ->
+    case emqx_authn:create_service(ChainID, Service) of
+        {ok, _} ->
+            initialize_services(ChainID, More);
+        {error, Reason} ->
+            ?LOG(error, "Failed to create service '~s' in chain '~s': ~p", [Name, ChainID, Reason])
+    end.

@@ -125,23 +125,17 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-handle_options(Opts) ->
-    #{endpoint => proplists:get_value(jwks_endpoint, Opts),
-      refresh_interval => limit_refresh_interval(proplists:get_value(refresh_interval, Opts)),
-      ssl_opts => get_ssl_opts(Opts),
+handle_options(#{endpoint := Endpoint,
+                 refresh_interval := RefreshInterval0,
+                 ssl_opts := SSLOpts}) ->
+    #{endpoint => Endpoint,
+      refresh_interval => limit_refresh_interval(RefreshInterval0),
+      ssl_opts => maps:to_list(SSLOpts),
       jwks => [],
-      request_id => undefined}.
+      request_id => undefined};
 
-get_ssl_opts(Opts) ->
-    case proplists:get_value(enable_ssl, Opts) of
-        false -> [];
-        true ->
-            maps:to_list(maps:with([cacertfile,
-                                    keyfile,
-                                    certfile,
-                                    verify,
-                                    server_name_indication], maps:from_list(Opts)))
-    end.
+handle_options(#{enable_ssl := false} = Opts) ->
+    handle_options(Opts#{ssl_opts => []}).
 
 refresh_jwks(#{endpoint := Endpoint,
                ssl_opts := SSLOpts} = State) ->

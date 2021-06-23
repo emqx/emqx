@@ -16,7 +16,14 @@
 
 -module(emqx_authn_jwt).
 
-% -include_lib("typerefl/include/types.hrl").
+-include_lib("typerefl/include/types.hrl").
+
+-behaviour(hocon_schema).
+
+-export([ structs/0
+        , fields/1
+        , validations/0
+        ]).
 
 -export([ create/3
         , update/4
@@ -24,95 +31,129 @@
         , destroy/1
         ]).
 
--service_type(#{
-    name => jwt,
-    params_spec => #{
-        use_jwks => #{
-            order => 1,
-            type => boolean
-        },
-        jwks_endpoint => #{
-            order => 2,
-            type => string
-        },
-        refresh_interval => #{
-            order => 3,
-            type => number
-        },
-        algorithm => #{
-            order => 3,
-            type => string,
-            enum => [<<"hmac-based">>, <<"public-key">>]
-        },
-        secret => #{
-            order => 4,
-            type => string
-        },
-        secret_base64_encoded => #{
-            order => 5,
-            type => boolean    
-        },
-        jwt_certfile => #{
-            order => 6,
-            type => file
-        },
-        cacertfile => #{
-            order => 7,
-            type => file
-        },
-        keyfile => #{
-            order => 8,
-            type => file
-        },
-        certfile => #{
-            order => 9,
-            type => file
-        },
-        verify => #{
-            order => 10,
-            type => boolean
-        },
-        server_name_indication => #{
-            order => 11,
-            type => string
-        }
-    }
-}).
+%%------------------------------------------------------------------------------
+%% Hocon Schema
+%%------------------------------------------------------------------------------
 
--define(RULES,
-        #{
-            use_jwks               => [],
-            jwks_endpoint          => [use_jwks],
-            refresh_interval       => [use_jwks],
-            algorithm              => [use_jwks],
-            secret                 => [algorithm],
-            secret_base64_encoded  => [algorithm],
-            jwt_certfile           => [algorithm],
-            cacertfile             => [jwks_endpoint],
-            keyfile                => [jwks_endpoint],
-            certfile               => [jwks_endpoint],
-            verify                 => [jwks_endpoint],
-            server_name_indication => [jwks_endpoint],
-            verify_claims          => []
-         }).
+structs() -> [""].
 
-create(_ChainID, _ServiceName, Params) ->
-    try handle_options(Params) of
-        Opts ->
-            do_create(Opts)
-    catch
-        {error, Reason} ->
-            {error, Reason}
-    end.
+fields("") ->
+    [{config, {union, [ hoconsc:t('hmac-based')
+                      , hoconsc:t('public-key')
+                      , hoconsc:t('jwks')
+                      , hoconsc:t('jwks-using-ssl')
+                      ]}}];
 
-update(_ChainID, _ServiceName, Params, State) ->
-    try handle_options(Params) of
-        Opts ->
-            do_update(Opts, State)
-    catch
-        {error, Reason} ->
-            {error, Reason}
-    end.
+fields('hmac-based') ->
+    [ {use_jwks,              {enum, [false]}}
+    , {algorithm,             {enum, ['hmac-based']}}
+    , {secret,                fun secret/1}
+    , {secret_base64_encoded, fun secret_base64_encoded/1}
+    , {verify_claims,         fun verify_claims/1}
+    ];
+
+fields('public-key') ->
+    [ {use_jwks,              {enum, [false]}}
+    , {algorithm,             {enum, ['public-key']}}
+    , {certificate,           fun certificate/1}
+    , {verify_claims,         fun verify_claims/1}
+    ];
+
+fields('jwks') ->
+    [ {enable_ssl,            {enum, [false]}}
+    ] ++ jwks_fields();
+
+fields('jwks-using-ssl') ->
+    [ {enable_ssl,            {enum, [true]}}
+    , {ssl_opts,              fun ssl_opts/1}
+    ] ++ jwks_fields();
+
+fields(ssl_opts) ->
+    [ {cacertfile,             fun cacertfile/1}
+    , {certfile,               fun certfile/1}
+    , {keyfile,                fun keyfile/1}
+    , {verify,                 fun verify/1}
+    , {server_name_indication, fun server_name_indication/1}
+    ];
+
+fields(claim) ->
+    [ {"$name", fun expected_claim_value/1} ].
+
+validations() ->
+    [ {check_verify_claims, fun check_verify_claims/1} ].
+
+jwks_fields() ->
+    [ {use_jwks,              {enum, [true]}}
+    , {endpoint,              fun endpoint/1}
+    , {refresh_interval,      fun refresh_interval/1}
+    , {verify_claims,         fun verify_claims/1}
+    ].
+
+secret(type) -> string();
+secret(_) -> undefined.
+
+secret_base64_encoded(type) -> boolean();
+secret_base64_encoded(defualt) -> false;
+secret_base64_encoded(_) -> undefined.
+
+certificate(type) -> string();
+certificate(_) -> undefined.
+
+endpoint(type) -> string();
+endpoint(_) -> undefined.
+
+ssl_opts(type) -> hoconsc:t(hoconsc:ref(ssl_opts));
+ssl_opts(default) -> [];
+ssl_opts(_) -> undefined.
+
+refresh_interval(type) -> integer();
+refresh_interval(default) -> 300;
+refresh_interval(validator) -> [fun(I) -> I > 0 end];
+refresh_interval(_) -> undefined.
+
+cacertfile(type) -> string();
+cacertfile(_) -> undefined.
+
+certfile(type) -> string();
+certfile(_) -> undefined.
+
+keyfile(type) -> string();
+keyfile(_) -> undefined.
+
+verify(type) -> boolean();
+verify(default) -> false;
+verify(_) -> undefined.
+
+server_name_indication(type) -> string();
+server_name_indication(_) -> undefined.
+
+verify_claims(type) -> hoconsc:array(hoconsc:ref(claim));
+verify_claims(default) -> [];
+verify_claims(_) -> undefined.
+
+expected_claim_value(type) -> string();
+expected_claim_value(_) -> undefined.
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
+
+create(_ChainID, _ServiceName, #{verify_claims := VerifyClaims0} = Config) ->
+    VerifyClaims = handle_verify_claims(VerifyClaims0),
+    create(Config#{verify_claims => VerifyClaims}).
+
+update(_ChainID, _ServiceName, Config, #{jwk := undefined}) ->
+    create(Config);
+
+update(_ChainID, _ServiceName, #{use_jwks := false} = Config, #{jwk := Connector})
+  when is_pid(Connector) ->
+    _ = emqx_authn_jwks_connector:stop(Connector),
+    create(Config);
+
+update(_ChainID, _ServiceName, #{use_jwks := true} = Opts, #{jwk := Connector} = State)
+  when is_pid(Connector) ->
+    ok = emqx_authn_jwks_connector:update(Connector, Opts),
+    {ok, State}.
 
 authenticate(ClientInfo = #{password := JWT}, #{jwk := JWK,
                                                 verify_claims := VerifyClaims0}) ->
@@ -140,10 +181,11 @@ destroy(#{jwks_connector := Connector}) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-do_create(#{use_jwks := false,
-            algorithm := 'hmac-based',
-            secret := Secret0,
-            secret_base64_encoded := Base64Encoded} = Opts) ->
+create(#{use_jwks := false,
+         algorithm := 'hmac-based',
+         secret := Secret0,
+         secret_base64_encoded := Base64Encoded,
+         verify_claims := VerifyClaims}) ->
     Secret = case Base64Encoded of
                  true ->
                      base64:decode(Secret0);
@@ -152,32 +194,25 @@ do_create(#{use_jwks := false,
              end,
     JWK = jose_jwk:from_oct(Secret),
     {ok, #{jwk => JWK,
-           verify_claims => maps:get(verify_claims, Opts)}};
+           verify_claims => VerifyClaims}};
 
-do_create(#{use_jwks := false,
-            algorithm := 'public-key',
-            jwt_certfile := Certfile} = Opts) ->
-    JWK = jose_jwk:from_pem_file(Certfile),
+create(#{use_jwks := false,
+         algorithm := 'public-key',
+         certificate := Certificate,
+         verify_claims := VerifyClaims}) ->
+    JWK = jose_jwk:from_pem_file(Certificate),
     {ok, #{jwk => JWK,
-           verify_claims => maps:get(verify_claims, Opts)}};
+           verify_claims => VerifyClaims}};
 
-do_create(#{use_jwks := true} = Opts) ->
-    case emqx_authn_jwks_connector:start_link(Opts) of
+create(#{use_jwks := true,
+         verify_claims := VerifyClaims} = Config) ->
+    case emqx_authn_jwks_connector:start_link(Config) of
         {ok, Connector} ->
             {ok, #{jwk => Connector,
-                   verify_claims => maps:get(verify_claims, Opts)}};
+                   verify_claims => VerifyClaims}};
         {error, Reason} ->
             {error, Reason}
     end.
-
-do_update(Opts, #{jwk_connector := undefined}) ->
-    do_create(Opts);
-do_update(#{use_jwks := false} = Opts, #{jwk_connector := Connector}) ->
-    _ = emqx_authn_jwks_connector:stop(Connector),
-    do_create(Opts);
-do_update(#{use_jwks := true} = Opts, #{jwk_connector := Connector} = State) ->
-    ok = emqx_authn_jwks_connector:update(Connector, Opts),
-    {ok, State}.
 
 replace_placeholder(L, Variables) ->
     replace_placeholder(L, Variables, []).
@@ -219,7 +254,7 @@ do_verify_claims(_Claims, []) ->
 do_verify_claims(Claims, [{Name, Fun} | More]) when is_function(Fun) ->
     case maps:take(Name, Claims) of
         error ->
-            do_verify_claims(Claims, More);
+            {error, {missing_claim, Name}};
         {Value, NClaims} ->
             case Fun(Value) of
                 true ->
@@ -238,144 +273,36 @@ do_verify_claims(Claims, [{Name, Value} | More]) ->
             {error, {claims, {Name, Value0}}}
     end.
 
-handle_options(Opts0) when is_map(Opts0) ->
-    Ks = maps:fold(fun(K, _, Acc) ->
-                       [atom_to_binary(K, utf8) | Acc]
-                   end, [], ?RULES),
-    Opts1 = maps:to_list(maps:with(Ks, Opts0)),
-    handle_options([{binary_to_existing_atom(K, utf8), V} || {K, V} <- Opts1]);
-
-handle_options(Opts0) when is_list(Opts0) ->
-    Opts1 = add_missing_options(Opts0),
-    process_options({Opts1, [], length(Opts1)}, #{}).
-
-add_missing_options(Opts) ->
-    AllOpts = maps:keys(?RULES),
-    Fun = fun(K, Acc) ->
-               case proplists:is_defined(K, Acc) of
-                   true ->
-                       Acc;
-                   false ->
-                       [{K, unbound} | Acc]
-                  end
-          end,
-    lists:foldl(Fun, Opts, AllOpts).
-
-process_options({[], [], _}, OptsMap) ->
-    OptsMap;
-process_options({[], Skipped, Counter}, OptsMap)
-  when length(Skipped) < Counter ->
-    process_options({Skipped, [], length(Skipped)}, OptsMap);
-process_options({[], _Skipped, _Counter}, _OptsMap) ->
-    throw({error, faulty_configuration});
-process_options({[{K, V} = Opt | More], Skipped, Counter}, OptsMap0) ->
-    case check_dependencies(K, OptsMap0) of
-        true ->
-            OptsMap1 = handle_option(K, V, OptsMap0),
-            process_options({More, Skipped, Counter}, OptsMap1);
-        false ->
-            process_options({More, [Opt | Skipped], Counter}, OptsMap0)
-    end.
-
-%% TODO: This is not a particularly good implementation(K => needless), it needs to be improved
-handle_option(use_jwks, true, OptsMap) ->
-    OptsMap#{use_jwks => true,
-             algorithm => needless};
-handle_option(use_jwks, false, OptsMap) ->
-    OptsMap#{use_jwks => false,
-             jwks_endpoint => needless};      
-handle_option(jwks_endpoint = Opt, unbound, #{use_jwks := true}) ->
-    throw({error, {options, {Opt, unbound}}});
-handle_option(jwks_endpoint, Value, #{use_jwks := true} = OptsMap)
-  when Value =/= unbound ->
-    case emqx_http_lib:uri_parse(Value) of
-        {ok, #{scheme := http}} ->
-            OptsMap#{enable_ssl => false,
-                     jwks_endpoint => Value};
-        {ok, #{scheme := https}} ->
-            OptsMap#{enable_ssl => true,
-                     jwks_endpoint => Value};
-        {error, _Reason} ->
-            throw({error, {options, {jwks_endpoint, Value}}})
-    end;
-handle_option(refresh_interval = Opt, Value0, #{use_jwks := true} = OptsMap) ->
-    Value = validate_option(Opt, Value0),
-    OptsMap#{Opt => Value};
-handle_option(algorithm = Opt, Value0, #{use_jwks := false} = OptsMap) ->
-    Value = validate_option(Opt, Value0),
-    OptsMap#{Opt => Value};
-handle_option(secret = Opt, unbound, #{algorithm := 'hmac-based'}) ->
-    throw({error, {options, {Opt, unbound}}});
-handle_option(secret = Opt, Value, #{algorithm := 'hmac-based'} = OptsMap) ->
-    OptsMap#{Opt => Value};
-handle_option(secret_base64_encoded = Opt, Value0, #{algorithm := 'hmac-based'} = OptsMap) ->
-    Value = validate_option(Opt, Value0),
-    OptsMap#{Opt => Value};
-handle_option(jwt_certfile = Opt, unbound, #{algorithm := 'public-key'}) ->
-    throw({error, {options, {Opt, unbound}}});
-handle_option(jwt_certfile = Opt, Value, #{algorithm := 'public-key'} = OptsMap) ->
-    OptsMap#{Opt => Value};
-handle_option(verify = Opt, Value0, #{enable_ssl := true} = OptsMap) ->
-    Value = validate_option(Opt, Value0),
-    OptsMap#{Opt => Value};
-handle_option(cacertfile = Opt, Value, #{enable_ssl := true} = OptsMap)
-  when Value =/= unbound ->
-    OptsMap#{Opt => Value};
-handle_option(certfile, unbound, #{enable_ssl := true} = OptsMap) ->
-    OptsMap;
-handle_option(certfile = Opt, Value, #{enable_ssl := true} = OptsMap) ->
-    OptsMap#{Opt => Value};
-handle_option(keyfile, unbound, #{enable_ssl := true} = OptsMap) ->
-    OptsMap;
-handle_option(keyfile = Opt, Value, #{enable_ssl := true} = OptsMap) ->
-    OptsMap#{Opt => Value};
-handle_option(server_name_indication = Opt, Value0, #{enable_ssl := true} = OptsMap) ->
-    Value = validate_option(Opt, Value0),
-    OptsMap#{Opt => Value};
-handle_option(verify_claims = Opt, Value0, OptsMap) ->
-    Value = handle_verify_claims(Value0),
-    OptsMap#{Opt => Value};
-handle_option(_Opt, _Value, OptsMap) ->
-    OptsMap.
-
-validate_option(refresh_interval, unbound) ->
-    300;
-validate_option(refresh_interval, Value) when is_integer(Value) ->
-    Value;
-validate_option(algorithm, <<"hmac-based">>) ->
-    'hmac-based';
-validate_option(algorithm, <<"public-key">>) ->
-    'public-key';
-validate_option(secret_base64_encoded, unbound) ->
+check_verify_claims([]) ->
     false;
-validate_option(secret_base64_encoded, Value) when is_boolean(Value) ->
-    Value;
-validate_option(verify, unbound) ->
-    verify_none;
-validate_option(verify, true) ->
-    verify_peer;
-validate_option(verify, false) ->
-    verify_none;
-validate_option(server_name_indication, unbound) ->
-    disable;
-validate_option(server_name_indication, <<"disable">>) ->
-    disable;
-validate_option(server_name_indication, Value) when is_list(Value) ->
-    Value;
-validate_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+check_verify_claims([{Name, Expected} | More]) ->
+    check_claim_name(Name) andalso
+    check_claim_expected(Expected) andalso
+    check_verify_claims(More).
 
-handle_verify_claims(Opts0) ->
-    try handle_verify_claims(Opts0, [])
+check_claim_name(exp) ->
+    false;
+check_claim_name(iat) ->
+    false;
+check_claim_name(nbf) ->
+    false;
+check_claim_name(_) ->
+    true.
+
+check_claim_expected(Expected) ->
+    try handle_placeholder(Expected) of
+        _ -> true
     catch
-        error:_ ->
-            throw({error, {options, {verify_claims, Opts0}}})
+        _:_ ->
+            false
     end.
+
+handle_verify_claims(VerifyClaims) ->
+    handle_verify_claims(VerifyClaims, []).
 
 handle_verify_claims([], Acc) ->
     Acc;
-handle_verify_claims([{Name, Expected0} | More], Acc)
-  when is_binary(Name) andalso is_binary(Expected0) ->
+handle_verify_claims([{Name, Expected0} | More], Acc) ->
     Expected = handle_placeholder(Expected0),
     handle_verify_claims(More, [{Name, Expected} | Acc]).
 
@@ -393,19 +320,3 @@ validate_placeholder(<<"clientid">>) ->
     clientid;
 validate_placeholder(<<"username">>) ->
     username.
-
-check_dependencies(Opt, OptsMap) ->
-    case maps:get(Opt, ?RULES) of
-        [] ->
-            true;
-        Deps ->
-            option_already_defined(Opt, OptsMap) orelse
-                dependecies_already_defined(Deps, OptsMap)
-    end.
-
-option_already_defined(Opt, OptsMap) ->
-    maps:get(Opt, OptsMap, unbound) =/= unbound.
-
-dependecies_already_defined(Deps, OptsMap) ->
-    Fun = fun(Opt) -> option_already_defined(Opt, OptsMap) end,
-    lists:all(Fun, Deps).

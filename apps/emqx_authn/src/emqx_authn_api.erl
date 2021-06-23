@@ -20,7 +20,7 @@
         , delete_chain/2
         , lookup_chain/2
         , list_chains/2
-        , add_service/2
+        , create_service/2
         , delete_service/2
         , update_service/2
         , lookup_service/2
@@ -64,11 +64,11 @@
             descr  => "List all chains"
            }).
 
--rest_api(#{name   => add_service,
+-rest_api(#{name   => create_service,
             method => 'POST',
             path   => "/authentication/chains/:bin:id/services",
-            func   => add_service,
-            descr  => "Add service to chain"
+            func   => create_service,
+            descr  => "Create service to chain"
            }).
 
 -rest_api(#{name   => delete_service,
@@ -191,24 +191,44 @@ do_list_chains(_Binding, _Params) ->
     {ok, Chains} = emqx_authn:list_chains(),
     return({ok, Chains}).
 
-add_service(Binding, Params) ->
-    do_add_service(uri_decode(Binding), maps:from_list(Params)).
+create_service(Binding, Params) ->
+    do_create_service(uri_decode(Binding), lists_to_map(Params)).
 
-do_add_service(#{id := ChainID}, #{<<"name">> := Name,
-                                   <<"type">> := Type,
-                                   <<"params">> := Params}) ->
-    case emqx_authn:add_services(ChainID, [#{name => Name,
-                                                      type => binary_to_existing_atom(Type, utf8),
-                                                      params => maps:from_list(Params)}]) of
-        {ok, Services} ->
-            return({ok, Services});
+
+lists_to_map(L) ->
+    lists_to_map(L, #{}).
+
+lists_to_map([], Acc) ->
+    Acc;
+lists_to_map([{K, V} | More], Acc) when is_list(V) ->
+    NV = lists_to_map(V),
+    lists_to_map(More, Acc#{K => NV});
+lists_to_map([{K, V} | More], Acc) ->
+    lists_to_map(More, Acc#{K => V}).
+
+% hocon_schema:check_plain(emqx_authn_schema,
+%                                    #{<<"chain">> => #{<<"id">> => <<"chain 1">>,
+%                                      <<"services">> => [#{<<"config">> => #{<<"user_id_type">> => <<"username">>,
+%                                                                             <<"password_hash_algorithm">> => <<"sha256">>},
+%                                                           <<"name">> => <<"service 1">>,
+%                                                           <<"type">> => <<"mnesia">>}]}},
+%                                    #{atom_key => true, nullable => true},
+%                                    [chain]).
+
+
+do_create_service(#{id := ChainID}, Service0) ->
+    #{chain := #{services := [Service]}}
+        = hocon_schema:check_plain(emqx_authn_schema,
+                                   #{<<"chain">> => #{<<"id">> => ChainID,
+                                                      <<"services">> => [Service0]}},
+                                   #{atom_key => true, nullable => true},
+                                   [chain]),
+    case emqx_authn:create_service(ChainID, Service) of
+        {ok, NService} ->
+            return({ok, NService});
         {error, Reason} ->
             return(serialize_error(Reason))
-    end;
-%% TODO: Check missed field in params
-do_add_service(_Binding, Params) ->
-    Missed = get_missed_params(Params, [<<"name">>, <<"type">>, <<"params">>]),
-    return(serialize_error({missing_parameter, Missed})).
+    end.
 
 delete_service(Binding, Params) ->
     do_delete_service(uri_decode(Binding), maps:from_list(Params)).
@@ -222,15 +242,30 @@ do_delete_service(#{id := ChainID,
             return(serialize_error(Reason))
     end.
 
+%% TODO: Support incremental update
 update_service(Binding, Params) ->
-    do_update_service(uri_decode(Binding), maps:from_list(Params)).
+    do_update_service(uri_decode(Binding), lists_to_map(Params)).
 
 %% TOOD: PUT method supports creation and update
 do_update_service(#{id := ChainID,
-                    service_name := ServiceName}, Params) ->
-    case emqx_authn:update_service(ChainID, ServiceName, Params) of
-        {ok, Service} ->
-            return({ok, Service});
+                    service_name := ServiceName}, ServiceConfig) ->
+    case emqx_authn:lookup_service(ChainID, ServiceName) of
+        {ok, #{type := Type}} ->
+            Service = #{<<"name">> => ServiceName,
+                        <<"type">> => Type,
+                        <<"config">> => ServiceConfig},
+            #{chain := #{services := [#{config := NServiceConfig}]}}
+                = hocon_schema:check_plain(emqx_authn_schema,
+                                           #{<<"chain">> => #{<<"id">> => ChainID,
+                                                              <<"services">> => [Service]}},
+                                           #{atom_key => true, nullable => true},
+                                           [chain]),
+            case emqx_authn:update_service(ChainID, ServiceName, NServiceConfig) of
+                {ok, NService} ->
+                    return({ok, NService});
+                {error, Reason} ->
+                    return(serialize_error(Reason))
+            end;
         {error, Reason} ->
             return(serialize_error(Reason))
     end.

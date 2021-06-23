@@ -28,8 +28,8 @@
         , delete_chain/1
         , lookup_chain/1
         , list_chains/0
-        , add_services/2
-        , delete_services/2
+        , create_service/2
+        , delete_service/2
         , update_service/3
         , lookup_service/2
         , list_services/1
@@ -128,7 +128,7 @@ delete_chain(ID) ->
                 [] ->
                     {error, {not_found, {chain, ID}}};
                 [#chain{services = Services}] ->
-                    ok = delete_services_(Services),
+                    _ = [do_delete_service(Service) || {_, Service} <- Services],
                     mnesia:delete(?CHAIN_TAB, ID, write)
             end
         end).
@@ -145,49 +145,43 @@ list_chains() ->
     Chains = ets:tab2list(?CHAIN_TAB),
     {ok, [serialize_chain(Chain) || Chain <- Chains]}.
 
-add_services(ChainID, ServiceConfig) ->
+create_service(ChainID, #{name := Name} = Service) ->
     UpdateFun = fun(Chain = #chain{services = Services}) ->
-                    Names = [Name || {Name, _} <- Services] ++ [Name || #{name := Name} <- ServiceConfig],
-                    case no_duplicate_names(Names) of
-                        ok ->
-                            case create_services(ChainID, ServiceConfig) of
-                                {ok, NServices} ->
-                                    NChain = Chain#chain{services = Services ++ NServices},
+                    case lists:keymember(Name, 1, Services) of
+                        true ->
+                            {error, {already_exists, {service, Name}}};
+                        false ->
+                            case do_create_service(ChainID, Service) of
+                                {ok, NService} ->
+                                    NChain = Chain#chain{services = Services ++ [{Name, NService}]},
                                     ok = mnesia:write(?CHAIN_TAB, NChain, write),
-                                    {ok, serialize_service(NServices)};
+                                    {ok, serialize_service(NService)};
                                 {error, Reason} ->
                                     {error, Reason}
-                            end;
-                        {error, {duplicate, Name}} ->
-                            {error, {already_exists, {service, Name}}}
+                            end
                     end
                 end,
     update_chain(ChainID, UpdateFun).
 
-delete_services(ChainID, ServiceNames) ->
-    case no_duplicate_names(ServiceNames) of
-        ok ->
-            UpdateFun = fun(Chain = #chain{services = Services}) ->
-                            case extract_services(ServiceNames, Services) of
-                                {ok, Extracted, Rest} ->
-                                    ok = delete_services_(Extracted),
-                                    NChain = Chain#chain{services = Rest},
-                                    mnesia:write(?CHAIN_TAB, NChain, write);
-                                {error, Reason} ->
-                                    {error, Reason}
-                            end
-                        end,
-            update_chain(ChainID, UpdateFun);
-        {error, Reason} ->
-            {error, Reason}
-    end.
+delete_service(ChainID, ServiceName) ->
+    UpdateFun = fun(Chain = #chain{services = Services}) ->
+                    case lists:keytake(ServiceName, 1, Services) of
+                        false ->
+                            {error, {not_found, {service, ServiceName}}};
+                        {value, Service, NServices} ->
+                            _ = do_delete_service(Service),
+                            NChain = Chain#chain{services = NServices},
+                            mnesia:write(?CHAIN_TAB, NChain, write)
+                    end
+                end,
+    update_chain(ChainID, UpdateFun).
 
 update_service(ChainID, ServiceName, Config) ->
     UpdateFun = fun(Chain = #chain{services = Services}) ->
                     case proplists:get_value(ServiceName, Services, undefined) of
                         undefined ->
                             {error, {not_found, {service, ServiceName}}};
-                        #service{provider   = Provider,
+                        #service{provider = Provider,
                                  config   = OriginalConfig,
                                  state    = State} = Service ->
                             NewConfig = maps:merge(OriginalConfig, Config),
@@ -197,7 +191,7 @@ update_service(ChainID, ServiceName, Config) ->
                                                                state = NState},
                                     NServices = lists:keyreplace(ServiceName, 1, Services, {ServiceName, NService}),
                                     ok = mnesia:write(?CHAIN_TAB, Chain#chain{services = NServices}, write),
-                                    {ok, serialize_service({ServiceName, NService})};
+                                    {ok, serialize_service(NService)};
                                 {error, Reason} ->
                                     {error, Reason}
                             end
@@ -210,11 +204,11 @@ lookup_service(ChainID, ServiceName) ->
         [] ->
             {error, {not_found, {chain, ChainID}}};
         [#chain{services = Services}] ->
-            case lists:keyfind(ServiceName, 1, Services) of
-                false ->
+            case proplists:get_value(ServiceName, Services, undefined) of
+                undefined ->
                     {error, {not_found, {service, ServiceName}}};
                 Service ->
-                    {ok, serialize_service({ServiceName, Service})}
+                    {ok, serialize_service(Service)}
             end
     end.
 
@@ -284,62 +278,28 @@ list_users(ChainID, ServiceName) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-no_duplicate_names(Names) ->
-    no_duplicate_names(Names, #{}).
-
-no_duplicate_names([], _) ->
-    ok;
-no_duplicate_names([Name | More], Acc) ->
-    case maps:is_key(Name, Acc) of
-        false -> no_duplicate_names(More, Acc#{Name => true});
-        true -> {error, {duplicate, Name}}
-    end.
-
-create_services(ChainID, ServiceConfig) ->
-    create_services(ChainID, ServiceConfig, []).
-
-create_services(_ChainID, [], Acc) ->
-    {ok, lists:reverse(Acc)};
-create_services(ChainID, [#{name := Name,
-                            type := Type,
-                            config := Config,
-                            original_config := OriginalConfig} | More], Acc) ->
+do_create_service(ChainID, #{name := Name,
+                             type := Type,
+                             config := Config}) ->
     Provider = service_provider(Type),
     case Provider:create(ChainID, Name, Config) of
         {ok, State} ->
             Service = #service{name = Name,
                                type = Type,
                                provider = Provider,
-                               config = OriginalConfig,
+                               config = Config,
                                state = State},
-            create_services(ChainID, More, [{Name, Service} | Acc]);
+            {ok, Service};
         {error, Reason} ->
-            delete_services_(Acc),
             {error, Reason}
     end.
 
 service_provider(mnesia) -> emqx_authn_mnesia;
 service_provider(jwt) -> emqx_authn_jwt.
 
-delete_services_([]) ->
-    ok;
-delete_services_([{_, #service{provider = Provider, state = State}} | More]) ->
-    Provider:destroy(State),
-    delete_services_(More).
-
-extract_services(ServiceNames, Services) ->
-    extract_services(ServiceNames, Services, []).
-
-extract_services([], Rest, Extracted) ->
-    {ok, lists:reverse(Extracted), Rest};
-extract_services([ServiceName | More], Services, Acc) ->
-    case lists:keytake(ServiceName, 1, Services) of
-        {value, Extracted, Rest} ->
-            extract_services(More, Rest, [Extracted | Acc]);
-        false ->
-            {error, {not_found, {service, ServiceName}}}
-    end.
-
+do_delete_service(#service{provider = Provider, state = State}) ->
+    Provider:destroy(State).
+    
 move_service_to_the_front_(ServiceName, Services) ->
     move_service_to_the_front_(ServiceName, Services, []).
 
@@ -415,11 +375,11 @@ serialize_chain(#chain{id = ID,
       created_at => CreatedAt}.
 
 serialize_services(Services) ->
-    [serialize_service(Service) || Service <- Services].
+    [serialize_service(Service) || {_, Service} <- Services].
 
-serialize_service({_, #service{name = Name,
-                               type = Type,
-                               config = Config}}) ->
+serialize_service(#service{name = Name,
+                           type = Type,
+                           config = Config}) ->
     #{name => Name,
       type => Type,
       config => Config}.
