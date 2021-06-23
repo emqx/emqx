@@ -168,7 +168,7 @@ fields("log") ->
     , {"chars_limit", t(integer(), undefined, -1)}
     , {"supervisor_reports", t(union([error, progress]), undefined, error)}
     , {"max_depth", t(union([infinity, integer()]),
-                      "kernel.error_logger_format_depth", 20)}
+                      "kernel.error_logger_format_depth", 80)}
     , {"formatter", t(union([text, json]), undefined, text)}
     , {"single_line", t(boolean(), undefined, true)}
     , {"rotation", ref("rotation")}

@@ -79,8 +79,10 @@ get_raw_config() ->
 
 -spec init(raw_config()) -> {ok, state()}.
 init({}) ->
-    {ok, RawConf} = hocon:load(emqx_conf_name(), #{format => map}),
-    {ok, #{raw_config => RawConf, handlers => #{?MOD => ?MODULE}}}.
+    {ok, RawConf} = hocon:load(emqx_conf_name(), #{format => richmap}),
+    save_config_to_memory(RawConf),
+    {ok, #{raw_config => hocon_schema:richmap_to_map(RawConf),
+           handlers => #{?MOD => ?MODULE}}}.
 
 handle_call(get_raw_config, _From, State = #{raw_config := RawConf}) ->
     {reply, RawConf, State};
@@ -149,14 +151,15 @@ merge_to_old_config(UpdateReq, RawConf) ->
 
 %%============================================================================
 save_configs(RootKeys, Conf) ->
-    {AppEnvs, MappedConf} = hocon_schema:map(emqx_schema, Conf, all,
-        #{atom_key => true, return_plain => true}),
+    save_config_to_memory(Conf),
+    save_config_to_disk(RootKeys, Conf).
+
+save_config_to_memory(Conf) ->
+    {MappedEnvs, NewConf} = hocon_schema:map_translate(emqx_schema, Conf, #{}),
     lists:foreach(fun({AppName, Envs}) ->
             [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
-        end, AppEnvs),
-    %% overwrite the config to disk and memory
-    emqx_config:put(MappedConf),
-    save_config_to_disk(RootKeys, Conf).
+        end, MappedEnvs),
+    emqx_config:put(hocon_schema:richmap_to_map(NewConf)).
 
 save_config_to_disk(RootKeys, Conf) ->
     FileName = emqx_override_conf_name(),
