@@ -25,15 +25,6 @@ usage() ->
 -type app() :: atom().
 -type deps_overlay() :: {re, string()} | app().
 
-%% deps/0 returns the dependency overlays.
-%% {re, Pattern} to match application names using regexp pattern
--spec deps(string()) -> [{app(), [deps_overlay()]}].
-deps("emqx-edge" ++ _) ->
-  %% special case for edge
-  base_deps() ++ [{{re, ".+"}, [{exclude, emqx_reloader}]}];
-deps(_Profile) ->
-  base_deps().
-
 base_deps() ->
   %% make sure emqx_dashboard depends on all other emqx_xxx apps
   %% so the appup instructions for emqx_dashboard is always the last
@@ -74,7 +65,7 @@ expand_deps([Dep | Deps], AppNames, Acc) ->
 inject(Profile) ->
   LibDir = lib_dir(Profile),
   AppNames = list_apps(LibDir),
-  Deps0 = lists:flatmap(fun(Dep) -> expand_names(Dep, AppNames) end, deps(Profile)),
+  Deps0 = lists:flatmap(fun(Dep) -> expand_names(Dep, AppNames) end, base_deps()),
   Deps1 = merge(Deps0, []),
   Deps2 = lists:map(fun({Name, DepsX}) ->
                         NewDeps = expand_deps(DepsX, AppNames, []),
