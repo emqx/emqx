@@ -83,6 +83,7 @@ jobs:
     - name: build
       env:
         PYTHON: python
+        DIAGNOSTIC: 1
       run: |
         $env:PATH = "${{ steps.install_erlang.outputs.erlpath }}\bin;$env:PATH"
 
