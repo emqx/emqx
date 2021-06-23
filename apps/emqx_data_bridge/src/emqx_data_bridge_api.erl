@@ -76,7 +76,7 @@ create_bridge(#{name := Name}, Params) ->
     BridgeType = proplists:get_value(<<"type">>, Params),
     case emqx_resource:check_and_create(
             emqx_data_bridge:name_to_resource_id(Name),
-            emqx_data_bridge:resource_type(BridgeType), Config) of
+            emqx_data_bridge:resource_type(atom(BridgeType)), maps:from_list(Config)) of
         {ok, Data} ->
             update_config_and_reply(Name, BridgeType, Config, Data);
         {error, already_created} ->
@@ -92,7 +92,7 @@ update_bridge(#{name := Name}, Params) ->
     BridgeType = proplists:get_value(<<"type">>, Params),
     case emqx_resource:check_and_update(
             emqx_data_bridge:name_to_resource_id(Name),
-            emqx_data_bridge:resource_type(BridgeType), Config, []) of
+            emqx_data_bridge:resource_type(atom(BridgeType)), maps:from_list(Config), []) of
         {ok, Data} ->
             update_config_and_reply(Name, BridgeType, Config, Data);
         {error, not_found} ->
@@ -136,3 +136,6 @@ delete_config_and_reply(Name) ->
         ok -> {200, #{code => 0, data => #{}}};
         {error, Reason} -> {500, #{code => 102, message => Reason}}
     end.
+
+atom(B) when is_binary(B) ->
+    list_to_existing_atom(binary_to_list(B)).
