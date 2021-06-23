@@ -10,17 +10,23 @@
 structs() -> ["emqx_statsd"].
 
 fields("emqx_statsd") ->
-    [ {server, fun server/1}
+    [ {host, fun host/1}
+    , {port, fun port/1}
     , {prefix, fun prefix/1}
     , {tags, map()}
     , {batch_size, fun batch_size/1}
     , {sample_time_interval, fun duration_s/1}
     , {flush_time_interval,  fun duration_s/1}].
 
-server(type) -> emqx_schema:ip_port();
-server(default) -> "192.168.1.1:8125";
-server(nullable) -> false;
-server(_) -> undefined.
+host(type) -> string();
+host(default) -> "127.0.0.1";
+host(nullable) -> false;
+host(_) -> undefined.
+
+port(type) -> integer();
+port(default) -> 8125;
+port(nullable) -> true;
+port(_) -> undefined.
 
 prefix(type) -> string();
 prefix(default) -> "emqx";

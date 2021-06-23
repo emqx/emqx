@@ -41,7 +41,8 @@ estatsd_child_spec() ->
     , modules  => [estatsd]}.
 
 estatsd_options() ->
-    {Host, Port} =  get_conf(server, {?DEFAULT_HOST, ?DEFAULT_PORT}),
+    Host =  get_conf(host, ?DEFAULT_HOST),
+    Port =  get_conf(port, ?DEFAULT_PORT),
     Prefix = get_conf(prefix, ?DEFAULT_PREFIX),
     Tags = tags(get_conf(tags, ?DEFAULT_TAGS)),
     BatchSize = get_conf(batch_size, ?DEFAULT_BATCH_SIZE),
