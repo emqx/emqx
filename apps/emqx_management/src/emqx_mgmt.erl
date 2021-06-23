@@ -101,16 +101,6 @@
         , delete_banned/1
         ]).
 
--ifndef(EMQX_ENTERPRISE).
-
--export([ enable_telemetry/0
-        , disable_telemetry/0
-        , get_telemetry_status/0
-        , get_telemetry_data/0
-        ]).
-
--endif.
-
 %% Common Table API
 -export([ item/2
         , max_row_limit/0
@@ -497,38 +487,6 @@ create_banned(Banned) ->
 
 delete_banned(Who) ->
     emqx_banned:delete(Who).
-
-
-
-%%--------------------------------------------------------------------
-%% Telemtry API
-%%--------------------------------------------------------------------
-
--ifndef(EMQX_ENTERPRISE).
-
-enable_telemetry() ->
-    lists:foreach(fun enable_telemetry/1,ekka_mnesia:running_nodes()).
-
-enable_telemetry(Node) when Node =:= node() ->
-    emqx_telemetry:enable();
-enable_telemetry(Node) ->
-    rpc_call(Node, enable_telemetry, [Node]).
-
-disable_telemetry() ->
-    lists:foreach(fun disable_telemetry/1,ekka_mnesia:running_nodes()).
-
-disable_telemetry(Node) when Node =:= node() ->
-    emqx_telemetry:disable();
-disable_telemetry(Node) ->
-    rpc_call(Node, disable_telemetry, [Node]).
-
-get_telemetry_status() ->
-    [{enabled, emqx_telemetry:is_enabled()}].
-
-get_telemetry_data() ->
-    emqx_telemetry:get_telemetry().
-
--endif.
 
 %%--------------------------------------------------------------------
 %% Common Table API

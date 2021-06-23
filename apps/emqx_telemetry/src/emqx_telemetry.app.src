@@ -1,6 +1,6 @@
 {application, emqx_telemetry,
  [{description, "EMQ X Telemetry"},
-  {vsn, "4.3.1"}, % strict semver, bump manually!
+  {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_telemetry_sup]},
   {applications, [kernel,stdlib]},
