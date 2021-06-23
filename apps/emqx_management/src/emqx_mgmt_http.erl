@@ -84,10 +84,15 @@ listener_name(Proto) ->
     list_to_atom(atom_to_list(Proto) ++ ":management").
 
 http_handlers() ->
+    Apps = [ App || {App, _, _} <- application:which_applications(),
+                    case re:run(atom_to_list(App), "^emqx") of
+                        {match,[{0,4}]} -> true;
+                        _ -> false
+                    end],
     Plugins = lists:map(fun(Plugin) -> Plugin#plugin.name end, emqx_plugins:list()),
-    [{"/api/v4", minirest:handler(#{apps   => Plugins ++ [emqx_modules] -- ?EXCEPT_PLUGIN,
+    [{"/api/v4", minirest:handler(#{apps   => Plugins ++ Apps -- ?EXCEPT_PLUGIN,
                                     except => ?EXCEPT,
-                                    filter => fun filter/1}),
+                                    filter => fun(_) -> true end}),
                  [{authorization, fun authorize_appid/1}]}].
 
 %%--------------------------------------------------------------------
@@ -118,19 +123,6 @@ authorize_appid(Req) ->
         {basic, AppId, AppSecret} -> emqx_mgmt_auth:is_authorized(AppId, AppSecret);
          _  -> false
     end.
-
--ifdef(EMQX_ENTERPRISE).
-filter(_) ->
-    true.
--else.
-filter(#{app := emqx_modules}) -> true;
-filter(#{app := App}) ->
-    case emqx_plugins:find_plugin(App) of
-        false -> false;
-        Plugin -> Plugin#plugin.active
-    end.
--endif.
-
 
 format(Port) when is_integer(Port) ->
     io_lib:format("0.0.0.0:~w", [Port]);
