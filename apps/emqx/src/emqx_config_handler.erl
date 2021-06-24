@@ -198,10 +198,13 @@ read_old_config(FileName) ->
     end.
 
 emqx_conf_name() ->
-    filename:join([emqx:get_env(plugins_etc_dir), "..", "emqx.conf"]).
+    filename:join([etc_dir(), "emqx.conf"]).
 
 emqx_override_conf_name() ->
     filename:join([emqx:get_env(data_dir), "emqx_override.conf"]).
+
+etc_dir() ->
+    emqx:get_env(etc_dir).
 
 to_richmap(Map) ->
     {ok, RichMap} = hocon:binary(jsx:encode(Map), #{format => richmap}),

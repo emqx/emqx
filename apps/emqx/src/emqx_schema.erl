@@ -57,6 +57,7 @@ structs() -> ["cluster", "node", "rpc", "log", "lager",
 
 includes() ->
     [ "emqx_data_bridge"
+    , "emqx_telemetry"
     ].
 
 fields("cluster") ->
@@ -124,6 +125,7 @@ fields("node") ->
                                        override_env => "EMQX_NODE_COOKIE"
                                       })}
     , {"data_dir", t(string(), "emqx.data_dir", undefined)}
+    , {"etc_dir", t(string(), "emqx.etc_dir", undefined)}
     , {"heartbeat", t(flag(), undefined, false)}
     , {"async_threads", t(range(1, 1024), "vm_args.+A", undefined)}
     , {"process_limit", t(integer(), "vm_args.+P", undefined)}
@@ -474,8 +476,9 @@ fields("telemetry") ->
     , {"report_interval", t(duration_s(), undefined, "7d")}
     ];
 
-fields("emqx_data_bridge") ->
-    emqx_data_bridge_schema:fields("").
+fields(ExtraField) ->
+    Mod = list_to_atom(ExtraField),
+    Mod:fields(ExtraField).
 
 translations() -> ["ekka", "vm_args", "gen_rpc", "kernel", "emqx"].
 
