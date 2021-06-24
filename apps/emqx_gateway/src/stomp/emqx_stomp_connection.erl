@@ -244,7 +244,7 @@ init_state(Transport, Socket, Options) ->
                  peercert => Peercert,
                  conn_mod => ?MODULE
                 },
-    ActiveN = emqx_gateway_utils:action_n(Options),
+    ActiveN = emqx_gateway_utils:active_n(Options),
     %% TODO: RateLimit ? How ?
     Limiter = undefined,
     %RateLimit = emqx_gateway_utils:ratelimit(Options),
@@ -402,10 +402,10 @@ handle_msg({Inet, _Sock, Data}, State = #state{channel = Channel})
   when Inet == tcp;
        Inet == ssl ->
     ?LOG(debug, "RECV ~0p", [Data]),
-    GwId = emqx_stomp_channel:info(gwid, Channel),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
-    ok = emqx_gateway_metrics:inc(GwId, 'bytes.received', Oct),
+    Ctx = emqx_stomp_channel:info(ctx, Channel),
+    ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.received', Oct),
     parse_incoming(Data, State);
 
 handle_msg({incoming, Packet}, State = #state{idle_timer = undefined}) ->
@@ -454,7 +454,9 @@ handle_msg({inet_reply, _Sock, ok}, State = #state{active_n = ActiveN}) ->
             Pubs = emqx_pd:reset_counter(outgoing_pubs),
             Bytes = emqx_pd:reset_counter(outgoing_bytes),
             OutStats = #{cnt => Pubs, oct => Bytes},
-            {ok, check_oom(run_gc(OutStats, State))};
+            {ok, run_gc(OutStats, State)};
+            %% FIXME: check oom ???
+            %%{ok, check_oom(run_gc(OutStats, State))};
         false -> ok
     end;
 
@@ -469,27 +471,27 @@ handle_msg({close, Reason}, State) ->
     handle_info({sock_closed, Reason}, close_socket(State));
 
 handle_msg({event, connected}, State = #state{channel = Channel}) ->
-    GwId = emqx_stomp_channel:info(gwid, Channel),
+    Ctx = emqx_stomp_channel:info(ctx, Channel),
     ClientId = emqx_stomp_channel:info(clientid, Channel),
-    emqx_gateway_cm:insert_channel_info(
-      GwId,
+    emqx_gateway_ctx:insert_channel_info(
+      Ctx,
       ClientId,
       info(State),
       stats(State)
      );
 
 handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
-    GwId = emqx_stomp_channel:info(gwid, Channel),
+    Ctx = emqx_stomp_channel:info(ctx, Channel),
     ClientId = emqx_stomp_channel:info(clientid, Channel),
-    emqx_gateway_cm:set_chan_info(GwId, ClientId, info(State)),
-    emqx_gateway_cm:connection_closed(GwId, ClientId),
+    emqx_gateway_cm:set_chan_info(Ctx, ClientId, info(State)),
+    emqx_gateway_cm:connection_closed(Ctx, ClientId),
     {ok, State};
 
 handle_msg({event, _Other}, State = #state{channel = Channel}) ->
-    GwId = emqx_stomp_channel:info(gwid, Channel),
+    Ctx = emqx_stomp_channel:info(ctx, Channel),
     ClientId = emqx_stomp_channel:info(clientid, Channel),
-    emqx_gateway_cm:set_chan_info(GwId, ClientId, info(State)),
-    emqx_gateway_cm:set_chan_stats(GwId, ClientId, stats(State)),
+    emqx_gateway_ctx:set_chan_info(Ctx, ClientId, info(State)),
+    emqx_gateway_ctx:set_chan_stats(Ctx, ClientId, stats(State)),
     {ok, State};
 
 handle_msg({timeout, TRef, TMsg}, State) ->
@@ -589,9 +591,9 @@ handle_timeout(_TRef, limit_timeout, State) ->
 handle_timeout(_TRef, emit_stats, State = #state{channel = Channel, transport = Transport,
         socket = Socket}) ->
     emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
-    GwId = emqx_stomp_channel:info(gwid, Channel),
+    Ctx = emqx_stomp_channel:info(ctx, Channel),
     ClientId = emqx_stomp_channel:info(clientid, Channel),
-    emqx_gateway_cm:set_chan_stats(GwId, ClientId, stats(State)),
+    emqx_gateway_cm:set_chan_stats(Ctx, ClientId, stats(State)),
     {ok, State#state{stats_timer = undefined}};
 
 handle_timeout(TRef, keepalive, State = #state{transport = Transport,
@@ -679,13 +681,13 @@ handle_outgoing(Packet, State) ->
     send((serialize_and_inc_stats_fun(State))(Packet), State).
 
 serialize_and_inc_stats_fun(#state{serialize = Serialize, channel = Channel}) ->
-    GwId = emqx_stomp_channel:info(gwid, Channel),
+    Ctx = emqx_stomp_channel:info(ctx, Channel),
     fun(Packet) ->
         case emqx_stomp_frame:serialize_pkt(Packet, Serialize) of
             <<>> -> ?LOG(warning, "~s is discarded due to the frame is too large!",
                          [emqx_stomp_frame:format(Packet)]),
-                    ok = emqx_gateway_metrics:inc(GwId, 'delivery.dropped.too_large'),
-                    ok = emqx_gateway_metrics:inc(GwId, 'delivery.dropped'),
+                    ok = emqx_gateway_ctx:metrics_inc(Ctx, 'delivery.dropped.too_large'),
+                    ok = emqx_gateway_ctx:metrics_inc(Ctx, 'delivery.dropped'),
                     <<>>;
             Data -> ?LOG(debug, "SEND ~s", [emqx_stomp_frame:format(Packet)]),
                     ok = inc_outgoing_stats(Packet),
@@ -698,9 +700,9 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize, channel = Channel}) ->
 
 -spec(send(iodata(), state()) -> ok).
 send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) ->
-    GwId = emqx_stomp_channel:info(gwid, Channel),
+    Ctx = emqx_stomp_channel:info(ctx, Channel),
     Oct = iolist_size(IoData),
-    ok = emqx_gateway_metrics:inc(GwId, 'bytes.sent', Oct),
+    ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.sent', Oct),
     inc_counter(outgoing_bytes, Oct),
     emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
     case Transport:async_send(Socket, IoData, [nosuspend]) of

@@ -37,14 +37,21 @@
 
 -export([ authenticate/2
         , open_session/5
-        , set_chann_info/3
-        , set_chann_stats/3
-        %, get_chann_info/0     %% TODO:
-        %, get_chann_stat/0
+        , insert_channel_info/4
+        , set_chan_info/3
+        , set_chan_stats/3
+        %, get_chan_info/0     %% TODO:
+        %, get_chan_stat/0
+        , connection_closed/2
         ]).
 
--export([ publish/3
+-export([ check_acl/4
+        , publish/3
         , subscribe/4
+        ]).
+
+-export([ metrics_inc/2
+        , metrics_inc/3
         ]).
 
 %-export([ recv/3
@@ -98,13 +105,26 @@ open_session(_Ctx = #{gwid := GwId},
     emqx_gateway_cm:open_session(GwId, CleanStart,
                                  ClientInfo, ConnInfo, CreateSessionFun).
 
--spec set_chann_info(context(), binary(), map()) -> boolean().
-set_chann_info(_Ctx = #{gwid := GwId}, ClientId, Info) ->
-    emqx_gateway_cm:set_chann_info(GwId, ClientId, Info).
+insert_channel_info(_Ctx = #{gwid := GwId}, ClientId, Infos, Stats) ->
+    emqx_gateway_cm:insert_channel_info(GwId, ClientId, Infos, Stats).
 
--spec set_chann_stats(context(), binary(), map()) -> boolean().
-set_chann_stats(_Ctx = #{gwid := GwId}, ClientId, Stats) ->
-    emqx_gateway_cm:set_chann_stats(GwId, ClientId, Stats).
+-spec set_chan_info(context(), binary(), map()) -> boolean().
+set_chan_info(_Ctx = #{gwid := GwId}, ClientId, Info) ->
+    emqx_gateway_cm:set_chan_info(GwId, ClientId, Info).
+
+-spec set_chan_stats(context(), binary(), map()) -> boolean().
+set_chan_stats(_Ctx = #{gwid := GwId}, ClientId, Stats) ->
+    emqx_gateway_cm:set_chan_stats(GwId, ClientId, Stats).
+
+-spec connection_closed(context(), binary()) -> boolean().
+connection_closed(_Ctx = #{gwid := GwId}, ClientId) ->
+    emqx_gateway_cm:connection_closed(GwId, ClientId).
+
+-spec check_acl(context(), emqx_types:clientinfo(),
+                emqx_types:pubsub(), emqx_types:topic())
+    -> allow | deny.
+check_acl(_Ctx, ClientInfo, PubSub, Topic) ->
+    emqx_access_control:check_acl(ClientInfo, PubSub, Topic).
 
 %% TODO.
 -spec publish(context(), any(), emqx_types:clientinfo()) -> ok.
@@ -122,6 +142,12 @@ publish(_Ctx, _Msg, _ClientInfo) ->
 %% 4.
 subscribe(_Ctx, _Topic, _Qos, _ClientInfo) ->
     todo.
+
+metrics_inc(_Ctx = #{gwid := GwId}, Name) ->
+    emqx_gateway_metrics:inc(GwId, Name).
+
+metrics_inc(_Ctx = #{gwid := GwId}, Name, Oct) ->
+    emqx_gateway_metrics:inc(GwId, Name, Oct).
 
 %% Client Management Infos
 %%

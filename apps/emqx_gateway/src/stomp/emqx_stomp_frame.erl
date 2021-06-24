@@ -70,7 +70,8 @@
 
 -include("src/stomp/include/emqx_stomp.hrl").
 
--export([ init_parer_state/1
+-export([ initial_parse_state/1
+        , serialize_opts/0
         , parse/2
         , serialize/1
         ]).
@@ -97,16 +98,18 @@
 -record(frame_limit, {max_header_num, max_header_length, max_body_length}).
 
 -type(result() :: {ok, stomp_frame(), binary()}
-                | {more, parser()}
+                | {more, parse_state()}
                 | {error, any()}).
 
--type(parser() :: #{phase := none | command | headers | hdname | hdvalue | body,
-                    pre => binary(),
-                    state := #parser_state{}}).
+-type(parse_state() ::
+      #{phase := none | command | headers | hdname | hdvalue | body,
+        pre => binary(),
+        state := #parser_state{}
+       }).
 
 %% @doc Initialize a parser
--spec init_parer_state([proplists:property()]) -> parser().
-init_parer_state(Opts) ->
+-spec initial_parse_state([proplists:property()]) -> parse_state().
+initial_parse_state(Opts) ->
     #{phase => none, state => #parser_state{limit = limit(Opts)}}.
 
 limit(Opts) ->
@@ -117,7 +120,7 @@ limit(Opts) ->
 g(Key, Opts, Val) ->
     maps:get(Key, Opts, Val).
 
--spec parse(binary(), parser()) -> result().
+-spec parse(binary(), parse_state()) -> result().
 parse(<<>>, Parser) ->
     {more, Parser};
 
@@ -209,6 +212,13 @@ unescape($n)  -> ?LF;
 unescape($c)  -> ?COLON;
 unescape($\\) -> ?BSL;
 unescape(_Ch) -> {error, cannnot_unescape}.
+
+%%--------------------------------------------------------------------
+%% Serialize funcs
+%%--------------------------------------------------------------------
+
+serialize_opts() ->
+    #{}.
 
 serialize(#stomp_frame{command = Cmd, headers = Headers, body = Body}) ->
     Headers1 = lists:keydelete(<<"content-length">>, 1, Headers),

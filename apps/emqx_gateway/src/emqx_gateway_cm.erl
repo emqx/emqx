@@ -27,8 +27,9 @@
 -export([ open_session/5
         , register_channel/4
         , unregister_channel/2
-        , set_chann_info/3
-        , set_chann_stats/3
+        , set_chan_info/3
+        , set_chan_stats/3
+        , connection_closed/2
         ]).
 
 %% gen_server callbacks
@@ -94,12 +95,16 @@ unregister_channel(GwId, ClientId) when is_binary(ClientId) ->
     true = do_unregister_channel(GwId, {ClientId, self()}, cmtabs(GwId)),
     ok.
 
--spec set_chann_info(atom(), binary(), emqx_types:clientinfo()) -> ok.
-set_chann_info(_GwId, _ClientId, _ClientInfo) ->
+-spec set_chan_info(atom(), binary(), emqx_types:clientinfo()) -> ok.
+set_chan_info(_GwId, _ClientId, _ClientInfo) ->
     todo.
 
--spec set_chann_stats(atom(), binary(), emqx_types:clientinfo()) -> ok.
-set_chann_stats(_GwId, _ClientId, _ClientInfo) ->
+-spec set_chan_stats(atom(), binary(), emqx_types:clientinfo()) -> ok.
+set_chan_stats(_GwId, _ClientId, _ClientInfo) ->
+    todo.
+
+-spec connection_closed(atom(), binary()) -> true.
+connection_closed(_GwId, _ClientId) ->
     todo.
 
 -spec open_session(GwId :: atom(), CleanStart :: boolean(),

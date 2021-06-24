@@ -64,6 +64,13 @@
 
 -define(PACKET(CMD), #stomp_frame{command = CMD}).
 
+-define(PACKET(CMD, Headers), #stomp_frame{command = CMD, headers = Headers}).
+
+-define(PACKET(CMD, Headers, Body), #stomp_frame{command = CMD,
+                                                 headers = Headers,
+                                                 body    = Body
+                                                }).
+
 %%--------------------------------------------------------------------
 %% Frame Size Limits
 %%

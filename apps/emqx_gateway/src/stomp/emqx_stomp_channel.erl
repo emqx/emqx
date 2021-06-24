@@ -33,6 +33,8 @@
 -export([ init/2
         , handle_in/2
         , handle_out/3
+        , handle_deliver/2
+        , terminate/2
         , set_conn_state/2
         ]).
 
@@ -40,8 +42,7 @@
         , handle_info/2
         ]).
 
--export([ send/2
-        , shutdown/2
+-export([ shutdown/2
         , timeout/3
         ]).
 
@@ -72,8 +73,7 @@
           timers :: #{atom() => disable | undefined | reference()},
           transaction :: #{binary() => list()},
           %% Function ref
-          heartfun,
-          sendfun
+          heartfun
          }).
 
 -type(channel() :: #channel{}).
@@ -108,12 +108,8 @@
 %%--------------------------------------------------------------------
 
 %% @doc Init protocol
-init(ConnInfo0 = #{peername := {PeerHost, _},
-                   sockname := {_, SockPort},
-                   sendfun  := SendFun,
-                   heartfun := HeartFun}, Option) ->
-
-    ConnInfo = maps:without([sendfun, heartfun], ConnInfo0),
+init(ConnInfo = #{peername := {PeerHost, _},
+                  sockname := {_, SockPort}}, Option) ->
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Mountpoint = maps:get(mountpoint, Option, undefined),
     ClientInfo = setting_peercert_infos(
@@ -138,8 +134,8 @@ init(ConnInfo0 = #{peername := {PeerHost, _},
             , conninfo = ConnInfo
             , clientinfo = ClientInfo
             , clientinfo_override = Override
-            , heartfun = HeartFun
-            , sendfun = SendFun
+            % TODO:
+            %, heartfun = HeartFun
             , timers = #{}
             , transaction = #{}
             }.
@@ -165,9 +161,9 @@ info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
     ClientId;
 info(conn_state, #channel{conn_state = ConnState}) ->
     ConnState;
-
+info(ctx, #channel{ctx = Ctx}) ->
+    Ctx;
 info(gwid, #channel{ctx = #{gwid := GwId}}) ->
-    %% XXX: emqx_gateway_ctx:gatewayid(GwId)
     GwId.
 
 stats(_Channel) ->
@@ -254,11 +250,11 @@ parse_heartbeat(#stomp_frame{headers = Headers}, ClientInfo) ->
     {ok, ClientInfo#{heartbeat => Heartbeat}}.
 
 fix_mountpoint(_Packet, #{mountpoint := undefined}) -> ok;
-fix_mountpoint(_Packet, ClientInfo = #{mountpoint := MountPoint}) ->
+fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
     %% XXX: Enrich the varibale replacement????
     %%      i.e: ${ClientInfo.auth_result.productKey}
-    MountPoint1 = emqx_mountpoint:replvar(MountPoint, ClientInfo),
-    {ok, ClientInfo#{mountpoint := MountPoint1}}.
+    Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
+    {ok, ClientInfo#{mountpoint := Mountpoint1}}.
 
 set_log_meta(_Packet, #channel{clientinfo = #{clientid := ClientId}}) ->
     emqx_logger:set_metadata_clientid(ClientId),
@@ -316,76 +312,106 @@ process_connect(Channel = #channel{
 %% Handle incoming packet
 %%--------------------------------------------------------------------
 
-%% TODO: Return the packets instead of sendfun
--spec(handle_in(stomp_frame(), channel())
-    -> {ok, channel()}
-     | {error, any(), channel()}
-     | {stop, any(), channel()}).
-handle_in(Frame = #stomp_frame{command = <<"STOMP">>}, Channel) ->
+-spec handle_in(emqx_types:packet(), channel())
+      -> {ok, channel()}
+       | {ok, replies(), channel()}
+       | {shutdown, Reason :: term(), channel()}
+       | {shutdown, Reason :: term(), replies(), channel()}.
+
+handle_in(Frame = ?PACKET(?CMD_STOMP), Channel) ->
     handle_in(Frame#stomp_frame{command = <<"CONNECT">>}, Channel);
 
-handle_in(#stomp_frame{command = <<"CONNECT">>}, Channel = #channel{conn_state = connected}) ->
+handle_in(?PACKET(?CMD_CONNECT),
+          Channel = #channel{conn_state = connected}) ->
     {error, unexpected_connect, Channel};
 
-handle_in(Packet = #stomp_frame{command = <<"CONNECT">>}, Channel) ->
+handle_in(Packet = ?PACKET(?CMD_CONNECT), Channel) ->
     case emqx_misc:pipeline(
            [ fun enrich_conninfo/2
            , fun run_conn_hooks/2
            , fun negotiate_version/2
            , fun enrich_clientinfo/2
            , fun set_log_meta/2
-           %% FIXME: How to implement the banned in the gateway instance?
+           %% TODO: How to implement the banned in the gateway instance?
            %, fun check_banned/2
            , fun auth_connect/2
            ], Packet, Channel#channel{conn_state = connecting}) of
         {ok, _NPacket, NChannel} ->
             process_connect(ensure_connected(NChannel));
         {error, ReasonCode, NChannel} ->
-            handle_out(connerr, {[], undefined, io_lib:format("Login Failed: ~0p", [ReasonCode])}, NChannel)
+            ErrMsg = io_lib:format("Login Failed: ~0p", [ReasonCode]),
+            handle_out(connerr, {[], undefined, ErrMsg}, NChannel)
     end;
 
-handle_in(Frame = #stomp_frame{command = <<"SEND">>, headers = Headers}, Channel) ->
-    case header(<<"transaction">>, Headers) of
-        undefined     -> {ok, handle_recv_send_frame(Frame, Channel)};
-        TransactionId -> add_action(TransactionId, {fun ?MODULE:handle_recv_send_frame/2, [Frame]}, receipt_id(Headers), Channel)
+handle_in(Frame = ?PACKET(?CMD_SEND, Headers),
+          Channel = #channel{
+                       ctx = Ctx,
+                       clientinfo = ClientInfo
+                      }) ->
+    Topic = header(<<"destination">>, Headers),
+    case emqx_gateway_ctx:check_acl(Ctx, ClientInfo, publish, Topic) of
+        deny ->
+            handle_out(error, {receipt_id(Headers), "ACL Deny"}, Channel);
+        allow ->
+            case header(<<"transaction">>, Headers) of
+                undefined ->
+                    handle_recv_send_frame(Frame, Channel);
+                TxId ->
+                    add_action(TxId, {fun ?MODULE:handle_recv_send_frame/2, [Frame]}, receipt_id(Headers), Channel)
+            end
     end;
 
-handle_in(#stomp_frame{command = <<"SUBSCRIBE">>, headers = Headers},
-            Channel = #channel{subscriptions = Subscriptions}) ->
-    Id    = header(<<"id">>, Headers),
+handle_in(?PACKET(?CMD_SUBSCRIBE, Headers),
+          Channel = #channel{
+                       ctx = Ctx,
+                       subscriptions = Subs,
+                       clientinfo = ClientInfo = #{mountpoint := Mountpoint}
+                      }) ->
+    SubId = header(<<"id">>, Headers),
     Topic = header(<<"destination">>, Headers),
     Ack   = header(<<"ack">>, Headers, <<"auto">>),
-    {ok, Channel1} = case lists:keyfind(Id, 1, Subscriptions) of
-                       {Id, Topic, Ack} ->
-                           {ok, Channel};
-                       false ->
-                           emqx_broker:subscribe(Topic),
-                           {ok, Channel#channel{subscriptions = [{Id, Topic, Ack}|Subscriptions]}}
-                   end,
-    maybe_send_receipt(receipt_id(Headers), Channel1);
 
-handle_in(#stomp_frame{command = <<"UNSUBSCRIBE">>, headers = Headers},
-            Channel = #channel{subscriptions = Subscriptions}) ->
-    Id = header(<<"id">>, Headers),
+    MountedTopic = emqx_mountpoint:mount(Mountpoint, Topic),
 
-    {ok, Channel1} = case lists:keyfind(Id, 1, Subscriptions) of
-                       {Id, Topic, _Ack} ->
+    case lists:keyfind(SubId, 1, Subs) of
+        {SubId, MountedTopic, Ack} ->
+            maybe_outgoing_receipt(receipt_id(Headers), Channel);
+        {SubId, _OtherTopic, _OtherAck} ->
+            %% FIXME:
+            ?LOG(error, "Conflicts with subscribed topics ~s, id: ~s",
+                        [_OtherTopic, SubId]),
+            ErrMsg = "Conflict subscribe id ",
+            handle_out(error, {receipt_id(Headers), ErrMsg}, Channel);
+        false ->
+            case emqx_gateway_ctx:check_acl(Ctx, ClientInfo, subscribe, Topic) of
+                deny ->
+                    handle_out(error, {receipt_id(Headers), "ACL Deny"}, Channel);
+                allow ->
+                    _ = emqx_broker:subscribe(MountedTopic),
+                    maybe_outgoing_receipt(
+                      receipt_id(Headers),
+                      Channel#channel{subscriptions = [{SubId, MountedTopic, Ack} | Subs]}
+                     )
+            end
+    end;
+
+handle_in(?PACKET(?CMD_UNSUBSCRIBE, Headers),
+          Channel = #channel{subscriptions = Subs}) ->
+    SubId = header(<<"id">>, Headers),
+    {ok, NChannel} = case lists:keyfind(SubId, 1, Subs) of
+                       {SubId, Topic, _Ack} ->
                            ok = emqx_broker:unsubscribe(Topic),
-                           {ok, Channel#channel{subscriptions = lists:keydelete(Id, 1, Subscriptions)}};
+                           {ok, Channel#channel{subscriptions = lists:keydelete(SubId, 1, Subs)}};
                        false ->
                            {ok, Channel}
                    end,
-    maybe_send_receipt(receipt_id(Headers), Channel1);
+    handle_out(receipt, receipt_id(Headers), NChannel);
 
-%% ACK
-%% id:12345
-%% transaction:tx1
-%%
-%% ^@
-handle_in(Frame = #stomp_frame{command = <<"ACK">>, headers = Headers}, Channel) ->
+%% TODO: How to ack a frame ???
+handle_in(Frame = ?PACKET(?CMD_ACK, Headers), Channel) ->
     case header(<<"transaction">>, Headers) of
-        undefined     -> {ok, handle_recv_ack_frame(Frame, Channel)};
-        TransactionId -> add_action(TransactionId, {fun ?MODULE:handle_recv_ack_frame/2, [Frame]}, receipt_id(Headers), Channel)
+        undefined -> handle_recv_ack_frame(Frame, Channel);
+        TxId      -> add_action(TxId, {fun ?MODULE:handle_recv_ack_frame/2, [Frame]}, receipt_id(Headers), Channel)
     end;
 
 %% NACK
@@ -393,63 +419,99 @@ handle_in(Frame = #stomp_frame{command = <<"ACK">>, headers = Headers}, Channel)
 %% transaction:tx1
 %%
 %% ^@
-handle_in(Frame = #stomp_frame{command = <<"NACK">>, headers = Headers}, Channel) ->
+handle_in(Frame = ?PACKET(?CMD_NACK, Headers), Channel) ->
     case header(<<"transaction">>, Headers) of
-        undefined     -> {ok, handle_recv_nack_frame(Frame, Channel)};
-        TransactionId -> add_action(TransactionId, {fun ?MODULE:handle_recv_nack_frame/2, [Frame]}, receipt_id(Headers), Channel)
+        undefined -> handle_recv_nack_frame(Frame, Channel);
+        TxId      -> add_action(TxId, {fun ?MODULE:handle_recv_nack_frame/2, [Frame]}, receipt_id(Headers), Channel)
     end;
 
+%% The transaction header is REQUIRED, and the transaction identifier
+%% will be used for SEND, COMMIT, ABORT, ACK, and NACK frames to bind
+%% them to the named transaction.
+%%
 %% BEGIN
 %% transaction:tx1
 %%
 %% ^@
-handle_in(#stomp_frame{command = <<"BEGIN">>, headers = Headers},
-         Channel = #channel{transaction = Trans}) ->
-    Id = header(<<"transaction">>, Headers),
-    case maps:get(Id, Trans, undefined) of
+handle_in(?PACKET(?CMD_BEGIN, Headers),
+          Channel = #channel{transaction = Trans}) ->
+    TxId = header(<<"transaction">>, Headers),
+    case maps:get(TxId, Trans, undefined) of
         undefined ->
-            Ts = erlang:system_time(millisecond),
-            NChannel = ensure_clean_trans_timer(Channel#channel{transaction = Trans#{Id => {Ts, []}}}),
-            maybe_send_receipt(receipt_id(Headers), NChannel);
+            StartedAt = erlang:system_time(millisecond),
+            NChannel = ensure_clean_trans_timer(
+                         Channel#channel{
+                           transaction = Trans#{TxId => {StartedAt, []}}}
+                        ),
+            handle_out(receipt, receipt_id(Headers), NChannel);
         _ ->
-            send(error_frame(receipt_id(Headers), ["Transaction ", Id, " already started"]), Channel)
+            ErrMsg = ["Transaction ", TxId, " already started"],
+            handle_out(error, {receipt_id(Headers), ErrMsg}, Channel)
     end;
 
 %% COMMIT
 %% transaction:tx1
 %%
 %% ^@
-handle_in(#stomp_frame{command = <<"COMMIT">>, headers = Headers},
-         Channel = #channel{transaction = Trans}) ->
-    Id = header(<<"transaction">>, Headers),
-    case maps:get(Id, Trans, undefined) of
-        {_, Actions} ->
-            NChannel = lists:foldr(fun({Func, Args}, S) ->
-                erlang:apply(Func, Args ++ [S])
-            end, Channel#channel{transaction = maps:remove(Id, Trans)}, Actions),
-            maybe_send_receipt(receipt_id(Headers), NChannel);
-        _ ->
-            send(error_frame(receipt_id(Headers), ["Transaction ", Id, " not found"]), Channel)
-    end;
+handle_in(?PACKET(?CMD_COMMIT, Headers), Channel) ->
+    with_transaction(Headers, Channel, fun(TxId, Actions) ->
+        Chann0 = remove_trans(TxId, Channel),
+        case trans_pipeline(lists:reverse(Actions), [], Chann0) of
+            {ok, Outgoings, Chann1} ->
+                maybe_outgoing_receipt(receipt_id(Headers), Outgoings, Chann1);
+            {error, Reason} ->
+                %% FIXME: atomic for transaction ??
+                ErrMsg = io_lib:format("Execute transaction ~s falied: ~0p",
+                                       [TxId, Reason]
+                                      ),
+                handle_out(error, {receipt_id(Headers), ErrMsg}, Chann0)
+        end
+    end);
 
 %% ABORT
 %% transaction:tx1
 %%
 %% ^@
-handle_in(#stomp_frame{command = <<"ABORT">>, headers = Headers},
-         Channel = #channel{transaction = Trans}) ->
-    Id = header(<<"transaction">>, Headers),
-    case maps:get(Id, Trans, undefined) of
-        {_, _Actions} ->
-            NChannel = Channel#channel{transaction = maps:remove(Id, Trans)},
-            maybe_send_receipt(receipt_id(Headers), NChannel);
-        _ ->
-            send(error_frame(receipt_id(Headers), ["Transaction ", Id, " not found"]), Channel)
-    end;
+handle_in(?PACKET(?CMD_ABORT, Headers),
+          Channel = #channel{transaction = Trans}) ->
+    with_transaction(Headers, Channel, fun(Id, _Actions) ->
+        NChannel = Channel#channel{transaction = maps:remove(Id, Trans)},
+        handle_out(receipt, receipt_id(Headers), NChannel)
+    end);
 
-handle_in(#stomp_frame{command = <<"DISCONNECT">>, headers = Headers}, Channel) ->
-    _ = maybe_send_receipt(receipt_id(Headers), Channel),
-    {stop, normal, Channel}.
+handle_in(?PACKET(?CMD_DISCONNECT, Headers), Channel) ->
+    shutdown_with_recepit(normal, receipt_id(Headers), Channel);
+
+handle_in({frame_error, Reason}, Channel = #channel{conn_state = _ConnState}) ->
+    ?LOG(error, "Unexpected frame error: ~p", [Reason]),
+    shutdown(Reason, Channel).
+
+with_transaction(Headers, Channel = #channel{transaction = Trans}, Fun) ->
+    Id = header(<<"transaction">>, Headers),
+    ReceiptId = receipt_id(Headers),
+    case maps:get(Id, Trans, undefined) of
+        {_, Actions} ->
+            Fun(Id, Actions);
+        _ ->
+            ErrMsg =  ["Transaction ", Id, " not found"],
+            handle_out(error, {ReceiptId, ErrMsg}, Channel)
+    end.
+
+remove_trans(Id, Channel = #channel{transaction = Trans}) ->
+    Channel#channel{transaction = maps:remove(Id, Trans)}.
+
+trans_pipeline([], Outgoings, Channel) ->
+    {ok, Outgoings, Channel};
+
+trans_pipeline([{Func, Args}|More], Outgoings, Channel) ->
+    case erlang:apply(Func, Args ++ [Channel]) of
+        {ok, NChannel} ->
+            trans_pipeline(More, Outgoings, NChannel);
+        {ok, Outgoings1, NChannel} ->
+            trans_pipeline(more, Outgoings ++ Outgoings1, NChannel);
+        {error, Reason} ->
+            {error, Reason, Channel}
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packet
@@ -467,8 +529,7 @@ handle_out(connerr, {Headers, ReceiptId, ErrMsg}, Channel) ->
 
 handle_out(error, {ReceiptId, ErrMsg}, Channel) ->
     Frame = error_frame(ReceiptId, ErrMsg),
-    %% FIXME: Conver SendFunc to a packets array
-    send(Frame, Channel);
+    {ok, Frame, Channel};
 
 handle_out(connected, Headers, Channel = #channel{conninfo = ConnInfo}) ->
     %% XXX: connection_accepted is not defined by stomp protocol
@@ -478,9 +539,11 @@ handle_out(connected, Headers, Channel = #channel{conninfo = ConnInfo}) ->
               ],
     {ok, Replies, ensure_heartbeart_timer(Channel)};
 
+handle_out(receipt, undefined, Channel) ->
+    {ok, Channel};
 handle_out(receipt, ReceiptId, Channel) ->
     Frame = receipt_frame(ReceiptId),
-    send(Frame, Channel).
+    {ok, Frame, Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle call
@@ -491,8 +554,8 @@ handle_out(receipt, ReceiptId, Channel) ->
        | {shutdown, Reason :: term(), Reply :: term(), channel()}
        | {shutdown, Reason :: term(), Reply :: term(), emqx_types:packet(), channel()}).
 handle_call(kick, Channel) ->
-    Channel1 = ensure_disconnected(kicked, Channel),
-    shutdown_and_reply(kicked, ok, Channel1);
+    NChannel = ensure_disconnected(kicked, Channel),
+    shutdown_and_reply(kicked, ok, NChannel);
 
 handle_call(discard, Channel) ->
     shutdown_and_reply(discarded, ok, Channel);
@@ -551,8 +614,8 @@ handle_call(Req, Channel) ->
 %                     clientinfo = ClientInfo = #{zone := Zone}}) ->
 %    emqx_zone:enable_flapping_detect(Zone)
 %        andalso emqx_flapping:detect(ClientInfo),
-%    Channel1 = ensure_disconnected(Reason, mabye_publish_will_msg(Channel)),
-%    case maybe_shutdown(Reason, Channel1) of
+%    NChannel = ensure_disconnected(Reason, mabye_publish_will_msg(Channel)),
+%    case maybe_shutdown(Reason, NChannel) of
 %        {ok, Channel2} -> {ok, {event, disconnected}, Channel2};
 %        Shutdown -> Shutdown
 %    end;
@@ -578,42 +641,83 @@ ensure_disconnected(Reason, Channel = #channel{conninfo = ConnInfo,
     ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo]),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
-%% TODO: Remove this func
-send(Msg = #message{topic = Topic, headers = Headers, payload = Payload},
-     Channel = #channel{subscriptions = Subscriptions}) ->
-    case lists:keyfind(Topic, 2, Subscriptions) of
-        {Id, Topic, Ack} ->
-            Headers0 = [{<<"subscription">>, Id},
-                        {<<"message-id">>, next_msgid()},
-                        {<<"destination">>, Topic},
-                        {<<"content-type">>, <<"text/plain">>}],
-            Headers1 = case Ack of
-                           _ when Ack =:= <<"client">> orelse Ack =:= <<"client-individual">> ->
-                               Headers0 ++ [{<<"ack">>, next_ackid()}];
-                           _ ->
-                               Headers0
-                       end,
-            Frame = #stomp_frame{command = <<"MESSAGE">>,
-                                 headers = Headers1 ++ maps:get(stomp_headers, Headers, []),
-                                 body = Payload},
-            send(Frame, Channel);
-        false ->
-            ?LOG(error, "Stomp dropped: ~p", [Msg]),
-            {error, dropped, Channel}
-    end;
+%%--------------------------------------------------------------------
+%% Handle Delivers from broker to client
+%%--------------------------------------------------------------------
 
-send(Frame, Channel = #channel{sendfun = {Fun, Args}}) ->
-    ?LOG(info, "SEND Frame: ~s", [emqx_stomp_frame:format(Frame)]),
-    Data = emqx_stomp_frame:serialize(Frame),
-    ?LOG(debug, "SEND ~p", [Data]),
-    erlang:apply(Fun, [Data] ++ Args),
-    {ok, Channel}.
+-spec(handle_deliver(list(emqx_types:deliver()), channel())
+      -> {ok, channel()}
+       | {ok, replies(), channel()}).
+
+handle_deliver(Delivers,
+               Channel = #channel{
+                            clientinfo = ClientInfo,
+                            subscriptions = Subs
+                           }) ->
+
+    %% TODO: Re-deliver ???
+    %%       Shared-subscription support ???
+
+    Frames0 = lists:foldl(fun({_, _, Message}, Acc) ->
+                Topic0 = emqx_message:topic(Message),
+                case lists:keyfind(Topic0, 2, Subs) of
+                    {Id, Topic, Ack} ->
+                        %% XXX: refactor later
+                        metrics_inc('messages.delivered', Channel),
+                        NMessage = run_hooks('message.delivered',
+                                             [ClientInfo],
+                                             Message
+                                            ),
+                        Topic = emqx_message:topic(NMessage),
+                        Headers = emqx_message:get_headers(NMessage),
+                        Payload = emqx_message:payload(NMessage),
+                        Headers0 = [{<<"subscription">>, Id},
+                                    {<<"message-id">>, next_msgid()},
+                                    {<<"destination">>, Topic},
+                                    {<<"content-type">>, <<"text/plain">>}],
+                        Headers1 = case Ack of
+                                       _ when Ack =:= <<"client">>;
+                                              Ack =:= <<"client-individual">> ->
+                                           Headers0 ++ [{<<"ack">>, next_ackid()}];
+                                       _ ->
+                                           Headers0
+                                   end,
+                        Frame = #stomp_frame{command = <<"MESSAGE">>,
+                                             headers = Headers1 ++ maps:get(stomp_headers, Headers, []),
+                                             body = Payload
+                                            },
+                        [Frame|Acc];
+                    false ->
+                        ?LOG(error, "Dropped message ~0p due to not found "
+                                    "subscription id for ~s",
+                                    [Message, emqx_message:topic(Message)]),
+                        metrics_inc('delivery.dropped', Channel),
+                        metrics_inc('delivery.dropped.no_subid', Channel),
+                        Acc
+                end                             
+              end, [], Delivers),
+    {ok, [{outgoing, lists:reverse(Frames0)}], Channel}.
+
+%%--------------------------------------------------------------------
+%% Terminate
+%%--------------------------------------------------------------------
+
+terminate(_Reason, _Channel) ->
+    ok.
 
 reply(Reply, Channel) ->
     {reply, Reply, Channel}.
 
-shutdown(_Reason, _Channel) ->
-    ok.
+shutdown(Reason, Channel) ->
+    {shutdown, Reason, Channel}.
+
+shutdown_with_recepit(Reason, ReceiptId, Channel) ->
+    case ReceiptId of
+        undefined ->
+            {shutdown, Reason, Channel};
+        _ ->
+            {shutdown, Reason, receipt_frame(ReceiptId), Channel}
+    end.
 
 shutdown(Reason, AckFrame, Channel) ->
     {shutdown, Reason, AckFrame, Channel}.
@@ -632,7 +736,7 @@ timeout(_TRef, {incoming, NewVal},
 
 timeout(_TRef, {outgoing, NewVal},
         Channel = #channel{heartbeat = HrtBt,
-                             heartfun = {Fun, Args}}) ->
+                           heartfun = {Fun, Args}}) ->
     case emqx_stomp_heartbeat:check(outgoing, NewVal, HrtBt) of
         {error, timeout} ->
             _ = erlang:apply(Fun, Args),
@@ -643,7 +747,7 @@ timeout(_TRef, {outgoing, NewVal},
 
 timeout(_TRef, clean_trans, Channel = #channel{transaction = Trans}) ->
     Now = erlang:system_time(millisecond),
-    NTrans = maps:filter(fun(_, {Ts, _}) -> Ts + ?TRANS_TIMEOUT < Now end, Trans),
+    NTrans = maps:filter(fun(_, {StartedAt, _}) -> StartedAt + ?TRANS_TIMEOUT < Now end, Trans),
     {ok, ensure_clean_trans_timer(Channel#channel{transaction = NTrans})}.
 
 do_negotiate_version(undefined) ->
@@ -661,25 +765,6 @@ do_negotiate_version(Ver, [AcceptVer|_]) when Ver >= AcceptVer ->
     {ok, AcceptVer};
 do_negotiate_version(Ver, [_|T]) ->
     do_negotiate_version(Ver, T).
-
-add_action(Id, Action, ReceiptId, Channel = #channel{transaction = Trans}) ->
-    case maps:get(Id, Trans, undefined) of
-        {Ts, Actions} ->
-            NTrans = Trans#{Id => {Ts, [Action|Actions]}},
-            {ok, Channel#channel{transaction = NTrans}};
-        _ ->
-            send(error_frame(ReceiptId, ["Transaction ", Id, " not found"]), Channel)
-    end.
-
-maybe_send_receipt(undefined, Channel) ->
-    {ok, Channel};
-maybe_send_receipt(ReceiptId, Channel) ->
-    send(receipt_frame(ReceiptId), Channel).
-
-ack(_Id, Channel) ->
-    Channel.
-
-nack(_Id, Channel) -> Channel.
 
 header(Name, Headers) ->
     get_value(Name, Headers).
@@ -716,40 +801,67 @@ next_ackid() ->
     put(ackid, AckId + 1),
     AckId.
 
-make_mqtt_message(Topic, Headers, Body) ->
-    Msg = emqx_message:make(stomp, Topic, Body),
-    Headers1 = lists:foldl(fun(Key, Headers0) ->
-                               proplists:delete(Key, Headers0)
-                           end, Headers, [<<"destination">>,
-                                          <<"content-length">>,
-                                          <<"content-type">>,
-                                          <<"transaction">>,
-                                          <<"receipt">>]),
-    emqx_message:set_headers(#{stomp_headers => Headers1}, Msg).
+frame2message(?PACKET(?CMD_SEND, Headers, Body),
+              #channel{
+                 conninfo = #{proto_ver := ProtoVer},
+                 clientinfo = #{
+                    protocol := Protocol,
+                    clientid := ClientId,
+                    username := Username,
+                    peerhost := PeerHost,
+                    mountpoint := Mountpoint
+                 }}) ->
+    Topic = header(<<"destination">>, Headers),
+    Msg = emqx_message:make(ClientId, Topic, Body),
+    NMsg = emqx_message:set_headers(#{proto_ver => ProtoVer,
+                                      protocol => Protocol,
+                                      username => Username,
+                                      peerhost => PeerHost
+                                     }, Msg),
+    emqx_mountpoint:mount(Mountpoint, NMsg).
 
 receipt_id(Headers) ->
     header(<<"receipt">>, Headers).
 
 %%--------------------------------------------------------------------
+%% Trans
+
+add_action(TxId, Action, ReceiptId, Channel = #channel{transaction = Trans}) ->
+    case maps:get(TxId, Trans, undefined) of
+        {_StartedAt, Actions} ->
+            NTrans = Trans#{TxId => {_StartedAt, [Action|Actions]}},
+            {ok, Channel#channel{transaction = NTrans}};
+        _ ->
+            {ok, error_frame(ReceiptId, ["Transaction ", TxId, " not found"]), Channel}
+    end.
+
+%%--------------------------------------------------------------------
 %% Transaction Handle
 
-handle_recv_send_frame(#stomp_frame{command = <<"SEND">>, headers = Headers, body = Body}, Channel) ->
-    Topic = header(<<"destination">>, Headers),
-    _ = maybe_send_receipt(receipt_id(Headers), Channel),
-    _ = emqx_broker:publish(
-        make_mqtt_message(Topic, Headers, iolist_to_binary(Body))
-    ),
-    Channel.
+handle_recv_send_frame(Frame = ?PACKET(?CMD_SEND, Headers), Channel) ->
+    Msg = frame2message(Frame, Channel),
+    _ = emqx_broker:publish(Msg),
+    maybe_outgoing_receipt(receipt_id(Headers), Channel).
 
-handle_recv_ack_frame(#stomp_frame{command = <<"ACK">>, headers = Headers}, Channel) ->
-    Id = header(<<"id">>, Headers),
-    _ = maybe_send_receipt(receipt_id(Headers), Channel),
-    ack(Id, Channel).
+handle_recv_ack_frame(?PACKET(?CMD_ACK, Headers), Channel) ->
+    %% TODO: ACK What ???
+    %% ack(Id, Channel)
+    maybe_outgoing_receipt(receipt_id(Headers), Channel).
 
-handle_recv_nack_frame(#stomp_frame{command = <<"NACK">>, headers = Headers}, Channel) ->
-    Id = header(<<"id">>, Headers),
-     _ = maybe_send_receipt(receipt_id(Headers), Channel),
-     nack(Id, Channel).
+handle_recv_nack_frame(?PACKET(?CMD_NACK, Headers), Channel) ->
+    %% TODO: NACK What ???
+    %% nack(Id, Channel)
+    maybe_outgoing_receipt(receipt_id(Headers), Channel).
+
+maybe_outgoing_receipt(undefined, Channel) ->
+    {ok, [], Channel};
+maybe_outgoing_receipt(ReceiptId, Channel) ->
+    {ok, [receipt_frame(ReceiptId)], Channel}.
+
+maybe_outgoing_receipt(undefined, Outgoings, Channel) ->
+    {ok, Outgoings, Channel};
+maybe_outgoing_receipt(ReceiptId, Outgoings, Channel) ->
+    {ok, lists:reverse([receipt_frame(ReceiptId)|Outgoings]), Channel}.
 
 ensure_clean_trans_timer(Channel = #channel{transaction = Trans}) ->
     case maps:size(Trans) of
@@ -808,7 +920,11 @@ interval(clean_trans_timer, _) ->
 %%--------------------------------------------------------------------
 
 run_hooks(Name, Args) ->
+    %% XXX: Is metrics belong emqx core ? or gateway scope
     ok = emqx_metrics:inc(Name), emqx_hooks:run(Name, Args).
 
 run_hooks(Name, Args, Acc) ->
     ok = emqx_metrics:inc(Name), emqx_hooks:run_fold(Name, Args, Acc).
+
+metrics_inc(Name, #channel{ctx = #{gwid := GwId}}) ->
+    emqx_gateway_metrics:inc(GwId, Name).

@@ -134,7 +134,7 @@ idle_timeout(Options) ->
 
 -spec ratelimit(map()) -> esockd_rate_limit:config() | undefined.
 ratelimit(Options) ->
-    maps:get(ratelimit, Options).
+    maps:get(ratelimit, Options, undefined).
 
 -spec frame_options(map()) -> map().
 frame_options(Options) ->
@@ -146,7 +146,7 @@ init_gc_state(Options) ->
 
 -spec force_gc_policy(map()) -> emqx_gc:opts() | undefined.
 force_gc_policy(Options) ->
-    maps:get(force_gc_policy, Options).
+    maps:get(force_gc_policy, Options, undefined).
 
 -spec oom_policy(map()) -> emqx_types:oom_policy().
 oom_policy(Options) ->
