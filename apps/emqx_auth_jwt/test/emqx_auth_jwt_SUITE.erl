@@ -45,9 +45,11 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_auth_jwt]).
 
 set_special_configs(emqx) ->
+    ct:pal("-----------apply app envs"),
     application:set_env(emqx, allow_anonymous, false),
     application:set_env(emqx, acl_nomatch, deny),
     application:set_env(emqx, enable_acl_cache, false),
+    ct:pal("-----------1:~p", [application:get_env(emqx, enable_acl_cache)]),
     LoadedPluginPath = filename:join(["test", "emqx_SUITE_data", "loaded_plugins"]),
     AclFilePath = filename:join(["test", "emqx_SUITE_data", "acl.conf"]),
     application:set_env(emqx, plugins_loaded_file,
