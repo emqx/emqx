@@ -77,8 +77,8 @@ get_raw_config() ->
 
 %%============================================================================
 
--spec init(raw_config()) -> {ok, state()}.
-init({}) ->
+-spec init(term()) -> {ok, state()}.
+init(_) ->
     {ok, RawConf} = hocon:load(emqx_conf_name(), #{format => richmap}),
     save_config_to_memory(RawConf),
     {ok, #{raw_config => hocon_schema:richmap_to_map(RawConf),
@@ -125,7 +125,7 @@ do_update_config([], Handlers, OldConf, UpdateReq) ->
 do_update_config([ConfKey | ConfKeyPath], Handlers, OldConf, UpdateReq) ->
     SubOldConf = get_sub_config(ConfKey, OldConf),
     case maps:find(ConfKey, Handlers) of
-        false -> throw({handler_not_found, ConfKey});
+        error -> throw({handler_not_found, ConfKey});
         {ok, SubHandlers} ->
             NewUpdateReq = do_update_config(ConfKeyPath, SubHandlers, SubOldConf, UpdateReq),
             call_handle_update_config(Handlers, OldConf, #{bin(ConfKey) => NewUpdateReq})
