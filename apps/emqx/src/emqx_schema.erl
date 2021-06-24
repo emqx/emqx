@@ -50,6 +50,9 @@
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([ssl/2, tr_ssl/2, tr_password_hash/2]).
 
+%% will be used by emqx_ct_helper to find the dependent apps
+-export([includes/0]).
+
 structs() -> ["cluster", "node", "rpc", "log", "lager",
               "acl", "mqtt", "zone", "listener", "module", "broker",
               "plugins", "sysmon", "os_mon", "vm_mon", "alarm", "telemetry"]

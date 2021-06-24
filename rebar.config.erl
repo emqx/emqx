@@ -104,7 +104,8 @@ test_plugins() ->
 
 test_deps() ->
     [ {bbmustache, "1.10.0"}
-    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "2.0.0"}}}
+    %, {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "2.0.0"}}}
+    , {emqx_ct_helpers, {git, "https://github.com/terry-xiaoyu/emqx-ct-helpers", {branch, "schema_ref_apps"}}}
     , meck
     ].
 
