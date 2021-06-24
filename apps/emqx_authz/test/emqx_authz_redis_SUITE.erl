@@ -51,7 +51,12 @@ set_special_configs(emqx_authz) ->
                         emqx_ct_helpers:deps_path(emqx_authz, "test")),
     Conf = #{<<"authz">> =>
              #{<<"rules">> =>
-               [#{<<"config">> =>#{<<"meck">> => <<"fake">>},
+               [#{<<"config">> =>#{
+                    <<"server">> => <<"127.0.0.1:6379">>,
+                    <<"password">> => <<"public">>,
+                    <<"pool_size">> => 1,
+                    <<"auto_reconnect">> => true
+                  },
                   <<"principal">> => all,
                   <<"cmd">> => <<"fake cmd">>,
                   <<"type">> => redis}

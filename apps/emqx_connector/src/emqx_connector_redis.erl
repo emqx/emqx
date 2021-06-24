@@ -19,7 +19,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
--type server() :: list().
+-type server() :: tuple().
 -reflect_type([server/0]).
 -typerefl_from_string({server/0, ?MODULE, to_server}).
 -export([to_server/1]).
@@ -69,7 +69,7 @@ fields(sentinel) ->
     [ {servers, #{type => hoconsc:array(server())}}
     , {redis_type, #{type => hoconsc:enum([sentinel]),
                      default => sentinel}}
-    , {sentinel, #{type => binary()}}
+    , {sentinel, #{type => string()}}
     ] ++
     redis_fields() ++
     emqx_connector_schema_lib:ssl_fields().
@@ -83,23 +83,29 @@ on_start(InstId, #{config :=#{redis_type := Type,
                               pool_size := PoolSize,
                               auto_reconnect := AutoReconn} = Config}) ->
     logger:info("starting redis connector: ~p, config: ~p", [InstId, Config]),
+    Servers = case Type of
+                single ->
+                      {Host, Port} = maps:get(server, Config),
+                      [{host, Host}, {port, Port}];
+                _ ->[{servers, maps:get(servers, Config)}]
+              end,
     Opts = [{pool_size, PoolSize},
             {database, Database},
             {password, maps:get(password, Config, "")},
-            {auto_reconnect, reconn_interval(AutoReconn)}],
-    Options = [ {options, init_ssl_opts(Config, InstId)}
-              , {sentinel, maps:get(sentinel, Config, undefined)}
-              , {servers, case Type of
-                            single -> [maps:get(server, Config)];
-                            _ -> maps:get(servers, Config)
-                          end}
-              ],
+            {auto_reconnect, reconn_interval(AutoReconn)}
+           ] ++ Servers,
+    Options = init_ssl_opts(Config, InstId) ++
+              [{sentinel, maps:get(sentinel, Config, undefined)}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     case Type of
         cluster ->
-            {ok, _} = eredis_cluster:start_pool(PoolName, Opts);
+            case eredis_cluster:start_pool(PoolName, Opts ++ [{options, Options}]) of
+                {ok, _} -> ok;
+                {ok, _, _} -> ok;
+                {error, Reason} -> error(connect_redis_cluster_failed, Reason)
+            end;
         _ ->
-            _ = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ Options)
+            _ = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ [{options, Options}])
     end,
     {ok, #{poolname => PoolName, type => Type}}.
 
@@ -109,7 +115,11 @@ on_stop(InstId, #{poolname := PoolName}) ->
 
 on_query(InstId, {cmd, Command}, AfterCommand, #{poolname := PoolName, type := Type} = State) ->
     logger:debug("redis connector ~p received cmd query: ~p, at state: ~p", [InstId, Command, State]),
-    case Result = ecpool:pick_and_do(PoolName, {?MODULE, cmd, [Type, Command]}, no_handover) of
+    Result = case Type of
+                 cluster -> eredis_cluster:q(PoolName, Command);
+                 _ -> ecpool:pick_and_do(PoolName, {?MODULE, cmd, [Type, Command]}, no_handover)
+             end,
+    case Result of
         {error, Reason} ->
             logger:debug("redis connector ~p do cmd query failed, cmd: ~p, reason: ~p", [InstId, Command, Reason]),
             emqx_resource:query_failed(AfterCommand);
@@ -118,15 +128,15 @@ on_query(InstId, {cmd, Command}, AfterCommand, #{poolname := PoolName, type := T
     end,
     Result.
 
-on_health_check(_InstId, #{type := cluster, poolname := PoolName}) ->
+on_health_check(_InstId, #{type := cluster, poolname := PoolName} = State) ->
     Workers = lists:flatten([gen_server:call(PoolPid, get_all_workers) ||
                              PoolPid <- eredis_cluster_monitor:get_all_pools(PoolName)]),
     case length(Workers) > 0 andalso lists:all(
             fun({_, Pid, _, _}) ->
                 eredis_cluster_pool_worker:is_connected(Pid) =:= true
             end, Workers) of
-        true -> {ok, true};
-        false -> {error, false}
+        true -> {ok, State};
+        false -> {error, test_query_failed, State}
     end;
 on_health_check(_InstId, #{poolname := PoolName} = State) ->
     emqx_plugin_libs_pool:health_check(PoolName, fun ?MODULE:do_health_check/1, State).
@@ -166,6 +176,6 @@ redis_fields() ->
 
 to_server(Server) ->
     case string:tokens(Server, ":") of
-        [IP, Port] -> {ok, [{host, IP}, {port, list_to_integer(Port)}]};
+        [Host, Port] -> {ok, {Host, list_to_integer(Port)}};
         _ -> {error, Server}
     end.
