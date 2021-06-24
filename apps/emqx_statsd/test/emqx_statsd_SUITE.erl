@@ -26,3 +26,4 @@ t_statsd(_) ->
             ?assert(true, failed)
     end,
     gen_udp:close(Socket).
+
