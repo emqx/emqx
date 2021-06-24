@@ -80,7 +80,8 @@ get_raw_config() ->
 -spec init(term()) -> {ok, state()}.
 init(_) ->
     {ok, RawConf} = hocon:load(emqx_conf_name(), #{format => richmap}),
-    save_config_to_memory(RawConf),
+    {_MappedEnvs, Conf} = hocon_schema:map_translate(emqx_schema, RawConf, #{}),
+    ok = save_config_to_emqx_config(Conf),
     {ok, #{raw_config => hocon_schema:richmap_to_map(RawConf),
            handlers => #{?MOD => ?MODULE}}}.
 
@@ -157,17 +158,21 @@ merge_to_old_config(UpdateReq, RawConf) ->
     maps:merge(RawConf, UpdateReq).
 
 %%============================================================================
-save_configs(RootKeys, Conf) ->
-    save_config_to_memory(to_richmap(Conf)),
-    save_config_to_disk(RootKeys, Conf).
+save_configs(RootKeys, Conf0) ->
+    {_MappedEnvs, Conf1} = hocon_schema:map_translate(emqx_schema, to_richmap(Conf0), #{}),
+    %save_config_to_app_env(MappedEnvs),
+    save_config_to_emqx_config(hocon_schema:richmap_to_map(Conf1)),
+    save_config_to_disk(RootKeys, Conf0).
 
-save_config_to_memory(RichMapConf) ->
-    {MappedEnvs, NewConf} = hocon_schema:map_translate(emqx_schema, RichMapConf, #{}),
-    lists:foreach(fun({AppName, Envs}) ->
-            [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
-        end, MappedEnvs),
-    emqx_config:put(emqx_config:unsafe_atom_key_map(
-        hocon_schema:richmap_to_map(NewConf))).
+%% We may need also support hot config update for the apps that use application envs.
+%% If so uncomment the following lines to update the configs to application env
+% save_config_to_app_env(MappedEnvs) ->
+%     lists:foreach(fun({AppName, Envs}) ->
+%             [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
+%         end, MappedEnvs).
+
+save_config_to_emqx_config(Conf) ->
+    emqx_config:put(emqx_config:unsafe_atom_key_map(Conf)).
 
 save_config_to_disk(RootKeys, Conf) ->
     FileName = emqx_override_conf_name(),
