@@ -6,6 +6,8 @@ on:
       - v*
       - e*
   pull_request:
+    types:
+      - ready_for_review
 
 jobs:
     run_static_analysis:
