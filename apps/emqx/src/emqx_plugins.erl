@@ -30,6 +30,8 @@
         , reload/1
         , list/0
         , find_plugin/1
+        , generate_configs/1
+        , apply_configs/1
         ]).
 
 -export([funlog/2]).
@@ -171,7 +173,15 @@ load_ext_plugin(PluginDir) ->
                       ?LOG(alert, "plugin_app_file_not_found: ~s", [AppFile]),
                       error({plugin_app_file_not_found, AppFile})
               end,
-    load_plugin_app(AppName, Ebin).
+    ok = load_plugin_app(AppName, Ebin),
+    try
+        ok = generate_configs(AppName, PluginDir)
+    catch
+        throw : {conf_file_not_found, ConfFile} ->
+            %% this is maybe a dependency of an external plugin
+            ?LOG(debug, "config_load_error_ignored for app=~p, path=~s", [AppName, ConfFile]),
+            ok
+    end.
 
 load_plugin_app(AppName, Ebin) ->
     _ = code:add_patha(Ebin),
@@ -236,6 +246,7 @@ plugin(AppName, Type) ->
 
 load_plugin(Name, Persistent) ->
     try
+        ok = ?MODULE:generate_configs(Name),
         case load_app(Name) of
             ok ->
                 start_app(Name, fun(App) -> plugin_loaded(App, Persistent) end);
@@ -351,5 +362,77 @@ plugin_type(backend) -> backend;
 plugin_type(bridge) -> bridge;
 plugin_type(_) -> feature.
 
+
 funlog(Key, Value) ->
     ?LOG(info, "~s = ~p", [string:join(Key, "."), Value]).
+
+generate_configs(App) ->
+    PluginConfDir = emqx:get_env(plugins_etc_dir),
+    PluginSchemaDir = code:priv_dir(App),
+    generate_configs(App, PluginConfDir, PluginSchemaDir).
+
+generate_configs(App, PluginDir) ->
+    PluginConfDir = filename:join([PluginDir, "etc"]),
+    PluginSchemaDir = filename:join([PluginDir, "priv"]),
+    generate_configs(App, PluginConfDir, PluginSchemaDir).
+
+generate_configs(App, PluginConfDir, PluginSchemaDir) ->
+    ConfigFile = filename:join([PluginConfDir, App]) ++ ".config",
+    case filelib:is_file(ConfigFile) of
+        true ->
+            {ok, [Configs]} = file:consult(ConfigFile),
+            apply_configs(Configs);
+        false ->
+            SchemaFile = filename:join([PluginSchemaDir, App]) ++ ".schema",
+            case filelib:is_file(SchemaFile) of
+                true ->
+                    AppsEnv = do_generate_configs(App),
+                    apply_configs(AppsEnv);
+                false ->
+                    SchemaMod = lists:concat([App, "_schema"]),
+                    ConfName = filename:join([PluginConfDir, App]) ++ ".conf",
+                    SchemaFile1 = filename:join([code:lib_dir(App), "ebin", SchemaMod]) ++ ".beam",
+                    do_generate_hocon_configs(App, ConfName, SchemaFile1)
+            end
+    end.
+
+do_generate_configs(App) ->
+    Name1 = filename:join([emqx:get_env(plugins_etc_dir), App]) ++ ".conf",
+    Name2 = filename:join([code:lib_dir(App), "etc", App]) ++ ".conf",
+    ConfFile = case {filelib:is_file(Name1), filelib:is_file(Name2)} of
+                   {true, _} -> Name1;
+                   {false, true} -> Name2;
+                   {false, false} -> error({config_not_found, [Name1, Name2]})
+               end,
+    SchemaFile = filename:join([code:priv_dir(App), App]) ++ ".schema",
+    case filelib:is_file(SchemaFile) of
+        true ->
+            Schema = cuttlefish_schema:files([SchemaFile]),
+            Conf = cuttlefish_conf:file(ConfFile),
+            cuttlefish_generator:map(Schema, Conf, undefined, fun ?MODULE:funlog/2);
+        false ->
+            error({schema_not_found, SchemaFile})
+    end.
+
+do_generate_hocon_configs(App, ConfName, SchemaFile) ->
+    SchemaMod = lists:concat([App, "_schema"]),
+    case {filelib:is_file(ConfName), filelib:is_file(SchemaFile)} of
+        {true, true} ->
+            {ok, RawConfig} = hocon:load(ConfName, #{format => richmap}),
+            Config = hocon_schema:check(list_to_atom(SchemaMod), RawConfig, #{atom_key => true,
+                                                                              return_plain => true}),
+            emqx_config_handler:update_config(emqx_config_handler, Config);
+        {true, false} ->
+            error({schema_not_found, [SchemaFile]});
+        {false, true} ->
+            error({config_not_found, [ConfName]});
+        {false, false} ->
+            error({conf_and_schema_not_found, [ConfName, SchemaFile]})
+    end.
+
+apply_configs([]) ->
+    ok;
+apply_configs([{App, Config} | More]) ->
+    lists:foreach(fun({Key, _}) -> application:unset_env(App, Key) end, application:get_all_env(App)),
+    lists:foreach(fun({Key, Val}) -> application:set_env(App, Key, Val) end, Config),
+    apply_configs(More).
