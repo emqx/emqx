@@ -17,14 +17,26 @@
 
 -behaviour(application).
 
--export([start/2, stop/1]).
+-behaviour(emqx_config_handler).
+
+-export([start/2, stop/1, handle_update_config/2]).
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_data_bridge_sup:start_link(),
     ok = emqx_data_bridge:load_bridges(),
+    emqx_config_handler:add_handler(emqx_data_bridge:config_key_path(), ?MODULE),
     {ok, Sup}.
 
 stop(_State) ->
     ok.
 
 %% internal functions
+handle_update_config({update, Bridge = #{<<"name">> := Name}}, OldConf) ->
+    [Bridge | remove_bridge(Name, OldConf)];
+handle_update_config({delete, Name}, OldConf) ->
+    remove_bridge(Name, OldConf).
+
+remove_bridge(_Name, undefined) ->
+    [];
+remove_bridge(Name, OldConf) ->
+    [B || B = #{<<"name">> := Name0} <- OldConf, Name0 =/= Name].

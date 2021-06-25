@@ -84,7 +84,7 @@ listener_name(Proto) ->
     list_to_atom(atom_to_list(Proto) ++ ":management").
 
 http_handlers() ->
-    Apps = [ App || {App, _, _} <- application:which_applications(),
+    Apps = [ App || {App, _, _} <- application:loaded_applications(),
                     case re:run(atom_to_list(App), "^emqx") of
                         {match,[{0,4}]} -> true;
                         _ -> false
