@@ -419,9 +419,10 @@ do_generate_hocon_configs(App, ConfName, SchemaFile) ->
     case {filelib:is_file(ConfName), filelib:is_file(SchemaFile)} of
         {true, true} ->
             {ok, RawConfig} = hocon:load(ConfName, #{format => richmap}),
-            Config = hocon_schema:check(list_to_atom(SchemaMod), RawConfig, #{atom_key => true,
+            hocon_schema:check(list_to_atom(SchemaMod), RawConfig, #{atom_key => true,
                                                                               return_plain => true}),
-            emqx_config:update_config([App], Config);
+            ok;
+            % emqx_config:update_config([App], Config);
         {true, false} ->
             error({schema_not_found, [SchemaFile]});
         {false, true} ->
