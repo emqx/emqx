@@ -49,8 +49,7 @@ t_load(_) ->
     ?assertEqual(ok, emqx_modules:load()),
     ?assertEqual({error, not_found}, emqx_modules:load(not_existed_module)),
     ?assertEqual({error, not_started}, emqx_modules:unload(emqx_mod_rewrite)),
-    ?assertEqual(ignore, emqx_modules:reload(emqx_mod_rewrite)),
-    ?assertEqual(ok, emqx_modules:reload(emqx_mod_acl_internal)).
+    ?assertEqual(ignore, emqx_modules:reload(emqx_mod_rewrite)).
 
 t_list(_) ->
     ?assertMatch([{_, _} | _ ], emqx_modules:list()).

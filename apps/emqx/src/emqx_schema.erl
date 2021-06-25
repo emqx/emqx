@@ -823,8 +823,7 @@ tr_modules(Conf) ->
         [{emqx_mod_subscription, Subscriptions()}],
         [{emqx_mod_rewrite, Rewrites()}],
         [{emqx_mod_topic_metrics, []}],
-        [{emqx_mod_delayed, []}],
-        [{emqx_mod_acl_internal, [{acl_file, conf_get("acl.acl_file", Conf)}]}]
+        [{emqx_mod_delayed, []}]
     ]).
 
 tr_sysmon(Conf) ->

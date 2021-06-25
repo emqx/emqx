@@ -266,11 +266,18 @@ t_kick_1(_Config) ->
 
 % mqtt connection kicked by coap with same client id
 t_acl(Config) ->
-    %% Update acl file and reload mod_acl_internal
-    Path = filename:join([testdir(proplists:get_value(data_dir, Config)), "deny.conf"]),
-    ok = file:write_file(Path, <<"{deny, {user, \"coap\"}, publish, [\"abc\"]}.">>),
-    OldPath = emqx:get_env(acl_file),
-    emqx_mod_acl_internal:reload([{acl_file, Path}]),
+    OldPath = emqx:get_env(plugins_etc_dir),
+    application:set_env(emqx, plugins_etc_dir,
+                        emqx_ct_helpers:deps_path(emqx_authz, "test")),
+    Conf = #{<<"authz">> =>
+             #{<<"rules">> =>
+               [#{<<"principal">> =>#{<<"username">> => <<"coap">>},
+                  <<"permission">> => deny,
+                  <<"topics">> => [<<"abc">>],
+                  <<"action">> => <<"publish">>}
+               ]}},
+    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf'), jsx:encode(Conf)),
+    application:ensure_all_started(emqx_authz),
 
     emqx:subscribe(<<"abc">>),
     URI = "coap://127.0.0.1/mqtt/adbc?c=client1&u=coap&p=secret",
@@ -282,9 +289,9 @@ t_acl(Config) ->
         ok
     end,
 
-    application:set_env(emqx, acl_file, OldPath),
-    file:delete(Path),
-    emqx_mod_acl_internal:reload([{acl_file, OldPath}]).
+    file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
+    application:set_env(emqx, plugins_etc_dir, OldPath),
+    application:stop(emqx_authz).
 
 t_stats(_) ->
     ok.

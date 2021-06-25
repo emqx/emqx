@@ -80,17 +80,6 @@ unload(ModuleName) ->
     end.
 
 -spec(reload(module()) -> ok | ignore | {error, any()}).
-reload(emqx_mod_acl_internal) ->
-    Modules = emqx:get_env(modules, []),
-    Env = proplists:get_value(emqx_mod_acl_internal, Modules, undefined),
-    case emqx_mod_acl_internal:reload(Env) of
-        ok ->
-            ?LOG(info, "Reload ~s module successfully.", [emqx_mod_acl_internal]),
-            ok;
-        {error, Error} ->
-            ?LOG(error, "Reload module ~s failed, cannot start for ~0p", [emqx_mod_acl_internal, Error]),
-            {error, Error}
-    end;
 reload(_) ->
     ignore.
 
@@ -197,13 +186,6 @@ cli(["unload", Name]) ->
             emqx_ctl:print("Unload module ~s error: ~p.~n", [Name, Reason])
     end;
 
-cli(["reload", "emqx_mod_acl_internal" = Name]) ->
-    case emqx_modules:reload(list_to_atom(Name)) of
-        ok ->
-            emqx_ctl:print("Module ~s reloaded successfully.~n", [Name]);
-        {error, Reason} ->
-            emqx_ctl:print("Reload module ~s error: ~p.~n", [Name, Reason])
-    end;
 cli(["reload", Name]) ->
     emqx_ctl:print("Module: ~p does not need to be reloaded.~n", [Name]);
 
