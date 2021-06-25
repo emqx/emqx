@@ -50,7 +50,7 @@ jobs:
           printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
           docker exec -i erlang sh -c "./rebar3 eunit --application=emqx_auth_ldap"
-          docker exec --env-file .env -i erlang sh -c "make apps/emqx_auth_ldap-ct"
+          docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_ldap"
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
