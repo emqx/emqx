@@ -1,9 +1,6 @@
 name: Check Apps Version
 
-on:
-  pull_request:
-    types:
-      - ready_for_review
+on: [pull_request]
 
 jobs:
   check_apps_version:
