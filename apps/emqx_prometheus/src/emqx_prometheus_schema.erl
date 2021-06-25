@@ -13,25 +13,18 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-module(emqx_prometheus_schema).
 
--module(emqx_prometheus_app).
+-include_lib("typerefl/include/types.hrl").
 
--behaviour(application).
+-behaviour(hocon_schema).
 
--emqx_plugin(?MODULE).
+-export([ structs/0
+        , fields/1]).
 
-%% Application callbacks
--export([ start/2
-        , stop/1
-        ]).
+structs() -> ["emqx_prometheus"].
 
--define(APP, emqx_prometheus).
-
-start(_StartType, _StartArgs) ->
-    PushGateway = emqx_config:get([?APP, push_gateway_server], undefined),
-    Interval = emqx_config:get([?APP, interval], 15000),
-    emqx_prometheus_sup:start_link(PushGateway, Interval).
-
-stop(_State) ->
-    ok.
-
+fields("emqx_prometheus") ->
+    [ {push_gateway_server, emqx_schema:t(string())}
+    , {interval, emqx_schema:t(emqx_schema:duration_ms(), undefined, "15s")}
+    ].
