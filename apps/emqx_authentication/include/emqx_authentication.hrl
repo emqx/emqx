@@ -39,3 +39,5 @@
         , services :: [{service_name(), #service{}}]
         , created_at :: integer()
         }).
+
+-define(AUTH_SHARD, emqx_authentication_shard).
