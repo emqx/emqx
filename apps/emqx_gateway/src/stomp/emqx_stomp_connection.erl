@@ -105,17 +105,16 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
--define(ALARM_TCP_CONGEST(Channel),
-        list_to_binary(io_lib:format("mqtt_conn/congested/~s/~s",
-            [emqx_stomp_channel:info(clientid, Channel),
-             emqx_stomp_channel:info(username, Channel)]))).
-
--define(ALARM_CONN_INFO_KEYS, [
-    socktype, sockname, peername,
-    clientid, username, proto_name, proto_ver, connected_at
-]).
--define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
--define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
+%-define(ALARM_TCP_CONGEST(Channel),
+%        list_to_binary(io_lib:format("mqtt_conn/congested/~s/~s",
+%            [emqx_stomp_channel:info(clientid, Channel),
+%             emqx_stomp_channel:info(username, Channel)]))).
+%-define(ALARM_CONN_INFO_KEYS, [
+%    socktype, sockname, peername,
+%    clientid, username, proto_name, proto_ver, connected_at
+%]).
+%-define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
+%-define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
 
 -dialyzer({no_match, [info/2]}).
 -dialyzer({nowarn_function, [ init/4
@@ -483,8 +482,8 @@ handle_msg({event, connected}, State = #state{channel = Channel}) ->
 handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     Ctx = emqx_stomp_channel:info(ctx, Channel),
     ClientId = emqx_stomp_channel:info(clientid, Channel),
-    emqx_gateway_cm:set_chan_info(Ctx, ClientId, info(State)),
-    emqx_gateway_cm:connection_closed(Ctx, ClientId),
+    emqx_gateway_ctx:set_chan_info(Ctx, ClientId, info(State)),
+    emqx_gateway_ctx:connection_closed(Ctx, ClientId),
     {ok, State};
 
 handle_msg({event, _Other}, State = #state{channel = Channel}) ->
@@ -507,11 +506,11 @@ handle_msg(Msg, State) ->
 %% Terminate
 
 -spec terminate(any(), state()) -> no_return().
-terminate(Reason, State = #state{channel = Channel, transport = Transport,
-          socket = Socket}) ->
+terminate(Reason, State = #state{channel = Channel, transport = _Transport,
+          socket = _Socket}) ->
     try
         Channel1 = emqx_stomp_channel:set_conn_state(disconnected, Channel),
-        emqx_congestion:cancel_alarms(Socket, Transport, Channel1),
+        %emqx_congestion:cancel_alarms(Socket, Transport, Channel1),
         emqx_stomp_channel:terminate(Reason, Channel1),
         close_socket_ok(State)
     catch
@@ -588,23 +587,45 @@ handle_timeout(_TRef, limit_timeout, State) ->
                         },
     handle_info(activate_socket, NState);
 
-handle_timeout(_TRef, emit_stats, State = #state{channel = Channel, transport = Transport,
-        socket = Socket}) ->
-    emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
+handle_timeout(_TRef, emit_stats, State = #state{channel = Channel,
+                                                 transport = _Transport,
+                                                 socket = _Socket}) ->
+    %emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
     Ctx = emqx_stomp_channel:info(ctx, Channel),
     ClientId = emqx_stomp_channel:info(clientid, Channel),
-    emqx_gateway_cm:set_chan_stats(Ctx, ClientId, stats(State)),
+    emqx_gateway_ctx:set_chan_stats(Ctx, ClientId, stats(State)),
     {ok, State#state{stats_timer = undefined}};
 
-handle_timeout(TRef, keepalive, State = #state{transport = Transport,
-                                               socket = Socket,
-                                               channel = Channel})->
+%% Abstraction ???
+%handle_timeout(TRef, keepalive, State = #state{transport = Transport,
+%                                               socket = Socket,
+%                                               channel = Channel})->
+%    case emqx_stomp_channel:info(conn_state, Channel) of
+%        disconnected -> {ok, State};
+%        _ ->
+%            case Transport:getstat(Socket, [recv_oct]) of
+%                {ok, [{recv_oct, RecvOct}]} ->
+%                    handle_timeout(TRef, {keepalive, RecvOct}, State);
+%                {error, Reason} ->
+%                    handle_info({sock_error, Reason}, State)
+%            end
+%    end;
+
+handle_timeout(TRef, TMsg, State = #state{transport = Transport,
+                                          socket = Socket,
+                                          channel = Channel
+                                         })
+  when TMsg =:= incoming;
+       TMsg =:= outgoing ->
+    Stat = case TMsg of incoming -> recv_oct; _ -> send_oct end,
     case emqx_stomp_channel:info(conn_state, Channel) of
         disconnected -> {ok, State};
         _ ->
-            case Transport:getstat(Socket, [recv_oct]) of
+            case Transport:getstat(Socket, [Stat]) of
                 {ok, [{recv_oct, RecvOct}]} ->
-                    handle_timeout(TRef, {keepalive, RecvOct}, State);
+                    handle_timeout(TRef, {incoming, RecvOct}, State);
+                {ok, [{send_oct, SendOct}]} ->
+                    handle_timeout(TRef, {outgoing, SendOct}, State);
                 {error, Reason} ->
                     handle_info({sock_error, Reason}, State)
             end
@@ -704,7 +725,7 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
     Oct = iolist_size(IoData),
     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.sent', Oct),
     inc_counter(outgoing_bytes, Oct),
-    emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
+    %emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
     case Transport:async_send(Socket, IoData, [nosuspend]) of
         ok -> ok;
         Error = {error, _Reason} ->

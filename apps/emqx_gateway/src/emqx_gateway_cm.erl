@@ -27,6 +27,7 @@
 -export([ open_session/5
         , register_channel/4
         , unregister_channel/2
+        , insert_channel_info/4
         , set_chan_info/3
         , set_chan_stats/3
         , connection_closed/2
@@ -95,6 +96,17 @@ unregister_channel(GwId, ClientId) when is_binary(ClientId) ->
     true = do_unregister_channel(GwId, {ClientId, self()}, cmtabs(GwId)),
     ok.
 
+%% @doc Insert/Update the channel info and stats
+-spec(insert_channel_info(atom(),
+                          emqx_types:clientid(),
+                          emqx_types:infos(),
+                          emqx_types:stats()) -> ok).
+insert_channel_info(GwId, ClientId, Info, Stats) ->
+    Chan = {ClientId, self()},
+    true = ets:insert(tabname(info, GwId), {Chan, Info, Stats}),
+    %%?tp(debug, insert_channel_info, #{client_id => ClientId}),
+    ok.
+
 -spec set_chan_info(atom(), binary(), emqx_types:clientinfo()) -> ok.
 set_chan_info(_GwId, _ClientId, _ClientInfo) ->
     todo.
@@ -117,20 +129,20 @@ connection_closed(_GwId, _ClientId) ->
           }}
      | {error, any()}.
 
-open_session(GwId, true = CleanStart, ClientInfo, ConnInfo, CreateSessionFun) ->
+open_session(GwId, true = _CleanStart, ClientInfo, ConnInfo, CreateSessionFun) ->
     Self = self(),
     ClientId = maps:get(clientid, ClientInfo),
-    CleanStart = fun(_) ->
-                     ok = discard_session(GwId, ClientId),
-                     Session = create_session(GwId,
-                                              ClientInfo,
-                                              ConnInfo,
-                                              CreateSessionFun
-                                             ),
-                     register_channel(GwId, ClientId, Self, ConnInfo),
-                     {ok, #{session => Session, present => false}}
-                 end,
-    locker_trans(GwId, ClientId, CleanStart);
+    Fun = fun(_) ->
+              ok = discard_session(GwId, ClientId),
+              Session = create_session(GwId,
+                                       ClientInfo,
+                                       ConnInfo,
+                                       CreateSessionFun
+                                      ),
+              register_channel(GwId, ClientId, Self, ConnInfo),
+              {ok, #{session => Session, present => false}}
+          end,
+    locker_trans(GwId, ClientId, Fun);
 
 open_session(_GwId, false = _CleanStart,
              _ClientInfo, _ConnInfo, _CreateSessionFun) ->
@@ -139,7 +151,7 @@ open_session(_GwId, false = _CleanStart,
 %% @private
 create_session(_GwId, ClientInfo, ConnInfo, CreateSessionFun) ->
     try
-        Session = emqx_gateway_util:apply(
+        Session = emqx_gateway_utils:apply(
                     CreateSessionFun,
                     [ClientInfo, ConnInfo]
                    ),
@@ -197,7 +209,7 @@ discard_session(GwId, ClientId, ChanPid) ->
 %% @doc Lookup channels.
 -spec(lookup_channels(atom(), emqx_types:clientid()) -> list(pid())).
 lookup_channels(GwId, ClientId) ->
-    emqx_cm_registry:lookup_channels(GwId, ClientId).
+    emqx_gateway_cm_registry:lookup_channels(GwId, ClientId).
 
 get_chann_conn_mod(GwId, ClientId, ChanPid) when node(ChanPid) == node() ->
     Chan = {ClientId, ChanPid},

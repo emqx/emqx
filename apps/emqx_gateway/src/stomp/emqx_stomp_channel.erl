@@ -34,16 +34,13 @@
         , handle_in/2
         , handle_out/3
         , handle_deliver/2
+        , handle_timeout/3
         , terminate/2
         , set_conn_state/2
         ]).
 
 -export([ handle_call/2
         , handle_info/2
-        ]).
-
--export([ shutdown/2
-        , timeout/3
         ]).
 
 %% for trans callback
@@ -157,10 +154,18 @@ info(Channel) ->
 info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 
-info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
-    ClientId;
+info(conninfo, #channel{conninfo = ConnInfo}) ->
+    ConnInfo;
 info(conn_state, #channel{conn_state = ConnState}) ->
     ConnState;
+info(clientinfo, #channel{clientinfo = ClientInfo}) ->
+    ClientInfo;
+info(session, _) ->
+    #{};
+info(will_msg, _) ->
+    undefined;
+info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
+    ClientId;
 info(ctx, #channel{ctx = Ctx}) ->
     Ctx;
 info(gwid, #channel{ctx = #{gwid := GwId}}) ->
@@ -179,13 +184,16 @@ enrich_conninfo(_Packet,
     NConnInfo = ConnInfo#{ proto_name => <<"STOMP">>
                          , proto_ver => undefined
                          , clean_start => true
+                         , keepalive => 0
+                         , expiry_interval => 0
                          },
     {ok, Channel#channel{conninfo = NConnInfo}}.
 
-run_conn_hooks(Packet, Channel = #channel{conninfo = ConnInfo}) ->
+run_conn_hooks(Packet, Channel = #channel{ctx = Ctx,
+                                          conninfo = ConnInfo}) ->
     %% XXX: Assign headers of Packet to ConnProps
     ConnProps = #{},
-    case run_hooks('client.connect', [ConnInfo], ConnProps) of
+    case run_hooks(Ctx, 'client.connect', [ConnInfo], ConnProps) of
         Error = {error, _Reason} -> Error;
         _NConnProps ->
             {ok, Packet, Channel}
@@ -273,11 +281,12 @@ auth_connect(_Packet, Channel = #channel{ctx = Ctx,
             {error, Reason}
     end.
 
-ensure_connected(Channel = #channel{conninfo = ConnInfo,
-                                 clientinfo = ClientInfo
-                                }) ->
+ensure_connected(Channel = #channel{
+                              ctx = Ctx,
+                              conninfo = ConnInfo,
+                              clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
-    ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
+    ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
     Channel#channel{conninfo = NConnInfo,
                  conn_state = connected
                 }.
@@ -290,14 +299,14 @@ process_connect(Channel = #channel{
     SessFun = fun(_,_) -> #{} end,
     case emqx_gateway_ctx:open_session(
            Ctx,
-           false,
+           true,
            ClientInfo,
            ConnInfo,
            SessFun
           ) of
         {ok, _Sess} -> %% The stomp protocol doesn't have session
-            #{proto_ver := Version,
-              heartbeat := Heartbeat} = ClientInfo,
+            #{proto_ver := Version} = ConnInfo,
+            #{heartbeat := Heartbeat} = ClientInfo,
             Headers = [{<<"version">>, Version},
                        {<<"heart-beat">>, reverse_heartbeats(Heartbeat)}],
             handle_out(connected, Headers, Channel);
@@ -531,9 +540,12 @@ handle_out(error, {ReceiptId, ErrMsg}, Channel) ->
     Frame = error_frame(ReceiptId, ErrMsg),
     {ok, Frame, Channel};
 
-handle_out(connected, Headers, Channel = #channel{conninfo = ConnInfo}) ->
+handle_out(connected, Headers, Channel = #channel{
+                                            ctx = Ctx,
+                                            conninfo = ConnInfo
+                                           }) ->
     %% XXX: connection_accepted is not defined by stomp protocol
-    _ = run_hooks('client.connack', [ConnInfo, connection_accepted, []]),
+    _ = run_hooks(Ctx, 'client.connack', [ConnInfo, connection_accepted, []]),
     Replies = [{outgoing, connected_frame(Headers)},
                {event, connected}
               ],
@@ -603,30 +615,33 @@ handle_call(Req, Channel) ->
 %    {_RC, NChannel} = process_unsubscribe(TopicFilters, #{}, Channel),
 %    {ok, NChannel};
 %
-%handle_info({sock_closed, Reason}, Channel = #channel{conn_state = idle}) ->
-%    shutdown(Reason, Channel);
-%
-%handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connecting}) ->
-%    shutdown(Reason, Channel);
-%
-%handle_info({sock_closed, Reason}, Channel =
-%            #channel{conn_state = connected,
-%                     clientinfo = ClientInfo = #{zone := Zone}}) ->
-%    emqx_zone:enable_flapping_detect(Zone)
-%        andalso emqx_flapping:detect(ClientInfo),
-%    NChannel = ensure_disconnected(Reason, mabye_publish_will_msg(Channel)),
-%    case maybe_shutdown(Reason, NChannel) of
-%        {ok, Channel2} -> {ok, {event, disconnected}, Channel2};
-%        Shutdown -> Shutdown
-%    end;
-%
-%handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnected}) ->
-%    ?LOG(error, "Unexpected sock_closed: ~p", [Reason]),
-%    {ok, Channel};
-%
-%handle_info(clean_acl_cache, Channel) ->
-%    ok = emqx_acl_cache:empty_acl_cache(),
-%    {ok, Channel};
+handle_info({sock_closed, Reason},
+            Channel = #channel{conn_state = idle}) ->
+    shutdown(Reason, Channel);
+
+handle_info({sock_closed, Reason},
+            Channel = #channel{conn_state = connecting}) ->
+    shutdown(Reason, Channel);
+
+handle_info({sock_closed, Reason},
+            Channel = #channel{conn_state = connected,
+                               clientinfo = _ClientInfo}) ->
+    %% XXX: Flapping detect ???
+    %% How to get the flapping detect policy ???
+    %emqx_zone:enable_flapping_detect(Zone)
+    %    andalso emqx_flapping:detect(ClientInfo),
+    NChannel = ensure_disconnected(Reason, Channel),
+    %% XXX: Session keepper detect here
+    shutdown(Reason, NChannel);
+
+handle_info({sock_closed, Reason},
+            Channel = #channel{conn_state = disconnected}) ->
+    ?LOG(error, "Unexpected sock_closed: ~p", [Reason]),
+    {ok, Channel};
+
+handle_info(clean_acl_cache, Channel) ->
+    ok = emqx_acl_cache:empty_acl_cache(),
+    {ok, Channel};
 
 handle_info(Info, Channel) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
@@ -635,10 +650,13 @@ handle_info(Info, Channel) ->
 %%--------------------------------------------------------------------
 %% Ensure disconnected
 
-ensure_disconnected(Reason, Channel = #channel{conninfo = ConnInfo,
-                                               clientinfo = ClientInfo}) ->
+ensure_disconnected(Reason, Channel = #channel{
+                                         ctx = Ctx,
+                                         conninfo = ConnInfo,
+                                         clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
-    ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo]),
+    ok = run_hooks(Ctx, 'client.disconnected',
+                   [ClientInfo, Reason, NConnInfo]),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
 %%--------------------------------------------------------------------
@@ -651,6 +669,7 @@ ensure_disconnected(Reason, Channel = #channel{conninfo = ConnInfo,
 
 handle_deliver(Delivers,
                Channel = #channel{
+                            ctx = Ctx,
                             clientinfo = ClientInfo,
                             subscriptions = Subs
                            }) ->
@@ -664,7 +683,7 @@ handle_deliver(Delivers,
                     {Id, Topic, Ack} ->
                         %% XXX: refactor later
                         metrics_inc('messages.delivered', Channel),
-                        NMessage = run_hooks('message.delivered',
+                        NMessage = run_hooks(Ctx, 'message.delivered',
                                              [ClientInfo],
                                              Message
                                             ),
@@ -694,9 +713,50 @@ handle_deliver(Delivers,
                         metrics_inc('delivery.dropped', Channel),
                         metrics_inc('delivery.dropped.no_subid', Channel),
                         Acc
-                end                             
+                end
               end, [], Delivers),
     {ok, [{outgoing, lists:reverse(Frames0)}], Channel}.
+
+%%--------------------------------------------------------------------
+%% Handle timeout
+%%--------------------------------------------------------------------
+
+-spec(handle_timeout(reference(), Msg :: term(), channel())
+      -> {ok, channel()}
+       | {ok, replies(), channel()}
+       | {shutdown, Reason :: term(), channel()}).
+
+handle_timeout(_TRef, {incoming, NewVal},
+        Channel = #channel{heartbeat = HrtBt}) ->
+    case emqx_stomp_heartbeat:check(incoming, NewVal, HrtBt) of
+        {error, timeout} ->
+            shutdown(heartbeat_timeout, Channel);
+        {ok, NHrtBt} ->
+            {ok, reset_timer(incoming_timer,
+                             Channel#channel{heartbeat = NHrtBt}
+                            )}
+    end;
+
+handle_timeout(_TRef, {outgoing, NewVal},
+               Channel = #channel{heartbeat = HrtBt}) ->
+    case emqx_stomp_heartbeat:check(outgoing, NewVal, HrtBt) of
+        {error, timeout} ->
+            NHrtBt = emqx_stomp_heartbeat:reset(outgoing, NewVal, HrtBt),
+            NChannel = Channel#channel{heartbeat = NHrtBt},
+            {ok, emqx_stomp_frame:make(heartbeat),
+             reset_timer(outgoing_timer, NChannel)};
+        {ok, NHrtBt} ->
+            {ok, reset_timer(outgoing_timer,
+                             Channel#channel{heartbeat = NHrtBt}
+                            )}
+    end;
+
+handle_timeout(_TRef, clean_trans, Channel = #channel{transaction = Trans}) ->
+    Now = erlang:system_time(millisecond),
+    NTrans = maps:filter(fun(_, {StartedAt, _}) ->
+                 StartedAt + ?TRANS_TIMEOUT < Now
+             end, Trans),
+    {ok, ensure_clean_trans_timer(Channel#channel{transaction = NTrans})}.
 
 %%--------------------------------------------------------------------
 %% Terminate
@@ -724,31 +784,6 @@ shutdown(Reason, AckFrame, Channel) ->
 
 shutdown_and_reply(Reason, Reply, Channel) ->
     {shutdown, Reason, Reply, Channel}.
-
-timeout(_TRef, {incoming, NewVal},
-        Channel = #channel{heartbeat = HrtBt}) ->
-    case emqx_stomp_heartbeat:check(incoming, NewVal, HrtBt) of
-        {error, timeout} ->
-            {shutdown, heartbeat_timeout, Channel};
-        {ok, NHrtBt} ->
-            {ok, reset_timer(incoming_timer, Channel#channel{heartbeat = NHrtBt})}
-    end;
-
-timeout(_TRef, {outgoing, NewVal},
-        Channel = #channel{heartbeat = HrtBt,
-                           heartfun = {Fun, Args}}) ->
-    case emqx_stomp_heartbeat:check(outgoing, NewVal, HrtBt) of
-        {error, timeout} ->
-            _ = erlang:apply(Fun, Args),
-            {ok, Channel};
-        {ok, NHrtBt} ->
-            {ok, reset_timer(outgoing_timer, Channel#channel{heartbeat = NHrtBt})}
-    end;
-
-timeout(_TRef, clean_trans, Channel = #channel{transaction = Trans}) ->
-    Now = erlang:system_time(millisecond),
-    NTrans = maps:filter(fun(_, {StartedAt, _}) -> StartedAt + ?TRANS_TIMEOUT < Now end, Trans),
-    {ok, ensure_clean_trans_timer(Channel#channel{transaction = NTrans})}.
 
 do_negotiate_version(undefined) ->
     {ok, <<"1.0">>};
@@ -919,12 +954,13 @@ interval(clean_trans_timer, _) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
-run_hooks(Name, Args) ->
-    %% XXX: Is metrics belong emqx core ? or gateway scope
-    ok = emqx_metrics:inc(Name), emqx_hooks:run(Name, Args).
+run_hooks(Ctx, Name, Args) ->
+    emqx_gateway_ctx:metrics_inc(Ctx, Name),
+    emqx_hooks:run(Name, Args).
 
-run_hooks(Name, Args, Acc) ->
-    ok = emqx_metrics:inc(Name), emqx_hooks:run_fold(Name, Args, Acc).
+run_hooks(Ctx, Name, Args, Acc) ->
+    emqx_gateway_ctx:metrics_inc(Ctx, Name),
+    emqx_hooks:run_fold(Name, Args, Acc).
 
-metrics_inc(Name, #channel{ctx = #{gwid := GwId}}) ->
-    emqx_gateway_metrics:inc(GwId, Name).
+metrics_inc(Name, #channel{ctx = Ctx}) ->
+    emqx_gateway_ctx:metrics_inc(Ctx, Name).
