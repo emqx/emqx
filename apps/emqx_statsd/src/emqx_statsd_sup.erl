@@ -15,6 +15,8 @@
 
 -export([init/1]).
 
+-export([estatsd_options/0]).
+
  start_link() ->
      supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
@@ -39,19 +41,12 @@ estatsd_child_spec() ->
     , modules  => [estatsd]}.
 
 estatsd_options() ->
-    Server = get_conf(server, {?DEFAULT_HOST, ?DEFAULT_PORT}),
-    {Host, Port} = host_port(Server),
+    Host =  get_conf(host, ?DEFAULT_HOST),
+    Port =  get_conf(port, ?DEFAULT_PORT),
     Prefix = get_conf(prefix, ?DEFAULT_PREFIX),
     Tags = tags(get_conf(tags, ?DEFAULT_TAGS)),
     BatchSize = get_conf(batch_size, ?DEFAULT_BATCH_SIZE),
     [{host, Host}, {port, Port}, {prefix, Prefix}, {tags, Tags}, {batch_size, BatchSize}].
-
-host_port({Host, Port}) -> {Host, Port};
-host_port(Server) ->
-    case string:tokens(Server, ":") of
-        [Domain]       -> {Domain, ?DEFAULT_PORT};
-        [Domain, Port] -> {Domain, list_to_integer(Port)}
-    end.
 
 tags(Map) ->
     Tags = maps:to_list(Map),
@@ -66,8 +61,8 @@ emqx_statsd_child_spec(Pid) ->
     , modules  => [emqx_statsd]}.
 
 emqx_statsd_options() ->
-    SampleTimeInterval = get_conf(sample_time_interval, ?DEFAULT_SAMPLE_TIME_INTERVAL),
-    FlushTimeInterval = get_conf(flush_time_interval, ?DEFAULT_FLUSH_TIME_INTERVAL),
+    SampleTimeInterval = get_conf(sample_time_interval, ?DEFAULT_SAMPLE_TIME_INTERVAL) * 1000,
+    FlushTimeInterval = get_conf(flush_time_interval, ?DEFAULT_FLUSH_TIME_INTERVAL) * 1000,
     [{sample_time_interval, SampleTimeInterval}, {flush_time_interval, FlushTimeInterval}].
 
 get_conf(Key, Default) ->
