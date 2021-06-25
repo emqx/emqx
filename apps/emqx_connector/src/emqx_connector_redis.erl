@@ -84,9 +84,7 @@ on_start(InstId, #{config :=#{redis_type := Type,
                               auto_reconnect := AutoReconn} = Config}) ->
     logger:info("starting redis connector: ~p, config: ~p", [InstId, Config]),
     Servers = case Type of
-                single ->
-                      {Host, Port} = maps:get(server, Config),
-                      [{host, Host}, {port, Port}];
+                single -> [{servers, [maps:get(server, Config)]}];
                 _ ->[{servers, maps:get(servers, Config)}]
               end,
     Opts = [{pool_size, PoolSize},
