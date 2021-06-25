@@ -81,7 +81,7 @@ get_raw_config() ->
 init(_) ->
     {ok, RawConf} = hocon:load(emqx_conf_name(), #{format => richmap}),
     {_MappedEnvs, Conf} = hocon_schema:map_translate(emqx_schema, RawConf, #{}),
-    ok = save_config_to_emqx_config(Conf),
+    ok = save_config_to_emqx_config(hocon_schema:richmap_to_map(Conf)),
     {ok, #{raw_config => hocon_schema:richmap_to_map(RawConf),
            handlers => #{?MOD => ?MODULE}}}.
 
