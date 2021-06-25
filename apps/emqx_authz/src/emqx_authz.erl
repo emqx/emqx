@@ -70,14 +70,14 @@ create_resource(#{<<"type">> := DB,
     case emqx_resource:check_and_create(
             ResourceID,
             list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
-            Config)
+            #{<<"config">> => Config })
     of
         {ok, _} ->
             Rule#{<<"resource_id">> => ResourceID};
         {error, already_created} ->
             Rule#{<<"resource_id">> => ResourceID};
         {error, Reason} ->
-            error({load_sql_error, Reason})
+            error({load_config_error, Reason})
     end.
 
 -spec(compile(rule()) -> rule()).
