@@ -14,12 +14,33 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_recon_cli).
+-module(emqx_mod_recon).
 
--export([ cmd/1
-        , load/0
-        , unload/0
+-behaviour(emqx_gen_mod).
+
+%% emqx_gen_mod callbacks
+-export([ load/1
+        , unload/1
+        , description/0
         ]).
+
+-export([cmd/1]).
+
+
+%%--------------------------------------------------------------------
+%% Load/Unload
+%%--------------------------------------------------------------------
+
+-spec(load(list()) -> ok).
+load(_Env) ->
+    load().
+
+-spec(unload(list()) -> ok).
+unload(_Env) ->
+    unload().
+
+description() ->
+    "EMQ X Recon Module".
 
 load() ->
     emqx_ctl:register_command(recon, {?MODULE, cmd}, []).
@@ -69,4 +90,3 @@ remote_load(Module) -> remote_load(nodes(), Module).
 %% after OTP 23, it crashes with 'badarg' error
 remote_load([], _Module) -> ok;
 remote_load(Nodes, Module) -> recon:remote_load(Nodes, Module).
-
