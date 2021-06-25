@@ -104,7 +104,8 @@ test_plugins() ->
 
 test_deps() ->
     [ {bbmustache, "1.10.0"}
-    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "2.0.0"}}}
+    %, {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "2.0.0"}}}
+    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {branch, "hocon"}}}
     , meck
     ].
 
@@ -189,7 +190,6 @@ overlay_vars_rel(RelType) ->
     , {enable_plugin_emqx_modules, false} %% modules is not a plugin in ce
     , {enable_plugin_emqx_recon, true}
     , {enable_plugin_emqx_retainer, true}
-    , {enable_plugin_emqx_telemetry, true}
     , {vm_args_file, VmArgs}
     ].
 
@@ -242,12 +242,14 @@ relx_apps(ReleaseType) ->
     , {mnesia, load}
     , {ekka, load}
     , {emqx_plugin_libs, load}
+    , emqx_authz
     , observer_cli
     , emqx_http_lib
     , emqx_resource
     , emqx_connector
     , emqx_data_bridge
     ]
+    ++ [emqx_telemetry || not is_enterprise()]
     ++ [emqx_modules || not is_enterprise()]
     ++ [emqx_license || is_enterprise()]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
@@ -288,7 +290,6 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_sasl
     , emqx_statsd
     ]
-    ++ [emqx_telemetry || not is_enterprise()]
     ++ relx_plugin_apps_per_rel(ReleaseType)
     ++ relx_plugin_apps_enterprise(is_enterprise())
     ++ relx_plugin_apps_extra().
@@ -379,6 +380,8 @@ emqx_etc_overlay_common() ->
      {"{{base_dir}}/lib/emqx/etc/emqx.conf", "etc/emqx.conf"},
      {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"},
      {"{{base_dir}}/lib/emqx_data_bridge/etc/emqx_data_bridge.conf", "etc/plugins/emqx_data_bridge.conf"},
+     {"{{base_dir}}/lib/emqx_telemetry/etc/emqx_telemetry.conf", "etc/plugins/emqx_telemetry.conf"},
+     {"{{base_dir}}/lib/emqx_authz/etc/emqx_authz.conf", "etc/plugins/authz.conf"},
      %% TODO: check why it has to end with .paho
      %% and why it is put to etc/plugins dir
      {"{{base_dir}}/lib/emqx/etc/acl.conf.paho", "etc/plugins/acl.conf.paho"}].
@@ -406,18 +409,8 @@ find_conf_files(App) ->
         false -> []
     end.
 
-env(Name, Default) ->
-    case os:getenv(Name) of
-        "" -> Default;
-        false -> Default;
-        Value -> Value
-    end.
-
 get_vsn() ->
-    PkgVsn = case env("PKG_VSN", false) of
-                 false -> os:cmd("./pkg-vsn.sh");
-                 Vsn -> Vsn
-             end,
+    PkgVsn = os:cmd("./pkg-vsn.sh"),
     re:replace(PkgVsn, "\n", "", [{return ,list}]).
 
 maybe_dump(Config) ->

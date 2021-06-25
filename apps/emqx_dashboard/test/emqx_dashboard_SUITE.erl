@@ -99,7 +99,7 @@ t_rest_api(_Config) ->
     ok.
 
 t_cli(_Config) ->
-    [mnesia:dirty_delete({mqtt_admin, Admin}) ||  Admin <- mnesia:dirty_all_keys(mqtt_admin)],
+    [ekka_mnesia:dirty_delete(mqtt_admin, Admin) ||  Admin <- mnesia:dirty_all_keys(mqtt_admin)],
     emqx_dashboard_cli:admins(["add", "username", "password"]),
     [{mqtt_admin, <<"username">>, <<Salt:4/binary, Hash/binary>>, _}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),
@@ -160,4 +160,3 @@ api_path(Path) ->
 
 json(Data) ->
     {ok, Jsx} = emqx_json:safe_decode(Data, [return_maps]), Jsx.
-

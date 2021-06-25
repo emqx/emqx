@@ -50,9 +50,22 @@
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([ssl/2, tr_ssl/2, tr_password_hash/2]).
 
+%% will be used by emqx_ct_helper to find the dependent apps
+-export([includes/0]).
+
 structs() -> ["cluster", "node", "rpc", "log", "lager",
               "acl", "mqtt", "zone", "listener", "module", "broker",
-              "plugins", "sysmon", "os_mon", "vm_mon", "alarm", "telemetry"].
+              "plugins", "sysmon", "os_mon", "vm_mon", "alarm", "telemetry"]
+             ++ includes().
+
+-ifdef(TEST).
+includes() ->[].
+-else.
+includes() ->
+    [ "emqx_data_bridge"
+    , "emqx_telemetry"
+    ].
+-endif.
 
 fields("cluster") ->
     [ {"name", t(atom(), "ekka.cluster_name", emqxcl)}
@@ -119,6 +132,7 @@ fields("node") ->
                                        override_env => "EMQX_NODE_COOKIE"
                                       })}
     , {"data_dir", t(string(), "emqx.data_dir", undefined)}
+    , {"etc_dir", t(string(), "emqx.etc_dir", undefined)}
     , {"heartbeat", t(flag(), undefined, false)}
     , {"async_threads", t(range(1, 1024), "vm_args.+A", undefined)}
     , {"process_limit", t(integer(), "vm_args.+P", undefined)}
@@ -164,7 +178,7 @@ fields("log") ->
     , {"chars_limit", t(integer(), undefined, -1)}
     , {"supervisor_reports", t(union([error, progress]), undefined, error)}
     , {"max_depth", t(union([infinity, integer()]),
-                      "kernel.error_logger_format_depth", 20)}
+                      "kernel.error_logger_format_depth", 80)}
     , {"formatter", t(union([text, json]), undefined, text)}
     , {"single_line", t(boolean(), undefined, true)}
     , {"rotation", ref("rotation")}
@@ -468,8 +482,11 @@ fields("telemetry") ->
     [ {"enabled", t(boolean(), undefined, false)}
     , {"url", t(string(), undefined, "https://telemetry-emqx-io.bigpar.vercel.app/api/telemetry")}
     , {"report_interval", t(duration_s(), undefined, "7d")}
-    ].
+    ];
 
+fields(ExtraField) ->
+    Mod = list_to_atom(ExtraField++"_schema"),
+    Mod:fields(ExtraField).
 
 translations() -> ["ekka", "vm_args", "gen_rpc", "kernel", "emqx"].
 

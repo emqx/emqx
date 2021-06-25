@@ -77,7 +77,7 @@ emqx_resource:query(ResourceID, {sql, SQL}).
          <<"keyfile">> => [],<<"password">> => "public",
          <<"pool_size">> => 1,
          <<"server">> => {{127,0,0,1},3306},
-         <<"ssl">> => false,<<"user">> => "root",
+         <<"ssl">> => false,<<"username">> => "root",
          <<"verify">> => false},
    id => <<"bridge:mysql-def">>,mod => emqx_connector_mysql,
    state => #{poolname => 'bridge:mysql-def'},
@@ -107,7 +107,7 @@ BridgeMySQL='{
     "status": "started",
     "config": {
       "verify": false,
-      "user": "root",
+      "username": "root",
       "ssl": false,
       "server": "127.0.0.1:3306",
       "pool_size": 1,
@@ -135,7 +135,7 @@ BridgeMySQL='{
     "status": "started",
     "config": {
       "verify": false,
-      "user": "root",
+      "username": "root",
       "ssl": false,
       "server": "127.0.0.1:3306",
       "pool_size": 2,

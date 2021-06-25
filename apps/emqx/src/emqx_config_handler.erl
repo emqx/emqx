@@ -17,13 +17,16 @@
 %% And there are a top level config handler maintains the overall config map.
 -module(emqx_config_handler).
 
+-include("logger.hrl").
+
 -behaviour(gen_server).
 
 %% API functions
 -export([ start_link/0
-        , start_handler/3
+        , add_handler/2
         , update_config/2
-        , child_spec/3
+        , get_raw_config/0
+        , merge_to_old_config/2
         ]).
 
 %% emqx_config_handler callbacks
@@ -38,73 +41,73 @@
          terminate/2,
          code_change/3]).
 
--type config() :: term().
--type config_map() :: #{atom() => config()} | [config_map()].
--type handler_name() :: module() | top.
--type key_path() :: [atom()].
+-define(MOD, {mod}).
+
+-type update_request() :: term().
+-type raw_config() :: hocon:config() | undefined.
+-type config_key() :: atom().
+-type handler_name() :: module().
+-type config_key_path() :: [atom()].
+-type handlers() :: #{config_key() => handlers(), ?MOD => handler_name()}.
 
 -optional_callbacks([handle_update_config/2]).
 
--callback handle_update_config(config(), config_map()) -> config_map().
+-callback handle_update_config(update_request(), raw_config()) -> update_request().
 
--record(state, {
-    handler_name :: handler_name(),
-    parent :: handler_name(),
-    key_path :: key_path()
-}).
+-type state() :: #{
+    handlers := handlers(),
+    raw_config := raw_config(),
+    atom() => term()
+}.
 
 start_link() ->
-    start_handler(?MODULE, top, []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, {}, []).
 
--spec start_handler(handler_name(), handler_name(), key_path()) ->
-    {ok, pid()} | {error, {already_started, pid()}} | {error, term()}.
-start_handler(HandlerName, Parent, ConfKeyPath) ->
-    gen_server:start_link({local, HandlerName}, ?MODULE, {HandlerName, Parent, ConfKeyPath}, []).
+-spec update_config(config_key_path(), update_request()) -> ok | {error, term()}.
+update_config(ConfKeyPath, UpdateReq) ->
+    gen_server:call(?MODULE, {update_config, ConfKeyPath, UpdateReq}).
 
--spec child_spec(module(), handler_name(), key_path()) -> supervisor:child_spec().
-child_spec(Mod, Parent, KeyPath) ->
-    #{id => Mod,
-      start => {?MODULE, start_handler, [Mod, Parent, KeyPath]},
-      restart => permanent,
-      type => worker,
-      modules => [?MODULE]}.
+-spec add_handler(config_key_path(), handler_name()) -> ok.
+add_handler(ConfKeyPath, HandlerName) ->
+    gen_server:call(?MODULE, {add_child, ConfKeyPath, HandlerName}).
 
--spec update_config(handler_name(), config()) -> ok.
-update_config(top, Config) ->
-    emqx_config:put(Config),
-    save_config_to_disk(Config);
-update_config(Handler, Config) ->
-    case is_process_alive(whereis(Handler)) of
-        true -> gen_server:cast(Handler, {handle_update_config, Config});
-        false -> error({not_alive, Handler})
-    end.
+-spec get_raw_config() -> raw_config().
+get_raw_config() ->
+    gen_server:call(?MODULE, get_raw_config).
 
 %%============================================================================
-%% callbacks of emqx_config_handler (the top-level handler)
-handle_update_config(Config, undefined) ->
-    handle_update_config(Config, #{});
-handle_update_config(Config, OldConfigMap) ->
-    %% simply merge the config to the overall config
-    maps:merge(OldConfigMap, Config).
 
-init({HandlerName, Parent, ConfKeyPath}) ->
-    {ok, #state{handler_name = HandlerName, parent = Parent, key_path = ConfKeyPath}}.
+-spec init(term()) -> {ok, state()}.
+init(_) ->
+    {ok, RawConf} = hocon:load(emqx_conf_name(), #{format => richmap}),
+    {_MappedEnvs, Conf} = hocon_schema:map_translate(emqx_schema, RawConf, #{}),
+    ok = save_config_to_emqx_config(hocon_schema:richmap_to_map(Conf)),
+    {ok, #{raw_config => hocon_schema:richmap_to_map(RawConf),
+           handlers => #{?MOD => ?MODULE}}}.
+
+handle_call(get_raw_config, _From, State = #{raw_config := RawConf}) ->
+    {reply, RawConf, State};
+
+handle_call({add_child, ConfKeyPath, HandlerName}, _From,
+            State = #{handlers := Handlers}) ->
+    {reply, ok, State#{handlers =>
+        emqx_config:deep_put(ConfKeyPath, Handlers, #{?MOD => HandlerName})}};
+
+handle_call({update_config, ConfKeyPath, UpdateReq}, _From,
+        #{raw_config := RawConf, handlers := Handlers} = State) ->
+    try {RootKeys, Conf} = do_update_config(ConfKeyPath, Handlers, RawConf, UpdateReq),
+        {reply, save_configs(RootKeys, Conf), State#{raw_config => Conf}}
+    catch
+        throw: Reason ->
+            {reply, {error, Reason}, State};
+        Error : Reason : ST ->
+            ?LOG(error, "update config failed: ~p", [{Error, Reason, ST}]),
+            {reply, {error, Reason}, State}
+    end;
 
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
-
-handle_cast({handle_update_config, Config}, #state{handler_name = HandlerName,
-        parent = Parent, key_path = ConfKeyPath} = State) ->
-    %% accumulate the config map of this config handler
-    OldConfigMap = emqx_config:get(ConfKeyPath, undefined),
-    SubConfigMap = case erlang:function_exported(HandlerName, handle_update_config, 2) of
-        true -> HandlerName:handle_update_config(Config, OldConfigMap);
-        false -> wrap_sub_config(ConfKeyPath, Config)
-    end,
-    %% then notify the parent handler
-    update_config(Parent, SubConfigMap),
-    {noreply, State};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -118,17 +121,100 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%============================================================================
-save_config_to_disk(ConfigMap) ->
-    Filename = filename:join([emqx_data_dir(), "emqx_override.conf"]),
-    case file:write_file(Filename, jsx:encode(ConfigMap)) of
-        ok -> ok;
-        {error, Reason} -> logger:error("write to ~s failed, ~p", [Filename, Reason])
+do_update_config([], Handlers, OldConf, UpdateReq) ->
+    call_handle_update_config(Handlers, OldConf, UpdateReq);
+do_update_config([ConfKey | ConfKeyPath], Handlers, OldConf, UpdateReq) ->
+    SubOldConf = get_sub_config(ConfKey, OldConf),
+    case maps:find(ConfKey, Handlers) of
+        error -> throw({handler_not_found, ConfKey});
+        {ok, SubHandlers} ->
+            NewUpdateReq = do_update_config(ConfKeyPath, SubHandlers, SubOldConf, UpdateReq),
+            call_handle_update_config(Handlers, OldConf, #{bin(ConfKey) => NewUpdateReq})
     end.
 
-emqx_data_dir() ->
-    %emqx_config:get([node, data_dir])
-    "data".
+get_sub_config(_, undefined) ->
+    undefined;
+get_sub_config(ConfKey, OldConf) when is_map(OldConf) ->
+    maps:get(bin(ConfKey), OldConf, undefined);
+get_sub_config(_, OldConf) ->
+    OldConf.
 
-wrap_sub_config(ConfKeyPath, Config) ->
-    emqx_config:deep_put(ConfKeyPath, #{}, Config).
+call_handle_update_config(Handlers, OldConf, UpdateReq) ->
+    HandlerName = maps:get(?MOD, Handlers, undefined),
+    case erlang:function_exported(HandlerName, handle_update_config, 2) of
+        true -> HandlerName:handle_update_config(UpdateReq, OldConf);
+        false -> UpdateReq %% the default behaviour is overwriting the old config
+    end.
+
+%% callbacks for the top-level handler
+handle_update_config(UpdateReq, OldConf) ->
+    FullRawConf = merge_to_old_config(UpdateReq, OldConf),
+    {maps:keys(UpdateReq), FullRawConf}.
+
+%% default callback of config handlers
+merge_to_old_config(UpdateReq, undefined) ->
+    merge_to_old_config(UpdateReq, #{});
+merge_to_old_config(UpdateReq, RawConf) ->
+    maps:merge(RawConf, UpdateReq).
+
+%%============================================================================
+save_configs(RootKeys, Conf0) ->
+    {_MappedEnvs, Conf1} = hocon_schema:map_translate(emqx_schema, to_richmap(Conf0), #{}),
+    %save_config_to_app_env(MappedEnvs),
+    save_config_to_emqx_config(hocon_schema:richmap_to_map(Conf1)),
+    save_config_to_disk(RootKeys, Conf0).
+
+%% We may need also support hot config update for the apps that use application envs.
+%% If so uncomment the following lines to update the configs to application env
+% save_config_to_app_env(MappedEnvs) ->
+%     lists:foreach(fun({AppName, Envs}) ->
+%             [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
+%         end, MappedEnvs).
+
+save_config_to_emqx_config(Conf) ->
+    emqx_config:put(emqx_config:unsafe_atom_key_map(Conf)).
+
+save_config_to_disk(RootKeys, Conf) ->
+    FileName = emqx_override_conf_name(),
+    OldConf = read_old_config(FileName),
+    %% We don't save the overall config to file, but only the sub configs
+    %% under RootKeys
+    write_new_config(FileName,
+        maps:merge(OldConf, maps:with(RootKeys, Conf))).
+
+write_new_config(FileName, Conf) ->
+    case file:write_file(FileName, jsx:prettify(jsx:encode(Conf))) of
+        ok -> ok;
+        {error, Reason} ->
+            logger:error("write to ~s failed, ~p", [FileName, Reason]),
+            {error, Reason}
+    end.
+
+read_old_config(FileName) ->
+    case file:read_file(FileName) of
+        {ok, Text} ->
+            try jsx:decode(Text, [{return_maps, true}]) of
+                Conf when is_map(Conf) -> Conf;
+                _ -> #{}
+            catch _Err : _Reason ->
+                #{}
+            end;
+        _ -> #{}
+    end.
+
+emqx_conf_name() ->
+    filename:join([etc_dir(), "emqx.conf"]).
+
+emqx_override_conf_name() ->
+    filename:join([emqx:get_env(data_dir), "emqx_override.conf"]).
+
+etc_dir() ->
+    emqx:get_env(etc_dir).
+
+to_richmap(Map) ->
+    {ok, RichMap} = hocon:binary(jsx:encode(Map), #{format => richmap}),
+    RichMap.
+
+bin(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
+bin(B) when is_binary(B) -> B;
+bin(S) when is_list(S) -> list_to_binary(S).
