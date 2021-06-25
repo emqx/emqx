@@ -16,10 +16,6 @@
 
 -module(emqx_telemetry).
 
--include_lib("typerefl/include/types.hrl").
-
--behaviour(hocon_schema).
-
 -behaviour(gen_server).
 
 -include_lib("emqx/include/emqx.hrl").
@@ -39,9 +35,6 @@
 -export([ start_link/1
         , stop/0
         ]).
-
--export([ structs/0
-        , fields/1]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -96,12 +89,6 @@
 -define(UNIQUE_ID, 9527).
 
 -define(TELEMETRY, emqx_telemetry).
-
-%%--------------------------------------------------------------------
-structs() -> ["emqx_telemetry"].
-
-fields("emqx_telemetry") ->
-    [{enabled, emqx_schema:t(boolean(), undefined, false)}].
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap

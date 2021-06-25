@@ -484,7 +484,7 @@ fields("telemetry") ->
     ];
 
 fields(ExtraField) ->
-    Mod = list_to_atom(ExtraField),
+    Mod = list_to_atom(ExtraField++"_schema"),
     Mod:fields(ExtraField).
 
 translations() -> ["ekka", "vm_args", "gen_rpc", "kernel", "emqx"].
