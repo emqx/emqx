@@ -87,7 +87,6 @@ emqxLoadedPlugins: >
   {emqx_bridge_mqtt, false}.
 
 emqxLoadedModules: >
-  {emqx_mod_acl_internal, true}.
   {emqx_mod_presence, true}.
   {emqx_mod_delayed, false}.
   {emqx_mod_rewrite, false}.
