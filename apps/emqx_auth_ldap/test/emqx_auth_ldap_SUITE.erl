@@ -95,8 +95,11 @@ t_check_auth(_) ->
 t_check_acl(_) ->
     ct:pal("-----------2:~p", [application:get_env(emqx, enable_acl_cache)]),
     ct:pal("-----------3:~p", [application:get_env(emqx, acl_file)]),
-    ct:pal("-----------3.1:~p", [file:read_file(application:get_env(emqx, acl_file))]),
+    ct:pal("-----------3.1:~p", [file:read_file(application:get_env(emqx, acl_file, nil))]),
     ct:pal("-----------4:~p", [application:get_all_env(emqx_auth_ldap)]),
+    dbg:tracer(),
+    dbg:p(all, c),
+    dbg:tpl(eldap2, search, '_', cx),
     MqttUser = #{clientid => <<"mqttuser1">>, username => <<"mqttuser0001">>, zone => external},
     NoMqttUser = #{clientid => <<"mqttuser2">>, username => <<"mqttuser0007">>, zone => external},
     allow = emqx_access_control:check_acl(MqttUser, publish, <<"mqttuser0001/pub/1">>),
