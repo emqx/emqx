@@ -22,14 +22,44 @@
         , resource_id_to_name/1
         , list_bridges/0
         , is_bridge/1
+        , config_key_path/0
+        , update_config/1
         ]).
 
+-export([structs/0, fields/1]).
+
+%%======================================================================================
+%% Hocon Schema Definitions
+
+-define(BRIDGE_FIELDS(T),
+    [{name, hoconsc:t(typerefl:binary())},
+     {type, hoconsc:t(typerefl:atom(T))},
+     {config, hoconsc:t(hoconsc:ref(list_to_atom("emqx_connector_"++atom_to_list(T)), ""))}]).
+
+-define(TYPES, [mysql, pgsql, mongo, redis, ldap]).
+-define(BRIDGES, [hoconsc:ref(?MODULE, T) || T <- ?TYPES]).
+
+structs() -> ["emqx_data_bridge"].
+
+fields("emqx_data_bridge") ->
+    [{bridges, #{type => hoconsc:array(hoconsc:union(?BRIDGES)),
+                 default => []}}];
+
+fields(mysql) -> ?BRIDGE_FIELDS(mysql);
+fields(pgsql) -> ?BRIDGE_FIELDS(pgsql);
+fields(mongo) -> ?BRIDGE_FIELDS(mongo);
+fields(redis) -> ?BRIDGE_FIELDS(redis);
+fields(ldap) -> ?BRIDGE_FIELDS(ldap).
+
+%%======================================================================================
+
 load_bridges() ->
-    ConfFile = filename:join([emqx:get_env(plugins_etc_dir), ?MODULE]) ++ ".conf",
-    {ok, RawConfig} = hocon:load(ConfFile, #{format => richmap}),
-    #{emqx_data_bridge := #{bridges := Bridges}} =
-        hocon_schema:check(emqx_data_bridge_schema, RawConfig,
-            #{atom_key => true, return_plain => true}),
+    % ConfFile = filename:join([emqx:get_env(plugins_etc_dir), ?MODULE]) ++ ".conf",
+    % {ok, RawConfig} = hocon:load(ConfFile, #{format => richmap}),
+    % #{emqx_data_bridge := #{bridges := Bridges}} =
+    %     hocon_schema:check(emqx_data_bridge_schema, RawConfig,
+    %         #{atom_key => true, return_plain => true}),
+    Bridges = emqx_config:get([emqx_data_bridge, bridges], []),
     emqx_data_bridge_monitor:ensure_all_started(Bridges).
 
 resource_type(mysql) -> emqx_connector_mysql;
@@ -57,3 +87,9 @@ is_bridge(#{id := <<"bridge:", _/binary>>}) ->
     true;
 is_bridge(_Data) ->
     false.
+
+config_key_path() ->
+    [emqx_data_bridge, bridges].
+
+update_config(ConfigReq) ->
+    emqx_config_handler:update_config(config_key_path(), ConfigReq).
