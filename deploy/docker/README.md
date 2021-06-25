@@ -97,12 +97,11 @@ For example, set mqtt tcp port to 1883
 
 Default environment variable ``EMQX_LOADED_MODULES``, including
 
-+ ``emqx_mod_acl_internal``
 + ``emqx_mod_presence``
 
 ```bash
 # The default EMQX_LOADED_MODULES env
-EMQX_LOADED_MODULES="emqx_mod_acl_internal,emqx_mod_acl_internal"
+EMQX_LOADED_MODULES="emqx_mod_presence"
 ```
 
 For example, set ``EMQX_LOADED_MODULES=emqx_mod_delayed,emqx_mod_rewrite`` to load these two modules.
