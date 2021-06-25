@@ -20,6 +20,15 @@ main(Args) ->
             end
     end,
     ok = add_libs_dir(),
+    case Args of
+        ["hocon" | Rest] ->
+            %% forward the call to hocon_cli
+            hocon_cli:main(Rest);
+        _ ->
+            do(Args)
+    end.
+
+do(Args) ->
     ok = do_with_halt(Args, "mnesia_dir", fun create_mnesia_dir/2),
     ok = do_with_halt(Args, "chkconfig", fun("-config", X) -> chkconfig(X) end),
     ok = do_with_halt(Args, "chkconfig", fun chkconfig/1),
@@ -308,7 +317,7 @@ add_libs_dir() ->
 
 add_lib_dir(RootDir, Name, Vsn) ->
     LibDir = filename:join([RootDir, lib, atom_to_list(Name) ++ "-" ++ Vsn, ebin]),
-    case code:add_pathz(LibDir) of
+    case code:add_patha(LibDir) of
         true -> ok;
         {error, _} -> error(LibDir)
     end.

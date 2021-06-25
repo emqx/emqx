@@ -37,15 +37,18 @@ emqx_test(){
             "zip")
                 packagename=$(basename "${PACKAGE_PATH}/${EMQX_NAME}"-*.zip)
                 unzip -q "${PACKAGE_PATH}/${packagename}"
-                export EMQX_ZONE__EXTERNAL__SERVER__KEEPALIVE=60 \
+                export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60 \
                        EMQX_MQTT__MAX_TOPIC_ALIAS=10
                 sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
                 echo "running ${packagename} start"
-                "${PACKAGE_PATH}"/emqx/bin/emqx start || ( tail "${PACKAGE_PATH}"/emqx/log/emqx.log.1 && exit 1 )
+                if ! "${PACKAGE_PATH}"/emqx/bin/emqx start; then
+                    cat "${PACKAGE_PATH}"/emqx/log/erlang.log.1 || true
+                    cat "${PACKAGE_PATH}"/emqx/log/emqx.log.1 || true
+                    exit 1
+                fi
                 IDLE_TIME=0
-                while ! "${PACKAGE_PATH}"/emqx/bin/emqx_ctl status | grep -qE 'Node\s.*@.*\sis\sstarted'
-                do
+                while ! curl http://localhost:8081/status >/dev/null 2>&1; do
                     if [ $IDLE_TIME -gt 10 ]
                     then
                         echo "emqx running error"
@@ -110,14 +113,17 @@ emqx_test(){
 }
 
 running_test(){
-    export EMQX_ZONE__EXTERNAL__SERVER__KEEPALIVE=60 \
+    export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60 \
            EMQX_MQTT__MAX_TOPIC_ALIAS=10
     sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
 
-    emqx start || ( tail /var/log/emqx/emqx.log.1 && exit 1 )
+    if ! emqx start; then
+        cat /var/log/emqx/erlang.log.1 || true
+        cat /var/log/emqx/emqx.log.1 || true
+        exit 1
+    fi
     IDLE_TIME=0
-    while ! emqx_ctl status | grep -qE 'Node\s.*@.*\sis\sstarted'
-    do
+   while ! curl http://localhost:8081/status >/dev/null 2>&1; do
         if [ $IDLE_TIME -gt 10 ]
         then
             echo "emqx running error"
@@ -132,10 +138,14 @@ running_test(){
 
     if [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = ubuntu ] \
     || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] ;then
-        service emqx start || ( tail /var/log/emqx/emqx.log.1 && exit 1 )
+
+        if ! service emqx start; then
+            cat /var/log/emqx/erlang.log.1 || true
+            cat /var/log/emqx/emqx.log.1 || true
+            exit 1
+        fi
         IDLE_TIME=0
-        while ! emqx_ctl status | grep -E 'Node\s.*@.*\sis\sstarted'
-        do
+        while ! curl http://localhost:8081/status >/dev/null 2>&1; do
             if [ $IDLE_TIME -gt 10 ]
             then
                 echo "emqx service error"
@@ -157,7 +167,11 @@ relup_test(){
             while read -r pkg; do
                 packagename=$(basename "${pkg}")
                 unzip "$packagename"
-                ./emqx/bin/emqx start || ( tail emqx/log/emqx.log.1 && exit 1 )
+                if ! ./emqx/bin/emqx start; then
+                    cat emqx/log/erlang.log.1 || true
+                    cat emqx/log/emqx.log.1 || true
+                    exit 1
+                fi
                 ./emqx/bin/emqx_ctl status
                 ./emqx/bin/emqx versions
                 cp "${PACKAGE_PATH}/${EMQX_NAME}"-*-"${TARGET_VERSION}-${ARCH}".zip ./emqx/releases

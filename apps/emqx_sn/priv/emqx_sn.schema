@@ -1,23 +1,19 @@
 %%-*- mode: erlang -*-
 %% emqx_sn config mapping
 {mapping, "mqtt.sn.port", "emqx_sn.port", [
-  {default, "1884"},
-  {datatype, string}
+  {default, 1884},
+  {datatype, [integer, ip]}
 ]}.
 
 {translation, "emqx_sn.port", fun(Conf) ->
-  case re:split(cuttlefish:conf_get("mqtt.sn.port", Conf, ""), ":", [{return, list}]) of
-      [Port] ->
-          {{0,0,0,0}, list_to_integer(Port)};
-      Tokens ->
-          Port = lists:last(Tokens),
-          IP = case inet:parse_address(lists:flatten(lists:join(":", Tokens -- [Port]))) of
-                   {error, Reason} ->
-                       throw({invalid_ip_address, Reason});
-                   {ok, X} -> X
-               end,
-          Port1 = list_to_integer(Port),
-          {IP, Port1}
+  case cuttlefish:conf_get("mqtt.sn.port", Conf, undefined) of
+      Port when is_integer(Port) ->
+          {{0,0,0,0}, Port};
+      {Ip, Port} ->
+          case inet:parse_address(Ip) of
+              {ok ,R} -> {R, Port};
+              _ -> {Ip, Port}
+          end
   end
 end}.
 

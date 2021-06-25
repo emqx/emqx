@@ -43,17 +43,17 @@ start(_StartType, _StartArgs) ->
                     hash_type => HashType,
                     pool => ?APP},
         ok = emqx_auth_pgsql:register_metrics(),
-        ok = emqx:hook('client.authenticate', fun emqx_auth_pgsql:check/3, [AuthEnv])
+        ok = emqx:hook('client.authenticate', {emqx_auth_pgsql, check, [AuthEnv]})
     end),
     if_enabled(acl_query, fun(AclQuery) ->
         ok = emqx_acl_pgsql:register_metrics(),
-        ok = emqx:hook('client.check_acl', fun emqx_acl_pgsql:check_acl/5, [#{acl_query => AclQuery, pool => ?APP}])
+        ok = emqx:hook('client.check_acl', {emqx_acl_pgsql, check_acl, [#{acl_query => AclQuery, pool => ?APP}]})
     end),
     {ok, Sup}.
 
 stop(_State) ->
-    ok = emqx:unhook('client.authenticate', fun emqx_auth_pgsql:check/3),
-    ok = emqx:unhook('client.check_acl', fun emqx_acl_pgsql:check_acl/5).
+    ok = emqx:unhook('client.authenticate', {emqx_auth_pgsql, check}),
+    ok = emqx:unhook('client.check_acl', {emqx_acl_pgsql, check_acl}).
 
 if_enabled(Par, Fun) ->
     case application:get_env(?APP, Par) of

@@ -43,7 +43,7 @@ Use the environment variable to configure the EMQ X docker container.
 
 By default, the environment variables with ``EMQX_`` prefix are mapped to key-value pairs in configuration files.
 
-You can change the prefix by overriding "CUTTLEFISH_ENV_OVERRIDE_PREFIX".
+You can change the prefix by overriding "HOCON_ENV_OVERRIDE_PREFIX".
 
 Example:
 
@@ -56,7 +56,7 @@ EMQX_MQTT__MAX_PACKET_SIZE              <--> mqtt.max_packet_size
 + All upper case letters is replaced with lower case letters
 + ``__`` is replaced with ``.``
 
-If `CUTTLEFISH_ENV_OVERRIDE_PREFIX=DEV_` is set:
+If `HOCON_ENV_OVERRIDE_PREFIX=DEV_` is set:
 
 ```bash
 DEV_LISTENER__SSL__EXTERNAL__ACCEPTORS <--> listener.ssl.external.acceptors

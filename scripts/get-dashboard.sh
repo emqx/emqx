@@ -16,7 +16,7 @@ if [ -f 'EMQX_ENTERPRISE' ]; then
     DIRECT_DOWNLOAD_URL=""
 else
     VERSION="${EMQX_CE_DASHBOARD_VERSION}"
-    DASHBOARD_PATH='lib-ce/emqx_dashboard/priv'
+    DASHBOARD_PATH='apps/emqx_dashboard/priv'
     DASHBOARD_REPO='emqx-dashboard-frontend'
     AUTH=""
     DIRECT_DOWNLOAD_URL="https://github.com/emqx/${DASHBOARD_REPO}/releases/download/${VERSION}/emqx-dashboard.zip"
