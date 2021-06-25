@@ -55,7 +55,7 @@
 
 structs() -> ["cluster", "node", "rpc", "log", "lager",
               "acl", "mqtt", "zone", "listener", "module", "broker",
-              "plugins", "sysmon", "os_mon", "vm_mon", "alarm", "telemetry"]
+              "plugins", "sysmon", "os_mon", "vm_mon", "alarm"]
              ++ includes().
 
 -ifdef(TEST).
@@ -477,12 +477,6 @@ fields("alarm") ->
     , {"validity_period", t(duration_s(), undefined, "24h")}
     ];
 
-fields("telemetry") ->
-    [ {"enabled", t(boolean(), undefined, false)}
-    , {"url", t(string(), undefined, "https://telemetry-emqx-io.bigpar.vercel.app/api/telemetry")}
-    , {"report_interval", t(duration_s(), undefined, "7d")}
-    ];
-
 fields(ExtraField) ->
     Mod = list_to_atom(ExtraField++"_schema"),
     Mod:fields(ExtraField).
@@ -513,7 +507,6 @@ translation("emqx") ->
     , {"os_mon", fun tr_os_mon/1}
     , {"vm_mon", fun tr_vm_mon/1}
     , {"alarm", fun tr_alarm/1}
-    , {"telemetry", fun tr_telemetry/1}
     ].
 
 tr_cluster__discovery(Conf) ->
@@ -668,7 +661,7 @@ tr_zones(Conf) ->
 
 tr_listeners(Conf) ->
     Atom = fun(undefined) -> undefined;
-              (B) when is_binary(B)-> binary_to_atom(B);
+              (B) when is_binary(B)-> binary_to_atom(B, utf8);
               (S) when is_list(S) -> list_to_atom(S) end,
 
     Access = fun(S) ->
@@ -836,7 +829,7 @@ tr_modules(Conf) ->
 
 tr_sysmon(Conf) ->
     Keys = maps:to_list(conf_get("sysmon", Conf, #{})),
-    [{binary_to_atom(K), maps:get(value, V)} || {K, V} <- Keys].
+    [{binary_to_atom(K, utf8), maps:get(value, V)} || {K, V} <- Keys].
 
 tr_os_mon(Conf) ->
     [{cpu_check_interval, conf_get("os_mon.cpu_check_interval", Conf)}
@@ -857,12 +850,6 @@ tr_alarm(Conf) ->
     [ {actions, [list_to_atom(Action) || Action <- conf_get("alarm.actions", Conf)]}
     , {size_limit, conf_get("alarm.size_limit", Conf)}
     , {validity_period, conf_get("alarm.validity_period", Conf)}
-    ].
-
-tr_telemetry(Conf) ->
-    [ {enabled,         conf_get("telemetry.enabled", Conf)}
-    , {url,             conf_get("telemetry.url", Conf)}
-    , {report_interval, conf_get("telemetry.report_interval", Conf)}
     ].
 
 %% helpers
