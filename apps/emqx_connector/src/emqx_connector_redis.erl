@@ -19,6 +19,11 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
+-type server() :: tuple().
+-reflect_type([server/0]).
+-typerefl_from_string({server/0, ?MODULE, to_server}).
+-export([to_server/1]).
+
 -export([structs/0, fields/1]).
 
 %% callbacks of behaviour emqx_resource
@@ -39,29 +44,67 @@
 structs() -> [""].
 
 fields("") ->
+    [ {config, #{type => hoconsc:union(
+                  [ hoconsc:ref(cluster)
+                  , hoconsc:ref(single)
+                  , hoconsc:ref(sentinel)
+                  ])}
+      }
+    ];
+fields(single) ->
+    [ {server, #{type => server()}}
+    , {redis_type, #{type => hoconsc:enum([single]),
+                     default => single}}
+    ] ++
     redis_fields() ++
-    redis_sentinel_fields() ++
+    emqx_connector_schema_lib:ssl_fields();
+fields(cluster) ->
+    [ {servers, #{type => hoconsc:array(server())}}
+    , {redis_type, #{type => hoconsc:enum([cluster]),
+                     default => cluster}}
+    ] ++
+    redis_fields() ++
+    emqx_connector_schema_lib:ssl_fields();
+fields(sentinel) ->
+    [ {servers, #{type => hoconsc:array(server())}}
+    , {redis_type, #{type => hoconsc:enum([sentinel]),
+                     default => sentinel}}
+    , {sentinel, #{type => string()}}
+    ] ++
+    redis_fields() ++
     emqx_connector_schema_lib:ssl_fields().
 
 on_jsonify(Config) ->
     Config.
 
 %% ===================================================================
-on_start(InstId, #{servers := Servers,
-                   redis_type := Type,
-                   database := Database,
-                   pool_size := PoolSize,
-                   auto_reconnect := AutoReconn} = Config) ->
+on_start(InstId, #{config :=#{redis_type := Type,
+                              database := Database,
+                              pool_size := PoolSize,
+                              auto_reconnect := AutoReconn} = Config}) ->
     logger:info("starting redis connector: ~p, config: ~p", [InstId, Config]),
-    SslOpts = init_ssl_opts(Config, InstId),
+    Servers = case Type of
+                single -> [{servers, [maps:get(server, Config)]}];
+                _ ->[{servers, maps:get(servers, Config)}]
+              end,
     Opts = [{pool_size, PoolSize},
             {database, Database},
             {password, maps:get(password, Config, "")},
-            {auto_reconnect, reconn_interval(AutoReconn)},
-            {servers, Servers}],
-    Options = [{options, SslOpts}, {sentinel, maps:get(sentinel, Config, undefined)}],
+            {auto_reconnect, reconn_interval(AutoReconn)}
+           ] ++ Servers,
+    Options = init_ssl_opts(Config, InstId) ++
+              [{sentinel, maps:get(sentinel, Config, undefined)}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
-    _ = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ Options),
+    case Type of
+        cluster ->
+            case eredis_cluster:start_pool(PoolName, Opts ++ [{options, Options}]) of
+                {ok, _} -> ok;
+                {ok, _, _} -> ok;
+                {error, Reason} -> error(connect_redis_cluster_failed, Reason)
+            end;
+        _ ->
+            _ = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ [{options, Options}])
+    end,
     {ok, #{poolname => PoolName, type => Type}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
@@ -70,7 +113,11 @@ on_stop(InstId, #{poolname := PoolName}) ->
 
 on_query(InstId, {cmd, Command}, AfterCommand, #{poolname := PoolName, type := Type} = State) ->
     logger:debug("redis connector ~p received cmd query: ~p, at state: ~p", [InstId, Command, State]),
-    case Result = ecpool:pick_and_do(PoolName, {?MODULE, cmd, [Type, Command]}, no_handover) of
+    Result = case Type of
+                 cluster -> eredis_cluster:q(PoolName, Command);
+                 _ -> ecpool:pick_and_do(PoolName, {?MODULE, cmd, [Type, Command]}, no_handover)
+             end,
+    case Result of
         {error, Reason} ->
             logger:debug("redis connector ~p do cmd query failed, cmd: ~p, reason: ~p", [InstId, Command, Reason]),
             emqx_resource:query_failed(AfterCommand);
@@ -79,15 +126,15 @@ on_query(InstId, {cmd, Command}, AfterCommand, #{poolname := PoolName, type := T
     end,
     Result.
 
-on_health_check(_InstId, #{type := cluster, poolname := PoolName}) ->
+on_health_check(_InstId, #{type := cluster, poolname := PoolName} = State) ->
     Workers = lists:flatten([gen_server:call(PoolPid, get_all_workers) ||
                              PoolPid <- eredis_cluster_monitor:get_all_pools(PoolName)]),
     case length(Workers) > 0 andalso lists:all(
             fun({_, Pid, _, _}) ->
                 eredis_cluster_pool_worker:is_connected(Pid) =:= true
             end, Workers) of
-        true -> {ok, true};
-        false -> {error, false}
+        true -> {ok, State};
+        false -> {error, test_query_failed, State}
     end;
 on_health_check(_InstId, #{poolname := PoolName} = State) ->
     emqx_plugin_libs_pool:health_check(PoolName, fun ?MODULE:do_health_check/1, State).
@@ -118,26 +165,15 @@ init_ssl_opts(_Config, _InstId) ->
     [{ssl, false}].
 
 redis_fields() ->
-    [ {redis_type, fun redis_type/1}
-    , {servers, fun emqx_connector_schema_lib:servers/1}
-    , {pool_size, fun emqx_connector_schema_lib:pool_size/1}
+    [ {pool_size, fun emqx_connector_schema_lib:pool_size/1}
     , {password, fun emqx_connector_schema_lib:password/1}
-    , {database, fun database/1}
+    , {database, #{type => integer(),
+                   default => 0}}
     , {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
     ].
 
-redis_sentinel_fields() ->
-    [ {sentinel, fun sentinel_name/1}
-    ].
-
-sentinel_name(type) -> binary();
-sentinel_name(nullable) -> true;
-sentinel_name(_) -> undefined.
-
-redis_type(type) -> hoconsc:enum([single, sentinel, cluster]);
-redis_type(default) -> single;
-redis_type(_) -> undefined.
-
-database(type) -> integer();
-database(default) -> 0;
-database(_) -> undefined.
+to_server(Server) ->
+    case string:tokens(Server, ":") of
+        [Host, Port] -> {ok, {Host, list_to_integer(Port)}};
+        _ -> {error, Server}
+    end.
