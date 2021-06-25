@@ -29,6 +29,7 @@
 
 %% raw configs is the config that is now parsed and tranlated by hocon schema
 -export([ get_raw/0
+        , get_raw/1
         , get_raw/2
         , put_raw/1
         , put_raw/2
@@ -78,6 +79,10 @@ update_config(ConfKeyPath, UpdateReq) ->
 -spec get_raw() -> map().
 get_raw() ->
     persistent_term:get(?RAW_CONF, #{}).
+
+-spec get_raw(config_key_path()) -> term().
+get_raw(KeyPath) ->
+    deep_get(KeyPath, get_raw()).
 
 -spec get_raw(config_key_path(), term()) -> term().
 get_raw(KeyPath, Default) ->
