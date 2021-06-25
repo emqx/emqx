@@ -1,9 +1,6 @@
 name: Check Rebar Dependencies
 
-on:
-  pull_request:
-    types:
-      - ready_for_review
+on: [pull_request]
 
 jobs:
   check_deps_integrity:

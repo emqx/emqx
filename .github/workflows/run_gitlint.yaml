@@ -1,9 +1,6 @@
 name: Run gitlint
 
-on:
-  pull_request:
-    types:
-      - ready_for_review
+on: [pull_request]
 
 jobs:
   run_gitlint:
