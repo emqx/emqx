@@ -195,7 +195,6 @@ overlay_vars_rel(RelType) ->
     [ {enable_plugin_emqx_rule_engine, RelType =:= cloud}
     , {enable_plugin_emqx_bridge_mqtt, RelType =:= edge}
     , {enable_plugin_emqx_modules, false} %% modules is not a plugin in ce
-    , {enable_plugin_emqx_recon, true}
     , {enable_plugin_emqx_retainer, true}
     , {vm_args_file, VmArgs}
     ].
@@ -292,7 +291,6 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_auth_jwt
     , emqx_auth_mnesia
     , emqx_web_hook
-    , emqx_recon
     , emqx_rule_engine
     , emqx_sasl
     , emqx_statsd
