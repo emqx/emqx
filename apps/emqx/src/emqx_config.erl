@@ -97,6 +97,7 @@ put_raw(KeyPath, Config) ->
     put_raw(deep_put(KeyPath, get_raw(), Config)).
 
 %%-----------------------------------------------------------------
+-dialyzer([{nowarn_function, [deep_get/2]}]).
 -spec deep_get(config_key_path(), map()) -> term().
 deep_get(ConfKeyPath, Map) ->
     do_deep_get(ConfKeyPath, Map, fun(KeyPath, Data) ->
