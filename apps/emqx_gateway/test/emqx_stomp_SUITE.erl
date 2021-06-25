@@ -16,7 +16,7 @@
 
 -module(emqx_stomp_SUITE).
 
--include_lib("emqx_stomp/include/emqx_stomp.hrl").
+-include_lib("emqx_gateway/src/stomp/include/emqx_stomp.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -30,11 +30,11 @@ all() -> emqx_ct:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_stomp]),
+    emqx_ct_helpers:start_apps([emqx_gateway]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_stomp]).
+    emqx_ct_helpers:stop_apps([emqx_gateway]).
 
 %%--------------------------------------------------------------------
 %% Test Cases

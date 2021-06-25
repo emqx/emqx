@@ -18,10 +18,43 @@
 
 -behaviour(application).
 
+-include_lib("emqx/include/logger.hrl").
+
+-logger_header("[Gateway]").
+
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
-    emqx_gateway_sup:start_link().
+    {ok, Sup} = emqx_gateway_sup:start_link(),
+    load_default_gateway_applications(),
+    {ok, Sup}.
 
 stop(_State) ->
+    %% XXX: ?
     ok.
+
+%%--------------------------------------------------------------------
+%% Internal funcs
+
+load_default_gateway_applications() ->
+    Apps = gateway_type_searching(),
+    ?LOG(info, "Starting the default gateway types: ~p", [Apps]),
+    lists:foreach(fun load/1, Apps).
+
+gateway_type_searching() ->
+    %% FIXME: Hardcoded apps
+    [emqx_stomp_impl].
+
+load(Mod) ->
+    try
+        case erlang:function_exported(Mod, load, 0) of
+            true ->
+                Mod:load(),
+                ?LOG(info, "Load ~s gateway application successfully!", [Mod]);
+            false -> ok
+        end
+    catch
+        Class : Reason ->
+            ?LOG(error, "Load ~s gateway application failed: {~p, ~p}",
+                        [Mod, Class, Reason])
+    end.
