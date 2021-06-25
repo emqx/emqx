@@ -23,6 +23,8 @@
         , put/2
         , deep_get/3
         , deep_put/3
+        , safe_atom_key_map/1
+        , unsafe_atom_key_map/1
         ]).
 
 -spec get() -> term().
@@ -58,3 +60,21 @@ deep_put([], Map, Config) when is_map(Map) ->
 deep_put([Key | KeyPath], Map, Config) ->
     SubMap = deep_put(KeyPath, maps:get(Key, Map, #{}), Config),
     Map#{Key => SubMap}.
+
+unsafe_atom_key_map(Map) ->
+    covert_keys_to_atom(Map, fun(K) -> binary_to_atom(K, utf8) end).
+
+safe_atom_key_map(Map) ->
+    covert_keys_to_atom(Map, fun(K) -> binary_to_existing_atom(K, utf8) end).
+
+covert_keys_to_atom(BinKeyMap, Conv) when is_map(BinKeyMap) ->
+    maps:fold(
+        fun(K, V, Acc) when is_binary(K) ->
+              Acc#{Conv(K) => covert_keys_to_atom(V, Conv)};
+           (K, V, Acc) when is_atom(K) ->
+              %% richmap keys
+              Acc#{K => covert_keys_to_atom(V, Conv)}
+        end, #{}, BinKeyMap);
+covert_keys_to_atom(ListV, Conv) when is_list(ListV) ->
+    [covert_keys_to_atom(V, Conv) || V <- ListV];
+covert_keys_to_atom(Val, _) -> Val.
