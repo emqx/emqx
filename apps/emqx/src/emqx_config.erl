@@ -106,7 +106,7 @@ deep_get(ConfKeyPath, Map) ->
 deep_get(ConfKeyPath, Map, Default) ->
     do_deep_get(ConfKeyPath, Map, fun(_, _) -> Default end).
 
--spec deep_put(config_key_path(), map(), term()) -> ok.
+-spec deep_put(config_key_path(), map(), term()) -> map().
 deep_put([], Map, Config) when is_map(Map) ->
     Config;
 deep_put([Key | KeyPath], Map, Config) ->
