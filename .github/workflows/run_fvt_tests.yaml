@@ -6,8 +6,6 @@ on:
       - v*
       - e*
   pull_request:
-    types:
-      - ready_for_review
 
 jobs:
     docker_test:
