@@ -53,7 +53,7 @@ groups() ->
        ]}].
 
 apps() ->
-    [emqx_management, emqx_auth_mnesia, emqx_modules].
+    [emqx_management, emqx_retainer, emqx_modules].
 
 init_per_suite(Config) ->
     application:set_env(ekka, strict_mode, true),
@@ -317,12 +317,12 @@ t_plugins_cmd(_) ->
     meck:expect(emqx_plugins, reload, fun(_) -> ok end),
     ?assertEqual(emqx_mgmt_cli:plugins(["list"]), ok),
     ?assertEqual(
-       emqx_mgmt_cli:plugins(["unload", "emqx_auth_mnesia"]),
-       "Plugin emqx_auth_mnesia unloaded successfully.\n"
+       emqx_mgmt_cli:plugins(["unload", "emqx_retainer"]),
+       "Plugin emqx_retainer unloaded successfully.\n"
       ),
     ?assertEqual(
-       emqx_mgmt_cli:plugins(["load", "emqx_auth_mnesia"]),
-       "Plugin emqx_auth_mnesia loaded successfully.\n"
+       emqx_mgmt_cli:plugins(["load", "emqx_retainer"]),
+       "Plugin emqx_retainer loaded successfully.\n"
       ),
     ?assertEqual(
        emqx_mgmt_cli:plugins(["unload", "emqx_management"]),
