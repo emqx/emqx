@@ -19,9 +19,15 @@ fields(authz) ->
 fields(redis_connector) ->
     [ {principal, principal()}
     , {type, #{type => hoconsc:enum([redis])}}
-    , {config, #{type => map()}}
+    , {config, #{type => hoconsc:union(
+                         [ hoconsc:ref(emqx_connector_redis, cluster)
+                         , hoconsc:ref(emqx_connector_redis, sentinel)
+                         , hoconsc:ref(emqx_connector_redis, single)
+                         ])}
+      }
     , {cmd, query()}
     ];
+
 fields(sql_connector) ->
     [ {principal, principal() }
     , {type, #{type => hoconsc:enum([mysql, pgsql])}}
@@ -33,7 +39,7 @@ fields(simple_rule) ->
     , {action,   #{type => action()}}
     , {topics,   #{type => union_array(
                              [ binary()
-                             , hoconsc:ref(eq_topic) 
+                             , hoconsc:ref(eq_topic)
                              ]
                             )}}
     , {principal, principal()}
