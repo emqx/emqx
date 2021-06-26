@@ -60,4 +60,4 @@ config_key_path() ->
     [emqx_data_bridge, bridges].
 
 update_config(ConfigReq) ->
-    emqx_config_handler:update_config(config_key_path(), ConfigReq).
+    emqx_config:update_config(config_key_path(), ConfigReq).

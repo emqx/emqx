@@ -97,12 +97,11 @@ For example, set mqtt tcp port to 1883
 
 Default environment variable ``EMQX_LOADED_MODULES``, including
 
-+ ``emqx_mod_acl_internal``
 + ``emqx_mod_presence``
 
 ```bash
 # The default EMQX_LOADED_MODULES env
-EMQX_LOADED_MODULES="emqx_mod_acl_internal,emqx_mod_acl_internal"
+EMQX_LOADED_MODULES="emqx_mod_presence"
 ```
 
 For example, set ``EMQX_LOADED_MODULES=emqx_mod_delayed,emqx_mod_rewrite`` to load these two modules.
@@ -136,16 +135,16 @@ Default environment variable ``EMQX_LOADED_PLUGINS``, including
 EMQX_LOADED_PLUGINS="emqx_recon,emqx_retainer,emqx_management,emqx_dashboard"
 ```
 
-For example, set ``EMQX_LOADED_PLUGINS= emqx_auth_redis,emqx_auth_mysql`` to load these two plugins.
+For example, set ``EMQX_LOADED_PLUGINS= emqx_retainer,emqx_rule_engine`` to load these two plugins.
 
 You can use comma, space or other separator that you want.
 
 All the plugins defined in ``EMQX_LOADED_PLUGINS`` will be loaded.
 
 ```bash
-EMQX_LOADED_PLUGINS="emqx_auth_redis,emqx_auth_mysql"
-EMQX_LOADED_PLUGINS="emqx_auth_redis emqx_auth_mysql"
-EMQX_LOADED_PLUGINS="emqx_auth_redis | emqx_auth_mysql"
+EMQX_LOADED_PLUGINS="emqx_retainer,emqx_rule_engine"
+EMQX_LOADED_PLUGINS="emqx_retainer emqx_rule_engine"
+EMQX_LOADED_PLUGINS="emqx_retainer | emqx_rule_engine"
 ```
 
 #### EMQ X Plugins Configuration
@@ -155,8 +154,8 @@ The environment variables which with ``EMQX_`` prefix are mapped to all emqx plu
 Example:
 
 ```bash
-EMQX_AUTH__REDIS__SERVER   <--> auth.redis.server
-EMQX_AUTH__REDIS__PASSWORD <--> auth.redis.password
+EMQX_RETAINER__STORAGE_TYPE <--> retainer.storage_type
+EMQX_RETAINER__MAX_PAYLOAD_SIZE <--> retainer.max_payload_size
 ```
 
 Don't worry about where to find the configuration file of emqx plugins, this docker image will find and config them automatically using some magic.
@@ -166,15 +165,14 @@ All plugin of emqx project could config in this way, following the environment v
 Assume you are using redis auth plugin, for example:
 
 ```bash
-#EMQX_AUTH__REDIS__SERVER="redis.at.yourserver"
-#EMQX_AUTH__REDIS__PASSWORD="password_for_redis"
+#EMQX_RETAINER__STORAGE_TYPE = "ram"
+#EMQX_RETAINER.MAX_PAYLOAD_SIZE = 1MB
 
 docker run -d --name emqx -p 18083:18083 -p 1883:1883 -p 4369:4369 \
     -e EMQX_LISTENER__TCP__EXTERNAL=1883 \
-    -e EMQX_LOADED_PLUGINS="emqx_auth_redis" \
-    -e EMQX_AUTH__REDIS__SERVER="your.redis.server:6379" \
-    -e EMQX_AUTH__REDIS__PASSWORD="password_for_redis" \
-    -e EMQX_AUTH__REDIS__PASSWORD_HASH=plain \
+    -e EMQX_LOADED_PLUGINS="emqx_retainer" \
+    -e EMQX_RETAINER__STORAGE_TYPE = "ram" \
+    -e EMQX_RETAINER__MAX_PAYLOAD_SIZE = 1MB \
     emqx/emqx:latest
 ```
 

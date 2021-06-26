@@ -28,8 +28,8 @@
 -define(APP, emqx_prometheus).
 
 start(_StartType, _StartArgs) ->
-    PushGateway = application:get_env(?APP, push_gateway, undefined),
-    Interval = application:get_env(?APP, interval, 5000),
+    PushGateway = emqx_config:get([?APP, push_gateway_server], undefined),
+    Interval = emqx_config:get([?APP, interval], 15000),
     emqx_prometheus_sup:start_link(PushGateway, Interval).
 
 stop(_State) ->

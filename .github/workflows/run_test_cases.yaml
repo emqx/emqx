@@ -68,64 +68,21 @@ jobs:
         - name: docker compose up
           if: env.EDITION == 'opensource'
           env:
-            MYSQL_TAG: 8
-            REDIS_TAG: 6
-            MONGO_TAG: 4
-            PGSQL_TAG: 13
-            LDAP_TAG: 2.4.50
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           run: |
             docker-compose \
                 -f .ci/docker-compose-file/docker-compose.yaml \
-                -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
                 up -d --build
         - name: docker compose up
           if: env.EDITION == 'enterprise'
           env:
-            MYSQL_TAG: 8
-            REDIS_TAG: 6
-            MONGO_TAG: 4
-            PGSQL_TAG: 13
-            LDAP_TAG: 2.4.50
-            OPENTSDB_TAG: latest
-            INFLUXDB_TAG: 1.7.6
-            DYNAMODB_TAG: 1.11.477
-            TIMESCALE_TAG: latest-pg11
-            CASSANDRA_TAG: 3.11.6
-            RABBITMQ_TAG: 3.7
-            KAFKA_TAG: 2.5.0
-            PULSAR_TAG: 2.3.2
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           timeout-minutes: 20
           run: |
             docker-compose \
                 -f .ci/docker-compose-file/docker-compose.yaml \
-                -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose-enterprise.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-cassandra-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-dynamodb-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-influxdb-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-kafka-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-opentsdb-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-pulsar-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-rabbit-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-timescale-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-mysql-client.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-pgsql-and-timescale-client.yaml \
                 up -d --build
-            docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
-            while [ $(docker ps -a --filter name=client --filter exited=0 | wc -l) \
-                 != $(docker ps -a --filter name=client | wc -l) ]; do
-              sleep 5
-            done
         - name: run eunit
           run: |
             docker exec -i erlang bash -c "make eunit"

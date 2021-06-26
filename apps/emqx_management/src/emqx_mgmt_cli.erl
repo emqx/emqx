@@ -38,7 +38,6 @@
         , trace/1
         , log/1
         , mgmt/1
-        , data/1
         , acl/1
         ]).
 
@@ -543,36 +542,6 @@ stop_listener(#{listen_on := ListenOn} = Listener, _Input) ->
             emqx_ctl:print("Failed to stop ~s listener on ~s: ~0p~n",
                            [ID, ListenOnStr, Reason])
     end.
-
-%%--------------------------------------------------------------------
-%% @doc data Command
-
-data(["export"]) ->
-    case emqx_mgmt_data_backup:export() of
-        {ok, #{filename := Filename}} ->
-            emqx_ctl:print("The emqx data has been successfully exported to ~s.~n", [Filename]);
-        {error, Reason} ->
-            emqx_ctl:print("The emqx data export failed due to ~p.~n", [Reason])
-    end;
-
-data(["import", Filename]) ->
-    data(["import", Filename, "--env", "{}"]);
-data(["import", Filename, "--env", Env]) ->
-    case emqx_mgmt_data_backup:import(Filename, Env) of
-        ok ->
-            emqx_ctl:print("The emqx data has been imported successfully.~n");
-        {error, import_failed} ->
-            emqx_ctl:print("The emqx data import failed.~n");
-        {error, unsupported_version} ->
-            emqx_ctl:print("The emqx data import failed: Unsupported version.~n");
-        {error, Reason} ->
-            emqx_ctl:print("The emqx data import failed: ~0p while reading ~s.~n", [Reason, Filename])
-    end;
-
-data(_) ->
-    emqx_ctl:usage([{"data import <File> [--env '<json>']",
-                     "Import data from the specified file, possibly with overrides"},
-                    {"data export", "Export data"}]).
 
 %%--------------------------------------------------------------------
 %% @doc acl Command

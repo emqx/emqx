@@ -104,7 +104,7 @@ make dialyzer
 
 ##### Статический анализ части приложений (список через запятую)
 ```
-DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
+DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 ```
 
 ## Сообщество
