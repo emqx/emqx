@@ -19,7 +19,7 @@
 -behaviour(gen_server).
 
 -include("emqx_lua_hook.hrl").
--include_lib("luerl/src/luerl.hrl").
+-include_lib("luerl/include/luerl.hrl").
 
 -export([ start_link/0
         , stop/0
