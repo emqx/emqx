@@ -41,7 +41,7 @@ init() ->
     #{<<"authz">> := #{<<"rules">> := Rules}} = hocon_schema:check_plain(emqx_authz_schema, RawConf),
     ok = application:set_env(?APP, rules, Rules),
     NRules = [compile(Rule) || Rule <- Rules],
-    ok = emqx_hooks:add('client.check_acl', {?MODULE, check_authz, [NRules]},  -1).
+    ok = emqx_hooks:add('client.check_authz', {?MODULE, check_authz, [NRules]},  -1).
 
 lookup() ->
     application:get_env(?APP, rules, []).
@@ -50,8 +50,8 @@ update(Rules) ->
     ok = application:set_env(?APP, rules, Rules),
     NRules = [compile(Rule) || Rule <- Rules],
     Action = find_action_in_hooks(),
-    ok = emqx_hooks:del('client.check_acl', Action),
-    ok = emqx_hooks:add('client.check_acl', {?MODULE, check_authz, [NRules]},  -1),
+    ok = emqx_hooks:del('client.check_authz', Action),
+    ok = emqx_hooks:add('client.check_authz', {?MODULE, check_authz, [NRules]},  -1),
     ok = emqx_acl_cache:empty_acl_cache().
 
 %%--------------------------------------------------------------------
@@ -59,7 +59,7 @@ update(Rules) ->
 %%--------------------------------------------------------------------
 
 find_action_in_hooks() ->
-    Callbacks = emqx_hooks:lookup('client.check_acl'),
+    Callbacks = emqx_hooks:lookup('client.check_authz'),
     [Action] = [Action || {callback,{?MODULE, check_authz, _} = Action, _, _} <- Callbacks ],
     Action.
 

@@ -253,7 +253,7 @@ message ValuedResponse {
 
   oneof value {
 
-    // Boolean result, used on the 'client.authenticate', 'client.check_acl' hooks
+    // Boolean result, used on the 'client.authenticate', 'client.check_authz' hooks
     bool bool_result = 3;
 
     // Message result, used on the 'message.*' hooks
@@ -279,7 +279,7 @@ message HookSpec {
   // Available value:
   //   "client.connect",      "client.connack"
   //   "client.connected",    "client.disconnected"
-  //   "client.authenticate", "client.check_acl"
+  //   "client.authenticate", "client.check_authz"
   //   "client.subscribe",    "client.unsubscribe"
   //
   //   "session.created",      "session.subscribed"

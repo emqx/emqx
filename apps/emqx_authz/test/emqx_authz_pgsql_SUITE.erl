@@ -95,23 +95,23 @@ t_authz(_) ->
                    },
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, []} end),
-    ?assertEqual(deny, emqx_access_control:check_acl(ClientInfo1, subscribe, <<"#">>)), % nomatch
-    ?assertEqual(deny, emqx_access_control:check_acl(ClientInfo1, publish, <<"#">>)), % nomatch
+    ?assertEqual(deny, emqx_access_control:check_authz(ClientInfo1, subscribe, <<"#">>)), % nomatch
+    ?assertEqual(deny, emqx_access_control:check_authz(ClientInfo1, publish, <<"#">>)), % nomatch
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?RULE1 ++ ?RULE2} end),
-    ?assertEqual(deny, emqx_access_control:check_acl(ClientInfo1, subscribe, <<"+">>)),
-    ?assertEqual(deny, emqx_access_control:check_acl(ClientInfo1, publish, <<"+">>)),
+    ?assertEqual(deny, emqx_access_control:check_authz(ClientInfo1, subscribe, <<"+">>)),
+    ?assertEqual(deny, emqx_access_control:check_authz(ClientInfo1, publish, <<"+">>)),
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?RULE2 ++ ?RULE1} end),
-    ?assertEqual(allow, emqx_access_control:check_acl(ClientInfo1, subscribe, <<"#">>)),
-    ?assertEqual(deny, emqx_access_control:check_acl(ClientInfo2, subscribe, <<"+">>)),
+    ?assertEqual(allow, emqx_access_control:check_authz(ClientInfo1, subscribe, <<"#">>)),
+    ?assertEqual(deny, emqx_access_control:check_authz(ClientInfo2, subscribe, <<"+">>)),
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?RULE3 ++ ?RULE4} end),
-    ?assertEqual(allow, emqx_access_control:check_acl(ClientInfo2, subscribe, <<"test/test_clientid">>)),
-    ?assertEqual(deny,  emqx_access_control:check_acl(ClientInfo2, publish,   <<"test/test_clientid">>)),
-    ?assertEqual(deny,  emqx_access_control:check_acl(ClientInfo2, subscribe, <<"test/test_username">>)),
-    ?assertEqual(allow, emqx_access_control:check_acl(ClientInfo2, publish,   <<"test/test_username">>)),
-    ?assertEqual(deny,  emqx_access_control:check_acl(ClientInfo3, subscribe, <<"test">>)), % nomatch
-    ?assertEqual(deny,  emqx_access_control:check_acl(ClientInfo3, publish,   <<"test">>)), % nomatch
+    ?assertEqual(allow, emqx_access_control:check_authz(ClientInfo2, subscribe, <<"test/test_clientid">>)),
+    ?assertEqual(deny,  emqx_access_control:check_authz(ClientInfo2, publish,   <<"test/test_clientid">>)),
+    ?assertEqual(deny,  emqx_access_control:check_authz(ClientInfo2, subscribe, <<"test/test_username">>)),
+    ?assertEqual(allow, emqx_access_control:check_authz(ClientInfo2, publish,   <<"test/test_username">>)),
+    ?assertEqual(deny,  emqx_access_control:check_authz(ClientInfo3, subscribe, <<"test">>)), % nomatch
+    ?assertEqual(deny,  emqx_access_control:check_authz(ClientInfo3, publish,   <<"test">>)), % nomatch
     ok.
 

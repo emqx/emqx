@@ -77,7 +77,7 @@ t_publish_acl_deny(_Config) ->
     emqx:subscribe(Topic),
 
     ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history]),
-    ok = meck:expect(emqx_access_control, check_acl, 3, deny),
+    ok = meck:expect(emqx_access_control, check_authz, 3, deny),
     Reply = er_coap_client:request(put, URI, #coap_content{format = <<"application/octet-stream">>, payload = Payload}),
     ?assertEqual({error,forbidden}, Reply),
     ok = meck:unload(emqx_access_control),
@@ -114,7 +114,7 @@ t_observe_acl_deny(_Config) ->
     Topic = <<"abc">>, TopicStr = binary_to_list(Topic),
     Uri = "coap://127.0.0.1/mqtt/"++TopicStr++"?c=client1&u=tom&p=secret",
     ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history]),
-    ok = meck:expect(emqx_access_control, check_acl, 3, deny),
+    ok = meck:expect(emqx_access_control, check_authz, 3, deny),
     ?assertEqual({error,forbidden}, er_coap_observer:observe(Uri)),
     [] = emqx:subscribers(Topic),
     ok = meck:unload(emqx_access_control).

@@ -25,7 +25,7 @@
       , {'client.connected',    {emqx_exhook_handler, on_client_connected,     []}}
       , {'client.disconnected', {emqx_exhook_handler, on_client_disconnected,  []}}
       , {'client.authenticate', {emqx_exhook_handler, on_client_authenticate,  []}}
-      , {'client.check_acl',    {emqx_exhook_handler, on_client_check_acl,     []}}
+      , {'client.check_authz',    {emqx_exhook_handler, on_client_check_authz,     []}}
       , {'client.subscribe',    {emqx_exhook_handler, on_client_subscribe,     []}}
       , {'client.unsubscribe',  {emqx_exhook_handler, on_client_unsubscribe,   []}}
       , {'session.created',     {emqx_exhook_handler, on_session_created,      []}}
