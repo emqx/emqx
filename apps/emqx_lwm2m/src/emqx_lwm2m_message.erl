@@ -197,7 +197,10 @@ value_ex(K, Value) when K =:= <<"Integer">>; K =:= <<"Float">>; K =:= <<"Time">>
 value_ex(K, Value) when K =:= <<"String">> ->
     Value;
 value_ex(K, Value) when K =:= <<"Opaque">> ->
-    Value;
+    %% XXX: force to decode it with base64
+    %%      This may not be a good implementation, but it is
+    %%      consistent with the treatment of Opaque in value/3
+    base64:decode(Value);
 value_ex(K, <<"true">>) when K =:= <<"Boolean">> -> <<1>>;
 value_ex(K, <<"false">>) when K =:= <<"Boolean">> -> <<0>>;
 

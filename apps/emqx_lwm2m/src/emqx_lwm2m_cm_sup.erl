@@ -1,5 +1,6 @@
+
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,33 +15,27 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_sasl_app).
-
--behaviour(application).
-
--emqx_plugin(?MODULE).
-
--export([ start/2
-        , stop/1
-        ]).
+-module(emqx_lwm2m_cm_sup).
 
 -behaviour(supervisor).
 
+-export([start_link/0]).
+
 -export([init/1]).
 
-start(_Type, _Args) ->
-    ok = emqx_sasl:init(),
-    _ = emqx_sasl:load(),
-    emqx_sasl_cli:load(),
+start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-stop(_State) ->
-    emqx_sasl_cli:unload(),
-    emqx_sasl:unload().
-
-%%--------------------------------------------------------------------
-%% Dummy supervisor
-%%--------------------------------------------------------------------
-
 init([]) ->
-    {ok, { {one_for_all, 1, 10}, []} }.
+    CM = #{id => emqx_lwm2m_cm,
+           start => {emqx_lwm2m_cm, start_link, []},
+           restart => permanent,
+           shutdown => 5000,
+           type => worker,
+           modules => [emqx_lwm2m_cm]},
+    SupFlags = #{strategy => one_for_one,
+                 intensity => 100,
+                 period => 10
+                },
+    {ok, {SupFlags, [CM]}}.
+

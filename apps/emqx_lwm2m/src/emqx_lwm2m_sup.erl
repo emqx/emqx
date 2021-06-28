@@ -29,4 +29,11 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init(_Args) ->
-    {ok, { {one_for_all, 10, 3600}, [?CHILD(emqx_lwm2m_xml_object_db)] }}.
+    CmSup = #{id => emqx_lwm2m_cm_sup,
+              start => {emqx_lwm2m_cm_sup, start_link, []},
+              restart => permanent,
+              shutdown => infinity,
+              type => supervisor,
+              modules => [emqx_lwm2m_cm_sup]
+            },
+    {ok, { {one_for_all, 10, 3600}, [?CHILD(emqx_lwm2m_xml_object_db), CmSup] }}.
