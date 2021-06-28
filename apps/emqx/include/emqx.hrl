@@ -89,6 +89,9 @@
 
 -define(ROUTE_SHARD, route_shard).
 
+
+-define(RULE_ENGINE_SHARD, emqx_rule_engine_shard).
+
 -record(route, {
           topic :: binary(),
           dest  :: node() | {binary(), node()}
