@@ -18,14 +18,14 @@
 
 %% ACL callbacks
 -export([ init/1
-        , check_authz/2
+        , authorize/2
         , description/0
         ]).
 
 init(AclOpts) ->
     {ok, AclOpts}.
 
-check_authz({_User, _PubSub, _Topic}, _State) ->
+authorize({_User, _PubSub, _Topic}, _State) ->
     allow.
 
 description() ->

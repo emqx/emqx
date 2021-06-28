@@ -27,7 +27,7 @@
         , on_client_connected/2
         , on_client_disconnected/3
         , on_client_authenticate/2
-        , on_client_check_authz/4
+        , on_client_authorize/4
         , on_client_subscribe/3
         , on_client_unsubscribe/3
         ]).
@@ -109,7 +109,7 @@ on_client_authenticate(ClientInfo, AuthResult) ->
             {ok, AuthResult}
     end.
 
-on_client_check_authz(ClientInfo, PubSub, Topic, Result) ->
+on_client_authorize(ClientInfo, PubSub, Topic, Result) ->
     Bool = Result == allow,
     Type = case PubSub of
                publish -> 'PUBLISH';
@@ -120,7 +120,7 @@ on_client_check_authz(ClientInfo, PubSub, Topic, Result) ->
             topic => Topic,
             result => Bool
            },
-    case call_fold('client.check_authz', Req,
+    case call_fold('client.authorize', Req,
                    fun merge_responsed_bool/2) of
         {StopOrOk, #{result := Result0}} when is_boolean(Result0) ->
             NResult = case Result0 of true -> allow; _ -> deny end,

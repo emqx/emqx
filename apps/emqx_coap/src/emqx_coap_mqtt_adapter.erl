@@ -222,7 +222,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 chann_subscribe(Topic, State = #state{clientid = ClientId}) ->
     ?LOG(debug, "subscribe Topic=~p", [Topic]),
-    case emqx_access_control:check_authz(clientinfo(State), subscribe, Topic) of
+    case emqx_access_control:authorize(clientinfo(State), subscribe, Topic) of
         allow ->
             emqx_broker:subscribe(Topic, ClientId, ?SUBOPTS),
             emqx_hooks:run('session.subscribed', [clientinfo(State), Topic, ?SUBOPTS]),
@@ -241,7 +241,7 @@ chann_unsubscribe(Topic, State) ->
 
 chann_publish(Topic, Payload, State = #state{clientid = ClientId}) ->
     ?LOG(debug, "publish Topic=~p, Payload=~p", [Topic, Payload]),
-    case emqx_access_control:check_authz(clientinfo(State), publish, Topic) of
+    case emqx_access_control:authorize(clientinfo(State), publish, Topic) of
         allow ->
             _ = emqx_broker:publish(
                     emqx_message:set_flag(retain, false,

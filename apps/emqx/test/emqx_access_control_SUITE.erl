@@ -38,9 +38,9 @@ t_authenticate(_) ->
     emqx_zone:set_env(zone, allow_anonymous, true),
     ?assertMatch({ok, _}, emqx_access_control:authenticate(clientinfo())).
 
-t_check_authz(_) ->
+t_authorize(_) ->
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
-    ?assertEqual(allow, emqx_access_control:check_authz(clientinfo(), Publish, <<"t">>)).
+    ?assertEqual(allow, emqx_access_control:authorize(clientinfo(), Publish, <<"t">>)).
 
 t_bypass_auth_plugins(_) ->
     ClientInfo = clientinfo(),

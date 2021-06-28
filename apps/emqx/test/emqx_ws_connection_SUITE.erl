@@ -64,7 +64,7 @@ init_per_testcase(TestCase, Config) when
                      end),
     %% Mock emqx_access_control
     ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_access_control, check_authz, fun(_, _, _) -> allow end),
+    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end),
     %% Mock emqx_hooks
     ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end),

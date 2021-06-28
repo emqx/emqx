@@ -40,7 +40,7 @@ service HookProvider {
 
   rpc OnClientAuthenticate(ClientAuthenticateRequest) returns (ValuedResponse) {};
 
-  rpc OnClientCheckAuthz(ClientCheckAuthzRequest) returns (ValuedResponse) {};
+  rpc OnClientAuthorize(ClientAuthorizeRequest) returns (ValuedResponse) {};
 
   rpc OnClientSubscribe(ClientSubscribeRequest) returns (EmptySuccess) {};
 
@@ -123,7 +123,7 @@ message ClientAuthenticateRequest {
   bool result = 2;
 }
 
-message ClientCheckAuthzRequest {
+message ClientAuthorizeRequest {
 
   ClientInfo clientinfo = 1;
 
@@ -253,7 +253,7 @@ message ValuedResponse {
 
   oneof value {
 
-    // Boolean result, used on the 'client.authenticate', 'client.check_authz' hooks
+    // Boolean result, used on the 'client.authenticate', 'client.authorize' hooks
     bool bool_result = 3;
 
     // Message result, used on the 'message.*' hooks
@@ -279,7 +279,7 @@ message HookSpec {
   // Available value:
   //   "client.connect",      "client.connack"
   //   "client.connected",    "client.disconnected"
-  //   "client.authenticate", "client.check_authz"
+  //   "client.authenticate", "client.authorize"
   //   "client.subscribe",    "client.unsubscribe"
   //
   //   "session.created",      "session.subscribed"

@@ -414,8 +414,8 @@ emqx_collect(emqx_client_authenticate, Stats) ->
     counter_metric(?C('client.authenticate', Stats));
 emqx_collect(emqx_client_auth_anonymous, Stats) ->
     counter_metric(?C('client.auth.anonymous', Stats));
-emqx_collect(emqx_client_check_authz, Stats) ->
-    counter_metric(?C('client.check_authz', Stats));
+emqx_collect(emqx_client_authorize, Stats) ->
+    counter_metric(?C('client.authorize', Stats));
 emqx_collect(emqx_client_subscribe, Stats) ->
     counter_metric(?C('client.subscribe', Stats));
 emqx_collect(emqx_client_unsubscribe, Stats) ->
@@ -567,7 +567,7 @@ emqx_metrics_client() ->
     [ emqx_client_connected
     , emqx_client_authenticate
     , emqx_client_auth_anonymous
-    , emqx_client_check_authz
+    , emqx_client_authorize
     , emqx_client_subscribe
     , emqx_client_unsubscribe
     , emqx_client_disconnected
