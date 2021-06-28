@@ -305,7 +305,7 @@ handle_call({subscribe, TopicFilter, Qos},
                          conn_state = connected,
                          clientinfo = ClientInfo}) ->
     case is_acl_enabled(ClientInfo) andalso
-         emqx_access_control:check_acl(ClientInfo, subscribe, TopicFilter) of
+         emqx_access_control:check_authz(ClientInfo, subscribe, TopicFilter) of
         deny ->
             {reply, {error, ?RESP_PERMISSION_DENY, <<"ACL deny">>}, Channel};
         _ ->
@@ -325,7 +325,7 @@ handle_call({publish, Topic, Qos, Payload},
                                     = #{clientid := From,
                                         mountpoint := Mountpoint}}) ->
     case is_acl_enabled(ClientInfo) andalso
-         emqx_access_control:check_acl(ClientInfo, publish, Topic) of
+         emqx_access_control:check_authz(ClientInfo, publish, Topic) of
         deny ->
             {reply, {error, ?RESP_PERMISSION_DENY, <<"ACL deny">>}, Channel};
         _ ->

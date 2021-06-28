@@ -58,7 +58,7 @@
                    | 'client.connected'
                    | 'client.disconnected'
                    | 'client.authenticate'
-                   | 'client.check_acl'
+                   | 'client.check_authz'
                    | 'client.subscribe'
                    | 'client.unsubscribe'
                    | 'session.created'
@@ -297,7 +297,7 @@ hk2func('client.connack') -> 'on_client_connack';
 hk2func('client.connected') -> 'on_client_connected';
 hk2func('client.disconnected') -> 'on_client_disconnected';
 hk2func('client.authenticate') -> 'on_client_authenticate';
-hk2func('client.check_acl') -> 'on_client_check_acl';
+hk2func('client.check_authz') -> 'on_client_check_authz';
 hk2func('client.subscribe') -> 'on_client_subscribe';
 hk2func('client.unsubscribe') -> 'on_client_unsubscribe';
 hk2func('session.created') -> 'on_session_created';
@@ -320,7 +320,7 @@ message_hooks() ->
 -compile({inline, [available_hooks/0]}).
 available_hooks() ->
     ['client.connect', 'client.connack', 'client.connected',
-     'client.disconnected', 'client.authenticate', 'client.check_acl',
+     'client.disconnected', 'client.authenticate', 'client.check_authz',
      'client.subscribe', 'client.unsubscribe',
      'session.created', 'session.subscribed', 'session.unsubscribed',
      'session.resumed', 'session.discarded', 'session.takeovered',
