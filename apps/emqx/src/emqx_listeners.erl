@@ -139,7 +139,27 @@ start_listener(Proto, ListenOn, Options) when Proto == http; Proto == ws ->
 %% Start MQTT/WSS listener
 start_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
     start_http_listener(fun cowboy:start_tls/3, 'mqtt:wss', ListenOn,
-                        ranch_opts(Options), ws_opts(Options)).
+                        ranch_opts(Options), ws_opts(Options));
+
+%% Start MQTT/QUIC listener
+start_listener(quic, ListenOn, Options) ->
+    %% @fixme unsure why we need reopen lib and reopen config.
+    quicer_nif:open_lib(),
+    quicer_nif:reg_open(),
+    SSLOpts = proplists:get_value(ssl_options, Options),
+    DefAcceptors = erlang:system_info(schedulers_online) * 8,
+    ListenOpts = [ {cert, proplists:get_value(certfile, SSLOpts)}
+                 , {key, proplists:get_value(keyfile, SSLOpts)}
+                 , {alpn, ["mqtt"]}
+                 , {conn_acceptors, proplists:get_value(acceptors, Options, DefAcceptors)}
+                 , {idle_timeout_ms, proplists:get_value(idle_timeout, Options, 60000)}
+                 ],
+    ConnectionOpts = [ {conn_callback, emqx_quic_connection}
+                     , {peer_unidi_stream_count, 1}
+                     , {peer_bidi_stream_count, 10}
+                     ],
+    StreamOpts = [],
+    quicer:start_listener('mqtt:quic', ListenOn, {ListenOpts, ConnectionOpts, StreamOpts}).
 
 replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].
 
@@ -238,6 +258,8 @@ stop_listener(Proto, ListenOn, _Opts) when Proto == http; Proto == ws ->
     cowboy:stop_listener(ws_name('mqtt:ws', ListenOn));
 stop_listener(Proto, ListenOn, _Opts) when Proto == https; Proto == wss ->
     cowboy:stop_listener(ws_name('mqtt:wss', ListenOn));
+stop_listener(quic, _ListenOn, _Opts) ->
+    quicer:stop_listener('mqtt:quic');
 stop_listener(Proto, ListenOn, _Opts) ->
     esockd:close(Proto, ListenOn).
 

@@ -237,10 +237,10 @@ reboot() ->
 
 -ifdef(EMQX_ENTERPRISE).
 default_started_applications() ->
-    [gproc, esockd, ranch, cowboy, ekka, emqx].
+    [gproc, esockd, ranch, cowboy, ekka, quicer, emqx].
 -else.
 default_started_applications() ->
-    [gproc, esockd, ranch, cowboy, ekka, emqx, emqx_modules].
+    [gproc, esockd, ranch, cowboy, ekka, quicer, emqx, emqx_modules].
 -endif.
 
 %%--------------------------------------------------------------------

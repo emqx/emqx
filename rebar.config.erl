@@ -243,6 +243,7 @@ relx_apps(ReleaseType) ->
     , compiler
     , runtime_tools
     , cuttlefish
+    , quicer
     , emqx
     , {mnesia, load}
     , {ekka, load}
