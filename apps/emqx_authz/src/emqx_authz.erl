@@ -150,22 +150,22 @@ b2l(B) when is_binary(B) -> binary_to_list(B).
 
 %% @doc Check ACL
 -spec(check_authz(emqx_types:clientinfo(), emqx_types:all(), emqx_topic:topic(), emqx_permission_rule:acl_result(), rules())
-      -> {ok, allow} | {ok, deny} | deny).
+      -> {stop, allow} | {ok, deny}).
 check_authz(#{username := Username,
               peerhost := IpAddress
-             } = Client, PubSub, Topic, DefaultResult, Rules) ->
+             } = Client, PubSub, Topic, _DefaultResult, Rules) ->
     case do_check_authz(Client, PubSub, Topic, Rules) of
         {matched, allow} ->
-            ?LOG(info, "Client succeeded authorizationa: Username: ~p, IP: ~p, Topic: ~p, Permission: allow", [Username, IpAddress, Topic]),
+            ?LOG(info, "Client succeeded authorization: Username: ~p, IP: ~p, Topic: ~p, Permission: allow", [Username, IpAddress, Topic]),
             emqx_metrics:inc(?ACL_METRICS(allow)),
             {stop, allow};
         {matched, deny} ->
-            ?LOG(info, "Client failed authorizationa: Username: ~p, IP: ~p, Topic: ~p, Permission: deny", [Username, IpAddress, Topic]),
+            ?LOG(info, "Client failed authorization: Username: ~p, IP: ~p, Topic: ~p, Permission: deny", [Username, IpAddress, Topic]),
             emqx_metrics:inc(?ACL_METRICS(deny)),
             {stop, deny};
         nomatch ->
-            ?LOG(info, "Client failed authorizationa: Username: ~p, IP: ~p, Topic: ~p, Reasion: ~p", [Username, IpAddress, Topic, "no-match rule"]),
-            DefaultResult
+            ?LOG(info, "Client failed authorization: Username: ~p, IP: ~p, Topic: ~p, Reasion: ~p", [Username, IpAddress, Topic, "no-match rule"]),
+            {stop, deny}
     end.
 
 do_check_authz(Client, PubSub, Topic,

@@ -289,6 +289,7 @@ t_acl(Config) ->
         ok
     end,
 
+    ok = emqx_hooks:del('client.check_acl', {emqx_authz, check_authz}),
     file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
     application:set_env(emqx, plugins_etc_dir, OldPath),
     application:stop(emqx_authz).

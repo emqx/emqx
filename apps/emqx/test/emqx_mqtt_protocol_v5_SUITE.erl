@@ -197,8 +197,8 @@ t_connect_will_message(_) ->
 t_batch_subscribe(_) ->
     {ok, Client} = emqtt:start_link([{proto_ver, v5}, {clientid, <<"batch_test">>}]),
     {ok, _} = emqtt:connect(Client),
-    application:set_env(emqx, enable_acl_cache, false),
-    application:set_env(emqx, acl_nomatch, deny),
+    ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_access_control, check_acl, fun(_, _, _) -> deny end),
     {ok, _, [?RC_NOT_AUTHORIZED,
              ?RC_NOT_AUTHORIZED,
              ?RC_NOT_AUTHORIZED]} = emqtt:subscribe(Client, [{<<"t1">>, qos1},
@@ -209,7 +209,7 @@ t_batch_subscribe(_) ->
              ?RC_NO_SUBSCRIPTION_EXISTED]} = emqtt:unsubscribe(Client, [<<"t1">>,
                                                                         <<"t2">>,
                                                                         <<"t3">>]),
-    application:set_env(emqx, acl_nomatch, allow),
+    meck:unload(emqx_access_control),
     emqtt:disconnect(Client).
 
 t_connect_will_retain(_) ->
