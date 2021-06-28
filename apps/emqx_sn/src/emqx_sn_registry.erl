@@ -44,6 +44,8 @@
         , code_change/3
         ]).
 
+-define(SN_SHARD, emqx_sn_shard).
+
 -define(TAB, ?MODULE).
 
 -record(state, {max_predef_topic_id = 0}).
@@ -56,6 +58,7 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
+-rlog_shard({?SN_SHARD, ?TAB}).
 
 %% @doc Create or replicate tables.
 -spec(mnesia(boot | copy) -> ok).
@@ -74,6 +77,7 @@ mnesia(copy) ->
 
 -spec(start_link(list()) -> {ok, pid()} | ignore | {error, Reason :: term()}).
 start_link(PredefTopics) ->
+    ekka_mnesia:wait_for_shards([?SN_SHARD], infinity),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [PredefTopics], []).
 
 -spec(stop() -> ok).
@@ -129,10 +133,10 @@ init([PredefTopics]) ->
     %% {ClientId, TopicName} -> TopicId
     MaxPredefId = lists:foldl(
                     fun({TopicId, TopicName}, AccId) ->
-                        mnesia:dirty_write(#emqx_sn_registry{key = {predef, TopicId},
-                                                             value = TopicName}),
-                        mnesia:dirty_write(#emqx_sn_registry{key = {predef, TopicName},
-                                                             value = TopicId}),
+                        ekka_mnesia:dirty_write(#emqx_sn_registry{key = {predef, TopicId},
+                                                                  value = TopicName}),
+                        ekka_mnesia:dirty_write(#emqx_sn_registry{key = {predef, TopicName},
+                                                                  value = TopicId}),
                         if TopicId > AccId -> TopicId; true -> AccId end
                     end, 0, PredefTopics),
     {ok, #state{max_predef_topic_id = MaxPredefId}}.
@@ -157,7 +161,7 @@ handle_call({register, ClientId, TopicName}, _From,
                         mnesia:write(#emqx_sn_registry{key = {ClientId, TopicId},
                                                             value = TopicName})
                     end,
-                    case mnesia:transaction(Fun) of
+                    case ekka_mnesia:transaction(?SN_SHARD, Fun) of
                         {atomic, ok} ->
                             {reply, TopicId, State};
                         {aborted, Error} ->
@@ -168,7 +172,7 @@ handle_call({register, ClientId, TopicName}, _From,
 
 handle_call({unregister, ClientId}, _From, State) ->
     Registry = mnesia:dirty_match_object({?TAB, {ClientId, '_'}, '_'}),
-    lists:foreach(fun(R) -> mnesia:dirty_delete_object(R) end, Registry),
+    lists:foreach(fun(R) -> ekka_mnesia:dirty_delete_object(R) end, Registry),
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
