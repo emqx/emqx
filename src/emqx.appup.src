@@ -8,6 +8,9 @@
     end,
 {VSN,
   [
+   {"4.2.12", [
+      {load_module, emqx_shared_sub, soft_purge, soft_purge, []}
+    ]},
    {"4.2.11", [
       {load_module, emqx_router_sup, soft_purge, soft_purge, []},
       {load_module, emqx_broker, soft_purge, soft_purge, []},
@@ -77,6 +80,9 @@
     {<<".*">>, []}
   ],
   [
+   {"4.2.12", [
+      {load_module, emqx_shared_sub, soft_purge, soft_purge, []}
+   ]},
    {"4.2.11", [
       {load_module, emqx_router_sup, soft_purge, soft_purge, []},
       {load_module, emqx_broker, soft_purge, soft_purge, []},
