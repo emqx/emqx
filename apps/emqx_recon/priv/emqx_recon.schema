@@ -1,9 +1,0 @@
-%%-*- mode: erlang -*-
-%% emqx-recon config mapping
-
-%% @doc Global GC Interval
-%% {@configurable}
-%% {mapping, "recon.gc_interval", "emqx_recon.gc_interval", [
-%%  {datatype, {duration, s}}
-%% ]}.
-

@@ -13,25 +13,18 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-module(emqx_prometheus_schema).
 
--module(emqx_auth_pgsql_sup).
+-include_lib("typerefl/include/types.hrl").
 
--behaviour(supervisor).
+-behaviour(hocon_schema).
 
--include("emqx_auth_pgsql.hrl").
+-export([ structs/0
+        , fields/1]).
 
-%% API
--export([start_link/0]).
+structs() -> ["emqx_prometheus"].
 
-%% Supervisor callbacks
--export([init/1]).
-
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-init([]) ->
-    %% PgSQL Connection Pool
-    {ok, Opts} = application:get_env(?APP, server),
-    PoolSpec = ecpool:pool_spec(?APP, ?APP, emqx_auth_pgsql_cli, Opts),
-    {ok, {{one_for_one, 10, 100}, [PoolSpec]}}.
-
+fields("emqx_prometheus") ->
+    [ {push_gateway_server, emqx_schema:t(string())}
+    , {interval, emqx_schema:t(emqx_schema:duration_ms(), undefined, "15s")}
+    ].
