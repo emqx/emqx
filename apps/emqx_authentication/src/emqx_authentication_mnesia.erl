@@ -51,7 +51,7 @@
         salt_rounds => #{
             order => 3,
             type => number,
-            default => 10 
+            default => 10
         }
     }
 }).
@@ -71,6 +71,8 @@
 -copy_mnesia({mnesia, [copy]}).
 
 -define(TAB, mnesia_basic_auth).
+
+-rlog_shard({?AUTH_SHARD, ?TAB}).
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -231,7 +233,7 @@ import(UserGroup, [#{<<"user_id">> := UserID,
 import(_UserGroup, [_ | _More]) ->
     {error, bad_format}.
 
-%% Importing 5w users needs 1.7 seconds 
+%% Importing 5w users needs 1.7 seconds
 import(UserGroup, File, Seq) ->
     case file:read_line(File) of
         {ok, Line} ->
@@ -330,7 +332,7 @@ trans(Fun) ->
     trans(Fun, []).
 
 trans(Fun, Args) ->
-    case mnesia:transaction(Fun, Args) of
+    case ekka_mnesia:transaction(?AUTH_SHARD, Fun, Args) of
         {atomic, Res} -> Res;
         {aborted, Reason} -> {error, Reason}
     end.
