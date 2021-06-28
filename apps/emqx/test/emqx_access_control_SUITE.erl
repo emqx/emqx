@@ -39,13 +39,6 @@ t_authenticate(_) ->
     ?assertMatch({ok, _}, emqx_access_control:authenticate(clientinfo())).
 
 t_check_acl(_) ->
-    emqx_zone:set_env(zone, acl_nomatch, deny),
-    application:set_env(emqx, enable_acl_cache, false),
-    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
-    ?assertEqual(deny, emqx_access_control:check_acl(clientinfo(), Publish, <<"t">>)),
-
-    emqx_zone:set_env(zone, acl_nomatch, allow),
-    application:set_env(emqx, enable_acl_cache, true),
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
     ?assertEqual(allow, emqx_access_control:check_acl(clientinfo(), Publish, <<"t">>)).
 

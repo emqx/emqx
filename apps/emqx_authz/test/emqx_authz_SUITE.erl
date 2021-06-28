@@ -39,7 +39,6 @@ end_per_suite(_Config) ->
 set_special_configs(emqx) ->
     application:set_env(emqx, allow_anonymous, true),
     application:set_env(emqx, enable_acl_cache, false),
-    application:set_env(emqx, acl_nomatch, deny),
     ok;
 set_special_configs(emqx_authz) ->
     application:set_env(emqx, plugins_etc_dir,
@@ -145,7 +144,7 @@ t_authz(_) ->
     Rules3 = [emqx_authz:compile(Rule) || Rule <- [?RULE3, ?RULE4]],
     Rules4 = [emqx_authz:compile(Rule) || Rule <- [?RULE4, ?RULE1]],
 
-    ?assertEqual(deny,
+    ?assertEqual({stop, deny},
         emqx_authz:check_authz(ClientInfo1, subscribe, <<"#">>, deny, [])),
     ?assertEqual({stop, deny},
         emqx_authz:check_authz(ClientInfo1, subscribe, <<"+">>, deny, Rules1)),
