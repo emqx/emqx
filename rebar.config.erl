@@ -192,8 +192,7 @@ overlay_vars_rel(RelType) ->
                  cloud -> "vm.args";
                  edge -> "vm.args.edge"
              end,
-    [ {enable_plugin_emqx_rule_engine, RelType =:= cloud}
-    , {enable_plugin_emqx_bridge_mqtt, RelType =:= edge}
+    [ {enable_plugin_emqx_bridge_mqtt, RelType =:= edge}
     , {enable_plugin_emqx_modules, false} %% modules is not a plugin in ce
     , {enable_plugin_emqx_retainer, true}
     , {vm_args_file, VmArgs}
@@ -254,6 +253,7 @@ relx_apps(ReleaseType) ->
     , emqx_resource
     , emqx_connector
     , emqx_data_bridge
+    , emqx_rule_engine
     ]
     ++ [emqx_telemetry || not is_enterprise()]
     ++ [emqx_modules || not is_enterprise()]
@@ -286,7 +286,6 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_stomp
     , emqx_authentication
     , emqx_web_hook
-    , emqx_rule_engine
     , emqx_statsd
     ]
     ++ relx_plugin_apps_per_rel(ReleaseType)

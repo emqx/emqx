@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_telemetry_schema).
+-module(emqx_rule_engine_schema).
 
 -include_lib("typerefl/include/types.hrl").
 
@@ -23,7 +23,7 @@
 -export([ structs/0
         , fields/1]).
 
-structs() -> ["emqx_telemetry"].
+structs() -> ["emqx_rule_engine"].
 
-fields("emqx_telemetry") ->
-    [{enabled, emqx_schema:t(boolean(), undefined, false)}].
+fields("emqx_rule_engine") ->
+    [{ignore_sys_message, emqx_schema:t(boolean(), undefined, true)}].
