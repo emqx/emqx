@@ -90,6 +90,8 @@
 
 -define(TELEMETRY, emqx_telemetry).
 
+-rlog_shard({?COMMON_SHARD, ?TELEMETRY}).
+
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
@@ -146,9 +148,9 @@ init([Opts]) ->
                  [] ->
                      Enabled = proplists:get_value(enabled, Opts, true),
                      UUID = generate_uuid(),
-                     mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
-                                                               uuid = UUID,
-                                                               enabled = Enabled}),
+                     ekka_mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
+                                                                    uuid = UUID,
+                                                                    enabled = Enabled}),
                      State#state{enabled = Enabled, uuid = UUID};
                  [#telemetry{uuid = UUID, enabled = Enabled} | _] ->
                      State#state{enabled = Enabled, uuid = UUID}
@@ -162,16 +164,16 @@ init([Opts]) ->
     end.
 
 handle_call(enable, _From, State = #state{uuid = UUID}) ->
-    mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
-                                              uuid = UUID,
-                                              enabled = true}),
+    ekka_mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
+                                                   uuid = UUID,
+                                                   enabled = true}),
     _ = erlang:send(self(), first_report),
     {reply, ok, State#state{enabled = true}};
 
 handle_call(disable, _From, State = #state{uuid = UUID}) ->
-    mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
-                                              uuid = UUID,
-                                              enabled = false}),
+    ekka_mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
+                                                   uuid = UUID,
+                                                   enabled = false}),
     {reply, ok, State#state{enabled = false}};
 
 handle_call(is_enabled, _From, State = #state{enabled = Enabled}) ->
