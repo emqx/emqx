@@ -44,7 +44,6 @@ edge_excludes() ->
     , emqx_exhook
     , emqx_exproto
     , emqx_prometheus
-    , emqx_psk_file
     ].
 
 base_deps() ->

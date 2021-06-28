@@ -297,7 +297,6 @@ relx_plugin_apps_per_rel(cloud) ->
     , emqx_exhook
     , emqx_exproto
     , emqx_prometheus
-    , emqx_psk_file
     ];
 relx_plugin_apps_per_rel(edge) ->
     [].
@@ -355,7 +354,6 @@ etc_overlay(ReleaseType) ->
 
 extra_overlay(cloud) ->
     [ {copy,"{{base_dir}}/lib/emqx_lwm2m/lwm2m_xml","etc/"}
-    , {copy, "{{base_dir}}/lib/emqx_psk_file/etc/psk.txt", "etc/psk.txt"}
     ];
 extra_overlay(edge) ->
     [].
