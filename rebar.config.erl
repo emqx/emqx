@@ -263,8 +263,7 @@ relx_apps(ReleaseType) ->
     ++ [{N, load} || N <- relx_plugin_apps(ReleaseType)].
 
 relx_apps_per_rel(cloud) ->
-    [ luerl
-    , xmerl
+    [ xmerl
     | [{observer, load} || is_app(observer)]
     ];
 relx_apps_per_rel(edge) ->
@@ -297,7 +296,6 @@ relx_plugin_apps(ReleaseType) ->
 
 relx_plugin_apps_per_rel(cloud) ->
     [ emqx_lwm2m
-    , emqx_lua_hook
     , emqx_exhook
     , emqx_exproto
     , emqx_prometheus
