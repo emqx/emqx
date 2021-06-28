@@ -149,11 +149,11 @@ groups() ->
 init_per_suite(Config) ->
     ok = ekka_mnesia:start(),
     ok = emqx_rule_registry:mnesia(boot),
-    start_apps(),
+    ok = emqx_ct_helpers:start_apps([emqx_rule_engine], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    stop_apps(),
+    emqx_ct_helpers:stop_apps([emqx_rule_engine]),
     ok.
 
 on_resource_create(_id, _) -> #{}.
@@ -2545,21 +2545,6 @@ init_events_counters() ->
 %%------------------------------------------------------------------------------
 %% Start Apps
 %%------------------------------------------------------------------------------
-
-stop_apps() ->
-    stopped = mnesia:stop(),
-    [application:stop(App) || App <- [emqx_rule_engine, emqx]].
-
-start_apps() ->
-    [start_apps(App, SchemaFile, ConfigFile) ||
-        {App, SchemaFile, ConfigFile}
-            <- [{emqx, emqx_schema, deps_path(emqx, "etc/emqx.conf")},
-                {emqx_rule_engine, local_path("priv/emqx_rule_engine.schema"),
-                                   local_path("etc/emqx_rule_engine.conf")}]].
-
-start_apps(App, Schema, ConfigFile) ->
-    emqx_ct_helpers:start_app(App, Schema, ConfigFile, fun set_special_configs/1).
-
 deps_path(App, RelativePath) ->
     Path0 = code:lib_dir(App),
     Path = case file:read_link(Path0) of
