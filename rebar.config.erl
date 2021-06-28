@@ -285,8 +285,8 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_coap
     , emqx_stomp
     , emqx_authentication
-    , emqx_web_hook
     , emqx_statsd
+    , emqx_rule_actions
     ]
     ++ relx_plugin_apps_per_rel(ReleaseType)
     ++ relx_plugin_apps_enterprise(is_enterprise())

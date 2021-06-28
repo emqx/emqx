@@ -1,6 +1,6 @@
 {application, emqx_bridge_mqtt,
  [{description, "EMQ X Bridge to MQTT Broker"},
-  {vsn, "4.3.1"}, % strict semver, bump manually!
+  {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},
   {applications, [kernel,stdlib,replayq,emqtt]},

@@ -1,0 +1,11 @@
+{application, emqx_rule_actions,
+ [{description, "Rule actions"},
+  {vsn, "5.0.0"},
+  {registered, []},
+  {applications,
+   [kernel,stdlib]},
+  {env,[]},
+  {modules, []},
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.
