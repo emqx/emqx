@@ -280,7 +280,6 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_authentication
     , emqx_web_hook
     , emqx_rule_engine
-    , emqx_sasl
     , emqx_statsd
     ]
     ++ relx_plugin_apps_per_rel(ReleaseType)
