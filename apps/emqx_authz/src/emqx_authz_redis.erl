@@ -21,7 +21,7 @@
 -include_lib("emqx/include/logger.hrl").
 
 %% ACL Callbacks
--export([ check_authz/4
+-export([ authorize/4
         , description/0
         ]).
 
@@ -33,7 +33,7 @@
 description() ->
     "AuthZ with redis".
 
-check_authz(Client, PubSub, Topic,
+authorize(Client, PubSub, Topic,
             #{<<"resource_id">> := ResourceID,
               <<"cmd">> := CMD 
              }) ->
@@ -41,22 +41,22 @@ check_authz(Client, PubSub, Topic,
     case emqx_resource:query(ResourceID, {cmd, NCMD}) of
         {ok, []} -> nomatch;
         {ok, Rows} ->
-            do_check_authz(Client, PubSub, Topic, Rows);
+            do_authorize(Client, PubSub, Topic, Rows);
         {error, Reason} ->
             ?LOG(error, "[AuthZ] Query redis error: ~p", [Reason]),
             nomatch
     end.
 
-do_check_authz(_Client, _PubSub, _Topic, []) ->
+do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;
-do_check_authz(Client, PubSub, Topic, [TopicFilter, Action | Tail]) ->
+do_authorize(Client, PubSub, Topic, [TopicFilter, Action | Tail]) ->
     case match(Client, PubSub, Topic, 
                #{topics => TopicFilter,
                  action => Action
                 }) 
     of
         {matched, Permission} -> {matched, Permission};
-        nomatch -> do_check_authz(Client, PubSub, Topic, Tail)
+        nomatch -> do_authorize(Client, PubSub, Topic, Tail)
     end.
 
 match(Client, PubSub, Topic, 

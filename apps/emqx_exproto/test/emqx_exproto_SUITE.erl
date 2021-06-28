@@ -167,7 +167,7 @@ t_acl_deny(Cfg) ->
     Password = <<"123456">>,
 
     ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_access_control, check_authz, fun(_, _, _) -> deny end),
+    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
 
     ConnBin = frame_connect(Client, Password),
     ConnAckBin = frame_connack(0),

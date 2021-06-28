@@ -109,14 +109,14 @@ prop_client_authenticate() ->
             true
         end).
 
-prop_client_check_authz() ->
+prop_client_authorize() ->
     ?ALL({ClientInfo0, PubSub, Topic, Result},
          {clientinfo(), oneof([publish, subscribe]),
           topic(), oneof([allow, deny])},
         begin
             ClientInfo = inject_magic_into(username, ClientInfo0),
             OutResult = emqx_hooks:run_fold(
-                          'client.check_authz',
+                          'client.authorize',
                           [ClientInfo, PubSub, Topic],
                           Result),
             ExpectedOutResult = case maps:get(username, ClientInfo) of
@@ -127,7 +127,7 @@ prop_client_check_authz() ->
                                  end,
             ?assertEqual(ExpectedOutResult, OutResult),
 
-            {'on_client_check_authz', Resp} = emqx_exhook_demo_svr:take(),
+            {'on_client_authorize', Resp} = emqx_exhook_demo_svr:take(),
             Expected =
                 #{result => aclresult_to_bool(Result),
                   type => pubsub_to_enum(PubSub),
