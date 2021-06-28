@@ -77,7 +77,7 @@ mnesia(copy) ->
 
 -spec(start_link(list()) -> {ok, pid()} | ignore | {error, Reason :: term()}).
 start_link(PredefTopics) ->
-    ekka_mnesia:wait_for_shards([?SN_SHARD], infinity),
+    ekka_rlog:wait_for_shards([?SN_SHARD], infinity),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [PredefTopics], []).
 
 -spec(stop() -> ok).
@@ -172,7 +172,7 @@ handle_call({register, ClientId, TopicName}, _From,
 
 handle_call({unregister, ClientId}, _From, State) ->
     Registry = mnesia:dirty_match_object({?TAB, {ClientId, '_'}, '_'}),
-    lists:foreach(fun(R) -> ekka_mnesia:dirty_delete_object(R) end, Registry),
+    lists:foreach(fun(R) -> ekka_mnesia:dirty_delete_object(?TAB, R) end, Registry),
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
