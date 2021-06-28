@@ -58,6 +58,8 @@
 -define(SERVER, ?MODULE).
 -define(MAX_INTERVAL, 4294967).
 
+-rlog_shard({?MOD_DELAYED_SHARD, ?TAB}).
+
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
@@ -137,7 +139,7 @@ init([]) ->
            ensure_publish_timer(#{timer => undefined, publish_at => 0}))}.
 
 handle_call({store, DelayedMsg = #delayed_message{key = Key}}, _From, State) ->
-    ok = mnesia:dirty_write(?TAB, DelayedMsg),
+    ok = ekka_mnesia:dirty_write(?TAB, DelayedMsg),
     emqx_metrics:inc('messages.delayed'),
     {reply, ok, ensure_publish_timer(Key, State)};
 
@@ -152,7 +154,7 @@ handle_cast(Msg, State) ->
 %% Do Publish...
 handle_info({timeout, TRef, do_publish}, State = #{timer := TRef}) ->
     DeletedKeys = do_publish(mnesia:dirty_first(?TAB), os:system_time(seconds)),
-    lists:foreach(fun(Key) -> mnesia:dirty_delete(?TAB, Key) end, DeletedKeys),
+    lists:foreach(fun(Key) -> ekka_mnesia:dirty_delete(?TAB, Key) end, DeletedKeys),
     {noreply, ensure_publish_timer(State#{timer := undefined, publish_at := 0})};
 
 handle_info(stats, State = #{stats_fun := StatsFun}) ->
@@ -222,4 +224,3 @@ do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
 
 -spec(delayed_count() -> non_neg_integer()).
 delayed_count() -> mnesia:table_info(?TAB, size).
-

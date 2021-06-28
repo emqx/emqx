@@ -25,6 +25,7 @@
 
 -define(COMMON_SHARD, emqx_common_shard).
 -define(SHARED_SUB_SHARD, emqx_shared_sub_shard).
+-define(MOD_DELAYED_SHARD, emqx_delayed_shard).
 
 %%--------------------------------------------------------------------
 %% Banner
