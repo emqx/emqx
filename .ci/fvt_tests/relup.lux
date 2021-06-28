@@ -43,7 +43,7 @@
     !sed -i '/emqx_telemetry/d' data/loaded_plugins
 
     !./bin/emqx start
-    ?EMQ X (.*) is started successfully!
+    ?EMQ X .* is started successfully!
     ?SH-PROMPT
 
     !./bin/emqx_ctl cluster join emqx@127.0.0.1
@@ -99,6 +99,10 @@
     """
     ?SH-PROMPT
 
+    !./bin/emqx_ctl plugins list | grep emqx_management
+    ?Plugin\(emqx_management.*active=true\)
+    ?SH-PROMPT
+
 [shell emqx2]
     !echo "" > log/emqx.log.1
     ?SH-PROMPT
@@ -118,6 +122,10 @@
     Cluster status: #{running_nodes => ['emqx2@127.0.0.1','emqx@127.0.0.1'],
                       stopped_nodes => []}
     """
+    ?SH-PROMPT
+
+    !./bin/emqx_ctl plugins list | grep emqx_management
+    ?Plugin\(emqx_management.*active=true\)
     ?SH-PROMPT
 
 [shell bench]

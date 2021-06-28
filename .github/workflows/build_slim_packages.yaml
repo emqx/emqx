@@ -38,6 +38,11 @@ jobs:
       run: make ${EMQX_NAME}-zip
     - name: build deb/rpm packages
       run: make ${EMQX_NAME}-pkg
+    - uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: rebar3.crashdump
+        path: ./rebar3.crashdump
     - name: pakcages test
       run: |
         export CODE_PATH=$GITHUB_WORKSPACE
@@ -94,6 +99,11 @@ jobs:
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
         make ${EMQX_NAME}-zip
+    - uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: rebar3.crashdump
+        path: ./rebar3.crashdump
     - name: test
       run: |
         pkg_name=$(basename _packages/${EMQX_NAME}/emqx-*.zip)

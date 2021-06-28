@@ -98,19 +98,6 @@ t_connect(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
-t_do_2nd_connect(_) ->
-    {ok, Socket} = gen_udp:open(0, [binary]),
-    ClientId = ?CLIENTID,
-    send_connect_msg(Socket, ClientId),
-    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
-    timer:sleep(100),
-    send_connect_msg(Socket, <<"client_id_other">>),
-    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
-
-    send_disconnect_msg(Socket, undefined),
-    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-    gen_udp:close(Socket).
-
 t_subscribe(_) ->
     Dup = 0,
     QoS = 0,
