@@ -1,4 +1,4 @@
-defmodule EmqxWebHook.MixProject do
+defmodule EMQXWebHook.MixProject do
   use Mix.Project
 
   def project do

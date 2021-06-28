@@ -1,4 +1,4 @@
-defmodule EmqxDataBridge.MixProject do
+defmodule EMQXDataBridge.MixProject do
   use Mix.Project
 
   def project do

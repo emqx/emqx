@@ -1,4 +1,4 @@
-defmodule EmqxBridgeMqtt.MixProject do
+defmodule EMQXBridgeMqtt.MixProject do
   use Mix.Project
 
   def project do

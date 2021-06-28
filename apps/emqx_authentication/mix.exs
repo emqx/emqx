@@ -1,4 +1,4 @@
-defmodule EmqxAuthentication.MixProject do
+defmodule EMQXAuthentication.MixProject do
   use Mix.Project
 
   def project do
