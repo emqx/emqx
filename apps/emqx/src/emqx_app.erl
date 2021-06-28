@@ -28,7 +28,7 @@
 
 -define(APP, emqx).
 
--define(EMQX_SHARDS, [route_shard]).
+-define(EMQX_SHARDS, [?ROUTE_SHARD, ?COMMON_SHARD]).
 
 -include("emqx_release.hrl").
 
