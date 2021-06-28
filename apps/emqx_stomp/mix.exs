@@ -1,4 +1,4 @@
-defmodule EmqxStomp.MixProject do
+defmodule EMQXStomp.MixProject do
   use Mix.Project
 
   def project do
@@ -25,6 +25,8 @@ defmodule EmqxStomp.MixProject do
   end
 
   defp deps do
-    [{:emqx, in_umbrella: true}]
+    [
+      {:emqx, in_umbrella: true}
+    ]
   end
 end

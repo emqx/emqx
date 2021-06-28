@@ -1,4 +1,4 @@
-defmodule EmqxTelemetry.MixProject do
+defmodule EMQXTelemetry.MixProject do
   use Mix.Project
 
   def project do

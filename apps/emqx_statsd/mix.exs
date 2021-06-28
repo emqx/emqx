@@ -1,4 +1,4 @@
-defmodule EmqxStatsd.MixProject do
+defmodule EMQXStatsd.MixProject do
   use Mix.Project
 
   def project do

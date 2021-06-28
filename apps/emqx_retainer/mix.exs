@@ -1,4 +1,4 @@
-defmodule EmqxRetainer.MixProject do
+defmodule EMQXRetainer.MixProject do
   use Mix.Project
 
   def project do

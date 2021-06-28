@@ -1,4 +1,4 @@
-defmodule EmqxRuleEngine.MixProject do
+defmodule EMQXRuleEngine.MixProject do
   use Mix.Project
 
   def project do
