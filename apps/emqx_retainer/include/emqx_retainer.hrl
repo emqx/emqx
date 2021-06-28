@@ -17,4 +17,4 @@
 -define(APP, emqx_retainer).
 -define(TAB, ?APP).
 -record(retained, {topic, msg, expiry_time}).
-
+-define(RETAINER_SHARD, emqx_retainer_shard).
