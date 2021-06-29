@@ -46,11 +46,11 @@ authenticate(ClientInfo = #{zone := Zone}) ->
       -> allow | deny).
 authorize(ClientInfo, PubSub, Topic) ->
     case emqx_acl_cache:is_enabled() of
-        true  -> authorize_cache(ClientInfo, PubSub, Topic);
+        true  -> check_authorization_cache(ClientInfo, PubSub, Topic);
         false -> do_authorize(ClientInfo, PubSub, Topic)
     end.
 
-authorize_cache(ClientInfo, PubSub, Topic) ->
+check_authorization_cache(ClientInfo, PubSub, Topic) ->
     case emqx_acl_cache:get_acl_cache(PubSub, Topic) of
         not_found ->
             AclResult = do_authorize(ClientInfo, PubSub, Topic),
