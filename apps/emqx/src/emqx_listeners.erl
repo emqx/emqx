@@ -157,6 +157,7 @@ start_listener(quic, ListenOn, Options) ->
     ConnectionOpts = [ {conn_callback, emqx_quic_connection}
                      , {peer_unidi_stream_count, 1}
                      , {peer_bidi_stream_count, 10}
+                       | Options
                      ],
     StreamOpts = [],
     quicer:start_listener('mqtt:quic', ListenOn, {ListenOpts, ConnectionOpts, StreamOpts}).
