@@ -87,13 +87,8 @@ dispatch(Pid, Topic) ->
 %% RETAIN flag set to 1 and payload containing zero bytes
 on_message_publish(Msg = #message{flags   = #{retain := true},
                                   topic   = Topic,
-<<<<<<< HEAD
                                   payload = <<>>}) ->
-    mnesia:dirty_delete(?TAB, topic2tokens(Topic)),
-=======
-                                  payload = <<>>}, _Env) ->
     ekka_mnesia:dirty_delete(?TAB, topic2tokens(Topic)),
->>>>>>> c9acf423ba156648912f8139506793b522250365
     {ok, Msg};
 
 on_message_publish(Msg = #message{flags = #{retain := true}}) ->
