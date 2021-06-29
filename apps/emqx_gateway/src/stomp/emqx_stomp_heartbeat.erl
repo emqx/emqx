@@ -81,7 +81,7 @@ check(NewVal, HrtBter = #heartbeater{statval = OldVal,
     -> {ok, heartbeat()}.
 reset(Name, NewVal, HrtBt) ->
     HrtBter = maps:get(Name, HrtBt),
-    reset(NewVal, HrtBter).
+    HrtBt#{Name => reset(NewVal, HrtBter)}.
 
 reset(NewVal, HrtBter) ->
     HrtBter#heartbeater{statval = NewVal, repeat = 1}.

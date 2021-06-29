@@ -47,12 +47,8 @@ gateway_type_searching() ->
 
 load(Mod) ->
     try
-        case erlang:function_exported(Mod, load, 0) of
-            true ->
-                Mod:load(),
-                ?LOG(info, "Load ~s gateway application successfully!", [Mod]);
-            false -> ok
-        end
+        Mod:load(),
+        ?LOG(info, "Load ~s gateway application successfully!", [Mod])
     catch
         Class : Reason ->
             ?LOG(error, "Load ~s gateway application failed: {~p, ~p}",

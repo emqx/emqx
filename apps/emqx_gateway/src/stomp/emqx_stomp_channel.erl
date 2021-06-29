@@ -348,7 +348,7 @@ handle_in(Packet = ?PACKET(?CMD_CONNECT), Channel) ->
         {ok, _NPacket, NChannel} ->
             process_connect(ensure_connected(NChannel));
         {error, ReasonCode, NChannel} ->
-            ErrMsg = io_lib:format("Login Failed: ~0p", [ReasonCode]),
+            ErrMsg = io_lib:format("Login Failed: ~s", [ReasonCode]),
             handle_out(connerr, {[], undefined, ErrMsg}, NChannel)
     end;
 
@@ -517,7 +517,7 @@ trans_pipeline([{Func, Args}|More], Outgoings, Channel) ->
         {ok, NChannel} ->
             trans_pipeline(More, Outgoings, NChannel);
         {ok, Outgoings1, NChannel} ->
-            trans_pipeline(more, Outgoings ++ Outgoings1, NChannel);
+            trans_pipeline(More, Outgoings ++ Outgoings1, NChannel);
         {error, Reason} ->
             {error, Reason, Channel}
     end.
@@ -848,10 +848,22 @@ frame2message(?PACKET(?CMD_SEND, Headers, Body),
                  }}) ->
     Topic = header(<<"destination">>, Headers),
     Msg = emqx_message:make(ClientId, Topic, Body),
+    StompHeaders = lists:foldl(
+                     fun(Key, Headers0) ->
+                        proplists:delete(Key, Headers0)
+                     end, Headers,
+                     [<<"destination">>,
+                      <<"content-length">>,
+                      <<"content-type">>,
+                      <<"transaction">>,
+                      <<"receipt">>
+                     ]),
+    %% Pass-through of custom headers on the sending side
     NMsg = emqx_message:set_headers(#{proto_ver => ProtoVer,
                                       protocol => Protocol,
                                       username => Username,
-                                      peerhost => PeerHost
+                                      peerhost => PeerHost,
+                                      stomp_headers => StompHeaders
                                      }, Msg),
     emqx_mountpoint:mount(Mountpoint, NMsg).
 
@@ -891,7 +903,7 @@ handle_recv_nack_frame(?PACKET(?CMD_NACK, Headers), Channel) ->
 maybe_outgoing_receipt(undefined, Channel) ->
     {ok, [], Channel};
 maybe_outgoing_receipt(ReceiptId, Channel) ->
-    {ok, [receipt_frame(ReceiptId)], Channel}.
+    {ok, [{outgoing, receipt_frame(ReceiptId)}], Channel}.
 
 maybe_outgoing_receipt(undefined, Outgoings, Channel) ->
     {ok, Outgoings, Channel};

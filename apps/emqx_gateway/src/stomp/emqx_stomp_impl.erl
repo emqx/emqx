@@ -38,29 +38,6 @@
 %%--------------------------------------------------------------------
 
 load() ->
-    %% FIXME: Is the following concept belong to gateway???
-    %%       >> No
-    %%
-    %% emqx_stomp_schema module is
-    %% the schema file from emqx_stomp/priv/schema/emqx_stomp_schema.erl
-    %%
-    %% It's aim is to parse configurations:
-    %% ```
-    %% stomp.$name {
-    %%   max_frame_size: 1024
-    %%   ...
-    %%
-    %%   authenticators: [...]
-    %%
-    %%   listeners: [...]
-    %% }
-    %% ```
-    %%
-    %%  Conf + Schema => RuntimeOptions
-    %%  Conf + Schema => APIs's Descriptor
-    %%  Schema        => APIs's Descriptor
-    %%  Schema        => APIs's Validator
-    %%
     RegistryOptions = [ {cbkmod, ?MODULE}
                       , {schema, emqx_stomp_schema}
                       ],
