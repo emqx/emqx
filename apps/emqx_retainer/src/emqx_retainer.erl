@@ -25,15 +25,15 @@
 
 -logger_header("[Retainer]").
 
--export([start_link/1]).
+-export([start_link/0]).
 
--export([ load/1
+-export([ load/0
         , unload/0
         ]).
 
 -export([ on_session_subscribed/3
-        , on_message_publish/2
-        ]).
+    , on_message_publish/1
+    ]).
 
 -export([clean/1]).
 
@@ -50,14 +50,16 @@
         ]).
 
 -record(state, {stats_fun, stats_timer, expiry_timer}).
+-type state() :: #state{}.
+-define(STATS_INTERVAL, timer:seconds(1)).
 
 %%--------------------------------------------------------------------
 %% Load/Unload
 %%--------------------------------------------------------------------
 
-load(Env) ->
+load() ->
     _ = emqx:hook('session.subscribed', {?MODULE, on_session_subscribed, []}),
-    _ = emqx:hook('message.publish', {?MODULE, on_message_publish, [Env]}),
+    _ = emqx:hook('message.publish', {?MODULE, on_message_publish, []}),
     ok.
 
 unload() ->
@@ -83,15 +85,15 @@ dispatch(Pid, Topic) ->
 %% RETAIN flag set to 1 and payload containing zero bytes
 on_message_publish(Msg = #message{flags   = #{retain := true},
                                   topic   = Topic,
-                                  payload = <<>>}, _Env) ->
+                                  payload = <<>>}) ->
     mnesia:dirty_delete(?TAB, topic2tokens(Topic)),
     {ok, Msg};
 
-on_message_publish(Msg = #message{flags = #{retain := true}}, Env) ->
+on_message_publish(Msg = #message{flags = #{retain := true}}) ->
     Msg1 = emqx_message:set_header(retained, true, Msg),
-    store_retained(Msg1, Env),
+    store_retained(Msg1),
     {ok, Msg};
-on_message_publish(Msg, _Env) ->
+on_message_publish(Msg) ->
     {ok, Msg}.
 
 %%--------------------------------------------------------------------
@@ -99,9 +101,9 @@ on_message_publish(Msg, _Env) ->
 %%--------------------------------------------------------------------
 
 %% @doc Start the retainer
--spec(start_link(Env :: list()) -> emqx_types:startlink_ret()).
-start_link(Env) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Env], []).
+-spec(start_link() -> emqx_types:startlink_ret()).
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 -spec(clean(emqx_types:topic()) -> non_neg_integer()).
 clean(Topic) when is_binary(Topic) ->
@@ -122,8 +124,14 @@ clean(Topic) when is_binary(Topic) ->
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Env]) ->
-    Copies = case proplists:get_value(storage_type, Env, disc) of
+init([]) ->
+    ConfFile = filename:join(emqx:get_env(plugins_etc_dir), 'emqx_retainer.conf'),
+    {ok, RawConf} = hocon:load(ConfFile),
+    #{<<"emqx_retainer">> := Conf} = hocon_schema:check_plain(emqx_retainer_schema, RawConf),
+    ok = application:set_env(?APP, ?MODULE, Conf),
+    #{<<"storage_type">> := StorageType,
+      <<"expiry_interval">> := ExpiryInterval} = Conf,
+    Copies = case StorageType of
                  ram       -> ram_copies;
                  disc      -> disc_copies;
                  disc_only -> disc_only_copies
@@ -146,17 +154,15 @@ init([Env]) ->
             ok
     end,
     StatsFun = emqx_stats:statsfun('retained.count', 'retained.max'),
-    {ok, StatsTimer} = timer:send_interval(timer:seconds(1), stats),
-    State = #state{stats_fun = StatsFun, stats_timer = StatsTimer},
-    {ok, start_expire_timer(proplists:get_value(expiry_interval, Env, 0), State)}.
+    State = send_interval(#state{stats_fun = StatsFun}, ?STATS_INTERVAL, stats, #state.stats_timer),
+    {ok, start_expire_timer(ExpiryInterval, State)}.
 
 start_expire_timer(0, State) ->
     State;
 start_expire_timer(undefined, State) ->
     State;
 start_expire_timer(Ms, State) ->
-    {ok, Timer} = timer:send_interval(Ms, expire),
-    State#state{expiry_timer = Timer}.
+    send_interval(State, Ms, expire, #state.expiry_timer).
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
@@ -168,19 +174,20 @@ handle_cast(Msg, State) ->
 
 handle_info(stats, State = #state{stats_fun = StatsFun}) ->
     StatsFun(retained_count()),
-    {noreply, State, hibernate};
+    {noreply, send_interval(State, ?STATS_INTERVAL, stats, #state.stats_timer), hibernate};
 
 handle_info(expire, State) ->
     ok = expire_messages(),
-    {noreply, State, hibernate};
+    {ok, #{<<"expiry_interval">> := Interval}} = application:get_env(?APP, ?MODULE),
+    {noreply, start_expire_timer(Interval, State), hibernate};
 
 handle_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{stats_timer = TRef1, expiry_timer = TRef2}) ->
-    _ = timer:cancel(TRef1),
-    _ = timer:cancel(TRef2),
+    erlang:cancel_timer(TRef1),
+    erlang:cancel_timer(TRef2),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -189,15 +196,15 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
 sort_retained([]) -> [];
 sort_retained([Msg]) -> [Msg];
 sort_retained(Msgs)  ->
     lists:sort(fun(#message{timestamp = Ts1}, #message{timestamp = Ts2}) ->
-                   Ts1 =< Ts2
-               end, Msgs).
+                       Ts1 =< Ts2 end,
+               Msgs).
 
-store_retained(Msg = #message{topic = Topic, payload = Payload}, Env) ->
+store_retained(Msg = #message{topic = Topic, payload = Payload}) ->
+    {ok, Env} = application:get_env(?APP, ?MODULE),
     case {is_table_full(Env), is_too_big(size(Payload), Env)} of
         {false, false} ->
             ok = emqx_metrics:inc('messages.retained'),
@@ -209,11 +216,14 @@ store_retained(Msg = #message{topic = Topic, payload = Payload}, Env) ->
                 fun() ->
                     case mnesia:read(?TAB, Topic) of
                         [_] ->
-                            mnesia:write(?TAB, #retained{topic = topic2tokens(Topic),
-                                                         msg = Msg,
-                                                         expiry_time = get_expiry_time(Msg, Env)}, write);
+                            mnesia:write(?TAB,
+                     #retained{topic = topic2tokens(Topic),
+                           msg = Msg,
+                           expiry_time = get_expiry_time(Msg, Env)},
+                     write);
                         [] ->
-                            ?LOG(error, "Cannot retain message(topic=~s) for table is full!", [Topic])
+                            ?LOG(error,
+                 "Cannot retain message(topic=~s) for table is full!", [Topic])
                     end
                 end),
             ok;
@@ -224,22 +234,21 @@ store_retained(Msg = #message{topic = Topic, payload = Payload}, Env) ->
                         "for payload is too big!", [Topic, iolist_size(Payload)])
     end.
 
-is_table_full(Env) ->
-    Limit = proplists:get_value(max_retained_messages, Env, 0),
+is_table_full(#{<<"max_retained_messages">> := Limit}) ->
     Limit > 0 andalso (retained_count() > Limit).
 
-is_too_big(Size, Env) ->
-    Limit = proplists:get_value(max_payload_size, Env, 0),
+is_too_big(Size, #{<<"max_payload_size">> := Limit}) ->
     Limit > 0 andalso (Size > Limit).
 
-get_expiry_time(#message{headers = #{properties := #{'Message-Expiry-Interval' := 0}}}, _Env) ->
+get_expiry_time(#message{headers = #{properties := #{'Message-Expiry-Interval' := 0}}}, _) ->
     0;
-get_expiry_time(#message{headers = #{properties := #{'Message-Expiry-Interval' := Interval}}, timestamp = Ts}, _Env) ->
+get_expiry_time(#message{headers = #{properties := #{'Message-Expiry-Interval' := Interval}},
+             timestamp = Ts}, _) ->
     Ts + Interval * 1000;
-get_expiry_time(#message{timestamp = Ts}, Env) ->
-    case proplists:get_value(expiry_interval, Env, 0) of
+get_expiry_time(#message{timestamp = Ts}, #{<<"expiry_interval">> := Interval}) ->
+    case Interval of
         0 -> 0;
-        Interval -> Ts + Interval
+        _ -> Ts + Interval
     end.
 
 %%--------------------------------------------------------------------
@@ -303,3 +312,12 @@ condition(Ws) ->
         false -> Ws1;
         _ -> (Ws1 -- ['#']) ++ '_'
     end.
+
+-spec send_interval(State :: state(),
+            Interval :: pos_integer(),
+            Msg :: atom(),
+            Pos :: pos_integer()) ->
+      State :: state().
+send_interval(State, Interval, Msg, Pos) ->
+    Ref = erlang:send_after(Interval, self(), Msg),
+    erlang:setelement(Pos, State, Ref).
