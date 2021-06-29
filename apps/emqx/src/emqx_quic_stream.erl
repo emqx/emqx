@@ -52,7 +52,8 @@ getstat(Socket, Stats) ->
         Res -> Res
     end.
 
-setopts(_Socket, _Opts) ->
+setopts(Socket, Opts) ->
+    [ quicer:setopt(Socket, Opt, V) || {Opt, V} <- Opts ],
     ok.
 
 getopts(_Socket, _Opts) ->
@@ -64,7 +65,7 @@ getopts(_Socket, _Opts) ->
           {buffer,80000}]}.
 
 fast_close(Stream) ->
-    quicer:close_stream(Stream),
+    quicer:async_close_stream(Stream),
     %% Stream might be closed already.
     ok.
 

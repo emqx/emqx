@@ -386,8 +386,7 @@ fields("wss_listener_settings") ->
     lists:keydelete("high_watermark", 1, Settings);
 
 fields("quic_listener_settings") ->
-    Unsupported = [ "active_n"
-                  , "access"
+    Unsupported = [ "access"
                   , "proxy_protocol"
                   , "proxy_protocol_timeout"
                   , "backlog"
