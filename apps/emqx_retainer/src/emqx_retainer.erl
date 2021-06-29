@@ -87,13 +87,8 @@ dispatch(Pid, Topic) ->
 %% RETAIN flag set to 1 and payload containing zero bytes
 on_message_publish(Msg = #message{flags   = #{retain := true},
                                   topic   = Topic,
-<<<<<<< HEAD
                                   payload = <<>>}) ->
-    mnesia:dirty_delete(?TAB, topic2tokens(Topic)),
-=======
-                                  payload = <<>>}, _Env) ->
     ekka_mnesia:dirty_delete(?TAB, topic2tokens(Topic)),
->>>>>>> c9acf423ba156648912f8139506793b522250365
     {ok, Msg};
 
 on_message_publish(Msg = #message{flags = #{retain := true}}) ->
@@ -194,8 +189,8 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{stats_timer = TRef1, expiry_timer = TRef2}) ->
-    erlang:cancel_timer(TRef1),
-    erlang:cancel_timer(TRef2),
+    _ = erlang:cancel_timer(TRef1),
+    _ = erlang:cancel_timer(TRef2),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -222,16 +217,16 @@ store_retained(Msg = #message{topic = Topic, payload = Payload}) ->
         {true, false} ->
             {atomic, _} = ekka_mnesia:transaction(?RETAINER_SHARD,
                 fun() ->
-                    case mnesia:read(?TAB, Topic) of
-                        [_] ->
-                            mnesia:write(?TAB,
-                     #retained{topic = topic2tokens(Topic),
-                           msg = Msg,
-                           expiry_time = get_expiry_time(Msg, Env)},
-                     write);
-                        [] ->
-                            ?LOG(error,
-                 "Cannot retain message(topic=~s) for table is full!", [Topic])
+                        case mnesia:read(?TAB, Topic) of
+                            [_] ->
+                                mnesia:write(?TAB,
+                                             #retained{topic = topic2tokens(Topic),
+                                                       msg = Msg,
+                                                       expiry_time = get_expiry_time(Msg, Env)},
+                                             write);
+                            [] ->
+                                ?LOG(error,
+                                     "Cannot retain message(topic=~s) for table is full!", [Topic])
                     end
                 end),
             ok;

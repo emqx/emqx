@@ -31,7 +31,7 @@ all() -> emqx_ct:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_retainer]),
+    emqx_ct_helpers:start_apps([emqx_retainer], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
@@ -39,16 +39,28 @@ end_per_suite(_Config) ->
 
 init_per_testcase(TestCase, Config) ->
     emqx_retainer:clean(<<"#">>),
-    case TestCase of
-        t_message_expiry_2 ->
-            application:set_env(emqx_retainer, expiry_interval, 2000);
-        _ ->
-            application:set_env(emqx_retainer, expiry_interval, 0)
-    end,
     application:stop(emqx_retainer),
+    application:set_env(emqx, plugins_etc_dir,
+                        emqx_ct_helpers:deps_path(emqx_retainer, "etc")),
+    File = filename:join(emqx:get_env(plugins_etc_dir), 'emqx_retainer.conf'),
+    {ok, RawConf} = hocon:load(File),
+    #{<<"emqx_retainer">> := Conf} = Retainer
+        = hocon_schema:check_plain(emqx_retainer_schema, RawConf),
+    Interval = case TestCase of
+                   t_message_expiry_2 -> 2000;
+                   _ -> 0
+               end,
+    Conf2 = Conf#{<<"expiry_interval">> := Interval},
+    ok = file:write_file(File, jsx:encode(Retainer#{<<"emqx_retainer">> := Conf2})),
     application:ensure_all_started(emqx_retainer),
     Config.
 
+set_special_configs(emqx_retainer) ->
+    application:set_env(emqx, plugins_etc_dir,
+                        emqx_ct_helpers:deps_path(emqx_retainer, "etc")),
+    ok;
+set_special_configs(_App) ->
+    ok.
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
