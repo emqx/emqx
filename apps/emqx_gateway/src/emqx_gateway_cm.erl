@@ -281,7 +281,7 @@ init(Options) ->
 
     %% Start link cm-registry process
     %% XXX: Should I hang it under a higher level supervisor?
-    Registry = emqx_gateway_cm_registry:start_link(GwId),
+    {ok, Registry} = emqx_gateway_cm_registry:start_link(GwId),
 
     %% Start locker process
     {ok, Locker} = ekka_locker:start_link(lockername(GwId)),
@@ -299,7 +299,7 @@ handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
 
-handle_cast({registered, {ClientId, ChanPid}}, State = #{chan_pmon := PMon}) ->
+handle_cast({registered, {ClientId, ChanPid}}, State = #state{chan_pmon = PMon}) ->
     PMon1 = emqx_pmon:monitor(ChanPid, ClientId, PMon),
     {noreply, State#state{chan_pmon = PMon1}};
 
@@ -312,13 +312,8 @@ handle_info({'DOWN', _MRef, process, Pid, _Reason},
     {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
 
     CmTabs = cmtabs(GwId),
-    ok = emqx_pool:async_submit(
-           lists:foreach(
-             fun({ChanPid, ClientId}) ->
-                 do_unregister_channel(GwId, {ClientId, ChanPid}, CmTabs)
-             end, Items)
-          ),
-    {noreply, State#{chan_pmon := PMon1}};
+    ok = emqx_pool:async_submit(fun do_unregister_channel_task/3, [Items, GwId, CmTabs]),
+    {noreply, State#state{chan_pmon = PMon1}};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -329,13 +324,18 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+do_unregister_channel_task(Items, GwId, CmTabs) ->
+    lists:foreach(
+      fun({ChanPid, ClientId}) ->
+          do_unregister_channel(GwId, {ClientId, ChanPid}, CmTabs)
+      end, Items).
+
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
 
 do_unregister_channel(GwId, Chan, {ChanTab, ConnTab, InfoTab}) ->
     ok = emqx_gateway_cm_registry:unregister_channel(GwId, Chan),
-
     true = ets:delete(ConnTab, Chan),
     true = ets:delete(InfoTab, Chan),
     ets:delete_object(ChanTab, Chan).

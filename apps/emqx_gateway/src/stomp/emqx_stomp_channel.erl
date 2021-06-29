@@ -677,10 +677,12 @@ handle_deliver(Delivers,
                     {Id, Topic, Ack} ->
                         %% XXX: refactor later
                         metrics_inc('messages.delivered', Channel),
-                        NMessage = run_hooks(Ctx, 'message.delivered',
-                                             [ClientInfo],
-                                             Message
-                                            ),
+                        NMessage = run_hooks_without_metrics(
+                                     Ctx,
+                                     'message.delivered',
+                                     [ClientInfo],
+                                     Message
+                                    ),
                         Topic = emqx_message:topic(NMessage),
                         Headers = emqx_message:get_headers(NMessage),
                         Payload = emqx_message:payload(NMessage),
@@ -962,6 +964,9 @@ run_hooks(Ctx, Name, Args) ->
 
 run_hooks(Ctx, Name, Args, Acc) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name),
+    emqx_hooks:run_fold(Name, Args, Acc).
+
+run_hooks_without_metrics(_Ctx, Name, Args, Acc) ->
     emqx_hooks:run_fold(Name, Args, Acc).
 
 metrics_inc(Name, #channel{ctx = Ctx}) ->
