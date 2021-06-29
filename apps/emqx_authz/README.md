@@ -16,7 +16,12 @@ authz:{
               username: root
               password: public
               auto_reconnect: true
-              ssl: false
+              ssl: {
+                enable: true
+                cacertfile:  "etc/certs/cacert.pem"
+                certfile: "etc/certs/client-cert.pem"
+                keyfile: "etc/certs/client-key.pem"
+              }
            }
            sql: "select ipaddress, username, clientid, action, permission, topic from mqtt_acl where ipaddr = '%a' or username = '%u' or clientid = '%c'"
        },
@@ -29,7 +34,7 @@ authz:{
               username: root
               password: public
               auto_reconnect: true
-              ssl: false
+              ssl: {enable: false}
            }
            sql: "select ipaddress, username, clientid, action, permission, topic from mqtt_acl where ipaddr = '%a' or username = '%u' or username = '$all' or clientid = '%c'"
        },
@@ -41,7 +46,7 @@ authz:{
               pool_size: 1
               password: public
               auto_reconnect: true
-              ssl: false
+              ssl: {enable: false}
            }
            cmd: "HGETALL mqtt_acl:%u"
        },

@@ -67,10 +67,14 @@ create_resource(#{<<"type">> := DB,
                   <<"config">> := Config
                  } = Rule) ->
     ResourceID = iolist_to_binary([io_lib:format("~s_~s",[?APP, DB]), "_", integer_to_list(erlang:system_time())]),
+    NConfig = case DB of
+                  redis -> #{<<"config">> => Config };
+                  _ -> Config
+              end,
     case emqx_resource:check_and_create(
             ResourceID,
             list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
-            #{<<"config">> => Config })
+            NConfig)
     of
         {ok, _} ->
             Rule#{<<"resource_id">> => ResourceID};

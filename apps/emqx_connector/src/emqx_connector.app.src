@@ -6,9 +6,13 @@
   {applications,
    [kernel,
     stdlib,
+    ecpool,
     emqx_resource,
     eredis_cluster,
-    ecpool
+    eredis,
+    epgsql,
+    mysql,
+    mongodb
    ]},
   {env,[]},
   {modules, []},

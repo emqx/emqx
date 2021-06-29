@@ -11,9 +11,11 @@ services:
       MYSQL_USER: ssluser
       MYSQL_PASSWORD: public
     volumes:
-      - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem:/etc/certs/ca-cert.pem
-      - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/server-cert.pem:/etc/certs/server-cert.pem
-      - ../../apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/server-key.pem:/etc/certs/server-key.pem
+      - ../../apps/emqx/etc/certs/cacert.pem:/etc/certs/ca-cert.pem
+      - ../../apps/emqx/etc/certs/cert.pem:/etc/certs/server-cert.pem
+      - ../../apps/emqx/etc/certs/key.pem:/etc/certs/server-key.pem
+    ports:
+      - "3306:3306"
     networks:
       - emqx_bridge
     command:

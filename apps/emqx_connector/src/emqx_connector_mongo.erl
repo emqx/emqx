@@ -48,9 +48,16 @@ on_jsonify(Config) ->
 on_start(InstId, #{servers := Servers,
                    mongo_type := Type,
                    database := Database,
-                   pool_size := PoolSize} = Config) ->
+                   pool_size := PoolSize,
+                   ssl := SSL} = Config) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
-    SslOpts = init_ssl_opts(Config, InstId),
+    SslOpts = case maps:get(enable, SSL) of
+                  true ->
+                      [{ssl, true},
+                       {ssl_opts, emqx_plugin_libs_ssl:save_files_return_opts(SSL, "connectors", InstId)}
+                      ];
+                  false -> [{ssl, false}]
+              end,
     Hosts = [string:trim(H) || H <- string:tokens(binary_to_list(Servers), ",")],
     Opts = [{type, init_type(Type, Config)},
             {hosts, Hosts},
@@ -156,13 +163,6 @@ init_worker_options([{r_mode, V} | R], Acc) ->
 init_worker_options([_ | R], Acc) ->
     init_worker_options(R, Acc);
 init_worker_options([], Acc) -> Acc.
-
-init_ssl_opts(#{ssl := true} = Config, InstId) ->
-    [{ssl, true},
-     {ssl_opts, emqx_plugin_libs_ssl:save_files_return_opts(Config, "connectors", InstId)}
-    ];
-init_ssl_opts(_Config, _InstId) ->
-    [{ssl, false}].
 
 host_port(HostPort) ->
     case string:split(HostPort, ":") of
