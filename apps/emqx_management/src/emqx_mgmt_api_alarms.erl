@@ -13,125 +13,101 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
-
 -module(emqx_mgmt_api_alarms).
 
--include("emqx_mgmt.hrl").
+%% API
+-export([rest_schema/0, rest_api/0]).
 
--include_lib("emqx/include/emqx.hrl").
+-export([handle_list/1, handle_delete/1]).
 
--rest_api(#{name   => list_all_alarms,
-            method => 'GET',
-            path   => "/alarms",
-            func   => list,
-            descr  => "List all alarms in the cluster"}).
+rest_schema() ->
+    DefinitionName = <<"alarm">>,
+    DefinitionProperties = #{
+        <<"node">> =>
+        #{type => <<"string">>, description => <<"Alarm in node">>},
+        <<"name">> =>
+        #{type => <<"string">>, description => <<"Alarm name">>},
+        <<"message">> =>
+        #{type => <<"string">>, description => <<"Alarm readable information">>},
+        <<"details">> =>
+        #{type => <<"object">>, description => <<"Alarm detail">>},
+        <<"activate_at">> =>
+        #{type => <<"integer">>, description => <<"Alarms activated time UNIX time stamp">>},
+        <<"deactivate_at">> =>
+        #{type => <<"integer">>, description => <<"Alarms deactivated time UNIX time stamp">>},
+        <<"activated">> =>
+        #{type => <<"boolean">>, description => <<"Activated or deactivated">>}
+    },
+    [{DefinitionName, DefinitionProperties}].
 
--rest_api(#{name   => list_node_alarms,
-            method => 'GET',
-            path   => "nodes/:atom:node/alarms",
-            func   => list,
-            descr  => "List all alarms on a node"}).
+rest_api() ->
+    [alarms_api()].
 
--rest_api(#{name   => list_all_activated_alarms,
-            method => 'GET',
-            path   => "/alarms/activated",
-            func   => list_activated,
-            descr  => "List all activated alarm in the cluster"}).
+alarms_api() ->
+    Metadata = #{
+        get =>
+        #{tags => ["monitoring"],
+            description => "EMQ X alarms",
+            operationId => handle_list,
+            parameters => [
+                #{name => activated
+                , in => query
+                , description => <<"All alarms, if not specified">>
+                , required => false
+                , schema =>
+                    #{type => boolean, example => false}
+            }],
+            responses => #{
+                <<"200">> => #{
+                    content => #{
+                        'application/json' =>
+                        #{schema =>
+                        #{type => array,
+                            items => cowboy_swagger:schema(<<"alarm">>)}}}}}},
+        delete =>
+        #{tags => ["monitoring"],
+            description => "Remove all deactivated alarms",
+            operationId => handle_delete,
+            responses => #{
+                <<"200">> => #{description => <<"Deactivated alarms removed">>}}}
+    },
+    {"/alarms", Metadata}.
 
--rest_api(#{name   => list_node_activated_alarms,
-            method => 'GET',
-            path   => "nodes/:atom:node/alarms/activated",
-            func   => list_activated,
-            descr  => "List all activated alarm on a node"}).
-
--rest_api(#{name   => list_all_deactivated_alarms,
-            method => 'GET',
-            path   => "/alarms/deactivated",
-            func   => list_deactivated,
-            descr  => "List all deactivated alarm in the cluster"}).
-
--rest_api(#{name   => list_node_deactivated_alarms,
-            method => 'GET',
-            path   => "nodes/:atom:node/alarms/deactivated",
-            func   => list_deactivated,
-            descr  => "List all deactivated alarm on a node"}).
-
--rest_api(#{name   => deactivate_alarm,
-            method => 'POST',
-            path   => "/alarms/deactivated",
-            func   => deactivate,
-            descr  => "Delete the special alarm on a node"}).
-
--rest_api(#{name   => delete_all_deactivated_alarms,
-            method => 'DELETE',
-            path   => "/alarms/deactivated",
-            func   => delete_deactivated,
-            descr  => "Delete all deactivated alarm in the cluster"}).
-
--rest_api(#{name   => delete_node_deactivated_alarms,
-            method => 'DELETE',
-            path   => "nodes/:atom:node/alarms/deactivated",
-            func   => delete_deactivated,
-            descr  => "Delete all deactivated alarm on a node"}).
-
--export([ list/2
-        , deactivate/2
-        , list_activated/2
-        , list_deactivated/2
-        , delete_deactivated/2
-        ]).
-
-list(Bindings, _Params) when map_size(Bindings) == 0 ->
-    {ok, #{code => ?SUCCESS,
-           data => [#{node => Node, alarms => Alarms} || {Node, Alarms} <- emqx_mgmt:get_alarms(all)]}};
-
-list(#{node := Node}, _Params) ->
-    {ok, #{code => ?SUCCESS,
-           data => emqx_mgmt:get_alarms(Node, all)}}.
-
-list_activated(Bindings, _Params) when map_size(Bindings) == 0 ->
-    {ok, #{code => ?SUCCESS,
-           data => [#{node => Node, alarms => Alarms} || {Node, Alarms} <- emqx_mgmt:get_alarms(activated)]}};
-
-list_activated(#{node := Node}, _Params) ->
-    {ok, #{code => ?SUCCESS,
-           data => emqx_mgmt:get_alarms(Node, activated)}}.
-
-list_deactivated(Bindings, _Params) when map_size(Bindings) == 0 ->
-    {ok, #{code => ?SUCCESS,
-           data => [#{node => Node, alarms => Alarms} || {Node, Alarms} <- emqx_mgmt:get_alarms(deactivated)]}};
-
-list_deactivated(#{node := Node}, _Params) ->
-    {ok, #{code => ?SUCCESS,
-           data => emqx_mgmt:get_alarms(Node, deactivated)}}.
-
-deactivate(_Bindings, Params) ->
-    Node = get_node(Params),
-    Name = get_name(Params),
-    do_deactivate(Node, Name).
-
-delete_deactivated(Bindings, _Params) when map_size(Bindings) == 0 ->
-    _ = emqx_mgmt:delete_all_deactivated_alarms(),
-    {ok, #{code => ?SUCCESS}};
-
-delete_deactivated(#{node := Node}, _Params) ->
-    emqx_mgmt:delete_all_deactivated_alarms(Node),
-    {ok, #{code => ?SUCCESS}}.
-
-get_node(Params) ->
-    binary_to_atom(proplists:get_value(<<"node">>, Params, undefined), utf8).
-
-get_name(Params) ->
-    binary_to_atom(proplists:get_value(<<"name">>, Params, undefined), utf8).
-
-do_deactivate(undefined, _) ->
-    minirest:return({error, missing_param});
-do_deactivate(_, undefined) ->
-    minirest:return({error, missing_param});
-do_deactivate(Node, Name) ->
-    case emqx_mgmt:deactivate(Node, Name) of
-        ok ->
-            minirest:return();
-        {error, Reason} ->
-            minirest:return({error, Reason})
+%%%==============================================================================================
+%% parameters trans
+handle_list(Request) ->
+    case proplists:get_value(<<"activated">>, cowboy_req:parse_qs(Request), undefined) of
+        undefined ->
+            list(#{activated => undefined});
+        <<"true">> ->
+            list(#{activated => true});
+        <<"false">> ->
+            list(#{activated => false})
     end.
+
+handle_delete(_Request) ->
+    delete(#{}).
+
+%%%==============================================================================================
+%% api apply
+list(#{activated := true}) ->
+    do_list(activated);
+list(#{activated := false}) ->
+    do_list(deactivated);
+list(#{activated := undefined}) ->
+    do_list(all).
+
+delete(_) ->
+    _ = emqx_mgmt:delete_all_deactivated_alarms(),
+    {ok}.
+
+%%%==============================================================================================
+%% internal
+do_list(Type) ->
+    Fun =
+        fun({Node, NodeAlarms}, Result) ->
+            lists:append(Result, [maps:put(node, Node, NodeAlarm) || NodeAlarm <- NodeAlarms])
+        end,
+    Alarms = lists:foldl(Fun, [], emqx_mgmt:get_alarms(Type)),
+    Response = emqx_json:encode(Alarms),
+    {ok, Response}.

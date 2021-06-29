@@ -13,18 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
-
--module(emqx_mgmt_sup).
-
--behaviour(supervisor).
-
--export([start_link/0]).
-
--export([init/1]).
-
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-init([]) ->
-    {ok, {{one_for_one, 1, 5}, []}}.
-
+-module(emqx_mgmt_api_topic_metrics).
+%% API
+-export([]).
+%% TODO

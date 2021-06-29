@@ -13,91 +13,238 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
-
 -module(emqx_mgmt_api_apps).
 
--include("emqx_mgmt.hrl").
+%% API
+-export([ rest_schema/0
+        , rest_api/0]).
 
--rest_api(#{name   => add_app,
-            method => 'POST',
-            path   => "/apps/",
-            func   => add_app,
-            descr  => "Add Application"}).
+-export([ handle_list/1
+        , handle_get/1
+        , handle_post/1
+        , handle_put/1
+        , handle_delete/1]).
 
--rest_api(#{name   => del_app,
-            method => 'DELETE',
-            path   => "/apps/:bin:appid",
-            func   => del_app,
-            descr  => "Delete Application"}).
+-define(APP_ID_NOT_FOUND, <<"{\"code\": \"RESOURCE_NOT_FOUND\", \"reason\": \"App id not found\"}">>).
 
--rest_api(#{name   => list_apps,
-            method => 'GET',
-            path   => "/apps/",
-            func   => list_apps,
-            descr  => "List Applications"}).
+rest_schema() ->
+    [ app_schema()
+    , app_without_secret()
+    , app_without_id()
+    , app_without_id_secret()
+    , secret_schema()].
 
--rest_api(#{name   => lookup_app,
-            method => 'GET',
-            path   => "/apps/:bin:appid",
-            func   => lookup_app,
-            descr  => "Lookup Application"}).
+app_schema() ->
+    app_without(<<"app">>, []).
 
--rest_api(#{name   => update_app,
-            method => 'PUT',
-            path   => "/apps/:bin:appid",
-            func   => update_app,
-            descr  => "Update Application"}).
+app_without_secret() ->
+    app_without(<<"app_without_secret">>, [<<"secret">>]).
 
--export([ add_app/2
-        , del_app/2
-        , list_apps/2
-        , lookup_app/2
-        , update_app/2
-        ]).
+app_without_id() ->
+    app_without(<<"app_without_id">>, [<<"app_id">>]).
 
-add_app(_Bindings, Params) ->
-    AppId = proplists:get_value(<<"app_id">>, Params),
-    Name = proplists:get_value(<<"name">>, Params),
-    Secret = proplists:get_value(<<"secret">>, Params),
-    Desc = proplists:get_value(<<"desc">>, Params),
-    Status = proplists:get_value(<<"status">>, Params),
-    Expired = proplists:get_value(<<"expired">>, Params),
-    case emqx_mgmt_auth:add_app(AppId, Name, Secret, Desc, Status, Expired) of
-        {ok, AppSecret} -> minirest:return({ok, #{secret => AppSecret}});
-        {error, Reason} -> minirest:return({error, Reason})
+app_without_id_secret() ->
+    app_without(<<"app_without_id_secret">>, [<<"app_id">>, <<"secret">>]).
+
+app_without(DefinitionName, List) ->
+    DefinitionProperties = #{
+        <<"app_id">> => #{type => <<"string">>},
+        <<"secret">> => #{type => <<"string">>},
+        <<"name">> => #{type => <<"string">>},
+        <<"desc">> => #{type => <<"string">>},
+        <<"status">> => #{type => <<"boolean">>},
+        <<"expired">> => #{type => <<"string">>}
+    },
+    {DefinitionName, maps:without(List, DefinitionProperties)}.
+
+secret_schema() ->
+    DefinitionProperties = #{<<"secret">> => #{type => <<"string">>}},
+    {<<"app_secert">>, DefinitionProperties}.
+
+rest_api() ->
+    [apps_api(), app_api()].
+
+apps_api() ->
+    Metadata = #{
+        get =>
+        #{tags => ["application"],
+            description => "List EMQ X apps",
+            operationId => handle_list,
+            responses => #{
+                <<"200">> => #{
+                    content => #{
+                        'application/json' =>
+                        #{schema =>
+                        #{type => array, items => cowboy_swagger:schema(<<"app_without_secret">>)}}}}}},
+        post =>
+        #{tags => ["application"],
+        description => "EMQ X create apps",
+        operationId => handle_post,
+        requestBody => #{
+            content => #{
+                'application/json' => #{schema => cowboy_swagger:schema(<<"app">>)}}},
+        responses => #{
+            <<"200">> => #{description => "Create apps",
+                content => #{
+                'application/json' =>
+                #{schema =>
+                    #{type => array, items => cowboy_swagger:schema(<<"app_secert">>)}}}}}}},
+    {"/apps", Metadata}.
+
+app_api() ->
+    Metadata = #{
+        get =>
+        #{tags => ["application"],
+            description => "EMQ X apps",
+            operationId => handle_get,
+            parameters => [
+                #{name => app_id
+                , in => path
+                , required => true
+                , schema =>
+                #{type => string, example => <<"admin">>}}],
+            responses => #{
+                <<"404">> => emqx_mgmt_util:not_found_schema(<<"App id not found">>),
+                <<"200">> => #{
+                    content => #{
+                        'application/json' =>
+                        #{schema => cowboy_swagger:schema(<<"app_without_secret">>)}}}}},
+        delete =>
+        #{tags => ["application"],
+            description => "EMQ X apps",
+            operationId => handle_delete,
+            parameters => [
+                #{name => app_id
+                , in => path
+                , required => true
+                , schema =>
+                #{type => string, example => <<"admin">>}}],
+            responses => #{
+                <<"404">> => emqx_mgmt_util:not_found_schema(<<"App id not found">>),
+                <<"200">> => #{description => "Delete app ok"}}},
+        put =>
+        #{tags => ["application"],
+            description => "EMQ X update apps",
+            operationId => handle_put,
+            parameters => [
+                #{name => app_id
+                , in => path
+                , required => true
+                , schema =>
+                #{type => string, example => <<"admin">>}}],
+            requestBody => #{
+                content => #{
+                    'application/json' => #{schema => cowboy_swagger:schema(<<"app_without_id_secret">>)}}},
+            responses => #{
+                <<"404">> => emqx_mgmt_util:not_found_schema(<<"App id not found">>),
+                <<"200">> => #{description => "Update apps"}}}},
+    {"/apps/:app_id", Metadata}.
+
+%%%==============================================================================================
+%% parameters trans
+handle_list(_Request) ->
+    list(#{}).
+
+handle_post(Request) ->
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    Data = emqx_json:decode(Body, [return_maps]),
+    Parameters = #{
+        app_id  => maps:get(<<"app_id">>, Data),
+        name    => maps:get(<<"name">>, Data),
+        secret  => maps:get(<<"secret">>, Data),
+        desc    => maps:get(<<"desc">>, Data),
+        status  => maps:get(<<"status">>, Data),
+        expired => maps:get(<<"expired">>, Data)
+    },
+    create(Parameters).
+
+handle_get(Request) ->
+    AppID = cowboy_req:binding(app_id, Request),
+    lookup(#{app_id => AppID}).
+
+handle_delete(Request) ->
+    AppID = cowboy_req:binding(app_id, Request),
+    delete(#{app_id => AppID}).
+
+handle_put(Request) ->
+    AppID = cowboy_req:binding(app_id, Request),
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    Data = emqx_json:decode(Body, [return_maps]),
+    Parameters = #{
+        app_id  => AppID,
+        name    => maps:get(<<"name">>, Data),
+        desc    => maps:get(<<"desc">>, Data),
+        status  => maps:get(<<"status">>, Data),
+        expired => maps:get(<<"expired">>, Data)
+    },
+    update(Parameters).
+
+
+%%%==============================================================================================
+%% api apply
+list(_) ->
+    Data = [format_without_app_secret(Apps) || Apps <- emqx_mgmt_auth:list_apps()],
+    Response = emqx_json:encode(Data),
+    {ok, Response}.
+
+create(#{app_id := AppID, name := Name, secret := Secret,
+    desc := Desc, status := Status, expired := Expired}) ->
+    case emqx_mgmt_auth:add_app(AppID, Name, Secret, Desc, Status, Expired) of
+        {ok, AppSecret} ->
+            Response = emqx_json:encode(#{secret => AppSecret}),
+            {ok, Response};
+        {error, Reason} ->
+            Data = #{code => 'UNKNOW_ERROR', reason => list_to_binary(io_lib:format("~p", [Reason]))},
+            Response = emqx_json:encode(Data),
+            {500, Response}
     end.
 
-del_app(#{appid := AppId}, _Params) ->
-    case emqx_mgmt_auth:del_app(AppId) of
-        ok -> minirest:return();
-        {error, Reason} -> minirest:return({error, Reason})
-    end.
-
-list_apps(_Bindings, _Params) ->
-    minirest:return({ok, [format(Apps)|| Apps <- emqx_mgmt_auth:list_apps()]}).
-
-lookup_app(#{appid := AppId}, _Params) ->
-    case emqx_mgmt_auth:lookup_app(AppId) of
-        {AppId, AppSecret, Name, Desc, Status, Expired} ->
-            minirest:return({ok, #{app_id => AppId,
-                          secret => AppSecret,
-                          name => Name,
-                          desc => Desc,
-                          status => Status,
-                          expired => Expired}});
+lookup(#{app_id := AppID}) ->
+    case emqx_mgmt_auth:lookup_app(AppID) of
         undefined ->
-            minirest:return({ok, #{}})
+            {404, ?APP_ID_NOT_FOUND};
+        App ->
+            Data = format_with_app_secret(App),
+            Response = emqx_json:encode(Data),
+            {ok, Response}
     end.
 
-update_app(#{appid := AppId}, Params) ->
-    Name = proplists:get_value(<<"name">>, Params),
-    Desc = proplists:get_value(<<"desc">>, Params),
-    Status = proplists:get_value(<<"status">>, Params),
-    Expired = proplists:get_value(<<"expired">>, Params),
-    case emqx_mgmt_auth:update_app(AppId, Name, Desc, Status, Expired) of
-        ok -> minirest:return();
-        {error, Reason} -> minirest:return({error, Reason})
+delete(#{app_id := AppID}) ->
+    case emqx_mgmt_auth:del_app(AppID) of
+        ok ->
+            {ok};
+        {error, Reason} ->
+            Data = #{code => 'UNKNOW_ERROR', reason => list_to_binary(io_lib:format("~p", [Reason]))},
+            Response = emqx_json:encode(Data),
+            {500, Response}
     end.
 
-format({AppId, _AppSecret, Name, Desc, Status, Expired}) ->
-    [{app_id, AppId}, {name, Name}, {desc, Desc}, {status, Status}, {expired, Expired}].
+update(#{app_id := AppID, name := Name, desc := Desc, status := Status, expired := Expired}) ->
+    case emqx_mgmt_auth:update_app(AppID, Name, Desc, Status, Expired) of
+        ok ->
+            {ok};
+        {error, not_found} ->
+            {404, ?APP_ID_NOT_FOUND};
+        {error, Reason} ->
+            Data = #{code => 'UNKNOW_ERROR', reason => list_to_binary(io_lib:format("~p", [Reason]))},
+            Response = emqx_json:encode(Data),
+            {500, Response}
+    end.
+
+%%%==============================================================================================
+%% api apply
+format_without_app_secret(App) ->
+    format_without([secret], App).
+
+format_with_app_secret(App) ->
+    format_without([], App).
+
+format_without(List, {AppID, AppSecret, Name, Desc, Status, Expired}) ->
+    Data =
+        #{app_id => AppID
+        , secret => AppSecret
+        , name => Name
+        , desc => Desc
+        , status => Status
+        , expired => Expired},
+    maps:without(List, Data).
