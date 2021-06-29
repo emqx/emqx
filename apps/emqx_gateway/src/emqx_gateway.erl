@@ -28,20 +28,18 @@
         , list/0
         ]).
 
+-spec registered_gateway() -> [{gateway_id(), descriptor()}].
 registered_gateway() ->
     emqx_gateway_registry:list().
 
 %%--------------------------------------------------------------------
 %% Gateway Instace APIs
 
-%% XXX: Map is better ???
 -spec list() -> [{gateway_id(), [instance()]}].
 list() ->
     emqx_gateway_sup:list_gateway_insta().
 
-%% XXX: InstaId 是不是可以自己生成(保证全集群唯一)
-
--spec create(atom(), atom(), binary(), binary(), map())
+-spec create(instance_id(), gateway_id(), binary(), binary(), map())
     -> {ok, pid()}
      | {error, any()}.
 create(InstaId, GwId, Name, Descr, RawConf) ->
@@ -54,18 +52,18 @@ create(InstaId, GwId, Name, Descr, RawConf) ->
               },
     emqx_gateway_sup:create_gateway_insta(Insta).
 
--spec remove(atom(), atom()) -> ok | {error, any()}.
+-spec remove(instance_id(), gateway_id()) -> ok | {error, any()}.
 remove(InstaId, GwId) ->
     emqx_gateway_sup:remove_gateway_insta(InstaId, GwId).
 
--spec update(instance(), atom()) -> ok | {error, any()}.
+-spec update(instance(), gateway_id()) -> ok | {error, any()}.
 update(NewInsta, GwId) ->
     emqx_gateway_sup:update_gateway_insta(NewInsta, GwId).
 
--spec start(atom(), atom()) -> ok | {error, any()}.
+-spec start(instance_id(), gateway_id()) -> ok | {error, any()}.
 start(InstaId, GwId) ->
     emqx_gateway_sup:start_gateway_insta(InstaId, GwId).
 
--spec stop(atom(), atom()) -> ok | {error, any()}.
+-spec stop(instance_id(), gateway_id()) -> ok | {error, any()}.
 stop(InstaId, GwId) ->
     emqx_gateway_sup:stop_gateway_insta(InstaId, GwId).

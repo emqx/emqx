@@ -62,15 +62,12 @@
           conn_state    :: idle,
           %% Heartbeat
           heartbeat     :: emqx_stomp_heartbeat:heartbeat(),
-          %connected = false,
-          %proto_ver,
-          %proto_name,
-          %login,
+          %% Subscriptions
           subscriptions = [],
+          %% Timer
           timers :: #{atom() => disable | undefined | reference()},
-          transaction :: #{binary() => list()},
-          %% Function ref
-          heartfun
+          %% Transaction
+          transaction :: #{binary() => list()}
          }).
 
 -type(channel() :: #channel{}).
@@ -223,7 +220,6 @@ enrich_clientinfo(Packet,
                                    , fun fix_mountpoint/2
                                    ], Packet, ClientInfo
                                   ),
-
     {ok, NPacket, Channel#channel{clientinfo = NClientInfo}}.
 
 feedvar(Override, Packet, ConnInfo, ClientInfo) ->
@@ -257,8 +253,8 @@ parse_heartbeat(#stomp_frame{headers = Headers}, ClientInfo) ->
 
 fix_mountpoint(_Packet, #{mountpoint := undefined}) -> ok;
 fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
-    %% XXX: Enrich the varibale replacement????
-    %%      i.e: ${ClientInfo.auth_result.productKey}
+    %% TODO: Enrich the varibale replacement????
+    %%       i.e: ${ClientInfo.auth_result.productKey}
     Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
     {ok, ClientInfo#{mountpoint := Mountpoint1}}.
 
@@ -612,7 +608,7 @@ handle_call(Req, Channel) ->
 %handle_info({unsubscribe, TopicFilters}, Channel) ->
 %    {_RC, NChannel} = process_unsubscribe(TopicFilters, #{}, Channel),
 %    {ok, NChannel};
-%
+
 handle_info({sock_closed, Reason},
             Channel = #channel{conn_state = idle}) ->
     shutdown(Reason, Channel);

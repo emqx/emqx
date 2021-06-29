@@ -56,7 +56,7 @@ create_gateway_insta(Insta = #instance{gwid = GwId}) ->
             emqx_gateway_gw_sup:create_insta(GwSup, Insta, GwDscrptr)
     end.
 
--spec remove_gateway_insta(atom(), atom()) -> ok | {error, any()}.
+-spec remove_gateway_insta(instance_id(), gateway_id()) -> ok | {error, any()}.
 remove_gateway_insta(InstaId, GwId) ->
     case emqx_gateway_utils:find_sup_child(?MODULE, gatewayid(GwId)) of
         {ok, GwSup} ->
@@ -64,7 +64,7 @@ remove_gateway_insta(InstaId, GwId) ->
         _ -> ok
     end.
 
--spec update_gateway_insta(instance(), atom())
+-spec update_gateway_insta(instance(), gateway_id())
     -> ok
      | {error, any()}.
 update_gateway_insta(NewInsta, GwId) ->
@@ -84,7 +84,7 @@ stop_gateway_insta(InstaId, GwId) ->
         _ -> {error, not_found}
     end.
 
--spec list_gateway_insta(GwId :: atom()) -> {ok, [instance()]} | {error, any()}.
+-spec list_gateway_insta(gateway_id()) -> {ok, [instance()]} | {error, any()}.
 list_gateway_insta(GwId) ->
     case emqx_gateway_utils:find_sup_child(?MODULE, gatewayid(GwId)) of
         {ok, GwSup} ->
@@ -92,7 +92,7 @@ list_gateway_insta(GwId) ->
         _ -> {error, not_found}
     end.
 
--spec list_gateway_insta() -> [{atom(), instance()}].
+-spec list_gateway_insta() -> [{gateway_id(), instance()}].
 list_gateway_insta() ->
     lists:map(
       fun(SupId) ->
@@ -100,7 +100,7 @@ list_gateway_insta() ->
         {SupId, Instas}
       end, list_started_gateway()).
 
--spec list_started_gateway() -> [GwId :: atom()].
+-spec list_started_gateway() -> [gateway_id()].
 list_started_gateway() ->
     lists:filtermap(
       fun({Id, _Pid, _GwId, _Mods}) ->

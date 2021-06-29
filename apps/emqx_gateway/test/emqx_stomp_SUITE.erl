@@ -347,6 +347,13 @@ t_ack(_) ->
                                                   body    = _}, _, _} = parse(Data4)
                     end).
 
+%% TODO: Mountpoint, AuthChain, ACL + Mountpoint, ClientInfoOverride,
+%%       Listeners, Metrics, Stats, ClientInfo
+%%
+%% TODO: Start/Stop, List Instace
+%%
+%% TODO: RateLimit, OOM, 
+
 with_connection(DoFun) ->
     {ok, Sock} = gen_tcp:connect({127, 0, 0, 1},
                                  61613,

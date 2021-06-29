@@ -97,27 +97,41 @@ unregister_channel(GwId, ClientId) when is_binary(ClientId) ->
     ok.
 
 %% @doc Insert/Update the channel info and stats
--spec(insert_channel_info(atom(),
+-spec insert_channel_info(atom(),
                           emqx_types:clientid(),
                           emqx_types:infos(),
-                          emqx_types:stats()) -> ok).
+                          emqx_types:stats()) -> ok.
 insert_channel_info(GwId, ClientId, Info, Stats) ->
     Chan = {ClientId, self()},
     true = ets:insert(tabname(info, GwId), {Chan, Info, Stats}),
     %%?tp(debug, insert_channel_info, #{client_id => ClientId}),
     ok.
 
--spec set_chan_info(atom(), binary(), emqx_types:clientinfo()) -> ok.
-set_chan_info(_GwId, _ClientId, _ClientInfo) ->
-    todo.
+-spec set_chan_info(gateway_id(),
+                    emqx_types:clientid(),
+                    emqx_types:infos()) -> boolean()
+set_chan_info(GwId, ClientId, Infos) ->
+    Chan = {ClientId, self()},
+    try ets:update_element(tabname(info, GwId), Chan, {2, Infos})
+    catch
+        error:badarg -> false
+    end.
 
--spec set_chan_stats(atom(), binary(), emqx_types:clientinfo()) -> ok.
-set_chan_stats(_GwId, _ClientId, _ClientInfo) ->
-    todo.
+-spec set_chan_stats(gateway_id(),
+                     emqx_types:clientid(),
+                     emqx_types:stats()) -> boolean().
+set_chan_stats(GwId, ClientId, Stats) ->
+    Chan = {ClientId, self()},
+    try ets:update_element(tabname(info, GwId), Chan, {3, Stats})
+    catch
+        error:badarg -> false
+    end.
 
--spec connection_closed(atom(), binary()) -> true.
-connection_closed(_GwId, _ClientId) ->
-    todo.
+-spec connection_closed(gateway_id(), emqx_types:clientid()) -> true.
+connection_closed(GwId, ClientId) ->
+    %% XXX: ???
+    Chan = {ClientId, self()},
+    ets:delete_object(tabname(conn,GwId), {ClientId, ChanPid}).
 
 -spec open_session(GwId :: atom(), CleanStart :: boolean(),
                    ClientInfo :: emqx_types:clientinfo(),

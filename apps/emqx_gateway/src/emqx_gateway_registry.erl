@@ -68,8 +68,7 @@ start_link() ->
                        , state  => any()
                        }.
 
--spec load(GwId :: atom(), registry_options(), list()) -> ok | {error, any()}.
-
+-spec load(gateway_id(), registry_options(), gateway_options()) -> ok | {error, any()}.
 load(GwId, RgOpts, GwOpts) ->
     CbMod = proplists:get_value(cbkmod, RgOpts, GwId),
     Dscrptr = #{ cbkmod => CbMod
@@ -78,17 +77,16 @@ load(GwId, RgOpts, GwOpts) ->
                },
     call({load, GwId, Dscrptr}).
 
--spec unload(GwId :: atom()) -> ok | {error, any()}.
-
+-spec unload(gateway_id()) -> ok | {error, any()}.
 unload(GwId) ->
     call({unload, GwId}).
 
 %% @doc Return all registered protocol gateway implementation
--spec list() -> [atom()].
+-spec list() -> [{gateway_id(), descriptor()}].
 list() ->
     call(all).
 
--spec lookup(atom()) -> emqx_gateway_impl:state().
+-spec lookup(gateway_id()) -> emqx_gateway_impl:state().
 lookup(GwId) ->
     call({lookup, GwId}).
 
@@ -99,9 +97,8 @@ call(Req) ->
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-%% TODO: Metrics ???
-
 init([]) ->
+    %% TODO: Metrics ???
     process_flag(trap_exit, true),
     {ok, #state{loaded = #{}}}.
 
@@ -135,8 +132,7 @@ handle_call({unload, GwId}, _From, State = #state{loaded = Gateways}) ->
     end;
 
 handle_call(all, _From, State = #state{loaded = Gateways}) ->
-    Reply = maps:values(Gateways),
-    {reply, Reply, State};
+    {reply, maps:to_list(Gateways), State};
 
 handle_call({lookup, GwId}, _From, State = #state{loaded = Gateways}) ->
     Reply = maps:get(GwId, Gateways, undefined),

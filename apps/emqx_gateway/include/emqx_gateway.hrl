@@ -17,7 +17,6 @@
 -ifndef(EMQX_GATEWAY_HRL).
 -define(EMQX_GATEWAY_HRL, 1).
 
-
 -type instance_id()   :: atom().
 -type gateway_id()    :: atom().
 
@@ -33,18 +32,12 @@
 
 -type instance() :: #instance{}.
 
-%-type instance_info() ::
-%        #{ id    := atom()
-%         , type  := atom()
-%         , order := non_neg_integer()
+%-type instance() ::
+%        #{ id    := instance_id()
+%         , gwid  := gateway_id()
 %         , name  := binary()
 %         , descr => binary() | undefined
 %         , status := stopped | running 
 %         }.
-
-%% @doc
-% FIXME:
-%-type clientinfo definations?
-%-type conninfo definations?
 
 -endif.
