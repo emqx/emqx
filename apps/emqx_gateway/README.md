@@ -3,11 +3,23 @@
 ***This is a very early prototype application*** for Gateway in EMQ X Broker 5.0
 
 ## Concept
+    EMQ X Gateway Managment
+     - Gateway-Type     (Registry)
+        - *Load
+        - *UnLoad
+        - *List
 
-    EMQ X Gateway Managment/Template
      - Gateway
-     - Gateway/Instance
-     - Gateway/Instance/Listener
+        - *Create
+        - *Delete
+        - *Update
+            - *Stop-And-Start
+            - *Hot-Upgrade
+        - *Satrt/Enable
+        - *Stop/Disable
+     - Listener
+
+
 
 ## ROADMAP
 
@@ -259,7 +271,32 @@ gateway {
 }
 ```
 
-#### Mangement by HTTP-API/Dashboard/CLI
+#### CLI
+
+##### Gateway
+
+```bash
+## List all started gateway and gateway-instance
+emqx_ctl gateway list
+emqx_ctl gateway lookup <GatewayId>
+emqx_ctl gateway stop   <GatewayId>
+emqx_ctl gateway start  <GatewayId>
+
+emqx_ctl gateway-registry re-searching
+emqx_ctl gateway-registry list
+
+emqx_ctl gateway-clients list   <GatewayId>
+emqx_ctl gateway-clients lookup <GatewayId> <ClientId>
+emqx_ctl gateway-clients kick   <GatewayId> <ClientId>
+
+## Banned ??
+emqx_ctl gateway-banned
+
+## Metrics
+emqx_ctl gateway-metrics [<GatewayId>]
+```
+
+#### Mangement by HTTP-API/Dashboard/
 
 #### How to integrate a protocol to your platform
 

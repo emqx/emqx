@@ -79,7 +79,12 @@ load(GwId, RgOpts, GwOpts) ->
 
 -spec unload(gateway_id()) -> ok | {error, any()}.
 unload(GwId) ->
+    %% TODO: Checking ALL INSTACE HAS STOPPED
     call({unload, GwId}).
+
+%% TODO:
+%unload(GwId, Force) ->
+%    call({unload, GwId, Froce}).
 
 %% @doc Return all registered protocol gateway implementation
 -spec list() -> [{gateway_id(), descriptor()}].
