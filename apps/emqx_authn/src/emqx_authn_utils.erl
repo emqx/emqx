@@ -19,6 +19,10 @@
 -export([ replace_placeholder/2
         ]).
 
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
+
 replace_placeholder(PlaceHolders, Data) ->
     replace_placeholder(PlaceHolders, Data, []).
 
@@ -36,6 +40,10 @@ replace_placeholder([<<"${cert-common-name}">> | More], #{cn := CommonName} = Da
     replace_placeholder(More, Data, [convert_to_sql_param(CommonName) | Acc]);
 replace_placeholder([_ | More], Data, Acc) ->
     replace_placeholder(More, Data, [null | Acc]).
+
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
 
 convert_to_sql_param(undefined) ->
     null;

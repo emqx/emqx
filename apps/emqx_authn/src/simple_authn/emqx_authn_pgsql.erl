@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_mysql).
+-module(emqx_authn_pgsql).
 
 -include("emqx_authn.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -41,30 +41,24 @@
 %% database
 %% pool_size
 %% connect_timeout
-
-
 %% enable_ssl
-%% ssl_opts
-%%   cacertfile
-%%   certfile
-%%   keyfile
-%%   verify
-%%   servce_name_indication
-%%   ciphers
-
-
+%% cacertfile
+%% certfile
+%% keyfile
+%% verify
+%% servce_name_indication
+%% tls_versions
+%% ciphers
 %% password_hash_algorithm
 %% salt_position
 %% query
-%% query_timeout
 structs() -> [config].
 
 fields(config) ->
     [ {password_hash_algorithm, fun password_hash_algorithm/1}
-    , {salt_position,           {enum, [prefix, suffix]}}
-    , {query,                   fun query/1}
-    , {query_timeout,           fun query_timeout/1}
-    ] ++ emqx_connector_mysql:schema().
+    , {salt_position, {enum, [prefix, suffix]}}
+    , {query, fun query/1}
+    ].
 
 password_hash_algorithm(type) -> string();
 password_hash_algorithm(_) -> undefined.
@@ -72,10 +66,6 @@ password_hash_algorithm(_) -> undefined.
 query(type) -> string();
 query(nullable) -> false;
 query(_) -> undefined.
-
-query_timeout(type) -> integer();
-query_timeout(defualt) -> 5000;
-query_timeout(_) -> undefined.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -88,7 +78,7 @@ create(ChainID, ServiceName, #{query := Query0,
     State = #{query => Query,
               placeholders => PlaceHolders,
               password_hash_algorithm => Algorithm},
-    case emqx_resource:create(ResourceID, emqx_connector_mysql, Config) of
+    case emqx_resource:create_local(ResourceID, emqx_connector_pgsql, Config) of
         {ok, _} ->
             {ok, State#{resource_id => ResourceID}};
         {error, already_created} ->
@@ -98,16 +88,15 @@ create(ChainID, ServiceName, #{query := Query0,
     end.
 
 update(_ChainID, _ServiceName, Config, #{resource_id := ResourceID} = State) ->
-    emqx_resource:update(ResourceID, emqx_connector_mysql, Config, []),
+    emqx_resource:update_local(ResourceID, emqx_connector_pgsql, Config, []),
     {ok, State}.
 
 authenticate(#{password := Password} = ClientInfo,
              #{resource_id := ResourceID,
-               placeholders := PlaceHolders,
                query := Query,
-               query_timeout := Timeout} = State) ->
+               placeholders := PlaceHolders} = State) ->
     Params = emqx_authn_utils:replace_placeholder(PlaceHolders, ClientInfo),
-    case emqx_resource:query(ResourceID, {sql, Query, Params, Timeout}) of
+    case emqx_resource:query(ResourceID, {sql, Query, Params}) of
         {ok, _Columns, []} -> ignore;
         {ok, Columns, Rows} ->
             %% TODO: Support superuser
@@ -118,7 +107,7 @@ authenticate(#{password := Password} = ClientInfo,
     end.
 
 destroy(#{resource_id := ResourceID}) ->
-    emqx_resource:remove(ResourceID).
+    emqx_resource:remove_local(ResourceID).
     
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -153,7 +142,10 @@ parse_query(Query) ->
     case re:run(Query, "\\$\\{[a-z0-9\\_]+\\}", [global, {capture, all, binary}]) of
         {match, Captured} ->
             PlaceHolders = [PlaceHolder || PlaceHolder <- Captured],
-            NQuery = re:replace(Query, "'\\$\\{[a-z0-9\\_]+\\}'", "?", [global, {return, binary}]),
+            Replacements = ["$" ++ integer_to_list(I) || I <- lists:seq(1, length(Captured))],
+            NQuery = lists:foldl(fun({PlaceHolder, Replacement}, Query0) ->
+                                     re:replace(Query0, <<"'\\", PlaceHolder/binary, "'">>, Replacement, [{return, binary}])
+                                 end, Query, lists:zip(PlaceHolders, Replacements)),
             {NQuery, PlaceHolders};
         nomatch ->
             {Query, []}

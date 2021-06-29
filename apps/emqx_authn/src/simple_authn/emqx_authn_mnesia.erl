@@ -39,7 +39,7 @@
 
 -type user_id_type() :: clientid | username.
 
--type user_group() :: {chain_id(), service_name()}.
+-type user_group() :: {chain_id(), authenticator_name()}.
 -type user_id() :: binary().
 
 -record(user_info,
@@ -110,18 +110,25 @@ salt_rounds(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(ChainID, ServiceName, #{user_id_type := Type,
-                               password_hash_algorithm := Algorithm,
-                               salt_rounds := SaltRounds}) ->
-    Algorithm =:= bcrypt andalso ({ok, _} = application:ensure_all_started(bcrypt)),
-    State = #{user_group => {ChainID, ServiceName},
+create(ChainID, AuthenticatorName, #{user_id_type := Type,
+                                     password_hash_algorithm := #{name := bcrypt,
+                                                                  salt_rounds := SaltRounds}}) ->
+    {ok, _} = application:ensure_all_started(bcrypt),
+    State = #{user_group => {ChainID, AuthenticatorName},
               user_id_type => Type,
-              password_hash_algorithm => Algorithm,
+              password_hash_algorithm => bcrypt,
               salt_rounds => SaltRounds},
+    {ok, State};
+
+create(ChainID, AuthenticatorName, #{user_id_type := Type,
+                                     password_hash_algorithm := #{name := Name}}) ->
+    State = #{user_group => {ChainID, AuthenticatorName},
+              user_id_type => Type,
+              password_hash_algorithm => Name},
     {ok, State}.
 
-update(ChainID, ServiceName, Config, _State) ->
-    create(ChainID, ServiceName, Config).
+update(ChainID, AuthenticatorName, Config, _State) ->
+    create(ChainID, AuthenticatorName, Config).
 
 authenticate(ClientInfo = #{password := Password},
              #{user_group := UserGroup,

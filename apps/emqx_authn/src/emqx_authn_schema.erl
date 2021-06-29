@@ -24,44 +24,63 @@
 -export([structs/0, fields/1]).
 
 -reflect_type([ chain_id/0
-              , service_name/0
+              , authenticator_name/0
               ]).
 
 structs() -> [authn].
 
 fields(authn) ->
-    [{chains, fun chains/1}];
+    [ {chains, fun chains/1}
+    , {bindings, fun bindings/1}];
 
-fields(chain) ->
+fields('simple-chain') ->
     [ {id, fun chain_id/1}
-    , {services, fun services/1}
+    , {type, {enum, [simple]}}
+    , {authenticators, fun simple_authenticators/1}
     ];
 
-fields(mnesia) ->
-    [ {name, fun service_name/1}
-    , {type, {enum, [mnesia]}}
+% fields('enhanced-chain') ->
+%     [ {id, fun chain_id/1}
+%     , {type, {enum, [enhanced]}}
+%     , {authenticators, fun enhanced_authenticators/1}
+%     ];
+
+fields(binding) ->
+    [ {chain_id, fun chain_id/1}
+    , {listeners, fun listeners/1}
+    ];
+
+fields('built-in-database') ->
+    [ {name, fun authenticator_name/1}
+    , {type, {enum, ['built-in-database']}}
     , {config, hoconsc:t(hoconsc:ref(emqx_authn_mnesia, config))}
     ];
 
+% fields('enhanced-built-in-database') ->
+%     [ {name, fun authenticator_name/1}
+%     , {type, {enum, ['built-in-database']}}
+%     , {config, hoconsc:t(hoconsc:ref(emqx_enhanced_authn_mnesia, config))}
+%     ];
+
 fields(jwt) ->
-    [ {name, fun service_name/1}
+    [ {name, fun authenticator_name/1}
     , {type, {enum, [jwt]}}
     , {config, hoconsc:t(hoconsc:ref(emqx_authn_jwt, config))}
     ];
 
 fields(mysql) ->
-    [ {name, fun service_name/1}
+    [ {name, fun authenticator_name/1}
     , {type, {enum, [mysql]}}
     , {config, hoconsc:t(hoconsc:ref(emqx_authn_mysql, config))}
     ];
 
 fields(pgsql) ->
-    [ {name, fun service_name/1}
+    [ {name, fun authenticator_name/1}
     , {type, {enum, [postgresql]}}
     , {config, hoconsc:t(hoconsc:ref(emqx_authn_pgsql, config))}
     ].
 
-chains(type) -> hoconsc:array(hoconsc:ref(chain));
+chains(type) -> hoconsc:array({union, [hoconsc:ref('simple-chain')]});
 chains(default) -> [];
 chains(_) -> undefined.
 
@@ -69,13 +88,27 @@ chain_id(type) -> chain_id();
 chain_id(nullable) -> false;
 chain_id(_) -> undefined.
 
-services(type) -> hoconsc:array({union, [ hoconsc:ref(mnesia)
-                                        , hoconsc:ref(jwt)
-                                        , hoconsc:ref(mysql)
-                                        , hoconsc:ref(pgsql)]});
-services(default) -> [];
-services(_) -> undefined.
+simple_authenticators(type) ->
+    hoconsc:array({union, [ hoconsc:ref('built-in-database')
+                          , hoconsc:ref(jwt)
+                          , hoconsc:ref(mysql)
+                          , hoconsc:ref(pgsql)]});
+simple_authenticators(default) -> [];
+simple_authenticators(_) -> undefined.
 
-service_name(type) -> service_name();
-service_name(nullable) -> false;
-service_name(_) -> undefined.
+% enhanced_authenticators(type) ->
+%     hoconsc:array({union, [hoconsc:ref('enhanced-built-in-database')]});
+% enhanced_authenticators(default) -> [];
+% enhanced_authenticators(_) -> undefined.
+
+authenticator_name(type) -> authenticator_name();
+authenticator_name(nullable) -> false;
+authenticator_name(_) -> undefined.
+
+bindings(type) -> hoconsc:array(hoconsc:ref(binding));
+bindings(default) -> [];
+bindings(_) -> undefined.
+
+listeners(type) -> hoconsc:array(binary());
+listeners(default) -> [];
+listeners(_) -> undefined.

@@ -28,14 +28,18 @@
         , delete_chain/1
         , lookup_chain/1
         , list_chains/0
-        , create_service/2
-        , delete_service/2
-        , update_service/3
-        , lookup_service/2
-        , list_services/1
-        , move_service_to_the_front/2
-        , move_service_to_the_end/2
-        , move_service_to_the_nth/3
+        , bind/2
+        , unbind/2
+        , list_bindings/1
+        , list_bound_chains/1
+        , create_authenticator/2
+        , delete_authenticator/2
+        , update_authenticator/3
+        , lookup_authenticator/2
+        , list_authenticators/1
+        , move_authenticator_to_the_front/2
+        , move_authenticator_to_the_end/2
+        , move_authenticator_to_the_nth/3
         ]).
 
 -export([ import_users/3
@@ -49,9 +53,9 @@
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -define(CHAIN_TAB, emqx_authn_chain).
+-define(BINDING_TAB, emqx_authn_binding).
 
 -rlog_shard({?AUTH_SHARD, ?CHAIN_TAB}).
 -rlog_shard({?AUTH_SHARD, ?SERVICE_TYPE_TAB}).
@@ -61,7 +65,7 @@
 %%------------------------------------------------------------------------------
 
 %% @doc Create or replicate tables.
--spec(mnesia(boot | copy) -> ok).
+-spec(mnesia(boot) -> ok).
 mnesia(boot) ->
     %% Optimize storage
     StoreProps = [{ets, [{read_concurrency, true}]}],
@@ -69,12 +73,16 @@ mnesia(boot) ->
     ok = ekka_mnesia:create_table(?CHAIN_TAB, [
                 {ram_copies, [node()]},
                 {record_name, chain},
+                {local_content, true},
                 {attributes, record_info(fields, chain)},
-                {storage_properties, StoreProps}]);
-
-mnesia(copy) ->
-    %% Copy chain table
-    ok = ekka_mnesia:copy_table(?CHAIN_TAB, ram_copies).
+                {storage_properties, StoreProps}]),
+    %% Binding table
+    ok = ekka_mnesia:create_table(?BINDING_TAB, [
+                {ram_copies, [node()]},
+                {record_name, binding},
+                {local_content, true},
+                {attributes, record_info(fields, binding)},
+                {storage_properties, StoreProps}]).
 
 enable() ->
     case emqx:hook('client.authenticate', fun emqx_authn:authenticate/1) of
@@ -86,19 +94,24 @@ disable() ->
     emqx:unhook('client.authenticate', fun emqx_authn:authenticate/1),
     ok.
 
-authenticate(#{chain_id := ChainID} = ClientInfo) ->
-    case mnesia:dirty_read(?CHAIN_TAB, ChainID) of
-        [#chain{services = []}] ->
-            {error, no_services};
-        [#chain{services = Services}] ->
-            do_authenticate(Services, ClientInfo);
-        [] ->
-            {error, todo}
+authenticate(#{listener_id := ListenerID} = ClientInfo) ->
+    case lookup_chain_by_listener(ListenerID, simple) of
+        {error, _} ->
+            {error, no_authenticators};
+        {ok, ChainID} ->
+            case mnesia:dirty_read(?CHAIN_TAB, ChainID) of
+                [#chain{authenticators = []}] ->
+                    {error, no_authenticators};
+                [#chain{authenticators = Authenticators}] ->
+                    do_authenticate(Authenticators, ClientInfo);
+                [] ->
+                    {error, no_authenticators}
+            end
     end.
 
 do_authenticate([], _) ->
     {error, user_not_found};
-do_authenticate([{_, #service{provider = Provider, state = State}} | More], ClientInfo) ->
+do_authenticate([{_, #authenticator{provider = Provider, state = State}} | More], ClientInfo) ->
     case Provider:authenticate(ClientInfo, State) of
         ignore -> do_authenticate(More, ClientInfo);
         ok -> ok;
@@ -106,13 +119,15 @@ do_authenticate([{_, #service{provider = Provider, state = State}} | More], Clie
         {stop, Reason} -> {error, Reason}
     end.
 
-create_chain(#{id := ID}) ->
+create_chain(#{id   := ID,
+               type := Type}) ->
     trans(
         fun() ->
             case mnesia:read(?CHAIN_TAB, ID, write) of
                 [] ->
                     Chain = #chain{id = ID,
-                                   services = [],
+                                   type = Type,
+                                   authenticators = [],
                                    created_at = erlang:system_time(millisecond)},
                     mnesia:write(?CHAIN_TAB, Chain, write),
                     {ok, serialize_chain(Chain)};
@@ -127,8 +142,8 @@ delete_chain(ID) ->
             case mnesia:read(?CHAIN_TAB, ID, write) of
                 [] ->
                     {error, {not_found, {chain, ID}}};
-                [#chain{services = Services}] ->
-                    _ = [do_delete_service(Service) || {_, Service} <- Services],
+                [#chain{authenticators = Authenticators}] ->
+                    _ = [do_delete_authenticator(Authenticator) || {_, Authenticator} <- Authenticators],
                     mnesia:delete(?CHAIN_TAB, ID, write)
             end
         end).
@@ -145,53 +160,127 @@ list_chains() ->
     Chains = ets:tab2list(?CHAIN_TAB),
     {ok, [serialize_chain(Chain) || Chain <- Chains]}.
 
-create_service(ChainID, #{name := Name} = Service) ->
-    UpdateFun = fun(Chain = #chain{services = Services}) ->
-                    case lists:keymember(Name, 1, Services) of
-                        true ->
-                            {error, {already_exists, {service, Name}}};
-                        false ->
-                            case do_create_service(ChainID, Service) of
-                                {ok, NService} ->
-                                    NChain = Chain#chain{services = Services ++ [{Name, NService}]},
-                                    ok = mnesia:write(?CHAIN_TAB, NChain, write),
-                                    {ok, serialize_service(NService)};
-                                {error, Reason} ->
-                                    {error, Reason}
-                            end
+bind(ChainID, Listeners) ->
+    %% TODO: ensure listener id is valid
+    trans(
+        fun() ->
+            case mnesia:read(?CHAIN_TAB, ChainID, write) of
+                [] ->
+                    {error, {not_found, {chain, ChainID}}};
+                [#chain{type = AuthNType}] ->
+                    Result = lists:foldl(
+                                 fun(ListenerID, Acc) ->
+                                     case mnesia:read(?BINDING_TAB, {ListenerID, AuthNType}, write) of
+                                         [] ->
+                                             Binding = #binding{bound = {ListenerID, AuthNType}, chain_id = ChainID},
+                                             mnesia:write(?BINDING_TAB, Binding, write),
+                                             Acc;
+                                         _ ->
+                                             [ListenerID | Acc]
+                                     end
+                                 end, [], Listeners),
+                    case Result of
+                        [] -> ok;
+                        Listeners0 -> {error, {already_bound, Listeners0}}
                     end
-                end,
+            end
+        end).
+
+unbind(ChainID, Listeners) ->
+    trans(
+        fun() ->
+            Result = lists:foldl(
+                        fun(ListenerID, Acc) ->
+                            MatchSpec = [{{binding, {ListenerID, '_'}, ChainID}, [], ['$_']}],
+                            case mnesia:select(?BINDING_TAB, MatchSpec, write) of
+                                [] ->
+                                    [ListenerID | Acc];
+                                [#binding{bound = Bound}] ->
+                                    mnesia:delete(?BINDING_TAB, Bound, write),
+                                    Acc
+                            end
+                        end, [], Listeners),
+            case Result of
+                [] -> ok;
+                Listeners0 ->
+                    {error, {not_found, Listeners0}}
+            end
+        end).
+
+list_bindings(ChainID) ->
+    trans(
+        fun() ->
+            MatchSpec = [{{binding, {'$1', '_'}, ChainID}, [], ['$1']}],
+            Listeners = mnesia:select(?BINDING_TAB, MatchSpec),
+            {ok, #{chain_id => ChainID, listeners => Listeners}}
+        end).
+
+list_bound_chains(ListenerID) ->
+    trans(
+        fun() ->
+            MatchSpec = [{{binding, {ListenerID, '_'}, '_'}, [], ['$_']}],
+            Bindings = mnesia:select(?BINDING_TAB, MatchSpec),
+            Chains = [{AuthNType, ChainID} || #binding{bound = {_, AuthNType},
+                                                    chain_id = ChainID} <- Bindings],
+            {ok, maps:from_list(Chains)}
+        end).
+
+create_authenticator(ChainID, #{name := Name,
+                                type := Type,
+                                config := Config}) ->
+    UpdateFun =
+        fun(Chain = #chain{type = AuthNType, authenticators = Authenticators}) ->
+            case lists:keymember(Name, 1, Authenticators) of
+                true ->
+                    {error, {already_exists, {authenticator, Name}}};
+                false ->
+                    Provider = authenticator_provider(AuthNType, Type),
+                    case Provider:create(ChainID, Name, Config) of
+                        {ok, State} ->
+                            Authenticator = #authenticator{name = Name,
+                                                           type = Type,
+                                                           provider = Provider,
+                                                           config = Config,
+                                                           state = State},
+                            NChain = Chain#chain{authenticators = Authenticators ++ [{Name, Authenticator}]},
+                            ok = mnesia:write(?CHAIN_TAB, NChain, write),
+                            {ok, serialize_authenticator(Authenticator)};
+                        {error, Reason} ->
+                            {error, Reason}
+                    end
+            end
+        end,
     update_chain(ChainID, UpdateFun).
 
-delete_service(ChainID, ServiceName) ->
-    UpdateFun = fun(Chain = #chain{services = Services}) ->
-                    case lists:keytake(ServiceName, 1, Services) of
+delete_authenticator(ChainID, AuthenticatorName) ->
+    UpdateFun = fun(Chain = #chain{authenticators = Authenticators}) ->
+                    case lists:keytake(AuthenticatorName, 1, Authenticators) of
                         false ->
-                            {error, {not_found, {service, ServiceName}}};
-                        {value, Service, NServices} ->
-                            _ = do_delete_service(Service),
-                            NChain = Chain#chain{services = NServices},
+                            {error, {not_found, {authenticator, AuthenticatorName}}};
+                        {value, {_, Authenticator}, NAuthenticators} ->
+                            _ = do_delete_authenticator(Authenticator),
+                            NChain = Chain#chain{authenticators = NAuthenticators},
                             mnesia:write(?CHAIN_TAB, NChain, write)
                     end
                 end,
     update_chain(ChainID, UpdateFun).
 
-update_service(ChainID, ServiceName, Config) ->
-    UpdateFun = fun(Chain = #chain{services = Services}) ->
-                    case proplists:get_value(ServiceName, Services, undefined) of
+update_authenticator(ChainID, AuthenticatorName, Config) ->
+    UpdateFun = fun(Chain = #chain{authenticators = Authenticators}) ->
+                    case proplists:get_value(AuthenticatorName, Authenticators, undefined) of
                         undefined ->
-                            {error, {not_found, {service, ServiceName}}};
-                        #service{provider = Provider,
-                                 config   = OriginalConfig,
-                                 state    = State} = Service ->
+                            {error, {not_found, {authenticator, AuthenticatorName}}};
+                        #authenticator{provider = Provider,
+                                       config   = OriginalConfig,
+                                       state    = State} = Authenticator ->
                             NewConfig = maps:merge(OriginalConfig, Config),
-                            case Provider:update(ChainID, ServiceName, NewConfig, State) of
+                            case Provider:update(ChainID, AuthenticatorName, NewConfig, State) of
                                 {ok, NState} ->
-                                    NService = Service#service{config = NewConfig,
-                                                               state = NState},
-                                    NServices = lists:keyreplace(ServiceName, 1, Services, {ServiceName, NService}),
-                                    ok = mnesia:write(?CHAIN_TAB, Chain#chain{services = NServices}, write),
-                                    {ok, serialize_service(NService)};
+                                    NAuthenticator = Authenticator#authenticator{config = NewConfig,
+                                                                                 state = NState},
+                                    NAuthenticators = update_value(AuthenticatorName, NAuthenticator, Authenticators),
+                                    ok = mnesia:write(?CHAIN_TAB, Chain#chain{authenticators = NAuthenticators}, write),
+                                    {ok, serialize_authenticator(NAuthenticator)};
                                 {error, Reason} ->
                                     {error, Reason}
                             end
@@ -199,32 +288,32 @@ update_service(ChainID, ServiceName, Config) ->
                  end,
     update_chain(ChainID, UpdateFun).
 
-lookup_service(ChainID, ServiceName) ->
+lookup_authenticator(ChainID, AuthenticatorName) ->
     case mnesia:dirty_read(?CHAIN_TAB, ChainID) of
         [] ->
             {error, {not_found, {chain, ChainID}}};
-        [#chain{services = Services}] ->
-            case proplists:get_value(ServiceName, Services, undefined) of
+        [#chain{authenticators = Authenticators}] ->
+            case proplists:get_value(AuthenticatorName, Authenticators, undefined) of
                 undefined ->
-                    {error, {not_found, {service, ServiceName}}};
-                Service ->
-                    {ok, serialize_service(Service)}
+                    {error, {not_found, {authenticator, AuthenticatorName}}};
+                Authenticator ->
+                    {ok, serialize_authenticator(Authenticator)}
             end
     end.
 
-list_services(ChainID) ->
+list_authenticators(ChainID) ->
     case mnesia:dirty_read(?CHAIN_TAB, ChainID) of
         [] ->
             {error, {not_found, {chain, ChainID}}};
-        [#chain{services = Services}] ->
-            {ok, serialize_services(Services)}
+        [#chain{authenticators = Authenticators}] ->
+            {ok, serialize_authenticators(Authenticators)}
     end.
 
-move_service_to_the_front(ChainID, ServiceName) ->
-    UpdateFun = fun(Chain = #chain{services = Services}) ->
-                    case move_service_to_the_front_(ServiceName, Services) of
-                        {ok, NServices} ->
-                            NChain = Chain#chain{services = NServices},
+move_authenticator_to_the_front(ChainID, AuthenticatorName) ->
+    UpdateFun = fun(Chain = #chain{authenticators = Authenticators}) ->
+                    case move_authenticator_to_the_front_(AuthenticatorName, Authenticators) of
+                        {ok, NAuthenticators} ->
+                            NChain = Chain#chain{authenticators = NAuthenticators},
                             mnesia:write(?CHAIN_TAB, NChain, write);
                         {error, Reason} ->
                             {error, Reason}
@@ -232,11 +321,11 @@ move_service_to_the_front(ChainID, ServiceName) ->
                  end,
     update_chain(ChainID, UpdateFun).
 
-move_service_to_the_end(ChainID, ServiceName) ->
-    UpdateFun = fun(Chain = #chain{services = Services}) ->
-                    case move_service_to_the_end_(ServiceName, Services) of
-                        {ok, NServices} ->
-                            NChain = Chain#chain{services = NServices},
+move_authenticator_to_the_end(ChainID, AuthenticatorName) ->
+    UpdateFun = fun(Chain = #chain{authenticators = Authenticators}) ->
+                    case move_authenticator_to_the_end_(AuthenticatorName, Authenticators) of
+                        {ok, NAuthenticators} ->
+                            NChain = Chain#chain{authenticators = NAuthenticators},
                             mnesia:write(?CHAIN_TAB, NChain, write);
                         {error, Reason} ->
                             {error, Reason}
@@ -244,11 +333,11 @@ move_service_to_the_end(ChainID, ServiceName) ->
                  end,
     update_chain(ChainID, UpdateFun).
 
-move_service_to_the_nth(ChainID, ServiceName, N) ->
-    UpdateFun = fun(Chain = #chain{services = Services}) ->
-                    case move_service_to_the_nth_(ServiceName, Services, N) of
-                        {ok, NServices} ->
-                            NChain = Chain#chain{services = NServices},
+move_authenticator_to_the_nth(ChainID, AuthenticatorName, N) ->
+    UpdateFun = fun(Chain = #chain{authenticators = Authenticators}) ->
+                    case move_authenticator_to_the_nth_(AuthenticatorName, Authenticators, N) of
+                        {ok, NAuthenticators} ->
+                            NChain = Chain#chain{authenticators = NAuthenticators},
                             mnesia:write(?CHAIN_TAB, NChain, write);
                         {error, Reason} ->
                             {error, Reason}
@@ -256,87 +345,78 @@ move_service_to_the_nth(ChainID, ServiceName, N) ->
                  end,
     update_chain(ChainID, UpdateFun).
 
-import_users(ChainID, ServiceName, Filename) ->
-    call_service(ChainID, ServiceName, import_users, [Filename]).
+import_users(ChainID, AuthenticatorName, Filename) ->
+    call_authenticator(ChainID, AuthenticatorName, import_users, [Filename]).
 
-add_user(ChainID, ServiceName, UserInfo) ->
-    call_service(ChainID, ServiceName, add_user, [UserInfo]).
+add_user(ChainID, AuthenticatorName, UserInfo) ->
+    call_authenticator(ChainID, AuthenticatorName, add_user, [UserInfo]).
 
-delete_user(ChainID, ServiceName, UserID) ->
-    call_service(ChainID, ServiceName, delete_user, [UserID]).
+delete_user(ChainID, AuthenticatorName, UserID) ->
+    call_authenticator(ChainID, AuthenticatorName, delete_user, [UserID]).
 
-update_user(ChainID, ServiceName, UserID, NewUserInfo) ->
-    call_service(ChainID, ServiceName, update_user, [UserID, NewUserInfo]).
+update_user(ChainID, AuthenticatorName, UserID, NewUserInfo) ->
+    call_authenticator(ChainID, AuthenticatorName, update_user, [UserID, NewUserInfo]).
 
-lookup_user(ChainID, ServiceName, UserID) ->
-    call_service(ChainID, ServiceName, lookup_user, [UserID]).
+lookup_user(ChainID, AuthenticatorName, UserID) ->
+    call_authenticator(ChainID, AuthenticatorName, lookup_user, [UserID]).
 
-list_users(ChainID, ServiceName) ->
-    call_service(ChainID, ServiceName, list_users, []).
+list_users(ChainID, AuthenticatorName) ->
+    call_authenticator(ChainID, AuthenticatorName, list_users, []).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-do_create_service(ChainID, #{name := Name,
-                             type := Type,
-                             config := Config}) ->
-    Provider = service_provider(Type),
-    case Provider:create(ChainID, Name, Config) of
-        {ok, State} ->
-            Service = #service{name = Name,
-                               type = Type,
-                               provider = Provider,
-                               config = Config,
-                               state = State},
-            {ok, Service};
-        {error, Reason} ->
-            {error, Reason}
-    end.
+authenticator_provider(simple, 'built-in-database') -> emqx_authn_mnesia;
+authenticator_provider(simple, jwt) -> emqx_authn_jwt;
+authenticator_provider(simple, mysql) -> emqx_authn_mysql;
+authenticator_provider(simple, postgresql) -> emqx_authn_pgsql.
 
-service_provider(mnesia) -> emqx_authn_mnesia;
-service_provider(jwt) -> emqx_authn_jwt.
+% authenticator_provider(enhanced, 'enhanced-built-in-database') -> emqx_enhanced_authn_mnesia.
 
-do_delete_service(#service{provider = Provider, state = State}) ->
+do_delete_authenticator(#authenticator{provider = Provider, state = State}) ->
     Provider:destroy(State).
     
-move_service_to_the_front_(ServiceName, Services) ->
-    move_service_to_the_front_(ServiceName, Services, []).
+update_value(Key, Value, List) ->
+    lists:keyreplace(Key, 1, List, {Key, Value}).
 
-move_service_to_the_front_(ServiceName, [], _) ->
-    {error, {not_found, {service, ServiceName}}};
-move_service_to_the_front_(ServiceName, [{ServiceName, _} = Service | More], Passed) ->
-    {ok, [Service | (lists:reverse(Passed) ++ More)]};
-move_service_to_the_front_(ServiceName, [Service | More], Passed) ->
-    move_service_to_the_front_(ServiceName, More, [Service | Passed]).
+move_authenticator_to_the_front_(AuthenticatorName, Authenticators) ->
+    move_authenticator_to_the_front_(AuthenticatorName, Authenticators, []).
 
-move_service_to_the_end_(ServiceName, Services) ->
-    move_service_to_the_end_(ServiceName, Services, []).
+move_authenticator_to_the_front_(AuthenticatorName, [], _) ->
+    {error, {not_found, {authenticator, AuthenticatorName}}};
+move_authenticator_to_the_front_(AuthenticatorName, [{AuthenticatorName, _} = Authenticator | More], Passed) ->
+    {ok, [Authenticator | (lists:reverse(Passed) ++ More)]};
+move_authenticator_to_the_front_(AuthenticatorName, [Authenticator | More], Passed) ->
+    move_authenticator_to_the_front_(AuthenticatorName, More, [Authenticator | Passed]).
 
-move_service_to_the_end_(ServiceName, [], _) ->
-    {error, {not_found, {service, ServiceName}}};
-move_service_to_the_end_(ServiceName, [{ServiceName, _} = Service | More], Passed) ->
-    {ok, lists:reverse(Passed) ++ More ++ [Service]};
-move_service_to_the_end_(ServiceName, [Service | More], Passed) ->
-    move_service_to_the_end_(ServiceName, More, [Service | Passed]).
+move_authenticator_to_the_end_(AuthenticatorName, Authenticators) ->
+    move_authenticator_to_the_end_(AuthenticatorName, Authenticators, []).
 
-move_service_to_the_nth_(ServiceName, Services, N)
-  when N =< length(Services) andalso N > 0 ->
-    move_service_to_the_nth_(ServiceName, Services, N, []);
-move_service_to_the_nth_(_, _, _) ->
+move_authenticator_to_the_end_(AuthenticatorName, [], _) ->
+    {error, {not_found, {authenticator, AuthenticatorName}}};
+move_authenticator_to_the_end_(AuthenticatorName, [{AuthenticatorName, _} = Authenticator | More], Passed) ->
+    {ok, lists:reverse(Passed) ++ More ++ [Authenticator]};
+move_authenticator_to_the_end_(AuthenticatorName, [Authenticator | More], Passed) ->
+    move_authenticator_to_the_end_(AuthenticatorName, More, [Authenticator | Passed]).
+
+move_authenticator_to_the_nth_(AuthenticatorName, Authenticators, N)
+  when N =< length(Authenticators) andalso N > 0 ->
+    move_authenticator_to_the_nth_(AuthenticatorName, Authenticators, N, []);
+move_authenticator_to_the_nth_(_, _, _) ->
     {error, out_of_range}.
 
-move_service_to_the_nth_(ServiceName, [], _, _) ->
-    {error, {not_found, {service, ServiceName}}};
-move_service_to_the_nth_(ServiceName, [{ServiceName, _} = Service | More], N, Passed)
+move_authenticator_to_the_nth_(AuthenticatorName, [], _, _) ->
+    {error, {not_found, {authenticator, AuthenticatorName}}};
+move_authenticator_to_the_nth_(AuthenticatorName, [{AuthenticatorName, _} = Authenticator | More], N, Passed)
   when N =< length(Passed) ->
     {L1, L2} = lists:split(N - 1, lists:reverse(Passed)),
-    {ok, L1 ++ [Service] ++ L2 ++ More};
-move_service_to_the_nth_(ServiceName, [{ServiceName, _} = Service | More], N, Passed) ->
+    {ok, L1 ++ [Authenticator] ++ L2 ++ More};
+move_authenticator_to_the_nth_(AuthenticatorName, [{AuthenticatorName, _} = Authenticator | More], N, Passed) ->
     {L1, L2} = lists:split(N - length(Passed) - 1, More),
-    {ok, lists:reverse(Passed) ++ L1 ++ [Service] ++ L2};
-move_service_to_the_nth_(ServiceName, [Service | More], N, Passed) ->
-    move_service_to_the_nth_(ServiceName, More, N, [Service | Passed]).
+    {ok, lists:reverse(Passed) ++ L1 ++ [Authenticator] ++ L2};
+move_authenticator_to_the_nth_(AuthenticatorName, [Authenticator | More], N, Passed) ->
+    move_authenticator_to_the_nth_(AuthenticatorName, More, N, [Authenticator | Passed]).
 
 update_chain(ChainID, UpdateFun) ->
     trans(
@@ -349,15 +429,24 @@ update_chain(ChainID, UpdateFun) ->
             end
         end).
 
-call_service(ChainID, ServiceName, Func, Args) ->
+lookup_chain_by_listener(ListenerID, AuthNType) ->
+    case mnesia:dirty_read(?BINDING_TAB, {ListenerID, AuthNType}) of
+        [] ->
+            {error, not_found};
+        [#binding{chain_id = ChainID}] ->
+            {ok, ChainID}
+    end.
+
+
+call_authenticator(ChainID, AuthenticatorName, Func, Args) ->
     case mnesia:dirty_read(?CHAIN_TAB, ChainID) of
         [] ->
             {error, {not_found, {chain, ChainID}}};
-        [#chain{services = Services}] ->
-            case proplists:get_value(ServiceName, Services, undefined) of
+        [#chain{authenticators = Authenticators}] ->
+            case proplists:get_value(AuthenticatorName, Authenticators, undefined) of
                 undefined ->
-                    {error, {not_found, {service, ServiceName}}};
-                #service{provider = Provider, state = State} ->
+                    {error, {not_found, {authenticator, AuthenticatorName}}};
+                #authenticator{provider = Provider, state = State} ->
                     case erlang:function_exported(Provider, Func, length(Args) + 1) of
                         true ->
                             erlang:apply(Provider, Func, Args ++ [State]);
@@ -368,18 +457,25 @@ call_service(ChainID, ServiceName, Func, Args) ->
     end.
 
 serialize_chain(#chain{id = ID,
-                       services = Services,
+                       type = Type,
+                       authenticators = Authenticators,
                        created_at = CreatedAt}) ->
     #{id => ID,
-      services => serialize_services(Services),
+      type => Type,
+      authenticators => serialize_authenticators(Authenticators),
       created_at => CreatedAt}.
 
-serialize_services(Services) ->
-    [serialize_service(Service) || {_, Service} <- Services].
+% serialize_binding(#binding{bound = {ListenerID, _},
+%                            chain_id = ChainID}) ->
+%     #{listener_id => ListenerID,
+%       chain_id => ChainID}.
 
-serialize_service(#service{name = Name,
-                           type = Type,
-                           config = Config}) ->
+serialize_authenticators(Authenticators) ->
+    [serialize_authenticator(Authenticator) || {_, Authenticator} <- Authenticators].
+
+serialize_authenticator(#authenticator{name = Name,
+                                       type = Type,
+                                       config = Config}) ->
     #{name => Name,
       type => Type,
       config => Config}.

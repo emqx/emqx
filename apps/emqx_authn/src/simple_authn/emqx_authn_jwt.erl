@@ -35,7 +35,7 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-structs() -> [""].
+structs() -> [config].
 
 fields("") ->
     [{config, {union, [ hoconsc:t('hmac-based')
@@ -43,6 +43,13 @@ fields("") ->
                       , hoconsc:t('jwks')
                       , hoconsc:t('jwks-using-ssl')
                       ]}}];
+
+fields(config) ->
+    [{union, [ hoconsc:t('hmac-based')
+             , hoconsc:t('public-key')
+             , hoconsc:t('jwks')
+             , hoconsc:t('jwks-using-ssl')
+             ]}];
 
 fields('hmac-based') ->
     [ {use_jwks,              {enum, [false]}}
@@ -138,22 +145,29 @@ expected_claim_value(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(_ChainID, _ServiceName, #{verify_claims := VerifyClaims0} = Config) ->
-    VerifyClaims = handle_verify_claims(VerifyClaims0),
-    create(Config#{verify_claims => VerifyClaims}).
+create(_ChainID, _AuthenticatorName, Config) ->
+    create(Config).
 
-update(_ChainID, _ServiceName, Config, #{jwk := undefined}) ->
-    create(Config);
-
-update(_ChainID, _ServiceName, #{use_jwks := false} = Config, #{jwk := Connector})
+update(_ChainID, _AuthenticatorName, #{use_jwks := false} = Config, #{jwk := Connector})
   when is_pid(Connector) ->
     _ = emqx_authn_jwks_connector:stop(Connector),
     create(Config);
 
-update(_ChainID, _ServiceName, #{use_jwks := true} = Opts, #{jwk := Connector} = State)
+update(_ChainID, _AuthenticatorName, #{use_jwks := false} = Config, _) ->
+    create(Config);
+
+update(_ChainID, _AuthenticatorName, #{use_jwks := true} = Config, #{jwk := Connector} = State)
   when is_pid(Connector) ->
-    ok = emqx_authn_jwks_connector:update(Connector, Opts),
-    {ok, State}.
+    ok = emqx_authn_jwks_connector:update(Connector, Config),
+    case maps:get(verify_cliams, Config, undefined) of
+        undefined ->
+            {ok, State};
+        VerifyClaims ->
+            {ok, State#{verify_claims => handle_verify_claims(VerifyClaims)}}
+    end;
+
+update(_ChainID, _AuthenticatorName, #{use_jwks := true} = Config, _) ->
+    create(Config).
 
 authenticate(ClientInfo = #{password := JWT}, #{jwk := JWK,
                                                 verify_claims := VerifyClaims0}) ->
@@ -168,24 +182,27 @@ authenticate(ClientInfo = #{password := JWT}, #{jwk := JWK,
     case verify(JWT, JWKs, VerifyClaims) of
         ok -> ok;
         {error, invalid_signature} -> ignore;
-        {error, {claims, _}} -> {stop, bad_passowrd}
+        {error, {claims, _}} -> {stop, bad_password}
     end.
 
-destroy(#{jwks_connector := undefined}) ->
-    ok;
-destroy(#{jwks_connector := Connector}) ->
+destroy(#{jwk := Connector}) when is_pid(Connector) ->
     _ = emqx_authn_jwks_connector:stop(Connector),
+    ok;
+destroy(_) ->
     ok.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-create(#{use_jwks := false,
-         algorithm := 'hmac-based',
-         secret := Secret0,
-         secret_base64_encoded := Base64Encoded,
-         verify_claims := VerifyClaims}) ->
+create(#{verify_claims := VerifyClaims} = Config) ->
+    create2(Config#{verify_claims => handle_verify_claims(VerifyClaims)}).
+
+create2(#{use_jwks := false,
+          algorithm := 'hmac-based',
+          secret := Secret0,
+          secret_base64_encoded := Base64Encoded,
+          verify_claims := VerifyClaims}) ->
     Secret = case Base64Encoded of
                  true ->
                      base64:decode(Secret0);
@@ -196,16 +213,16 @@ create(#{use_jwks := false,
     {ok, #{jwk => JWK,
            verify_claims => VerifyClaims}};
 
-create(#{use_jwks := false,
-         algorithm := 'public-key',
-         certificate := Certificate,
-         verify_claims := VerifyClaims}) ->
+create2(#{use_jwks := false,
+          algorithm := 'public-key',
+          certificate := Certificate,
+          verify_claims := VerifyClaims}) ->
     JWK = jose_jwk:from_pem_file(Certificate),
     {ok, #{jwk => JWK,
            verify_claims => VerifyClaims}};
 
-create(#{use_jwks := true,
-         verify_claims := VerifyClaims} = Config) ->
+create2(#{use_jwks := true,
+          verify_claims := VerifyClaims} = Config) ->
     case emqx_authn_jwks_connector:start_link(Config) of
         {ok, Connector} ->
             {ok, #{jwk => Connector,
@@ -228,12 +245,16 @@ replace_placeholder([{Name, Value} | More], Variables, Acc) ->
 verify(_JWS, [], _VerifyClaims) ->
     {error, invalid_signature};
 verify(JWS, [JWK | More], VerifyClaims) ->
-    case jose_jws:verify(JWK, JWS) of
+    try jose_jws:verify(JWK, JWS) of
         {true, Payload, _JWS} ->
             Claims = emqx_json:decode(Payload, [return_maps]),
             verify_claims(Claims, VerifyClaims);
         {false, _, _} ->
             verify(JWS, More, VerifyClaims)
+    catch
+        _:_Reason:_Stacktrace ->
+            %% TODO: Add log
+            {error, invalid_signature}
     end.
 
 verify_claims(Claims, VerifyClaims0) ->
@@ -254,7 +275,7 @@ do_verify_claims(_Claims, []) ->
 do_verify_claims(Claims, [{Name, Fun} | More]) when is_function(Fun) ->
     case maps:take(Name, Claims) of
         error ->
-            {error, {missing_claim, Name}};
+            do_verify_claims(Claims, More);
         {Value, NClaims} ->
             case Fun(Value) of
                 true ->
@@ -266,7 +287,7 @@ do_verify_claims(Claims, [{Name, Fun} | More]) when is_function(Fun) ->
 do_verify_claims(Claims, [{Name, Value} | More]) ->
     case maps:take(Name, Claims) of
         error ->
-             do_verify_claims(Claims, More);
+            {error, {missing_claim, Name}};
         {Value, NClaims} ->
             do_verify_claims(NClaims, More);
         {Value0, _} ->
@@ -307,7 +328,7 @@ handle_verify_claims([{Name, Expected0} | More], Acc) ->
     handle_verify_claims(More, [{Name, Expected} | Acc]).
 
 handle_placeholder(Placeholder0) ->
-    case re:run(Placeholder0, "^\\$\\{[a-z0-9\\_]+\\}$", [{capture, all}]) of
+    case re:run(Placeholder0, "^\\$\\{[a-z0-9\\-]+\\}$", [{capture, all}]) of
         {match, [{Offset, Length}]} ->
             Placeholder1 = binary:part(Placeholder0, Offset + 2, Length - 3),
             Placeholder2 = validate_placeholder(Placeholder1),
@@ -316,7 +337,7 @@ handle_placeholder(Placeholder0) ->
             Placeholder0
     end.
 
-validate_placeholder(<<"clientid">>) ->
+validate_placeholder(<<"mqtt-clientid">>) ->
     clientid;
-validate_placeholder(<<"username">>) ->
+validate_placeholder(<<"mqtt-username">>) ->
     username.

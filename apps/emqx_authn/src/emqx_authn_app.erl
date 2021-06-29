@@ -42,27 +42,41 @@ stop(_State) ->
 initialize() ->
     ConfFile = filename:join([emqx:get_env(plugins_etc_dir), ?APP]) ++ ".conf",
     {ok, RawConfig} = hocon:load(ConfFile),
-    #{authn := #{chains := Chains}} = hocon_schema:check_plain(emqx_authn_schema, RawConfig, #{atom_key => true, nullable => true}),
+    #{authn := #{chains := Chains,
+                 bindings := Bindings}} = hocon_schema:check_plain(emqx_authn_schema, RawConfig, #{atom_key => true, nullable => true}),
     io:format("Chains: ~p~n", [Chains]),
-    initialize_chains(Chains).
+    initialize_chains(Chains),
+    initialize_bindings(Bindings).
 
 initialize_chains([]) ->
     ok;
-initialize_chains([#{id := ChainID, services := Services} | More]) ->
-    case emqx_authn:create_chain(#{id => ChainID}) of
+initialize_chains([#{id := ChainID,
+                     type := Type,
+                     authenticators := Authenticators} | More]) ->
+    case emqx_authn:create_chain(#{id => ChainID,
+                                   type => Type}) of
         {ok, _} ->
-            initialize_services(ChainID, Services),
+            initialize_authenticators(ChainID, Authenticators),
             initialize_chains(More);
         {error, Reason} ->
             ?LOG(error, "Failed to create chain '~s': ~p", [ChainID, Reason])
     end.
 
-initialize_services(_ChainID, []) ->
+initialize_authenticators(_ChainID, []) ->
     ok;
-initialize_services(ChainID, [#{name := Name} = Service | More]) ->
-    case emqx_authn:create_service(ChainID, Service) of
+initialize_authenticators(ChainID, [#{name := Name} = Authenticator | More]) ->
+    case emqx_authn:create_authenticator(ChainID, Authenticator) of
         {ok, _} ->
-            initialize_services(ChainID, More);
+            initialize_authenticators(ChainID, More);
         {error, Reason} ->
-            ?LOG(error, "Failed to create service '~s' in chain '~s': ~p", [Name, ChainID, Reason])
+            ?LOG(error, "Failed to create authenticator '~s' in chain '~s': ~p", [Name, ChainID, Reason])
+    end.
+
+initialize_bindings([]) ->
+    ok;
+initialize_bindings([#{chain_id := ChainID, listeners := Listeners} | More]) ->
+    case emqx_authn:bind(Listeners, ChainID) of
+        ok -> initialize_bindings(More);
+        {error, Reason} ->
+           ?LOG(error, "Failed to bind: ~p", [Reason])
     end.

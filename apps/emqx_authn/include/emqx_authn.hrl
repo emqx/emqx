@@ -17,12 +17,14 @@
 -define(APP, emqx_authn).
 
 -type chain_id() :: binary().
--type service_name() :: binary().
--type service_type() :: mnesia | jwt.
+-type authn_type() :: simple | enhanced.
+-type authenticator_name() :: binary().
+-type authenticator_type() :: mnesia | jwt | mysql | postgresql.
+-type listener_id() :: binary().
 
--record(service,
-        { name :: service_name()
-        , type :: service_type()
+-record(authenticator,
+        { name :: authenticator_name()
+        , type :: authenticator_type()
         , provider :: module()
         , config :: map()
         , state :: map()
@@ -30,8 +32,36 @@
 
 -record(chain,
         { id :: chain_id()
-        , services :: [{service_name(), #service{}}]
+        , type :: authn_type()
+        , authenticators :: [{authenticator_name(), #authenticator{}}]
         , created_at :: integer()
         }).
 
+-record(binding,
+        { bound :: {listener_id(), authn_type()}
+        , chain_id :: chain_id()
+        }).
+
 -define(AUTH_SHARD, emqx_authentication_shard).
+
+-define(CLUSTER_CALL(Module, Func, Args), ?CLUSTER_CALL(Module, Func, Args, ok)).
+
+-define(CLUSTER_CALL(Module, Func, Args, ResParttern),
+    fun() ->
+        case LocalResult = erlang:apply(Module, Func, Args) of
+            ResParttern ->
+                Nodes = nodes(),
+                {ResL, BadNodes} = rpc:multicall(Nodes, Module, Func, Args, 5000),
+                NResL = lists:zip(Nodes - BadNodes, ResL),
+                Errors = lists:filter(fun({_, ResParttern}) -> false;
+                                         (_) -> true
+                                      end, NResL),
+                OtherErrors = [{BadNode, node_does_not_exist} || BadNode <- BadNodes],
+                case Errors ++ OtherErrors of
+                    [] -> LocalResult;
+                    NErrors -> {error, NErrors}
+                end;
+            ErrorResult ->
+                {error, ErrorResult}
+        end
+    end()).

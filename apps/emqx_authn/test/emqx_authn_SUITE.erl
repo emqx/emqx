@@ -29,161 +29,121 @@ all() ->
 
 init_per_suite(Config) ->
     application:set_env(ekka, strict_mode, true),
-    emqx_ct_helpers:start_apps([emqx_authn]),
+    emqx_ct_helpers:start_apps([emqx_authn], fun set_special_configs/1),
     Config.
 
 end_per_suite(_) ->
+    file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_authn.conf')),
     emqx_ct_helpers:stop_apps([emqx_authn]),
+    ok.
+
+set_special_configs(emqx_authn) ->
+    application:set_env(emqx, plugins_etc_dir,
+                        emqx_ct_helpers:deps_path(emqx_authn, "test")),
+    Conf = #{<<"authn">> => #{<<"chains">> => [], <<"bindings">> => []}},
+    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_authn.conf'), jsx:encode(Conf)),
+    ok;
+set_special_configs(_App) ->
     ok.
 
 t_chain(_) ->
     ChainID = <<"mychain">>,
-    ?assertMatch({ok, #{id := ChainID, services := []}}, ?AUTH:create_chain(#{id => ChainID})),
-    ?assertEqual({error, {already_exists, {chain, ChainID}}}, ?AUTH:create_chain(#{id => ChainID})),
-    ?assertMatch({ok, #{id := ChainID, services := []}}, ?AUTH:lookup_chain(ChainID)),
-    ?assertEqual(ok, ?AUTH:delete_chain(ChainID)),
+    Chain = #{id => ChainID,
+              type => simple},
+    ?assertMatch({ok, #{id := ChainID, authenticators := []}}, ?AUTH:create_chain(Chain)),
+    ?assertEqual({error, {already_exists, {chain, ChainID}}}, ?AUTH:create_chain(Chain)),
+    ?assertMatch({ok, #{id := ChainID, authenticators := []}}, ?AUTH:lookup_chain(ChainID)),
+    ?assertEqual(ok, ?AUTH:delete_chain(ChainID)),
     ?assertMatch({error, {not_found, {chain, ChainID}}}, ?AUTH:lookup_chain(ChainID)),
     ok.
 
-t_service(_) ->
+t_binding(_) ->
+    Listener1 = <<"listener1">>,
+    Listener2 = <<"listener2">>,
     ChainID = <<"mychain">>,
-    ?assertMatch({ok, #{id := ChainID, services := []}}, ?AUTH:create_chain(#{id => ChainID})),
-    ?assertMatch({ok, #{id := ChainID, services := []}}, ?AUTH:lookup_chain(ChainID)),
 
-    ServiceName1 = <<"myservice1">>,
-    ServiceParams1 = #{name => ServiceName1,
-                       type => mnesia,
-                       params => #{
-                           user_id_type => <<"username">>,
-                           password_hash_algorithm => <<"sha256">>}},
-    ?assertEqual({ok, [ServiceParams1]}, ?AUTH:add_services(ChainID, [ServiceParams1])),
-    ?assertEqual({ok, ServiceParams1}, ?AUTH:lookup_service(ChainID, ServiceName1)),
-    ?assertEqual({ok, [ServiceParams1]}, ?AUTH:list_services(ChainID)),
-    ?assertEqual({error, {already_exists, {service, ServiceName1}}}, ?AUTH:add_services(ChainID, [ServiceParams1])),
+    ?assertEqual({error, {not_found, {chain, ChainID}}}, ?AUTH:bind(ChainID, [Listener1])),
 
-    ServiceName2 = <<"myservice2">>,
-    ServiceParams2 = ServiceParams1#{name => ServiceName2},
-    ?assertEqual({ok, [ServiceParams2]}, ?AUTH:add_services(ChainID, [ServiceParams2])),
-    ?assertMatch({ok, #{id := ChainID, services := [ServiceParams1, ServiceParams2]}}, ?AUTH:lookup_chain(ChainID)),
-    ?assertEqual({ok, ServiceParams2}, ?AUTH:lookup_service(ChainID, ServiceName2)),
-    ?assertEqual({ok, [ServiceParams1, ServiceParams2]}, ?AUTH:list_services(ChainID)),
+    Chain = #{id => ChainID,
+              type => simple},
+    ?assertMatch({ok, #{id := ChainID, authenticators := []}}, ?AUTH:create_chain(Chain)),
 
-    ?assertEqual(ok, ?AUTH:move_service_to_the_front(ChainID, ServiceName2)),
-    ?assertEqual({ok, [ServiceParams2, ServiceParams1]}, ?AUTH:list_services(ChainID)),
-    ?assertEqual(ok, ?AUTH:move_service_to_the_end(ChainID, ServiceName2)),
-    ?assertEqual({ok, [ServiceParams1, ServiceParams2]}, ?AUTH:list_services(ChainID)),
-    ?assertEqual(ok, ?AUTH:move_service_to_the_nth(ChainID, ServiceName2, 1)),
-    ?assertEqual({ok, [ServiceParams2, ServiceParams1]}, ?AUTH:list_services(ChainID)),
-    ?assertEqual({error, out_of_range}, ?AUTH:move_service_to_the_nth(ChainID, ServiceName2, 3)),
-    ?assertEqual({error, out_of_range}, ?AUTH:move_service_to_the_nth(ChainID, ServiceName2, 0)),
-    ?assertEqual(ok, ?AUTH:delete_services(ChainID, [ServiceName1, ServiceName2])),
-    ?assertEqual({ok, []}, ?AUTH:list_services(ChainID)),
+    ?assertEqual(ok, ?AUTH:bind(ChainID, [Listener1])),
+    ?assertEqual(ok, ?AUTH:bind(ChainID, [Listener2])),
+    ?assertEqual({error, {already_bound, [Listener1]}}, ?AUTH:bind(ChainID, [Listener1])),
+    {ok, #{listeners := Listeners}} = ?AUTH:list_bindings(ChainID),
+    ?assertEqual(2, length(Listeners)),
+    ?assertMatch({ok, #{simple := ChainID}}, ?AUTH:list_bound_chains(Listener1)),
+
+    ?assertEqual(ok, ?AUTH:unbind(ChainID, [Listener1])),
+    ?assertEqual(ok, ?AUTH:unbind(ChainID, [Listener2])),
+    ?assertEqual({error, {not_found, [Listener1]}}, ?AUTH:unbind(ChainID, [Listener1])),
+
     ?assertEqual(ok, ?AUTH:delete_chain(ChainID)),
     ok.
 
-t_mnesia_service(_) ->
+t_binding2(_) ->
     ChainID = <<"mychain">>,
-    ?assertMatch({ok, #{id := ChainID, services := []}}, ?AUTH:create_chain(#{id => ChainID})),
+    Chain = #{id => ChainID,
+              type => simple},
+    ?assertMatch({ok, #{id := ChainID, authenticators := []}}, ?AUTH:create_chain(Chain)),
 
-    ServiceName = <<"myservice">>,
-    ServiceParams = #{name => ServiceName,
-                      type => mnesia,
-                      params => #{
-                          user_id_type => <<"username">>,
-                          password_hash_algorithm => <<"sha256">>}},
-    ?assertEqual({ok, [ServiceParams]}, ?AUTH:add_services(ChainID, [ServiceParams])),
+    Listener1 = <<"listener1">>,
+    Listener2 = <<"listener2">>,
 
-    UserInfo = #{<<"user_id">> => <<"myuser">>,
-                 <<"password">> => <<"mypass">>},
-    ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:add_user(ChainID, ServiceName, UserInfo)),
-    ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:lookup_user(ChainID, ServiceName, <<"myuser">>)),
-    ClientInfo = #{chain_id => ChainID,
-			       username => <<"myuser">>,
-			       password => <<"mypass">>},
-    ?assertEqual(ok, ?AUTH:authenticate(ClientInfo)),
-    ClientInfo2 = ClientInfo#{username => <<"baduser">>},
-    ?assertEqual({error, user_not_found}, ?AUTH:authenticate(ClientInfo2)),
-    ClientInfo3 = ClientInfo#{password => <<"badpass">>},
-    ?assertEqual({error, bad_password}, ?AUTH:authenticate(ClientInfo3)),
-    UserInfo2 = UserInfo#{<<"password">> => <<"mypass2">>},
-    ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:update_user(ChainID, ServiceName, <<"myuser">>, UserInfo2)),
-    ClientInfo4 = ClientInfo#{password => <<"mypass2">>},
-    ?assertEqual(ok, ?AUTH:authenticate(ClientInfo4)),
-    ?assertEqual(ok, ?AUTH:delete_user(ChainID, ServiceName, <<"myuser">>)),
-    ?assertEqual({error, not_found}, ?AUTH:lookup_user(ChainID, ServiceName, <<"myuser">>)),
+    ?assertEqual(ok, ?AUTH:bind(ChainID, [Listener1, Listener2])),
+    {ok, #{listeners := Listeners}} = ?AUTH:list_bindings(ChainID),
+    ?assertEqual(2, length(Listeners)),
+    ?assertEqual(ok, ?AUTH:unbind(ChainID, [Listener1, Listener2])),
+    ?assertMatch({ok, #{listeners := []}}, ?AUTH:list_bindings(ChainID)),
 
-    ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:add_user(ChainID, ServiceName, UserInfo)),
-    ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:lookup_user(ChainID, ServiceName, <<"myuser">>)),
-    ?assertEqual(ok, ?AUTH:delete_services(ChainID, [ServiceName])),
-    ?assertEqual({ok, [ServiceParams]}, ?AUTH:add_services(ChainID, [ServiceParams])),
-    ?assertMatch({error, not_found}, ?AUTH:lookup_user(ChainID, ServiceName, <<"myuser">>)),
-
-    ?assertEqual(ok, ?AUTH:delete_chain(ChainID)),
-    ?assertEqual([], ets:tab2list(mnesia_basic_auth)),
-    ok.
-
-t_import(_) ->
-    ChainID = <<"mychain">>,
-    ?assertMatch({ok, #{id := ChainID, services := []}}, ?AUTH:create_chain(#{id => ChainID})),
-
-    ServiceName = <<"myservice">>,
-    ServiceParams = #{name => ServiceName,
-                      type => mnesia,
-                      params => #{
-                          user_id_type => <<"username">>,
-                          password_hash_algorithm => <<"sha256">>}},
-    ?assertEqual({ok, [ServiceParams]}, ?AUTH:add_services(ChainID, [ServiceParams])),
-
-    Dir = code:lib_dir(emqx_authn, test),
-    ?assertEqual(ok, ?AUTH:import_users(ChainID, ServiceName, filename:join([Dir, "data/user-credentials.json"]))),
-    ?assertEqual(ok, ?AUTH:import_users(ChainID, ServiceName, filename:join([Dir, "data/user-credentials.csv"]))),
-    ?assertMatch({ok, #{user_id := <<"myuser1">>}}, ?AUTH:lookup_user(ChainID, ServiceName, <<"myuser1">>)),
-    ?assertMatch({ok, #{user_id := <<"myuser3">>}}, ?AUTH:lookup_user(ChainID, ServiceName, <<"myuser3">>)),
-    ClientInfo1 = #{chain_id => ChainID,
-			        username => <<"myuser1">>,
-			        password => <<"mypassword1">>},
-    ?assertEqual(ok, ?AUTH:authenticate(ClientInfo1)),
-    ClientInfo2 = ClientInfo1#{username => <<"myuser3">>,
-                               password => <<"mypassword3">>},
-    ?assertEqual(ok, ?AUTH:authenticate(ClientInfo2)),
     ?assertEqual(ok, ?AUTH:delete_chain(ChainID)),
     ok.
 
-t_multi_mnesia_service(_) ->
+t_authenticator(_) ->
     ChainID = <<"mychain">>,
-    ?assertMatch({ok, #{id := ChainID, services := []}}, ?AUTH:create_chain(#{id => ChainID})),
+    Chain = #{id => ChainID,
+              type => simple},
+    ?assertMatch({ok, #{id := ChainID, authenticators := []}}, ?AUTH:create_chain(Chain)),
+    ?assertMatch({ok, #{id := ChainID, authenticators := []}}, ?AUTH:lookup_chain(ChainID)),
 
-    ServiceName1 = <<"myservice1">>,
-    ServiceParams1 = #{name => ServiceName1,
-                       type => mnesia,
-                       params => #{
-                           user_id_type => <<"username">>,
-                           password_hash_algorithm => <<"sha256">>}},
-    ServiceName2 = <<"myservice2">>,
-    ServiceParams2 = #{name => ServiceName2,
-                       type => mnesia,
-                       params => #{
-                           user_id_type => <<"clientid">>,
-                           password_hash_algorithm => <<"sha256">>}},
-    ?assertEqual({ok, [ServiceParams1]}, ?AUTH:add_services(ChainID, [ServiceParams1])),
-    ?assertEqual({ok, [ServiceParams2]}, ?AUTH:add_services(ChainID, [ServiceParams2])),
+    AuthenticatorName1 = <<"myauthenticator1">>,
+    AuthenticatorConfig1 = #{name => AuthenticatorName1,
+                             type => 'built-in-database',
+                             config => #{
+                                 user_id_type => username,
+                                 password_hash_algorithm => #{
+                                     name => sha256
+                                 }}},
+    ?assertEqual({ok, AuthenticatorConfig1}, ?AUTH:create_authenticator(ChainID, AuthenticatorConfig1)),
+    ?assertEqual({ok, AuthenticatorConfig1}, ?AUTH:lookup_authenticator(ChainID, AuthenticatorName1)),
+    ?assertEqual({ok, [AuthenticatorConfig1]}, ?AUTH:list_authenticators(ChainID)),
+    ?assertEqual({error, {already_exists, {authenticator, AuthenticatorName1}}}, ?AUTH:create_authenticator(ChainID, AuthenticatorConfig1)),
 
-    ?assertEqual({ok, #{user_id => <<"myuser">>}},
-                 ?AUTH:add_user(ChainID, ServiceName1,
-                                #{<<"user_id">> => <<"myuser">>,
-                                  <<"password">> => <<"mypass1">>})),
-    ?assertEqual({ok, #{user_id => <<"myclient">>}},
-                 ?AUTH:add_user(ChainID, ServiceName2,
-                                #{<<"user_id">> => <<"myclient">>,
-                                  <<"password">> => <<"mypass2">>})),
-    ClientInfo1 = #{chain_id => ChainID,
-			        username => <<"myuser">>,
-                    clientid => <<"myclient">>,
-			        password => <<"mypass1">>},
-    ?assertEqual(ok, ?AUTH:authenticate(ClientInfo1)),
-    ?assertEqual(ok, ?AUTH:move_service_to_the_front(ChainID, ServiceName2)),
-    ?assertEqual({error, bad_password}, ?AUTH:authenticate(ClientInfo1)),
-    ClientInfo2 = ClientInfo1#{password => <<"mypass2">>},
-    ?assertEqual(ok, ?AUTH:authenticate(ClientInfo2)),
+    AuthenticatorName2 = <<"myauthenticator2">>,
+    AuthenticatorConfig2 = AuthenticatorConfig1#{name => AuthenticatorName2},
+    ?assertEqual({ok, AuthenticatorConfig2}, ?AUTH:create_authenticator(ChainID, AuthenticatorConfig2)),
+    ?assertMatch({ok, #{id := ChainID, authenticators := [AuthenticatorConfig1, AuthenticatorConfig2]}}, ?AUTH:lookup_chain(ChainID)),
+    ?assertEqual({ok, AuthenticatorConfig2}, ?AUTH:lookup_authenticator(ChainID, AuthenticatorName2)),
+    ?assertEqual({ok, [AuthenticatorConfig1, AuthenticatorConfig2]}, ?AUTH:list_authenticators(ChainID)),
+
+    ?assertEqual(ok, ?AUTH:move_authenticator_to_the_front(ChainID, AuthenticatorName2)),
+    ?assertEqual({ok, [AuthenticatorConfig2, AuthenticatorConfig1]}, ?AUTH:list_authenticators(ChainID)),
+    ?assertEqual(ok, ?AUTH:move_authenticator_to_the_end(ChainID, AuthenticatorName2)),
+    ?assertEqual({ok, [AuthenticatorConfig1, AuthenticatorConfig2]}, ?AUTH:list_authenticators(ChainID)),
+    ?assertEqual(ok, ?AUTH:move_authenticator_to_the_nth(ChainID, AuthenticatorName2, 1)),
+    ?assertEqual({ok, [AuthenticatorConfig2, AuthenticatorConfig1]}, ?AUTH:list_authenticators(ChainID)),
+    ?assertEqual({error, out_of_range}, ?AUTH:move_authenticator_to_the_nth(ChainID, AuthenticatorName2, 3)),
+    ?assertEqual({error, out_of_range}, ?AUTH:move_authenticator_to_the_nth(ChainID, AuthenticatorName2, 0)),
+    ?assertEqual(ok, ?AUTH:delete_authenticator(ChainID, AuthenticatorName1)),
+    ?assertEqual(ok, ?AUTH:delete_authenticator(ChainID, AuthenticatorName2)),
+    ?assertEqual({ok, []}, ?AUTH:list_authenticators(ChainID)),
     ?assertEqual(ok, ?AUTH:delete_chain(ChainID)),
     ok.
+<<<<<<< HEAD
+=======
+
+
+
+
+>>>>>>> refactor(use hocon): rename to authn, support two types of chains and support bind listener to chain
