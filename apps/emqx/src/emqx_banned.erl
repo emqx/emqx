@@ -51,6 +51,8 @@
 
 -define(BANNED_TAB, ?MODULE).
 
+-rlog_shard({?COMMON_SHARD, ?BANNED_TAB}).
+
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
@@ -96,19 +98,19 @@ create(#{who    := Who,
          reason := Reason,
          at     := At,
          until  := Until}) ->
-    mnesia:dirty_write(?BANNED_TAB, #banned{who = Who,
-                                            by = By,
-                                            reason = Reason,
-                                            at = At,
-                                            until = Until});
+    ekka_mnesia:dirty_write(?BANNED_TAB, #banned{who = Who,
+                                                 by = By,
+                                                 reason = Reason,
+                                                 at = At,
+                                                 until = Until});
 create(Banned) when is_record(Banned, banned) ->
-    mnesia:dirty_write(?BANNED_TAB, Banned).
+    ekka_mnesia:dirty_write(?BANNED_TAB, Banned).
 
 -spec(delete({clientid, emqx_types:clientid()}
            | {username, emqx_types:username()}
            | {peerhost, emqx_types:peerhost()}) -> ok).
 delete(Who) ->
-    mnesia:dirty_delete(?BANNED_TAB, Who).
+    ekka_mnesia:dirty_delete(?BANNED_TAB, Who).
 
 info(InfoKey) ->
     mnesia:table_info(?BANNED_TAB, InfoKey).
@@ -129,7 +131,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
-    mnesia:async_dirty(fun expire_banned_items/1, [erlang:system_time(second)]),
+    ekka_mnesia:transaction(?COMMON_SHARD, fun expire_banned_items/1, [erlang:system_time(second)]),
     {noreply, ensure_expiry_timer(State), hibernate};
 
 handle_info(Info, State) ->
@@ -160,4 +162,3 @@ expire_banned_items(Now) ->
               mnesia:delete_object(?BANNED_TAB, B, sticky_write);
          (_, _Acc) -> ok
       end, ok, ?BANNED_TAB).
-

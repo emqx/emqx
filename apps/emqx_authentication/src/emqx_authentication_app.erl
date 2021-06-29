@@ -20,6 +20,8 @@
 
 -emqx_plugin(?MODULE).
 
+-include("emqx_authentication.hrl").
+
 %% Application callbacks
 -export([ start/2
         , stop/1
@@ -27,6 +29,7 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_authentication_sup:start_link(),
+    ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     ok = emqx_authentication:register_service_types(),
     {ok, Sup}.
 

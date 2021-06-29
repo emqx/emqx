@@ -23,6 +23,9 @@
 
 -define(Otherwise, true).
 
+-define(COMMON_SHARD, emqx_common_shard).
+-define(SHARED_SUB_SHARD, emqx_shared_sub_shard).
+
 %%--------------------------------------------------------------------
 %% Banner
 %%--------------------------------------------------------------------
@@ -86,6 +89,9 @@
 
 -define(ROUTE_SHARD, route_shard).
 
+
+-define(RULE_ENGINE_SHARD, emqx_rule_engine_shard).
+
 -record(route, {
           topic :: binary(),
           dest  :: node() | {binary(), node()}
@@ -134,4 +140,3 @@
         }).
 
 -endif.
-

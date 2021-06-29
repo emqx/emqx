@@ -28,6 +28,7 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
+    application:set_env(ekka, strict_mode, true),
     emqx_ct_helpers:start_apps([emqx_authentication]),
     Config.
 
@@ -40,7 +41,7 @@ t_chain(_) ->
     ?assertMatch({ok, #{id := ChainID, services := []}}, ?AUTH:create_chain(#{id => ChainID})),
     ?assertEqual({error, {already_exists, {chain, ChainID}}}, ?AUTH:create_chain(#{id => ChainID})),
     ?assertMatch({ok, #{id := ChainID, services := []}}, ?AUTH:lookup_chain(ChainID)),
-    ?assertEqual(ok, ?AUTH:delete_chain(ChainID)),
+    ?assertEqual(ok, ?AUTH:delete_chain(ChainID)),
     ?assertMatch({error, {not_found, {chain, ChainID}}}, ?AUTH:lookup_chain(ChainID)),
     ok.
 
@@ -186,6 +187,3 @@ t_multi_mnesia_service(_) ->
     ?assertEqual(ok, ?AUTH:authenticate(ClientInfo2)),
     ?assertEqual(ok, ?AUTH:delete_chain(ChainID)),
     ok.
-
-
-

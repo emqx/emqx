@@ -23,7 +23,7 @@
 %% ACL Callbacks
 -export([ description/0
         , parse_query/1
-        , check_authz/4
+        , authorize/4
         ]).
 
 -ifdef(TEST).
@@ -49,25 +49,25 @@ parse_query(Sql) ->
             {Sql, []}
     end.
 
-check_authz(Client, PubSub, Topic,
+authorize(Client, PubSub, Topic,
             #{<<"resource_id">> := ResourceID,
               <<"sql">> := {SQL, Params}
              }) ->
     case emqx_resource:query(ResourceID, {sql, SQL, replvar(Params, Client)}) of
         {ok, _Columns, []} -> nomatch;
         {ok, Columns, Rows} ->
-            do_check_authz(Client, PubSub, Topic, Columns, Rows);
+            do_authorize(Client, PubSub, Topic, Columns, Rows);
         {error, Reason} ->
             ?LOG(error, "[AuthZ] Query pgsql error: ~p~n", [Reason]),
             nomatch
     end.
 
-do_check_authz(_Client, _PubSub, _Topic, _Columns, []) ->
+do_authorize(_Client, _PubSub, _Topic, _Columns, []) ->
     nomatch;
-do_check_authz(Client, PubSub, Topic, Columns, [Row | Tail]) ->
+do_authorize(Client, PubSub, Topic, Columns, [Row | Tail]) ->
     case match(Client, PubSub, Topic, format_result(Columns, Row)) of
         {matched, Permission} -> {matched, Permission};
-        nomatch -> do_check_authz(Client, PubSub, Topic, Columns, Tail)
+        nomatch -> do_authorize(Client, PubSub, Topic, Columns, Tail)
     end.
 
 format_result(Columns, Row) ->

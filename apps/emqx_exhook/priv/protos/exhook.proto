@@ -40,7 +40,7 @@ service HookProvider {
 
   rpc OnClientAuthenticate(ClientAuthenticateRequest) returns (ValuedResponse) {};
 
-  rpc OnClientCheckAcl(ClientCheckAclRequest) returns (ValuedResponse) {};
+  rpc OnClientAuthorize(ClientAuthorizeRequest) returns (ValuedResponse) {};
 
   rpc OnClientSubscribe(ClientSubscribeRequest) returns (EmptySuccess) {};
 
@@ -123,18 +123,18 @@ message ClientAuthenticateRequest {
   bool result = 2;
 }
 
-message ClientCheckAclRequest {
+message ClientAuthorizeRequest {
 
   ClientInfo clientinfo = 1;
 
-  enum AclReqType {
+  enum AuthzReqType {
 
     PUBLISH = 0;
 
     SUBSCRIBE = 1;
   }
 
-  AclReqType type = 2;
+  AuthzReqType type = 2;
 
   string topic = 3;
 
@@ -253,7 +253,7 @@ message ValuedResponse {
 
   oneof value {
 
-    // Boolean result, used on the 'client.authenticate', 'client.check_acl' hooks
+    // Boolean result, used on the 'client.authenticate', 'client.authorize' hooks
     bool bool_result = 3;
 
     // Message result, used on the 'message.*' hooks
@@ -279,7 +279,7 @@ message HookSpec {
   // Available value:
   //   "client.connect",      "client.connack"
   //   "client.connected",    "client.disconnected"
-  //   "client.authenticate", "client.check_acl"
+  //   "client.authenticate", "client.authorize"
   //   "client.subscribe",    "client.unsubscribe"
   //
   //   "session.created",      "session.subscribed"

@@ -198,7 +198,7 @@ t_batch_subscribe(_) ->
     {ok, Client} = emqtt:start_link([{proto_ver, v5}, {clientid, <<"batch_test">>}]),
     {ok, _} = emqtt:connect(Client),
     ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_access_control, check_acl, fun(_, _, _) -> deny end),
+    meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
     {ok, _, [?RC_NOT_AUTHORIZED,
              ?RC_NOT_AUTHORIZED,
              ?RC_NOT_AUTHORIZED]} = emqtt:subscribe(Client, [{<<"t1">>, qos1},

@@ -56,6 +56,9 @@
 -define(CHAIN_TAB, emqx_authentication_chain).
 -define(SERVICE_TYPE_TAB, emqx_authentication_service_type).
 
+-rlog_shard({?AUTH_SHARD, ?CHAIN_TAB}).
+-rlog_shard({?AUTH_SHARD, ?SERVICE_TYPE_TAB}).
+
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
@@ -370,7 +373,7 @@ validate_other_service_params([#{type := Type, params := Params} = ServiceParams
         {error, not_found} ->
             {error, {not_found, {service_type, Type}}}
     end.
-    
+
 no_duplicate_names(Names) ->
     no_duplicate_names(Names, #{}).
 
@@ -423,7 +426,7 @@ extract_services([ServiceName | More], Services, Acc) ->
         false ->
             {error, {not_found, {service, ServiceName}}}
     end.
-    
+
 move_service_to_the_front_(ServiceName, Services) ->
     move_service_to_the_front_(ServiceName, Services, []).
 
@@ -513,7 +516,7 @@ trans(Fun) ->
     trans(Fun, []).
 
 trans(Fun, Args) ->
-    case mnesia:transaction(Fun, Args) of
+    case ekka_mnesia:transaction(?AUTH_SHARD, Fun, Args) of
         {atomic, Res} -> Res;
         {aborted, Reason} -> {error, Reason}
     end.
