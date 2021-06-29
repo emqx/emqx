@@ -43,8 +43,8 @@ initialize() ->
     ConfFile = filename:join([emqx:get_env(plugins_etc_dir), ?APP]) ++ ".conf",
     {ok, RawConfig} = hocon:load(ConfFile),
     #{authn := #{chains := Chains,
-                 bindings := Bindings}} = hocon_schema:check_plain(emqx_authn_schema, RawConfig, #{atom_key => true, nullable => true}),
-    io:format("Chains: ~p~n", [Chains]),
+                 bindings := Bindings}}
+        = hocon_schema:check_plain(emqx_authn_schema, RawConfig, #{atom_key => true, nullable => true}),
     initialize_chains(Chains),
     initialize_bindings(Bindings).
 
