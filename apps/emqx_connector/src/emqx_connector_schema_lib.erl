@@ -51,6 +51,31 @@
               , servers/0
              ]).
 
+-export([structs/0, fields/1]).
+
+structs() -> [ssl_on, ssl_off].
+
+fields(ssl_on) ->
+    [ {enable, #{type => true}}
+    , {cacertfile, fun cacertfile/1}
+    , {keyfile, fun keyfile/1}
+    , {certfile, fun certfile/1}
+    , {verify, fun verify/1}
+    ];
+
+fields(ssl_off) ->
+    [ {enable, #{type => false}} ].
+
+ssl_fields() ->
+    [ {ssl, #{type => hoconsc:union(
+                       [ hoconsc:ref(?MODULE, ssl_on)
+                       , hoconsc:ref(?MODULE, ssl_off)
+                       ]),
+              default => hoconsc:ref(?MODULE, ssl_off)
+             }
+      }
+    ].
+
 relational_db_fields() ->
     [ {server, fun server/1}
     , {database, fun database/1}
@@ -58,14 +83,6 @@ relational_db_fields() ->
     , {username, fun username/1}
     , {password, fun password/1}
     , {auto_reconnect, fun auto_reconnect/1}
-    ].
-
-ssl_fields() ->
-    [ {ssl, fun ssl/1}
-    , {cacertfile, fun cacertfile/1}
-    , {keyfile, fun keyfile/1}
-    , {certfile, fun certfile/1}
-    , {verify, fun verify/1}
     ].
 
 server(type) -> emqx_schema:ip_port();
@@ -93,19 +110,15 @@ auto_reconnect(type) -> boolean();
 auto_reconnect(default) -> true;
 auto_reconnect(_) -> undefined.
 
-ssl(type) -> boolean();
-ssl(default) -> false;
-ssl(_) -> undefined.
-
-cacertfile(type) -> binary();
+cacertfile(type) -> string();
 cacertfile(default) -> "";
 cacertfile(_) -> undefined.
 
-keyfile(type) -> binary();
+keyfile(type) -> string();
 keyfile(default) -> "";
 keyfile(_) -> undefined.
 
-certfile(type) -> binary();
+certfile(type) -> string();
 certfile(default) -> "";
 certfile(_) -> undefined.
 

@@ -55,7 +55,8 @@ set_special_configs(emqx_authz) ->
                     <<"server">> => <<"127.0.0.1:6379">>,
                     <<"password">> => <<"public">>,
                     <<"pool_size">> => 1,
-                    <<"auto_reconnect">> => true
+                    <<"auto_reconnect">> => true,
+                    <<"ssl">> => #{<<"enable">> => false}
                   },
                   <<"principal">> => all,
                   <<"cmd">> => <<"fake cmd">>,

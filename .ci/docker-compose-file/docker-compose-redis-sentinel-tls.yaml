@@ -5,7 +5,9 @@ services:
     container_name: redis
     image: redis:${REDIS_TAG}
     volumes:
-      - ../../apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs:/tls
+      - ../../apps/emqx/etc/certs/cacert.pem:/etc/certs/ca.crt
+      - ../../apps/emqx/etc/certs/cert.pem:/etc/certs/redis.crt
+      - ../../apps/emqx/etc/certs/key.pem:/etc/certs/redis.key
       - ./redis/:/data/conf
     command: bash -c "/bin/bash /data/conf/redis.sh --node sentinel --tls-enabled && tail -f /var/log/redis-server.log"
     networks:

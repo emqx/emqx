@@ -57,7 +57,7 @@ save_files_return_opts(Options, Dir) ->
     Get = fun(Key) -> GetD(Key, undefined) end,
     KeyFile = Get(keyfile),
     CertFile = Get(certfile),
-    CAFile = GetD(cacertfile, Get(cafile)),
+    CAFile = Get(cacertfile),
     Key = do_save_file(KeyFile, Dir),
     Cert = do_save_file(CertFile, Dir),
     CA = do_save_file(CAFile, Dir),
