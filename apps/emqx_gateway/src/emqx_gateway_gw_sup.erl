@@ -107,8 +107,6 @@ list_insta(Sup) ->
 %% Supervisor callback
 
 %% @doc Initialize Top Supervisor for a Protocol
-%%
-%%
 init([GwId]) ->
     SupFlags = #{ strategy => one_for_one
                 , intensity => 10
@@ -116,8 +114,8 @@ init([GwId]) ->
                 },
     CmOpts = [{gwid, GwId}],
     CM = emqx_gateway_utils:childspec(worker, emqx_gateway_cm, [CmOpts]),
-    %emqx_gateway_utils:childspec(worker, emqx_gateway_registy) %% FIXME:
-    {ok, {SupFlags, [CM]}}.
+    Metrics = emqx_gateway_utils:childspec(worker, emqx_gateway_metrics, [GwId]),
+    {ok, {SupFlags, [CM, Metrics]}}.
 
 %%--------------------------------------------------------------------
 %% Internal funcs

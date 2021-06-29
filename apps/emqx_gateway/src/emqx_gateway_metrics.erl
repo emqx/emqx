@@ -18,11 +18,17 @@
 
 -behaviour(gen_server).
 
+-include("include/emqx_gateway.hrl").
+
+-logger_header("[PGW-Metrics]").
+
 %% APIs
--export([start_link/0]).
+-export([start_link/1]).
 
 -export([ inc/2
         , inc/3
+        , dec/2
+        , dec/3
         ]).
 
 %% gen_server callbacks
@@ -40,24 +46,36 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+start_link(GwId) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [GwId], []).
 
--spec inc(atom(), atom()) -> ok.
-inc(_GwId, _Name) ->
-    %% TODO: step1: get ets table name
-    %%       step2: update counter
+-spec inc(gateway_id(), atom()) -> ok.
+inc(GwId, Name) ->
+    inc(GwId, Name, 1).
+
+-spec inc(gateway_id(), atom(), integer()) -> ok.
+inc(GwId, Name, Oct) ->
+    ets:update_counter(tabname(GwId), Name, {2, Oct}, {Name, 0}),
     ok.
 
--spec inc(atom(), atom(), non_neg_integer()) -> ok.
-inc(_GwId, _Name, _Oct) ->
-    ok.
+-spec dec(gateway_id(), atom()) -> ok.
+dec(GwId, Name) ->
+    inc(GwId, Name, -1).
+
+-spec dec(gateway_id(), atom(), non_neg_integer()) -> ok.
+dec(GwId, Name, Oct) ->
+    inc(GwId, Name, -Oct).
+
+tabname(GwId) ->
+    list_to_atom(lists:concat([emqx_gateway_, GwId, '_metrics'])).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([]) ->
+init([GwId]) ->
+    TabOpts = [public, {write_concurrency, true}],
+    ok = emqx_tables:new(tabname(GwId), [set|TabOpts]),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->

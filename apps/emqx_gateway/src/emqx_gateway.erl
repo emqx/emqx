@@ -28,7 +28,8 @@
         , list/0
         ]).
 
--spec registered_gateway() -> [{gateway_id(), descriptor()}].
+-spec registered_gateway() ->
+    [{gateway_id(), emqx_gateway_registry:descriptor()}].
 registered_gateway() ->
     emqx_gateway_registry:list().
 

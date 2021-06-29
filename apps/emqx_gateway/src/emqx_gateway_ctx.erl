@@ -29,7 +29,7 @@
 %%
 -type context() ::
         #{ %% Gateway Instance ID
-           instid := instance_id(),
+           instid := instance_id()
            %% Gateway ID
          , gwid   := gateway_id()
            %% Autenticator

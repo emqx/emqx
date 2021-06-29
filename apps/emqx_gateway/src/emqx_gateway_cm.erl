@@ -19,6 +19,8 @@
 
 -behaviour(gen_server).
 
+-include("include/emqx_gateway.hrl").
+
 -logger_header("[PGW-CM]").
 
 %% APIs
@@ -109,7 +111,7 @@ insert_channel_info(GwId, ClientId, Info, Stats) ->
 
 -spec set_chan_info(gateway_id(),
                     emqx_types:clientid(),
-                    emqx_types:infos()) -> boolean()
+                    emqx_types:infos()) -> boolean().
 set_chan_info(GwId, ClientId, Infos) ->
     Chan = {ClientId, self()},
     try ets:update_element(tabname(info, GwId), Chan, {2, Infos})
@@ -129,9 +131,9 @@ set_chan_stats(GwId, ClientId, Stats) ->
 
 -spec connection_closed(gateway_id(), emqx_types:clientid()) -> true.
 connection_closed(GwId, ClientId) ->
-    %% XXX: ???
+    %% XXX: Why we need to delete conn_mod tab ???
     Chan = {ClientId, self()},
-    ets:delete_object(tabname(conn,GwId), {ClientId, ChanPid}).
+    ets:delete_object(tabname(conn, GwId), Chan).
 
 -spec open_session(GwId :: atom(), CleanStart :: boolean(),
                    ClientInfo :: emqx_types:clientinfo(),
@@ -278,6 +280,7 @@ init(Options) ->
     ok = emqx_tables:new(InfoTab, [set, compressed | TabOpts]),
 
     %% Start link cm-registry process
+    %% XXX: Should I hang it under a higher level supervisor?
     Registry = emqx_gateway_cm_registry:start_link(GwId),
 
     %% Start locker process
