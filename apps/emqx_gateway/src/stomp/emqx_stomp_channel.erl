@@ -131,8 +131,6 @@ init(ConnInfo = #{peername := {PeerHost, _},
             , conninfo = ConnInfo
             , clientinfo = ClientInfo
             , clientinfo_override = Override
-            % TODO:
-            %, heartfun = HeartFun
             , timers = #{}
             , transaction = #{}
             }.
@@ -416,7 +414,7 @@ handle_in(?PACKET(?CMD_UNSUBSCRIBE, Headers),
                    end,
     handle_out(receipt, receipt_id(Headers), NChannel);
 
-%% TODO: How to ack a frame ???
+%% XXX: How to ack a frame ???
 handle_in(Frame = ?PACKET(?CMD_ACK, Headers), Channel) ->
     case header(<<"transaction">>, Headers) of
         undefined -> handle_recv_ack_frame(Frame, Channel);
@@ -891,13 +889,9 @@ handle_recv_send_frame(Frame = ?PACKET(?CMD_SEND, Headers), Channel) ->
     maybe_outgoing_receipt(receipt_id(Headers), Channel).
 
 handle_recv_ack_frame(?PACKET(?CMD_ACK, Headers), Channel) ->
-    %% TODO: ACK What ???
-    %% ack(Id, Channel)
     maybe_outgoing_receipt(receipt_id(Headers), Channel).
 
 handle_recv_nack_frame(?PACKET(?CMD_NACK, Headers), Channel) ->
-    %% TODO: NACK What ???
-    %% nack(Id, Channel)
     maybe_outgoing_receipt(receipt_id(Headers), Channel).
 
 maybe_outgoing_receipt(undefined, Channel) ->
