@@ -99,11 +99,11 @@ pool_size(validator) -> [?MIN(1), ?MAX(64)];
 pool_size(_) -> undefined.
 
 username(type) -> binary();
-username(default) -> "root";
+username(nullable) -> true;
 username(_) -> undefined.
 
 password(type) -> binary();
-password(default) -> "";
+password(nullable) -> true;
 password(_) -> undefined.
 
 auto_reconnect(type) -> boolean();

@@ -93,8 +93,9 @@ compile(#{topics := Topics,
          };
 
 compile(#{principal := Principal,
-          type := redis
-         } = Rule) ->
+          type := DB
+         } = Rule) when DB =:= redis;
+                        DB =:= mongo ->
     NRule = create_resource(Rule),
     NRule#{principal => compile_principal(Principal)};
 

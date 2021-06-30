@@ -38,7 +38,7 @@ structs() -> [""].
 fields("") ->
     mongodb_fields() ++
     mongodb_topology_fields() ++
-    mongodb_rs_set_name_fields() ++
+    % mongodb_rs_set_name_fields() ++
     emqx_connector_schema_lib:ssl_fields().
 
 on_jsonify(Config) ->
@@ -71,7 +71,7 @@ on_start(InstId, #{servers := Servers,
 
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     _ = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ SslOpts),
-    {ok, #{pool => PoolName,
+    {ok, #{poolname => PoolName,
            type => Type,
            test_conn => TestConn,
            test_opts => TestOpts}}.
@@ -82,23 +82,27 @@ on_stop(InstId, #{poolname := PoolName}) ->
 
 on_query(InstId, {Action, Collection, Selector, Docs}, AfterQuery, #{poolname := PoolName} = State) ->
     logger:debug("mongodb connector ~p received request: ~p, at state: ~p", [InstId, {Action, Collection, Selector, Docs}, State]),
-    case Result = ecpool:pick_and_do(PoolName, {?MODULE, mongo_query, [Action, Collection, Selector, Docs]}, no_handover) of
+    case ecpool:pick_and_do(PoolName, {?MODULE, mongo_query, [Action, Collection, Selector, Docs]}, no_handover) of
         {error, Reason} ->
             logger:debug("mongodb connector ~p do sql query failed, request: ~p, reason: ~p", [InstId, {Action, Collection, Selector, Docs}, Reason]),
-            emqx_resource:query_failed(AfterQuery);
-        _ ->
-            emqx_resource:query_success(AfterQuery)
-    end,
-    Result.
+            emqx_resource:query_failed(AfterQuery),
+            {error, Reason};
+        {ok, Cursor} when is_pid(Cursor) ->
+            emqx_resource:query_success(AfterQuery),
+            mc_cursor:foldl(fun(O, Acc2) -> [O|Acc2] end, [], Cursor, 1000);
+        Result ->
+            emqx_resource:query_success(AfterQuery),
+            Result
+    end.
 
 -dialyzer({nowarn_function, [on_health_check/2]}).
-on_health_check(_InstId, #{test_opts := TestOpts}) ->
+on_health_check(_InstId, #{test_opts := TestOpts} = State) ->
     case mc_worker_api:connect(TestOpts) of
         {ok, TestConn} ->
             mc_worker_api:disconnect(TestConn),
-            {ok, true};
+            {ok, State};
         {error, _} ->
-            {ok, false}
+            {error, health_check_failed, State}
     end.
 
 %% ===================================================================
@@ -197,11 +201,12 @@ mongodb_topology_fields() ->
     , {min_heartbeat_frequency_ms, fun duration/1}
     ].
 
-mongodb_rs_set_name_fields() ->
-    [ {rs_set_name, fun emqx_connector_schema_lib:database/1}
-    ].
+% mongodb_rs_set_name_fields() ->
+%     [ {rs_set_name, fun emqx_connector_schema_lib:database/1}
+%     ].
 
 auth_source(type) -> binary();
+auth_source(nullable) -> true;
 auth_source(_) -> undefined.
 
 servers(type) -> binary();
@@ -213,4 +218,5 @@ mongo_type(default) -> single;
 mongo_type(_) -> undefined.
 
 duration(type) -> emqx_schema:duration_ms();
+duration(nullable) -> true;
 duration(_) -> undefined.
