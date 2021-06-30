@@ -26,13 +26,64 @@
 structs() -> ["emqx_bridge_mqtt"].
 
 fields("emqx_bridge_mqtt") ->
-    [ {mqtt, hoconsc:array("mqtt")}
-    , {rpc, hoconsc:array("rpc")}];
+    [ {bridges, hoconsc:array("bridges")}
+    ];
+
+fields("bridges") ->
+    [ {name, emqx_schema:t(string(), undefined, true)}
+    , {start_type, fun start_type/1}
+    , {forwards, fun forwards/1}
+    , {forward_mountpoint, emqx_schema:t(string())}
+    , {reconnect_interval, emqx_schema:t(emqx_schema:duration_ms(), undefined, "30s")}
+    , {batch_size, emqx_schema:t(integer(), undefined, 100)}
+    , {queue, emqx_schema:t(hoconsc:ref("queue"))}
+    , {config, hoconsc:union([hoconsc:ref("mqtt"), hoconsc:ref("rpc")])}
+    ];
 
 fields("mqtt") ->
-    [ {name, emqx_schema:t(string(), undefined, true)}
-    , {address, emqx_schema:t(string(), undefined, true)}];
+    [ {conn_type, fun conn_type/1}
+    , {address, emqx_schema:t(string(), undefined, "127.0.0.1:1883")}
+    , {proto_ver, fun proto_ver/1}
+    , {bridge_mode, emqx_schema:t(boolean(), undefined, true)}
+    , {clientid, emqx_schema:t(string())}
+    , {username, emqx_schema:t(string())}
+    , {password, emqx_schema:t(string())}
+    , {clean_start, emqx_schema:t(boolean(), undefined, true)}
+    , {keepalive, emqx_schema:t(integer(), undefined, 300)}
+    , {subscriptions, hoconsc:array("subscriptions")}
+    , {receive_mountpoint, emqx_schema:t(string())}
+    , {retry_interval, emqx_schema:t(emqx_schema:duration_ms(), undefined, "30s")}
+    , {max_inflight, emqx_schema:t(integer(), undefined, 32)}
+    ];
 
 fields("rpc") ->
-    [ {name, emqx_schema:t(string(), undefined, true)}
-    , {node, emqx_schema:t(string(), undefined, true)}].
+    [ {conn_type, fun conn_type/1}
+    , {node, emqx_schema:t(atom(), undefined, 'emqx@127.0.0.1')}
+    ];
+
+fields("subscriptions") ->
+    [ {topic, #{type => binary(), nullable => false}}
+    , {qos, emqx_schema:t(integer(), undefined, 1)}
+    ];
+
+fields("queue") ->
+    [ {replayq_dir, hoconsc:union([boolean(), string()])}
+    , {replayq_seg_bytes, emqx_schema:t(emqx_schema:bytesize(), undefined, "100MB")}
+    , {replayq_offload_mode, emqx_schema:t(boolean(), undefined, false)}
+    , {replayq_max_total_bytes, emqx_schema:t(emqx_schema:bytesize(), undefined, "1024MB")}
+    ].
+
+conn_type(type) -> hoconsc:enum([mqtt, rpc]);
+conn_type(_) -> undefined.
+
+proto_ver(type) -> hoconsc:enum([v3, v4, v5]);
+proto_ver(default) -> v4;
+proto_ver(_) -> undefined.
+
+start_type(type) -> hoconsc:enum([auto, manual]);
+start_type(default) -> auto;
+start_type(_) -> undefined.
+
+forwards(type) -> hoconsc:array(binary());
+forwards(default) -> [];
+forwards(_) -> undefined.

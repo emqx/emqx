@@ -192,8 +192,7 @@ overlay_vars_rel(RelType) ->
                  cloud -> "vm.args";
                  edge -> "vm.args.edge"
              end,
-    [ {enable_plugin_emqx_bridge_mqtt, RelType =:= edge}
-    , {enable_plugin_emqx_modules, false} %% modules is not a plugin in ce
+    [ {enable_plugin_emqx_modules, false} %% modules is not a plugin in ce
     , {enable_plugin_emqx_retainer, true}
     , {vm_args_file, VmArgs}
     ].
@@ -256,6 +255,7 @@ relx_apps(ReleaseType) ->
     , emqx_connector
     , emqx_data_bridge
     , emqx_rule_engine
+    , emqx_bridge_mqtt
     ]
     ++ [emqx_telemetry || not is_enterprise()]
     ++ [emqx_modules || not is_enterprise()]
@@ -282,7 +282,6 @@ relx_plugin_apps(ReleaseType) ->
     [ emqx_retainer
     , emqx_management
     , emqx_dashboard
-    , emqx_bridge_mqtt
     , emqx_sn
     , emqx_coap
     , emqx_stomp
@@ -375,6 +374,8 @@ emqx_etc_overlay_common() ->
      {"{{base_dir}}/lib/emqx_telemetry/etc/emqx_telemetry.conf", "etc/plugins/emqx_telemetry.conf"},
      {"{{base_dir}}/lib/emqx_authn/etc/emqx_authn.conf", "etc/plugins/emqx_authn.conf"},
      {"{{base_dir}}/lib/emqx_authz/etc/emqx_authz.conf", "etc/plugins/authz.conf"},
+     {"{{base_dir}}/lib/emqx_rule_engine/etc/emqx_rule_engine.conf", "etc/plugins/emqx_rule_engine.conf"},
+     {"{{base_dir}}/lib/emqx_bridge_mqtt/etc/emqx_bridge_mqtt.conf", "etc/plugins/emqx_bridge_mqtt.conf"},
      %% TODO: check why it has to end with .paho
      %% and why it is put to etc/plugins dir
      {"{{base_dir}}/lib/emqx/etc/acl.conf.paho", "etc/plugins/acl.conf.paho"}].

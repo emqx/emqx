@@ -24,37 +24,33 @@
 
 %% APIs
 -export([ start_link/0
-        , start_link/1
         ]).
 
--export([ create_bridge/2
+-export([ create_bridge/1
         , drop_bridge/1
         , bridges/0
-        , is_bridge_exist/1
         ]).
 
 %% supervisor callbacks
 -export([init/1]).
 
--define(SUP, ?MODULE).
 -define(WORKER_SUP, emqx_bridge_worker_sup).
 
-start_link() -> start_link(?SUP).
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_link(Name) ->
-    supervisor:start_link({local, Name}, ?MODULE, Name).
-
-init(?SUP) ->
-    BridgesConf = application:get_env(?APP, bridges, []),
+init([]) ->
+    BridgesConf = emqx_config:get([?APP, bridges], []),
     BridgeSpec = lists:map(fun bridge_spec/1, BridgesConf),
     SupFlag = #{strategy => one_for_one,
                 intensity => 100,
                 period => 10},
     {ok, {SupFlag, BridgeSpec}}.
 
-bridge_spec({Name, Config}) ->
+bridge_spec(Config) ->
+    Name = list_to_atom(maps:get(name, Config)),
     #{id => Name,
-      start => {emqx_bridge_worker, start_link, [Name, Config]},
+      start => {emqx_bridge_worker, start_link, [Config]},
       restart => permanent,
       shutdown => 5000,
       type => worker,
@@ -62,22 +58,15 @@ bridge_spec({Name, Config}) ->
 
 -spec(bridges() -> [{node(), map()}]).
 bridges() ->
-    [{Name, emqx_bridge_worker:status(Pid)} || {Name, Pid, _, _} <- supervisor:which_children(?SUP)].
+    [{Name, emqx_bridge_worker:status(Name)} || {Name, _Pid, _, _} <- supervisor:which_children(?MODULE)].
 
--spec(is_bridge_exist(atom() | pid()) -> boolean()).
-is_bridge_exist(Id) ->
-    case supervisor:get_childspec(?SUP, Id) of
-        {ok, _ChildSpec} -> true;
-        {error, _Error} -> false
-    end.
+create_bridge(Config) ->
+    supervisor:start_child(?MODULE, bridge_spec(Config)).
 
-create_bridge(Id, Config) ->
-    supervisor:start_child(?SUP, bridge_spec({Id, Config})).
-
-drop_bridge(Id) ->
-    case supervisor:terminate_child(?SUP, Id) of
+drop_bridge(Name) ->
+    case supervisor:terminate_child(?MODULE, Name) of
         ok ->
-            supervisor:delete_child(?SUP, Id);
+            supervisor:delete_child(?MODULE, Name);
         {error, Error} ->
             ?LOG(error, "Delete bridge failed, error : ~p", [Error]),
             {error, Error}
