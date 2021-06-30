@@ -88,8 +88,10 @@ create(ChainID, ServiceName, #{query := Query0,
     end.
 
 update(_ChainID, _ServiceName, Config, #{resource_id := ResourceID} = State) ->
-    emqx_resource:update_local(ResourceID, emqx_connector_pgsql, Config, []),
-    {ok, State}.
+    case emqx_resource:update_local(ResourceID, emqx_connector_pgsql, Config, []) of
+        {ok, _} -> {ok, State};
+        {error, Reason} -> {error, Reason}
+    end.
 
 authenticate(#{password := Password} = ClientInfo,
              #{resource_id := ResourceID,
@@ -107,7 +109,8 @@ authenticate(#{password := Password} = ClientInfo,
     end.
 
 destroy(#{resource_id := ResourceID}) ->
-    emqx_resource:remove_local(ResourceID).
+    _ = emqx_resource:remove_local(ResourceID),
+    ok.
     
 %%------------------------------------------------------------------------------
 %% Internal functions

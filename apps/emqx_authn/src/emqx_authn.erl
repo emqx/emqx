@@ -85,13 +85,13 @@ mnesia(boot) ->
                 {storage_properties, StoreProps}]).
 
 enable() ->
-    case emqx:hook('client.authenticate', fun emqx_authn:authenticate/1) of
+    case emqx:hook('client.authenticate', {?MODULE, authenticate, []}) of
         ok -> ok;
         {error, already_exists} -> ok
     end.
 
 disable() ->
-    emqx:unhook('client.authenticate', fun emqx_authn:authenticate/1),
+    emqx:unhook('client.authenticate', {?MODULE, authenticate, []}),
     ok.
 
 authenticate(#{listener_id := ListenerID} = ClientInfo) ->

@@ -135,7 +135,7 @@ handle_options(#{endpoint := Endpoint,
       request_id => undefined};
 
 handle_options(#{enable_ssl := false} = Opts) ->
-    handle_options(Opts#{ssl_opts => []}).
+    handle_options(Opts#{ssl_opts => #{}}).
 
 refresh_jwks(#{endpoint := Endpoint,
                ssl_opts := SSLOpts} = State) ->
