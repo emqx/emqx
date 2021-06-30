@@ -342,13 +342,6 @@ jobs:
           - [amd64, x86_64]
           - [arm64v8, aarch64]
           - [arm32v7, arm]
-          - [i386, i386]
-          - [s390x, s390x]
-        exclude:
-          - profile: emqx-ee
-            arch: [i386, i386]
-          - profile: emqx-ee
-            arch: [s390x, s390x]
 
     steps:
     - uses: actions/download-artifact@v2
