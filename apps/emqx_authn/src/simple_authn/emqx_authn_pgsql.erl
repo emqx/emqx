@@ -33,32 +33,14 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-%% Config:
-%% host
-%% port
-%% username
-%% password
-%% database
-%% pool_size
-%% connect_timeout
-%% enable_ssl
-%% cacertfile
-%% certfile
-%% keyfile
-%% verify
-%% servce_name_indication
-%% tls_versions
-%% ciphers
-%% password_hash_algorithm
-%% salt_position
-%% query
 structs() -> [config].
 
 fields(config) ->
     [ {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position, {enum, [prefix, suffix]}}
     , {query, fun query/1}
-    ].
+    ] ++ emqx_connector_schema_lib:relational_db_fields()
+    ++ emqx_connector_schema_lib:ssl_fields().
 
 password_hash_algorithm(type) -> string();
 password_hash_algorithm(_) -> undefined.
