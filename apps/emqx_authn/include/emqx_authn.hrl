@@ -42,7 +42,7 @@
         , chain_id :: chain_id()
         }).
 
--define(AUTH_SHARD, emqx_authentication_shard).
+-define(AUTH_SHARD, emqx_authn_shard).
 
 -define(CLUSTER_CALL(Module, Func, Args), ?CLUSTER_CALL(Module, Func, Args, ok)).
 
