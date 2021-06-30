@@ -78,7 +78,7 @@ stop_listener({Proto, Port, _}) ->
     minirest:stop(listener_name(Proto)).
 
 listeners() ->
-    application:get_env(?APP, listeners, []).
+    emqx_config:get([?APP, listeners], []).
 
 listener_name(Proto) ->
     list_to_atom(atom_to_list(Proto) ++ ":management").

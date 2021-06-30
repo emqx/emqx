@@ -670,7 +670,7 @@ listener_identifier(Protocol, ListenOn) ->
     end.
 
 restart_http_listener(Scheme, AppName) ->
-    Listeners = application:get_env(AppName, listeners, []),
+    Listeners = emqx_config:get([AppName, listeners], []),
     case lists:keyfind(Scheme, 1, Listeners) of
         false ->
             emqx_ctl:print("Listener ~s not exists!~n", [AppName]);
