@@ -53,7 +53,11 @@ getstat(Socket, Stats) ->
     end.
 
 setopts(Socket, Opts) ->
-    [ quicer:setopt(Socket, Opt, V) || {Opt, V} <- Opts ],
+    lists:foreach(fun({Opt, V}) when is_atom(Opt) ->
+                          quicer:setopt(Socket, Opt, V);
+                     (Opt) when is_atom(Opt) ->
+                          quicer:setopt(Socket, Opt, true)
+                  end, Opts),
     ok.
 
 getopts(_Socket, _Opts) ->
@@ -65,8 +69,8 @@ getopts(_Socket, _Opts) ->
           {buffer,80000}]}.
 
 fast_close(Stream) ->
-    quicer:async_close_stream(Stream),
     %% Stream might be closed already.
+    _ = quicer:async_close_stream(Stream),
     ok.
 
 -spec(ensure_ok_or_exit(atom(), list(term())) -> term()).
