@@ -23,8 +23,6 @@
 
 -emqx_plugin(?MODULE).
 
--include("emqx_authentication.hrl").
-
 %% Application callbacks
 -export([ start/2
         , stop/1
