@@ -140,10 +140,3 @@ t_authenticator(_) ->
     ?assertEqual({ok, []}, ?AUTH:list_authenticators(ChainID)),
     ?assertEqual(ok, ?AUTH:delete_chain(ChainID)),
     ok.
-<<<<<<< HEAD
-=======
-
-
-
-
->>>>>>> refactor(use hocon): rename to authn, support two types of chains and support bind listener to chain
