@@ -58,7 +58,7 @@
 -define(BINDING_TAB, emqx_authn_binding).
 
 -rlog_shard({?AUTH_SHARD, ?CHAIN_TAB}).
--rlog_shard({?AUTH_SHARD, ?SERVICE_TYPE_TAB}).
+-rlog_shard({?AUTH_SHARD, ?BINDING_TAB}).
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
