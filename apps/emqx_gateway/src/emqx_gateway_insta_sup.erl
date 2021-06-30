@@ -36,7 +36,6 @@
 %% APIs
 -export([ start_link/3
         , info/1
-        , stop/1
         , disable/1
         , enable/1
         ]).
@@ -72,10 +71,6 @@ start_link(Insta, Ctx, GwDscrptr) ->
 info(Pid) ->
     gen_server:call(Pid, info).
 
-%% @doc Stop instance and exit process
-stop(Pid) ->
-    gen_server:call(Pid, stop).
-
 %% @doc Stop instance
 disable(Pid) ->
     gen_server:call(Pid, disable).
@@ -90,7 +85,7 @@ enable(Pid) ->
 
 init([Insta, Ctx0, _GwDscrptr]) ->
     process_flag(trap_exit, true),
-    #instance{rawconf = RawConf} = Insta,
+    #{rawconf := RawConf} = Insta,
     Ctx   = do_init_context(RawConf, Ctx0),
     State = #state{
                insta = Insta,
@@ -120,23 +115,22 @@ handle_call(info, _From, State = #state{insta = Insta}) ->
     {reply, Insta, State};
 
 handle_call(disable, _From, State = #state{child_pids = ChildPids}) ->
-    case ChildPids == [] of
+    case ChildPids /= [] of
         true ->
+            %% TODO: Report the error message
             {reply, ok, cb_insta_destroy(State)};
         _ ->
             {reply, ok, State}
     end;
 
 handle_call(enable, _From, State = #state{child_pids = ChildPids}) ->
-    case ChildPids == [] of
+    case ChildPids /= [] of
         true ->
-            {reply, ok, State};
+            {reply, {error, already_started}, State};
         _ ->
+            %% TODO: Report the error message
             {reply, ok, cb_insta_create(State)}
     end;
-
-handle_call(stop, _From, State) ->
-    {stop, normal, ok, State};
 
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -185,7 +179,7 @@ cleanup_authenticator_for_gateway_insta(allow_anonymouse) ->
 cleanup_authenticator_for_gateway_insta(_ChainId) ->
     todo.
 
-cb_insta_destroy(State = #state{insta = Insta = #instance{gwid = GwId},
+cb_insta_destroy(State = #state{insta = Insta = #{gwid := GwId},
                                 insta_state = InstaState}) ->
     try
         #{cbkmod := CbMod,
@@ -200,7 +194,7 @@ cb_insta_destroy(State = #state{insta = Insta = #instance{gwid = GwId},
             State#state{insta_state = undefined, child_pids = []}
     end.
 
-cb_insta_create(State = #state{insta = Insta = #instance{gwid = GwId},
+cb_insta_create(State = #state{insta = Insta = #{gwid := GwId},
                                ctx   = Ctx}) ->
     try
         #{cbkmod := CbMod,

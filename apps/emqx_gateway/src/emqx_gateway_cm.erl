@@ -20,6 +20,7 @@
 -behaviour(gen_server).
 
 -include("include/emqx_gateway.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -logger_header("[PGW-CM]").
 
@@ -27,13 +28,24 @@
 -export([start_link/1]).
 
 -export([ open_session/5
+        , kick_session/2
+        , kick_session/3
         , register_channel/4
         , unregister_channel/2
         , insert_channel_info/4
         , set_chan_info/3
+        , set_chan_info/4
+        , get_chan_info/2
+        , get_chan_info/3
         , set_chan_stats/3
+        , set_chan_stats/4
+        , get_chan_stats/2
+        , get_chan_stats/3
         , connection_closed/2
         ]).
+
+%% Internal funcs for getting tabname by GatewayId
+-export([cmtabs/1, tabname/2]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -109,25 +121,84 @@ insert_channel_info(GwId, ClientId, Info, Stats) ->
     %%?tp(debug, insert_channel_info, #{client_id => ClientId}),
     ok.
 
+%% @doc Get info of a channel.
+-spec get_chan_info(gateway_id(), emqx_types:clientid())
+      -> emqx_types:infos() | undefined.
+get_chan_info(GwId, ClientId) ->
+    with_channel(GwId, ClientId,
+        fun(ChanPid) ->
+            get_chan_info(GwId, ClientId, ChanPid)
+        end).
+
+-spec get_chan_info(gateway_id(), emqx_types:clientid(), pid())
+      -> emqx_types:infos() | undefined.
+get_chan_info(GwId, ClientId, ChanPid) when node(ChanPid) == node() ->
+    Chan = {ClientId, ChanPid},
+    try ets:lookup_element(tabname(info, GwId), Chan, 2)
+    catch
+        error:badarg -> undefined
+    end;
+get_chan_info(GwId, ClientId, ChanPid) ->
+    rpc_call(node(ChanPid), get_chan_info, [GwId, ClientId, ChanPid]).
+
+%% @doc Update infos of the channel.
 -spec set_chan_info(gateway_id(),
                     emqx_types:clientid(),
                     emqx_types:infos()) -> boolean().
 set_chan_info(GwId, ClientId, Infos) ->
-    Chan = {ClientId, self()},
+    set_chan_info(GwId, ClientId, self(), Infos).
+
+-spec set_chan_info(gateway_id(),
+                    emqx_types:clientid(),
+                    pid(),
+                    emqx_types:infos()) -> boolean().
+set_chan_info(GwId, ClientId, ChanPid, Infos) when node(ChanPid) == node() ->
+    Chan = {ClientId, ChanPid},
     try ets:update_element(tabname(info, GwId), Chan, {2, Infos})
     catch
         error:badarg -> false
-    end.
+    end;
+set_chan_info(GwId, ClientId, ChanPid, Infos) ->
+    rpc_call(node(ChanPid), set_chan_info, [GwId, ClientId, ChanPid, Infos]).
+
+%% @doc Get channel's stats.
+-spec get_chan_stats(gateway_id(), emqx_types:clientid())
+      -> emqx_types:stats() | undefined.
+get_chan_stats(GwId, ClientId) ->
+    with_channel(GwId, ClientId,
+        fun(ChanPid) ->
+            get_chan_stats(GwId, ClientId, ChanPid)
+        end).
+
+-spec get_chan_stats(gateway_id(), emqx_types:clientid(), pid())
+      -> emqx_types:stats() | undefined.
+get_chan_stats(GwId, ClientId, ChanPid) when node(ChanPid) == node() ->
+    Chan = {ClientId, ChanPid},
+    try ets:lookup_element(tabname(info, GwId), Chan, 3)
+    catch
+        error:badarg -> undefined
+    end;
+get_chan_stats(GwId, ClientId, ChanPid) ->
+    rpc_call(node(ChanPid), get_chan_stats, [GwId, ClientId, ChanPid]).
 
 -spec set_chan_stats(gateway_id(),
                      emqx_types:clientid(),
                      emqx_types:stats()) -> boolean().
 set_chan_stats(GwId, ClientId, Stats) ->
+    set_chan_stats(GwId, ClientId, self(), Stats).
+
+-spec set_chan_stats(gateway_id(),
+                     emqx_types:clientid(),
+                     pid(),
+                     emqx_types:stats()) -> boolean().
+set_chan_stats(GwId, ClientId, ChanPid, Stats)  when node(ChanPid) == node() ->
     Chan = {ClientId, self()},
     try ets:update_element(tabname(info, GwId), Chan, {3, Stats})
     catch
         error:badarg -> false
-    end.
+    end;
+set_chan_stats(GwId, ClientId, ChanPid, Stats) ->
+    rpc_call(node(ChanPid), set_chan_stats, [GwId, ClientId, ChanPid, Stats]).
 
 -spec connection_closed(gateway_id(), emqx_types:clientid()) -> true.
 connection_closed(GwId, ClientId) ->
@@ -177,8 +248,8 @@ create_session(_GwId, ClientInfo, ConnInfo, CreateSessionFun) ->
         Session
     catch
         Class : Reason : Stk ->
-            logger:error("Failed to create a session: ~p, ~p "
-                         "Stacktrace:~0p", [Class, Reason, Stk]),
+            ?LOG(error, "Failed to create a session: ~p, ~p "
+                        "Stacktrace:~0p", [Class, Reason, Stk]),
         throw(Reason)
     end.
 
@@ -221,6 +292,41 @@ discard_session(GwId, ClientId, ChanPid) when node(ChanPid) == node() ->
 %% @private
 discard_session(GwId, ClientId, ChanPid) ->
     rpc_call(node(ChanPid), discard_session, [GwId, ClientId, ChanPid]).
+
+-spec kick_session(gateway_id(), emqx_types:clientid())
+    -> {error, any()}
+     | ok.
+kick_session(GwId, ClientId) ->
+    case lookup_channels(GwId, ClientId) of
+        [] -> {error, not_found};
+        [ChanPid] ->
+            kick_session(GwId, ClientId, ChanPid);
+        ChanPids ->
+            [ChanPid|StalePids] = lists:reverse(ChanPids),
+            ?LOG(error, "More than one channel found: ~p", [ChanPids]),
+            lists:foreach(fun(StalePid) ->
+                              catch discard_session(GwId, ClientId, StalePid)
+                          end, StalePids),
+            kick_session(GwId, ClientId, ChanPid)
+    end.
+
+kick_session(GwId, ClientId, ChanPid) when node(ChanPid) == node() ->
+    case get_chan_info(GwId, ClientId, ChanPid) of
+        #{conninfo := #{conn_mod := ConnMod}} ->
+            ConnMod:call(ChanPid, kick, ?T_TAKEOVER);
+        undefined ->
+            {error, not_found}
+    end;
+
+kick_session(GwId, ClientId, ChanPid) ->
+    rpc_call(node(ChanPid), kick_session, [GwId, ClientId, ChanPid]).
+
+with_channel(GwId, ClientId, Fun) ->
+    case lookup_channels(GwId, ClientId) of
+        []    -> undefined;
+        [Pid] -> Fun(Pid);
+        Pids  -> Fun(lists:last(Pids))
+    end.
 
 %% @doc Lookup channels.
 -spec(lookup_channels(atom(), emqx_types:clientid()) -> list(pid())).

@@ -285,9 +285,9 @@ emqx_ctl gateway start  <GatewayId>
 emqx_ctl gateway-registry re-searching
 emqx_ctl gateway-registry list
 
-emqx_ctl gateway-clients list   <GatewayId>
-emqx_ctl gateway-clients lookup <GatewayId> <ClientId>
-emqx_ctl gateway-clients kick   <GatewayId> <ClientId>
+emqx_ctl gateway-clients list <Type>
+emqx_ctl gateway-clients show <Type> <ClientId>
+emqx_ctl gateway-clients kick <Type> <ClientId>
 
 ## Banned ??
 emqx_ctl gateway-banned

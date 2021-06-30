@@ -20,11 +20,12 @@
 
 %% APIs
 -export([ registered_gateway/0
-        , create/5
-        , remove/2
-        , update/2
-        , start/2
-        , stop/2
+        , create/4
+        , remove/1
+        , lookup/1
+        , update/1
+        , start/1
+        , stop/1
         , list/0
         ]).
 
@@ -36,35 +37,49 @@ registered_gateway() ->
 %%--------------------------------------------------------------------
 %% Gateway Instace APIs
 
--spec list() -> [{gateway_id(), [instance()]}].
+-spec list() -> [instance()].
 list() ->
-    emqx_gateway_sup:list_gateway_insta().
+    lists:append(lists:map(
+      fun({_, Insta}) -> Insta end,
+      emqx_gateway_sup:list_gateway_insta()
+     )).
 
--spec create(instance_id(), gateway_id(), binary(), binary(), map())
+-spec create(gateway_id(), binary(), binary(), map())
     -> {ok, pid()}
      | {error, any()}.
-create(InstaId, GwId, Name, Descr, RawConf) ->
-    Insta = #instance{
-               id = InstaId,
-               gwid = GwId,
-               name = Name,
-               descr = Descr,
-               rawconf = RawConf
-              },
+create(GwId, Name, Descr, RawConf) ->
+    Insta = #{ id => clacu_insta_id(GwId, Name)
+             , gwid => GwId
+             , name => Name
+             , descr => Descr
+             , rawconf => RawConf
+             },
     emqx_gateway_sup:create_gateway_insta(Insta).
 
--spec remove(instance_id(), gateway_id()) -> ok | {error, any()}.
-remove(InstaId, GwId) ->
-    emqx_gateway_sup:remove_gateway_insta(InstaId, GwId).
+-spec remove(instance_id()) -> ok | {error, any()}.
+remove(InstaId) ->
+    emqx_gateway_sup:remove_gateway_insta(InstaId).
 
--spec update(instance(), gateway_id()) -> ok | {error, any()}.
-update(NewInsta, GwId) ->
-    emqx_gateway_sup:update_gateway_insta(NewInsta, GwId).
+%% TODO:
+-spec lookup(instance_id()) -> instance() | undefined.
+lookup(InstaId) ->
+    emqx_gateway_sup:lookup_gateway_insta(InstaId).
 
--spec start(instance_id(), gateway_id()) -> ok | {error, any()}.
-start(InstaId, GwId) ->
-    emqx_gateway_sup:start_gateway_insta(InstaId, GwId).
+-spec update(instance()) -> ok | {error, any()}.
+update(NewInsta) ->
+    emqx_gateway_sup:update_gateway_insta(NewInsta).
 
--spec stop(instance_id(), gateway_id()) -> ok | {error, any()}.
-stop(InstaId, GwId) ->
-    emqx_gateway_sup:stop_gateway_insta(InstaId, GwId).
+-spec start(instance_id()) -> ok | {error, any()}.
+start(InstaId) ->
+    emqx_gateway_sup:start_gateway_insta(InstaId).
+
+-spec stop(instance_id()) -> ok | {error, any()}.
+stop(InstaId) ->
+    emqx_gateway_sup:stop_gateway_insta(InstaId).
+
+%%--------------------------------------------------------------------
+%% Internal funcs
+%%--------------------------------------------------------------------
+
+clacu_insta_id(GwId, Name) ->
+    list_to_atom(lists:concat([GwId, "#", Name])).

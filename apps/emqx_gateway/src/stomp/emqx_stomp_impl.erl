@@ -56,10 +56,9 @@ init([param1, param2]) ->
 %% emqx_gateway_registry callbacks
 %%--------------------------------------------------------------------
 
-on_insta_create(_Insta = #instance{
-                            id = InstaId,
-                            rawconf = RawConf
-                           }, Ctx, _GwState) ->
+on_insta_create(_Insta = #{ id := InstaId,
+                            rawconf := RawConf
+                          }, Ctx, _GwState) ->
     %% Step1. Fold the rawconfs to listeners
     Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
     %% Step2. Start listeners or escokd:specs
@@ -72,7 +71,7 @@ on_insta_create(_Insta = #instance{
 
 %% @private
 on_insta_update(NewInsta, OldInstace, GwInstaState = #{ctx := Ctx}, GwState) ->
-    InstaId = NewInsta#instance.id,
+    InstaId = maps:get(id, NewInsta),
     try
         %% XXX: 1. How hot-upgrade the changes ???
         %% XXX: 2. Check the New confs first before destroy old instance ???
@@ -86,10 +85,9 @@ on_insta_update(NewInsta, OldInstace, GwInstaState = #{ctx := Ctx}, GwState) ->
             {error, {Class, Reason}}
     end.
 
-on_insta_destroy(_Insta = #instance{
-                             id = InstaId,
-                             rawconf = RawConf
-                            }, _GwInstaState, _GwState) ->
+on_insta_destroy(_Insta = #{ id := InstaId,
+                             rawconf := RawConf
+                           }, _GwInstaState, _GwState) ->
     Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
     lists:foreach(fun(Lis) ->
         stop_listener(InstaId, Lis)

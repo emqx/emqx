@@ -42,7 +42,7 @@ start_link(GwId) ->
     supervisor:start_link({local, GwId}, ?MODULE, [GwId]).
 
 -spec create_insta(pid(), instance(), map()) -> {ok, GwInstaPid :: pid()} | {error, any()}.
-create_insta(Sup, Insta = #instance{id = InstaId}, GwDscrptr) ->
+create_insta(Sup, Insta = #{id := InstaId}, GwDscrptr) ->
     case emqx_gateway_utils:find_sup_child(Sup, InstaId) of
         {ok, _GwInstaPid} -> {error, alredy_existed};
         false ->
@@ -73,7 +73,7 @@ remove_insta(Sup, InstaId) ->
     end.
 
 -spec update_insta(pid(), NewInsta :: instance()) -> ok | {error, any()}.
-update_insta(Sup, NewInsta = #instance{id = InstaId}) ->
+update_insta(Sup, NewInsta = #{id := InstaId}) ->
     case emqx_gateway_utils:find_sup_child(Sup, InstaId) of
         false -> {error, not_found};
         {ok, GwInstaPid} ->
@@ -85,7 +85,7 @@ start_insta(Sup, InstaId) ->
     case emqx_gateway_utils:find_sup_child(Sup, InstaId) of
         false -> {error, not_found};
         {ok, GwInstaPid} ->
-            emqx_gateway_insta_sup:start(GwInstaPid)
+            emqx_gateway_insta_sup:enable(GwInstaPid)
     end.
 
 -spec stop_insta(pid(), atom()) -> ok | {error, any()}.
@@ -93,7 +93,7 @@ stop_insta(Sup, InstaId) ->
     case emqx_gateway_utils:find_sup_child(Sup, InstaId) of
         false -> {error, not_found};
         {ok, GwInstaPid} ->
-            emqx_gateway_insta_sup:stop(GwInstaPid)
+            emqx_gateway_insta_sup:disable(GwInstaPid)
     end.
 
 -spec list_insta(pid()) -> [instance()].

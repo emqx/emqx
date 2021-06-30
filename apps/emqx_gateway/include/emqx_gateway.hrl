@@ -21,23 +21,15 @@
 -type gateway_id()    :: atom().
 
 %% @doc The Gateway Instace defination
--record(instance, { id     :: instance_id()
-                  , gwid   :: gateway_id()
-                  , order  :: non_neg_integer()  %% ??
-                  , name   :: binary()
-                  , descr  :: binary() | undefined
-                  , rawconf = #{} :: map()
-                  , enable = true :: boolean()  %% FIXME: Read from configuration ?
-                  }).
-
--type instance() :: #instance{}.
-
-%-type instance() ::
-%        #{ id    := instance_id()
-%         , gwid  := gateway_id()
-%         , name  := binary()
-%         , descr => binary() | undefined
-%         , status := stopped | running 
-%         }.
+-type instance() ::
+        #{ id      := instance_id()
+         , gwid    := gateway_id()
+         , name    := binary()
+         , descr   => binary() | undefined
+         %% Appears only in creating or detailed info
+         , rawconf => map()
+         %% Appears only in getting instance status/info
+         , status  => stopped | running
+         }.
 
 -endif.
