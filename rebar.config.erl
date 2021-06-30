@@ -248,6 +248,7 @@ relx_apps(ReleaseType) ->
     , {mnesia, load}
     , {ekka, load}
     , {emqx_plugin_libs, load}
+    , emqx_authn
     , emqx_authz
     , observer_cli
     , emqx_http_lib
@@ -285,7 +286,6 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_sn
     , emqx_coap
     , emqx_stomp
-    , emqx_authentication
     , emqx_statsd
     , emqx_rule_actions
     ]
@@ -373,6 +373,7 @@ emqx_etc_overlay_common() ->
      {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"},
      {"{{base_dir}}/lib/emqx_data_bridge/etc/emqx_data_bridge.conf", "etc/plugins/emqx_data_bridge.conf"},
      {"{{base_dir}}/lib/emqx_telemetry/etc/emqx_telemetry.conf", "etc/plugins/emqx_telemetry.conf"},
+     {"{{base_dir}}/lib/emqx_authn/etc/emqx_authn.conf", "etc/plugins/emqx_authn.conf"},
      {"{{base_dir}}/lib/emqx_authz/etc/emqx_authz.conf", "etc/plugins/authz.conf"},
      %% TODO: check why it has to end with .paho
      %% and why it is put to etc/plugins dir

@@ -14,24 +14,16 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authentication_app).
+-module(emqx_authn_sup).
 
--behaviour(application).
+-behaviour(supervisor).
 
--emqx_plugin(?MODULE).
-
--include("emqx_authentication.hrl").
-
-%% Application callbacks
--export([ start/2
-        , stop/1
+-export([ start_link/0
+        , init/1
         ]).
 
-start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqx_authentication_sup:start_link(),
-    ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
-    ok = emqx_authentication:register_service_types(),
-    {ok, Sup}.
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-stop(_State) ->
-    ok.
+init([]) ->
+    {ok, {{one_for_one, 10, 10}, []}}.
