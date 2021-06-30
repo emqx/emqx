@@ -133,3 +133,16 @@ HSET mqtt_acl:emqx '$SYS/#' subscribe
 
 A rule of Redis ACL defines `publish`, `subscribe`, or `all `information. All lists in the rule are **allow** lists.
 
+#### Mongo
+
+Create Example BSON documents
+```sql
+db.inventory.insertOne(
+    {username: "emqx",
+     clientid: "emqx",
+     ipaddress: "127.0.0.1",
+     permission: "allow",
+     action: "all",
+     topics: ["#"]
+    })
+```

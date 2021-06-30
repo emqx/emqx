@@ -16,6 +16,13 @@ structs() -> ["emqx_authz"].
 fields("emqx_authz") ->
     [ {rules, rules()}
     ];
+fields(mongo_connector) ->
+    [ {principal, principal()}
+    , {type, #{type => hoconsc:enum([mongo])}}
+    , {config, #{type => map()}}
+    , {collection, #{type => atom()}}
+    , {find, #{type => map()}}
+    ];
 fields(redis_connector) ->
     [ {principal, principal()}
     , {type, #{type => hoconsc:enum([redis])}}
@@ -27,7 +34,6 @@ fields(redis_connector) ->
       }
     , {cmd, query()}
     ];
-
 fields(sql_connector) ->
     [ {principal, principal() }
     , {type, #{type => hoconsc:enum([mysql, pgsql])}}

@@ -140,7 +140,7 @@ on_health_check(_InstId, #{type := cluster, poolname := PoolName} = State) ->
                 eredis_cluster_pool_worker:is_connected(Pid) =:= true
             end, Workers) of
         true -> {ok, State};
-        false -> {error, test_query_failed, State}
+        false -> {error, health_check_failed, State}
     end;
 on_health_check(_InstId, #{poolname := PoolName} = State) ->
     emqx_plugin_libs_pool:health_check(PoolName, fun ?MODULE:do_health_check/1, State).

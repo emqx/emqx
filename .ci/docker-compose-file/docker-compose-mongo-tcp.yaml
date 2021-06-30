@@ -9,6 +9,8 @@ services:
       MONGO_INITDB_DATABASE: mqtt
     networks:
       - emqx_bridge
+    ports:
+      - "27017:27017"
     command:
       --ipv6
       --bind_ip_all
