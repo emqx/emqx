@@ -16,6 +16,8 @@
 
 -module(emqx_gateway_registry_SUITE).
 
+-include_lib("eunit/include/eunit.hrl").
+
 -compile(export_all).
 -compile(nowarn_export_all).
 
@@ -26,13 +28,38 @@ all() -> emqx_ct:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Cfg) ->
+    emqx_ct_helpers:start_apps([]),
+    application:ensure_all_started(emqx_gateway),
     Cfg.
 
-end_per_suite(Cfg) ->
+end_per_suite(_Cfg) ->
+    application:stop(emqx_gateway),
+    emqx_ct_helpers:stop_apps([]),
     ok.
 
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
 
+t_load_unload(_) ->
+    OldCnt = length(emqx_gateway_registry:list()),
+    RgOpts = [{cbkmod, ?MODULE}],
+    GwOpts = [paramsin],
+    ok = emqx_gateway_registry:load(test, RgOpts, GwOpts),
+    ?assertEqual(OldCnt+1, length(emqx_gateway_registry:list())),
+
+    #{cbkmod := ?MODULE,
+      rgopts := RgOpts,
+      gwopts := GwOpts,
+      state  := #{gwstate := 1}} = emqx_gateway_registry:lookup(test),
+
+    {error, already_existed} = emqx_gateway_registry:load(test, [{cbkmod, ?MODULE}], GwOpts),
+
+    ok = emqx_gateway_registry:unload(test),
+    undefined = emqx_gateway_registry:lookup(test),
+    OldCnt = length(emqx_gateway_registry:list()),
+    ok.
+
+init([paramsin]) ->
+    {ok, _GwState = #{gwstate => 1}}.
 

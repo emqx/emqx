@@ -167,7 +167,6 @@ info(gwid, #channel{ctx = #{gwid := GwId}}) ->
     GwId.
 
 stats(_Channel) ->
-    %% TODO:
     [].
 
 set_conn_state(ConnState, Channel) ->
@@ -598,6 +597,7 @@ handle_call(Req, Channel) ->
 -spec(handle_info(Info :: term(), channel())
       -> ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}).
 
+%% XXX: Received from the emqx-management ???
 %handle_info({subscribe, TopicFilters}, Channel ) ->
 %    {_, NChannel} = lists:foldl(
 %        fun({TopicFilter, SubOpts}, {_, ChannelAcc}) ->

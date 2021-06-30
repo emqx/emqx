@@ -133,7 +133,7 @@ init([]) ->
 %%--------------------------------------------------------------------
 
 gatewayid(GwId) ->
-    list_to_atom(lists:concat(["gateway#", GwId])).
+    list_to_atom(lists:concat([GwId])).
 
 is_a_gateway_id(Id) when is_atom(Id) ->
     is_a_gateway_id(atom_to_list(Id));

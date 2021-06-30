@@ -14,6 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% @doc The Registry Centre of Gateway Type
 -module(emqx_gateway_registry).
 
 -include("include/emqx_gateway.hrl").
@@ -58,7 +59,9 @@ start_link() ->
 %% Mgmt
 %%--------------------------------------------------------------------
 
--type registry_options() :: list().
+-type registry_options() :: [registry_option()].
+
+-type registry_option() :: {cbkmod, atom()}.
 
 -type gateway_options() :: list().
 
@@ -91,7 +94,7 @@ unload(GwId) ->
 list() ->
     call(all).
 
--spec lookup(gateway_id()) -> emqx_gateway_impl:state().
+-spec lookup(gateway_id()) -> descriptor().
 lookup(GwId) ->
     call({lookup, GwId}).
 
