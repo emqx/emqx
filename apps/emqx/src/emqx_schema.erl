@@ -87,7 +87,7 @@ fields("cluster") ->
     ];
 
 fields("static") ->
-    [ {"seeds", t(list(string()))}];
+    [ {"seeds", t(hoconsc:array(string()))}];
 
 fields("mcast") ->
     [ {"addr", t(string(), undefined, "239.192.0.1")}
@@ -164,46 +164,56 @@ fields("rpc") ->
     ];
 
 fields("log") ->
-    [ {"to", t(union([file, console, both]), undefined, file)}
-    , {"level", t(log_level(), undefined, warning)}
+    [ {"primary_level", t(log_level(), undefined, warning)}
+    , {"console_handler", ref("console_handler")}
+    , {"file_handlers", ref("file_handlers")}
     , {"time_offset", t(string(), undefined, "system")}
-    , {"primary_log_level", t(log_level(), undefined, warning)}
-    , {"dir", t(string(), undefined, "log")}
-    , {"file", t(file(), undefined, "emqx.log")}
-    , {"chars_limit", t(integer(), undefined, -1)}
+    , {"chars_limit", maybe_infinity(integer())}
     , {"supervisor_reports", t(union([error, progress]), undefined, error)}
     , {"max_depth", t(union([infinity, integer()]),
                       "kernel.error_logger_format_depth", 80)}
     , {"formatter", t(union([text, json]), undefined, text)}
     , {"single_line", t(boolean(), undefined, true)}
-    , {"rotation", ref("rotation")}
-    , {"size", t(union(bytesize(), infinity), undefined, infinity)}
     , {"sync_mode_qlen", t(integer(), undefined, 100)}
     , {"drop_mode_qlen", t(integer(), undefined, 3000)}
     , {"flush_qlen", t(integer(), undefined, 8000)}
-    , {"overload_kill", t(flag(), undefined, true)}
-    , {"overload_kill_mem_size", t(bytesize(), undefined, "30MB")}
-    , {"overload_kill_qlen", t(integer(), undefined, 20000)}
-    , {"overload_kill_restart_after", t(union(duration(), infinity), undefined, "5s")}
-    , {"burst_limit", t(comma_separated_list(), undefined, "disabled")}
+    , {"overload_kill", ref("log_overload_kill")}
+    , {"burst_limit", ref("log_burst_limit")}
     , {"error_logger", t(atom(), "kernel.error_logger", silent)}
-    , {"debug", ref("additional_log_file")}
-    , {"info", ref("additional_log_file")}
-    , {"notice", ref("additional_log_file")}
-    , {"warning", ref("additional_log_file")}
-    , {"error", ref("additional_log_file")}
-    , {"critical", ref("additional_log_file")}
-    , {"alert", ref("additional_log_file")}
-    , {"emergency", ref("additional_log_file")}
     ];
 
-fields("additional_log_file") ->
-    [ {"file", t(string())}];
+fields("console_handler") ->
+    [ {"enable", t(flag(), undefined, false)}
+    , {"level", t(log_level(), undefined, warning)}
+    ];
 
-fields("rotation") ->
+fields("file_handlers") ->
+    [ {"$name", ref("log_file_handler")}
+    ];
+
+fields("log_file_handler") ->
+    [ {"level", t(log_level(), undefined, warning)}
+    , {"file", t(file(), undefined, undefined)}
+    , {"rotation", ref("log_rotation")}
+    , {"max_size", maybe_infinity(bytesize(), "10MB")}
+    ];
+
+fields("log_rotation") ->
     [ {"enable", t(flag(), undefined, true)}
-    , {"size", t(bytesize(), undefined, "10MB")}
-    , {"count", t(integer(), undefined, 5)}
+    , {"count", t(range(1, 2048), undefined, 10)}
+    ];
+
+fields("log_overload_kill") ->
+    [ {"enable", t(flag(), undefined, true)}
+    , {"mem_size", t(bytesize(), undefined, "30MB")}
+    , {"qlen", t(integer(), undefined, 20000)}
+    , {"restart_after", t(union(duration(), infinity), undefined, "5s")}
+    ];
+
+fields("log_burst_limit") ->
+    [ {"enable", t(flag(), undefined, true)}
+    , {"max_count", t(integer(), undefined, 10000)}
+    , {"window_time", t(duration(), undefined, "1s")}
     ];
 
 fields("lager") ->
@@ -227,16 +237,16 @@ fields("acl") ->
 
 fields("acl_cache") ->
     [ {"enable", t(boolean(), undefined, true)}
-    , {"max_size", t(range(1, 1048576), undefined, 32)}
+    , {"max_size", maybe_infinity(range(1, 1048576), 32)}
     , {"ttl", t(duration(), undefined, "1m")}
     ];
 
 fields("mqtt") ->
     [ {"mountpoint", t(binary(), undefined, <<"">>)}
-    , {"idle_timeout", t(duration(), undefined, "15s")}
-    , {"max_packet_size", t(bytesize(), undefined, "1MB")}
+    , {"idle_timeout", maybe_infinity(duration(), "15s")}
+    , {"max_packet_size", maybe_infinity(bytesize(), "1MB")}
     , {"max_clientid_len", t(integer(), undefined, 65535)}
-    , {"max_topic_levels", t(integer(), undefined, 0)}
+    , {"max_topic_levels", t(integer(), undefined, 65535)}
     , {"max_qos_allowed", t(range(0, 2), undefined, 2)}
     , {"max_topic_alias", t(integer(), undefined, 65535)}
     , {"retain_available", t(boolean(), undefined, true)}
@@ -245,16 +255,16 @@ fields("mqtt") ->
     , {"ignore_loop_deliver", t(boolean())}
     , {"strict_mode", t(boolean(), undefined, false)}
     , {"response_information", t(string(), undefined, undefined)}
-    , {"server_keepalive", t(integer())}
+    , {"server_keepalive", maybe_disabled(integer())}
     , {"keepalive_backoff", t(float(), undefined, 0.75)}
-    , {"max_subscriptions", t(integer(), undefined, 0)}
+    , {"max_subscriptions", maybe_infinity(integer())}
     , {"upgrade_qos", t(flag(), undefined, false)}
-    , {"max_inflight", t(range(0, 65535))}
+    , {"max_inflight", t(range(1, 65535))}
     , {"retry_interval", t(duration_s(), undefined, "30s")}
-    , {"max_awaiting_rel", t(duration(), undefined, 0)}
+    , {"max_awaiting_rel", maybe_infinity(duration())}
     , {"await_rel_timeout", t(duration_s(), undefined, "300s")}
     , {"session_expiry_interval", t(duration_s(), undefined, "2h")}
-    , {"max_mqueue_len", t(integer(), undefined, 1000)}
+    , {"max_mqueue_len", maybe_infinity(integer(), 1000)}
     , {"mqueue_priorities", t(comma_separated_list(), undefined, "none")}
     , {"mqueue_default_priority", t(union(highest, lowest), undefined, lowest)}
     , {"mqueue_store_qos0", t(boolean(), undefined, true)}
@@ -275,20 +285,20 @@ fields("zone_settings") ->
     , {"force_shutdown", ref("force_shutdown")}
     , {"conn_congestion", ref("conn_congestion")}
     , {"force_gc", ref("force_gc")}
-    , {"overall_max_connections", t(integer(), undefined, 2048000)}
+    , {"overall_max_connections", maybe_infinity(integer())}
     , {"listeners", t("listeners")}
     ];
 
 fields("rate_limit") ->
     [ {"max_conn_rate", maybe_infinity(integer(), 1000)}
-    , {"conn_messages_in", t(comma_separated_list())}
-    , {"conn_bytes_in", t(comma_separated_list())}
+    , {"conn_messages_in", maybe_infinity(comma_separated_list())}
+    , {"conn_bytes_in", maybe_infinity(comma_separated_list())}
     , {"quota", ref("rate_limit_quota")}
     ];
 
 fields("rate_limit_quota") ->
-    [ {"conn_messages_routing", t(comma_separated_list())}
-    , {"overall_messages_routing", t(comma_separated_list())}
+    [ {"conn_messages_routing", maybe_infinity(comma_separated_list())}
+    , {"overall_messages_routing", maybe_infinity(comma_separated_list())}
     ];
 
 fields("flapping_detect") ->
@@ -331,32 +341,19 @@ fields("force_gc") ->
 
 fields("listeners") ->
     [ {"$name", hoconsc:union(
-        [ ref("mqtt_tcp_listener")
-        , ref("mqtt_ssl_listener")
-        , ref("mqtt_ws_listener")
-        , ref("mqtt_wss_listener")
+        [ hoconsc:ref("mqtt_tcp_listener")
+        , hoconsc:ref("mqtt_ws_listener")
         ])}
     ];
 
 fields("mqtt_tcp_listener") ->
-    [ {"type", t(typerefl:atom(tcp))}
+    [ {"type", t(tcp)}
     , {"tcp", ref("tcp_opts")}
-    ] ++ mqtt_listener();
-
-fields("mqtt_ssl_listener") ->
-    [ {"type", t(typerefl:atom(ssl))}
     , {"ssl", ref("ssl_opts")}
-    , {"tcp", ref("tcp_opts")}
     ] ++ mqtt_listener();
 
 fields("mqtt_ws_listener") ->
-    [ {"type", t(typerefl:atom(ws))}
-    , {"tcp", ref("tcp_opts")}
-    , {"websocket", ref("ws_opts")}
-    ] ++ mqtt_listener();
-
-fields("mqtt_wss_listener") ->
-    [ {"type", t(typerefl:atom(ws))}
+    [ {"type", t(ws)}
     , {"tcp", ref("tcp_opts")}
     , {"ssl", ref("ssl_opts")}
     , {"websocket", ref("ws_opts")}
@@ -366,8 +363,8 @@ fields("ws_opts") ->
     [ {"mqtt_path", t(string(), undefined, "/mqtt")}
     , {"mqtt_piggyback", t(union(single, multiple), undefined, multiple)}
     , {"compress", t(boolean())}
-    , {"idle_timeout", t(duration())}
-    , {"max_frame_size", t(integer())}
+    , {"idle_timeout", maybe_infinity(duration())}
+    , {"max_frame_size", maybe_infinity(integer())}
     , {"fail_if_no_subprotocol", t(boolean(), undefined, true)}
     , {"supported_subprotocols", t(string(), undefined,
         "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5")}
@@ -480,7 +477,7 @@ fields("sysmon_os") ->
     [ {"cpu_check_interval", t(duration_s(), undefined, 60)}
     , {"cpu_high_watermark", t(percent(), undefined, "80%")}
     , {"cpu_low_watermark", t(percent(), undefined, "60%")}
-    , {"mem_check_interval", t(duration_s(), undefined, 60)}
+    , {"mem_check_interval", maybe_disabled(duration_s(), 60)}
     , {"sysmem_high_watermark", t(percent(), undefined, "70%")}
     , {"procmem_high_watermark", t(percent(), undefined, "5%")}
     ];
@@ -503,9 +500,10 @@ fields(ExtraField) ->
 
 mqtt_listener() ->
     [ {"bind", t(union(ip_port(), integer()))}
-    , {"acceptors", t(integer(), undefined, 8)}
-    , {"max_connections", t(integer(), undefined, 1024000)}
-    , {"access", t(list(string()))}
+    , {"acceptors", t(integer(), undefined, 16)}
+    , {"max_connections", maybe_infinity(integer(), infinity)}
+    , {"rate_limit", ref("rate_limit")}
+    , {"access_rules", t(hoconsc:array(string()))}
     , {"proxy_protocol", t(flag())}
     , {"proxy_protocol_timeout", t(duration())}
     ].
@@ -1050,7 +1048,8 @@ filter(Opts) ->
 %%  ...]
 ssl(Defaults) ->
     D = fun (Field) -> maps:get(list_to_atom(Field), Defaults, undefined) end,
-    [ {"cacertfile", t(string(), undefined, D("cacertfile"))}
+    [ {"enable", t(flag(), undefined, D("enable"))}
+    , {"cacertfile", t(string(), undefined, D("cacertfile"))}
     , {"certfile", t(string(), undefined, D("certfile"))}
     , {"keyfile", t(string(), undefined, D("keyfile"))}
     , {"verify", t(union(verify_peer, verify_none), undefined, D("verify"))}
@@ -1176,8 +1175,8 @@ maybe_disabled(T) ->
 maybe_disabled(T, Default) ->
     maybe_sth(disabled, T, Default).
 
-% maybe_infinity(T) ->
-%     maybe_sth(infinity, T, infinity).
+maybe_infinity(T) ->
+    maybe_sth(infinity, T, infinity).
 
 maybe_infinity(T, Default) ->
     maybe_sth(infinity, T, Default).
@@ -1215,7 +1214,7 @@ to_bytesize(Str) ->
 to_wordsize(Str) ->
     WordSize = erlang:system_info(wordsize),
     case to_bytesize(Str) of
-        {ok, Bytes} -> Bytes div WordSize;
+        {ok, Bytes} -> {ok, Bytes div WordSize};
         Error -> Error
     end.
 
