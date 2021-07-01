@@ -37,8 +37,7 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx_modules),
-    emqx_ct_helpers:start_apps([emqx_management]),
+    emqx_ct_helpers:start_apps([emqx_management], fun set_special_configs/1),
     Config.
 
 end_per_suite(Config) ->
@@ -50,6 +49,19 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(_, Config) ->
     Config.
+
+set_special_configs(emqx_management) ->
+    application:set_env(emqx, plugins_etc_dir,
+        emqx_ct_helpers:deps_path(emqx_management, "test")),
+    Conf = #{<<"emqx_management">> => #{
+        <<"listeners">> => [#{
+            <<"protocol">> => <<"http">>
+        }]}
+    },
+    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_management.conf'), jsx:encode(Conf)),
+    ok;
+set_special_configs(_App) ->
+    ok.
 
 get(Key, ResponseBody) ->
    maps:get(Key, jiffy:decode(list_to_binary(ResponseBody), [return_maps])).
