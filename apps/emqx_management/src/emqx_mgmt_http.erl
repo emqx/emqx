@@ -78,7 +78,9 @@ stop_listener({Proto, Port, _}) ->
     minirest:stop_http(listener_name(Proto)).
 
 listeners() ->
-    application:get_env(?APP, listeners, []).
+    [{list_to_atom(Protocol), Port, maps:to_list(maps:without([protocol, port], Map))}
+        || Map = #{protocol := Protocol,port := Port}
+        <- application:get_env(?APP, listeners, [])].
 
 listener_name(Proto) ->
     list_to_atom(atom_to_list(Proto) ++ ":management").
