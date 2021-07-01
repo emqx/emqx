@@ -88,7 +88,7 @@ init_hooks_cnter() ->
     try
         _ = ets:new(?CNTER, [named_table, public]), ok
     catch
-        exit:badarg:_ ->
+        error:badarg:_ ->
             ok
     end.
 

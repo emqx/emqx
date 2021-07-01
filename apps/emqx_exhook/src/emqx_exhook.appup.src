@@ -1,20 +1,30 @@
 %% -*-: erlang -*-
 {VSN,
  [
+    {"4.3.2", [
+      {load_module, emqx_exhook_app, brutal_purge, soft_purge, []}
+    ]},
     {"4.3.1", [
+      {load_module, emqx_exhook_app, brutal_purge, soft_purge, []},
       {load_module, emqx_exhook_server, brutal_purge, soft_purge, []}
     ]},
     {"4.3.0", [
+      {load_module, emqx_exhook_app, brutal_purge, soft_purge, []},
       {load_module, emqx_exhook_pb, brutal_purge, soft_purge, []},
       {load_module, emqx_exhook_server, brutal_purge, soft_purge, []}
     ]},
     {<<".*">>, []}
  ],
  [
+    {"4.3.2", [
+      {load_module, emqx_exhook_app, brutal_purge, soft_purge, []}
+    ]},
     {"4.3.1", [
+      {load_module, emqx_exhook_app, brutal_purge, soft_purge, []},
       {load_module, emqx_exhook_server, brutal_purge, soft_purge, []}
     ]},
     {"4.3.0", [
+      {load_module, emqx_exhook_app, brutal_purge, soft_purge, []},
       {load_module, emqx_exhook_pb, brutal_purge, soft_purge, []},
       {load_module, emqx_exhook_server, brutal_purge, soft_purge, []}
     ]},
