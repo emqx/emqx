@@ -116,10 +116,10 @@ t_modules_cmd(_) ->
     meck:expect(emqx_modules, unload, fun(_) -> ok end),
     meck:expect(emqx_modules, reload, fun(_) -> ok end),
     ?assertEqual(emqx_modules:cli(["list"]), ok),
-    ?assertEqual(emqx_modules:cli(["load", "presence"]),
-                 "Module presence loaded successfully.\n"),
-    ?assertEqual(emqx_modules:cli(["unload", "presence"]),
-                 "Module presence unloaded successfully.\n"),
+    ?assertEqual(emqx_modules:cli(["load", "delayed"]),
+                 "Module delayed loaded successfully.\n"),
+    ?assertEqual(emqx_modules:cli(["unload", "delayed"]),
+                 "Module delayed unloaded successfully.\n"),
     unmock_print().
 
 %% For: https://github.com/emqx/emqx/issues/4511
