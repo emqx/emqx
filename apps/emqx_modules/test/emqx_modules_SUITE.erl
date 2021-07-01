@@ -36,9 +36,18 @@ init_per_suite(Config) ->
     emqx_ct_http:create_default_app(),
     Config.
 
-set_special_cfg(_) ->
+set_special_configs(emqx_management) ->
     application:set_env(emqx, modules_loaded_file, emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_modules")),
-    ok.
+    application:set_env(emqx, plugins_etc_dir,
+        emqx_ct_helpers:deps_path(emqx_management, "test")),
+    Conf = #{<<"emqx_management">> => #{
+        <<"listeners">> => [#{
+            <<"protocol">> => <<"http">>
+        }]}
+    },
+    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_management.conf'), jsx:encode(Conf)),
+    ok;
+
 
 end_per_suite(_Config) ->
     emqx_ct_http:delete_default_app(),
