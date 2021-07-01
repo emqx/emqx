@@ -307,12 +307,7 @@ active_plugins() ->
                     end, [], emqx_plugins:list()).
 
 active_modules() ->
-    lists:foldl(fun({Name, Persistent}, Acc) ->
-                    case Persistent of
-                        true -> [Name | Acc];
-                        false -> Acc
-                    end
-                end, [], emqx_modules:list()).
+    emqx_modules:list().
 
 num_clients() ->
     emqx_stats:getstat('connections.max').

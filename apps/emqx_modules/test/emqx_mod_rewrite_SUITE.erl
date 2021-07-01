@@ -22,8 +22,15 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(RULES, [{rewrite, pub, <<"x/#">>,<<"^x/y/(.+)$">>,<<"z/y/$1">>},
-                {rewrite, sub, <<"y/+/z/#">>,<<"^y/(.+)/z/(.+)$">>,<<"y/z/$2">>}
+-define(RULES, [#{action => publish,
+                  source_topic => <<"x/#">>,
+                  re => <<"^x/y/(.+)$">>,
+                  dest_topic => <<"z/y/$1">>
+                },
+                #{action => subscribe,
+                  source_topic => <<"y/+/z/#">>,
+                  re => <<"^y/(.+)/z/(.+)$">>,
+                  dest_topic => <<"y/z/$2">>}
                ]).
 
 all() -> emqx_ct:all(?MODULE).
@@ -40,7 +47,7 @@ end_per_suite(_Config) ->
 
 %% Test case for emqx_mod_write
 t_mod_rewrite(_Config) ->
-    ok = emqx_mod_rewrite:load(?RULES),
+    ok = emqx_mod_rewrite:load(#{rules => ?RULES}),
     {ok, C} = emqtt:start_link([{clientid, <<"rewrite_client">>}]),
     {ok, _} = emqtt:connect(C),
     PubOrigTopics = [<<"x/y/2">>, <<"x/1/2">>],
