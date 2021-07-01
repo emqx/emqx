@@ -105,15 +105,17 @@ gateway(_) ->
     dump(InfoTab, client);
 
 'gateway-clients'(["lookup", Type, ClientId]) ->
-    InfoTab = emqx_gateway_cm:tabname(info, Type),
-    case ets:lookup(InfoTab, bin(ClientId)) of
+    ChanTab = emqx_gateway_cm:tabname(chan, Type),
+    case ets:lookup(ChanTab, bin(ClientId)) of
         [] -> emqx_ctl:print("Not Found.~n");
-        [ChannInfo] ->
+        [Chann] ->
+            InfoTab = emqx_gateway_cm:tabname(info, Type),
+            [ChannInfo] = ets:lookup(InfoTab, Chann),
             print({client, ChannInfo})
     end;
 
 'gateway-clients'(["kick", Type, ClientId]) ->
-    case emqx_cm:kick_session(Type, bin(ClientId)) of
+    case emqx_gateway_cm:kick_session(Type, bin(ClientId)) of
         ok -> emqx_ctl:print("ok~n");
         _ -> emqx_ctl:print("Not Found.~n")
     end;
@@ -129,10 +131,15 @@ gateway(_) ->
 
 'gateway-metrics'([GatewayType]) ->
     Tab = emqx_gateway_metrics:tabname(GatewayType),
-    lists:foreach(
-      fun({K, V}) ->
-        emqx_ctl:print("~-30s: ~w~n", [K, V])
-      end, lists:sort(ets:tab2list(Tab)));
+    case ets:info(Tab) of
+        undefined ->
+            emqx_ctl:print("Bad Gateway Tyep.~n");
+        _ ->
+            lists:foreach(
+              fun({K, V}) ->
+                emqx_ctl:print("~-30s: ~w~n", [K, V])
+              end, lists:sort(ets:tab2list(Tab)))
+    end;
 
 'gateway-metrics'(_) ->
     emqx_ctl:usage([ {"gateway-metrics <Type>",
