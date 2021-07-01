@@ -48,7 +48,7 @@
         ]).
 
 %% Message circle
--export([ check_acl/4
+-export([ authorize/4
         % Needless for pub/sub
         %, publish/3
         %, subscribe/4
@@ -125,11 +125,11 @@ set_chan_stats(_Ctx = #{gwid := GwId}, ClientId, Stats) ->
 connection_closed(_Ctx = #{gwid := GwId}, ClientId) ->
     emqx_gateway_cm:connection_closed(GwId, ClientId).
 
--spec check_acl(context(), emqx_types:clientinfo(),
+-spec authorize(context(), emqx_types:clientinfo(),
                 emqx_types:pubsub(), emqx_types:topic())
     -> allow | deny.
-check_acl(_Ctx, ClientInfo, PubSub, Topic) ->
-    emqx_access_control:check_acl(ClientInfo, PubSub, Topic).
+authorize(_Ctx, ClientInfo, PubSub, Topic) ->
+    emqx_access_control:authorize(ClientInfo, PubSub, Topic).
 
 metrics_inc(_Ctx = #{gwid := GwId}, Name) ->
     emqx_gateway_metrics:inc(GwId, Name).

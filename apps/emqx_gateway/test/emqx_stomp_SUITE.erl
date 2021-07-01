@@ -51,11 +51,11 @@ init_per_suite(Config) ->
 
     _ = emqx_ct_helpers:start_apps([]),
     {ok, _} = application:ensure_all_started(emqx_gateway),
-    {ok, _Pid} = emqx_gateway:create(stomp1, stomp, <<"StompName">>, <<"">>, RawConf),
+    {ok, _Pid} = emqx_gateway:create(stomp, <<"Stomp1">>, <<"">>, RawConf),
     Config.
 
 end_per_suite(_Config) ->
-    ok = emqx_gateway:remove(stomp1, stomp),
+    ok = emqx_gateway:remove('stomp#Stomp1'),
     _ = emqx_ct_helpers:stop_apps([]).
 
 %%--------------------------------------------------------------------

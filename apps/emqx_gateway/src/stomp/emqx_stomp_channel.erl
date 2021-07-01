@@ -351,7 +351,7 @@ handle_in(Frame = ?PACKET(?CMD_SEND, Headers),
                        clientinfo = ClientInfo
                       }) ->
     Topic = header(<<"destination">>, Headers),
-    case emqx_gateway_ctx:check_acl(Ctx, ClientInfo, publish, Topic) of
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, Topic) of
         deny ->
             handle_out(error, {receipt_id(Headers), "ACL Deny"}, Channel);
         allow ->
@@ -385,7 +385,7 @@ handle_in(?PACKET(?CMD_SUBSCRIBE, Headers),
             ErrMsg = "Conflict subscribe id ",
             handle_out(error, {receipt_id(Headers), ErrMsg}, Channel);
         false ->
-            case emqx_gateway_ctx:check_acl(Ctx, ClientInfo, subscribe, Topic) of
+            case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, Topic) of
                 deny ->
                     handle_out(error, {receipt_id(Headers), "ACL Deny"}, Channel);
                 allow ->

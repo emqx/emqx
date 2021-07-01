@@ -15,16 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc The gateway instance management
-%%       - ClientInfo Override? Translators ? Mountpoint ??
-%%
-%% Interface:
-%%      
-%%      -type clientinfo :: #{'$gateway': #{authenticators: allow_anonymouse | ChainId}
-%%                           }
-%%       - emqx_gateway:authenticate(Type, InstaId, ClientInfo)
-%%       - emqx_gateway:register(Type, InstaId, ClientInfo)
-%%
-
 -module(emqx_gateway_insta_sup).
 
 -behaviour(gen_server).
@@ -38,6 +28,7 @@
         , info/1
         , disable/1
         , enable/1
+        , update/2
         ]).
 
 %% gen_server callbacks
@@ -78,6 +69,11 @@ disable(Pid) ->
 %% @doc Start instance
 enable(Pid) ->
     gen_server:call(Pid, enable).
+
+%% @doc Update the gateway instance configurations
+update(_Pid, _NewInsta) ->
+    %% TODO:
+    todo.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

@@ -81,5 +81,5 @@ stop(InstaId) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-clacu_insta_id(GwId, Name) ->
-    list_to_atom(lists:concat([GwId, "#", Name])).
+clacu_insta_id(GwId, Name) when is_binary(Name) ->
+    list_to_atom(lists:concat([GwId, "#", binary_to_list(Name)])).
