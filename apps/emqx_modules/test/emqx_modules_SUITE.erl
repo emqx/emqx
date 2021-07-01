@@ -32,7 +32,7 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_management, emqx_modules], fun set_special_cfg/1),
+    emqx_ct_helpers:start_apps([emqx_management, emqx_modules], fun set_special_configs/1),
     emqx_ct_http:create_default_app(),
     Config.
 
@@ -47,7 +47,7 @@ set_special_configs(emqx_management) ->
     },
     ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_management.conf'), jsx:encode(Conf)),
     ok;
-set_special_cfg(_) ->
+set_special_configs(_) ->
     ok.
 
 end_per_suite(_Config) ->
