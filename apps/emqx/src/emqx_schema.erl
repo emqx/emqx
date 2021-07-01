@@ -9,7 +9,6 @@
 -include_lib("typerefl/include/types.hrl").
 
 -type log_level() :: debug | info | notice | warning | error | critical | alert | emergency | all.
--type flag() :: true | false.
 -type duration() :: integer().
 -type duration_s() :: integer().
 -type duration_ms() :: integer().
@@ -22,7 +21,6 @@
 -type bar_separated_list() :: list().
 -type ip_port() :: tuple().
 
--typerefl_from_string({flag/0, emqx_schema, to_flag}).
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
 -typerefl_from_string({duration_ms/0, emqx_schema, to_duration_ms}).
@@ -37,13 +35,13 @@
 % workaround: prevent being recognized as unused functions
 -export([to_duration/1, to_duration_s/1, to_duration_ms/1,
          to_bytesize/1, to_wordsize/1,
-         to_flag/1, to_percent/1, to_comma_separated_list/1,
+         to_percent/1, to_comma_separated_list/1,
          to_bar_separated_list/1, to_ip_port/1,
          to_comma_separated_atoms/1]).
 
 -behaviour(hocon_schema).
 
--reflect_type([ log_level/0, flag/0, duration/0, duration_s/0, duration_ms/0,
+-reflect_type([ log_level/0, duration/0, duration_s/0, duration_ms/0,
                 bytesize/0, wordsize/0, percent/0, file/0,
                 comma_separated_list/0, bar_separated_list/0, ip_port/0,
                 comma_separated_atoms/0]).
@@ -75,7 +73,7 @@ fields("cluster") ->
     , {"discovery_strategy", t(union([manual, static, mcast, dns, etcd, k8s]),
         undefined, manual)}
     , {"autoclean", t(duration(), "ekka.cluster_autoclean", undefined)}
-    , {"autoheal", t(flag(), "ekka.cluster_autoheal", false)}
+    , {"autoheal", t(boolean(), "ekka.cluster_autoheal", false)}
     , {"static", ref("static")}
     , {"mcast", ref("mcast")}
     , {"proto_dist", t(union([inet_tcp, inet6_tcp, inet_tls]), "ekka.proto_dist", inet_tcp)}
@@ -94,7 +92,7 @@ fields("mcast") ->
     , {"ports", t(comma_separated_list(), undefined, "4369")}
     , {"iface", t(string(), undefined, "0.0.0.0")}
     , {"ttl", t(integer(), undefined, 255)}
-    , {"loop", t(flag(), undefined, true)}
+    , {"loop", t(boolean(), undefined, true)}
     , {"sndbuf", t(bytesize(), undefined, "16KB")}
     , {"recbuf", t(bytesize(), undefined, "16KB")}
     , {"buffer", t(bytesize(), undefined, "32KB")}
@@ -183,7 +181,7 @@ fields("log") ->
     ];
 
 fields("console_handler") ->
-    [ {"enable", t(flag(), undefined, false)}
+    [ {"enable", t(boolean(), undefined, false)}
     , {"level", t(log_level(), undefined, warning)}
     ];
 
@@ -199,26 +197,26 @@ fields("log_file_handler") ->
     ];
 
 fields("log_rotation") ->
-    [ {"enable", t(flag(), undefined, true)}
+    [ {"enable", t(boolean(), undefined, true)}
     , {"count", t(range(1, 2048), undefined, 10)}
     ];
 
 fields("log_overload_kill") ->
-    [ {"enable", t(flag(), undefined, true)}
+    [ {"enable", t(boolean(), undefined, true)}
     , {"mem_size", t(bytesize(), undefined, "30MB")}
     , {"qlen", t(integer(), undefined, 20000)}
     , {"restart_after", t(union(duration(), infinity), undefined, "5s")}
     ];
 
 fields("log_burst_limit") ->
-    [ {"enable", t(flag(), undefined, true)}
+    [ {"enable", t(boolean(), undefined, true)}
     , {"max_count", t(integer(), undefined, 10000)}
     , {"window_time", t(duration(), undefined, "1s")}
     ];
 
 fields("lager") ->
     [ {"handlers", t(string(), "lager.handlers", "")}
-    , {"crash_log", t(flag(), "lager.crash_log", false)}
+    , {"crash_log", t(boolean(), "lager.crash_log", false)}
     ];
 
 fields("stats") ->
@@ -258,7 +256,7 @@ fields("mqtt") ->
     , {"server_keepalive", maybe_disabled(integer())}
     , {"keepalive_backoff", t(float(), undefined, 0.75)}
     , {"max_subscriptions", maybe_infinity(integer())}
-    , {"upgrade_qos", t(flag(), undefined, false)}
+    , {"upgrade_qos", t(boolean(), undefined, false)}
     , {"max_inflight", t(range(1, 65535))}
     , {"retry_interval", t(duration_s(), undefined, "30s")}
     , {"max_awaiting_rel", maybe_infinity(duration())}
@@ -329,7 +327,7 @@ fields("force_shutdown") ->
     ];
 
 fields("conn_congestion") ->
-    [ {"enable_alarm", t(flag(), undefined, false)}
+    [ {"enable_alarm", t(boolean(), undefined, false)}
     , {"min_alarm_sustain_duration", t(duration(), undefined, "1m")}
     ];
 
@@ -380,11 +378,11 @@ fields("tcp_opts") ->
     [ {"active_n", t(integer(), undefined, 100)}
     , {"backlog", t(integer(), undefined, 1024)}
     , {"send_timeout", t(duration(), undefined, "15s")}
-    , {"send_timeout_close", t(flag(), undefined, true)}
+    , {"send_timeout_close", t(boolean(), undefined, true)}
     , {"recbuf", t(bytesize())}
     , {"sndbuf", t(bytesize())}
     , {"buffer", t(bytesize())}
-    , {"tune_buffer", t(flag())}
+    , {"tune_buffer", t(boolean())}
     , {"high_watermark", t(bytesize(), undefined, "1MB")}
     , {"nodelay", t(boolean())}
     , {"reuseaddr", t(boolean())}
@@ -444,11 +442,11 @@ fields("plugins") ->
 fields("broker") ->
     [ {"sys_msg_interval", maybe_disabled(duration(), "1m")}
     , {"sys_heartbeat_interval", maybe_disabled(duration(), "30s")}
-    , {"enable_session_registry", t(flag(), undefined, true)}
+    , {"enable_session_registry", t(boolean(), undefined, true)}
     , {"session_locking_strategy", t(union([local, leader, quorum, all]), undefined, quorum)}
     , {"shared_subscription_strategy", t(union(random, round_robin), undefined, round_robin)}
     , {"shared_dispatch_ack_enabled", t(boolean(), undefined, false)}
-    , {"route_batch_clean", t(flag(), undefined, true)}
+    , {"route_batch_clean", t(boolean(), undefined, true)}
     , {"perf", ref("perf")}
     ];
 
@@ -504,7 +502,7 @@ mqtt_listener() ->
     , {"max_connections", maybe_infinity(integer(), infinity)}
     , {"rate_limit", ref("rate_limit")}
     , {"access_rules", t(hoconsc:array(string()))}
-    , {"proxy_protocol", t(flag())}
+    , {"proxy_protocol", t(boolean(), undefined, false)}
     , {"proxy_protocol_timeout", t(duration())}
     ].
 
@@ -628,15 +626,15 @@ filter(Opts) ->
 %%  ...]
 ssl(Defaults) ->
     D = fun (Field) -> maps:get(list_to_atom(Field), Defaults, undefined) end,
-    [ {"enable", t(flag(), undefined, D("enable"))}
+    [ {"enable", t(boolean(), undefined, D("enable"))}
     , {"cacertfile", t(string(), undefined, D("cacertfile"))}
     , {"certfile", t(string(), undefined, D("certfile"))}
     , {"keyfile", t(string(), undefined, D("keyfile"))}
     , {"verify", t(union(verify_peer, verify_none), undefined, D("verify"))}
     , {"fail_if_no_peer_cert", t(boolean(), undefined, D("fail_if_no_peer_cert"))}
-    , {"secure_renegotiate", t(flag(), undefined, D("secure_renegotiate"))}
-    , {"reuse_sessions", t(flag(), undefined, D("reuse_sessions"))}
-    , {"honor_cipher_order", t(flag(), undefined, D("honor_cipher_order"))}
+    , {"secure_renegotiate", t(boolean(), undefined, D("secure_renegotiate"))}
+    , {"reuse_sessions", t(boolean(), undefined, D("reuse_sessions"))}
+    , {"honor_cipher_order", t(boolean(), undefined, D("honor_cipher_order"))}
     , {"handshake_timeout", t(duration(), undefined, D("handshake_timeout"))}
     , {"depth", t(integer(), undefined, D("depth"))}
     , {"password", hoconsc:t(string(), #{default => D("key_password"),
@@ -763,9 +761,6 @@ maybe_infinity(T, Default) ->
 
 maybe_sth(What, Type, Default) ->
     t(union([What, Type]), undefined, Default).
-
-to_flag(Str) ->
-    {ok, hocon_postprocess:onoff(Str)}.
 
 to_duration(Str) ->
     case hocon_postprocess:duration(Str) of

@@ -160,6 +160,7 @@ save_configs(RootKeys, RawConf) ->
 %         end, MappedEnvs).
 
 save_config_to_emqx(Conf, RawConf) ->
+    ?LOG(debug, "set config: ~p", [Conf]),
     emqx_config:put(emqx_config:unsafe_atom_key_map(Conf)),
     emqx_config:put_raw(RawConf).
 
