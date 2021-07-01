@@ -90,8 +90,8 @@
 -define(TRANS_TIMEOUT, 60000).
 
 -define(DEFAULT_OVERRIDE,
-        #{ username => <<"${Packet.headers.login}">>
-         , clientid => <<"${Packet.headers.login}">>
+        #{ clientid => <<"">>  %% Generate clientid by default
+         , username => <<"${Packet.headers.login}">>
          , password => <<"${Packet.headers.passcode}">>
          }).
 
@@ -238,7 +238,9 @@ write_clientinfo(Override, ClientInfo) ->
     Override1 = maps:with([username, password, clientid], Override),
     maps:merge(ClientInfo, Override1).
 
-maybe_assign_clientid(_Packet, ClientInfo = #{clientid := undefined}) ->
+maybe_assign_clientid(_Packet, ClientInfo = #{clientid := ClientId})
+    when ClientId == undefined;
+         ClientId == <<>> ->
     {ok, ClientInfo#{clientid => emqx_guid:to_base62(emqx_guid:gen())}};
 
 maybe_assign_clientid(_Packet, ClientInfo) ->
