@@ -175,11 +175,11 @@ cleanup_authenticator_for_gateway_insta(allow_anonymouse) ->
 cleanup_authenticator_for_gateway_insta(_ChainId) ->
     todo.
 
-cb_insta_destroy(State = #state{insta = Insta = #{gwid := GwId},
+cb_insta_destroy(State = #state{insta = Insta = #{type := Type},
                                 insta_state = InstaState}) ->
     try
         #{cbkmod := CbMod,
-          state := GwState} = emqx_gateway_registry:lookup(GwId),
+          state := GwState} = emqx_gateway_registry:lookup(Type),
         CbMod:on_insta_destroy(Insta, InstaState, GwState)
     catch
         Class : Reason : Stk ->
@@ -190,11 +190,11 @@ cb_insta_destroy(State = #state{insta = Insta = #{gwid := GwId},
             State#state{insta_state = undefined, child_pids = []}
     end.
 
-cb_insta_create(State = #state{insta = Insta = #{gwid := GwId},
+cb_insta_create(State = #state{insta = Insta = #{type := Type},
                                ctx   = Ctx}) ->
     try
         #{cbkmod := CbMod,
-          state := GwState} = emqx_gateway_registry:lookup(GwId),
+          state := GwState} = emqx_gateway_registry:lookup(Type),
         case CbMod:on_insta_create(Insta, Ctx, GwState) of
             {error, Reason} -> throw({callback_return_error, Reason});
             {ok, InstaPidOrSpecs, InstaState} ->

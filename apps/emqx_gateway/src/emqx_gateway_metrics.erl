@@ -48,36 +48,36 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-start_link(GwId) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [GwId], []).
+start_link(Type) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [Type], []).
 
--spec inc(gateway_id(), atom()) -> ok.
-inc(GwId, Name) ->
-    inc(GwId, Name, 1).
+-spec inc(gateway_type(), atom()) -> ok.
+inc(Type, Name) ->
+    inc(Type, Name, 1).
 
--spec inc(gateway_id(), atom(), integer()) -> ok.
-inc(GwId, Name, Oct) ->
-    ets:update_counter(tabname(GwId), Name, {2, Oct}, {Name, 0}),
+-spec inc(gateway_type(), atom(), integer()) -> ok.
+inc(Type, Name, Oct) ->
+    ets:update_counter(tabname(Type), Name, {2, Oct}, {Name, 0}),
     ok.
 
--spec dec(gateway_id(), atom()) -> ok.
-dec(GwId, Name) ->
-    inc(GwId, Name, -1).
+-spec dec(gateway_type(), atom()) -> ok.
+dec(Type, Name) ->
+    inc(Type, Name, -1).
 
--spec dec(gateway_id(), atom(), non_neg_integer()) -> ok.
-dec(GwId, Name, Oct) ->
-    inc(GwId, Name, -Oct).
+-spec dec(gateway_type(), atom(), non_neg_integer()) -> ok.
+dec(Type, Name, Oct) ->
+    inc(Type, Name, -Oct).
 
-tabname(GwId) ->
-    list_to_atom(lists:concat([emqx_gateway_, GwId, '_metrics'])).
+tabname(Type) ->
+    list_to_atom(lists:concat([emqx_gateway_, Type, '_metrics'])).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([GwId]) ->
+init([Type]) ->
     TabOpts = [public, {write_concurrency, true}],
-    ok = emqx_tables:new(tabname(GwId), [set|TabOpts]),
+    ok = emqx_tables:new(tabname(Type), [set|TabOpts]),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->

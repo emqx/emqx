@@ -62,8 +62,6 @@
         ]).
 
 -record(state, {
-          %% Gateway Info
-          gwinfo :: #{gwid := atom()},
           %% TCP/TLS Transport
           transport :: esockd:transport(),
           %% TCP/TLS Socket

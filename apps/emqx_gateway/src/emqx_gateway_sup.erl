@@ -49,11 +49,11 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 -spec create_gateway_insta(instance()) -> {ok, pid()} | {error, any()}.
-create_gateway_insta(Insta = #{gwid := GwId}) ->
-    case emqx_gateway_registry:lookup(GwId) of
-        undefined -> {error, {unknown_gateway_id, GwId}};
+create_gateway_insta(Insta = #{type := Type}) ->
+    case emqx_gateway_registry:lookup(Type) of
+        undefined -> {error, {unknown_gateway_id, Type}};
         GwDscrptr ->
-            {ok, GwSup} = ensure_gateway_suptree_ready(gatewayid(GwId)),
+            {ok, GwSup} = ensure_gateway_suptree_ready(gatewayid(Type)),
             emqx_gateway_gw_sup:create_insta(GwSup, Insta, GwDscrptr)
     end.
 
@@ -78,8 +78,8 @@ lookup_gateway_insta(InstaId) ->
 -spec update_gateway_insta(instance())
     -> ok
      | {error, any()}.
-update_gateway_insta(NewInsta = #{gwid := GwId}) ->
-    case emqx_gateway_utils:find_sup_child(?MODULE, gatewayid(GwId)) of
+update_gateway_insta(NewInsta = #{type := Type}) ->
+    case emqx_gateway_utils:find_sup_child(?MODULE, gatewayid(Type)) of
         {ok, GwSup} ->
             emqx_gateway_gw_sup:update_insta(GwSup, NewInsta);
         _ -> {error, not_found}
@@ -100,15 +100,15 @@ stop_gateway_insta(InstaId) ->
         _ -> {error, not_found}
     end.
 
--spec list_gateway_insta(gateway_id()) -> {ok, [instance()]} | {error, any()}.
-list_gateway_insta(GwId) ->
-    case emqx_gateway_utils:find_sup_child(?MODULE, gatewayid(GwId)) of
+-spec list_gateway_insta(gateway_type()) -> {ok, [instance()]} | {error, any()}.
+list_gateway_insta(Type) ->
+    case emqx_gateway_utils:find_sup_child(?MODULE, gatewayid(Type)) of
         {ok, GwSup} ->
             {ok, emqx_gateway_gw_sup:list_insta(GwSup)};
         _ -> {error, not_found}
     end.
 
--spec list_gateway_insta() -> [{gateway_id(), instance()}].
+-spec list_gateway_insta() -> [{gateway_type(), instance()}].
 list_gateway_insta() ->
     lists:map(
       fun(SupId) ->
@@ -116,17 +116,17 @@ list_gateway_insta() ->
         {SupId, Instas}
       end, list_started_gateway()).
 
--spec list_started_gateway() -> [gateway_id()].
+-spec list_started_gateway() -> [gateway_type()].
 list_started_gateway() ->
-    started_gateway_id().
+    started_gateway_type().
 
 -spec stop_all_suptree(atom()) -> ok.
-stop_all_suptree(GwId) ->
-    case lists:keyfind(GwId, 1, supervisor:which_children(?MODULE)) of
+stop_all_suptree(Type) ->
+    case lists:keyfind(Type, 1, supervisor:which_children(?MODULE)) of
         false -> ok;
         _ ->
-            _ = supervisor:terminate_child(?MODULE, GwId),
-            _ = supervisor:delete_child(?MODULE, GwId),
+            _ = supervisor:terminate_child(?MODULE, Type),
+            _ = supervisor:delete_child(?MODULE, Type),
             ok
     end.
 
@@ -145,22 +145,22 @@ init([]) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-gatewayid(GwId) ->
-    list_to_atom(lists:concat([GwId])).
+gatewayid(Type) ->
+    list_to_atom(lists:concat([Type])).
 
-ensure_gateway_suptree_ready(GwId) ->
-    case lists:keyfind(GwId, 1, supervisor:which_children(?MODULE)) of
+ensure_gateway_suptree_ready(Type) ->
+    case lists:keyfind(Type, 1, supervisor:which_children(?MODULE)) of
         false ->
             ChildSpec = emqx_gateway_utils:childspec(
-                          GwId,
+                          Type,
                           supervisor,
                           emqx_gateway_gw_sup,
-                          [GwId]
+                          [Type]
                          ),
             emqx_gateway_utils:supervisor_ret(
               supervisor:start_child(?MODULE, ChildSpec)
              );
-        {_Id, Pid, _GwId, _Mods} ->
+        {_Id, Pid, _Type, _Mods} ->
             {ok, Pid}
     end.
 
@@ -176,7 +176,7 @@ search_gateway_insta_proc(InstaId, [SupPid|More]) ->
             search_gateway_insta_proc(InstaId, More)
     end.
 
-started_gateway_id() ->
+started_gateway_type() ->
     lists:filtermap(
         fun({Id, _, _, _}) ->
             is_a_gateway_id(Id) andalso {true, Id}

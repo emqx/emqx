@@ -30,7 +30,7 @@
         ]).
 
 -spec registered_gateway() ->
-    [{gateway_id(), emqx_gateway_registry:descriptor()}].
+    [{gateway_type(), emqx_gateway_registry:descriptor()}].
 registered_gateway() ->
     emqx_gateway_registry:list().
 
@@ -44,12 +44,12 @@ list() ->
       emqx_gateway_sup:list_gateway_insta()
      )).
 
--spec create(gateway_id(), binary(), binary(), map())
+-spec create(gateway_type(), binary(), binary(), map())
     -> {ok, pid()}
      | {error, any()}.
-create(GwId, Name, Descr, RawConf) ->
-    Insta = #{ id => clacu_insta_id(GwId, Name)
-             , gwid => GwId
+create(Type, Name, Descr, RawConf) ->
+    Insta = #{ id => clacu_insta_id(Type, Name)
+             , type => Type
              , name => Name
              , descr => Descr
              , rawconf => RawConf
@@ -81,5 +81,5 @@ stop(InstaId) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-clacu_insta_id(GwId, Name) when is_binary(Name) ->
-    list_to_atom(lists:concat([GwId, "#", binary_to_list(Name)])).
+clacu_insta_id(Type, Name) when is_binary(Name) ->
+    list_to_atom(lists:concat([Type, "#", binary_to_list(Name)])).

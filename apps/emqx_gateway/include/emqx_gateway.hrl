@@ -17,13 +17,13 @@
 -ifndef(EMQX_GATEWAY_HRL).
 -define(EMQX_GATEWAY_HRL, 1).
 
--type instance_id()   :: atom().
--type gateway_id()    :: atom().
+-type instance_id()  :: atom().
+-type gateway_type() :: atom().
 
 %% @doc The Gateway Instace defination
 -type instance() ::
         #{ id      := instance_id()
-         , gwid    := gateway_id()
+         , type    := gateway_type()
          , name    := binary()
          , descr   => binary() | undefined
          %% Appears only in creating or detailed info

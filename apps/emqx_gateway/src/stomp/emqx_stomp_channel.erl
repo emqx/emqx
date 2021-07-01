@@ -162,9 +162,7 @@ info(will_msg, _) ->
 info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
     ClientId;
 info(ctx, #channel{ctx = Ctx}) ->
-    Ctx;
-info(gwid, #channel{ctx = #{gwid := GwId}}) ->
-    GwId.
+    Ctx.
 
 stats(_Channel) ->
     [].

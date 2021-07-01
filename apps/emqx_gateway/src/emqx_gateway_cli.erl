@@ -46,10 +46,10 @@ is_cmd(Fun) ->
 %% Cmds
 
 gateway(["list"]) ->
-    lists:foreach(fun(#{id := InstaId, name := Name, gwid := GwId}) ->
+    lists:foreach(fun(#{id := InstaId, name := Name, type := Type}) ->
         %% FIXME: Get the real running status
-        emqx_ctl:print("Gateway(~s, name=~s, gwid=~s, status=running~n",
-                       [InstaId, Name, GwId])
+        emqx_ctl:print("Gateway(~s, name=~s, type=~s, status=running~n",
+                       [InstaId, Name, Type])
     end, emqx_gateway:list());
 
 gateway(["lookup", GatewayInstaId]) ->
@@ -183,9 +183,10 @@ print({client, {_, Infos, Stats}}) ->
               created_at => ConnectedAt,
               connected_at => ConnectedAt
             },
+
     emqx_ctl:print("Client(~s, username=~s, peername=~s, "
-                   "clean_start=~s, keepalive=~w,"
-                   "subscriptions=~w, delivered_msgs=~w,"
+                   "clean_start=~s, keepalive=~w, "
+                   "subscriptions=~w, delivered_msgs=~w, "
                    "connected=~s, created_at=~w, connected_at=~w" ++ case maps:is_key(disconnected_at, Info) of
                                                                       true  -> ", disconnected_at=~w)~n";
                                                                       false -> ")~n"

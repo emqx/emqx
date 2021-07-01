@@ -38,8 +38,8 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-start_link(GwId) ->
-    supervisor:start_link({local, GwId}, ?MODULE, [GwId]).
+start_link(Type) ->
+    supervisor:start_link({local, Type}, ?MODULE, [Type]).
 
 -spec create_insta(pid(), instance(), map()) -> {ok, GwInstaPid :: pid()} | {error, any()}.
 create_insta(Sup, Insta = #{id := InstaId}, GwDscrptr) ->
@@ -107,14 +107,14 @@ list_insta(Sup) ->
 %% Supervisor callback
 
 %% @doc Initialize Top Supervisor for a Protocol
-init([GwId]) ->
+init([Type]) ->
     SupFlags = #{ strategy => one_for_one
                 , intensity => 10
                 , period => 60
                 },
-    CmOpts = [{gwid, GwId}],
+    CmOpts = [{type, Type}],
     CM = emqx_gateway_utils:childspec(worker, emqx_gateway_cm, [CmOpts]),
-    Metrics = emqx_gateway_utils:childspec(worker, emqx_gateway_metrics, [GwId]),
+    Metrics = emqx_gateway_utils:childspec(worker, emqx_gateway_metrics, [Type]),
     {ok, {SupFlags, [CM, Metrics]}}.
 
 %%--------------------------------------------------------------------
@@ -122,10 +122,10 @@ init([GwId]) ->
 %%--------------------------------------------------------------------
 
 ctx(Sup, InstaId) ->
-    {_, GwId} = erlang:process_info(Sup, registered_name),
+    {_, Type} = erlang:process_info(Sup, registered_name),
     {ok, CM}  = emqx_gateway_utils:find_sup_child(Sup, emqx_gateway_cm),
     #{ instid => InstaId
-     , gwid => GwId
+     , type => Type
      , cm => CM
      }.
 
