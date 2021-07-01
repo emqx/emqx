@@ -47,7 +47,8 @@ set_special_configs(emqx_management) ->
     },
     ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_management.conf'), jsx:encode(Conf)),
     ok;
-
+set_special_cfg(_) ->
+    ok.
 
 end_per_suite(_Config) ->
     emqx_ct_http:delete_default_app(),
@@ -56,70 +57,67 @@ end_per_suite(_Config) ->
 t_load(_) ->
     ?assertEqual(ok, emqx_modules:unload()),
     ?assertEqual(ok, emqx_modules:load()),
-    ?assertEqual({error, not_found}, emqx_modules:load(not_existed_module)),
-    ?assertEqual({error, not_started}, emqx_modules:unload(emqx_mod_rewrite)),
-    ?assertEqual(ignore, emqx_modules:reload(emqx_mod_rewrite)).
+    ?assertEqual({error, not_started}, emqx_modules:unload(rewrite)),
+    ?assertEqual(ignore, emqx_modules:reload(rewrite)).
 
 t_list(_) ->
-    ?assertMatch([{_, _} | _ ], emqx_modules:list()).
+    emqx_modules:load(presence, #{qos => 1}),
+    ?assertMatch([_ | _ ], emqx_modules:list()),
+    emqx_modules:unload(presence).
 
 t_modules_api(_) ->
-    emqx_modules:load_module(emqx_mod_presence, false),
+    emqx_modules:load(presence, #{qos => 1}),
     timer:sleep(50),
     {ok, Modules1} = request_api(get, api_path(["modules"]), auth_header_()),
     [Modules11] = filter(get(<<"data">>, Modules1), <<"node">>, atom_to_binary(node(), utf8)),
-    [Module1] = filter(maps:get(<<"modules">>, Modules11), <<"name">>, <<"emqx_mod_presence">>),
-    ?assertEqual(<<"emqx_mod_presence">>, maps:get(<<"name">>, Module1)),
-    ?assertEqual(true, maps:get(<<"active">>, Module1)),
-
+    [Module1] = filter(maps:get(<<"modules">>, Modules11), <<"name">>, <<"presence">>),
+    ?assertEqual(<<"presence">>, maps:get(<<"name">>, Module1)),
     {ok, _} = request_api(put,
                           api_path(["modules",
-                                    atom_to_list(emqx_mod_presence),
+                                    atom_to_list(presence),
                                     "unload"]),
                           auth_header_()),
     {ok, Error1} = request_api(put,
                                api_path(["modules",
-                                         atom_to_list(emqx_mod_presence),
+                                         atom_to_list(presence),
                                          "unload"]),
                                auth_header_()),
     ?assertEqual(<<"not_started">>, get(<<"message">>, Error1)),
     {ok, Modules2} = request_api(get,
                                  api_path(["nodes", atom_to_list(node()), "modules"]),
                                  auth_header_()),
-    [Module2] = filter(get(<<"data">>, Modules2), <<"name">>, <<"emqx_mod_presence">>),
-    ?assertEqual(<<"emqx_mod_presence">>, maps:get(<<"name">>, Module2)),
-    ?assertEqual(false, maps:get(<<"active">>, Module2)),
+    [Module2] = filter(get(<<"data">>, Modules2), <<"name">>, <<"presence">>),
+    ?assertEqual(<<"presence">>, maps:get(<<"name">>, Module2)),
 
     {ok, _} = request_api(put,
                           api_path(["nodes",
                                     atom_to_list(node()),
                                     "modules",
-                                    atom_to_list(emqx_mod_presence),
+                                    atom_to_list(presence),
                                     "load"]),
                           auth_header_()),
     {ok, Modules3} = request_api(get,
                                  api_path(["nodes", atom_to_list(node()), "modules"]),
                                  auth_header_()),
-    [Module3] = filter(get(<<"data">>, Modules3), <<"name">>, <<"emqx_mod_presence">>),
-    ?assertEqual(<<"emqx_mod_presence">>, maps:get(<<"name">>, Module3)),
-    ?assertEqual(true, maps:get(<<"active">>, Module3)),
+    [Module3] = filter(get(<<"data">>, Modules3), <<"name">>, <<"presence">>),
+    ?assertEqual(<<"presence">>, maps:get(<<"name">>, Module3)),
 
     {ok, _} = request_api(put,
                           api_path(["nodes",
                                     atom_to_list(node()),
                                     "modules",
-                                    atom_to_list(emqx_mod_presence),
+                                    atom_to_list(presence),
                                     "unload"]),
                           auth_header_()),
     {ok, Error2} = request_api(put,
                                api_path(["nodes",
                                          atom_to_list(node()),
                                          "modules",
-                                         atom_to_list(emqx_mod_presence),
+                                         atom_to_list(presence),
                                          "unload"]),
                                auth_header_()),
     ?assertEqual(<<"not_started">>, get(<<"message">>, Error2)),
-    emqx_modules:unload(emqx_mod_presence).
+    emqx_modules:unload(presence).
 
 
 t_modules_cmd(_) ->
@@ -129,10 +127,10 @@ t_modules_cmd(_) ->
     meck:expect(emqx_modules, unload, fun(_) -> ok end),
     meck:expect(emqx_modules, reload, fun(_) -> ok end),
     ?assertEqual(emqx_modules:cli(["list"]), ok),
-    ?assertEqual(emqx_modules:cli(["load", "emqx_mod_presence"]),
-                 "Module emqx_mod_presence loaded successfully.\n"),
-    ?assertEqual(emqx_modules:cli(["unload", "emqx_mod_presence"]),
-                 "Module emqx_mod_presence unloaded successfully.\n"),
+    ?assertEqual(emqx_modules:cli(["load", "delayed"]),
+                 "Module delayed loaded successfully.\n"),
+    ?assertEqual(emqx_modules:cli(["unload", "delayed"]),
+                 "Module delayed unloaded successfully.\n"),
     unmock_print().
 
 %% For: https://github.com/emqx/emqx/issues/4511
