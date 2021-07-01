@@ -38,16 +38,17 @@ init() ->
     ok = register_metrics(),
     Conf = filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf'),
     {ok, RawConf} = hocon:load(Conf),
-    #{<<"authz">> := #{<<"rules">> := Rules}} = hocon_schema:check_plain(emqx_authz_schema, RawConf),
-    ok = application:set_env(?APP, rules, Rules),
+    #{emqx_authz := #{rules := Rules}} = hocon_schema:check_plain(emqx_authz_schema, RawConf, #{atom_key => true}),
+    emqx_config:put([emqx_authz], #{rules => Rules}),
+    % Rules = emqx_config:get([emqx_authz, rules], []),
     NRules = [compile(Rule) || Rule <- Rules],
     ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]},  -1).
 
 lookup() ->
-    application:get_env(?APP, rules, []).
+    emqx_config:get([emqx_authz, rules], []).
 
 update(Rules) ->
-    ok = application:set_env(?APP, rules, Rules),
+    emqx_config:put([emqx_authz], #{rules => Rules}),
     NRules = [compile(Rule) || Rule <- Rules],
     Action = find_action_in_hooks(),
     ok = emqx_hooks:del('client.authorize', Action),
@@ -63,12 +64,12 @@ find_action_in_hooks() ->
     [Action] = [Action || {callback,{?MODULE, authorize, _} = Action, _, _} <- Callbacks ],
     Action.
 
-create_resource(#{<<"type">> := DB,
-                  <<"config">> := Config
+create_resource(#{type := DB,
+                  config := Config
                  } = Rule) ->
     ResourceID = iolist_to_binary([io_lib:format("~s_~s",[?APP, DB]), "_", integer_to_list(erlang:system_time())]),
     NConfig = case DB of
-                  redis -> #{<<"config">> => Config };
+                  redis -> #{config => Config };
                   _ -> Config
               end,
     case emqx_resource:check_and_create(
@@ -77,63 +78,63 @@ create_resource(#{<<"type">> := DB,
             NConfig)
     of
         {ok, _} ->
-            Rule#{<<"resource_id">> => ResourceID};
+            Rule#{resource_id => ResourceID};
         {error, already_created} ->
-            Rule#{<<"resource_id">> => ResourceID};
+            Rule#{resource_id => ResourceID};
         {error, Reason} ->
             error({load_config_error, Reason})
     end.
 
 -spec(compile(rule()) -> rule()).
-compile(#{<<"topics">> := Topics,
-          <<"action">> := Action,
-          <<"permission">> := Permission,
-          <<"principal">> := Principal
+compile(#{topics := Topics,
+          action := Action,
+          permission := Permission,
+          principal := Principal
          } = Rule) when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(Topics) ->
     NTopics = [compile_topic(Topic) || Topic <- Topics],
-    Rule#{<<"principal">> => compile_principal(Principal),
-          <<"topics">> => NTopics
+    Rule#{principal => compile_principal(Principal),
+          topics => NTopics
          };
 
-compile(#{<<"principal">> := Principal,
-          <<"type">> := redis
+compile(#{principal := Principal,
+          type := redis
          } = Rule) ->
     NRule = create_resource(Rule),
-    NRule#{<<"principal">> => compile_principal(Principal)};
+    NRule#{principal => compile_principal(Principal)};
 
-compile(#{<<"principal">> := Principal,
-          <<"type">> := DB,
-          <<"sql">> := SQL
+compile(#{principal := Principal,
+          type := DB,
+          sql := SQL
          } = Rule) when DB =:= mysql;
                         DB =:= pgsql ->
     Mod = list_to_existing_atom(io_lib:format("~s_~s",[?APP, DB])),
     NRule = create_resource(Rule),
-    NRule#{<<"principal">> => compile_principal(Principal),
-           <<"sql">> => Mod:parse_query(SQL)
+    NRule#{principal => compile_principal(Principal),
+           sql => Mod:parse_query(SQL)
           }.
 
 compile_principal(all) -> all;
-compile_principal(#{<<"username">> := Username}) ->
+compile_principal(#{username := Username}) ->
     {ok, MP} = re:compile(bin(Username)),
-    #{<<"username">> => MP};
-compile_principal(#{<<"clientid">> := Clientid}) ->
+    #{username => MP};
+compile_principal(#{clientid := Clientid}) ->
     {ok, MP} = re:compile(bin(Clientid)),
-    #{<<"clientid">> => MP};
-compile_principal(#{<<"ipaddress">> := IpAddress}) ->
-    #{<<"ipaddress">> => esockd_cidr:parse(b2l(IpAddress), true)};
-compile_principal(#{<<"and">> := Principals}) when is_list(Principals) ->
-    #{<<"and">> => [compile_principal(Principal) || Principal <- Principals]};
-compile_principal(#{<<"or">> := Principals}) when is_list(Principals) ->
-    #{<<"or">> => [compile_principal(Principal) || Principal <- Principals]}.
+    #{clientid => MP};
+compile_principal(#{ipaddress := IpAddress}) ->
+    #{ipaddress => esockd_cidr:parse(b2l(IpAddress), true)};
+compile_principal(#{'and' := Principals}) when is_list(Principals) ->
+    #{'and' => [compile_principal(Principal) || Principal <- Principals]};
+compile_principal(#{'or' := Principals}) when is_list(Principals) ->
+    #{'or' => [compile_principal(Principal) || Principal <- Principals]}.
 
 compile_topic(<<"eq ", Topic/binary>>) ->
-    compile_topic(#{<<"eq">> => Topic});
-compile_topic(#{<<"eq">> := Topic}) ->
-    #{<<"eq">> => emqx_topic:words(bin(Topic))};
+    compile_topic(#{'eq' => Topic});
+compile_topic(#{'eq' := Topic}) ->
+    #{'eq' => emqx_topic:words(bin(Topic))};
 compile_topic(Topic) when is_binary(Topic)->
     Words = emqx_topic:words(bin(Topic)),
     case pattern(Words) of
-        true  -> #{<<"pattern">> => Words};
+        true  -> #{pattern => Words};
         false -> Words
     end.
 
@@ -173,8 +174,8 @@ authorize(#{username := Username,
     end.
 
 do_authorize(Client, PubSub, Topic,
-               [Connector = #{<<"principal">> := Principal,
-                              <<"type">> := DB} | Tail] ) ->
+               [Connector = #{principal := Principal,
+                              type := DB} | Tail] ) ->
     case match_principal(Client, Principal) of
         true ->
             Mod = list_to_existing_atom(io_lib:format("~s_~s",[emqx_authz, DB])),
@@ -185,7 +186,7 @@ do_authorize(Client, PubSub, Topic,
         false -> do_authorize(Client, PubSub, Topic, Tail)
     end;
 do_authorize(Client, PubSub, Topic,
-               [#{<<"permission">> := Permission} = Rule | Tail]) ->
+               [#{permission := Permission} = Rule | Tail]) ->
     case match(Client, PubSub, Topic, Rule) of
         true -> {matched, Permission};
         false -> do_authorize(Client, PubSub, Topic, Tail)
@@ -193,9 +194,9 @@ do_authorize(Client, PubSub, Topic,
 do_authorize(_Client, _PubSub, _Topic, []) -> nomatch.
 
 match(Client, PubSub, Topic,
-      #{<<"principal">> := Principal,
-        <<"topics">> := TopicFilters,
-        <<"action">> := Action
+      #{principal := Principal,
+        topics := TopicFilters,
+        action := Action
        }) ->
     match_action(PubSub, Action) andalso
     match_principal(Client, Principal) andalso
@@ -207,27 +208,27 @@ match_action(_, all) -> true;
 match_action(_, _) -> false.
 
 match_principal(_, all) -> true;
-match_principal(#{username := undefined}, #{<<"username">> := _MP}) ->
+match_principal(#{username := undefined}, #{username := _MP}) ->
     false;
-match_principal(#{username := Username}, #{<<"username">> := MP}) ->
+match_principal(#{username := Username}, #{username := MP}) ->
     case re:run(Username, MP) of
         {match, _} -> true;
         _ -> false
     end;
-match_principal(#{clientid := Clientid}, #{<<"clientid">> := MP}) ->
+match_principal(#{clientid := Clientid}, #{clientid := MP}) ->
     case re:run(Clientid, MP) of
         {match, _} -> true;
         _ -> false
     end;
-match_principal(#{peerhost := undefined}, #{<<"ipaddress">> := _CIDR}) ->
+match_principal(#{peerhost := undefined}, #{ipaddress := _CIDR}) ->
     false;
-match_principal(#{peerhost := IpAddress}, #{<<"ipaddress">> := CIDR}) ->
+match_principal(#{peerhost := IpAddress}, #{ipaddress := CIDR}) ->
     esockd_cidr:match(IpAddress, CIDR);
-match_principal(ClientInfo, #{<<"and">> := Principals}) when is_list(Principals) ->
+match_principal(ClientInfo, #{'and' := Principals}) when is_list(Principals) ->
     lists:foldl(fun(Principal, Permission) ->
                   match_principal(ClientInfo, Principal) andalso Permission
                 end, true, Principals);
-match_principal(ClientInfo, #{<<"or">> := Principals}) when is_list(Principals) ->
+match_principal(ClientInfo, #{'or' := Principals}) when is_list(Principals) ->
     lists:foldl(fun(Principal, Permission) ->
                   match_principal(ClientInfo, Principal) orelse Permission
                 end, false, Principals);
@@ -235,7 +236,7 @@ match_principal(_, _) -> false.
 
 match_topics(_ClientInfo, _Topic, []) ->
     false;
-match_topics(ClientInfo, Topic, [#{<<"pattern">> := PatternFilter}|Filters]) ->
+match_topics(ClientInfo, Topic, [#{pattern := PatternFilter}|Filters]) ->
     TopicFilter = feed_var(ClientInfo, PatternFilter),
     match_topic(emqx_topic:words(Topic), TopicFilter)
         orelse match_topics(ClientInfo, Topic, Filters);
@@ -243,7 +244,7 @@ match_topics(ClientInfo, Topic, [TopicFilter|Filters]) ->
    match_topic(emqx_topic:words(Topic), TopicFilter)
        orelse match_topics(ClientInfo, Topic, Filters).
 
-match_topic(Topic, #{<<"eq">> := TopicFilter}) ->
+match_topic(Topic, #{'eq' := TopicFilter}) ->
     Topic == TopicFilter;
 match_topic(Topic, TopicFilter) ->
     emqx_topic:match(Topic, TopicFilter).

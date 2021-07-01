@@ -34,8 +34,8 @@ description() ->
     "AuthZ with redis".
 
 authorize(Client, PubSub, Topic,
-            #{<<"resource_id">> := ResourceID,
-              <<"cmd">> := CMD 
+            #{resource_id := ResourceID,
+              cmd := CMD
              }) ->
     NCMD = string:tokens(replvar(CMD, Client), " "),
     case emqx_resource:query(ResourceID, {cmd, NCMD}) of
@@ -50,16 +50,16 @@ authorize(Client, PubSub, Topic,
 do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;
 do_authorize(Client, PubSub, Topic, [TopicFilter, Action | Tail]) ->
-    case match(Client, PubSub, Topic, 
+    case match(Client, PubSub, Topic,
                #{topics => TopicFilter,
                  action => Action
-                }) 
+                })
     of
         {matched, Permission} -> {matched, Permission};
         nomatch -> do_authorize(Client, PubSub, Topic, Tail)
     end.
 
-match(Client, PubSub, Topic, 
+match(Client, PubSub, Topic,
       #{topics := TopicFilter,
         action := Action
        }) ->
@@ -68,11 +68,11 @@ match(Client, PubSub, Topic,
              <<"action">> => Action,
              <<"permission">> => allow
             },
-    #{<<"simple_rule">> := NRule
+    #{simple_rule := NRule
      } = hocon_schema:check_plain(
             emqx_authz_schema,
             #{<<"simple_rule">> => Rule},
-            #{},
+            #{atom_key => true},
             [simple_rule]),
     case emqx_authz:match(Client, PubSub, Topic, emqx_authz:compile(NRule)) of
         true -> {matched, allow};

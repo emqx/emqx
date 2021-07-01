@@ -43,41 +43,42 @@ set_special_configs(emqx) ->
 set_special_configs(emqx_authz) ->
     application:set_env(emqx, plugins_etc_dir,
                         emqx_ct_helpers:deps_path(emqx_authz, "test")),
-    Conf = #{<<"authz">> => #{<<"rules">> => []}},
+    Conf = #{<<"emqx_authz">> => #{<<"rules">> => []}},
     ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf'), jsx:encode(Conf)),
+    % emqx_config:put([emqx_authz], #{rules => []}),
     ok;
 set_special_configs(_App) ->
     ok.
 
--define(RULE1, #{<<"principal">> => all,
-                 <<"topics">> => [<<"#">>],
-                 <<"action">> => all,
-                 <<"permission">> => deny}
+-define(RULE1, #{principal => all,
+                 topics => [<<"#">>],
+                 action => all,
+                 permission => deny}
        ).
--define(RULE2, #{<<"principal">> =>
-                    #{<<"ipaddress">> => <<"127.0.0.1">>},
-                 <<"topics">> =>
-                        [#{<<"eq">> => <<"#">>},
-                         #{<<"eq">> => <<"+">>}
+-define(RULE2, #{principal =>
+                    #{ipaddress => <<"127.0.0.1">>},
+                 topics =>
+                        [#{eq => <<"#">>},
+                         #{eq => <<"+">>}
                         ] ,
-                 <<"action">> => all,
-                 <<"permission">> => allow}
+                 action => all,
+                 permission => allow}
        ).
--define(RULE3,#{<<"principal">> => 
-                    #{<<"and">> => [#{<<"username">> => "^test?"},
-                                    #{<<"clientid">> => "^test?"}
+-define(RULE3,#{principal =>
+                    #{'and' => [#{username => "^test?"},
+                                    #{clientid => "^test?"}
                                    ]},
-                <<"topics">> => [<<"test">>],
-                <<"action">> => publish,
-                <<"permission">> => allow}
+                topics => [<<"test">>],
+                action => publish,
+                permission => allow}
        ).
--define(RULE4,#{<<"principal">> => 
-                    #{<<"or">> => [#{<<"username">> => <<"^test">>},
-                                   #{<<"clientid">> => <<"test?">>}
-                                  ]},
-                <<"topics">> => [<<"%u">>,<<"%c">>],
-                <<"action">> => publish,
-                <<"permission">> => deny}
+-define(RULE4,#{principal =>
+                    #{'or' => [#{username => <<"^test">>},
+                               #{clientid => <<"test?">>}
+                              ]},
+                topics => [<<"%u">>,<<"%c">>],
+                action => publish,
+                permission => deny}
        ).
 
 
@@ -85,39 +86,39 @@ set_special_configs(_App) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 t_compile(_) ->
-    ?assertEqual(#{<<"permission">> => deny,
-                   <<"action">> => all,
-                   <<"principal">> => all,
-                   <<"topics">> => [['#']]
+    ?assertEqual(#{permission => deny,
+                   action => all,
+                   principal => all,
+                   topics => [['#']]
                   },emqx_authz:compile(?RULE1)),
-    ?assertEqual(#{<<"permission">> => allow,
-                   <<"action">> => all,
-                   <<"principal">> =>
-                        #{<<"ipaddress">> => {{127,0,0,1},{127,0,0,1},32}},
-                   <<"topics">> => [#{<<"eq">> => ['#']},
-                                    #{<<"eq">> => ['+']}]
+    ?assertEqual(#{permission => allow,
+                   action => all,
+                   principal =>
+                        #{ipaddress => {{127,0,0,1},{127,0,0,1},32}},
+                   topics => [#{eq => ['#']},
+                              #{eq => ['+']}]
                   }, emqx_authz:compile(?RULE2)),
     ?assertMatch(
-       #{<<"permission">> := allow,
-         <<"action">> := publish,
-         <<"principal">> := 
-                #{<<"and">> := [#{<<"username">> := {re_pattern, _, _, _, _}},
-                                #{<<"clientid">> := {re_pattern, _, _, _, _}}
-                               ]
+       #{permission := allow,
+         action := publish,
+         principal :=
+                #{'and' := [#{username := {re_pattern, _, _, _, _}},
+                            #{clientid := {re_pattern, _, _, _, _}}
+                           ]
                  },
-         <<"topics">> := [[<<"test">>]]
+         topics := [[<<"test">>]]
         }, emqx_authz:compile(?RULE3)),
     ?assertMatch(
-       #{<<"permission">> := deny,
-         <<"action">> := publish,
-         <<"principal">> :=
-                #{<<"or">> := [#{<<"username">> := {re_pattern, _, _, _, _}},
-                               #{<<"clientid">> := {re_pattern, _, _, _, _}}
-                              ]
+       #{permission := deny,
+         action := publish,
+         principal :=
+                #{'or' := [#{username := {re_pattern, _, _, _, _}},
+                           #{clientid := {re_pattern, _, _, _, _}}
+                          ]
                  },
-              <<"topics">> := [#{<<"pattern">> := [<<"%u">>]},
-                               #{<<"pattern">> := [<<"%c">>]}
-                              ]
+         topics := [#{pattern := [<<"%u">>]},
+                    #{pattern := [<<"%c">>]}
+                   ]
         }, emqx_authz:compile(?RULE4)),
     ok.
 

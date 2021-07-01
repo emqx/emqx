@@ -46,8 +46,8 @@ parse_query(Sql) ->
     end.
 
 authorize(Client, PubSub, Topic,
-            #{<<"resource_id">> := ResourceID,
-              <<"sql">> := {SQL, Params}
+            #{resource_id := ResourceID,
+              sql := {SQL, Params}
              }) ->
     case emqx_resource:query(ResourceID, {sql, SQL, replvar(Params, Client)}) of
         {ok, _Columns, []} -> nomatch;
@@ -87,12 +87,12 @@ match(Client, PubSub, Topic,
              <<"action">> => Action,
              <<"permission">> =>  Permission
             },
-    #{<<"simple_rule">> :=
-      #{<<"permission">> := NPermission} = NRule
+    #{simple_rule :=
+      #{permission := NPermission} = NRule
      } = hocon_schema:check_plain(
             emqx_authz_schema,
             #{<<"simple_rule">> => Rule},
-            #{},
+            #{atom_key => true},
             [simple_rule]),
     case emqx_authz:match(Client, PubSub, Topic, emqx_authz:compile(NRule)) of
         true -> {matched, NPermission};
