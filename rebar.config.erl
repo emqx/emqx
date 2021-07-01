@@ -294,8 +294,6 @@ relx_plugin_apps(ReleaseType) ->
 
 relx_plugin_apps_per_rel(cloud) ->
     [ emqx_lwm2m
-    , emqx_exhook
-    , emqx_exproto
     , emqx_prometheus
     ];
 relx_plugin_apps_per_rel(edge) ->
