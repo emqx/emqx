@@ -86,16 +86,6 @@ t_app(_Config) ->
                   true, undefined},
                  lists:keyfind(<<"app_id">>, 1, emqx_mgmt_auth:list_apps())),
     emqx_mgmt_auth:del_app(<<"app_id">>),
-    %% Use the default application secret
-    application:set_env(emqx_management, application, [{default_secret, <<"public">>}]),
-    {ok, AppSecret1} = emqx_mgmt_auth:add_app(
-                         <<"app_id">>, <<"app_name">>, <<"app_desc">>, true, undefined),
-    ?assert(emqx_mgmt_auth:is_authorized(<<"app_id">>, AppSecret1)),
-    ?assertEqual(AppSecret1, emqx_mgmt_auth:get_appsecret(<<"app_id">>)),
-    ?assertEqual(AppSecret1, <<"public">>),
-    ?assertEqual({<<"app_id">>, AppSecret1, <<"app_name">>, <<"app_desc">>, true, undefined},
-                 lists:keyfind(<<"app_id">>, 1, emqx_mgmt_auth:list_apps())),
-    emqx_mgmt_auth:del_app(<<"app_id">>),
     application:set_env(emqx_management, application, []),
     %% Specify the application secret
     {ok, AppSecret2} = emqx_mgmt_auth:add_app(
