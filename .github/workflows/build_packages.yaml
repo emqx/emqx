@@ -468,7 +468,7 @@ jobs:
           -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
           -H "Accept: application/vnd.github.v3+json" \
           -X POST \
-          -d "{\"ref\":\"v1.0.1\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ee\": \"true\"}}" \
+          -d "{\"ref\":\"v1.0.2\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ee\": \"true\"}}" \
           "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_repos.yaml/dispatches"
     - name: update repo.emqx.io
       if: github.event_name == 'release' && endsWith(github.repository, 'emqx') && matrix.profile == 'emqx'
@@ -477,7 +477,7 @@ jobs:
           -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
           -H "Accept: application/vnd.github.v3+json" \
           -X POST \
-          -d "{\"ref\":\"v1.0.1\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ce\": \"true\"}}" \
+          -d "{\"ref\":\"v1.0.2\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ce\": \"true\"}}" \
           "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_repos.yaml/dispatches"
     - name: update homebrew packages
       if: github.event_name == 'release' && endsWith(github.repository, 'emqx') && matrix.profile == 'emqx'
@@ -487,7 +487,7 @@ jobs:
               -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
               -X POST \
-              -d "{\"ref\":\"v1.0.1\",\"inputs\":{\"version\": \"${{ env.version }}\"}}" \
+              -d "{\"ref\":\"v1.0.2\",\"inputs\":{\"version\": \"${{ env.version }}\"}}" \
               "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_homebrew.yaml/dispatches"
         fi
     - uses: geekyeggo/delete-artifact@v1
