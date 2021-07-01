@@ -481,7 +481,7 @@ fields("sysmon_os") ->
     ];
 
 fields("alarm") ->
-    [ {"actions", t(comma_separated_list(), undefined, "log,publish")}
+    [ {"actions", t(hoconsc:array(atom()), undefined, [log, publish])}
     , {"size_limit", t(integer(), undefined, 1000)}
     , {"validity_period", t(duration_s(), undefined, "24h")}
     ];

@@ -11,7 +11,7 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_authz_sup:start_link(),
-    ok = emqx_authz:init(),
+    %ok = emqx_authz:init(),
     {ok, Sup}.
 
 stop(_State) ->
