@@ -54,12 +54,25 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_dashboard]),
+    emqx_ct_helpers:start_apps([emqx_management, emqx_dashboard],fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_dashboard, emqx_management, emqx_modules]),
+    emqx_ct_helpers:stop_apps([emqx_dashboard, emqx_management]),
     ekka_mnesia:ensure_stopped().
+
+set_special_configs(emqx_management) ->
+    application:set_env(emqx, plugins_etc_dir,
+        emqx_ct_helpers:deps_path(emqx_management, "test")),
+    Conf = #{<<"emqx_management">> => #{
+        <<"listeners">> => [#{
+            <<"protocol">> => <<"http">>
+        }]}
+    },
+    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_management.conf'), jsx:encode(Conf)),
+    ok;
+set_special_configs(_) ->
+    ok.
 
 t_overview(_) ->
     [?assert(request_dashboard(get, api_path(erlang:atom_to_list(Overview)), auth_header_()))|| Overview <- ?OVERVIEWS].
