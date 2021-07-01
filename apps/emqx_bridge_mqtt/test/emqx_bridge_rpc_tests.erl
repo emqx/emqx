@@ -30,8 +30,8 @@ send_and_ack_test() ->
                 end),
     meck:new(emqx_bridge_worker, [passthrough, no_history]),
     try
-        {ok, #{client_pid := Pid, address := Node}} = emqx_bridge_rpc:start(#{address => node()}),
-        {ok, Ref} = emqx_bridge_rpc:send(#{address => Node}, []),
+        {ok, #{client_pid := Pid, remote_node := Node}} = emqx_bridge_rpc:start(#{node => node()}),
+        {ok, Ref} = emqx_bridge_rpc:send(#{remote_node => Node}, []),
         receive
             {batch_ack, Ref} ->
                 ok

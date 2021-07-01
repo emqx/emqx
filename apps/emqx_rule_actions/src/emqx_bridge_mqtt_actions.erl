@@ -526,7 +526,7 @@ connect(Options = #{disk_cache := DiskCache, ecpool_worker_id := Id, pool_name :
             end
     end,
     Options2 = maps:without([ecpool_worker_id, pool_name, append], Options1),
-    emqx_bridge_worker:start_link(name(Pool, Id), Options2).
+    emqx_bridge_worker:start_link(Options2#{name => name(Pool, Id)}).
 name(Pool, Id) ->
     list_to_atom(atom_to_list(Pool) ++ ":" ++ integer_to_list(Id)).
 pool_name(ResId) ->
