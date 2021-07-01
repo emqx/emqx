@@ -11,9 +11,9 @@
 
 -export([structs/0, fields/1]).
 
-structs() -> [authz].
+structs() -> ["emqx_authz"].
 
-fields(authz) ->
+fields("emqx_authz") ->
     [ {rules, rules()}
     ];
 fields(redis_connector) ->
@@ -39,7 +39,7 @@ fields(simple_rule) ->
     , {action,   #{type => action()}}
     , {topics,   #{type => union_array(
                              [ binary()
-                             , hoconsc:ref(eq_topic)
+                             , hoconsc:ref(?MODULE, eq_topic)
                              ]
                             )}}
     , {principal, principal()}
@@ -52,18 +52,18 @@ fields(ipaddress) ->
     [{ipaddress, #{type => string()}}];
 fields(andlist) ->
     [{'and', #{type => union_array(
-                         [ hoconsc:ref(username)
-                         , hoconsc:ref(clientid)
-                         , hoconsc:ref(ipaddress)
+                         [ hoconsc:ref(?MODULE, username)
+                         , hoconsc:ref(?MODULE, clientid)
+                         , hoconsc:ref(?MODULE, ipaddress)
                          ])
               }
      }
     ];
 fields(orlist) ->
     [{'or', #{type => union_array(
-                         [ hoconsc:ref(username)
-                         , hoconsc:ref(clientid)
-                         , hoconsc:ref(ipaddress)
+                         [ hoconsc:ref(?MODULE, username)
+                         , hoconsc:ref(?MODULE, clientid)
+                         , hoconsc:ref(?MODULE, ipaddress)
                          ])
               }
      }
@@ -81,9 +81,9 @@ union_array(Item) when is_list(Item) ->
 
 rules() -> 
     #{type => union_array(
-                [ hoconsc:ref(simple_rule)
-                , hoconsc:ref(sql_connector)
-                , hoconsc:ref(redis_connector)
+                [ hoconsc:ref(?MODULE, simple_rule)
+                , hoconsc:ref(?MODULE, sql_connector)
+                , hoconsc:ref(?MODULE, redis_connector)
                 ])
     }.
 
@@ -91,11 +91,11 @@ principal() ->
     #{default => all,
       type => hoconsc:union(
                 [ all
-                , hoconsc:ref(username)
-                , hoconsc:ref(clientid)
-                , hoconsc:ref(ipaddress)
-                , hoconsc:ref(andlist)
-                , hoconsc:ref(orlist)
+                , hoconsc:ref(?MODULE, username)
+                , hoconsc:ref(?MODULE, clientid)
+                , hoconsc:ref(?MODULE, ipaddress)
+                , hoconsc:ref(?MODULE, andlist)
+                , hoconsc:ref(?MODULE, orlist)
                 ])
      }.
 
