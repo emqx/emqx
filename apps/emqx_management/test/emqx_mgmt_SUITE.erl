@@ -53,17 +53,29 @@ groups() ->
        ]}].
 
 apps() ->
-    [emqx_management, emqx_retainer, emqx_modules].
+    [emqx_management, emqx_retainer].
 
 init_per_suite(Config) ->
-    application:set_env(ekka, strict_mode, true),
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
-    emqx_ct_helpers:start_apps(apps()),
+    emqx_ct_helpers:start_apps(apps(), fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps(apps()).
+
+set_special_configs(emqx_management) ->
+    application:set_env(emqx, plugins_etc_dir,
+        emqx_ct_helpers:deps_path(emqx_management, "test")),
+    Conf = #{<<"emqx_management">> => #{
+        <<"listeners">> => [#{
+            <<"protocol">> => <<"http">>
+        }]}
+    },
+    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_management.conf'), jsx:encode(Conf)),
+    ok;
+set_special_configs(_App) ->
+    ok.
 
 t_app(_Config) ->
     {ok, AppSecret} = emqx_mgmt_auth:add_app(<<"app_id">>, <<"app_name">>),
@@ -72,16 +84,6 @@ t_app(_Config) ->
     ?assertEqual({<<"app_id">>, AppSecret,
                   <<"app_name">>, <<"Application user">>,
                   true, undefined},
-                 lists:keyfind(<<"app_id">>, 1, emqx_mgmt_auth:list_apps())),
-    emqx_mgmt_auth:del_app(<<"app_id">>),
-    %% Use the default application secret
-    application:set_env(emqx_management, application, [{default_secret, <<"public">>}]),
-    {ok, AppSecret1} = emqx_mgmt_auth:add_app(
-                         <<"app_id">>, <<"app_name">>, <<"app_desc">>, true, undefined),
-    ?assert(emqx_mgmt_auth:is_authorized(<<"app_id">>, AppSecret1)),
-    ?assertEqual(AppSecret1, emqx_mgmt_auth:get_appsecret(<<"app_id">>)),
-    ?assertEqual(AppSecret1, <<"public">>),
-    ?assertEqual({<<"app_id">>, AppSecret1, <<"app_name">>, <<"app_desc">>, true, undefined},
                  lists:keyfind(<<"app_id">>, 1, emqx_mgmt_auth:list_apps())),
     emqx_mgmt_auth:del_app(<<"app_id">>),
     application:set_env(emqx_management, application, []),
