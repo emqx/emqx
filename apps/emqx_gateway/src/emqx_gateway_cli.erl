@@ -17,7 +17,9 @@
 %% @doc The Command-Line-Interface module for Gateway Application
 -module(emqx_gateway_cli).
 
--export([load/0]).
+-export([ load/0
+        , unload/0
+        ]).
 
 -export([ gateway/1
         , 'gateway-registry'/1
@@ -26,13 +28,19 @@
         %, 'gateway-banned'/1
         ]).
 
--spec(load() -> ok).
+-spec load() -> ok.
 load() ->
     Cmds = [Fun || {Fun, _} <- ?MODULE:module_info(exports), is_cmd(Fun)],
     lists:foreach(fun(Cmd) -> emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, []) end, Cmds).
 
+-spec unload() -> ok.
+unload() ->
+    Cmds = [Fun || {Fun, _} <- ?MODULE:module_info(exports), is_cmd(Fun)],
+    lists:foreach(fun(Cmd) -> emqx_ctl:unregister_command(Cmd) end, Cmds).
+
 is_cmd(Fun) ->
     not lists:member(Fun, [init, load, module_info]).
+
 
 %%--------------------------------------------------------------------
 %% Cmds
@@ -40,7 +48,7 @@ is_cmd(Fun) ->
 gateway(["list"]) ->
     lists:foreach(fun(#{id := InstaId, name := Name, gwid := GwId}) ->
         %% FIXME: Get the real running status
-        emqx_ctl:print("Gateway(~s, name=~s, gwid=~s, status=running",
+        emqx_ctl:print("Gateway(~s, name=~s, gwid=~s, status=running~n",
                        [InstaId, Name, GwId])
     end, emqx_gateway:list());
 
@@ -83,7 +91,7 @@ gateway(_) ->
 'gateway-registry'(["list"]) ->
     lists:foreach(
       fun({GwType, #{cbkmod := CbMod}}) ->
-        emqx_ctl:print("Registered Type: ~s, Callback Module: ~s", [GwType, CbMod])
+        emqx_ctl:print("Registered Type: ~s, Callback Module: ~s~n", [GwType, CbMod])
       end,
     emqx_gateway_registry:list());
 
@@ -123,8 +131,8 @@ gateway(_) ->
     Tab = emqx_gateway_metrics:tabname(GatewayType),
     lists:foreach(
       fun({K, V}) ->
-        emqx_ctl:print("~-48s: ~w", [K, V])
-      end, ets:tab2list(Tab));
+        emqx_ctl:print("~-30s: ~w~n", [K, V])
+      end, lists:sort(ets:tab2list(Tab)));
 
 'gateway-metrics'(_) ->
     emqx_ctl:usage([ {"gateway-metrics <Type>",

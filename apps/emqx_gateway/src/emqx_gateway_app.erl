@@ -26,11 +26,13 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_gateway_sup:start_link(),
+    emqx_gateway_cli:load(),
     load_default_gateway_applications(),
     {ok, Sup}.
 
 stop(_State) ->
-    %% XXX: ?
+    %% XXX: More cleanup here ???
+    emqx_gateway_cli:unload(),
     ok.
 
 %%--------------------------------------------------------------------

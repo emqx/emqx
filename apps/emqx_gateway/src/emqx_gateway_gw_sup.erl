@@ -131,5 +131,7 @@ ctx(Sup, InstaId) ->
 
 is_gateway_insta_id(emqx_gateway_cm) ->
     false;
+is_gateway_insta_id(emqx_gateway_metrics) ->
+    false;
 is_gateway_insta_id(_Id) ->
     true.
