@@ -27,8 +27,15 @@
 rest_schema() ->
     DefinitionName = <<"routs">>,
     DefinitionProperties = #{
-        <<"topic">> => #{type => <<"string">>},
-        <<"node">> => #{type => <<"string">>, example => node()}
+        <<"topic">> =>
+            #{
+                type => <<"string">>
+            },
+        <<"node">> =>
+            #{
+                type => <<"string">>,
+                example => node()
+            }
     },
     [{DefinitionName, DefinitionProperties}].
 
@@ -38,47 +45,44 @@ rest_api() ->
 routs_api() ->
     Metadata = #{
         get =>
-        #{tags => ["system"],
+            #{tags => ["system"],
             description => "EMQ X routs",
             operationId => handle_list,
-            parameters => [
-                #{name => page
-                    , in => query
-                    , description => <<"Page">>
-                    , required => true
-                    , schema =>
-                #{type => integer, default => 1}},
+            parameters =>
+                [#{
+                    name => page,
+                    in => query,
+                    description => <<"Page">>,
+                    required => true,
+                    schema => #{type => integer, default => 1}
+                },
                 #{name => limit
                     , in => query
                     , description => <<"Page size">>
                     , required => true
-                    , schema =>
-                #{type => integer, default => emqx_mgmt:max_row_limit()}}
-            ],
+                    , schema => #{type => integer, default => emqx_mgmt:max_row_limit()}
+                }],
             responses => #{
-                <<"200">> => #{
-                    content => #{
-                        'application/json' =>
+                <<"200">> => #{content => #{'application/json' =>
                         #{schema => cowboy_swagger:schema(<<"routs">>)}}}}}},
     {"/routs", Metadata}.
 
 rout_api() ->
     Metadata = #{
         get =>
-        #{tags => ["system"],
+            #{tags => ["system"],
             description => "EMQ X routs",
             operationId => handle_get,
-            parameters => [
-                #{name => topic
-                , in => path
-                , description => <<"topic">>
-                , required => true
-                , schema => #{type => string}}
-            ],
+            parameters =>
+                [#{
+                    name => topic,
+                    in => path,
+                    description => <<"topic">>,
+                    required => true,
+                    schema => #{type => string}
+                }],
             responses => #{
-                <<"200">> => #{
-                    content => #{
-                        'application/json' =>
+                <<"200">> => #{content => #{'application/json' =>
                         #{schema => cowboy_swagger:schema(<<"routs">>)}}}}}},
     {"/routs/:topic", Metadata}.
 
@@ -97,12 +101,12 @@ handle_get(Request) ->
 list(Params) ->
     Data = emqx_mgmt_api:paginate(emqx_route, Params, fun format/1),
     Response = emqx_json:encode(Data),
-    {ok, Response}.
+    {200, Response}.
 
 lookup(#{topic := Topic}) ->
     Data = [format(R) || R <- emqx_mgmt:lookup_routes(Topic)],
     Response = emqx_json:encode(Data),
-    {ok, Response}.
+    {200, Response}.
 
 %%%==============================================================================================
 %% internal

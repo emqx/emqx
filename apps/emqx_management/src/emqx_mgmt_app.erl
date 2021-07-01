@@ -27,6 +27,7 @@
 -include("emqx_mgmt.hrl").
 
 start(_Type, _Args) ->
+    hocon:load("emqx_management.conf"),
     {ok, Sup} = emqx_mgmt_sup:start_link(),
     ok = ekka_rlog:wait_for_shards([?MANAGEMENT_SHARD], infinity),
     _ = emqx_mgmt_auth:add_default_app(),

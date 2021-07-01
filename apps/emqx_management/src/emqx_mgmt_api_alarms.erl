@@ -24,19 +24,40 @@ rest_schema() ->
     DefinitionName = <<"alarm">>,
     DefinitionProperties = #{
         <<"node">> =>
-        #{type => <<"string">>, description => <<"Alarm in node">>},
+            #{
+                type => <<"string">>,
+                description => <<"Alarm in node">>
+            },
         <<"name">> =>
-        #{type => <<"string">>, description => <<"Alarm name">>},
+            #{
+                type => <<"string">>,
+                description => <<"Alarm name">>
+            },
         <<"message">> =>
-        #{type => <<"string">>, description => <<"Alarm readable information">>},
+            #{
+                type => <<"string">>,
+                description => <<"Alarm readable information">>
+            },
         <<"details">> =>
-        #{type => <<"object">>, description => <<"Alarm detail">>},
+            #{
+                type => <<"object">>,
+                description => <<"Alarm detail">>
+            },
         <<"activate_at">> =>
-        #{type => <<"integer">>, description => <<"Alarms activated time UNIX time stamp">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Alarms activated time UNIX time stamp">>
+            },
         <<"deactivate_at">> =>
-        #{type => <<"integer">>, description => <<"Alarms deactivated time UNIX time stamp">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Alarms deactivated time UNIX time stamp">>
+            },
         <<"activated">> =>
-        #{type => <<"boolean">>, description => <<"Activated or deactivated">>}
+            #{
+                type => <<"boolean">>,
+                description => <<"Activated or deactivated">>
+            }
     },
     [{DefinitionName, DefinitionProperties}].
 
@@ -46,30 +67,26 @@ rest_api() ->
 alarms_api() ->
     Metadata = #{
         get =>
-        #{tags => ["monitoring"],
+            #{tags => ["monitoring"],
             description => "EMQ X alarms",
             operationId => handle_list,
-            parameters => [
-                #{name => activated
-                , in => query
-                , description => <<"All alarms, if not specified">>
-                , required => false
-                , schema =>
-                    #{type => boolean, example => false}
+            parameters =>
+            [#{
+                name => activated,
+                in => query,
+                description => <<"All alarms, if not specified">>,
+                required => false,
+                schema => #{type => boolean, example => false}
             }],
             responses => #{
-                <<"200">> => #{
-                    content => #{
-                        'application/json' =>
-                        #{schema =>
-                        #{type => array,
+                <<"200">> => #{content => #{'application/json' =>
+                        #{schema => #{type => array,
                             items => cowboy_swagger:schema(<<"alarm">>)}}}}}},
         delete =>
-        #{tags => ["monitoring"],
+            #{tags => ["monitoring"],
             description => "Remove all deactivated alarms",
             operationId => handle_delete,
-            responses => #{
-                <<"200">> => #{description => <<"Deactivated alarms removed">>}}}
+            responses => #{<<"200">> => #{description => <<"Deactivated alarms removed">>}}}
     },
     {"/alarms", Metadata}.
 
@@ -99,7 +116,7 @@ list(#{activated := undefined}) ->
 
 delete(_) ->
     _ = emqx_mgmt:delete_all_deactivated_alarms(),
-    {ok}.
+    {200}.
 
 %%%==============================================================================================
 %% internal
@@ -110,4 +127,4 @@ do_list(Type) ->
         end,
     Alarms = lists:foldl(Fun, [], emqx_mgmt:get_alarms(Type)),
     Response = emqx_json:encode(Alarms),
-    {ok, Response}.
+    {200, Response}.

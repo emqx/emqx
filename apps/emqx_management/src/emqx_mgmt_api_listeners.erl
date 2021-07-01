@@ -27,21 +27,46 @@ rest_schema() ->
     DefinitionName = <<"listener">>,
     DefinitionProperties = #{
         <<"node">> =>
-        #{type => <<"string">>, description => <<"Node">>, example => node()},
+            #{
+                type => <<"string">>,
+                description => <<"Node">>,
+                example => node()
+            },
         <<"acceptor">> =>
-        #{type => <<"integer">>, description => <<"Number of Acceptor proce">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Number of Acceptor proce">>
+            },
         <<"liten_on">> =>
-        #{type => <<"string">>, description => <<"Litening port">>},
+            #{
+                type => <<"string">>,
+                description => <<"Litening port">>
+            },
         <<"identifier">> =>
-        #{type => <<"string">>, description => <<"Identifier">>},
+            #{
+                type => <<"string">>,
+                description => <<"Identifier">>
+            },
         <<"protocol">> =>
-        #{type => <<"string">>, description => <<"Plugin decription">>},
+            #{
+                type => <<"string">>,
+                description => <<"Plugin decription">>
+            },
         <<"current_conn">> =>
-        #{type => <<"integer">>, description => <<"Whether plugin i enabled">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Whether plugin i enabled">>
+            },
         <<"max_conn">> =>
-        #{type => <<"integer">>, description => <<"Maximum number of allowed connection">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Maximum number of allowed connection">>
+            },
         <<"shutdown_count">> =>
-        #{type => <<"array of object">>, description => <<"Reaon and count for connection hutdown">>}
+            #{
+                type => <<"array of object">>,
+                description => <<"Reaon and count for connection hutdown">>
+            }
     },
     [{DefinitionName, DefinitionProperties}].
 
@@ -51,31 +76,30 @@ rest_api() ->
 listeners_api() ->
     Metadata = #{
         get =>
-        #{tags => ["system"],
+            #{tags => ["system"],
             description => "EMQ X listeners in cluster",
             operationId => handle_list,
             responses => #{
                 <<"200">> => #{
                     description => <<"List clients 200 OK">>,
-                    content => #{
-                        'application/json' =>
-                        #{schema =>
-                        #{type => array,
+                    content => #{'application/json' =>
+                        #{schema => #{type => array,
                             items => cowboy_swagger:schema(<<"listener">>)}}}}}}},
     {"/listeners", Metadata}.
 
 restart_listeners_api() ->
     Metadata = #{
         get =>
-        #{tags => ["system"],
+            #{tags => ["system"],
             description => "EMQ X listeners in cluster",
             operationId => handle_restart,
-            parameters => [#{ name => listener_id
-                , in => path
-                , required => true
-                , schema =>
-                #{type => string, example => <<"mqtt:tcp:external">>}
-            }],
+            parameters =>
+                [#{
+                    name => listener_id,
+                    in => path,
+                    required => true,
+                    schema => #{type => string, example => <<"mqtt:tcp:external">>}
+                }],
             responses => #{
                 <<"404">> => emqx_mgmt_util:not_found_schema(<<"Listener id not found">>),
                 <<"200">> => #{description => <<"restart ok">>}}}},
@@ -95,13 +119,13 @@ handle_restart(Request) ->
 list(_) ->
     Data = [format(Listeners) || Listeners <- emqx_mgmt:list_listeners()],
     Response = emqx_json:encode(lists:append(Data)),
-    {ok, Response}.
+    {200, Response}.
 
 restart(#{listener_id := ListenerID}) ->
     ArgsList = [[Node, ListenerID] || Node <- ekka_mnesia:running_nodes()],
     Data = emqx_mgmt_util:batch_operation(emqx_mgmt, restart_listener, ArgsList),
     Response = emqx_json:encode(Data),
-    {ok, Response}.
+    {200, Response}.
 
 format(Listeners) when is_list(Listeners) ->
     [ Info#{listen_on => list_to_binary(esockd:to_string(ListenOn))}

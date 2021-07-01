@@ -33,40 +33,56 @@ rest_schema() ->
     DefinitionName = <<"plugin">>,
     DefinitionProperties = #{
         <<"node">> =>
-        #{type => <<"string">>, description => <<"Node name">>},
+            #{
+                type => <<"string">>,
+                description => <<"Node name">>
+            },
         <<"name">> =>
-        #{type => <<"string">>, description => <<"Plugin name">>},
+            #{
+                type => <<"string">>,
+                description => <<"Plugin name">>
+            },
         <<"verion">> =>
-        #{type => <<"string">>, description => <<"Plugin verion">>},
+            #{
+                type => <<"string">>,
+                description => <<"Plugin verion">>
+            },
         <<"decription">> =>
-        #{type => <<"string">>, description => <<"Plugin decription">>},
+            #{
+                type => <<"string">>,
+                description => <<"Plugin decription">>
+            },
         <<"active">> =>
-        #{type => <<"boolean">>, description => <<"Whether the plugin is active">>},
+            #{
+                type => <<"boolean">>,
+                description => <<"Whether the plugin is active">>
+            },
         <<"type">> =>
-        #{type => <<"string">>,
-            enum => [auth, bridge, feature,protocol],
-            description => <<"Plug-in type, currently include auth、bridge、feature、protocol">>}
+            #{
+                type => <<"string">>,
+                enum => [auth, bridge, feature,protocol],
+                description => <<"Plug-in type, currently include auth、bridge、feature、protocol">>
+            }
     },
     [{DefinitionName, DefinitionProperties}].
 
 rest_api() ->
-    [ plugins_api()
+    [
+      plugins_api()
     , load_plugin_api()
     , unload_plugin_api()
-    , reload_plugin_api()].
+    , reload_plugin_api()
+    ].
 
 plugins_api() ->
     Metadata = #{
         get =>
-        #{tags => ["system"],
+            #{tags => ["system"],
             description => "EMQ X plugins",
             operationId => handle_list,
             responses => #{
-                <<"200">> => #{
-                    content => #{
-                        'application/json' =>
-                        #{schema => #{
-                            type => array,
+                <<"200">> => #{content => #{'application/json' =>
+                        #{schema => #{type => array,
                             items => cowboy_swagger:schema(<<"plugin">>)}}}}}}},
     {"/plugins", Metadata}.
 
@@ -85,16 +101,17 @@ reload_plugin_api() ->
 plugin_api_metadata(Desc, OperationId) ->
     #{
         put =>
-        #{tags => ["system"],
+            #{tags => ["system"],
             description => Desc,
             operationId => OperationId,
-            parameters => [
-                #{name => name
-                    , in => path
-                    , description => <<"Plugin name">>
-                    , required => true
-                    , schema =>
-                #{type => string}}],
+            parameters =>
+                [#{
+                    name => name,
+                    in => path,
+                    description => <<"Plugin name">>,
+                    required => true,
+                    schema => #{type => string}
+                }],
             responses => #{
                 <<"404">> => emqx_mgmt_util:not_found_schema(<<"Plugin name not found">>),
                 <<"200">> => #{description => <<"operation ok">>}}}}.
@@ -122,13 +139,13 @@ handle_reload(Request) ->
 list(_) ->
     Result = lists:append([format(Plugins) || {_, Plugins} <- emqx_mgmt:list_plugins()]),
     Response = emqx_json:encode(Result),
-    {ok, Response}.
+    {200, Response}.
 
 load(Name) ->
     Plugin = binary_to_atom(Name, utf8),
     case do_load(Plugin, ekka_mnesia:running_nodes()) of
         ok ->
-            {ok};
+            {200};
         {error, not_found} ->
             {404, ?PLUGIN_NOT_FOUND};
         {error, Reason} ->
@@ -141,7 +158,7 @@ unload(Name) ->
     Plugin = binary_to_atom(Name, utf8),
     case do_unload(Plugin, ekka_mnesia:running_nodes()) of
         ok ->
-            {ok};
+            {200};
         {error, Reason} ->
             Response = emqx_json:encode(#{code => "UN_KNOW_ERROR", reason => io_lib:format("~p", [Reason])}),
             {500, Response}
@@ -151,7 +168,7 @@ reload(Name) ->
     Plugin = binary_to_atom(Name, utf8),
     case do_reload(Plugin, ekka_mnesia:running_nodes()) of
         ok ->
-            {ok};
+            {200};
         {error, not_found} ->
             {404, ?PLUGIN_NOT_FOUND};
         {error, Reason} ->

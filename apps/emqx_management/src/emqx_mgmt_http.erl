@@ -50,6 +50,7 @@ start_listener({Proto, Port, Options}) ->
         , emqx_mgmt_api_metrics
         , emqx_mgmt_api_nodes
         , emqx_mgmt_api_plugins
+        , emqx_mgmt_api_publish
         , emqx_mgmt_api_routes
         , emqx_mgmt_api_stats],
     Authorization = {?MODULE, authorize_appid},

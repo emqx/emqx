@@ -24,58 +24,116 @@ rest_schema() ->
     DefinitionName = <<"stats">>,
     DefinitionProperties = #{
         <<"connections.count">> =>
-        #{type => <<"integer">>, description => <<"Number of current connections">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Number of current connections">>
+            },
         <<"connections.max">> =>
-        #{type => <<"integer">>, description => <<"Historical maximum number of connections">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Historical maximum number of connections">>
+            },
         <<"channels.count">> =>
-        #{type => <<"integer">>, description => <<"sessions.count">>},
+            #{
+                type => <<"integer">>,
+                description => <<"sessions.count">>
+            },
         <<"channels.max">> =>
-        #{type => <<"integer">>, description => <<"session.max">>},
+            #{
+                type => <<"integer">>,
+                description => <<"session.max">>
+            },
         <<"sessions.count">> =>
-        #{type => <<"integer">>, description => <<"Number of current sessions">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Number of current sessions">>
+            },
         <<"sessions.max">> =>
-        #{type => <<"integer">>, description => <<"Historical maximum number of sessions">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Historical maximum number of sessions">>
+            },
         <<"topics.count">> =>
-        #{type => <<"integer">>, description => <<"Number of current topics">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Number of current topics">>
+            },
         <<"topics.max">> =>
-        #{type => <<"integer">>, description => <<"Historical maximum number of topics">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Historical maximum number of topics">>
+            },
         <<"suboptions.count">> =>
-        #{type => <<"integer">>, description => <<"subscriptions.count">>},
+            #{
+                type => <<"integer">>,
+                description => <<"subscriptions.count">>
+            },
         <<"suboptions.max">> =>
-        #{type => <<"integer">>, description => <<"subscriptions.max">>},
+            #{
+                type => <<"integer">>,
+                description => <<"subscriptions.max">>
+            },
         <<"subscribers.count">> =>
-        #{type => <<"integer">>, description => <<"Number of current subscribers">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Number of current subscribers">>
+            },
         <<"subscribers.max">> =>
-        #{type => <<"integer">>, description => <<"Historical maximum number of subscribers">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Historical maximum number of subscribers">>
+            },
         <<"subscriptions.count">> =>
-        #{type => <<"integer">>, description => <<"Number of current subscriptions, including shared subscriptions">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Number of current subscriptions, including shared subscriptions">>
+            },
         <<"subscriptions.max">> =>
-        #{type => <<"integer">>, description => <<"Historical maximum number of subscriptions">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Historical maximum number of subscriptions">>
+            },
         <<"subscriptions.shared.count">> =>
-        #{type => <<"integer">>, description => <<"Number of current shared subscriptions">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Number of current shared subscriptions">>
+            },
         <<"subscriptions.shared.max">> =>
-        #{type => <<"integer">>, description => <<"Historical maximum number of shared subscriptions">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Historical maximum number of shared subscriptions">>
+            },
         <<"routes.count">> =>
-        #{type => <<"integer">>, description => <<"Number of current routes">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Number of current routes">>
+            },
         <<"routes.max">> =>
-        #{type => <<"integer">>, description => <<"Historical maximum number of routes">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Historical maximum number of routes">>
+            },
         <<"retained.count">> =>
-        #{type => <<"integer">>, description => <<"Number of currently retained messages">>},
+            #{
+                type => <<"integer">>,
+                description => <<"Number of currently retained messages">>
+            },
         <<"retained.max">> =>
-        #{type => <<"integer">>, description => <<"Historical maximum number of retained messages">>}
+            #{
+                type => <<"integer">>,
+                description => <<"Historical maximum number of retained messages">>
+            }
     },
     [{DefinitionName, DefinitionProperties}].
 
 rest_api() ->
     Metadata = #{
         get =>
-        #{tags => ["monitoring"],
+            #{tags => ["monitoring"],
             description => "EMQ X stats",
             operationId => handle_list,
             responses => #{
-                <<"200">> => #{
-                    content => #{
-                        'application/json' =>
+                <<"200">> => #{content => #{'application/json' =>
                         #{schema => cowboy_swagger:schema(<<"stats">>)}}}}}},
     [{"/stats", Metadata}].
 
@@ -88,6 +146,6 @@ handle_list(_Request) ->
 %% api apply
 list(_) ->
     Response = emqx_json:encode(emqx_mgmt:get_stats()),
-    {ok, Response}.
+    {200, Response}.
 
 

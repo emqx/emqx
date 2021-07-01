@@ -47,14 +47,15 @@ app_without_id_secret() ->
     app_without(<<"app_without_id_secret">>, [<<"app_id">>, <<"secret">>]).
 
 app_without(DefinitionName, List) ->
-    DefinitionProperties = #{
-        <<"app_id">> => #{type => <<"string">>},
-        <<"secret">> => #{type => <<"string">>},
-        <<"name">> => #{type => <<"string">>},
-        <<"desc">> => #{type => <<"string">>},
-        <<"status">> => #{type => <<"boolean">>},
-        <<"expired">> => #{type => <<"string">>}
-    },
+    DefinitionProperties =
+        #{
+            <<"app_id">>  => #{type => <<"string">>},
+            <<"secret">>  => #{type => <<"string">>},
+            <<"name">>    => #{type => <<"string">>},
+            <<"desc">>    => #{type => <<"string">>},
+            <<"status">>  => #{type => <<"boolean">>},
+            <<"expired">> => #{type => <<"string">>}
+        },
     {DefinitionName, maps:without(List, DefinitionProperties)}.
 
 secret_schema() ->
@@ -67,74 +68,72 @@ rest_api() ->
 apps_api() ->
     Metadata = #{
         get =>
-        #{tags => ["application"],
+            #{tags => ["application"],
             description => "List EMQ X apps",
             operationId => handle_list,
             responses => #{
                 <<"200">> => #{
-                    content => #{
-                        'application/json' =>
-                        #{schema =>
-                        #{type => array, items => cowboy_swagger:schema(<<"app_without_secret">>)}}}}}},
+                    content => #{'application/json' => #{schema =>
+                        #{type => array,
+                          items => cowboy_swagger:schema(<<"app_without_secret">>)}}}}}},
         post =>
-        #{tags => ["application"],
-        description => "EMQ X create apps",
-        operationId => handle_post,
-        requestBody => #{
-            content => #{
-                'application/json' => #{schema => cowboy_swagger:schema(<<"app">>)}}},
-        responses => #{
-            <<"200">> => #{description => "Create apps",
-                content => #{
-                'application/json' =>
-                #{schema =>
-                    #{type => array, items => cowboy_swagger:schema(<<"app_secert">>)}}}}}}},
+            #{tags => ["application"],
+            description => "EMQ X create apps",
+            operationId => handle_post,
+            requestBody => #{
+                content => #{'application/json' => #{schema => cowboy_swagger:schema(<<"app">>)}}},
+            responses => #{
+                <<"200">> => #{description => "Create apps",
+                    content => #{
+                    'application/json' =>
+                    #{schema =>
+                        #{type => array, items => cowboy_swagger:schema(<<"app_secert">>)}}}}}}},
     {"/apps", Metadata}.
 
 app_api() ->
     Metadata = #{
         get =>
-        #{tags => ["application"],
+            #{tags => ["application"],
             description => "EMQ X apps",
             operationId => handle_get,
-            parameters => [
-                #{name => app_id
-                , in => path
-                , required => true
-                , schema =>
-                #{type => string, example => <<"admin">>}}],
+            parameters =>
+            [#{
+                name => app_id,
+                in => path,
+                required => true,
+                schema => #{type => string, example => <<"admin">>}
+            }],
             responses => #{
                 <<"404">> => emqx_mgmt_util:not_found_schema(<<"App id not found">>),
-                <<"200">> => #{
-                    content => #{
-                        'application/json' =>
+                <<"200">> => #{content => #{'application/json' =>
                         #{schema => cowboy_swagger:schema(<<"app_without_secret">>)}}}}},
         delete =>
-        #{tags => ["application"],
+            #{tags => ["application"],
             description => "EMQ X apps",
             operationId => handle_delete,
-            parameters => [
-                #{name => app_id
-                , in => path
-                , required => true
-                , schema =>
-                #{type => string, example => <<"admin">>}}],
+            parameters =>
+                [#{
+                    name => app_id,
+                    in => path,
+                    required => true,
+                    schema => #{type => string, example => <<"admin">>}
+                }],
             responses => #{
                 <<"404">> => emqx_mgmt_util:not_found_schema(<<"App id not found">>),
                 <<"200">> => #{description => "Delete app ok"}}},
         put =>
-        #{tags => ["application"],
+            #{tags => ["application"],
             description => "EMQ X update apps",
             operationId => handle_put,
-            parameters => [
-                #{name => app_id
-                , in => path
-                , required => true
-                , schema =>
-                #{type => string, example => <<"admin">>}}],
-            requestBody => #{
-                content => #{
-                    'application/json' => #{schema => cowboy_swagger:schema(<<"app_without_id_secret">>)}}},
+            parameters =>
+                [#{
+                    name => app_id,
+                    in => path,
+                    required => true,
+                    schema => #{type => string, example => <<"admin">>}
+                }],
+            requestBody => #{content => #{'application/json' =>
+                #{schema => cowboy_swagger:schema(<<"app_without_id_secret">>)}}},
             responses => #{
                 <<"404">> => emqx_mgmt_util:not_found_schema(<<"App id not found">>),
                 <<"200">> => #{description => "Update apps"}}}},
@@ -185,14 +184,14 @@ handle_put(Request) ->
 list(_) ->
     Data = [format_without_app_secret(Apps) || Apps <- emqx_mgmt_auth:list_apps()],
     Response = emqx_json:encode(Data),
-    {ok, Response}.
+    {200, Response}.
 
 create(#{app_id := AppID, name := Name, secret := Secret,
     desc := Desc, status := Status, expired := Expired}) ->
     case emqx_mgmt_auth:add_app(AppID, Name, Secret, Desc, Status, Expired) of
         {ok, AppSecret} ->
             Response = emqx_json:encode(#{secret => AppSecret}),
-            {ok, Response};
+            {200, Response};
         {error, Reason} ->
             Data = #{code => 'UNKNOW_ERROR', reason => list_to_binary(io_lib:format("~p", [Reason]))},
             Response = emqx_json:encode(Data),
@@ -206,13 +205,13 @@ lookup(#{app_id := AppID}) ->
         App ->
             Data = format_with_app_secret(App),
             Response = emqx_json:encode(Data),
-            {ok, Response}
+            {200, Response}
     end.
 
 delete(#{app_id := AppID}) ->
     case emqx_mgmt_auth:del_app(AppID) of
         ok ->
-            {ok};
+            {200};
         {error, Reason} ->
             Data = #{code => 'UNKNOW_ERROR', reason => list_to_binary(io_lib:format("~p", [Reason]))},
             Response = emqx_json:encode(Data),
@@ -222,7 +221,7 @@ delete(#{app_id := AppID}) ->
 update(#{app_id := AppID, name := Name, desc := Desc, status := Status, expired := Expired}) ->
     case emqx_mgmt_auth:update_app(AppID, Name, Desc, Status, Expired) of
         ok ->
-            {ok};
+            {200};
         {error, not_found} ->
             {404, ?APP_ID_NOT_FOUND};
         {error, Reason} ->
