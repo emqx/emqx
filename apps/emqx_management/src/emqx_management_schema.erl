@@ -46,13 +46,13 @@ fields("http") ->
 fields("https") ->
     emqx_schema:ssl(undefined, #{enable => true}) ++ fields("http").
 
-default_application_id(type) -> string();
-default_application_id(default) -> "admin";
+default_application_id(type) -> binary();
+default_application_id(default) -> <<"admin">>;
 default_application_id(nullable) -> true;
 default_application_id(_) -> undefined.
 
-default_application_secret(type) -> string();
-default_application_secret(default) -> "public";
+default_application_secret(type) -> binary();
+default_application_secret(default) -> <<"public">>;
 default_application_secret(nullable) -> true;
 default_application_secret(_) -> undefined.
 
