@@ -112,7 +112,8 @@ handle_info({membership, {mnesia, down, Node}}, State = #{type := Type}) ->
     Tab = tabname(Type),
     global:trans({?LOCK, self()},
                  fun() ->
-                     ekka_mnesia:transaction(fun cleanup_channels/2, [Node, Tab])
+                     %% FIXME: The shard name should be fixed later
+                     ekka_mnesia:transaction(?MODULE, fun cleanup_channels/2, [Node, Tab])
                  end),
     {noreply, State};
 
