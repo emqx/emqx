@@ -112,7 +112,7 @@ jobs:
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
         for i in {1..10}; do
-          if curl -fs 127.0.0.1:18083 > /dev/null; then
+          if curl -fs 127.0.0.1:8081/status > /dev/null; then
             ready='yes'
             break
           fi
