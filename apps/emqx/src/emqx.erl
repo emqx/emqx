@@ -239,7 +239,7 @@ default_started_applications() ->
     [gproc, esockd, ranch, cowboy, ekka, quicer, emqx].
 -else.
 default_started_applications() ->
-    [gproc, esockd, ranch, cowboy, ekka, quicer, emqx, emqx_modules].
+    [gproc, esockd, ranch, cowboy, ekka, quicer, emqx] ++ emqx_feature().
 -endif.
 
 %%--------------------------------------------------------------------
@@ -252,3 +252,19 @@ reload_config(ConfFile) ->
                       [application:set_env(App, Par, Val) || {Par, Val} <- Vals]
                   end, Conf).
 
+
+emqx_feature() ->
+    [ emqx_authn
+    , emqx_authz
+    , observer_cli
+    , emqx_http_lib
+    , emqx_resource
+    , emqx_connector
+    , emqx_data_bridge
+    , emqx_rule_engine
+    , emqx_rule_actions
+    , emqx_bridge_mqtt
+    , emqx_modules
+    , emqx_management
+    , emqx_retainer
+    , emqx_statsd].
