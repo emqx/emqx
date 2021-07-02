@@ -41,11 +41,7 @@ set_special_configs(emqx) ->
     application:set_env(emqx, enable_acl_cache, false),
     ok;
 set_special_configs(emqx_authz) ->
-    application:set_env(emqx, plugins_etc_dir,
-                        emqx_ct_helpers:deps_path(emqx_authz, "test")),
-    Conf = #{<<"emqx_authz">> => #{<<"rules">> => []}},
-    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf'), jsx:encode(Conf)),
-    % emqx_config:put([emqx_authz], #{rules => []}),
+    emqx_config:put([emqx_authz], #{rules => []}),
     ok;
 set_special_configs(_App) ->
     ok.

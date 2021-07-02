@@ -29,50 +29,19 @@
 -define(LOG_HANDLER_ID, [file, default]).
 
 all() ->
-    [{group, manage_apps},
-     {group, check_cli}].
-
-groups() ->
-    [{manage_apps, [sequence],
-      [t_app
-      ]},
-      {check_cli, [sequence],
-       [t_cli,
-        t_log_cmd,
-        t_mgmt_cmd,
-        t_status_cmd,
-        t_clients_cmd,
-        t_vm_cmd,
-        t_plugins_cmd,
-        t_trace_cmd,
-        t_broker_cmd,
-        t_router_cmd,
-        t_subscriptions_cmd,
-        t_listeners_cmd_old,
-        t_listeners_cmd_new
-       ]}].
-
-apps() ->
-    [emqx_management, emqx_retainer].
+    emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
-    emqx_ct_helpers:start_apps(apps(), fun set_special_configs/1),
+    emqx_ct_helpers:start_apps([emqx_retainer, emqx_management], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps(apps()).
+    emqx_ct_helpers:stop_apps([emqx_management, emqx_retainer]).
 
 set_special_configs(emqx_management) ->
-    application:set_env(emqx, plugins_etc_dir,
-        emqx_ct_helpers:deps_path(emqx_management, "test")),
-    Conf = #{<<"emqx_management">> => #{
-        <<"listeners">> => [#{
-            <<"protocol">> => <<"http">>
-        }]}
-    },
-    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_management.conf'), jsx:encode(Conf)),
+    emqx_config:put([emqx_management], #{listeners => [#{protocol => "http", port => 8081}]}),
     ok;
 set_special_configs(_App) ->
     ok.

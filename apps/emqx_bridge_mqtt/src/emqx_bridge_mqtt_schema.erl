@@ -26,7 +26,7 @@
 structs() -> ["emqx_bridge_mqtt"].
 
 fields("emqx_bridge_mqtt") ->
-    [ {bridges, hoconsc:array("bridges")}
+    [ {bridges, hoconsc:array(hoconsc:ref(?MODULE, "bridges"))}
     ];
 
 fields("bridges") ->
@@ -36,8 +36,8 @@ fields("bridges") ->
     , {forward_mountpoint, emqx_schema:t(string())}
     , {reconnect_interval, emqx_schema:t(emqx_schema:duration_ms(), undefined, "30s")}
     , {batch_size, emqx_schema:t(integer(), undefined, 100)}
-    , {queue, emqx_schema:t(hoconsc:ref("queue"))}
-    , {config, hoconsc:union([hoconsc:ref("mqtt"), hoconsc:ref("rpc")])}
+    , {queue, emqx_schema:t(hoconsc:ref(?MODULE, "queue"))}
+    , {config, hoconsc:union([hoconsc:ref(?MODULE, "mqtt"), hoconsc:ref(?MODULE, "rpc")])}
     ];
 
 fields("mqtt") ->

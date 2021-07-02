@@ -47,28 +47,12 @@ set_special_configs(emqx) ->
                         emqx_ct_helpers:deps_path(emqx, "test/loaded_plguins")),
     ok;
 set_special_configs(emqx_authz) ->
-    application:set_env(emqx, plugins_etc_dir,
-                        emqx_ct_helpers:deps_path(emqx_authz, "test")),
-    Conf = #{<<"emqx_authz">> =>
-             #{<<"rules">> =>
-               [#{<<"config">> =>#{
-                    <<"server">> => <<"127.0.0.1:6379">>,
-                    <<"password">> => <<"public">>,
-                    <<"pool_size">> => 1,
-                    <<"auto_reconnect">> => true,
-                    <<"ssl">> => #{<<"enable">> => false}
-                  },
-                  <<"principal">> => all,
-                  <<"cmd">> => <<"fake cmd">>,
-                  <<"type">> => redis}
-               ]}},
-    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf'), jsx:encode(Conf)),
-    % Rules = [#{config =>#{<<"meck">> => <<"fake">>},
-    %            principal => all,
-    %            cmd => <<"fake cmd">>,
-    %            type => redis}
-    %         ],
-    % emqx_config:put([emqx_authz], #{rules => Rules}),
+    Rules = [#{config =>#{<<"meck">> => <<"fake">>},
+               principal => all,
+               cmd => <<"fake cmd">>,
+               type => redis}
+            ],
+    emqx_config:put([emqx_authz], #{rules => Rules}),
     ok;
 set_special_configs(_App) ->
     ok.

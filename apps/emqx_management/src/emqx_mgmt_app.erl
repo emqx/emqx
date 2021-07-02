@@ -29,11 +29,6 @@
 -include("emqx_mgmt.hrl").
 
 start(_Type, _Args) ->
-    Conf = filename:join(emqx:get_env(plugins_etc_dir), 'emqx_management.conf'),
-    {ok, RawConf} = hocon:load(Conf),
-    #{emqx_management := Config} =
-        hocon_schema:check_plain(emqx_management_schema, RawConf, #{atom_key => true}),
-    [application:set_env(?APP, Key, maps:get(Key, Config)) || Key <- maps:keys(Config)],
     {ok, Sup} = emqx_mgmt_sup:start_link(),
     ok = ekka_rlog:wait_for_shards([?MANAGEMENT_SHARD], infinity),
     _ = emqx_mgmt_auth:add_default_app(),

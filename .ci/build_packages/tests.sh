@@ -39,7 +39,7 @@ emqx_test(){
                 unzip -q "${PACKAGE_PATH}/${packagename}"
                 export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60 \
                        EMQX_MQTT__MAX_TOPIC_ALIAS=10
-                sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
+                # sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
                 echo "running ${packagename} start"
                 if ! "${PACKAGE_PATH}"/emqx/bin/emqx start; then
@@ -115,7 +115,7 @@ emqx_test(){
 running_test(){
     export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60 \
            EMQX_MQTT__MAX_TOPIC_ALIAS=10
-    sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
+    # sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
 
     if ! emqx start; then
         cat /var/log/emqx/erlang.log.1 || true

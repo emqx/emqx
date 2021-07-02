@@ -68,14 +68,14 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 -spec(add_default_app() -> ok | {ok, appsecret()} | {error, term()}).
 add_default_app() ->
-    AppId = application:get_env(?APP, default_application_id, undefined),
-    AppSecret = application:get_env(?APP, default_application_secret, undefined),
+    AppId = emqx_config:get([?APP, default_application_id], undefined),
+    AppSecret = emqx_config:get([?APP, default_application_secret], undefined),
     case {AppId, AppSecret} of
         {undefined, _} -> ok;
         {_, undefined} -> ok;
         {_, _} ->
-            AppId1 = erlang:list_to_binary(AppId),
-            AppSecret1 = erlang:list_to_binary(AppSecret),
+            AppId1 = to_binary(AppId),
+            AppSecret1 = to_binary(AppSecret),
             add_app(AppId1, <<"Default">>, AppSecret1, <<"Application user">>, true, undefined)
     end.
 
@@ -210,3 +210,6 @@ is_authorized(AppId, AppSecret) ->
 
 is_expired(undefined) -> true;
 is_expired(Expired)   -> Expired >= erlang:system_time(second).
+
+to_binary(L) when is_list(L) -> list_to_binary(L);
+to_binary(B) when is_binary(B) -> B.

@@ -28,7 +28,7 @@ fields("emqx_management") ->
     [ {default_application_id, fun default_application_id/1}
     , {default_application_secret, fun default_application_secret/1}
     , {max_row_limit, fun max_row_limit/1}
-    , {listeners, hoconsc:array(hoconsc:union([hoconsc:ref("http"), hoconsc:ref("https")]))}
+    , {listeners, hoconsc:array(hoconsc:union([hoconsc:ref(?MODULE, "http"), hoconsc:ref(?MODULE, "https")]))}
     ];
 
 fields("http") ->

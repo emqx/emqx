@@ -37,15 +37,9 @@ init_per_suite(Config) ->
     Config.
 
 set_special_configs(emqx_management) ->
-    application:set_env(emqx, modules_loaded_file, emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_modules")),
-    application:set_env(emqx, plugins_etc_dir,
-        emqx_ct_helpers:deps_path(emqx_management, "test")),
-    Conf = #{<<"emqx_management">> => #{
-        <<"listeners">> => [#{
-            <<"protocol">> => <<"http">>
-        }]}
-    },
-    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_management.conf'), jsx:encode(Conf)),
+    emqx_config:put([emqx_management], #{listeners => [#{protocol => "http", port => 8081}],
+                                         default_application_id => <<"admin">>,
+                                         default_application_secret => <<"public">>}),
     ok;
 set_special_configs(_) ->
     ok.

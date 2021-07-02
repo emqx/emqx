@@ -51,7 +51,7 @@ start(_Type, _Args) ->
     ok = ekka_rlog:wait_for_shards(?EMQX_SHARDS, infinity),
     {ok, Sup} = emqx_sup:start_link(),
     ok = start_autocluster(),
-    ok = emqx_plugins:init(),
+    % ok = emqx_plugins:init(),
     _ = emqx_plugins:load(),
     _ = start_ce_modules(),
     emqx_boot:is_enabled(listeners) andalso (ok = emqx_listeners:start()),
