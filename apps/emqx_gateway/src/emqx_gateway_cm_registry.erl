@@ -112,7 +112,7 @@ handle_info({membership, {mnesia, down, Node}}, State = #{type := Type}) ->
     Tab = tabname(Type),
     global:trans({?LOCK, self()},
                  fun() ->
-                     mnesia:transaction(fun cleanup_channels/2, [Node, Tab])
+                     ekka_mnesia:transaction(fun cleanup_channels/2, [Node, Tab])
                  end),
     {noreply, State};
 
