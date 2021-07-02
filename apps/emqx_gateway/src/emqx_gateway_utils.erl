@@ -104,19 +104,21 @@ apply(F, A2) when is_function(F),
             , SocketOpts :: esockd:option()
             , Cfg :: map()
             }).
-normalize_rawconf(RawConf = #{listeners := Liss}) ->
-    Cfg0 = maps:without([listeners], RawConf),
-    lists:foldr(fun(Lis, Acc) ->
-        Type       = maps:get(type, Lis),
-        ListenOn   = maps:get(listen_on, Lis),
-        SocketOpts = esockd:parse_opt(maps:to_list(Lis)),
-        RemainCfgs = maps:without(
-                       [type, listen_on] ++ proplists:get_keys(SocketOpts),
-                       Lis
-                      ),
-        Cfg = maps:merge(Cfg0, RemainCfgs),
-        [{Type, ListenOn, SocketOpts, Cfg}|Acc]
-    end, [], Liss).
+normalize_rawconf(RawConf = #{listener := LisMap}) ->
+    Cfg0 = maps:without([listener], RawConf),
+    lists:append(maps:fold(fun(Type, Liss, AccIn1) ->
+        Listeners =
+            maps:fold(fun(_Name, Confs, AccIn2) ->
+                ListenOn   = maps:get(bind, Confs),
+                SocketOpts = esockd:parse_opt(maps:to_list(Confs)),
+                RemainCfgs = maps:without(
+                               [bind] ++ proplists:get_keys(SocketOpts),
+                               Confs),
+                Cfg = maps:merge(Cfg0, RemainCfgs),
+                [{Type, ListenOn, SocketOpts, Cfg}|AccIn2]
+            end, [], Liss),
+            [Listeners|AccIn1]
+    end, [], LisMap)).
 
 %%--------------------------------------------------------------------
 %% Envs

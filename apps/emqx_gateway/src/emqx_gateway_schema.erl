@@ -36,7 +36,6 @@ structs() -> ["emqx_gateway"].
 
 fields("emqx_gateway") ->
     [{stomp, t(ref(stomp))}];
-    %[{stomp, t(ref(stomp), "emqx_gateway.stomp", undefined)}];
 
 fields(stomp) ->
     [{"$id", t(ref(stomp_structs))}];
@@ -80,9 +79,7 @@ fields(listener_settings) ->
     , {active_n, t(integer(), undefined, 100)}
     %, {zone, t(string())}
     %, {rate_limit, t(comma_separated_list())}
-    %, {access, t(ref(access))}
-    , {access, #{type => {ref, ?MODULE, access},
-                 nullable => true}}
+    , {access, t(ref(access))}
     , {proxy_protocol, t(flag())}
     , {proxy_protocol_timeout, t(duration())}
     , {backlog, t(integer(), undefined, 1024)}
@@ -127,7 +124,7 @@ fields(ExtraField) ->
 
 %% types
 
-t(Type) -> #{type => Type, nullable => true}.
+t(Type) -> #{type => Type}.
 
 t(Type, Mapping, Default) ->
     hoconsc:t(Type, #{mapping => Mapping, default => Default}).
