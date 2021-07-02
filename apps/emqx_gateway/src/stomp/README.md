@@ -1,13 +1,12 @@
 
-emqx-stomp
-==========
+# emqx-stomp
+
 
 The plugin adds STOMP 1.0/1.1/1.2 protocol supports to the EMQ X broker.
 
 The STOMP clients could PubSub to the MQTT clients.
 
-Configuration
--------------
+## Configuration
 
 etc/emqx_stomp.conf
 
@@ -58,20 +57,17 @@ stomp.frame.max_header_length = 1024
 stomp.frame.max_body_length = 8192
 ```
 
-Load the Plugin
----------------
+## Load the Plugin
 
 ```
 ./bin/emqx_ctl plugins load emqx_stomp
 ```
 
-License
--------
+## License
 
 Apache License Version 2.0
 
-Author
-------
+## Author
 
 EMQ X Team.
 

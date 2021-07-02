@@ -17,10 +17,11 @@
 %% @doc Stomp heartbeat.
 -module(emqx_stomp_heartbeat).
 
--include("emqx_stomp.hrl").
+-include("src/stomp/include/emqx_stomp.hrl").
 
 -export([ init/1
         , check/3
+        , reset/3
         , info/1
         , interval/2
         ]).
@@ -32,7 +33,6 @@
 -type heartbeat() :: #{incoming => #heartbeater{},
                        outgoing => #heartbeater{}
                       }.
-
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -76,6 +76,15 @@ check(NewVal, HrtBter = #heartbeater{statval = OldVal,
             {ok, HrtBter#heartbeater{repeat = Repeat + 1}};
         true -> {error, timeout}
     end.
+
+-spec reset(name(), pos_integer(), heartbeat())
+    -> heartbeat().
+reset(Name, NewVal, HrtBt) ->
+    HrtBter = maps:get(Name, HrtBt),
+    HrtBt#{Name => reset(NewVal, HrtBter)}.
+
+reset(NewVal, HrtBter) ->
+    HrtBter#heartbeater{statval = NewVal, repeat = 1}.
 
 -spec info(heartbeat()) -> map().
 info(HrtBt) ->
