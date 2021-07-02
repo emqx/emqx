@@ -65,12 +65,6 @@ includes() ->
     [ "emqx_data_bridge"
     , "emqx_telemetry"
     , "emqx_retainer"
-    , "emqx_statsd"
-    , "emqx_authn"
-    , "emqx_authz"
-    , "emqx_bridge_mqtt"
-    , "emqx_modules"
-    , "emqx_management"
     ].
 -endif.
 
