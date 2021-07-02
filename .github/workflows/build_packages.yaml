@@ -179,7 +179,7 @@ jobs:
         cd source
         pkg_name=$(basename _packages/${{ matrix.profile }}/${{ matrix.profile }}-*.zip)
         unzip -q _packages/${{ matrix.profile }}/$pkg_name
-        gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
+        # gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
         for i in {1..10}; do

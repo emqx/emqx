@@ -27,9 +27,9 @@
               , authenticator_name/0
               ]).
 
-structs() -> [authn].
+structs() -> ["emqx_authn"].
 
-fields(authn) ->
+fields("emqx_authn") ->
     [ {chains, fun chains/1}
     , {bindings, fun bindings/1}];
 
@@ -80,7 +80,7 @@ fields(pgsql) ->
     , {config, hoconsc:t(hoconsc:ref(emqx_authn_pgsql, config))}
     ].
 
-chains(type) -> hoconsc:array({union, [hoconsc:ref('simple-chain')]});
+chains(type) -> hoconsc:array({union, [hoconsc:ref(?MODULE, 'simple-chain')]});
 chains(default) -> [];
 chains(_) -> undefined.
 
@@ -89,10 +89,10 @@ chain_id(nullable) -> false;
 chain_id(_) -> undefined.
 
 simple_authenticators(type) ->
-    hoconsc:array({union, [ hoconsc:ref('built-in-database')
-                          , hoconsc:ref(jwt)
-                          , hoconsc:ref(mysql)
-                          , hoconsc:ref(pgsql)]});
+    hoconsc:array({union, [ hoconsc:ref(?MODULE, 'built-in-database')
+                          , hoconsc:ref(?MODULE, jwt)
+                          , hoconsc:ref(?MODULE, mysql)
+                          , hoconsc:ref(?MODULE, pgsql)]});
 simple_authenticators(default) -> [];
 simple_authenticators(_) -> undefined.
 
@@ -105,7 +105,7 @@ authenticator_name(type) -> authenticator_name();
 authenticator_name(nullable) -> false;
 authenticator_name(_) -> undefined.
 
-bindings(type) -> hoconsc:array(hoconsc:ref(binding));
+bindings(type) -> hoconsc:array(hoconsc:ref(?MODULE, binding));
 bindings(default) -> [];
 bindings(_) -> undefined.
 

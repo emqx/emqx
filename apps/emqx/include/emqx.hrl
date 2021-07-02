@@ -108,8 +108,7 @@
           descr          :: string(),
           vendor         :: string() | undefined,
           active = false :: boolean(),
-          info   = #{}   :: map(),
-          type           :: atom()
+          info   = #{}   :: map()
         }).
 
 %%--------------------------------------------------------------------

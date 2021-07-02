@@ -36,11 +36,7 @@ register_metrics() ->
 
 init() ->
     ok = register_metrics(),
-    Conf = filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf'),
-    {ok, RawConf} = hocon:load(Conf),
-    #{emqx_authz := #{rules := Rules}} = hocon_schema:check_plain(emqx_authz_schema, RawConf, #{atom_key => true}),
-    emqx_config:put([emqx_authz], #{rules => Rules}),
-    % Rules = emqx_config:get([emqx_authz, rules], []),
+    Rules = emqx_config:get([emqx_authz, rules], []),
     NRules = [compile(Rule) || Rule <- Rules],
     ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]},  -1).
 

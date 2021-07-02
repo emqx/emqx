@@ -143,6 +143,8 @@ cli(_) ->
                     {"modules reload <Module>", "Reload module"}
                    ]).
 
+name(Name) when is_binary(Name) ->
+    name(binary_to_atom(Name, utf8));
 name(delayed) -> emqx_mod_delayed;
 name(presence) -> emqx_mod_presence;
 name(recon) -> emqx_mod_recon;
