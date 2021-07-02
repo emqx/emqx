@@ -32,10 +32,11 @@
 -export([structs/0 , fields/1]).
 -export([t/1, t/3, t/4, ref/1]).
 
-structs() -> [gateway].
+structs() -> ["emqx_gateway"].
 
-fields(gateway) ->
-    [{stomp, t(ref(stomp), "emqx_gateway.stomp", undefined)}];
+fields("emqx_gateway") ->
+    [{stomp, t(ref(stomp))}];
+    %[{stomp, t(ref(stomp), "emqx_gateway.stomp", undefined)}];
 
 fields(stomp) ->
     [{"$id", t(ref(stomp_structs))}];
@@ -79,7 +80,9 @@ fields(listener_settings) ->
     , {active_n, t(integer(), undefined, 100)}
     %, {zone, t(string())}
     %, {rate_limit, t(comma_separated_list())}
-    , {access, t(ref(access))}
+    %, {access, t(ref(access))}
+    , {access, #{type => {ref, ?MODULE, access},
+                 nullable => true}}
     , {proxy_protocol, t(flag())}
     , {proxy_protocol_timeout, t(duration())}
     , {backlog, t(integer(), undefined, 1024)}
@@ -108,7 +111,8 @@ fields(ssl_listener_settings) ->
                    , reuse_sessions => true}) ++ fields(listener_settings);
 
 fields(access) ->
-    [ {"$id", t(string(), undefined, undefined)}];
+    [ {"$id", #{type => string(),
+                nullable => true}}];
 
 fields(ExtraField) ->
     Mod = list_to_atom(ExtraField++"_schema"),
@@ -123,7 +127,7 @@ fields(ExtraField) ->
 
 %% types
 
-t(Type) -> hoconsc:t(Type).
+t(Type) -> #{type => Type, nullable => true}.
 
 t(Type, Mapping, Default) ->
     hoconsc:t(Type, #{mapping => Mapping, default => Default}).
@@ -135,7 +139,7 @@ t(Type, Mapping, Default, OverrideEnv) ->
                      }).
 
 ref(Field) ->
-    hoconsc:ref(Field).
+    hoconsc:ref(?MODULE, Field).
 
 %% utils
 

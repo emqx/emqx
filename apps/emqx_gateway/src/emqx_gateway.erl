@@ -60,7 +60,6 @@ create(Type, Name, Descr, RawConf) ->
 remove(InstaId) ->
     emqx_gateway_sup:remove_gateway_insta(InstaId).
 
-%% TODO:
 -spec lookup(instance_id()) -> instance() | undefined.
 lookup(InstaId) ->
     emqx_gateway_sup:lookup_gateway_insta(InstaId).

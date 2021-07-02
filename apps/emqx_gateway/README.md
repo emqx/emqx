@@ -3,8 +3,9 @@
 ***This is a very early prototype application*** for Gateway in EMQ X Broker 5.0
 
 ## Concept
+
     EMQ X Gateway Managment
-     - Gateway-Type     (Registry)
+     - Gateway-Registry (or Gateway Type)
         - *Load
         - *UnLoad
         - *List
@@ -19,14 +20,11 @@
         - *Stop/Disable
      - Listener
 
-
-
 ## ROADMAP
 
 Gateway v0.1: Management support
 
 Gateway v0.2: Conn/Frame/Protocol Template
-
 
 ### Compatible with EMQ X
 

@@ -4,7 +4,7 @@
   {registered, []},
   {mod, {emqx_gateway_app, []}},
   {applications, [kernel, stdlib]},
-  {env,[]},
+  {env, []},
   {modules, []},
   {licenses, ["Apache 2.0"]},
   {links, []}
