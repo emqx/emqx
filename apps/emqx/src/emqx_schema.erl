@@ -71,6 +71,7 @@ includes() ->
     , "emqx_bridge_mqtt"
     , "emqx_modules"
     , "emqx_management"
+    , "emqx_gateway"
     ].
 -endif.
 

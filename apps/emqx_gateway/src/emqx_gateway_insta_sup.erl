@@ -43,8 +43,9 @@
 -record(state, {
           insta  :: instance(),
           ctx    :: emqx_gateway_ctx:context(),
+          status :: stopped | running,
           child_pids :: [pid()],
-          insta_state :: emqx_gateway_impl:state()
+          insta_state :: emqx_gateway_impl:state() | undefined
          }).
 
 %%--------------------------------------------------------------------
@@ -59,21 +60,27 @@ start_link(Insta, Ctx, GwDscrptr) ->
       []
      ).
 
+-spec info(pid()) -> instance().
 info(Pid) ->
     gen_server:call(Pid, info).
 
 %% @doc Stop instance
+-spec disable(pid()) -> ok | {error, any()}.
 disable(Pid) ->
-    gen_server:call(Pid, disable).
+    call(Pid, disable).
 
 %% @doc Start instance
+-spec enable(pid()) -> ok | {error, any()}.
 enable(Pid) ->
-    gen_server:call(Pid, enable).
+    call(Pid, enable).
 
 %% @doc Update the gateway instance configurations
-update(_Pid, _NewInsta) ->
-    %% TODO:
-    todo.
+-spec update(pid(), instance()) -> ok | {error, any()}.
+update(Pid, NewInsta) ->
+    call(Pid, {update, NewInsta}).
+
+call(Pid, Req) ->
+    gen_server:call(Pid, Req, 5000).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -88,10 +95,11 @@ init([Insta, Ctx0, _GwDscrptr]) ->
                ctx   = Ctx
               },
     case cb_insta_create(State) of
-        #state{child_pids = []} ->
+        {error, _Reason} ->
             do_deinit_context(Ctx),
+            %% XXX: Return Reason??
             {stop, create_gateway_instance_failed};
-        NState ->
+        {ok, NState} ->
             {ok, NState}
     end.
 
@@ -110,22 +118,55 @@ do_deinit_context(Ctx) ->
 handle_call(info, _From, State = #state{insta = Insta}) ->
     {reply, Insta, State};
 
-handle_call(disable, _From, State = #state{child_pids = ChildPids}) ->
-    case ChildPids /= [] of
-        true ->
-            %% TODO: Report the error message
-            {reply, ok, cb_insta_destroy(State)};
+handle_call(disable, _From, State = #state{status = Status}) ->
+    case Status of
+        running ->
+            case cb_insta_destroy(State) of
+                {ok, NState} ->
+                    {reply, ok, NState};
+                {error, Reason} ->
+                    {reply, {error, Reason}, State}
+            end;
         _ ->
-            {reply, ok, State}
+            {reply, {error, already_stopped}, State}
     end;
 
-handle_call(enable, _From, State = #state{child_pids = ChildPids}) ->
-    case ChildPids /= [] of
-        true ->
-            {reply, {error, already_started}, State};
+handle_call(enable, _From, State = #state{status = Status}) ->
+    case Status of
+        stopped ->
+            case cb_insta_create(State) of
+                {error, Reason} ->
+                    {reply, {error, Reason}, State};
+                {ok, NState} ->
+                    {reply, ok, NState}
+            end;
         _ ->
-            %% TODO: Report the error message
-            {reply, ok, cb_insta_create(State)}
+            {reply, {error, already_started}, State}
+    end;
+
+%% Stopped -> update
+handle_call({update, NewInsta}, _From, State = #state{insta = Insta,
+                                                      status = stopped}) ->
+    case maps:get(id, NewInsta, undefined) == maps:get(id, Insta, undefined) of
+        true ->
+            {reply, ok, State#state{insta = NewInsta}};
+        false ->
+            {reply, {error, bad_instan_id}, State}
+    end;
+
+%% Running -> update
+handle_call({update, NewInsta}, _From, State = #state{insta = Insta,
+                                                      status = running}) ->
+    case maps:get(id, NewInsta, undefined) == maps:get(id, Insta, undefined) of
+        true ->
+            case cb_insta_update(NewInsta, State) of
+                {ok, NState} ->
+                    {reply, ok, NState};
+                {error, Reason} ->
+                    {reply, {error, Reason}, State}
+            end;
+        false ->
+            {reply, {error, bad_instan_id}, State}
     end;
 
 handle_call(_Request, _From, State) ->
@@ -138,14 +179,19 @@ handle_cast(_Msg, State) ->
 handle_info({'EXIT', Pid, Reason}, State = #state{child_pids = Pids}) ->
     case lists:member(Pid, Pids) of
         true ->
-            logger:critical("Child process ~p exited: ~0p. "
-                            "Try restart instance ~s now!", [Pid, Reason]),
-            %% XXX: After process exited, do we need call destroy function??
-            NState = cb_insta_create(cb_insta_destroy(State)),
-            {noreply, NState};
+            logger:error("Child process ~p exited: ~0p.", [Pid, Reason]),
+            case Pids -- [Pid]of
+                [] ->
+                    logger:error("All child process exited!"),
+                    {noreply, State#state{status = stopped,
+                                          child_pids = [],
+                                          insta_state = undefined}};
+                RemainPids ->
+                    {noreply, State#state{child_pids = RemainPids}}
+            end;
         _ ->
-            logger:info("Shutdown due to ~p:~0p", [Pid, Reason]),
-            {stop, State}
+            logger:error("Unknown process exited ~p:~0p", [Pid, Reason]),
+            {noreply, State}
     end;
 
 handle_info(Info, State) ->
@@ -180,14 +226,17 @@ cb_insta_destroy(State = #state{insta = Insta = #{type := Type},
     try
         #{cbkmod := CbMod,
           state := GwState} = emqx_gateway_registry:lookup(Type),
-        CbMod:on_insta_destroy(Insta, InstaState, GwState)
+        CbMod:on_insta_destroy(Insta, InstaState, GwState),
+        {ok, State#state{child_pids = [],
+                         insta_state = undefined,
+                         status = stopped}}
     catch
         Class : Reason : Stk ->
             logger:error("Destroy instance (~0p, ~0p, _) crashed: "
                          "{~p, ~p}, stacktrace: ~0p",
                          [Insta, InstaState,
                           Class, Reason, Stk]),
-            State#state{insta_state = undefined, child_pids = []}
+            {error, {Class, Reason, Stk}}
     end.
 
 cb_insta_create(State = #state{insta = Insta = #{type := Type},
@@ -199,10 +248,11 @@ cb_insta_create(State = #state{insta = Insta = #{type := Type},
             {error, Reason} -> throw({callback_return_error, Reason});
             {ok, InstaPidOrSpecs, InstaState} ->
                 ChildPids = start_child_process(InstaPidOrSpecs),
-                State#state{
-                  child_pids = ChildPids,
-                  insta_state = InstaState
-                }
+                {ok, State#state{
+                       status = running,
+                       child_pids = ChildPids,
+                       insta_state = InstaState
+                      }}
         end
     catch
         Class : Reason1 : Stk ->
@@ -210,10 +260,34 @@ cb_insta_create(State = #state{insta = Insta = #{type := Type},
                          "{~p, ~p}, stacktrace: ~0p",
                          [Insta, Ctx,
                           Class, Reason1, Stk]),
-            State#state{
-              child_pids = [],
-              insta_state = undefined
-             }
+            {error, {Class, Reason1, Stk}}
+    end.
+
+cb_insta_update(NewInsta,
+                State = #state{insta = Insta = #{type := Type},
+                               ctx   = Ctx,
+                               insta_state = GwInstaState}) ->
+    try
+        #{cbkmod := CbMod,
+          state := GwState} = emqx_gateway_registry:lookup(Type),
+        case CbMod:on_insta_update(NewInsta, Insta, GwInstaState, GwState) of
+            {error, Reason} -> throw({callback_return_error, Reason});
+            {ok, InstaPidOrSpecs, InstaState} ->
+                %% XXX: Hot-upgrade ???
+                ChildPids = start_child_process(InstaPidOrSpecs),
+                {ok, State#state{
+                       status = running,
+                       child_pids = ChildPids,
+                       insta_state = InstaState
+                      }}
+        end
+    catch
+        Class : Reason1 : Stk ->
+            logger:error("Update instance (~0p, ~0p, ~0p, _) crashed: "
+                         "{~p, ~p}, stacktrace: ~0p",
+                         [NewInsta, Insta, Ctx,
+                          Class, Reason1, Stk]),
+            {error, {Class, Reason1, Stk}}
     end.
 
 start_child_process([Indictor|_] = InstaPidOrSpecs) ->
