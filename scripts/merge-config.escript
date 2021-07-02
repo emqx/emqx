@@ -28,7 +28,7 @@ main(_) ->
                 case filelib:is_regular(Filename) of
                     true ->
                         {ok, Bin1} = file:read_file(Filename),
-                        <<Acc/binary, "\r\n", Bin1/binary>>;
+                        [Acc, io_lib:nl(), Bin1];
                     false -> Acc
                 end
         end

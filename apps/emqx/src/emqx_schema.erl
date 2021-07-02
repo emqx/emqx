@@ -455,9 +455,7 @@ fields("rule") ->
     [ {"$id", t(string())}];
 
 fields("plugins") ->
-    [ {"etc_dir", t(string(), "emqx.plugins_etc_dir", undefined)}
-    , {"loaded_file", t(string(), "emqx.plugins_loaded_file", undefined)}
-    , {"expand_plugins_dir", t(string(), "emqx.expand_plugins_dir", undefined)}
+    [ {"expand_plugins_dir", t(string(), "emqx.expand_plugins_dir", undefined)}
     ];
 
 fields("broker") ->

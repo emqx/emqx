@@ -247,12 +247,12 @@ relx_apps(ReleaseType) ->
     , {mnesia, load}
     , {ekka, load}
     , {emqx_plugin_libs, load}
-    , emqx_authn
-    , emqx_authz
     , observer_cli
     , emqx_http_lib
     , emqx_resource
     , emqx_connector
+    , emqx_authn
+    , emqx_authz
     , emqx_data_bridge
     , emqx_rule_engine
     , emqx_rule_actions

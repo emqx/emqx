@@ -254,15 +254,11 @@ reload_config(ConfFile) ->
 
 
 emqx_feature() ->
-    [ emqx_authn
+    [ emqx_resource
+    , emqx_authn
     , emqx_authz
-    , observer_cli
-    , emqx_http_lib
-    , emqx_resource
-    , emqx_connector
     , emqx_data_bridge
     , emqx_rule_engine
-    , emqx_rule_actions
     , emqx_bridge_mqtt
     , emqx_modules
     , emqx_management
