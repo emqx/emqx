@@ -107,6 +107,8 @@
         state := #parser_state{}
        }).
 
+-dialyzer({nowarn_function, [serialize_pkt/2,make/1]}).
+
 %% @doc Initialize a parser
 -spec initial_parse_state(map()) -> parse_state().
 initial_parse_state(Opts) ->
@@ -286,4 +288,3 @@ make(Command, Headers, Body) ->
 
 %% @doc Format a frame
 format(Frame) -> serialize_pkt(Frame, #{}).
-

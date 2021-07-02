@@ -92,7 +92,9 @@ init([Insta, Ctx0, _GwDscrptr]) ->
     Ctx   = do_init_context(RawConf, Ctx0),
     State = #state{
                insta = Insta,
-               ctx   = Ctx
+               ctx   = Ctx,
+               child_pids = [],
+               status = stopped
               },
     case cb_insta_create(State) of
         {error, _Reason} ->

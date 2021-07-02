@@ -94,7 +94,7 @@ unload(Type) ->
 list() ->
     call(all).
 
--spec lookup(gateway_type()) -> descriptor().
+-spec lookup(gateway_type()) -> undefined | descriptor().
 lookup(Type) ->
     call({lookup, Type}).
 

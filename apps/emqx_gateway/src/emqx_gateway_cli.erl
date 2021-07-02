@@ -187,10 +187,7 @@ print({client, {_, Infos, Stats}}) ->
     emqx_ctl:print("Client(~s, username=~s, peername=~s, "
                    "clean_start=~s, keepalive=~w, "
                    "subscriptions=~w, delivered_msgs=~w, "
-                   "connected=~s, created_at=~w, connected_at=~w" ++ case maps:is_key(disconnected_at, Info) of
-                                                                      true  -> ", disconnected_at=~w)~n";
-                                                                      false -> ")~n"
-                                                                  end,
+                   "connected=~s, created_at=~w, connected_at=~w)~n",
                 [format(K, maps:get(K, Info)) || K <- InfoKeys]).
 
 format(_, undefined) ->

@@ -78,7 +78,7 @@ check(NewVal, HrtBter = #heartbeater{statval = OldVal,
     end.
 
 -spec reset(name(), pos_integer(), heartbeat())
-    -> {ok, heartbeat()}.
+    -> heartbeat().
 reset(Name, NewVal, HrtBt) ->
     HrtBter = maps:get(Name, HrtBt),
     HrtBt#{Name => reset(NewVal, HrtBter)}.

@@ -67,11 +67,11 @@ childspec(Id, Type, Mod, Args) ->
 supervisor_ret({ok, Pid, _Info}) -> {ok, Pid};
 supervisor_ret(Ret) -> Ret.
 
--spec find_sup_child(SupPid :: pid(), ChildId :: supervisor:child_id())
+-spec find_sup_child(Sup :: pid() | atom(), ChildId :: supervisor:child_id())
     -> false
      | {ok, pid()}.
-find_sup_child(SupPid, ChildId) ->
-    case lists:keyfind(ChildId, 1, supervisor:which_children(SupPid)) of
+find_sup_child(Sup, ChildId) ->
+    case lists:keyfind(ChildId, 1, supervisor:which_children(Sup)) of
         false -> false;
         {_Id, Pid, _Type, _Mods} -> {ok, Pid}
     end.

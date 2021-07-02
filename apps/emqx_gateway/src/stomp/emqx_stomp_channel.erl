@@ -59,7 +59,7 @@
           %% ClientInfo override specs
           clientinfo_override :: map(),
           %% Connection Channel
-          conn_state    :: idle,
+          conn_state    :: conn_state(),
           %% Heartbeat
           heartbeat     :: emqx_stomp_heartbeat:heartbeat(),
           %% Subscriptions
@@ -96,6 +96,11 @@
          }).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
+
+-dialyzer({nowarn_function, [init/2,enrich_conninfo/2,ensure_connected/1,
+                             process_connect/1,handle_in/2,handle_info/2,
+                             ensure_disconnected/2,reverse_heartbeats/1,
+                             negotiate_version/2]}).
 
 %%--------------------------------------------------------------------
 %% Init the channel
