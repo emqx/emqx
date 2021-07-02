@@ -257,6 +257,7 @@ emqx_feature() ->
     [ emqx_resource
     , emqx_authn
     , emqx_authz
+    , emqx_gateway
     , emqx_data_bridge
     , emqx_rule_engine
     , emqx_bridge_mqtt
