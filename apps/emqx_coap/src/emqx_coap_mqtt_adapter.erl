@@ -303,7 +303,7 @@ sockinfo(#state{peername = Peername}) ->
       peername => Peername,
       sockname => {{127, 0, 0, 1}, 5683},    %% FIXME: Sock?
       sockstate =>  running,
-      active_n => 1
+      active => 1
      }.
 
 %% copies from emqx_channel:info/1

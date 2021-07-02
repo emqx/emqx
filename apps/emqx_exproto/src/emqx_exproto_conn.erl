@@ -61,7 +61,7 @@
           %% Sock State
           sockstate :: emqx_types:sockstate(),
           %% The {active, N} option
-          active_n :: pos_integer(),
+          active :: pos_integer(),
           %% BACKW: e4.2.0-e4.2.1
           %% We should remove it
           sendfun :: function() | undefined,
@@ -84,7 +84,7 @@
 -type(state() :: #state{}).
 
 -define(ACTIVE_N, 100).
--define(INFO_KEYS, [socktype, peername, sockname, sockstate, active_n]).
+-define(INFO_KEYS, [socktype, peername, sockname, sockstate, active]).
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
@@ -137,7 +137,7 @@ info(sockname, #state{sockname = Sockname}) ->
     Sockname;
 info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
-info(active_n, #state{active_n = ActiveN}) ->
+info(active, #state{active = ActiveN}) ->
     ActiveN.
 
 -spec(stats(pid()|state()) -> emqx_types:stats()).
@@ -240,7 +240,7 @@ init_state(WrappedSock, Peername, Options) ->
                  conn_mod => ?MODULE
                 },
 
-    ActiveN = proplists:get_value(active_n, Options, ?ACTIVE_N),
+    ActiveN = proplists:get_value(active, Options, ?ACTIVE_N),
 
     %% FIXME:
     %%Limiter = emqx_limiter:init(Options),
@@ -255,7 +255,7 @@ init_state(WrappedSock, Peername, Options) ->
            peername     = Peername,
            sockname     = Sockname,
            sockstate    = idle,
-           active_n     = ActiveN,
+           active     = ActiveN,
            sendfun      = undefined,
            limiter      = undefined,
            channel      = Channel,
@@ -403,13 +403,13 @@ handle_msg({Passive, _Sock}, State)
     handle_info(activate_socket, NState1);
 
 handle_msg(Deliver = {deliver, _Topic, _Msg},
-           State = #state{active_n = ActiveN}) ->
+           State = #state{active = ActiveN}) ->
     Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 
 %% Something sent
 %% TODO: Who will deliver this message?
-handle_msg({inet_reply, _Sock, ok}, State = #state{active_n = ActiveN}) ->
+handle_msg({inet_reply, _Sock, ok}, State = #state{active = ActiveN}) ->
     case emqx_pd:get_counter(outgoing_pkt) > ActiveN of
         true ->
             Pubs = emqx_pd:reset_counter(outgoing_pkt),
@@ -652,7 +652,7 @@ activate_socket(State = #state{sockstate = closed}) ->
 activate_socket(State = #state{sockstate = blocked}) ->
     {ok, State};
 activate_socket(State = #state{socket   = Socket,
-                               active_n = N}) ->
+                               active = N}) ->
     %% FIXME: Works on dtls/udp ???
     %%        How to hanlde buffer?
     case esockd_setopts(Socket, [{active, N}]) of

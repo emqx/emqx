@@ -84,7 +84,7 @@
           %% Sock State
           sockstate :: emqx_types:sockstate(),
           %% The {active, N} option
-          active_n :: pos_integer(),
+          active :: pos_integer(),
           %% Limiter
           limiter :: maybe(emqx_limiter:limiter()),
           %% Limit Timer
@@ -108,7 +108,7 @@
 -type(state() :: #state{}).
 
 -define(ACTIVE_N, 100).
--define(INFO_KEYS, [socktype, peername, sockname, sockstate, active_n]).
+-define(INFO_KEYS, [socktype, peername, sockname, sockstate, active]).
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
@@ -165,7 +165,7 @@ info(sockname, #state{sockname = Sockname}) ->
     Sockname;
 info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
-info(active_n, #state{active_n = ActiveN}) ->
+info(active, #state{active = ActiveN}) ->
     ActiveN;
 info(stats_timer, #state{stats_timer = StatsTimer}) ->
     StatsTimer;
@@ -254,7 +254,7 @@ init_state(Transport, Socket, Options) ->
                  conn_mod => ?MODULE
                 },
     Zone = proplists:get_value(zone, Options),
-    ActiveN = proplists:get_value(active_n, Options, ?ACTIVE_N),
+    ActiveN = proplists:get_value(active, Options, ?ACTIVE_N),
     PubLimit = emqx_zone:publish_limit(Zone),
     BytesIn = proplists:get_value(rate_limit, Options),
     RateLimit = emqx_zone:ratelimit(Zone),
@@ -272,7 +272,7 @@ init_state(Transport, Socket, Options) ->
            peername     = Peername,
            sockname     = Sockname,
            sockstate    = idle,
-           active_n     = ActiveN,
+           active     = ActiveN,
            limiter      = Limiter,
            parse_state  = ParseState,
            serialize    = Serialize,
@@ -452,12 +452,12 @@ handle_msg({Passive, _Sock}, State)
     handle_info(activate_socket, NState1);
 
 handle_msg(Deliver = {deliver, _Topic, _Msg},
-           #state{active_n = ActiveN} = State) ->
+           #state{active = ActiveN} = State) ->
     Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 
 %% Something sent
-handle_msg({inet_reply, _Sock, ok}, State = #state{active_n = ActiveN}) ->
+handle_msg({inet_reply, _Sock, ok}, State = #state{active = ActiveN}) ->
     case emqx_pd:get_counter(outgoing_pubs) > ActiveN of
         true ->
             Pubs = emqx_pd:reset_counter(outgoing_pubs),
@@ -800,7 +800,7 @@ activate_socket(State = #state{sockstate = blocked}) ->
     {ok, State};
 activate_socket(State = #state{transport = Transport,
                                socket    = Socket,
-                               active_n  = N}) ->
+                               active  = N}) ->
     case Transport:setopts(Socket, [{active, N}]) of
         ok -> {ok, State#state{sockstate = running}};
         Error -> Error

@@ -97,7 +97,7 @@
                 pending_topic_ids = #{} :: pending_msgs()
                }).
 
--define(INFO_KEYS, [socktype, peername, sockname, sockstate]). %, active_n]).
+-define(INFO_KEYS, [socktype, peername, sockname, sockstate]). %, active]).
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 

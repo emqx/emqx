@@ -1107,7 +1107,7 @@ listener.tcp.external.max_conn_rate = 1000
 ## Specify the {active, N} option for the external MQTT/TCP Socket.
 ##
 ## Value: Number
-listener.tcp.external.active_n = 100
+listener.tcp.external.active = 100
 
 ## Zone of the external MQTT/TCP listener belonged to.
 ##
@@ -1247,7 +1247,7 @@ listener.tcp.internal.max_conn_rate = 1000
 ## Specify the {active, N} option for the internal MQTT/TCP Socket.
 ##
 ## Value: Number
-listener.tcp.internal.active_n = 1000
+listener.tcp.internal.active = 1000
 
 ## Zone of the internal MQTT/TCP listener belonged to.
 ##
@@ -1344,7 +1344,7 @@ listener.ssl.external.max_conn_rate = 500
 ## Specify the {active, N} option for the internal MQTT/SSL Socket.
 ##
 ## Value: Number
-listener.ssl.external.active_n = 100
+listener.ssl.external.active = 100
 
 ## Zone of the external MQTT/SSL listener belonged to.
 ##
@@ -1610,7 +1610,7 @@ listener.ws.external.max_conn_rate = 1000
 ## Simulate the {active, N} option for the MQTT/WebSocket connections.
 ##
 ## Value: Number
-listener.ws.external.active_n = 100
+listener.ws.external.active = 100
 
 ## Zone of the external MQTT/WebSocket listener belonged to.
 ##
@@ -1879,7 +1879,7 @@ listener.wss.external.max_conn_rate = 1000
 ## Simulate the {active, N} option for the MQTT/WebSocket/SSL connections.
 ##
 ## Value: Number
-listener.wss.external.active_n = 100
+listener.wss.external.active = 100
 
 ## Zone of the external MQTT/WebSocket/SSL listener belonged to.
 ##

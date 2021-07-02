@@ -20,6 +20,7 @@
 -type comma_separated_atoms() :: [atom()].
 -type bar_separated_list() :: list().
 -type ip_port() :: tuple().
+-type cipher() :: map().
 
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
@@ -30,6 +31,7 @@
 -typerefl_from_string({comma_separated_list/0, emqx_schema, to_comma_separated_list}).
 -typerefl_from_string({bar_separated_list/0, emqx_schema, to_bar_separated_list}).
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
+-typerefl_from_string({cipher/0, emqx_schema, to_erl_cipher_suite}).
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
 
 % workaround: prevent being recognized as unused functions
@@ -37,6 +39,7 @@
          to_bytesize/1, to_wordsize/1,
          to_percent/1, to_comma_separated_list/1,
          to_bar_separated_list/1, to_ip_port/1,
+         to_erl_cipher_suite/1,
          to_comma_separated_atoms/1]).
 
 -behaviour(hocon_schema).
@@ -44,18 +47,19 @@
 -reflect_type([ log_level/0, duration/0, duration_s/0, duration_ms/0,
                 bytesize/0, wordsize/0, percent/0, file/0,
                 comma_separated_list/0, bar_separated_list/0, ip_port/0,
+                cipher/0,
                 comma_separated_atoms/0]).
 
 -export([structs/0, fields/1, translations/0, translation/1]).
 -export([t/1, t/3, t/4, ref/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
--export([ssl/1, tr_ssl/2, tr_password_hash/2]).
+-export([ssl/1]).
 
 %% will be used by emqx_ct_helper to find the dependent apps
 -export([includes/0]).
 
 structs() -> ["cluster", "node", "rpc", "log", "lager",
-              "acl", "mqtt", "zone", "listeners", "module", "broker",
+              "acl", "mqtt", "zones", "listeners", "module", "broker",
               "plugins", "sysmon", "alarm", "telemetry"]
              ++ includes().
 
@@ -271,7 +275,7 @@ fields("mqtt") ->
     , {"peer_cert_as_clientid", maybe_disabled(union([cn, dn, crt, pem, md5]))}
     ];
 
-fields("zone") ->
+fields("zones") ->
     [ {"$name", ref("zone_settings")}];
 
 fields("zone_settings") ->
@@ -368,14 +372,14 @@ fields("ws_opts") ->
         "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5")}
     , {"check_origin_enable", t(boolean(), undefined, false)}
     , {"allow_origin_absence", t(boolean(), undefined, true)}
-    , {"check_origins", t(comma_separated_list())}
+    , {"check_origins", t(hoconsc:array(binary()), undefined, [])}
     , {"proxy_address_header", t(string(), undefined, "x-forwarded-for")}
     , {"proxy_port_header", t(string(), undefined, "x-forwarded-port")}
     , {"deflate_opts", ref("deflate_opts")}
     ];
 
 fields("tcp_opts") ->
-    [ {"active_n", t(integer(), undefined, 100)}
+    [ {"active", t(integer(), undefined, 100)}
     , {"backlog", t(integer(), undefined, 1024)}
     , {"send_timeout", t(duration(), undefined, "15s")}
     , {"send_timeout_close", t(boolean(), undefined, true)}
@@ -391,7 +395,9 @@ fields("tcp_opts") ->
 fields("ssl_opts") ->
     ssl(#{handshake_timeout => "15s"
         , depth => 10
-        , reuse_sessions => true});
+        , reuse_sessions => true
+        , versions => default_tls_vsns()
+        });
 
 fields("deflate_opts") ->
     [ {"level", t(union([none, default, best_compression, best_speed]))}
@@ -643,72 +649,19 @@ ssl(Defaults) ->
     , {"dhfile", t(string(), undefined, D("dhfile"))}
     , {"server_name_indication", t(union(disable, string()), undefined,
                                    D("server_name_indication"))}
-    , {"tls_versions", t(comma_separated_list(), undefined, D("tls_versions"))}
-    , {"ciphers", t(comma_separated_list(), undefined, D("ciphers"))}
-    , {"psk_ciphers", t(comma_separated_list(), undefined, D("ciphers"))}].
+    , {"versions", #{ type => list(atom())
+                    , default => maps:get(versions, Defaults, default_tls_vsns())
+                    , converter => fun (Vsns) -> [tls_vsn(V) || V <- Vsns] end
+                    }}
+    , {"ciphers", t(hoconsc:array(string()), undefined, D("ciphers"))}
+    , {"user_lookup_fun", t(any(), undefined, {fun emqx_psk:lookup/3, <<>>})}
+    ].
 
-tr_ssl(Field, Conf) ->
-    Versions = case conf_get([Field, "tls_versions"], Conf) of
-                   undefined -> undefined;
-                   Vs -> [list_to_existing_atom(V) || V <- Vs]
-               end,
-    TLSCiphers = conf_get([Field, "ciphers"], Conf),
-    PSKCiphers = conf_get([Field, "psk_ciphers"], Conf),
-    Ciphers = ciphers(TLSCiphers, PSKCiphers, Field),
-    case emqx_schema:conf_get([Field, "enable"], Conf) of
-        X when X =:= true orelse X =:= undefined ->
-            filter([{versions, Versions},
-                    {ciphers, Ciphers},
-                    {user_lookup_fun, user_lookup_fun(PSKCiphers)},
-                    {handshake_timeout, conf_get([Field, "handshake_timeout"], Conf)},
-                    {depth, conf_get([Field, "depth"], Conf)},
-                    {password, conf_get([Field, "key_password"], Conf)},
-                    {dhfile, conf_get([Field, "dhfile"], Conf)},
-                    {keyfile, emqx_schema:conf_get([Field, "keyfile"], Conf)},
-                    {certfile, emqx_schema:conf_get([Field, "certfile"], Conf)},
-                    {cacertfile, emqx_schema:conf_get([Field, "cacertfile"], Conf)},
-                    {verify, emqx_schema:conf_get([Field, "verify"], Conf)},
-                    {fail_if_no_peer_cert, conf_get([Field, "fail_if_no_peer_cert"], Conf)},
-                    {secure_renegotiate, conf_get([Field, "secure_renegotiate"], Conf)},
-                    {reuse_sessions, conf_get([Field, "reuse_sessions"], Conf)},
-                    {honor_cipher_order, conf_get([Field, "honor_cipher_order"], Conf)},
-                    {server_name_indication, emqx_schema:conf_get([Field, "server_name_indication"], Conf)}
-                   ]);
-        _ ->
-            []
-    end.
-
-map_psk_ciphers(PSKCiphers) ->
-    lists:map(
-        fun("PSK-AES128-CBC-SHA") -> {psk, aes_128_cbc, sha};
-           ("PSK-AES256-CBC-SHA") -> {psk, aes_256_cbc, sha};
-           ("PSK-3DES-EDE-CBC-SHA") -> {psk, '3des_ede_cbc', sha};
-           ("PSK-RC4-SHA") -> {psk, rc4_128, sha}
-        end, PSKCiphers).
-
-ciphers(undefined, undefined, _) ->
-    undefined;
-ciphers(TLSCiphers, undefined, _) ->
-    TLSCiphers;
-ciphers(undefined, PSKCiphers, _) ->
-    map_psk_ciphers(PSKCiphers);
-ciphers(_, _, Field) ->
-    error(Field ++ ".ciphers and " ++ Field ++ ".psk_ciphers cannot be configured at the same time").
-
-user_lookup_fun(undefined) ->
-    undefined;
-user_lookup_fun(_PSKCiphers) ->
-    {fun emqx_psk:lookup/3, <<>>}.
-
-tr_password_hash(Field, Conf) ->
-    case emqx_schema:conf_get([Field, "password_hash"], Conf) of
-        [Hash]           -> list_to_atom(Hash);
-        [Prefix, Suffix] -> {list_to_atom(Prefix), list_to_atom(Suffix)};
-        [Hash, MacFun, Iterations, Dklen] -> {list_to_atom(Hash), list_to_atom(MacFun),
-                                              list_to_integer(Iterations), list_to_integer(Dklen)};
-        _                -> plain
-    end.
-
+default_tls_vsns() -> [<<"tlsv1.3">>, <<"tlsv1.2">>, <<"tlsv1.1">>, <<"tlsv1">>].
+tls_vsn(<<"tlsv1.3">>) -> 'tlsv1.3';
+tls_vsn(<<"tlsv1.2">>) -> 'tlsv1.2';
+tls_vsn(<<"tlsv1.1">>) -> 'tlsv1.1';
+tls_vsn(<<"tlsv1">>) -> 'tlsv1'.
 
 %% @private return a list of keys in a parent field
 -spec(keys(string(), hocon:config()) -> [string()]).
@@ -813,4 +766,10 @@ to_ip_port(Str) ->
                 _ -> {error, Str}
             end;
         _ -> {error, Str}
+    end.
+
+to_erl_cipher_suite(Str) ->
+    case ssl:str_to_suite(Str) of
+        {error, Reason} -> error({invalid_cipher, Reason});
+        Cipher -> Cipher
     end.

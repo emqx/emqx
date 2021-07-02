@@ -78,7 +78,7 @@ end}.
   {datatype, integer}
 ]}.
 
-{mapping, "exproto.listener.$proto.active_n", "emqx_exproto.listeners", [
+{mapping, "exproto.listener.$proto.active", "emqx_exproto.listeners", [
   {default, 100},
   {datatype, integer}
 ]}.
@@ -250,7 +250,7 @@ end}.
                   end,
 
     ConnOpts = fun(Prefix) ->
-                   Filter([{active_n, cuttlefish:conf_get(Prefix ++ ".active_n", Conf, undefined)},
+                   Filter([{active, cuttlefish:conf_get(Prefix ++ ".active", Conf, undefined)},
                            {idle_timeout, cuttlefish:conf_get(Prefix ++ ".idle_timeout", Conf, undefined)}])
                end,
 

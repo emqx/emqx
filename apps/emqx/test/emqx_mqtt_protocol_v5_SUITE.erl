@@ -265,7 +265,7 @@ t_connect_idle_timeout(_) ->
 
 t_connect_limit_timeout(_) ->
     ok = meck:new(proplists, [non_strict, passthrough, no_history, no_link, unstick]),
-    meck:expect(proplists, get_value, fun(active_n, _Options, _Default) -> 1;
+    meck:expect(proplists, get_value, fun(active, _Options, _Default) -> 1;
                                         (Arg1, ARg2, Arg3) -> meck:passthrough([Arg1, ARg2, Arg3])
                                                             end),
 
