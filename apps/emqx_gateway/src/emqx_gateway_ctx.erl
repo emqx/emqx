@@ -137,24 +137,6 @@ metrics_inc(_Ctx = #{type := Type}, Name) ->
 metrics_inc(_Ctx = #{type := Type}, Name, Oct) ->
     emqx_gateway_metrics:inc(Type, Name, Oct).
 
-%% Client Management Infos
-%%
-%% 0. Handle Deliverys
-%%      - Msg Queue
-%%      - Delivery Strategy
-%%      - Inflight
-%%
-%% 是否可以考虑实现一个 emqx_gateway_protocol:handle_info/1 的方法:
-%% 1. 用于封装这些 API 的处理
-%%
-%%
-%% 1. API Management
-%%      - Establish subscription
-%%      - Kickout
-%%
-%% 2. Ratelimit
-%%
-
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
