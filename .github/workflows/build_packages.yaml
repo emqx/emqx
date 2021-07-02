@@ -63,6 +63,7 @@ jobs:
     if: endsWith(github.repository, 'emqx')
 
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         exclude:
@@ -131,6 +132,7 @@ jobs:
     needs: prepare
 
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
@@ -210,6 +212,7 @@ jobs:
     needs: prepare
 
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         arch:
