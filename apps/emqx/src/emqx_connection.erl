@@ -106,6 +106,7 @@
         }).
 
 -type(state() :: #state{}).
+-type(opts() :: #{zone := atom(), listener := atom(), atom() => term()}).
 
 -define(ACTIVE_N, 100).
 -define(INFO_KEYS, [socktype, peername, sockname, sockstate, active_n]).
@@ -134,7 +135,7 @@
                             , system_code_change/4
                             ]}).
 
--spec(start_link(esockd:transport(), esockd:socket(), proplists:proplist())
+-spec(start_link(esockd:transport(), esockd:socket(), opts())
       -> {ok, pid()}).
 start_link(Transport, Socket, Options) ->
     Args = [self(), Transport, Socket, Options],
