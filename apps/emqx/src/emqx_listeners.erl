@@ -36,11 +36,7 @@
 %% @doc Start all listeners.
 -spec(start() -> ok).
 start() ->
-    lists:foreach(fun({ZoneName, ZoneConf}) ->
-            lists:foreach(fun({LName, LConf}) ->
-                    start_listener(ZoneName, LName, LConf)
-                end, maps:to_list(maps:get(listeners, ZoneConf, #{})))
-        end, maps:to_list(emqx_config:get([zones], #{}))).
+    foreach_listeners(fun start_listener/3).
 
 -spec(start_listener(atom()) -> ok).
 start_listener(Id) ->
@@ -93,7 +89,12 @@ esockd_opts(Opts0) ->
         Rate -> Opts1#{max_conn_rate => Rate}
     end,
     Opts3 = Opts2#{access_rules => esockd_access_rules(maps:get(access_rules, Opts0, []))},
-    maps:to_list(Opts3#{ssl_options => ssl_opts(Opts0), tcp_options => tcp_opts(Opts0)}).
+    maps:to_list(case is_ssl(Opts0) of
+        false ->
+            Opts3#{tcp_options => tcp_opts(Opts0)};
+        true ->
+            Opts3#{ssl_options => ssl_opts(Opts0), tcp_options => tcp_opts(Opts0)}
+    end).
 
 ws_opts(ZoneName, ListenerName, Opts) ->
     WsPaths = [{maps:get(mqtt_path, Opts, "/mqtt"), emqx_ws_connection,
@@ -128,11 +129,7 @@ esockd_access_rules(StrRules) ->
 %% @doc Restart all listeners
 -spec(restart() -> ok).
 restart() ->
-    lists:foreach(fun({ZoneName, ZoneConf}) ->
-            lists:foreach(fun({LName, LConf}) ->
-                    restart_listener(ZoneName, LName, LConf)
-                end, maps:to_list(maps:get(listeners, ZoneConf, #{})))
-        end, maps:to_list(emqx_config:get([zones], #{}))).
+    foreach_listeners(fun restart_listener/3).
 
 -spec(restart_listener(atom()) -> ok | {error, any()}).
 restart_listener(ListenerID) ->
@@ -150,11 +147,7 @@ restart_listener(ZoneName, ListenerName, Conf) ->
 %% @doc Stop all listeners.
 -spec(stop() -> ok).
 stop() ->
-    lists:foreach(fun({ZoneName, ZoneConf}) ->
-            lists:foreach(fun({LName, LConf}) ->
-                    stop_listener(ZoneName, LName, LConf)
-                end, maps:to_list(maps:get(listeners, ZoneConf, #{})))
-        end, maps:to_list(emqx_config:get([zones], #{}))).
+    foreach_listeners(fun stop_listener/3).
 
 -spec(stop_listener(atom()) -> ok | {error, term()}).
 stop_listener(ListenerID) ->
@@ -205,3 +198,17 @@ tcp_opts(Opts) ->
 
 is_ssl(Opts) ->
     emqx_map_lib:deep_get([ssl, enable], Opts, false).
+
+foreach_listeners(Do) ->
+    lists:foreach(fun({ZoneName, ZoneConf}) ->
+            lists:foreach(fun({LName, LConf}) ->
+                    Do(ZoneName, LName, merge_zone_and_listener_confs(ZoneConf, LConf))
+                end, maps:to_list(maps:get(listeners, ZoneConf, #{})))
+        end, maps:to_list(emqx_config:get([zones], #{}))).
+
+%% merge the configs in zone and listeners in a manner that
+%% all config entries in the listener are prior to the ones in the zone.
+merge_zone_and_listener_confs(ZoneConf, ListenerConf) ->
+    ConfsInZonesOnly = [listeners, overall_max_connections],
+    BaseConf = maps:without(ConfsInZonesOnly, ZoneConf),
+    emqx_map_lib:deep_merge(BaseConf, ListenerConf).
