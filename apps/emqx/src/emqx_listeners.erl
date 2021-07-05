@@ -88,7 +88,7 @@ do_start_listener(ZoneName, ListenerName, #{type := ws, bind := ListenOn} = Opts
 
 esockd_opts(Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
-    Opts2 = case emqx_config:deep_get([rate_limit, max_conn_rate], Opts0) of
+    Opts2 = case emqx_map_lib:deep_get([rate_limit, max_conn_rate], Opts0) of
         infinity -> Opts1;
         Rate -> Opts1#{max_conn_rate => Rate}
     end,
@@ -204,4 +204,4 @@ tcp_opts(Opts) ->
             maps:get(tcp, Opts, #{}))).
 
 is_ssl(Opts) ->
-    emqx_config:deep_get([ssl, enable], Opts, false).
+    emqx_map_lib:deep_get([ssl, enable], Opts, false).

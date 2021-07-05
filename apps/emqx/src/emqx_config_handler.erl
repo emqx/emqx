@@ -79,7 +79,7 @@ init(_) ->
 handle_call({add_child, ConfKeyPath, HandlerName}, _From,
             State = #{handlers := Handlers}) ->
     {reply, ok, State#{handlers =>
-        emqx_config:deep_put(ConfKeyPath, Handlers, #{?MOD => HandlerName})}};
+        emqx_map_lib:deep_put(ConfKeyPath, Handlers, #{?MOD => HandlerName})}};
 
 handle_call({update_config, ConfKeyPath, UpdateReq, RawConf}, _From,
             #{handlers := Handlers} = State) ->
@@ -161,7 +161,7 @@ save_configs(RootKeys, RawConf) ->
 
 save_config_to_emqx(Conf, RawConf) ->
     ?LOG(debug, "set config: ~p", [Conf]),
-    emqx_config:put(emqx_config:unsafe_atom_key_map(Conf)),
+    emqx_config:put(emqx_map_lib:unsafe_atom_key_map(Conf)),
     emqx_config:put_raw(RawConf).
 
 save_config_to_disk(RootKeys, Conf) ->
