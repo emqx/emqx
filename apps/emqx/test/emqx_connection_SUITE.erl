@@ -120,7 +120,7 @@ t_info(_) ->
                     end
                 end),
     #{sockinfo := SockInfo} = emqx_connection:info(CPid),
-    ?assertMatch(#{active := 100,
+    ?assertMatch(#{active_n := 100,
                     peername := {{127,0,0,1},3456},
                     sockname := {{127,0,0,1},1883},
                     sockstate := idle,
@@ -219,8 +219,8 @@ t_handle_msg_deliver(_) ->
 
 t_handle_msg_inet_reply(_) ->
     ok = meck:expect(emqx_pd, get_counter, fun(_) -> 10 end),
-    ?assertMatch({ok, _St}, handle_msg({inet_reply, for_testing, ok}, st(#{active => 0}))),
-    ?assertEqual(ok, handle_msg({inet_reply, for_testing, ok}, st(#{active => 100}))),
+    ?assertMatch({ok, _St}, handle_msg({inet_reply, for_testing, ok}, st(#{active_n => 0}))),
+    ?assertEqual(ok, handle_msg({inet_reply, for_testing, ok}, st(#{active_n => 100}))),
     ?assertMatch({stop, {shutdown, for_testing}, _St},
                  handle_msg({inet_reply, for_testing, {error, for_testing}}, st())).
 
@@ -386,7 +386,7 @@ t_start_link_exit_on_activate(_) ->
 t_get_conn_info(_) ->
     with_conn(fun(CPid) ->
                       #{sockinfo := SockInfo} = emqx_connection:info(CPid),
-                      ?assertEqual(#{active => 100,
+                      ?assertEqual(#{active_n => 100,
                                      peername => {{127,0,0,1},3456},
                                      sockname => {{127,0,0,1},1883},
                                      sockstate => running,

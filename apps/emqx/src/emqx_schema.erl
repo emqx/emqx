@@ -379,7 +379,7 @@ fields("ws_opts") ->
     ];
 
 fields("tcp_opts") ->
-    [ {"active", t(integer(), undefined, 100)}
+    [ {"active_n", t(integer(), undefined, 100)}
     , {"backlog", t(integer(), undefined, 1024)}
     , {"send_timeout", t(duration(), undefined, "15s")}
     , {"send_timeout_close", t(boolean(), undefined, true)}

@@ -118,7 +118,7 @@ t_info(_) ->
                   end),
     #{sockinfo := SockInfo} = ?ws_conn:call(WsPid, info),
     #{socktype  := ws,
-      active  := 100,
+      active_n  := 100,
       peername  := {{127,0,0,1}, 3456},
       sockname  := {{127,0,0,1}, 18083},
       sockstate := running

@@ -459,7 +459,7 @@ sockinfo(#lwm2m_state{peername = Peername}) ->
       peername => Peername,
       sockname => {{127,0,0,1}, 5683},    %% FIXME: Sock?
       sockstate =>  running,
-      active => 1
+      active_n => 1
      }.
 
 %% copies from emqx_channel:info/1

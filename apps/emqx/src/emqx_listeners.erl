@@ -199,7 +199,9 @@ ssl_opts(Opts) ->
                 maps:get(ssl, Opts, #{})))).
 
 tcp_opts(Opts) ->
-    maps:to_list(maps:get(tcp, Opts, #{})).
+    maps:to_list(
+        maps:without([active_n],
+            maps:get(tcp, Opts, #{}))).
 
 is_ssl(Opts) ->
     emqx_config:deep_get([ssl, enable], Opts, false).
