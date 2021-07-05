@@ -145,9 +145,8 @@ start_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
 
 %% Start MQTT/QUIC listener
 start_listener(quic, ListenOn, Options) ->
-    IsQuicEnabled = false == os:getenv("EMQX_NO_QUIC"),
     case [ A || {quicer, _, _} = A<-application:which_applications() ] of
-        [_] when IsQuicEnabled ->
+        [_] ->
             %% @fixme unsure why we need reopen lib and reopen config.
             quicer_nif:open_lib(),
             quicer_nif:reg_open(),
