@@ -62,8 +62,6 @@
           sockname :: emqx_types:peername(),
           %% Sock state
           sockstate :: emqx_types:sockstate(),
-          %% Simulate the active_n opt
-          active_n :: pos_integer(),
           %% MQTT Piggyback
           mqtt_piggyback :: single | multiple,
           %% Limiter
@@ -85,7 +83,11 @@
           %% Idle Timeout
           idle_timeout :: timeout(),
           %% Idle Timer
-          idle_timer :: maybe(reference())
+          idle_timer :: maybe(reference()),
+          %% Zone name
+          zone :: atom(),
+          %% Listener Name
+          listener :: atom()
         }).
 
 -type(state() :: #state{}).
@@ -93,7 +95,7 @@
 -type(ws_cmd() :: {active, boolean()}|close).
 
 -define(ACTIVE_N, 100).
--define(INFO_KEYS, [socktype, peername, sockname, sockstate, active_n]).
+-define(INFO_KEYS, [socktype, peername, sockname, sockstate]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 
@@ -124,8 +126,6 @@ info(sockname, #state{sockname = Sockname}) ->
     Sockname;
 info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
-info(active_n, #state{active_n = ActiveN}) ->
-    ActiveN;
 info(limiter, #state{limiter = Limiter}) ->
     maybe_apply(fun emqx_limiter:info/1, Limiter);
 info(channel, #state{channel = Channel}) ->
@@ -293,7 +293,6 @@ websocket_init([Req, Opts]) ->
     BytesIn = proplists:get_value(rate_limit, Opts),
     RateLimit = emqx_zone:ratelimit(Zone),
     Limiter = emqx_limiter:init(Zone, PubLimit, BytesIn, RateLimit),
-    ActiveN = proplists:get_value(active_n, Opts, ?ACTIVE_N),
     MQTTPiggyback = proplists:get_value(mqtt_piggyback, Opts, multiple),
     FrameOpts = emqx_zone:mqtt_frame_options(Zone),
     ParseState = emqx_frame:initial_parse_state(FrameOpts),
@@ -309,7 +308,6 @@ websocket_init([Req, Opts]) ->
     {ok, #state{peername       = Peername,
                 sockname       = Sockname,
                 sockstate      = running,
-                active_n       = ActiveN,
                 mqtt_piggyback = MQTTPiggyback,
                 limiter        = Limiter,
                 parse_state    = ParseState,
@@ -372,7 +370,8 @@ websocket_info({check_gc, Stats}, State) ->
     return(check_oom(run_gc(Stats, State)));
 
 websocket_info(Deliver = {deliver, _Topic, _Msg},
-               State = #state{active_n = ActiveN}) ->
+               State = #state{zone = Zone, listener = Listener}) ->
+    ActiveN = emqx_config:get_listener_conf(Zone, Listener, [tcp, active_n]),
     Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 
@@ -551,11 +550,12 @@ parse_incoming(Data, State = #state{parse_state = ParseState}) ->
 %% Handle incoming packet
 %%--------------------------------------------------------------------
 
-handle_incoming(Packet, State = #state{active_n = ActiveN})
+handle_incoming(Packet, State = #state{zone = Zone, listener = Listener})
   when is_record(Packet, mqtt_packet) ->
     ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]),
     ok = inc_incoming_stats(Packet),
-    NState = case emqx_pd:get_counter(incoming_pubs) > ActiveN of
+    NState = case emqx_pd:get_counter(incoming_pubs) >
+                  emqx_config:get_listener_conf(Zone, Listener, [tcp, active_n]) of
                  true  -> postpone({cast, rate_limit}, State);
                  false -> State
              end,
@@ -586,11 +586,13 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
 %% Handle outgoing packets
 %%--------------------------------------------------------------------
 
-handle_outgoing(Packets, State = #state{active_n = ActiveN, mqtt_piggyback = MQTTPiggyback}) ->
+handle_outgoing(Packets, State = #state{mqtt_piggyback = MQTTPiggyback,
+        zone = Zone, listener = Listener}) ->
     IoData = lists:map(serialize_and_inc_stats_fun(State), Packets),
     Oct = iolist_size(IoData),
     ok = inc_sent_stats(length(Packets), Oct),
-    NState = case emqx_pd:get_counter(outgoing_pubs) > ActiveN of
+    NState = case emqx_pd:get_counter(outgoing_pubs) >
+                  emqx_config:get_listener_conf(Zone, Listener, [tcp, active_n]) of
                  true ->
                      Stats = #{cnt => emqx_pd:reset_counter(outgoing_pubs),
                                oct => emqx_pd:reset_counter(outgoing_bytes)
