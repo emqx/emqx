@@ -36,10 +36,28 @@
 structs() -> [""].
 
 fields("") ->
-    mongodb_fields() ++
-    mongodb_topology_fields() ++
+    [ {mongo_type, fun mongo_type/1}
+    , {servers, fun servers/1}
+    , {pool_size, fun emqx_connector_schema_lib:pool_size/1}
+    , {login, fun emqx_connector_schema_lib:username/1}
+    , {password, fun emqx_connector_schema_lib:password/1}
+    , {auth_source, fun auth_source/1}
+    , {database, fun emqx_connector_schema_lib:database/1}
+    ] ++
     % mongodb_rs_set_name_fields() ++
-    emqx_connector_schema_lib:ssl_fields().
+    emqx_connector_schema_lib:ssl_fields();
+fields(topology) ->
+    [ {max_overflow, fun emqx_connector_schema_lib:pool_size/1}
+    , {overflow_ttl, fun duration/1}
+    , {overflow_check_period, fun duration/1}
+    , {local_threshold_ms, fun duration/1}
+    , {connect_timeout_ms, fun duration/1}
+    , {socket_timeout_ms, fun duration/1}
+    , {server_selection_timeout_ms, fun duration/1}
+    , {wait_queue_timeout_ms, fun duration/1}
+    , {heartbeat_frequency_ms, fun duration/1}
+    , {min_heartbeat_frequency_ms, fun duration/1}
+    ].
 
 on_jsonify(Config) ->
     Config.
@@ -177,29 +195,6 @@ host_port(HostPort) ->
             {ok, Host1} = inet:parse_address(Host),
             [{host, Host1}]
     end.
-
-mongodb_fields() ->
-    [ {mongo_type, fun mongo_type/1}
-    , {servers, fun servers/1}
-    , {pool_size, fun emqx_connector_schema_lib:pool_size/1}
-    , {login, fun emqx_connector_schema_lib:username/1}
-    , {password, fun emqx_connector_schema_lib:password/1}
-    , {auth_source, fun auth_source/1}
-    , {database, fun emqx_connector_schema_lib:database/1}
-    ].
-
-mongodb_topology_fields() ->
-    [ {max_overflow, fun emqx_connector_schema_lib:pool_size/1}
-    , {overflow_ttl, fun duration/1}
-    , {overflow_check_period, fun duration/1}
-    , {local_threshold_ms, fun duration/1}
-    , {connect_timeout_ms, fun duration/1}
-    , {socket_timeout_ms, fun duration/1}
-    , {server_selection_timeout_ms, fun duration/1}
-    , {wait_queue_timeout_ms, fun duration/1}
-    , {heartbeat_frequency_ms, fun duration/1}
-    , {min_heartbeat_frequency_ms, fun duration/1}
-    ].
 
 % mongodb_rs_set_name_fields() ->
 %     [ {rs_set_name, fun emqx_connector_schema_lib:database/1}
