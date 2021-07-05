@@ -1,3 +1,4 @@
+
 {application, emqx_management,
  [{description, "EMQ X Management API and CLI"},
   {vsn, "5.0.0"}, % strict semver, bump manually!

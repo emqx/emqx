@@ -64,14 +64,19 @@ count(Tables) ->
 count(Table, Nodes) ->
     lists:sum([rpc_call(Node, ets, info, [Table, size], 5000) || Node <- Nodes]).
 
-page(Params) ->
-    binary_to_integer(proplists:get_value(<<"_page">>, Params, <<"1">>)).
+page(Params) when is_list(Params) ->
+    binary_to_integer(proplists:get_value(<<"page">>, Params, <<"1">>));
+page(Params) when is_map(Params) ->
+    maps:get(page, Params, 1).
 
-limit(Params) ->
-    case proplists:get_value(<<"_limit">>, Params) of
+limit(Params) when is_list(Params) ->
+    case proplists:get_value(<<"limit">>, Params) of
         undefined -> emqx_mgmt:max_row_limit();
         Size      -> binary_to_integer(Size)
-    end.
+    end;
+
+limit(Params) when is_map(Params) ->
+    maps:get(limit, Params, emqx_mgmt:max_row_limit()).
 
 %%--------------------------------------------------------------------
 %% Node Query
