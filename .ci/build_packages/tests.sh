@@ -12,16 +12,13 @@ case "$(uname -m)" in
         ARCH='amd64'
         ;;
     aarch64)
-        EMQX_NO_QUIC=0
         ARCH='arm64'
         ;;
     arm*)
-        EMQX_NO_QUIC=0
         ARCH=arm
         ;;
 esac
 export ARCH
-export EMQX_NO_QUIC
 
 emqx_prepare(){
     mkdir -p "${PACKAGE_PATH}"
@@ -120,6 +117,7 @@ running_test(){
            EMQX_MQTT__MAX_TOPIC_ALIAS=10
     # sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
 
+    [[ "$ARCH" == arm* ]] && export EMQX_LISTENER__QUIC__EXTERNAL__ENDPOINT=""
     if ! emqx start; then
         cat /var/log/emqx/erlang.log.1 || true
         cat /var/log/emqx/emqx.log.1 || true
