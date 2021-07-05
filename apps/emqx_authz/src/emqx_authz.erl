@@ -32,7 +32,7 @@
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
-    lists:foreach(fun emqx_metrics:ensure/1, ?ACL_METRICS).
+    lists:foreach(fun emqx_metrics:ensure/1, ?AUTHZ_METRICS).
 
 init() ->
     ok = register_metrics(),
@@ -147,10 +147,10 @@ b2l(B) when is_list(B) -> B;
 b2l(B) when is_binary(B) -> binary_to_list(B).
 
 %%--------------------------------------------------------------------
-%% ACL callbacks
+%% AuthZ callbacks
 %%--------------------------------------------------------------------
 
-%% @doc Check ACL
+%% @doc Check AuthZ
 -spec(authorize(emqx_types:clientinfo(), emqx_types:all(), emqx_topic:topic(), emqx_permission_rule:acl_result(), rules())
       -> {stop, allow} | {ok, deny}).
 authorize(#{username := Username,
@@ -159,11 +159,11 @@ authorize(#{username := Username,
     case do_authorize(Client, PubSub, Topic, Rules) of
         {matched, allow} ->
             ?LOG(info, "Client succeeded authorization: Username: ~p, IP: ~p, Topic: ~p, Permission: allow", [Username, IpAddress, Topic]),
-            emqx_metrics:inc(?ACL_METRICS(allow)),
+            emqx_metrics:inc(?AUTHZ_METRICS(allow)),
             {stop, allow};
         {matched, deny} ->
             ?LOG(info, "Client failed authorization: Username: ~p, IP: ~p, Topic: ~p, Permission: deny", [Username, IpAddress, Topic]),
-            emqx_metrics:inc(?ACL_METRICS(deny)),
+            emqx_metrics:inc(?AUTHZ_METRICS(deny)),
             {stop, deny};
         nomatch ->
             ?LOG(info, "Client failed authorization: Username: ~p, IP: ~p, Topic: ~p, Reasion: ~p", [Username, IpAddress, Topic, "no-match rule"]),

@@ -131,7 +131,7 @@ Sample data in the default configuration:
 HSET mqtt_acl:emqx '$SYS/#' subscribe
 ```
 
-A rule of Redis ACL defines `publish`, `subscribe`, or `all `information. All lists in the rule are **allow** lists.
+A rule of Redis AuthZ defines `publish`, `subscribe`, or `all `information. All lists in the rule are **allow** lists.
 
 #### Mongo
 
