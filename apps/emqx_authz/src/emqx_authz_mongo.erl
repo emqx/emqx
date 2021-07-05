@@ -20,7 +20,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
-%% ACL Callbacks
+%% AuthZ Callbacks
 -export([ authorize/4
         , description/0
         ]).
