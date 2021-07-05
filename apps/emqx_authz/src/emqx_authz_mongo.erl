@@ -50,8 +50,7 @@ authorize(Client, PubSub, Topic,
 do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;
 do_authorize(Client, PubSub, Topic, [Rule | Tail]) ->
-    case match(Client, PubSub, Topic, Rule)
-    of
+    case match(Client, PubSub, Topic, Rule) of
         {matched, Permission} -> {matched, Permission};
         nomatch -> do_authorize(Client, PubSub, Topic, Tail)
     end.

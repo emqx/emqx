@@ -47,9 +47,9 @@ set_special_configs(emqx) ->
                         emqx_ct_helpers:deps_path(emqx, "test/loaded_plguins")),
     ok;
 set_special_configs(emqx_authz) ->
-    Rules = [#{config =>#{<<"meck">> => <<"fake">>},
+    Rules = [#{config =>#{},
                principal => all,
-               sql => <<"fake sql">>,
+               sql => <<"fake">>,
                type => pgsql}
             ],
     emqx_config:put([emqx_authz], #{rules => Rules}),
@@ -76,18 +76,15 @@ set_special_configs(_App) ->
 t_authz(_) ->
     ClientInfo1 = #{clientid => <<"test">>,
                     username => <<"test">>,
-                    peerhost => {127,0,0,1},
-                    zone => zone
+                    peerhost => {127,0,0,1}
                    },
     ClientInfo2 = #{clientid => <<"test_clientid">>,
                     username => <<"test_username">>,
-                    peerhost => {192,168,0,10},
-                    zone => zone
+                    peerhost => {192,168,0,10}
                    },
     ClientInfo3 = #{clientid => <<"test_clientid">>,
                     username => <<"fake_username">>,
-                    peerhost => {127,0,0,1},
-                    zone => zone
+                    peerhost => {127,0,0,1}
                    },
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, []} end),

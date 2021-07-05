@@ -47,9 +47,9 @@ set_special_configs(emqx) ->
                         emqx_ct_helpers:deps_path(emqx, "test/loaded_plguins")),
     ok;
 set_special_configs(emqx_authz) ->
-    Rules = [#{config =>#{<<"meck">> => <<"fake">>},
+    Rules = [#{config =>#{},
                principal => all,
-               cmd => <<"fake cmd">>,
+               cmd => <<"fake">>,
                type => redis}
             ],
     emqx_config:put([emqx_authz], #{rules => Rules}),
@@ -68,8 +68,7 @@ set_special_configs(_App) ->
 t_authz(_) ->
     ClientInfo = #{clientid => <<"clientid">>,
                    username => <<"username">>,
-                   peerhost => {127,0,0,1},
-                   zone => zone
+                   peerhost => {127,0,0,1}
                    },
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, []} end),
