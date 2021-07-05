@@ -17,6 +17,7 @@
 
 -export([ deep_get/2
         , deep_get/3
+        , deep_find/2
         , deep_put/3
         , safe_atom_key_map/1
         , unsafe_atom_key_map/1
@@ -29,12 +30,28 @@
 %%-----------------------------------------------------------------
 -spec deep_get(config_key_path(), map()) -> term().
 deep_get(ConfKeyPath, Map) ->
-    do_deep_get(ConfKeyPath, Map, fun(KeyPath, Data) ->
-        error({not_found, KeyPath, Data}) end).
+    case deep_find(ConfKeyPath, Map) of
+        {not_found, KeyPath, Data} -> error({not_found, KeyPath, Data});
+        {ok, Data} -> Data
+    end.
 
 -spec deep_get(config_key_path(), map(), term()) -> term().
 deep_get(ConfKeyPath, Map, Default) ->
-    do_deep_get(ConfKeyPath, Map, fun(_, _) -> Default end).
+    case deep_find(ConfKeyPath, Map) of
+        {not_found, _KeyPath, _Data} -> Default;
+        {ok, Data} -> Data
+    end.
+
+-spec deep_find(config_key_path(), map()) -> {ok, term()} | {not_found, config_key(), term()}.
+deep_find([], Map) ->
+    {ok, Map};
+deep_find([Key | KeyPath], Map) when is_map(Map) ->
+    case maps:find(Key, Map) of
+        {ok, SubMap} -> deep_find(KeyPath, SubMap);
+        error -> {not_found, Key, Map}
+    end;
+deep_find([Key | _KeyPath], Data) ->
+    {not_found, Key, Data}.
 
 -spec deep_put(config_key_path(), map(), term()) -> map().
 deep_put([], Map, Config) when is_map(Map) ->
@@ -50,18 +67,6 @@ safe_atom_key_map(Map) ->
     covert_keys_to_atom(Map, fun(K) -> binary_to_existing_atom(K, utf8) end).
 
 %%---------------------------------------------------------------------------
-
--spec do_deep_get(config_key_path(), map(), fun((config_key(), term()) -> any())) -> term().
-do_deep_get([], Map, _) ->
-    Map;
-do_deep_get([Key | KeyPath], Map, OnNotFound) when is_map(Map) ->
-    case maps:find(Key, Map) of
-        {ok, SubMap} -> do_deep_get(KeyPath, SubMap, OnNotFound);
-        error -> OnNotFound(Key, Map)
-    end;
-do_deep_get([Key | _KeyPath], Data, OnNotFound) ->
-    OnNotFound(Key, Data).
-
 covert_keys_to_atom(BinKeyMap, Conv) when is_map(BinKeyMap) ->
     maps:fold(
         fun(K, V, Acc) when is_binary(K) ->
