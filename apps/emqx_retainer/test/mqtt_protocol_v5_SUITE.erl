@@ -27,7 +27,7 @@ init_per_suite(Config) ->
     %% Meck emqtt
     ok = meck:new(emqtt, [non_strict, passthrough, no_history, no_link]),
     %% Start Apps
-    emqx_ct_helpers:start_apps([emqx_retainer]),
+    emqx_ct_helpers:start_apps([emqx_retainer], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
@@ -37,6 +37,16 @@ end_per_suite(_Config) ->
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
+set_special_configs(emqx_retainer) ->
+    emqx_config:put([emqx_retainer],
+                    #{enable => true,
+                      storage_type => ram,
+                      max_retained_messages => 0,
+                      max_payload_size => 1024 * 1024,
+                      expiry_interval => 0});
+
+set_special_configs(_) ->
+    ok.
 
 client_info(Key, Client) ->
     maps:get(Key, maps:from_list(emqtt:info(Client)), undefined).

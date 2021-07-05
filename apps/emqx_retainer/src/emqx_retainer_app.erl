@@ -26,7 +26,6 @@
 
 start(_Type, _Args) ->
     {ok, Sup} = emqx_retainer_sup:start_link(),
-    emqx_retainer:load(),
     emqx_retainer_cli:load(),
     {ok, Sup}.
 

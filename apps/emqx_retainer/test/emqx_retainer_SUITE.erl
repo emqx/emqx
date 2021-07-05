@@ -55,7 +55,8 @@ set_special_configs(_) ->
 
 init_emqx_retainer_conf(Expiry) ->
     emqx_config:put([emqx_retainer],
-                    #{storage_type => ram,
+                    #{enable => true,
+                      storage_type => ram,
                       max_retained_messages => 0,
                       max_payload_size => 1024 * 1024,
                       expiry_interval => Expiry}).

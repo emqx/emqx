@@ -27,15 +27,15 @@
 
 -export([start_link/0]).
 
--export([ load/0
-        , unload/0
+-export([unload/0
         ]).
 
 -export([ on_session_subscribed/3
         , on_message_publish/1
         ]).
 
--export([clean/1]).
+-export([ clean/1
+        , update_config/1]).
 
 %% for emqx_pool task func
 -export([dispatch/2]).
@@ -56,6 +56,7 @@
 -define(DEF_MAX_RETAINED_MESSAGES, 0).
 -define(DEF_MAX_PAYLOAD_SIZE, (1024 * 1024)).
 -define(DEF_EXPIRY_INTERVAL, 0).
+-define(DEF_ENABLE_VAL, false).
 
 %% convenient to generate stats_timer/expiry_timer
 -define(MAKE_TIMER(State, Timer, Interval, Msg),
@@ -131,6 +132,15 @@ clean(Topic) when is_binary(Topic) ->
     end.
 
 %%--------------------------------------------------------------------
+%% Update Config
+%%--------------------------------------------------------------------
+-spec update_config(hocon:config()) -> ok.
+update_config(Conf) ->
+    OldCfg = emqx_config:get([?APP]),
+    emqx_config:put([?APP], Conf),
+    check_enable_when_update(OldCfg).
+
+%%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
@@ -162,6 +172,7 @@ init([]) ->
     end,
     StatsFun = emqx_stats:statsfun('retained.count', 'retained.max'),
     State = ?MAKE_TIMER(#state{stats_fun = StatsFun}, stats_timer, ?STATS_INTERVAL, stats),
+    check_enable_when_init(),
     {ok, start_expire_timer(ExpiryInterval, State)}.
 
 start_expire_timer(0, State) ->
@@ -321,3 +332,23 @@ condition(Ws) ->
         false -> Ws1;
         _ -> (Ws1 -- ['#']) ++ '_'
     end.
+
+-spec check_enable_when_init() -> ok.
+check_enable_when_init() ->
+    case emqx_config:get([?APP, enable], ?DEF_ENABLE_VAL) of
+        true -> load();
+        _  -> ok
+    end.
+
+-spec check_enable_when_update(hocon:config()) -> ok.
+check_enable_when_update(OldCfg) ->
+    OldVal = maps:get(enable, OldCfg, undefined),
+    case emqx_config:get([?APP, enable], ?DEF_ENABLE_VAL) of
+        OldVal ->
+            ok;
+        true ->
+            load();
+        _ ->
+            unload()
+    end.
+
