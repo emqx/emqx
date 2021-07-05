@@ -12,13 +12,16 @@ case "$(uname -m)" in
         ARCH='amd64'
         ;;
     aarch64)
+        EMQX_NO_QUIC=0
         ARCH='arm64'
         ;;
     arm*)
+        EMQX_NO_QUIC=0
         ARCH=arm
         ;;
 esac
 export ARCH
+export EMQX_NO_QUIC
 
 emqx_prepare(){
     mkdir -p "${PACKAGE_PATH}"
