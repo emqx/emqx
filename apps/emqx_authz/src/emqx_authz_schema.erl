@@ -90,6 +90,7 @@ rules() ->
                 [ hoconsc:ref(?MODULE, simple_rule)
                 , hoconsc:ref(?MODULE, sql_connector)
                 , hoconsc:ref(?MODULE, redis_connector)
+                , hoconsc:ref(?MODULE, mongo_connector)
                 ])
     }.
 
