@@ -20,8 +20,14 @@
 -export([ get/0
         , get/1
         , get/2
+        , find/1
         , put/1
         , put/2
+        ]).
+
+-export([ get_listener_conf/3
+        , get_listener_conf/4
+        , find_listener_conf/3
         ]).
 
 -export([ update_config/2
@@ -53,6 +59,34 @@ get(KeyPath) ->
 -spec get(emqx_map_lib:config_key_path(), term()) -> term().
 get(KeyPath, Default) ->
     emqx_map_lib:deep_get(KeyPath, get(), Default).
+
+-spec find(emqx_map_lib:config_key_path()) ->
+    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+find(KeyPath) ->
+    emqx_map_lib:deep_find(KeyPath, get()).
+
+-spec get_listener_conf(atom(), atom(), emqx_map_lib:config_key_path()) -> term().
+get_listener_conf(Zone, Listener, KeyPath) ->
+    case find_listener_conf(Zone, Listener, KeyPath) of
+        {not_found, SubKeyPath, Data} -> error({not_found, SubKeyPath, Data});
+        {ok, Data} -> Data
+    end.
+
+-spec get_listener_conf(atom(), atom(), emqx_map_lib:config_key_path(), term()) -> term().
+get_listener_conf(Zone, Listener, KeyPath, Default) ->
+    case find_listener_conf(Zone, Listener, KeyPath) of
+        {not_found, _, _} -> Default;
+        {ok, Data} -> Data
+    end.
+
+-spec find_listener_conf(atom(), atom(), emqx_map_lib:config_key_path()) ->
+    {ok, term()} | {not_foud, emqx_map_lib:config_key_path(), term()}.
+find_listener_conf(Zone, Listener, KeyPath) ->
+    %% the configs in listener is prior to the ones in the zone
+    case find([zones, Zone, listeners, Listener | KeyPath]) of
+        {not_found, _, _} -> find([zones, Zone | KeyPath]);
+        {ok, Data} -> {ok, Data}
+    end.
 
 -spec put(map()) -> ok.
 put(Config) ->
