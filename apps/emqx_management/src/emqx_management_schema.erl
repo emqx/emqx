@@ -25,11 +25,14 @@
 structs() -> ["emqx_management"].
 
 fields("emqx_management") ->
-    [ {default_application_id, fun default_application_id/1}
-    , {default_application_secret, fun default_application_secret/1}
+    [ {applications, hoconsc:array(hoconsc:ref(?MODULE, "applications"))}
     , {max_row_limit, fun max_row_limit/1}
     , {listeners, hoconsc:array(hoconsc:union([hoconsc:ref(?MODULE, "http"), hoconsc:ref(?MODULE, "https")]))}
     ];
+
+fields("applications") ->
+    [ {"id", emqx_schema:t(string(), undefined, "admin")}
+    , {"secret", emqx_schema:t(string(), undefined, "public")}];
 
 fields("http") ->
     [ {"protocol", emqx_schema:t(string(), undefined, "http")}
@@ -40,21 +43,10 @@ fields("http") ->
     , {"send_timeout", emqx_schema:t(emqx_schema:duration(), undefined, "15s")}
     , {"send_timeout_close", emqx_schema:t(emqx_schema:flag(), undefined, true)}
     , {"inet6", emqx_schema:t(boolean(), undefined, false)}
-    , {"ipv6_v6only", emqx_schema:t(boolean(), undefined, false)}
-    ];
+    , {"ipv6_v6only", emqx_schema:t(boolean(), undefined, false)}];
 
 fields("https") ->
     emqx_schema:ssl(undefined, #{enable => true}) ++ fields("http").
-
-default_application_id(type) -> string();
-default_application_id(default) -> "admin";
-default_application_id(nullable) -> true;
-default_application_id(_) -> undefined.
-
-default_application_secret(type) -> string();
-default_application_secret(default) -> "public";
-default_application_secret(nullable) -> true;
-default_application_secret(_) -> undefined.
 
 max_row_limit(type) -> integer();
 max_row_limit(default) -> 1000;

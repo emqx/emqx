@@ -13,64 +13,109 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
-
 -module(emqx_mgmt_api_listeners).
 
--rest_api(#{name   => list_listeners,
-            method => 'GET',
-            path   => "/listeners/",
-            func   => list,
-            descr  => "A list of listeners in the cluster"}).
+-rest_api(v1).
 
--rest_api(#{name   => list_node_listeners,
-            method => 'GET',
-            path   => "/nodes/:atom:node/listeners",
-            func   => list,
-            descr  => "A list of listeners on the node"}).
+%% API
+-export([]).
 
--rest_api(#{name   => restart_listener,
-            method => 'PUT',
-            path   => "/listeners/:bin:identifier/restart",
-            func   => restart,
-            descr  => "Restart a listener in the cluster"}).
+-export([ rest_schema/0
+        , rest_api/0]).
 
--rest_api(#{name   => restart_node_listener,
-            method => 'PUT',
-            path   => "/nodes/:atom:node/listeners/:bin:identifier/restart",
-            func   => restart,
-            descr  => "Restart a listener on a node"}).
+-export([ handle_list/1
+        , handle_restart/1]).
 
--export([list/2, restart/2]).
+rest_schema() ->
+    DefinitionName = <<"listener">>,
+    DefinitionProperties = #{
+        <<"node">> => #{
+            type => <<"string">>,
+            description => <<"Node">>, example => node()},
+        <<"acceptor">> => #{
+            type => <<"integer">>,
+            description => <<"Number of Acceptor proce">>},
+        <<"liten_on">> => #{
+            type => <<"string">>,
+            description => <<"Litening port">>},
+        <<"identifier">> => #{
+            type => <<"string">>,
+            description => <<"Identifier">>},
+        <<"protocol">> => #{
+            type => <<"string">>,
+            description => <<"Plugin decription">>},
+        <<"current_conn">> => #{
+            type => <<"integer">>,
+            description => <<"Whether plugin i enabled">>},
+        <<"max_conn">> => #{
+            type => <<"integer">>,
+            description => <<"Maximum number of allowed connection">>},
+        <<"shutdown_count">> => #{
+            type => <<"string">>,
+            description => <<"Reaon and count for connection hutdown">>}},
+    [{DefinitionName, DefinitionProperties}].
 
-%% List listeners on a node.
-list(#{node := Node}, _Params) ->
-    minirest:return({ok, format(emqx_mgmt:list_listeners(Node))});
+rest_api() ->
+    [listeners_api(), restart_listeners_api()].
 
-%% List listeners in the cluster.
-list(_Binding, _Params) ->
-    minirest:return({ok, [#{node => Node, listeners => format(Listeners)}
-                              || {Node, Listeners} <- emqx_mgmt:list_listeners()]}).
+listeners_api() ->
+    Metadata = #{
+        get => #{
+            tags => ["system"],
+            description => "EMQ X listeners in cluster",
+            operationId => handle_list,
+            responses => #{
+                <<"200">> => #{
+                    description => <<"List clients 200 OK">>,
+                    schema => #{
+                        type => array,
+                        items => cowboy_swagger:schema(<<"listener">>)}}},
+            security => [#{application => []}]}},
+    {"/listeners", Metadata}.
 
-%% Restart listeners on a node.
-restart(#{node := Node, identifier := Identifier}, _Params) ->
-    case emqx_mgmt:restart_listener(Node, Identifier) of
-        ok -> minirest:return({ok, "Listener restarted."});
-        {error, Error} -> minirest:return({error, Error})
-    end;
+restart_listeners_api() ->
+    Metadata = #{
+        get => #{
+            tags => ["system"],
+            description => "EMQ X listeners in cluster",
+            operationId => handle_restart,
+            parameters => [#{
+                name => listener_id,
+                in => path,
+                type => string,
+                required => true,
+                default => <<"mqtt:tcp:external">>
+            }],
+            responses => #{
+                <<"404">> => emqx_mgmt_util:not_found_schema(<<"Listener id not found">>),
+                <<"200">> => #{description => <<"restart ok">>}},
+            security => [#{application => []}]}},
+    {"/listeners/:listener_id/restart", Metadata}.
 
-%% Restart listeners in the cluster.
-restart(#{identifier := <<"http", _/binary>>}, _Params) ->
-    {403, <<"http_listener_restart_unsupported">>};
-restart(#{identifier := Identifier}, _Params) ->
-    Results = [{Node, emqx_mgmt:restart_listener(Node, Identifier)} || {Node, _Info} <- emqx_mgmt:list_nodes()],
-    case lists:filter(fun({_, Result}) -> Result =/= ok end, Results) of
-        [] -> minirest:return(ok);
-        Errors -> minirest:return({error, {restart, Errors}})
-    end.
+%%%==============================================================================================
+%% parameters trans
+handle_list(_Request) ->
+    list(#{}).
+
+handle_restart(Request) ->
+    ListenerID = cowboy_req:binding(listener_id, Request),
+    restart(#{listener_id => ListenerID}).
+
+%%%==============================================================================================
+%% api apply
+list(_) ->
+    Data = [format(Listeners) || Listeners <- emqx_mgmt:list_listeners()],
+    Response = emqx_json:encode(lists:append(Data)),
+    {ok, Response}.
+
+restart(#{listener_id := ListenerID}) ->
+    ArgsList = [[Node, ListenerID] || Node <- ekka_mnesia:running_nodes()],
+    Data = emqx_mgmt_util:batch_operation(emqx_mgmt, restart_listener, ArgsList),
+    Response = emqx_json:encode(Data),
+    {ok, Response}.
 
 format(Listeners) when is_list(Listeners) ->
     [ Info#{listen_on => list_to_binary(esockd:to_string(ListenOn))}
-     || Info = #{listen_on := ListenOn} <- Listeners ];
+        || Info = #{listen_on := ListenOn} <- Listeners ];
 
 format({error, Reason}) -> [{error, Reason}].
-

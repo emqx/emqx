@@ -13,35 +13,101 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
-
 -module(emqx_mgmt_api_routes).
 
 -include_lib("emqx/include/emqx.hrl").
 
--rest_api(#{name   => list_routes,
-            method => 'GET',
-            path   => "/routes/",
-            func   => list,
-            descr  => "List routes"}).
+%% API
+-export([ rest_schema/0
+        , rest_api/0]).
 
--rest_api(#{name   => lookup_routes,
-            method => 'GET',
-            path   => "/routes/:bin:topic",
-            func   => lookup,
-            descr  => "Lookup routes to a topic"}).
+-export([ handle_list/1
+        , handle_get/1]).
 
--export([ list/2
-        , lookup/2
-        ]).
+rest_schema() ->
+    DefinitionName = <<"routs">>,
+    DefinitionProperties = #{
+        <<"topic">> => #{
+            type => <<"string">>},
+        <<"node">> => #{
+            type => <<"string">>,
+            example => node()}},
+    [{DefinitionName, DefinitionProperties}].
 
-list(Bindings, Params) when map_size(Bindings) == 0 ->
-    minirest:return({ok, emqx_mgmt_api:paginate(emqx_route, Params, fun format/1)}).
+rest_api() ->
+    [routs_api(), rout_api()].
 
-lookup(#{topic := Topic}, _Params) ->
-    Topic1 = emqx_mgmt_util:urldecode(Topic),
-    minirest:return({ok, [format(R) || R <- emqx_mgmt:lookup_routes(Topic1)]}).
+routs_api() ->
+    Metadata = #{
+        get => #{
+            tags => ["system"],
+            description => "EMQ X routs",
+            operationId => handle_list,
+            parameters => [
+                #{
+                    name => page,
+                    in => query,
+                    description => <<"Page">>,
+                    type => integer,
+                    default => 1
+                },
+                #{
+                    name => limit,
+                    in => query,
+                    description => <<"Page size">>,
+                    required => true,
+                    type => integer,
+                    default => emqx_mgmt:max_row_limit()
+                }],
+            responses => #{
+                <<"200">> => #{
+                    schema => cowboy_swagger:schema(<<"routs">>)}},
+            security => [#{application => []}]}},
+    {"/routs", Metadata}.
+
+rout_api() ->
+    Metadata = #{
+        get => #{
+            tags => ["system"],
+            description => "EMQ X routs",
+            operationId => handle_get,
+            parameters => [#{
+                name => topic,
+                in => path,
+                required => true,
+                description => <<"topic">>,
+                type => string}],
+            responses => #{
+                <<"200">> => #{
+                    schema => cowboy_swagger:schema(<<"routs">>)}},
+            security => [#{application => []}]}},
+    {"/routs/:topic", Metadata}.
+
+%%%==============================================================================================
+%% parameters trans
+handle_list(Request) ->
+    Params = cowboy_req:parse_qs(Request),
+    list(Params).
+
+handle_get(Request) ->
+    Topic = cowboy_req:binding(topic, Request),
+    lookup(#{topic => Topic}).
+
+%%%==============================================================================================
+%% api apply
+list(Params) ->
+    Data = emqx_mgmt_api:paginate(emqx_route, Params, fun format/1),
+    Response = emqx_json:encode(Data),
+    {ok, Response}.
+
+lookup(#{topic := Topic}) ->
+    Data = [format(R) || R <- emqx_mgmt:lookup_routes(Topic)],
+    Response = emqx_json:encode(Data),
+    {ok, Response}.
+
+%%%==============================================================================================
+%% internal
 format(#route{topic = Topic, dest = {_, Node}}) ->
     #{topic => Topic, node => Node};
 format(#route{topic = Topic, dest = Node}) ->
     #{topic => Topic, node => Node}.
-

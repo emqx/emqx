@@ -166,7 +166,7 @@ broker_info(Node) ->
 %%--------------------------------------------------------------------
 
 get_metrics() ->
-    [{Node, get_metrics(Node)} || Node <- ekka_mnesia:running_nodes()].
+    nodes_info_count([get_metrics(Node) || Node <- ekka_mnesia:running_nodes()]).
 
 get_metrics(Node) when Node =:= node() ->
     emqx_metrics:all();
@@ -174,12 +174,24 @@ get_metrics(Node) ->
     rpc_call(Node, get_metrics, [Node]).
 
 get_stats() ->
-    [{Node, get_stats(Node)} || Node <- ekka_mnesia:running_nodes()].
+    nodes_info_count([get_stats(Node) || Node <- ekka_mnesia:running_nodes()]).
 
 get_stats(Node) when Node =:= node() ->
     emqx_stats:getstats();
 get_stats(Node) ->
     rpc_call(Node, get_stats, [Node]).
+
+nodes_info_count(PropList) ->
+    NodeCount =
+        fun({Key, Value}, Result) ->
+            Count = maps:get(Key, Result, 0),
+            Result#{Key => Count + Value}
+        end,
+    AllCount =
+        fun(StatsMap, Result) ->
+            lists:foldl(NodeCount, Result, StatsMap)
+        end,
+    lists:foldl(AllCount, #{}, PropList).
 
 %%--------------------------------------------------------------------
 %% Clients
@@ -411,7 +423,7 @@ reload_plugin(Node, Plugin) ->
 %%--------------------------------------------------------------------
 
 list_listeners() ->
-    [{Node, list_listeners(Node)} || Node <- ekka_mnesia:running_nodes()].
+    [list_listeners(Node) || Node <- ekka_mnesia:running_nodes()].
 
 list_listeners(Node) when Node =:= node() ->
     Tcp = lists:map(fun({{Protocol, ListenOn}, _Pid}) ->
@@ -425,6 +437,7 @@ list_listeners(Node) when Node =:= node() ->
     end, esockd:listeners()),
     Http = lists:map(fun({Protocol, Opts}) ->
         #{protocol        => Protocol,
+          node            => Node,
           listen_on       => proplists:get_value(port, Opts),
           acceptors       => maps:get(num_acceptors, proplists:get_value(transport_options, Opts, #{}), 0),
           max_conns       => proplists:get_value(max_connections, Opts),

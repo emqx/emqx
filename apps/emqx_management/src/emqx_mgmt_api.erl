@@ -65,10 +65,10 @@ count(Table, Nodes) ->
     lists:sum([rpc_call(Node, ets, info, [Table, size], 5000) || Node <- Nodes]).
 
 page(Params) ->
-    binary_to_integer(proplists:get_value(<<"_page">>, Params, <<"1">>)).
+    binary_to_integer(proplists:get_value(<<"page">>, Params, <<"1">>)).
 
 limit(Params) ->
-    case proplists:get_value(<<"_limit">>, Params) of
+    case proplists:get_value(<<"limit">>, Params) of
         undefined -> emqx_mgmt:max_row_limit();
         Size      -> binary_to_integer(Size)
     end.
