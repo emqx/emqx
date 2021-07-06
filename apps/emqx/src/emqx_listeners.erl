@@ -68,7 +68,8 @@ console_print(_Fmt, _Args) -> ok.
       -> {ok, pid()} | {error, term()}).
 do_start_listener(ZoneName, ListenerName, #{type := tcp, bind := ListenOn} = Opts) ->
     esockd:open(listener_id(ZoneName, ListenerName), ListenOn, merge_default(esockd_opts(Opts)),
-                {emqx_connection, start_link, [{ZoneName, ListenerName}]});
+                {emqx_connection, start_link,
+                    [#{zone => ZoneName, listener => ListenerName}]});
 
 %% Start MQTT/WS listener
 do_start_listener(ZoneName, ListenerName, #{type := ws, bind := ListenOn} = Opts) ->

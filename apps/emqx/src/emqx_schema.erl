@@ -59,7 +59,7 @@
 -export([includes/0]).
 
 structs() -> ["cluster", "node", "rpc", "log", "lager",
-              "acl", "mqtt", "zones", "listeners", "module", "broker",
+              "zones", "listeners", "module", "broker",
               "plugins", "sysmon", "alarm", "telemetry"]
              ++ includes().
 
@@ -244,7 +244,7 @@ fields("acl_cache") ->
     ];
 
 fields("mqtt") ->
-    [ {"mountpoint", t(binary(), undefined, <<"">>)}
+    [ {"mountpoint", t(binary(), undefined, <<>>)}
     , {"idle_timeout", maybe_infinity(duration(), "15s")}
     , {"max_packet_size", maybe_infinity(bytesize(), "1MB")}
     , {"max_clientid_len", t(integer(), undefined, 65535)}
@@ -256,7 +256,7 @@ fields("mqtt") ->
     , {"shared_subscription", t(boolean(), undefined, true)}
     , {"ignore_loop_deliver", t(boolean())}
     , {"strict_mode", t(boolean(), undefined, false)}
-    , {"response_information", t(string(), undefined, undefined)}
+    , {"response_information", t(string(), undefined, "")}
     , {"server_keepalive", maybe_disabled(integer())}
     , {"keepalive_backoff", t(float(), undefined, 0.75)}
     , {"max_subscriptions", maybe_infinity(integer())}
@@ -365,7 +365,7 @@ fields("ws_opts") ->
     [ {"mqtt_path", t(string(), undefined, "/mqtt")}
     , {"mqtt_piggyback", t(union(single, multiple), undefined, multiple)}
     , {"compress", t(boolean())}
-    , {"idle_timeout", maybe_infinity(duration())}
+    , {"idle_timeout", t(duration(), undefined, "15s")}
     , {"max_frame_size", maybe_infinity(integer())}
     , {"fail_if_no_subprotocol", t(boolean(), undefined, true)}
     , {"supported_subprotocols", t(string(), undefined,

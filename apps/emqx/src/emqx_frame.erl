@@ -34,6 +34,9 @@
         , serialize/2
         ]).
 
+-export([ set_opts/2
+        ]).
+
 -export_type([ options/0
              , parse_state/0
              , parse_result/0
@@ -81,11 +84,11 @@ initial_parse_state() ->
 
 -spec(initial_parse_state(options()) -> {none, options()}).
 initial_parse_state(Options) when is_map(Options) ->
-    ?none(merge_opts(Options)).
+    ?none(maps:merge(?DEFAULT_OPTIONS, Options)).
 
-%% @pivate
-merge_opts(Options) ->
-    maps:merge(?DEFAULT_OPTIONS, Options).
+-spec set_opts(parse_state(), options()) -> parse_state().
+set_opts({_, OldOpts}, Opts) ->
+    maps:merge(OldOpts, Opts).
 
 %%--------------------------------------------------------------------
 %% Parse MQTT Frame

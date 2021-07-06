@@ -108,7 +108,6 @@
         }).
 
 -type(state() :: #state{}).
--type(opts() :: #{zone := atom(), listener := atom(), atom() => term()}).
 
 -define(ACTIVE_N, 100).
 -define(INFO_KEYS, [socktype, peername, sockname, sockstate]).
@@ -137,7 +136,7 @@
                             , system_code_change/4
                             ]}).
 
--spec(start_link(esockd:transport(), esockd:socket(), opts())
+-spec(start_link(esockd:transport(), esockd:socket(), emqx_channel:opts())
       -> {ok, pid()}).
 start_link(Transport, Socket, Options) ->
     Args = [self(), Transport, Socket, Options],
@@ -256,18 +255,23 @@ init_state(Transport, Socket, Options) ->
                 },
     Zone = maps:get(zone, Options),
     Listener = maps:get(listener, Options),
-
-    PubLimit = emqx_zone:publish_limit(Zone),
-    BytesIn = proplists:get_value(rate_limit, Options),
-    RateLimit = emqx_zone:ratelimit(Zone),
-    Limiter = emqx_limiter:init(Zone, PubLimit, BytesIn, RateLimit),
-    FrameOpts = emqx_zone:mqtt_frame_options(Zone),
+    Limiter = emqx_limiter:init(Zone, undefined, undefined, []),
+    FrameOpts = #{
+        strict_mode => emqx_config:get_listener_conf(Zone, Listener, [mqtt, strict_mode]),
+        max_size => emqx_config:get_listener_conf(Zone, Listener, [mqtt, max_packet_size])
+    },
     ParseState = emqx_frame:initial_parse_state(FrameOpts),
     Serialize = emqx_frame:serialize_opts(),
     Channel = emqx_channel:init(ConnInfo, Options),
-    GcState = emqx_zone:init_gc_state(Zone),
-    StatsTimer = emqx_zone:stats_timer(Zone),
-    IdleTimeout = emqx_zone:idle_timeout(Zone),
+    GcState = case emqx_config:get_listener_conf(Zone, Listener, [force_gc]) of
+        #{enable := false} -> undefined;
+        GcPolicy -> emqx_gc:init(GcPolicy)
+    end,
+    StatsTimer = case emqx_config:get_listener_conf(Zone, Listener, [stats, enable]) of
+        true -> undefined;
+        false -> disabled
+    end,
+    IdleTimeout = emqx_channel:get_mqtt_conf(Zone, Listener, idle_timeout),
     IdleTimer = start_timer(IdleTimeout, idle_timeout),
     #state{transport    = Transport,
            socket       = Socket,
@@ -291,8 +295,11 @@ run_loop(Parent, State = #state{transport = Transport,
                                 peername  = Peername,
                                 channel   = Channel}) ->
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
-    emqx_misc:tune_heap_size(emqx_zone:oom_policy(
-                               emqx_channel:info(zone, Channel))),
+    case emqx_config:get_listener_conf(emqx_channel:info(zone, Channel),
+            emqx_channel:info(listener, Channel), [force_shutdown]) of
+        #{enable := false} -> ok;
+        ShutdownPolicy -> emqx_misc:tune_heap_size(ShutdownPolicy)
+    end,
     case activate_socket(State) of
         {ok, NState} -> hibernate(Parent, NState);
         {error, Reason} ->
@@ -783,15 +790,18 @@ run_gc(Stats, State = #state{gc_state = GcSt}) ->
     end.
 
 check_oom(State = #state{channel = Channel}) ->
-    Zone = emqx_channel:info(zone, Channel),
-    OomPolicy = emqx_zone:oom_policy(Zone),
-    ?tp(debug, check_oom, #{policy => OomPolicy}),
-    case ?ENABLED(OomPolicy) andalso emqx_misc:check_oom(OomPolicy) of
-        {shutdown, Reason} ->
-            %% triggers terminate/2 callback immediately
-            erlang:exit({shutdown, Reason});
-        _Other ->
-            ok
+    ShutdownPolicy = emqx_config:get_listener_conf(emqx_channel:info(zone, Channel),
+        emqx_channel:info(listener, Channel), [force_shutdown]),
+    ?tp(debug, check_oom, #{policy => ShutdownPolicy}),
+    case ShutdownPolicy of
+        #{enable := false} -> ok;
+        ShutdownPolicy ->
+            case emqx_misc:check_oom(ShutdownPolicy) of
+                {shutdown, Reason} ->
+                    %% triggers terminate/2 callback immediately
+                    erlang:exit({shutdown, Reason});
+                _ -> ok
+            end
     end,
     State.
 
