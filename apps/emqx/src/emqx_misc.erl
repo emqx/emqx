@@ -197,6 +197,7 @@ check_oom(Policy) ->
     check_oom(self(), Policy).
 
 -spec(check_oom(pid(), emqx_types:oom_policy()) -> ok | {shutdown, term()}).
+check_oom(_Pid, #{enable := false}) -> ok;
 check_oom(Pid, #{message_queue_len := MaxQLen,
                  max_heap_size := MaxHeapSize}) ->
     case process_info(Pid, [message_queue_len, total_heap_size]) of
@@ -214,13 +215,26 @@ do_check_oom([{Val, Max, Reason}|Rest]) ->
         false -> do_check_oom(Rest)
     end.
 
-tune_heap_size(#{max_heap_size := MaxHeapSize}) ->
-    %% If set to zero, the limit is disabled.
-    erlang:process_flag(max_heap_size, #{size => MaxHeapSize,
-                                         kill => false,
-                                         error_logger => true
-                                        });
-tune_heap_size(undefined) -> ok.
+tune_heap_size(#{enable := false}) ->
+    ok;
+%% If the max_heap_size is set to zero, the limit is disabled.
+tune_heap_size(#{max_heap_size := MaxHeapSize}) when MaxHeapSize > 0 ->
+    MaxSize = case erlang:system_info(wordsize) of
+        8 -> % arch_64
+            (1 bsl 59) - 1;
+        4 -> % arch_32
+            (1 bsl 27) - 1
+    end,
+    OverflowedSize = case erlang:trunc(MaxHeapSize * 1.5) of
+        SZ when SZ > MaxSize -> MaxSize;
+        SZ -> SZ
+    end,
+    erlang:process_flag(max_heap_size, #{
+        size => OverflowedSize,
+        kill => true,
+        error_logger => true
+    }).
+
 
 -spec(proc_name(atom(), pos_integer()) -> atom()).
 proc_name(Mod, Id) ->
