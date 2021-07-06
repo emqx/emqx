@@ -45,9 +45,9 @@ structs() -> [""].
 
 fields("") ->
     [ {config, #{type => hoconsc:union(
-                  [ hoconsc:ref(cluster)
-                  , hoconsc:ref(single)
-                  , hoconsc:ref(sentinel)
+                  [ hoconsc:ref(?MODULE, cluster)
+                  , hoconsc:ref(?MODULE, single)
+                  , hoconsc:ref(?MODULE, sentinel)
                   ])}
       }
     ];
