@@ -15,8 +15,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_stats).
 
--rest_api(v1).
-
 %% API
 -export([rest_schema/0, rest_api/0]).
 

@@ -19,15 +19,15 @@
 
 %% API
 -export([ rest_schema/0
-    , rest_api/0]).
+        , rest_api/0]).
 
 -export([ handle_list/1
-    , handle_create_clientid/1
-    , handle_create_username/1
-    , handle_create_peerhost/1
-    , handle_delete_clientid/1
-    , handle_delete_username/1
-    , handle_delete_peerhost/1]).
+        , handle_create_clientid/1
+        , handle_create_username/1
+        , handle_create_peerhost/1
+        , handle_delete_clientid/1
+        , handle_delete_username/1
+        , handle_delete_peerhost/1]).
 
 rest_schema() ->
     DefinitionName = <<"banned">>,

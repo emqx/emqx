@@ -14,9 +14,13 @@
 -module(emqx_mgmt_api_nodes).
 
 %% API
--export([rest_schema/0, rest_api/0]).
+-export([ rest_schema/0
+        , rest_api/0]).
 
--export([handle_list/1, handle_get/1, handle_list_listeners/1, handle_restart_listener/1]).
+-export([ handle_list/1
+        , handle_get/1
+        , handle_list_listeners/1
+        , handle_restart_listener/1]).
 
 % for rpc
 -export([node_info/1]).

@@ -15,8 +15,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_routes).
 
--rest_api(v1).
-
 -include_lib("emqx/include/emqx.hrl").
 
 %% API
