@@ -18,7 +18,7 @@
 
 -behaviour(gen_statem).
 
--include("emqx_sn.hrl").
+-include("src/mqttsn/include/emqx_sn.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -915,7 +915,8 @@ handle_unsubscribe(_, _TopicId, MsgId, State) ->
     {keep_state, send_message(?SN_UNSUBACK_MSG(MsgId), State)}.
 
 do_publish(?SN_NORMAL_TOPIC, TopicName, Data, Flags, MsgId, State) ->
-    %% XXX: Handle normal topic id as predefined topic id, to be compatible with paho mqtt-sn library
+    %% XXX: Handle normal topic id as predefined topic id, to be
+    %% compatible with paho mqtt-sn library
     <<TopicId:16>> = TopicName,
     do_publish(?SN_PREDEFINED_TOPIC, TopicId, Data, Flags, MsgId, State);
 do_publish(?SN_PREDEFINED_TOPIC, TopicId, Data, Flags, MsgId,
@@ -972,8 +973,11 @@ do_puback(TopicId, MsgId, ReturnCode, StateName,
                 undefined -> {keep_state, State};
                 TopicName ->
                     %%notice that this TopicName maybe normal or predefined,
-                    %% involving the predefined topic name in register to enhance the gateway's robustness even inconsistent with MQTT-SN channels
-                    {keep_state, send_register(TopicName, TopicId, MsgId, State)}
+                    %% involving the predefined topic name in register to
+                    %% enhance the gateway's robustness even inconsistent
+                    %% with MQTT-SN channels
+                    {keep_state, send_register(TopicName, TopicId,
+                                               MsgId, State)}
             end;
         _ ->
             ?LOG(error, "CAN NOT handle PUBACK ReturnCode=~p", [ReturnCode]),
@@ -1070,8 +1074,9 @@ handle_outgoing(Packet, State) ->
     send_message(mqtt2sn(Packet, State), State).
 
 cache_no_reg_publish_message(Pendings, TopicId, PubPkt, State) ->
-    ?LOG(debug, "cache non-registered publish message for topic-id: ~p, msg: ~0p, pendings: ~0p",
-        [TopicId, PubPkt, Pendings]),
+    ?LOG(debug, "cache non-registered publish message "
+                 "for topic-id: ~p, msg: ~0p, pendings: ~0p",
+                 [TopicId, PubPkt, Pendings]),
     Msgs = maps:get(pending_topic_ids, Pendings, []),
     Pendings#{TopicId => Msgs ++ [mqtt2sn(PubPkt, State)]}.
 

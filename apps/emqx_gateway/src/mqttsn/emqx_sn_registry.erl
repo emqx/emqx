@@ -18,7 +18,7 @@
 
 -behaviour(gen_server).
 
--include("emqx_sn.hrl").
+-include("src/mqttsn/include/emqx_sn.hrl").
 
 -define(LOG(Level, Format, Args),
         emqx_logger:Level("MQTT-SN(registry): " ++ Format, Args)).
@@ -132,7 +132,7 @@ init([PredefTopics]) ->
     %% {ClientId, TopicId}   -> TopicName
     %% {ClientId, TopicName} -> TopicId
     MaxPredefId = lists:foldl(
-                    fun({TopicId, TopicName}, AccId) ->
+                    fun(#{id := TopicId, topic := TopicName}, AccId) ->
                         ekka_mnesia:dirty_write(#emqx_sn_registry{key = {predef, TopicId},
                                                                   value = TopicName}),
                         ekka_mnesia:dirty_write(#emqx_sn_registry{key = {predef, TopicName},

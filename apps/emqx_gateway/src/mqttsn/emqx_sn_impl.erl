@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,9 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_stomp_impl).
-
--include_lib("emqx_gateway/include/emqx_gateway.hrl").
+%% @doc The MQTT-SN Gateway Implement interface
+-module(emqx_sn_impl).
 
 -behavior(emqx_gateway_impl).
 
@@ -25,15 +24,15 @@
         , unload/0
         ]).
 
+-export([]).
+
 -export([ init/1
         , on_insta_create/3
         , on_insta_update/4
         , on_insta_destroy/3
         ]).
 
--define(TCP_OPTS, [binary, {packet, raw}, {reuseaddr, true}, {nodelay, true}]).
-
--dialyzer({nowarn_function, [load/0]}).
+-define(UDP_SOCKOPTS, []).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -41,16 +40,14 @@
 
 load() ->
     RegistryOptions = [ {cbkmod, ?MODULE}
-                      , {schema, emqx_stomp_schema}
                       ],
-
-    YourOptions = [param1, param2],
-    emqx_gateway_registry:load(stomp, RegistryOptions, YourOptions).
+    YourOptions = [params1, params2],
+    emqx_gateway_registry:load(mqttsn, RegistryOptions, YourOptions).
 
 unload() ->
-    emqx_gateway_registry:unload(stomp).
+    emqx_gateway_registry:unload(mqttsn).
 
-init([param1, param2]) ->
+init(_) ->
     GwState = #{},
     {ok, GwState}.
 
@@ -61,14 +58,31 @@ init([param1, param2]) ->
 on_insta_create(_Insta = #{ id := InstaId,
                             rawconf := RawConf
                           }, Ctx, _GwState) ->
-    %% Step1. Fold the rawconfs to listeners
-    Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
-    %% Step2. Start listeners or escokd:specs
+
+    %% We Also need to start `emqx_sn_broadcast` &
+    %% `emqx_sn_registry` process
+    SnGwId = maps:get(gateway_id, RawConf),
+    case maps:get(broadcast, RawConf) of
+        false ->
+            ok;
+        true ->
+            %% FIXME:
+            Port = 1884,
+            _ = emqx_sn_broadcast:start_link(SnGwId, Port)
+    end,
+
+    PredefTopics = maps:get(predefined, RawConf),
+    {ok, RegistrySvr} = emqx_sn_registry:start_link(PredefTopics),
+
+    NRawConf = maps:without(
+                 [gateway_id, broadcast, predefined],
+                 RawConf#{registry => RegistrySvr}
+                ),
+    Listeners = emqx_gateway_utils:normalize_rawconf(NRawConf),
+
     ListenerPids = lists:map(fun(Lis) ->
                      start_listener(InstaId, Ctx, Lis)
                    end, Listeners),
-    %% FIXME: How to throw an exception to interrupt the restart logic ?
-    %% FIXME: Assign ctx to InstaState
     {ok, ListenerPids, _InstaState = #{ctx => Ctx}}.
 
 on_insta_update(NewInsta, OldInsta, GwInstaState = #{ctx := Ctx}, GwState) ->
@@ -102,41 +116,41 @@ start_listener(InstaId, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
-            io:format("Start stomp ~s:~s listener on ~s successfully.~n",
+            io:format("Start mqttsn ~s:~s listener on ~s successfully.~n",
                       [InstaId, Type, ListenOnStr]),
             Pid;
         {error, Reason} ->
             io:format(standard_error,
-                      "Failed to start stomp ~s:~s listener on ~s: ~0p~n",
+                      "Failed to start mqttsn ~s:~s listener on ~s: ~0p~n",
                       [InstaId, Type, ListenOnStr, Reason]),
             throw({badconf, Reason})
     end.
 
 start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
     Name = name(InstaId, Type),
-    esockd:open(Name, ListenOn, merge_default(SocketOpts),
-                {emqx_stomp_connection, start_link, [Cfg#{ctx => Ctx}]}).
+    esockd:open_udp(Name, ListenOn, merge_default(SocketOpts),
+                    {emqx_sn_gateway, start_link, [Cfg#{ctx => Ctx}]}).
 
 name(InstaId, Type) ->
     list_to_atom(lists:concat([InstaId, ":", Type])).
 
 merge_default(Options) ->
-    case lists:keytake(tcp_options, 1, Options) of
-        {value, {tcp_options, TcpOpts}, Options1} ->
-            [{tcp_options, emqx_misc:merge_opts(?TCP_OPTS, TcpOpts)} | Options1];
+    case lists:keytake(udp_options, 1, Options) of
+        {value, {udp_options, TcpOpts}, Options1} ->
+            [{udp_options, emqx_misc:merge_opts(?UDP_SOCKOPTS, TcpOpts)} | Options1];
         false ->
-            [{tcp_options, ?TCP_OPTS} | Options]
+            [{udp_options, ?UDP_SOCKOPTS} | Options]
     end.
 
 stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
     StopRet = stop_listener(InstaId, Type, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
-        ok -> io:format("Stop stomp ~s:~s listener on ~s successfully.~n",
+        ok -> io:format("Stop mqttsn ~s:~s listener on ~s successfully.~n",
                         [InstaId, Type, ListenOnStr]);
         {error, Reason} ->
             io:format(standard_error,
-                      "Failed to stop stomp ~s:~s listener on ~s: ~0p~n",
+                      "Failed to stop mqttsn ~s:~s listener on ~s: ~0p~n",
                       [InstaId, Type, ListenOnStr, Reason]
                      )
     end,

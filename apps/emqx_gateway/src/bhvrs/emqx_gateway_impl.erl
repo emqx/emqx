@@ -31,6 +31,7 @@
                          )
     -> {error, reason()}
      | {ok, [GwInstaPid :: pid()], GwInstaState :: state()}
+     %% TODO: v0.2 The child spec is better for restarting child process
      | {ok, [Childspec :: supervisor:child_spec()], GwInstaState :: state()}.
 
 %% @doc
