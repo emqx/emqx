@@ -45,7 +45,7 @@ load_default_gateway_applications() ->
 
 gateway_type_searching() ->
     %% FIXME: Hardcoded apps
-    [emqx_stomp_impl].
+    [emqx_stomp_impl, emqx_sn_impl].
 
 load(Mod) ->
     try
@@ -65,7 +65,7 @@ create_gateway_by_default([]) ->
 create_gateway_by_default([{Type, Name, Confs}|More]) ->
     case emqx_gateway_registry:lookup(Type) of
         undefined ->
-            ?LOG(error, "Skip to start ~p#~p: not_registred_type",
+            ?LOG(error, "Skip to start ~s#~s: not_registred_type",
                         [Type, Name]);
         _ ->
             case emqx_gateway:create(Type,
@@ -73,9 +73,9 @@ create_gateway_by_default([{Type, Name, Confs}|More]) ->
                                      <<>>,
                                      Confs) of
                 {ok, _} ->
-                    ?LOG(debug, "Start ~p#~p successfully!", [Type, Name]);
+                    ?LOG(debug, "Start ~s#~s successfully!", [Type, Name]);
                 {error, Reason} ->
-                    ?LOG(error, "Start ~p#~p failed: ~0p",
+                    ?LOG(error, "Start ~s#~s failed: ~0p",
                                 [Type, Name, Reason])
             end
     end,

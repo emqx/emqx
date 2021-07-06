@@ -17,7 +17,7 @@
 
 -module(emqx_sn_frame).
 
--include("emqx_sn.hrl").
+-include("src/mqttsn/include/emqx_sn.hrl").
 
 -export([ parse/1
         , serialize/1
