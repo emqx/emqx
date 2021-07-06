@@ -113,12 +113,11 @@ emqx_test(){
 }
 
 running_test(){
-    export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60 \
-           EMQX_MQTT__MAX_TOPIC_ALIAS=10
     # sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
+    start_cmd="export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60 EMQX_MQTT__MAX_TOPIC_ALIAS=10; \
+        [[ $(arch) == *arm* || $(arch) == aarch64 ]] && export EMQX_LISTENER__QUIC__EXTERNAL__ENDPOINT=''; emqx start"
 
-    [[ "$ARCH" == arm* ]] && export EMQX_LISTENER__QUIC__EXTERNAL__ENDPOINT=""
-    if ! emqx start; then
+    if ! su - emqx -c "$start_cmd"; then
         cat /var/log/emqx/erlang.log.1 || true
         cat /var/log/emqx/emqx.log.1 || true
         exit 1
