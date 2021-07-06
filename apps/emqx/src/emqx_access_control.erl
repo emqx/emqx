@@ -39,17 +39,17 @@ authenticate(ClientInfo = #{zone := Zone, listener := Listener}) ->
 %% @doc Check ACL
 -spec(check_acl(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic())
       -> allow | deny).
-check_acl(ClientInfo, PubSub, Topic) ->
-    case emqx_acl_cache:is_enabled() of
+check_acl(ClientInfo = #{zone := Zone, listener := Listener}, PubSub, Topic) ->
+    case emqx_acl_cache:is_enabled(Zone, Listener) of
         true  -> check_acl_cache(ClientInfo, PubSub, Topic);
         false -> do_check_acl(ClientInfo, PubSub, Topic)
     end.
 
-check_acl_cache(ClientInfo, PubSub, Topic) ->
-    case emqx_acl_cache:get_acl_cache(PubSub, Topic) of
+check_acl_cache(ClientInfo = #{zone := Zone, listener := Listener}, PubSub, Topic) ->
+    case emqx_acl_cache:get_acl_cache(Zone, Listener, PubSub, Topic) of
         not_found ->
             AclResult = do_check_acl(ClientInfo, PubSub, Topic),
-            emqx_acl_cache:put_acl_cache(PubSub, Topic, AclResult),
+            emqx_acl_cache:put_acl_cache(Zone, Listener, PubSub, Topic, AclResult),
             AclResult;
         AclResult -> AclResult
     end.

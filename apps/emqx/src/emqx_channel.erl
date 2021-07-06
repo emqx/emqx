@@ -1622,8 +1622,6 @@ maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
 
 %%--------------------------------------------------------------------
 %% Is ACL enabled?
-
--compile({inline, [is_acl_enabled/1]}).
 is_acl_enabled(#{zone := Zone, listener := Listener, is_superuser := IsSuperuser}) ->
     (not IsSuperuser) andalso emqx_config:get_listener_conf(Zone, Listener, [acl, enable]).
 
