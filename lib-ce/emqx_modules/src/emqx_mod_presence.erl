@@ -52,58 +52,57 @@ description() ->
 %%--------------------------------------------------------------------
 
 on_client_connected(ClientInfo = #{clientid := ClientId}, ConnInfo, Env) ->
-    Presence = connected_presence(ClientInfo, ConnInfo),
-    case emqx_json:safe_encode(Presence) of
+    Presence = common_infos(ClientInfo, ConnInfo),
+    NPresence = Presence#{
+                  connack         => 0, %% XXX: connack will be removed in 5.0
+                  keepalive       => maps:get(keepalive, ConnInfo, 0),
+                  clean_start     => maps:get(clean_start, ConnInfo, true),
+                  expiry_interval => maps:get(expiry_interval, ConnInfo, 0),
+                  connected_at    => maps:get(connected_at, ConnInfo)
+                 },
+    case emqx_json:safe_encode(NPresence) of
         {ok, Payload} ->
             emqx_broker:safe_publish(
               make_msg(qos(Env), topic(connected, ClientId), Payload));
         {error, _Reason} ->
-            ?LOG(error, "Failed to encode 'connected' presence: ~p", [Presence])
+            ?LOG(error, "Failed to encode 'connected' presence: ~p", [NPresence])
     end.
 
-on_client_disconnected(_ClientInfo = #{clientid := ClientId, username := Username},
-                       Reason, _ConnInfo = #{disconnected_at := DisconnectedAt}, Env) ->
-    Presence = #{clientid => ClientId,
-                 username => Username,
-                 reason => reason(Reason),
-                 disconnected_at => DisconnectedAt,
-                 ts => erlang:system_time(millisecond)
-                },
-    case emqx_json:safe_encode(Presence) of
+on_client_disconnected(ClientInfo = #{clientid := ClientId},
+                       Reason, ConnInfo = #{disconnected_at := DisconnectedAt}, Env) ->
+
+    Presence = common_infos(ClientInfo, ConnInfo),
+    NPresence = Presence#{
+                  reason => reason(Reason),
+                  disconnected_at => DisconnectedAt
+                 },
+    case emqx_json:safe_encode(NPresence) of
         {ok, Payload} ->
             emqx_broker:safe_publish(
               make_msg(qos(Env), topic(disconnected, ClientId), Payload));
         {error, _Reason} ->
-            ?LOG(error, "Failed to encode 'disconnected' presence: ~p", [Presence])
+            ?LOG(error, "Failed to encode 'disconnected' presence: ~p", [NPresence])
     end.
 
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
 
-connected_presence(#{peerhost := PeerHost,
-                     sockport := SockPort,
-                     clientid := ClientId,
-                     username := Username
-                    },
-                   #{clean_start := CleanStart,
-                     proto_name := ProtoName,
-                     proto_ver := ProtoVer,
-                     keepalive := Keepalive,
-                     connected_at := ConnectedAt,
-                     expiry_interval := ExpiryInterval
-                    }) ->
+common_infos(
+  _ClientInfo = #{clientid := ClientId,
+                  username := Username,
+                  peerhost := PeerHost,
+                  sockport := SockPort
+                 },
+  _ConnInfo = #{proto_name := ProtoName,
+                proto_ver := ProtoVer
+               }) ->
     #{clientid => ClientId,
       username => Username,
       ipaddress => ntoa(PeerHost),
       sockport => SockPort,
       proto_name => ProtoName,
       proto_ver => ProtoVer,
-      keepalive => Keepalive,
-      connack => 0, %% Deprecated?
-      clean_start => CleanStart,
-      expiry_interval => ExpiryInterval,
-      connected_at => ConnectedAt,
       ts => erlang:system_time(millisecond)
      }.
 
