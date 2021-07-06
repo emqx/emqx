@@ -105,8 +105,8 @@ call(Pid, Msg, _) ->
 %%--------------------------------------------------------------------
 
 init({ClientId, Username, Password, Channel}) ->
-    ?LOG(debug, "try to start adapter ClientId=~p, Username=~p, Password=~p, "
-                "Channel=~0p", [ClientId, Username, Password, Channel]),
+    ?LOG(debug, "try to start adapter ClientId=~p, Username=~p, "
+                "Channel=~0p", [ClientId, Username, Channel]),
     State0 = #state{peername = Channel,
                     clientid = ClientId,
                     username = Username,
@@ -384,4 +384,3 @@ clientinfo(#state{peername = {PeerHost, _},
       mountpoint => undefined,
       ws_cookie  => undefined
      }.
-
