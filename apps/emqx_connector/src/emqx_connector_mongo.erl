@@ -76,9 +76,10 @@ fields(topology) ->
 
 mongo_fields() ->
     [ {pool_size, fun emqx_connector_schema_lib:pool_size/1}
-    , {login, fun emqx_connector_schema_lib:username/1}
+    , {username, fun emqx_connector_schema_lib:username/1}
     , {password, fun emqx_connector_schema_lib:password/1}
-    , {auth_source, fun auth_source/1}
+    , {authentication_database, #{type => binary(),
+                                  nullable => true}}
     , {database, fun emqx_connector_schema_lib:database/1}
     ] ++
     emqx_connector_schema_lib:ssl_fields().
@@ -217,9 +218,9 @@ init_topology_options([], Acc) ->
 
 init_worker_options([{database, V} | R], Acc) ->
     init_worker_options(R, [{database, V} | Acc]);
-init_worker_options([{auth_source, V} | R], Acc) ->
+init_worker_options([{authentication_database, V} | R], Acc) ->
     init_worker_options(R, [{auth_source, V} | Acc]);
-init_worker_options([{login, V} | R], Acc) ->
+init_worker_options([{username, V} | R], Acc) ->
     init_worker_options(R, [{login, V} | Acc]);
 init_worker_options([{password, V} | R], Acc) ->
     init_worker_options(R, [{password, V} | Acc]);
@@ -248,10 +249,6 @@ server(_) -> undefined.
 servers(type) -> hoconsc:array(server());
 servers(validator) -> [?REQUIRED("the field 'servers' is required")];
 servers(_) -> undefined.
-
-auth_source(type) -> binary();
-auth_source(nullable) -> true;
-auth_source(_) -> undefined.
 
 duration(type) -> emqx_schema:duration_ms();
 duration(nullable) -> true;
