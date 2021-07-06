@@ -55,9 +55,10 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
--define(TAB, mnesia_basic_auth).
+-define(TAB, ?MODULE).
 
 -rlog_shard({?AUTH_SHARD, ?TAB}).
+
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
@@ -330,8 +331,7 @@ gen_salt(#{password_hash_algorithm := bcrypt,
     {ok, Salt} = bcrypt:gen_salt(Rounds),
     Salt;
 gen_salt(_) ->
-    <<X:128/big-unsigned-integer>> = crypto:strong_rand_bytes(16),
-    iolist_to_binary(io_lib:format("~32.16.0b", [X])).
+    emqx_authn_utils:gen_salt().
 
 hash(bcrypt, Password, Salt) ->
     {ok, Hash} = bcrypt:hashpw(Password, Salt),
@@ -343,10 +343,10 @@ insert_user(UserGroup, UserID, PasswordHash) ->
     insert_user(UserGroup, UserID, PasswordHash, <<>>).
 
 insert_user(UserGroup, UserID, PasswordHash, Salt) ->
-     Credential = #user_info{user_id = {UserGroup, UserID},
-                             password_hash = PasswordHash,
-                             salt = Salt},
-    mnesia:write(?TAB, Credential, write).
+     UserInfo = #user_info{user_id = {UserGroup, UserID},
+                           password_hash = PasswordHash,
+                           salt = Salt},
+    mnesia:write(?TAB, UserInfo, write).
 
 delete_user2(UserInfo) ->
     mnesia:delete_object(?TAB, UserInfo, write).
