@@ -115,10 +115,24 @@ emqx_test(){
 
 running_test(){
     # sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
-    start_env="export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60 EMQX_MQTT__MAX_TOPIC_ALIAS=10; \
-        [[ $(arch) == *arm* || $(arch) == aarch64 ]] && export EMQX_LISTENER__QUIC__EXTERNAL__ENDPOINT=''"
+    emqx_env_vars=$(dirname "$(readlink "$(command -v emqx)")")/../releases/emqx_vars
 
-    if ! su - emqx -c "$start_env ; emqx start"; then
+    if [ -f "$emqx_env_vars" ];
+    then
+        tee -a "$emqx_env_vars" <<EOF
+export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60
+export EMQX_MQTT__MAX_TOPIC_ALIAS=10
+EOF
+        ## for ARM, due to CI env issue, skip start of quic listener for the moment
+        [[ $(arch) == *arm* || $(arch) == aarch64 ]] && tee tee -a "$emqx_env_vars" <<EOF
+export EMQX_LISTENER__QUIC__EXTERNAL__ENDPOINT=''
+EOF
+    else
+        echo "Error: cannot locate emqx_vars"
+        exit 1
+    fi
+
+    if ! su - emqx -c "emqx start"; then
         cat /var/log/emqx/erlang.log.1 || true
         cat /var/log/emqx/emqx.log.1 || true
         exit 1
@@ -139,8 +153,6 @@ running_test(){
 
     if [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = ubuntu ] \
     || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] ;then
-
-        echo "$start_env" >> /etc/default/emqx
         if ! service emqx start; then
             cat /var/log/emqx/erlang.log.1 || true
             cat /var/log/emqx/emqx.log.1 || true
