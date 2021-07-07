@@ -106,9 +106,17 @@
         , max_row_limit/0
         ]).
 
+-export([ return/0
+        , return/1]).
+
 -define(MAX_ROW_LIMIT, 10000).
 
 -define(APP, emqx_management).
+
+return() ->
+    minirest:return().
+return(Response) ->
+    minirest:return(Response).
 
 %%--------------------------------------------------------------------
 %% Node Info

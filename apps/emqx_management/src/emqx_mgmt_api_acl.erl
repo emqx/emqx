@@ -36,12 +36,12 @@
 
 clean_all(_Bindings, _Params) ->
     case emqx_mgmt:clean_acl_cache_all() of
-      ok -> minirest:return();
-      {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
+      ok -> emqx_mgmt:return();
+      {error, Reason} -> emqx_mgmt:return({error, ?ERROR1, Reason})
     end.
 
 clean_node(#{node := Node}, _Params) ->
     case emqx_mgmt:clean_acl_cache_all(Node) of
-      ok -> minirest:return();
-      {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
+      ok -> emqx_mgmt:return();
+      {error, Reason} -> emqx_mgmt:return({error, ?ERROR1, Reason})
     end.

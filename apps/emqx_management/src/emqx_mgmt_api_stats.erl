@@ -34,12 +34,12 @@
 
 %% List stats of all nodes
 list(Bindings, _Params) when map_size(Bindings) == 0 ->
-    minirest:return({ok, [#{node => Node, stats => maps:from_list(Stats)}
+    emqx_mgmt:return({ok, [#{node => Node, stats => maps:from_list(Stats)}
                               || {Node, Stats} <- emqx_mgmt:get_stats()]}).
 
 %% List stats of a node
 lookup(#{node := Node}, _Params) ->
     case emqx_mgmt:get_stats(Node) of
-        {error, Reason} -> minirest:return({error, Reason});
-        Stats -> minirest:return({ok, maps:from_list(Stats)})
+        {error, Reason} -> emqx_mgmt:return({error, Reason});
+        Stats -> emqx_mgmt:return({ok, maps:from_list(Stats)})
     end.

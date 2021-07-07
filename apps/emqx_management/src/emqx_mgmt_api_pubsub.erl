@@ -67,7 +67,7 @@
 subscribe(_Bindings, Params) ->
     logger:debug("API subscribe Params:~p", [Params]),
     {ClientId, Topic, QoS} = parse_subscribe_params(Params),
-    minirest:return(do_subscribe(ClientId, Topic, QoS)).
+    emqx_mgmt:return(do_subscribe(ClientId, Topic, QoS)).
 
 publish(_Bindings, Params) ->
     logger:debug("API publish Params:~p", [Params]),
@@ -75,33 +75,33 @@ publish(_Bindings, Params) ->
     case do_publish(ClientId, Topic, Qos, Retain, Payload) of
         {ok, MsgIds} ->
             case proplists:get_value(<<"return">>, Params, undefined) of
-                undefined -> minirest:return(ok);
+                undefined -> emqx_mgmt:return(ok);
                 _Val ->
                     case proplists:get_value(<<"topics">>, Params, undefined) of
-                        undefined -> minirest:return({ok, #{msgid => lists:last(MsgIds)}});
-                        _ -> minirest:return({ok, #{msgids => MsgIds}})
+                        undefined -> emqx_mgmt:return({ok, #{msgid => lists:last(MsgIds)}});
+                        _ -> emqx_mgmt:return({ok, #{msgids => MsgIds}})
                     end
             end;
         Result ->
-            minirest:return(Result)
+            emqx_mgmt:return(Result)
     end.
 
 unsubscribe(_Bindings, Params) ->
     logger:debug("API unsubscribe Params:~p", [Params]),
     {ClientId, Topic} = parse_unsubscribe_params(Params),
-    minirest:return(do_unsubscribe(ClientId, Topic)).
+    emqx_mgmt:return(do_unsubscribe(ClientId, Topic)).
 
 subscribe_batch(_Bindings, Params) ->
     logger:debug("API subscribe batch Params:~p", [Params]),
-    minirest:return({ok, loop_subscribe(Params)}).
+    emqx_mgmt:return({ok, loop_subscribe(Params)}).
 
 publish_batch(_Bindings, Params) ->
     logger:debug("API publish batch Params:~p", [Params]),
-    minirest:return({ok, loop_publish(Params)}).
+    emqx_mgmt:return({ok, loop_publish(Params)}).
 
 unsubscribe_batch(_Bindings, Params) ->
     logger:debug("API unsubscribe batch Params:~p", [Params]),
-    minirest:return({ok, loop_unsubscribe(Params)}).
+    emqx_mgmt:return({ok, loop_unsubscribe(Params)}).
 
 loop_subscribe(Params) ->
     loop_subscribe(Params, []).

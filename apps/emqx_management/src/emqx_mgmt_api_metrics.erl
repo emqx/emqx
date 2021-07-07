@@ -31,12 +31,12 @@
 -export([list/2]).
 
 list(Bindings, _Params) when map_size(Bindings) == 0 ->
-    minirest:return({ok, [#{node => Node, metrics => maps:from_list(Metrics)}
+    emqx_mgmt:return({ok, [#{node => Node, metrics => maps:from_list(Metrics)}
                               || {Node, Metrics} <- emqx_mgmt:get_metrics()]});
 
 list(#{node := Node}, _Params) ->
     case emqx_mgmt:get_metrics(Node) of
-        {error, Reason} -> minirest:return({error, Reason});
-        Metrics         -> minirest:return({ok, maps:from_list(Metrics)})
+        {error, Reason} -> emqx_mgmt:return({error, Reason});
+        Metrics         -> emqx_mgmt:return({ok, maps:from_list(Metrics)})
     end.
 

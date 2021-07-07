@@ -125,13 +125,13 @@ get_name(Params) ->
     binary_to_atom(proplists:get_value(<<"name">>, Params, undefined), utf8).
 
 do_deactivate(undefined, _) ->
-    minirest:return({error, missing_param});
+    emqx_mgmt:return({error, missing_param});
 do_deactivate(_, undefined) ->
-    minirest:return({error, missing_param});
+    emqx_mgmt:return({error, missing_param});
 do_deactivate(Node, Name) ->
     case emqx_mgmt:deactivate(Node, Name) of
         ok ->
-            minirest:return();
+            emqx_mgmt:return();
         {error, Reason} ->
-            minirest:return({error, Reason})
+            emqx_mgmt:return({error, Reason})
     end.

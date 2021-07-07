@@ -66,18 +66,20 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 %% Manage Apps
 %%--------------------------------------------------------------------
--spec(add_default_app() -> ok | {ok, appsecret()} | {error, term()}).
+-spec(add_default_app() -> list()).
 add_default_app() ->
-    AppId = emqx_config:get([?APP, default_application_id], undefined),
-    AppSecret = emqx_config:get([?APP, default_application_secret], undefined),
-    case {AppId, AppSecret} of
-        {undefined, _} -> ok;
-        {_, undefined} -> ok;
-        {_, _} ->
-            AppId1 = to_binary(AppId),
-            AppSecret1 = to_binary(AppSecret),
-            add_app(AppId1, <<"Default">>, AppSecret1, <<"Application user">>, true, undefined)
-    end.
+    Apps = emqx_config:get([?APP, applications], []),
+    [ begin
+          case {AppId, AppSecret} of
+              {undefined, _} -> ok;
+              {_, undefined} -> ok;
+              {_, _} ->
+                  AppId1 = to_binary(AppId),
+                  AppSecret1 = to_binary(AppSecret),
+                  add_app(AppId1, <<"Default">>, AppSecret1, <<"Application user">>, true, undefined)
+          end
+      end
+        || #{id := AppId, secret := AppSecret} <- Apps].
 
 -spec(add_app(appid(), binary()) -> {ok, appsecret()} | {error, term()}).
 add_app(AppId, Name) when is_binary(AppId) ->
