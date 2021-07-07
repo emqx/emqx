@@ -43,8 +43,8 @@
 %% Load/Unload
 %%--------------------------------------------------------------------
 
-load(RawRules) ->
-    {PubRules, SubRules} = compile(RawRules),
+load(Env) ->
+    {PubRules, SubRules} = compile(maps:get(rules, Env, [])),
     emqx_hooks:put('client.subscribe',   {?MODULE, rewrite_subscribe, [SubRules]}),
     emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}),
     emqx_hooks:put('message.publish',    {?MODULE, rewrite_publish, [PubRules]}).
@@ -70,20 +70,23 @@ description() ->
 %%--------------------------------------------------------------------
 
 compile(Rules) ->
-    PubRules = [ begin
-                     {ok, MP} = re:compile(Re),
-                     {rewrite, Topic, MP, Dest}
-                 end || {rewrite, pub, Topic, Re, Dest}<- Rules ],
-    SubRules = [ begin
-                     {ok, MP} = re:compile(Re),
-                     {rewrite, Topic, MP, Dest}
-                 end || {rewrite, sub, Topic, Re, Dest}<- Rules ],
-    {PubRules, SubRules}.
+    lists:foldl(fun(#{source_topic := Topic,
+                      re := Re,
+                      dest_topic := Dest,
+                      action := Action}, {Acc1, Acc2}) ->
+        {ok, MP} = re:compile(Re),
+        case Action of
+            publish ->
+                {[{Topic, MP, Dest} | Acc1], Acc2};
+            subscribe ->
+                {Acc1, [{Topic, MP, Dest} | Acc2]}
+        end
+    end, {[], []}, Rules).
 
 match_and_rewrite(Topic, []) ->
     Topic;
 
-match_and_rewrite(Topic, [{rewrite, Filter, MP, Dest} | Rules]) ->
+match_and_rewrite(Topic, [{Filter, MP, Dest} | Rules]) ->
     case emqx_topic:match(Topic, Filter) of
         true  -> rewrite(Topic, MP, Dest);
         false -> match_and_rewrite(Topic, Rules)

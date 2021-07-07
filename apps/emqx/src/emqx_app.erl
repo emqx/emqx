@@ -28,7 +28,12 @@
 
 -define(APP, emqx).
 
--define(EMQX_SHARDS, [route_shard]).
+-define(EMQX_SHARDS, [ ?ROUTE_SHARD
+                     , ?COMMON_SHARD
+                     , ?SHARED_SUB_SHARD
+                     , ?RULE_ENGINE_SHARD
+                     , ?MOD_DELAYED_SHARD
+                     ]).
 
 -include("emqx_release.hrl").
 
@@ -46,7 +51,7 @@ start(_Type, _Args) ->
     ok = ekka_rlog:wait_for_shards(?EMQX_SHARDS, infinity),
     {ok, Sup} = emqx_sup:start_link(),
     ok = start_autocluster(),
-    ok = emqx_plugins:init(),
+    % ok = emqx_plugins:init(),
     _ = emqx_plugins:load(),
     _ = start_ce_modules(),
     emqx_boot:is_enabled(listeners) andalso (ok = emqx_listeners:start()),

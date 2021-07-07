@@ -73,7 +73,7 @@
         , reload/2
         ]).
 
--export([ do_load_module/2
+-export([ do_load_module/3
         , do_unload_module/2
         ]).
 
@@ -83,11 +83,11 @@ list(#{node := Node}, _Params) ->
 list(_Bindings, _Params) ->
     return({ok, [format(Node, Modules) || {Node, Modules} <- list_modules()]}).
 
-load(#{node := Node, module := Module}, _Params) ->
-    return(do_load_module(Node, Module));
+load(#{node := Node, module := Module}, Params) ->
+    return(do_load_module(Node, Module, Params));
 
-load(#{module := Module}, _Params) ->
-    Results = [do_load_module(Node, Module) || Node <- ekka_mnesia:running_nodes()],
+load(#{module := Module}, Params) ->
+    Results = [do_load_module(Node, Module, Params) || Node <- ekka_mnesia:running_nodes()],
     case lists:filter(fun(Item) -> Item =/= ok end, Results) of
         [] ->
             return(ok);
@@ -129,10 +129,9 @@ reload(#{module := Module}, _Params) ->
 format(Node, Modules) ->
     #{node => Node, modules => [format(Module) || Module <- Modules]}.
 
-format({Name, Active}) ->
-    #{name => Name,
-      description => iolist_to_binary(Name:description()),
-      active => Active}.
+format(Name) ->
+    #{name => name(Name),
+      description => iolist_to_binary(Name:description())}.
 
 list_modules() ->
     [{Node, list_modules(Node)} || Node <- ekka_mnesia:running_nodes()].
@@ -142,10 +141,10 @@ list_modules(Node) when Node =:= node() ->
 list_modules(Node) ->
     rpc_call(Node, list_modules, [Node]).
 
-do_load_module(Node, Module) when Node =:= node() ->
-    emqx_modules:load(Module);
-do_load_module(Node, Module) ->
-    rpc_call(Node, do_load_module, [Node, Module]).
+do_load_module(Node, Module, Env) when Node =:= node() ->
+    emqx_modules:load(Module, Env);
+do_load_module(Node, Module, Env) ->
+    rpc_call(Node, do_load_module, [Node, Module, Env]).
 
 do_unload_module(Node, Module) when Node =:= node() ->
     emqx_modules:unload(Module);
@@ -162,3 +161,9 @@ rpc_call(Node, Fun, Args) ->
         {badrpc, Reason} -> {error, Reason};
         Res -> Res
     end.
+
+name(emqx_mod_delayed) -> delayed;
+name(emqx_mod_presence) -> presence;
+name(emqx_mod_recon) -> recon;
+name(emqx_mod_rewrite) -> rewrite;
+name(emqx_mod_topic_metrics) -> topic_metrics.

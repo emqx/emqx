@@ -104,7 +104,7 @@ make dialyzer
 
 ##### Статический анализ части приложений (список через запятую)
 ```
-DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
+DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 ```
 
 ## Сообщество
@@ -135,7 +135,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 
 [MQTT Version 5.0](https://docs.oasis-open.org/mqtt/mqtt/v5.0/cs02/mqtt-v5.0-cs02.html)
 
-[MQTT SN](http://mqtt.org/new/wp-content/uploads/2009/06/MQTT-SN_spec_v1.2.pdf)
+[MQTT SN](https://www.oasis-open.org/committees/download.php/66091/MQTT-SN_spec_v1.2.pdf)
 
 ## Лицензия
 

@@ -48,13 +48,13 @@ jobs:
                 echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']:waiting emqx";
                 sleep 5;
             done
-        - name: verify EMQX_LOADED_PLUGINS override working
-          run: |
-            expected="{emqx_sn, true}."
-            output=$(docker exec -i node1.emqx.io bash -c "cat data/loaded_plugins" | tail -n1)
-            if [ "$expected" != "$output" ]; then
-                exit 1
-            fi
+        # - name: verify EMQX_LOADED_PLUGINS override working
+        #   run: |
+        #     expected="{emqx_sn, true}."
+        #     output=$(docker exec -i node1.emqx.io bash -c "cat data/loaded_plugins" | tail -n1)
+        #     if [ "$expected" != "$output" ]; then
+        #         exit 1
+        #     fi
         - name: make paho tests
           run: |
             if ! docker exec -i python /scripts/pytest.sh; then
@@ -131,11 +131,27 @@ jobs:
               echo "waiting emqx started";
               sleep 10;
             done
-        - name: get pods log
+        - name: get emqx-0 pods log
           if: failure()
           env:
             KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
-          run: kubectl describe pods emqx-0
+          run: |
+            kubectl describe pods emqx-0
+            kubectl logs emqx-0
+        - name: get emqx-1 pods log
+          if: failure()
+          env:
+            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
+          run: |
+            kubectl describe pods emqx-1
+            kubectl logs emqx-1
+        - name: get emqx-2 pods log
+          if: failure()
+          env:
+            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
+          run: |
+            kubectl describe pods emqx-2
+            kubectl logs emqx-2
         - uses: actions/checkout@v2
           with:
             repository: emqx/paho.mqtt.testing

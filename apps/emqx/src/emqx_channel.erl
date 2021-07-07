@@ -1420,7 +1420,7 @@ check_pub_alias(_Packet, _Channel) -> ok.
 check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
               #channel{clientinfo = ClientInfo}) ->
     case is_acl_enabled(ClientInfo) andalso
-         emqx_access_control:check_acl(ClientInfo, publish, Topic) of
+         emqx_access_control:authorize(ClientInfo, publish, Topic) of
         false -> ok;
         allow -> ok;
         deny  -> {error, ?RC_NOT_AUTHORIZED}
@@ -1454,7 +1454,7 @@ check_sub_acls([], _Channel, Acc) ->
 
 check_sub_acl(TopicFilter, #channel{clientinfo = ClientInfo}) ->
     case is_acl_enabled(ClientInfo) andalso
-         emqx_access_control:check_acl(ClientInfo, subscribe, TopicFilter) of
+         emqx_access_control:authorize(ClientInfo, subscribe, TopicFilter) of
         false  -> allow;
         Result -> Result
     end.

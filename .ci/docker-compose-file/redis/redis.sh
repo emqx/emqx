@@ -91,7 +91,7 @@ do
     fi
     if [ "${node}" = "cluster" ] ; then
       if $tls ; then
-       yes "yes" | redis-cli --cluster create "$LOCAL_IP:8000" "$LOCAL_IP:8001" "$LOCAL_IP:8002" --pass public --no-auth-warning --tls true --cacert /tls/ca.crt --cert /tls/redis.crt --key /tls/redis.key;
+       yes "yes" | redis-cli --cluster create "$LOCAL_IP:8000" "$LOCAL_IP:8001" "$LOCAL_IP:8002" --pass public --no-auth-warning --tls true --cacert /etc/certs/ca.crt --cert /etc/certs/redis.crt --key /etc/certs/redis.key;
       else
         yes "yes" | redis-cli --cluster create "$LOCAL_IP:7000" "$LOCAL_IP:7001" "$LOCAL_IP:7002" --pass public --no-auth-warning;
       fi
@@ -107,9 +107,9 @@ EOF
           cat >>/_sentinel.conf<<EOF
 tls-port 26380
 tls-replication yes
-tls-cert-file /tls/redis.crt
-tls-key-file /tls/redis.key
-tls-ca-cert-file /tls/ca.crt
+tls-cert-file /etc/certs/redis.crt
+tls-key-file /etc/certs/redis.key
+tls-ca-cert-file /etc/certs/ca.crt
 sentinel monitor mymaster $LOCAL_IP 8000 1
 EOF
       else

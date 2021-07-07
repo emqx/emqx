@@ -3,7 +3,6 @@ name: Support Needed
 about: Asking a question about usages, docs or anything you're insterested in
 title: ''
 labels: Support
-assignees: tigercl
 
 ---
 

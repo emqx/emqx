@@ -37,8 +37,7 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx_modules),
-    emqx_ct_helpers:start_apps([emqx_management]),
+    emqx_ct_helpers:start_apps([emqx_management], fun set_special_configs/1),
     Config.
 
 end_per_suite(Config) ->
@@ -50,6 +49,14 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(_, Config) ->
     Config.
+
+set_special_configs(emqx_management) ->
+    emqx_config:put([emqx_management], #{listeners => [#{protocol => "http", port => 8081}],
+                                         default_application_id => <<"admin">>,
+                                         default_application_secret => <<"public">>}),
+    ok;
+set_special_configs(_App) ->
+    ok.
 
 get(Key, ResponseBody) ->
    maps:get(Key, jiffy:decode(list_to_binary(ResponseBody), [return_maps])).
@@ -284,62 +291,62 @@ t_nodes(_) ->
     ?assertEqual(<<"undefined">>, maps:get(<<"error">>, Error)),
     meck:unload(emqx_mgmt).
 
-t_plugins(_) ->
-    application:ensure_all_started(emqx_auth_mnesia),
-    {ok, Plugins1} = request_api(get, api_path(["plugins"]), auth_header_()),
-    [Plugins11] = filter(get(<<"data">>, Plugins1), <<"node">>, atom_to_binary(node(), utf8)),
-    [Plugin1] = filter(maps:get(<<"plugins">>, Plugins11), <<"name">>, <<"emqx_auth_mnesia">>),
-    ?assertEqual(<<"emqx_auth_mnesia">>, maps:get(<<"name">>, Plugin1)),
-    ?assertEqual(true, maps:get(<<"active">>, Plugin1)),
-
-    {ok, _} = request_api(put,
-                          api_path(["plugins",
-                                    atom_to_list(emqx_auth_mnesia),
-                                    "unload"]),
-                          auth_header_()),
-    {ok, Error1} = request_api(put,
-                               api_path(["plugins",
-                                         atom_to_list(emqx_auth_mnesia),
-                                         "unload"]),
-                               auth_header_()),
-    ?assertEqual(<<"not_started">>, get(<<"message">>, Error1)),
-    {ok, Plugins2} = request_api(get,
-                                 api_path(["nodes", atom_to_list(node()), "plugins"]),
-                                 auth_header_()),
-    [Plugin2] = filter(get(<<"data">>, Plugins2), <<"name">>, <<"emqx_auth_mnesia">>),
-    ?assertEqual(<<"emqx_auth_mnesia">>, maps:get(<<"name">>, Plugin2)),
-    ?assertEqual(false, maps:get(<<"active">>, Plugin2)),
-
-    {ok, _} = request_api(put,
-                          api_path(["nodes",
-                                    atom_to_list(node()),
-                                    "plugins",
-                                    atom_to_list(emqx_auth_mnesia),
-                                    "load"]),
-                          auth_header_()),
-    {ok, Plugins3} = request_api(get,
-                                 api_path(["nodes", atom_to_list(node()), "plugins"]),
-                                 auth_header_()),
-    [Plugin3] = filter(get(<<"data">>, Plugins3), <<"name">>, <<"emqx_auth_mnesia">>),
-    ?assertEqual(<<"emqx_auth_mnesia">>, maps:get(<<"name">>, Plugin3)),
-    ?assertEqual(true, maps:get(<<"active">>, Plugin3)),
-
-    {ok, _} = request_api(put,
-                          api_path(["nodes",
-                                    atom_to_list(node()),
-                                    "plugins",
-                                    atom_to_list(emqx_auth_mnesia),
-                                    "unload"]),
-                          auth_header_()),
-    {ok, Error2} = request_api(put,
-                               api_path(["nodes",
-                                         atom_to_list(node()),
-                                         "plugins",
-                                         atom_to_list(emqx_auth_mnesia),
-                                         "unload"]),
-                               auth_header_()),
-    ?assertEqual(<<"not_started">>, get(<<"message">>, Error2)),
-    application:stop(emqx_auth_mnesia).
+% t_plugins(_) ->
+%     application:ensure_all_started(emqx_retainer),
+%     {ok, Plugins1} = request_api(get, api_path(["plugins"]), auth_header_()),
+%     [Plugins11] = filter(get(<<"data">>, Plugins1), <<"node">>, atom_to_binary(node(), utf8)),
+%     [Plugin1] = filter(maps:get(<<"plugins">>, Plugins11), <<"name">>, <<"emqx_retainer">>),
+%     ?assertEqual(<<"emqx_retainer">>, maps:get(<<"name">>, Plugin1)),
+%     ?assertEqual(true, maps:get(<<"active">>, Plugin1)),
+% 
+%     {ok, _} = request_api(put,
+%                           api_path(["plugins",
+%                                     atom_to_list(emqx_retainer),
+%                                     "unload"]),
+%                           auth_header_()),
+%     {ok, Error1} = request_api(put,
+%                                api_path(["plugins",
+%                                          atom_to_list(emqx_retainer),
+%                                          "unload"]),
+%                                auth_header_()),
+%     ?assertEqual(<<"not_started">>, get(<<"message">>, Error1)),
+%     {ok, Plugins2} = request_api(get,
+%                                  api_path(["nodes", atom_to_list(node()), "plugins"]),
+%                                  auth_header_()),
+%     [Plugin2] = filter(get(<<"data">>, Plugins2), <<"name">>, <<"emqx_retainer">>),
+%     ?assertEqual(<<"emqx_retainer">>, maps:get(<<"name">>, Plugin2)),
+%     ?assertEqual(false, maps:get(<<"active">>, Plugin2)),
+% 
+%     {ok, _} = request_api(put,
+%                           api_path(["nodes",
+%                                     atom_to_list(node()),
+%                                     "plugins",
+%                                     atom_to_list(emqx_retainer),
+%                                     "load"]),
+%                           auth_header_()),
+%     {ok, Plugins3} = request_api(get,
+%                                  api_path(["nodes", atom_to_list(node()), "plugins"]),
+%                                  auth_header_()),
+%     [Plugin3] = filter(get(<<"data">>, Plugins3), <<"name">>, <<"emqx_retainer">>),
+%     ?assertEqual(<<"emqx_retainer">>, maps:get(<<"name">>, Plugin3)),
+%     ?assertEqual(true, maps:get(<<"active">>, Plugin3)),
+% 
+%     {ok, _} = request_api(put,
+%                           api_path(["nodes",
+%                                     atom_to_list(node()),
+%                                     "plugins",
+%                                     atom_to_list(emqx_retainer),
+%                                     "unload"]),
+%                           auth_header_()),
+%     {ok, Error2} = request_api(put,
+%                                api_path(["nodes",
+%                                          atom_to_list(node()),
+%                                          "plugins",
+%                                          atom_to_list(emqx_retainer),
+%                                          "unload"]),
+%                                auth_header_()),
+%     ?assertEqual(<<"not_started">>, get(<<"message">>, Error2)),
+%     application:stop(emqx_retainer).
 
 t_acl_cache(_) ->
     ClientId = <<"client1">>,
@@ -536,39 +543,6 @@ t_stats(_) ->
     {ok, Return} = request_api(get, api_path(["nodes", atom_to_list(node()), "stats"]), auth_header_()),
     ?assertEqual(<<"undefined">>, get(<<"message">>, Return)),
     meck:unload(emqx_mgmt).
-
-t_data(_) ->
-    ok = emqx_rule_registry:mnesia(boot),
-    ok = emqx_dashboard_admin:mnesia(boot),
-    application:ensure_all_started(emqx_rule_engine),
-    application:ensure_all_started(emqx_dashboard),
-    {ok, Data} = request_api(post, api_path(["data","export"]), [], auth_header_(), [#{}]),
-    #{<<"filename">> := Filename, <<"node">> := Node} = emqx_ct_http:get_http_data(Data),
-    {ok, DataList} = request_api(get, api_path(["data","export"]), auth_header_()),
-    ?assertEqual(true, lists:member(emqx_ct_http:get_http_data(Data), emqx_ct_http:get_http_data(DataList))),
-
-    ?assertMatch({ok, _}, request_api(post, api_path(["data","import"]), [], auth_header_(), #{<<"filename">> => Filename, <<"node">> => Node})),
-    ?assertMatch({ok, _}, request_api(post, api_path(["data","import"]), [], auth_header_(), #{<<"filename">> => Filename})),
-    application:stop(emqx_rule_engine),
-    application:stop(emqx_dahboard),
-    ok.
-
-t_data_import_content(_) ->
-    ok = emqx_rule_registry:mnesia(boot),
-    ok = emqx_dashboard_admin:mnesia(boot),
-    application:ensure_all_started(emqx_rule_engine),
-    application:ensure_all_started(emqx_dashboard),
-    {ok, Data} = request_api(post, api_path(["data","export"]), [], auth_header_(), [#{}]),
-    #{<<"filename">> := Filename} = emqx_ct_http:get_http_data(Data),
-    Dir = emqx:get_env(data_dir),
-    {ok, Bin} = file:read_file(filename:join(Dir, Filename)),
-    Content = emqx_json:decode(Bin),
-    %% TODO: enable when 5.0 if we are still using data export/import
-    %?assertMatch({ok, "{\"code\":0}"}, request_api(post, api_path(["data","import"]), [], auth_header_(), Content)),
-    ?assertMatch({ok, "{\"message\":\"5.0\",\"code\":\"unsupported_version\"}"},
-                 request_api(post, api_path(["data","import"]), [], auth_header_(), Content)),
-    application:stop(emqx_rule_engine),
-    application:stop(emqx_dahboard).
 
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).

@@ -22,12 +22,11 @@
 
 -export([ list/0
         , load/0
-        , load/1
+        , load/2
         , unload/0
         , unload/1
         , reload/1
         , find_module/1
-        , load_module/2
         ]).
 
 -export([cli/1]).
@@ -35,154 +34,91 @@
 %% @doc List all available plugins
 -spec(list() -> [{atom(), boolean()}]).
 list() ->
-    ets:tab2list(?MODULE).
+    persistent_term:get(?MODULE, []).
 
 %% @doc Load all the extended modules.
 -spec(load() -> ok).
 load() ->
-    case emqx:get_env(modules_loaded_file) of
-        undefined -> ok;
-        File ->
-            load_modules(File)
-    end.
+    Modules = emqx_config:get([emqx_modules, modules], []),
+    lists:foreach(fun(#{type := Module, enable := Enable} = Config) ->
+        case Enable of
+            true ->
+                load(name(Module), maps:without([type, enable], Config));
+            false ->
+                ok
+        end
+    end, Modules).
 
-load(ModuleName) ->
+load(Module, Env) ->
+    ModuleName = name(Module),
     case find_module(ModuleName) of
-        [] ->
-            ?LOG(alert, "Module ~s not found, cannot load it", [ModuleName]),
-            {error, not_found};
-        [{ModuleName, true}] ->
+        false ->
+            load_mod(ModuleName, Env);
+        true ->
             ?LOG(notice, "Module ~s is already started", [ModuleName]),
-            {error, already_started};
-        [{ModuleName, false}] ->
-            emqx_modules:load_module(ModuleName, true)
+            {error, already_started}
     end.
 
 %% @doc Unload all the extended modules.
 -spec(unload() -> ok).
 unload() ->
-    case emqx:get_env(modules_loaded_file) of
-        undefined -> ignore;
-        File ->
-            unload_modules(File)
-    end.
+    Modules = emqx_config:get([emqx_modules, modules], []),
+    lists:foreach(fun(#{type := Module, enable := Enable}) ->
+        case Enable of
+            true ->
+                unload_mod(name(Module));
+            false ->
+                ok
+        end
+    end, Modules).
 
 unload(ModuleName) ->
     case find_module(ModuleName) of
-        [] ->
+        false ->
             ?LOG(alert, "Module ~s not found, cannot load it", [ModuleName]),
-            {error, not_found};
-        [{ModuleName, false}] ->
-            ?LOG(error, "Module ~s is not started", [ModuleName]),
             {error, not_started};
-        [{ModuleName, true}] ->
-            unload_module(ModuleName, true)
+        true ->
+            unload_mod(ModuleName)
     end.
 
 -spec(reload(module()) -> ok | ignore | {error, any()}).
-reload(emqx_mod_acl_internal) ->
-    Modules = emqx:get_env(modules, []),
-    Env = proplists:get_value(emqx_mod_acl_internal, Modules, undefined),
-    case emqx_mod_acl_internal:reload(Env) of
-        ok ->
-            ?LOG(info, "Reload ~s module successfully.", [emqx_mod_acl_internal]),
-            ok;
-        {error, Error} ->
-            ?LOG(error, "Reload module ~s failed, cannot start for ~0p", [emqx_mod_acl_internal, Error]),
-            {error, Error}
-    end;
 reload(_) ->
     ignore.
 
 find_module(ModuleName) ->
-    ets:lookup(?MODULE, ModuleName).
+    lists:member(ModuleName, persistent_term:get(?MODULE, [])).
 
-filter_module(ModuleNames) ->
-    filter_module(ModuleNames, emqx:get_env(modules, [])).
-filter_module([], Acc) ->
-    Acc;
-filter_module([{ModuleName, true} | ModuleNames], Acc) ->
-    filter_module(ModuleNames, lists:keydelete(ModuleName, 1, Acc));
-filter_module([{_, false} | ModuleNames], Acc) ->
-    filter_module(ModuleNames, Acc).
-
-load_modules(File) ->
-    case file:consult(File) of
-        {ok, ModuleNames} ->
-            lists:foreach(fun({ModuleName, _}) ->
-                ets:insert(?MODULE, {ModuleName, false})
-            end, filter_module(ModuleNames)),
-            lists:foreach(fun load_module/1, ModuleNames);
-        {error, Error} ->
-            ?LOG(alert, "Failed to read: ~p, error: ~p", [File, Error])
-    end.
-
-load_module({ModuleName, true}) ->
-    emqx_modules:load_module(ModuleName, false);
-load_module({ModuleName, false}) ->
-    ets:insert(?MODULE, {ModuleName, false});
-load_module(ModuleName) ->
-    load_module({ModuleName, true}).
-
-load_module(ModuleName, Persistent) ->
-    Modules = emqx:get_env(modules, []),
-    Env = proplists:get_value(ModuleName, Modules, undefined),
+load_mod(ModuleName, Env) ->
     case ModuleName:load(Env) of
         ok ->
-            ets:insert(?MODULE, {ModuleName, true}),
-            ok = write_loaded(Persistent),
+            Modules = persistent_term:get(?MODULE, []),
+            persistent_term:put(?MODULE, [ModuleName| Modules]),
             ?LOG(info, "Load ~s module successfully.", [ModuleName]);
         {error, Error} ->
             ?LOG(error, "Load module ~s failed, cannot load for ~0p", [ModuleName, Error]),
             {error, Error}
     end.
 
-unload_modules(File) ->
-    case file:consult(File) of
-        {ok, ModuleNames} ->
-            lists:foreach(fun unload_module/1, ModuleNames);
-        {error, Error} ->
-            ?LOG(alert, "Failed to read: ~p, error: ~p", [File, Error])
-    end.
-unload_module({ModuleName, true}) ->
-    unload_module(ModuleName, false);
-unload_module({ModuleName, false}) ->
-    ets:insert(?MODULE, {ModuleName, false});
-unload_module(ModuleName) ->
-    unload_module({ModuleName, true}).
-
-unload_module(ModuleName, Persistent) ->
-    Modules = emqx:get_env(modules, []),
-    Env = proplists:get_value(ModuleName, Modules, undefined),
-    case ModuleName:unload(Env) of
+unload_mod(ModuleName) ->
+    case ModuleName:unload(#{}) of
         ok ->
-            ets:insert(?MODULE, {ModuleName, false}),
-            ok = write_loaded(Persistent),
+            Modules = persistent_term:get(?MODULE, []),
+            persistent_term:put(?MODULE, Modules -- [ModuleName]),
             ?LOG(info, "Unload ~s module successfully.", [ModuleName]);
         {error, Error} ->
             ?LOG(error, "Unload module ~s failed, cannot unload for ~0p", [ModuleName, Error])
     end.
 
-write_loaded(true) ->
-    FilePath = emqx:get_env(modules_loaded_file),
-    case file:write_file(FilePath, [io_lib:format("~p.~n", [Name]) || Name <- list()]) of
-        ok -> ok;
-        {error, Error} ->
-            ?LOG(error, "Write File ~p Error: ~p", [FilePath, Error]),
-            ok
-    end;
-write_loaded(false) -> ok.
-
 %%--------------------------------------------------------------------
 %% @doc Modules Command
 cli(["list"]) ->
-    lists:foreach(fun({Name, Active}) -> 
-                    emqx_ctl:print("Module(~s, description=~s, active=~s)~n",
-                        [Name, Name:description(), Active])
+    lists:foreach(fun(Name) ->
+                    emqx_ctl:print("Module(~s, description=~s)~n",
+                        [Name, Name:description()])
                   end, emqx_modules:list());
 
 cli(["load", Name]) ->
-    case emqx_modules:load(list_to_atom(Name)) of
+    case emqx_modules:load(list_to_atom(Name), #{}) of
         ok ->
             emqx_ctl:print("Module ~s loaded successfully.~n", [Name]);
         {error, Reason}   ->
@@ -197,13 +133,6 @@ cli(["unload", Name]) ->
             emqx_ctl:print("Unload module ~s error: ~p.~n", [Name, Reason])
     end;
 
-cli(["reload", "emqx_mod_acl_internal" = Name]) ->
-    case emqx_modules:reload(list_to_atom(Name)) of
-        ok ->
-            emqx_ctl:print("Module ~s reloaded successfully.~n", [Name]);
-        {error, Reason} ->
-            emqx_ctl:print("Reload module ~s error: ~p.~n", [Name, Reason])
-    end;
 cli(["reload", Name]) ->
     emqx_ctl:print("Module: ~p does not need to be reloaded.~n", [Name]);
 
@@ -213,3 +142,12 @@ cli(_) ->
                     {"modules unload <Module>", "Unload module"},
                     {"modules reload <Module>", "Reload module"}
                    ]).
+
+name(Name) when is_binary(Name) ->
+    name(binary_to_atom(Name, utf8));
+name(delayed) -> emqx_mod_delayed;
+name(presence) -> emqx_mod_presence;
+name(recon) -> emqx_mod_recon;
+name(rewrite) -> emqx_mod_rewrite;
+name(topic_metrics) -> emqx_mod_topic_metrics;
+name(Name) -> Name.

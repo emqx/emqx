@@ -79,7 +79,28 @@ do_start_listener(ZoneName, ListenerName, #{type := ws, bind := ListenOn} = Opts
             cowboy:start_clear(Id, RanchOpts, WsOpts);
         true ->
             cowboy:start_tls(Id, RanchOpts, WsOpts)
-    end.
+    end;
+
+%% Start MQTT/QUIC listener
+do_start_listener(ZoneName, ListenerName, #{type := quic, bind := ListenOn} = Opts) ->
+    %% @fixme unsure why we need reopen lib and reopen config.
+    quicer_nif:open_lib(),
+    quicer_nif:reg_open(),
+    SSLOpts = ssl_opts(Opts),
+    DefAcceptors = erlang:system_info(schedulers_online) * 8,
+    ListenOpts = [ {cert, maps:get(certfile, SSLOpts, undefined)}
+                 , {key, maps:get(keyfile, SSLOpts, undefined)}
+                 , {alpn, ["mqtt"]}
+                 , {conn_acceptors, maps:get(acceptors, Opts, DefAcceptors)}
+                 , {idle_timeout_ms, emqx_config:get_listener_conf(ZoneName, ListenerName,
+                                        [mqtt, idle_timeout])}
+                 ],
+    ConnectionOpts = #{conn_callback => emqx_quic_connection
+                     , peer_unidi_stream_count => 1
+                     , peer_bidi_stream_count => 10
+                     },
+    StreamOpts = [],
+    quicer:start_listener('mqtt:quic', ListenOn, {ListenOpts, ConnectionOpts, StreamOpts}).
 
 esockd_opts(Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),

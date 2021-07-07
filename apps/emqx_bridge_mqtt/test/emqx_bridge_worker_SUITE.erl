@@ -59,13 +59,12 @@ init_per_suite(Config) ->
         nonode@nohost -> net_kernel:start(['emqx@127.0.0.1', longnames]);
         _ -> ok
     end,
-    ok = application:set_env(gen_rpc, tcp_client_num, 1),
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_bridge_mqtt]),
+    emqx_ct_helpers:start_apps([emqx_bridge_mqtt]),
     emqx_logger:set_log_level(error),
     [{log_level, error} | Config].
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_bridge_mqtt, emqx_modules]).
+    emqx_ct_helpers:stop_apps([emqx_bridge_mqtt]).
 
 init_per_testcase(_TestCase, Config) ->
     ok = snabbkaffe:start_trace(),
@@ -74,260 +73,290 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop().
 
-t_mngr(Config) when is_list(Config) ->
-    Subs = [{<<"a">>, 1}, {<<"b">>, 2}],
-    Cfg = #{address => node(),
-            forwards => [<<"mngr">>],
-            connect_module => emqx_bridge_rpc,
-            mountpoint => <<"forwarded">>,
-            subscriptions => Subs,
-            start_type => auto},
-    Name = ?FUNCTION_NAME,
-    {ok, Pid} = emqx_bridge_worker:start_link(Name, Cfg),
-    try
-        ?assertEqual([<<"mngr">>], emqx_bridge_worker:get_forwards(Name)),
-        ?assertEqual(ok, emqx_bridge_worker:ensure_forward_present(Name, "mngr")),
-        ?assertEqual(ok, emqx_bridge_worker:ensure_forward_present(Name, "mngr2")),
-        ?assertEqual([<<"mngr">>, <<"mngr2">>], emqx_bridge_worker:get_forwards(Pid)),
-        ?assertEqual(ok, emqx_bridge_worker:ensure_forward_absent(Name, "mngr2")),
-        ?assertEqual(ok, emqx_bridge_worker:ensure_forward_absent(Name, "mngr3")),
-        ?assertEqual([<<"mngr">>], emqx_bridge_worker:get_forwards(Pid)),
-        ?assertEqual({error, no_remote_subscription_support},
-                     emqx_bridge_worker:ensure_subscription_present(Pid, <<"t">>, 0)),
-        ?assertEqual({error, no_remote_subscription_support},
-                     emqx_bridge_worker:ensure_subscription_absent(Pid, <<"t">>)),
-        ?assertEqual(Subs, emqx_bridge_worker:get_subscriptions(Pid))
-    after
-        ok = emqx_bridge_worker:stop(Pid)
-    end.
+t_rpc_mngr(_Config) ->
+    Name = "rpc_name",
+    Cfg = #{
+        name => Name,
+        forwards => [<<"mngr">>],
+        forward_mountpoint => <<"forwarded">>,
+        start_type => auto,
+        config => #{
+            conn_type => rpc,
+            node => node()
+        }
+    },
+    {ok, Pid} = emqx_bridge_mqtt_sup:create_bridge(Cfg),
+    ?assertEqual([<<"mngr">>], emqx_bridge_worker:get_forwards(Name)),
+    ?assertEqual(ok, emqx_bridge_worker:ensure_forward_present(Name, "mngr")),
+    ?assertEqual(ok, emqx_bridge_worker:ensure_forward_present(Name, "mngr2")),
+    ?assertEqual([<<"mngr2">>, <<"mngr">>], emqx_bridge_worker:get_forwards(Name)),
+    ?assertEqual(ok, emqx_bridge_worker:ensure_forward_absent(Name, "mngr2")),
+    ?assertEqual(ok, emqx_bridge_worker:ensure_forward_absent(Name, "mngr3")),
+    ?assertEqual([<<"mngr">>], emqx_bridge_worker:get_forwards(Name)),
+    ?assertEqual({error, no_remote_subscription_support},
+                    emqx_bridge_worker:ensure_subscription_present(Name, <<"t">>, 0)),
+    ?assertEqual({error, no_remote_subscription_support},
+                    emqx_bridge_worker:ensure_subscription_absent(Name, <<"t">>)),
+    ok = emqx_bridge_worker:stop(Pid).
+
+t_mqtt_mngr(_Config) ->
+    Name = "mqtt_name",
+    Cfg = #{
+        name => Name,
+        forwards => [<<"mngr">>],
+        forward_mountpoint => <<"forwarded">>,
+        start_type => auto,
+        config => #{
+            address => "127.0.0.1:1883",
+            conn_type => mqtt,
+            clientid => <<"client1">>,
+            keepalive => 300,
+            subscriptions => [#{topic => <<"t/#">>, qos => 1}]
+        }
+    },
+    {ok, Pid} = emqx_bridge_mqtt_sup:create_bridge(Cfg),
+    ?assertEqual([<<"mngr">>], emqx_bridge_worker:get_forwards(Name)),
+    ?assertEqual(ok, emqx_bridge_worker:ensure_forward_present(Name, "mngr")),
+    ?assertEqual(ok, emqx_bridge_worker:ensure_forward_present(Name, "mngr2")),
+    ?assertEqual([<<"mngr2">>, <<"mngr">>], emqx_bridge_worker:get_forwards(Name)),
+    ?assertEqual(ok, emqx_bridge_worker:ensure_forward_absent(Name, "mngr2")),
+    ?assertEqual(ok, emqx_bridge_worker:ensure_forward_absent(Name, "mngr3")),
+    ?assertEqual([<<"mngr">>], emqx_bridge_worker:get_forwards(Name)),
+    ?assertEqual(ok, emqx_bridge_worker:ensure_subscription_present(Name, <<"t">>, 0)),
+    ?assertEqual(ok, emqx_bridge_worker:ensure_subscription_absent(Name, <<"t">>)),
+    ?assertEqual([{<<"t/#">>,1}], emqx_bridge_worker:get_subscriptions(Name)),
+    ok = emqx_bridge_worker:stop(Pid).
 
 %% A loopback RPC to local node
-t_rpc(Config) when is_list(Config) ->
-    Cfg = #{address => node(),
-            forwards => [<<"t_rpc/#">>],
-            connect_module => emqx_bridge_rpc,
-            forward_mountpoint => <<"forwarded">>,
-            start_type => auto},
-    {ok, Pid} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
-    ClientId = <<"ClientId">>,
-    try
-        {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),
-        {ok, _Props} = emqtt:connect(ConnPid),
-        {ok, _Props, [1]} = emqtt:subscribe(ConnPid, {<<"forwarded/t_rpc/one">>, ?QOS_1}),
-        timer:sleep(100),
-        {ok, _PacketId} = emqtt:publish(ConnPid, <<"t_rpc/one">>, <<"hello">>, ?QOS_1),
-        timer:sleep(100),
-        ?assertEqual(1, length(receive_messages(1))),
-        emqtt:disconnect(ConnPid)
-    after
-        ok = emqx_bridge_worker:stop(Pid)
-    end.
+t_rpc(_Config) ->
+    Name = "rpc",
+    Cfg = #{
+        name => Name,
+        forwards => [<<"t_rpc/#">>],
+        forward_mountpoint => <<"forwarded">>,
+        start_type => auto,
+        config => #{
+            conn_type => rpc,
+            node => node()
+        }
+    },
+    {ok, Pid} = emqx_bridge_mqtt_sup:create_bridge(Cfg),
+    {ok, ConnPid} = emqtt:start_link([{clientid, <<"ClientId">>}]),
+    {ok, _Props} = emqtt:connect(ConnPid),
+    {ok, _Props, [1]} = emqtt:subscribe(ConnPid, {<<"forwarded/t_rpc/one">>, ?QOS_1}),
+    timer:sleep(100),
+    {ok, _PacketId} = emqtt:publish(ConnPid, <<"t_rpc/one">>, <<"hello">>, ?QOS_1),
+    timer:sleep(100),
+    ?assertEqual(1, length(receive_messages(1))),
+    emqtt:disconnect(ConnPid),
+    emqx_bridge_worker:stop(Pid).
 
 %% Full data loopback flow explained:
 %% mqtt-client ----> local-broker ---(local-subscription)--->
 %% bridge(export) --- (mqtt-connection)--> local-broker ---(remote-subscription) -->
 %% bridge(import) --> mqtt-client
-t_mqtt(Config) when is_list(Config) ->
+t_mqtt(_Config) ->
     SendToTopic = <<"t_mqtt/one">>,
     SendToTopic2 = <<"t_mqtt/two">>,
     SendToTopic3 = <<"t_mqtt/three">>,
     Mountpoint = <<"forwarded/${node}/">>,
-    Cfg = #{address => "127.0.0.1:1883",
-            forwards => [SendToTopic],
-            connect_module => emqx_bridge_mqtt,
-            forward_mountpoint => Mountpoint,
-            username => "user",
-            clean_start => true,
-            clientid => "bridge_aws",
-            keepalive => 60000,
-            password => "passwd",
-            proto_ver => mqttv4,
-            queue => #{replayq_dir => "data/t_mqtt/",
-                       replayq_seg_bytes => 10000,
-                       batch_bytes_limit => 1000,
-                       batch_count_limit => 10
-                      },
-            reconnect_delay_ms => 1000,
-            ssl => false,
-            %% Consume back to forwarded message for verification
-            %% NOTE: this is a indefenite loopback without mocking emqx_bridge_worker:import_batch/1
-            subscriptions => [{SendToTopic2, _QoS = 1}],
-            receive_mountpoint => <<"receive/aws/">>,
-            start_type => auto},
-    {ok, Pid} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
-    ClientId = <<"client-1">>,
-    try
-        ?assertEqual([{SendToTopic2, 1}], emqx_bridge_worker:get_subscriptions(Pid)),
-        ok = emqx_bridge_worker:ensure_subscription_present(Pid, SendToTopic3, _QoS = 1),
-        ?assertEqual([{SendToTopic3, 1},{SendToTopic2, 1}],
-                     emqx_bridge_worker:get_subscriptions(Pid)),
-        {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),
-        {ok, _Props} = emqtt:connect(ConnPid),
-        emqtt:subscribe(ConnPid, <<"forwarded/+/t_mqtt/one">>, 1),
-        %% message from a different client, to avoid getting terminated by no-local
-        Max = 10,
-        Msgs = lists:seq(1, Max),
-        lists:foreach(fun(I) ->
-                          {ok, _PacketId} = emqtt:publish(ConnPid, SendToTopic, integer_to_binary(I), ?QOS_1)
-                      end, Msgs),
-        ?assertEqual(10, length(receive_messages(200))),
+    Name = "mqtt",
+    Cfg = #{
+        name => Name,
+        forwards => [SendToTopic],
+        forward_mountpoint => Mountpoint,
+        start_type => auto,
+        config => #{
+            address => "127.0.0.1:1883",
+            conn_type => mqtt,
+            clientid => <<"client1">>,
+            keepalive => 300,
+            subscriptions => [#{topic => SendToTopic2, qos => 1}],
+            receive_mountpoint => <<"receive/aws/">>
+        },
+        queue => #{
+            replayq_dir => "data/t_mqtt/",
+            replayq_seg_bytes => 10000,
+            batch_bytes_limit => 1000,
+            batch_count_limit => 10
+        }
+    },
+    {ok, Pid} = emqx_bridge_mqtt_sup:create_bridge(Cfg),
+    ?assertEqual([{SendToTopic2, 1}], emqx_bridge_worker:get_subscriptions(Name)),
+    ok = emqx_bridge_worker:ensure_subscription_present(Name, SendToTopic3, _QoS = 1),
+    ?assertEqual([{SendToTopic3, 1},{SendToTopic2, 1}],
+                    emqx_bridge_worker:get_subscriptions(Name)),
+    {ok, ConnPid} = emqtt:start_link([{clientid, <<"client-1">>}]),
+    {ok, _Props} = emqtt:connect(ConnPid),
+    emqtt:subscribe(ConnPid, <<"forwarded/+/t_mqtt/one">>, 1),
+    %% message from a different client, to avoid getting terminated by no-local
+    Max = 10,
+    Msgs = lists:seq(1, Max),
+    lists:foreach(fun(I) ->
+                        {ok, _PacketId} = emqtt:publish(ConnPid, SendToTopic, integer_to_binary(I), ?QOS_1)
+                    end, Msgs),
+    ?assertEqual(10, length(receive_messages(200))),
 
-        emqtt:subscribe(ConnPid, <<"receive/aws/t_mqtt/two">>, 1),
-        %% message from a different client, to avoid getting terminated by no-local
-        Max = 10,
-        Msgs = lists:seq(1, Max),
-        lists:foreach(fun(I) ->
-                          {ok, _PacketId} = emqtt:publish(ConnPid, SendToTopic2, integer_to_binary(I), ?QOS_1)
-                      end, Msgs),
-        ?assertEqual(10, length(receive_messages(200))),
+    emqtt:subscribe(ConnPid, <<"receive/aws/t_mqtt/two">>, 1),
+    %% message from a different client, to avoid getting terminated by no-local
+    Max = 10,
+    Msgs = lists:seq(1, Max),
+    lists:foreach(fun(I) ->
+                        {ok, _PacketId} = emqtt:publish(ConnPid, SendToTopic2, integer_to_binary(I), ?QOS_1)
+                    end, Msgs),
+    ?assertEqual(10, length(receive_messages(200))),
 
-        emqtt:disconnect(ConnPid)
-    after
-        ok = emqx_bridge_worker:stop(Pid)
-    end.
+    emqtt:disconnect(ConnPid),
+    ok = emqx_bridge_worker:stop(Pid).
 
 t_stub_normal(Config) when is_list(Config) ->
-    Cfg = #{forwards => [<<"t_stub_normal/#">>],
-            connect_module => emqx_bridge_stub_conn,
-            forward_mountpoint => <<"forwarded">>,
-            start_type => auto,
+    Name = "stub_normal",
+    Cfg = #{
+        name => Name,
+        forwards => [<<"t_stub_normal/#">>],
+        forward_mountpoint => <<"forwarded">>,
+        start_type => auto,
+        config => #{
+            conn_type => emqx_bridge_stub_conn,
             client_pid => self()
-           },
-    {ok, Pid} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
+        }
+    },
+    {ok, Pid} = emqx_bridge_mqtt_sup:create_bridge(Cfg),
     receive
         {Pid, emqx_bridge_stub_conn, ready} -> ok
     after
         5000 ->
             error(timeout)
     end,
-    ClientId = <<"ClientId">>,
-    try
-        {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),
-        {ok, _} = emqtt:connect(ConnPid),
-        {ok, _PacketId} = emqtt:publish(ConnPid, <<"t_stub_normal/one">>, <<"hello">>, ?QOS_1),
-        receive
-            {stub_message, WorkerPid, BatchRef, _Batch} ->
-                WorkerPid ! {batch_ack, BatchRef},
-                ok
-        after
-            5000 ->
-                error(timeout)
-        end,
-        ?SNK_WAIT(inflight_drained),
-        ?SNK_WAIT(replayq_drained),
-        emqtt:disconnect(ConnPid)
+    {ok, ConnPid} = emqtt:start_link([{clientid, <<"ClientId">>}]),
+    {ok, _} = emqtt:connect(ConnPid),
+    {ok, _PacketId} = emqtt:publish(ConnPid, <<"t_stub_normal/one">>, <<"hello">>, ?QOS_1),
+    receive
+        {stub_message, WorkerPid, BatchRef, _Batch} ->
+            WorkerPid ! {batch_ack, BatchRef},
+            ok
     after
-        ok = emqx_bridge_worker:stop(Pid)
-    end.
+        5000 ->
+            error(timeout)
+    end,
+    ?SNK_WAIT(inflight_drained),
+    ?SNK_WAIT(replayq_drained),
+    emqtt:disconnect(ConnPid),
+    ok = emqx_bridge_worker:stop(Pid).
 
-t_stub_overflow(Config) when is_list(Config) ->
+t_stub_overflow(_Config) ->
     Topic = <<"t_stub_overflow/one">>,
     MaxInflight = 20,
-    Cfg = #{forwards => [Topic],
-            connect_module => emqx_bridge_stub_conn,
-            forward_mountpoint => <<"forwarded">>,
-            start_type => auto,
-            client_pid => self(),
-            max_inflight => MaxInflight
-           },
-    {ok, Worker} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
-    ClientId = <<"ClientId">>,
-    try
-        {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),
-        {ok, _} = emqtt:connect(ConnPid),
-        lists:foreach(
-          fun(I) ->
-                  Data = integer_to_binary(I),
-                  _ = emqtt:publish(ConnPid, Topic, Data, ?QOS_1)
-          end, lists:seq(1, MaxInflight * 2)),
-        ?SNK_WAIT(inflight_full),
-        Acks = stub_receive(MaxInflight),
-        lists:foreach(fun({Pid, Ref}) -> Pid ! {batch_ack, Ref} end, Acks),
-        Acks2 = stub_receive(MaxInflight),
-        lists:foreach(fun({Pid, Ref}) -> Pid ! {batch_ack, Ref} end, Acks2),
-        ?SNK_WAIT(inflight_drained),
-        ?SNK_WAIT(replayq_drained),
-        emqtt:disconnect(ConnPid)
-    after
-        ok = emqx_bridge_worker:stop(Worker)
-    end.
+    Name = "stub_overflow",
+    Cfg = #{
+        name => Name,
+        forwards => [<<"t_stub_overflow/one">>],
+        forward_mountpoint => <<"forwarded">>,
+        start_type => auto,
+        max_inflight => MaxInflight,
+        config => #{
+            conn_type => emqx_bridge_stub_conn,
+            client_pid => self()
+        }
+    },
+    {ok, Worker} = emqx_bridge_mqtt_sup:create_bridge(Cfg),
+    {ok, ConnPid} = emqtt:start_link([{clientid, <<"ClientId">>}]),
+    {ok, _} = emqtt:connect(ConnPid),
+    lists:foreach(
+        fun(I) ->
+                Data = integer_to_binary(I),
+                _ = emqtt:publish(ConnPid, Topic, Data, ?QOS_1)
+        end, lists:seq(1, MaxInflight * 2)),
+    ?SNK_WAIT(inflight_full),
+    Acks = stub_receive(MaxInflight),
+    lists:foreach(fun({Pid, Ref}) -> Pid ! {batch_ack, Ref} end, Acks),
+    Acks2 = stub_receive(MaxInflight),
+    lists:foreach(fun({Pid, Ref}) -> Pid ! {batch_ack, Ref} end, Acks2),
+    ?SNK_WAIT(inflight_drained),
+    ?SNK_WAIT(replayq_drained),
+    emqtt:disconnect(ConnPid),
+    ok = emqx_bridge_worker:stop(Worker).
 
-t_stub_random_order(Config) when is_list(Config) ->
+t_stub_random_order(_Config) ->
     Topic = <<"t_stub_random_order/a">>,
     MaxInflight = 10,
-    Cfg = #{forwards => [Topic],
-            connect_module => emqx_bridge_stub_conn,
-            forward_mountpoint => <<"forwarded">>,
-            start_type => auto,
-            client_pid => self(),
-            max_inflight => MaxInflight
-           },
-    {ok, Worker} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
+    Name = "stub_random_order",
+    Cfg = #{
+        name => Name,
+        forwards => [Topic],
+        forward_mountpoint => <<"forwarded">>,
+        start_type => auto,
+        max_inflight => MaxInflight,
+        config => #{
+            conn_type => emqx_bridge_stub_conn,
+            client_pid => self()
+        }
+    },
+    {ok, Worker} = emqx_bridge_mqtt_sup:create_bridge(Cfg),
     ClientId = <<"ClientId">>,
-    try
-        {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),
-        {ok, _} = emqtt:connect(ConnPid),
-        lists:foreach(
-          fun(I) ->
-                  Data = integer_to_binary(I),
-                  _ = emqtt:publish(ConnPid, Topic, Data, ?QOS_1)
-          end, lists:seq(1, MaxInflight)),
-        Acks = stub_receive(MaxInflight),
-        lists:foreach(fun({Pid, Ref}) -> Pid ! {batch_ack, Ref} end,
-                      lists:reverse(Acks)),
-        ?SNK_WAIT(inflight_drained),
-        ?SNK_WAIT(replayq_drained),
-        emqtt:disconnect(ConnPid)
-    after
-        ok = emqx_bridge_worker:stop(Worker)
-    end.
+    {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),
+    {ok, _} = emqtt:connect(ConnPid),
+    lists:foreach(
+        fun(I) ->
+                Data = integer_to_binary(I),
+                _ = emqtt:publish(ConnPid, Topic, Data, ?QOS_1)
+        end, lists:seq(1, MaxInflight)),
+    Acks = stub_receive(MaxInflight),
+    lists:foreach(fun({Pid, Ref}) -> Pid ! {batch_ack, Ref} end,
+                    lists:reverse(Acks)),
+    ?SNK_WAIT(inflight_drained),
+    ?SNK_WAIT(replayq_drained),
+    emqtt:disconnect(ConnPid),
+    ok = emqx_bridge_worker:stop(Worker).
 
-t_stub_retry_inflight(Config) when is_list(Config) ->
+t_stub_retry_inflight(_Config) ->
     Topic = <<"to_stub_retry_inflight/a">>,
     MaxInflight = 10,
-    Cfg = #{forwards => [Topic],
-            connect_module => emqx_bridge_stub_conn,
-            forward_mountpoint => <<"forwarded">>,
-            reconnect_delay_ms => 10,
-            start_type => auto,
-            client_pid => self(),
-            max_inflight => MaxInflight
-           },
-    {ok, Worker} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
+    Name = "stub_retry_inflight",
+    Cfg = #{
+        name => Name,
+        forwards => [Topic],
+        forward_mountpoint => <<"forwarded">>,
+        reconnect_interval => 10,
+        start_type => auto,
+        max_inflight => MaxInflight,
+        config => #{
+            conn_type => emqx_bridge_stub_conn,
+            client_pid => self()
+        }
+    },
+    {ok, Worker} = emqx_bridge_mqtt_sup:create_bridge(Cfg),
     ClientId = <<"ClientId2">>,
-    try
-        case ?block_until(#{?snk_kind := connected, inflight := 0}, 2000, 1000) of
-            {ok, #{inflight := 0}} -> ok;
-            Other -> ct:fail("~p", [Other])
-        end,
-        {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),
-        {ok, _} = emqtt:connect(ConnPid),
-        lists:foreach(
-          fun(I) ->
-                  Data = integer_to_binary(I),
-                  _ = emqtt:publish(ConnPid, Topic, Data, ?QOS_1)
-          end, lists:seq(1, MaxInflight)),
-        %% receive acks but do not ack
-        Acks1 = stub_receive(MaxInflight),
-        ?assertEqual(MaxInflight, length(Acks1)),
-        %% simulate a disconnect
-        Worker ! {disconnected, self(), test},
-        ?SNK_WAIT(disconnected),
-        case ?block_until(#{?snk_kind := connected, inflight := MaxInflight}, 2000, 20) of
-            {ok, _} -> ok;
-            Error -> ct:fail("~p", [Error])
-        end,
-        %% expect worker to retry inflight, so to receive acks again
-        Acks2 = stub_receive(MaxInflight),
-        ?assertEqual(MaxInflight, length(Acks2)),
-        lists:foreach(fun({Pid, Ref}) -> Pid ! {batch_ack, Ref} end,
-                      lists:reverse(Acks2)),
-        ?SNK_WAIT(inflight_drained),
-        ?SNK_WAIT(replayq_drained),
-        emqtt:disconnect(ConnPid)
-    after
-        ok = emqx_bridge_worker:stop(Worker)
-    end.
+    case ?block_until(#{?snk_kind := connected, inflight := 0}, 2000, 1000) of
+        {ok, #{inflight := 0}} -> ok;
+        Other -> ct:fail("~p", [Other])
+    end,
+    {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),
+    {ok, _} = emqtt:connect(ConnPid),
+    lists:foreach(
+        fun(I) ->
+                Data = integer_to_binary(I),
+                _ = emqtt:publish(ConnPid, Topic, Data, ?QOS_1)
+        end, lists:seq(1, MaxInflight)),
+    %% receive acks but do not ack
+    Acks1 = stub_receive(MaxInflight),
+    ?assertEqual(MaxInflight, length(Acks1)),
+    %% simulate a disconnect
+    Worker ! {disconnected, self(), test},
+    ?SNK_WAIT(disconnected),
+    case ?block_until(#{?snk_kind := connected, inflight := MaxInflight}, 2000, 20) of
+        {ok, _} -> ok;
+        Error -> ct:fail("~p", [Error])
+    end,
+    %% expect worker to retry inflight, so to receive acks again
+    Acks2 = stub_receive(MaxInflight),
+    ?assertEqual(MaxInflight, length(Acks2)),
+    lists:foreach(fun({Pid, Ref}) -> Pid ! {batch_ack, Ref} end,
+                    lists:reverse(Acks2)),
+    ?SNK_WAIT(inflight_drained),
+    ?SNK_WAIT(replayq_drained),
+    emqtt:disconnect(ConnPid),
+    ok = emqx_bridge_worker:stop(Worker).
 
 stub_receive(N) ->
     stub_receive(N, []).

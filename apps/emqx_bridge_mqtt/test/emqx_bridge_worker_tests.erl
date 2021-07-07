@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_worker_tests).
--behaviour(emqx_bridge_connect).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -69,14 +68,14 @@ disturbance_test() ->
     emqx_bridge_worker:register_metrics(),
     Ref = make_ref(),
     TestPid = self(),
-    Config = make_config(Ref, TestPid, {ok, #{client_pid =>  TestPid}}),
-    {ok, Pid} = emqx_bridge_worker:start_link(?BRIDGE_NAME, Config),
-    ?assertEqual(Pid, whereis(?BRIDGE_REG_NAME)),
+    Config = make_config(Ref, TestPid, {ok, #{client_pid => TestPid}}),
+    {ok, Pid} = emqx_bridge_worker:start_link(Config#{name => disturbance}),
+    ?assertEqual(Pid, whereis(emqx_bridge_worker_disturbance)),
     ?WAIT({connection_start_attempt, Ref}, 1000),
     Pid ! {disconnected, TestPid, test},
     ?WAIT({connection_start_attempt, Ref}, 1000),
     emqx_metrics:stop(),
-    ok = emqx_bridge_worker:stop(?BRIDGE_REG_NAME).
+    ok = emqx_bridge_worker:stop(Pid).
 
 % % %% buffer should continue taking in messages when disconnected
 % buffer_when_disconnected_test_() ->
@@ -113,22 +112,24 @@ manual_start_stop_test() ->
     emqx_bridge_worker:register_metrics(),
     Ref = make_ref(),
     TestPid = self(),
+    BridgeName = manual_start_stop,
     Config0 = make_config(Ref, TestPid, {ok, #{client_pid =>  TestPid}}),
     Config = Config0#{start_type := manual},
-    {ok, Pid} = emqx_bridge_worker:start_link(?BRIDGE_NAME, Config),
+    {ok, Pid} = emqx_bridge_worker:start_link(Config#{name => BridgeName}),
     %% call ensure_started again should yeld the same result
-    ok = emqx_bridge_worker:ensure_started(?BRIDGE_NAME),
-    ?assertEqual(Pid, whereis(?BRIDGE_REG_NAME)),
-    emqx_bridge_worker:ensure_stopped(unknown),
-    emqx_bridge_worker:ensure_stopped(Pid),
-    emqx_bridge_worker:ensure_stopped(?BRIDGE_REG_NAME),
-    emqx_metrics:stop().
+    ok = emqx_bridge_worker:ensure_started(BridgeName),
+    emqx_bridge_worker:ensure_stopped(BridgeName),
+    emqx_metrics:stop(),
+    ok = emqx_bridge_worker:stop(Pid).
 
 make_config(Ref, TestPid, Result) ->
-    #{test_pid => TestPid,
-      test_ref => Ref,
-      connect_module => ?MODULE,
-      reconnect_delay_ms => 50,
-      connect_result => Result,
-      start_type => auto
-     }.
+    #{
+        start_type => auto,
+        reconnect_interval => 50,
+        config => #{
+            test_pid => TestPid,
+            test_ref => Ref,
+            conn_type => ?MODULE,
+            connect_result => Result
+        }
+    }.

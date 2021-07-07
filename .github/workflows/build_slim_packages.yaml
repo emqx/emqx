@@ -38,6 +38,11 @@ jobs:
       run: make ${EMQX_NAME}-zip
     - name: build deb/rpm packages
       run: make ${EMQX_NAME}-pkg
+    - uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: rebar3.crashdump
+        path: ./rebar3.crashdump
     - name: pakcages test
       run: |
         export CODE_PATH=$GITHUB_WORKSPACE
@@ -94,15 +99,20 @@ jobs:
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
         make ${EMQX_NAME}-zip
+    - uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: rebar3.crashdump
+        path: ./rebar3.crashdump
     - name: test
       run: |
         pkg_name=$(basename _packages/${EMQX_NAME}/emqx-*.zip)
         unzip -q _packages/${EMQX_NAME}/$pkg_name
-        gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
+        # gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
         for i in {1..10}; do
-          if curl -fs 127.0.0.1:18083 > /dev/null; then
+          if curl -fs 127.0.0.1:8081/status > /dev/null; then
             ready='yes'
             break
           fi

@@ -120,4 +120,3 @@ put_raw(Config) ->
 -spec put_raw(emqx_map_lib:config_key_path(), term()) -> ok.
 put_raw(KeyPath, Config) ->
     put_raw(emqx_map_lib:deep_put(KeyPath, get_raw(), Config)).
-

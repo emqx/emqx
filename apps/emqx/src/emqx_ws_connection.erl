@@ -403,7 +403,10 @@ websocket_close(Reason, State) ->
 
 terminate(Reason, _Req, #state{channel = Channel}) ->
     ?LOG(debug, "Terminated due to ~p", [Reason]),
-    emqx_channel:terminate(Reason, Channel).
+    emqx_channel:terminate(Reason, Channel);
+
+terminate(_Reason, _Req, _UnExpectedState) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Handle call

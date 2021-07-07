@@ -77,7 +77,7 @@ t_publish_acl_deny(_Config) ->
     emqx:subscribe(Topic),
 
     ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history]),
-    ok = meck:expect(emqx_access_control, check_acl, 3, deny),
+    ok = meck:expect(emqx_access_control, authorize, 3, deny),
     Reply = er_coap_client:request(put, URI, #coap_content{format = <<"application/octet-stream">>, payload = Payload}),
     ?assertEqual({error,forbidden}, Reply),
     ok = meck:unload(emqx_access_control),
@@ -114,7 +114,7 @@ t_observe_acl_deny(_Config) ->
     Topic = <<"abc">>, TopicStr = binary_to_list(Topic),
     Uri = "coap://127.0.0.1/mqtt/"++TopicStr++"?c=client1&u=tom&p=secret",
     ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history]),
-    ok = meck:expect(emqx_access_control, check_acl, 3, deny),
+    ok = meck:expect(emqx_access_control, authorize, 3, deny),
     ?assertEqual({error,forbidden}, er_coap_observer:observe(Uri)),
     [] = emqx:subscribers(Topic),
     ok = meck:unload(emqx_access_control).
@@ -266,11 +266,18 @@ t_kick_1(_Config) ->
 
 % mqtt connection kicked by coap with same client id
 t_acl(Config) ->
-    %% Update acl file and reload mod_acl_internal
-    Path = filename:join([testdir(proplists:get_value(data_dir, Config)), "deny.conf"]),
-    ok = file:write_file(Path, <<"{deny, {user, \"coap\"}, publish, [\"abc\"]}.">>),
-    OldPath = emqx:get_env(acl_file),
-    emqx_mod_acl_internal:reload([{acl_file, Path}]),
+    OldPath = emqx:get_env(plugins_etc_dir),
+    application:set_env(emqx, plugins_etc_dir,
+                        emqx_ct_helpers:deps_path(emqx_authz, "test")),
+    Conf = #{<<"authz">> =>
+             #{<<"rules">> =>
+               [#{<<"principal">> =>#{<<"username">> => <<"coap">>},
+                  <<"permission">> => deny,
+                  <<"topics">> => [<<"abc">>],
+                  <<"action">> => <<"publish">>}
+               ]}},
+    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf'), jsx:encode(Conf)),
+    application:ensure_all_started(emqx_authz),
 
     emqx:subscribe(<<"abc">>),
     URI = "coap://127.0.0.1/mqtt/adbc?c=client1&u=coap&p=secret",
@@ -282,9 +289,10 @@ t_acl(Config) ->
         ok
     end,
 
-    application:set_env(emqx, acl_file, OldPath),
-    file:delete(Path),
-    emqx_mod_acl_internal:reload([{acl_file, OldPath}]).
+    ok = emqx_hooks:del('client.authorize', {emqx_authz, authorize}),
+    file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
+    application:set_env(emqx, plugins_etc_dir, OldPath),
+    application:stop(emqx_authz).
 
 t_stats(_) ->
     ok.

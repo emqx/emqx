@@ -73,7 +73,8 @@ coveralls: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) as test coveralls send
 
 .PHONY: $(REL_PROFILES)
-$(REL_PROFILES:%=%): $(REBAR) get-dashboard
+
+$(REL_PROFILES:%=%): $(REBAR) get-dashboard conf-segs
 	@$(REBAR) as $(@) do compile,release
 
 ## Not calling rebar3 clean because
@@ -111,7 +112,7 @@ xref: $(REBAR)
 dialyzer: $(REBAR)
 	@$(REBAR) as check dialyzer
 
-COMMON_DEPS := $(REBAR) get-dashboard $(CONF_SEGS)
+COMMON_DEPS := $(REBAR) get-dashboard conf-segs
 
 ## rel target is to create release package without relup
 .PHONY: $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel)
@@ -152,3 +153,6 @@ quickrun:
 	./_build/$(PROFILE)/rel/emqx/bin/emqx console
 
 include docker.mk
+
+conf-segs:
+	@scripts/merge-config.escript

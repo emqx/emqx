@@ -19,6 +19,9 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
+-type server() :: string().
+-reflect_type([server/0]).
+
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
         , on_stop/2
@@ -36,38 +39,78 @@
 structs() -> [""].
 
 fields("") ->
-    mongodb_fields() ++
-    mongodb_topology_fields() ++
-    mongodb_rs_set_name_fields() ++
+    [ {config, #{type => hoconsc:union(
+                          [ hoconsc:ref(?MODULE, single)
+                          , hoconsc:ref(?MODULE, rs)
+                          , hoconsc:ref(?MODULE, sharded)
+                          ])}}
+    ];
+fields(single) ->
+    [ {mongo_type, #{type => single,
+                     default => single}}
+    , {server, fun server/1}
+    ] ++ mongo_fields();
+fields(rs) ->
+    [ {mongo_type, #{type => rs,
+                     default => rs}}
+    , {servers, fun servers/1}
+    , {replicaset_name, fun emqx_connector_schema_lib:database/1}
+    ] ++ mongo_fields();
+fields(sharded) ->
+    [ {mongo_type, #{type => sharded,
+                     default => sharded}}
+    , {servers, fun servers/1}
+    ] ++ mongo_fields();
+fields(topology) ->
+    [ {max_overflow, fun emqx_connector_schema_lib:pool_size/1}
+    , {overflow_ttl, fun duration/1}
+    , {overflow_check_period, fun duration/1}
+    , {local_threshold_ms, fun duration/1}
+    , {connect_timeout_ms, fun duration/1}
+    , {socket_timeout_ms, fun duration/1}
+    , {server_selection_timeout_ms, fun duration/1}
+    , {wait_queue_timeout_ms, fun duration/1}
+    , {heartbeat_frequency_ms, fun duration/1}
+    , {min_heartbeat_frequency_ms, fun duration/1}
+    ].
+
+mongo_fields() ->
+    [ {pool_size, fun emqx_connector_schema_lib:pool_size/1}
+    , {username, fun emqx_connector_schema_lib:username/1}
+    , {password, fun emqx_connector_schema_lib:password/1}
+    , {authentication_database, #{type => binary(),
+                                  nullable => true}}
+    , {database, fun emqx_connector_schema_lib:database/1}
+    ] ++
     emqx_connector_schema_lib:ssl_fields().
 
 on_jsonify(Config) ->
     Config.
 
 %% ===================================================================
-on_start(InstId, #{servers := Servers,
-                   mongo_type := Type,
-                   database := Database,
-                   pool_size := PoolSize} = Config) ->
+on_start(InstId, #{config := #{server := Server,
+                               mongo_type := single} = Config}) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
-    SslOpts = init_ssl_opts(Config, InstId),
-    Hosts = [string:trim(H) || H <- string:tokens(binary_to_list(Servers), ",")],
-    Opts = [{type, init_type(Type, Config)},
-            {hosts, Hosts},
-            {pool_size, PoolSize},
-            {options, init_topology_options(maps:to_list(Config), [])},
-            {worker_options, init_worker_options(maps:to_list(Config), SslOpts)}],
+    Opts = [{type, single},
+            {hosts, [Server]}
+            ],
+    do_start(InstId, Opts, Config);
 
-    %% test the connection
-    TestOpts = [{database, Database}] ++ host_port(hd(Hosts)),
-    {ok, TestConn} = mc_worker_api:connect(TestOpts),
+on_start(InstId, #{config := #{servers := Servers,
+                               mongo_type := rs,
+                               replicaset_name := RsName} = Config}) ->
+    logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
+    Opts = [{type,  {rs, RsName}},
+            {hosts, Servers}],
+    do_start(InstId, Opts, Config);
 
-    PoolName = emqx_plugin_libs_pool:pool_name(InstId),
-    _ = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ SslOpts),
-    {ok, #{pool => PoolName,
-           type => Type,
-           test_conn => TestConn,
-           test_opts => TestOpts}}.
+on_start(InstId, #{config := #{servers := Servers,
+                               mongo_type := sharded} = Config}) ->
+    logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
+    Opts = [{type, sharded},
+            {hosts, Servers}
+            ],
+    do_start(InstId, Opts, Config).
 
 on_stop(InstId, #{poolname := PoolName}) ->
     logger:info("stopping mongodb connector: ~p", [InstId]),
@@ -75,23 +118,27 @@ on_stop(InstId, #{poolname := PoolName}) ->
 
 on_query(InstId, {Action, Collection, Selector, Docs}, AfterQuery, #{poolname := PoolName} = State) ->
     logger:debug("mongodb connector ~p received request: ~p, at state: ~p", [InstId, {Action, Collection, Selector, Docs}, State]),
-    case Result = ecpool:pick_and_do(PoolName, {?MODULE, mongo_query, [Action, Collection, Selector, Docs]}, no_handover) of
+    case ecpool:pick_and_do(PoolName, {?MODULE, mongo_query, [Action, Collection, Selector, Docs]}, no_handover) of
         {error, Reason} ->
             logger:debug("mongodb connector ~p do sql query failed, request: ~p, reason: ~p", [InstId, {Action, Collection, Selector, Docs}, Reason]),
-            emqx_resource:query_failed(AfterQuery);
-        _ ->
-            emqx_resource:query_success(AfterQuery)
-    end,
-    Result.
+            emqx_resource:query_failed(AfterQuery),
+            {error, Reason};
+        {ok, Cursor} when is_pid(Cursor) ->
+            emqx_resource:query_success(AfterQuery),
+            mc_cursor:foldl(fun(O, Acc2) -> [O|Acc2] end, [], Cursor, 1000);
+        Result ->
+            emqx_resource:query_success(AfterQuery),
+            Result
+    end.
 
 -dialyzer({nowarn_function, [on_health_check/2]}).
-on_health_check(_InstId, #{test_opts := TestOpts}) ->
+on_health_check(_InstId, #{test_opts := TestOpts} = State) ->
     case mc_worker_api:connect(TestOpts) of
         {ok, TestConn} ->
             mc_worker_api:disconnect(TestConn),
-            {ok, true};
+            {ok, State};
         {error, _} ->
-            {ok, false}
+            {error, health_check_failed, State}
     end.
 
 %% ===================================================================
@@ -109,10 +156,38 @@ mongo_query(Conn, find, Collection, Selector, Docs) ->
 mongo_query(_Conn, _Action, _Collection, _Selector, _Docs) ->
     ok.
 
-init_type(rs, #{rs_set_name := Name}) ->
-    {rs, Name};
-init_type(Type, _Opts) ->
-    Type.
+do_start(InstId, Opts0, Config = #{mongo_type := Type,
+                                   database := Database,
+                                   pool_size := PoolSize,
+                                   ssl := SSL}) ->
+    SslOpts = case maps:get(enable, SSL) of
+                  true ->
+                      [{ssl, true},
+                       {ssl_opts, emqx_plugin_libs_ssl:save_files_return_opts(SSL, "connectors", InstId)}
+                      ];
+                  false -> [{ssl, false}]
+              end,
+    Opts = Opts0 ++
+           [{pool_size, PoolSize},
+            {options, init_topology_options(maps:to_list(Config), [])},
+            {worker_options, init_worker_options(maps:to_list(Config), SslOpts)}],
+    %% test the connection
+    TestOpts = case maps:is_key(server, Config) of
+                  true ->
+                    Server = maps:get(server, Config),
+                    host_port(Server);
+                  false ->
+                    Servers = maps:get(servers, Config),
+                    host_port(erlang:hd(Servers))
+              end ++ [{database, Database}],
+    {ok, TestConn} = mc_worker_api:connect(TestOpts),
+
+    PoolName = emqx_plugin_libs_pool:pool_name(InstId),
+    _ = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ SslOpts),
+    {ok, #{poolname => PoolName,
+           type => Type,
+           test_conn => TestConn,
+           test_opts => TestOpts}}.
 
 init_topology_options([{pool_size, Val}| R], Acc) ->
     init_topology_options(R, [{pool_size, Val}| Acc]);
@@ -143,9 +218,9 @@ init_topology_options([], Acc) ->
 
 init_worker_options([{database, V} | R], Acc) ->
     init_worker_options(R, [{database, V} | Acc]);
-init_worker_options([{auth_source, V} | R], Acc) ->
+init_worker_options([{authentication_database, V} | R], Acc) ->
     init_worker_options(R, [{auth_source, V} | Acc]);
-init_worker_options([{login, V} | R], Acc) ->
+init_worker_options([{username, V} | R], Acc) ->
     init_worker_options(R, [{login, V} | Acc]);
 init_worker_options([{password, V} | R], Acc) ->
     init_worker_options(R, [{password, V} | Acc]);
@@ -157,13 +232,6 @@ init_worker_options([_ | R], Acc) ->
     init_worker_options(R, Acc);
 init_worker_options([], Acc) -> Acc.
 
-init_ssl_opts(#{ssl := true} = Config, InstId) ->
-    [{ssl, true},
-     {ssl_opts, emqx_plugin_libs_ssl:save_files_return_opts(Config, "connectors", InstId)}
-    ];
-init_ssl_opts(_Config, _InstId) ->
-    [{ssl, false}].
-
 host_port(HostPort) ->
     case string:split(HostPort, ":") of
         [Host, Port] ->
@@ -174,43 +242,14 @@ host_port(HostPort) ->
             [{host, Host1}]
     end.
 
-mongodb_fields() ->
-    [ {mongo_type, fun mongo_type/1}
-    , {servers, fun servers/1}
-    , {pool_size, fun emqx_connector_schema_lib:pool_size/1}
-    , {login, fun emqx_connector_schema_lib:username/1}
-    , {password, fun emqx_connector_schema_lib:password/1}
-    , {auth_source, fun auth_source/1}
-    , {database, fun emqx_connector_schema_lib:database/1}
-    ].
+server(type) -> server();
+server(validator) -> [?REQUIRED("the field 'server' is required")];
+server(_) -> undefined.
 
-mongodb_topology_fields() ->
-    [ {max_overflow, fun emqx_connector_schema_lib:pool_size/1}
-    , {overflow_ttl, fun duration/1}
-    , {overflow_check_period, fun duration/1}
-    , {local_threshold_ms, fun duration/1}
-    , {connect_timeout_ms, fun duration/1}
-    , {socket_timeout_ms, fun duration/1}
-    , {server_selection_timeout_ms, fun duration/1}
-    , {wait_queue_timeout_ms, fun duration/1}
-    , {heartbeat_frequency_ms, fun duration/1}
-    , {min_heartbeat_frequency_ms, fun duration/1}
-    ].
-
-mongodb_rs_set_name_fields() ->
-    [ {rs_set_name, fun emqx_connector_schema_lib:database/1}
-    ].
-
-auth_source(type) -> binary();
-auth_source(_) -> undefined.
-
-servers(type) -> binary();
+servers(type) -> hoconsc:array(server());
 servers(validator) -> [?REQUIRED("the field 'servers' is required")];
 servers(_) -> undefined.
 
-mongo_type(type) -> hoconsc:enum([single, unknown, shared, rs]);
-mongo_type(default) -> single;
-mongo_type(_) -> undefined.
-
 duration(type) -> emqx_schema:duration_ms();
+duration(nullable) -> true;
 duration(_) -> undefined.

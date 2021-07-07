@@ -20,8 +20,8 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
-%% ACL Callbacks
--export([ check_authz/4
+%% AuthZ Callbacks
+-export([ authorize/4
         , description/0
         ]).
 
@@ -33,33 +33,33 @@
 description() ->
     "AuthZ with redis".
 
-check_authz(Client, PubSub, Topic,
-            #{<<"resource_id">> := ResourceID,
-              <<"cmd">> := CMD 
+authorize(Client, PubSub, Topic,
+            #{resource_id := ResourceID,
+              cmd := CMD
              }) ->
     NCMD = string:tokens(replvar(CMD, Client), " "),
     case emqx_resource:query(ResourceID, {cmd, NCMD}) of
         {ok, []} -> nomatch;
         {ok, Rows} ->
-            do_check_authz(Client, PubSub, Topic, Rows);
+            do_authorize(Client, PubSub, Topic, Rows);
         {error, Reason} ->
             ?LOG(error, "[AuthZ] Query redis error: ~p", [Reason]),
             nomatch
     end.
 
-do_check_authz(_Client, _PubSub, _Topic, []) ->
+do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;
-do_check_authz(Client, PubSub, Topic, [TopicFilter, Action | Tail]) ->
-    case match(Client, PubSub, Topic, 
+do_authorize(Client, PubSub, Topic, [TopicFilter, Action | Tail]) ->
+    case match(Client, PubSub, Topic,
                #{topics => TopicFilter,
                  action => Action
-                }) 
+                })
     of
         {matched, Permission} -> {matched, Permission};
-        nomatch -> do_check_authz(Client, PubSub, Topic, Tail)
+        nomatch -> do_authorize(Client, PubSub, Topic, Tail)
     end.
 
-match(Client, PubSub, Topic, 
+match(Client, PubSub, Topic,
       #{topics := TopicFilter,
         action := Action
        }) ->
@@ -68,11 +68,11 @@ match(Client, PubSub, Topic,
              <<"action">> => Action,
              <<"permission">> => allow
             },
-    #{<<"simple_rule">> := NRule
+    #{simple_rule := NRule
      } = hocon_schema:check_plain(
             emqx_authz_schema,
             #{<<"simple_rule">> => Rule},
-            #{},
+            #{atom_key => true},
             [simple_rule]),
     case emqx_authz:match(Client, PubSub, Topic, emqx_authz:compile(NRule)) of
         true -> {matched, allow};

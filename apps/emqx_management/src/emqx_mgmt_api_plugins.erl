@@ -106,10 +106,8 @@ format({Node, Plugins}) ->
 
 format(#plugin{name = Name,
                descr = Descr,
-               active = Active,
-               type = Type}) ->
+               active = Active}) ->
     #{name => Name,
       description => iolist_to_binary(Descr),
-      active => Active,
-      type => Type}.
+      active => Active}.
 

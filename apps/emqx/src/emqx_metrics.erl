@@ -172,7 +172,7 @@
          {counter, 'client.connected'},
          {counter, 'client.authenticate'},
          {counter, 'client.auth.anonymous'},
-         {counter, 'client.check_acl'},
+         {counter, 'client.authorize'},
          {counter, 'client.subscribe'},
          {counter, 'client.unsubscribe'},
          {counter, 'client.disconnected'}
@@ -563,7 +563,7 @@ reserved_idx('client.connected')             -> 202;
 reserved_idx('client.authenticate')          -> 203;
 reserved_idx('client.enhanced_authenticate') -> 204;
 reserved_idx('client.auth.anonymous')        -> 205;
-reserved_idx('client.check_acl')             -> 206;
+reserved_idx('client.authorize')             -> 206;
 reserved_idx('client.subscribe')             -> 207;
 reserved_idx('client.unsubscribe')           -> 208;
 reserved_idx('client.disconnected')          -> 209;

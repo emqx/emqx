@@ -77,6 +77,8 @@
 -define(NACK(Reason), {shared_sub_nack, Reason}).
 -define(NO_ACK, no_ack).
 
+-rlog_shard({?SHARED_SUB_SHARD, ?TAB}).
+
 -record(state, {pmon}).
 
 -record(emqx_shared_subscription, {group, topic, subpid}).
@@ -297,7 +299,7 @@ subscribers(Group, Topic) ->
 
 init([]) ->
     {ok, _} = mnesia:subscribe({table, ?TAB, simple}),
-    {atomic, PMon} = mnesia:transaction(fun init_monitors/0),
+    {atomic, PMon} = ekka_mnesia:transaction(?SHARED_SUB_SHARD, fun init_monitors/0),
     ok = emqx_tables:new(?SHARED_SUBS, [protected, bag]),
     ok = emqx_tables:new(?ALIVE_SUBS, [protected, set, {read_concurrency, true}]),
     {ok, update_stats(#state{pmon = PMon})}.
@@ -309,7 +311,7 @@ init_monitors() ->
       end, emqx_pmon:new(), ?TAB).
 
 handle_call({subscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PMon}) ->
-    mnesia:dirty_write(?TAB, record(Group, Topic, SubPid)),
+    ekka_mnesia:dirty_write(?TAB, record(Group, Topic, SubPid)),
     case ets:member(?SHARED_SUBS, {Group, Topic}) of
         true  -> ok;
         false -> ok = emqx_router:do_add_route(Topic, {Group, node()})
@@ -319,7 +321,7 @@ handle_call({subscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PMon
     {reply, ok, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
 
 handle_call({unsubscribe, Group, Topic, SubPid}, _From, State) ->
-    mnesia:dirty_delete_object(?TAB, record(Group, Topic, SubPid)),
+    ekka_mnesia:dirty_delete_object(?TAB, record(Group, Topic, SubPid)),
     true = ets:delete_object(?SHARED_SUBS, {{Group, Topic}, SubPid}),
     delete_route_if_needed({Group, Topic}),
     {reply, ok, State};
@@ -336,9 +338,13 @@ handle_info({mnesia_table_event, {write, NewRecord, _}}, State = #state{pmon = P
     #emqx_shared_subscription{subpid = SubPid} = NewRecord,
     {noreply, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
 
-handle_info({mnesia_table_event, {delete_object, OldRecord, _}}, State = #state{pmon = PMon}) ->
-    #emqx_shared_subscription{subpid = SubPid} = OldRecord,
-    {noreply, update_stats(State#state{pmon = emqx_pmon:demonitor(SubPid, PMon)})};
+%% The subscriber may have subscribed multiple topics, so we need to keep monitoring the PID until
+%% it `unsubscribed` the last topic.
+%% The trick is we don't demonitor the subscriber here, and (after a long time) it will eventually
+%% be disconnected.
+% handle_info({mnesia_table_event, {delete_object, OldRecord, _}}, State = #state{pmon = PMon}) ->
+%     #emqx_shared_subscription{subpid = SubPid} = OldRecord,
+%     {noreply, update_stats(State#state{pmon = emqx_pmon:demonitor(SubPid, PMon)})};
 
 handle_info({mnesia_table_event, _Event}, State) ->
     {noreply, State};
@@ -348,8 +354,7 @@ handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{pmon = PMo
     cleanup_down(SubPid),
     {noreply, update_stats(State#state{pmon = emqx_pmon:erase(SubPid, PMon)})};
 
-handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -370,7 +375,7 @@ cleanup_down(SubPid) ->
     ?IS_LOCAL_PID(SubPid) orelse ets:delete(?ALIVE_SUBS, SubPid),
     lists:foreach(
         fun(Record = #emqx_shared_subscription{topic = Topic, group = Group}) ->
-            ok = mnesia:dirty_delete_object(?TAB, Record),
+            ok = ekka_mnesia:dirty_delete_object(?TAB, Record),
             true = ets:delete_object(?SHARED_SUBS, {{Group, Topic}, SubPid}),
             delete_route_if_needed({Group, Topic})
         end, mnesia:dirty_match_object(#emqx_shared_subscription{_ = '_', subpid = SubPid})).

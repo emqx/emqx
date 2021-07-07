@@ -422,6 +422,13 @@ handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     ok = emqx_metrics:inc('bytes.received', Oct),
     parse_incoming(Data, State);
 
+handle_msg({quic, Data, _Sock, _, _, _}, State) ->
+    ?LOG(debug, "RECV ~0p", [Data]),
+    Oct = iolist_size(Data),
+    inc_counter(incoming_bytes, Oct),
+    ok = emqx_metrics:inc('bytes.received', Oct),
+    parse_incoming(Data, State);
+
 handle_msg({incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
            State = #state{idle_timer = IdleTimer}) ->
     ok = emqx_misc:cancel_timer(IdleTimer),
@@ -446,7 +453,7 @@ handle_msg({Closed, _Sock}, State)
     handle_info({sock_closed, Closed}, close_socket(State));
 
 handle_msg({Passive, _Sock}, State)
-  when Passive == tcp_passive; Passive == ssl_passive ->
+  when Passive == tcp_passive; Passive == ssl_passive; Passive =:= quic_passive ->
     %% In Stats
     Pubs = emqx_pd:reset_counter(incoming_pubs),
     Bytes = emqx_pd:reset_counter(incoming_bytes),
@@ -738,6 +745,15 @@ handle_info({sock_error, Reason}, State) ->
         false -> ok
     end,
     handle_info({sock_closed, Reason}, close_socket(State));
+
+handle_info({quic, peer_send_shutdown, _Stream}, State) ->
+    handle_info({sock_closed, force}, close_socket(State));
+
+handle_info({quic, closed, _Channel, ReasonFlag}, State) ->
+    handle_info({sock_closed, ReasonFlag}, State);
+
+handle_info({quic, closed, _Stream}, State) ->
+    handle_info({sock_closed, force}, State);
 
 handle_info(Info, State) ->
     with_channel(handle_info, [Info], State).

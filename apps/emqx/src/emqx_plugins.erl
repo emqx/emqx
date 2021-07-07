@@ -21,8 +21,6 @@
 
 -logger_header("[Plugins]").
 
--export([init/0]).
-
 -export([ load/0
         , load/1
         , unload/0
@@ -39,35 +37,14 @@
 -compile(nowarn_export_all).
 -endif.
 
--dialyzer({no_match, [ plugin_loaded/2
-                     , plugin_unloaded/2
-                     ]}).
-
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
-%% @doc Init plugins' config
--spec(init() -> ok).
-init() ->
-    case emqx:get_env(plugins_etc_dir) of
-        undefined  -> ok;
-        PluginsEtc ->
-            CfgFiles = [filename:join(PluginsEtc, File) ||
-                        File <- filelib:wildcard("*.config", PluginsEtc)],
-            lists:foreach(fun init_config/1, CfgFiles)
-    end.
-
 %% @doc Load all plugins when the broker started.
 -spec(load() -> ok | ignore | {error, term()}).
 load() ->
-    ok = load_ext_plugins(emqx:get_env(expand_plugins_dir)),
-    case emqx:get_env(plugins_loaded_file) of
-        undefined -> ignore; %% No plugins available
-        File ->
-            _ = ensure_file(File),
-            with_loaded_file(File, fun(Names) -> load_plugins(Names, false) end)
-    end.
+    ok = load_ext_plugins(emqx:get_env(expand_plugins_dir)).
 
 %% @doc Load a Plugin
 -spec(load(atom()) -> ok | {error, term()}).
@@ -80,17 +57,13 @@ load(PluginName) when is_atom(PluginName) ->
             ?LOG(notice, "Plugin ~s is already started", [PluginName]),
             {error, already_started};
         {_, false} ->
-            load_plugin(PluginName, true)
+            load_plugin(PluginName)
     end.
 
 %% @doc Unload all plugins before broker stopped.
--spec(unload() -> list() | {error, term()}).
+-spec(unload() -> ok).
 unload() ->
-    case emqx:get_env(plugins_loaded_file) of
-        undefined -> ignore;
-        File ->
-            with_loaded_file(File, fun stop_plugins/1)
-    end.
+    stop_plugins(list()).
 
 %% @doc UnLoad a Plugin
 -spec(unload(atom()) -> ok | {error, term()}).
@@ -103,7 +76,7 @@ unload(PluginName) when is_atom(PluginName) ->
             ?LOG(error, "Plugin ~s is not started", [PluginName]),
             {error, not_started};
         {_, _} ->
-            unload_plugin(PluginName, true)
+            unload_plugin(PluginName)
     end.
 
 reload(PluginName) when is_atom(PluginName)->
@@ -124,8 +97,8 @@ reload(PluginName) when is_atom(PluginName)->
 -spec(list() -> [emqx_types:plugin()]).
 list() ->
     StartedApps = names(started_app),
-    lists:map(fun({Name, _, [Type| _]}) ->
-        Plugin = plugin(Name, Type),
+    lists:map(fun({Name, _, _}) ->
+        Plugin = plugin(Name),
         case lists:member(Name, StartedApps) of
             true  -> Plugin#plugin{active = true};
             false -> Plugin
@@ -141,12 +114,6 @@ find_plugin(Name, Plugins) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-init_config(CfgFile) ->
-    {ok, [AppsEnv]} = file:consult(CfgFile),
-    lists:foreach(fun({App, Envs}) ->
-                      [application:set_env(App, Par, Val) || {Par, Val} <- Envs]
-                  end, AppsEnv).
 
 %% load external plugins which are placed in etc/plugins dir
 load_ext_plugins(undefined) -> ok;
@@ -171,7 +138,15 @@ load_ext_plugin(PluginDir) ->
                       ?LOG(alert, "plugin_app_file_not_found: ~s", [AppFile]),
                       error({plugin_app_file_not_found, AppFile})
               end,
-    load_plugin_app(AppName, Ebin).
+    ok = load_plugin_app(AppName, Ebin).
+    % try
+    %     ok = generate_configs(AppName, PluginDir)
+    % catch
+    %     throw : {conf_file_not_found, ConfFile} ->
+    %         %% this is maybe a dependency of an external plugin
+    %         ?LOG(debug, "config_load_error_ignored for app=~p, path=~s", [AppName, ConfFile]),
+    %         ok
+    % end.
 
 load_plugin_app(AppName, Ebin) ->
     _ = code:add_patha(Ebin),
@@ -189,56 +164,24 @@ load_plugin_app(AppName, Ebin) ->
         {error, {already_loaded, _}} -> ok
     end.
 
-ensure_file(File) ->
-    case filelib:is_file(File) of false -> write_loaded([]); true -> ok end.
-
-with_loaded_file(File, SuccFun) ->
-    case read_loaded(File) of
-        {ok, Names0} ->
-            Names = filter_plugins(Names0),
-            SuccFun(Names);
-        {error, Error} ->
-            ?LOG(alert, "Failed to read: ~p, error: ~p", [File, Error]),
-            {error, Error}
-    end.
-
-filter_plugins(Names) ->
-    lists:filtermap(fun(Name1) when is_atom(Name1) -> {true, Name1};
-                       ({Name1, true}) -> {true, Name1};
-                       ({_Name1, false}) -> false
-                    end, Names).
-
-load_plugins(Names, Persistent) ->
-    Plugins = list(),
-    NotFound = Names -- names(Plugins),
-    case NotFound of
-        []       -> ok;
-        NotFound -> ?LOG(alert, "cannot_find_plugins: ~p", [NotFound])
-    end,
-    NeedToLoad = Names -- NotFound -- names(started_app),
-    lists:foreach(fun(Name) ->
-                      Plugin = find_plugin(Name, Plugins),
-                      load_plugin(Plugin#plugin.name, Persistent)
-                  end, NeedToLoad).
-
 %% Stop plugins
-stop_plugins(Names) ->
-    _ = [stop_app(App) || App <- Names],
+stop_plugins(Plugins) ->
+    _ = [stop_app(Plugin#plugin.name) || Plugin <- Plugins],
     ok.
 
-plugin(AppName, Type) ->
+plugin(AppName) ->
     case application:get_all_key(AppName) of
         {ok, Attrs} ->
             Descr = proplists:get_value(description, Attrs, ""),
-            #plugin{name = AppName, descr = Descr, type = plugin_type(Type)};
+            #plugin{name = AppName, descr = Descr};
         undefined -> error({plugin_not_found, AppName})
     end.
 
-load_plugin(Name, Persistent) ->
+load_plugin(Name) ->
     try
         case load_app(Name) of
             ok ->
-                start_app(Name, fun(App) -> plugin_loaded(App, Persistent) end);
+                start_app(Name);
             {error, Error0} ->
                 {error, Error0}
         end
@@ -257,22 +200,21 @@ load_app(App) ->
             {error, Error}
     end.
 
-start_app(App, SuccFun) ->
+start_app(App) ->
     case application:ensure_all_started(App) of
         {ok, Started} ->
             ?LOG(info, "Started plugins: ~p", [Started]),
             ?LOG(info, "Load plugin ~s successfully", [App]),
-            _ = SuccFun(App),
             ok;
         {error, {ErrApp, Reason}} ->
             ?LOG(error, "Load plugin ~s failed, cannot start plugin ~s for ~0p", [App, ErrApp, Reason]),
             {error, {ErrApp, Reason}}
     end.
 
-unload_plugin(App, Persistent) ->
+unload_plugin(App) ->
     case stop_app(App) of
         ok ->
-            _ = plugin_unloaded(App, Persistent), ok;
+            ok;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -295,61 +237,6 @@ names(started_app) ->
 
 names(Plugins) ->
     [Name || #plugin{name = Name} <- Plugins].
-
-plugin_loaded(_Name, false) ->
-    ok;
-plugin_loaded(Name, true) ->
-    case read_loaded() of
-        {ok, Names} ->
-            case lists:member(Name, Names) of
-                false ->
-                    %% write file if plugin is loaded
-                    write_loaded(lists:append(Names, [{Name, true}]));
-                true ->
-                    ignore
-            end;
-        {error, Error} ->
-            ?LOG(error, "Cannot read loaded plugins: ~p", [Error])
-    end.
-
-plugin_unloaded(_Name, false) ->
-    ok;
-plugin_unloaded(Name, true) ->
-    case read_loaded() of
-        {ok, Names0} ->
-            Names = filter_plugins(Names0),
-            case lists:member(Name, Names) of
-                true ->
-                    write_loaded(lists:delete(Name, Names));
-                false ->
-                    ?LOG(error, "Cannot find ~s in loaded_file", [Name])
-            end;
-        {error, Error} ->
-            ?LOG(error, "Cannot read loaded_plugins: ~p", [Error])
-    end.
-
-read_loaded() ->
-    case emqx:get_env(plugins_loaded_file) of
-        undefined -> {error, not_found};
-        File      -> read_loaded(File)
-    end.
-
-read_loaded(File) -> file:consult(File).
-
-write_loaded(AppNames) ->
-    FilePath = emqx:get_env(plugins_loaded_file),
-    case file:write_file(FilePath, [io_lib:format("~p.~n", [Name]) || Name <- AppNames]) of
-        ok -> ok;
-        {error, Error} ->
-            ?LOG(error, "Write File ~p Error: ~p", [FilePath, Error]),
-            {error, Error}
-    end.
-
-plugin_type(auth) -> auth;
-plugin_type(protocol) -> protocol;
-plugin_type(backend) -> backend;
-plugin_type(bridge) -> bridge;
-plugin_type(_) -> feature.
 
 funlog(Key, Value) ->
     ?LOG(info, "~s = ~p", [string:join(Key, "."), Value]).

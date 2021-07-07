@@ -58,7 +58,7 @@
                    | 'client.connected'
                    | 'client.disconnected'
                    | 'client.authenticate'
-                   | 'client.check_acl'
+                   | 'client.authorize'
                    | 'client.subscribe'
                    | 'client.unsubscribe'
                    | 'session.created'
@@ -122,7 +122,7 @@ channel_opts(Opts) ->
     Scheme = proplists:get_value(scheme, Opts),
     Host = proplists:get_value(host, Opts),
     Port = proplists:get_value(port, Opts),
-    SvrAddr = lists:flatten(io_lib:format("~s://~s:~w", [Scheme, Host, Port])),
+    SvrAddr = format_http_uri(Scheme, Host, Port),
     ClientOpts = case Scheme of
                      https ->
                          SslOpts = lists:keydelete(ssl, 1, proplists:get_value(ssl_options, Opts, [])),
@@ -132,6 +132,13 @@ channel_opts(Opts) ->
                      _ -> #{}
                  end,
     {SvrAddr, ClientOpts}.
+
+format_http_uri(Scheme, Host0, Port) ->
+    Host = case is_tuple(Host0) of
+               true -> inet:ntoa(Host0);
+               _ -> Host0
+           end,
+    lists:flatten(io_lib:format("~s://~s:~w", [Scheme, Host, Port])).
 
 -spec unload(server()) -> ok.
 unload(#server{name = Name, hookspec = HookSpecs}) ->
@@ -290,7 +297,7 @@ hk2func('client.connack') -> 'on_client_connack';
 hk2func('client.connected') -> 'on_client_connected';
 hk2func('client.disconnected') -> 'on_client_disconnected';
 hk2func('client.authenticate') -> 'on_client_authenticate';
-hk2func('client.check_acl') -> 'on_client_check_acl';
+hk2func('client.authorize') -> 'on_client_authorize';
 hk2func('client.subscribe') -> 'on_client_subscribe';
 hk2func('client.unsubscribe') -> 'on_client_unsubscribe';
 hk2func('session.created') -> 'on_session_created';
@@ -313,7 +320,7 @@ message_hooks() ->
 -compile({inline, [available_hooks/0]}).
 available_hooks() ->
     ['client.connect', 'client.connack', 'client.connected',
-     'client.disconnected', 'client.authenticate', 'client.check_acl',
+     'client.disconnected', 'client.authenticate', 'client.authorize',
      'client.subscribe', 'client.unsubscribe',
      'session.created', 'session.subscribed', 'session.unsubscribed',
      'session.resumed', 'session.discarded', 'session.takeovered',

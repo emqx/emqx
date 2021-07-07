@@ -64,8 +64,7 @@
 
 load(Topic) ->
     HookPoint = event_name(Topic),
-    emqx_hooks:put(HookPoint, {?MODULE, hook_fun(HookPoint),
-        [hook_conf(HookPoint, env())]}).
+    emqx_hooks:put(HookPoint, {?MODULE, hook_fun(HookPoint), [[]]}).
 
 unload() ->
     lists:foreach(fun(HookPoint) ->
@@ -76,64 +75,62 @@ unload(Topic) ->
     HookPoint = event_name(Topic),
     emqx_hooks:del(HookPoint, {?MODULE, hook_fun(HookPoint)}).
 
-env() ->
-    application:get_all_env(?APP).
-
 %%--------------------------------------------------------------------
 %% Callbacks
 %%--------------------------------------------------------------------
-
-on_message_publish(Message = #message{flags = #{event := true}},
-                   _Env) ->
-    {ok, Message};
-on_message_publish(Message = #message{flags = #{sys := true}},
-                   #{ignore_sys_message := true}) ->
-    {ok, Message};
 on_message_publish(Message = #message{topic = Topic}, _Env) ->
-    case emqx_rule_registry:get_rules_for(Topic) of
-        [] -> ok;
-        Rules -> emqx_rule_runtime:apply_rules(Rules, eventmsg_publish(Message))
+    case ignore_sys_message(Message) of
+        true ->
+            ok;
+        false ->
+            case emqx_rule_registry:get_rules_for(Topic) of
+                [] -> ok;
+                Rules -> emqx_rule_runtime:apply_rules(Rules, eventmsg_publish(Message))
+            end
     end,
     {ok, Message}.
 
 on_client_connected(ClientInfo, ConnInfo, Env) ->
-    may_publish_and_apply('client.connected',
+    apply_event('client.connected',
         fun() -> eventmsg_connected(ClientInfo, ConnInfo) end, Env).
 
 on_client_disconnected(ClientInfo, Reason, ConnInfo, Env) ->
-    may_publish_and_apply('client.disconnected',
+    apply_event('client.disconnected',
         fun() -> eventmsg_disconnected(ClientInfo, ConnInfo, Reason) end, Env).
 
 on_session_subscribed(ClientInfo, Topic, SubOpts, Env) ->
-    may_publish_and_apply('session.subscribed',
+    apply_event('session.subscribed',
         fun() -> eventmsg_sub_or_unsub('session.subscribed', ClientInfo, Topic, SubOpts) end, Env).
 
 on_session_unsubscribed(ClientInfo, Topic, SubOpts, Env) ->
-    may_publish_and_apply('session.unsubscribed',
+    apply_event('session.unsubscribed',
         fun() -> eventmsg_sub_or_unsub('session.unsubscribed', ClientInfo, Topic, SubOpts) end, Env).
 
-on_message_dropped(Message = #message{flags = #{sys := true}},
-                   _, _, #{ignore_sys_message := true}) ->
-    {ok, Message};
 on_message_dropped(Message, _, Reason, Env) ->
-    may_publish_and_apply('message.dropped',
-        fun() -> eventmsg_dropped(Message, Reason) end, Env),
+    case ignore_sys_message(Message) of
+        true -> ok;
+        false ->
+            apply_event('message.dropped',
+                fun() -> eventmsg_dropped(Message, Reason) end, Env)
+    end,
     {ok, Message}.
 
-on_message_delivered(_ClientInfo, Message = #message{flags = #{sys := true}},
-                   #{ignore_sys_message := true}) ->
-    {ok, Message};
 on_message_delivered(ClientInfo, Message, Env) ->
-    may_publish_and_apply('message.delivered',
-        fun() -> eventmsg_delivered(ClientInfo, Message) end, Env),
+    case ignore_sys_message(Message) of
+        true -> ok;
+        false ->
+            apply_event('message.delivered',
+                fun() -> eventmsg_delivered(ClientInfo, Message) end, Env)
+    end,
     {ok, Message}.
 
-on_message_acked(_ClientInfo, Message = #message{flags = #{sys := true}},
-                   #{ignore_sys_message := true}) ->
-    {ok, Message};
 on_message_acked(ClientInfo, Message, Env) ->
-    may_publish_and_apply('message.acked',
-        fun() -> eventmsg_acked(ClientInfo, Message) end, Env),
+    case ignore_sys_message(Message) of
+        true -> ok;
+        false ->
+            apply_event('message.acked',
+                fun() -> eventmsg_acked(ClientInfo, Message) end, Env)
+    end,
     {ok, Message}.
 
 %%--------------------------------------------------------------------
@@ -297,30 +294,14 @@ with_basic_columns(EventName, Data) when is_map(Data) ->
         }.
 
 %%--------------------------------------------------------------------
-%% Events publishing and rules applying
+%% rules applying
 %%--------------------------------------------------------------------
-
-may_publish_and_apply(EventName, GenEventMsg, #{enabled := true, qos := QoS}) ->
-    EventTopic = event_topic(EventName),
-    EventMsg = GenEventMsg(),
-    case emqx_json:safe_encode(EventMsg) of
-        {ok, Payload} ->
-            _ = emqx_broker:safe_publish(make_msg(QoS, EventTopic, Payload)),
-            ok;
-        {error, _Reason} ->
-            ?LOG(error, "Failed to encode event msg for ~p, msg: ~p", [EventName, EventMsg])
-    end,
-    emqx_rule_runtime:apply_rules(emqx_rule_registry:get_rules_for(EventTopic), EventMsg);
-may_publish_and_apply(EventName, GenEventMsg, _Env) ->
+apply_event(EventName, GenEventMsg, _Env) ->
     EventTopic = event_topic(EventName),
     case emqx_rule_registry:get_rules_for(EventTopic) of
         [] -> ok;
         Rules -> emqx_rule_runtime:apply_rules(Rules, GenEventMsg())
     end.
-
-make_msg(QoS, Topic, Payload) ->
-    emqx_message:set_flags(#{sys => true, event => true},
-        emqx_message:make(emqx_events, QoS, Topic, iolist_to_binary(Payload))).
 
 %%--------------------------------------------------------------------
 %% Columns
@@ -559,14 +540,6 @@ columns_with_exam('session.unsubscribed') ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
-hook_conf(HookPoint, Env) ->
-    Events = proplists:get_value(events, Env, []),
-    IgnoreSys = proplists:get_value(ignore_sys_message, Env, true),
-    case lists:keyfind(HookPoint, 1, Events) of
-        {_, on, QoS} -> #{enabled => true, qos => QoS, ignore_sys_message => IgnoreSys};
-        _ -> #{enabled => false, qos => 1, ignore_sys_message => IgnoreSys}
-    end.
-
 hook_fun(Event) ->
     case string:split(atom_to_list(Event), ".") of
         [Prefix, Name] ->
@@ -620,3 +593,7 @@ printable_maps(Headers) ->
                 };
             (K, V0, AccIn) -> AccIn#{K => V0}
         end, #{}, Headers).
+
+ignore_sys_message(#message{flags = Flags}) ->
+    maps:get(sys, Flags, false) andalso
+      emqx_config:get([emqx_rule_engine, ignore_sys_message]).

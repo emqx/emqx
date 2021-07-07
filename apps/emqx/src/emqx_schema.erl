@@ -59,8 +59,8 @@
 -export([includes/0]).
 
 structs() -> ["cluster", "node", "rpc", "log", "lager",
-              "zones", "listeners", "module", "broker",
-              "plugins", "sysmon", "alarm", "telemetry"]
+              "zones", "listeners", "broker",
+              "plugins", "sysmon", "alarm"]
              ++ includes().
 
 -ifdef(TEST).
@@ -69,6 +69,14 @@ includes() ->[].
 includes() ->
     [ "emqx_data_bridge"
     , "emqx_telemetry"
+    , "emqx_retainer"
+    , "emqx_statsd"
+    , "emqx_authn"
+    , "emqx_authz"
+    , "emqx_bridge_mqtt"
+    , "emqx_modules"
+    , "emqx_management"
+    , "emqx_gateway"
     ].
 -endif.
 
@@ -345,6 +353,7 @@ fields("listeners") ->
     [ {"$name", hoconsc:union(
         [ hoconsc:ref("mqtt_tcp_listener")
         , hoconsc:ref("mqtt_ws_listener")
+        , hoconsc:ref("mqtt_quic_listener")
         ])}
     ];
 
@@ -360,6 +369,10 @@ fields("mqtt_ws_listener") ->
     , {"ssl", ref("ssl_opts")}
     , {"websocket", ref("ws_opts")}
     ] ++ mqtt_listener();
+
+fields("mqtt_quic_listener") ->
+    [ {"type", t(quic)}
+    ] ++ base_listener();
 
 fields("ws_opts") ->
     [ {"mqtt_path", t(string(), undefined, "/mqtt")}
@@ -409,12 +422,6 @@ fields("deflate_opts") ->
     , {"client_max_window_bits", t(range(8, 15), undefined, 15)}
     ];
 
-fields("module") ->
-    [ {"loaded_file", t(string(), "emqx.modules_loaded_file", undefined)}
-    , {"presence", ref("presence")}
-    , {"subscription", ref("subscription")}
-    , {"rewrite", ref("rewrite")}
-    ];
 
 fields("presence") ->
     [ {"qos", t(range(0, 2), undefined, 1)}];
@@ -440,9 +447,7 @@ fields("rule") ->
     [ {"$id", t(string())}];
 
 fields("plugins") ->
-    [ {"etc_dir", t(string(), "emqx.plugins_etc_dir", undefined)}
-    , {"loaded_file", t(string(), "emqx.plugins_loaded_file", undefined)}
-    , {"expand_plugins_dir", t(string(), "emqx.expand_plugins_dir", undefined)}
+    [ {"expand_plugins_dir", t(string(), "emqx.expand_plugins_dir", undefined)}
     ];
 
 fields("broker") ->
@@ -492,24 +497,22 @@ fields("alarm") ->
     , {"validity_period", t(duration_s(), undefined, "24h")}
     ];
 
-fields("telemetry") ->
-    [ {"enabled", t(boolean(), undefined, false)}
-    , {"url", t(string(), undefined, "https://telemetry-emqx-io.bigpar.vercel.app/api/telemetry")}
-    , {"report_interval", t(duration_s(), undefined, "7d")}
-    ];
-
 fields(ExtraField) ->
     Mod = list_to_atom(ExtraField++"_schema"),
     Mod:fields(ExtraField).
 
 mqtt_listener() ->
+    base_listener() ++
+    [ {"access_rules", t(hoconsc:array(string()))}
+    , {"proxy_protocol", t(boolean(), undefined, false)}
+    , {"proxy_protocol_timeout", t(duration())}
+    ].
+
+base_listener() ->
     [ {"bind", t(union(ip_port(), integer()))}
     , {"acceptors", t(integer(), undefined, 16)}
     , {"max_connections", maybe_infinity(integer(), infinity)}
     , {"rate_limit", ref("rate_limit")}
-    , {"access_rules", t(hoconsc:array(string()))}
-    , {"proxy_protocol", t(boolean(), undefined, false)}
-    , {"proxy_protocol_timeout", t(duration())}
     ].
 
 translations() -> ["kernel"].
