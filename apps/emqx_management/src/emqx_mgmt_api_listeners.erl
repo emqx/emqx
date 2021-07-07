@@ -44,18 +44,18 @@
 
 %% List listeners on a node.
 list(#{node := Node}, _Params) ->
-    minirest:return({ok, format(emqx_mgmt:list_listeners(Node))});
+    emqx_mgmt:return({ok, format(emqx_mgmt:list_listeners(Node))});
 
 %% List listeners in the cluster.
 list(_Binding, _Params) ->
-    minirest:return({ok, [#{node => Node, listeners => format(Listeners)}
+    emqx_mgmt:return({ok, [#{node => Node, listeners => format(Listeners)}
                               || {Node, Listeners} <- emqx_mgmt:list_listeners()]}).
 
 %% Restart listeners on a node.
 restart(#{node := Node, identifier := Identifier}, _Params) ->
     case emqx_mgmt:restart_listener(Node, Identifier) of
-        ok -> minirest:return({ok, "Listener restarted."});
-        {error, Error} -> minirest:return({error, Error})
+        ok -> emqx_mgmt:return({ok, "Listener restarted."});
+        {error, Error} -> emqx_mgmt:return({error, Error})
     end;
 
 %% Restart listeners in the cluster.
@@ -64,8 +64,8 @@ restart(#{identifier := <<"http", _/binary>>}, _Params) ->
 restart(#{identifier := Identifier}, _Params) ->
     Results = [{Node, emqx_mgmt:restart_listener(Node, Identifier)} || {Node, _Info} <- emqx_mgmt:list_nodes()],
     case lists:filter(fun({_, Result}) -> Result =/= ok end, Results) of
-        [] -> minirest:return(ok);
-        Errors -> minirest:return({error, {restart, Errors}})
+        [] -> emqx_mgmt:return(ok);
+        Errors -> emqx_mgmt:return({error, {restart, Errors}})
     end.
 
 format(Listeners) when is_list(Listeners) ->

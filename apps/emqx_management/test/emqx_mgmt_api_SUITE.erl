@@ -52,8 +52,7 @@ end_per_testcase(_, Config) ->
 
 set_special_configs(emqx_management) ->
     emqx_config:put([emqx_management], #{listeners => [#{protocol => "http", port => 8081}],
-                                         default_application_id => <<"admin">>,
-                                         default_application_secret => <<"public">>}),
+                                         applications =>[#{id => "admin", secret => "public"}]}),
     ok;
 set_special_configs(_App) ->
     ok.
