@@ -37,7 +37,7 @@ fields("application") ->
 
 
 fields("http") ->
-    [ {"protocol", emqx_schema:t(string(), undefined, "http")}
+    [ {"protocol", hoconsc:enum([http, https])}
     , {"port", emqx_schema:t(integer(), undefined, 8081)}
     , {"num_acceptors", emqx_schema:t(integer(), undefined, 4)}
     , {"max_connections", emqx_schema:t(integer(), undefined, 512)}

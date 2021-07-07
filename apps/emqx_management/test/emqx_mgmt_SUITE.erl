@@ -41,7 +41,7 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_management, emqx_retainer]).
 
 set_special_configs(emqx_management) ->
-    emqx_config:put([emqx_management], #{listeners => [#{protocol => "http", port => 8081}]}),
+    emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}]}),
     ok;
 set_special_configs(_App) ->
     ok.
