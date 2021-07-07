@@ -39,10 +39,8 @@ start() ->
     foreach_listeners(fun start_listener/3).
 
 -spec(start_listener(atom()) -> ok).
-start_listener(Id) ->
-    {ZoneName, ListenerName} = decode_listener_id(Id),
-    start_listener(ZoneName, ListenerName,
-       emqx_config:get([zones, ZoneName, listeners, ListenerName])).
+start_listener(ListenerId) ->
+    apply_on_listener(ListenerId, fun start_listener/3).
 
 -spec(start_listener(atom(), atom(), map()) -> ok).
 start_listener(ZoneName, ListenerName, #{type := Type, bind := Bind} = Conf) ->
@@ -133,13 +131,11 @@ esockd_access_rules(StrRules) ->
 restart() ->
     foreach_listeners(fun restart_listener/3).
 
--spec(restart_listener(atom()) -> ok | {error, any()}).
-restart_listener(ListenerID) ->
-    {ZoneName, ListenerName} = decode_listener_id(ListenerID),
-    restart_listener(ZoneName, ListenerName,
-        emqx_config:get([zones, ZoneName, listeners, ListenerName])).
+-spec(restart_listener(atom()) -> ok | {error, term()}).
+restart_listener(ListenerId) ->
+    apply_on_listener(ListenerId, fun restart_listener/3).
 
--spec(restart_listener(atom(), atom(), map()) -> ok | {error, any()}).
+-spec(restart_listener(atom(), atom(), map()) -> ok | {error, term()}).
 restart_listener(ZoneName, ListenerName, Conf) ->
     case stop_listener(ZoneName, ListenerName, Conf) of
         ok -> start_listener(ZoneName, ListenerName, Conf);
@@ -152,10 +148,8 @@ stop() ->
     foreach_listeners(fun stop_listener/3).
 
 -spec(stop_listener(atom()) -> ok | {error, term()}).
-stop_listener(ListenerID) ->
-    {ZoneName, ListenerName} = decode_listener_id(ListenerID),
-    stop_listener(ZoneName, ListenerName,
-        emqx_config:get([zones, ZoneName, listeners, ListenerName])).
+stop_listener(ListenerId) ->
+    apply_on_listener(ListenerId, fun stop_listener/3).
 
 -spec(stop_listener(atom(), atom(), map()) -> ok | {error, term()}).
 stop_listener(ZoneName, ListenerName, #{type := tcp, bind := ListenOn}) ->
@@ -214,3 +208,10 @@ merge_zone_and_listener_confs(ZoneConf, ListenerConf) ->
     ConfsInZonesOnly = [listeners, overall_max_connections],
     BaseConf = maps:without(ConfsInZonesOnly, ZoneConf),
     emqx_map_lib:deep_merge(BaseConf, ListenerConf).
+
+apply_on_listener(ListenerId, Do) ->
+    {ZoneName, ListenerName} = decode_listener_id(ListenerId),
+    case emqx_config:find([zones, ZoneName, listeners, ListenerName]) of
+        {not_found, _, _} -> error({not_found, ListenerId});
+        {ok, Conf} -> Do(ZoneName, ListenerName, Conf)
+    end.

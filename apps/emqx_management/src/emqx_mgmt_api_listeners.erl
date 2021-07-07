@@ -30,13 +30,13 @@
 
 -rest_api(#{name   => restart_listener,
             method => 'PUT',
-            path   => "/listeners/:bin:identifier/restart",
+            path   => "/listeners/:atom:identifier/restart",
             func   => restart,
             descr  => "Restart a listener in the cluster"}).
 
 -rest_api(#{name   => restart_node_listener,
             method => 'PUT',
-            path   => "/nodes/:atom:node/listeners/:bin:identifier/restart",
+            path   => "/nodes/:atom:node/listeners/:atom:identifier/restart",
             func   => restart,
             descr  => "Restart a listener on a node"}).
 
@@ -57,10 +57,7 @@ restart(#{node := Node, identifier := Identifier}, _Params) ->
         ok -> minirest:return({ok, "Listener restarted."});
         {error, Error} -> minirest:return({error, Error})
     end;
-
-%% Restart listeners in the cluster.
-restart(#{identifier := <<"http", _/binary>>}, _Params) ->
-    {403, <<"http_listener_restart_unsupported">>};
+%% Restart listeners on all nodes in the cluster.
 restart(#{identifier := Identifier}, _Params) ->
     Results = [{Node, emqx_mgmt:restart_listener(Node, Identifier)} || {Node, _Info} <- emqx_mgmt:list_nodes()],
     case lists:filter(fun({_, Result}) -> Result =/= ok end, Results) of

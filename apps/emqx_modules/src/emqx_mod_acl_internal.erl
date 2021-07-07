@@ -50,10 +50,9 @@ unload(_Env) ->
     emqx_hooks:del('client.check_acl', {?MODULE, check_acl}).
 
 reload(Env) ->
-    emqx_acl_cache:is_enabled() andalso (
-        lists:foreach(
-            fun(Pid) -> erlang:send(Pid, clean_acl_cache) end,
-        emqx_cm:all_channels())),
+    lists:foreach(
+        fun(Pid) -> erlang:send(Pid, clean_acl_cache) end,
+    emqx_cm:all_channels()),
     unload(Env), load(Env).
 
 description() ->
