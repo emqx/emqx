@@ -14,6 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% @doc The MQTT-SN Topic Registry
+%%
+%% XXX:
 -module(emqx_sn_registry).
 
 -behaviour(gen_server).
@@ -23,16 +26,15 @@
 -define(LOG(Level, Format, Args),
         emqx_logger:Level("MQTT-SN(registry): " ++ Format, Args)).
 
--export([ start_link/1
-        , stop/0
+-export([ start_link/2
         ]).
 
--export([ register_topic/2
-        , unregister_topic/1
+-export([ register_topic/3
+        , unregister_topic/2
         ]).
 
--export([ lookup_topic/2
-        , lookup_topic_id/2
+-export([ lookup_topic/3
+        , lookup_topic_id/3
         ]).
 
 %% gen_server callbacks
@@ -44,51 +46,54 @@
         , code_change/3
         ]).
 
+-export([lookup_name/1]).
+
 -define(SN_SHARD, emqx_sn_shard).
 
--define(TAB, ?MODULE).
-
--record(state, {max_predef_topic_id = 0}).
+-record(state, {tabname, max_predef_topic_id = 0}).
 
 -record(emqx_sn_registry, {key, value}).
 
 %% Mnesia bootstrap
--export([mnesia/1]).
+%-export([mnesia/1]).
 
--boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
+%-boot_mnesia({mnesia, [boot]}).
+%-copy_mnesia({mnesia, [copy]}).
 
--rlog_shard({?SN_SHARD, ?TAB}).
+%-rlog_shard({?SN_SHARD, ?TAB}).
 
-%% @doc Create or replicate tables.
--spec(mnesia(boot | copy) -> ok).
-mnesia(boot) ->
-    %% Optimize storage
-    StoreProps = [{ets, [{read_concurrency, true}]}],
-    ok = ekka_mnesia:create_table(?MODULE, [
-            {attributes, record_info(fields, emqx_sn_registry)},
-            {ram_copies, [node()]},
-            {storage_properties, StoreProps}]);
+%%% @doc Create or replicate tables.
+%-spec(mnesia(boot | copy) -> ok).
+%mnesia(boot) ->
+%    %% Optimize storage
+%    StoreProps = [{ets, [{read_concurrency, true}]}],
+%    ok = ekka_mnesia:create_table(?MODULE, [
+%            {attributes, record_info(fields, emqx_sn_registry)},
+%            {ram_copies, [node()]},
+%            {storage_properties, StoreProps}]);
+%
+%mnesia(copy) ->
+%    ok = ekka_mnesia:copy_table(?MODULE, ram_copies).
 
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?MODULE, ram_copies).
+-type registry() :: {Tab :: atom(),
+                     RegistryPid :: pid()}.
 
 %%-----------------------------------------------------------------------------
 
--spec(start_link(list()) -> {ok, pid()} | ignore | {error, Reason :: term()}).
-start_link(PredefTopics) ->
-    ekka_rlog:wait_for_shards([?SN_SHARD], infinity),
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [PredefTopics], []).
+-spec start_link(atom(), list())
+    -> ignore
+     | {ok, pid()}
+     | {error, Reason :: term()}.
+start_link(InstaId, PredefTopics) ->
+    gen_server:start_link(?MODULE, [InstaId, PredefTopics], []).
 
--spec(stop() -> ok).
-stop() ->
-    gen_server:stop(?MODULE, normal, infinity).
-
--spec(register_topic(binary(), binary()) -> integer() | {error, term()}).
-register_topic(ClientId, TopicName) when is_binary(TopicName) ->
+-spec register_topic(registry(), emqx_types:clientid(), emqx_types:topic())
+    -> integer()
+     | {error, term()}.
+register_topic({_, Pid}, ClientId, TopicName) when is_binary(TopicName) ->
     case emqx_topic:wildcard(TopicName) of
         false ->
-            gen_server:call(?MODULE, {register, ClientId, TopicName});
+            gen_server:call(Pid, {register, ClientId, TopicName});
         %% TopicId: in case of “accepted” the value that will be used as topic
         %% id by the gateway when sending PUBLISH messages to the client (not
         %% relevant in case of subscriptions to a short topic name or to a topic
@@ -96,22 +101,24 @@ register_topic(ClientId, TopicName) when is_binary(TopicName) ->
         true  -> {error, wildcard_topic}
     end.
 
--spec(lookup_topic(binary(), pos_integer()) -> undefined | binary()).
-lookup_topic(ClientId, TopicId) when is_integer(TopicId) ->
-    case lookup_element(?TAB, {predef, TopicId}, 3) of
+-spec lookup_topic(registry(), emqx_types:clientid(), pos_integer())
+    -> undefined
+     | binary().
+lookup_topic({Tab, _}, ClientId, TopicId) when is_integer(TopicId) ->
+    case lookup_element(Tab, {predef, TopicId}, 3) of
         undefined ->
-            lookup_element(?TAB, {ClientId, TopicId}, 3);
+            lookup_element(Tab, {ClientId, TopicId}, 3);
         Topic -> Topic
     end.
 
--spec(lookup_topic_id(binary(), binary())
-      -> undefined
-       | pos_integer()
-       | {predef, integer()}).
-lookup_topic_id(ClientId, TopicName) when is_binary(TopicName) ->
-    case lookup_element(?TAB, {predef, TopicName}, 3) of
+-spec lookup_topic_id(registry(), emqx_types:clientid(), emqx_types:topic())
+    -> undefined
+     | pos_integer()
+     | {predef, integer()}.
+lookup_topic_id({Tab, _}, ClientId, TopicName) when is_binary(TopicName) ->
+    case lookup_element(Tab, {predef, TopicName}, 3) of
         undefined ->
-            lookup_element(?TAB, {ClientId, TopicName}, 3);
+            lookup_element(Tab, {ClientId, TopicName}, 3);
         TopicId ->
             {predef, TopicId}
     end.
@@ -120,46 +127,69 @@ lookup_topic_id(ClientId, TopicName) when is_binary(TopicName) ->
 lookup_element(Tab, Key, Pos) ->
     try ets:lookup_element(Tab, Key, Pos) catch error:badarg -> undefined end.
 
--spec(unregister_topic(binary()) -> ok).
-unregister_topic(ClientId) ->
-    gen_server:call(?MODULE, {unregister, ClientId}).
+-spec unregister_topic(registry(), emqx_types:clientid()) -> ok.
+unregister_topic({_, Pid}, ClientId) ->
+    gen_server:call(Pid, {unregister, ClientId}).
+
+lookup_name(Pid) ->
+    gen_server:call(Pid, name).
 
 %%-----------------------------------------------------------------------------
 
-init([PredefTopics]) ->
+name(InstaId) ->
+    list_to_atom(lists:concat([emqx_sn_, InstaId, '_registry'])).
+
+init([InstaId, PredefTopics]) ->
     %% {predef, TopicId}     -> TopicName
     %% {predef, TopicName}   -> TopicId
     %% {ClientId, TopicId}   -> TopicName
     %% {ClientId, TopicName} -> TopicId
+    Tab = name(InstaId),
+    ok = ekka_mnesia:create_table(Tab, [
+                {ram_copies, [node()]},
+                {record_name, emqx_sn_registry},
+                {attributes, record_info(fields, emqx_sn_registry)},
+                {storage_properties, [{ets, [{read_concurrency, true}]}]}
+               ]),
+    ok = ekka_mnesia:copy_table(Tab, ram_copies),
+    % FIXME:
+    %ok = ekka_rlog:wait_for_shards([?CM_SHARD], infinity),
     MaxPredefId = lists:foldl(
                     fun(#{id := TopicId, topic := TopicName}, AccId) ->
-                        ekka_mnesia:dirty_write(#emqx_sn_registry{key = {predef, TopicId},
-                                                                  value = TopicName}),
-                        ekka_mnesia:dirty_write(#emqx_sn_registry{key = {predef, TopicName},
-                                                                  value = TopicId}),
+                        ekka_mnesia:dirty_write(Tab, #emqx_sn_registry{
+                                                        key = {predef, TopicId},
+                                                        value = TopicName}
+                                               ),
+                        ekka_mnesia:dirty_write(Tab, #emqx_sn_registry{
+                                                        key = {predef, TopicName},
+                                                        value = TopicId}
+                                               ),
                         if TopicId > AccId -> TopicId; true -> AccId end
                     end, 0, PredefTopics),
-    {ok, #state{max_predef_topic_id = MaxPredefId}}.
+    {ok, #state{tabname = Tab, max_predef_topic_id = MaxPredefId}}.
 
 handle_call({register, ClientId, TopicName}, _From,
-            State = #state{max_predef_topic_id = PredefId}) ->
-    case lookup_topic_id(ClientId, TopicName) of
+            State = #state{tabname = Tab, max_predef_topic_id = PredefId}) ->
+    case lookup_topic_id({Tab, self()}, ClientId, TopicName) of
         {predef, PredefTopicId}  when is_integer(PredefTopicId) ->
             {reply, PredefTopicId, State};
         TopicId when is_integer(TopicId) ->
             {reply, TopicId, State};
         undefined ->
-            case next_topic_id(?TAB, PredefId, ClientId) of
+            case next_topic_id(Tab, PredefId, ClientId) of
                 TopicId when TopicId >= 16#FFFF ->
                     {reply, {error, too_large}, State};
                 TopicId ->
                     Fun = fun() ->
-                        mnesia:write(#emqx_sn_registry{key = {ClientId, next_topic_id},
-                                                            value = TopicId + 1}),
-                        mnesia:write(#emqx_sn_registry{key = {ClientId, TopicName},
-                                                            value = TopicId}),
-                        mnesia:write(#emqx_sn_registry{key = {ClientId, TopicId},
-                                                            value = TopicName})
+                        mnesia:write(Tab, #emqx_sn_registry{
+                                             key = {ClientId, next_topic_id},
+                                             value = TopicId + 1}, write),
+                        mnesia:write(Tab, #emqx_sn_registry{
+                                             key = {ClientId, TopicName},
+                                             value = TopicId}, write),
+                        mnesia:write(Tab, #emqx_sn_registry{
+                                             key = {ClientId, TopicId},
+                                             value = TopicName}, write)
                     end,
                     case ekka_mnesia:transaction(?SN_SHARD, Fun) of
                         {atomic, ok} ->
@@ -170,10 +200,13 @@ handle_call({register, ClientId, TopicName}, _From,
             end
     end;
 
-handle_call({unregister, ClientId}, _From, State) ->
-    Registry = mnesia:dirty_match_object({?TAB, {ClientId, '_'}, '_'}),
-    lists:foreach(fun(R) -> ekka_mnesia:dirty_delete_object(?TAB, R) end, Registry),
+handle_call({unregister, ClientId}, _From, State = #state{tabname = Tab}) ->
+    Registry = mnesia:dirty_match_object({Tab, {ClientId, '_'}, '_'}),
+    lists:foreach(fun(R) -> ekka_mnesia:dirty_delete_object(Tab, R) end, Registry),
     {reply, ok, State};
+
+handle_call(name, _From, State = #state{tabname = Tab}) ->
+    {reply, {Tab, self()}, State};
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected request: ~p", [Req]),

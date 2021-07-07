@@ -72,11 +72,11 @@ on_insta_create(_Insta = #{ id := InstaId,
     end,
 
     PredefTopics = maps:get(predefined, RawConf),
-    {ok, RegistrySvr} = emqx_sn_registry:start_link(PredefTopics),
+    {ok, RegistrySvr} = emqx_sn_registry:start_link(InstaId, PredefTopics),
 
     NRawConf = maps:without(
-                 [gateway_id, broadcast, predefined],
-                 RawConf#{registry => RegistrySvr}
+                 [broadcast, predefined],
+                 RawConf#{registry => emqx_sn_registry:lookup_name(RegistrySvr)}
                 ),
     Listeners = emqx_gateway_utils:normalize_rawconf(NRawConf),
 
