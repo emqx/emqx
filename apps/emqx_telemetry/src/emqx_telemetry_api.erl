@@ -44,8 +44,6 @@
         , get_telemetry_data/0
         ]).
 
--import(minirest, [return/1]).
-
 %%--------------------------------------------------------------------
 %% CLI
 %%--------------------------------------------------------------------
@@ -129,3 +127,6 @@ rpc_call(Node, Module, Fun, Args) ->
         {badrpc, Reason} -> {error, Reason};
         Result -> Result
     end.
+
+%%    TODO: V5 API
+return(_) -> ok.

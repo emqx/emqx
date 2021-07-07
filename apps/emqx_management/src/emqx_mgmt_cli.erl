@@ -485,7 +485,7 @@ listeners([]) ->
 
 listeners(["stop",  Name = "http" ++ _N | _MaybePort]) ->
     %% _MaybePort is to be backward compatible, to stop http listener, there is no need for the port number
-    case minirest:stop_http(list_to_atom(Name)) of
+    case minirest:stop(list_to_atom(Name)) of
         ok ->
             emqx_ctl:print("Stop ~s listener successfully.~n", [Name]);
         {error, Error} ->

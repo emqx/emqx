@@ -113,10 +113,11 @@
 
 -define(APP, emqx_management).
 
+%% TODO: remove these function after all api use minirest version 1.X
 return() ->
-    minirest:return().
-return(Response) ->
-    minirest:return(Response).
+    ok.
+return(_Response) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Node Info

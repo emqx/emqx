@@ -53,21 +53,21 @@
         ]).
 
 lookup_authz(_Bindings, _Params) ->
-    minirest:return({ok, emqx_authz:lookup()}).
+    return({ok, emqx_authz:lookup()}).
 
 update_authz(_Bindings, Params) ->
     Rules = get_rules(Params),
-    minirest:return(emqx_authz:update(Rules)).
+    return(emqx_authz:update(Rules)).
 
 append_authz(_Bindings, Params) ->
     Rules = get_rules(Params),
     NRules = lists:append(emqx_authz:lookup(), Rules),
-    minirest:return(emqx_authz:update(NRules)).
+    return(emqx_authz:update(NRules)).
 
 push_authz(_Bindings, Params) ->
     Rules = get_rules(Params),
     NRules = lists:append(Rules, emqx_authz:lookup()),
-    minirest:return(emqx_authz:update(NRules)).
+    return(emqx_authz:update(NRules)).
 
 %%------------------------------------------------------------------------------
 %% Interval Funcs
@@ -88,3 +88,7 @@ get_rules(Params) ->
 
 
 -endif.
+
+return(_) ->
+%%    TODO: V5 api
+    ok.
