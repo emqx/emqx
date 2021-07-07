@@ -243,7 +243,7 @@ init(Parent, Transport, RawSocket, Options) ->
             exit_on_sock_error(Reason)
     end.
 
-init_state(Transport, Socket, Options) ->
+init_state(Transport, Socket, #{zone := Zone, listener := Listener} = Opts) ->
     {ok, Peername} = Transport:ensure_ok_or_exit(peername, [Socket]),
     {ok, Sockname} = Transport:ensure_ok_or_exit(sockname, [Socket]),
     Peercert = Transport:ensure_ok_or_exit(peercert, [Socket]),
@@ -253,8 +253,6 @@ init_state(Transport, Socket, Options) ->
                  peercert => Peercert,
                  conn_mod => ?MODULE
                 },
-    Zone = maps:get(zone, Options),
-    Listener = maps:get(listener, Options),
     Limiter = emqx_limiter:init(Zone, undefined, undefined, []),
     FrameOpts = #{
         strict_mode => emqx_config:get_listener_conf(Zone, Listener, [mqtt, strict_mode]),
@@ -262,7 +260,7 @@ init_state(Transport, Socket, Options) ->
     },
     ParseState = emqx_frame:initial_parse_state(FrameOpts),
     Serialize = emqx_frame:serialize_opts(),
-    Channel = emqx_channel:init(ConnInfo, Options),
+    Channel = emqx_channel:init(ConnInfo, Opts),
     GcState = case emqx_config:get_listener_conf(Zone, Listener, [force_gc]) of
         #{enable := false} -> undefined;
         GcPolicy -> emqx_gc:init(GcPolicy)
@@ -295,11 +293,9 @@ run_loop(Parent, State = #state{transport = Transport,
                                 peername  = Peername,
                                 channel   = Channel}) ->
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
-    case emqx_config:get_listener_conf(emqx_channel:info(zone, Channel),
-            emqx_channel:info(listener, Channel), [force_shutdown]) of
-        #{enable := false} -> ok;
-        ShutdownPolicy -> emqx_misc:tune_heap_size(ShutdownPolicy)
-    end,
+    ShutdownPolicy = emqx_config:get_listener_conf(emqx_channel:info(zone, Channel),
+            emqx_channel:info(listener, Channel), [force_shutdown]),
+    emqx_misc:tune_heap_size(ShutdownPolicy),
     case activate_socket(State) of
         {ok, NState} -> hibernate(Parent, NState);
         {error, Reason} ->
@@ -793,15 +789,11 @@ check_oom(State = #state{channel = Channel}) ->
     ShutdownPolicy = emqx_config:get_listener_conf(emqx_channel:info(zone, Channel),
         emqx_channel:info(listener, Channel), [force_shutdown]),
     ?tp(debug, check_oom, #{policy => ShutdownPolicy}),
-    case ShutdownPolicy of
-        #{enable := false} -> ok;
-        ShutdownPolicy ->
-            case emqx_misc:check_oom(ShutdownPolicy) of
-                {shutdown, Reason} ->
-                    %% triggers terminate/2 callback immediately
-                    erlang:exit({shutdown, Reason});
-                _ -> ok
-            end
+    case emqx_misc:check_oom(ShutdownPolicy) of
+        {shutdown, Reason} ->
+            %% triggers terminate/2 callback immediately
+            erlang:exit({shutdown, Reason});
+        _ -> ok
     end,
     State.
 

@@ -364,11 +364,11 @@ fields("mqtt_ws_listener") ->
 fields("ws_opts") ->
     [ {"mqtt_path", t(string(), undefined, "/mqtt")}
     , {"mqtt_piggyback", t(union(single, multiple), undefined, multiple)}
-    , {"compress", t(boolean())}
+    , {"compress", t(boolean(), undefined, false)}
     , {"idle_timeout", t(duration(), undefined, "15s")}
     , {"max_frame_size", maybe_infinity(integer())}
     , {"fail_if_no_subprotocol", t(boolean(), undefined, true)}
-    , {"supported_subprotocols", t(string(), undefined,
+    , {"supported_subprotocols", t(comma_separated_list(), undefined,
         "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5")}
     , {"check_origin_enable", t(boolean(), undefined, false)}
     , {"allow_origin_absence", t(boolean(), undefined, true)}
@@ -401,12 +401,12 @@ fields("ssl_opts") ->
 
 fields("deflate_opts") ->
     [ {"level", t(union([none, default, best_compression, best_speed]))}
-    , {"mem_level", t(range(1, 9))}
+    , {"mem_level", t(range(1, 9), undefined, 8)}
     , {"strategy", t(union([default, filtered, huffman_only, rle]))}
     , {"server_context_takeover", t(union(takeover, no_takeover))}
     , {"client_context_takeover", t(union(takeover, no_takeover))}
-    , {"server_max_window_bits", t(integer())}
-    , {"client_max_window_bits", t(integer())}
+    , {"server_max_window_bits", t(range(8, 15), undefined, 15)}
+    , {"client_max_window_bits", t(range(8, 15), undefined, 15)}
     ];
 
 fields("module") ->

@@ -174,21 +174,13 @@ call(WsPid, Req, Timeout) when is_pid(WsPid) ->
 %% WebSocket callbacks
 %%--------------------------------------------------------------------
 
-init(Req, Opts) ->
+init(Req, #{zone := Zone, listener := Listener} = Opts) ->
     %% WS Transport Idle Timeout
-    IdleTimeout = proplists:get_value(idle_timeout, Opts, 7200000),
-    DeflateOptions = maps:from_list(proplists:get_value(deflate_options, Opts, [])),
-    MaxFrameSize = case proplists:get_value(max_frame_size, Opts, 0) of
-                       0 -> infinity;
-                       I -> I
-                   end,
-    Compress = proplists:get_bool(compress, Opts),
-    WsOpts = #{compress       => Compress,
-               deflate_opts   => DeflateOptions,
-               max_frame_size => MaxFrameSize,
-               idle_timeout   => IdleTimeout
+    WsOpts = #{compress => get_ws_opts(Zone, Listener, compress),
+               deflate_opts => get_ws_opts(Zone, Listener, deflate_opts),
+               max_frame_size => get_ws_opts(Zone, Listener, max_frame_size),
+               idle_timeout => get_ws_opts(Zone, Listener, idle_timeout)
               },
-
     case check_origin_header(Req, Opts) of
         {error, Message} ->
             ?LOG(error, "Invalid Origin Header ~p~n", [Message]),
@@ -196,18 +188,17 @@ init(Req, Opts) ->
         ok -> parse_sec_websocket_protocol(Req, Opts, WsOpts)
     end.
 
-parse_sec_websocket_protocol(Req, Opts, WsOpts) ->
-    FailIfNoSubprotocol = proplists:get_value(fail_if_no_subprotocol, Opts),
+parse_sec_websocket_protocol(Req, #{zone := Zone, listener := Listener} = Opts, WsOpts) ->
     case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
         undefined ->
-            case FailIfNoSubprotocol of
+            case get_ws_opts(Zone, Listener, fail_if_no_subprotocol) of
                 true ->
                     {ok, cowboy_req:reply(400, Req), WsOpts};
                 false ->
                     {cowboy_websocket, Req, [Req, Opts], WsOpts}
             end;
         Subprotocols ->
-            SupportedSubprotocols = proplists:get_value(supported_subprotocols, Opts),
+            SupportedSubprotocols = get_ws_opts(Zone, Listener, supported_subprotocols),
             NSupportedSubprotocols = [list_to_binary(Subprotocol)
                                       || Subprotocol <- SupportedSubprotocols],
             case pick_subprotocol(Subprotocols, NSupportedSubprotocols) of
@@ -231,31 +222,30 @@ pick_subprotocol([Subprotocol | Rest], SupportedSubprotocols) ->
             pick_subprotocol(Rest, SupportedSubprotocols)
     end.
 
-parse_header_fun_origin(Req, Opts) ->
+parse_header_fun_origin(Req, #{zone := Zone, listener := Listener}) ->
     case cowboy_req:header(<<"origin">>, Req) of
         undefined ->
-                case proplists:get_bool(allow_origin_absence, Opts) of
+                case get_ws_opts(Zone, Listener, allow_origin_absence) of
                     true -> ok;
                     false -> {error, origin_header_cannot_be_absent}
                 end;
         Value ->
-            Origins = proplists:get_value(check_origins, Opts, []),
-            case lists:member(Value, Origins) of
+            case lists:member(Value, get_ws_opts(Zone, Listener, check_origins)) of
                 true -> ok;
                 false -> {origin_not_allowed, Value}
             end
     end.
 
-check_origin_header(Req, Opts) ->
-    case proplists:get_bool(check_origin_enable, Opts) of
+check_origin_header(Req, #{zone := Zone, listener := Listener} = Opts) ->
+    case get_ws_opts(Zone, Listener, check_origin_enable) of
         true -> parse_header_fun_origin(Req, Opts);
         false -> ok
     end.
 
-websocket_init([Req, Opts]) ->
+websocket_init([Req, #{zone := Zone, listener := Listener} = Opts]) ->
     {Peername, Peercert} =
-        case proplists:get_bool(proxy_protocol, Opts)
-        andalso maps:get(proxy_header, Req) of
+        case emqx_config:get_listener_conf(Zone, Listener, [proxy_protocol]) andalso
+             maps:get(proxy_header, Req) of
             #{src_address := SrcAddr, src_port := SrcPort, ssl := SSL} ->
                 SourceName = {SrcAddr, SrcPort},
                 %% Notice: Only CN is available in Proxy Protocol V2 additional info
@@ -266,7 +256,7 @@ websocket_init([Req, Opts]) ->
                 {SourceName, SourceSSL};
             #{src_address := SrcAddr, src_port := SrcPort} ->
                 SourceName = {SrcAddr, SrcPort},
-                {SourceName , nossl};
+                {SourceName, nossl};
             _ ->
                 {get_peer(Req, Opts), cowboy_req:cert(Req)}
         end,
@@ -288,22 +278,31 @@ websocket_init([Req, Opts]) ->
                  ws_cookie => WsCookie,
                  conn_mod  => ?MODULE
                 },
-    Zone = proplists:get_value(zone, Opts),
-    PubLimit = emqx_zone:publish_limit(Zone),
-    BytesIn = proplists:get_value(rate_limit, Opts),
-    RateLimit = emqx_zone:ratelimit(Zone),
-    Limiter = emqx_limiter:init(Zone, PubLimit, BytesIn, RateLimit),
-    MQTTPiggyback = proplists:get_value(mqtt_piggyback, Opts, multiple),
-    FrameOpts = emqx_zone:mqtt_frame_options(Zone),
+    Limiter = emqx_limiter:init(Zone, undefined, undefined, []),
+    MQTTPiggyback = get_ws_opts(Zone, Listener, mqtt_piggyback),
+    FrameOpts = #{
+        strict_mode => emqx_config:get_listener_conf(Zone, Listener, [mqtt, strict_mode]),
+        max_size => emqx_config:get_listener_conf(Zone, Listener, [mqtt, max_packet_size])
+    },
     ParseState = emqx_frame:initial_parse_state(FrameOpts),
     Serialize = emqx_frame:serialize_opts(),
     Channel = emqx_channel:init(ConnInfo, Opts),
-    GcState = emqx_zone:init_gc_state(Zone),
-    StatsTimer = emqx_zone:stats_timer(Zone),
+    GcState = case emqx_config:get_listener_conf(Zone, Listener, [force_gc]) of
+        #{enable := false} -> undefined;
+        GcPolicy -> emqx_gc:init(GcPolicy)
+    end,
+    StatsTimer = case emqx_config:get_listener_conf(Zone, Listener, [stats, enable]) of
+        true -> undefined;
+        false -> disabled
+    end,
     %% MQTT Idle Timeout
-    IdleTimeout = emqx_zone:idle_timeout(Zone),
+    IdleTimeout = emqx_channel:get_mqtt_conf(Zone, Listener, idle_timeout),
     IdleTimer = start_timer(IdleTimeout, idle_timeout),
-    emqx_misc:tune_heap_size(emqx_zone:oom_policy(Zone)),
+    case emqx_config:get_listener_conf(emqx_channel:info(zone, Channel),
+            emqx_channel:info(listener, Channel), [force_shutdown]) of
+        #{enable := false} -> ok;
+        ShutdownPolicy -> emqx_misc:tune_heap_size(ShutdownPolicy)
+    end,
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
     {ok, #state{peername       = Peername,
                 sockname       = Sockname,
@@ -317,7 +316,9 @@ websocket_init([Req, Opts]) ->
                 postponed      = [],
                 stats_timer    = StatsTimer,
                 idle_timeout   = IdleTimeout,
-                idle_timer     = IdleTimer
+                idle_timer     = IdleTimer,
+                zone           = Zone,
+                listener       = Listener
                }, hibernate}.
 
 websocket_handle({binary, Data}, State) when is_list(Data) ->
@@ -517,11 +518,16 @@ run_gc(Stats, State = #state{gc_state = GcSt}) ->
     end.
 
 check_oom(State = #state{channel = Channel}) ->
-    OomPolicy = emqx_zone:oom_policy(emqx_channel:info(zone, Channel)),
-    case ?ENABLED(OomPolicy) andalso emqx_misc:check_oom(OomPolicy) of
-        Shutdown = {shutdown, _Reason} ->
-            postpone(Shutdown, State);
-        _Other -> State
+    ShutdownPolicy = emqx_config:get_listener_conf(emqx_channel:info(zone, Channel),
+        emqx_channel:info(listener, Channel), [force_shutdown]),
+    case ShutdownPolicy of
+        #{enable := false} -> ok;
+        #{enable := true} ->
+            case emqx_misc:check_oom(ShutdownPolicy) of
+                Shutdown = {shutdown, _Reason} ->
+                    postpone(Shutdown, State);
+                _Other -> State
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -741,9 +747,10 @@ classify([Event|More], Packets, Cmds, Events) ->
 
 trigger(Event) -> erlang:send(self(), Event).
 
-get_peer(Req, Opts) ->
+get_peer(Req, #{zone := Zone, listener := Listener}) ->
     {PeerAddr, PeerPort} = cowboy_req:peer(Req),
-    AddrHeader = cowboy_req:header(proplists:get_value(proxy_address_header, Opts), Req, <<>>),
+    AddrHeader = cowboy_req:header(
+        get_ws_opts(Zone, Listener, proxy_address_header), Req, <<>>),
     ClientAddr = case string:tokens(binary_to_list(AddrHeader), ", ") of
                      [] ->
                          undefined;
@@ -756,7 +763,8 @@ get_peer(Req, Opts) ->
                _ ->
                    PeerAddr
            end,
-    PortHeader = cowboy_req:header(proplists:get_value(proxy_port_header, Opts), Req, <<>>),
+    PortHeader = cowboy_req:header(
+        get_ws_opts(Zone, Listener, proxy_port_header), Req, <<>>),
     ClientPort = case string:tokens(binary_to_list(PortHeader), ", ") of
                      [] ->
                          undefined;
@@ -777,3 +785,5 @@ set_field(Name, Value, State) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, state)),
     setelement(Pos+1, State, Value).
 
+get_ws_opts(Zone, Listener, Key) ->
+    emqx_config:get_listener_conf(Zone, Listener, [websocket, Key]).

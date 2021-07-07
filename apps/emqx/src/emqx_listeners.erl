@@ -74,13 +74,13 @@ do_start_listener(ZoneName, ListenerName, #{type := tcp, bind := ListenOn} = Opt
 %% Start MQTT/WS listener
 do_start_listener(ZoneName, ListenerName, #{type := ws, bind := ListenOn} = Opts) ->
     Id = listener_id(ZoneName, ListenerName),
-    RanchOpts = ranch_opts(Opts),
+    RanchOpts = ranch_opts(ListenOn, Opts),
     WsOpts = ws_opts(ZoneName, ListenerName, Opts),
     case is_ssl(Opts) of
         false ->
-            cowboy:start_clear(Id, with_port(ListenOn, RanchOpts), WsOpts);
+            cowboy:start_clear(Id, RanchOpts, WsOpts);
         true ->
-            cowboy:start_tls(Id, with_port(ListenOn, RanchOpts), WsOpts)
+            cowboy:start_tls(Id, RanchOpts, WsOpts)
     end.
 
 esockd_opts(Opts0) ->
@@ -104,21 +104,22 @@ ws_opts(ZoneName, ListenerName, Opts) ->
     ProxyProto = maps:get(proxy_protocol, Opts, false),
     #{env => #{dispatch => Dispatch}, proxy_header => ProxyProto}.
 
-ranch_opts(Opts) ->
+ranch_opts(ListenOn, Opts) ->
     NumAcceptors = maps:get(acceptors, Opts, 4),
     MaxConnections = maps:get(max_connections, Opts, 1024),
+    SocketOpts = case is_ssl(Opts) of
+        true -> tcp_opts(Opts) ++ proplists:delete(handshake_timeout, ssl_opts(Opts));
+        false -> tcp_opts(Opts)
+    end,
     #{num_acceptors => NumAcceptors,
       max_connections => MaxConnections,
       handshake_timeout => maps:get(handshake_timeout, Opts, 15000),
-      socket_opts => case is_ssl(Opts) of
-          true -> tcp_opts(Opts) ++ proplists:delete(handshake_timeout, ssl_opts(Opts));
-          false -> tcp_opts(Opts)
-        end}.
+      socket_opts => ip_port(ListenOn) ++ SocketOpts}.
 
-with_port(Port, Opts = #{socket_opts := SocketOption}) when is_integer(Port) ->
-    Opts#{socket_opts => [{port, Port}| SocketOption]};
-with_port({Addr, Port}, Opts = #{socket_opts := SocketOption}) ->
-    Opts#{socket_opts => [{ip, Addr}, {port, Port}| SocketOption]}.
+ip_port(Port) when is_integer(Port) ->
+    [{port, Port}];
+ip_port({Addr, Port}) ->
+    [{ip, Addr}, {port, Port}].
 
 esockd_access_rules(StrRules) ->
     Access = fun(S) ->

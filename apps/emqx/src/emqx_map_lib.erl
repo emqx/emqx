@@ -43,16 +43,17 @@ deep_get(ConfKeyPath, Map, Default) ->
         {ok, Data} -> Data
     end.
 
--spec deep_find(config_key_path(), map()) -> {ok, term()} | {not_found, config_key(), term()}.
+-spec deep_find(config_key_path(), map()) ->
+    {ok, term()} | {not_found, config_key_path(), term()}.
 deep_find([], Map) ->
     {ok, Map};
-deep_find([Key | KeyPath], Map) when is_map(Map) ->
+deep_find([Key | KeyPath] = Path, Map) when is_map(Map) ->
     case maps:find(Key, Map) of
         {ok, SubMap} -> deep_find(KeyPath, SubMap);
-        error -> {not_found, Key, Map}
+        error -> {not_found, Path, Map}
     end;
-deep_find([Key | _KeyPath], Data) ->
-    {not_found, Key, Data}.
+deep_find(_KeyPath, Data) ->
+    {not_found, _KeyPath, Data}.
 
 -spec deep_put(config_key_path(), map(), term()) -> map().
 deep_put([], Map, Config) when is_map(Map) ->
