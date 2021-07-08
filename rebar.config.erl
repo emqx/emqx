@@ -15,12 +15,14 @@ do(Dir, CONFIG) ->
 bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
 
+quicer() ->
+    %% @todo use tag
+    {quicer, {git, "https://github.com/emqx/quic.git", {branch, "main"}}}.
+
 deps(Config) ->
     {deps, OldDeps} = lists:keyfind(deps, 1, Config),
-    MoreDeps = case provide_bcrypt_dep() of
-        true -> [bcrypt()];
-        false -> []
-    end,
+    MoreDeps = [bcrypt() || provide_bcrypt_dep()] ++
+        [quicer() || is_quicer_supported()],
     {HasElixir, ExtraDeps} = extra_deps(),
     {HasElixir, lists:keystore(deps, 1, Config, {deps, OldDeps ++ MoreDeps ++ ExtraDeps})}.
 
@@ -77,6 +79,24 @@ is_cover_enabled() ->
 
 is_enterprise() ->
     filelib:is_regular("EMQX_ENTERPRISE").
+
+is_quicer_supported() ->
+    not (false =/= os:getenv("BUILD_WITHOUT_QUIC") orelse
+         is_win32() orelse is_centos_6()
+        ).
+
+is_centos_6() ->
+    %% reason:
+    %% glibc is too old
+    case file:read_file("/etc/centos-release") of
+        {ok, <<"CentOS release 6", _/binary >>} ->
+            true;
+        _ ->
+            false
+    end.
+
+is_win32() ->
+    win32 =:= element(1, os:type()).
 
 project_app_dirs() ->
     ["apps/*"] ++
@@ -242,7 +262,6 @@ relx_apps(ReleaseType) ->
     , compiler
     , runtime_tools
     , cuttlefish
-    , quicer
     , emqx
     , {mnesia, load}
     , {ekka, load}
@@ -263,6 +282,7 @@ relx_apps(ReleaseType) ->
     , emqx_retainer
     , emqx_statsd
     ]
+    ++ [quicer || is_quicer_supported()]
     ++ [emqx_telemetry || not is_enterprise()]
     ++ [emqx_license || is_enterprise()]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]

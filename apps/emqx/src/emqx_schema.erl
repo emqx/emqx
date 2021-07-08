@@ -333,7 +333,7 @@ fields("quic_listener") ->
     [ {"$name", ref("quic_listener_settings")}];
 
 fields("listener_settings") ->
-    [ {"endpoint", t(union(ip_port(), integer()))}
+    [ {"endpoint", t(union([ip_port(), integer(), ""]))}
     , {"acceptors", t(integer(), undefined, 8)}
     , {"max_connections", t(integer(), undefined, 1024)}
     , {"max_conn_rate", t(integer())}
@@ -785,6 +785,7 @@ tr_listeners(Conf) ->
     TcpListeners = fun(Type, Name) ->
         Prefix = string:join(["listener", Type, Name], "."),
         ListenOnN = case conf_get(Prefix ++ ".endpoint", Conf) of
+                        "" -> [];
                         undefined -> [];
                         ListenOn  -> ListenOn
                     end,
@@ -801,6 +802,8 @@ tr_listeners(Conf) ->
     SslListeners = fun(Type, Name) ->
         Prefix = string:join(["listener", Type, Name], "."),
         case conf_get(Prefix ++ ".endpoint", Conf) of
+            "" ->
+                [];
             undefined ->
                 [];
             ListenOn ->

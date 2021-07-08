@@ -106,6 +106,8 @@ format_listen_on(ListenOn) -> format(ListenOn).
 start_listener(#{proto := Proto, name := Name, listen_on := ListenOn, opts := Options}) ->
     ID = identifier(Proto, Name),
     case start_listener(Proto, ListenOn, Options) of
+        {ok, skipped} ->
+            console_print("Start ~s listener on ~s skpped.~n", [ID, format(ListenOn)]);
         {ok, _} ->
             console_print("Start ~s listener on ~s successfully.~n", [ID, format(ListenOn)]);
         {error, Reason} ->
@@ -123,7 +125,7 @@ console_print(_Fmt, _Args) -> ok.
 
 %% Start MQTT/TCP listener
 -spec(start_listener(esockd:proto(), esockd:listen_on(), [esockd:option()])
-      -> {ok, pid()} | {error, term()}).
+      -> {ok, pid() | skipped} | {error, term()}).
 start_listener(tcp, ListenOn, Options) ->
     start_mqtt_listener('mqtt:tcp', ListenOn, Options);
 
@@ -143,24 +145,31 @@ start_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
 
 %% Start MQTT/QUIC listener
 start_listener(quic, ListenOn, Options) ->
-    %% @fixme unsure why we need reopen lib and reopen config.
-    quicer_nif:open_lib(),
-    quicer_nif:reg_open(),
-    SSLOpts = proplists:get_value(ssl_options, Options),
-    DefAcceptors = erlang:system_info(schedulers_online) * 8,
-    ListenOpts = [ {cert, proplists:get_value(certfile, SSLOpts)}
-                 , {key, proplists:get_value(keyfile, SSLOpts)}
-                 , {alpn, ["mqtt"]}
-                 , {conn_acceptors, proplists:get_value(acceptors, Options, DefAcceptors)}
-                 , {idle_timeout_ms, proplists:get_value(idle_timeout, Options, 60000)}
-                 ],
-    ConnectionOpts = [ {conn_callback, emqx_quic_connection}
-                     , {peer_unidi_stream_count, 1}
-                     , {peer_bidi_stream_count, 10}
-                       | Options
-                     ],
-    StreamOpts = [],
-    quicer:start_listener('mqtt:quic', ListenOn, {ListenOpts, ConnectionOpts, StreamOpts}).
+    case [ A || {quicer, _, _} = A<-application:which_applications() ] of
+        [_] ->
+            %% @fixme unsure why we need reopen lib and reopen config.
+            quicer_nif:open_lib(),
+            quicer_nif:reg_open(),
+            SSLOpts = proplists:get_value(ssl_options, Options),
+            DefAcceptors = erlang:system_info(schedulers_online) * 8,
+            ListenOpts = [ {cert, proplists:get_value(certfile, SSLOpts)}
+                         , {key, proplists:get_value(keyfile, SSLOpts)}
+                         , {alpn, ["mqtt"]}
+                         , {conn_acceptors, proplists:get_value(acceptors, Options, DefAcceptors)}
+                         , {idle_timeout_ms, proplists:get_value(idle_timeout, Options, 60000)}
+                         ],
+            ConnectionOpts = [ {conn_callback, emqx_quic_connection}
+                             , {peer_unidi_stream_count, 1}
+                             , {peer_bidi_stream_count, 10}
+                             | Options
+                             ],
+            StreamOpts = [],
+            quicer:start_listener('mqtt:quic', ListenOn, {ListenOpts, ConnectionOpts, StreamOpts});
+        [] ->
+            io:format(standard_error, "INFO: quicer application is unavailable/disabled~n",
+                      []),
+            {ok, skipped}
+    end.
 
 replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].
 

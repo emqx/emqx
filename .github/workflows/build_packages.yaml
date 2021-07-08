@@ -42,6 +42,7 @@ jobs:
         if: endsWith(github.repository, 'emqx')
         run: |
           make -C source deps-all
+          rm source/rebar.lock
           zip -ryq source.zip source/* source/.[^.]*
       - name: get_all_deps
         if: endsWith(github.repository, 'enterprise')
@@ -63,6 +64,7 @@ jobs:
     if: endsWith(github.repository, 'emqx')
 
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         exclude:
@@ -131,6 +133,7 @@ jobs:
     needs: prepare
 
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
@@ -210,6 +213,7 @@ jobs:
     needs: prepare
 
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         arch:
@@ -336,6 +340,7 @@ jobs:
     needs: prepare
 
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         arch:
