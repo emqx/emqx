@@ -86,10 +86,9 @@ do_start_listener(ZoneName, ListenerName, #{type := quic, bind := ListenOn} = Op
     %% @fixme unsure why we need reopen lib and reopen config.
     quicer_nif:open_lib(),
     quicer_nif:reg_open(),
-    SSLOpts = ssl_opts(Opts),
     DefAcceptors = erlang:system_info(schedulers_online) * 8,
-    ListenOpts = [ {cert, maps:get(certfile, SSLOpts, undefined)}
-                 , {key, maps:get(keyfile, SSLOpts, undefined)}
+    ListenOpts = [ {cert, maps:get(certfile, Opts)}
+                 , {key, maps:get(keyfile, Opts)}
                  , {alpn, ["mqtt"]}
                  , {conn_acceptors, maps:get(acceptors, Opts, DefAcceptors)}
                  , {idle_timeout_ms, emqx_config:get_listener_conf(ZoneName, ListenerName,
@@ -100,7 +99,7 @@ do_start_listener(ZoneName, ListenerName, #{type := quic, bind := ListenOn} = Op
                      , peer_bidi_stream_count => 10
                      },
     StreamOpts = [],
-    quicer:start_listener('mqtt:quic', ListenOn, {ListenOpts, ConnectionOpts, StreamOpts}).
+    quicer:start_listener('mqtt:quic', port(ListenOn), {ListenOpts, ConnectionOpts, StreamOpts}).
 
 esockd_opts(Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
@@ -139,6 +138,9 @@ ip_port(Port) when is_integer(Port) ->
     [{port, Port}];
 ip_port({Addr, Port}) ->
     [{ip, Addr}, {port, Port}].
+
+port(Port) when is_integer(Port) -> Port;
+port({_Addr, Port}) when is_integer(Port) -> Port.
 
 esockd_access_rules(StrRules) ->
     Access = fun(S) ->
