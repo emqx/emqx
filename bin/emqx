@@ -194,6 +194,7 @@ relx_nodetool() {
 
 call_hocon() {
     export RUNNER_ROOT_DIR
+    export RUNNER_ETC_DIR
     export REL_VSN
     "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" hocon "$@"
 }

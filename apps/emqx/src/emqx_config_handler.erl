@@ -72,7 +72,7 @@ add_handler(ConfKeyPath, HandlerName) ->
 
 -spec init(term()) -> {ok, state()}.
 init(_) ->
-    {ok, RawConf} = hocon:load(emqx_conf_name(), #{format => richmap}),
+    RawConf = load_config_file(),
     {_MappedEnvs, Conf} = hocon_schema:map_translate(emqx_schema, RawConf, #{}),
     ok = save_config_to_emqx(to_plainmap(Conf), to_plainmap(RawConf)),
     {ok, #{handlers => #{?MOD => ?MODULE}}}.
@@ -192,14 +192,15 @@ read_old_config(FileName) ->
         _ -> #{}
     end.
 
-emqx_conf_name() ->
-    filename:join([etc_dir(), "emqx.conf"]).
+load_config_file() ->
+    lists:foldl(fun(ConfFile, Acc) ->
+            {ok, RawConf} = hocon:load(ConfFile, #{format => richmap}),
+            emqx_map_lib:deep_merge(Acc, RawConf)
+        end, #{}, emqx:get_env(config_files, [])).
 
 emqx_override_conf_name() ->
     filename:join([emqx:get_env(data_dir), "emqx_override.conf"]).
 
-etc_dir() ->
-    emqx:get_env(etc_dir).
 
 to_richmap(Map) ->
     {ok, RichMap} = hocon:binary(jsx:encode(Map), #{format => richmap}),

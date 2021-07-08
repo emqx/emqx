@@ -146,7 +146,9 @@ fields("node") ->
                                        override_env => "EMQX_NODE_COOKIE"
                                       })}
     , {"data_dir", t(string(), "emqx.data_dir", undefined)}
-    , {"etc_dir", t(string(), "emqx.etc_dir", undefined)}
+    , {"config_files", t(list(string()), "emqx.config_files",
+        [ filename:join([os:getenv("RUNNER_ETC_DIR"), "emqx.conf"])
+        ])}
     , {"global_gc_interval", t(duration_s(), "emqx.global_gc_interval", undefined)}
     , {"crash_dump_dir", t(file(), "vm_args.-env ERL_CRASH_DUMP", undefined)}
     , {"dist_net_ticktime", t(integer(), "vm_args.-kernel net_ticktime", undefined)}

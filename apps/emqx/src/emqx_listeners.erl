@@ -99,7 +99,8 @@ do_start_listener(ZoneName, ListenerName, #{type := quic, bind := ListenOn} = Op
                      , peer_bidi_stream_count => 10
                      },
     StreamOpts = [],
-    quicer:start_listener('mqtt:quic', port(ListenOn), {ListenOpts, ConnectionOpts, StreamOpts}).
+    quicer:start_listener(listener_id(ZoneName, ListenerName),
+        port(ListenOn), {ListenOpts, ConnectionOpts, StreamOpts}).
 
 esockd_opts(Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
@@ -178,7 +179,9 @@ stop_listener(ListenerId) ->
 stop_listener(ZoneName, ListenerName, #{type := tcp, bind := ListenOn}) ->
     esockd:close(listener_id(ZoneName, ListenerName), ListenOn);
 stop_listener(ZoneName, ListenerName, #{type := ws}) ->
-    cowboy:stop_listener(listener_id(ZoneName, ListenerName)).
+    cowboy:stop_listener(listener_id(ZoneName, ListenerName));
+stop_listener(ZoneName, ListenerName, #{type := quic}) ->
+    quicer:stop_listener(listener_id(ZoneName, ListenerName)).
 
 merge_default(Options) ->
     case lists:keytake(tcp_options, 1, Options) of
