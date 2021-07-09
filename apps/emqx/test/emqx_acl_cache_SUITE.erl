@@ -26,6 +26,7 @@ all() -> emqx_ct:all(?MODULE).
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
+    toggle_acl(true),
     Config.
 
 end_per_suite(_Config) ->
@@ -55,7 +56,6 @@ t_clean_acl_cache(_) ->
     ?assertEqual(0, length(gen_server:call(ClientPid, list_acl_cache))),
     emqtt:stop(Client).
 
-
 t_drain_acl_cache(_) ->
     {ok, Client} = emqtt:start_link([{clientid, <<"emqx_c">>}]),
     {ok, _} = emqtt:connect(Client),
@@ -79,70 +79,5 @@ t_drain_acl_cache(_) ->
     ?assert(length(gen_server:call(ClientPid, list_acl_cache)) > 0),
     emqtt:stop(Client).
 
-% optimize??
-t_reload_aclfile_and_cleanall(_Config) ->
-
-    RasieMsg = fun() -> Self = self(), #{puback => fun(Msg) -> Self ! {puback, Msg} end,
-                                         disconnected => fun(_) ->  ok end,
-                                         publish => fun(_) -> ok end } end,
-
-    {ok, Client} = emqtt:start_link([{clientid, <<"emqx_c">>}, {proto_ver, v5},
-                                     {msg_handler, RasieMsg()}]),
-    {ok, _} = emqtt:connect(Client),
-
-    {ok, PktId} = emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, qos1),
-
-    %% Success publish to broker
-    receive
-        {puback, #{packet_id := PktId, reason_code := Rc}} ->
-            ?assertEqual(16#10, Rc);
-        _ ->
-            ?assert(false)
-    end,
-
-    %% Check acl cache list
-    [ClientPid] = emqx_cm:lookup_channels(<<"emqx_c">>),
-    ?assert(length(gen_server:call(ClientPid, list_acl_cache)) > 0),
-    emqtt:stop(Client).
-
-%% @private
-testdir(DataPath) ->
-    Ls = filename:split(DataPath),
-    filename:join(lists:sublist(Ls, 1, length(Ls) - 1)).
-
-% t_cache_k(_) ->
-%     error('TODO').
-
-% t_cache_v(_) ->
-%     error('TODO').
-
-% t_cleanup_acl_cache(_) ->
-%     error('TODO').
-
-% t_get_oldest_key(_) ->
-%     error('TODO').
-
-% t_get_newest_key(_) ->
-%     error('TODO').
-
-% t_get_cache_max_size(_) ->
-%     error('TODO').
-
-% t_get_cache_size(_) ->
-%     error('TODO').
-
-% t_dump_acl_cache(_) ->
-%     error('TODO').
-
-% t_empty_acl_cache(_) ->
-%     error('TODO').
-
-% t_put_acl_cache(_) ->
-%     error('TODO').
-
-% t_get_acl_cache(_) ->
-%     error('TODO').
-
-% t_is_enabled(_) ->
-%     error('TODO').
-
+toggle_acl(Bool) when is_boolean(Bool) ->
+    emqx_config:put_listener_conf(default, mqtt_tcp, [acl, enable], Bool).

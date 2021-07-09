@@ -18,7 +18,7 @@
 
 -include("emqx.hrl").
 
--export([ list_acl_cache/0
+-export([ list_acl_cache/2
         , get_acl_cache/4
         , put_acl_cache/5
         , cleanup_acl_cache/2
@@ -62,8 +62,9 @@ get_cache_max_size(Zone, Listener) ->
 get_cache_ttl(Zone, Listener) ->
     emqx_config:get_listener_conf(Zone, Listener, [acl, cache, ttl]).
 
--spec(list_acl_cache() -> [acl_cache_entry()]).
-list_acl_cache() ->
+-spec(list_acl_cache(atom(), atom()) -> [acl_cache_entry()]).
+list_acl_cache(Zone, Listener) ->
+    cleanup_acl_cache(Zone, Listener),
     map_acl_cache(fun(Cache) -> Cache end).
 
 %% We'll cleanup the cache before replacing an expired acl.
