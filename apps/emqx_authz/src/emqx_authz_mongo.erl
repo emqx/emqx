@@ -60,8 +60,7 @@ match(Client, PubSub, Topic,
         <<"permission">> := Permission,
         <<"action">> := Action
        }) ->
-    Rule = #{<<"principal">> => all,
-             <<"permission">> => Permission,
+    Rule = #{<<"permission">> => Permission,
              <<"topics">> => Topics,
              <<"action">> => Action
             },
