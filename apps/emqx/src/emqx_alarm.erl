@@ -17,6 +17,7 @@
 -module(emqx_alarm).
 
 -behaviour(gen_server).
+-behaviour(emqx_config_handler).
 
 -include("emqx.hrl").
 -include("logger.hrl").
@@ -28,6 +29,8 @@
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
+
+-export([handle_update_config/2]).
 
 -export([ start_link/0
         , stop/0
@@ -75,7 +78,7 @@
         }).
 
 -record(state, {
-          timer = undefined :: undefined | reference()
+          timer :: reference()
         }).
 
 -define(ACTIVATED_ALARM, emqx_activated_alarm).
@@ -148,14 +151,20 @@ get_alarms(activated) ->
 get_alarms(deactivated) ->
     gen_server:call(?MODULE, {get_alarms, deactivated}).
 
+handle_update_config(#{<<"validity_period">> := Period0} = NewConf, OldConf) ->
+    ?MODULE ! {update_timer, hocon_postprocess:duration(Period0)},
+    maps:merge(OldConf, NewConf);
+handle_update_config(NewConf, OldConf) ->
+    maps:merge(OldConf, NewConf).
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
     deactivate_all_alarms(),
-    ensure_delete_timer(),
-    {ok, #state{}}.
+    emqx_config_handler:add_handler([alarm], ?MODULE),
+    {ok, #state{timer = ensure_timer(undefined, get_validity_period())}}.
 
 %% suppress dialyzer warning due to dirty read/write race condition.
 %% TODO: change from dirty_read/write to transactional.
@@ -215,11 +224,15 @@ handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({timeout, _TRef, delete_expired_deactivated_alarm}, State) ->
-    ValidityPeriod = emqx_config:get([alarm, validity_period]),
-    delete_expired_deactivated_alarms(erlang:system_time(microsecond) - ValidityPeriod * 1000),
-    ensure_delete_timer(),
-    {noreply, State};
+handle_info({timeout, _TRef, delete_expired_deactivated_alarm},
+       #state{timer = TRef} = State) ->
+    Period = get_validity_period(),
+    delete_expired_deactivated_alarms(erlang:system_time(microsecond) - Period * 1000),
+    {noreply, State#state{timer = ensure_timer(TRef, Period)}};
+
+handle_info({update_timer, Period}, #state{timer = TRef} = State) ->
+    ?LOG(warning, "update the 'validity_period' timer to ~p", [Period]),
+    {noreply, State#state{timer = ensure_timer(TRef, Period)}};
 
 handle_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
@@ -234,6 +247,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+get_validity_period() ->
+    timer:seconds(emqx_config:get([alarm, validity_period])).
 
 deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name,
         details = Details0, message = Msg0}) ->
@@ -290,9 +306,12 @@ clear_table(TableName) ->
             ok
     end.
 
-ensure_delete_timer() ->
-    emqx_misc:start_timer(emqx_config:get([alarm, validity_period]),
-        delete_expired_deactivated_alarm).
+ensure_timer(OldTRef, Period) ->
+    case is_reference(OldTRef) of
+        true -> _ = erlang:cancel_timer(OldTRef);
+        false -> ok
+    end,
+    emqx_misc:start_timer(Period, delete_expired_deactivated_alarm).
 
 delete_expired_deactivated_alarms(Checkpoint) ->
     delete_expired_deactivated_alarms(mnesia:dirty_first(?DEACTIVATED_ALARM), Checkpoint).
