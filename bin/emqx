@@ -366,7 +366,7 @@ if [ -z "$COOKIE" ]; then
 fi
 
 # Support for IPv6 Dist. See: https://github.com/emqtt/emqttd/issues/1460
-PROTO_DIST=$(grep -E '^[ \t]*cluster.proto_dist[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | awk -F"= " '{print $NF}')
+PROTO_DIST="$(call_hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get cluster.proto_dist | tr -d \")"
 if [ -z "$PROTO_DIST" ]; then
     PROTO_DIST_ARG=""
 else
