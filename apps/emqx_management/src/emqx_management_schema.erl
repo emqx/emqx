@@ -39,6 +39,7 @@ fields("application") ->
 fields("http") ->
     [ {"protocol", hoconsc:enum([http, https])}
     , {"port", emqx_schema:t(integer(), undefined, 8081)}
+    , {"ip", emqx_schema:t(typerefl:ip_address(), undefined, {0, 0, 0, 0})}
     , {"num_acceptors", emqx_schema:t(integer(), undefined, 4)}
     , {"max_connections", emqx_schema:t(integer(), undefined, 512)}
     , {"backlog", emqx_schema:t(integer(), undefined, 1024)}
