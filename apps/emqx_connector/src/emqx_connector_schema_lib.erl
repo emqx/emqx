@@ -86,10 +86,12 @@ relational_db_fields() ->
     ].
 
 server(type) -> emqx_schema:ip_port();
+server(nullable) -> false;
 server(validator) -> [?REQUIRED("the field 'server' is required")];
 server(_) -> undefined.
 
 database(type) -> binary();
+database(nullable) -> false;
 database(validator) -> [?REQUIRED("the field 'database' is required")];
 database(_) -> undefined.
 

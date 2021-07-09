@@ -39,7 +39,7 @@ enum(Items) ->
     end.
 
 required(ErrMsg) ->
-    fun(undefined) -> {error, ErrMsg};
+    fun(<<>>) -> {error, ErrMsg};
        (_) -> ok
     end.
 
