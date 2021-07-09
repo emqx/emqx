@@ -27,6 +27,7 @@
 
 -export([ get_listener_conf/3
         , get_listener_conf/4
+        , put_listener_conf/4
         , find_listener_conf/3
         ]).
 
@@ -78,6 +79,10 @@ get_listener_conf(Zone, Listener, KeyPath, Default) ->
         {not_found, _, _} -> Default;
         {ok, Data} -> Data
     end.
+
+-spec put_listener_conf(atom(), atom(), emqx_map_lib:config_key_path(), term()) -> ok.
+put_listener_conf(Zone, Listener, KeyPath, Conf) ->
+    ?MODULE:put([zones, Zone, listeners, Listener | KeyPath], Conf).
 
 -spec find_listener_conf(atom(), atom(), emqx_map_lib:config_key_path()) ->
     {ok, term()} | {not_foud, emqx_map_lib:config_key_path(), term()}.

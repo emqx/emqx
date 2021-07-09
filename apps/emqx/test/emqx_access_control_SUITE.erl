@@ -33,36 +33,23 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
 t_authenticate(_) ->
-    emqx_zone:set_env(zone, allow_anonymous, false),
+    toggle_auth(true),
     ?assertMatch({error, _}, emqx_access_control:authenticate(clientinfo())),
-    emqx_zone:set_env(zone, allow_anonymous, true),
+    toggle_auth(false),
     ?assertMatch({ok, _}, emqx_access_control:authenticate(clientinfo())).
 
 t_authorize(_) ->
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
     ?assertEqual(allow, emqx_access_control:authorize(clientinfo(), Publish, <<"t">>)).
 
-t_bypass_auth_plugins(_) ->
-    ClientInfo = clientinfo(),
-    emqx_zone:set_env(bypass_zone, allow_anonymous, true),
-    emqx_zone:set_env(zone, allow_anonymous, false),
-    emqx_zone:set_env(bypass_zone, bypass_auth_plugins, true),
-    emqx:hook('client.authenticate',{?MODULE, auth_fun, []}),
-    ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo#{zone => bypass_zone})),
-    ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo)).
-
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
 
-auth_fun(#{zone := bypass_zone}, AuthRes) ->
-             {stop, AuthRes#{auth_result => password_error}};
-auth_fun(#{zone := _}, AuthRes) ->
-             {stop, AuthRes#{auth_result => success}}.
-
 clientinfo() -> clientinfo(#{}).
 clientinfo(InitProps) ->
-    maps:merge(#{zone       => zone,
+    maps:merge(#{zone       => default,
+                 listener   => mqtt_tcp,
                  protocol   => mqtt,
                  peerhost   => {127,0,0,1},
                  clientid   => <<"clientid">>,
@@ -72,3 +59,6 @@ clientinfo(InitProps) ->
                  peercert   => undefined,
                  mountpoint => undefined
                 }, InitProps).
+
+toggle_auth(Bool) when is_boolean(Bool) ->
+    emqx_config:put_listener_conf(default, mqtt_tcp, [auth, enable], Bool).
