@@ -88,24 +88,24 @@ on_jsonify(Config) ->
     Config.
 
 %% ===================================================================
-on_start(InstId, #{config := #{server := Server,
-                               mongo_type := single} = Config}) ->
+on_start(InstId, Config = #{server := Server,
+                            mongo_type := single}) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
     Opts = [{type, single},
             {hosts, [Server]}
             ],
     do_start(InstId, Opts, Config);
 
-on_start(InstId, #{config := #{servers := Servers,
-                               mongo_type := rs,
-                               replicaset_name := RsName} = Config}) ->
+on_start(InstId, Config = #{servers := Servers,
+                            mongo_type := rs,
+                            replicaset_name := RsName}) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
     Opts = [{type,  {rs, RsName}},
             {hosts, Servers}],
     do_start(InstId, Opts, Config);
 
-on_start(InstId, #{config := #{servers := Servers,
-                               mongo_type := sharded} = Config}) ->
+on_start(InstId, Config = #{servers := Servers,
+                            mongo_type := sharded}) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
     Opts = [{type, sharded},
             {hosts, Servers}

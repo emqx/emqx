@@ -37,6 +37,9 @@
 structs() -> [""].
 
 fields("") ->
+    [{config, #{type => hoconsc:ref(?MODULE, config)}}];
+
+fields(config) ->
     emqx_connector_schema_lib:relational_db_fields() ++
     emqx_connector_schema_lib:ssl_fields().
 
