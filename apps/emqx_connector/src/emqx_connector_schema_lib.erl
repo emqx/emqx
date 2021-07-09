@@ -87,12 +87,12 @@ relational_db_fields() ->
 
 server(type) -> emqx_schema:ip_port();
 server(nullable) -> false;
-server(validator) -> [?REQUIRED("the field 'server' is required")];
+server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
 server(_) -> undefined.
 
 database(type) -> binary();
 database(nullable) -> false;
-database(validator) -> [?REQUIRED("the field 'database' is required")];
+database(validator) -> [?NOT_EMPTY("the value of the field 'database' cannot be empty")];
 database(_) -> undefined.
 
 pool_size(type) -> integer();
@@ -129,7 +129,7 @@ verify(default) -> false;
 verify(_) -> undefined.
 
 servers(type) -> servers();
-servers(validator) -> [?REQUIRED("the field 'servers' is required")];
+servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
 servers(_) -> undefined.
 
 to_ip_port(Str) ->

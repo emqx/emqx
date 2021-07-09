@@ -243,11 +243,11 @@ host_port(HostPort) ->
     end.
 
 server(type) -> server();
-server(validator) -> [?REQUIRED("the field 'server' is required")];
+server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
 server(_) -> undefined.
 
 servers(type) -> hoconsc:array(server());
-servers(validator) -> [?REQUIRED("the field 'servers' is required")];
+servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
 servers(_) -> undefined.
 
 duration(type) -> emqx_schema:duration_ms();
