@@ -294,12 +294,16 @@ do_verify_claims(Claims, [{Name, Value} | More]) ->
             {error, {claims, {Name, Value0}}}
     end.
 
-check_verify_claims([]) ->
+check_verify_claims(Conf) ->
+    Claims = hocon_schema:get_value("verify_claims", Conf),
+    do_check_verify_claims(Claims).
+
+do_check_verify_claims([]) ->
     false;
-check_verify_claims([{Name, Expected} | More]) ->
+do_check_verify_claims([{Name, Expected} | More]) ->
     check_claim_name(Name) andalso
     check_claim_expected(Expected) andalso
-    check_verify_claims(More).
+    do_check_verify_claims(More).
 
 check_claim_name(exp) ->
     false;
