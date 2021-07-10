@@ -21,6 +21,9 @@ spec:
   {{- if .Values.service.loadBalancerSourceRanges }}
   loadBalancerSourceRanges: {{- toYaml .Values.service.loadBalancerSourceRanges | nindent 4 }}
   {{- end }}
+  {{- if .Values.service.externalIPs }}
+  externalIPs: {{- toYaml .Values.service.externalIPs | nindent 4 }}
+  {{- end }}
   {{- end }}
   ports:
   - name: mqtt

@@ -145,6 +145,9 @@ service:
   ## - 10.10.10.0/24
   ##
   loadBalancerSourceRanges: []
+  ## Set the ExternalIPs
+  ##
+  externalIPs: []
   ## Provide any additional annotations which may be required. Evaluated as a template
   ##
   annotations: {}
