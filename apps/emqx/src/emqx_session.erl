@@ -92,8 +92,6 @@
 
 -export_type([session/0]).
 
--import(emqx_zone, [get_env/3]).
-
 -record(session, {
           %% Client’s Subscriptions.
           subscriptions :: map(),
@@ -159,27 +157,28 @@
 %%--------------------------------------------------------------------
 
 -spec(init(emqx_types:clientinfo(), emqx_types:conninfo()) -> session()).
-init(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
-    #session{max_subscriptions = get_env(Zone, max_subscriptions, 0),
+init(#{zone := Zone, listener := Listener}, #{receive_maximum := MaxInflight}) ->
+    #session{max_subscriptions = get_conf(Zone, Listener, max_subscriptions),
              subscriptions     = #{},
-             upgrade_qos       = get_env(Zone, upgrade_qos, false),
+             upgrade_qos       = get_conf(Zone, Listener, upgrade_qos),
              inflight          = emqx_inflight:new(MaxInflight),
-             mqueue            = init_mqueue(Zone),
+             mqueue            = init_mqueue(Zone, Listener),
              next_pkt_id       = 1,
-             retry_interval    = timer:seconds(get_env(Zone, retry_interval, 0)),
+             retry_interval    = timer:seconds(get_conf(Zone, Listener, retry_interval)),
              awaiting_rel      = #{},
-             max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
-             await_rel_timeout = timer:seconds(get_env(Zone, await_rel_timeout, 300)),
+             max_awaiting_rel  = get_conf(Zone, Listener, max_awaiting_rel),
+             await_rel_timeout = timer:seconds(get_conf(Zone, Listener, await_rel_timeout)),
              created_at        = erlang:system_time(millisecond)
             }.
 
 %% @private init mq
-init_mqueue(Zone) ->
-    emqx_mqueue:init(#{max_len => get_env(Zone, max_mqueue_len, 1000),
-                       store_qos0 => get_env(Zone, mqueue_store_qos0, true),
-                       priorities => get_env(Zone, mqueue_priorities, none),
-                       default_priority => get_env(Zone, mqueue_default_priority, lowest)
-                      }).
+init_mqueue(Zone, Listener) ->
+    emqx_mqueue:init(#{
+        max_len => get_conf(Zone, Listener, max_mqueue_len),
+        store_qos0 => get_conf(Zone, Listener, mqueue_store_qos0),
+        priorities => get_conf(Zone, Listener, mqueue_priorities),
+        default_priority => get_conf(Zone, Listener, mqueue_default_priority)
+    }).
 
 %%--------------------------------------------------------------------
 %% Info, Stats
@@ -253,7 +252,7 @@ subscribe(ClientInfo = #{clientid := ClientId}, TopicFilter, SubOpts,
     end.
 
 -compile({inline, [is_subscriptions_full/1]}).
-is_subscriptions_full(#session{max_subscriptions = 0}) ->
+is_subscriptions_full(#session{max_subscriptions = infinity}) ->
     false;
 is_subscriptions_full(#session{subscriptions = Subs,
                                max_subscriptions = MaxLimit}) ->
@@ -302,7 +301,7 @@ publish(_PacketId, Msg, Session) ->
     {ok, emqx_broker:publish(Msg), Session}.
 
 -compile({inline, [is_awaiting_full/1]}).
-is_awaiting_full(#session{max_awaiting_rel = 0}) ->
+is_awaiting_full(#session{max_awaiting_rel = infinity}) ->
     false;
 is_awaiting_full(#session{awaiting_rel = AwaitingRel,
                           max_awaiting_rel = MaxLimit}) ->
@@ -697,3 +696,5 @@ set_field(Name, Value, Session) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, session)),
     setelement(Pos+1, Session, Value).
 
+get_conf(Zone, Listener, Key) ->
+    emqx_config:get_listener_conf(Zone, Listener, [mqtt, Key]).

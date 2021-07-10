@@ -198,7 +198,7 @@ check_oom(Policy) ->
 
 -spec(check_oom(pid(), emqx_types:oom_policy()) -> ok | {shutdown, term()}).
 check_oom(_Pid, #{enable := false}) -> ok;
-check_oom(Pid, #{message_queue_len := MaxQLen,
+check_oom(Pid, #{max_message_queue_len := MaxQLen,
                  max_heap_size := MaxHeapSize}) ->
     case process_info(Pid, [message_queue_len, total_heap_size]) of
         undefined -> ok;

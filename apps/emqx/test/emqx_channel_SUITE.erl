@@ -151,7 +151,7 @@ default_zone_conf() ->
                 conn_congestion =>
                     #{enable_alarm => true, min_alarm_sustain_duration => 60000},
                 flapping_detect =>
-                    #{ban_time => 300000,enable => true,
+                    #{ban_time => 300000,enable => false,
                     max_count => 15,window_time => 60000},
                 force_gc =>
                     #{bytes => 16777216,count => 16000,
@@ -167,6 +167,9 @@ default_zone_conf() ->
             }
         }
     }.
+
+set_default_zone_conf() ->
+    emqx_config:put(default_zone_conf()).
 
 %%--------------------------------------------------------------------
 %% CT Callbacks
@@ -207,7 +210,7 @@ end_per_suite(_Config) ->
                 ]).
 
 init_per_testcase(_TestCase, Config) ->
-    emqx_config:put(default_zone_conf()),
+    set_default_zone_conf(),
     Config.
 
 end_per_testcase(_TestCase, Config) ->

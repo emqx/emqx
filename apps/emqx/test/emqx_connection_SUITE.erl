@@ -57,6 +57,7 @@ init_per_suite(Config) ->
     ok = meck:expect(emqx_alarm, deactivate, fun(_) -> ok end),
     ok = meck:expect(emqx_alarm, deactivate, fun(_, _) -> ok end),
 
+    emqx_channel_SUITE:set_default_zone_conf(),
     Config.
 
 end_per_suite(_Config) ->
@@ -120,14 +121,13 @@ t_info(_) ->
                     end
                 end),
     #{sockinfo := SockInfo} = emqx_connection:info(CPid),
-    ?assertMatch(#{active_n := 100,
-                    peername := {{127,0,0,1},3456},
+    ?assertMatch(#{ peername := {{127,0,0,1},3456},
                     sockname := {{127,0,0,1},1883},
                     sockstate := idle,
                     socktype := tcp}, SockInfo).
 
 t_info_limiter(_) ->
-    St = st(#{limiter => emqx_limiter:init(external, [])}),
+    St = st(#{limiter => emqx_limiter:init(default, [])}),
     ?assertEqual(undefined, emqx_connection:info(limiter, St)).
 
 t_stats(_) ->
@@ -219,8 +219,10 @@ t_handle_msg_deliver(_) ->
 
 t_handle_msg_inet_reply(_) ->
     ok = meck:expect(emqx_pd, get_counter, fun(_) -> 10 end),
-    ?assertMatch({ok, _St}, handle_msg({inet_reply, for_testing, ok}, st(#{active_n => 0}))),
-    ?assertEqual(ok, handle_msg({inet_reply, for_testing, ok}, st(#{active_n => 100}))),
+    emqx_config:put_listener_conf(default, mqtt_tcp, [tcp, active_n], 0),
+    ?assertMatch({ok, _St}, handle_msg({inet_reply, for_testing, ok}, st())),
+    emqx_config:put_listener_conf(default, mqtt_tcp, [tcp, active_n], 100),
+    ?assertEqual(ok, handle_msg({inet_reply, for_testing, ok}, st())),
     ?assertMatch({stop, {shutdown, for_testing}, _St},
                  handle_msg({inet_reply, for_testing, {error, for_testing}}, st())).
 
@@ -331,12 +333,12 @@ t_ensure_rate_limit(_) ->
     ?assertEqual(undefined, emqx_connection:info(limiter, State)),
 
     ok = meck:expect(emqx_limiter, check,
-                     fun(_, _) -> {ok, emqx_limiter:init(external, [])} end),
+                     fun(_, _) -> {ok, emqx_limiter:init(default, [])} end),
     State1 = emqx_connection:ensure_rate_limit(#{}, st(#{limiter => #{}})),
     ?assertEqual(undefined, emqx_connection:info(limiter, State1)),
 
     ok = meck:expect(emqx_limiter, check,
-                     fun(_, _) -> {pause, 3000, emqx_limiter:init(external, [])} end),
+                     fun(_, _) -> {pause, 3000, emqx_limiter:init(default, [])} end),
     State2 = emqx_connection:ensure_rate_limit(#{}, st(#{limiter => #{}})),
     ?assertEqual(undefined, emqx_connection:info(limiter, State2)),
     ?assertEqual(blocked, emqx_connection:info(sockstate, State2)).
@@ -386,8 +388,7 @@ t_start_link_exit_on_activate(_) ->
 t_get_conn_info(_) ->
     with_conn(fun(CPid) ->
                       #{sockinfo := SockInfo} = emqx_connection:info(CPid),
-                      ?assertEqual(#{active_n => 100,
-                                     peername => {{127,0,0,1},3456},
+                      ?assertEqual(#{peername => {{127,0,0,1},3456},
                                      sockname => {{127,0,0,1},1883},
                                      sockstate => running,
                                      socktype => tcp
@@ -397,16 +398,12 @@ t_get_conn_info(_) ->
 t_oom_shutdown(init, Config) ->
     ok = snabbkaffe:start_trace(),
     ok = meck:new(emqx_misc, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:new(emqx_zone, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_zone, oom_policy,
-                fun(_Zone) -> #{message_queue_len => 10, max_heap_size => 8000000} end),
     meck:expect(emqx_misc, check_oom,
                 fun(_) -> {shutdown, "fake_oom"} end),
     Config;
 t_oom_shutdown('end', _Config) ->
     snabbkaffe:stop(),
     meck:unload(emqx_misc),
-    meck:unload(emqx_zone),
     ok.
 
 t_oom_shutdown(_) ->
@@ -455,13 +452,11 @@ exit_on_activate_error(SockErr, Reason) ->
 with_conn(TestFun) ->
     with_conn(TestFun, #{trap_exit => false}).
 
-with_conn(TestFun, Options) when is_map(Options) ->
-    with_conn(TestFun, maps:to_list(Options));
-
-with_conn(TestFun, Options) ->
-    TrapExit = proplists:get_value(trap_exit, Options, false),
+with_conn(TestFun, Opts) when is_map(Opts) ->
+    TrapExit = maps:get(trap_exit, Opts, false),
     process_flag(trap_exit, TrapExit),
-    {ok, CPid} = emqx_connection:start_link(emqx_transport, sock, Options),
+    {ok, CPid} = emqx_connection:start_link(emqx_transport, sock,
+        maps:merge(Opts, #{zone => default, listener => mqtt_tcp})),
     TestFun(CPid),
     TrapExit orelse emqx_connection:stop(CPid),
     ok.
@@ -483,7 +478,8 @@ st() -> st(#{}, #{}).
 st(InitFields) when is_map(InitFields) ->
     st(InitFields, #{}).
 st(InitFields, ChannelFields) when is_map(InitFields) ->
-    St = emqx_connection:init_state(emqx_transport, sock, [#{zone => external}]),
+    St = emqx_connection:init_state(emqx_transport, sock, #{zone => default,
+        listener => mqtt_tcp}),
     maps:fold(fun(N, V, S) -> emqx_connection:set_field(N, V, S) end,
               emqx_connection:set_field(channel, channel(ChannelFields), St),
               InitFields
@@ -503,7 +499,8 @@ channel(InitFields) ->
                  receive_maximum => 100,
                  expiry_interval => 0
                 },
-    ClientInfo = #{zone       => zone,
+    ClientInfo = #{zone       => default,
+                   listener   => mqtt_tcp,
                    protocol   => mqtt,
                    peerhost   => {127,0,0,1},
                    clientid   => <<"clientid">>,
@@ -512,13 +509,13 @@ channel(InitFields) ->
                    peercert   => undefined,
                    mountpoint => undefined
                   },
-    Session = emqx_session:init(#{zone => external},
+    Session = emqx_session:init(#{zone => default, listener => mqtt_tcp},
                                 #{receive_maximum => 0}
                                ),
     maps:fold(fun(Field, Value, Channel) ->
-                      emqx_channel:set_field(Field, Value, Channel)
+                emqx_channel:set_field(Field, Value, Channel)
               end,
-              emqx_channel:init(ConnInfo, [{zone, zone}]),
+              emqx_channel:init(ConnInfo, #{zone => default, listener => mqtt_tcp}),
               maps:merge(#{clientinfo => ClientInfo,
                            session    => Session,
                            conn_state => connected
