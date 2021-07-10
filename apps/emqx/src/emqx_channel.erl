@@ -207,7 +207,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Protocol = maps:get(protocol, ConnInfo, mqtt),
     MountPoint = case get_mqtt_conf(Zone, Listener, mountpoint) of
-        "" -> undefined;
+        <<>> -> undefined;
         MP -> MP
     end,
     QuotaPolicy = emqx_config:get_listener_conf(Zone, Listener, [rate_limit, quota]),
