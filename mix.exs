@@ -4,9 +4,10 @@ defmodule EMQXUmbrella.MixProject do
   def project do
     [
       apps_path: "apps",
-      version: "0.1.0",
+      version: "5.0.0",
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      releases: releases()
     ]
   end
 
@@ -30,6 +31,26 @@ defmodule EMQXUmbrella.MixProject do
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.2", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       {:typerefl, github: "k32/typerefl", tag: "0.6.2", manager: :rebar3, override: true}
+      | (enable_bcrypt() && [{:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.0"}]) || []
     ]
+  end
+
+  defp releases do
+    [
+      emqx: fn ->
+        [
+          applications: EmqxReleaseHelper.applications(),
+          steps: [:assemble, &EmqxReleaseHelper.run/1]
+        ]
+      end
+    ]
+  end
+
+  def enable_bcrypt do
+    not match?({:win_32, _}, :os.type())
+  end
+
+  def project_path do
+    Path.expand("..", __ENV__.file)
   end
 end

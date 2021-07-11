@@ -1,4 +1,6 @@
 %{
+  "bbmustache": {:hex, :bbmustache, "1.12.1", "857fbdf86bda46d07201b0e7a969820cb763a7c174c485fd0780d7e033efe9f0", [:rebar3], [], "hexpm", "f4320778c31a821a2a664db8894618abb79c1af7bbf7c03c703c8868d9bb09fe"},
+  "bcrypt": {:git, "https://github.com/emqx/erlang-bcrypt.git", "dc2ba66acf2332c111362d01137746eefecc5e90", [tag: "0.6.0"]},
   "cowboy": {:git, "https://github.com/emqx/cowboy.git", "b89d4689a04149b1a4a3641280aa5c5643f921b2", [tag: "2.8.2"]},
   "cowlib": {:hex, :cowlib, "2.11.0", "0b9ff9c346629256c42ebe1eeb769a83c6cb771a6ee5960bd110ab0b9b872063", [:make, :rebar3], [], "hexpm", "2b3e9da0b21c4565751a6d4901c20d1b4cc25cbb7fd50d91d2ab6dd287bc86a9"},
   "cuttlefish": {:git, "https://github.com/emqx/cuttlefish.git", "1180224fb60d87ef41307c949453248d4ebef761", []},
