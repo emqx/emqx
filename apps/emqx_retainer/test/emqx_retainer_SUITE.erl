@@ -31,7 +31,8 @@ all() -> emqx_ct:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_retainer]),
+    application:stop(emqx_retainer),
+    emqx_ct_helpers:start_apps([emqx_retainer], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
@@ -39,15 +40,26 @@ end_per_suite(_Config) ->
 
 init_per_testcase(TestCase, Config) ->
     emqx_retainer:clean(<<"#">>),
-    case TestCase of
-        t_message_expiry_2 ->
-            application:set_env(emqx_retainer, expiry_interval, 2000);
-        _ ->
-            application:set_env(emqx_retainer, expiry_interval, 0)
-    end,
-    application:stop(emqx_retainer),
+    Interval = case TestCase of
+                   t_message_expiry_2 -> 2000;
+                   _ -> 0
+               end,
+    init_emqx_retainer_conf(Interval),
     application:ensure_all_started(emqx_retainer),
     Config.
+
+set_special_configs(emqx_retainer) ->
+    init_emqx_retainer_conf(0);
+set_special_configs(_) ->
+    ok.
+
+init_emqx_retainer_conf(Expiry) ->
+    emqx_config:put([emqx_retainer],
+                    #{enable => true,
+                      storage_type => ram,
+                      max_retained_messages => 0,
+                      max_payload_size => 1024 * 1024,
+                      expiry_interval => Expiry}).
 
 %%--------------------------------------------------------------------
 %% Test Cases
@@ -162,7 +174,6 @@ t_clean(_) ->
     emqtt:publish(C1, <<"retained/0">>, <<"this is a retained message 0">>, [{qos, 0}, {retain, true}]),
     emqtt:publish(C1, <<"retained/1">>, <<"this is a retained message 1">>, [{qos, 0}, {retain, true}]),
     emqtt:publish(C1, <<"retained/test/0">>, <<"this is a retained message 2">>, [{qos, 0}, {retain, true}]),
-
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(3, length(receive_messages(3))),
 

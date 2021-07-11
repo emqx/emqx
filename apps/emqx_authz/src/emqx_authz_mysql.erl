@@ -20,10 +20,10 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
-%% ACL Callbacks
+%% AuthZ Callbacks
 -export([ description/0
         , parse_query/1
-        , check_authz/4
+        , authorize/4
         ]).
 
 -ifdef(TEST).
@@ -45,25 +45,25 @@ parse_query(Sql) ->
             {Sql, []}
     end.
 
-check_authz(Client, PubSub, Topic,
-            #{<<"resource_id">> := ResourceID,
-              <<"sql">> := {SQL, Params}
+authorize(Client, PubSub, Topic,
+            #{resource_id := ResourceID,
+              sql := {SQL, Params}
              }) ->
     case emqx_resource:query(ResourceID, {sql, SQL, replvar(Params, Client)}) of
         {ok, _Columns, []} -> nomatch;
         {ok, Columns, Rows} ->
-            do_check_authz(Client, PubSub, Topic, Columns, Rows);
+            do_authorize(Client, PubSub, Topic, Columns, Rows);
         {error, Reason} ->
             ?LOG(error, "[AuthZ] Query mysql error: ~p~n", [Reason]),
             nomatch
     end.
 
-do_check_authz(_Client, _PubSub, _Topic, _Columns, []) ->
+do_authorize(_Client, _PubSub, _Topic, _Columns, []) ->
     nomatch;
-do_check_authz(Client, PubSub, Topic, Columns, [Row | Tail]) ->
+do_authorize(Client, PubSub, Topic, Columns, [Row | Tail]) ->
     case match(Client, PubSub, Topic, format_result(Columns, Row)) of
         {matched, Permission} -> {matched, Permission};
-        nomatch -> do_check_authz(Client, PubSub, Topic, Columns, Tail)
+        nomatch -> do_authorize(Client, PubSub, Topic, Columns, Tail)
     end.
 
 format_result(Columns, Row) ->
@@ -77,40 +77,23 @@ format_result(Columns, Row) ->
 match(Client, PubSub, Topic,
       #{<<"permission">> := Permission,
         <<"action">> := Action,
-        <<"clientid">> := ClientId,
-        <<"username">> := Username,
-        <<"ipaddress">> := IpAddress,
         <<"topic">> := TopicFilter
        }) ->
-    Rule = #{<<"principal">> => principal(IpAddress, Username, ClientId),
-             <<"topics">> => [TopicFilter],
+    Rule = #{<<"topics">> => [TopicFilter],
              <<"action">> => Action,
              <<"permission">> =>  Permission
             },
-    #{<<"simple_rule">> :=
-      #{<<"permission">> := NPermission} = NRule
+    #{simple_rule :=
+      #{permission := NPermission} = NRule
      } = hocon_schema:check_plain(
             emqx_authz_schema,
             #{<<"simple_rule">> => Rule},
-            #{},
+            #{atom_key => true},
             [simple_rule]),
     case emqx_authz:match(Client, PubSub, Topic, emqx_authz:compile(NRule)) of
         true -> {matched, NPermission};
         false -> nomatch
     end.
-
-principal(CIDR, Username, ClientId) ->
-    Cols = [{<<"ipaddress">>, CIDR}, {<<"username">>, Username}, {<<"clientid">>, ClientId}],
-    case [#{C => V} || {C, V} <- Cols, not empty(V)] of
-        [] -> throw(undefined_who);
-        [Who] -> Who;
-        Conds -> #{<<"and">> => Conds}
-    end.
-
-empty(null) -> true;
-empty("")   -> true;
-empty(<<>>) -> true;
-empty(_)    -> false.
 
 replvar(Params, ClientInfo) ->
     replvar(Params, ClientInfo, []).

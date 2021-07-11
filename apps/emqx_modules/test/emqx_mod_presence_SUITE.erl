@@ -36,7 +36,7 @@ end_per_suite(_Config) ->
 
 %% Test case for emqx_mod_presence
 t_mod_presence(_) ->
-    ok = emqx_mod_presence:load([{qos, ?QOS_1}]),
+    ok = emqx_mod_presence:load(#{qos => ?QOS_1}),
     {ok, C1} = emqtt:start_link([{clientid, <<"monsys">>}]),
     {ok, _} = emqtt:connect(C1),
     {ok, _Props, [?QOS_1]} = emqtt:subscribe(C1, <<"$SYS/brokers/+/clients/#">>, qos1),
@@ -49,7 +49,7 @@ t_mod_presence(_) ->
     ok = emqtt:disconnect(C2),
     ok = recv_and_check_presence(<<"clientid">>, <<"disconnected">>),
     ok = emqtt:disconnect(C1),
-    ok = emqx_mod_presence:unload([{qos, ?QOS_1}]).
+    ok = emqx_mod_presence:unload([]).
 
 t_mod_presence_reason(_) ->
     ?assertEqual(normal, emqx_mod_presence:reason(normal)),

@@ -1,0 +1,16 @@
+version: '3.9'
+
+services:
+  mongo_server:
+    container_name: mongo 
+    image: mongo:${MONGO_TAG}
+    restart: always
+    environment:
+      MONGO_INITDB_DATABASE: mqtt
+    networks:
+      - emqx_bridge
+    ports:
+      - "27017:27017"
+    command:
+      --ipv6
+      --bind_ip_all

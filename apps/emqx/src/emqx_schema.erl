@@ -54,7 +54,7 @@
 -export([includes/0]).
 
 structs() -> ["cluster", "node", "rpc", "log", "lager",
-              "acl", "mqtt", "zone", "listener", "module", "broker",
+              "acl", "mqtt", "zone", "listener", "broker",
               "plugins", "sysmon", "os_mon", "vm_mon", "alarm"]
              ++ includes().
 
@@ -64,6 +64,14 @@ includes() ->[].
 includes() ->
     [ "emqx_data_bridge"
     , "emqx_telemetry"
+    , "emqx_retainer"
+    , "emqx_statsd"
+    , "emqx_authn"
+    , "emqx_authz"
+    , "emqx_bridge_mqtt"
+    , "emqx_modules"
+    , "emqx_management"
+    , "emqx_gateway"
     ].
 -endif.
 
@@ -307,6 +315,7 @@ fields("listener") ->
     , {"ssl", ref("ssl_listener")}
     , {"ws", ref("ws_listener")}
     , {"wss", ref("wss_listener")}
+    , {"quic", ref("quic_listener")}
     ];
 
 fields("tcp_listener") ->
@@ -321,8 +330,11 @@ fields("ws_listener") ->
 fields("wss_listener") ->
     [ {"$name", ref("wss_listener_settings")}];
 
+fields("quic_listener") ->
+    [ {"$name", ref("quic_listener_settings")}];
+
 fields("listener_settings") ->
-    [ {"endpoint", t(union(ip_port(), integer()))}
+    [ {"endpoint", t(union([ip_port(), integer(), ""]))}
     , {"acceptors", t(integer(), undefined, 8)}
     , {"max_connections", t(integer(), undefined, 1024)}
     , {"max_conn_rate", t(integer())}
@@ -381,6 +393,31 @@ fields("wss_listener_settings") ->
     Settings = lists:ukeymerge(1, Ssl, fields("ws_listener_settings")),
     lists:keydelete("high_watermark", 1, Settings);
 
+fields("quic_listener_settings") ->
+    Unsupported = [ "access"
+                  , "proxy_protocol"
+                  , "proxy_protocol_timeout"
+                  , "backlog"
+                  , "send_timeout"
+                  , "send_timeout_close"
+                  , "recvbuf"
+                  , "sndbuf"
+                  , "buffer"
+                  , "high_watermark"
+                  , "tune_buffer"
+                  , "nodelay"
+                  , "reuseaddr"
+                  ],
+    lists:foldl(fun(K, Acc) ->
+                        lists:keydelete(K, 1, Acc)
+                end,
+                [ {"certfile", t(string(), undefined, undefined)}
+                , {"keyfile", t(string(), undefined, undefined)}
+                , {"ciphers", t(comma_separated_list(), undefined, "TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256,TLS_CHACHA20_POLY1305_SHA256")}
+                , {"idle_timeout", t(duration(), undefined, 60000)}
+                | fields("listener_settings")],
+                Unsupported);
+
 fields("access") ->
     [ {"$id", t(string(), undefined, undefined)}];
 
@@ -394,12 +431,6 @@ fields("deflate_opts") ->
     , {"client_max_window_bits", t(integer())}
     ];
 
-fields("module") ->
-    [ {"loaded_file", t(string(), "emqx.modules_loaded_file", undefined)}
-    , {"presence", ref("presence")}
-    , {"subscription", ref("subscription")}
-    , {"rewrite", ref("rewrite")}
-    ];
 
 fields("presence") ->
     [ {"qos", t(range(0, 2), undefined, 1)}];
@@ -426,9 +457,7 @@ fields("rule") ->
     [ {"$id", t(string())}];
 
 fields("plugins") ->
-    [ {"etc_dir", t(string(), "emqx.plugins_etc_dir", undefined)}
-    , {"loaded_file", t(string(), "emqx.plugins_loaded_file", undefined)}
-    , {"expand_plugins_dir", t(string(), "emqx.expand_plugins_dir", undefined)}
+    [ {"expand_plugins_dir", t(string(), "emqx.expand_plugins_dir", undefined)}
     ];
 
 fields("broker") ->
@@ -503,7 +532,6 @@ translation("emqx") ->
     [ {"flapping_detect_policy", fun tr_flapping_detect_policy/1}
     , {"zones", fun tr_zones/1}
     , {"listeners", fun tr_listeners/1}
-    , {"modules", fun tr_modules/1}
     , {"sysmon", fun tr_sysmon/1}
     , {"os_mon", fun tr_os_mon/1}
     , {"vm_mon", fun tr_vm_mon/1}
@@ -758,6 +786,7 @@ tr_listeners(Conf) ->
     TcpListeners = fun(Type, Name) ->
         Prefix = string:join(["listener", Type, Name], "."),
         ListenOnN = case conf_get(Prefix ++ ".endpoint", Conf) of
+                        "" -> [];
                         undefined -> [];
                         ListenOn  -> ListenOn
                     end,
@@ -774,6 +803,8 @@ tr_listeners(Conf) ->
     SslListeners = fun(Type, Name) ->
         Prefix = string:join(["listener", Type, Name], "."),
         case conf_get(Prefix ++ ".endpoint", Conf) of
+            "" ->
+                [];
             undefined ->
                 [];
             ListenOn ->
@@ -793,39 +824,9 @@ tr_listeners(Conf) ->
     lists:flatten([TcpListeners("tcp", Name) || Name <- keys("listener.tcp", Conf)]
                ++ [TcpListeners("ws", Name) || Name <- keys("listener.ws", Conf)]
                ++ [SslListeners("ssl", Name) || Name <- keys("listener.ssl", Conf)]
-               ++ [SslListeners("wss", Name) || Name <- keys("listener.wss", Conf)]).
-
-tr_modules(Conf) ->
-    Subscriptions = fun() ->
-        List = keys("module.subscription", Conf),
-        TopicList = [{N, conf_get(["module", "subscription", N, "topic"], Conf)}|| N <- List],
-        [{list_to_binary(T), #{ qos => conf_get("module.subscription." ++ N ++ ".qos", Conf, 0),
-                                nl  => conf_get("module.subscription." ++ N ++ ".nl", Conf, 0),
-                                rap => conf_get("module.subscription." ++ N ++ ".rap", Conf, 0),
-                                rh  => conf_get("module.subscription." ++ N ++ ".rh", Conf, 0)
-        }} || {N, T} <- TopicList]
-                    end,
-    Rewrites = fun() ->
-        Rules = keys("module.rewrite.rule", Conf),
-        PubRules = keys("module.rewrite.pub_rule", Conf),
-        SubRules = keys("module.rewrite.sub_rule", Conf),
-        TotalRules =
-            [ {["module", "rewrite", "pub", "rule", R], conf_get(["module.rewrite.rule", R], Conf)} || R <- Rules] ++
-            [ {["module", "rewrite", "pub", "rule", R], conf_get(["module.rewrite.pub_rule", R], Conf)} || R <- PubRules] ++
-            [ {["module", "rewrite", "sub", "rule", R], conf_get(["module.rewrite.rule", R], Conf)} || R <- Rules] ++
-            [ {["module", "rewrite", "sub", "rule", R], conf_get(["module.rewrite.sub_rule", R], Conf)} || R <- SubRules],
-        lists:map(fun({[_, "rewrite", PubOrSub, "rule", _], Rule}) ->
-            [Topic, Re, Dest] = string:tokens(Rule, " "),
-            {rewrite, list_to_atom(PubOrSub), list_to_binary(Topic), list_to_binary(Re), list_to_binary(Dest)}
-                  end, TotalRules)
-               end,
-    lists:append([
-        [{emqx_mod_presence, [{qos, conf_get("module.presence.qos", Conf, 1)}]}],
-        [{emqx_mod_subscription, Subscriptions()}],
-        [{emqx_mod_rewrite, Rewrites()}],
-        [{emqx_mod_topic_metrics, []}],
-        [{emqx_mod_delayed, []}]
-    ]).
+               ++ [SslListeners("wss", Name) || Name <- keys("listener.wss", Conf)]
+               ++ [SslListeners("quic", Name) || Name <- keys("listener.quic", Conf)]
+                 ).
 
 tr_sysmon(Conf) ->
     Keys = maps:to_list(conf_get("sysmon", Conf, #{})),

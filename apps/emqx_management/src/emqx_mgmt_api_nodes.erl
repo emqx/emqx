@@ -33,10 +33,10 @@
         ]).
 
 list(_Bindings, _Params) ->
-    minirest:return({ok, [format(Node, Info) || {Node, Info} <- emqx_mgmt:list_nodes()]}).
+    emqx_mgmt:return({ok, [format(Node, Info) || {Node, Info} <- emqx_mgmt:list_nodes()]}).
 
 get(#{node := Node}, _Params) ->
-    minirest:return({ok, emqx_mgmt:lookup_node(Node)}).
+    emqx_mgmt:return({ok, emqx_mgmt:lookup_node(Node)}).
 
 format(Node, {error, Reason}) -> #{node => Node, error => Reason};
 

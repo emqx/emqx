@@ -11,35 +11,31 @@
 
 -export([structs/0, fields/1]).
 
-structs() -> [authz].
+structs() -> ["emqx_authz"].
 
-fields(authz) ->
+fields("emqx_authz") ->
     [ {rules, rules()}
     ];
-fields(redis_connector) ->
-    [ {principal, principal()}
-    , {type, #{type => hoconsc:enum([redis])}}
-    , {config, #{type => hoconsc:union(
-                         [ hoconsc:ref(emqx_connector_redis, cluster)
-                         , hoconsc:ref(emqx_connector_redis, sentinel)
-                         , hoconsc:ref(emqx_connector_redis, single)
-                         ])}
-      }
-    , {cmd, query()}
+fields(mongo) ->
+    connector_fields(mongo) ++
+    [ {collection, #{type => atom()}}
+    , {find, #{type => map()}}
     ];
-
-fields(sql_connector) ->
-    [ {principal, principal() }
-    , {type, #{type => hoconsc:enum([mysql, pgsql])}}
-    , {config, #{type => map()}}
-    , {sql, query()}
-    ];
+fields(redis) ->
+    connector_fields(redis) ++
+    [ {cmd, query()} ];
+fields(mysql) ->
+    connector_fields(mysql) ++
+    [ {sql, query()} ];
+fields(pgsql) ->
+    connector_fields(pgsql) ++
+    [ {sql, query()} ];
 fields(simple_rule) ->
     [ {permission,   #{type => permission()}}
     , {action,   #{type => action()}}
     , {topics,   #{type => union_array(
                              [ binary()
-                             , hoconsc:ref(eq_topic)
+                             , hoconsc:ref(?MODULE, eq_topic)
                              ]
                             )}}
     , {principal, principal()}
@@ -52,18 +48,18 @@ fields(ipaddress) ->
     [{ipaddress, #{type => string()}}];
 fields(andlist) ->
     [{'and', #{type => union_array(
-                         [ hoconsc:ref(username)
-                         , hoconsc:ref(clientid)
-                         , hoconsc:ref(ipaddress)
+                         [ hoconsc:ref(?MODULE, username)
+                         , hoconsc:ref(?MODULE, clientid)
+                         , hoconsc:ref(?MODULE, ipaddress)
                          ])
               }
      }
     ];
 fields(orlist) ->
     [{'or', #{type => union_array(
-                         [ hoconsc:ref(username)
-                         , hoconsc:ref(clientid)
-                         , hoconsc:ref(ipaddress)
+                         [ hoconsc:ref(?MODULE, username)
+                         , hoconsc:ref(?MODULE, clientid)
+                         , hoconsc:ref(?MODULE, ipaddress)
                          ])
               }
      }
@@ -81,9 +77,11 @@ union_array(Item) when is_list(Item) ->
 
 rules() -> 
     #{type => union_array(
-                [ hoconsc:ref(simple_rule)
-                , hoconsc:ref(sql_connector)
-                , hoconsc:ref(redis_connector)
+                [ hoconsc:ref(?MODULE, simple_rule)
+                , hoconsc:ref(?MODULE, mysql)
+                , hoconsc:ref(?MODULE, pgsql)
+                , hoconsc:ref(?MODULE, redis)
+                , hoconsc:ref(?MODULE, mongo)
                 ])
     }.
 
@@ -91,11 +89,11 @@ principal() ->
     #{default => all,
       type => hoconsc:union(
                 [ all
-                , hoconsc:ref(username)
-                , hoconsc:ref(clientid)
-                , hoconsc:ref(ipaddress)
-                , hoconsc:ref(andlist)
-                , hoconsc:ref(orlist)
+                , hoconsc:ref(?MODULE, username)
+                , hoconsc:ref(?MODULE, clientid)
+                , hoconsc:ref(?MODULE, ipaddress)
+                , hoconsc:ref(?MODULE, andlist)
+                , hoconsc:ref(?MODULE, orlist)
                 ])
      }.
 
@@ -108,3 +106,9 @@ query() ->
                          end
                        end
      }.
+
+connector_fields(DB) ->
+    Mod = list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
+    [ {principal, principal()}
+    , {type, #{type => DB}}
+    ] ++ Mod:fields("").

@@ -48,7 +48,9 @@
 -define(TAB, emqx_channel_registry).
 -define(LOCK, {?MODULE, cleanup_down}).
 
--rlog_shard({?ROUTE_SHARD, ?TAB}).
+-define(CM_SHARD, emqx_cm_shard).
+
+-rlog_shard({?CM_SHARD, ?TAB}).
 
 -record(channel, {chid, pid}).
 
@@ -111,6 +113,7 @@ init([]) ->
                 {storage_properties, [{ets, [{read_concurrency, true},
                                              {write_concurrency, true}]}]}]),
     ok = ekka_mnesia:copy_table(?TAB, ram_copies),
+    ok = ekka_rlog:wait_for_shards([?CM_SHARD], infinity),
     ok = ekka:monitor(membership),
     {ok, #{}}.
 
@@ -125,7 +128,7 @@ handle_cast(Msg, State) ->
 handle_info({membership, {mnesia, down, Node}}, State) ->
     global:trans({?LOCK, self()},
                  fun() ->
-                     ekka_mnesia:transaction(?ROUTE_SHARD, fun cleanup_channels/1, [Node])
+                     ekka_mnesia:transaction(?CM_SHARD, fun cleanup_channels/1, [Node])
                  end),
     {noreply, State};
 

@@ -15,12 +15,14 @@ do(Dir, CONFIG) ->
 bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
 
+quicer() ->
+    %% @todo use tag
+    {quicer, {git, "https://github.com/emqx/quic.git", {branch, "main"}}}.
+
 deps(Config) ->
     {deps, OldDeps} = lists:keyfind(deps, 1, Config),
-    MoreDeps = case provide_bcrypt_dep() of
-        true -> [bcrypt()];
-        false -> []
-    end,
+    MoreDeps = [bcrypt() || provide_bcrypt_dep()] ++
+        [quicer() || is_quicer_supported()],
     {HasElixir, ExtraDeps} = extra_deps(),
     {HasElixir, lists:keystore(deps, 1, Config, {deps, OldDeps ++ MoreDeps ++ ExtraDeps})}.
 
@@ -78,6 +80,24 @@ is_cover_enabled() ->
 is_enterprise() ->
     filelib:is_regular("EMQX_ENTERPRISE").
 
+is_quicer_supported() ->
+    not (false =/= os:getenv("BUILD_WITHOUT_QUIC") orelse
+         is_win32() orelse is_centos_6()
+        ).
+
+is_centos_6() ->
+    %% reason:
+    %% glibc is too old
+    case file:read_file("/etc/centos-release") of
+        {ok, <<"CentOS release 6", _/binary >>} ->
+            true;
+        _ ->
+            false
+    end.
+
+is_win32() ->
+    win32 =:= element(1, os:type()).
+
 project_app_dirs() ->
     ["apps/*"] ++
     case is_enterprise() of
@@ -127,23 +147,31 @@ prod_compile_opts() ->
 prod_overrides() ->
     [{add, [ {erl_opts, [deterministic]}]}].
 
+relup_deps(_Profile) ->
+    % {post_hooks, [{"(linux|darwin|solaris|freebsd|netbsd|openbsd)", compile, "scripts/inject-deps.escript " ++ atom_to_list(Profile)}]}.
+    {post_hooks, []}.
+
 profiles() ->
     Vsn = get_vsn(),
     [ {'emqx',          [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, bin)}
                         , {overrides, prod_overrides()}
+                        , relup_deps('emqx')
                         ]}
     , {'emqx-pkg',      [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, pkg)}
                         , {overrides, prod_overrides()}
+                        , relup_deps('emqx-pkg')
                         ]}
     , {'emqx-edge',     [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, bin)}
                         , {overrides, prod_overrides()}
+                        , relup_deps('emqx-edge')
                         ]}
     , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, pkg)}
                         , {overrides, prod_overrides()}
+                        , relup_deps('emqx-edge-pkg')
                         ]}
     , {check,           [ {erl_opts, common_compile_opts()}
                         ]}
@@ -185,11 +213,8 @@ overlay_vars_rel(RelType) ->
                  cloud -> "vm.args";
                  edge -> "vm.args.edge"
              end,
-    [ {enable_plugin_emqx_rule_engine, RelType =:= cloud}
-    , {enable_plugin_emqx_bridge_mqtt, RelType =:= edge}
-    , {enable_plugin_emqx_modules, false} %% modules is not a plugin in ce
-    , {enable_plugin_emqx_retainer, true}
-    , {vm_args_file, VmArgs}
+
+    [ {vm_args_file, VmArgs}
     ].
 
 %% vars per packaging type, bin(zip/tar.gz/docker) or pkg(rpm/deb)
@@ -199,7 +224,7 @@ overlay_vars_pkg(bin) ->
     , {platform_etc_dir, "etc"}
     , {platform_lib_dir, "lib"}
     , {platform_log_dir, "log"}
-    , {platform_plugins_dir,  "etc/plugins"}
+    , {platform_plugins_dir, "plugins"}
     , {runner_root_dir, "$(cd $(dirname $(readlink $0 || echo $0))/..; pwd -P)"}
     , {runner_bin_dir, "$RUNNER_ROOT_DIR/bin"}
     , {runner_etc_dir, "$RUNNER_ROOT_DIR/etc"}
@@ -214,7 +239,7 @@ overlay_vars_pkg(pkg) ->
     , {platform_etc_dir, "/etc/emqx"}
     , {platform_lib_dir, ""}
     , {platform_log_dir, "/var/log/emqx"}
-    , {platform_plugins_dir, "/var/lib/emqx/plugins"}
+    , {platform_plugins_dir, "/var/lib/enqx/plugins"}
     , {runner_root_dir, "/usr/lib/emqx"}
     , {runner_bin_dir, "/usr/bin"}
     , {runner_etc_dir, "/etc/emqx"}
@@ -241,23 +266,31 @@ relx_apps(ReleaseType) ->
     , {mnesia, load}
     , {ekka, load}
     , {emqx_plugin_libs, load}
-    , emqx_authz
     , observer_cli
     , emqx_http_lib
     , emqx_resource
     , emqx_connector
+    , emqx_authn
+    , emqx_authz
+    , emqx_gateway
     , emqx_data_bridge
+    , emqx_rule_engine
+    , emqx_rule_actions
+    , emqx_bridge_mqtt
+    , emqx_modules
+    , emqx_management
+    , emqx_retainer
+    , emqx_statsd
     ]
+    ++ [quicer || is_quicer_supported()]
     ++ [emqx_telemetry || not is_enterprise()]
-    ++ [emqx_modules || not is_enterprise()]
     ++ [emqx_license || is_enterprise()]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
     ++ relx_apps_per_rel(ReleaseType)
     ++ [{N, load} || N <- relx_plugin_apps(ReleaseType)].
 
 relx_apps_per_rel(cloud) ->
-    [ luerl
-    , xmerl
+    [ xmerl
     | [{observer, load} || is_app(observer)]
     ];
 relx_apps_per_rel(edge) ->
@@ -271,31 +304,13 @@ is_app(Name) ->
     end.
 
 relx_plugin_apps(ReleaseType) ->
-    [ emqx_retainer
-    , emqx_management
-    , emqx_dashboard
-    , emqx_bridge_mqtt
-    , emqx_sn
-    , emqx_coap
-    , emqx_stomp
-    , emqx_authentication
-    , emqx_web_hook
-    , emqx_rule_engine
-    , emqx_sasl
-    , emqx_statsd
-    ]
+    []
     ++ relx_plugin_apps_per_rel(ReleaseType)
     ++ relx_plugin_apps_enterprise(is_enterprise())
     ++ relx_plugin_apps_extra().
 
 relx_plugin_apps_per_rel(cloud) ->
-    [ emqx_lwm2m
-    , emqx_lua_hook
-    , emqx_exhook
-    , emqx_exproto
-    , emqx_prometheus
-    , emqx_psk_file
-    ];
+    [];
 relx_plugin_apps_per_rel(edge) ->
     [].
 
@@ -311,12 +326,11 @@ relx_plugin_apps_extra() ->
 relx_overlay(ReleaseType) ->
     [ {mkdir, "log/"}
     , {mkdir, "data/"}
+    , {mkdir, "plugins"}
     , {mkdir, "data/mnesia"}
     , {mkdir, "data/configs"}
     , {mkdir, "data/patches"}
     , {mkdir, "data/scripts"}
-    , {template, "data/loaded_plugins.tmpl", "data/loaded_plugins"}
-    , {template, "data/loaded_modules.tmpl", "data/loaded_modules"}
     , {template, "data/emqx_vars", "releases/emqx_vars"}
     , {template, "data/BUILT_ON", "releases/{{release_version}}/BUILT_ON"}
     , {copy, "bin/emqx", "bin/emqx"}
@@ -336,12 +350,8 @@ relx_overlay(ReleaseType) ->
          end.
 
 etc_overlay(ReleaseType) ->
-    PluginApps = relx_plugin_apps(ReleaseType),
-    Templates = emqx_etc_overlay(ReleaseType) ++
-                lists:append([plugin_etc_overlays(App) || App <- PluginApps]) ++
-                [community_plugin_etc_overlays(App) || App <- relx_plugin_apps_extra()],
+    Templates = emqx_etc_overlay(ReleaseType),
     [ {mkdir, "etc/"}
-    , {mkdir, "etc/plugins"}
     , {copy, "{{base_dir}}/lib/emqx/etc/certs","etc/"}
     ] ++
     lists:map(
@@ -351,8 +361,7 @@ etc_overlay(ReleaseType) ->
     ++ extra_overlay(ReleaseType).
 
 extra_overlay(cloud) ->
-    [ {copy,"{{base_dir}}/lib/emqx_lwm2m/lwm2m_xml","etc/"}
-    , {copy, "{{base_dir}}/lib/emqx_psk_file/etc/psk.txt", "etc/psk.txt"}
+    [
     ];
 extra_overlay(edge) ->
     [].
@@ -366,38 +375,9 @@ emqx_etc_overlay(edge) ->
     ].
 
 emqx_etc_overlay_common() ->
-    [{"{{base_dir}}/lib/emqx/etc/acl.conf", "etc/acl.conf"},
-     {"{{base_dir}}/lib/emqx/etc/emqx.conf", "etc/emqx.conf"},
-     {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"},
-     {"{{base_dir}}/lib/emqx_data_bridge/etc/emqx_data_bridge.conf", "etc/plugins/emqx_data_bridge.conf"},
-     {"{{base_dir}}/lib/emqx_telemetry/etc/emqx_telemetry.conf", "etc/plugins/emqx_telemetry.conf"},
-     {"{{base_dir}}/lib/emqx_authz/etc/emqx_authz.conf", "etc/plugins/authz.conf"},
-     %% TODO: check why it has to end with .paho
-     %% and why it is put to etc/plugins dir
-     {"{{base_dir}}/lib/emqx/etc/acl.conf.paho", "etc/plugins/acl.conf.paho"}].
-
-plugin_etc_overlays(App0) ->
-    App = atom_to_list(App0),
-    ConfFiles = find_conf_files(App),
-    %% NOTE: not filename:join here since relx translates it for windows
-    [{"{{base_dir}}/lib/"++ App ++"/etc/" ++ F, "etc/plugins/" ++ F}
-     || F <- ConfFiles].
-
-community_plugin_etc_overlays(App0) ->
-    App = atom_to_list(App0),
-    {"{{base_dir}}/lib/"++ App ++"/etc/" ++ App ++ ".conf", "etc/plugins/" ++ App ++ ".conf"}.
-
-%% NOTE: for apps fetched as rebar dependency (there is so far no such an app)
-%% the overlay should be hand-coded but not to rely on build-time wildcards.
-find_conf_files(App) ->
-    Dir1 = filename:join(["apps", App, "etc"]),
-    filelib:wildcard("*.conf", Dir1) ++
-    case is_enterprise() of
-        true ->
-            Dir2 = filename:join(["lib-ee", App, "etc"]),
-            filelib:wildcard("*.conf", Dir2);
-        false -> []
-    end.
+    [ {"{{base_dir}}/lib/emqx/etc/emqx.conf.all", "etc/emqx.conf"}
+    , {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"}
+    ].
 
 get_vsn() ->
     PkgVsn = os:cmd("./pkg-vsn.sh"),

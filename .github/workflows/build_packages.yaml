@@ -48,6 +48,7 @@ jobs:
         if: endsWith(github.repository, 'emqx')
         run: |
           make -C source deps-all
+          rm source/rebar.lock
           zip -ryq source.zip source/* source/.[^.]*
       - name: get_all_deps
         if: endsWith(github.repository, 'enterprise')
@@ -69,6 +70,7 @@ jobs:
     if: endsWith(github.repository, 'emqx')
 
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         exclude:
@@ -89,6 +91,7 @@ jobs:
     - name: build
       env:
         PYTHON: python
+        DIAGNOSTIC: 1
       run: |
         $env:PATH = "${{ steps.install_erlang.outputs.erlpath }}\bin;$env:PATH"
 
@@ -136,6 +139,7 @@ jobs:
     needs: prepare
 
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
@@ -174,19 +178,21 @@ jobs:
     - name: build
       run: |
         . $HOME/.kerl/${{ matrix.erl_otp }}/activate
-        make -C source ensure-rebar3
-        sudo cp source/rebar3 /usr/local/bin/rebar3
-        make -C source ${{ matrix.profile }}-zip
+        cd source
+        make ensure-rebar3
+        sudo cp rebar3 /usr/local/bin/rebar3
+        rm -rf _build/${{ matrix.profile }}/lib
+        make ${{ matrix.profile }}-zip
     - name: test
       run: |
         cd source
         pkg_name=$(basename _packages/${{ matrix.profile }}/${{ matrix.profile }}-*.zip)
         unzip -q _packages/${{ matrix.profile }}/$pkg_name
-        gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
+        # gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
         for i in {1..10}; do
-          if curl -fs 127.0.0.1:18083 > /dev/null; then
+          if curl -fs 127.0.0.1:8081/status > /dev/null; then
             ready='yes'
             break
           fi
@@ -213,6 +219,7 @@ jobs:
     needs: prepare
 
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         arch:
@@ -343,19 +350,13 @@ jobs:
     needs: prepare
 
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         arch:
           - [amd64, x86_64]
           - [arm64v8, aarch64]
           - [arm32v7, arm]
-          - [i386, i386]
-          - [s390x, s390x]
-        exclude:
-          - profile: emqx-ee
-            arch: [i386, i386]
-          - profile: emqx-ee
-            arch: [s390x, s390x]
 
     steps:
     - uses: actions/download-artifact@v2

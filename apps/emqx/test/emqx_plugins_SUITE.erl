@@ -63,64 +63,28 @@ t_load(_) ->
     ?assertEqual({error, not_started}, emqx_plugins:unload(emqx_hocon_plugin)),
 
     application:set_env(emqx, expand_plugins_dir, undefined),
-    application:set_env(emqx, plugins_loaded_file, undefined),
-    ?assertEqual(ignore, emqx_plugins:load()),
-    ?assertEqual(ignore, emqx_plugins:unload()).
-
-
-t_init_config(_) ->
-    ConfFile = "emqx_mini_plugin.config",
-    Data = "[{emqx_mini_plugin,[{mininame ,test}]}].",
-    file:write_file(ConfFile, list_to_binary(Data)),
-    ?assertEqual(ok, emqx_plugins:init_config(ConfFile)),
-    file:delete(ConfFile),
-    ?assertEqual({ok,test}, application:get_env(emqx_mini_plugin, mininame)).
+    application:set_env(emqx, plugins_loaded_file, undefined).
 
 t_load_ext_plugin(_) ->
     ?assertError({plugin_app_file_not_found, _},
                  emqx_plugins:load_ext_plugin("./not_existed_path/")).
 
 t_list(_) ->
-    ?assertMatch([{plugin, _, _, _, _, _, _, _} | _ ], emqx_plugins:list()).
+    ?assertMatch([{plugin, _, _, _, _, _, _} | _ ], emqx_plugins:list()).
 
 t_find_plugin(_) ->
-    ?assertMatch({plugin, emqx_mini_plugin, _, _, _, _, _, _}, emqx_plugins:find_plugin(emqx_mini_plugin)),
-    ?assertMatch({plugin, emqx_hocon_plugin, _, _, _, _, _, _}, emqx_plugins:find_plugin(emqx_hocon_plugin)).
-
-t_plugin_type(_) ->
-    ?assertEqual(auth, emqx_plugins:plugin_type(auth)),
-    ?assertEqual(protocol, emqx_plugins:plugin_type(protocol)),
-    ?assertEqual(backend, emqx_plugins:plugin_type(backend)),
-    ?assertEqual(bridge, emqx_plugins:plugin_type(bridge)),
-    ?assertEqual(feature, emqx_plugins:plugin_type(undefined)).
-
-t_with_loaded_file(_) ->
-    ?assertMatch({error, _}, emqx_plugins:with_loaded_file("./not_existed_path/", fun(_) -> ok end)).
-
-t_plugin_loaded(_) ->
-    ?assertEqual(ok, emqx_plugins:plugin_loaded(emqx_mini_plugin, false)),
-    ?assertEqual(ok, emqx_plugins:plugin_loaded(emqx_mini_plugin, true)),
-    ?assertEqual(ok, emqx_plugins:plugin_loaded(emqx_hocon_plugin, false)),
-    ?assertEqual(ok, emqx_plugins:plugin_loaded(emqx_hocon_plugin, true)).
-
-t_plugin_unloaded(_) ->
-    ?assertEqual(ok, emqx_plugins:plugin_unloaded(emqx_mini_plugin, false)),
-    ?assertEqual(ok, emqx_plugins:plugin_unloaded(emqx_mini_plugin, true)),
-    ?assertEqual(ok, emqx_plugins:plugin_unloaded(emqx_hocon_plugin, false)),
-    ?assertEqual(ok, emqx_plugins:plugin_unloaded(emqx_hocon_plugin, true)).
+    ?assertMatch({plugin, emqx_mini_plugin, _, _, _, _, _}, emqx_plugins:find_plugin(emqx_mini_plugin)),
+    ?assertMatch({plugin, emqx_hocon_plugin, _, _, _, _, _}, emqx_plugins:find_plugin(emqx_hocon_plugin)).
 
 t_plugin(_) ->
     try
-        emqx_plugins:plugin(not_existed_plugin, undefined)
+        emqx_plugins:plugin(not_existed_plugin)
     catch
         _Error:Reason:_Stacktrace ->
             ?assertEqual({plugin_not_found,not_existed_plugin}, Reason)
     end,
-    ?assertMatch({plugin, emqx_mini_plugin, _, _, _, _, _, _}, emqx_plugins:plugin(emqx_mini_plugin, undefined)),
-    ?assertMatch({plugin, emqx_hocon_plugin, _, _, _, _, _, _}, emqx_plugins:plugin(emqx_hocon_plugin, undefined)).
-
-t_filter_plugins(_) ->
-    ?assertEqual([name1, name2], emqx_plugins:filter_plugins([name1, {name2,true}, {name3, false}])).
+    ?assertMatch({plugin, emqx_mini_plugin, _, _, _, _, _}, emqx_plugins:plugin(emqx_mini_plugin)),
+    ?assertMatch({plugin, emqx_hocon_plugin, _, _, _, _, _}, emqx_plugins:plugin(emqx_hocon_plugin)).
 
 t_load_plugin(_) ->
     ok = meck:new(application, [unstick, non_strict, passthrough, no_history]),
@@ -133,9 +97,9 @@ t_load_plugin(_) ->
     ok = meck:new(emqx_plugins, [unstick, non_strict, passthrough, no_history]),
     ok = meck:expect(emqx_plugins, generate_configs, fun(_) -> ok end),
     ok = meck:expect(emqx_plugins, apply_configs, fun(_) -> ok end),
-    ?assertMatch({error, _}, emqx_plugins:load_plugin(already_loaded_app, true)),
-    ?assertMatch(ok, emqx_plugins:load_plugin(normal, true)),
-    ?assertMatch({error,_}, emqx_plugins:load_plugin(error_app, true)),
+    ?assertMatch({error, _}, emqx_plugins:load_plugin(already_loaded_app)),
+    ?assertMatch(ok, emqx_plugins:load_plugin(normal)),
+    ?assertMatch({error,_}, emqx_plugins:load_plugin(error_app)),
 
     ok = meck:unload(emqx_plugins),
     ok = meck:unload(application).
@@ -146,8 +110,8 @@ t_unload_plugin(_) ->
                                            (error_app) -> {error, error};
                                            (_) -> ok end),
 
-    ?assertEqual(ok, emqx_plugins:unload_plugin(not_started_app, true)),
-    ?assertEqual(ok, emqx_plugins:unload_plugin(normal, true)),
-    ?assertEqual({error,error}, emqx_plugins:unload_plugin(error_app, true)),
+    ?assertEqual(ok, emqx_plugins:unload_plugin(not_started_app)),
+    ?assertEqual(ok, emqx_plugins:unload_plugin(normal)),
+    ?assertEqual({error,error}, emqx_plugins:unload_plugin(error_app)),
 
     ok = meck:unload(application).

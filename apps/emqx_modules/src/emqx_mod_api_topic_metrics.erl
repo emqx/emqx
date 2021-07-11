@@ -116,11 +116,7 @@ unregister(#{topic := Topic0}, _Params) ->
     end).
 
 execute_when_enabled(Fun) ->
-    Enabled = case emqx_modules:find_module(emqx_mod_topic_metrics) of
-                  [{_, false}] -> false;
-                  [{_, true}] -> true
-              end,
-    case Enabled of
+    case emqx_modules:find_module(topic_metrics) of
         true ->
             Fun();
         false ->

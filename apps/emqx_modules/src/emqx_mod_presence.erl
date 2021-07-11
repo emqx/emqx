@@ -117,7 +117,7 @@ topic(connected, ClientId) ->
 topic(disconnected, ClientId) ->
     emqx_topic:systop(iolist_to_binary(["clients/", ClientId, "/disconnected"])).
 
-qos(Env) -> proplists:get_value(qos, Env, 0).
+qos(Env) -> maps:get(qos, Env, 0).
 
 -compile({inline, [reason/1]}).
 reason(Reason) when is_atom(Reason) -> Reason;

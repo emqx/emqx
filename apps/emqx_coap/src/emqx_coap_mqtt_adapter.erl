@@ -105,8 +105,8 @@ call(Pid, Msg, _) ->
 %%--------------------------------------------------------------------
 
 init({ClientId, Username, Password, Channel}) ->
-    ?LOG(debug, "try to start adapter ClientId=~p, Username=~p, Password=~p, "
-                "Channel=~0p", [ClientId, Username, Password, Channel]),
+    ?LOG(debug, "try to start adapter ClientId=~p, Username=~p, "
+                "Channel=~0p", [ClientId, Username, Channel]),
     State0 = #state{peername = Channel,
                     clientid = ClientId,
                     username = Username,
@@ -222,7 +222,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 chann_subscribe(Topic, State = #state{clientid = ClientId}) ->
     ?LOG(debug, "subscribe Topic=~p", [Topic]),
-    case emqx_access_control:check_acl(clientinfo(State), subscribe, Topic) of
+    case emqx_access_control:authorize(clientinfo(State), subscribe, Topic) of
         allow ->
             emqx_broker:subscribe(Topic, ClientId, ?SUBOPTS),
             emqx_hooks:run('session.subscribed', [clientinfo(State), Topic, ?SUBOPTS]),
@@ -241,7 +241,7 @@ chann_unsubscribe(Topic, State) ->
 
 chann_publish(Topic, Payload, State = #state{clientid = ClientId}) ->
     ?LOG(debug, "publish Topic=~p, Payload=~p", [Topic, Payload]),
-    case emqx_access_control:check_acl(clientinfo(State), publish, Topic) of
+    case emqx_access_control:authorize(clientinfo(State), publish, Topic) of
         allow ->
             _ = emqx_broker:publish(
                     emqx_message:set_flag(retain, false,
@@ -384,4 +384,3 @@ clientinfo(#state{peername = {PeerHost, _},
       mountpoint => undefined,
       ws_cookie  => undefined
      }.
-

@@ -40,38 +40,37 @@
 -define(OVERVIEWS, ['alarms/activated', 'alarms/deactivated', banned, brokers, stats, metrics, listeners, clients, subscriptions, routes, plugins]).
 
 all() ->
-    [{group, overview},
-     {group, admins},
-     {group, rest},
-     {group, cli}
-     ].
-
-groups() ->
-    [{overview, [sequence], [t_overview]},
-     {admins, [sequence], [t_admins_add_delete]},
-     {rest, [sequence], [t_rest_api]},
-     {cli, [sequence], [t_cli]}
-    ].
+    emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_dashboard]),
+    emqx_ct_helpers:start_apps([emqx_management, emqx_dashboard],fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_dashboard, emqx_management, emqx_modules]),
+    emqx_ct_helpers:stop_apps([emqx_dashboard, emqx_management]),
     ekka_mnesia:ensure_stopped().
 
+set_special_configs(emqx_management) ->
+    emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
+        applications =>[#{id => "admin", secret => "public"}]}),
+    ok;
+set_special_configs(_) ->
+    ok.
+
 t_overview(_) ->
+    mnesia:clear_table(mqtt_admin),
+    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"tag">>),
     [?assert(request_dashboard(get, api_path(erlang:atom_to_list(Overview)), auth_header_()))|| Overview <- ?OVERVIEWS].
 
 t_admins_add_delete(_) ->
+    mnesia:clear_table(mqtt_admin),
     ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, <<"tag">>),
     ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, <<"tag1">>),
     Admins = emqx_dashboard_admin:all_users(),
-    ?assertEqual(3, length(Admins)),
+    ?assertEqual(2, length(Admins)),
     ok = emqx_dashboard_admin:remove_user(<<"username1">>),
     Users = emqx_dashboard_admin:all_users(),
-    ?assertEqual(2, length(Users)),
+    ?assertEqual(1, length(Users)),
     ok = emqx_dashboard_admin:change_password(<<"username">>, <<"password">>, <<"pwd">>),
     timer:sleep(10),
     ?assert(request_dashboard(get, api_path("brokers"), auth_header_("username", "pwd"))),
@@ -80,6 +79,8 @@ t_admins_add_delete(_) ->
     ?assertNotEqual(true, request_dashboard(get, api_path("brokers"), auth_header_("username", "pwd"))).
 
 t_rest_api(_Config) ->
+    mnesia:clear_table(mqtt_admin),
+    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"administrator">>),
     {ok, Res0} = http_get("users"),
 
     ?assertEqual([#{<<"username">> => <<"admin">>,

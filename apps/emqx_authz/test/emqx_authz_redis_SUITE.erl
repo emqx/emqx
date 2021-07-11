@@ -30,7 +30,7 @@ groups() ->
 
 init_per_suite(Config) ->
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_resource, check_and_create, fun(_, _, _) -> {ok, meck_data} end ),
+    meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end ),
     ok = emqx_ct_helpers:start_apps([emqx_authz], fun set_special_configs/1),
     Config.
 
@@ -47,21 +47,12 @@ set_special_configs(emqx) ->
                         emqx_ct_helpers:deps_path(emqx, "test/loaded_plguins")),
     ok;
 set_special_configs(emqx_authz) ->
-    application:set_env(emqx, plugins_etc_dir,
-                        emqx_ct_helpers:deps_path(emqx_authz, "test")),
-    Conf = #{<<"authz">> =>
-             #{<<"rules">> =>
-               [#{<<"config">> =>#{
-                    <<"server">> => <<"127.0.0.1:6379">>,
-                    <<"password">> => <<"public">>,
-                    <<"pool_size">> => 1,
-                    <<"auto_reconnect">> => true
-                  },
-                  <<"principal">> => all,
-                  <<"cmd">> => <<"fake cmd">>,
-                  <<"type">> => redis}
-               ]}},
-    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf'), jsx:encode(Conf)),
+    Rules = [#{config =>#{},
+               principal => all,
+               cmd => <<"fake">>,
+               type => redis}
+            ],
+    emqx_config:put([emqx_authz], #{rules => Rules}),
     ok;
 set_special_configs(_App) ->
     ok.
@@ -77,37 +68,36 @@ set_special_configs(_App) ->
 t_authz(_) ->
     ClientInfo = #{clientid => <<"clientid">>,
                    username => <<"username">>,
-                   peerhost => {127,0,0,1},
-                   zone => zone
+                   peerhost => {127,0,0,1}
                    },
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, []} end),
     % nomatch
     ?assertEqual(deny,
-                 emqx_access_control:check_acl(ClientInfo, subscribe, <<"#">>)),
+                 emqx_access_control:authorize(ClientInfo, subscribe, <<"#">>)),
     ?assertEqual(deny,
-                 emqx_access_control:check_acl(ClientInfo, publish, <<"#">>)),
+                 emqx_access_control:authorize(ClientInfo, publish, <<"#">>)),
 
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?RULE1 ++ ?RULE2} end),
     % nomatch
     ?assertEqual(deny,
-        emqx_access_control:check_acl(ClientInfo, subscribe, <<"+">>)),
+        emqx_access_control:authorize(ClientInfo, subscribe, <<"+">>)),
     % nomatch
     ?assertEqual(deny,
-        emqx_access_control:check_acl(ClientInfo, subscribe, <<"test/username">>)),
+        emqx_access_control:authorize(ClientInfo, subscribe, <<"test/username">>)),
 
     ?assertEqual(allow,
-        emqx_access_control:check_acl(ClientInfo, publish, <<"test/clientid">>)),
+        emqx_access_control:authorize(ClientInfo, publish, <<"test/clientid">>)),
     ?assertEqual(allow,
-        emqx_access_control:check_acl(ClientInfo, publish, <<"test/clientid">>)),
+        emqx_access_control:authorize(ClientInfo, publish, <<"test/clientid">>)),
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?RULE3} end),
 
     ?assertEqual(allow,
-        emqx_access_control:check_acl(ClientInfo, subscribe, <<"#">>)),
+        emqx_access_control:authorize(ClientInfo, subscribe, <<"#">>)),
     % nomatch
     ?assertEqual(deny,
-        emqx_access_control:check_acl(ClientInfo, publish, <<"#">>)),
+        emqx_access_control:authorize(ClientInfo, publish, <<"#">>)),
     ok.
 

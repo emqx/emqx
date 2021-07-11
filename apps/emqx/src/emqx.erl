@@ -227,7 +227,6 @@ shutdown() ->
 shutdown(Reason) ->
     ?LOG(critical, "emqx shutdown for ~s", [Reason]),
     _ = emqx_alarm_handler:unload(),
-    _ = emqx_plugins:unload(),
     lists:foreach(fun application:stop/1
                  , lists:reverse(default_started_applications())
                  ).
@@ -237,10 +236,10 @@ reboot() ->
 
 -ifdef(EMQX_ENTERPRISE).
 default_started_applications() ->
-    [gproc, esockd, ranch, cowboy, ekka, emqx].
+    [gproc, esockd, ranch, cowboy, ekka, quicer, emqx].
 -else.
 default_started_applications() ->
-    [gproc, esockd, ranch, cowboy, ekka, emqx, emqx_modules].
+    [gproc, esockd, ranch, cowboy, ekka, quicer, emqx] ++ emqx_feature().
 -endif.
 
 %%--------------------------------------------------------------------
@@ -253,3 +252,16 @@ reload_config(ConfFile) ->
                       [application:set_env(App, Par, Val) || {Par, Val} <- Vals]
                   end, Conf).
 
+
+emqx_feature() ->
+    [ emqx_resource
+    , emqx_authn
+    , emqx_authz
+    , emqx_gateway
+    , emqx_data_bridge
+    , emqx_rule_engine
+    , emqx_bridge_mqtt
+    , emqx_modules
+    , emqx_management
+    , emqx_retainer
+    , emqx_statsd].

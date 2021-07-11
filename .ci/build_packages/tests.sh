@@ -38,8 +38,9 @@ emqx_test(){
                 packagename=$(basename "${PACKAGE_PATH}/${EMQX_NAME}"-*.zip)
                 unzip -q "${PACKAGE_PATH}/${packagename}"
                 export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60 \
-                       EMQX_MQTT__MAX_TOPIC_ALIAS=10
-                sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
+                    EMQX_MQTT__MAX_TOPIC_ALIAS=10
+                [[ $(arch) == *arm* || $(arch) == aarch64 ]] && export EMQX_LISTENER__QUIC__EXTERNAL__ENDPOINT=''
+                # sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
                 echo "running ${packagename} start"
                 if ! "${PACKAGE_PATH}"/emqx/bin/emqx start; then
@@ -113,11 +114,25 @@ emqx_test(){
 }
 
 running_test(){
-    export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60 \
-           EMQX_MQTT__MAX_TOPIC_ALIAS=10
-    sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
+    # sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
+    emqx_env_vars=$(dirname "$(readlink "$(command -v emqx)")")/../releases/emqx_vars
 
-    if ! emqx start; then
+    if [ -f "$emqx_env_vars" ];
+    then
+        tee -a "$emqx_env_vars" <<EOF
+export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60
+export EMQX_MQTT__MAX_TOPIC_ALIAS=10
+EOF
+        ## for ARM, due to CI env issue, skip start of quic listener for the moment
+        [[ $(arch) == *arm* || $(arch) == aarch64 ]] && tee tee -a "$emqx_env_vars" <<EOF
+export EMQX_LISTENER__QUIC__EXTERNAL__ENDPOINT=''
+EOF
+    else
+        echo "Error: cannot locate emqx_vars"
+        exit 1
+    fi
+
+    if ! su - emqx -c "emqx start"; then
         cat /var/log/emqx/erlang.log.1 || true
         cat /var/log/emqx/emqx.log.1 || true
         exit 1
@@ -138,7 +153,6 @@ running_test(){
 
     if [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = ubuntu ] \
     || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] ;then
-
         if ! service emqx start; then
             cat /var/log/emqx/erlang.log.1 || true
             cat /var/log/emqx/emqx.log.1 || true

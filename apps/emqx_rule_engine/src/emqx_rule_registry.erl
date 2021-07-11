@@ -19,6 +19,7 @@
 -behaviour(gen_server).
 
 -include("rule_engine.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 
@@ -93,14 +94,12 @@
 
 -define(REGISTRY, ?MODULE).
 
-%% Statistics
--define(STATS,
-        [ {?RULE_TAB, 'rules.count', 'rules.max'}
-        , {?ACTION_TAB, 'actions.count', 'actions.max'}
-        , {?RES_TAB, 'resources.count', 'resources.max'}
-        ]).
-
 -define(T_CALL, 10000).
+
+-rlog_shard({?RULE_ENGINE_SHARD, ?RULE_TAB}).
+-rlog_shard({?RULE_ENGINE_SHARD, ?ACTION_TAB}).
+-rlog_shard({?RULE_ENGINE_SHARD, ?RES_TAB}).
+-rlog_shard({?RULE_ENGINE_SHARD, ?RES_TYPE_TAB}).
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -181,7 +180,7 @@ get_rules_ordered_by_ts() ->
         Query = qlc:q([E || E <- mnesia:table(?RULE_TAB)]),
         qlc:e(qlc:keysort(#rule.created_at, Query, [{order, ascending}]))
     end,
-    {atomic, List} = mnesia:transaction(F),
+    {atomic, List} = ekka_mnesia:transaction(?RULE_ENGINE_SHARD, F),
     List.
 
 -spec(get_rules_for(Topic :: binary()) -> list(emqx_rule_engine:rule())).
@@ -392,8 +391,11 @@ find_rules_depends_on_resource(ResId) ->
     end, [], get_rules()).
 
 search_action_despends_on_resource(ResId, Actions) ->
-    lists:search(fun(#action_instance{args = #{<<"$resource">> := ResId0}}) ->
-        ResId0 =:= ResId
+    lists:search(fun
+        (#action_instance{args = #{<<"$resource">> := ResId0}}) ->
+            ResId0 =:= ResId;
+        (_) ->
+            false
     end, Actions).
 
 %%------------------------------------------------------------------------------
@@ -439,8 +441,6 @@ delete_resource_type(Type) ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    %% Enable stats timer
-    ok = emqx_stats:update_interval(rule_registery_stats, fun update_stats/0),
     _TableId = ets:new(?KV_TAB, [named_table, set, public, {write_concurrency, true},
                                  {read_concurrency, true}]),
     {ok, #{}}.
@@ -466,7 +466,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    emqx_stats:cancel_update(rule_registery_stats).
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -475,20 +475,20 @@ code_change(_OldVsn, State, _Extra) ->
 %% Private functions
 %%------------------------------------------------------------------------------
 
-update_stats() ->
-    lists:foreach(
-      fun({Tab, Stat, MaxStat}) ->
-              Size = mnesia:table_info(Tab, size),
-              emqx_stats:setstat(Stat, MaxStat, Size)
-      end, ?STATS).
-
 get_all_records(Tab) ->
     %mnesia:dirty_match_object(Tab, mnesia:table_info(Tab, wild_pattern)).
-    ets:tab2list(Tab).
+    %% Wrapping ets to a r/o transaction to avoid reading inconsistent
+    %% data during shard bootstrap
+    {atomic, Ret} =
+        ekka_mnesia:ro_transaction(?RULE_ENGINE_SHARD,
+                                   fun() ->
+                                           ets:tab2list(Tab)
+                                   end),
+    Ret.
 
 trans(Fun) -> trans(Fun, []).
 trans(Fun, Args) ->
-    case mnesia:transaction(Fun, Args) of
+    case ekka_mnesia:transaction(?RULE_ENGINE_SHARD, Fun, Args) of
         {atomic, Result} -> Result;
         {aborted, Reason} -> error(Reason)
     end.

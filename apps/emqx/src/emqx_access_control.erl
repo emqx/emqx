@@ -20,7 +20,7 @@
 
 -export([authenticate/1]).
 
--export([ check_acl/3
+-export([ authorize/3
         ]).
 
 -type(result() :: #{auth_result := emqx_types:auth_result(),
@@ -42,26 +42,25 @@ authenticate(ClientInfo = #{zone := Zone}) ->
     end.
 
 %% @doc Check ACL
--spec(check_acl(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic())
+-spec(authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic())
       -> allow | deny).
-check_acl(ClientInfo, PubSub, Topic) ->
+authorize(ClientInfo, PubSub, Topic) ->
     case emqx_acl_cache:is_enabled() of
-        true  -> check_acl_cache(ClientInfo, PubSub, Topic);
-        false -> do_check_acl(ClientInfo, PubSub, Topic)
+        true  -> check_authorization_cache(ClientInfo, PubSub, Topic);
+        false -> do_authorize(ClientInfo, PubSub, Topic)
     end.
 
-check_acl_cache(ClientInfo, PubSub, Topic) ->
+check_authorization_cache(ClientInfo, PubSub, Topic) ->
     case emqx_acl_cache:get_acl_cache(PubSub, Topic) of
         not_found ->
-            AclResult = do_check_acl(ClientInfo, PubSub, Topic),
+            AclResult = do_authorize(ClientInfo, PubSub, Topic),
             emqx_acl_cache:put_acl_cache(PubSub, Topic, AclResult),
             AclResult;
         AclResult -> AclResult
     end.
 
-do_check_acl(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
-    Default = emqx_zone:get_env(Zone, acl_nomatch, deny),
-    case run_hooks('client.check_acl', [ClientInfo, PubSub, Topic], Default) of
+do_authorize(ClientInfo, PubSub, Topic) ->
+    case run_hooks('client.authorize', [ClientInfo, PubSub, Topic], allow) of
         allow  -> allow;
         _Other -> deny
     end.
