@@ -72,7 +72,7 @@ common_fields() ->
     ] ++ proplists:delete(base_url, emqx_connector_http:fields(config)).
 
 validations() ->
-    [ {check_ssl_opts, fun check_ssl_opts/1} ].
+    [ {check_ssl_opts, fun emqx_connector_http:check_ssl_opts/1} ].
 
 url(type) -> binary();
 url(nullable) -> false;
@@ -188,17 +188,6 @@ check_form_data(FormData) ->
                           end, NKVs);
         false ->
             false
-    end.
-
-check_ssl_opts(Conf) ->
-    URL = hocon_schema:get_value("url", Conf),
-    {ok, #{scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
-    SSLOpts = hocon_schema:get_value("ssl_opts", Conf),
-    case {Scheme, SSLOpts} of
-        {http, undefined} -> true;
-        {http, _} -> false;
-        {https, undefined} -> false;
-        {https, _} -> true
     end.
 
 preprocess_form_data(FormData) ->

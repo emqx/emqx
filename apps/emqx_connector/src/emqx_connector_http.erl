@@ -32,6 +32,8 @@
         , fields/1
         , validations/0]).
 
+-export([ check_ssl_opts/1 ]).
+
 -type connect_timeout() :: non_neg_integer() | infinity.
 -type pool_type() :: random | hash.
 
