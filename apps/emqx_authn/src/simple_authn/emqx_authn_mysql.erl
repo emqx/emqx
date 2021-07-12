@@ -58,10 +58,11 @@ query_timeout(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(ChainID, ServiceName, #{query := Query0,
-                               password_hash_algorithm := Algorithm} = Config) ->
+create(ChainID, AuthenticatorName,
+        #{query := Query0,
+          password_hash_algorithm := Algorithm} = Config) ->
     {Query, PlaceHolders} = parse_query(Query0),
-    ResourceID = iolist_to_binary(io_lib:format("~s/~s",[ChainID, ServiceName])),
+    ResourceID = iolist_to_binary(io_lib:format("~s/~s",[ChainID, AuthenticatorName])),
     State = #{query => Query,
               placeholders => PlaceHolders,
               password_hash_algorithm => Algorithm},
@@ -74,7 +75,7 @@ create(ChainID, ServiceName, #{query := Query0,
             {error, Reason}
     end.
 
-update(_ChainID, _ServiceName, Config, #{resource_id := ResourceID} = State) ->
+update(_ChainID, _AuthenticatorName, Config, #{resource_id := ResourceID} = State) ->
     case emqx_resource:update_local(ResourceID, emqx_connector_mysql, Config, []) of
         {ok, _} -> {ok, State};
         {error, Reason} -> {error, Reason}
