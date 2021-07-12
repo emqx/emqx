@@ -68,7 +68,7 @@ on_insta_create(_Insta = #{ id := InstaId,
         true ->
             %% FIXME:
             Port = 1884,
-            _ = emqx_sn_broadcast:start_link(SnGwId, Port)
+            _ = emqx_sn_broadcast:start_link(SnGwId, Port), ok
     end,
 
     PredefTopics = maps:get(predefined, RawConf),

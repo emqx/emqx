@@ -201,8 +201,13 @@ handle_call({register, ClientId, TopicName}, _From,
     end;
 
 handle_call({unregister, ClientId}, _From, State = #state{tabname = Tab}) ->
-    Registry = mnesia:dirty_match_object({Tab, {ClientId, '_'}, '_'}),
-    lists:foreach(fun(R) -> ekka_mnesia:dirty_delete_object(Tab, R) end, Registry),
+    Registry = mnesia:dirty_match_object(
+                 Tab,
+                 {emqx_sn_registry, {ClientId, '_'}, '_'}
+                ),
+    lists:foreach(fun(R) ->
+        ekka_mnesia:dirty_delete_object(Tab, R)
+    end, Registry),
     {reply, ok, State};
 
 handle_call(name, _From, State = #state{tabname = Tab}) ->

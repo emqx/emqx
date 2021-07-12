@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx_sn/include/emqx_sn.hrl").
+-include_lib("emqx_gateway/src/mqttsn/include/emqx_sn.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -59,23 +59,41 @@ all() ->
 
 init_per_suite(Config) ->
     logger:set_module_level(emqx_sn_gateway, debug),
-    emqx_ct_helpers:start_apps([emqx_sn], fun set_special_confs/1),
+    emqx_ct_helpers:start_apps([emqx_gateway], fun set_special_confs/1),
     Config.
 
 end_per_suite(_) ->
-    emqx_ct_helpers:stop_apps([emqx_sn]).
+    emqx_ct_helpers:stop_apps([emqx_gateway]).
 
 set_special_confs(emqx) ->
     application:set_env(emqx, plugins_loaded_file,
                         emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins"));
-set_special_confs(emqx_sn) ->
-    application:set_env(emqx_sn, enable_qos3, ?ENABLE_QOS3),
-    application:set_env(emqx_sn, enable_stats, true),
-    application:set_env(emqx_sn, username, <<"user1">>),
-    application:set_env(emqx_sn, password, <<"pw123">>),
-    application:set_env(emqx_sn, predefined,
-                        [{?PREDEF_TOPIC_ID1, ?PREDEF_TOPIC_NAME1},
-                         {?PREDEF_TOPIC_ID2, ?PREDEF_TOPIC_NAME2}]);
+set_special_confs(emqx_gateway) ->
+    emqx_config:put(
+      [emqx_gateway],
+      #{ mqttsn =>
+         #{'1' =>
+            #{broadcast => true,
+              clientinfo_override =>
+                  #{password => "pw123",
+                    username => "user1"
+                   },
+              enable_qos3 => true,
+              enable_stats => true,
+              gateway_id => 1,
+              idle_timeout => 30000,
+              listener =>
+                  #{udp =>
+                        #{'1' =>
+                              #{acceptors => 8,active_n => 100,backlog => 1024,bind => 1884,
+                                high_watermark => 1048576,max_conn_rate => 1000,
+                                max_connections => 10240000,send_timeout => 15000,
+                                send_timeout_close => true}}},
+              predefined =>
+                  [#{id => ?PREDEF_TOPIC_ID1, topic => ?PREDEF_TOPIC_NAME1},
+                   #{id => ?PREDEF_TOPIC_ID2, topic => ?PREDEF_TOPIC_NAME2}]}}
+       });
+
 set_special_confs(_App) ->
     ok.
 
@@ -87,7 +105,7 @@ set_special_confs(_App) ->
 %% Connect
 
 t_connect(_) ->
-    SockName = {'mqttsn:udp', {{0,0,0,0}, 1884}},
+    SockName = {'mqttsn#1:udp', 1884},
     ?assertEqual(true, lists:keymember(SockName, 1, esockd:listeners())),
 
     {ok, Socket} = gen_udp:open(0, [binary]),
@@ -170,7 +188,6 @@ t_subscribe_case02(_) ->
     ReturnCode = 0,
     {ok, Socket} = gen_udp:open(0, [binary]),
 
-    ClientId = ?CLIENTID,
     send_connect_msg(Socket, ?CLIENTID),
     ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
 
