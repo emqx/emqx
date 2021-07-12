@@ -26,7 +26,11 @@ all() -> emqx_ct:all(?MODULE).
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [flapping_detect, enable], true),
+    emqx_config:put_listener_conf(default, mqtt_tcp, [flapping_detect],
+        #{max_count => 3,
+          window_time => 100,
+          ban_time => 2
+        }),
     Config.
 
 end_per_suite(_Config) ->
@@ -35,7 +39,8 @@ end_per_suite(_Config) ->
     ok.
 
 t_detect_check(_) ->
-    ClientInfo = #{zone => external,
+    ClientInfo = #{zone => default,
+                   listener => mqtt_tcp,
                    clientid => <<"clientid">>,
                    peerhost => {127,0,0,1}
                   },
@@ -56,7 +61,8 @@ t_detect_check(_) ->
     ok = emqx_flapping:stop().
 
 t_expired_detecting(_) ->
-    ClientInfo = #{zone => external,
+    ClientInfo = #{zone => default,
+                   listener => mqtt_tcp,
                    clientid => <<"clientid">>,
                    peerhost => {127,0,0,1}},
     false = emqx_flapping:detect(ClientInfo),
