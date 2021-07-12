@@ -18,8 +18,6 @@
 
 -include("emqx_dashboard.hrl").
 
--import(minirest, [return/1]).
-
 -rest_api(#{name   => auth_user,
             method => 'POST',
             path   => "/auth",
@@ -107,3 +105,6 @@ delete(#{name := Username}, _Params) ->
 row(#mqtt_admin{username = Username, tags = Tags}) ->
     #{username => Username, tags => Tags}.
 
+return(_) ->
+%%    TODO: V5 API
+    ok.

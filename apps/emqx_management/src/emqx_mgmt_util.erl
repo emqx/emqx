@@ -21,6 +21,8 @@
         , kmg/1
         , ntoa/1
         , merge_maps/2
+        , not_found_schema/1
+        , batch_operation/3
         ]).
 
 -export([urldecode/1]).
@@ -77,3 +79,34 @@ merge_maps(Default, New) ->
 urldecode(S) ->
     emqx_http_lib:uri_decode(S).
 
+not_found_schema(Description) ->
+    not_found_schema(Description, ["RESOURCE_NOT_FOUND"]).
+
+not_found_schema(Description, Enum) ->
+    #{
+        description => Description,
+        schema => #{
+            type => object,
+            properties => #{
+                code => #{
+                    type => string,
+                    enum => Enum},
+                reason => #{
+                    type => string}}}
+    }.
+batch_operation(Module, Function, ArgsList) ->
+    Failed = batch_operation(Module, Function, ArgsList, []),
+    Len = erlang:length(Failed),
+    Success = erlang:length(ArgsList) - Len,
+    Fun = fun({Args, Reason}, Detail) -> [#{data => Args, reason => io_lib:format("~p", [Reason])} | Detail] end,
+    #{success => Success, failed => Len, detail => lists:foldl(Fun, [], Failed)}.
+
+batch_operation(_Module, _Function, [], Failed) ->
+    lists:reverse(Failed);
+batch_operation(Module, Function, [Args | ArgsList], Failed) ->
+    case erlang:apply(Module, Function, Args) of
+        ok ->
+            batch_operation(Module, Function, ArgsList, Failed);
+        {error ,Reason} ->
+            batch_operation(Module, Function, ArgsList, [{Args, Reason} | Failed])
+    end.

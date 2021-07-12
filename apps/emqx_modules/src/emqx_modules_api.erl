@@ -16,8 +16,6 @@
 
 -module(emqx_modules_api).
 
--import(minirest, [return/1]).
-
 -rest_api(#{name   => list_all_modules,
             method => 'GET',
             path   => "/modules/",
@@ -167,3 +165,7 @@ name(emqx_mod_presence) -> presence;
 name(emqx_mod_recon) -> recon;
 name(emqx_mod_rewrite) -> rewrite;
 name(emqx_mod_topic_metrics) -> topic_metrics.
+
+return(_) ->
+%%    TODO: V5 API
+    ok.
