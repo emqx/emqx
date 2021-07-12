@@ -263,7 +263,7 @@ generate_config() {
             ## if they are different
             if [ -n "$TMP_ARG_VALUE" ]; then
                 ## if the old value is present, replace it with generated value
-                sh -c "$SED_REPLACE 's/^$ARG_KEY.*$/$ARG_LINE/' $TMP_ARG_FILE"
+                sh -c "$SED_REPLACE 's|^$ARG_KEY.*$|$ARG_LINE|' $TMP_ARG_FILE"
             else
                 ## otherwise append generated value to the end
                 echo "$ARG_LINE" >> "$TMP_ARG_FILE"
