@@ -624,7 +624,7 @@ t_handle_deliver_nl(_) ->
     Channel = channel(#{clientinfo => ClientInfo, session => Session}),
     Msg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"t1">>, <<"qos1">>),
     NMsg = emqx_message:set_flag(nl, Msg),
-    {ok, Channel} = emqx_channel:handle_deliver([{deliver, <<"t1">>, NMsg}], Channel).
+    {ok, _} = emqx_channel:handle_deliver([{deliver, <<"t1">>, NMsg}], Channel).
 
 %%--------------------------------------------------------------------
 %% Test cases for handle_out
@@ -973,7 +973,8 @@ session(InitFields) when is_map(InitFields) ->
     maps:fold(fun(Field, Value, Session) ->
                       emqx_session:set_field(Field, Value, Session)
               end,
-              emqx_session:init(#{zone => channel}, #{receive_maximum => 0}),
+              emqx_session:init(#{zone => default, listener => mqtt_tcp},
+                  #{receive_maximum => 0}),
               InitFields).
 
 %% conn: 5/s; overall: 10/s

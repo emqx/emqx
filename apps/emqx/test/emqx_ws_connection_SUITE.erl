@@ -502,7 +502,7 @@ channel(InitFields) ->
                    peercert   => undefined,
                    mountpoint => undefined
                   },
-    Session = emqx_session:init(#{zone => external},
+    Session = emqx_session:init(#{zone => default, listener => mqtt_tcp},
                                 #{receive_maximum => 0}
                                ),
     maps:fold(fun(Field, Value, Channel) ->
