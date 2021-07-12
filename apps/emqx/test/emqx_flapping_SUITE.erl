@@ -25,17 +25,9 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([], fun set_special_configs/1),
+    emqx_ct_helpers:start_apps([]),
+    emqx_config:put_listener_conf(default, mqtt_tcp, [flapping_detect, enable], true),
     Config.
-
-set_special_configs(emqx) ->
-    emqx_zone:set_env(external, enable_flapping_detect, true),
-    application:set_env(emqx, flapping_detect_policy,
-                        #{threshold => 3,
-                          duration => 100,
-                          banned_interval => 2
-                         });
-set_special_configs(_App) -> ok.
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]),

@@ -277,7 +277,7 @@ fields("mqtt") ->
     , {"await_rel_timeout", t(duration_s(), undefined, "300s")}
     , {"session_expiry_interval", t(duration_s(), undefined, "2h")}
     , {"max_mqueue_len", maybe_infinity(integer(), 1000)}
-    , {"mqueue_priorities", t(comma_separated_list(), undefined, "none")}
+    , {"mqueue_priorities", maybe_disabled(map())}
     , {"mqueue_default_priority", t(union(highest, lowest), undefined, lowest)}
     , {"mqueue_store_qos0", t(boolean(), undefined, true)}
     , {"use_username_as_clientid", t(boolean(), undefined, false)}
