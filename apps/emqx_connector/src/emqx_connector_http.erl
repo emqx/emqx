@@ -193,7 +193,7 @@ on_health_check(_InstId, #{server := {Host, Port}} = State) ->
 %%--------------------------------------------------------------------
 
 check_base_url(URL) ->
-    case emqx_http_lib:parse(URL) of
+    case emqx_http_lib:uri_parse(URL) of
         {error, _} -> false;
         {ok, #{query := _}} -> false;
         _ -> true

@@ -61,11 +61,7 @@ fields(post) ->
     [ {method,          #{type => post,
                           default => get}}
     , {content_type,    fun content_type/1}
-    ] ++ common_fields();
-
-fields(ssl_opts) ->
-    emqx_connector_http:ssl_opts_fields().
-
+    ] ++ common_fields().
 common_fields() ->
     [ {url,             fun url/1}
     , {accept,          fun accept/1}
@@ -164,7 +160,7 @@ destroy(#{resource_id := ResourceID}) ->
 %%--------------------------------------------------------------------
 
 check_url(URL) ->
-    case emqx_http_lib:parse(URL) of
+    case emqx_http_lib:uri_parse(URL) of
         {ok, _} -> true;
         {error, _} -> false
     end.
