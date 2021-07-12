@@ -119,7 +119,7 @@ create(ChainID, AuthenticatorName,
     BaseURL = generate_base_url(URIMap),
     State = #{method          => Method,
               path            => Path,
-              base_query      => Query,
+              base_query      => cow_qs:parse_ps(Query),
               accept          => Accept,
               content_type    => ContentType,
               headers         => NHeaders,
@@ -146,9 +146,18 @@ authenticate(ClientInfo, #{resource_id := ResourceID,
                            request_timeout := RequestTimeout} = State) ->
     Request = generate_request(ClientInfo, State),
     case emqx_resource:query(ResourceID, {Method, Request, RequestTimeout}) of
-        {ok, _StatusCode, _Headers} -> ok;
-        {ok, _StatusCode, _Headers, _Body} -> ok;
-        {error, _Reason} -> ignore
+        {ok, 204, _Headers} -> ok;
+        {ok, 200, Headers, Body} ->
+            ContentType = proplists:get_value(Headers, <<"content-type">>, <<"application/json">>),
+            case safely_parse_body(ContentType, Body) of
+                {ok, _NBody} ->
+                    %% TODO: Return by user property
+                    ok;
+                {error, Reason} ->
+                    {stop, Reason}
+            end;
+        {error, _Reason} ->
+            ignore
     end.
 
 destroy(#{resource_id := ResourceID}) ->
@@ -222,7 +231,7 @@ generate_request(ClientInfo, #{method := Method,
             {NPath, Headers};
         post ->
             NPath = append_query(Path, BaseQuery),
-            Body = serialize_request_body(ContentType, FormData),
+            Body = serialize_body(ContentType, FormData),
             {NPath, Headers, Body}
     end.
 
@@ -264,10 +273,25 @@ qs([], Acc) ->
 qs([{K, V} | More], Acc) ->
     qs(More, [["&", emqx_http_lib:uri_encode(K), "=", emqx_http_lib:uri_encode(V)] | Acc]).
 
-serialize_request_body('application/json', FormData) ->
+serialize_body('application/json', FormData) ->
     emqx_json:encode(FormData);
-serialize_request_body('application/x-www-form-urlencoded', FormData) ->
+serialize_body('application/x-www-form-urlencoded', FormData) ->
     qs(FormData).
+
+safely_parse_body(ContentType, Body) ->
+    try parse_body(ContentType, Body) of
+        Result -> Result
+    catch
+        _Class:_Reason ->
+            {error, invalid_body}
+    end.
+
+parse_body(<<"application/json">>, Body) ->
+    {ok, emqx_json:decode(Body)};
+parse_body(<<"application/x-www-form-urlencoded">>, Body) ->
+    {ok, cow_qs:parse_ps(Body)};
+parse_body(ContentType, _) ->
+    {error, {unsupported_content_type, ContentType}}.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> list_to_binary(L);
