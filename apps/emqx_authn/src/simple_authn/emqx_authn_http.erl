@@ -119,7 +119,7 @@ create(ChainID, AuthenticatorName,
     BaseURL = generate_base_url(URIMap),
     State = #{method          => Method,
               path            => Path,
-              base_query      => cow_qs:parse_ps(Query),
+              base_query      => cow_qs:parse_qs(Query),
               accept          => Accept,
               content_type    => ContentType,
               headers         => NHeaders,
@@ -289,7 +289,7 @@ safely_parse_body(ContentType, Body) ->
 parse_body(<<"application/json">>, Body) ->
     {ok, emqx_json:decode(Body)};
 parse_body(<<"application/x-www-form-urlencoded">>, Body) ->
-    {ok, cow_qs:parse_ps(Body)};
+    {ok, cow_qs:parse_qs(Body)};
 parse_body(ContentType, _) ->
     {error, {unsupported_content_type, ContentType}}.
 
