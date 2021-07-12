@@ -62,13 +62,14 @@ fields(post) ->
                           default => get}}
     , {content_type,    fun content_type/1}
     ] ++ common_fields().
+
 common_fields() ->
     [ {url,             fun url/1}
     , {accept,          fun accept/1}
     , {headers,         fun headers/1}
     , {form_data,       fun form_data/1}
     , {request_timeout, fun request_timeout/1}
-    ] ++ proplists:delete(base_url, emqx_connector_http:fields()).
+    ] ++ proplists:delete(base_url, emqx_connector_http:fields(config)).
 
 validations() ->
     [ {check_ssl_opts, fun check_ssl_opts/1} ].

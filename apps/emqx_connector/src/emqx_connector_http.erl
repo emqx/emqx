@@ -28,9 +28,6 @@
         , on_health_check/2
         ]).
 
--export([ fields/0
-        ]).
-
 -export([ structs/0
         , fields/1
         , validations/0]).
@@ -47,16 +44,9 @@
 structs() -> [""].
 
 fields("") ->
-    fields();
+    [{config, #{type => hoconsc:ref(?MODULE, config)}}];
 
-fields(ssl_opts) ->
-    [ {cacertfile, fun cacertfile/1}
-    , {keyfile,    fun keyfile/1}
-    , {certfile,   fun certfile/1}
-    , {verify,     fun verify/1}
-    ].
-
-fields() ->
+fields(config) ->
     [ {base_url,        fun base_url/1}
     , {connect_timeout, fun connect_timeout/1}
     , {max_retries,     fun max_retries/1}
@@ -66,6 +56,13 @@ fields() ->
     , {pool_size,       fun pool_size/1}
     , {ssl_opts,        #{type => hoconsc:ref(?MODULE, ssl_opts),
                           nullable => true}}
+    ];
+
+fields(ssl_opts) ->
+    [ {cacertfile, fun cacertfile/1}
+    , {keyfile,    fun keyfile/1}
+    , {certfile,   fun certfile/1}
+    , {verify,     fun verify/1}
     ].
 
 validations() ->
