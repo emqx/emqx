@@ -22,6 +22,7 @@
         , ntoa/1
         , merge_maps/2
         , not_found_schema/1
+        , not_found_schema/2
         , batch_operation/3
         ]).
 
@@ -94,6 +95,7 @@ not_found_schema(Description, Enum) ->
                 reason => #{
                     type => string}}}
     }.
+
 batch_operation(Module, Function, ArgsList) ->
     Failed = batch_operation(Module, Function, ArgsList, []),
     Len = erlang:length(Failed),

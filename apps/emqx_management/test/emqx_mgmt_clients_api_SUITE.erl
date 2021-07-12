@@ -21,27 +21,15 @@
 
 -define(APP, emqx_management).
 
--define(SERVER, "http://127.0.0.1:8081").
--define(BASE_PATH, "/api/v5").
-
 all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    ekka_mnesia:start(),
-    emqx_mgmt_auth:mnesia(boot),
-    emqx_ct_helpers:start_apps([emqx_management], fun set_special_configs/1),
+    emqx_mgmt_api_test_util:default_init(),
     Config.
 
 end_per_suite(_) ->
-    emqx_ct_helpers:stop_apps([emqx_management]).
-
-set_special_configs(emqx_management) ->
-    emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
-        applications =>[#{id => "admin", secret => "public"}]}),
-    ok;
-set_special_configs(_App) ->
-    ok.
+    emqx_mgmt_api_test_util:default_end().
 
 t_clients(_) ->
     process_flag(trap_exit, true),
@@ -55,6 +43,8 @@ t_clients(_) ->
     Topic = <<"topic_1">>,
     Qos = 0,
 
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+
     {ok, C1} = emqtt:start_link(#{username => Username1, clientid => ClientId1}),
     {ok, _} = emqtt:connect(C1),
     {ok, C2} = emqtt:start_link(#{username => Username2, clientid => ClientId2}),
@@ -63,7 +53,8 @@ t_clients(_) ->
     timer:sleep(300),
 
     %% get /clients
-    {ok, Clients} = request_api(get, api_path(["clients"])),
+    ClientsPath = emqx_mgmt_api_test_util:api_path(["clients"]),
+    {ok, Clients} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
     ClientsResponse = emqx_json:decode(Clients, [return_maps]),
     ClientsMeta = maps:get(<<"meta">>, ClientsResponse),
     ClientsPage = maps:get(<<"page">>, ClientsMeta),
@@ -74,83 +65,32 @@ t_clients(_) ->
     ?assertEqual(ClientsCount, 2),
 
     %% get /clients/:clientid
-    {ok, Client1} = request_api(get, api_path(["clients", binary_to_list(ClientId1)])),
+    Client1Path = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1)]),
+    {ok, Client1} = emqx_mgmt_api_test_util:request_api(get, Client1Path),
     Client1Response = emqx_json:decode(Client1, [return_maps]),
     ?assertEqual(Username1, maps:get(<<"username">>, Client1Response)),
     ?assertEqual(ClientId1, maps:get(<<"clientid">>, Client1Response)),
 
     %% delete /clients/:clientid kickout
-    {ok, _} = request_api(delete, api_path(["clients", binary_to_list(ClientId2)])),
-    AfterKickoutResponse = request_api(get, api_path(["clients", binary_to_list(ClientId2)])),
+    Client2Path = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId2)]),
+    {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Client2Path),
+    AfterKickoutResponse = emqx_mgmt_api_test_util:request_api(get, Client2Path),
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse),
 
     %% get /clients/:clientid/acl_cache should has no acl cache
-    {ok, Client1AclCache} = request_api(get,
-        api_path(["clients", binary_to_list(ClientId1), "acl_cache"])),
-    ?assertEqual("[]", Client1AclCache),
-
-    %% get /clients/:clientid/acl_cache should has no acl cache
-    {ok, Client1AclCache} = request_api(get,
-        api_path(["clients", binary_to_list(ClientId1), "acl_cache"])),
+    Client1AclCachePath = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1), "acl_cache"]),
+    {ok, Client1AclCache} = emqx_mgmt_api_test_util:request_api(get, Client1AclCachePath),
     ?assertEqual("[]", Client1AclCache),
 
     %% post /clients/:clientid/subscribe
     SubscribeBody = #{topic => Topic, qos => Qos},
-    SubscribePath = api_path(["clients", binary_to_list(ClientId1), "subscribe"]),
-    {ok, _} = request_api(post, SubscribePath, "", auth_header_(), SubscribeBody),
+    SubscribePath =  emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1), "subscribe"]),
+    {ok, _} =  emqx_mgmt_api_test_util:request_api(post, SubscribePath, "", AuthHeader, SubscribeBody),
     [{{_, AfterSubTopic}, #{qos := AfterSubQos}}] = emqx_mgmt:lookup_subscriptions(ClientId1),
     ?assertEqual(AfterSubTopic, Topic),
     ?assertEqual(AfterSubQos, Qos),
 
     %% delete /clients/:clientid/subscribe
     UnSubscribeQuery = "topic=" ++ binary_to_list(Topic),
-    {ok, _} = request_api(delete, SubscribePath, UnSubscribeQuery, auth_header_()),
+    {ok, _} =  emqx_mgmt_api_test_util:request_api(delete, SubscribePath, UnSubscribeQuery, AuthHeader),
     ?assertEqual([], emqx_mgmt:lookup_subscriptions(Client1)).
-
-%%%==============================================================================================
-%% test util function
-request_api(Method, Url) ->
-    request_api(Method, Url, [], auth_header_(), []).
-
-request_api(Method, Url, Auth) ->
-    request_api(Method, Url, [], Auth, []).
-
-request_api(Method, Url, QueryParams, Auth) ->
-    request_api(Method, Url, QueryParams, Auth, []).
-
-request_api(Method, Url, QueryParams, Auth, []) ->
-    NewUrl = case QueryParams of
-                 "" -> Url;
-                 _ -> Url ++ "?" ++ QueryParams
-             end,
-    do_request_api(Method, {NewUrl, [Auth]});
-request_api(Method, Url, QueryParams, Auth, Body) ->
-    NewUrl = case QueryParams of
-                 "" -> Url;
-                 _ -> Url ++ "?" ++ QueryParams
-             end,
-    do_request_api(Method, {NewUrl, [Auth], "application/json", emqx_json:encode(Body)}).
-
-do_request_api(Method, Request)->
-    ct:pal("Method: ~p, Request: ~p", [Method, Request]),
-    case httpc:request(Method, Request, [], []) of
-        {error, socket_closed_remotely} ->
-            {error, socket_closed_remotely};
-        {ok, {{"HTTP/1.1", Code, _}, _, Return} }
-            when Code =:= 200 orelse Code =:= 201 ->
-            {ok, Return};
-        {ok, {Reason, _, _}} ->
-            {error, Reason}
-    end.
-
-auth_header_() ->
-    AppId = <<"admin">>,
-    AppSecret = <<"public">>,
-    auth_header_(binary_to_list(AppId), binary_to_list(AppSecret)).
-
-auth_header_(User, Pass) ->
-    Encoded = base64:encode_to_string(lists:append([User,":",Pass])),
-    {"Authorization","Basic " ++ Encoded}.
-
-api_path(Parts)->
-    ?SERVER ++ filename:join([?BASE_PATH | Parts]).
