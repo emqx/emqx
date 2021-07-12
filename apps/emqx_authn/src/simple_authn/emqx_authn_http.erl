@@ -114,8 +114,8 @@ create(ChainID, AuthenticatorName,
     NHeaders = maps:merge(#{<<"accept">> => atom_to_binary(Accept, utf8),
                             <<"content-type">> => atom_to_binary(ContentType, utf8)}, Headers),
     NFormData = preprocess_form_data(FormData),
-    {ok, #{path := Path,
-           query := Query} = URIMap} = parse_url(URL),
+    #{path := Path,
+      query := Query} = URIMap = parse_url(URL),
     BaseURL = generate_base_url(URIMap),
     State = #{method          => Method,
               path            => Path,
@@ -148,7 +148,7 @@ authenticate(ClientInfo, #{resource_id := ResourceID,
     case emqx_resource:query(ResourceID, {Method, Request, RequestTimeout}) of
         {ok, 204, _Headers} -> ok;
         {ok, 200, Headers, Body} ->
-            ContentType = proplists:get_value(Headers, <<"content-type">>, <<"application/json">>),
+            ContentType = proplists:get_value(<<"content-type">>, Headers, <<"application/json">>),
             case safely_parse_body(ContentType, Body) of
                 {ok, _NBody} ->
                     %% TODO: Return by user property
@@ -190,9 +190,9 @@ check_form_data(FormData) ->
     end.
 
 check_ssl_opts(Conf) ->
-    URL = hocon_schema:get_value(<<"url">>, Conf),
+    URL = hocon_schema:get_value("url", Conf),
     {ok, #{scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
-    SSLOpts = hocon_schema:get_value(<<"ssl_opts">>, Conf),
+    SSLOpts = hocon_schema:get_value("ssl_opts", Conf),
     case {Scheme, SSLOpts} of
         {http, undefined} -> true;
         {http, _} -> false;
@@ -201,7 +201,7 @@ check_ssl_opts(Conf) ->
     end.
 
 preprocess_form_data(FormData) ->
-    KVs = [binary:split(FormData, [<<"&">>], [global])],
+    KVs = binary:split(FormData, [<<"&">>], [global]),
     [list_to_tuple(binary:split(KV, [<<"=">>], [global])) || KV <- KVs].
 
 parse_url(URL) ->

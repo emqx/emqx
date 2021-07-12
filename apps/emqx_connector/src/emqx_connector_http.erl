@@ -200,9 +200,9 @@ check_base_url(URL) ->
     end.
 
 check_ssl_opts(Conf) ->
-    URL = hocon_schema:get_value(<<"url">>, Conf),
+    URL = hocon_schema:get_value("url", Conf),
     {ok, #{scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
-    SSLOpts = hocon_schema:get_value(<<"ssl_opts">>, Conf),
+    SSLOpts = hocon_schema:get_value("ssl_opts", Conf),
     case {Scheme, SSLOpts} of
         {http, undefined} -> true;
         {http, _} -> false;
