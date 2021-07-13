@@ -97,6 +97,8 @@ do_start_listener(ZoneName, ListenerName, #{type := quic, bind := ListenOn} = Op
     ConnectionOpts = #{conn_callback => emqx_quic_connection
                      , peer_unidi_stream_count => 1
                      , peer_bidi_stream_count => 10
+                     , zone => ZoneName
+                     , listener => ListenerName
                      },
     StreamOpts = [],
     quicer:start_listener(listener_id(ZoneName, ListenerName),
