@@ -376,7 +376,7 @@ lookup_channels(local, ClientId) ->
 
 %% @private
 rpc_call(Node, Fun, Args) ->
-    case rpc:call(Node, ?MODULE, Fun, Args) of
+    case rpc:call(Node, ?MODULE, Fun, Args, 2 * ?T_TAKEOVER) of
         {badrpc, Reason} -> error(Reason);
         Res -> Res
     end.
