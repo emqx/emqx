@@ -1,11 +1,11 @@
 %% -*- mode: erlang -*-
 {VSN,
- [ {<<"4.3.[0-2]">>,
+ [ {<<"4.3.[0-3]">>,
     [ {restart_application, emqx_management}
     ]},
    {<<".*">>, []}
  ],
- [ {<<"4.3.[0-2]">>,
+ [ {<<"4.3.[0-3]">>,
     [ {restart_application, emqx_management}
     ]},
    {<<".*">>, []}
