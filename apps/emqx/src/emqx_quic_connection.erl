@@ -21,6 +21,4 @@
         ]).
 
 new_conn(Conn, {_L, COpts, _S}) when is_map(COpts) ->
-    new_conn(Conn, maps:to_list(COpts));
-new_conn(Conn, COpts) ->
     emqx_connection:start_link(emqx_quic_stream, Conn, COpts).
