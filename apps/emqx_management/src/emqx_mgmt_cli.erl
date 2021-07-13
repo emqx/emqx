@@ -616,8 +616,18 @@ dump(_Table, _, '$end_of_table', Result) ->
     lists:reverse(Result);
 
 dump(Table, Tag, Key, Result) ->
-    PrintValue = [print({Tag, Record}) || Record <- ets:lookup(Table, Key)],
-    dump(Table, Tag, ets:next(Table, Key), [PrintValue | Result]).
+    Ls = lists:foldl(fun(Record, Acc) ->
+            try
+                [print({Tag, Record}) | Acc]
+            catch
+                Class : Reason : Stk ->
+                    logger:error("Failed to print ~p, error: {~p, ~p}. "
+                                 "Stacktrace: ~0p",
+                                 [Record, Class, Reason, Stk]),
+                    Acc
+            end
+         end, [], ets:lookup(Table, Key)),
+    dump(Table, Tag, ets:next(Table, Key), [lists:reverse(Ls) | Result]).
 
 print({_, []}) ->
     ok;
@@ -634,7 +644,7 @@ print({client, {ClientId, ChanPid}}) ->
     ClientInfo = maps:get(clientinfo, Attrs, #{}),
     ConnInfo = maps:get(conninfo, Attrs, #{}),
     Session = maps:get(session, Attrs, #{}),
-    Connected = case maps:get(conn_state, Attrs) of
+    Connected = case maps:get(conn_state, Attrs, undefined) of
                     connected -> true;
                     _ -> false
                 end,
