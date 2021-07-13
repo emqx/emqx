@@ -269,7 +269,6 @@ clients_acl_cache_api() ->
     {"/clients/:clientid/acl_cache", Metadata, acl_cache}.
 
 subscribe_api() ->
-    Path = "/clients/:clientid/subscribe",
     Metadata = #{
         post => #{
             description => "subscribe",
@@ -282,7 +281,7 @@ subscribe_api() ->
                     default => 123456
                 },
                 #{
-                    name => topics,
+                    name => topic_data,
                     in => body,
                     schema => #{
                         type => object,
@@ -300,8 +299,28 @@ subscribe_api() ->
             ],
             responses => #{
                 <<"404">> => emqx_mgmt_util:not_found_schema(<<"Client id not found">>),
-                <<"200">> => #{description => <<"publish ok">>}}}},
-    {Path, Metadata, subscribe}.
+                <<"200">> => #{description => <<"subscribe ok">>}}},
+        delete => #{
+            description => "unsubscribe",
+            parameters => [
+                #{
+                    name => clientid,
+                    in => path,
+                    type => string,
+                    required => true,
+                    default => 123456
+                },
+                #{
+                    name => topic,
+                    in => query,
+                    required => true,
+                    default => <<"topic_1">>
+                }
+            ],
+            responses => #{
+                <<"404">> => emqx_mgmt_util:not_found_schema(<<"Client id not found">>),
+                <<"200">> => #{description => <<"unsubscribe ok">>}}}},
+    {"/clients/:clientid/subscribe", Metadata, subscribe}.
 
 %%%==============================================================================================
 %% parameters trans
@@ -330,7 +349,12 @@ subscribe(post, Request) ->
     TopicInfo = emqx_json:decode(Body, [return_maps]),
     Topic = maps:get(<<"topic">>, TopicInfo),
     Qos = maps:get(<<"qos">>, TopicInfo, 0),
-    subscribe(#{clientid => ClientID, topic => Topic, qos => Qos}).
+    subscribe(#{clientid => ClientID, topic => Topic, qos => Qos});
+
+subscribe(delete, Request) ->
+    ClientID = cowboy_req:binding(clientid, Request),
+    #{topic := Topic} = cowboy_req:match_qs([topic], Request),
+    unsubscribe(#{clientid => ClientID, topic => Topic}).
 
 %% TODO: batch
 subscribe_batch(post, Request) ->
@@ -359,7 +383,7 @@ lookup(#{clientid := ClientID}) ->
             {404, ?CLIENT_ID_NOT_FOUND};
         ClientInfo ->
             Response = emqx_json:encode(hd(ClientInfo)),
-            {ok, Response}
+            {200, Response}
     end.
 
 kickout(#{clientid := ClientID}) ->
@@ -393,8 +417,19 @@ subscribe(#{clientid := ClientID, topic := Topic, qos := Qos}) ->
             {404, ?CLIENT_ID_NOT_FOUND};
         {error, Reason} ->
             Body = emqx_json:encode(#{code => <<"UNKNOW_ERROR">>, reason => io_lib:format("~p", [Reason])}),
-            {200, Body};
+            {500, Body};
         ok ->
+            {200}
+    end.
+
+unsubscribe(#{clientid := ClientID, topic := Topic}) ->
+    case do_unsubscribe(ClientID, Topic) of
+        {error, channel_not_found} ->
+            {404, ?CLIENT_ID_NOT_FOUND};
+        {error, Reason} ->
+            Body = emqx_json:encode(#{code => <<"UNKNOW_ERROR">>, reason => io_lib:format("~p", [Reason])}),
+            {500, Body};
+        {unsubscribe, [{Topic, #{}}]} ->
             {200}
     end.
 
@@ -476,6 +511,14 @@ do_subscribe(ClientID, Topic0, Qos) ->
                 false ->
                     {error, unknow_error}
             end
+    end.
+
+do_unsubscribe(ClientID, Topic) ->
+    case emqx_mgmt:unsubscribe(ClientID, Topic) of
+        {error, Reason} ->
+            {error, Reason};
+        Res ->
+            Res
     end.
 %%%==============================================================================================
 %% Query Functions
