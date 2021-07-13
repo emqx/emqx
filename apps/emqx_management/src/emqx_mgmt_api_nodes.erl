@@ -20,7 +20,9 @@
 -export([api_spec/0]).
 
 -export([ nodes/2
-        , node/2]).
+        , node/2
+        , node_metrics/2
+        , node_stats/2]).
 
 -include_lib("emqx/include/emqx.hrl").
 
@@ -29,9 +31,13 @@ api_spec() ->
 
 apis() ->
     [ nodes_api()
-    , node_api()].
+    , node_api()
+    , node_metrics_api()
+    , node_stats_api()].
 
 schemas() ->
+    %% notice: node api used schema metrics and stats
+    %% see these schema in emqx_mgmt_api_metrics emqx_mgmt_api_status
     [node_schema()].
 
 node_schema() ->
@@ -121,15 +127,60 @@ node_api() ->
                     schema => cowboy_swagger:schema(<<"node">>)}}}},
     {"/nodes/:node_name", Metadata, node}.
 
+node_metrics_api() ->
+    Metadata = #{
+        get => #{
+            description => "Get node metrics",
+            parameters => [#{
+                name => node_name,
+                in => path,
+                description => "node name",
+                type => string,
+                required => true,
+                default => node()}],
+            responses => #{
+                <<"400">> =>
+                emqx_mgmt_util:not_found_schema(<<"Node error">>, [<<"SOURCE_ERROR">>]),
+                <<"200">> => #{
+                    description => <<"Get EMQ X Node Metrics">>,
+                    schema => cowboy_swagger:schema(<<"metrics">>)}}}},
+    {"/nodes/:node_name/metrics", Metadata, node_metrics}.
+
+node_stats_api() ->
+    Metadata = #{
+        get => #{
+            description => "Get node stats",
+            parameters => [#{
+                name => node_name,
+                in => path,
+                description => "node name",
+                type => string,
+                required => true,
+                default => node()}],
+            responses => #{
+                <<"400">> =>
+                emqx_mgmt_util:not_found_schema(<<"Node error">>, [<<"SOURCE_ERROR">>]),
+                <<"200">> => #{
+                    description => <<"Get EMQ X Node Stats">>,
+                    schema => cowboy_swagger:schema(<<"stats">>)}}}},
+    {"/nodes/:node_name/stats", Metadata, node_metrics}.
+
 %%%==============================================================================================
 %% parameters trans
 nodes(get, _Request) ->
     list(#{}).
 
 node(get, Request) ->
-    NodeName = cowboy_req:binding(node_name, Request),
-    Node = binary_to_atom(NodeName, utf8),
-    get_node(#{node => Node}).
+    Params = node_name_path_parameter(Request),
+    get_node(Params).
+
+node_metrics(get, Request) ->
+    Params = node_name_path_parameter(Request),
+    get_metrics(Params).
+
+node_stats(get, Request) ->
+    Params = node_name_path_parameter(Request),
+    get_stats(Params).
 
 %%%==============================================================================================
 %% api apply
@@ -147,8 +198,29 @@ get_node(#{node := Node}) ->
             {200, Response}
     end.
 
+get_metrics(#{node := Node}) ->
+    case emqx_mgmt:get_metrics(Node) of
+        {error, _} ->
+            {400, emqx_json:encode(#{code => 'SOURCE_ERROR', reason => <<"rpc_failed">>})};
+        Metrics ->
+            {200, emqx_json:encode(Metrics)}
+    end.
+
+get_stats(#{node := Node}) ->
+    case emqx_mgmt:get_stats(Node) of
+        {error, _} ->
+            {400, emqx_json:encode(#{code => 'SOURCE_ERROR', reason => <<"rpc_failed">>})};
+        Stats ->
+            {200, emqx_json:encode(Stats)}
+    end.
+
 %%============================================================================================================
 %% internal function
+node_name_path_parameter(Request) ->
+    NodeName = cowboy_req:binding(node_name, Request),
+    Node = binary_to_atom(NodeName, utf8),
+    #{node => Node}.
+
 format(_Node, Info = #{memory_total := Total, memory_used := Used}) ->
     {ok, SysPathBinary} = file:get_cwd(),
     SysPath = list_to_binary(SysPathBinary),

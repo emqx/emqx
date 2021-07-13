@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_mgmt_nodes_api_SUITE).
+-module(emqx_mgmt_metrics_api_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -39,37 +39,12 @@ set_special_configs(emqx_management) ->
 set_special_configs(_App) ->
     ok.
 
-t_nodes_api(_) ->
-    NodesPath = emqx_mgmt_api_test_util:api_path(["nodes"]),
-    {ok, Nodes} = emqx_mgmt_api_test_util:request_api(get, NodesPath),
-    NodesResponse = emqx_json:decode(Nodes, [return_maps]),
-    LocalNodeInfo = hd(NodesResponse),
-    Node = binary_to_atom(maps:get(<<"node">>, LocalNodeInfo), utf8),
-    ?assertEqual(Node, node()),
-
-    NodePath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_list(node())]),
-    {ok, NodeInfo} = emqx_mgmt_api_test_util:request_api(get, NodePath),
-    NodeNameResponse =
-        binary_to_atom(maps:get(<<"node">>, emqx_json:decode(NodeInfo, [return_maps])), utf8),
-    ?assertEqual(node(), NodeNameResponse).
-
-t_node_stats_api() ->
-    StatsPath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_binary(node(), utf8), "stats"]),
-    SystemStats= emqx_mgmt:get_stats(),
-    {ok, StatsResponse} = emqx_mgmt_api_test_util:request_api(get, StatsPath),
-    Stats = emqx_json:decode(StatsResponse, [return_maps]),
-    Fun =
-        fun(Key) ->
-            ?assertEqual(maps:get(Key, SystemStats), maps:get(atom_to_binary(Key, utf8), Stats))
-        end,
-    lists:foreach(Fun, maps:keys(SystemStats)).
-
-t_node_metrics_api() ->
-    MetricsPath =
-        emqx_mgmt_api_test_util:api_path(["nodes", atom_to_binary(node(), utf8), "metrics"]),
-    SystemMetrics= emqx_mgmt:get_metrics(),
+t_metrics_api(_) ->
+    MetricsPath = emqx_mgmt_api_test_util:api_path(["metrics"]),
+    SystemMetrics = emqx_mgmt:get_metrics(),
     {ok, MetricsResponse} = emqx_mgmt_api_test_util:request_api(get, MetricsPath),
     Metrics = emqx_json:decode(MetricsResponse, [return_maps]),
+    ?assertEqual(erlang:length(maps:keys(SystemMetrics)), erlang:length(maps:keys(Metrics))),
     Fun =
         fun(Key) ->
             ?assertEqual(maps:get(Key, SystemMetrics), maps:get(atom_to_binary(Key, utf8), Metrics))

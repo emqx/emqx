@@ -313,6 +313,7 @@ subscribe_api() ->
                 #{
                     name => topic,
                     in => query,
+                    type => string,
                     required => true,
                     default => <<"topic_1">>
                 }
