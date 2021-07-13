@@ -24,13 +24,7 @@
 
 -export([start_link/0]).
 
--export([ get_cpu_check_interval/0
-        , set_cpu_check_interval/1
-        , get_cpu_high_watermark/0
-        , set_cpu_high_watermark/1
-        , get_cpu_low_watermark/0
-        , set_cpu_low_watermark/1
-        , get_mem_check_interval/0
+-export([ get_mem_check_interval/0
         , set_mem_check_interval/1
         , get_sysmem_high_watermark/0
         , set_sysmem_high_watermark/1
@@ -58,24 +52,6 @@ start_link() ->
 %% API
 %%--------------------------------------------------------------------
 
-get_cpu_check_interval() ->
-    call(get_cpu_check_interval).
-
-set_cpu_check_interval(Seconds) ->
-    call({set_cpu_check_interval, Seconds}).
-
-get_cpu_high_watermark() ->
-    call(get_cpu_high_watermark).
-
-set_cpu_high_watermark(Float) ->
-    call({set_cpu_high_watermark, Float}).
-
-get_cpu_low_watermark() ->
-    call(get_cpu_low_watermark).
-
-set_cpu_low_watermark(Float) ->
-    call({set_cpu_low_watermark, Float}).
-
 get_mem_check_interval() ->
     memsup:get_check_interval() div 1000.
 
@@ -96,9 +72,6 @@ get_procmem_high_watermark() ->
 set_procmem_high_watermark(Float) ->
     memsup:set_procmem_high_watermark(Float).
 
-call(Req) ->
-    gen_server:call(?OS_MON, Req, infinity).
-
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
@@ -110,24 +83,6 @@ init([]) ->
     set_procmem_high_watermark(maps:get(procmem_high_watermark, Opts)),
     start_check_timer(),
     {ok, #{}}.
-
-handle_call(get_cpu_check_interval, _From, State) ->
-    {reply, maps:get(cpu_check_interval, State, undefined), State};
-
-handle_call({set_cpu_check_interval, Seconds}, _From, State) ->
-    {reply, ok, State#{cpu_check_interval := Seconds}};
-
-handle_call(get_cpu_high_watermark, _From, State) ->
-    {reply, maps:get(cpu_high_watermark, State, undefined), State};
-
-handle_call({set_cpu_high_watermark, Float}, _From, State) ->
-    {reply, ok, State#{cpu_high_watermark := Float}};
-
-handle_call(get_cpu_low_watermark, _From, State) ->
-    {reply, maps:get(cpu_low_watermark, State, undefined), State};
-
-handle_call({set_cpu_low_watermark, Float}, _From, State) ->
-    {reply, ok, State#{cpu_low_watermark := Float}};
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
