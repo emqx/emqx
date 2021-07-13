@@ -231,7 +231,7 @@ t_chan_caps(_) ->
      #{max_clientid_len := 65535,
        max_qos_allowed := 2,
        max_topic_alias := 65535,
-       max_topic_levels := 0,
+       max_topic_levels := 65535,
        retain_available := true,
        shared_subscription := true,
        subscription_identifiers := true,
@@ -871,7 +871,7 @@ t_check_sub_acls(_) ->
 t_enrich_connack_caps(_) ->
     ok = meck:new(emqx_mqtt_caps, [passthrough, no_history]),
     ok = meck:expect(emqx_mqtt_caps, get_caps,
-                     fun(_Zone) ->
+                     fun(_Zone, _Listener) ->
                         #{max_packet_size => 1024,
                           max_qos_allowed => ?QOS_2,
                           retain_available => true,
