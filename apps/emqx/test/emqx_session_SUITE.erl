@@ -54,7 +54,7 @@ t_session_init(_) ->
         #{receive_maximum => 64}),
     ?assertEqual(#{}, emqx_session:info(subscriptions, Session)),
     ?assertEqual(0, emqx_session:info(subscriptions_cnt, Session)),
-    ?assertEqual(0, emqx_session:info(subscriptions_max, Session)),
+    ?assertEqual(infinity, emqx_session:info(subscriptions_max, Session)),
     ?assertEqual(false, emqx_session:info(upgrade_qos, Session)),
     ?assertEqual(0, emqx_session:info(inflight_cnt, Session)),
     ?assertEqual(64, emqx_session:info(inflight_max, Session)),
@@ -73,13 +73,13 @@ t_session_init(_) ->
 t_session_info(_) ->
     ?assertMatch(#{subscriptions  := #{},
                    upgrade_qos    := false,
-                   retry_interval := 0,
+                   retry_interval := 30,
                    await_rel_timeout := 300
                   }, emqx_session:info(session())).
 
 t_session_stats(_) ->
     Stats = emqx_session:stats(session()),
-    ?assertMatch(#{subscriptions_max := 0,
+    ?assertMatch(#{subscriptions_max := infinity,
                    inflight_max      := 0,
                    mqueue_len        := 0,
                    mqueue_max        := 1000,
@@ -153,7 +153,7 @@ t_publish_qos2_with_error_return(_) ->
     {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED} = emqx_session:publish(3, Msg, Session1).
 
 t_is_awaiting_full_false(_) ->
-    Session = session(#{max_awaiting_rel => 0}),
+    Session = session(#{max_awaiting_rel => infinity}),
     ?assertNot(emqx_session:is_awaiting_full(Session)).
 
 t_is_awaiting_full_true(_) ->

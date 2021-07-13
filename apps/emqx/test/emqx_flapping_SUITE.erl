@@ -28,8 +28,8 @@ init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([]),
     emqx_config:put_listener_conf(default, mqtt_tcp, [flapping_detect],
         #{max_count => 3,
-          window_time => 100,
-          ban_time => 2
+          window_time => 100, % 0.1s
+          ban_time => 2000 %% 2s
         }),
     Config.
 
@@ -41,7 +41,7 @@ end_per_suite(_Config) ->
 t_detect_check(_) ->
     ClientInfo = #{zone => default,
                    listener => mqtt_tcp,
-                   clientid => <<"clientid">>,
+                   clientid => <<"client007">>,
                    peerhost => {127,0,0,1}
                   },
     false = emqx_flapping:detect(ClientInfo),
@@ -50,6 +50,8 @@ t_detect_check(_) ->
     false = emqx_banned:check(ClientInfo),
     true = emqx_flapping:detect(ClientInfo),
     timer:sleep(50),
+    ct:pal("the table emqx_banned: ~p, nowsec: ~p", [ets:tab2list(emqx_banned),
+        erlang:system_time(second)]),
     true = emqx_banned:check(ClientInfo),
     timer:sleep(3000),
     false = emqx_banned:check(ClientInfo),
@@ -63,11 +65,11 @@ t_detect_check(_) ->
 t_expired_detecting(_) ->
     ClientInfo = #{zone => default,
                    listener => mqtt_tcp,
-                   clientid => <<"clientid">>,
+                   clientid => <<"client008">>,
                    peerhost => {127,0,0,1}},
     false = emqx_flapping:detect(ClientInfo),
-    ?assertEqual(true, lists:any(fun({flapping, <<"clientid">>, _, _, _}) -> true;
+    ?assertEqual(true, lists:any(fun({flapping, <<"client008">>, _, _, _}) -> true;
                                     (_) -> false end, ets:tab2list(emqx_flapping))),
     timer:sleep(200),
-    ?assertEqual(true, lists:all(fun({flapping, <<"clientid">>, _, _, _}) -> false;
+    ?assertEqual(true, lists:all(fun({flapping, <<"client008">>, _, _, _}) -> false;
                                     (_) -> true end, ets:tab2list(emqx_flapping))).
