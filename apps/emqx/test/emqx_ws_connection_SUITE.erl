@@ -55,13 +55,6 @@ init_per_testcase(TestCase, Config) when
     ok = meck:expect(cowboy_req, sock, fun(_) -> {{127,0,0,1}, 18083} end),
     ok = meck:expect(cowboy_req, cert, fun(_) -> undefined end),
     ok = meck:expect(cowboy_req, parse_cookies, fun(_) -> error(badarg) end),
-    %% Mock emqx_zone
-    ok = meck:new(emqx_zone, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_zone, oom_policy,
-                     fun(_) -> #{max_heap_size => 838860800,
-                                 message_queue_len => 8000
-                                }
-                     end),
     %% Mock emqx_access_control
     ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end),
@@ -96,7 +89,6 @@ end_per_testcase(TestCase, _Config) when
         ->
     lists:foreach(fun meck:unload/1,
                   [cowboy_req,
-                   emqx_zone,
                    emqx_access_control,
                    emqx_broker,
                    emqx_hooks,
@@ -124,12 +116,16 @@ t_info(_) ->
       sockstate := running
      } = SockInfo.
 
+set_ws_opts(Key, Val) ->
+    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, Key], Val).
+
 t_header(_) ->
-    ok = meck:expect(cowboy_req, header, fun(<<"x-forwarded-for">>, _, _) -> <<"100.100.100.100, 99.99.99.99">>;
-                                            (<<"x-forwarded-port">>, _, _) -> <<"1000">> end),
-    {ok, St, _} = ?ws_conn:websocket_init([req, [{zone, external},
-                                                 {proxy_address_header, <<"x-forwarded-for">>},
-                                                 {proxy_port_header, <<"x-forwarded-port">>}]]),
+    ok = meck:expect(cowboy_req, header,
+        fun(<<"x-forwarded-for">>, _, _) -> <<"100.100.100.100, 99.99.99.99">>;
+           (<<"x-forwarded-port">>, _, _) -> <<"1000">> end),
+    set_ws_opts(proxy_address_header, <<"x-forwarded-for">>),
+    set_ws_opts(proxy_port_header, <<"x-forwarded-port">>),
+    {ok, St, _} = ?ws_conn:websocket_init([req, #{zone => default, listener => mqtt_ws}]),
     WsPid = spawn(fun() ->
         receive {call, From, info} ->
             gen_server:reply(From, ?ws_conn:info(St))
@@ -450,15 +446,6 @@ t_run_gc(_) ->
     WsSt = st(#{gc_state => GcSt}),
     ?ws_conn:run_gc(#{cnt => 100, oct => 10000}, WsSt).
 
-t_check_oom(_) ->
-    %%Policy = #{max_heap_size => 10, message_queue_len => 10},
-    %%meck:expect(emqx_zone, oom_policy, fun(_) -> Policy end),
-    _St = ?ws_conn:check_oom(st()),
-    ok = timer:sleep(10).
-    %%receive {shutdown, proc_heap_too_large} -> ok
-    %%after 0 -> error(expect_shutdown)
-    %%end.
-
 t_enqueue(_) ->
     Packet = ?PUBLISH_PACKET(?QOS_0),
     St = ?ws_conn:enqueue(Packet, st()),
@@ -473,7 +460,7 @@ t_shutdown(_) ->
 
 st() -> st(#{}).
 st(InitFields) when is_map(InitFields) ->
-    {ok, St, _} = ?ws_conn:websocket_init([req, [{zone, external}]]),
+    {ok, St, _} = ?ws_conn:websocket_init([req, #{zone => default, listener => mqtt_ws}]),
     maps:fold(fun(N, V, S) -> ?ws_conn:set_field(N, V, S) end,
               ?ws_conn:set_field(channel, channel(), St),
               InitFields
@@ -493,7 +480,8 @@ channel(InitFields) ->
                  receive_maximum => 100,
                  expiry_interval => 0
                 },
-    ClientInfo = #{zone       => zone,
+    ClientInfo = #{zone       => default,
+                   listener   => mqtt_ws,
                    protocol   => mqtt,
                    peerhost   => {127,0,0,1},
                    clientid   => <<"clientid">>,
@@ -502,13 +490,13 @@ channel(InitFields) ->
                    peercert   => undefined,
                    mountpoint => undefined
                   },
-    Session = emqx_session:init(#{zone => default, listener => mqtt_tcp},
+    Session = emqx_session:init(#{zone => default, listener => mqtt_ws},
                                 #{receive_maximum => 0}
                                ),
     maps:fold(fun(Field, Value, Channel) ->
                       emqx_channel:set_field(Field, Value, Channel)
               end,
-              emqx_channel:init(ConnInfo, [{zone, zone}]),
+              emqx_channel:init(ConnInfo, #{zone => default, listener => mqtt_ws}),
               maps:merge(#{clientinfo => ClientInfo,
                            session    => Session,
                            conn_state => connected

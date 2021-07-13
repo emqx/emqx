@@ -29,6 +29,7 @@ all() -> emqx_ct:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
+    emqx_channel_SUITE:set_default_zone_conf(),
     ok = meck:new([emqx_hooks, emqx_metrics, emqx_broker],
                   [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
@@ -59,7 +60,7 @@ t_session_init(_) ->
     ?assertEqual(0, emqx_session:info(inflight_cnt, Session)),
     ?assertEqual(64, emqx_session:info(inflight_max, Session)),
     ?assertEqual(1, emqx_session:info(next_pkt_id, Session)),
-    ?assertEqual(0, emqx_session:info(retry_interval, Session)),
+    ?assertEqual(30, emqx_session:info(retry_interval, Session)),
     ?assertEqual(0, emqx_mqueue:len(emqx_session:info(mqueue, Session))),
     ?assertEqual(0, emqx_session:info(awaiting_rel_cnt, Session)),
     ?assertEqual(100, emqx_session:info(awaiting_rel_max, Session)),
@@ -100,7 +101,7 @@ t_subscribe(_) ->
     ?assertEqual(1, emqx_session:info(subscriptions_cnt, Session)).
 
 t_is_subscriptions_full_false(_) ->
-    Session = session(#{max_subscriptions => 0}),
+    Session = session(#{max_subscriptions => infinity}),
     ?assertNot(emqx_session:is_subscriptions_full(Session)).
 
 t_is_subscriptions_full_true(_) ->
