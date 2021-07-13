@@ -60,11 +60,12 @@ handle_info({timeout, _Timer, check}, State) ->
     ProcHighWatermark = emqx_config:get([sysmon, vm, process_high_watermark]),
     ProcLowWatermark = emqx_config:get([sysmon, vm, process_low_watermark]),
     ProcessCount = erlang:system_info(process_count),
-    case ProcessCount / erlang:system_info(process_limit) * 100 of
+    case ProcessCount / erlang:system_info(process_limit) of
         Percent when Percent >= ProcHighWatermark ->
-            emqx_alarm:activate(too_many_processes, #{usage => Percent,
-                                                      high_watermark => ProcHighWatermark,
-                                                      low_watermark => ProcLowWatermark});
+            emqx_alarm:activate(too_many_processes, #{
+                usage => io_lib:format("~p%", [Percent*100]),
+                high_watermark => ProcHighWatermark,
+                low_watermark => ProcLowWatermark});
         Percent when Percent < ProcLowWatermark ->
             emqx_alarm:deactivate(too_many_processes);
         _Precent ->
@@ -89,4 +90,4 @@ code_change(_OldVsn, State, _Extra) ->
 
 start_check_timer() ->
     Interval = emqx_config:get([sysmon, vm, process_check_interval]),
-    emqx_misc:start_timer(timer:seconds(Interval), check).
+    emqx_misc:start_timer(Interval, check).
