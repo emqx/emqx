@@ -28,6 +28,10 @@
         , on_health_check/2
         ]).
 
+-type url() :: emqx_http_lib:uri_map().
+-reflect_type([url/0]).
+-typerefl_from_string({url/0, emqx_http_lib, uri_parse}).
+
 -export([ structs/0
         , fields/1
         , validations/0]).
@@ -53,7 +57,6 @@ fields(config) ->
     , {connect_timeout, fun connect_timeout/1}
     , {max_retries,     fun max_retries/1}
     , {retry_interval,  fun retry_interval/1}
-    , {keepalive,       fun keepalive/1}
     , {pool_type,       fun pool_type/1}
     , {pool_size,       fun pool_size/1}
     , {ssl_opts,        #{type => hoconsc:ref(?MODULE, ssl_opts),
@@ -70,9 +73,12 @@ fields(ssl_opts) ->
 validations() ->
     [ {check_ssl_opts, fun check_ssl_opts/1} ].
 
-base_url(type) -> binary();
+base_url(type) -> url();
 base_url(nullable) -> false;
-base_url(validate) -> [fun check_base_url/1];
+base_url(validate) -> fun (#{query := _Query}) ->
+                              {error, "There must be no query in the base_url"};
+                          (_) -> ok
+                      end;
 base_url(_) -> undefined.
 
 connect_timeout(type) -> connect_timeout();
@@ -86,10 +92,6 @@ max_retries(_) -> undefined.
 retry_interval(type) -> non_neg_integer();
 retry_interval(default) -> 1000;
 retry_interval(_) -> undefined.
-
-keepalive(type) -> non_neg_integer();
-keepalive(default) -> 5000;
-keepalive(_) -> undefined.
 
 pool_type(type) -> pool_type();
 pool_type(default) -> random;
@@ -117,18 +119,16 @@ verify(default) -> false;
 verify(_) -> undefined.
 
 %% ===================================================================
-on_start(InstId, #{url := URL,
+on_start(InstId, #{base_url := #{scheme := Scheme,
+                                 host := Host,
+                                 port := Port,
+                                 path := BasePath},
                    connect_timeout := ConnectTimeout,
                    max_retries := MaxRetries,
                    retry_interval := RetryInterval,
-                   keepalive := Keepalive,
                    pool_type := PoolType,
                    pool_size := PoolSize} = Config) ->
     logger:info("starting http connector: ~p, config: ~p", [InstId, Config]),
-    {ok, #{scheme := Scheme,
-           host := Host,
-           port := Port,
-           path := BasePath}} = emqx_http_lib:uri_parse(URL),
     {Transport, TransportOpts} = case Scheme of
                                      http ->
                                          {tcp, []};
@@ -143,7 +143,7 @@ on_start(InstId, #{url := URL,
                , {connect_timeout, ConnectTimeout}
                , {retry, MaxRetries}
                , {retry_timeout, RetryInterval}
-               , {keepalive, Keepalive}
+               , {keepalive, 5000}
                , {pool_type, PoolType}
                , {pool_size, PoolSize}
                , {transport, Transport}
@@ -192,19 +192,11 @@ on_health_check(_InstId, #{host := Host, port := Port} = State) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-check_base_url(URL) ->
-    case emqx_http_lib:uri_parse(URL) of
-        {error, _} -> false;
-        {ok, #{query := _}} -> false;
-        _ -> true
-    end.
-
 check_ssl_opts(Conf) ->
     check_ssl_opts("base_url", Conf).
 
 check_ssl_opts(URLFrom, Conf) ->
-    URL = hocon_schema:get_value(URLFrom, Conf),
-    {ok, #{scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
+    #{schema := Scheme} = hocon_schema:get_value(URLFrom, Conf),
     SSLOpts = hocon_schema:get_value("ssl_opts", Conf),
     case {Scheme, maps:size(SSLOpts)} of
         {http, 0} -> true;
