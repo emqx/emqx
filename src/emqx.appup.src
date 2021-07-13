@@ -1,19 +1,23 @@
 %% -*- mode: erlang -*-
 {VSN,
   [
-   {"4.3.4",
-    [{load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
+   {"4.3.5", [
+     {load_module,emqx_cm,brutal_purge,soft_purge,[]}
+    ]},
+   {"4.3.4", [
+     {load_module,emqx_cm,brutal_purge,soft_purge,[]},
+     {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
      {load_module,emqx_app,brutal_purge,soft_purge,[]}
     ]},
-   {"4.3.3",
-    [{load_module,emqx_packet,brutal_purge,soft_purge,[]},
+   {"4.3.3", [
+     {load_module,emqx_packet,brutal_purge,soft_purge,[]},
      {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
      {load_module,emqx_ws_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
      {load_module,emqx_app,brutal_purge,soft_purge,[]}
     ]},
-   {"4.3.2",
-    [{load_module,emqx_packet,brutal_purge,soft_purge,[]},
+   {"4.3.2", [
+     {load_module,emqx_packet,brutal_purge,soft_purge,[]},
      {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
      {load_module,emqx_ws_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_http_lib,brutal_purge,soft_purge,[]},
@@ -22,8 +26,8 @@
      {load_module,emqx_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]}
     ]},
-   {"4.3.1",
-    [{load_module,emqx_packet,brutal_purge,soft_purge,[]},
+   {"4.3.1", [
+     {load_module,emqx_packet,brutal_purge,soft_purge,[]},
      {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
      {load_module,emqx_ws_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_connection,brutal_purge,soft_purge,[]},
@@ -36,8 +40,8 @@
      {load_module,emqx_plugins,brutal_purge,soft_purge,[]},
      {load_module,emqx_logger_textfmt,brutal_purge,soft_purge,[]},
      {load_module,emqx_http_lib,brutal_purge,soft_purge,[]}]},
-   {"4.3.0",
-    [{load_module,emqx_packet,brutal_purge,soft_purge,[]},
+   {"4.3.0", [
+     {load_module,emqx_packet,brutal_purge,soft_purge,[]},
      {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
      {load_module,emqx_logger_jsonfmt,brutal_purge,soft_purge,[]},
      {load_module,emqx_ws_connection,brutal_purge,soft_purge,[]},
@@ -56,19 +60,23 @@
      {load_module,emqx_http_lib,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}],
   [
-   {"4.3.4",
-    [{load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
+   {"4.3.5", [
+     {load_module,emqx_cm,brutal_purge,soft_purge,[]}
+    ]},
+   {"4.3.4", [
+     {load_module,emqx_cm,brutal_purge,soft_purge,[]},
+     {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
      {load_module,emqx_app,brutal_purge,soft_purge,[]}
     ]},
-   {"4.3.3",
-    [{load_module,emqx_packet,brutal_purge,soft_purge,[]},
+   {"4.3.3", [
+     {load_module,emqx_packet,brutal_purge,soft_purge,[]},
      {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
      {load_module,emqx_ws_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
      {load_module,emqx_app,brutal_purge,soft_purge,[]}
     ]},
-   {"4.3.2",
-    [{load_module,emqx_packet,brutal_purge,soft_purge,[]},
+   {"4.3.2", [
+     {load_module,emqx_packet,brutal_purge,soft_purge,[]},
      {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
      {load_module,emqx_ws_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_http_lib,brutal_purge,soft_purge,[]},
@@ -77,8 +85,8 @@
      {load_module,emqx_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]}
     ]},
-   {"4.3.1",
-    [{load_module,emqx_packet,brutal_purge,soft_purge,[]},
+   {"4.3.1", [
+     {load_module,emqx_packet,brutal_purge,soft_purge,[]},
      {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
      {load_module,emqx_ws_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_connection,brutal_purge,soft_purge,[]},
@@ -91,8 +99,8 @@
      {load_module,emqx_plugins,brutal_purge,soft_purge,[]},
      {load_module,emqx_logger_textfmt,brutal_purge,soft_purge,[]},
      {load_module,emqx_http_lib,brutal_purge,soft_purge,[]}]},
-   {"4.3.0",
-    [{load_module,emqx_packet,brutal_purge,soft_purge,[]},
+   {"4.3.0", [
+     {load_module,emqx_packet,brutal_purge,soft_purge,[]},
      {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
      {load_module,emqx_logger_jsonfmt,brutal_purge,soft_purge,[]},
      {load_module,emqx_ws_connection,brutal_purge,soft_purge,[]},
