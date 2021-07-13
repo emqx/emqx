@@ -256,7 +256,7 @@ fields("acl_cache") ->
 fields("mqtt") ->
     [ {"mountpoint", t(binary(), undefined, <<>>)}
     , {"idle_timeout", maybe_infinity(duration(), "15s")}
-    , {"max_packet_size", maybe_infinity(bytesize(), "1MB")}
+    , {"max_packet_size", t(bytesize(), undefined, "1MB")}
     , {"max_clientid_len", t(integer(), undefined, 65535)}
     , {"max_topic_levels", t(integer(), undefined, 65535)}
     , {"max_qos_allowed", t(range(0, 2), undefined, 2)}
@@ -479,7 +479,7 @@ fields("sysmon") ->
     ];
 
 fields("sysmon_vm") ->
-    [ {"process_check_interval", t(duration_s(), undefined, 30)}
+    [ {"process_check_interval", t(duration(), undefined, "30s")}
     , {"process_high_watermark", t(percent(), undefined, "80%")}
     , {"process_low_watermark", t(percent(), undefined, "60%")}
     , {"long_gc", maybe_disabled(duration())}
