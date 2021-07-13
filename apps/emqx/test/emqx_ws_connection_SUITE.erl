@@ -48,6 +48,7 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_pingreq_before_connected,
     TestCase =/= t_ws_non_check_origin
     ->
+    emqx_channel_SUITE:set_default_zone_conf(),
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
     ok = meck:expect(cowboy_req, header, fun(_, _, _) -> <<>> end),
@@ -78,6 +79,7 @@ init_per_testcase(TestCase, Config) when
     Config;
 
 init_per_testcase(_, Config) ->
+    ok = emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_testcase(TestCase, _Config) when
@@ -96,6 +98,7 @@ end_per_testcase(TestCase, _Config) when
                   ]);
 
 end_per_testcase(_, Config) ->
+    emqx_ct_helpers:stop_apps([]),
     Config.
 
 %%--------------------------------------------------------------------
@@ -110,7 +113,6 @@ t_info(_) ->
                   end),
     #{sockinfo := SockInfo} = ?ws_conn:call(WsPid, info),
     #{socktype  := ws,
-      active_n  := 100,
       peername  := {{127,0,0,1}, 3456},
       sockname  := {{127,0,0,1}, 18083},
       sockstate := running
@@ -171,12 +173,10 @@ t_call(_) ->
     ?assertEqual(Info, ?ws_conn:call(WsPid, info)).
 
 t_ws_pingreq_before_connected(_) ->
-    ok = emqx_ct_helpers:start_apps([]),
     {ok, _} = application:ensure_all_started(gun),
     {ok, WPID} = gun:open("127.0.0.1", 8083),
     ws_pingreq(#{}),
-    gun:close(WPID),
-    emqx_ct_helpers:stop_apps([]).
+    gun:close(WPID).
 
 ws_pingreq(State) ->
     receive
@@ -205,14 +205,11 @@ ws_pingreq(State) ->
     end.
 
 t_ws_sub_protocols_mqtt(_) ->
-    ok = emqx_ct_helpers:start_apps([]),
     {ok, _} = application:ensure_all_started(gun),
     ?assertMatch({gun_upgrade, _},
-        start_ws_client(#{protocols => [<<"mqtt">>]})),
-    emqx_ct_helpers:stop_apps([]).
+        start_ws_client(#{protocols => [<<"mqtt">>]})).
 
 t_ws_sub_protocols_mqtt_equivalents(_) ->
-    ok = emqx_ct_helpers:start_apps([]),
     {ok, _} = application:ensure_all_started(gun),
     %% also support mqtt-v3, mqtt-v3.1.1, mqtt-v5
     ?assertMatch({gun_upgrade, _},
@@ -222,58 +219,39 @@ t_ws_sub_protocols_mqtt_equivalents(_) ->
     ?assertMatch({gun_upgrade, _},
         start_ws_client(#{protocols => [<<"mqtt-v5">>]})),
     ?assertMatch({gun_response, {_, 400, _}},
-        start_ws_client(#{protocols => [<<"not-mqtt">>]})),
-    emqx_ct_helpers:stop_apps([]).
+        start_ws_client(#{protocols => [<<"not-mqtt">>]})).
 
 t_ws_check_origin(_) ->
-    emqx_ct_helpers:start_apps([],
-        fun(emqx) ->
-            {ok, Listeners} = application:get_env(emqx, listeners),
-            NListeners = lists:map(fun(#{listen_on := 8083, opts := Opts} = Listener) ->
-                                       NOpts = proplists:delete(check_origin_enable, Opts),
-                                       Listener#{opts => [{check_origin_enable, true} | NOpts]};
-                                      (Listener) ->
-                                       Listener
-                                   end, Listeners),
-            application:set_env(emqx, listeners, NListeners),
-            ok;
-           (_) -> ok
-        end),
+    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, check_origin_enable], true),
+    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, check_origins],
+        [<<"http://localhost:18083">>]),
     {ok, _} = application:ensure_all_started(gun),
     ?assertMatch({gun_upgrade, _},
         start_ws_client(#{protocols => [<<"mqtt">>],
                           headers => [{<<"origin">>, <<"http://localhost:18083">>}]})),
     ?assertMatch({gun_response, {_, 500, _}},
         start_ws_client(#{protocols => [<<"mqtt">>],
-                          headers => [{<<"origin">>, <<"http://localhost:18080">>}]})),
-    emqx_ct_helpers:stop_apps([]).
+                          headers => [{<<"origin">>, <<"http://localhost:18080">>}]})).
 
 t_ws_non_check_origin(_) ->
-    emqx_ct_helpers:start_apps([]),
+    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, check_origin_enable], false),
+    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, check_origins], []),
     {ok, _} = application:ensure_all_started(gun),
     ?assertMatch({gun_upgrade, _},
         start_ws_client(#{protocols => [<<"mqtt">>],
                           headers => [{<<"origin">>, <<"http://localhost:18083">>}]})),
     ?assertMatch({gun_upgrade, _},
         start_ws_client(#{protocols => [<<"mqtt">>],
-                          headers => [{<<"origin">>, <<"http://localhost:18080">>}]})),
-    emqx_ct_helpers:stop_apps([]).
-
+                          headers => [{<<"origin">>, <<"http://localhost:18080">>}]})).
 
 t_init(_) ->
-    Opts = [{idle_timeout, 300000},
-            {fail_if_no_subprotocol, false},
-            {supported_subprotocols, ["mqtt"]}],
-    WsOpts = #{compress       => false,
-               deflate_opts   => #{},
-               max_frame_size => infinity,
-               idle_timeout   => 300000
-              },
+    Opts = #{listener => mqtt_ws, zone => default},
     ok = meck:expect(cowboy_req, parse_header, fun(_, req) -> undefined end),
-    {cowboy_websocket, req, [req, Opts], WsOpts} = ?ws_conn:init(req, Opts),
+    ok = meck:expect(cowboy_req, reply, fun(_, Req) -> Req end),
+    {ok, req, _} = ?ws_conn:init(req, Opts),
     ok = meck:expect(cowboy_req, parse_header, fun(_, req) -> [<<"mqtt">>] end),
     ok = meck:expect(cowboy_req, set_resp_header, fun(_, <<"mqtt">>, req) -> resp end),
-    {cowboy_websocket, resp, [req, Opts], WsOpts} = ?ws_conn:init(req, Opts).
+    {cowboy_websocket, resp, [req, Opts], _} = ?ws_conn:init(req, Opts).
 
 t_websocket_handle_binary(_) ->
     {ok, _} = websocket_handle({binary, <<>>}, st()),
