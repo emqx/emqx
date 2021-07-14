@@ -32,29 +32,24 @@
 %%--------------------------------------------------------------------
 
 -spec(authenticate(emqx_types:clientinfo()) -> {ok, result()} | {error, term()}).
-authenticate(ClientInfo = #{zone := Zone}) ->
-    AuthResult = default_auth_result(Zone),
-    case emqx_zone:get_env(Zone, bypass_auth_plugins, false) of
-        true ->
-            return_auth_result(AuthResult);
-        false ->
-            return_auth_result(run_hooks('client.authenticate', [ClientInfo], AuthResult))
-    end.
+authenticate(ClientInfo = #{zone := Zone, listener := Listener}) ->
+    AuthResult = default_auth_result(Zone, Listener),
+    return_auth_result(run_hooks('client.authenticate', [ClientInfo], AuthResult)).
 
 %% @doc Check ACL
 -spec(authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic())
       -> allow | deny).
-authorize(ClientInfo, PubSub, Topic) ->
-    case emqx_acl_cache:is_enabled() of
+authorize(ClientInfo = #{zone := Zone, listener := Listener}, PubSub, Topic) ->
+    case emqx_acl_cache:is_enabled(Zone, Listener) of
         true  -> check_authorization_cache(ClientInfo, PubSub, Topic);
         false -> do_authorize(ClientInfo, PubSub, Topic)
     end.
 
-check_authorization_cache(ClientInfo, PubSub, Topic) ->
-    case emqx_acl_cache:get_acl_cache(PubSub, Topic) of
+check_authorization_cache(ClientInfo = #{zone := Zone, listener := Listener}, PubSub, Topic) ->
+    case emqx_acl_cache:get_acl_cache(Zone, Listener, PubSub, Topic) of
         not_found ->
             AclResult = do_authorize(ClientInfo, PubSub, Topic),
-            emqx_acl_cache:put_acl_cache(PubSub, Topic, AclResult),
+            emqx_acl_cache:put_acl_cache(Zone, Listener, PubSub, Topic, AclResult),
             AclResult;
         AclResult -> AclResult
     end.
@@ -65,10 +60,10 @@ do_authorize(ClientInfo, PubSub, Topic) ->
         _Other -> deny
     end.
 
-default_auth_result(Zone) ->
-    case emqx_zone:get_env(Zone, allow_anonymous, false) of
-        true  -> #{auth_result => success, anonymous => true};
-        false -> #{auth_result => not_authorized, anonymous => false}
+default_auth_result(Zone, Listener) ->
+    case emqx_config:get_listener_conf(Zone, Listener, [auth, enable]) of
+        false  -> #{auth_result => success, anonymous => true};
+        true -> #{auth_result => not_authorized, anonymous => false}
     end.
 
 -compile({inline, [run_hooks/3]}).

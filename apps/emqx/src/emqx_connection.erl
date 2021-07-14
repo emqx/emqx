@@ -83,8 +83,6 @@
           sockname :: emqx_types:peername(),
           %% Sock State
           sockstate :: emqx_types:sockstate(),
-          %% The {active, N} option
-          active_n :: pos_integer(),
           %% Limiter
           limiter :: maybe(emqx_limiter:limiter()),
           %% Limit Timer
@@ -102,13 +100,17 @@
           %% Idle Timeout
           idle_timeout :: integer(),
           %% Idle Timer
-          idle_timer :: maybe(reference())
+          idle_timer :: maybe(reference()),
+          %% Zone name
+          zone :: atom(),
+          %% Listener Name
+          listener :: atom()
         }).
 
 -type(state() :: #state{}).
 
 -define(ACTIVE_N, 100).
--define(INFO_KEYS, [socktype, peername, sockname, sockstate, active_n]).
+-define(INFO_KEYS, [socktype, peername, sockname, sockstate]).
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
@@ -134,7 +136,7 @@
                             , system_code_change/4
                             ]}).
 
--spec(start_link(esockd:transport(), esockd:socket(), proplists:proplist())
+-spec(start_link(esockd:transport(), esockd:socket(), emqx_channel:opts())
       -> {ok, pid()}).
 start_link(Transport, Socket, Options) ->
     Args = [self(), Transport, Socket, Options],
@@ -165,8 +167,6 @@ info(sockname, #state{sockname = Sockname}) ->
     Sockname;
 info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
-info(active_n, #state{active_n = ActiveN}) ->
-    ActiveN;
 info(stats_timer, #state{stats_timer = StatsTimer}) ->
     StatsTimer;
 info(limit_timer, #state{limit_timer = LimitTimer}) ->
@@ -243,7 +243,7 @@ init(Parent, Transport, RawSocket, Options) ->
             exit_on_sock_error(Reason)
     end.
 
-init_state(Transport, Socket, Options) ->
+init_state(Transport, Socket, #{zone := Zone, listener := Listener} = Opts) ->
     {ok, Peername} = Transport:ensure_ok_or_exit(peername, [Socket]),
     {ok, Sockname} = Transport:ensure_ok_or_exit(sockname, [Socket]),
     Peercert = Transport:ensure_ok_or_exit(peercert, [Socket]),
@@ -253,26 +253,29 @@ init_state(Transport, Socket, Options) ->
                  peercert => Peercert,
                  conn_mod => ?MODULE
                 },
-    Zone = proplists:get_value(zone, Options),
-    ActiveN = proplists:get_value(active_n, Options, ?ACTIVE_N),
-    PubLimit = emqx_zone:publish_limit(Zone),
-    BytesIn = proplists:get_value(rate_limit, Options),
-    RateLimit = emqx_zone:ratelimit(Zone),
-    Limiter = emqx_limiter:init(Zone, PubLimit, BytesIn, RateLimit),
-    FrameOpts = emqx_zone:mqtt_frame_options(Zone),
+    Limiter = emqx_limiter:init(Zone, undefined, undefined, []),
+    FrameOpts = #{
+        strict_mode => emqx_config:get_listener_conf(Zone, Listener, [mqtt, strict_mode]),
+        max_size => emqx_config:get_listener_conf(Zone, Listener, [mqtt, max_packet_size])
+    },
     ParseState = emqx_frame:initial_parse_state(FrameOpts),
     Serialize = emqx_frame:serialize_opts(),
-    Channel = emqx_channel:init(ConnInfo, Options),
-    GcState = emqx_zone:init_gc_state(Zone),
-    StatsTimer = emqx_zone:stats_timer(Zone),
-    IdleTimeout = emqx_zone:idle_timeout(Zone),
+    Channel = emqx_channel:init(ConnInfo, Opts),
+    GcState = case emqx_config:get_listener_conf(Zone, Listener, [force_gc]) of
+        #{enable := false} -> undefined;
+        GcPolicy -> emqx_gc:init(GcPolicy)
+    end,
+    StatsTimer = case emqx_config:get_listener_conf(Zone, Listener, [stats, enable]) of
+        true -> undefined;
+        false -> disabled
+    end,
+    IdleTimeout = emqx_channel:get_mqtt_conf(Zone, Listener, idle_timeout),
     IdleTimer = start_timer(IdleTimeout, idle_timeout),
     #state{transport    = Transport,
            socket       = Socket,
            peername     = Peername,
            sockname     = Sockname,
            sockstate    = idle,
-           active_n     = ActiveN,
            limiter      = Limiter,
            parse_state  = ParseState,
            serialize    = Serialize,
@@ -280,7 +283,9 @@ init_state(Transport, Socket, Options) ->
            gc_state     = GcState,
            stats_timer  = StatsTimer,
            idle_timeout = IdleTimeout,
-           idle_timer   = IdleTimer
+           idle_timer   = IdleTimer,
+           zone         = Zone,
+           listener     = Listener
           }.
 
 run_loop(Parent, State = #state{transport = Transport,
@@ -288,8 +293,9 @@ run_loop(Parent, State = #state{transport = Transport,
                                 peername  = Peername,
                                 channel   = Channel}) ->
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
-    emqx_misc:tune_heap_size(emqx_zone:oom_policy(
-                               emqx_channel:info(zone, Channel))),
+    ShutdownPolicy = emqx_config:get_listener_conf(emqx_channel:info(zone, Channel),
+            emqx_channel:info(listener, Channel), [force_shutdown]),
+    emqx_misc:tune_heap_size(ShutdownPolicy),
     case activate_socket(State) of
         {ok, NState} -> hibernate(Parent, NState);
         {error, Reason} ->
@@ -458,14 +464,15 @@ handle_msg({Passive, _Sock}, State)
     NState1 = check_oom(run_gc(InStats, NState)),
     handle_info(activate_socket, NState1);
 
-handle_msg(Deliver = {deliver, _Topic, _Msg},
-           #state{active_n = ActiveN} = State) ->
+handle_msg(Deliver = {deliver, _Topic, _Msg}, #state{zone = Zone,
+        listener = Listener} = State) ->
+    ActiveN = get_active_n(Zone, Listener),
     Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 
 %% Something sent
-handle_msg({inet_reply, _Sock, ok}, State = #state{active_n = ActiveN}) ->
-    case emqx_pd:get_counter(outgoing_pubs) > ActiveN of
+handle_msg({inet_reply, _Sock, ok}, State = #state{zone = Zone, listener = Listener}) ->
+    case emqx_pd:get_counter(outgoing_pubs) > get_active_n(Zone, Listener) of
         true ->
             Pubs = emqx_pd:reset_counter(outgoing_pubs),
             Bytes = emqx_pd:reset_counter(outgoing_bytes),
@@ -794,15 +801,14 @@ run_gc(Stats, State = #state{gc_state = GcSt}) ->
     end.
 
 check_oom(State = #state{channel = Channel}) ->
-    Zone = emqx_channel:info(zone, Channel),
-    OomPolicy = emqx_zone:oom_policy(Zone),
-    ?tp(debug, check_oom, #{policy => OomPolicy}),
-    case ?ENABLED(OomPolicy) andalso emqx_misc:check_oom(OomPolicy) of
+    ShutdownPolicy = emqx_config:get_listener_conf(emqx_channel:info(zone, Channel),
+        emqx_channel:info(listener, Channel), [force_shutdown]),
+    ?tp(debug, check_oom, #{policy => ShutdownPolicy}),
+    case emqx_misc:check_oom(ShutdownPolicy) of
         {shutdown, Reason} ->
             %% triggers terminate/2 callback immediately
             erlang:exit({shutdown, Reason});
-        _Other ->
-            ok
+        _ -> ok
     end,
     State.
 
@@ -814,10 +820,10 @@ activate_socket(State = #state{sockstate = closed}) ->
     {ok, State};
 activate_socket(State = #state{sockstate = blocked}) ->
     {ok, State};
-activate_socket(State = #state{transport = Transport,
-                               socket    = Socket,
-                               active_n  = N}) ->
-    case Transport:setopts(Socket, [{active, N}]) of
+activate_socket(State = #state{transport = Transport, socket = Socket,
+        zone = Zone, listener = Listener}) ->
+    ActiveN = get_active_n(Zone, Listener),
+    case Transport:setopts(Socket, [{active, ActiveN}]) of
         ok -> {ok, State#state{sockstate = running}};
         Error -> Error
     end.
@@ -898,3 +904,9 @@ get_state(Pid) ->
     State = sys:get_state(Pid),
     maps:from_list(lists:zip(record_info(fields, state),
                              tl(tuple_to_list(State)))).
+
+get_active_n(Zone, Listener) ->
+    case emqx_config:get([zones, Zone, listeners, Listener, type]) of
+        quic -> 100;
+        _ -> emqx_config:get_listener_conf(Zone, Listener, [tcp, active_n])
+    end.

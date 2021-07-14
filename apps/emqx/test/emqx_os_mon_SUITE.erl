@@ -24,46 +24,34 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_config:put([sysmon, os], #{
+        cpu_check_interval => 60,cpu_high_watermark => 0.8,
+        cpu_low_watermark => 0.6,mem_check_interval => 60,
+        procmem_high_watermark => 0.05,sysmem_high_watermark => 0.7}),
     application:ensure_all_started(os_mon),
     Config.
 
 end_per_suite(_Config) ->
     application:stop(os_mon).
 
-% t_set_mem_check_interval(_) ->
-%     error('TODO').
-
-% t_set_sysmem_high_watermark(_) ->
-%     error('TODO').
-
-% t_set_procmem_high_watermark(_) ->
-%     error('TODO').
-
 t_api(_) ->
     gen_event:swap_handler(alarm_handler, {emqx_alarm_handler, swap}, {alarm_handler, []}),
-    {ok, _} = emqx_os_mon:start_link([{cpu_check_interval, 1},
-                                      {cpu_high_watermark, 5},
-                                      {cpu_low_watermark, 80},
-                                      {mem_check_interval, 60},
-                                      {sysmem_high_watermark, 70},
-                                      {procmem_high_watermark, 5}]),
-    ?assertEqual(1, emqx_os_mon:get_cpu_check_interval()),
-    ?assertEqual(5, emqx_os_mon:get_cpu_high_watermark()),
-    ?assertEqual(80, emqx_os_mon:get_cpu_low_watermark()),
-    ?assertEqual(60, emqx_os_mon:get_mem_check_interval()),
-    ?assertEqual(70, emqx_os_mon:get_sysmem_high_watermark()),
-    ?assertEqual(5, emqx_os_mon:get_procmem_high_watermark()),
-    % timer:sleep(2000),
-    % ?assertEqual(true, lists:keymember(cpu_high_watermark, 1, alarm_handler:get_alarms())),
+    {ok, _} = emqx_os_mon:start_link(),
 
-    emqx_os_mon:set_cpu_check_interval(0.05),
-    emqx_os_mon:set_cpu_high_watermark(80),
-    emqx_os_mon:set_cpu_low_watermark(75),
-    ?assertEqual(0.05, emqx_os_mon:get_cpu_check_interval()),
-    ?assertEqual(80, emqx_os_mon:get_cpu_high_watermark()),
-    ?assertEqual(75, emqx_os_mon:get_cpu_low_watermark()),
-    % timer:sleep(3000),
-    % ?assertEqual(false, lists:keymember(cpu_high_watermark, 1, alarm_handler:get_alarms())),
+    ?assertEqual(60, emqx_os_mon:get_mem_check_interval()),
+    ?assertEqual(ok, emqx_os_mon:set_mem_check_interval(30)),
+    ?assertEqual(60, emqx_os_mon:get_mem_check_interval()),
+    ?assertEqual(ok, emqx_os_mon:set_mem_check_interval(122)),
+    ?assertEqual(120, emqx_os_mon:get_mem_check_interval()),
+
+    ?assertEqual(70, emqx_os_mon:get_sysmem_high_watermark()),
+    ?assertEqual(ok, emqx_os_mon:set_sysmem_high_watermark(0.8)),
+    ?assertEqual(80, emqx_os_mon:get_sysmem_high_watermark()),
+
+    ?assertEqual(5, emqx_os_mon:get_procmem_high_watermark()),
+    ?assertEqual(ok, emqx_os_mon:set_procmem_high_watermark(0.11)),
+    ?assertEqual(11, emqx_os_mon:get_procmem_high_watermark()),
+
     ?assertEqual(ignored, gen_server:call(emqx_os_mon, ignored)),
     ?assertEqual(ok, gen_server:cast(emqx_os_mon, ignored)),
     emqx_os_mon ! ignored,

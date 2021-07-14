@@ -170,7 +170,6 @@ t_subscribe_case02(_) ->
     ReturnCode = 0,
     {ok, Socket} = gen_udp:open(0, [binary]),
 
-    ClientId = ?CLIENTID,
     send_connect_msg(Socket, ?CLIENTID),
     ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
 

@@ -23,17 +23,16 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-init_per_testcase(t_api, Config) ->
+init_per_testcase(t_alarms, Config) ->
     emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([],
-        fun(emqx) ->
-            application:set_env(emqx, vm_mon, [{check_interval, 1},
-                                               {process_high_watermark, 80},
-                                               {process_low_watermark, 75}]),
-            ok;
-           (_) ->
-            ok
-        end),
+    emqx_ct_helpers:start_apps([]),
+    emqx_config:put([sysmon, vm], #{
+            process_high_watermark => 0,
+            process_low_watermark => 0,
+            process_check_interval => 100 %% 1s
+        }),
+    ok = supervisor:terminate_child(emqx_sys_sup, emqx_vm_mon),
+    {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_vm_mon),
     Config;
 init_per_testcase(_, Config) ->
     emqx_ct_helpers:boot_modules(all),
@@ -43,18 +42,12 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, _Config) ->
     emqx_ct_helpers:stop_apps([]).
 
-t_api(_) ->
-    ?assertEqual(1, emqx_vm_mon:get_check_interval()),
-    ?assertEqual(80, emqx_vm_mon:get_process_high_watermark()),
-    ?assertEqual(75, emqx_vm_mon:get_process_low_watermark()),
-    emqx_vm_mon:set_process_high_watermark(0),
-    emqx_vm_mon:set_process_low_watermark(60),
-    ?assertEqual(0, emqx_vm_mon:get_process_high_watermark()),
-    ?assertEqual(60, emqx_vm_mon:get_process_low_watermark()),
-    timer:sleep(emqx_vm_mon:get_check_interval() * 1000 * 2),
+t_alarms(_) ->
+    timer:sleep(500),
     ?assert(is_existing(too_many_processes, emqx_alarm:get_alarms(activated))),
-    emqx_vm_mon:set_process_high_watermark(70),
-    timer:sleep(emqx_vm_mon:get_check_interval() * 1000 * 2),
+    emqx_config:put([sysmon, vm, process_high_watermark], 70),
+    emqx_config:put([sysmon, vm, process_low_watermark], 60),
+    timer:sleep(500),
     ?assertNot(is_existing(too_many_processes, emqx_alarm:get_alarms(activated))).
 
 is_existing(Name, [#{name := Name} | _More]) ->

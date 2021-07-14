@@ -265,7 +265,7 @@ t_kick_1(_Config) ->
     end.
 
 % mqtt connection kicked by coap with same client id
-t_acl(Config) ->
+t_acl(_Config) ->
     OldPath = emqx:get_env(plugins_etc_dir),
     application:set_env(emqx, plugins_etc_dir,
                         emqx_ct_helpers:deps_path(emqx_authz, "test")),

@@ -78,16 +78,13 @@ groups() ->
 
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([], fun set_special_confs/1),
+    emqx_ct_helpers:start_apps([]),
+    emqx_config:put_listener_conf(default, mqtt_ssl, [ssl, verify], verify_peer),
+    emqx_listeners:restart_listener('default:mqtt_ssl'),
     Config.
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
-
-set_special_confs(emqx) ->
-    emqx_ct_helpers:change_emqx_opts(ssl_twoway, [{peer_cert_as_username, cn}]);
-set_special_confs(_) ->
-    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v3
@@ -104,8 +101,7 @@ t_basic_v4(_Config) ->
     t_basic([{proto_ver, v4}]).
 
 t_cm(_) ->
-    IdleTimeout = emqx_zone:get_env(external, idle_timeout, 30000),
-    emqx_zone:set_env(external, idle_timeout, 1000),
+    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, idle_timeout], 1000),
     ClientId = <<"myclient">>,
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
@@ -115,7 +111,7 @@ t_cm(_) ->
     ct:sleep(1200),
     Stats = emqx_cm:get_chan_stats(ClientId),
     ?assertEqual(1, proplists:get_value(subscriptions_cnt, Stats)),
-    emqx_zone:set_env(external, idle_timeout, IdleTimeout).
+    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, idle_timeout], 15000).
 
 t_cm_registry(_) ->
     Info = supervisor:which_children(emqx_cm_sup),
@@ -273,14 +269,12 @@ t_basic(_Opts) ->
     ok = emqtt:disconnect(C).
 
 t_username_as_clientid(_) ->
-    emqx_zone:set_env(external, use_username_as_clientid, true),
+    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, use_username_as_clientid], true),
     Username = <<"usera">>,
     {ok, C} = emqtt:start_link([{username, Username}]),
     {ok, _} = emqtt:connect(C),
     #{clientinfo := #{clientid := Username}} = emqx_cm:get_chan_info(Username),
     emqtt:disconnect(C).
-
-
 
 t_certcn_as_clientid_default_config_tls(_) ->
     tls_certcn_as_clientid(default).
@@ -329,7 +323,7 @@ tls_certcn_as_clientid(TLSVsn) ->
 
 tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     CN = <<"Client">>,
-    emqx_zone:set_env(external, use_username_as_clientid, true),
+    emqx_config:put_listener_conf(default, mqtt_ssl, [mqtt, peer_cert_as_clientid], cn),
     SslConf = emqx_ct_helpers:client_ssl_twoway(TLSVsn),
     {ok, Client} = emqtt:start_link([{port, 8883}, {ssl, true}, {ssl_opts, SslConf}]),
     {ok, _} = emqtt:connect(Client),

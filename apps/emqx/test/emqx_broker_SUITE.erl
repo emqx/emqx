@@ -42,19 +42,19 @@ end_per_suite(_Config) ->
 %%--------------------------------------------------------------------
 
 t_stats_fun(_) ->
-    ?assertEqual(0, emqx_stats:getstat('subscribers.count')),
-    ?assertEqual(0, emqx_stats:getstat('subscriptions.count')),
-    ?assertEqual(0, emqx_stats:getstat('suboptions.count')),
+    Subscribers = emqx_stats:getstat('subscribers.count'),
+    Subscriptions = emqx_stats:getstat('subscriptions.count'),
+    Subopts = emqx_stats:getstat('suboptions.count'),
     ok = emqx_broker:subscribe(<<"topic">>, <<"clientid">>),
     ok = emqx_broker:subscribe(<<"topic2">>, <<"clientid">>),
     emqx_broker:stats_fun(),
     ct:sleep(10),
-    ?assertEqual(2, emqx_stats:getstat('subscribers.count')),
-    ?assertEqual(2, emqx_stats:getstat('subscribers.max')),
-    ?assertEqual(2, emqx_stats:getstat('subscriptions.count')),
-    ?assertEqual(2, emqx_stats:getstat('subscriptions.max')),
-    ?assertEqual(2, emqx_stats:getstat('suboptions.count')),
-    ?assertEqual(2, emqx_stats:getstat('suboptions.max')).
+    ?assertEqual(Subscribers + 2, emqx_stats:getstat('subscribers.count')),
+    ?assertEqual(Subscribers + 2, emqx_stats:getstat('subscribers.max')),
+    ?assertEqual(Subscriptions + 2, emqx_stats:getstat('subscriptions.count')),
+    ?assertEqual(Subscriptions + 2, emqx_stats:getstat('subscriptions.max')),
+    ?assertEqual(Subopts + 2, emqx_stats:getstat('suboptions.count')),
+    ?assertEqual(Subopts + 2, emqx_stats:getstat('suboptions.max')).
 
 t_subscribed(_) ->
     emqx_broker:subscribe(<<"topic">>),

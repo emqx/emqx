@@ -43,13 +43,13 @@ fields("http") ->
     , {"max_connections", emqx_schema:t(integer(), undefined, 512)}
     , {"backlog", emqx_schema:t(integer(), undefined, 1024)}
     , {"send_timeout", emqx_schema:t(emqx_schema:duration(), undefined, "15s")}
-    , {"send_timeout_close", emqx_schema:t(emqx_schema:flag(), undefined, true)}
+    , {"send_timeout_close", emqx_schema:t(boolean(), undefined, true)}
     , {"inet6", emqx_schema:t(boolean(), undefined, false)}
     , {"ipv6_v6only", emqx_schema:t(boolean(), undefined, false)}
     ];
 
 fields("https") ->
-    emqx_schema:ssl(undefined, #{enable => true}) ++ fields("http").
+    emqx_schema:ssl(#{enable => true}) ++ fields("http").
 
 max_row_limit(type) -> integer();
 max_row_limit(default) -> 1000;

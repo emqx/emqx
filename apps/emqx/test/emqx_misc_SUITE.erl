@@ -119,8 +119,9 @@ t_index_of(_) ->
     ?assertEqual(3, emqx_misc:index_of(a, [b, c, a, e, f])).
 
 t_check(_) ->
-    Policy = #{message_queue_len => 10,
-               max_heap_size => 1024 * 1024 * 8},
+    Policy = #{max_message_queue_len => 10,
+               max_heap_size => 1024 * 1024 * 8,
+               enable => true},
     [self() ! {msg, I} || I <- lists:seq(1, 5)],
     ?assertEqual(ok, emqx_misc:check_oom(Policy)),
     [self() ! {msg, I} || I <- lists:seq(1, 6)],

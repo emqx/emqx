@@ -161,16 +161,15 @@ drop_tls13_for_old_otp(SslOpts) ->
                                   , "TLS_AES_128_CCM_8_SHA256"
                                   ]).
 drop_tls13(SslOpts0) ->
-    SslOpts1 = case proplists:get_value(versions, SslOpts0) of
-                   undefined -> SslOpts0;
-                   Vsns -> replace(SslOpts0, versions, Vsns -- ['tlsv1.3'])
+    SslOpts1 = case maps:find(versions, SslOpts0) of
+                   error -> SslOpts0;
+                   {ok, Vsns} -> SslOpts0#{versions => (Vsns -- ['tlsv1.3'])}
                end,
-    case proplists:get_value(ciphers, SslOpts1) of
-        undefined -> SslOpts1;
-        Ciphers -> replace(SslOpts1, ciphers, Ciphers -- ?TLSV13_EXCLUSIVE_CIPHERS)
+    case maps:find(ciphers, SslOpts1) of
+        error -> SslOpts1;
+        {ok, Ciphers} ->
+            SslOpts1#{ciphers => Ciphers -- ?TLSV13_EXCLUSIVE_CIPHERS}
     end.
-
-replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].
 
 -if(?OTP_RELEASE > 22).
 -ifdef(TEST).
@@ -181,13 +180,13 @@ drop_tls13_test() ->
     ?assert(lists:member('tlsv1.3', Versions)),
     Ciphers = default_ciphers(),
     ?assert(has_tlsv13_cipher(Ciphers)),
-    Opts0 = [{versions, Versions}, {ciphers, Ciphers}, other, {bool, true}],
+    Opts0 = #{versions => Versions, ciphers => Ciphers, other => true},
     Opts = drop_tls13(Opts0),
-    ?assertNot(lists:member('tlsv1.3', proplists:get_value(versions, Opts))),
-    ?assertNot(has_tlsv13_cipher(proplists:get_value(ciphers, Opts))).
+    ?assertNot(lists:member('tlsv1.3', maps:get(versions, Opts, undefined))),
+    ?assertNot(has_tlsv13_cipher(maps:get(ciphers, Opts, undefined))).
 
 drop_tls13_no_versions_cipers_test() ->
-    Opts0 = [other, {bool, true}],
+    Opts0 = #{other => 0, bool => true},
     Opts = drop_tls13(Opts0),
     ?_assertEqual(Opts0, Opts).
 

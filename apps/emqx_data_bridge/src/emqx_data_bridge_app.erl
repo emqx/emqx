@@ -34,7 +34,10 @@ stop(_State) ->
 handle_update_config({update, Bridge = #{<<"name">> := Name}}, OldConf) ->
     [Bridge | remove_bridge(Name, OldConf)];
 handle_update_config({delete, Name}, OldConf) ->
-    remove_bridge(Name, OldConf).
+    remove_bridge(Name, OldConf);
+handle_update_config(NewConf, _OldConf) when is_list(NewConf) ->
+    %% overwrite the entire config!
+    NewConf.
 
 remove_bridge(_Name, undefined) ->
     [];

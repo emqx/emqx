@@ -27,27 +27,17 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_testcase(t_size_limit, Config) ->
     emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([],
-        fun(emqx) ->
-            application:set_env(emqx, alarm, [{actions, [log,publish]},
-                                              {size_limit, 2},
-                                              {validity_period, 3600}]),
-            ok;
-           (_) ->
-            ok
-        end),
+    emqx_ct_helpers:start_apps([]),
+    emqx_config:update_config([alarm], #{
+            <<"size_limit">> => 2
+        }),
     Config;
 init_per_testcase(t_validity_period, Config) ->
     emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([],
-        fun(emqx) ->
-            application:set_env(emqx, alarm, [{actions, [log,publish]},
-                                              {size_limit, 1000},
-                                              {validity_period, 1}]),
-            ok;
-           (_) ->
-            ok
-        end),
+    emqx_ct_helpers:start_apps([]),
+    emqx_config:update_config([alarm], #{
+            <<"validity_period">> => <<"1s">>
+        }),
     Config;
 init_per_testcase(_, Config) ->
     emqx_ct_helpers:boot_modules(all),
@@ -89,7 +79,7 @@ t_size_limit(_) ->
     ok = emqx_alarm:activate(b),
     ok = emqx_alarm:deactivate(b),
     ?assertNotEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))),
-    ?assertNotEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))),
+    ?assertNotEqual({error, not_found}, get_alarm(b, emqx_alarm:get_alarms(deactivated))),
     ok = emqx_alarm:activate(c),
     ok = emqx_alarm:deactivate(c),
     ?assertNotEqual({error, not_found}, get_alarm(c, emqx_alarm:get_alarms(deactivated))),

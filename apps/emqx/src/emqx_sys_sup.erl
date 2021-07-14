@@ -27,10 +27,10 @@ start_link() ->
 
 init([]) ->
     Childs = [child_spec(emqx_sys),
-              child_spec(emqx_alarm,   [config(alarm)]),
-              child_spec(emqx_sys_mon, [config(sysmon)]),
-              child_spec(emqx_os_mon,  [config(os_mon)]),
-              child_spec(emqx_vm_mon,  [config(vm_mon)])],
+              child_spec(emqx_alarm),
+              child_spec(emqx_sys_mon),
+              child_spec(emqx_os_mon),
+              child_spec(emqx_vm_mon)],
     {ok, {{one_for_one, 10, 100}, Childs}}.
 
 %%--------------------------------------------------------------------
@@ -48,6 +48,3 @@ child_spec(Mod, Args) ->
       type => worker,
       modules => [Mod]
      }.
-
-config(Name) -> emqx:get_env(Name, []).
-
