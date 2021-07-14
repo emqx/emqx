@@ -122,11 +122,11 @@
                             , system_code_change/4
                             ]}).
 
--dialyzer({nowarn_function, [ensure_stats_timer/2,cancel_stats_timer/1,
-                             terminate/2,handle_call/3,handle_timeout/3,
-                             parse_incoming/3,serialize_and_inc_stats_fun/1,
-                             check_oom/1,inc_incoming_stats/1,
-                             inc_outgoing_stats/1]}).
+%-dialyzer({nowarn_function, [ensure_stats_timer/2,cancel_stats_timer/1,
+%                             terminate/2,handle_call/3,handle_timeout/3,
+%                             parse_incoming/3,serialize_and_inc_stats_fun/1,
+%                             check_oom/1,inc_incoming_stats/1,
+%                             inc_outgoing_stats/1]}).
 
 -spec(start_link(esockd:transport(), esockd:socket(), proplists:proplist())
       -> {ok, pid()}).

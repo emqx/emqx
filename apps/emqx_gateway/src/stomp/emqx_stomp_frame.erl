@@ -107,7 +107,7 @@
         state := #parser_state{}
        }).
 
--dialyzer({nowarn_function, [serialize_pkt/2,make/1]}).
+%-dialyzer({nowarn_function, [serialize_pkt/2,make/1]}).
 
 %% @doc Initialize a parser
 -spec initial_parse_state(map()) -> parse_state().
