@@ -30,7 +30,7 @@ groups() ->
 
 init_per_suite(Config) ->
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_resource, check_and_create, fun(_, _, _) -> {ok, meck_data} end ),
+    meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end ),
     ok = emqx_ct_helpers:start_apps([emqx_authz], fun set_special_configs/1),
     Config.
 

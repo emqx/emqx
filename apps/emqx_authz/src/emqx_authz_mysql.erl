@@ -77,13 +77,9 @@ format_result(Columns, Row) ->
 match(Client, PubSub, Topic,
       #{<<"permission">> := Permission,
         <<"action">> := Action,
-        <<"clientid">> := ClientId,
-        <<"username">> := Username,
-        <<"ipaddress">> := IpAddress,
         <<"topic">> := TopicFilter
        }) ->
-    Rule = #{<<"principal">> => principal(IpAddress, Username, ClientId),
-             <<"topics">> => [TopicFilter],
+    Rule = #{<<"topics">> => [TopicFilter],
              <<"action">> => Action,
              <<"permission">> =>  Permission
             },
@@ -98,19 +94,6 @@ match(Client, PubSub, Topic,
         true -> {matched, NPermission};
         false -> nomatch
     end.
-
-principal(CIDR, Username, ClientId) ->
-    Cols = [{<<"ipaddress">>, CIDR}, {<<"username">>, Username}, {<<"clientid">>, ClientId}],
-    case [#{C => V} || {C, V} <- Cols, not empty(V)] of
-        [] -> throw(undefined_who);
-        [Who] -> Who;
-        Conds -> #{<<"and">> => Conds}
-    end.
-
-empty(null) -> true;
-empty("")   -> true;
-empty(<<>>) -> true;
-empty(_)    -> false.
 
 replvar(Params, ClientInfo) ->
     replvar(Params, ClientInfo, []).

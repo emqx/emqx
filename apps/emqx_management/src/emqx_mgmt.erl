@@ -106,9 +106,18 @@
         , max_row_limit/0
         ]).
 
+-export([ return/0
+        , return/1]).
+
 -define(MAX_ROW_LIMIT, 10000).
 
 -define(APP, emqx_management).
+
+%% TODO: remove these function after all api use minirest version 1.X
+return() ->
+    ok.
+return(_Response) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Node Info

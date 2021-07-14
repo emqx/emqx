@@ -16,8 +16,6 @@
 
 -module(emqx_lwm2m_api).
 
--import(minirest,  [return/1]).
-
 -rest_api(#{name   => list,
             method => 'GET',
             path   => "/lwm2m_channels/",
@@ -160,3 +158,7 @@ path_list(Path) ->
         [ObjId, ObjInsId] -> [ObjId, ObjInsId];
         [ObjId] -> [ObjId]
     end.
+
+return(_) ->
+%%    TODO: V5 API
+    ok.

@@ -35,13 +35,13 @@
         ]).
 
 list(_Bindings, _Params) ->
-    minirest:return({ok, [Info || {_Node, Info} <- emqx_mgmt:list_brokers()]}).
+    emqx_mgmt:return({ok, [Info || {_Node, Info} <- emqx_mgmt:list_brokers()]}).
 
 get(#{node := Node}, _Params) ->
     case emqx_mgmt:lookup_broker(Node) of
         {error, Reason} -> 
-            minirest:return({error, ?ERROR2, Reason});
+            emqx_mgmt:return({error, ?ERROR2, Reason});
         Info -> 
-            minirest:return({ok, Info})
+            emqx_mgmt:return({ok, Info})
     end.
 

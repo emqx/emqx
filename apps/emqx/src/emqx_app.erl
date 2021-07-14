@@ -49,6 +49,8 @@ start(_Type, _Args) ->
     _ = load_ce_modules(),
     ekka:start(),
     ok = ekka_rlog:wait_for_shards(?EMQX_SHARDS, infinity),
+    false == os:getenv("EMQX_NO_QUIC")
+        andalso application:ensure_all_started(quicer),
     {ok, Sup} = emqx_sup:start_link(),
     ok = start_autocluster(),
     % ok = emqx_plugins:init(),

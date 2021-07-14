@@ -78,8 +78,8 @@ mongo_fields() ->
     [ {pool_size, fun emqx_connector_schema_lib:pool_size/1}
     , {username, fun emqx_connector_schema_lib:username/1}
     , {password, fun emqx_connector_schema_lib:password/1}
-    , {authentication_database, #{type => binary(),
-                                  nullable => true}}
+    , {auth_source, #{type => binary(),
+                      nullable => true}}
     , {database, fun emqx_connector_schema_lib:database/1}
     ] ++
     emqx_connector_schema_lib:ssl_fields().
@@ -88,24 +88,24 @@ on_jsonify(Config) ->
     Config.
 
 %% ===================================================================
-on_start(InstId, #{config := #{server := Server,
-                               mongo_type := single} = Config}) ->
+on_start(InstId, Config = #{server := Server,
+                            mongo_type := single}) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
     Opts = [{type, single},
             {hosts, [Server]}
             ],
     do_start(InstId, Opts, Config);
 
-on_start(InstId, #{config := #{servers := Servers,
-                               mongo_type := rs,
-                               replicaset_name := RsName} = Config}) ->
+on_start(InstId, Config = #{servers := Servers,
+                            mongo_type := rs,
+                            replicaset_name := RsName}) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
     Opts = [{type,  {rs, RsName}},
             {hosts, Servers}],
     do_start(InstId, Opts, Config);
 
-on_start(InstId, #{config := #{servers := Servers,
-                               mongo_type := sharded} = Config}) ->
+on_start(InstId, Config = #{servers := Servers,
+                            mongo_type := sharded}) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
     Opts = [{type, sharded},
             {hosts, Servers}
@@ -218,7 +218,7 @@ init_topology_options([], Acc) ->
 
 init_worker_options([{database, V} | R], Acc) ->
     init_worker_options(R, [{database, V} | Acc]);
-init_worker_options([{authentication_database, V} | R], Acc) ->
+init_worker_options([{auth_source, V} | R], Acc) ->
     init_worker_options(R, [{auth_source, V} | Acc]);
 init_worker_options([{username, V} | R], Acc) ->
     init_worker_options(R, [{login, V} | Acc]);
@@ -243,11 +243,11 @@ host_port(HostPort) ->
     end.
 
 server(type) -> server();
-server(validator) -> [?REQUIRED("the field 'server' is required")];
+server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
 server(_) -> undefined.
 
 servers(type) -> hoconsc:array(server());
-servers(validator) -> [?REQUIRED("the field 'servers' is required")];
+servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
 servers(_) -> undefined.
 
 duration(type) -> emqx_schema:duration_ms();

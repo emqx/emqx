@@ -25,8 +25,6 @@
 -include_lib("prometheus/include/prometheus.hrl").
 -include_lib("prometheus/include/prometheus_model.hrl").
 
--import(minirest, [return/1]).
-
 -rest_api(#{name   => stats,
             method => 'GET',
             path   => "/emqx_prometheus",
@@ -610,3 +608,7 @@ emqx_cluster_data() ->
     #{running_nodes := Running, stopped_nodes := Stopped} = ekka_mnesia:cluster_info(),
     [{nodes_running, length(Running)},
      {nodes_stopped, length(Stopped)}].
+
+%% TODO: V5 API
+return(_) ->
+    ok.

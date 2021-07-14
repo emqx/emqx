@@ -78,11 +78,11 @@ on_jsonify(Config) ->
     Config.
 
 %% ===================================================================
-on_start(InstId, #{config :=#{redis_type := Type,
-                              database := Database,
-                              pool_size := PoolSize,
-                              auto_reconnect := AutoReconn,
-                              ssl := SSL } = Config}) ->
+on_start(InstId, #{redis_type := Type,
+                   database := Database,
+                   pool_size := PoolSize,
+                   auto_reconnect := AutoReconn,
+                   ssl := SSL } = Config) ->
     logger:info("starting redis connector: ~p, config: ~p", [InstId, Config]),
     Servers = case Type of
                 single -> [{servers, [maps:get(server, Config)]}];

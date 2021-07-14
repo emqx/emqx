@@ -16,30 +16,20 @@ structs() -> ["emqx_authz"].
 fields("emqx_authz") ->
     [ {rules, rules()}
     ];
-fields(mongo_connector) ->
-    [ {principal, principal()}
-    , {type, #{type => hoconsc:enum([mongo])}}
-    , {config, #{type => map()}}
-    , {collection, #{type => atom()}}
+fields(mongo) ->
+    connector_fields(mongo) ++
+    [ {collection, #{type => atom()}}
     , {find, #{type => map()}}
     ];
-fields(redis_connector) ->
-    [ {principal, principal()}
-    , {type, #{type => hoconsc:enum([redis])}}
-    , {config, #{type => hoconsc:union(
-                         [ hoconsc:ref(emqx_connector_redis, cluster)
-                         , hoconsc:ref(emqx_connector_redis, sentinel)
-                         , hoconsc:ref(emqx_connector_redis, single)
-                         ])}
-      }
-    , {cmd, query()}
-    ];
-fields(sql_connector) ->
-    [ {principal, principal() }
-    , {type, #{type => hoconsc:enum([mysql, pgsql])}}
-    , {config, #{type => map()}}
-    , {sql, query()}
-    ];
+fields(redis) ->
+    connector_fields(redis) ++
+    [ {cmd, query()} ];
+fields(mysql) ->
+    connector_fields(mysql) ++
+    [ {sql, query()} ];
+fields(pgsql) ->
+    connector_fields(pgsql) ++
+    [ {sql, query()} ];
 fields(simple_rule) ->
     [ {permission,   #{type => permission()}}
     , {action,   #{type => action()}}
@@ -88,9 +78,10 @@ union_array(Item) when is_list(Item) ->
 rules() -> 
     #{type => union_array(
                 [ hoconsc:ref(?MODULE, simple_rule)
-                , hoconsc:ref(?MODULE, sql_connector)
-                , hoconsc:ref(?MODULE, redis_connector)
-                , hoconsc:ref(?MODULE, mongo_connector)
+                , hoconsc:ref(?MODULE, mysql)
+                , hoconsc:ref(?MODULE, pgsql)
+                , hoconsc:ref(?MODULE, redis)
+                , hoconsc:ref(?MODULE, mongo)
                 ])
     }.
 
@@ -115,3 +106,9 @@ query() ->
                          end
                        end
      }.
+
+connector_fields(DB) ->
+    Mod = list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
+    [ {principal, principal()}
+    , {type, #{type => DB}}
+    ] ++ Mod:fields("").

@@ -40,8 +40,6 @@
         , list_users/2
         ]).
 
--import(minirest,  [return/1]).
-
 -rest_api(#{name   => create_chain,
             method => 'POST',
             path   => "/authentication/chains",
@@ -542,3 +540,7 @@ get_missed_params(Actual, Expected) ->
                            end
                        end, [], Expected),
     lists:reverse(Keys).
+
+return(_) ->
+%%    TODO: V5 API
+    ok.

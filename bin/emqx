@@ -3,6 +3,11 @@
 # ex: ts=4 sw=4 et
 
 set -e
+set -o pipefail
+
+if [ -n "$DEBUG" ]; then
+    set -x
+fi
 
 ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 # shellcheck disable=SC1090
@@ -197,6 +202,7 @@ call_hocon() {
     export RUNNER_ETC_DIR
     export REL_VSN
     "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" hocon "$@"
+    return $?
 }
 
 # Run an escript in the node's environment
@@ -252,13 +258,13 @@ generate_config() {
         ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
         ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
         ## use the key to look up in vm.args file for the value
-        TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" | awk '{print $NF}')
+        TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" || true | awk '{print $NF}')
         ## compare generated (to override) value to original (to be overriden) value
         if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
             ## if they are different
             if [ -n "$TMP_ARG_VALUE" ]; then
                 ## if the old value is present, replace it with generated value
-                sh -c "$SED_REPLACE 's/^$ARG_KEY.*$/$ARG_LINE/' $TMP_ARG_FILE"
+                sh -c "$SED_REPLACE 's|^$ARG_KEY.*$|$ARG_LINE|' $TMP_ARG_FILE"
             else
                 ## otherwise append generated value to the end
                 echo "$ARG_LINE" >> "$TMP_ARG_FILE"
@@ -366,7 +372,7 @@ if [ -z "$COOKIE" ]; then
 fi
 
 # Support for IPv6 Dist. See: https://github.com/emqtt/emqttd/issues/1460
-PROTO_DIST=$(grep -E '^[ \t]*cluster.proto_dist[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | awk -F"= " '{print $NF}')
+PROTO_DIST="$(call_hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get cluster.proto_dist | tr -d \")"
 if [ -z "$PROTO_DIST" ]; then
     PROTO_DIST_ARG=""
 else
