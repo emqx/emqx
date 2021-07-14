@@ -72,7 +72,7 @@ common_fields() ->
     ] ++ proplists:delete(base_url, emqx_connector_http:fields(config)).
 
 validations() ->
-    [ {check_ssl_opts, fun emqx_connector_http:check_ssl_opts/1} ].
+    [ {check_ssl_opts, fun check_ssl_opts/1} ].
 
 url(type) -> binary();
 url(nullable) -> false;
@@ -108,26 +108,30 @@ create(ChainID, AuthenticatorName,
         #{method := Method,
           url := URL,
           accept := Accept,
-          content_type := ContentType,
           headers := Headers,
           form_data := FormData,
           request_timeout := RequestTimeout} = Config) ->
-    NHeaders = maps:merge(#{<<"accept">> => atom_to_binary(Accept, utf8),
-                            <<"content-type">> => atom_to_binary(ContentType, utf8)}, Headers),
+    ContentType = maps:get(content_type, Config, undefined),
+    DefaultHeader0 = case ContentType of
+                         undefined -> #{};
+                         _ -> #{<<"content-type">> => atom_to_binary(ContentType, utf8)}
+                     end,
+    DefaultHeader = DefaultHeader0#{<<"accept">> => atom_to_binary(Accept, utf8)},
+    NHeaders = maps:to_list(maps:merge(DefaultHeader, maps:from_list(Headers))),
     NFormData = preprocess_form_data(FormData),
     #{path := Path,
       query := Query} = URIMap = parse_url(URL),
     BaseURL = generate_base_url(URIMap),
     State = #{method          => Method,
               path            => Path,
-              base_query      => cow_qs:parse_qs(Query),
+              base_query      => cow_qs:parse_qs(list_to_binary(Query)),
               accept          => Accept,
               content_type    => ContentType,
               headers         => NHeaders,
               form_data       => NFormData,
               request_timeout => RequestTimeout},
     ResourceID = <<ChainID/binary, "/", AuthenticatorName/binary>>,
-    case emqx_resource:create_local(ResourceID, emqx_connector_http, Config#{base_url := BaseURL}) of
+    case emqx_resource:create_local(ResourceID, emqx_connector_http, Config#{base_url => BaseURL}) of
         {ok, _} ->
             {ok, State#{resource_id => ResourceID}};
         {error, already_created} ->
@@ -191,6 +195,9 @@ check_form_data(FormData) ->
         false ->
             false
     end.
+
+check_ssl_opts(Conf) ->
+    emqx_connector_http:check_ssl_opts("url", Conf).
 
 preprocess_form_data(FormData) ->
     KVs = binary:split(FormData, [<<"&">>], [global]),
