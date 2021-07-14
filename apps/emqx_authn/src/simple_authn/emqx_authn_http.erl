@@ -46,10 +46,9 @@
 structs() -> [""].
 
 fields("") ->
-    [ {config, #{type => hoconsc:union(
-                          [ hoconsc:ref(?MODULE, get)
-                          , hoconsc:ref(?MODULE, post)
-                          ])}}
+    [ {config, {union, [ hoconsc:t(get)
+                       , hoconsc:t(post)
+                       ]}}
     ];
 
 fields(get) ->
@@ -64,7 +63,8 @@ fields(post) ->
     ] ++ common_fields().
 
 common_fields() ->
-    [ {url,             fun url/1}
+    [ {server_type,     {enum, ['http-server']}}
+    , {url,             fun url/1}
     , {accept,          fun accept/1}
     , {headers,         fun headers/1}
     , {form_data,       fun form_data/1}
@@ -142,10 +142,12 @@ update(_ChainID, _AuthenticatorName, Config, #{resource_id := ResourceID} = Stat
         {error, Reason} -> {error, Reason}
     end.
 
-authenticate(ClientInfo, #{resource_id := ResourceID,
+authenticate(#{auth_method := _}, _) ->
+    ignore;
+authenticate(Credential, #{resource_id := ResourceID,
                            method := Method,
                            request_timeout := RequestTimeout} = State) ->
-    Request = generate_request(ClientInfo, State),
+    Request = generate_request(Credential, State),
     case emqx_resource:query(ResourceID, {Method, Request, RequestTimeout}) of
         {ok, 204, _Headers} -> ok;
         {ok, 200, Headers, Body} ->
@@ -154,8 +156,8 @@ authenticate(ClientInfo, #{resource_id := ResourceID,
                 {ok, _NBody} ->
                     %% TODO: Return by user property
                     ok;
-                {error, Reason} ->
-                    {stop, Reason}
+                {error, _Reason} ->
+                    ok
             end;
         {error, _Reason} ->
             ignore
@@ -208,13 +210,13 @@ generate_base_url(#{scheme := Scheme,
                     port := Port}) ->
     iolist_to_binary(io_lib:format("~p://~s:~p", [Scheme, Host, Port])).
 
-generate_request(ClientInfo, #{method := Method,
+generate_request(Credential, #{method := Method,
                                path := Path,
                                base_query := BaseQuery,
                                content_type := ContentType,
                                headers := Headers,
                                form_data := FormData0}) ->
-    FormData = replace_placeholders(FormData0, ClientInfo),
+    FormData = replace_placeholders(FormData0, Credential),
     case Method of
         get ->
             NPath = append_query(Path, BaseQuery ++ FormData),
@@ -225,9 +227,9 @@ generate_request(ClientInfo, #{method := Method,
             {NPath, Headers, Body}
     end.
 
-replace_placeholders(FormData0, ClientInfo) ->
+replace_placeholders(FormData0, Credential) ->
     FormData = lists:map(fun({K, V0}) ->
-                             case replace_placeholder(V0, ClientInfo) of
+                             case replace_placeholder(V0, Credential) of
                                  undefined -> {K, undefined};
                                  V -> {K, bin(V)}
                              end
@@ -236,16 +238,16 @@ replace_placeholders(FormData0, ClientInfo) ->
                     V =/= undefined
                  end, FormData).
 
-replace_placeholder(<<"${mqtt-username}">>, ClientInfo) ->
-    maps:get(username, ClientInfo, undefined);
-replace_placeholder(<<"${mqtt-clientid}">>, ClientInfo) ->
-    maps:get(clientid, ClientInfo, undefined);
-replace_placeholder(<<"${ip-address}">>, ClientInfo) ->
-    maps:get(peerhost, ClientInfo, undefined);
-replace_placeholder(<<"${cert-subject}">>, ClientInfo) ->
-    maps:get(dn, ClientInfo, undefined);
-replace_placeholder(<<"${cert-common-name}">>, ClientInfo) ->
-    maps:get(cn, ClientInfo, undefined);
+replace_placeholder(<<"${mqtt-username}">>, Credential) ->
+    maps:get(username, Credential, undefined);
+replace_placeholder(<<"${mqtt-clientid}">>, Credential) ->
+    maps:get(clientid, Credential, undefined);
+replace_placeholder(<<"${ip-address}">>, Credential) ->
+    maps:get(peerhost, Credential, undefined);
+replace_placeholder(<<"${cert-subject}">>, Credential) ->
+    maps:get(dn, Credential, undefined);
+replace_placeholder(<<"${cert-common-name}">>, Credential) ->
+    maps:get(cn, Credential, undefined);
 replace_placeholder(Constant, _) ->
     Constant.
 

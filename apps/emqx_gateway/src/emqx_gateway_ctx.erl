@@ -33,7 +33,7 @@
            %% Gateway ID
          , type   := gateway_type()
            %% Autenticator
-         , auth   := allow_anonymous | emqx_authentication:chain_id()
+         , auth   := emqx_authn:chain_id()
            %% The ConnectionManager PID
          , cm     := pid()
          }.
@@ -66,19 +66,19 @@
 -spec authenticate(context(), emqx_types:clientinfo())
     -> {ok, emqx_types:clientinfo()}
      | {error, any()}.
-authenticate(_Ctx = #{auth := allow_anonymous}, ClientInfo) ->
-    {ok, ClientInfo#{anonymous => true}};
 authenticate(_Ctx = #{auth := ChainId}, ClientInfo0) ->
     ClientInfo = ClientInfo0#{
                    zone => undefined,
                    chain_id => ChainId
                   },
     case emqx_access_control:authenticate(ClientInfo) of
-        {ok, AuthResult} ->
-            {ok, mountpoint(maps:merge(ClientInfo, AuthResult))};
+        ok ->
+            {ok, mountpoint(ClientInfo)};
         {error, Reason} ->
             {error, Reason}
-    end.
+    end;
+authenticate(_Ctx, ClientInfo) ->
+    {ok, ClientInfo}.
 
 %% @doc Register the session to the cluster.
 %%

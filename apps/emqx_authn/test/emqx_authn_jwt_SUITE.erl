@@ -22,6 +22,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
+-include("emqx_authn.hrl").
+
 -define(AUTH, emqx_authn).
 
 all() ->
@@ -39,18 +41,13 @@ end_per_suite(_) ->
 set_special_configs(emqx_authn) ->
     application:set_env(emqx, plugins_etc_dir,
                         emqx_ct_helpers:deps_path(emqx_authn, "test")),
-    Conf = #{<<"authn">> => #{<<"chains">> => [], <<"bindings">> => []}},
+    Conf = #{<<"emqx_authn">> => #{<<"authenticators">> => []}},
     ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_authn.conf'), jsx:encode(Conf)),
     ok;
 set_special_configs(_App) ->
     ok.
 
 t_jwt_authenticator(_) ->
-    ChainID = <<"mychain">>,
-    Chain = #{id => ChainID,
-              type => simple},
-    ?assertMatch({ok, #{id := ChainID, authenticators := []}}, ?AUTH:create_chain(Chain)),
-
     AuthenticatorName = <<"myauthenticator">>,
     Config = #{use_jwks => false,
                algorithm => 'hmac-based',
@@ -58,84 +55,74 @@ t_jwt_authenticator(_) ->
                secret_base64_encoded => false,
                verify_claims => []},
     AuthenticatorConfig = #{name => AuthenticatorName,
-                            type => jwt,
+                            mechanism => jwt,
                             config => Config},
-    ?assertEqual({ok, AuthenticatorConfig}, ?AUTH:create_authenticator(ChainID, AuthenticatorConfig)),
-
-    ListenerID = <<"listener1">>,
-    ?AUTH:bind(ChainID, [ListenerID]),
+    ?assertEqual({ok, AuthenticatorConfig}, ?AUTH:create_authenticator(?CHAIN, AuthenticatorConfig)),
 
     Payload = #{<<"username">> => <<"myuser">>},
     JWS = generate_jws('hmac-based', Payload, <<"abcdef">>),
-    ClientInfo = #{listener_id => ListenerID,
-			       username => <<"myuser">>,
+    ClientInfo = #{username => <<"myuser">>,
 			       password => JWS},
-    ?assertEqual(ok, ?AUTH:authenticate(ClientInfo)),
+    ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo, ok)),
 
     BadJWS = generate_jws('hmac-based', Payload, <<"bad_secret">>),
     ClientInfo2 = ClientInfo#{password => BadJWS},
-    ?assertEqual({error, user_not_found}, ?AUTH:authenticate(ClientInfo2)),
+    ?assertEqual({stop, {error, not_authorized}}, ?AUTH:authenticate(ClientInfo2, ok)),
 
     %% secret_base64_encoded
     Config2 = Config#{secret => base64:encode(<<"abcdef">>),
                       secret_base64_encoded => true},
-    ?assertMatch({ok, _}, ?AUTH:update_authenticator(ChainID, AuthenticatorName, Config2)),
-    ?assertEqual(ok, ?AUTH:authenticate(ClientInfo)),
+    ?assertMatch({ok, _}, ?AUTH:update_authenticator(?CHAIN, AuthenticatorName, Config2)),
+    ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo, ok)),
 
     Config3 = Config#{verify_claims => [{<<"username">>, <<"${mqtt-username}">>}]},
-    ?assertMatch({ok, _}, ?AUTH:update_authenticator(ChainID, AuthenticatorName, Config3)),
-    ?assertEqual(ok, ?AUTH:authenticate(ClientInfo)),
-    ?assertEqual({error, bad_password}, ?AUTH:authenticate(ClientInfo#{username => <<"otheruser">>})),
+    ?assertMatch({ok, _}, ?AUTH:update_authenticator(?CHAIN, AuthenticatorName, Config3)),
+    ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo, ok)),
+    ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo#{username => <<"otheruser">>}, ok)),
 
     %% Expiration
     Payload3 = #{ <<"username">> => <<"myuser">>
                 , <<"exp">> => erlang:system_time(second) - 60},
     JWS3 = generate_jws('hmac-based', Payload3, <<"abcdef">>),
     ClientInfo3 = ClientInfo#{password => JWS3},
-    ?assertEqual({error, bad_password}, ?AUTH:authenticate(ClientInfo3)),
+    ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo3, ok)),
 
     Payload4 = #{ <<"username">> => <<"myuser">>
                 , <<"exp">> => erlang:system_time(second) + 60},
     JWS4 = generate_jws('hmac-based', Payload4, <<"abcdef">>),
     ClientInfo4 = ClientInfo#{password => JWS4},
-    ?assertEqual(ok, ?AUTH:authenticate(ClientInfo4)),
+    ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo4, ok)),
 
     %% Issued At
     Payload5 = #{ <<"username">> => <<"myuser">>
                 , <<"iat">> => erlang:system_time(second) - 60},
     JWS5 = generate_jws('hmac-based', Payload5, <<"abcdef">>),
     ClientInfo5 = ClientInfo#{password => JWS5},
-    ?assertEqual(ok, ?AUTH:authenticate(ClientInfo5)),
+    ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo5, ok)),
 
     Payload6 = #{ <<"username">> => <<"myuser">>
                 , <<"iat">> => erlang:system_time(second) + 60},
     JWS6 = generate_jws('hmac-based', Payload6, <<"abcdef">>),
     ClientInfo6 = ClientInfo#{password => JWS6},
-    ?assertEqual({error, bad_password}, ?AUTH:authenticate(ClientInfo6)),
+    ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo6, ok)),
 
     %% Not Before
     Payload7 = #{ <<"username">> => <<"myuser">>
                 , <<"nbf">> => erlang:system_time(second) - 60},
     JWS7 = generate_jws('hmac-based', Payload7, <<"abcdef">>),
     ClientInfo7 = ClientInfo#{password => JWS7},
-    ?assertEqual(ok, ?AUTH:authenticate(ClientInfo7)),
+    ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo7, ok)),
 
     Payload8 = #{ <<"username">> => <<"myuser">>
                 , <<"nbf">> => erlang:system_time(second) + 60},
     JWS8 = generate_jws('hmac-based', Payload8, <<"abcdef">>),
     ClientInfo8 = ClientInfo#{password => JWS8},
-    ?assertEqual({error, bad_password}, ?AUTH:authenticate(ClientInfo8)),
+    ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo8, ok)),
 
-    ?AUTH:unbind([ListenerID], ChainID),
-    ?assertEqual(ok, ?AUTH:delete_chain(ChainID)),
+    ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, AuthenticatorName)),
     ok.
 
 t_jwt_authenticator2(_) ->
-    ChainID = <<"mychain">>,
-    Chain = #{id => ChainID,
-              type => simple},
-    ?assertMatch({ok, #{id := ChainID, authenticators := []}}, ?AUTH:create_chain(Chain)),
-
     Dir = code:lib_dir(emqx_authn, test),
     PublicKey = list_to_binary(filename:join([Dir, "data/public_key.pem"])),
     PrivateKey = list_to_binary(filename:join([Dir, "data/private_key.pem"])),
@@ -145,23 +132,18 @@ t_jwt_authenticator2(_) ->
                certificate => PublicKey,
                verify_claims => []},
     AuthenticatorConfig = #{name => AuthenticatorName,
-                            type => jwt,
+                            mechanism => jwt,
                             config => Config},
-    ?assertEqual({ok, AuthenticatorConfig}, ?AUTH:create_authenticator(ChainID, AuthenticatorConfig)),
-
-    ListenerID = <<"listener1">>,
-    ?AUTH:bind(ChainID, [ListenerID]),
+    ?assertEqual({ok, AuthenticatorConfig}, ?AUTH:create_authenticator(?CHAIN, AuthenticatorConfig)),
 
     Payload = #{<<"username">> => <<"myuser">>},
     JWS = generate_jws('public-key', Payload, PrivateKey),
-    ClientInfo = #{listener_id => ListenerID,
-			       username => <<"myuser">>,
+    ClientInfo = #{username => <<"myuser">>,
 			       password => JWS},
-    ?assertEqual(ok, ?AUTH:authenticate(ClientInfo)),
-    ?assertEqual({error, user_not_found}, ?AUTH:authenticate(ClientInfo#{password => <<"badpassword">>})),
+    ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo, ok)),
+    ?assertEqual({stop, {error, not_authorized}}, ?AUTH:authenticate(ClientInfo#{password => <<"badpassword">>}, ok)),
 
-    ?AUTH:unbind([ListenerID], ChainID),
-    ?assertEqual(ok, ?AUTH:delete_chain(ChainID)),
+    ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, AuthenticatorName)),
     ok.
 
 generate_jws('hmac-based', Payload, Secret) ->
