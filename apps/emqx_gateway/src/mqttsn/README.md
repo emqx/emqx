@@ -1,10 +1,9 @@
-emqx-sn
-=======
+# MQTT-SN Gateway
 
 EMQ X MQTT-SN Gateway.
 
-Configure Plugin
-----------------
+## Configure Plugin
+
 
 File: etc/emqx_sn.conf
 
@@ -72,8 +71,7 @@ mqtt.sn.password = abc
 - mqtt.sn.password
   * This parameter is optional. Pair with username above.
 
-Load Plugin
------------
+## Load Plugin
 
 ```
 ./bin/emqx_ctl plugins load emqx_sn
@@ -95,23 +93,18 @@ Load Plugin
 - https://github.com/njh/mqtt-sn-tools
 - https://github.com/arobenko/mqtt-sn
 
-sleeping device
------------
+### sleeping device
 
 PINGREQ must have a ClientId which is identical to the one in CONNECT message. Without ClientId, emqx-sn will ignore such PINGREQ.
 
-pre-defined topics
------------
+### pre-defined topics
 
 The mapping of a pre-defined topic id and topic name should be known inadvance by both client's application and gateway. We define this mapping info in emqx_sn.conf file, and which shall be kept equivalent in all client's side.
 
-License
--------
+## License
 
 Apache License Version 2.0
 
-Author
-------
+## Author
 
-EMQ X-Men Team.
-
+EMQ X Team.

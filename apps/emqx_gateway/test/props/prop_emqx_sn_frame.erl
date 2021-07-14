@@ -16,7 +16,7 @@
 
 -module(prop_emqx_sn_frame).
 
--include_lib("emqx_sn/include/emqx_sn.hrl").
+-include_lib("src/mqttsn/include/emqx_sn.hrl").
 -include_lib("proper/include/proper.hrl").
 
 -compile({no_auto_import, [register/1]}).

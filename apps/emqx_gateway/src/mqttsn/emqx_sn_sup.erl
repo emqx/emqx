@@ -33,11 +33,9 @@ init([{_Ip, Port}, GwId, PredefTopics]) ->
                   type     => worker,
                   modules  => [emqx_sn_broadcast]},
     Registry = #{id       => emqx_sn_registry,
-                  start    => {emqx_sn_registry, start_link, [PredefTopics]},
-                  restart  => permanent,
-                  shutdown => brutal_kill,
-                  type     => worker,
-                  modules  => [emqx_sn_registry]},
+                 start    => {emqx_sn_registry, start_link, [PredefTopics]},
+                 restart  => permanent,
+                 shutdown => brutal_kill,
+                 type     => worker,
+                 modules  => [emqx_sn_registry]},
     {ok, {{one_for_one, 10, 3600}, [Broadcast, Registry]}}.
-
-

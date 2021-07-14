@@ -25,6 +25,7 @@
         ]).
 
 -export([ apply/2
+        , format_listenon/1
         ]).
 
 -export([ normalize_rawconf/1
@@ -88,6 +89,13 @@ apply({F, A}, A2) when is_function(F),
 apply(F, A2) when is_function(F),
                   is_list(A2) ->
     erlang:apply(F, A2).
+
+format_listenon(Port) when is_integer(Port) ->
+    io_lib:format("0.0.0.0:~w", [Port]);
+format_listenon({Addr, Port}) when is_list(Addr) ->
+    io_lib:format("~s:~w", [Addr, Port]);
+format_listenon({Addr, Port}) when is_tuple(Addr) ->
+    io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
 
 -type listener() :: #{}.
 

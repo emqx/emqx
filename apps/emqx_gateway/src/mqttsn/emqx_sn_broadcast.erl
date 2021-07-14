@@ -18,7 +18,7 @@
 
 -behaviour(gen_server).
 
--include("emqx_sn.hrl").
+-include("src/mqttsn/include/emqx_sn.hrl").
 
 -export([ start_link/2
         , stop/0

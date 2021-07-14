@@ -54,7 +54,6 @@
 
 start_link(Insta, Ctx, GwDscrptr) ->
     gen_server:start_link(
-      {local, ?MODULE},
       ?MODULE,
       [Insta, Ctx, GwDscrptr],
       []
