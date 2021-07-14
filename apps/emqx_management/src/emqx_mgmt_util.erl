@@ -21,10 +21,12 @@
         , kmg/1
         , ntoa/1
         , merge_maps/2
-        , not_found_schema/1
-        , not_found_schema/2
         , batch_operation/3
         ]).
+
+-export([ not_found_schema/1
+        , not_found_schema/2
+        , batch_response_schema/1]).
 
 -export([urldecode/1]).
 
@@ -80,6 +82,8 @@ merge_maps(Default, New) ->
 urldecode(S) ->
     emqx_http_lib:uri_decode(S).
 
+%%%==============================================================================================
+%% schema util
 not_found_schema(Description) ->
     not_found_schema(Description, ["RESOURCE_NOT_FOUND"]).
 
@@ -96,6 +100,34 @@ not_found_schema(Description, Enum) ->
                     type => string}}}
     }.
 
+batch_response_schema(DefName) ->
+    #{
+        type => object,
+        properties => #{
+            success => #{
+                type => integer,
+                description => <<"Success count">>},
+            failed => #{
+                type => integer,
+                description => <<"Failed count">>},
+            detail => #{
+                type => array,
+                description => <<"Failed object & reason">>,
+                items => #{
+                    type => object,
+                    properties =>
+                    #{
+                        data => minirest:ref(DefName),
+                        reason => #{
+                            type => <<"string">>
+                        }
+                    }
+                }
+            }
+        }
+    }.
+
+%%%==============================================================================================
 batch_operation(Module, Function, ArgsList) ->
     Failed = batch_operation(Module, Function, ArgsList, []),
     Len = erlang:length(Failed),
