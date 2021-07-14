@@ -103,7 +103,7 @@
 
 -define(STAT_TIMEOUT, 10000).
 -define(IDLE_TIMEOUT, 30000).
--define(DEFAULT_CHAN_OPTIONS, [{max_packet_size, 256}, {zone, external}]).
+-define(DEFAULT_CHAN_OPTIONS, #{zone => default, listener => mqtt_tcp}).
 
 -define(NEG_QOS_CLIENT_ID, <<"NegQoS-Client">>).
 
