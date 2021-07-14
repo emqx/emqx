@@ -86,15 +86,14 @@ init(CoapPid, EndpointName, Peername = {_Peerhost, _Port}, RegInfo = #{<<"lt">> 
     ClientInfo = clientinfo(Lwm2mState),
     _ = run_hooks('client.connect', [conninfo(Lwm2mState)], undefined),
     case emqx_access_control:authenticate(ClientInfo) of
-        {ok, AuthResult} ->
+        ok ->
             _ = run_hooks('client.connack', [conninfo(Lwm2mState), success], undefined),
 
-            ClientInfo1 = maps:merge(ClientInfo, AuthResult),
             Sockport = proplists:get_value(port, lwm2m_coap_responder:options(), 5683),
-            ClientInfo2 = maps:put(sockport, Sockport, ClientInfo1),
+            ClientInfo1 = maps:put(sockport, Sockport, ClientInfo),
             Lwm2mState1 = Lwm2mState#lwm2m_state{started_at = time_now(),
-                                                 mountpoint = maps:get(mountpoint, ClientInfo2)},
-            run_hooks('client.connected', [ClientInfo2, conninfo(Lwm2mState1)]),
+                                                 mountpoint = maps:get(mountpoint, ClientInfo1)},
+            run_hooks('client.connected', [ClientInfo1, conninfo(Lwm2mState1)]),
 
             erlang:send(CoapPid, post_init),
             erlang:send_after(2000, CoapPid, auto_observe),

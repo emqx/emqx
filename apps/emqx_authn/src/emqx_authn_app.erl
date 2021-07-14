@@ -38,40 +38,19 @@ stop(_State) ->
     ok.
 
 initialize() ->
-    #{chains := Chains,
-     bindings := Bindings} = emqx_config:get([authn], #{chains => [], bindings => []}),
-    initialize_chains(Chains),
-    initialize_bindings(Bindings).
+    #{authenticators := Authenticators} = emqx_config:get([emqx_authn], #{authenticators => []}),
+    initialize(Authenticators).
 
-initialize_chains([]) ->
+initialize(Authenticators) ->
+    {ok, _} = emqx_authn:create_chain(#{id => ?CHAIN}),
+    initialize_authenticators(Authenticators).
+
+initialize_authenticators([]) ->
     ok;
-initialize_chains([#{id := ChainID,
-                     type := Type,
-                     authenticators := Authenticators} | More]) ->
-    case emqx_authn:create_chain(#{id => ChainID,
-                                   type => Type}) of
+initialize_authenticators([#{name := Name} = Authenticator | More]) ->
+    case emqx_authn:create_authenticator(?CHAIN, Authenticator) of
         {ok, _} ->
-            initialize_authenticators(ChainID, Authenticators),
-            initialize_chains(More);
+            initialize_authenticators(More);
         {error, Reason} ->
-            ?LOG(error, "Failed to create chain '~s': ~p", [ChainID, Reason])
-    end.
-
-initialize_authenticators(_ChainID, []) ->
-    ok;
-initialize_authenticators(ChainID, [#{name := Name} = Authenticator | More]) ->
-    case emqx_authn:create_authenticator(ChainID, Authenticator) of
-        {ok, _} ->
-            initialize_authenticators(ChainID, More);
-        {error, Reason} ->
-            ?LOG(error, "Failed to create authenticator '~s' in chain '~s': ~p", [Name, ChainID, Reason])
-    end.
-
-initialize_bindings([]) ->
-    ok;
-initialize_bindings([#{chain_id := ChainID, listeners := Listeners} | More]) ->
-    case emqx_authn:bind(Listeners, ChainID) of
-        ok -> initialize_bindings(More);
-        {error, Reason} ->
-           ?LOG(error, "Failed to bind: ~p", [Reason])
+            ?LOG(error, "Failed to create authenticator '~s': ~p", [Name, Reason])
     end.

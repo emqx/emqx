@@ -55,7 +55,7 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
--define(TAB, mnesia_basic_auth).
+-define(TAB, ?MODULE).
 
 -rlog_shard({?AUTH_SHARD, ?TAB}).
 %%------------------------------------------------------------------------------
@@ -81,7 +81,8 @@ mnesia(copy) ->
 structs() -> [config].
 
 fields(config) ->
-    [ {user_id_type, fun user_id_type/1}
+    [ {server_type, {enum, ['built-in-database']}}
+    , {user_id_type, fun user_id_type/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     ];
 
@@ -95,11 +96,11 @@ fields(other_algorithms) ->
     ].
 
 user_id_type(type) -> user_id_type();
-user_id_type(default) -> clientid;
+user_id_type(default) -> username;
 user_id_type(_) -> undefined.
 
 password_hash_algorithm(type) -> {union, [hoconsc:ref(bcrypt), hoconsc:ref(other_algorithms)]};
-password_hash_algorithm(default) -> sha256;
+password_hash_algorithm(default) -> #{<<"name">> => sha256};
 password_hash_algorithm(_) -> undefined.
 
 salt_rounds(type) -> integer();
@@ -130,11 +131,13 @@ create(ChainID, AuthenticatorName, #{user_id_type := Type,
 update(ChainID, AuthenticatorName, Config, _State) ->
     create(ChainID, AuthenticatorName, Config).
 
-authenticate(ClientInfo = #{password := Password},
+authenticate(#{auth_method := _}, _) ->
+    ignore;
+authenticate(#{password := Password} = Credential,
              #{user_group := UserGroup,
                user_id_type := Type,
                password_hash_algorithm := Algorithm}) ->
-    UserID = get_user_identity(ClientInfo, Type),
+    UserID = get_user_identity(Credential, Type),
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
         [] ->
             ignore;
@@ -145,7 +148,7 @@ authenticate(ClientInfo = #{password := Password},
                    end,
             case PasswordHash =:= hash(Algorithm, Password, Salt) of
                 true -> ok;
-                false -> {stop, bad_password}
+                false -> {error, bad_username_or_password}
             end
     end.
 
@@ -330,8 +333,7 @@ gen_salt(#{password_hash_algorithm := bcrypt,
     {ok, Salt} = bcrypt:gen_salt(Rounds),
     Salt;
 gen_salt(_) ->
-    <<X:128/big-unsigned-integer>> = crypto:strong_rand_bytes(16),
-    iolist_to_binary(io_lib:format("~32.16.0b", [X])).
+    emqx_authn_utils:gen_salt().
 
 hash(bcrypt, Password, Salt) ->
     {ok, Hash} = bcrypt:hashpw(Password, Salt),
@@ -343,10 +345,10 @@ insert_user(UserGroup, UserID, PasswordHash) ->
     insert_user(UserGroup, UserID, PasswordHash, <<>>).
 
 insert_user(UserGroup, UserID, PasswordHash, Salt) ->
-     Credential = #user_info{user_id = {UserGroup, UserID},
-                             password_hash = PasswordHash,
-                             salt = Salt},
-    mnesia:write(?TAB, Credential, write).
+     UserInfo = #user_info{user_id = {UserGroup, UserID},
+                           password_hash = PasswordHash,
+                           salt = Salt},
+    mnesia:write(?TAB, UserInfo, write).
 
 delete_user2(UserInfo) ->
     mnesia:delete_object(?TAB, UserInfo, write).

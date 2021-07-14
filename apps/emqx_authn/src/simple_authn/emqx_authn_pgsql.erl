@@ -36,9 +36,10 @@
 structs() -> [config].
 
 fields(config) ->
-    [ {password_hash_algorithm, fun password_hash_algorithm/1}
-    , {salt_position, {enum, [prefix, suffix]}}
-    , {query, fun query/1}
+    [ {server_type,             {enum, [pgsql]}}
+    , {password_hash_algorithm, fun password_hash_algorithm/1}
+    , {salt_position,           {enum, [prefix, suffix]}}
+    , {query,                   fun query/1}
     ] ++ emqx_connector_schema_lib:relational_db_fields()
     ++ emqx_connector_schema_lib:ssl_fields().
 
@@ -75,11 +76,13 @@ update(_ChainID, _ServiceName, Config, #{resource_id := ResourceID} = State) ->
         {error, Reason} -> {error, Reason}
     end.
 
-authenticate(#{password := Password} = ClientInfo,
+authenticate(#{auth_method := _}, _) ->
+    ignore;
+authenticate(#{password := Password} = Credential,
              #{resource_id := ResourceID,
                query := Query,
                placeholders := PlaceHolders} = State) ->
-    Params = emqx_authn_utils:replace_placeholder(PlaceHolders, ClientInfo),
+    Params = emqx_authn_utils:replace_placeholder(PlaceHolders, Credential),
     case emqx_resource:query(ResourceID, {sql, Query, Params}) of
         {ok, _Columns, []} -> ignore;
         {ok, Columns, Rows} ->
@@ -99,14 +102,14 @@ destroy(#{resource_id := ResourceID}) ->
 %%------------------------------------------------------------------------------
 
 check_password(undefined, _Algorithm, _Selected) ->
-    {stop, bad_password};
+    {error, bad_username_or_password};
 check_password(Password,
                #{password_hash := Hash},
                #{password_hash_algorithm := bcrypt}) ->
     {ok, Hash0} = bcrypt:hashpw(Password, Hash),
     case list_to_binary(Hash0) =:= Hash of
         true -> ok;
-        false -> {stop, bad_password}
+        false -> {error, bad_username_or_password}
     end;
 check_password(Password,
                #{password_hash := Hash} = Selected,
@@ -119,7 +122,7 @@ check_password(Password,
             end,
     case Hash0 =:= Hash of
         true -> ok;
-        false -> {stop, bad_password}
+        false -> {error, bad_username_or_password}
     end.
 
 %% TODO: Support prepare

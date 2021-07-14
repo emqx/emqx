@@ -22,16 +22,12 @@
         , disable/0
         ]).
 
--export([authenticate/1]).
+-export([authenticate/2]).
 
 -export([ create_chain/1
         , delete_chain/1
         , lookup_chain/1
         , list_chains/0
-        , bind/2
-        , unbind/2
-        , list_bindings/1
-        , list_bound_chains/1
         , create_authenticator/2
         , delete_authenticator/2
         , update_authenticator/3
@@ -55,10 +51,8 @@
 -boot_mnesia({mnesia, [boot]}).
 
 -define(CHAIN_TAB, emqx_authn_chain).
--define(BINDING_TAB, emqx_authn_binding).
 
 -rlog_shard({?AUTH_SHARD, ?CHAIN_TAB}).
--rlog_shard({?AUTH_SHARD, ?BINDING_TAB}).
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -75,13 +69,6 @@ mnesia(boot) ->
                 {record_name, chain},
                 {local_content, true},
                 {attributes, record_info(fields, chain)},
-                {storage_properties, StoreProps}]),
-    %% Binding table
-    ok = ekka_mnesia:create_table(?BINDING_TAB, [
-                {ram_copies, [node()]},
-                {record_name, binding},
-                {local_content, true},
-                {attributes, record_info(fields, binding)},
                 {storage_properties, StoreProps}]).
 
 enable() ->
@@ -94,39 +81,35 @@ disable() ->
     emqx:unhook('client.authenticate', {?MODULE, authenticate, []}),
     ok.
 
-authenticate(#{listener_id := ListenerID} = ClientInfo) ->
-    case lookup_chain_by_listener(ListenerID, simple) of
-        {error, _} ->
-            {error, no_authenticators};
-        {ok, ChainID} ->
-            case mnesia:dirty_read(?CHAIN_TAB, ChainID) of
-                [#chain{authenticators = []}] ->
-                    {error, no_authenticators};
-                [#chain{authenticators = Authenticators}] ->
-                    do_authenticate(Authenticators, ClientInfo);
-                [] ->
-                    {error, no_authenticators}
-            end
+authenticate(Credential, _AuthResult) ->
+    case mnesia:dirty_read(?CHAIN_TAB, ?CHAIN) of
+        [#chain{authenticators = Authenticators}] ->
+            do_authenticate(Authenticators, Credential);
+        [] ->
+            {stop, {error, not_authorized}}
     end.
 
 do_authenticate([], _) ->
-    {error, user_not_found};
-do_authenticate([{_, #authenticator{provider = Provider, state = State}} | More], ClientInfo) ->
-    case Provider:authenticate(ClientInfo, State) of
-        ignore -> do_authenticate(More, ClientInfo);
-        ok -> ok;
-        {ok, NewClientInfo} -> {ok, NewClientInfo};
-        {stop, Reason} -> {error, Reason}
+    {stop, {error, not_authorized}};
+do_authenticate([{_, #authenticator{provider = Provider, state = State}} | More], Credential) ->
+    case Provider:authenticate(Credential, State) of
+        ignore ->
+            do_authenticate(More, Credential);
+        Result ->
+            %% ok
+            %% {ok, AuthData}
+            %% {continue, AuthCache}
+            %% {continue, AuthData, AuthCache}
+            %% {error, Reason}
+            {stop, Result}
     end.
 
-create_chain(#{id   := ID,
-               type := Type}) ->
+create_chain(#{id := ID}) ->
     trans(
         fun() ->
             case mnesia:read(?CHAIN_TAB, ID, write) of
                 [] ->
                     Chain = #chain{id = ID,
-                                   type = Type,
                                    authenticators = [],
                                    created_at = erlang:system_time(millisecond)},
                     mnesia:write(?CHAIN_TAB, Chain, write),
@@ -160,85 +143,20 @@ list_chains() ->
     Chains = ets:tab2list(?CHAIN_TAB),
     {ok, [serialize_chain(Chain) || Chain <- Chains]}.
 
-bind(ChainID, Listeners) ->
-    %% TODO: ensure listener id is valid
-    trans(
-        fun() ->
-            case mnesia:read(?CHAIN_TAB, ChainID, write) of
-                [] ->
-                    {error, {not_found, {chain, ChainID}}};
-                [#chain{type = AuthNType}] ->
-                    Result = lists:foldl(
-                                 fun(ListenerID, Acc) ->
-                                     case mnesia:read(?BINDING_TAB, {ListenerID, AuthNType}, write) of
-                                         [] ->
-                                             Binding = #binding{bound = {ListenerID, AuthNType}, chain_id = ChainID},
-                                             mnesia:write(?BINDING_TAB, Binding, write),
-                                             Acc;
-                                         _ ->
-                                             [ListenerID | Acc]
-                                     end
-                                 end, [], Listeners),
-                    case Result of
-                        [] -> ok;
-                        Listeners0 -> {error, {already_bound, Listeners0}}
-                    end
-            end
-        end).
-
-unbind(ChainID, Listeners) ->
-    trans(
-        fun() ->
-            Result = lists:foldl(
-                        fun(ListenerID, Acc) ->
-                            MatchSpec = [{{binding, {ListenerID, '_'}, ChainID}, [], ['$_']}],
-                            case mnesia:select(?BINDING_TAB, MatchSpec, write) of
-                                [] ->
-                                    [ListenerID | Acc];
-                                [#binding{bound = Bound}] ->
-                                    mnesia:delete(?BINDING_TAB, Bound, write),
-                                    Acc
-                            end
-                        end, [], Listeners),
-            case Result of
-                [] -> ok;
-                Listeners0 ->
-                    {error, {not_found, Listeners0}}
-            end
-        end).
-
-list_bindings(ChainID) ->
-    trans(
-        fun() ->
-            MatchSpec = [{{binding, {'$1', '_'}, ChainID}, [], ['$1']}],
-            Listeners = mnesia:select(?BINDING_TAB, MatchSpec),
-            {ok, #{chain_id => ChainID, listeners => Listeners}}
-        end).
-
-list_bound_chains(ListenerID) ->
-    trans(
-        fun() ->
-            MatchSpec = [{{binding, {ListenerID, '_'}, '_'}, [], ['$_']}],
-            Bindings = mnesia:select(?BINDING_TAB, MatchSpec),
-            Chains = [{AuthNType, ChainID} || #binding{bound = {_, AuthNType},
-                                                    chain_id = ChainID} <- Bindings],
-            {ok, maps:from_list(Chains)}
-        end).
-
 create_authenticator(ChainID, #{name := Name,
-                                type := Type,
+                                mechanism := Mechanism,
                                 config := Config}) ->
     UpdateFun =
-        fun(Chain = #chain{type = AuthNType, authenticators = Authenticators}) ->
+        fun(Chain = #chain{authenticators = Authenticators}) ->
             case lists:keymember(Name, 1, Authenticators) of
                 true ->
                     {error, {already_exists, {authenticator, Name}}};
                 false ->
-                    Provider = authenticator_provider(AuthNType, Type),
+                    Provider = authenticator_provider(Mechanism, Config),
                     case Provider:create(ChainID, Name, Config) of
                         {ok, State} ->
                             Authenticator = #authenticator{name = Name,
-                                                           type = Type,
+                                                           mechanism = Mechanism,
                                                            provider = Provider,
                                                            config = Config,
                                                            state = State},
@@ -367,12 +285,18 @@ list_users(ChainID, AuthenticatorName) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-authenticator_provider(simple, 'built-in-database') -> emqx_authn_mnesia;
-authenticator_provider(simple, jwt) -> emqx_authn_jwt;
-authenticator_provider(simple, mysql) -> emqx_authn_mysql;
-authenticator_provider(simple, postgresql) -> emqx_authn_pgsql.
-
-% authenticator_provider(enhanced, 'enhanced-built-in-database') -> emqx_enhanced_authn_mnesia.
+authenticator_provider('password-based', #{server_type := 'built-in-database'}) ->
+    emqx_authn_mnesia;
+authenticator_provider('password-based', #{server_type := 'mysql'}) ->
+    emqx_authn_mysql;
+authenticator_provider('password-based', #{server_type := 'pgsql'}) ->
+    emqx_authn_pgsql;
+authenticator_provider('password-based', #{server_type := 'http-server'}) ->
+    emqx_authn_http;
+authenticator_provider(jwt, _) ->
+    emqx_authn_jwt;
+authenticator_provider(scram, #{server_type := 'built-in-database'}) ->
+    emqx_enhanced_authn_scram_mnesia.
 
 do_delete_authenticator(#authenticator{provider = Provider, state = State}) ->
     Provider:destroy(State).
@@ -429,13 +353,13 @@ update_chain(ChainID, UpdateFun) ->
             end
         end).
 
-lookup_chain_by_listener(ListenerID, AuthNType) ->
-    case mnesia:dirty_read(?BINDING_TAB, {ListenerID, AuthNType}) of
-        [] ->
-            {error, not_found};
-        [#binding{chain_id = ChainID}] ->
-            {ok, ChainID}
-    end.
+% lookup_chain_by_listener(ListenerID, AuthNType) ->
+%     case mnesia:dirty_read(?BINDING_TAB, {ListenerID, AuthNType}) of
+%         [] ->
+%             {error, not_found};
+%         [#binding{chain_id = ChainID}] ->
+%             {ok, ChainID}
+%     end.
 
 
 call_authenticator(ChainID, AuthenticatorName, Func, Args) ->
@@ -457,11 +381,9 @@ call_authenticator(ChainID, AuthenticatorName, Func, Args) ->
     end.
 
 serialize_chain(#chain{id = ID,
-                       type = Type,
                        authenticators = Authenticators,
                        created_at = CreatedAt}) ->
     #{id => ID,
-      type => Type,
       authenticators => serialize_authenticators(Authenticators),
       created_at => CreatedAt}.
 
@@ -474,10 +396,10 @@ serialize_authenticators(Authenticators) ->
     [serialize_authenticator(Authenticator) || {_, Authenticator} <- Authenticators].
 
 serialize_authenticator(#authenticator{name = Name,
-                                       type = Type,
+                                       mechanism = Mechanism,
                                        config = Config}) ->
     #{name => Name,
-      type => Type,
+      mechanism => Mechanism,
       config => Config}.
 
 trans(Fun) ->

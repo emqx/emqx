@@ -132,10 +132,7 @@ handle_options(#{endpoint := Endpoint,
       refresh_interval => limit_refresh_interval(RefreshInterval0),
       ssl_opts => maps:to_list(SSLOpts),
       jwks => [],
-      request_id => undefined};
-
-handle_options(#{enable_ssl := false} = Opts) ->
-    handle_options(Opts#{ssl_opts => #{}}).
+      request_id => undefined}.
 
 refresh_jwks(#{endpoint := Endpoint,
                ssl_opts := SSLOpts} = State) ->
