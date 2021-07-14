@@ -10,8 +10,14 @@ on:
 
 jobs:
   prepare:
+    strategy:
+      matrix:
+        container:
+          - "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
+          - "emqx/build-env:erl24.0.1-emqx-1-ubuntu20.04"
+
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04
+    container: ${{ matrix.container }}
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles}}
@@ -247,6 +253,10 @@ jobs:
         - os: raspbian10
           profile: emqx-ee
 
+        erl_otp:
+          - erl23.2.7.2-emqx-2
+          - erl24.0.1-emqx-1
+
     defaults:
       run:
         shell: bash
@@ -295,7 +305,7 @@ jobs:
         done
     - name: build emqx packages
       env:
-        ERL_OTP: erl23.2.7.2-emqx-2
+        ERL_OTP: ${{ matrix.erl_otp }}
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}

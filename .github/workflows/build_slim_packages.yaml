@@ -16,6 +16,8 @@ jobs:
       matrix:
         erl_otp:
         - erl23.2.7.2-emqx-2
+        - erl24.0.1-emqx-1
+
         os:
         - ubuntu20.04
         - centos7
