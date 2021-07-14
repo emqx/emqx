@@ -33,7 +33,7 @@
 
 -define(TCP_OPTS, [binary, {packet, raw}, {reuseaddr, true}, {nodelay, true}]).
 
--dialyzer({nowarn_function, [load/0]}).
+%-dialyzer({nowarn_function, [load/0]}).
 
 %%--------------------------------------------------------------------
 %% APIs
