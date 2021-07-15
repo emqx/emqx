@@ -49,6 +49,7 @@
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
+-copy_mnesia({mnesia, [copy]}).
 
 -define(CHAIN_TAB, emqx_authn_chain).
 
@@ -69,7 +70,10 @@ mnesia(boot) ->
                 {record_name, chain},
                 {local_content, true},
                 {attributes, record_info(fields, chain)},
-                {storage_properties, StoreProps}]).
+                {storage_properties, StoreProps}]);
+
+mnesia(copy) ->
+    ok = ekka_mnesia:copy_table(?CHAIN_TAB, ram_copies).
 
 enable() ->
     case emqx:hook('client.authenticate', {?MODULE, authenticate, []}) of
