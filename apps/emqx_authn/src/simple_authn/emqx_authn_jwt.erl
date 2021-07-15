@@ -102,10 +102,6 @@ certificate(_) -> undefined.
 endpoint(type) -> string();
 endpoint(_) -> undefined.
 
-% ssl_opts(type) -> hoconsc:t(hoconsc:ref(ssl_opts));
-% ssl_opts(default) -> [];
-% ssl_opts(_) -> undefined.
-
 refresh_interval(type) -> integer();
 refresh_interval(default) -> 300;
 refresh_interval(validator) -> [fun(I) -> I > 0 end];
