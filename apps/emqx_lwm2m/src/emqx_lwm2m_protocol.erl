@@ -441,7 +441,8 @@ take_place(Text, Placeholder, Value) ->
 clientinfo(#lwm2m_state{peername = {PeerHost, _},
                         endpoint_name = EndpointName,
                         mountpoint = Mountpoint}) ->
-    #{zone => undefined,
+    #{zone => default,
+      listener => mqtt_tcp, %% FIXME: this won't work
       protocol => lwm2m,
       peerhost => PeerHost,
       sockport => 5683,         %% FIXME:
