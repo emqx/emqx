@@ -101,10 +101,10 @@ authorize_appid(Req) ->
         {basic, AppId, AppSecret} ->
             case emqx_mgmt_auth:is_authorized(AppId, AppSecret) of
                 true -> ok;
-                false -> {401}
+                false -> {401, #{<<"WWW-Authenticate">> => <<"Basic Realm=\"minirest-server\"">>}, <<"UNAUTHORIZED">>}
             end;
         _ ->
-            {401}
+            {401, #{<<"WWW-Authenticate">> => <<"Basic Realm=\"minirest-server\"">>}, <<"UNAUTHORIZED">>}
     end.
 
 format(Port) when is_integer(Port) ->
