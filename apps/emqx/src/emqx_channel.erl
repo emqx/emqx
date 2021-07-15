@@ -276,6 +276,9 @@ handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = ConnState})
   when ConnState =:= connected orelse ConnState =:= reauthenticating ->
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 
+handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connecting}) ->
+    handle_out(connack, ?RC_PROTOCOL_ERROR, Channel);
+
 handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
     case pipeline([fun enrich_conninfo/2,
                    fun run_conn_hooks/2,

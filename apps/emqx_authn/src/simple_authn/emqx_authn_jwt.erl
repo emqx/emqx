@@ -220,7 +220,7 @@ create2(#{use_jwks := true,
           verify_claims := VerifyClaims,
           ssl := #{enable := Enable} = SSL} = Config) ->
     SSLOpts = case Enable of
-                  true -> maps:without(enable, SSL);
+                  true -> maps:without([enable], SSL);
                   false -> #{}
               end,
     case emqx_authn_jwks_connector:start_link(Config#{ssl_opts => SSLOpts}) of

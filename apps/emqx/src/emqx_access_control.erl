@@ -29,7 +29,8 @@
 -spec(authenticate(emqx_types:clientinfo()) ->
     ok | {ok, binary()} | {continue, map()} | {continue, binary(), map()} | {error, term()}).
 authenticate(Credential = #{zone := Zone}) ->
-    case emqx_zone:get_env(Zone, bypass_authentication, false) of
+    %% TODO: Rename to bypass_authentication
+    case emqx_zone:get_env(Zone, bypass_auth_plugins, false) of
         true ->
             ok;
         false ->
