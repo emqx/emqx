@@ -32,7 +32,7 @@
         , fields/1
         , validations/0]).
 
--export([ check_ssl_opts/1 ]).
+-export([ check_ssl_opts/2 ]).
 
 -type connect_timeout() :: non_neg_integer() | infinity.
 -type pool_type() :: random | hash.
@@ -57,7 +57,7 @@ fields(config) ->
     , {pool_type,       fun pool_type/1}
     , {pool_size,       fun pool_size/1}
     , {ssl_opts,        #{type => hoconsc:ref(?MODULE, ssl_opts),
-                          nullable => true}}
+                          default => #{}}}
     ];
 
 fields(ssl_opts) ->
@@ -107,8 +107,9 @@ keyfile(type) -> string();
 keyfile(nullable) -> true;
 keyfile(_) -> undefined.
 
+%% TODO: certfile is required
 certfile(type) -> string();
-certfile(nullable) -> false;
+certfile(nullable) -> true;
 certfile(_) -> undefined.
 
 verify(type) -> boolean();
@@ -178,7 +179,7 @@ on_query(InstId, {KeyOrNum, Method, Request, Timeout}, AfterQuery, #{pool_name :
     end,
     Result.
 
-on_health_check(_InstId, #{server := {Host, Port}} = State) ->
+on_health_check(_InstId, #{host := Host, port := Port} = State) ->
     case gen_tcp:connect(Host, Port, emqx_misc:ipv6_probe([]), 3000) of
         {ok, Sock} ->
             gen_tcp:close(Sock),
@@ -199,13 +200,16 @@ check_base_url(URL) ->
     end.
 
 check_ssl_opts(Conf) ->
-    URL = hocon_schema:get_value("url", Conf),
+    check_ssl_opts("base_url", Conf).
+
+check_ssl_opts(URLFrom, Conf) ->
+    URL = hocon_schema:get_value(URLFrom, Conf),
     {ok, #{scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
     SSLOpts = hocon_schema:get_value("ssl_opts", Conf),
-    case {Scheme, SSLOpts} of
-        {http, undefined} -> true;
+    case {Scheme, maps:size(SSLOpts)} of
+        {http, 0} -> true;
         {http, _} -> false;
-        {https, undefined} -> false;
+        {https, 0} -> false;
         {https, _} -> true
     end.
 

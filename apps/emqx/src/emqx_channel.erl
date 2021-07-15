@@ -98,7 +98,7 @@
 
 -type(channel() :: #channel{}).
 
--type(conn_state() :: idle | connecting | connected | disconnected).
+-type(conn_state() :: idle | connecting | connected | reauthenticating | disconnected).
 
 -type(reply() :: {outgoing, emqx_types:packet()}
                | {outgoing, [emqx_types:packet()]}
@@ -272,8 +272,12 @@ take_ws_cookie(ClientInfo, ConnInfo) ->
        | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}
        | {shutdown, Reason :: term(), replies(), channel()}).
-handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connected}) ->
+handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = ConnState})
+  when ConnState =:= connected orelse ConnState =:= reauthenticating ->
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
+
+handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connecting}) ->
+    handle_out(connack, ?RC_PROTOCOL_ERROR, Channel);
 
 handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
     case pipeline([fun enrich_conninfo/2,
@@ -281,56 +285,64 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
                    fun check_connect/2,
                    fun enrich_client/2,
                    fun set_log_meta/2,
-                   fun check_banned/2,
-                   fun auth_connect/2
+                   fun check_banned/2
                   ], ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
             NChannel1 = NChannel#channel{
                                         will_msg = emqx_packet:will_msg(NConnPkt),
                                         alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
                                         },
-            case enhanced_auth(?CONNECT_PACKET(NConnPkt), NChannel1) of
+            case authenticate(?CONNECT_PACKET(NConnPkt), NChannel1) of
                 {ok, Properties, NChannel2} ->
                     process_connect(Properties, ensure_connected(NChannel2));
                 {continue, Properties, NChannel2} ->
                     handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, Properties}, NChannel2);
-                {error, ReasonCode, NChannel2} ->
-                    handle_out(connack, ReasonCode, NChannel2)
+                {error, ReasonCode} ->
+                    handle_out(connack, ReasonCode, NChannel1)
             end;
         {error, ReasonCode, NChannel} ->
             handle_out(connack, ReasonCode, NChannel)
     end;
 
-handle_in(Packet = ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, _Properties),
+handle_in(Packet = ?AUTH_PACKET(ReasonCode, _Properties),
           Channel = #channel{conn_state = ConnState}) ->
-    case enhanced_auth(Packet, Channel) of
-        {ok, NProperties, NChannel} ->
+    try
+        case {ReasonCode, ConnState} of
+            {?RC_CONTINUE_AUTHENTICATION, connecting} -> ok;
+            {?RC_CONTINUE_AUTHENTICATION, reauthenticating} -> ok;
+            {?RC_RE_AUTHENTICATE, connected} -> ok;
+            _ -> error(protocol_error)
+        end,
+        case authenticate(Packet, Channel) of
+            {ok, NProperties, NChannel} ->
+                case ConnState of
+                    connecting ->
+                        process_connect(NProperties, ensure_connected(NChannel));
+                    _ ->
+                        handle_out(auth, {?RC_SUCCESS, NProperties}, NChannel#channel{conn_state = connected})
+                end;
+            {continue, NProperties, NChannel} ->
+                handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, NProperties}, NChannel#channel{conn_state = reauthenticating});
+            {error, NReasonCode} ->
+                case ConnState of
+                    connecting ->
+                        handle_out(connack, NReasonCode, Channel);
+                    _ ->
+                        handle_out(disconnect, NReasonCode, Channel)
+                end 
+        end
+    catch
+        _Class:_Reason ->
             case ConnState of
                 connecting ->
-                    process_connect(NProperties, ensure_connected(NChannel));
-                connected ->
-                    handle_out(auth, {?RC_SUCCESS, NProperties}, NChannel);
+                    handle_out(connack, ?RC_PROTOCOL_ERROR, Channel);
                 _ ->
                     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel)
-            end;
-        {continue, NProperties, NChannel} ->
-            handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, NProperties}, NChannel);
-        {error, NReasonCode, NChannel} ->
-            handle_out(connack, NReasonCode, NChannel)
+            end
     end;
 
-handle_in(Packet = ?AUTH_PACKET(?RC_RE_AUTHENTICATE, _Properties),
-          Channel = #channel{conn_state = connected}) ->
-    case enhanced_auth(Packet, Channel) of
-        {ok, NProperties, NChannel} ->
-            handle_out(auth, {?RC_SUCCESS, NProperties}, NChannel);
-        {continue, NProperties, NChannel} ->
-            handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, NProperties}, NChannel);
-        {error, NReasonCode, NChannel} ->
-            handle_out(disconnect, NReasonCode, NChannel)
-    end;
-
-handle_in(?PACKET(_), Channel = #channel{conn_state = ConnState}) when ConnState =/= connected ->
+handle_in(?PACKET(_), Channel = #channel{conn_state = ConnState})
+  when ConnState =/= connected andalso ConnState =/= reauthenticating ->
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 
 handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
@@ -469,9 +481,11 @@ handle_in({frame_error, frame_too_large}, Channel = #channel{conn_state = connec
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = connecting}) ->
     shutdown(Reason, ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel);
 
-handle_in({frame_error, frame_too_large}, Channel = #channel{conn_state = connected}) ->
+handle_in({frame_error, frame_too_large}, Channel = #channel{conn_state = ConnState})
+  when ConnState =:= connected orelse ConnState =:= reauthenticating ->
     handle_out(disconnect, {?RC_PACKET_TOO_LARGE, frame_too_large}, Channel);
-handle_in({frame_error, Reason}, Channel = #channel{conn_state = connected}) ->
+handle_in({frame_error, Reason}, Channel = #channel{conn_state = ConnState})
+  when ConnState =:= connected orelse ConnState =:= reauthenticating ->
     handle_out(disconnect, {?RC_MALFORMED_PACKET, Reason}, Channel);
 
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = disconnected}) ->
@@ -967,8 +981,9 @@ handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connecting}) 
     shutdown(Reason, Channel);
 
 handle_info({sock_closed, Reason}, Channel =
-            #channel{conn_state = connected,
-                     clientinfo = ClientInfo = #{zone := Zone}}) ->
+            #channel{conn_state = ConnState,
+                     clientinfo = ClientInfo = #{zone := Zone}})
+  when ConnState =:= connected orelse ConnState =:= reauthenticating ->
     emqx_zone:enable_flapping_detect(Zone)
         andalso emqx_flapping:detect(ClientInfo),
     Channel1 = ensure_disconnected(Reason, mabye_publish_will_msg(Channel)),
@@ -1241,75 +1256,60 @@ check_banned(_ConnPkt, #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Auth Connect
+%% Authenticate
 
-auth_connect(#mqtt_packet_connect{password  = Password},
+authenticate(?CONNECT_PACKET(
+                 #mqtt_packet_connect{
+                     proto_ver = ?MQTT_PROTO_V5,
+                     properties = #{'Authentication-Method' := AuthMethod} = Properties}),
+             #channel{clientinfo = ClientInfo,
+                      auth_cache = AuthCache} = Channel) ->
+    AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
+    do_authenticate(ClientInfo#{auth_method => AuthMethod,
+                                auth_data => AuthData,
+                                auth_cache => AuthCache}, Channel);
+
+authenticate(?CONNECT_PACKET(#mqtt_packet_connect{password = Password}),
              #channel{clientinfo = ClientInfo} = Channel) ->
-    #{clientid := ClientId,
-      username := Username} = ClientInfo,
-    case emqx_access_control:authenticate(ClientInfo#{password => Password}) of
-        {ok, AuthResult} ->
-            is_anonymous(AuthResult) andalso
-                emqx_metrics:inc('client.auth.anonymous'),
-            NClientInfo = maps:merge(ClientInfo, AuthResult),
-            {ok, Channel#channel{clientinfo = NClientInfo}};
-        {error, Reason} ->
-            ?LOG(warning, "Client ~s (Username: '~s') login failed for ~0p",
-                 [ClientId, Username, Reason]),
-            {error, emqx_reason_codes:connack_error(Reason)}
+    do_authenticate(ClientInfo#{password => Password}, Channel);
+
+authenticate(?AUTH_PACKET(_, #{'Authentication-Method' := AuthMethod} = Properties),
+             #channel{clientinfo = ClientInfo,
+                      conninfo = #{conn_props := ConnProps},
+                      auth_cache = AuthCache} = Channel) ->
+    case emqx_mqtt_props:get('Authentication-Method', ConnProps, undefined) of
+        AuthMethod ->
+            AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
+            do_authenticate(ClientInfo#{auth_method => AuthMethod,
+                                        auth_data => AuthData,
+                                        auth_cache => AuthCache}, Channel);
+        _ ->
+            {error, ?RC_BAD_AUTHENTICATION_METHOD}
     end.
 
-is_anonymous(#{anonymous := true}) -> true;
-is_anonymous(_AuthResult)          -> false.
-
-%%--------------------------------------------------------------------
-%% Enhanced Authentication
-
-enhanced_auth(?CONNECT_PACKET(#mqtt_packet_connect{
-                                                proto_ver = Protover,
-                                                properties = Properties
-                                            }), Channel) ->
-    case Protover of
-        ?MQTT_PROTO_V5 ->
-            AuthMethod = emqx_mqtt_props:get('Authentication-Method', Properties, undefined),
-            AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
-            do_enhanced_auth(AuthMethod, AuthData, Channel);
-        _ ->
-            {ok, #{}, Channel}
+do_authenticate(#{auth_method := AuthMethod} = Credential, Channel) ->
+    Properties = #{'Authentication-Method' => AuthMethod},
+    case emqx_access_control:authenticate(Credential) of
+        ok ->
+            {ok, Properties, Channel#channel{auth_cache = #{}}};
+        {ok, AuthData} ->
+            {ok, Properties#{'Authentication-Data' => AuthData},
+             Channel#channel{auth_cache = #{}}};
+        {continue, AuthCache} ->
+            {continue, Properties, Channel#channel{auth_cache = AuthCache}};
+        {continue, AuthData, AuthCache} ->
+            {continue, Properties#{'Authentication-Data' => AuthData},
+             Channel#channel{auth_cache = AuthCache}};
+        {error, Reason} ->
+            {error, emqx_reason_codes:connack_error(Reason)}
     end;
 
-enhanced_auth(?AUTH_PACKET(_ReasonCode, Properties), Channel = #channel{conninfo = ConnInfo}) ->
-    AuthMethod = emqx_mqtt_props:get('Authentication-Method',
-                                     emqx_mqtt_props:get(conn_props, ConnInfo, #{}),
-                                     undefined
-                                    ),
-    NAuthMethod = emqx_mqtt_props:get('Authentication-Method', Properties, undefined),
-    AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
-    case NAuthMethod =:= undefined orelse NAuthMethod =/= AuthMethod of
-        true ->
-            {error, emqx_reason_codes:connack_error(bad_authentication_method), Channel};
-        false ->
-            do_enhanced_auth(AuthMethod, AuthData, Channel)
-    end.
-
-do_enhanced_auth(undefined, undefined, Channel) ->
-    {ok, #{}, Channel};
-do_enhanced_auth(undefined, _AuthData, Channel) ->
-    {error, emqx_reason_codes:connack_error(not_authorized), Channel};
-do_enhanced_auth(_AuthMethod, undefined, Channel) ->
-    {error, emqx_reason_codes:connack_error(not_authorized), Channel};
-do_enhanced_auth(AuthMethod, AuthData, Channel = #channel{auth_cache = Cache}) ->
-    case run_hooks('client.enhanced_authenticate', [AuthMethod, AuthData], Cache) of
-        {ok, NAuthData, NCache} ->
-            NProperties = #{'Authentication-Method' => AuthMethod,
-                            'Authentication-Data' => NAuthData},
-            {ok, NProperties, Channel#channel{auth_cache = NCache}};
-        {continue, NAuthData, NCache} ->
-            NProperties = #{'Authentication-Method' => AuthMethod,
-                            'Authentication-Data' => NAuthData},
-            {continue, NProperties, Channel#channel{auth_cache = NCache}};
-        _ ->
-            {error, emqx_reason_codes:connack_error(not_authorized), Channel}
+do_authenticate(Credential, Channel) ->
+    case emqx_access_control:authenticate(Credential) of
+        ok ->
+            {ok, #{}, Channel};
+        {error, Reason} ->
+            {error, emqx_reason_codes:connack_error(Reason)}
     end.
 
 %%--------------------------------------------------------------------
@@ -1703,7 +1703,8 @@ shutdown(Reason, Reply, Packet, Channel) ->
     {shutdown, Reason, Reply, Packet, Channel}.
 
 disconnect_and_shutdown(Reason, Reply, Channel = ?IS_MQTT_V5
-                                               = #channel{conn_state = connected}) ->
+                                               = #channel{conn_state = ConnState})
+  when ConnState =:= connected orelse ConnState =:= reauthenticating ->
     shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), Channel);
 
 disconnect_and_shutdown(Reason, Reply, Channel) ->

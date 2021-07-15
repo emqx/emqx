@@ -260,25 +260,21 @@ handle_call({auth, ClientInfo0, Password},
             Channel = #channel{conninfo = ConnInfo,
                                clientinfo = ClientInfo}) ->
     ClientInfo1 = enrich_clientinfo(ClientInfo0, ClientInfo),
-    NConnInfo = enrich_conninfo(ClientInfo1, ConnInfo),
+    ConnInfo1 = enrich_conninfo(ClientInfo1, ConnInfo),
 
-    Channel1 = Channel#channel{conninfo = NConnInfo,
+    Channel1 = Channel#channel{conninfo = ConnInfo1,
                                clientinfo = ClientInfo1},
 
     #{clientid := ClientId, username := Username} = ClientInfo1,
 
     case emqx_access_control:authenticate(ClientInfo1#{password => Password}) of
-        {ok, AuthResult} ->
+        ok ->
             emqx_logger:set_metadata_clientid(ClientId),
-            is_anonymous(AuthResult) andalso
-                emqx_metrics:inc('client.auth.anonymous'),
-            NClientInfo = maps:merge(ClientInfo1, AuthResult),
-            NChannel = Channel1#channel{clientinfo = NClientInfo},
-            case emqx_cm:open_session(true, NClientInfo, NConnInfo) of
+            case emqx_cm:open_session(true, ClientInfo1, ConnInfo1) of
                 {ok, _Session} ->
                     ?LOG(debug, "Client ~s (Username: '~s') authorized successfully!",
                                 [ClientId, Username]),
-                    {reply, ok, [{event, connected}], ensure_connected(NChannel)};
+                    {reply, ok, [{event, connected}], ensure_connected(Channel1)};
                 {error, Reason} ->
                     ?LOG(warning, "Client ~s (Username: '~s') open session failed for ~0p",
                          [ClientId, Username, Reason]),
@@ -392,9 +388,6 @@ handle_info(Info, Channel) ->
 terminate(Reason, Channel) ->
     Req = #{reason => stringfy(Reason)},
     try_dispatch(on_socket_closed, wrap(Req), Channel).
-
-is_anonymous(#{anonymous := true}) -> true;
-is_anonymous(_AuthResult)          -> false.
 
 %%--------------------------------------------------------------------
 %% Sub/UnSub
