@@ -307,8 +307,8 @@ clear_table(TableName) ->
     end.
 
 ensure_timer(OldTRef, Period) ->
-    case is_reference(OldTRef) of
-        true -> _ = erlang:cancel_timer(OldTRef);
+    _ = case is_reference(OldTRef) of
+        true -> erlang:cancel_timer(OldTRef);
         false -> ok
     end,
     emqx_misc:start_timer(Period, delete_expired_deactivated_alarm).

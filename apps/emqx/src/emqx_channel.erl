@@ -253,14 +253,12 @@ set_peercert_infos(Peercert, ClientInfo, Zone, Listener) ->
     {DN, CN} = {esockd_peercert:subject(Peercert),
                 esockd_peercert:common_name(Peercert)},
     PeercetAs = fun(Key) ->
-        % esockd_peercert:peercert is opaque
-        % https://github.com/emqx/esockd/blob/master/src/esockd_peercert.erl
         case get_mqtt_conf(Zone, Listener, Key) of
          cn  -> CN;
          dn  -> DN;
          crt -> Peercert;
-         pem -> base64:encode(Peercert);
-         md5 -> emqx_passwd:hash(md5, Peercert);
+         pem when is_binary(Peercert) -> base64:encode(Peercert);
+         md5 when is_binary(Peercert) -> emqx_passwd:hash(md5, Peercert);
          _   -> undefined
         end
     end,

@@ -54,7 +54,7 @@
           clientid   :: emqx_types:clientid(),
           peerhost   :: emqx_types:peerhost(),
           started_at :: pos_integer(),
-          detect_cnt :: pos_integer()
+          detect_cnt :: integer()
          }).
 
 -opaque(flapping() :: #flapping{}).

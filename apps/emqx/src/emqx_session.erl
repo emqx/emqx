@@ -96,7 +96,7 @@
           %% Client’s Subscriptions.
           subscriptions :: map(),
           %% Max subscriptions allowed
-          max_subscriptions :: non_neg_integer(),
+          max_subscriptions :: non_neg_integer() | infinity,
           %% Upgrade QoS?
           upgrade_qos :: boolean(),
           %% Client <- Broker: QoS1/2 messages sent to the client but
@@ -115,7 +115,7 @@
           %% have not been completely acknowledged
           awaiting_rel :: map(),
           %% Maximum number of awaiting QoS2 messages allowed
-          max_awaiting_rel :: non_neg_integer(),
+          max_awaiting_rel :: non_neg_integer() | infinity,
           %% Awaiting PUBREL Timeout (Unit: millsecond)
           await_rel_timeout :: timeout(),
           %% Created at

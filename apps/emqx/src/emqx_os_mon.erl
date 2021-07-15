@@ -81,7 +81,7 @@ init([]) ->
     set_mem_check_interval(maps:get(mem_check_interval, Opts)),
     set_sysmem_high_watermark(maps:get(sysmem_high_watermark, Opts)),
     set_procmem_high_watermark(maps:get(procmem_high_watermark, Opts)),
-    start_check_timer(),
+    _ = start_check_timer(),
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
@@ -95,7 +95,7 @@ handle_cast(Msg, State) ->
 handle_info({timeout, _Timer, check}, State) ->
     CPUHighWatermark = emqx_config:get([sysmon, os, cpu_high_watermark]) * 100,
     CPULowWatermark = emqx_config:get([sysmon, os, cpu_low_watermark]) * 100,
-    case emqx_vm:cpu_util() of %% TODO: should be improved?
+    _ = case emqx_vm:cpu_util() of %% TODO: should be improved?
         0 -> ok;
         Busy when Busy >= CPUHighWatermark ->
             emqx_alarm:activate(high_cpu_usage, #{usage => io_lib:format("~p%", [Busy]),

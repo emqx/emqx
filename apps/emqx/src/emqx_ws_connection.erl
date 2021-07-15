@@ -524,7 +524,7 @@ check_oom(State = #state{channel = Channel}) ->
     ShutdownPolicy = emqx_config:get_listener_conf(emqx_channel:info(zone, Channel),
         emqx_channel:info(listener, Channel), [force_shutdown]),
     case ShutdownPolicy of
-        #{enable := false} -> ok;
+        #{enable := false} -> State;
         #{enable := true} ->
             case emqx_misc:check_oom(ShutdownPolicy) of
                 Shutdown = {shutdown, _Reason} ->
