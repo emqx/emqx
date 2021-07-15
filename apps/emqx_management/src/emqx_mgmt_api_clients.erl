@@ -48,12 +48,12 @@
     , {<<"clean_start">>, atom}
     , {<<"proto_name">>, binary}
     , {<<"proto_ver">>, integer}
-    , {<<"_like_clientid">>, binary}
-    , {<<"_like_username">>, binary}
-    , {<<"_gte_created_at">>, timestamp}
-    , {<<"_lte_created_at">>, timestamp}
-    , {<<"_gte_connected_at">>, timestamp}
-    , {<<"_lte_connected_at">>, timestamp}]}).
+    , {<<"like_clientid">>, binary}
+    , {<<"like_username">>, binary}
+    , {<<"gte_created_at">>, timestamp}
+    , {<<"lte_created_at">>, timestamp}
+    , {<<"gte_connected_at">>, timestamp}
+    , {<<"lte_connected_at">>, timestamp}]}).
 
 -define(query_fun, {?MODULE, query}).
 -define(format_fun, {?MODULE, format_channel_info}).

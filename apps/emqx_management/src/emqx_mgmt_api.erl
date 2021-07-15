@@ -204,7 +204,7 @@ params2qs(Params, QsSchema) ->
     {length(Qs) + length(Fuzzy), {Qs, Fuzzy}}.
 
 %%--------------------------------------------------------------------
-%% Intenal funcs
+%% Internal funcs
 
 pick_params_to_qs([], _, Acc1, Acc2) ->
     NAcc2 = [E || E <- Acc2, not lists:keymember(element(1, E), 1, Acc1)],
@@ -215,12 +215,13 @@ pick_params_to_qs([{Key, Value}|Params], QsKits, Acc1, Acc2) ->
         undefined -> pick_params_to_qs(Params, QsKits, Acc1, Acc2);
         Type ->
             case Key of
-                <<Prefix:5/binary, NKey/binary>>
-                  when Prefix =:= <<"_gte_">>;
-                       Prefix =:= <<"_lte_">> ->
+                <<Prefix:4/binary, NKey/binary>>
+                  when Prefix =:= <<"gte_">>;
+                       Prefix =:= <<"lte_">> ->
+                    %% find in pair
                     OpposeKey = case Prefix of
-                                    <<"_gte_">> -> <<"_lte_", NKey/binary>>;
-                                    <<"_lte_">> -> <<"_gte_", NKey/binary>>
+                                    <<"gte_">> -> <<"lte_", NKey/binary>>;
+                                    <<"lte_">> -> <<"gte_", NKey/binary>>
                                 end,
                     case lists:keytake(OpposeKey, 1, Params) of
                         false ->
@@ -252,20 +253,29 @@ qs(K, Value0, Type) ->
             throw({bad_value_type, {K, Type, Value0}})
     end.
 
-qs(<<"_gte_", Key/binary>>, Value) ->
-    {binary_to_existing_atom(Key, utf8), '>=', Value};
-qs(<<"_lte_", Key/binary>>, Value) ->
-    {binary_to_existing_atom(Key, utf8), '=<', Value};
-qs(<<"_like_", Key/binary>>, Value) ->
-    {binary_to_existing_atom(Key, utf8), like, Value};
-qs(<<"_match_", Key/binary>>, Value) ->
-    {binary_to_existing_atom(Key, utf8), match, Value};
 qs(Key, Value) ->
-    {binary_to_existing_atom(Key, utf8), '=:=', Value}.
+    FuzzyKeys = [
+        {<<"gte_">>, '>='},
+        {<<"lte_">>, '=<'},
+        {<<"like_">>, 'like'},
+        {<<"match_">>, 'match'}
+    ],
+    {binary_to_existing_atom(Key, utf8), qs_(Key, FuzzyKeys), Value}.
 
-is_fuzzy_key(<<"_like_", _/binary>>) ->
+qs_(_Key,  []) ->
+    '=:=';
+qs_(Key, [{FuzzyKey, Fuzzy} | FuzzyKeys]) ->
+    FuzzyKeyLength = erlang:size(FuzzyKey),
+    case binary:match(Key, FuzzyKey) of
+        nomatch ->
+            qs_(Key, FuzzyKeys);
+        {0, FuzzyKeyLength} ->
+            Fuzzy
+    end.
+
+is_fuzzy_key(<<"like_", _/binary>>) ->
     true;
-is_fuzzy_key(<<"_match_", _/binary>>) ->
+is_fuzzy_key(<<"match_", _/binary>>) ->
     true;
 is_fuzzy_key(_) ->
     false.
