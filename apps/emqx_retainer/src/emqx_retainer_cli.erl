@@ -27,26 +27,6 @@
 load() ->
     emqx_ctl:register_command(retainer, {?MODULE, cmd}, []).
 
-cmd(["info"]) ->
-    emqx_ctl:print("retained/total: ~w~n", [mnesia:table_info(?TAB, size)]);
-
-cmd(["topics"]) ->
-    case mnesia:dirty_all_keys(?TAB) of
-        []     -> ignore;
-        Topics -> lists:foreach(fun(Topic) -> emqx_ctl:print("~s~n", [Topic]) end, Topics)
-    end;
-
-cmd(["clean"]) ->
-    Size = mnesia:table_info(?TAB, size),
-    case ekka_mnesia:clear_table(?TAB) of
-        {atomic, ok} -> emqx_ctl:print("Cleaned ~p retained messages~n", [Size]);
-        {aborted, R} -> emqx_ctl:print("Aborted ~p~n", [R])
-    end;
-
-cmd(["clean", Topic]) ->
-    Lines = emqx_retainer:clean(list_to_binary(Topic)),
-    emqx_ctl:print("Cleaned ~p retained messages~n", [Lines]);
-
 cmd(_) ->
     emqx_ctl:usage([{"retainer info",   "Show the count of retained messages"},
                     {"retainer topics", "Show all topics of retained messages"},

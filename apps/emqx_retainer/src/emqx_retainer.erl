@@ -21,24 +21,24 @@
 -include("emqx_retainer.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("stdlib/include/ms_transform.hrl").
 
 -logger_header("[Retainer]").
 
 -export([start_link/0]).
 
--export([unload/0
+-export([ on_session_subscribed/4
+        , on_message_publish/2
         ]).
 
--export([ on_session_subscribed/3
-        , on_message_publish/1
-        ]).
+-export([ dispatch/4
+        , delete_message/2
+        , store_retained/2
+        , deliver/5]).
 
--export([ clean/1
-        , update_config/1]).
-
-%% for emqx_pool task func
--export([dispatch/2]).
+-export([ get_expiry_time/1
+        , update_config/1
+        , clean/0
+        , delete/1]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -49,62 +49,52 @@
         , code_change/3
         ]).
 
--record(state, {stats_fun, stats_timer, expiry_timer}).
-
--define(STATS_INTERVAL, timer:seconds(1)).
--define(DEF_STORAGE_TYPE, ram).
--define(DEF_MAX_RETAINED_MESSAGES, 0).
--define(DEF_MAX_PAYLOAD_SIZE, (1024 * 1024)).
--define(DEF_EXPIRY_INTERVAL, 0).
--define(DEF_ENABLE_VAL, false).
-
-%% convenient to generate stats_timer/expiry_timer
--define(MAKE_TIMER(State, Timer, Interval, Msg),
-        State#state{Timer = erlang:send_after(Interval, self(), Msg)}).
+-type state() :: #{ enable := boolean()
+                  , context_id := non_neg_integer()
+                  , context := undefined | context()
+                  , clear_timer := undefined | reference()
+                  , release_quota_timer := undefined | reference()
+                  , wait_quotas := list()
+                  }.
 
 -rlog_shard({?RETAINER_SHARD, ?TAB}).
 
+-define(DEF_MAX_PAYLOAD_SIZE, (1024 * 1024)).
+-define(DEF_EXPIRY_INTERVAL, 0).
+
+-define(CAST(Msg), gen_server:cast(?MODULE, Msg)).
+
+-callback delete_message(context(), topic()) -> ok.
+-callback store_retained(context(), message()) -> ok.
+-callback read_message(context(), topic()) -> {ok, list()}.
+-callback match_messages(context(), topic(), cursor()) -> {ok, list(), cursor()}.
+-callback clear_expired(context()) -> ok.
+-callback clean(context()) -> ok.
+
 %%--------------------------------------------------------------------
-%% Load/Unload
+%% Hook API
 %%--------------------------------------------------------------------
-
-load() ->
-    _ = emqx:hook('session.subscribed', {?MODULE, on_session_subscribed, []}),
-    _ = emqx:hook('message.publish', {?MODULE, on_message_publish, []}),
-    ok.
-
-unload() ->
-    emqx:unhook('message.publish', {?MODULE, on_message_publish}),
-    emqx:unhook('session.subscribed', {?MODULE, on_session_subscribed}).
-
-on_session_subscribed(_, _, #{share := ShareName}) when ShareName =/= undefined ->
+on_session_subscribed(_, _, #{share := ShareName}, _) when ShareName =/= undefined ->
     ok;
-on_session_subscribed(_, Topic, #{rh := Rh, is_new := IsNew}) ->
+on_session_subscribed(_, Topic, #{rh := Rh, is_new := IsNew}, Context) ->
     case Rh =:= 0 orelse (Rh =:= 1 andalso IsNew) of
-        true -> emqx_pool:async_submit(fun ?MODULE:dispatch/2, [self(), Topic]);
+        true -> dispatch(Context, Topic);
         _ -> ok
     end.
-
-%% @private
-dispatch(Pid, Topic) ->
-    Msgs = case emqx_topic:wildcard(Topic) of
-               false -> read_messages(Topic);
-               true  -> match_messages(Topic)
-           end,
-    [Pid ! {deliver, Topic, Msg} || Msg  <- sort_retained(Msgs)].
 
 %% RETAIN flag set to 1 and payload containing zero bytes
 on_message_publish(Msg = #message{flags   = #{retain := true},
                                   topic   = Topic,
-                                  payload = <<>>}) ->
-    ekka_mnesia:dirty_delete(?TAB, topic2tokens(Topic)),
+                                  payload = <<>>},
+                   Context) ->
+    delete_message(Context, Topic),
     {ok, Msg};
 
-on_message_publish(Msg = #message{flags = #{retain := true}}) ->
+on_message_publish(Msg = #message{flags = #{retain := true}}, Context) ->
     Msg1 = emqx_message:set_header(retained, true, Msg),
-    store_retained(Msg1),
+    store_retained(Context, Msg1),
     {ok, Msg};
-on_message_publish(Msg) ->
+on_message_publish(Msg, _) ->
     {ok, Msg}.
 
 %%--------------------------------------------------------------------
@@ -116,71 +106,98 @@ on_message_publish(Msg) ->
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec(clean(emqx_types:topic()) -> non_neg_integer()).
-clean(Topic) when is_binary(Topic) ->
-    case emqx_topic:wildcard(Topic) of
-        true -> match_delete_messages(Topic);
+-spec dispatch(context(), pid(), topic(), cursor()) -> ok.
+dispatch(Context, Pid, Topic, Cursor) ->
+    Mod = get_backend_module(),
+    case Cursor =/= undefined orelse emqx_topic:wildcard(Topic) of
         false ->
-            Tokens = topic2tokens(Topic),
-            Fun = fun() ->
-                      case mnesia:read({?TAB, Tokens}) of
-                          [] -> 0;
-                          [_M] -> mnesia:delete({?TAB, Tokens}), 1
-                      end
-                  end,
-            {atomic, N} = ekka_mnesia:transaction(?RETAINER_SHARD, Fun), N
+            {ok, Result} = Mod:read_message(Context, Topic),
+            deliver(Result, Context, Pid, Topic, undefiend);
+        true  ->
+            {ok, Result, NewCursor} =  Mod:match_messages(Context, Topic, Cursor),
+            deliver(Result, Context, Pid, Topic, NewCursor)
     end.
 
-%%--------------------------------------------------------------------
-%% Update Config
-%%--------------------------------------------------------------------
+deliver([], Context, Pid, Topic, Cursor) ->
+    case Cursor of
+        undefined ->
+            ok;
+        _ ->
+            dispatch(Context, Pid, Topic, Cursor)
+    end;
+deliver(Result, #{context_id := Id} = Context, Pid, Topic, Cursor) ->
+    case erlang:is_process_alive(Pid) of
+        false ->
+            ok;
+        _ ->
+            #{msg_deliver_quota := MaxDeliverNum} = emqx_config:get([?APP, flow_control]),
+            case MaxDeliverNum of
+                0 ->
+                    _ = [Pid ! {deliver, Topic, Msg} || Msg <- Result],
+                    ok;
+                _ ->
+                    case do_deliver(Result, Id, Pid, Topic) of
+                        ok ->
+                            deliver([], Context, Pid, Topic, Cursor);
+                        abort ->
+                            ok
+                    end
+            end
+    end.
+
+get_expiry_time(#message{headers = #{properties := #{'Message-Expiry-Interval' := 0}}}) ->
+    0;
+get_expiry_time(#message{headers = #{properties := #{'Message-Expiry-Interval' := Interval}},
+                         timestamp = Ts}) ->
+    Ts + Interval * 1000;
+get_expiry_time(#message{timestamp = Ts}) ->
+    Interval = emqx_config:get([?APP, msg_expiry_interval], ?DEF_EXPIRY_INTERVAL),
+    case Interval of
+        0 -> 0;
+        _ -> Ts + Interval
+    end.
+
 -spec update_config(hocon:config()) -> ok.
 update_config(Conf) ->
-    OldCfg = emqx_config:get([?APP]),
-    emqx_config:put([?APP], Conf),
-    check_enable_when_update(OldCfg).
+    gen_server:call(?MODULE, {?FUNCTION_NAME, Conf}).
+
+clean() ->
+    gen_server:call(?MODULE, ?FUNCTION_NAME).
+
+delete(Topic) ->
+    gen_server:call(?MODULE, {?FUNCTION_NAME, Topic}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    StorageType = emqx_config:get([?MODULE, storage_type], ?DEF_STORAGE_TYPE),
-    ExpiryInterval = emqx_config:get([?MODULE, expiry_interval], ?DEF_EXPIRY_INTERVAL),
-    Copies = case StorageType of
-                 ram       -> ram_copies;
-                 disc      -> disc_copies;
-                 disc_only -> disc_only_copies
-             end,
-    StoreProps = [{ets, [compressed,
-                         {read_concurrency, true},
-                         {write_concurrency, true}]},
-                  {dets, [{auto_save, 1000}]}],
-    ok = ekka_mnesia:create_table(?TAB, [
-                {type, set},
-                {Copies, [node()]},
-                {record_name, retained},
-                {attributes, record_info(fields, retained)},
-                {storage_properties, StoreProps}]),
-    ok = ekka_mnesia:copy_table(?TAB, Copies),
-    ok = ekka_rlog:wait_for_shards([?RETAINER_SHARD], infinity),
-    case mnesia:table_info(?TAB, storage_type) of
-        Copies -> ok;
-        _Other ->
-            {atomic, ok} = mnesia:change_table_copy_type(?TAB, node(), Copies),
-            ok
-    end,
-    StatsFun = emqx_stats:statsfun('retained.count', 'retained.max'),
-    State = ?MAKE_TIMER(#state{stats_fun = StatsFun}, stats_timer, ?STATS_INTERVAL, stats),
-    check_enable_when_init(),
-    {ok, start_expire_timer(ExpiryInterval, State)}.
+    init_shared_context(),
+    State = new_state(),
+    #{enable := Enable} = Cfg = emqx_config:get([?APP]),
+    {ok,
+     case Enable of
+         true ->
+             enable_retainer(State, Cfg);
+         _ ->
+             State
+     end}.
 
-start_expire_timer(0, State) ->
-    State;
-start_expire_timer(undefined, State) ->
-    State;
-start_expire_timer(Ms, State) ->
-    ?MAKE_TIMER(State, expiry_timer, Ms, expire).
+handle_call({update_config, Conf}, _, State) ->
+    State2 = update_config(State, Conf),
+    emqx_config:put([?APP], Conf),
+    {reply, ok, State2};
+
+handle_call({wait_semaphore, Id}, From, #{wait_quotas := Waits} = State) ->
+    {noreply, State#{wait_quotas := [{Id, From} | Waits]}};
+
+handle_call(clean, _, #{context := Context} = State) ->
+    clean(Context),
+    {reply, ok, State};
+
+handle_call({delete, Topic}, _, #{context := Context} = State) ->
+    delete_message(Context, Topic),
+    {reply, ok, State};
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
@@ -190,22 +207,36 @@ handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info(stats, State = #state{stats_fun = StatsFun}) ->
-    StatsFun(retained_count()),
-    {noreply, ?MAKE_TIMER(State, stats_timer, ?STATS_INTERVAL, stats), hibernate};
+handle_info(clear_expired, #{context := Context} = State) ->
+    Mod = get_backend_module(),
+    Mod:clear_expired(Context),
+    Interval = emqx_config:get([?APP, msg_clear_interval], ?DEF_EXPIRY_INTERVAL),
+    {noreply, State#{clear_timer := add_timer(Interval, clear_expired)}, hibernate};
 
-handle_info(expire, State) ->
-    ok = expire_messages(),
-    Interval = emqx_config:get([?MODULE, expiry_interval], ?DEF_EXPIRY_INTERVAL),
-    {noreply, start_expire_timer(Interval, State), hibernate};
+handle_info(release_deliver_quota, #{context := Context, wait_quotas := Waits} = State) ->
+    insert_shared_context(?DELIVER_SEMAPHORE, get_msg_deliver_quota()),
+    case Waits of
+        [] ->
+            ok;
+        _ ->
+            #{context_id := NowId} = Context,
+            Waits2 = lists:reverse(Waits),
+            lists:foreach(fun({Id, From}) ->
+                                  gen_server:reply(From, Id =:= NowId)
+                          end,
+                          Waits2)
+    end,
+    Interval = emqx_config:get([?APP, flow_control, quota_release_interval]),
+    {noreply, State#{release_quota_timer := add_timer(Interval, release_deliver_quota),
+                     wait_quotas := []}};
 
 handle_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{stats_timer = TRef1, expiry_timer = TRef2}) ->
-    _ = erlang:cancel_timer(TRef1),
-    _ = erlang:cancel_timer(TRef2),
+terminate(_Reason, #{clear_timer := TRef1, release_quota_timer := TRef2}) ->
+    _ = stop_timer(TRef1),
+    _ = stop_timer(TRef2),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -214,141 +245,211 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-sort_retained([]) -> [];
-sort_retained([Msg]) -> [Msg];
-sort_retained(Msgs)  ->
-    lists:sort(fun(#message{timestamp = Ts1}, #message{timestamp = Ts2}) ->
-                       Ts1 =< Ts2 end,
-               Msgs).
+-spec new_state() -> state().
+new_state() ->
+    #{enable => false,
+      context_id => 0,
+      context => undefined,
+      clear_timer => undefined,
+      release_quota_timer => undefined,
+      wait_quotas => []}.
 
-store_retained(Msg = #message{topic = Topic, payload = Payload}) ->
-    case {is_table_full(), is_too_big(size(Payload))} of
-        {false, false} ->
-            ok = emqx_metrics:inc('messages.retained'),
-            ekka_mnesia:dirty_write(?TAB, #retained{topic = topic2tokens(Topic),
-                                                    msg = Msg,
-                                                    expiry_time = get_expiry_time(Msg)});
-        {true, false} ->
-            {atomic, _} = ekka_mnesia:transaction(?RETAINER_SHARD,
-                fun() ->
-                        case mnesia:read(?TAB, Topic) of
-                            [_] ->
-                                mnesia:write(?TAB,
-                                             #retained{topic = topic2tokens(Topic),
-                                                       msg = Msg,
-                                                       expiry_time = get_expiry_time(Msg)},
-                                             write);
-                            [] ->
-                                ?LOG(error,
-                                     "Cannot retain message(topic=~s) for table is full!", [Topic])
-                    end
-                end),
-            ok;
-        {true, _} ->
-            ?LOG(error, "Cannot retain message(topic=~s) for table is full!", [Topic]);
-        {_, true} ->
-            ?LOG(error, "Cannot retain message(topic=~s, payload_size=~p) "
-                        "for payload is too big!", [Topic, iolist_size(Payload)])
-    end.
-
-is_table_full() ->
-    Limit = emqx_config:get([?MODULE, max_retained_messages], ?DEF_MAX_RETAINED_MESSAGES),
-    Limit > 0 andalso (retained_count() > Limit).
+-spec new_context(pos_integer()) -> context().
+new_context(Id) ->
+    #{context_id => Id}.
 
 is_too_big(Size) ->
-    Limit = emqx_config:get([?MODULE, max_payload_size], ?DEF_MAX_PAYLOAD_SIZE),
+    Limit = emqx_config:get([?APP, max_payload_size], ?DEF_MAX_PAYLOAD_SIZE),
     Limit > 0 andalso (Size > Limit).
 
-get_expiry_time(#message{headers = #{properties := #{'Message-Expiry-Interval' := 0}}}) ->
-    0;
-get_expiry_time(#message{headers = #{properties := #{'Message-Expiry-Interval' := Interval}},
-                         timestamp = Ts}) ->
-    Ts + Interval * 1000;
-get_expiry_time(#message{timestamp = Ts}) ->
-    Interval = emqx_config:get([?MODULE, expiry_interval], ?DEF_EXPIRY_INTERVAL),
-    case Interval of
-        0 -> 0;
-        _ -> Ts + Interval
+%% @private
+dispatch(Context, Topic) ->
+    emqx_retainer_pool:async_submit(fun ?MODULE:dispatch/4,
+                                    [Context, self(), Topic, undefined]).
+
+-spec delete_message(context(), topic()) -> ok.
+delete_message(Context, Topic) ->
+    Mod = get_backend_module(),
+    Mod:delete_message(Context, Topic).
+
+-spec store_retained(context(), message()) -> ok.
+store_retained(Context, #message{topic = Topic, payload = Payload} = Msg) ->
+    case is_too_big(erlang:byte_size(Payload)) of
+        false ->
+            Mod = get_backend_module(),
+            Mod:store_retained(Context, Msg);
+        _ ->
+            ?ERROR("Cannot retain message(topic=~s, payload_size=~p) for payload is too big!",
+                   [Topic, iolist_size(Payload)])
     end.
 
-%%--------------------------------------------------------------------
-%% Internal funcs
-%%--------------------------------------------------------------------
+-spec clean(context()) -> ok.
+clean(Context) ->
+    Mod = get_backend_module(),
+    Mod:clean(Context).
 
--spec(retained_count() -> non_neg_integer()).
-retained_count() -> mnesia:table_info(?TAB, size).
-
-topic2tokens(Topic) ->
-    emqx_topic:words(Topic).
-
-expire_messages() ->
-    NowMs = erlang:system_time(millisecond),
-    MsHd = #retained{topic = '$1', msg = '_', expiry_time = '$3'},
-    Ms = [{MsHd, [{'=/=','$3',0}, {'<','$3',NowMs}], ['$1']}],
-    {atomic, _} = ekka_mnesia:transaction(?RETAINER_SHARD,
-        fun() ->
-            Keys = mnesia:select(?TAB, Ms, write),
-            lists:foreach(fun(Key) -> mnesia:delete({?TAB, Key}) end, Keys)
-        end),
+-spec do_deliver(list(term()), pos_integer(), pid(), topic()) -> ok | abort.
+do_deliver([Msg | T], Id, Pid, Topic) ->
+    case require_semaphore(?DELIVER_SEMAPHORE, Id) of
+        true ->
+            Pid ! {deliver, Topic, Msg},
+            do_deliver(T, Id, Pid, Topic);
+        _ ->
+            abort
+    end;
+do_deliver([], _, _, _) ->
     ok.
 
--spec(read_messages(emqx_types:topic())
-      -> [emqx_types:message()]).
-read_messages(Topic) ->
-    Tokens = topic2tokens(Topic),
-    case mnesia:dirty_read(?TAB, Tokens) of
-        [] -> [];
-        [#retained{msg = Msg, expiry_time = Et}] ->
-            case Et =:= 0 orelse Et >= erlang:system_time(millisecond) of
-                true -> [Msg];
-                false -> []
-            end
-    end.
+-spec require_semaphore(semaphore(), pos_integer()) -> boolean().
+require_semaphore(Semaphore, Id) ->
+    Remained = ets:update_counter(?SHARED_CONTEXT_TAB,
+                                  Semaphore,
+                                  {#shared_context.value, -1, 0, 0}),
+    wait_semaphore(Remained, Id).
 
--spec(match_messages(emqx_types:topic())
-      -> [emqx_types:message()]).
-match_messages(Filter) ->
-    NowMs = erlang:system_time(millisecond),
-    Cond = condition(emqx_topic:words(Filter)),
-    MsHd = #retained{topic = Cond, msg = '$2', expiry_time = '$3'},
-    Ms = [{MsHd, [{'=:=','$3',0}], ['$2']},
-          {MsHd, [{'>','$3',NowMs}], ['$2']}],
-    mnesia:dirty_select(?TAB, Ms).
+-spec wait_semaphore(non_neg_integer(), pos_integer()) -> boolean().
+wait_semaphore(0, Id) ->
+    gen_server:call(?MODULE, {?FUNCTION_NAME, Id}, infinity);
+wait_semaphore(_, _) ->
+    true.
 
--spec(match_delete_messages(emqx_types:topic())
-      -> DeletedCnt :: non_neg_integer()).
-match_delete_messages(Filter) ->
-    Cond = condition(emqx_topic:words(Filter)),
-    MsHd = #retained{topic = Cond, msg = '_', expiry_time = '_'},
-    Ms = [{MsHd, [], ['$_']}],
-    Rs = mnesia:dirty_select(?TAB, Ms),
-    lists:foreach(fun(R) -> ekka_mnesia:dirty_delete_object(?TAB, R) end, Rs),
-    length(Rs).
+-spec init_shared_context() -> ok.
+init_shared_context() ->
+    ?SHARED_CONTEXT_TAB = ets:new(?SHARED_CONTEXT_TAB,
+                                  [ set, named_table, public
+                                  , {keypos, #shared_context.key}
+                                  , {write_concurrency, true}
+                                  , {read_concurrency, true}]),
+    lists:foreach(fun({K, V}) ->
+                          insert_shared_context(K, V)
+                  end,
+                  [{?DELIVER_SEMAPHORE, get_msg_deliver_quota()}]).
 
-%% @private
-condition(Ws) ->
-    Ws1 = [case W =:= '+' of true -> '_'; _ -> W end || W <- Ws],
-    case lists:last(Ws1) =:= '#' of
-        false -> Ws1;
-        _ -> (Ws1 -- ['#']) ++ '_'
-    end.
 
--spec check_enable_when_init() -> ok.
-check_enable_when_init() ->
-    case emqx_config:get([?APP, enable], ?DEF_ENABLE_VAL) of
-        true -> load();
-        _  -> ok
-    end.
+-spec insert_shared_context(shared_context_key(), term()) -> ok.
+insert_shared_context(Key, Term) ->
+    ets:insert(?SHARED_CONTEXT_TAB, #shared_context{key = Key, value = Term}),
+    ok.
 
--spec check_enable_when_update(hocon:config()) -> ok.
-check_enable_when_update(OldCfg) ->
-    OldVal = maps:get(enable, OldCfg, undefined),
-    case emqx_config:get([?APP, enable], ?DEF_ENABLE_VAL) of
-        OldVal ->
-            ok;
+-spec get_msg_deliver_quota() -> non_neg_integer().
+get_msg_deliver_quota() ->
+    emqx_config:get([?APP, flow_control, msg_deliver_quota]).
+
+-spec update_config(state(), hocons:config()) -> state().
+update_config(#{clear_timer := ClearTimer,
+                release_quota_timer := QuotaTimer} = State, Conf) ->
+    #{enable := Enable,
+      connector := [Connector | _],
+      flow_control := #{quota_release_interval := QuotaInterval},
+      msg_clear_interval := ClearInterval} = Conf,
+
+    #{connector := [OldConnector | _]} = emqx_config:get([?APP]),
+
+    case Enable of
         true ->
-            load();
+            StorageType = maps:get(type, Connector),
+            OldStrorageType = maps:get(type, OldConnector),
+            case OldStrorageType of
+                StorageType ->
+                    State#{clear_timer := check_timer(ClearTimer,
+                                                      ClearInterval,
+                                                      clear_expired),
+                           release_quota_timer := check_timer(QuotaTimer,
+                                                              QuotaInterval,
+                                                              release_deliver_quota)};
+                _ ->
+                    State2 = disable_retainer(State),
+                    enable_retainer(State2, Conf)
+            end;
         _ ->
-            unload()
+            disable_retainer(State)
     end.
 
+-spec enable_retainer(state(), hocon:config()) -> state().
+enable_retainer(#{context_id := ContextId} = State,
+                #{msg_clear_interval := ClearInterval,
+                  flow_control := #{quota_release_interval := ReleaseInterval},
+                  connector := [Connector | _]}) ->
+    NewContextId = ContextId + 1,
+    Context = create_resource(new_context(NewContextId), Connector),
+    load(Context),
+    State#{enable := true,
+           context_id := NewContextId,
+           context := Context,
+           clear_timer := add_timer(ClearInterval, clear_expired),
+           release_quota_timer := add_timer(ReleaseInterval, release_deliver_quota)}.
+
+-spec disable_retainer(state()) -> state().
+disable_retainer(#{clear_timer := TRef1,
+                   release_quota_timer := TRef2,
+                   context := Context,
+                   wait_quotas := Waits} = State) ->
+    unload(),
+    ok = lists:foreach(fun(E) -> gen_server:reply(E, false) end, Waits),
+    ok = close_resource(Context),
+    State#{enable := false,
+           clear_timer := stop_timer(TRef1),
+           release_quota_timer := stop_timer(TRef2),
+           wait_quotas := []}.
+
+-spec stop_timer(undefined | reference()) -> undefined.
+stop_timer(undefined) ->
+    undefined;
+stop_timer(TimerRef) ->
+    _ = erlang:cancel_timer(TimerRef),
+    undefined.
+
+add_timer(0, _) ->
+    undefined;
+add_timer(undefined, _) ->
+    undefined;
+add_timer(Ms, Content) ->
+    erlang:send_after(Ms, self(), Content).
+
+check_timer(undefined, Ms, Context) ->
+    add_timer(Ms, Context);
+check_timer(Timer, 0, _) ->
+    stop_timer(Timer);
+check_timer(Timer, undefined, _) ->
+    stop_timer(Timer);
+check_timer(Timer, _, _) ->
+    Timer.
+
+-spec get_backend_module() -> backend().
+get_backend_module() ->
+    [#{type := Backend} | _] = emqx_config:get([?APP, connector]),
+    erlang:list_to_existing_atom(io_lib:format("~s_~s", [?APP, Backend])).
+
+create_resource(Context, #{type := mnesia, config := Cfg}) ->
+    emqx_retainer_mnesia:create_resource(Cfg),
+    Context;
+
+create_resource(Context, #{type := DB, config := Config}) ->
+    ResourceID = erlang:iolist_to_binary([io_lib:format("~s_~s", [?APP, DB])]),
+    case emqx_resource:create(
+           ResourceID,
+           list_to_existing_atom(io_lib:format("~s_~s", [emqx_connector, DB])),
+           Config) of
+        {ok, _} ->
+            Context#{resource_id => ResourceID};
+        {error, already_created} ->
+            Context#{resource_id => ResourceID};
+        {error, Reason} ->
+            error({load_config_error, Reason})
+    end.
+
+-spec close_resource(context()) -> ok | {error, term()}.
+close_resource(#{resource_id := ResourceId}) ->
+    emqx_resource:stop(ResourceId);
+close_resource(_) ->
+    ok.
+
+-spec load(context()) -> ok.
+load(Context) ->
+    _ = emqx:hook('session.subscribed', {?MODULE, on_session_subscribed, [Context]}),
+    _ = emqx:hook('message.publish', {?MODULE, on_message_publish, [Context]}),
+    ok.
+
+unload() ->
+    emqx:unhook('message.publish', {?MODULE, on_message_publish}),
+    emqx:unhook('session.subscribed', {?MODULE, on_session_subscribed}).
