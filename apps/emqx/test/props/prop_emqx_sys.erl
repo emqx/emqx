@@ -60,7 +60,7 @@ prop_sys() ->
 do_setup() ->
     ok = emqx_logger:set_log_level(emergency),
     emqx_config:put([broker, sys_msg_interval], 60000),
-    emqx_config:put([broker, sys_msg_interval], 30000),
+    emqx_config:put([broker, sys_heartbeat_interval], 30000),
     [mock(Mod) || Mod <- ?mock_modules],
     ok.
 

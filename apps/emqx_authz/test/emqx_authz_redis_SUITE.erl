@@ -68,7 +68,9 @@ set_special_configs(_App) ->
 t_authz(_) ->
     ClientInfo = #{clientid => <<"clientid">>,
                    username => <<"username">>,
-                   peerhost => {127,0,0,1}
+                   peerhost => {127,0,0,1},
+                   zone => default,
+                   listener => mqtt_tcp
                    },
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, []} end),
