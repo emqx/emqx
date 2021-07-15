@@ -28,12 +28,12 @@
 
 -spec(authenticate(emqx_types:clientinfo()) ->
     ok | {ok, binary()} | {continue, map()} | {continue, binary(), map()} | {error, term()}).
-authenticate(Credential = #{zone := Zone, listener := Listener}) ->
-    run_hooks('client.authenticate', [Credential], ok)
+authenticate(Credential) ->
+    run_hooks('client.authenticate', [Credential], ok).
 
 %% @doc Check ACL
--spec(authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic())
-      -> allow | deny).
+-spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic())
+      -> allow | deny.
 authorize(ClientInfo = #{zone := Zone, listener := Listener}, PubSub, Topic) ->
     case emqx_acl_cache:is_enabled(Zone, Listener) of
         true  -> check_authorization_cache(ClientInfo, PubSub, Topic);

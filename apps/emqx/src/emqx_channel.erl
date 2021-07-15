@@ -995,7 +995,7 @@ handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connecting}) 
 
 handle_info({sock_closed, Reason}, Channel =
             #channel{conn_state = ConnState,
-                     clientinfo = ClientInfo = #{zone := Zone listener := Listener}})
+                     clientinfo = ClientInfo = #{zone := Zone, listener := Listener}})
         when ConnState =:= connected orelse ConnState =:= reauthenticating ->
     emqx_config:get_listener_conf(Zone, Listener, [flapping_detect, enable])
         andalso emqx_flapping:detect(ClientInfo),
