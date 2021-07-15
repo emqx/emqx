@@ -48,9 +48,6 @@ set_special_configs(_App) ->
     ok.
 
 t_mnesia_authenticator(_) ->
-    ct:pal("11111 ~p~n", [?AUTH:list_authenticators(<<"mqtt">>)]),
-
-
     AuthenticatorName = <<"myauthenticator">>,
     AuthenticatorConfig = #{name => AuthenticatorName,
                             mechanism => 'password-based',
@@ -67,13 +64,22 @@ t_mnesia_authenticator(_) ->
     ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:add_user(?CHAIN, AuthenticatorName, UserInfo)),
     ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:lookup_user(?CHAIN, AuthenticatorName, <<"myuser">>)),
 
-    ClientInfo = #{username => <<"myuser">>,
+    ?assertEqual(false, emqx_zone:get_env(external, bypass_auth_plugins, false)),
+
+    ClientInfo = #{zone => external,
+                   username => <<"myuser">>,
 			       password => <<"mypass">>},
     ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo, ok)),
+    ?AUTH:enable(),
+    ?assertEqual(ok, emqx_access_control:authenticate(ClientInfo)),
+
     ClientInfo2 = ClientInfo#{username => <<"baduser">>},
     ?assertEqual({stop, {error, not_authorized}}, ?AUTH:authenticate(ClientInfo2, ok)),
+    ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo2)),
+
     ClientInfo3 = ClientInfo#{password => <<"badpass">>},
     ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo3, ok)),
+    ?assertEqual({error, bad_username_or_password}, emqx_access_control:authenticate(ClientInfo3)),
 
     UserInfo2 = UserInfo#{<<"password">> => <<"mypass2">>},
     ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:update_user(?CHAIN, AuthenticatorName, <<"myuser">>, UserInfo2)),

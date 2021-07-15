@@ -38,12 +38,15 @@ stop(_State) ->
     ok.
 
 initialize() ->
-    #{authenticators := Authenticators} = emqx_config:get([emqx_authn], #{authenticators => []}),
-    initialize(Authenticators).
+    AuthNConfig = emqx_config:get([emqx_authn], #{enable => false,
+                                                  authenticators => []}),
+    initialize(AuthNConfig).
 
-initialize(Authenticators) ->
+initialize(#{enable := Enable, authenticators := Authenticators}) ->
     {ok, _} = emqx_authn:create_chain(#{id => ?CHAIN}),
-    initialize_authenticators(Authenticators).
+    initialize_authenticators(Authenticators),
+    Enable =:= true andalso emqx_authn:enable(),
+    ok.
 
 initialize_authenticators([]) ->
     ok;

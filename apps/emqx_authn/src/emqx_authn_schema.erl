@@ -31,7 +31,9 @@
 structs() -> ["emqx_authn"].
 
 fields("emqx_authn") ->
-    [ {authenticators, fun authenticators/1} ];
+    [ {enable, fun enable/1}
+    , {authenticators, fun authenticators/1}
+    ];
 
 fields('password-based') ->
     [ {name,      fun authenticator_name/1}
@@ -62,6 +64,10 @@ fields(scram) ->
                              [ hoconsc:ref(emqx_enhanced_authn_scram_mnesia, config)
                              ]))}
     ].
+
+enable(type) -> boolean();
+enable(defualt) -> false;
+enable(_) -> undefined.
 
 authenticators(type) ->
     hoconsc:array({union, [ hoconsc:ref(?MODULE, 'password-based')

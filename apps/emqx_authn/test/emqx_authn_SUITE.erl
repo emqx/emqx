@@ -94,3 +94,12 @@ t_authenticator(_) ->
     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, AuthenticatorName2)),
     ?assertEqual({ok, []}, ?AUTH:list_authenticators(?CHAIN)),
     ok.
+
+t_authenticate(_) ->
+    ?assertEqual(false, emqx_zone:get_env(external, bypass_auth_plugins, false)),
+    ClientInfo = #{zone => external,
+                   username => <<"myuser">>,
+			       password => <<"mypass">>},
+    ?assertEqual(ok, emqx_access_control:authenticate(ClientInfo)),
+    emqx_authn:enable(),
+    ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo)).
