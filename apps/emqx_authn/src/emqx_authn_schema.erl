@@ -21,94 +21,61 @@
 
 -behaviour(hocon_schema).
 
--export([structs/0, fields/1]).
+-export([ structs/0
+        , fields/1
+        ]).
 
--reflect_type([ chain_id/0
-              , authenticator_name/0
+-reflect_type([ authenticator_name/0
               ]).
 
 structs() -> ["emqx_authn"].
 
 fields("emqx_authn") ->
-    [ {chains, fun chains/1}
-    , {bindings, fun bindings/1}];
-
-fields('simple-chain') ->
-    [ {id, fun chain_id/1}
-    , {type, {enum, [simple]}}
-    , {authenticators, fun simple_authenticators/1}
+    [ {enable, fun enable/1}
+    , {authenticators, fun authenticators/1}
     ];
 
-% fields('enhanced-chain') ->
-%     [ {id, fun chain_id/1}
-%     , {type, {enum, [enhanced]}}
-%     , {authenticators, fun enhanced_authenticators/1}
-%     ];
-
-fields(binding) ->
-    [ {chain_id, fun chain_id/1}
-    , {listeners, fun listeners/1}
+fields('password-based') ->
+    [ {name,      fun authenticator_name/1}
+    , {mechanism, {enum, ['password-based']}}
+    , {config,    hoconsc:t(hoconsc:union(
+                             [ hoconsc:ref(emqx_authn_mnesia, config)
+                             , hoconsc:ref(emqx_authn_mysql, config)
+                             , hoconsc:ref(emqx_authn_pgsql, config)
+                             , hoconsc:ref(emqx_authn_http, get)
+                             , hoconsc:ref(emqx_authn_http, post)
+                             ]))}
     ];
-
-fields('built-in-database') ->
-    [ {name, fun authenticator_name/1}
-    , {type, {enum, ['built-in-database']}}
-    , {config, hoconsc:t(hoconsc:ref(emqx_authn_mnesia, config))}
-    ];
-
-% fields('enhanced-built-in-database') ->
-%     [ {name, fun authenticator_name/1}
-%     , {type, {enum, ['built-in-database']}}
-%     , {config, hoconsc:t(hoconsc:ref(emqx_enhanced_authn_mnesia, config))}
-%     ];
 
 fields(jwt) ->
-    [ {name, fun authenticator_name/1}
-    , {type, {enum, [jwt]}}
-    , {config, hoconsc:t(hoconsc:ref(emqx_authn_jwt, config))}
+    [ {name,      fun authenticator_name/1}
+    , {mechanism, {enum, [jwt]}}
+    , {config,    hoconsc:t(hoconsc:union(
+                             [ hoconsc:ref(emqx_authn_jwt, 'hmac-based')
+                             , hoconsc:ref(emqx_authn_jwt, 'public-key')
+                             , hoconsc:ref(emqx_authn_jwt, 'jwks')
+                             ]))}
     ];
 
-fields(mysql) ->
-    [ {name, fun authenticator_name/1}
-    , {type, {enum, [mysql]}}
-    , {config, hoconsc:t(hoconsc:ref(emqx_authn_mysql, config))}
-    ];
-
-fields(pgsql) ->
-    [ {name, fun authenticator_name/1}
-    , {type, {enum, [postgresql]}}
-    , {config, hoconsc:t(hoconsc:ref(emqx_authn_pgsql, config))}
+fields(scram) ->
+    [ {name,      fun authenticator_name/1}
+    , {mechanism, {enum, [scram]}}
+    , {config,    hoconsc:t(hoconsc:union(
+                             [ hoconsc:ref(emqx_enhanced_authn_scram_mnesia, config)
+                             ]))}
     ].
 
-chains(type) -> hoconsc:array({union, [hoconsc:ref(?MODULE, 'simple-chain')]});
-chains(default) -> [];
-chains(_) -> undefined.
+enable(type) -> boolean();
+enable(defualt) -> false;
+enable(_) -> undefined.
 
-chain_id(type) -> chain_id();
-chain_id(nullable) -> false;
-chain_id(_) -> undefined.
-
-simple_authenticators(type) ->
-    hoconsc:array({union, [ hoconsc:ref(?MODULE, 'built-in-database')
+authenticators(type) ->
+    hoconsc:array({union, [ hoconsc:ref(?MODULE, 'password-based')
                           , hoconsc:ref(?MODULE, jwt)
-                          , hoconsc:ref(?MODULE, mysql)
-                          , hoconsc:ref(?MODULE, pgsql)]});
-simple_authenticators(default) -> [];
-simple_authenticators(_) -> undefined.
-
-% enhanced_authenticators(type) ->
-%     hoconsc:array({union, [hoconsc:ref('enhanced-built-in-database')]});
-% enhanced_authenticators(default) -> [];
-% enhanced_authenticators(_) -> undefined.
+                          , hoconsc:ref(?MODULE, scram)]});
+authenticators(default) -> [];
+authenticators(_) -> undefined.
 
 authenticator_name(type) -> authenticator_name();
 authenticator_name(nullable) -> false;
 authenticator_name(_) -> undefined.
-
-bindings(type) -> hoconsc:array(hoconsc:ref(?MODULE, binding));
-bindings(default) -> [];
-bindings(_) -> undefined.
-
-listeners(type) -> hoconsc:array(binary());
-listeners(default) -> [];
-listeners(_) -> undefined.

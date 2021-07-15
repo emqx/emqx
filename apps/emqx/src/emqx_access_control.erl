@@ -18,23 +18,18 @@
 
 -include("emqx.hrl").
 
--export([authenticate/1]).
-
--export([ authorize/3
+-export([ authenticate/1
+        , authorize/3
         ]).
-
--type(result() :: #{auth_result := emqx_types:auth_result(),
-                    anonymous := boolean()
-                   }).
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
--spec(authenticate(emqx_types:clientinfo()) -> {ok, result()} | {error, term()}).
-authenticate(ClientInfo = #{zone := Zone, listener := Listener}) ->
-    AuthResult = default_auth_result(Zone, Listener),
-    return_auth_result(run_hooks('client.authenticate', [ClientInfo], AuthResult)).
+-spec(authenticate(emqx_types:clientinfo()) ->
+    ok | {ok, binary()} | {continue, map()} | {continue, binary(), map()} | {error, term()}).
+authenticate(Credential = #{zone := Zone, listener := Listener}) ->
+    run_hooks('client.authenticate', [Credential], ok)
 
 %% @doc Check ACL
 -spec(authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic())
@@ -60,18 +55,6 @@ do_authorize(ClientInfo, PubSub, Topic) ->
         _Other -> deny
     end.
 
-default_auth_result(Zone, Listener) ->
-    case emqx_config:get_listener_conf(Zone, Listener, [auth, enable]) of
-        false  -> #{auth_result => success, anonymous => true};
-        true -> #{auth_result => not_authorized, anonymous => false}
-    end.
-
 -compile({inline, [run_hooks/3]}).
 run_hooks(Name, Args, Acc) ->
     ok = emqx_metrics:inc(Name), emqx_hooks:run_fold(Name, Args, Acc).
-
--compile({inline, [return_auth_result/1]}).
-return_auth_result(Result = #{auth_result := success}) ->
-    {ok, Result};
-return_auth_result(Result) ->
-    {error, maps:get(auth_result, Result, unknown_error)}.

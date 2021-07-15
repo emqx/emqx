@@ -113,7 +113,7 @@ init({ClientId, Username, Password, Channel}) ->
                     password = Password},
     _ = run_hooks('client.connect', [conninfo(State0)], undefined),
     case emqx_access_control:authenticate(clientinfo(State0)) of
-        {ok, _AuthResult} ->
+        ok ->
             ok = emqx_cm:discard_session(ClientId),
 
             _ = run_hooks('client.connack', [conninfo(State0), success], undefined),

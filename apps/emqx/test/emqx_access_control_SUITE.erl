@@ -33,10 +33,7 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
 t_authenticate(_) ->
-    toggle_auth(true),
-    ?assertMatch({error, _}, emqx_access_control:authenticate(clientinfo())),
-    toggle_auth(false),
-    ?assertMatch({ok, _}, emqx_access_control:authenticate(clientinfo())).
+    ?assertMatch(ok, emqx_access_control:authenticate(clientinfo())).
 
 t_authorize(_) ->
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),

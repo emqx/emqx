@@ -181,7 +181,7 @@ init_per_suite(Config) ->
     %% Access Control Meck
     ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_access_control, authenticate,
-                     fun(_) -> {ok, #{auth_result => success}} end),
+                     fun(_) -> ok end),
     ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end),
     %% Broker Meck
     ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
@@ -268,35 +268,40 @@ t_handle_in_unexpected_packet(_) ->
     {ok, [{outgoing, Packet}, {close, protocol_error}], Channel} =
         emqx_channel:handle_in(?PUBLISH_PACKET(?QOS_0), Channel).
 
-t_handle_in_connect_auth_failed(_) ->
-    ConnPkt = #mqtt_packet_connect{
-                                proto_name  = <<"MQTT">>,
-                                proto_ver   = ?MQTT_PROTO_V5,
-                                is_bridge   = false,
-                                clean_start = true,
-                                keepalive   = 30,
-                                properties  = #{
-                                            'Authentication-Method' => <<"failed_auth_method">>,
-                                            'Authentication-Data' => <<"failed_auth_data">>
-                                            },
-                                clientid    = <<"clientid">>,
-                                username    = <<"username">>
-                                },
-    {shutdown, not_authorized, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _} =
-        emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt), channel(#{conn_state => idle})).
+% t_handle_in_connect_auth_failed(_) ->
+%     ConnPkt = #mqtt_packet_connect{
+%                                 proto_name  = <<"MQTT">>,
+%                                 proto_ver   = ?MQTT_PROTO_V5,
+%                                 is_bridge   = false,
+%                                 clean_start = true,
+%                                 keepalive   = 30,
+%                                 properties  = #{
+%                                             'Authentication-Method' => <<"failed_auth_method">>,
+%                                             'Authentication-Data' => <<"failed_auth_data">>
+%                                             },
+%                                 clientid    = <<"clientid">>,
+%                                 username    = <<"username">>
+%                                 },
+%     {shutdown, not_authorized, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _} =
+%         emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt), channel(#{conn_state => idle})).
 
 t_handle_in_continue_auth(_) ->
     Properties = #{
                 'Authentication-Method' => <<"failed_auth_method">>,
                 'Authentication-Data' => <<"failed_auth_data">>
                 },
-    {shutdown, bad_authentication_method, ?CONNACK_PACKET(?RC_BAD_AUTHENTICATION_METHOD), _} =
-        emqx_channel:handle_in(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION,Properties), channel()),
-    {shutdown, not_authorized, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _} =
+
+    Channel1 = channel(#{conn_state => connected}),
+    {ok, [{outgoing, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR)}, {close, protocol_error}], Channel1} =
+        emqx_channel:handle_in(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, Properties), Channel1),
+
+    Channel2 = channel(#{conn_state => connecting}),
+    ConnInfo = emqx_channel:info(conninfo, Channel2),
+    Channel3 = emqx_channel:set_field(conninfo, ConnInfo#{conn_props => Properties}, Channel2),
+
+    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _} =
         emqx_channel:handle_in(
-          ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION,Properties),
-          channel(#{conninfo => #{proto_ver => ?MQTT_PROTO_V5, conn_props => Properties}})
-        ).
+          ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, Properties), Channel3).
 
 t_handle_in_re_auth(_) ->
     Properties = #{
@@ -315,10 +320,14 @@ t_handle_in_re_auth(_) ->
           ?AUTH_PACKET(?RC_RE_AUTHENTICATE,Properties),
           channel(#{conninfo => #{proto_ver => ?MQTT_PROTO_V5, conn_props => undefined}})
         ),
-    {ok, [{outgoing, ?DISCONNECT_PACKET(?RC_NOT_AUTHORIZED)}, {close, not_authorized}], _} =
+    
+    Channel1 = channel(),
+    ConnInfo = emqx_channel:info(conninfo, Channel1),
+    Channel2 = emqx_channel:set_field(conninfo, ConnInfo#{conn_props => Properties}, Channel1),
+
+    {ok, ?AUTH_PACKET(?RC_SUCCESS), _} =
         emqx_channel:handle_in(
-          ?AUTH_PACKET(?RC_RE_AUTHENTICATE,Properties),
-          channel(#{conninfo => #{proto_ver => ?MQTT_PROTO_V5, conn_props => Properties}})
+          ?AUTH_PACKET(?RC_RE_AUTHENTICATE,Properties), Channel2
         ).
 
 t_handle_in_qos0_publish(_) ->
@@ -494,8 +503,8 @@ t_handle_in_disconnect(_) ->
 
 t_handle_in_auth(_) ->
     Channel = channel(#{conn_state => connected}),
-    Packet = ?DISCONNECT_PACKET(?RC_IMPLEMENTATION_SPECIFIC_ERROR),
-    {ok, [{outgoing, Packet}, {close, implementation_specific_error}], Channel} =
+    Packet = ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR),
+    {ok, [{outgoing, Packet}, {close, protocol_error}], Channel} =
         emqx_channel:handle_in(?AUTH_PACKET(), Channel).
 
 t_handle_in_frame_error(_) ->
@@ -809,7 +818,7 @@ t_enrich_client(_) ->
     {ok, _ConnPkt, _Chan} = emqx_channel:enrich_client(connpkt(), channel()).
 
 t_auth_connect(_) ->
-    {ok, _Chan} = emqx_channel:auth_connect(connpkt(), channel()).
+    {ok, _, _Chan} = emqx_channel:authenticate(?CONNECT_PACKET(connpkt()), channel()).
 
 t_process_alias(_) ->
     Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},
