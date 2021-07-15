@@ -105,6 +105,9 @@ format_listen_on(ListenOn) -> format(ListenOn).
 -spec(start_listener(listener()) -> ok).
 start_listener(#{proto := Proto, name := Name, listen_on := ListenOn, opts := Options}) ->
     ID = identifier(Proto, Name),
+    dbg:tracer(),
+dbg:p(all, c),
+dbg:tpl(tls_record, sufficient_crypto_support, '_', cx),
     case start_listener(Proto, ListenOn, Options) of
         {ok, skipped} ->
             console_print("Start ~s listener on ~s skpped.~n", [ID, format(ListenOn)]);
