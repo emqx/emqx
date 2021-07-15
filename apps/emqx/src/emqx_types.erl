@@ -209,7 +209,8 @@
 -type(infos() :: #{atom() => term()}).
 -type(stats() :: [{atom(), term()}]).
 
--type(oom_policy() :: #{message_queue_len => non_neg_integer(),
-                        max_heap_size => non_neg_integer()
+-type(oom_policy() :: #{max_message_queue_len => non_neg_integer(),
+                        max_heap_size => non_neg_integer(),
+                        enable => boolean()
                        }).
 

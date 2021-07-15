@@ -85,7 +85,7 @@ put_listener_conf(Zone, Listener, KeyPath, Conf) ->
     ?MODULE:put([zones, Zone, listeners, Listener | KeyPath], Conf).
 
 -spec find_listener_conf(atom(), atom(), emqx_map_lib:config_key_path()) ->
-    {ok, term()} | {not_foud, emqx_map_lib:config_key_path(), term()}.
+    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
 find_listener_conf(Zone, Listener, KeyPath) ->
     %% the configs in listener is prior to the ones in the zone
     case find([zones, Zone, listeners, Listener | KeyPath]) of
