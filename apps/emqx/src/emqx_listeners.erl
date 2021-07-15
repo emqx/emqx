@@ -38,11 +38,11 @@
 start() ->
     foreach_listeners(fun start_listener/3).
 
--spec(start_listener(atom()) -> ok).
+-spec start_listener(atom()) -> ok | {error, term()}.
 start_listener(ListenerId) ->
     apply_on_listener(ListenerId, fun start_listener/3).
 
--spec(start_listener(atom(), atom(), map()) -> ok).
+-spec start_listener(atom(), atom(), map()) -> ok | {error, term()}.
 start_listener(ZoneName, ListenerName, #{type := Type, bind := Bind} = Conf) ->
     case do_start_listener(ZoneName, ListenerName, Conf) of
         {ok, _} ->

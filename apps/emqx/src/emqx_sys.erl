@@ -32,8 +32,6 @@
         , uptime/0
         , datetime/0
         , sysdescr/0
-        , sys_interval/0
-        , sys_heatbeat_interval/0
         ]).
 
 -export([info/0]).
@@ -104,13 +102,9 @@ datetime() ->
         io_lib:format(
             "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
 
-%% @doc Get sys interval
--spec(sys_interval() -> pos_integer()).
 sys_interval() ->
     emqx_config:get([broker, sys_msg_interval]).
 
-%% @doc Get sys heatbeat interval
--spec(sys_heatbeat_interval() -> pos_integer()).
 sys_heatbeat_interval() ->
     emqx_config:get([broker, sys_heartbeat_interval]).
 
