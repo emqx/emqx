@@ -417,6 +417,7 @@ fields("ssl_opts") ->
         , depth => 10
         , reuse_sessions => true
         , versions => default_tls_vsns()
+        , ciphers => default_ciphers()
         });
 
 fields("deflate_opts") ->
@@ -672,6 +673,27 @@ tls_vsn(<<"tlsv1.3">>) -> 'tlsv1.3';
 tls_vsn(<<"tlsv1.2">>) -> 'tlsv1.2';
 tls_vsn(<<"tlsv1.1">>) -> 'tlsv1.1';
 tls_vsn(<<"tlsv1">>) -> 'tlsv1'.
+
+default_ciphers() -> [
+    "TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256", "TLS_CHACHA20_POLY1305_SHA256",
+    "TLS_AES_128_CCM_SHA256", "TLS_AES_128_CCM_8_SHA256", "ECDHE-ECDSA-AES256-GCM-SHA384",
+    "ECDHE-RSA-AES256-GCM-SHA384", "ECDHE-ECDSA-AES256-SHA384", "ECDHE-RSA-AES256-SHA384",
+    "ECDHE-ECDSA-DES-CBC3-SHA", "ECDH-ECDSA-AES256-GCM-SHA384", "ECDH-RSA-AES256-GCM-SHA384",
+    "ECDH-ECDSA-AES256-SHA384", "ECDH-RSA-AES256-SHA384", "DHE-DSS-AES256-GCM-SHA384",
+    "DHE-DSS-AES256-SHA256", "AES256-GCM-SHA384", "AES256-SHA256",
+    "ECDHE-ECDSA-AES128-GCM-SHA256", "ECDHE-RSA-AES128-GCM-SHA256",
+    "ECDHE-ECDSA-AES128-SHA256", "ECDHE-RSA-AES128-SHA256", "ECDH-ECDSA-AES128-GCM-SHA256",
+    "ECDH-RSA-AES128-GCM-SHA256", "ECDH-ECDSA-AES128-SHA256", "ECDH-RSA-AES128-SHA256",
+    "DHE-DSS-AES128-GCM-SHA256", "DHE-DSS-AES128-SHA256", "AES128-GCM-SHA256", "AES128-SHA256",
+    "ECDHE-ECDSA-AES256-SHA", "ECDHE-RSA-AES256-SHA", "DHE-DSS-AES256-SHA",
+    "ECDH-ECDSA-AES256-SHA", "ECDH-RSA-AES256-SHA", "AES256-SHA", "ECDHE-ECDSA-AES128-SHA",
+    "ECDHE-RSA-AES128-SHA", "DHE-DSS-AES128-SHA", "ECDH-ECDSA-AES128-SHA",
+    "ECDH-RSA-AES128-SHA", "AES128-SHA"
+    ] ++ psk_ciphers().
+
+psk_ciphers() -> [
+        "PSK-AES128-CBC-SHA", "PSK-AES256-CBC-SHA", "PSK-3DES-EDE-CBC-SHA", "PSK-RC4-SHA"
+    ].
 
 %% @private return a list of keys in a parent field
 -spec(keys(string(), hocon:config()) -> [string()]).
