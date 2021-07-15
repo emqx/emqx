@@ -32,7 +32,9 @@
 structs() -> ["emqx_gateway"].
 
 fields("emqx_gateway") ->
-    [{stomp, t(ref(stomp))}];
+    [{stomp, t(ref(stomp))},
+     {mqttsn, t(ref(mqttsn))}
+    ];
 
 fields(stomp) ->
     [{"$id", t(ref(stomp_structs))}];
@@ -41,7 +43,7 @@ fields(stomp_structs) ->
     [ {frame, t(ref(stomp_frame))}
     , {clientinfo_override, t(ref(clientinfo_override))}
     , {authenticator, t(union([allow_anonymous]))}
-    , {listener, t(ref(listener))}
+    , {listener, t(ref(tcp_listener_group))}
     ];
 
 fields(stomp_frame) ->
@@ -50,13 +52,38 @@ fields(stomp_frame) ->
     , {max_body_length, t(integer(), undefined, 8192)}
     ];
 
+fields(mqttsn) ->
+    [{"$id", t(ref(mqttsn_structs))}];
+
+fields(mqttsn_structs) ->
+    [ {gateway_id, t(integer())}
+    , {broadcast, t(boolean())}
+    , {enable_stats, t(boolean())}
+    , {enable_qos3, t(boolean())}
+    , {idle_timeout, t(duration())}
+    , {predefined, hoconsc:array(ref(mqttsn_predefined))}
+    , {clientinfo_override, t(ref(clientinfo_override))}
+    , {listener, t(ref(udp_listener_group))}
+    ];
+
+fields(mqttsn_predefined) ->
+    %% FIXME: How to check the $id is a integer ???
+    [ {id, t(integer())}
+    , {topic, t(string())}
+    ];
+
 fields(clientinfo_override) ->
     [ {username, t(string())}
     , {password, t(string())}
     , {clientid, t(string())}
     ];
 
-fields(listener) ->
+fields(udp_listener_group) ->
+    [ {udp, t(ref(udp_listener))}
+    , {dtls, t(ref(dtls_listener))}
+    ];
+
+fields(tcp_listener_group) ->
     [ {tcp, t(ref(tcp_listener))}
     , {ssl, t(ref(ssl_listener))}
     ];
@@ -67,7 +94,14 @@ fields(tcp_listener) ->
 fields(ssl_listener) ->
     [ {"$name", t(ref(ssl_listener_settings))}];
 
+fields(udp_listener) ->
+    [ {"$name", t(ref(udp_listener_settings))}];
+
+fields(dtls_listener) ->
+    [ {"$name", t(ref(dtls_listener_settings))}];
+
 fields(listener_settings) ->
+    % FIXME:
     %[ {"bind", t(union(ip_port(), integer()))}
     [ {bind, t(integer())}
     , {acceptors, t(integer(), undefined, 8)}
@@ -99,6 +133,19 @@ fields(tcp_listener_settings) ->
 fields(ssl_listener_settings) ->
     [
       %% some special confs for ssl listener
+    ] ++
+    ssl(undefined, #{handshake_timeout => "15s"
+                   , depth => 10
+                   , reuse_sessions => true}) ++ fields(listener_settings);
+
+fields(udp_listener_settings) ->
+    [
+      %% some special confs for udp listener 
+    ] ++ fields(listener_settings);
+
+fields(dtls_listener_settings) ->
+    [
+      %% some special confs for dtls listener 
     ] ++
     ssl(undefined, #{handshake_timeout => "15s"
                    , depth => 10
