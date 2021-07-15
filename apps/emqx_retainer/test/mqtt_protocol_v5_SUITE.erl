@@ -38,13 +38,7 @@ end_per_suite(_Config) ->
 %% Helpers
 %%--------------------------------------------------------------------
 set_special_configs(emqx_retainer) ->
-    emqx_config:put([emqx_retainer],
-                    #{enable => true,
-                      storage_type => ram,
-                      max_retained_messages => 0,
-                      max_payload_size => 1024 * 1024,
-                      expiry_interval => 0});
-
+    emqx_retainer_SUITE:init_emqx_retainer_conf();
 set_special_configs(_) ->
     ok.
 

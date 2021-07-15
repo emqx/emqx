@@ -56,21 +56,14 @@ init_per_testcase(_, Config) ->
     Config.
 
 set_special_configs(emqx_retainer) ->
-    init_emqx_retainer_conf(0);
+    emqx_retainer_SUITE:init_emqx_retainer_conf();
 set_special_configs(emqx_management) ->
     emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
-        applications =>[#{id => "admin", secret => "public"}]}),
+                                         applications =>[#{id => "admin", secret => "public"}]}),
     ok;
 set_special_configs(_) ->
     ok.
 
-init_emqx_retainer_conf(Expiry) ->
-    emqx_config:put([emqx_retainer],
-                    #{enable => true,
-                      storage_type => ram,
-                      max_retained_messages => 0,
-                      max_payload_size => 1024 * 1024,
-                      expiry_interval => Expiry}).
 %%------------------------------------------------------------------------------
 %% Test Cases
 %%------------------------------------------------------------------------------
@@ -78,7 +71,7 @@ init_emqx_retainer_conf(Expiry) ->
 t_config(_Config) ->
     {ok, Return} = request_http_rest_lookup(["retainer"]),
     NowCfg = get_http_data(Return),
-    NewCfg = NowCfg#{<<"expiry_interval">> => timer:seconds(60)},
+    NewCfg = NowCfg#{<<"msg_expiry_interval">> => timer:seconds(60)},
     RetainerConf = #{<<"emqx_retainer">> => NewCfg},
 
     {ok, _} = request_http_rest_update(["retainer?action=test"], RetainerConf),
