@@ -44,10 +44,6 @@ start_listener(ListenerId) ->
 
 -spec start_listener(atom(), atom(), map()) -> ok | {error, term()}.
 start_listener(ZoneName, ListenerName, #{type := Type, bind := Bind} = Conf) ->
-    dbg:tracer(),
-dbg:p(all, c),
-dbg:tpl(tls_record, sufficient_crypto_support, '_', cx),
-    
     case do_start_listener(ZoneName, ListenerName, Conf) of
         {ok, _} ->
             console_print("Start ~s listener ~s on ~s successfully.~n",

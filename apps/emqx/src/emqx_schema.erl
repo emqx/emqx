@@ -668,7 +668,8 @@ ssl(Defaults) ->
     , {"user_lookup_fun", t(any(), undefined, {fun emqx_psk:lookup/3, <<>>})}
     ].
 
-default_tls_vsns() -> [<<"tlsv1.3">>, <<"tlsv1.2">>, <<"tlsv1.1">>, <<"tlsv1">>].
+%% on erl23.2.7.2-emqx-2, sufficient_crypto_support('tlsv1.3') -> false
+default_tls_vsns() -> [<<"tlsv1.2">>, <<"tlsv1.1">>, <<"tlsv1">>].
 tls_vsn(<<"tlsv1.3">>) -> 'tlsv1.3';
 tls_vsn(<<"tlsv1.2">>) -> 'tlsv1.2';
 tls_vsn(<<"tlsv1.1">>) -> 'tlsv1.1';
