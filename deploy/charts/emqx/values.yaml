@@ -54,45 +54,6 @@ emqxConfig:
   ## if EMQX_CLUSTER__K8S__ADDRESS_TYPE eq dns
   # EMQX_CLUSTER__K8S__SUFFIX: "pod.cluster.local"
 
-## --------------------------------------------------------------------
-##  [ACL](https://docs.emqx.io/broker/latest/en/advanced/acl-file.html)
-
-##  -type(who() :: all | binary() |
-##                 {ipaddr, esockd_access:cidr()} |
-##                 {client, binary()} |
-##                 {user, binary()}).
-
-##  -type(access() :: subscribe | publish | pubsub).
-
-##  -type(topic() :: binary()).
-
-##  -type(rule() :: {allow, all} |
-##                  {allow, who(), access(), list(topic())} |
-##                  {deny, all} |
-##                  {deny, who(), access(), list(topic())}).
-## --------------------------------------------------------------------
-emqxAclConfig: >
-  {allow, {user, "dashboard"}, subscribe, ["$SYS/#"]}.
-  {allow, {ipaddr, "127.0.0.1"}, pubsub, ["$SYS/#", "#"]}.
-  {deny, all, subscribe, ["$SYS/#", {eq, "#"}]}.
-  {allow, all}.
-
-emqxLoadedPlugins: >
-  {emqx_management, true}.
-  {emqx_recon, true}.
-  {emqx_retainer, true}.
-  {emqx_dashboard, true}.
-  {emqx_telemetry, true}.
-  {emqx_rule_engine, true}.
-  {emqx_bridge_mqtt, false}.
-
-emqxLoadedModules: >
-  {emqx_mod_presence, true}.
-  {emqx_mod_delayed, false}.
-  {emqx_mod_rewrite, false}.
-  {emqx_mod_subscription, false}.
-  {emqx_mod_topic_metrics, false}.
-
 ## EMQX Enterprise Edition requires manual creation of a Secret containing the licensed content. Write the name of Secret to the value of "emqxLicneseSecretName"
 ## Example:
 ##   kubectl create secret generic emqx-license-secret-name --from-file=/path/to/emqx.lic

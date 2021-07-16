@@ -53,24 +53,6 @@ spec:
       {{- end }}
     spec:
       volumes:
-      - name: emqx-loaded-plugins
-        configMap:
-          name: {{ include "emqx.fullname" . }}-loaded-plugins
-          items:
-          - key: loaded_plugins
-            path: loaded_plugins
-      - name: emqx-loaded-modules
-        configMap:
-          name: {{ include "emqx.fullname" . }}-loaded-modules
-          items:
-          - key: loaded_modules
-            path: loaded_modules
-      - name: emqx-acl
-        configMap:
-          name: {{ include "emqx.fullname" . }}-acl
-          items:
-          - key: acl.conf
-            path: acl.conf
       {{- if not .Values.persistence.enabled }}
       - name: emqx-data
         emptyDir: {}
@@ -145,15 +127,6 @@ spec:
           volumeMounts:
           - name: emqx-data
             mountPath: "/opt/emqx/data/mnesia"
-          - name: emqx-acl
-            mountPath: "/opt/emqx/etc/acl.conf"
-            subPath: "acl.conf"
-          - name: emqx-loaded-plugins
-            mountPath: "/opt/emqx/data/loaded_plugins"
-            subPath: "loaded_plugins"
-          - name: emqx-loaded-modules
-            mountPath: "/opt/emqx/data/loaded_modules"
-            subPath: "loaded_modules"
           {{ if .Values.emqxLicneseSecretName  }}
           - name: emqx-license
             mountPath: "/opt/emqx/etc/emqx.lic"
