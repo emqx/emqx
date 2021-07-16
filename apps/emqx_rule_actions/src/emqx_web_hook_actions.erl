@@ -295,7 +295,7 @@ parse_action_params(Params = #{<<"url">> := URL}) ->
           path => merge_path(CommonPath, maps:get(<<"path">>, Params, <<>>)),
           headers => NHeaders,
           body => maps:get(<<"body">>, Params, <<>>),
-          request_timeout => cuttlefish_duration:parse(str(maps:get(<<"request_timeout">>, Params, <<"5s">>))),
+          request_timeout => hocon_postprocess:duration(str(maps:get(<<"request_timeout">>, Params, <<"5s">>))),
           pool => maps:get(<<"pool">>, Params)}
     catch _:_ ->
         throw({invalid_params, Params})
@@ -338,7 +338,7 @@ pool_opts(Params = #{<<"url">> := URL}, ResId) ->
            scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
     PoolSize = maps:get(<<"pool_size">>, Params, 32),
     ConnectTimeout =
-        cuttlefish_duration:parse(str(maps:get(<<"connect_timeout">>, Params, <<"5s">>))),
+        hocon_postprocess:duration(str(maps:get(<<"connect_timeout">>, Params, <<"5s">>))),
     TransportOpts0 =
         case Scheme =:= https of
             true  -> [get_ssl_opts(Params, ResId)];
