@@ -113,12 +113,9 @@ do_update_config([], Handlers, OldConf, UpdateReq) ->
     call_handle_update_config(Handlers, OldConf, UpdateReq);
 do_update_config([ConfKey | ConfKeyPath], Handlers, OldConf, UpdateReq) ->
     SubOldConf = get_sub_config(ConfKey, OldConf),
-    case maps:find(ConfKey, Handlers) of
-        error -> throw({handler_not_found, ConfKey});
-        {ok, SubHandlers} ->
-            NewUpdateReq = do_update_config(ConfKeyPath, SubHandlers, SubOldConf, UpdateReq),
-            call_handle_update_config(Handlers, OldConf, #{bin(ConfKey) => NewUpdateReq})
-    end.
+    SubHandlers = maps:get(ConfKey, Handlers, #{}),
+    NewUpdateReq = do_update_config(ConfKeyPath, SubHandlers, SubOldConf, UpdateReq),
+    call_handle_update_config(Handlers, OldConf, #{bin(ConfKey) => NewUpdateReq}).
 
 get_sub_config(_, undefined) ->
     undefined;
@@ -131,7 +128,7 @@ call_handle_update_config(Handlers, OldConf, UpdateReq) ->
     HandlerName = maps:get(?MOD, Handlers, undefined),
     case erlang:function_exported(HandlerName, handle_update_config, 2) of
         true -> HandlerName:handle_update_config(UpdateReq, OldConf);
-        false -> UpdateReq %% the default behaviour is overwriting the old config
+        false -> merge_to_old_config(UpdateReq, OldConf)
     end.
 
 %% callbacks for the top-level handler
@@ -139,11 +136,15 @@ handle_update_config(UpdateReq, OldConf) ->
     FullRawConf = merge_to_old_config(UpdateReq, OldConf),
     {maps:keys(UpdateReq), FullRawConf}.
 
-%% default callback of config handlers
-merge_to_old_config(UpdateReq, undefined) ->
-    merge_to_old_config(UpdateReq, #{});
-merge_to_old_config(UpdateReq, RawConf) ->
-    maps:merge(RawConf, UpdateReq).
+%% The default callback of config handlers
+%% the behaviour is overwriting the old config if:
+%%   1. the old config is undefined
+%%   2. either the old or the new config is not of map type
+%% the behaviour is merging the new the config to the old config if they are maps.
+merge_to_old_config(UpdateReq, RawConf) when is_map(UpdateReq), is_map(RawConf) ->
+    maps:merge(RawConf, UpdateReq);
+merge_to_old_config(UpdateReq, _RawConf) ->
+    UpdateReq.
 
 %%============================================================================
 save_configs(RootKeys, RawConf) ->
@@ -199,8 +200,9 @@ load_config_file() ->
         end, #{}, emqx:get_env(config_files, [])).
 
 emqx_override_conf_name() ->
-    filename:join([emqx:get_env(data_dir), "emqx_override.conf"]).
-
+    File = filename:join([emqx:get_env(data_dir), "emqx_override.conf"]),
+    ok = filelib:ensure_dir(File),
+    File.
 
 to_richmap(Map) ->
     {ok, RichMap} = hocon:binary(jsx:encode(Map), #{format => richmap}),

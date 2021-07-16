@@ -30,9 +30,9 @@ groups() ->
 
 init_per_suite(Config) ->
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [acl, cache, enable], false),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [acl, enable], true),
-    emqx_config:put([emqx_authz], #{rules => []}),
+    ok = emqx_config:update_config([zones, default, acl, cache, enable], false),
+    ok = emqx_config:update_config([zones, default, acl, enable], true),
+    emqx_authz:update([]),
     Config.
 
 end_per_suite(_Config) ->
@@ -74,19 +74,19 @@ end_per_suite(_Config) ->
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
-t_compile(_) ->
+t_init_rule(_) ->
     ?assertEqual(#{permission => deny,
                    action => all,
                    principal => all,
                    topics => [['#']]
-                  }, emqx_authz:compile(?RULE1)),
+                  }, emqx_authz:init_rule(?RULE1)),
     ?assertEqual(#{permission => allow,
                    action => all,
                    principal =>
                         #{ipaddress => {{127,0,0,1},{127,0,0,1},32}},
                    topics => [#{eq => ['#']},
                               #{eq => ['+']}]
-                  }, emqx_authz:compile(?RULE2)),
+                  }, emqx_authz:init_rule(?RULE2)),
     ?assertMatch(
        #{permission := allow,
          action := publish,
@@ -96,7 +96,7 @@ t_compile(_) ->
                            ]
                  },
          topics := [[<<"test">>]]
-        }, emqx_authz:compile(?RULE3)),
+        }, emqx_authz:init_rule(?RULE3)),
     ?assertMatch(
        #{permission := deny,
          action := publish,
@@ -108,7 +108,7 @@ t_compile(_) ->
          topics := [#{pattern := [<<"%u">>]},
                     #{pattern := [<<"%c">>]}
                    ]
-        }, emqx_authz:compile(?RULE4)),
+        }, emqx_authz:init_rule(?RULE4)),
     ok.
 
 t_authz(_) ->
@@ -137,39 +137,29 @@ t_authz(_) ->
                     listener => mqtt_tcp
                    },
 
-    Rules1 = [?RULE1, ?RULE2],
-    Rules2 = [?RULE2, ?RULE1],
-    Rules3 = [?RULE3, ?RULE4],
-    Rules4 = [?RULE4, ?RULE1],
+    Rules1 = [emqx_authz:init_rule(Rule) || Rule <- [?RULE1, ?RULE2]],
+    Rules2 = [emqx_authz:init_rule(Rule) || Rule <- [?RULE2, ?RULE1]],
+    Rules3 = [emqx_authz:init_rule(Rule) || Rule <- [?RULE3, ?RULE4]],
+    Rules4 = [emqx_authz:init_rule(Rule) || Rule <- [?RULE4, ?RULE1]],
 
-    emqx_config:put([emqx_authz], #{rules => []}),
     ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo1, subscribe, <<"#">>, deny)),
-    emqx_config:put([emqx_authz], #{rules => Rules1}),
+        emqx_authz:authorize(ClientInfo1, subscribe, <<"#">>, deny, [])),
     ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo1, subscribe, <<"+">>, deny)),
-    emqx_config:put([emqx_authz], #{rules => Rules2}),
+        emqx_authz:authorize(ClientInfo1, subscribe, <<"+">>, deny, Rules1)),
     ?assertEqual({stop, allow},
-        emqx_authz:authorize(ClientInfo1, subscribe, <<"+">>, deny)),
-    emqx_config:put([emqx_authz], #{rules => Rules3}),
+        emqx_authz:authorize(ClientInfo1, subscribe, <<"+">>, deny, Rules2)),
     ?assertEqual({stop, allow},
-        emqx_authz:authorize(ClientInfo1, publish, <<"test">>, deny)),
-    emqx_config:put([emqx_authz], #{rules => Rules4}),
+        emqx_authz:authorize(ClientInfo1, publish, <<"test">>, deny, Rules3)),
     ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo1, publish, <<"test">>, deny)),
-    emqx_config:put([emqx_authz], #{rules => Rules2}),
+        emqx_authz:authorize(ClientInfo1, publish, <<"test">>, deny, Rules4)),
     ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo2, subscribe, <<"#">>, deny)),
-    emqx_config:put([emqx_authz], #{rules => Rules3}),
+        emqx_authz:authorize(ClientInfo2, subscribe, <<"#">>, deny, Rules2)),
     ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo3, publish, <<"test">>, deny)),
-    emqx_config:put([emqx_authz], #{rules => Rules4}),
+        emqx_authz:authorize(ClientInfo3, publish, <<"test">>, deny, Rules3)),
     ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo3, publish, <<"fake">>, deny)),
-    emqx_config:put([emqx_authz], #{rules => Rules3}),
+        emqx_authz:authorize(ClientInfo3, publish, <<"fake">>, deny, Rules4)),
     ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo4, publish, <<"test">>, deny)),
-    emqx_config:put([emqx_authz], #{rules => Rules4}),
+        emqx_authz:authorize(ClientInfo4, publish, <<"test">>, deny, Rules3)),
     ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo4, publish, <<"fake">>, deny)),
+        emqx_authz:authorize(ClientInfo4, publish, <<"fake">>, deny, Rules4)),
     ok.

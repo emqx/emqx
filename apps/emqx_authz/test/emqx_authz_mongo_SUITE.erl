@@ -33,15 +33,15 @@ init_per_suite(Config) ->
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end ),
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
     ct:pal("---- emqx_hooks: ~p", [ets:tab2list(emqx_hooks)]),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [acl, cache, enable], false),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [acl, enable], true),
+    ok = emqx_config:update_config([zones, default, acl, cache, enable], false),
+    ok = emqx_config:update_config([zones, default, acl, enable], true),
     Rules = [#{config =>#{},
                principal => all,
                collection => <<"fake">>,
                find => #{<<"a">> => <<"b">>},
                type => mongo}
             ],
-    emqx_config:put([emqx_authz], #{rules => Rules}),
+    emqx_authz:update(Rules),
     Config.
 
 end_per_suite(_Config) ->

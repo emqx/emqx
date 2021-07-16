@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_authz).
+-behaviour(emqx_config_handler).
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -23,12 +24,16 @@
 
 -export([ register_metrics/0
         , init/0
-        , compile/1
+        , init_rule/1
         , lookup/0
         , update/1
-        , authorize/4
+        , authorize/5
         , match/4
         ]).
+
+-export([handle_update_config/2]).
+
+-define(CONF_KEY_PATH, [emqx_authz, rules]).
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
@@ -36,17 +41,24 @@ register_metrics() ->
 
 init() ->
     ok = register_metrics(),
-    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, []},  -1).
+    emqx_config_handler:add_handler(?CONF_KEY_PATH, ?MODULE),
+    NRules = [init_rule(Rule) || Rule <- lookup()],
+    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]}, -1).
 
 lookup() ->
-    emqx_config:get([emqx_authz, rules], []).
+    emqx_config:get(?CONF_KEY_PATH, []).
 
 update(Rules) ->
-    emqx_config:put([emqx_authz], #{rules => Rules}),
+    emqx_config:update_config(?CONF_KEY_PATH, Rules).
+
+%% For now we only support re-creating the entire rule list
+handle_update_config(Rules, _OldConf) ->
+    InitedRules = [init_rule(Rule) || Rule <- Rules],
     Action = find_action_in_hooks(),
     ok = emqx_hooks:del('client.authorize', Action),
-    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, []},  -1),
-    ok = emqx_acl_cache:empty_acl_cache().
+    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [InitedRules]}, -1),
+    ok = emqx_acl_cache:drain_cache(),
+    Rules.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -74,27 +86,27 @@ create_resource(#{type := DB,
             error({load_config_error, Reason})
     end.
 
--spec(compile(rule()) -> rule()).
-compile(#{topics := Topics,
-          action := Action,
-          permission := Permission,
-          principal := Principal
+-spec(init_rule(rule()) -> rule()).
+init_rule(#{topics := Topics,
+            action := Action,
+            permission := Permission,
+            principal := Principal
          } = Rule) when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(Topics) ->
     NTopics = [compile_topic(Topic) || Topic <- Topics],
     Rule#{principal => compile_principal(Principal),
           topics => NTopics
          };
 
-compile(#{principal := Principal,
-          type := DB
+init_rule(#{principal := Principal,
+            type := DB
          } = Rule) when DB =:= redis;
                         DB =:= mongo ->
     NRule = create_resource(Rule),
     NRule#{principal => compile_principal(Principal)};
 
-compile(#{principal := Principal,
-          type := DB,
-          sql := SQL
+init_rule(#{principal := Principal,
+            type := DB,
+            sql := SQL
          } = Rule) when DB =:= mysql;
                         DB =:= pgsql ->
     Mod = list_to_existing_atom(io_lib:format("~s_~s",[?APP, DB])),
@@ -144,11 +156,12 @@ b2l(B) when is_binary(B) -> binary_to_list(B).
 %%--------------------------------------------------------------------
 
 %% @doc Check AuthZ
--spec(authorize(emqx_types:clientinfo(), emqx_types:all(), emqx_topic:topic(),
-    emqx_permission_rule:acl_result()) -> {stop, allow} | {ok, deny}).
-authorize(#{username := Username, peerhost := IpAddress} = Client,
-        PubSub, Topic, _DefaultResult) ->
-    case do_authorize(Client, PubSub, Topic, [compile(Rule) || Rule <- lookup()]) of
+-spec(authorize(emqx_types:clientinfo(), emqx_types:all(), emqx_topic:topic(), emqx_permission_rule:acl_result(), rules())
+      -> {stop, allow} | {ok, deny}).
+authorize(#{username := Username,
+              peerhost := IpAddress
+             } = Client, PubSub, Topic, _DefaultResult, Rules) ->
+    case do_authorize(Client, PubSub, Topic, Rules) of
         {matched, allow} ->
             ?LOG(info, "Client succeeded authorization: Username: ~p, IP: ~p, Topic: ~p, Permission: allow", [Username, IpAddress, Topic]),
             emqx_metrics:inc(?AUTHZ_METRICS(allow)),
