@@ -41,6 +41,12 @@ export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
 export ERTS_LIB_DIR="$ERTS_DIR/../lib"
 MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
 
+die() {
+    echo >&2 "$1"
+    errno=${2:-1}
+    exit "$errno"
+}
+
 relx_usage() {
     command="$1"
 
@@ -200,8 +206,8 @@ relx_nodetool() {
 call_hocon() {
     export RUNNER_ROOT_DIR
     export REL_VSN
-    "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" hocon "$@"
-    return $?
+    "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" hocon "$@" \
+        || die "ERROR: call_hocon failed: $*" $?
 }
 
 # Run an escript in the node's environment
@@ -275,8 +281,7 @@ generate_config() {
 
     # shellcheck disable=SC2086
     if ! relx_nodetool chkconfig $CONFIG_ARGS; then
-        echoerr "Error reading $CONFIG_ARGS"
-        exit 1
+        die "Error reading $CONFIG_ARGS"
     fi
 }
 
@@ -366,8 +371,7 @@ if [ -z "$COOKIE" ]; then
 fi
 
 if [ -z "$COOKIE" ]; then
-    echoerr "Please set node.cookie in $RUNNER_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE_COOKIE"
-    exit 1
+    die "Please set node.cookie in $RUNNER_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE_COOKIE"
 fi
 
 # Support for IPv6 Dist. See: https://github.com/emqtt/emqttd/issues/1460
