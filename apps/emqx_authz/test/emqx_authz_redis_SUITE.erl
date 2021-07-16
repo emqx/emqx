@@ -31,31 +31,21 @@ groups() ->
 init_per_suite(Config) ->
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end ),
-    ok = emqx_ct_helpers:start_apps([emqx_authz], fun set_special_configs/1),
-    Config.
-
-end_per_suite(_Config) ->
-    file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
-    emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
-    meck:unload(emqx_resource).
-
-set_special_configs(emqx) ->
-    application:set_env(emqx, allow_anonymous, true),
-    application:set_env(emqx, enable_acl_cache, false),
-    application:set_env(emqx, acl_nomatch, deny),
-    application:set_env(emqx, plugins_loaded_file,
-                        emqx_ct_helpers:deps_path(emqx, "test/loaded_plguins")),
-    ok;
-set_special_configs(emqx_authz) ->
+    ok = emqx_ct_helpers:start_apps([emqx_authz]),
+    emqx_config:put_listener_conf(default, mqtt_tcp, [acl, cache, enable], false),
+    emqx_config:put_listener_conf(default, mqtt_tcp, [acl, enable], true),
     Rules = [#{config =>#{},
                principal => all,
                cmd => <<"fake">>,
                type => redis}
             ],
     emqx_config:put([emqx_authz], #{rules => Rules}),
-    ok;
-set_special_configs(_App) ->
-    ok.
+    Config.
+
+end_per_suite(_Config) ->
+    file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
+    emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
+    meck:unload(emqx_resource).
 
 -define(RULE1, [<<"test/%u">>, <<"publish">>]).
 -define(RULE2, [<<"test/%c">>, <<"publish">>]).

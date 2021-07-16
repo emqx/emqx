@@ -26,7 +26,7 @@
         , compile/1
         , lookup/0
         , update/1
-        , authorize/5
+        , authorize/4
         , match/4
         ]).
 
@@ -36,19 +36,16 @@ register_metrics() ->
 
 init() ->
     ok = register_metrics(),
-    Rules = emqx_config:get([emqx_authz, rules], []),
-    NRules = [compile(Rule) || Rule <- Rules],
-    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]},  -1).
+    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, []},  -1).
 
 lookup() ->
     emqx_config:get([emqx_authz, rules], []).
 
 update(Rules) ->
     emqx_config:put([emqx_authz], #{rules => Rules}),
-    NRules = [compile(Rule) || Rule <- Rules],
     Action = find_action_in_hooks(),
     ok = emqx_hooks:del('client.authorize', Action),
-    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]},  -1),
+    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, []},  -1),
     ok = emqx_acl_cache:empty_acl_cache().
 
 %%--------------------------------------------------------------------
@@ -147,12 +144,11 @@ b2l(B) when is_binary(B) -> binary_to_list(B).
 %%--------------------------------------------------------------------
 
 %% @doc Check AuthZ
--spec(authorize(emqx_types:clientinfo(), emqx_types:all(), emqx_topic:topic(), emqx_permission_rule:acl_result(), rules())
-      -> {stop, allow} | {ok, deny}).
-authorize(#{username := Username,
-              peerhost := IpAddress
-             } = Client, PubSub, Topic, _DefaultResult, Rules) ->
-    case do_authorize(Client, PubSub, Topic, Rules) of
+-spec(authorize(emqx_types:clientinfo(), emqx_types:all(), emqx_topic:topic(),
+    emqx_permission_rule:acl_result()) -> {stop, allow} | {ok, deny}).
+authorize(#{username := Username, peerhost := IpAddress} = Client,
+        PubSub, Topic, _DefaultResult) ->
+    case do_authorize(Client, PubSub, Topic, [compile(Rule) || Rule <- lookup()]) of
         {matched, allow} ->
             ?LOG(info, "Client succeeded authorization: Username: ~p, IP: ~p, Topic: ~p, Permission: allow", [Username, IpAddress, Topic]),
             emqx_metrics:inc(?AUTHZ_METRICS(allow)),
