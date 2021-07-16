@@ -56,28 +56,23 @@ lookup_authz(_Bindings, _Params) ->
     return({ok, emqx_authz:lookup()}).
 
 update_authz(_Bindings, Params) ->
-    Rules = get_rules(Params),
-    return(emqx_authz:update(Rules)).
+    Rules = form_rules(Params),
+    return(emqx_authz:update(replace, Rules)).
 
 append_authz(_Bindings, Params) ->
-    Rules = get_rules(Params),
-    NRules = lists:append(emqx_authz:lookup(), Rules),
-    return(emqx_authz:update(NRules)).
+    Rules = form_rules(Params),
+    return(emqx_authz:update(tail, Rules)).
 
 push_authz(_Bindings, Params) ->
-    Rules = get_rules(Params),
-    NRules = lists:append(Rules, emqx_authz:lookup()),
-    return(emqx_authz:update(NRules)).
+    Rules = form_rules(Params),
+    return(emqx_authz:update(head, Rules)).
 
 %%------------------------------------------------------------------------------
 %% Interval Funcs
 %%------------------------------------------------------------------------------
 
-get_rules(Params) ->
-    {ok, Conf} = hocon:binary(jsx:encode(#{<<"emqx_authz">> => Params}), #{format => richmap}),
-    CheckConf = hocon_schema:check(emqx_authz_schema, Conf, #{atom_key => true}),
-    #{emqx_authz := #{rules := Rules}} = hocon_schema:richmap_to_map(CheckConf),
-    Rules.
+form_rules(Params) ->
+    Params.
 
 %%--------------------------------------------------------------------
 %% EUnits

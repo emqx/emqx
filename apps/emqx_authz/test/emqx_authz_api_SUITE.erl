@@ -37,7 +37,7 @@
 all() ->
 %%    TODO: V5 API
 %%    emqx_ct:all(?MODULE).
-    [].
+    [t_api_unit_test].
 
 groups() ->
     [].
@@ -71,6 +71,23 @@ set_special_configs(_App) ->
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
+
+t_api_unit_test(_Config) ->
+    Rule1 = #{<<"principal">> =>
+                    #{<<"and">> => [#{<<"username">> => <<"^test?">>},
+                                    #{<<"clientid">> => <<"^test?">>}
+                                   ]},
+              <<"action">> => <<"subscribe">>,
+              <<"topics">> => [<<"%u">>],
+              <<"permission">> => <<"allow">>
+            },
+    ok = emqx_authz_api:push_authz(#{}, Rule1),
+    [#{action := subscribe,
+       permission := allow,
+       principal :=
+        #{'and' := [#{username := <<"^test?">>},
+                    #{clientid := <<"^test?">>}]},
+       topics := [<<"%u">>]}] = emqx_config:get([emqx_authz, rules]).
 
 t_api(_Config) ->
     Rule1 = #{<<"principal">> =>

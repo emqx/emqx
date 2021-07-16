@@ -26,12 +26,12 @@
         , init/0
         , init_rule/1
         , lookup/0
-        , update/1
+        , update/2
         , authorize/5
         , match/4
         ]).
 
--export([handle_update_config/2]).
+-export([post_update_config/2, handle_update_config/2]).
 
 -define(CONF_KEY_PATH, [emqx_authz, rules]).
 
@@ -48,17 +48,28 @@ init() ->
 lookup() ->
     emqx_config:get(?CONF_KEY_PATH, []).
 
-update(Rules) ->
-    emqx_config:update_config(?CONF_KEY_PATH, Rules).
+update(Cmd, Rules) ->
+    emqx_config:update_config(?CONF_KEY_PATH, {Cmd, Rules}).
 
 %% For now we only support re-creating the entire rule list
-handle_update_config(Rules, _OldConf) ->
-    InitedRules = [init_rule(Rule) || Rule <- Rules],
+handle_update_config({head, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
+    [Rule | OldConf];
+handle_update_config({tail, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
+    OldConf ++ [Rule];
+handle_update_config({_, NewConf}, _OldConf) ->
+    %% overwrite the entire config!
+    case is_list(NewConf) of
+        true -> NewConf;
+        false -> [NewConf]
+    end.
+
+post_update_config(NewRules, _OldConf) ->
+    %_ = [release_rules(Rule) || Rule <- OldConf],
+    InitedRules = [init_rule(Rule) || Rule <- NewRules],
     Action = find_action_in_hooks(),
     ok = emqx_hooks:del('client.authorize', Action),
     ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [InitedRules]}, -1),
-    ok = emqx_acl_cache:drain_cache(),
-    Rules.
+    ok = emqx_acl_cache:drain_cache().
 
 %%--------------------------------------------------------------------
 %% Internal functions

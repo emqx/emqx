@@ -45,9 +45,10 @@
 -define(CONF, ?MODULE).
 -define(RAW_CONF, {?MODULE, raw}).
 
--export_type([update_request/0, raw_config/0]).
+-export_type([update_request/0, raw_config/0, config/0]).
 -type update_request() :: term().
--type raw_config() :: hocon:config() | undefined.
+-type raw_config() :: #{binary() => term()} | undefined.
+-type config() :: #{atom() => term()} | undefined.
 
 -spec get() -> map().
 get() ->

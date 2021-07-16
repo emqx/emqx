@@ -35,13 +35,18 @@ init_per_suite(Config) ->
     ct:pal("---- emqx_hooks: ~p", [ets:tab2list(emqx_hooks)]),
     ok = emqx_config:update_config([zones, default, acl, cache, enable], false),
     ok = emqx_config:update_config([zones, default, acl, enable], true),
-    Rules = [#{config =>#{},
-               principal => all,
-               collection => <<"fake">>,
-               find => #{<<"a">> => <<"b">>},
-               type => mongo}
+    Rules = [#{ <<"config">> => #{
+                        <<"mongo_type">> => <<"single">>,
+                        <<"server">> => <<"127.0.0.1:27017">>,
+                        <<"pool_size">> => 1,
+                        <<"database">> => <<"mqtt">>,
+                        <<"ssl">> => #{<<"enable">> => false}},
+                <<"principal">> => <<"all">>,
+                <<"collection">> => <<"fake">>,
+                <<"find">> => #{<<"a">> => <<"b">>},
+                <<"type">> => <<"mongo">>}
             ],
-    emqx_authz:update(Rules),
+    ok = emqx_authz:update(replace, Rules),
     Config.
 
 end_per_suite(_Config) ->

@@ -45,10 +45,14 @@
 -type handler_name() :: module().
 -type handlers() :: #{emqx_config:config_key() => handlers(), ?MOD => handler_name()}.
 
--optional_callbacks([handle_update_config/2]).
+-optional_callbacks([ handle_update_config/2
+                    , post_update_config/2
+                    ]).
 
 -callback handle_update_config(emqx_config:update_request(), emqx_config:raw_config()) ->
     emqx_config:update_request().
+
+-callback post_update_config(emqx_config:config(), emqx_config:config()) -> any().
 
 -type state() :: #{
     handlers := handlers(),
@@ -83,11 +87,12 @@ handle_call({add_child, ConfKeyPath, HandlerName}, _From,
 
 handle_call({update_config, ConfKeyPath, UpdateReq, RawConf}, _From,
             #{handlers := Handlers} = State) ->
+    OldConf = emqx_config:get(),
     try {RootKeys, Conf} = do_update_config(ConfKeyPath, Handlers, RawConf, UpdateReq),
-        {reply, save_configs(RootKeys, Conf), State}
+        Result = save_configs(RootKeys, Conf),
+        do_post_update_config(ConfKeyPath, Handlers, OldConf, emqx_config:get()),
+        {reply, Result, State}
     catch
-        throw: Reason ->
-            {reply, {error, Reason}, State};
         Error : Reason : ST ->
             ?LOG(error, "update config failed: ~p", [{Error, Reason, ST}]),
             {reply, {error, Reason}, State}
@@ -109,26 +114,40 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-do_update_config([], Handlers, OldConf, UpdateReq) ->
-    call_handle_update_config(Handlers, OldConf, UpdateReq);
-do_update_config([ConfKey | ConfKeyPath], Handlers, OldConf, UpdateReq) ->
-    SubOldConf = get_sub_config(ConfKey, OldConf),
+do_update_config([], Handlers, OldRawConf, UpdateReq) ->
+    call_handle_update_config(Handlers, OldRawConf, UpdateReq);
+do_update_config([ConfKey | ConfKeyPath], Handlers, OldRawConf, UpdateReq) ->
+    SubOldRawConf = get_sub_config(bin(ConfKey), OldRawConf),
     SubHandlers = maps:get(ConfKey, Handlers, #{}),
-    NewUpdateReq = do_update_config(ConfKeyPath, SubHandlers, SubOldConf, UpdateReq),
-    call_handle_update_config(Handlers, OldConf, #{bin(ConfKey) => NewUpdateReq}).
+    NewUpdateReq = do_update_config(ConfKeyPath, SubHandlers, SubOldRawConf, UpdateReq),
+    call_handle_update_config(Handlers, OldRawConf, #{bin(ConfKey) => NewUpdateReq}).
 
-get_sub_config(_, undefined) ->
-    undefined;
-get_sub_config(ConfKey, OldConf) when is_map(OldConf) ->
-    maps:get(bin(ConfKey), OldConf, undefined);
-get_sub_config(_, OldConf) ->
-    OldConf.
+do_post_update_config([], Handlers, OldConf, NewConf) ->
+    call_post_update_config(Handlers, OldConf, NewConf);
+do_post_update_config([ConfKey | ConfKeyPath], Handlers, OldConf, NewConf) ->
+    SubOldConf = get_sub_config(ConfKey, OldConf),
+    SubNewConf = get_sub_config(ConfKey, NewConf),
+    SubHandlers = maps:get(ConfKey, Handlers, #{}),
+    _ = do_post_update_config(ConfKeyPath, SubHandlers, SubOldConf, SubNewConf),
+    call_post_update_config(Handlers, OldConf, NewConf).
 
-call_handle_update_config(Handlers, OldConf, UpdateReq) ->
+get_sub_config(ConfKey, Conf) when is_map(Conf) ->
+    maps:get(ConfKey, Conf, undefined);
+get_sub_config(_, _Conf) -> %% the Conf is a primitive
+    undefined.
+
+call_handle_update_config(Handlers, OldRawConf, UpdateReq) ->
     HandlerName = maps:get(?MOD, Handlers, undefined),
     case erlang:function_exported(HandlerName, handle_update_config, 2) of
-        true -> HandlerName:handle_update_config(UpdateReq, OldConf);
-        false -> merge_to_old_config(UpdateReq, OldConf)
+        true -> HandlerName:handle_update_config(UpdateReq, OldRawConf);
+        false -> merge_to_old_config(UpdateReq, OldRawConf)
+    end.
+
+call_post_update_config(Handlers, OldConf, NewConf) ->
+    HandlerName = maps:get(?MOD, Handlers, undefined),
+    case erlang:function_exported(HandlerName, post_update_config, 2) of
+        true -> _ = HandlerName:post_update_config(NewConf, OldConf);
+        false -> ok
     end.
 
 %% callbacks for the top-level handler

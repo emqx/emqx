@@ -34,12 +34,18 @@ init_per_suite(Config) ->
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
     ok = emqx_config:update_config([zones, default, acl, cache, enable], false),
     ok = emqx_config:update_config([zones, default, acl, enable], true),
-    Rules = [#{config =>#{},
-               principal => all,
-               sql => <<"fake">>,
-               type => pgsql}
-            ],
-    emqx_authz:update(Rules),
+    Rules = [#{ <<"config">> => #{
+                    <<"server">> => <<"127.0.0.1:27017">>,
+                    <<"pool_size">> => 1,
+                    <<"database">> => <<"mqtt">>,
+                    <<"username">> => <<"xx">>,
+                    <<"password">> => <<"ee">>,
+                    <<"auto_reconnect">> => true,
+                    <<"ssl">> => #{<<"enable">> => false}
+                },
+                <<"sql">> => <<"abcb">>,
+                <<"type">> => <<"pgsql">> }],
+    emqx_authz:update(replace, Rules),
     Config.
 
 end_per_suite(_Config) ->
