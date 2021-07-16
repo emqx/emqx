@@ -27,85 +27,83 @@
 api_spec() ->
     {
         [publish_api(), publish_batch_api()],
-        [request_message_schema(), mqtt_message_schema()]
+        [message_schema()]
     }.
 
 publish_api() ->
     MeteData = #{
         post => #{
             description => "publish",
-            parameters => [#{
-                name => message,
-                in => body,
-                required => true,
-                schema => minirest:ref(<<"request_message">>)
-            }],
+            'requestBody' => #{
+                content => #{
+                    'application/json' => #{
+                        schema => #{
+                            type => object,
+                            properties => maps:with([id], message_properties())}}}},
             responses => #{
-                <<"200">> => #{
-                    description => <<"publish ok">>,
-                    schema => minirest:ref(<<"message">>)}}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"publish ok">>, <<"message">>)}}},
     {"/publish", MeteData, publish}.
 
 publish_batch_api() ->
     MeteData = #{
         post => #{
             description => "publish",
-            parameters => [#{
-                name => message,
-                in => body,
-                required => true,
-                schema =>#{
-                    type => array,
-                    items => minirest:ref(<<"request_message">>)}
-            }],
+            'requestBody' => #{
+                content => #{
+                    'application/json' => #{
+                        schema => #{
+                            type => array,
+                            items => #{
+                                type => object,
+                                properties =>  maps:with([id], message_properties())}}}}},
             responses => #{
-                <<"200">> => #{
-                    description => <<"publish result">>,
-                    schema => #{
-                        type => array,
-                        items => minirest:ref(<<"message">>)}}}}},
+                <<"200">> => emqx_mgmt_util:response_array_schema(<<"publish ok">>, <<"message">>)}}},
     {"/publish_batch", MeteData, publish_batch}.
 
-request_message_schema() ->
-    {<<"request_message">>, maps:without([<<"id">>], message_def())}.
-
-mqtt_message_schema() ->
-    {<<"message">>, message_def()}.
-
-message_def() ->
+message_schema() ->
     #{
-        <<"id">> => #{
-            type => <<"string">>,
+        message => #{
+            type => object,
+            properties => message_properties()
+        }
+    }.
+
+message_properties() ->
+    #{
+        id => #{
+            type => string,
             description => <<"Message ID">>},
-        <<"topic">> => #{
-            type => <<"string">>,
+        topic => #{
+            type => string,
             description => <<"Topic">>},
-        <<"qos">> => #{
-            type => <<"integer">>,
+        qos => #{
+            type => integer,
             enum => [0, 1, 2],
             description => <<"Qos">>},
-        <<"payload">> => #{
-            type => <<"string">>,
+        payload => #{
+            type => string,
             description => <<"Topic">>},
-        <<"from">> => #{
-            type => <<"string">>,
+        from => #{
+            type => string,
             description => <<"Message from">>},
-        <<"flag">> => #{
+        flag => #{
             type => <<"object">>,
             description => <<"Message flag">>,
             properties => #{
-                <<"sys">> => #{
-                    type => <<"boolean">>,
+                sys => #{
+                    type => boolean,
                     default => false,
                     description => <<"System message flag, nullable, default false">>},
-                <<"dup">> => #{
-                    type => <<"boolean">>,
+                dup => #{
+                    type => boolean,
                     default => false,
                     description => <<"Dup message flag, nullable, default false">>},
-                <<"retain">> => #{
-                    type => <<"boolean">>,
+                retain => #{
+                    type => boolean,
                     default => false,
-                    description => <<"Retain message flag, nullable, default false">>}}}
+                    description => <<"Retain message flag, nullable, default false">>}
+            }
+        }
     }.
 
 publish(post, Request) ->

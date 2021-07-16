@@ -119,10 +119,9 @@
         },
         disk_cache => #{
             order => 8,
-            type => string,
+            type => boolean,
             required => false,
-            default => <<"off">>,
-            enum => [<<"on">>, <<"off">>],
+            default => false,
             title => #{en => <<"Disk Cache">>,
                        zh => <<"磁盘缓存"/utf8>>},
             description => #{en => <<"The flag which determines whether messages "
@@ -300,10 +299,9 @@
         },
         disk_cache => #{
             order => 6,
-            type => string,
+            type => boolean,
             required => false,
-            default => <<"off">>,
-            enum => [<<"on">>, <<"off">>],
+            default => false,
             title => #{en => <<"Disk Cache">>,
                        zh => <<"磁盘缓存"/utf8>>},
             description => #{en => <<"The flag which determines whether messages "
@@ -538,9 +536,9 @@ options(Options, PoolName, ResId) ->
     Address = Get(<<"address">>),
     [{max_inflight_batches, 32},
      {forward_mountpoint, str(Get(<<"mountpoint">>))},
-     {disk_cache, cuttlefish_flag:parse(str(GetD(<<"disk_cache">>, "off")))},
+     {disk_cache, GetD(<<"disk_cache">>, false)},
      {start_type, auto},
-     {reconnect_delay_ms, cuttlefish_duration:parse(str(Get(<<"reconnect_interval">>)), ms)},
+     {reconnect_delay_ms, hocon_postprocess:duration(str(Get(<<"reconnect_interval">>)))},
      {if_record_metrics, false},
      {pool_size, GetD(<<"pool_size">>, 1)},
      {pool_name, PoolName}
@@ -556,11 +554,11 @@ options(Options, PoolName, ResId) ->
                   {clientid, str(Get(<<"clientid">>))},
                   {append, Get(<<"append">>)},
                   {connect_module, emqx_bridge_mqtt},
-                  {keepalive, cuttlefish_duration:parse(str(Get(<<"keepalive">>)), s)},
+                  {keepalive, hocon_postprocess:duration(str(Get(<<"keepalive">>))) div 1000},
                   {username, str(Get(<<"username">>))},
                   {password, str(Get(<<"password">>))},
                   {proto_ver, mqtt_ver(Get(<<"proto_ver">>))},
-                  {retry_interval, cuttlefish_duration:parse(str(GetD(<<"retry_interval">>, "30s")), s)}
+                  {retry_interval, hocon_postprocess:duration(str(GetD(<<"retry_interval">>, "30s"))) div 1000}
                   | maybe_ssl(Options, Get(<<"ssl">>), ResId)]
          end.
 

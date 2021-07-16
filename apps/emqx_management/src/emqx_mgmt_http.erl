@@ -44,14 +44,16 @@ start_listener({Proto, Port, Options}) ->
     Authorization = {?MODULE, authorize_appid},
     RanchOptions = ranch_opts(Port, Options),
     GlobalSpec = #{
-        swagger => "2.0",
+        openapi => "3.0.0",
         info => #{title => "EMQ X API", version => "5.0.0"},
-        basePath => ?BASE_PATH,
-        securityDefinitions => #{
-            application => #{
-                type => apiKey,
-                name => "authorization",
-                in => header}}},
+        servers => [#{url => ?BASE_PATH}],
+        components => #{
+            schemas => #{},
+            securitySchemes => #{
+                application => #{
+                    type => apiKey,
+                    name => "authorization",
+                    in => header}}}},
     Minirest = #{
         protocol => Proto,
         base_path => ?BASE_PATH,
