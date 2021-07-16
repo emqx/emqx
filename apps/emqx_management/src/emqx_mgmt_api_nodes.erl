@@ -41,71 +41,71 @@ schemas() ->
     [node_schema()].
 
 node_schema() ->
-    DefinitionName = <<"node">>,
-    DefinitionProperties = #{
-        <<"node">> => #{
-            type => <<"string">>,
-            description => <<"Node name">>},
-        <<"connections">> => #{
-            type => <<"integer">>,
-            description => <<"Number of clients currently connected to this node">>},
-        <<"load1">> => #{
-            type => <<"string">>,
-            description => <<"CPU average load in 1 minute">>},
-        <<"load5">> => #{
-            type => <<"string">>,
-            description => <<"CPU average load in 5 minute">>},
-        <<"load15">> => #{
-            type => <<"string">>,
-            description => <<"CPU average load in 15 minute">>},
-        <<"max_fds">> => #{
-            type => <<"integer">>,
-            description => <<"Maximum file descriptor limit for the operating system">>},
-        <<"memory_total">> => #{
-            type => <<"string">>,
-            description => <<"VM allocated system memory">>},
-        <<"memory_used">> => #{
-            type => <<"string">>,
-            description => <<"VM occupied system memory">>},
-        <<"node_status">> => #{
-            type => <<"string">>,
-            description => <<"Node status">>},
-        <<"otp_release">> => #{
-            type => <<"string">>,
-            description => <<"Erlang/OTP version used by EMQ X Broker">>},
-        <<"process_available">> => #{
-            type => <<"integer">>,
-            description => <<"Number of available processes">>},
-        <<"process_used">> => #{
-            type => <<"integer">>,
-            description => <<"Number of used processes">>},
-        <<"uptime">> => #{
-            type => <<"string">>,
-            description => <<"EMQ X Broker runtime">>},
-        <<"version">> => #{
-            type => <<"string">>,
-            description => <<"EMQ X Broker version">>},
-        <<"sys_path">> => #{
-            type => <<"string">>,
-            description => <<"EMQ X system file location">>},
-        <<"log_path">> => #{
-            type => <<"string">>,
-            description => <<"EMQ X log file location">>},
-        <<"config_path">> => #{
-            type => <<"string">>,
-            description => <<"EMQ X config file location">>}
-    },
-    {DefinitionName, DefinitionProperties}.
+     #{
+        node => #{
+            type => object,
+            properties => #{
+                node => #{
+                    type => string,
+                    description => <<"Node name">>},
+                connections => #{
+                    type => integer,
+                    description => <<"Number of clients currently connected to this node">>},
+                load1 => #{
+                    type => string,
+                    description => <<"CPU average load in 1 minute">>},
+                load5 => #{
+                    type => string,
+                    description => <<"CPU average load in 5 minute">>},
+                load15 => #{
+                    type => string,
+                    description => <<"CPU average load in 15 minute">>},
+                max_fds => #{
+                    type => integer,
+                    description => <<"Maximum file descriptor limit for the operating system">>},
+                memory_total => #{
+                    type => string,
+                    description => <<"VM allocated system memory">>},
+                memory_used => #{
+                    type => string,
+                    description => <<"VM occupied system memory">>},
+                node_status => #{
+                    type => string,
+                    description => <<"Node status">>},
+                otp_release => #{
+                    type => string,
+                    description => <<"Erlang/OTP version used by EMQ X Broker">>},
+                process_available => #{
+                    type => integer,
+                    description => <<"Number of available processes">>},
+                process_used => #{
+                    type => integer,
+                    description => <<"Number of used processes">>},
+                uptime => #{
+                    type => string,
+                    description => <<"EMQ X Broker runtime">>},
+                version => #{
+                    type => string,
+                    description => <<"EMQ X Broker version">>},
+                sys_path => #{
+                    type => string,
+                    description => <<"EMQ X system file location">>},
+                log_path => #{
+                    type => string,
+                    description => <<"EMQ X log file location">>},
+                config_path => #{
+                    type => string,
+                    description => <<"EMQ X config file location">>}
+            }
+        }
+    }.
 
 nodes_api() ->
     Metadata = #{
         get => #{
             description => "List EMQ X nodes",
             responses => #{
-                <<"200">> => #{description => <<"List EMQ X Nodes">>,
-                    schema => #{
-                        type => array,
-                        items => cowboy_swagger:schema(<<"node">>)}}}}},
+                <<"200">> => emqx_mgmt_util:response_array_schema(<<"List EMQ X Nodes">>, <<"node">>)}}},
     {"/nodes", Metadata, nodes}.
 
 node_api() ->
@@ -116,15 +116,12 @@ node_api() ->
                 name => node_name,
                 in => path,
                 description => "node name",
-                type => string,
+                schema => #{type => string},
                 required => true,
-                default => node()}],
+                example => node()}],
             responses => #{
-                <<"400">> =>
-                emqx_mgmt_util:not_found_schema(<<"Node error">>, [<<"SOURCE_ERROR">>]),
-                <<"200">> => #{
-                    description => <<"Get EMQ X Nodes info by name">>,
-                    schema => cowboy_swagger:schema(<<"node">>)}}}},
+                <<"400">> => emqx_mgmt_util:not_found_schema(<<"Node error">>, [<<"SOURCE_ERROR">>]),
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Get EMQ X Nodes info by name">>, <<"node">>)}}},
     {"/nodes/:node_name", Metadata, node}.
 
 node_metrics_api() ->
@@ -135,15 +132,12 @@ node_metrics_api() ->
                 name => node_name,
                 in => path,
                 description => "node name",
-                type => string,
+                schema => #{type => string},
                 required => true,
-                default => node()}],
+                example => node()}],
             responses => #{
-                <<"400">> =>
-                emqx_mgmt_util:not_found_schema(<<"Node error">>, [<<"SOURCE_ERROR">>]),
-                <<"200">> => #{
-                    description => <<"Get EMQ X Node Metrics">>,
-                    schema => cowboy_swagger:schema(<<"metrics">>)}}}},
+                <<"400">> => emqx_mgmt_util:not_found_schema(<<"Node error">>, [<<"SOURCE_ERROR">>]),
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Get EMQ X Node Metrics">>, <<"metrics">>)}}},
     {"/nodes/:node_name/metrics", Metadata, node_metrics}.
 
 node_stats_api() ->
@@ -154,15 +148,12 @@ node_stats_api() ->
                 name => node_name,
                 in => path,
                 description => "node name",
-                type => string,
+                schema => #{type => string},
                 required => true,
-                default => node()}],
+                example => node()}],
             responses => #{
-                <<"400">> =>
-                emqx_mgmt_util:not_found_schema(<<"Node error">>, [<<"SOURCE_ERROR">>]),
-                <<"200">> => #{
-                    description => <<"Get EMQ X Node Stats">>,
-                    schema => cowboy_swagger:schema(<<"stats">>)}}}},
+                <<"400">> => emqx_mgmt_util:not_found_schema(<<"Node error">>, [<<"SOURCE_ERROR">>]),
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Get EMQ X Node Stats">>, <<"stats">>)}}},
     {"/nodes/:node_name/stats", Metadata, node_metrics}.
 
 %%%==============================================================================================

@@ -24,7 +24,12 @@
         , batch_operation/3
         ]).
 
--export([ not_found_schema/1
+-export([ request_body_schema/1
+        , request_body_array_schema/1
+        , response_schema/1
+        , response_schema/2
+        , response_array_schema/2
+        , not_found_schema/1
         , not_found_schema/2
         , batch_response_schema/1]).
 
@@ -84,24 +89,46 @@ urldecode(S) ->
 
 %%%==============================================================================================
 %% schema util
+
+request_body_array_schema(Schema) when is_map(Schema) ->
+    json_content_schema("", #{type => array, items => Schema});
+request_body_array_schema(Ref) when is_binary(Ref) ->
+    json_content_schema("", #{type => array, items => minirest:ref(Ref)}).
+
+request_body_schema(Schema) when is_map(Schema) ->
+    json_content_schema("", Schema);
+request_body_schema(Ref) when is_binary(Ref) ->
+    json_content_schema("", minirest:ref(Ref)).
+
+response_array_schema(Description, Schema) when is_map(Schema) ->
+    json_content_schema(Description, #{type => array, items => Schema});
+response_array_schema(Description, Ref) when is_binary(Ref) ->
+    json_content_schema(Description, #{type => array, items => minirest:ref(Ref)}).
+
+response_schema(Description) ->
+    json_content_schema(Description).
+
+response_schema(Description, Schema) when is_map(Schema) ->
+    json_content_schema(Description, Schema);
+response_schema(Description, Ref) when is_binary(Ref) ->
+    json_content_schema(Description, minirest:ref(Ref)).
+
 not_found_schema(Description) ->
     not_found_schema(Description, ["RESOURCE_NOT_FOUND"]).
 
 not_found_schema(Description, Enum) ->
-    #{
-        description => Description,
-        schema => #{
-            type => object,
-            properties => #{
-                code => #{
-                    type => string,
-                    enum => Enum},
-                reason => #{
-                    type => string}}}
-    }.
+    Schema = #{
+        type => object,
+        properties => #{
+            code => #{
+                type => string,
+                enum => Enum},
+            reason => #{
+                type => string}}},
+    json_content_schema(Description, Schema).
 
-batch_response_schema(DefName) ->
-    #{
+batch_response_schema(DefName) when is_binary(DefName) ->
+    Schema = #{
         type => object,
         properties => #{
             success => #{
@@ -119,13 +146,23 @@ batch_response_schema(DefName) ->
                     #{
                         data => minirest:ref(DefName),
                         reason => #{
-                            type => <<"string">>
-                        }
-                    }
-                }
-            }
-        }
-    }.
+                            type => <<"string">>}}}}}},
+    json_content_schema("", Schema).
+
+json_content_schema(Description, Schema) ->
+    Content =
+        #{content => #{
+            'application/json' => #{
+                schema => Schema}}},
+    case Description of
+        "" ->
+            Content;
+        _ ->
+            maps:merge(#{description => Description}, Content)
+    end.
+
+json_content_schema(Description) ->
+    #{description => Description}.
 
 %%%==============================================================================================
 batch_operation(Module, Function, ArgsList) ->
