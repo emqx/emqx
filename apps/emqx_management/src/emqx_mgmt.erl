@@ -175,7 +175,7 @@ broker_info(Node) ->
 %%--------------------------------------------------------------------
 
 get_metrics() ->
-    [{Node, get_metrics(Node)} || Node <- ekka_mnesia:running_nodes()].
+    nodes_info_count([get_metrics(Node) || Node <- ekka_mnesia:running_nodes()]).
 
 get_metrics(Node) when Node =:= node() ->
     emqx_metrics:all();
@@ -183,12 +183,43 @@ get_metrics(Node) ->
     rpc_call(Node, get_metrics, [Node]).
 
 get_stats() ->
-    [{Node, get_stats(Node)} || Node <- ekka_mnesia:running_nodes()].
+    GlobalStatsKeys =
+        [ 'retained.count'
+        , 'retained.max'
+        , 'routes.count'
+        , 'routes.max'
+        , 'subscriptions.shared.count'
+        , 'subscriptions.shared.max'
+        ],
+    CountStats = nodes_info_count([
+        begin
+            Stats = get_stats(Node),
+            delete_keys(Stats, GlobalStatsKeys)
+        end || Node <- ekka_mnesia:running_nodes()]),
+    GlobalStats = maps:with(GlobalStatsKeys, maps:from_list(get_stats(node()))),
+    maps:merge(CountStats, GlobalStats).
+
+delete_keys(List, []) ->
+    List;
+delete_keys(List, [Key | Keys]) ->
+    delete_keys(proplists:delete(Key, List), Keys).
 
 get_stats(Node) when Node =:= node() ->
     emqx_stats:getstats();
 get_stats(Node) ->
     rpc_call(Node, get_stats, [Node]).
+
+nodes_info_count(PropList) ->
+    NodeCount =
+        fun({Key, Value}, Result) ->
+            Count = maps:get(Key, Result, 0),
+            Result#{Key => Count + Value}
+        end,
+    AllCount =
+        fun(StatsMap, Result) ->
+            lists:foldl(NodeCount, Result, StatsMap)
+        end,
+    lists:foldl(AllCount, #{}, PropList).
 
 %%--------------------------------------------------------------------
 %% Clients
