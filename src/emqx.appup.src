@@ -2,7 +2,8 @@
 {VSN,
   [
    {"4.3.5", [
-     {load_module,emqx_cm,brutal_purge,soft_purge,[]}
+     {load_module,emqx_cm,brutal_purge,soft_purge,[]},
+     {load_module,emqx_app,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.4", [
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
@@ -61,7 +62,8 @@
    {<<".*">>,[]}],
   [
    {"4.3.5", [
-     {load_module,emqx_cm,brutal_purge,soft_purge,[]}
+     {load_module,emqx_cm,brutal_purge,soft_purge,[]},
+     {load_module,emqx_app,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.4", [
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
