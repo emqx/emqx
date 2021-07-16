@@ -71,144 +71,152 @@ apis() ->
     , subscribe_api()].
 
 schemas() ->
-    ClientDef = #{
-        <<"node">> => #{
-            type => <<"string">>,
-            description => <<"Name of the node to which the client is connected">>},
-        <<"clientid">> => #{
-            type => <<"string">>,
-            description => <<"Client identifier">>},
-        <<"username">> => #{
-            type => <<"string">>,
-            description => <<"User name of client when connecting">>},
-        <<"proto_name">> => #{
-            type => <<"string">>,
-            description => <<"Client protocol name">>},
-        <<"proto_ver">> => #{
-            type => <<"integer">>,
-            description => <<"Protocol version used by the client">>},
-        <<"ip_address">> => #{
-            type => <<"string">>,
-            description => <<"Client's IP address">>},
-        <<"is_bridge">> => #{
-            type => <<"boolean">>,
-            description => <<"Indicates whether the client is connectedvia bridge">>},
-        <<"connected_at">> => #{
-            type => <<"string">>,
-            description => <<"Client connection time">>},
-        <<"disconnected_at">> => #{
-            type => <<"string">>,
-            description => <<"Client offline time, This field is only valid and returned when connected is false">>},
-        <<"connected">> => #{
-            type => <<"boolean">>,
-            description => <<"Whether the client is connected">>},
-        <<"will_msg">> => #{
-            type => <<"string">>,
-            description => <<"Client will message">>},
-        <<"zone">> => #{
-            type => <<"string">>,
-            description => <<"Indicate the configuration group used by the client">>},
-        <<"keepalive">> => #{
-            type => <<"integer">>,
-            description => <<"keepalive time, with the unit of second">>},
-        <<"clean_start">> => #{
-            type => <<"boolean">>,
-            description => <<"Indicate whether the client is using a brand new session">>},
-        <<"expiry_interval">> => #{
-            type => <<"integer">>,
-            description => <<"Session expiration interval, with the unit of second">>},
-        <<"created_at">> => #{
-            type => <<"string">>,
-            description => <<"Session creation time">>},
-        <<"subscriptions_cnt">> => #{
-            type => <<"integer">>,
-            description => <<"Number of subscriptions established by this client.">>},
-        <<"subscriptions_max">> => #{
-            type => <<"integer">>,
-            description => <<"v4 api name [max_subscriptions] Maximum number of subscriptions allowed by this client">>},
-        <<"inflight_cnt">> => #{
-            type => <<"integer">>,
-            description => <<"Current length of inflight">>},
-        <<"inflight_max">> => #{
-            type => <<"integer">>,
-            description => <<"v4 api name [max_inflight]. Maximum length of inflight">>},
-        <<"mqueue_len">> => #{
-            type => <<"integer">>,
-            description => <<"Current length of message queue">>},
-        <<"mqueue_max">> => #{
-            type => <<"integer">>,
-            description => <<"v4 api name [max_mqueue]. Maximum length of message queue">>},
-        <<"mqueue_dropped">> => #{
-            type => <<"integer">>,
-            description => <<"Number of messages dropped by the message queue due to exceeding the length">>},
-        <<"awaiting_rel_cnt">> => #{
-            type => <<"integer">>,
-            description => <<"v4 api name [awaiting_rel] Number of awaiting PUBREC packet">>},
-        <<"awaiting_rel_max">> => #{
-            type => <<"integer">>,
-            description => <<"v4 api name [max_awaiting_rel]. Maximum allowed number of awaiting PUBREC packet">>},
-        <<"recv_oct">> => #{
-            type => <<"integer">>,
-            description => <<"Number of bytes received by EMQ X Broker (the same below)">>},
-        <<"recv_cnt">> => #{
-            type => <<"integer">>,
-            description => <<"Number of TCP packets received">>},
-        <<"recv_pkt">> => #{
-            type => <<"integer">>,
-            description => <<"Number of MQTT packets received">>},
-        <<"recv_msg">> => #{
-            type => <<"integer">>,
-            description => <<"Number of PUBLISH packets received">>},
-        <<"send_oct">> => #{
-            type => <<"integer">>,
-            description => <<"Number of bytes sent">>},
-        <<"send_cnt">> => #{
-            type => <<"integer">>,
-            description => <<"Number of TCP packets sent">>},
-        <<"send_pkt">> => #{
-            type => <<"integer">>,
-            description => <<"Number of MQTT packets sent">>},
-        <<"send_msg">> => #{
-            type => <<"integer">>,
-            description => <<"Number of PUBLISH packets sent">>},
-        <<"mailbox_len">> => #{
-            type => <<"integer">>,
-            description => <<"Process mailbox size">>},
-        <<"heap_size">> => #{
-            type => <<"integer">>,
-            description => <<"Process heap size with the unit of byte">>
-        },
-        <<"reductions">> => #{
-            type => <<"integer">>,
-            description => <<"Erlang reduction">>}},
-    ACLCacheDefinitionProperties = #{
-        <<"topic">> => #{
-            type => <<"string">>,
-            description => <<"Topic name">>},
-        <<"access">> => #{
-            type => <<"string">>,
-            enum => [<<"subscribe">>, <<"publish">>],
-            description => <<"Access type">>},
-        <<"result">> => #{
-            type => <<"string">>,
-            enum => [<<"allow">>, <<"deny">>],
-            default => <<"allow">>,
-            description => <<"Allow or deny">>},
-        <<"updated_time">> => #{
-            type => <<"integer">>,
-            description => <<"Update time">>}},
-    [{<<"client">>, ClientDef}, {<<"acl_cache">>, ACLCacheDefinitionProperties}].
+    Client = #{
+        client => #{
+            type => object,
+            properties => #{
+                node => #{
+                    type => string,
+                    description => <<"Name of the node to which the client is connected">>},
+                clientid => #{
+                    type => string,
+                    description => <<"Client identifier">>},
+                username => #{
+                    type => string,
+                    description => <<"User name of client when connecting">>},
+                proto_name => #{
+                    type => string,
+                    description => <<"Client protocol name">>},
+                proto_ver => #{
+                    type => integer,
+                    description => <<"Protocol version used by the client">>},
+                ip_address => #{
+                    type => string,
+                    description => <<"Client's IP address">>},
+                is_bridge => #{
+                    type => boolean,
+                    description => <<"Indicates whether the client is connectedvia bridge">>},
+                connected_at => #{
+                    type => string,
+                    description => <<"Client connection time">>},
+                disconnected_at => #{
+                    type => string,
+                    description => <<"Client offline time, This field is only valid and returned when connected is false">>},
+                connected => #{
+                    type => boolean,
+                    description => <<"Whether the client is connected">>},
+                will_msg => #{
+                    type => string,
+                    description => <<"Client will message">>},
+                zone => #{
+                    type => string,
+                    description => <<"Indicate the configuration group used by the client">>},
+                keepalive => #{
+                    type => integer,
+                    description => <<"keepalive time, with the unit of second">>},
+                clean_start => #{
+                    type => boolean,
+                    description => <<"Indicate whether the client is using a brand new session">>},
+                expiry_interval => #{
+                    type => integer,
+                    description => <<"Session expiration interval, with the unit of second">>},
+                created_at => #{
+                    type => string,
+                    description => <<"Session creation time">>},
+                subscriptions_cnt => #{
+                    type => integer,
+                    description => <<"Number of subscriptions established by this client.">>},
+                subscriptions_max => #{
+                    type => integer,
+                    description => <<"v4 api name [max_subscriptions] Maximum number of subscriptions allowed by this client">>},
+                inflight_cnt => #{
+                    type => integer,
+                    description => <<"Current length of inflight">>},
+                inflight_max => #{
+                    type => integer,
+                    description => <<"v4 api name [max_inflight]. Maximum length of inflight">>},
+                mqueue_len => #{
+                    type => integer,
+                    description => <<"Current length of message queue">>},
+                mqueue_max => #{
+                    type => integer,
+                    description => <<"v4 api name [max_mqueue]. Maximum length of message queue">>},
+                mqueue_dropped => #{
+                    type => integer,
+                    description => <<"Number of messages dropped by the message queue due to exceeding the length">>},
+                awaiting_rel_cnt => #{
+                    type => integer,
+                    description => <<"v4 api name [awaiting_rel] Number of awaiting PUBREC packet">>},
+                awaiting_rel_max => #{
+                    type => integer,
+                    description => <<"v4 api name [max_awaiting_rel]. Maximum allowed number of awaiting PUBREC packet">>},
+                recv_oct => #{
+                    type => integer,
+                    description => <<"Number of bytes received by EMQ X Broker (the same below)">>},
+                recv_cnt => #{
+                    type => integer,
+                    description => <<"Number of TCP packets received">>},
+                recv_pkt => #{
+                    type => integer,
+                    description => <<"Number of MQTT packets received">>},
+                recv_msg => #{
+                    type => integer,
+                    description => <<"Number of PUBLISH packets received">>},
+                send_oct => #{
+                    type => integer,
+                    description => <<"Number of bytes sent">>},
+                send_cnt => #{
+                    type => integer,
+                    description => <<"Number of TCP packets sent">>},
+                send_pkt => #{
+                    type => integer,
+                    description => <<"Number of MQTT packets sent">>},
+                send_msg => #{
+                    type => integer,
+                    description => <<"Number of PUBLISH packets sent">>},
+                mailbox_len => #{
+                    type => integer,
+                    description => <<"Process mailbox size">>},
+                heap_size => #{
+                    type => integer,
+                    description => <<"Process heap size with the unit of byte">>
+                },
+                reductions => #{
+                    type => integer,
+                    description => <<"Erlang reduction">>}
+            }
+        }
+       },
+    AclCache = #{
+        acl_cache => #{
+            type => object,
+            properties => #{
+                topic => #{
+                    type => string,
+                    description => <<"Topic name">>},
+                access => #{
+                    type => string,
+                    enum => [<<"subscribe">>, <<"publish">>],
+                    description => <<"Access type">>},
+                result => #{
+                    type => string,
+                    enum => [<<"allow">>, <<"deny">>],
+                    default => <<"allow">>,
+                    description => <<"Allow or deny">>},
+                updated_time => #{
+                    type => integer,
+                    description => <<"Update time">>}
+            }
+        }
+    },
+    [Client, AclCache].
 
 clients_api() ->
     Metadata = #{
         get => #{
             description => "List clients",
             responses => #{
-                <<"200">> => #{
-                    description => <<"List clients 200 OK">>,
-                    schema => #{
-                        type => array,
-                        items => minirest:ref(<<"client">>)}}}}},
+                <<"200">> => emqx_mgmt_util:response_array_schema(<<"List clients 200 OK">>, <<"client">>)}}},
     {"/clients", Metadata, clients}.
 
 client_api() ->
@@ -218,25 +226,23 @@ client_api() ->
             parameters => [#{
                 name => clientid,
                 in => path,
-                type => string,
+                schema => #{type => string},
                 required => true,
-                default => 123456}],
+                example => 123456}],
             responses => #{
                 <<"404">> => emqx_mgmt_util:not_found_schema(<<"Client id not found">>),
-                <<"200">> => #{
-                    description => <<"Get clients 200 OK">>,
-                    schema => minirest:ref(<<"client">>)}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"List clients 200 OK">>, <<"client">>)}},
         delete => #{
             description => "Kick out client by client ID",
             parameters => [#{
                 name => clientid,
                 in => path,
-                type => string,
+                schema => #{type => string},
                 required => true,
-                default => 123456}],
+                example => 123456}],
             responses => #{
                 <<"404">> => emqx_mgmt_util:not_found_schema(<<"Client id not found">>),
-                <<"200">> => #{description => <<"Kick out clients OK">>}}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"List clients 200 OK">>, <<"client">>)}}},
     {"/clients/:clientid", Metadata, client}.
 
 clients_acl_cache_api() ->
@@ -246,26 +252,23 @@ clients_acl_cache_api() ->
             parameters => [#{
                 name => clientid,
                 in => path,
-                type => string,
+                schema => #{type => string},
                 required => true,
-                default => 123456}],
+                example => 123456}],
             responses => #{
                 <<"404">> => emqx_mgmt_util:not_found_schema(<<"Client id not found">>),
-                <<"200">> => #{
-                    description => <<"List 200 OK">>,
-                    schema => minirest:ref(<<"acl_cache">>)}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"List clients 200 OK">>, <<"acl_cache">>)}},
         delete => #{
             description => "Clean client acl cache",
             parameters => [#{
                 name => clientid,
                 in => path,
-                type => string,
+                schema => #{type => string},
                 required => true,
-                default => 123456}],
+                example => 123456}],
             responses => #{
-                <<"404">> => emqx_mgmt_util:not_found_schema(<<"client id not found">>),
-                <<"200">> => #{
-                    description => <<"Clean acl cache 200 OK">>}}}},
+                <<"404">> => emqx_mgmt_util:not_found_schema(<<"Client id not found">>),
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Delete clients 200 OK">>)}}},
     {"/clients/:clientid/acl_cache", Metadata, acl_cache}.
 
 subscribe_api() ->
@@ -276,51 +279,47 @@ subscribe_api() ->
                 #{
                     name => clientid,
                     in => path,
-                    type => string,
+                    schema => #{type => string},
                     required => true,
-                    default => 123456
-                },
-                #{
-                    name => topic_data,
-                    in => body,
-                    schema => #{
-                        type => object,
-                        properties => #{
-                            <<"topic">> => #{
-                                type => <<"string">>,
-                                example => <<"topic_1">>,
-                                description => <<"Topic">>},
-                            <<"qos">> => #{
-                                type => <<"integer">>,
-                                enum => [0, 1, 2],
-                                example => 0,
-                                description => <<"QOS">>}}}
+                    example => 123456
                 }
             ],
+            'requestBody' => emqx_mgmt_util:request_body_schema(#{
+                type => object,
+                properties => #{
+                    <<"topic">> => #{
+                        type => string,
+                        example => <<"topic_1">>,
+                        description => <<"Topic">>},
+                    <<"qos">> => #{
+                        type => integer,
+                        enum => [0, 1, 2],
+                        example => 0,
+                        description => <<"QoS">>}}}),
             responses => #{
                 <<"404">> => emqx_mgmt_util:not_found_schema(<<"Client id not found">>),
-                <<"200">> => #{description => <<"subscribe ok">>}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"subscribe ok">>)}},
         delete => #{
             description => "unsubscribe",
             parameters => [
                 #{
                     name => clientid,
                     in => path,
-                    type => string,
+                    schema => #{type => string},
                     required => true,
-                    default => 123456
+                    example => 123456
                 },
                 #{
                     name => topic,
                     in => query,
-                    type => string,
+                    schema => #{type => string},
                     required => true,
-                    default => <<"topic_1">>
+                    example => <<"topic_1">>
                 }
             ],
             responses => #{
                 <<"404">> => emqx_mgmt_util:not_found_schema(<<"Client id not found">>),
-                <<"200">> => #{description => <<"unsubscribe ok">>}}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"unsubscribe ok">>)}}},
     {"/clients/:clientid/subscribe", Metadata, subscribe}.
 
 %%%==============================================================================================
