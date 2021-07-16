@@ -76,4 +76,3 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `ingress.mgmt.tls` | Ingress tls for EMQX Mgmt API |	[] |
 | `ingress.mgmt.annotations` | Ingress annotations for EMQX Mgmt API |	{} |
 | `emqxConfig` | Emqx configuration item, see the [documentation](https://hub.docker.com/r/emqx/emqx) | |
-| `emqxAclConfig` | Emqx acl configuration item, see the [documentation](https://docs.emqx.io/broker/latest/en/advanced/acl-file.html) | |
