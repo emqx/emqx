@@ -261,7 +261,6 @@ relx_apps(ReleaseType) ->
     , inets
     , compiler
     , runtime_tools
-    , cuttlefish
     , emqx
     , {mnesia, load}
     , {ekka, load}
