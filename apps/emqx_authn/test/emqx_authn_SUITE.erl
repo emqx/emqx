@@ -42,7 +42,7 @@ end_per_suite(_) ->
 set_special_configs(emqx_authn) ->
     application:set_env(emqx, plugins_etc_dir,
                         emqx_ct_helpers:deps_path(emqx_authn, "test")),
-    Conf = #{<<"emqx_authn">> => #{<<"authenticators">> => []}},
+    Conf = #{<<"emqx_authn">> => #{<<"authenticators">> => [], <<"enable">> => false}},
     ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_authn.conf'), jsx:encode(Conf)),
     ok;
 set_special_configs(_App) ->
