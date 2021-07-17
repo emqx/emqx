@@ -68,7 +68,8 @@
      | {error, any()}.
 authenticate(_Ctx = #{auth := ChainId}, ClientInfo0) ->
     ClientInfo = ClientInfo0#{
-                   zone => undefined,
+                   zone => default,
+                   listener => mqtt_tcp,
                    chain_id => ChainId
                   },
     case emqx_access_control:authenticate(ClientInfo) of
