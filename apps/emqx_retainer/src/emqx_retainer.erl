@@ -304,11 +304,11 @@ do_deliver([], _, _, _) ->
 require_semaphore(Semaphore, Id) ->
     Remained = ets:update_counter(?SHARED_CONTEXT_TAB,
                                   Semaphore,
-                                  {#shared_context.value, -1, 0, 0}),
+                                  {#shared_context.value, -1, -1, -1}),
     wait_semaphore(Remained, Id).
 
 -spec wait_semaphore(non_neg_integer(), pos_integer()) -> boolean().
-wait_semaphore(0, Id) ->
+wait_semaphore(X, Id) when X < 0 ->
     gen_server:call(?MODULE, {?FUNCTION_NAME, Id}, infinity);
 wait_semaphore(_, _) ->
     true.
