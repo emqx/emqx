@@ -31,6 +31,11 @@ groups() ->
 init_per_suite(Config) ->
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end ),
+
+    %% important! let emqx_schema include the current app!
+    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_schema, includes, fun() -> ["emqx_authz"] end ),
+
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
     ct:pal("---- emqx_hooks: ~p", [ets:tab2list(emqx_hooks)]),
     ok = emqx_config:update_config([zones, default, acl, cache, enable], false),
@@ -52,6 +57,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
     emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
+    meck:unload(emqx_schema),
     meck:unload(emqx_resource).
 
 -define(RULE1,[#{<<"topics">> => [<<"#">>],

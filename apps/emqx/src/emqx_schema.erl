@@ -61,8 +61,11 @@
 structs() -> ["cluster", "node", "rpc", "log", "lager",
               "zones", "listeners", "broker",
               "plugins", "sysmon", "alarm"]
-             ++ includes().
+             ++ ?MODULE:includes().
 
+-ifdef(TEST).
+includes() ->[].
+-else.
 includes() ->
     [ "emqx_data_bridge"
     , "emqx_telemetry"
@@ -75,6 +78,7 @@ includes() ->
     , "emqx_management"
     , "emqx_gateway"
     ].
+-endif.
 
 fields("cluster") ->
     [ {"name", t(atom(), "ekka.cluster_name", emqxcl)}

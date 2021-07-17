@@ -43,6 +43,10 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
+    %% important! let emqx_schema include the current app!
+    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_schema, includes, fun() -> ["emqx_authz"] end ),
+
     ok = emqx_ct_helpers:start_apps([emqx_authz, emqx_management], fun set_special_configs/1),
     create_default_app(),
     Config.
@@ -50,6 +54,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     delete_default_app(),
     file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
+    meck:unload(emqx_schema),
     emqx_ct_helpers:stop_apps([emqx_authz, emqx_management]).
 
 set_special_configs(emqx) ->
