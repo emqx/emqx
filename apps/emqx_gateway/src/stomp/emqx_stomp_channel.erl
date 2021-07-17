@@ -113,7 +113,8 @@ init(ConnInfo = #{peername := {PeerHost, _},
     Mountpoint = maps:get(mountpoint, Option, undefined),
     ClientInfo = setting_peercert_infos(
                    Peercert,
-                   #{ zone => undefined
+                   #{ zone => default
+                    , listener => mqtt_tcp
                     , protocol => stomp
                     , peerhost => PeerHost
                     , sockport => SockPort

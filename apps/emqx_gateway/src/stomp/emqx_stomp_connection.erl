@@ -245,7 +245,9 @@ init_state(Transport, Socket, Options) ->
                  peername => Peername,
                  sockname => Sockname,
                  peercert => Peercert,
-                 conn_mod => ?MODULE
+                 conn_mod => ?MODULE,
+                 zone => default,
+                 listener => mqtt_tcp
                 },
     ActiveN = emqx_gateway_utils:active_n(Options),
     %% TODO: RateLimit ? How ?
