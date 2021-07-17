@@ -15,141 +15,141 @@
 
 -module(emqx_authz_api_SUITE).
 
--compile(nowarn_export_all).
--compile(export_all).
+% -compile(nowarn_export_all).
+% -compile(export_all).
 
--include("emqx_authz.hrl").
--include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
+% -include("emqx_authz.hrl").
+% -include_lib("eunit/include/eunit.hrl").
+% -include_lib("common_test/include/ct.hrl").
 
--import(emqx_ct_http, [ request_api/3
-                      , request_api/5
-                      , get_http_data/1
-                      , create_default_app/0
-                      , delete_default_app/0
-                      , default_auth_header/0
-                      ]).
+% -import(emqx_ct_http, [ request_api/3
+%                       , request_api/5
+%                       , get_http_data/1
+%                       , create_default_app/0
+%                       , delete_default_app/0
+%                       , default_auth_header/0
+%                       ]).
 
--define(HOST, "http://127.0.0.1:8081/").
--define(API_VERSION, "v4").
--define(BASE_PATH, "api").
+% -define(HOST, "http://127.0.0.1:8081/").
+% -define(API_VERSION, "v4").
+% -define(BASE_PATH, "api").
 
-all() ->
-%%    TODO: V5 API
-%%    emqx_ct:all(?MODULE).
-    [t_api_unit_test].
+% all() ->
+% %%    TODO: V5 API
+% %%    emqx_ct:all(?MODULE).
+%     [t_api_unit_test].
 
-groups() ->
-    [].
+% groups() ->
+%     [].
 
-init_per_suite(Config) ->
-    %% important! let emqx_schema include the current app!
-    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_schema, includes, fun() -> ["emqx_authz"] end ),
+% init_per_suite(Config) ->
+%     %% important! let emqx_schema include the current app!
+%     meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
+%     meck:expect(emqx_schema, includes, fun() -> ["emqx_authz"] end ),
 
-    ok = emqx_ct_helpers:start_apps([emqx_authz, emqx_management], fun set_special_configs/1),
-    create_default_app(),
-    Config.
+%     ok = emqx_ct_helpers:start_apps([emqx_authz, emqx_management], fun set_special_configs/1),
+%     create_default_app(),
+%     Config.
 
-end_per_suite(_Config) ->
-    delete_default_app(),
-    file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
-    meck:unload(emqx_schema),
-    emqx_ct_helpers:stop_apps([emqx_authz, emqx_management]).
+% end_per_suite(_Config) ->
+%     delete_default_app(),
+%     file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
+%     meck:unload(emqx_schema),
+%     emqx_ct_helpers:stop_apps([emqx_authz, emqx_management]).
 
-set_special_configs(emqx) ->
-    application:set_env(emqx, allow_anonymous, true),
-    application:set_env(emqx, enable_acl_cache, false),
-    ok;
-set_special_configs(emqx_authz) ->
-    emqx_config:put([emqx_authz], #{rules => []}),
-    ok;
+% set_special_configs(emqx) ->
+%     application:set_env(emqx, allow_anonymous, true),
+%     application:set_env(emqx, enable_acl_cache, false),
+%     ok;
+% set_special_configs(emqx_authz) ->
+%     emqx_config:put([emqx_authz], #{rules => []}),
+%     ok;
 
-set_special_configs(emqx_management) ->
-    emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
-        applications =>[#{id => "admin", secret => "public"}]}),
-    ok;
+% set_special_configs(emqx_management) ->
+%     emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
+%         applications =>[#{id => "admin", secret => "public"}]}),
+%     ok;
 
-set_special_configs(_App) ->
-    ok.
+% set_special_configs(_App) ->
+%     ok.
 
-%%------------------------------------------------------------------------------
-%% Testcases
-%%------------------------------------------------------------------------------
+% %%------------------------------------------------------------------------------
+% %% Testcases
+% %%------------------------------------------------------------------------------
 
-t_api_unit_test(_Config) ->
-    Rule1 = #{<<"principal">> =>
-                    #{<<"and">> => [#{<<"username">> => <<"^test?">>},
-                                    #{<<"clientid">> => <<"^test?">>}
-                                   ]},
-              <<"action">> => <<"subscribe">>,
-              <<"topics">> => [<<"%u">>],
-              <<"permission">> => <<"allow">>
-            },
-    ok = emqx_authz_api:push_authz(#{}, Rule1),
-    [#{action := subscribe,
-       permission := allow,
-       principal :=
-        #{'and' := [#{username := <<"^test?">>},
-                    #{clientid := <<"^test?">>}]},
-       topics := [<<"%u">>]}] = emqx_config:get([emqx_authz, rules]).
+% t_api_unit_test(_Config) ->
+%     Rule1 = #{<<"principal">> =>
+%                     #{<<"and">> => [#{<<"username">> => <<"^test?">>},
+%                                     #{<<"clientid">> => <<"^test?">>}
+%                                    ]},
+%               <<"action">> => <<"subscribe">>,
+%               <<"topics">> => [<<"%u">>],
+%               <<"permission">> => <<"allow">>
+%             },
+%     ok = emqx_authz_api:push_authz(#{}, Rule1),
+%     [#{action := subscribe,
+%        permission := allow,
+%        principal :=
+%         #{'and' := [#{username := <<"^test?">>},
+%                     #{clientid := <<"^test?">>}]},
+%        topics := [<<"%u">>]}] = emqx_config:get([emqx_authz, rules]).
 
-t_api(_Config) ->
-    Rule1 = #{<<"principal">> =>
-                    #{<<"and">> => [#{<<"username">> => <<"^test?">>},
-                                    #{<<"clientid">> => <<"^test?">>}
-                                   ]},
-              <<"action">> => <<"subscribe">>,
-              <<"topics">> => [<<"%u">>],
-              <<"permission">> => <<"allow">>
-            },
-    {ok, _} = request_http_rest_add(["authz/push"], #{rules => [Rule1]}),
-    {ok, Result1} = request_http_rest_lookup(["authz"]),
-    ?assertMatch([Rule1 | _ ], get_http_data(Result1)),
+% t_api(_Config) ->
+%     Rule1 = #{<<"principal">> =>
+%                     #{<<"and">> => [#{<<"username">> => <<"^test?">>},
+%                                     #{<<"clientid">> => <<"^test?">>}
+%                                    ]},
+%               <<"action">> => <<"subscribe">>,
+%               <<"topics">> => [<<"%u">>],
+%               <<"permission">> => <<"allow">>
+%             },
+%     {ok, _} = request_http_rest_add(["authz/push"], #{rules => [Rule1]}),
+%     {ok, Result1} = request_http_rest_lookup(["authz"]),
+%     ?assertMatch([Rule1 | _ ], get_http_data(Result1)),
 
-    Rule2 = #{<<"principal">> => #{<<"ipaddress">> => <<"127.0.0.1">>},
-              <<"action">> => <<"publish">>,
-              <<"topics">> => [#{<<"eq">> => <<"#">>},
-                               #{<<"eq">> => <<"+">>}
-                              ],
-              <<"permission">> => <<"deny">>
-            },
-    {ok, _} = request_http_rest_add(["authz/append"], #{rules => [Rule2]}),
-    {ok, Result2} = request_http_rest_lookup(["authz"]),
-    ?assertEqual(Rule2#{<<"principal">> => #{<<"ipaddress">> => "127.0.0.1"}},
-                 lists:last(get_http_data(Result2))),
+%     Rule2 = #{<<"principal">> => #{<<"ipaddress">> => <<"127.0.0.1">>},
+%               <<"action">> => <<"publish">>,
+%               <<"topics">> => [#{<<"eq">> => <<"#">>},
+%                                #{<<"eq">> => <<"+">>}
+%                               ],
+%               <<"permission">> => <<"deny">>
+%             },
+%     {ok, _} = request_http_rest_add(["authz/append"], #{rules => [Rule2]}),
+%     {ok, Result2} = request_http_rest_lookup(["authz"]),
+%     ?assertEqual(Rule2#{<<"principal">> => #{<<"ipaddress">> => "127.0.0.1"}},
+%                  lists:last(get_http_data(Result2))),
 
-    {ok, _} = request_http_rest_update(["authz"], #{rules => []}),
-    {ok, Result3} = request_http_rest_lookup(["authz"]),
-    ?assertEqual([], get_http_data(Result3)),
-    ok.
+%     {ok, _} = request_http_rest_update(["authz"], #{rules => []}),
+%     {ok, Result3} = request_http_rest_lookup(["authz"]),
+%     ?assertEqual([], get_http_data(Result3)),
+%     ok.
 
-%%--------------------------------------------------------------------
-%% HTTP Request
-%%--------------------------------------------------------------------
+% %%--------------------------------------------------------------------
+% %% HTTP Request
+% %%--------------------------------------------------------------------
 
-request_http_rest_list(Path) ->
-    request_api(get, uri(Path), default_auth_header()).
+% request_http_rest_list(Path) ->
+%     request_api(get, uri(Path), default_auth_header()).
 
-request_http_rest_lookup(Path) ->
-    request_api(get, uri([Path]), default_auth_header()).
+% request_http_rest_lookup(Path) ->
+%     request_api(get, uri([Path]), default_auth_header()).
 
-request_http_rest_add(Path, Params) ->
-    request_api(post, uri(Path), [], default_auth_header(), Params).
+% request_http_rest_add(Path, Params) ->
+%     request_api(post, uri(Path), [], default_auth_header(), Params).
 
-request_http_rest_update(Path, Params) ->
-    request_api(put, uri([Path]), [], default_auth_header(), Params).
+% request_http_rest_update(Path, Params) ->
+%     request_api(put, uri([Path]), [], default_auth_header(), Params).
 
-request_http_rest_delete(Login) ->
-    request_api(delete, uri([Login]), default_auth_header()).
+% request_http_rest_delete(Login) ->
+%     request_api(delete, uri([Login]), default_auth_header()).
 
-uri() -> uri([]).
-uri(Parts) when is_list(Parts) ->
-    NParts = [b2l(E) || E <- Parts],
-    ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION | NParts]).
+% uri() -> uri([]).
+% uri(Parts) when is_list(Parts) ->
+%     NParts = [b2l(E) || E <- Parts],
+%     ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION | NParts]).
 
-%% @private
-b2l(B) when is_binary(B) ->
-    binary_to_list(B);
-b2l(L) when is_list(L) ->
-    L.
+% %% @private
+% b2l(B) when is_binary(B) ->
+%     binary_to_list(B);
+% b2l(L) when is_list(L) ->
+%     L.
