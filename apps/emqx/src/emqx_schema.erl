@@ -506,7 +506,7 @@ fields("alarm") ->
     ];
 
 fields(ExtraField) ->
-    Mod = list_to_atom(ExtraField++"_schema"),
+    Mod = to_atom(ExtraField++"_schema"),
     Mod:fields(ExtraField).
 
 mqtt_listener() ->
@@ -649,7 +649,7 @@ filter(Opts) ->
 %%  , {"server_name_indication", undefined, undefined)}
 %%  ...]
 ssl(Defaults) ->
-    D = fun (Field) -> maps:get(list_to_atom(Field), Defaults, undefined) end,
+    D = fun (Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     [ {"enable", t(boolean(), undefined, D("enable"))}
     , {"cacertfile", t(string(), undefined, D("cacertfile"))}
     , {"certfile", t(string(), undefined, D("certfile"))}
@@ -793,7 +793,7 @@ to_comma_separated_list(Str) ->
     {ok, string:tokens(Str, ", ")}.
 
 to_comma_separated_atoms(Str) ->
-    {ok, lists:map(fun list_to_atom/1, string:tokens(Str, ", "))}.
+    {ok, lists:map(fun to_atom/1, string:tokens(Str, ", "))}.
 
 to_bar_separated_list(Str) ->
     {ok, string:tokens(Str, "| ")}.
@@ -815,7 +815,7 @@ to_erl_cipher_suite(Str) ->
     end.
 
 options(static, Conf) ->
-    [{seeds, [list_to_atom(S) || S <- conf_get("cluster.static.seeds", Conf, [])]}];
+    [{seeds, [to_atom(S) || S <- conf_get("cluster.static.seeds", Conf, [])]}];
 options(mcast, Conf) ->
     {ok, Addr} = inet:parse_address(conf_get("cluster.mcast.addr", Conf)),
     {ok, Iface} = inet:parse_address(conf_get("cluster.mcast.iface", Conf)),
@@ -830,7 +830,7 @@ options(etcd, Conf) ->
     Namespace = "cluster.etcd.ssl",
     SslOpts = fun(C) ->
         Options = keys(Namespace, C),
-        lists:map(fun(Key) -> {list_to_atom(Key), conf_get([Namespace, Key], Conf)} end, Options) end,
+        lists:map(fun(Key) -> {to_atom(Key), conf_get([Namespace, Key], Conf)} end, Options) end,
     [{server, conf_get("cluster.etcd.server", Conf)},
      {prefix, conf_get("cluster.etcd.prefix", Conf, "emqxcl")},
      {node_ttl, conf_get("cluster.etcd.node_ttl", Conf, 60)},
@@ -844,3 +844,12 @@ options(k8s, Conf) ->
      {suffix, conf_get("cluster.k8s.suffix", Conf, "")}];
 options(manual, _Conf) ->
     [].
+
+to_atom(#{value := Val}= _RichMap) ->
+    to_atom(Val);
+to_atom(Atom) when is_atom(Atom) ->
+    Atom;
+to_atom(Str) when is_list(Str) ->
+    list_to_atom(Str);
+to_atom(Bin) when is_binary(Bin) ->
+    list_to_atom(binary_to_list(Bin)).
