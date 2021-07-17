@@ -50,7 +50,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     delete_default_app(),
-    emqx_ct_helpers:stop_apps([emqx_retainer]).
+    emqx_ct_helpers:stop_apps([emqx_management, emqx_retainer]).
 
 init_per_testcase(_, Config) ->
     Config.
