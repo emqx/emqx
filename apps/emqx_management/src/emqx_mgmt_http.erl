@@ -62,7 +62,8 @@ start_listener({Proto, Port, Options}) ->
         security => [#{application => []}],
         swagger_global_spec => GlobalSpec},
     MinirestOptions = maps:merge(Minirest, RanchOptions),
-    minirest:start(listener_name(Proto), MinirestOptions).
+    {ok, _} = minirest:start(listener_name(Proto), MinirestOptions),
+    io:format("Start ~p listener on ~p successfully.", [listener_name(Proto), Port]).
 
 apps() ->
     Apps = [App || {App, _, _} <- application:loaded_applications(),
