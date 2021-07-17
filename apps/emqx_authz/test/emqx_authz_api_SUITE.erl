@@ -15,8 +15,8 @@
 
 -module(emqx_authz_api_SUITE).
 
-% -compile(nowarn_export_all).
-% -compile(export_all).
+-compile(nowarn_export_all).
+-compile(export_all).
 
 % -include("emqx_authz.hrl").
 % -include_lib("eunit/include/eunit.hrl").
@@ -34,28 +34,28 @@
 % -define(API_VERSION, "v4").
 % -define(BASE_PATH, "api").
 
-% all() ->
-% %%    TODO: V5 API
-% %%    emqx_ct:all(?MODULE).
-%     [t_api_unit_test].
+all() ->
+%%    TODO: V5 API
+%%    emqx_ct:all(?MODULE).
+    [t_api_unit_test].
 
-% groups() ->
-%     [].
+groups() ->
+    [].
 
-% init_per_suite(Config) ->
-%     %% important! let emqx_schema include the current app!
-%     meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
-%     meck:expect(emqx_schema, includes, fun() -> ["emqx_authz"] end ),
+init_per_suite(Config) ->
+    %% important! let emqx_schema include the current app!
+    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_schema, includes, fun() -> ["emqx_authz"] end ),
 
-%     ok = emqx_ct_helpers:start_apps([emqx_authz, emqx_management], fun set_special_configs/1),
-%     create_default_app(),
-%     Config.
+    ok = emqx_ct_helpers:start_apps([emqx_authz]),
+    %create_default_app(),
+    Config.
 
-% end_per_suite(_Config) ->
-%     delete_default_app(),
-%     file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
-%     meck:unload(emqx_schema),
-%     emqx_ct_helpers:stop_apps([emqx_authz, emqx_management]).
+end_per_suite(_Config) ->
+    %delete_default_app(),
+    file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
+    meck:unload(emqx_schema),
+    emqx_ct_helpers:stop_apps([emqx_authz]).
 
 % set_special_configs(emqx) ->
 %     application:set_env(emqx, allow_anonymous, true),
@@ -77,22 +77,22 @@
 % %% Testcases
 % %%------------------------------------------------------------------------------
 
-% t_api_unit_test(_Config) ->
-%     Rule1 = #{<<"principal">> =>
-%                     #{<<"and">> => [#{<<"username">> => <<"^test?">>},
-%                                     #{<<"clientid">> => <<"^test?">>}
-%                                    ]},
-%               <<"action">> => <<"subscribe">>,
-%               <<"topics">> => [<<"%u">>],
-%               <<"permission">> => <<"allow">>
-%             },
-%     ok = emqx_authz_api:push_authz(#{}, Rule1),
-%     [#{action := subscribe,
-%        permission := allow,
-%        principal :=
-%         #{'and' := [#{username := <<"^test?">>},
-%                     #{clientid := <<"^test?">>}]},
-%        topics := [<<"%u">>]}] = emqx_config:get([emqx_authz, rules]).
+t_api_unit_test(_Config) ->
+    Rule1 = #{<<"principal">> =>
+                    #{<<"and">> => [#{<<"username">> => <<"^test?">>},
+                                    #{<<"clientid">> => <<"^test?">>}
+                                   ]},
+              <<"action">> => <<"subscribe">>,
+              <<"topics">> => [<<"%u">>],
+              <<"permission">> => <<"allow">>
+            },
+    ok = emqx_authz_api:push_authz(#{}, Rule1),
+    [#{action := subscribe,
+       permission := allow,
+       principal :=
+        #{'and' := [#{username := <<"^test?">>},
+                    #{clientid := <<"^test?">>}]},
+       topics := [<<"%u">>]}] = emqx_config:get([emqx_authz, rules]).
 
 % t_api(_Config) ->
 %     Rule1 = #{<<"principal">> =>

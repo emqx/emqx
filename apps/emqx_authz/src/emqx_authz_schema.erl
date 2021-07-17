@@ -2,16 +2,24 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--type action() :: publish | subscribe | all.
--type permission() :: allow | deny.
--type url() :: emqx_http_lib:uri_map().
-
 -reflect_type([ permission/0
               , action/0
               , url/0
               ]).
 
 -typerefl_from_string({url/0, emqx_http_lib, uri_parse}).
+
+-type action() :: publish | subscribe | all.
+-type permission() :: allow | deny.
+-type url() :: #{
+    scheme := http | https,
+    host := string(),
+    port := non_neg_integer(),
+    path => string(),
+    query => string(),
+    fragment => string(),
+    userinfo => string()
+}.
 
 -export([ structs/0
         , fields/1
@@ -51,9 +59,8 @@ fields(http_get) ->
                                end
                  }
       }
-    , {method,  #{type => get,
-                  default => get
-                 }}
+    , {method,  #{type => get, default => get }}
+    , {request_timeout,  #{type => timeout(), default => 30000 }}
     ]  ++ proplists:delete(base_url, emqx_connector_http:fields(config));
 fields(http_post) ->
     [ {url, #{type => url()}}
