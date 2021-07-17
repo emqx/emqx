@@ -112,7 +112,7 @@ dispatch(Context, Pid, Topic, Cursor) ->
     case Cursor =/= undefined orelse emqx_topic:wildcard(Topic) of
         false ->
             {ok, Result} = Mod:read_message(Context, Topic),
-            deliver(Result, Context, Pid, Topic, undefiend);
+            deliver(Result, Context, Pid, Topic, undefined);
         true  ->
             {ok, Result, NewCursor} =  Mod:match_messages(Context, Topic, Cursor),
             deliver(Result, Context, Pid, Topic, NewCursor)

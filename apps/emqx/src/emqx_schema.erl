@@ -314,7 +314,7 @@ fields("rate_limit_quota") ->
     ];
 
 fields("flapping_detect") ->
-    [ {"enable", t(boolean(), undefined, true)}
+    [ {"enable", t(boolean(), undefined, false)}
     , {"max_count", t(integer(), undefined, 15)}
     , {"window_time", t(duration(), undefined, "1m")}
     , {"ban_time", t(duration(), undefined, "5m")}
