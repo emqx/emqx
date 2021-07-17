@@ -63,6 +63,9 @@ handle_update_config({_, NewConf}, _OldConf) ->
         false -> [NewConf]
     end.
 
+post_update_config(undefined, _OldConf) ->
+    %_ = [release_rules(Rule) || Rule <- OldConf],
+    ok;
 post_update_config(NewRules, _OldConf) ->
     %_ = [release_rules(Rule) || Rule <- OldConf],
     InitedRules = [init_rule(Rule) || Rule <- NewRules],
