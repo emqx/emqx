@@ -112,6 +112,14 @@ init_rule(#{topics := Topics,
          };
 
 init_rule(#{principal := Principal,
+            type := http,
+            config := #{url := Url} = Config
+           } = Rule) ->
+    NConfig = maps:merge(Config, #{base_url => maps:remove(query, Url)}),
+    NRule = create_resource(Rule#{config := NConfig}),
+    NRule#{principal => compile_principal(Principal)};
+
+init_rule(#{principal := Principal,
             type := DB
          } = Rule) when DB =:= redis;
                         DB =:= mongo ->
@@ -173,8 +181,8 @@ b2l(B) when is_binary(B) -> binary_to_list(B).
 -spec(authorize(emqx_types:clientinfo(), emqx_types:all(), emqx_topic:topic(), emqx_permission_rule:acl_result(), rules())
       -> {stop, allow} | {ok, deny}).
 authorize(#{username := Username,
-              peerhost := IpAddress
-             } = Client, PubSub, Topic, _DefaultResult, Rules) ->
+            peerhost := IpAddress
+           } = Client, PubSub, Topic, _DefaultResult, Rules) ->
     case do_authorize(Client, PubSub, Topic, Rules) of
         {matched, allow} ->
             ?LOG(info, "Client succeeded authorization: Username: ~p, IP: ~p, Topic: ~p, Permission: allow", [Username, IpAddress, Topic]),

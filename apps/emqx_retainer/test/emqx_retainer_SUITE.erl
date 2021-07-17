@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(APP, emqx).
+-define(APP, emqx_retainer).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -39,27 +39,34 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_retainer]).
 
 init_per_testcase(TestCase, Config) ->
-    emqx_retainer:clean(<<"#">>),
+    emqx_retainer:clean(),
     Interval = case TestCase of
                    t_message_expiry_2 -> 2000;
                    _ -> 0
                end,
-    init_emqx_retainer_conf(Interval),
+    OldCfg = emqx_config:get([?APP]),
+    emqx_config:put([?APP], OldCfg#{msg_expiry_interval := Interval}),
     application:ensure_all_started(emqx_retainer),
     Config.
 
 set_special_configs(emqx_retainer) ->
-    init_emqx_retainer_conf(0);
+    init_emqx_retainer_conf();
 set_special_configs(_) ->
     ok.
 
-init_emqx_retainer_conf(Expiry) ->
-    emqx_config:put([emqx_retainer],
+init_emqx_retainer_conf() ->
+    emqx_config:put([?APP],
                     #{enable => true,
-                      storage_type => ram,
-                      max_retained_messages => 0,
-                      max_payload_size => 1024 * 1024,
-                      expiry_interval => Expiry}).
+                      msg_expiry_interval => 0,
+                      msg_clear_interval => 0,
+                      connector => [#{type => mnesia,
+                                      config =>
+                                          #{max_retained_messages => 0,
+                                            storage_type => ram}}],
+                      flow_control => #{max_read_number => 0,
+                                        msg_deliver_quota => 0,
+                                        quota_release_interval => 0},
+                      max_payload_size => 1024 * 1024}).
 
 %%--------------------------------------------------------------------
 %% Test Cases
@@ -177,8 +184,8 @@ t_clean(_) ->
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(3, length(receive_messages(3))),
 
-    1 = emqx_retainer:clean(<<"retained/test/0">>),
-    2 = emqx_retainer:clean(<<"retained/+">>),
+    ok = emqx_retainer:delete(<<"retained/test/0">>),
+    ok = emqx_retainer:delete(<<"retained/+">>),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(0, length(receive_messages(3))),
 
@@ -203,4 +210,3 @@ receive_messages(Count, Msgs) ->
     after 2000 ->
             Msgs
     end.
-
