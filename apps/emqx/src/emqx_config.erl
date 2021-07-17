@@ -20,8 +20,15 @@
 -export([ get/0
         , get/1
         , get/2
+        , find/1
         , put/1
         , put/2
+        ]).
+
+-export([ get_listener_conf/3
+        , get_listener_conf/4
+        , put_listener_conf/4
+        , find_listener_conf/3
         ]).
 
 -export([ update_config/2
@@ -35,43 +42,67 @@
         , put_raw/2
         ]).
 
--export([ deep_get/2
-        , deep_get/3
-        , deep_put/3
-        , safe_atom_key_map/1
-        , unsafe_atom_key_map/1
-        ]).
-
 -define(CONF, ?MODULE).
 -define(RAW_CONF, {?MODULE, raw}).
 
--export_type([update_request/0, raw_config/0, config_key/0, config_key_path/0]).
+-export_type([update_request/0, raw_config/0, config/0]).
 -type update_request() :: term().
--type raw_config() :: hocon:config() | undefined.
--type config_key() :: atom() | binary().
--type config_key_path() :: [config_key()].
+-type raw_config() :: #{binary() => term()} | undefined.
+-type config() :: #{atom() => term()} | undefined.
 
 -spec get() -> map().
 get() ->
     persistent_term:get(?CONF, #{}).
 
--spec get(config_key_path()) -> term().
+-spec get(emqx_map_lib:config_key_path()) -> term().
 get(KeyPath) ->
-    deep_get(KeyPath, get()).
+    emqx_map_lib:deep_get(KeyPath, get()).
 
--spec get(config_key_path(), term()) -> term().
+-spec get(emqx_map_lib:config_key_path(), term()) -> term().
 get(KeyPath, Default) ->
-    deep_get(KeyPath, get(), Default).
+    emqx_map_lib:deep_get(KeyPath, get(), Default).
+
+-spec find(emqx_map_lib:config_key_path()) ->
+    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+find(KeyPath) ->
+    emqx_map_lib:deep_find(KeyPath, get()).
+
+-spec get_listener_conf(atom(), atom(), emqx_map_lib:config_key_path()) -> term().
+get_listener_conf(Zone, Listener, KeyPath) ->
+    case find_listener_conf(Zone, Listener, KeyPath) of
+        {not_found, SubKeyPath, Data} -> error({not_found, SubKeyPath, Data});
+        {ok, Data} -> Data
+    end.
+
+-spec get_listener_conf(atom(), atom(), emqx_map_lib:config_key_path(), term()) -> term().
+get_listener_conf(Zone, Listener, KeyPath, Default) ->
+    case find_listener_conf(Zone, Listener, KeyPath) of
+        {not_found, _, _} -> Default;
+        {ok, Data} -> Data
+    end.
+
+-spec put_listener_conf(atom(), atom(), emqx_map_lib:config_key_path(), term()) -> ok.
+put_listener_conf(Zone, Listener, KeyPath, Conf) ->
+    ?MODULE:put([zones, Zone, listeners, Listener | KeyPath], Conf).
+
+-spec find_listener_conf(atom(), atom(), emqx_map_lib:config_key_path()) ->
+    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+find_listener_conf(Zone, Listener, KeyPath) ->
+    %% the configs in listener is prior to the ones in the zone
+    case find([zones, Zone, listeners, Listener | KeyPath]) of
+        {not_found, _, _} -> find([zones, Zone | KeyPath]);
+        {ok, Data} -> {ok, Data}
+    end.
 
 -spec put(map()) -> ok.
 put(Config) ->
     persistent_term:put(?CONF, Config).
 
--spec put(config_key_path(), term()) -> ok.
+-spec put(emqx_map_lib:config_key_path(), term()) -> ok.
 put(KeyPath, Config) ->
-    put(deep_put(KeyPath, get(), Config)).
+    put(emqx_map_lib:deep_put(KeyPath, get(), Config)).
 
--spec update_config(config_key_path(), update_request()) ->
+-spec update_config(emqx_map_lib:config_key_path(), update_request()) ->
     ok | {error, term()}.
 update_config(ConfKeyPath, UpdateReq) ->
     emqx_config_handler:update_config(ConfKeyPath, UpdateReq, get_raw()).
@@ -80,67 +111,18 @@ update_config(ConfKeyPath, UpdateReq) ->
 get_raw() ->
     persistent_term:get(?RAW_CONF, #{}).
 
--spec get_raw(config_key_path()) -> term().
+-spec get_raw(emqx_map_lib:config_key_path()) -> term().
 get_raw(KeyPath) ->
-    deep_get(KeyPath, get_raw()).
+    emqx_map_lib:deep_get(KeyPath, get_raw()).
 
--spec get_raw(config_key_path(), term()) -> term().
+-spec get_raw(emqx_map_lib:config_key_path(), term()) -> term().
 get_raw(KeyPath, Default) ->
-    deep_get(KeyPath, get_raw(), Default).
+    emqx_map_lib:deep_get(KeyPath, get_raw(), Default).
 
 -spec put_raw(map()) -> ok.
 put_raw(Config) ->
     persistent_term:put(?RAW_CONF, Config).
 
--spec put_raw(config_key_path(), term()) -> ok.
+-spec put_raw(emqx_map_lib:config_key_path(), term()) -> ok.
 put_raw(KeyPath, Config) ->
-    put_raw(deep_put(KeyPath, get_raw(), Config)).
-
-%%-----------------------------------------------------------------
--dialyzer([{nowarn_function, [deep_get/2]}]).
--spec deep_get(config_key_path(), map()) -> term().
-deep_get(ConfKeyPath, Map) ->
-    do_deep_get(ConfKeyPath, Map, fun(KeyPath, Data) ->
-        error({not_found, KeyPath, Data}) end).
-
--spec deep_get(config_key_path(), map(), term()) -> term().
-deep_get(ConfKeyPath, Map, Default) ->
-    do_deep_get(ConfKeyPath, Map, fun(_, _) -> Default end).
-
--spec deep_put(config_key_path(), map(), term()) -> map().
-deep_put([], Map, Config) when is_map(Map) ->
-    Config;
-deep_put([Key | KeyPath], Map, Config) ->
-    SubMap = deep_put(KeyPath, maps:get(Key, Map, #{}), Config),
-    Map#{Key => SubMap}.
-
-unsafe_atom_key_map(Map) ->
-    covert_keys_to_atom(Map, fun(K) -> binary_to_atom(K, utf8) end).
-
-safe_atom_key_map(Map) ->
-    covert_keys_to_atom(Map, fun(K) -> binary_to_existing_atom(K, utf8) end).
-
-%%---------------------------------------------------------------------------
-
--spec do_deep_get(config_key_path(), map(), fun((config_key(), term()) -> any())) -> term().
-do_deep_get([], Map, _) ->
-    Map;
-do_deep_get([Key | KeyPath], Map, OnNotFound) when is_map(Map) ->
-    case maps:find(Key, Map) of
-        {ok, SubMap} -> do_deep_get(KeyPath, SubMap, OnNotFound);
-        error -> OnNotFound(Key, Map)
-    end;
-do_deep_get([Key | _KeyPath], Data, OnNotFound) ->
-    OnNotFound(Key, Data).
-
-covert_keys_to_atom(BinKeyMap, Conv) when is_map(BinKeyMap) ->
-    maps:fold(
-        fun(K, V, Acc) when is_binary(K) ->
-              Acc#{Conv(K) => covert_keys_to_atom(V, Conv)};
-           (K, V, Acc) when is_atom(K) ->
-              %% richmap keys
-              Acc#{K => covert_keys_to_atom(V, Conv)}
-        end, #{}, BinKeyMap);
-covert_keys_to_atom(ListV, Conv) when is_list(ListV) ->
-    [covert_keys_to_atom(V, Conv) || V <- ListV];
-covert_keys_to_atom(Val, _) -> Val.
+    put_raw(emqx_map_lib:deep_put(KeyPath, get_raw(), Config)).

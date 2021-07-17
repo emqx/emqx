@@ -27,6 +27,7 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([]),
+    ct:pal("------------config: ~p", [emqx_config:get()]),
     Config.
 
 end_per_suite(_Config) ->

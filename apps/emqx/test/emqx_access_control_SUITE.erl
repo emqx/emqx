@@ -39,25 +39,14 @@ t_authorize(_) ->
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
     ?assertEqual(allow, emqx_access_control:authorize(clientinfo(), Publish, <<"t">>)).
 
-t_bypass_auth_plugins(_) ->
-    ClientInfo = clientinfo(),
-    emqx_zone:set_env(bypass_zone, bypass_auth_plugins, true),
-    emqx:hook('client.authenticate',{?MODULE, auth_fun, []}),
-    ?assertMatch(ok, emqx_access_control:authenticate(ClientInfo#{zone => bypass_zone})),
-    ?assertMatch({error, bad_username_or_password}, emqx_access_control:authenticate(ClientInfo)).
-
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
 
-auth_fun(#{zone := bypass_zone}, _) ->
-             {stop, ok};
-auth_fun(#{zone := _}, _) ->
-             {stop, {error, bad_username_or_password}}.
-
 clientinfo() -> clientinfo(#{}).
 clientinfo(InitProps) ->
-    maps:merge(#{zone       => zone,
+    maps:merge(#{zone       => default,
+                 listener   => mqtt_tcp,
                  protocol   => mqtt,
                  peerhost   => {127,0,0,1},
                  clientid   => <<"clientid">>,
@@ -67,3 +56,6 @@ clientinfo(InitProps) ->
                  peercert   => undefined,
                  mountpoint => undefined
                 }, InitProps).
+
+toggle_auth(Bool) when is_boolean(Bool) ->
+    emqx_config:put_listener_conf(default, mqtt_tcp, [auth, enable], Bool).

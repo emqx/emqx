@@ -21,7 +21,6 @@
 
 %% APIs
 -export([ start/0
-        , ensure_all_started/0
         , restart/0
         , stop/0
         ]).
@@ -29,90 +28,29 @@
 -export([ start_listener/1
         , start_listener/3
         , stop_listener/1
+        , stop_listener/3
         , restart_listener/1
         , restart_listener/3
         ]).
 
--export([ find_id_by_listen_on/1
-        , find_by_listen_on/1
-        , find_by_id/1
-        , identifier/1
-        , format_listen_on/1
-        ]).
-
--type(listener() :: #{ name := binary()
-                     , proto := esockd:proto()
-                     , listen_on := esockd:listen_on()
-                     , opts := [esockd:option()]
-                     }).
-
-%% @doc Find listener identifier by listen-on.
-%% Return empty string (binary) if listener is not found in config.
--spec(find_id_by_listen_on(esockd:listen_on()) -> binary() | false).
-find_id_by_listen_on(ListenOn) ->
-    case find_by_listen_on(ListenOn) of
-        false -> false;
-        L -> identifier(L)
-    end.
-
-%% @doc Find listener by listen-on.
-%% Return 'false' if not found.
--spec(find_by_listen_on(esockd:listen_on()) -> listener() | false).
-find_by_listen_on(ListenOn) ->
-    find_by_listen_on(ListenOn, emqx:get_env(listeners, [])).
-
-%% @doc Find listener by identifier.
-%% Return 'false' if not found.
--spec(find_by_id(string() | binary()) -> listener() | false).
-find_by_id(Id) ->
-    find_by_id(iolist_to_binary(Id), emqx:get_env(listeners, [])).
-
-%% @doc Return the ID of the given listener.
--spec identifier(listener()) -> binary().
-identifier(#{proto := Proto, name := Name}) ->
-    identifier(Proto, Name).
-
 %% @doc Start all listeners.
 -spec(start() -> ok).
 start() ->
-    lists:foreach(fun start_listener/1, emqx:get_env(listeners, [])).
+    foreach_listeners(fun start_listener/3).
 
-%% @doc Ensure all configured listeners are started.
-%% Raise exception if any of them failed to start.
--spec(ensure_all_started() -> ok).
-ensure_all_started() ->
-    ensure_all_started(emqx:get_env(listeners, []), []).
+-spec start_listener(atom()) -> ok | {error, term()}.
+start_listener(ListenerId) ->
+    apply_on_listener(ListenerId, fun start_listener/3).
 
-ensure_all_started([], []) -> ok;
-ensure_all_started([], Failed) -> error(Failed);
-ensure_all_started([L | Rest], Results) ->
-    #{proto := Proto, listen_on := ListenOn, opts := Options} = L,
-    NewResults =
-        case start_listener(Proto, ListenOn, Options) of
-            {ok, _Pid} ->
-                Results;
-            {error, {already_started, _Pid}} ->
-                Results;
-            {error, Reason} ->
-                [{identifier(L), Reason} | Results]
-        end,
-    ensure_all_started(Rest, NewResults).
-
-%% @doc Format address:port for logging.
--spec(format_listen_on(esockd:listen_on()) -> [char()]).
-format_listen_on(ListenOn) -> format(ListenOn).
-
--spec(start_listener(listener()) -> ok).
-start_listener(#{proto := Proto, name := Name, listen_on := ListenOn, opts := Options}) ->
-    ID = identifier(Proto, Name),
-    case start_listener(Proto, ListenOn, Options) of
-        {ok, skipped} ->
-            console_print("Start ~s listener on ~s skpped.~n", [ID, format(ListenOn)]);
+-spec start_listener(atom(), atom(), map()) -> ok | {error, term()}.
+start_listener(ZoneName, ListenerName, #{type := Type, bind := Bind} = Conf) ->
+    case do_start_listener(ZoneName, ListenerName, Conf) of
         {ok, _} ->
-            console_print("Start ~s listener on ~s successfully.~n", [ID, format(ListenOn)]);
+            console_print("Start ~s listener ~s on ~s successfully.~n",
+                [Type, listener_id(ZoneName, ListenerName), format(Bind)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to start mqtt listener ~s on ~s: ~0p~n",
-                      [ID, format(ListenOn), Reason]),
+            io:format(standard_error, "Failed to start ~s listener ~s on ~s: ~0p~n",
+                      [Type, listener_id(ZoneName, ListenerName), format(Bind), Reason]),
             error(Reason)
     end.
 
@@ -124,154 +62,128 @@ console_print(_Fmt, _Args) -> ok.
 -endif.
 
 %% Start MQTT/TCP listener
--spec(start_listener(esockd:proto(), esockd:listen_on(), [esockd:option()])
-      -> {ok, pid() | skipped} | {error, term()}).
-start_listener(tcp, ListenOn, Options) ->
-    start_mqtt_listener('mqtt:tcp', ListenOn, Options);
-
-%% Start MQTT/TLS listener
-start_listener(Proto, ListenOn, Options) when Proto == ssl; Proto == tls ->
-    start_mqtt_listener('mqtt:ssl', ListenOn, Options);
+-spec(do_start_listener(atom(), atom(), map())
+      -> {ok, pid()} | {error, term()}).
+do_start_listener(ZoneName, ListenerName, #{type := tcp, bind := ListenOn} = Opts) ->
+    esockd:open(listener_id(ZoneName, ListenerName), ListenOn, merge_default(esockd_opts(Opts)),
+                {emqx_connection, start_link,
+                    [#{zone => ZoneName, listener => ListenerName}]});
 
 %% Start MQTT/WS listener
-start_listener(Proto, ListenOn, Options) when Proto == http; Proto == ws ->
-    start_http_listener(fun cowboy:start_clear/3, 'mqtt:ws', ListenOn,
-                        ranch_opts(Options), ws_opts(Options));
-
-%% Start MQTT/WSS listener
-start_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
-    start_http_listener(fun cowboy:start_tls/3, 'mqtt:wss', ListenOn,
-                        ranch_opts(Options), ws_opts(Options));
+do_start_listener(ZoneName, ListenerName, #{type := ws, bind := ListenOn} = Opts) ->
+    Id = listener_id(ZoneName, ListenerName),
+    RanchOpts = ranch_opts(ListenOn, Opts),
+    WsOpts = ws_opts(ZoneName, ListenerName, Opts),
+    case is_ssl(Opts) of
+        false ->
+            cowboy:start_clear(Id, RanchOpts, WsOpts);
+        true ->
+            cowboy:start_tls(Id, RanchOpts, WsOpts)
+    end;
 
 %% Start MQTT/QUIC listener
-start_listener(quic, ListenOn, Options) ->
-    case [ A || {quicer, _, _} = A<-application:which_applications() ] of
-        [_] ->
-            %% @fixme unsure why we need reopen lib and reopen config.
-            quicer_nif:open_lib(),
-            quicer_nif:reg_open(),
-            SSLOpts = proplists:get_value(ssl_options, Options),
-            DefAcceptors = erlang:system_info(schedulers_online) * 8,
-            ListenOpts = [ {cert, proplists:get_value(certfile, SSLOpts)}
-                         , {key, proplists:get_value(keyfile, SSLOpts)}
-                         , {alpn, ["mqtt"]}
-                         , {conn_acceptors, proplists:get_value(acceptors, Options, DefAcceptors)}
-                         , {idle_timeout_ms, proplists:get_value(idle_timeout, Options, 60000)}
-                         ],
-            ConnectionOpts = [ {conn_callback, emqx_quic_connection}
-                             , {peer_unidi_stream_count, 1}
-                             , {peer_bidi_stream_count, 10}
-                             | Options
-                             ],
-            StreamOpts = [],
-            quicer:start_listener('mqtt:quic', ListenOn, {ListenOpts, ConnectionOpts, StreamOpts});
-        [] ->
-            io:format(standard_error, "INFO: quicer application is unavailable/disabled~n",
-                      []),
-            {ok, skipped}
-    end.
+do_start_listener(ZoneName, ListenerName, #{type := quic, bind := ListenOn} = Opts) ->
+    %% @fixme unsure why we need reopen lib and reopen config.
+    quicer_nif:open_lib(),
+    quicer_nif:reg_open(),
+    DefAcceptors = erlang:system_info(schedulers_online) * 8,
+    ListenOpts = [ {cert, maps:get(certfile, Opts)}
+                 , {key, maps:get(keyfile, Opts)}
+                 , {alpn, ["mqtt"]}
+                 , {conn_acceptors, maps:get(acceptors, Opts, DefAcceptors)}
+                 , {idle_timeout_ms, emqx_config:get_listener_conf(ZoneName, ListenerName,
+                                        [mqtt, idle_timeout])}
+                 ],
+    ConnectionOpts = #{conn_callback => emqx_quic_connection
+                     , peer_unidi_stream_count => 1
+                     , peer_bidi_stream_count => 10
+                     , zone => ZoneName
+                     , listener => ListenerName
+                     },
+    StreamOpts = [],
+    quicer:start_listener(listener_id(ZoneName, ListenerName),
+        port(ListenOn), {ListenOpts, ConnectionOpts, StreamOpts}).
 
-replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].
+esockd_opts(Opts0) ->
+    Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
+    Opts2 = case emqx_map_lib:deep_get([rate_limit, max_conn_rate], Opts0) of
+        infinity -> Opts1;
+        Rate -> Opts1#{max_conn_rate => Rate}
+    end,
+    Opts3 = Opts2#{access_rules => esockd_access_rules(maps:get(access_rules, Opts0, []))},
+    maps:to_list(case is_ssl(Opts0) of
+        false ->
+            Opts3#{tcp_options => tcp_opts(Opts0)};
+        true ->
+            Opts3#{ssl_options => ssl_opts(Opts0), tcp_options => tcp_opts(Opts0)}
+    end).
 
-drop_tls13_for_old_otp(Options) ->
-    case proplists:get_value(ssl_options, Options) of
-        undefined -> Options;
-        SslOpts ->
-            SslOpts1 = emqx_tls_lib:drop_tls13_for_old_otp(SslOpts),
-            replace(Options, ssl_options, SslOpts1)
-    end.
-
-start_mqtt_listener(Name, ListenOn, Options0) ->
-    Options = drop_tls13_for_old_otp(Options0),
-    SockOpts = esockd:parse_opt(Options),
-    esockd:open(Name, ListenOn, merge_default(SockOpts),
-                {emqx_connection, start_link, [Options -- SockOpts]}).
-
-start_http_listener(Start, Name, ListenOn, RanchOpts, ProtoOpts) ->
-    Start(ws_name(Name, ListenOn), with_port(ListenOn, RanchOpts), ProtoOpts).
-
-mqtt_path(Options) ->
-    proplists:get_value(mqtt_path, Options, "/mqtt").
-
-ws_opts(Options) ->
-    WsPaths = [{mqtt_path(Options), emqx_ws_connection, Options}],
+ws_opts(ZoneName, ListenerName, Opts) ->
+    WsPaths = [{maps:get(mqtt_path, Opts, "/mqtt"), emqx_ws_connection,
+        #{zone => ZoneName, listener => ListenerName}}],
     Dispatch = cowboy_router:compile([{'_', WsPaths}]),
-    ProxyProto = proplists:get_value(proxy_protocol, Options, false),
+    ProxyProto = maps:get(proxy_protocol, Opts, false),
     #{env => #{dispatch => Dispatch}, proxy_header => ProxyProto}.
 
-ranch_opts(Options0) ->
-    Options = drop_tls13_for_old_otp(Options0),
-    NumAcceptors = proplists:get_value(acceptors, Options, 4),
-    MaxConnections = proplists:get_value(max_connections, Options, 1024),
-    TcpOptions = proplists:get_value(tcp_options, Options, []),
-    RanchOpts = #{num_acceptors => NumAcceptors,
-                  max_connections => MaxConnections,
-                  socket_opts => TcpOptions},
-    case proplists:get_value(ssl_options, Options) of
-        undefined  -> RanchOpts;
-        SslOptions -> RanchOpts#{socket_opts => TcpOptions ++ SslOptions}
-    end.
+ranch_opts(ListenOn, Opts) ->
+    NumAcceptors = maps:get(acceptors, Opts, 4),
+    MaxConnections = maps:get(max_connections, Opts, 1024),
+    SocketOpts = case is_ssl(Opts) of
+        true -> tcp_opts(Opts) ++ proplists:delete(handshake_timeout, ssl_opts(Opts));
+        false -> tcp_opts(Opts)
+    end,
+    #{num_acceptors => NumAcceptors,
+      max_connections => MaxConnections,
+      handshake_timeout => maps:get(handshake_timeout, Opts, 15000),
+      socket_opts => ip_port(ListenOn) ++ SocketOpts}.
 
-with_port(Port, Opts = #{socket_opts := SocketOption}) when is_integer(Port) ->
-    Opts#{socket_opts => [{port, Port}| SocketOption]};
-with_port({Addr, Port}, Opts = #{socket_opts := SocketOption}) ->
-    Opts#{socket_opts => [{ip, Addr}, {port, Port}| SocketOption]}.
+ip_port(Port) when is_integer(Port) ->
+    [{port, Port}];
+ip_port({Addr, Port}) ->
+    [{ip, Addr}, {port, Port}].
+
+port(Port) when is_integer(Port) -> Port;
+port({_Addr, Port}) when is_integer(Port) -> Port.
+
+esockd_access_rules(StrRules) ->
+    Access = fun(S) ->
+        [A, CIDR] = string:tokens(S, " "),
+        {list_to_atom(A), case CIDR of "all" -> all; _ -> CIDR end}
+    end,
+    [Access(R) || R <- StrRules].
 
 %% @doc Restart all listeners
 -spec(restart() -> ok).
 restart() ->
-    lists:foreach(fun restart_listener/1, emqx:get_env(listeners, [])).
+    foreach_listeners(fun restart_listener/3).
 
--spec(restart_listener(listener() | string() | binary()) -> ok | {error, any()}).
-restart_listener(#{proto := Proto, listen_on := ListenOn, opts := Options}) ->
-    restart_listener(Proto, ListenOn, Options);
-restart_listener(Identifier) ->
-    case emqx_listeners:find_by_id(Identifier) of
-        false    -> {error, {no_such_listener, Identifier}};
-        Listener -> restart_listener(Listener)
+-spec(restart_listener(atom()) -> ok | {error, term()}).
+restart_listener(ListenerId) ->
+    apply_on_listener(ListenerId, fun restart_listener/3).
+
+-spec(restart_listener(atom(), atom(), map()) -> ok | {error, term()}).
+restart_listener(ZoneName, ListenerName, Conf) ->
+    case stop_listener(ZoneName, ListenerName, Conf) of
+        ok -> start_listener(ZoneName, ListenerName, Conf);
+        Error -> Error
     end.
-
--spec(restart_listener(esockd:proto(), esockd:listen_on(), [esockd:option()]) ->
-    ok | {error, any()}).
-restart_listener(tcp, ListenOn, _Options) ->
-    esockd:reopen('mqtt:tcp', ListenOn);
-restart_listener(Proto, ListenOn, _Options) when Proto == ssl; Proto == tls ->
-    esockd:reopen('mqtt:ssl', ListenOn);
-restart_listener(Proto, ListenOn, Options) when Proto == http; Proto == ws ->
-    _ = cowboy:stop_listener(ws_name('mqtt:ws', ListenOn)),
-    ok(start_listener(Proto, ListenOn, Options));
-restart_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
-    _ = cowboy:stop_listener(ws_name('mqtt:wss', ListenOn)),
-    ok(start_listener(Proto, ListenOn, Options));
-restart_listener(Proto, ListenOn, _Opts) ->
-    esockd:reopen(Proto, ListenOn).
-
-ok({ok, _}) -> ok;
-ok(Other) -> Other.
 
 %% @doc Stop all listeners.
 -spec(stop() -> ok).
 stop() ->
-    lists:foreach(fun stop_listener/1, emqx:get_env(listeners, [])).
+    foreach_listeners(fun stop_listener/3).
 
--spec(stop_listener(listener()) -> ok | {error, term()}).
-stop_listener(#{proto := Proto, listen_on := ListenOn, opts := Opts}) ->
-    stop_listener(Proto, ListenOn, Opts).
+-spec(stop_listener(atom()) -> ok | {error, term()}).
+stop_listener(ListenerId) ->
+    apply_on_listener(ListenerId, fun stop_listener/3).
 
--spec(stop_listener(esockd:proto(), esockd:listen_on(), [esockd:option()])
-      -> ok | {error, term()}).
-stop_listener(tcp, ListenOn, _Opts) ->
-    esockd:close('mqtt:tcp', ListenOn);
-stop_listener(Proto, ListenOn, _Opts) when Proto == ssl; Proto == tls ->
-    esockd:close('mqtt:ssl', ListenOn);
-stop_listener(Proto, ListenOn, _Opts) when Proto == http; Proto == ws ->
-    cowboy:stop_listener(ws_name('mqtt:ws', ListenOn));
-stop_listener(Proto, ListenOn, _Opts) when Proto == https; Proto == wss ->
-    cowboy:stop_listener(ws_name('mqtt:wss', ListenOn));
-stop_listener(quic, _ListenOn, _Opts) ->
-    quicer:stop_listener('mqtt:quic');
-stop_listener(Proto, ListenOn, _Opts) ->
-    esockd:close(Proto, ListenOn).
+-spec(stop_listener(atom(), atom(), map()) -> ok | {error, term()}).
+stop_listener(ZoneName, ListenerName, #{type := tcp, bind := ListenOn}) ->
+    esockd:close(listener_id(ZoneName, ListenerName), ListenOn);
+stop_listener(ZoneName, ListenerName, #{type := ws}) ->
+    cowboy:stop_listener(listener_id(ZoneName, ListenerName));
+stop_listener(ZoneName, ListenerName, #{type := quic}) ->
+    quicer:stop_listener(listener_id(ZoneName, ListenerName)).
 
 merge_default(Options) ->
     case lists:keytake(tcp_options, 1, Options) of
@@ -288,23 +200,46 @@ format({Addr, Port}) when is_list(Addr) ->
 format({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
 
-ws_name(Name, {_Addr, Port}) ->
-    ws_name(Name, Port);
-ws_name(Name, Port) ->
-    list_to_atom(lists:concat([Name, ":", Port])).
+listener_id(ZoneName, ListenerName) ->
+    list_to_atom(lists:append([atom_to_list(ZoneName), ":", atom_to_list(ListenerName)])).
 
-identifier(Proto, Name) when is_atom(Proto) ->
-    identifier(atom_to_list(Proto), Name);
-identifier(Proto, Name) ->
-    iolist_to_binary(["mqtt", ":", Proto, ":", Name]).
+decode_listener_id(Id) ->
+    case string:split(atom_to_list(Id), ":", leading) of
+        [Zone, Listen] -> {list_to_atom(Zone), list_to_atom(Listen)};
+        _ -> error({invalid_listener_id, Id})
+    end.
 
-find_by_listen_on(_ListenOn, []) -> false;
-find_by_listen_on(ListenOn, [#{listen_on := ListenOn} = L | _]) -> L;
-find_by_listen_on(ListenOn, [_ | Rest]) -> find_by_listen_on(ListenOn, Rest).
+ssl_opts(Opts) ->
+    maps:to_list(
+        emqx_tls_lib:drop_tls13_for_old_otp(
+            maps:without([enable],
+                maps:get(ssl, Opts, #{})))).
 
-find_by_id(_Id, []) -> false;
-find_by_id(Id, [L | Rest]) ->
-    case identifier(L) =:= Id of
-        true -> L;
-        false -> find_by_id(Id, Rest)
+tcp_opts(Opts) ->
+    maps:to_list(
+        maps:without([active_n],
+            maps:get(tcp, Opts, #{}))).
+
+is_ssl(Opts) ->
+    emqx_map_lib:deep_get([ssl, enable], Opts, false).
+
+foreach_listeners(Do) ->
+    lists:foreach(fun({ZoneName, ZoneConf}) ->
+            lists:foreach(fun({LName, LConf}) ->
+                    Do(ZoneName, LName, merge_zone_and_listener_confs(ZoneConf, LConf))
+                end, maps:to_list(maps:get(listeners, ZoneConf, #{})))
+        end, maps:to_list(emqx_config:get([zones], #{}))).
+
+%% merge the configs in zone and listeners in a manner that
+%% all config entries in the listener are prior to the ones in the zone.
+merge_zone_and_listener_confs(ZoneConf, ListenerConf) ->
+    ConfsInZonesOnly = [listeners, overall_max_connections],
+    BaseConf = maps:without(ConfsInZonesOnly, ZoneConf),
+    emqx_map_lib:deep_merge(BaseConf, ListenerConf).
+
+apply_on_listener(ListenerId, Do) ->
+    {ZoneName, ListenerName} = decode_listener_id(ListenerId),
+    case emqx_config:find([zones, ZoneName, listeners, ListenerName]) of
+        {not_found, _, _} -> error({not_found, ListenerId});
+        {ok, Conf} -> Do(ZoneName, ListenerName, Conf)
     end.

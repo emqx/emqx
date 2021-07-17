@@ -113,7 +113,8 @@ init(ConnInfo = #{peername := {PeerHost, _},
     Mountpoint = maps:get(mountpoint, Option, undefined),
     ClientInfo = setting_peercert_infos(
                    Peercert,
-                   #{ zone => undefined
+                   #{ zone => default
+                    , listener => mqtt_tcp
                     , protocol => stomp
                     , peerhost => PeerHost
                     , sockport => SockPort
@@ -583,7 +584,8 @@ handle_call(discard, Channel) ->
 %    shutdown_and_reply(takeovered, AllPendings, Channel);
 
 handle_call(list_acl_cache, Channel) ->
-    {reply, emqx_acl_cache:list_acl_cache(), Channel};
+    %% This won't work
+    {reply, emqx_acl_cache:list_acl_cache(default, mqtt_tcp), Channel};
 
 %% XXX: No Quota Now
 % handle_call({quota, Policy}, Channel) ->

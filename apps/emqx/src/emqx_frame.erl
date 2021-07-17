@@ -81,11 +81,7 @@ initial_parse_state() ->
 
 -spec(initial_parse_state(options()) -> {none, options()}).
 initial_parse_state(Options) when is_map(Options) ->
-    ?none(merge_opts(Options)).
-
-%% @pivate
-merge_opts(Options) ->
-    maps:merge(?DEFAULT_OPTIONS, Options).
+    ?none(maps:merge(?DEFAULT_OPTIONS, Options)).
 
 %%--------------------------------------------------------------------
 %% Parse MQTT Frame
@@ -643,7 +639,7 @@ serialize_properties(Props) when is_map(Props) ->
     Bin = << <<(serialize_property(Prop, Val))/binary>> || {Prop, Val} <- maps:to_list(Props) >>,
     [serialize_variable_byte_integer(byte_size(Bin)), Bin].
 
-serialize_property(_, undefined) ->
+serialize_property(_, Disabled) when Disabled =:= disabled; Disabled =:= undefined ->
     <<>>;
 serialize_property('Payload-Format-Indicator', Val) ->
     <<16#01, Val>>;

@@ -25,11 +25,20 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:default_init(),
+    ekka_mnesia:start(),
+    emqx_mgmt_auth:mnesia(boot),
+    emqx_ct_helpers:start_apps([emqx_management], fun set_special_configs/1),
     Config.
 
 end_per_suite(_) ->
-    emqx_mgmt_api_test_util:default_end().
+    emqx_ct_helpers:stop_apps([emqx_management]).
+
+set_special_configs(emqx_management) ->
+    emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
+        applications =>[#{id => "admin", secret => "public"}]}),
+    ok;
+set_special_configs(_App) ->
+    ok.
 
 t_clients(_) ->
     process_flag(trap_exit, true),

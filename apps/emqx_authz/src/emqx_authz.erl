@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_authz).
+-behaviour(emqx_config_handler).
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -23,12 +24,16 @@
 
 -export([ register_metrics/0
         , init/0
-        , compile/1
+        , init_rule/1
         , lookup/0
-        , update/1
+        , update/2
         , authorize/5
         , match/4
         ]).
+
+-export([post_update_config/2, handle_update_config/2]).
+
+-define(CONF_KEY_PATH, [emqx_authz, rules]).
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
@@ -36,20 +41,38 @@ register_metrics() ->
 
 init() ->
     ok = register_metrics(),
-    Rules = emqx_config:get([emqx_authz, rules], []),
-    NRules = [compile(Rule) || Rule <- Rules],
-    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]},  -1).
+    emqx_config_handler:add_handler(?CONF_KEY_PATH, ?MODULE),
+    NRules = [init_rule(Rule) || Rule <- lookup()],
+    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]}, -1).
 
 lookup() ->
-    emqx_config:get([emqx_authz, rules], []).
+    emqx_config:get(?CONF_KEY_PATH, []).
 
-update(Rules) ->
-    emqx_config:put([emqx_authz], #{rules => Rules}),
-    NRules = [compile(Rule) || Rule <- Rules],
+update(Cmd, Rules) ->
+    emqx_config:update_config(?CONF_KEY_PATH, {Cmd, Rules}).
+
+%% For now we only support re-creating the entire rule list
+handle_update_config({head, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
+    [Rule | OldConf];
+handle_update_config({tail, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
+    OldConf ++ [Rule];
+handle_update_config({_, NewConf}, _OldConf) ->
+    %% overwrite the entire config!
+    case is_list(NewConf) of
+        true -> NewConf;
+        false -> [NewConf]
+    end.
+
+post_update_config(undefined, _OldConf) ->
+    %_ = [release_rules(Rule) || Rule <- OldConf],
+    ok;
+post_update_config(NewRules, _OldConf) ->
+    %_ = [release_rules(Rule) || Rule <- OldConf],
+    InitedRules = [init_rule(Rule) || Rule <- NewRules],
     Action = find_action_in_hooks(),
     ok = emqx_hooks:del('client.authorize', Action),
-    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]},  -1),
-    ok = emqx_acl_cache:empty_acl_cache().
+    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [InitedRules]}, -1),
+    ok = emqx_acl_cache:drain_cache().
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -77,35 +100,35 @@ create_resource(#{type := DB,
             error({load_config_error, Reason})
     end.
 
--spec(compile(rule()) -> rule()).
-compile(#{topics := Topics,
-          action := Action,
-          permission := Permission,
-          principal := Principal
+-spec(init_rule(rule()) -> rule()).
+init_rule(#{topics := Topics,
+            action := Action,
+            permission := Permission,
+            principal := Principal
          } = Rule) when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(Topics) ->
     NTopics = [compile_topic(Topic) || Topic <- Topics],
     Rule#{principal => compile_principal(Principal),
           topics => NTopics
          };
 
-compile(#{principal := Principal,
-          type := http,
-          config := #{url := Url} = Config
-         } = Rule) ->
+init_rule(#{principal := Principal,
+            type := http,
+            config := #{url := Url} = Config
+           } = Rule) ->
     NConfig = maps:merge(Config, #{base_url => maps:remove(query, Url)}),
     NRule = create_resource(Rule#{config := NConfig}),
     NRule#{principal => compile_principal(Principal)};
 
-compile(#{principal := Principal,
-          type := DB
+init_rule(#{principal := Principal,
+            type := DB
          } = Rule) when DB =:= redis;
                         DB =:= mongo ->
     NRule = create_resource(Rule),
     NRule#{principal => compile_principal(Principal)};
 
-compile(#{principal := Principal,
-          type := DB,
-          sql := SQL
+init_rule(#{principal := Principal,
+            type := DB,
+            sql := SQL
          } = Rule) when DB =:= mysql;
                         DB =:= pgsql ->
     Mod = list_to_existing_atom(io_lib:format("~s_~s",[?APP, DB])),

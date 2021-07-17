@@ -48,8 +48,8 @@ You can change the prefix by overriding "HOCON_ENV_OVERRIDE_PREFIX".
 Example:
 
 ```bash
-EMQX_LISTENER__SSL__EXTERNAL__ACCEPTORS <--> listener.ssl.external.acceptors
-EMQX_MQTT__MAX_PACKET_SIZE              <--> mqtt.max_packet_size
+EMQX_ZONES__DEFAULT__LISTENERS__MQTT_SSL__ACCEPTORS <--> zones.default.listeners.mqtt_ssl.acceptors
+EMQX_ZONES__DEFAULT__MQTT__MAX_PACKET_SIZE <--> zones.default.mqtt.max_packet_size
 ```
 
 + Prefix ``EMQX_`` is removed
@@ -87,7 +87,7 @@ If set ``EMQX_NAME`` and ``EMQX_HOST``, and unset ``EMQX_NODE_NAME``, ``EMQX_NOD
 
 For example, set mqtt tcp port to 1883
 
-``docker run -d --name emqx -e EMQX_LISTENER__TCP__EXTERNAL=1883 -p 18083:18083 -p 1883:1883 emqx/emqx:latest``
+``docker run -d --name emqx -e EMQX_ZONES__DEFAULT__LISTENERS__MQTT_TCP__BIND=1883 -p 18083:18083 -p 1883:1883 emqx/emqx:latest``
 
 #### EMQ Loaded Modules Configuration
 
@@ -213,8 +213,8 @@ Let's create a static node list cluster from docker-compose.
       environment:
       - "EMQX_NAME=emqx"
       - "EMQX_HOST=node1.emqx.io"
-      - "EMQX_CLUSTER__DISCOVERY=static"
-      - "EMQX_CLUSTER__STATIC__SEEDS=emqx@node1.emqx.io, emqx@node2.emqx.io"
+      - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
+      - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io, emqx@node2.emqx.io]"
       networks:
         emqx-bridge:
           aliases:
@@ -225,8 +225,8 @@ Let's create a static node list cluster from docker-compose.
       environment:
       - "EMQX_NAME=emqx"
       - "EMQX_HOST=node2.emqx.io"
-      - "EMQX_CLUSTER__DISCOVERY=static"
-      - "EMQX_CLUSTER__STATIC__SEEDS=emqx@node1.emqx.io, emqx@node2.emqx.io"
+      - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
+      - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io, emqx@node2.emqx.io]"
       networks:
         emqx-bridge:
           aliases:

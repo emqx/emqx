@@ -39,7 +39,10 @@ unload() ->
     lists:foreach(fun(Cmd) -> emqx_ctl:unregister_command(Cmd) end, Cmds).
 
 is_cmd(Fun) ->
-    not lists:member(Fun, [init, load, module_info]).
+    case atom_to_list(Fun) of
+        "gateway" ++ _ -> true;
+        _ -> false
+    end.
 
 
 %%--------------------------------------------------------------------

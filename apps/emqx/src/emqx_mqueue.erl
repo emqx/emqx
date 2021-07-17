@@ -67,6 +67,8 @@
         , dropped/1
         ]).
 
+-define(NO_PRIORITY_TABLE, disabled).
+
 -export_type([mqueue/0, options/0]).
 
 -type(topic() :: emqx_topic:topic()).

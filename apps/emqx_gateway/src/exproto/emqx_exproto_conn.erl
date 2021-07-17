@@ -219,7 +219,8 @@ send(Data, #state{socket = {esockd_transport, Sock}}) ->
 
 -define(DEFAULT_GC_OPTS, #{count => 1000, bytes => 1024*1024}).
 -define(DEFAULT_IDLE_TIMEOUT, 30000).
--define(DEFAULT_OOM_POLICY, #{max_heap_size => 4194304,message_queue_len => 32000}).
+-define(DEFAULT_OOM_POLICY, #{enable => true, max_heap_size => 4194304,
+    max_message_queue_len => 32000}).
 
 init(Parent, WrappedSock, Peername, Options) ->
     case esockd_wait(WrappedSock) of

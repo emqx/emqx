@@ -116,7 +116,7 @@ spec:
             value: {{ .Release.Name }}
           - name: EMQX_CLUSTER__K8S__APP_NAME
             value: {{ .Release.Name }}
-          - name: EMQX_CLUSTER__DISCOVERY
+          - name: EMQX_CLUSTER__DISCOVERY_STRATEGY
             value: k8s
           - name: EMQX_CLUSTER__K8S__SERVICE_NAME
             value: {{ include "emqx.fullname" . }}-headless

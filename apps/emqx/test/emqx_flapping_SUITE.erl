@@ -25,17 +25,13 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([], fun set_special_configs/1),
+    emqx_ct_helpers:start_apps([]),
+    emqx_config:put_listener_conf(default, mqtt_tcp, [flapping_detect],
+        #{max_count => 3,
+          window_time => 100, % 0.1s
+          ban_time => 2000 %% 2s
+        }),
     Config.
-
-set_special_configs(emqx) ->
-    emqx_zone:set_env(external, enable_flapping_detect, true),
-    application:set_env(emqx, flapping_detect_policy,
-                        #{threshold => 3,
-                          duration => 100,
-                          banned_interval => 2
-                         });
-set_special_configs(_App) -> ok.
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]),
@@ -43,8 +39,9 @@ end_per_suite(_Config) ->
     ok.
 
 t_detect_check(_) ->
-    ClientInfo = #{zone => external,
-                   clientid => <<"clientid">>,
+    ClientInfo = #{zone => default,
+                   listener => mqtt_tcp,
+                   clientid => <<"client007">>,
                    peerhost => {127,0,0,1}
                   },
     false = emqx_flapping:detect(ClientInfo),
@@ -53,6 +50,8 @@ t_detect_check(_) ->
     false = emqx_banned:check(ClientInfo),
     true = emqx_flapping:detect(ClientInfo),
     timer:sleep(50),
+    ct:pal("the table emqx_banned: ~p, nowsec: ~p", [ets:tab2list(emqx_banned),
+        erlang:system_time(second)]),
     true = emqx_banned:check(ClientInfo),
     timer:sleep(3000),
     false = emqx_banned:check(ClientInfo),
@@ -64,12 +63,13 @@ t_detect_check(_) ->
     ok = emqx_flapping:stop().
 
 t_expired_detecting(_) ->
-    ClientInfo = #{zone => external,
-                   clientid => <<"clientid">>,
+    ClientInfo = #{zone => default,
+                   listener => mqtt_tcp,
+                   clientid => <<"client008">>,
                    peerhost => {127,0,0,1}},
     false = emqx_flapping:detect(ClientInfo),
-    ?assertEqual(true, lists:any(fun({flapping, <<"clientid">>, _, _, _}) -> true;
+    ?assertEqual(true, lists:any(fun({flapping, <<"client008">>, _, _, _}) -> true;
                                     (_) -> false end, ets:tab2list(emqx_flapping))),
     timer:sleep(200),
-    ?assertEqual(true, lists:all(fun({flapping, <<"clientid">>, _, _, _}) -> false;
+    ?assertEqual(true, lists:all(fun({flapping, <<"client008">>, _, _, _}) -> false;
                                     (_) -> true end, ets:tab2list(emqx_flapping))).

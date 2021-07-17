@@ -29,33 +29,33 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
+    %% important! let emqx_schema include the current app!
+    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_schema, includes, fun() -> ["emqx_authz"] end ),
+
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end ),
-    ok = emqx_ct_helpers:start_apps([emqx_authz], fun set_special_configs/1),
+    ok = emqx_ct_helpers:start_apps([emqx_authz]),
+    ok = emqx_config:update_config([zones, default, acl, cache, enable], false),
+    ok = emqx_config:update_config([zones, default, acl, enable], true),
+    Rules = [#{ <<"config">> => #{
+                    <<"server">> => <<"127.0.0.1:27017">>,
+                    <<"pool_size">> => 1,
+                    <<"database">> => 0,
+                    <<"password">> => <<"ee">>,
+                    <<"auto_reconnect">> => true,
+                    <<"ssl">> => #{<<"enable">> => false}
+                },
+                <<"cmd">> => <<"HGETALL mqtt_acl:%u">>,
+                <<"type">> => <<"redis">> }],
+    emqx_authz:update(replace, Rules),
     Config.
 
 end_per_suite(_Config) ->
     file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
     emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
+    meck:unload(emqx_schema),
     meck:unload(emqx_resource).
-
-set_special_configs(emqx) ->
-    application:set_env(emqx, allow_anonymous, true),
-    application:set_env(emqx, enable_acl_cache, false),
-    application:set_env(emqx, acl_nomatch, deny),
-    application:set_env(emqx, plugins_loaded_file,
-                        emqx_ct_helpers:deps_path(emqx, "test/loaded_plguins")),
-    ok;
-set_special_configs(emqx_authz) ->
-    Rules = [#{config =>#{},
-               principal => all,
-               cmd => <<"fake">>,
-               type => redis}
-            ],
-    emqx_config:put([emqx_authz], #{rules => Rules}),
-    ok;
-set_special_configs(_App) ->
-    ok.
 
 -define(RULE1, [<<"test/%u">>, <<"publish">>]).
 -define(RULE2, [<<"test/%c">>, <<"publish">>]).
@@ -68,7 +68,9 @@ set_special_configs(_App) ->
 t_authz(_) ->
     ClientInfo = #{clientid => <<"clientid">>,
                    username => <<"username">>,
-                   peerhost => {127,0,0,1}
+                   peerhost => {127,0,0,1},
+                   zone => default,
+                   listener => mqtt_tcp
                    },
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, []} end),

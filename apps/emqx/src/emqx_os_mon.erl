@@ -22,15 +22,9 @@
 
 -logger_header("[OS_MON]").
 
--export([start_link/1]).
+-export([start_link/0]).
 
--export([ get_cpu_check_interval/0
-        , set_cpu_check_interval/1
-        , get_cpu_high_watermark/0
-        , set_cpu_high_watermark/1
-        , get_cpu_low_watermark/0
-        , set_cpu_low_watermark/1
-        , get_mem_check_interval/0
+-export([ get_mem_check_interval/0
         , set_mem_check_interval/1
         , get_sysmem_high_watermark/0
         , set_sysmem_high_watermark/1
@@ -51,30 +45,12 @@
 
 -define(OS_MON, ?MODULE).
 
-start_link(Opts) ->
-    gen_server:start_link({local, ?OS_MON}, ?MODULE, [Opts], []).
+start_link() ->
+    gen_server:start_link({local, ?OS_MON}, ?MODULE, [], []).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-
-get_cpu_check_interval() ->
-    call(get_cpu_check_interval).
-
-set_cpu_check_interval(Seconds) ->
-    call({set_cpu_check_interval, Seconds}).
-
-get_cpu_high_watermark() ->
-    call(get_cpu_high_watermark).
-
-set_cpu_high_watermark(Float) ->
-    call({set_cpu_high_watermark, Float}).
-
-get_cpu_low_watermark() ->
-    call(get_cpu_low_watermark).
-
-set_cpu_low_watermark(Float) ->
-    call({set_cpu_low_watermark, Float}).
 
 get_mem_check_interval() ->
     memsup:get_check_interval() div 1000.
@@ -88,47 +64,25 @@ get_sysmem_high_watermark() ->
     memsup:get_sysmem_high_watermark().
 
 set_sysmem_high_watermark(Float) ->
-    memsup:set_sysmem_high_watermark(Float / 100).
+    memsup:set_sysmem_high_watermark(Float).
 
 get_procmem_high_watermark() ->
     memsup:get_procmem_high_watermark().
 
 set_procmem_high_watermark(Float) ->
-    memsup:set_procmem_high_watermark(Float / 100).
-
-call(Req) ->
-    gen_server:call(?OS_MON, Req, infinity).
+    memsup:set_procmem_high_watermark(Float).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Opts]) ->
-    set_mem_check_interval(proplists:get_value(mem_check_interval, Opts)),
-    set_sysmem_high_watermark(proplists:get_value(sysmem_high_watermark, Opts)),
-    set_procmem_high_watermark(proplists:get_value(procmem_high_watermark, Opts)),
-    {ok, ensure_check_timer(#{cpu_high_watermark => proplists:get_value(cpu_high_watermark, Opts),
-                              cpu_low_watermark => proplists:get_value(cpu_low_watermark, Opts),
-                              cpu_check_interval => proplists:get_value(cpu_check_interval, Opts),
-                              timer => undefined})}.
-
-handle_call(get_cpu_check_interval, _From, State) ->
-    {reply, maps:get(cpu_check_interval, State, undefined), State};
-
-handle_call({set_cpu_check_interval, Seconds}, _From, State) ->
-    {reply, ok, State#{cpu_check_interval := Seconds}};
-
-handle_call(get_cpu_high_watermark, _From, State) ->
-    {reply, maps:get(cpu_high_watermark, State, undefined), State};
-
-handle_call({set_cpu_high_watermark, Float}, _From, State) ->
-    {reply, ok, State#{cpu_high_watermark := Float}};
-
-handle_call(get_cpu_low_watermark, _From, State) ->
-    {reply, maps:get(cpu_low_watermark, State, undefined), State};
-
-handle_call({set_cpu_low_watermark, Float}, _From, State) ->
-    {reply, ok, State#{cpu_low_watermark := Float}};
+init([]) ->
+    Opts = emqx_config:get([sysmon, os]),
+    set_mem_check_interval(maps:get(mem_check_interval, Opts)),
+    set_sysmem_high_watermark(maps:get(sysmem_high_watermark, Opts)),
+    set_procmem_high_watermark(maps:get(procmem_high_watermark, Opts)),
+    _ = start_check_timer(),
+    {ok, #{}}.
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
@@ -138,32 +92,30 @@ handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({timeout, Timer, check}, State = #{timer := Timer,
-                                               cpu_high_watermark := CPUHighWatermark,
-                                               cpu_low_watermark := CPULowWatermark}) ->
-    NState =
-    case emqx_vm:cpu_util() of %% TODO: should be improved?
-        0 ->
-            State#{timer := undefined};
+handle_info({timeout, _Timer, check}, State) ->
+    CPUHighWatermark = emqx_config:get([sysmon, os, cpu_high_watermark]) * 100,
+    CPULowWatermark = emqx_config:get([sysmon, os, cpu_low_watermark]) * 100,
+    _ = case emqx_vm:cpu_util() of %% TODO: should be improved?
+        0 -> ok;
         Busy when Busy >= CPUHighWatermark ->
-            emqx_alarm:activate(high_cpu_usage, #{usage => Busy,
+            emqx_alarm:activate(high_cpu_usage, #{usage => io_lib:format("~p%", [Busy]),
                                                   high_watermark => CPUHighWatermark,
                                                   low_watermark => CPULowWatermark}),
-            ensure_check_timer(State);
+            start_check_timer();
         Busy when Busy =< CPULowWatermark ->
             emqx_alarm:deactivate(high_cpu_usage),
-            ensure_check_timer(State);
+            start_check_timer();
         _Busy ->
-            ensure_check_timer(State)
+            start_check_timer()
     end,
-    {noreply, NState};
+    {noreply, State};
 
 handle_info(Info, State) ->
     ?LOG(error, "unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #{timer := Timer}) ->
-    emqx_misc:cancel_timer(Timer).
+terminate(_Reason, _State) ->
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -172,8 +124,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-ensure_check_timer(State = #{cpu_check_interval := Interval}) ->
+start_check_timer() ->
+    Interval = emqx_config:get([sysmon, os, cpu_check_interval]),
     case erlang:system_info(system_architecture) of
-        "x86_64-pc-linux-musl" -> State;
-        _ -> State#{timer := emqx_misc:start_timer(timer:seconds(Interval), check)}
+        "x86_64-pc-linux-musl" -> ok;
+        _ -> emqx_misc:start_timer(timer:seconds(Interval), check)
     end.

@@ -31,6 +31,8 @@
 
 -export([ info/1
         , info/2
+        , get_mqtt_conf/3
+        , get_mqtt_conf/4
         , set_conn_state/2
         , get_session/1
         , set_session/2
@@ -63,7 +65,7 @@
         , maybe_apply/2
         ]).
 
--export_type([channel/0]).
+-export_type([channel/0, opts/0]).
 
 -record(channel, {
           %% MQTT ConnInfo
@@ -97,6 +99,8 @@
          }).
 
 -type(channel() :: #channel{}).
+
+-type(opts() :: #{zone := atom(), listener := atom(), atom() => term()}).
 
 -type(conn_state() :: idle | connecting | connected | reauthenticating | disconnected).
 
@@ -151,7 +155,9 @@ info(connected_at, #channel{conninfo = ConnInfo}) ->
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
 info(zone, #channel{clientinfo = ClientInfo}) ->
-    maps:get(zone, ClientInfo, undefined);
+    maps:get(zone, ClientInfo);
+info(listener, #channel{clientinfo = ClientInfo}) ->
+    maps:get(listener, ClientInfo);
 info(clientid, #channel{clientinfo = ClientInfo}) ->
     maps:get(clientid, ClientInfo, undefined);
 info(username, #channel{clientinfo = ClientInfo}) ->
@@ -187,25 +193,28 @@ stats(#channel{session = Session})->
     emqx_session:stats(Session).
 
 -spec(caps(channel()) -> emqx_types:caps()).
-caps(#channel{clientinfo = #{zone := Zone}}) ->
-    emqx_mqtt_caps:get_caps(Zone).
+caps(#channel{clientinfo = #{zone := Zone, listener := Listener}}) ->
+    emqx_mqtt_caps:get_caps(Zone, Listener).
 
 
 %%--------------------------------------------------------------------
 %% Init the channel
 %%--------------------------------------------------------------------
 
--spec(init(emqx_types:conninfo(), proplists:proplist()) -> channel()).
+-spec(init(emqx_types:conninfo(), opts()) -> channel()).
 init(ConnInfo = #{peername := {PeerHost, _Port},
-                  sockname := {_Host, SockPort}}, Options) ->
-    Zone = proplists:get_value(zone, Options),
+                  sockname := {_Host, SockPort}}, #{zone := Zone, listener := Listener}) ->
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Protocol = maps:get(protocol, ConnInfo, mqtt),
-    MountPoint = emqx_zone:mountpoint(Zone),
-    QuotaPolicy = emqx_zone:quota_policy(Zone),
-    ClientInfo = setting_peercert_infos(
+    MountPoint = case get_mqtt_conf(Zone, Listener, mountpoint) of
+        <<>> -> undefined;
+        MP -> MP
+    end,
+    QuotaPolicy = emqx_config:get_listener_conf(Zone, Listener, [rate_limit, quota]),
+    ClientInfo = set_peercert_infos(
                    Peercert,
                    #{zone         => Zone,
+                     listener     => Listener,
                      protocol     => Protocol,
                      peerhost     => PeerHost,
                      sockport     => SockPort,
@@ -214,7 +223,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
                      mountpoint   => MountPoint,
                      is_bridge    => false,
                      is_superuser => false
-                    }, Options),
+                    }, Zone, Listener),
     {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo),
     #channel{conninfo   = NConnInfo,
              clientinfo = NClientInfo,
@@ -222,7 +231,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
                                outbound => #{}
                               },
              auth_cache = #{},
-             quota      = emqx_limiter:init(Zone, QuotaPolicy),
+             quota      = emqx_limiter:init(Zone, quota_policy(QuotaPolicy)),
              timers     = #{},
              conn_state = idle,
              takeover   = false,
@@ -230,30 +239,32 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
              pendings   = []
             }.
 
-setting_peercert_infos(NoSSL, ClientInfo, _Options)
+quota_policy(RawPolicy) ->
+    [{Name, {list_to_integer(StrCount),
+             erlang:trunc(hocon_postprocess:duration(StrWind) / 1000)}}
+     || {Name, [StrCount, StrWind]} <- maps:to_list(RawPolicy)].
+
+set_peercert_infos(NoSSL, ClientInfo, _, _)
   when NoSSL =:= nossl;
        NoSSL =:= undefined ->
     ClientInfo#{username => undefined};
 
-setting_peercert_infos(Peercert, ClientInfo, Options) ->
+set_peercert_infos(Peercert, ClientInfo, Zone, Listener) ->
     {DN, CN} = {esockd_peercert:subject(Peercert),
                 esockd_peercert:common_name(Peercert)},
-    Username = peer_cert_as(peer_cert_as_username, Options, Peercert, DN, CN),
-    ClientId = peer_cert_as(peer_cert_as_clientid, Options, Peercert, DN, CN),
-    ClientInfo#{username => Username, clientid => ClientId, dn => DN, cn => CN}.
-
--dialyzer([{nowarn_function, [peer_cert_as/5]}]).
-% esockd_peercert:peercert is opaque
-% https://github.com/emqx/esockd/blob/master/src/esockd_peercert.erl
-peer_cert_as(Key, Options, Peercert, DN, CN) ->
-    case proplists:get_value(Key, Options) of
+    PeercetAs = fun(Key) ->
+        case get_mqtt_conf(Zone, Listener, Key) of
          cn  -> CN;
          dn  -> DN;
          crt -> Peercert;
-         pem -> base64:encode(Peercert);
-         md5 -> emqx_passwd:hash(md5, Peercert);
+         pem when is_binary(Peercert) -> base64:encode(Peercert);
+         md5 when is_binary(Peercert) -> emqx_passwd:hash(md5, Peercert);
          _   -> undefined
-     end.
+        end
+    end,
+    Username = PeercetAs(peer_cert_as_username),
+    ClientId = PeercetAs(peer_cert_as_clientid),
+    ClientInfo#{username => Username, clientid => ClientId, dn => DN, cn => CN}.
 
 take_ws_cookie(ClientInfo, ConnInfo) ->
     case maps:take(ws_cookie, ConnInfo) of
@@ -415,16 +426,17 @@ handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), Channel = #channel{session = S
     end;
 
 handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
-          Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
+          Channel = #channel{clientinfo = ClientInfo = #{zone := Zone, listener := Listener}}) ->
     case emqx_packet:check(Packet) of
         ok ->
             TopicFilters0 = parse_topic_filters(TopicFilters),
             TopicFilters1 = put_subid_in_subopts(Properties, TopicFilters0),
             TupleTopicFilters0 = check_sub_acls(TopicFilters1, Channel),
-            case emqx_zone:get_env(Zone, acl_deny_action, ignore) =:= disconnect andalso
-                 lists:any(fun({_TopicFilter, ReasonCode}) ->
-                                    ReasonCode =:= ?RC_NOT_AUTHORIZED
-                           end, TupleTopicFilters0) of
+            HasAclDeny = lists:any(fun({_TopicFilter, ReasonCode}) ->
+                    ReasonCode =:= ?RC_NOT_AUTHORIZED
+                end, TupleTopicFilters0),
+            DenyAction = emqx_config:get_listener_conf(Zone, Listener, [acl, deny_action]),
+            case DenyAction =:= disconnect andalso HasAclDeny of
                 true -> handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel);
                 false ->
                     Replace = fun
@@ -526,7 +538,7 @@ process_connect(AckProps, Channel = #channel{conninfo = ConnInfo,
 %%--------------------------------------------------------------------
 
 process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
-                Channel = #channel{clientinfo = #{zone := Zone}}) ->
+                Channel = #channel{clientinfo = #{zone := Zone, listener := Listener}}) ->
     case pipeline([fun check_quota_exceeded/2,
                    fun process_alias/2,
                    fun check_pub_alias/2,
@@ -539,7 +551,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
         {error, Rc = ?RC_NOT_AUTHORIZED, NChannel} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s.",
                  [Topic, emqx_reason_codes:text(Rc)]),
-            case emqx_zone:get_env(Zone, acl_deny_action, ignore) of
+            case emqx_config:get_listener_conf(Zone, Listener, [acl_deny_action]) of
                 ignore ->
                     case QoS of
                        ?QOS_0 -> {ok, NChannel};
@@ -944,8 +956,9 @@ handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
     AllPendings = lists:append(Delivers, Pendings),
     disconnect_and_shutdown(takeovered, AllPendings, Channel);
 
-handle_call(list_acl_cache, Channel) ->
-    {reply, emqx_acl_cache:list_acl_cache(), Channel};
+handle_call(list_acl_cache, #channel{clientinfo = #{zone := Zone, listener := Listener}}
+        = Channel) ->
+    {reply, emqx_acl_cache:list_acl_cache(Zone, Listener), Channel};
 
 handle_call({quota, Policy}, Channel) ->
     Zone = info(zone, Channel),
@@ -982,9 +995,9 @@ handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connecting}) 
 
 handle_info({sock_closed, Reason}, Channel =
             #channel{conn_state = ConnState,
-                     clientinfo = ClientInfo = #{zone := Zone}})
-  when ConnState =:= connected orelse ConnState =:= reauthenticating ->
-    emqx_zone:enable_flapping_detect(Zone)
+                     clientinfo = ClientInfo = #{zone := Zone, listener := Listener}})
+        when ConnState =:= connected orelse ConnState =:= reauthenticating ->
+    emqx_config:get_listener_conf(Zone, Listener, [flapping_detect, enable])
         andalso emqx_flapping:detect(ClientInfo),
     Channel1 = ensure_disconnected(Reason, mabye_publish_will_msg(Channel)),
     case maybe_shutdown(Reason, Channel1) of
@@ -1145,9 +1158,9 @@ enrich_conninfo(ConnPkt = #mqtt_packet_connect{
                              username    = Username
                             },
                 Channel = #channel{conninfo   = ConnInfo,
-                                   clientinfo = #{zone := Zone}
+                                   clientinfo = #{zone := Zone, listener := Listener}
                                   }) ->
-    ExpiryInterval = expiry_interval(Zone, ConnPkt),
+    ExpiryInterval = expiry_interval(Zone, Listener, ConnPkt),
     NConnInfo = ConnInfo#{proto_name  => ProtoName,
                           proto_ver   => ProtoVer,
                           clean_start => CleanStart,
@@ -1156,22 +1169,21 @@ enrich_conninfo(ConnPkt = #mqtt_packet_connect{
                           username    => Username,
                           conn_props  => ConnProps,
                           expiry_interval => ExpiryInterval,
-                          receive_maximum => receive_maximum(Zone, ConnProps)
+                          receive_maximum => receive_maximum(Zone, Listener, ConnProps)
                          },
     {ok, Channel#channel{conninfo = NConnInfo}}.
 
 %% If the Session Expiry Interval is absent the value 0 is used.
--compile({inline, [expiry_interval/2]}).
-expiry_interval(_Zone, #mqtt_packet_connect{proto_ver  = ?MQTT_PROTO_V5,
+expiry_interval(_, _, #mqtt_packet_connect{proto_ver  = ?MQTT_PROTO_V5,
                                             properties = ConnProps}) ->
     emqx_mqtt_props:get('Session-Expiry-Interval', ConnProps, 0);
-expiry_interval(Zone, #mqtt_packet_connect{clean_start = false}) ->
-    emqx_zone:session_expiry_interval(Zone);
-expiry_interval(_Zone, #mqtt_packet_connect{clean_start = true}) ->
+expiry_interval(Zone, Listener, #mqtt_packet_connect{clean_start = false}) ->
+    get_mqtt_conf(Zone, Listener, session_expiry_interval);
+expiry_interval(_, _, #mqtt_packet_connect{clean_start = true}) ->
     0.
 
-receive_maximum(Zone, ConnProps) ->
-    MaxInflightConfig = case emqx_zone:max_inflight(Zone) of
+receive_maximum(Zone, Listener, ConnProps) ->
+    MaxInflightConfig = case get_mqtt_conf(Zone, Listener, max_inflight) of
                             0 -> ?RECEIVE_MAXIMUM_LIMIT;
                             N -> N
                         end,
@@ -1194,8 +1206,8 @@ run_conn_hooks(ConnPkt, Channel = #channel{conninfo = ConnInfo}) ->
 %%--------------------------------------------------------------------
 %% Check Connect Packet
 
-check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
-    emqx_packet:check(ConnPkt, emqx_mqtt_caps:get_caps(Zone)).
+check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone, listener := Listener}}) ->
+    emqx_packet:check(ConnPkt, emqx_mqtt_caps:get_caps(Zone, Listener)).
 
 %%--------------------------------------------------------------------
 %% Enrich Client Info
@@ -1220,8 +1232,9 @@ set_bridge_mode(_ConnPkt, _ClientInfo) -> ok.
 
 maybe_username_as_clientid(_ConnPkt, ClientInfo = #{username := undefined}) ->
     {ok, ClientInfo};
-maybe_username_as_clientid(_ConnPkt, ClientInfo = #{zone := Zone, username := Username}) ->
-    case emqx_zone:use_username_as_clientid(Zone) of
+maybe_username_as_clientid(_ConnPkt, ClientInfo = #{zone := Zone, listener := Listener,
+        username := Username}) ->
+    case get_mqtt_conf(Zone, Listener, use_username_as_clientid) of
         true  -> {ok, ClientInfo#{clientid => Username}};
         false -> ok
     end.
@@ -1249,8 +1262,8 @@ set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId}}) ->
 %%--------------------------------------------------------------------
 %% Check banned
 
-check_banned(_ConnPkt, #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
-    case emqx_zone:enable_ban(Zone) andalso emqx_banned:check(ClientInfo) of
+check_banned(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
+    case emqx_banned:check(ClientInfo) of
         true  -> {error, ?RC_BANNED};
         false -> ok
     end.
@@ -1419,8 +1432,8 @@ check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos    = QoS,
                                                          retain = Retain},
                             variable = #mqtt_packet_publish{topic_name = Topic}
                            },
-               #channel{clientinfo = #{zone := Zone}}) ->
-    emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain, topic => Topic}).
+               #channel{clientinfo = #{zone := Zone, listener := Listener}}) ->
+    emqx_mqtt_caps:check_pub(Zone, Listener, #{qos => QoS, retain => Retain, topic => Topic}).
 
 %%--------------------------------------------------------------------
 %% Check Sub ACL
@@ -1448,8 +1461,9 @@ check_sub_acl(TopicFilter, #channel{clientinfo = ClientInfo}) ->
 %%--------------------------------------------------------------------
 %% Check Sub Caps
 
-check_sub_caps(TopicFilter, SubOpts, #channel{clientinfo = #{zone := Zone}}) ->
-    emqx_mqtt_caps:check_sub(Zone, TopicFilter, SubOpts).
+check_sub_caps(TopicFilter, SubOpts, #channel{clientinfo = #{zone := Zone,
+        listener := Listener}}) ->
+    emqx_mqtt_caps:check_sub(Zone, Listener, TopicFilter, SubOpts).
 
 %%--------------------------------------------------------------------
 %% Enrich SubId
@@ -1463,21 +1477,23 @@ put_subid_in_subopts(_Properties, TopicFilters) -> TopicFilters.
 
 enrich_subopts(SubOpts, _Channel = ?IS_MQTT_V5) ->
     SubOpts;
-enrich_subopts(SubOpts, #channel{clientinfo = #{zone := Zone, is_bridge := IsBridge}}) ->
-    NL = flag(emqx_zone:ignore_loop_deliver(Zone)),
+enrich_subopts(SubOpts, #channel{clientinfo = #{zone := Zone, is_bridge := IsBridge,
+        listener := Listener}}) ->
+    NL = flag(get_mqtt_conf(Zone, Listener, ignore_loop_deliver)),
     SubOpts#{rap => flag(IsBridge), nl => NL}.
 
 %%--------------------------------------------------------------------
 %% Enrich ConnAck Caps
 
-enrich_connack_caps(AckProps, ?IS_MQTT_V5 = #channel{clientinfo = #{zone := Zone}}) ->
+enrich_connack_caps(AckProps, ?IS_MQTT_V5 = #channel{clientinfo = #{
+        zone := Zone, listener := Listener}}) ->
     #{max_packet_size       := MaxPktSize,
       max_qos_allowed       := MaxQoS,
       retain_available      := Retain,
       max_topic_alias       := MaxAlias,
       shared_subscription   := Shared,
       wildcard_subscription := Wildcard
-     } = emqx_mqtt_caps:get_caps(Zone),
+     } = emqx_mqtt_caps:get_caps(Zone, Listener),
     NAckProps = AckProps#{'Retain-Available'    => flag(Retain),
                           'Maximum-Packet-Size' => MaxPktSize,
                           'Topic-Alias-Maximum' => MaxAlias,
@@ -1499,9 +1515,9 @@ enrich_connack_caps(AckProps, _Channel) -> AckProps.
 %%--------------------------------------------------------------------
 %% Enrich server keepalive
 
-enrich_server_keepalive(AckProps, #channel{clientinfo = #{zone := Zone}}) ->
-    case emqx_zone:server_keepalive(Zone) of
-        undefined -> AckProps;
+enrich_server_keepalive(AckProps, #channel{clientinfo = #{zone := Zone, listener := Listener}}) ->
+    case get_mqtt_conf(Zone, Listener, server_keepalive) of
+        disabled -> AckProps;
         Keepalive -> AckProps#{'Server-Keep-Alive' => Keepalive}
     end.
 
@@ -1509,10 +1525,14 @@ enrich_server_keepalive(AckProps, #channel{clientinfo = #{zone := Zone}}) ->
 %% Enrich response information
 
 enrich_response_information(AckProps, #channel{conninfo = #{conn_props := ConnProps},
-                                               clientinfo = #{zone := Zone}}) ->
+        clientinfo = #{zone := Zone, listener := Listener}}) ->
     case emqx_mqtt_props:get('Request-Response-Information', ConnProps, 0) of
         0 -> AckProps;
-        1 -> AckProps#{'Response-Information' => emqx_zone:response_information(Zone)}
+        1 -> AckProps#{'Response-Information' =>
+                case get_mqtt_conf(Zone, Listener, response_information, "") of
+                   "" -> undefined;
+                   RspInfo -> RspInfo
+                end}
     end.
 
 %%--------------------------------------------------------------------
@@ -1542,9 +1562,9 @@ ensure_connected(Channel = #channel{conninfo = ConnInfo,
 
 init_alias_maximum(#mqtt_packet_connect{proto_ver  = ?MQTT_PROTO_V5,
                                         properties = Properties},
-                   #{zone := Zone} = _ClientInfo) ->
+                   #{zone := Zone, listener := Listener} = _ClientInfo) ->
     #{outbound => emqx_mqtt_props:get('Topic-Alias-Maximum', Properties, 0),
-      inbound  => emqx_mqtt_caps:get_caps(Zone, max_topic_alias, ?MAX_TOPIC_AlIAS)
+      inbound  => maps:get(max_topic_alias, emqx_mqtt_caps:get_caps(Zone, Listener))
      };
 init_alias_maximum(_ConnPkt, _ClientInfo) -> undefined.
 
@@ -1560,8 +1580,10 @@ ensure_keepalive(_AckProps, Channel = #channel{conninfo = ConnInfo}) ->
     ensure_keepalive_timer(maps:get(keepalive, ConnInfo), Channel).
 
 ensure_keepalive_timer(0, Channel) -> Channel;
-ensure_keepalive_timer(Interval, Channel = #channel{clientinfo = #{zone := Zone}}) ->
-    Backoff = emqx_zone:keepalive_backoff(Zone),
+ensure_keepalive_timer(disabled, Channel) -> Channel;
+ensure_keepalive_timer(Interval, Channel = #channel{clientinfo = #{zone := Zone,
+        listener := Listener}}) ->
+    Backoff = get_mqtt_conf(Zone, Listener, keepalive_backoff),
     Keepalive = emqx_keepalive:init(round(timer:seconds(Interval) * Backoff)),
     ensure_timer(alive_timer, Channel#channel{keepalive = Keepalive}).
 
@@ -1602,10 +1624,8 @@ maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
 
 %%--------------------------------------------------------------------
 %% Is ACL enabled?
-
--compile({inline, [is_acl_enabled/1]}).
-is_acl_enabled(#{zone := Zone, is_superuser := IsSuperuser}) ->
-    (not IsSuperuser) andalso emqx_zone:enable_acl(Zone).
+is_acl_enabled(#{zone := Zone, listener := Listener, is_superuser := IsSuperuser}) ->
+    (not IsSuperuser) andalso emqx_config:get_listener_conf(Zone, Listener, [acl, enable]).
 
 %%--------------------------------------------------------------------
 %% Parse Topic Filters
@@ -1716,6 +1736,12 @@ sp(false) -> 0.
 flag(true)  -> 1;
 flag(false) -> 0.
 
+get_mqtt_conf(Zone, Listener, Key) ->
+    emqx_config:get_listener_conf(Zone, Listener, [mqtt, Key]).
+
+get_mqtt_conf(Zone, Listener, Key, Default) ->
+    emqx_config:get_listener_conf(Zone, Listener, [mqtt, Key], Default).
+
 %%--------------------------------------------------------------------
 %% For CT tests
 %%--------------------------------------------------------------------
@@ -1723,4 +1749,3 @@ flag(false) -> 0.
 set_field(Name, Value, Channel) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, channel)),
     setelement(Pos+1, Channel, Value).
-

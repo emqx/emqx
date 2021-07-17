@@ -27,14 +27,15 @@ start_link() ->
 
 init([]) ->
     {ok, {{one_for_one, 10, 100},
-          [child_spec(emqx_global_gc, worker),
-           child_spec(emqx_pool_sup, supervisor),
-           child_spec(emqx_hooks, worker),
-           child_spec(emqx_stats, worker),
-           child_spec(emqx_metrics, worker),
-           child_spec(emqx_ctl, worker),
-           child_spec(emqx_zone, worker),
-           child_spec(emqx_config_handler, worker)
+           %% always start emqx_config_handler first to load the emqx.conf to emqx_config
+          [ child_spec(emqx_config_handler, worker)
+          , child_spec(emqx_global_gc, worker)
+          , child_spec(emqx_pool_sup, supervisor)
+          , child_spec(emqx_hooks, worker)
+          , child_spec(emqx_stats, worker)
+          , child_spec(emqx_metrics, worker)
+          , child_spec(emqx_ctl, worker)
+          , child_spec(emqx_zone, worker)
           ]}}.
 
 child_spec(M, Type) ->

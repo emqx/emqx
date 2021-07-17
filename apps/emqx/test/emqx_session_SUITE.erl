@@ -29,6 +29,7 @@ all() -> emqx_ct:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
+    emqx_channel_SUITE:set_default_zone_conf(),
     ok = meck:new([emqx_hooks, emqx_metrics, emqx_broker],
                   [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
@@ -50,15 +51,16 @@ end_per_testcase(_TestCase, Config) ->
 %%--------------------------------------------------------------------
 
 t_session_init(_) ->
-    Session = emqx_session:init(#{zone => zone}, #{receive_maximum => 64}),
+    Session = emqx_session:init(#{zone => default, listener => mqtt_tcp},
+        #{receive_maximum => 64}),
     ?assertEqual(#{}, emqx_session:info(subscriptions, Session)),
     ?assertEqual(0, emqx_session:info(subscriptions_cnt, Session)),
-    ?assertEqual(0, emqx_session:info(subscriptions_max, Session)),
+    ?assertEqual(infinity, emqx_session:info(subscriptions_max, Session)),
     ?assertEqual(false, emqx_session:info(upgrade_qos, Session)),
     ?assertEqual(0, emqx_session:info(inflight_cnt, Session)),
     ?assertEqual(64, emqx_session:info(inflight_max, Session)),
     ?assertEqual(1, emqx_session:info(next_pkt_id, Session)),
-    ?assertEqual(0, emqx_session:info(retry_interval, Session)),
+    ?assertEqual(30, emqx_session:info(retry_interval, Session)),
     ?assertEqual(0, emqx_mqueue:len(emqx_session:info(mqueue, Session))),
     ?assertEqual(0, emqx_session:info(awaiting_rel_cnt, Session)),
     ?assertEqual(100, emqx_session:info(awaiting_rel_max, Session)),
@@ -72,13 +74,13 @@ t_session_init(_) ->
 t_session_info(_) ->
     ?assertMatch(#{subscriptions  := #{},
                    upgrade_qos    := false,
-                   retry_interval := 0,
+                   retry_interval := 30,
                    await_rel_timeout := 300
                   }, emqx_session:info(session())).
 
 t_session_stats(_) ->
     Stats = emqx_session:stats(session()),
-    ?assertMatch(#{subscriptions_max := 0,
+    ?assertMatch(#{subscriptions_max := infinity,
                    inflight_max      := 0,
                    mqueue_len        := 0,
                    mqueue_max        := 1000,
@@ -99,7 +101,7 @@ t_subscribe(_) ->
     ?assertEqual(1, emqx_session:info(subscriptions_cnt, Session)).
 
 t_is_subscriptions_full_false(_) ->
-    Session = session(#{max_subscriptions => 0}),
+    Session = session(#{max_subscriptions => infinity}),
     ?assertNot(emqx_session:is_subscriptions_full(Session)).
 
 t_is_subscriptions_full_true(_) ->
@@ -152,7 +154,7 @@ t_publish_qos2_with_error_return(_) ->
     {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED} = emqx_session:publish(3, Msg, Session1).
 
 t_is_awaiting_full_false(_) ->
-    Session = session(#{max_awaiting_rel => 0}),
+    Session = session(#{max_awaiting_rel => infinity}),
     ?assertNot(emqx_session:is_awaiting_full(Session)).
 
 t_is_awaiting_full_true(_) ->
@@ -375,7 +377,8 @@ session(InitFields) when is_map(InitFields) ->
     maps:fold(fun(Field, Value, Session) ->
                       emqx_session:set_field(Field, Value, Session)
               end,
-              emqx_session:init(#{zone => channel}, #{receive_maximum => 0}),
+              emqx_session:init(#{zone => default, listener => mqtt_tcp},
+                  #{receive_maximum => 0}),
               InitFields).
 
 

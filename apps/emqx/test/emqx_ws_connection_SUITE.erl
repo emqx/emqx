@@ -48,6 +48,7 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_pingreq_before_connected,
     TestCase =/= t_ws_non_check_origin
     ->
+    emqx_channel_SUITE:set_default_zone_conf(),
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
     ok = meck:expect(cowboy_req, header, fun(_, _, _) -> <<>> end),
@@ -55,13 +56,6 @@ init_per_testcase(TestCase, Config) when
     ok = meck:expect(cowboy_req, sock, fun(_) -> {{127,0,0,1}, 18083} end),
     ok = meck:expect(cowboy_req, cert, fun(_) -> undefined end),
     ok = meck:expect(cowboy_req, parse_cookies, fun(_) -> error(badarg) end),
-    %% Mock emqx_zone
-    ok = meck:new(emqx_zone, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_zone, oom_policy,
-                     fun(_) -> #{max_heap_size => 838860800,
-                                 message_queue_len => 8000
-                                }
-                     end),
     %% Mock emqx_access_control
     ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end),
@@ -85,6 +79,7 @@ init_per_testcase(TestCase, Config) when
     Config;
 
 init_per_testcase(_, Config) ->
+    ok = emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_testcase(TestCase, _Config) when
@@ -96,7 +91,6 @@ end_per_testcase(TestCase, _Config) when
         ->
     lists:foreach(fun meck:unload/1,
                   [cowboy_req,
-                   emqx_zone,
                    emqx_access_control,
                    emqx_broker,
                    emqx_hooks,
@@ -104,6 +98,7 @@ end_per_testcase(TestCase, _Config) when
                   ]);
 
 end_per_testcase(_, Config) ->
+    emqx_ct_helpers:stop_apps([]),
     Config.
 
 %%--------------------------------------------------------------------
@@ -118,18 +113,21 @@ t_info(_) ->
                   end),
     #{sockinfo := SockInfo} = ?ws_conn:call(WsPid, info),
     #{socktype  := ws,
-      active_n  := 100,
       peername  := {{127,0,0,1}, 3456},
       sockname  := {{127,0,0,1}, 18083},
       sockstate := running
      } = SockInfo.
 
+set_ws_opts(Key, Val) ->
+    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, Key], Val).
+
 t_header(_) ->
-    ok = meck:expect(cowboy_req, header, fun(<<"x-forwarded-for">>, _, _) -> <<"100.100.100.100, 99.99.99.99">>;
-                                            (<<"x-forwarded-port">>, _, _) -> <<"1000">> end),
-    {ok, St, _} = ?ws_conn:websocket_init([req, [{zone, external},
-                                                 {proxy_address_header, <<"x-forwarded-for">>},
-                                                 {proxy_port_header, <<"x-forwarded-port">>}]]),
+    ok = meck:expect(cowboy_req, header,
+        fun(<<"x-forwarded-for">>, _, _) -> <<"100.100.100.100, 99.99.99.99">>;
+           (<<"x-forwarded-port">>, _, _) -> <<"1000">> end),
+    set_ws_opts(proxy_address_header, <<"x-forwarded-for">>),
+    set_ws_opts(proxy_port_header, <<"x-forwarded-port">>),
+    {ok, St, _} = ?ws_conn:websocket_init([req, #{zone => default, listener => mqtt_ws}]),
     WsPid = spawn(fun() ->
         receive {call, From, info} ->
             gen_server:reply(From, ?ws_conn:info(St))
@@ -175,12 +173,10 @@ t_call(_) ->
     ?assertEqual(Info, ?ws_conn:call(WsPid, info)).
 
 t_ws_pingreq_before_connected(_) ->
-    ok = emqx_ct_helpers:start_apps([]),
     {ok, _} = application:ensure_all_started(gun),
     {ok, WPID} = gun:open("127.0.0.1", 8083),
     ws_pingreq(#{}),
-    gun:close(WPID),
-    emqx_ct_helpers:stop_apps([]).
+    gun:close(WPID).
 
 ws_pingreq(State) ->
     receive
@@ -209,14 +205,11 @@ ws_pingreq(State) ->
     end.
 
 t_ws_sub_protocols_mqtt(_) ->
-    ok = emqx_ct_helpers:start_apps([]),
     {ok, _} = application:ensure_all_started(gun),
     ?assertMatch({gun_upgrade, _},
-        start_ws_client(#{protocols => [<<"mqtt">>]})),
-    emqx_ct_helpers:stop_apps([]).
+        start_ws_client(#{protocols => [<<"mqtt">>]})).
 
 t_ws_sub_protocols_mqtt_equivalents(_) ->
-    ok = emqx_ct_helpers:start_apps([]),
     {ok, _} = application:ensure_all_started(gun),
     %% also support mqtt-v3, mqtt-v3.1.1, mqtt-v5
     ?assertMatch({gun_upgrade, _},
@@ -226,58 +219,39 @@ t_ws_sub_protocols_mqtt_equivalents(_) ->
     ?assertMatch({gun_upgrade, _},
         start_ws_client(#{protocols => [<<"mqtt-v5">>]})),
     ?assertMatch({gun_response, {_, 400, _}},
-        start_ws_client(#{protocols => [<<"not-mqtt">>]})),
-    emqx_ct_helpers:stop_apps([]).
+        start_ws_client(#{protocols => [<<"not-mqtt">>]})).
 
 t_ws_check_origin(_) ->
-    emqx_ct_helpers:start_apps([],
-        fun(emqx) ->
-            {ok, Listeners} = application:get_env(emqx, listeners),
-            NListeners = lists:map(fun(#{listen_on := 8083, opts := Opts} = Listener) ->
-                                       NOpts = proplists:delete(check_origin_enable, Opts),
-                                       Listener#{opts => [{check_origin_enable, true} | NOpts]};
-                                      (Listener) ->
-                                       Listener
-                                   end, Listeners),
-            application:set_env(emqx, listeners, NListeners),
-            ok;
-           (_) -> ok
-        end),
+    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, check_origin_enable], true),
+    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, check_origins],
+        [<<"http://localhost:18083">>]),
     {ok, _} = application:ensure_all_started(gun),
     ?assertMatch({gun_upgrade, _},
         start_ws_client(#{protocols => [<<"mqtt">>],
                           headers => [{<<"origin">>, <<"http://localhost:18083">>}]})),
     ?assertMatch({gun_response, {_, 500, _}},
         start_ws_client(#{protocols => [<<"mqtt">>],
-                          headers => [{<<"origin">>, <<"http://localhost:18080">>}]})),
-    emqx_ct_helpers:stop_apps([]).
+                          headers => [{<<"origin">>, <<"http://localhost:18080">>}]})).
 
 t_ws_non_check_origin(_) ->
-    emqx_ct_helpers:start_apps([]),
+    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, check_origin_enable], false),
+    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, check_origins], []),
     {ok, _} = application:ensure_all_started(gun),
     ?assertMatch({gun_upgrade, _},
         start_ws_client(#{protocols => [<<"mqtt">>],
                           headers => [{<<"origin">>, <<"http://localhost:18083">>}]})),
     ?assertMatch({gun_upgrade, _},
         start_ws_client(#{protocols => [<<"mqtt">>],
-                          headers => [{<<"origin">>, <<"http://localhost:18080">>}]})),
-    emqx_ct_helpers:stop_apps([]).
-
+                          headers => [{<<"origin">>, <<"http://localhost:18080">>}]})).
 
 t_init(_) ->
-    Opts = [{idle_timeout, 300000},
-            {fail_if_no_subprotocol, false},
-            {supported_subprotocols, ["mqtt"]}],
-    WsOpts = #{compress       => false,
-               deflate_opts   => #{},
-               max_frame_size => infinity,
-               idle_timeout   => 300000
-              },
+    Opts = #{listener => mqtt_ws, zone => default},
     ok = meck:expect(cowboy_req, parse_header, fun(_, req) -> undefined end),
-    {cowboy_websocket, req, [req, Opts], WsOpts} = ?ws_conn:init(req, Opts),
+    ok = meck:expect(cowboy_req, reply, fun(_, Req) -> Req end),
+    {ok, req, _} = ?ws_conn:init(req, Opts),
     ok = meck:expect(cowboy_req, parse_header, fun(_, req) -> [<<"mqtt">>] end),
     ok = meck:expect(cowboy_req, set_resp_header, fun(_, <<"mqtt">>, req) -> resp end),
-    {cowboy_websocket, resp, [req, Opts], WsOpts} = ?ws_conn:init(req, Opts).
+    {cowboy_websocket, resp, [req, Opts], _} = ?ws_conn:init(req, Opts).
 
 t_websocket_handle_binary(_) ->
     {ok, _} = websocket_handle({binary, <<>>}, st()),
@@ -450,15 +424,6 @@ t_run_gc(_) ->
     WsSt = st(#{gc_state => GcSt}),
     ?ws_conn:run_gc(#{cnt => 100, oct => 10000}, WsSt).
 
-t_check_oom(_) ->
-    %%Policy = #{max_heap_size => 10, message_queue_len => 10},
-    %%meck:expect(emqx_zone, oom_policy, fun(_) -> Policy end),
-    _St = ?ws_conn:check_oom(st()),
-    ok = timer:sleep(10).
-    %%receive {shutdown, proc_heap_too_large} -> ok
-    %%after 0 -> error(expect_shutdown)
-    %%end.
-
 t_enqueue(_) ->
     Packet = ?PUBLISH_PACKET(?QOS_0),
     St = ?ws_conn:enqueue(Packet, st()),
@@ -473,7 +438,7 @@ t_shutdown(_) ->
 
 st() -> st(#{}).
 st(InitFields) when is_map(InitFields) ->
-    {ok, St, _} = ?ws_conn:websocket_init([req, [{zone, external}]]),
+    {ok, St, _} = ?ws_conn:websocket_init([req, #{zone => default, listener => mqtt_ws}]),
     maps:fold(fun(N, V, S) -> ?ws_conn:set_field(N, V, S) end,
               ?ws_conn:set_field(channel, channel(), St),
               InitFields
@@ -493,7 +458,8 @@ channel(InitFields) ->
                  receive_maximum => 100,
                  expiry_interval => 0
                 },
-    ClientInfo = #{zone       => zone,
+    ClientInfo = #{zone       => default,
+                   listener   => mqtt_ws,
                    protocol   => mqtt,
                    peerhost   => {127,0,0,1},
                    clientid   => <<"clientid">>,
@@ -502,13 +468,13 @@ channel(InitFields) ->
                    peercert   => undefined,
                    mountpoint => undefined
                   },
-    Session = emqx_session:init(#{zone => external},
+    Session = emqx_session:init(#{zone => default, listener => mqtt_ws},
                                 #{receive_maximum => 0}
                                ),
     maps:fold(fun(Field, Value, Channel) ->
                       emqx_channel:set_field(Field, Value, Channel)
               end,
-              emqx_channel:init(ConnInfo, [{zone, zone}]),
+              emqx_channel:init(ConnInfo, #{zone => default, listener => mqtt_ws}),
               maps:merge(#{clientinfo => ClientInfo,
                            session    => Session,
                            conn_state => connected

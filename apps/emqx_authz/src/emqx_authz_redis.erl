@@ -74,7 +74,7 @@ match(Client, PubSub, Topic,
             #{<<"simple_rule">> => Rule},
             #{atom_key => true},
             [simple_rule]),
-    case emqx_authz:match(Client, PubSub, Topic, emqx_authz:compile(NRule)) of
+    case emqx_authz:match(Client, PubSub, Topic, emqx_authz:init_rule(NRule)) of
         true -> {matched, allow};
         false -> nomatch
     end.

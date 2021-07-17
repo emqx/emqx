@@ -20,24 +20,6 @@
 -define(SERVER, "http://127.0.0.1:8081").
 -define(BASE_PATH, "/api/v5").
 
-default_init() ->
-    ekka_mnesia:start(),
-    emqx_mgmt_auth:mnesia(boot),
-    emqx_ct_helpers:start_apps([emqx_management], fun set_special_configs/1),
-    ok.
-
-
-default_end() ->
-    emqx_ct_helpers:stop_apps([emqx_management]).
-
-set_special_configs(emqx_management) ->
-    emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
-        applications =>[#{id => "admin", secret => "public"}]}),
-    ok;
-set_special_configs(_App) ->
-    ok.
-
-
 request_api(Method, Url) ->
     request_api(Method, Url, [], auth_header_(), []).
 

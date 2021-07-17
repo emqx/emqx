@@ -8,13 +8,11 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--type flag() :: true | false.
 -type duration() :: integer().
 -type bytesize() :: integer().
 -type comma_separated_list() :: list().
 -type ip_port() :: tuple().
 
--typerefl_from_string({flag/0, emqx_schema, to_flag}).
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({bytesize/0, emqx_schema, to_bytesize}).
 -typerefl_from_string({comma_separated_list/0, emqx_schema, to_comma_separated_list}).
@@ -22,8 +20,7 @@
 
 -behaviour(hocon_schema).
 
--reflect_type([ flag/0
-              , duration/0
+-reflect_type([ duration/0
               , bytesize/0
               , comma_separated_list/0
               , ip_port/0
@@ -114,16 +111,16 @@ fields(listener_settings) ->
     %, {zone, t(string())}
     %, {rate_limit, t(comma_separated_list())}
     , {access, t(ref(access))}
-    , {proxy_protocol, t(flag())}
+    , {proxy_protocol, t(boolean())}
     , {proxy_protocol_timeout, t(duration())}
     , {backlog, t(integer(), undefined, 1024)}
     , {send_timeout, t(duration(), undefined, "15s")}
-    , {send_timeout_close, t(flag(), undefined, true)}
+    , {send_timeout_close, t(boolean(), undefined, true)}
     , {recbuf, t(bytesize())}
     , {sndbuf, t(bytesize())}
     , {buffer, t(bytesize())}
     , {high_watermark, t(bytesize(), undefined, "1MB")}
-    , {tune_buffer, t(flag())}
+    , {tune_buffer, t(boolean())}
     , {nodelay, t(boolean())}
     , {reuseaddr, t(boolean())}
     ];
@@ -202,15 +199,15 @@ ssl(Mapping, Defaults) ->
             _ -> Mapping ++ "." ++ Field
         end end,
     D = fun (Field) -> maps:get(list_to_atom(Field), Defaults, undefined) end,
-    [ {"enable", t(flag(), M("enable"), D("enable"))}
+    [ {"enable", t(boolean(), M("enable"), D("enable"))}
     , {"cacertfile", t(string(), M("cacertfile"), D("cacertfile"))}
     , {"certfile", t(string(), M("certfile"), D("certfile"))}
     , {"keyfile", t(string(), M("keyfile"), D("keyfile"))}
     , {"verify", t(union(verify_peer, verify_none), M("verify"), D("verify"))}
     , {"fail_if_no_peer_cert", t(boolean(), M("fail_if_no_peer_cert"), D("fail_if_no_peer_cert"))}
-    , {"secure_renegotiate", t(flag(), M("secure_renegotiate"), D("secure_renegotiate"))}
-    , {"reuse_sessions", t(flag(), M("reuse_sessions"), D("reuse_sessions"))}
-    , {"honor_cipher_order", t(flag(), M("honor_cipher_order"), D("honor_cipher_order"))}
+    , {"secure_renegotiate", t(boolean(), M("secure_renegotiate"), D("secure_renegotiate"))}
+    , {"reuse_sessions", t(boolean(), M("reuse_sessions"), D("reuse_sessions"))}
+    , {"honor_cipher_order", t(boolean(), M("honor_cipher_order"), D("honor_cipher_order"))}
     , {"handshake_timeout", t(duration(), M("handshake_timeout"), D("handshake_timeout"))}
     , {"depth", t(integer(), M("depth"), D("depth"))}
     , {"password", hoconsc:t(string(), #{mapping => M("key_password"),

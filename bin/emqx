@@ -205,6 +205,7 @@ relx_nodetool() {
 
 call_hocon() {
     export RUNNER_ROOT_DIR
+    export RUNNER_ETC_DIR
     export REL_VSN
     "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" hocon "$@" \
         || die "ERROR: call_hocon failed: $*" $?
@@ -592,7 +593,7 @@ case "$1" in
 
         # set before generate_config
         if [ "${_EMQX_START_MODE:-}" = '' ]; then
-            export EMQX_LOG__TO="${EMQX_LOG__TO:-console}"
+            export EMQX_LOG__CONSOLE_HANDLER__ENABLE="${EMQX_LOG__CONSOLE_HANDLER__ENABLE:-true}"
         fi
 
         #generate app.config and vm.args
@@ -636,7 +637,7 @@ case "$1" in
         # or other supervision services
 
         # set before generate_config
-        export EMQX_LOG__TO="${EMQX_LOG__TO:-console}"
+        export EMQX_LOG__CONSOLE_HANDLER__ENABLE="${EMQX_LOG__CONSOLE_HANDLER__ENABLE:-true}"
 
         #generate app.config and vm.args
         generate_config
