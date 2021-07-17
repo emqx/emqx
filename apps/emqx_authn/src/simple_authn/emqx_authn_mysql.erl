@@ -38,14 +38,28 @@ structs() -> [config].
 fields(config) ->
     [ {server_type,             {enum, [mysql]}}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
-    , {salt_position,           {enum, [prefix, suffix]}}
+    , {salt_position,           fun salt_position/1}
     , {query,                   fun query/1}
     , {query_timeout,           fun query_timeout/1}
     ] ++ emqx_connector_schema_lib:relational_db_fields()
-    ++ emqx_connector_schema_lib:ssl_fields().
+    ++ emqx_connector_schema_lib:ssl_fields();
 
-password_hash_algorithm(type) -> string();
+fields(bcrypt) ->
+    [ {name, {enum, [bcrypt]}}
+    , {salt_rounds, fun salt_rounds/1}
+    ];
+
+fields(other_algorithms) ->
+    [ {name, {enum, [plain, md5, sha, sha256, sha512]}}
+    ].
+
+password_hash_algorithm(type) -> {union, [hoconsc:ref(bcrypt), hoconsc:ref(other_algorithms)]};
+password_hash_algorithm(default) -> #{<<"name">> => sha256};
 password_hash_algorithm(_) -> undefined.
+
+salt_position(type) -> {enum, [prefix, suffix]};
+salt_position(default) -> prefix;
+salt_position(_) -> undefined.
 
 query(type) -> string();
 query(nullable) -> false;

@@ -80,7 +80,7 @@ server_type(type) -> hoconsc:enum(['built-in-database']);
 server_type(default) -> 'built-in-database';
 server_type(_) -> undefined.
 
-algorithm(type) -> hoconsc:enum([sha256, sha256]);
+algorithm(type) -> hoconsc:enum([sha256, sha512]);
 algorithm(default) -> sha256;
 algorithm(_) -> undefined.
 
