@@ -120,7 +120,7 @@ node_api() ->
                 required => true,
                 example => node()}],
             responses => #{
-                <<"400">> => emqx_mgmt_util:not_found_schema(<<"Node error">>, [<<"SOURCE_ERROR">>]),
+                <<"400">> => emqx_mgmt_util:response_error_schema(<<"Node error">>, ['SOURCE_ERROR']),
                 <<"200">> => emqx_mgmt_util:response_schema(<<"Get EMQ X Nodes info by name">>, <<"node">>)}}},
     {"/nodes/:node_name", Metadata, node}.
 
@@ -136,7 +136,7 @@ node_metrics_api() ->
                 required => true,
                 example => node()}],
             responses => #{
-                <<"400">> => emqx_mgmt_util:not_found_schema(<<"Node error">>, [<<"SOURCE_ERROR">>]),
+                <<"400">> => emqx_mgmt_util:response_error_schema(<<"Node error">>, ['SOURCE_ERROR']),
                 <<"200">> => emqx_mgmt_util:response_schema(<<"Get EMQ X Node Metrics">>, <<"metrics">>)}}},
     {"/nodes/:node_name/metrics", Metadata, node_metrics}.
 
@@ -152,7 +152,7 @@ node_stats_api() ->
                 required => true,
                 example => node()}],
             responses => #{
-                <<"400">> => emqx_mgmt_util:not_found_schema(<<"Node error">>, [<<"SOURCE_ERROR">>]),
+                <<"400">> => emqx_mgmt_util:response_error_schema(<<"Node error">>, ['SOURCE_ERROR']),
                 <<"200">> => emqx_mgmt_util:response_schema(<<"Get EMQ X Node Stats">>, <<"stats">>)}}},
     {"/nodes/:node_name/stats", Metadata, node_metrics}.
 

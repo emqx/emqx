@@ -29,8 +29,8 @@
         , response_schema/1
         , response_schema/2
         , response_array_schema/2
-        , not_found_schema/1
-        , not_found_schema/2
+        , response_error_schema/1
+        , response_error_schema/2
         , batch_response_schema/1]).
 
 -export([urldecode/1]).
@@ -113,10 +113,11 @@ response_schema(Description, Schema) when is_map(Schema) ->
 response_schema(Description, Ref) when is_binary(Ref) ->
     json_content_schema(Description, minirest:ref(Ref)).
 
-not_found_schema(Description) ->
-    not_found_schema(Description, ["RESOURCE_NOT_FOUND"]).
+%% @doc default code is RESOURCE_NOT_FOUND
+response_error_schema(Description) ->
+    response_error_schema(Description, ['RESOURCE_NOT_FOUND']).
 
-not_found_schema(Description, Enum) ->
+response_error_schema(Description, Enum) ->
     Schema = #{
         type => object,
         properties => #{
