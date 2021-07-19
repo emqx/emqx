@@ -67,7 +67,6 @@
                                                             flush_time_interval = FlushTimeInterval,
                                                             estatsd_pid = Pid,
                                                             timer = Ref}) ->
-     ?LOG(debug, "emqx statsd submit"),
      Metrics = emqx_metrics:all() ++ emqx_stats:getstats() ++ emqx_vm_data(),
      SampleRate = SampleTimeInterval / FlushTimeInterval,
      StatsdMetrics = [{gauge, trans_metrics_name(Name), Value, SampleRate, []} || {Name, Value} <- Metrics],
