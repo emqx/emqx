@@ -1,6 +1,6 @@
 {application, emqx_exproto,
  [{description, "EMQ X Extension for Protocol"},
-  {vsn, "4.3.0"}, %% strict semver
+  {vsn, "4.3.1"}, %% strict semver
   {modules, []},
   {registered, []},
   {mod, {emqx_exproto_app, []}},
