@@ -27,7 +27,7 @@
 
 -record(limiter, {
           %% Zone
-          zone :: emqx_zone:zone(),
+          zone :: atom(),
           %% Checkers
           checkers :: [checker()]
          }).
@@ -35,7 +35,7 @@
 -type(checker() :: #{ name     := name()
                     , capacity := non_neg_integer()
                     , interval := non_neg_integer()
-                    , consumer := esockd_rate_limit:bucket() | emqx_zone:zone()
+                    , consumer := esockd_rate_limit:bucket() | atom()
                     }).
 
 -type(name() :: conn_bytes_in
@@ -59,7 +59,7 @@
 %% APIs
 %%--------------------------------------------------------------------
 
--spec(init(emqx_zone:zone(),
+-spec(init(atom(),
            maybe(esockd_rate_limit:config()),
            maybe(esockd_rate_limit:config()), policy())
      -> maybe(limiter())).
@@ -69,7 +69,7 @@ init(Zone, PubLimit, BytesIn, Specs) ->
     Filtered = maps:filter(fun(_, V) -> V /= undefined end, Merged),
     init(Zone, maps:to_list(Filtered)).
 
--spec(init(emqx_zone:zone(), policy()) -> maybe(limiter())).
+-spec(init(atom(), policy()) -> maybe(limiter())).
 init(_Zone, []) ->
     undefined;
 init(Zone, Specs) ->

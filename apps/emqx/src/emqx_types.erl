@@ -101,7 +101,7 @@
                     qos1 | at_least_once |
                     qos2 | exactly_once).
 
--type(zone() :: emqx_zone:zone()).
+-type(zone() :: atom()).
 -type(pubsub() :: publish | subscribe).
 -type(topic() :: emqx_topic:topic()).
 -type(subid() :: binary() | atom()).
