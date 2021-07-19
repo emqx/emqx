@@ -85,7 +85,7 @@ replvar(Str0, PubSub, Topic,
                  is_binary(Str0) ->
     NTopic = emqx_http_lib:uri_encode(Topic),
     Str1 = re:replace(Str0, "%c", Clientid, [global, {return, binary}]),
-    Str2 = re:replace(Str1, "%u", Username, [global, {return, binary}]),
+    Str2 = re:replace(Str1, "%u", bin(Username), [global, {return, binary}]),
     Str3 = re:replace(Str2, "%a", inet_parse:ntoa(IpAddress), [global, {return, binary}]),
     Str4 = re:replace(Str3, "%r", bin(Protocol), [global, {return, binary}]),
     Str5 = re:replace(Str4, "%m", Mountpoint, [global, {return, binary}]),
