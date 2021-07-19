@@ -244,7 +244,7 @@ check_origin_header(Req, #{zone := Zone, listener := Listener} = Opts) ->
 
 websocket_init([Req, #{zone := Zone, listener := Listener} = Opts]) ->
     {Peername, Peercert} =
-        case emqx_config:get_zone_conf(Zone, [proxy_protocol]) andalso
+        case emqx_config:get_listener_conf(Zone, Listener, [proxy_protocol]) andalso
              maps:get(proxy_header, Req) of
             #{src_address := SrcAddr, src_port := SrcPort, ssl := SSL} ->
                 SourceName = {SrcAddr, SrcPort},
@@ -296,7 +296,7 @@ websocket_init([Req, #{zone := Zone, listener := Listener} = Opts]) ->
         false -> disabled
     end,
     %% MQTT Idle Timeout
-    IdleTimeout = emqx_channel:get_mqtt_conf(Zone, Listener, idle_timeout),
+    IdleTimeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
     IdleTimer = start_timer(IdleTimeout, idle_timeout),
     case emqx_config:get_zone_conf(emqx_channel:info(zone, Channel),
             [force_shutdown]) of
@@ -372,7 +372,7 @@ websocket_info({check_gc, Stats}, State) ->
 
 websocket_info(Deliver = {deliver, _Topic, _Msg},
                State = #state{zone = Zone, listener = Listener}) ->
-    ActiveN = emqx_config:get_zone_conf(Zone, [tcp, active_n]),
+    ActiveN = emqx_config:get_listener_conf(Zone, Listener, [tcp, active_n]),
     Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 
@@ -564,7 +564,7 @@ handle_incoming(Packet, State = #state{zone = Zone, listener = Listener})
     ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]),
     ok = inc_incoming_stats(Packet),
     NState = case emqx_pd:get_counter(incoming_pubs) >
-                  emqx_config:get_zone_conf(Zone, [tcp, active_n]) of
+                  emqx_config:get_listener_conf(Zone, Listener, [tcp, active_n]) of
                  true  -> postpone({cast, rate_limit}, State);
                  false -> State
              end,
@@ -601,7 +601,7 @@ handle_outgoing(Packets, State = #state{mqtt_piggyback = MQTTPiggyback,
     Oct = iolist_size(IoData),
     ok = inc_sent_stats(length(Packets), Oct),
     NState = case emqx_pd:get_counter(outgoing_pubs) >
-                  emqx_config:get_zone_conf(Zone, [tcp, active_n]) of
+                  emqx_config:get_listener_conf(Zone, Listener, [tcp, active_n]) of
                  true ->
                      Stats = #{cnt => emqx_pd:reset_counter(outgoing_pubs),
                                oct => emqx_pd:reset_counter(outgoing_bytes)
@@ -789,4 +789,4 @@ set_field(Name, Value, State) ->
     setelement(Pos+1, State, Value).
 
 get_ws_opts(Zone, Listener, Key) ->
-    emqx_config:get_zone_conf(Zone, [websocket, Key]).
+    emqx_config:get_listener_conf(Zone, Listener, [websocket, Key]).
