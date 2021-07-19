@@ -57,6 +57,10 @@ password_hash_algorithm(type) -> {union, [hoconsc:ref(bcrypt), hoconsc:ref(other
 password_hash_algorithm(default) -> #{<<"name">> => sha256};
 password_hash_algorithm(_) -> undefined.
 
+salt_rounds(type) -> integer();
+salt_rounds(default) -> 10;
+salt_rounds(_) -> undefined.
+
 salt_position(type) -> {enum, [prefix, suffix]};
 salt_position(default) -> prefix;
 salt_position(_) -> undefined.

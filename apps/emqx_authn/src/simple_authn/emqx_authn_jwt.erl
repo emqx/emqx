@@ -22,7 +22,6 @@
 
 -export([ structs/0
         , fields/1
-        , validations/0
         ]).
 
 -export([ create/3
@@ -81,19 +80,13 @@ fields(ssl_enable) ->
     ];
 
 fields(ssl_disable) ->
-    [ {enable, #{type => false}} ];
-
-fields(claim) ->
-    [ {"$name", fun expected_claim_value/1} ].
-
-validations() ->
-    [ {check_verify_claims, fun check_verify_claims/1} ].
+    [ {enable, #{type => false}} ].
 
 secret(type) -> string();
 secret(_) -> undefined.
 
 secret_base64_encoded(type) -> boolean();
-secret_base64_encoded(defualt) -> false;
+secret_base64_encoded(default) -> false;
 secret_base64_encoded(_) -> undefined.
 
 certificate(type) -> string();
@@ -123,12 +116,14 @@ verify(_) -> undefined.
 server_name_indication(type) -> string();
 server_name_indication(_) -> undefined.
 
-verify_claims(type) -> hoconsc:array(hoconsc:ref(claim));
-verify_claims(default) -> [];
+verify_claims(type) -> list();
+verify_claims(default) -> #{};
+verify_claims(validate) -> [fun check_verify_claims/1];
+verify_claims(converter) ->
+    fun(VerifyClaims) ->
+        maps:to_list(VerifyClaims)
+    end;
 verify_claims(_) -> undefined.
-
-expected_claim_value(type) -> string();
-expected_claim_value(_) -> undefined.
 
 %%------------------------------------------------------------------------------
 %% APIs
