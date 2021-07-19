@@ -17,6 +17,7 @@
 %% TCP/TLS/UDP/DTLS Connection
 -module(emqx_exproto_conn).
 
+-include_lib("esockd/include/esockd.hrl").
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -195,7 +196,12 @@ esockd_ensure_ok_or_exit(Fun, {esockd_transport, Socket}) ->
 esockd_type({udp, _, _}) ->
     udp;
 esockd_type({esockd_transport, Socket}) ->
-    esockd_transport:type(Socket).
+    case esockd_transport:type(Socket) of
+        proxy ->
+            esockd_transport:type(Socket#proxy_socket.socket);
+        Type ->
+            Type
+    end.
 
 esockd_setopts({udp, _, _}, _) ->
     ok;
