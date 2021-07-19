@@ -64,8 +64,6 @@ t_mnesia_authenticator(_) ->
     ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:add_user(?CHAIN, AuthenticatorName, UserInfo)),
     ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:lookup_user(?CHAIN, AuthenticatorName, <<"myuser">>)),
 
-    ?assertEqual(false, emqx_zone:get_env(external, bypass_auth_plugins, false)),
-
     ClientInfo = #{zone => external,
                    username => <<"myuser">>,
 			       password => <<"mypass">>},

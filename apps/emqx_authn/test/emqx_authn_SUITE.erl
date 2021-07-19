@@ -96,8 +96,8 @@ t_authenticator(_) ->
     ok.
 
 t_authenticate(_) ->
-    ?assertEqual(false, emqx_zone:get_env(external, bypass_auth_plugins, false)),
-    ClientInfo = #{zone => external,
+    ClientInfo = #{zone => default,
+                   listener => mqtt_tcp,
                    username => <<"myuser">>,
 			       password => <<"mypass">>},
     ?assertEqual(ok, emqx_access_control:authenticate(ClientInfo)),

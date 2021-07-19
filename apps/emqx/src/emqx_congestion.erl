@@ -55,8 +55,9 @@ cancel_alarms(Socket, Transport, Channel) ->
     end, ?ALL_ALARM_REASONS).
 
 is_alarm_enabled(Channel) ->
-    emqx_zone:get_env(emqx_channel:info(zone, Channel),
-        conn_congestion_alarm_enabled, false).
+    Zone = emqx_channel:info(zone, Channel),
+    Listener = emqx_channel:info(listener, Channel),
+    emqx_config:get_listener_conf(Zone, Listener, [conn_congestion, enable_alarm]).
 
 alarm_congestion(Socket, Transport, Channel, Reason) ->
     case has_alarm_sent(Reason) of
@@ -68,8 +69,9 @@ alarm_congestion(Socket, Transport, Channel, Reason) ->
 
 cancel_alarm_congestion(Socket, Transport, Channel, Reason) ->
     Zone = emqx_channel:info(zone, Channel),
-    WontClearIn = emqx_zone:get_env(Zone, conn_congestion_min_alarm_sustain_duration,
-                    ?WONT_CLEAR_IN),
+    Listener = emqx_channel:info(listener, Channel),
+    WontClearIn = emqx_config:get_listener_conf(Zone, Listener, [conn_congestion,
+                    min_alarm_sustain_duration]),
     case has_alarm_sent(Reason) andalso long_time_since_last_alarm(Reason, WontClearIn) of
         true -> do_cancel_alarm_congestion(Socket, Transport, Channel, Reason);
         false -> ok
