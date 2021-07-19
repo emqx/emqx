@@ -446,9 +446,8 @@ do_unsubscribe(TopicFilter, UnSubOpts, Channel =
 parse_topic_filters(TopicFilters) ->
     lists:map(fun emqx_topic:parse/1, TopicFilters).
 
--compile({inline, [is_acl_enabled/1]}).
-is_acl_enabled(#{zone := Zone, is_superuser := IsSuperuser}) ->
-    (not IsSuperuser) andalso emqx_zone:enable_acl(Zone).
+is_acl_enabled(#{zone := Zone, listener := Listener, is_superuser := IsSuperuser}) ->
+    (not IsSuperuser) andalso emqx_config:get_listener_conf(Zone, Listener, [acl, enable]).
 
 %%--------------------------------------------------------------------
 %% Ensure & Hooks
