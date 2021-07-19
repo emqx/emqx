@@ -269,7 +269,7 @@ init_state(Transport, Socket, #{zone := Zone, listener := Listener} = Opts) ->
         true -> undefined;
         false -> disabled
     end,
-    IdleTimeout = emqx_channel:get_mqtt_conf(Zone, Listener, idle_timeout),
+    IdleTimeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
     IdleTimer = start_timer(IdleTimeout, idle_timeout),
     #state{transport    = Transport,
            socket       = Socket,
@@ -908,5 +908,5 @@ get_state(Pid) ->
 get_active_n(Zone, Listener) ->
     case emqx_config:get([zones, Zone, listeners, Listener, type]) of
         quic -> 100;
-        _ -> emqx_config:get_zone_conf(Zone, [tcp, active_n])
+        _ -> emqx_config:get_listener_conf(Zone, Listener, [tcp, active_n])
     end.
