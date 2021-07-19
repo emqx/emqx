@@ -398,7 +398,7 @@ t_bad_receive_maximum(_) ->
                      fun(true, _ClientInfo, _ConnInfo) ->
                              {ok, #{session => session(), present => false}}
                      end),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, response_information], test),
+    emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     C1 = channel(#{conn_state => idle}),
     {shutdown, protocol_error, _, _} =
         emqx_channel:handle_in(
@@ -411,8 +411,8 @@ t_override_client_receive_maximum(_) ->
                      fun(true, _ClientInfo, _ConnInfo) ->
                              {ok, #{session => session(), present => false}}
                      end),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, response_information], test),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, max_inflight], 0),
+    emqx_config:put_zone_conf(default, [mqtt, response_information], test),
+    emqx_config:put_zone_conf(default, [mqtt, max_inflight], 0),
     C1 = channel(#{conn_state => idle}),
     ClientCapacity = 2,
     {ok, [{event, connected}, _ConnAck], C2} =
@@ -663,7 +663,7 @@ t_handle_out_connack_response_information(_) ->
                      fun(true, _ClientInfo, _ConnInfo) ->
                              {ok, #{session => session(), present => false}}
                      end),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, response_information], test),
+    emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     IdleChannel = channel(#{conn_state => idle}),
     {ok, [{event, connected},
           {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, #{'Response-Information' := test})}],
@@ -677,7 +677,7 @@ t_handle_out_connack_not_response_information(_) ->
                      fun(true, _ClientInfo, _ConnInfo) ->
                              {ok, #{session => session(), present => false}}
                      end),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, response_information], test),
+    emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     IdleChannel = channel(#{conn_state => idle}),
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, AckProps)}], _} =
         emqx_channel:handle_in(
@@ -863,7 +863,7 @@ t_packing_alias(_) ->
                    channel())).
 
 t_check_pub_acl(_) ->
-    emqx_config:put_listener_conf(default, mqtt_tcp, [acl, enable], true),
+    emqx_config:put_zone_conf(default, [acl, enable], true),
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
     ok = emqx_channel:check_pub_acl(Publish, channel()).
 
@@ -873,7 +873,7 @@ t_check_pub_alias(_) ->
     ok = emqx_channel:check_pub_alias(#mqtt_packet{variable = Publish}, Channel).
 
 t_check_sub_acls(_) ->
-    emqx_config:put_listener_conf(default, mqtt_tcp, [acl, enable], true),
+    emqx_config:put_zone_conf(default, [acl, enable], true),
     TopicFilter = {<<"t">>, ?DEFAULT_SUBOPTS},
     [{TopicFilter, 0}] = emqx_channel:check_sub_acls([TopicFilter], channel()).
 

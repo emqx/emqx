@@ -697,4 +697,4 @@ set_field(Name, Value, Session) ->
     setelement(Pos+1, Session, Value).
 
 get_conf(Zone, Listener, Key) ->
-    emqx_config:get_listener_conf(Zone, Listener, [mqtt, Key]).
+    emqx_config:get_zone_conf(Zone, [mqtt, Key]).

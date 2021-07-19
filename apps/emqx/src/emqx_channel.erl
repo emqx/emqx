@@ -210,7 +210,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
         <<>> -> undefined;
         MP -> MP
     end,
-    QuotaPolicy = emqx_config:get_listener_conf(Zone, Listener, [rate_limit, quota]),
+    QuotaPolicy = emqx_config:get_zone_conf(Zone, [rate_limit, quota]),
     ClientInfo = set_peercert_infos(
                    Peercert,
                    #{zone         => Zone,
@@ -435,7 +435,7 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
             HasAclDeny = lists:any(fun({_TopicFilter, ReasonCode}) ->
                     ReasonCode =:= ?RC_NOT_AUTHORIZED
                 end, TupleTopicFilters0),
-            DenyAction = emqx_config:get_listener_conf(Zone, Listener, [acl, deny_action]),
+            DenyAction = emqx_config:get_zone_conf(Zone, [acl, deny_action]),
             case DenyAction =:= disconnect andalso HasAclDeny of
                 true -> handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel);
                 false ->
@@ -551,7 +551,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
         {error, Rc = ?RC_NOT_AUTHORIZED, NChannel} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s.",
                  [Topic, emqx_reason_codes:text(Rc)]),
-            case emqx_config:get_listener_conf(Zone, Listener, [acl_deny_action]) of
+            case emqx_config:get_zone_conf(Zone, [acl_deny_action]) of
                 ignore ->
                     case QoS of
                        ?QOS_0 -> {ok, NChannel};
@@ -997,7 +997,7 @@ handle_info({sock_closed, Reason}, Channel =
             #channel{conn_state = ConnState,
                      clientinfo = ClientInfo = #{zone := Zone, listener := Listener}})
         when ConnState =:= connected orelse ConnState =:= reauthenticating ->
-    emqx_config:get_listener_conf(Zone, Listener, [flapping_detect, enable])
+    emqx_config:get_zone_conf(Zone, [flapping_detect, enable])
         andalso emqx_flapping:detect(ClientInfo),
     Channel1 = ensure_disconnected(Reason, mabye_publish_will_msg(Channel)),
     case maybe_shutdown(Reason, Channel1) of
@@ -1625,7 +1625,7 @@ maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
 %%--------------------------------------------------------------------
 %% Is ACL enabled?
 is_acl_enabled(#{zone := Zone, listener := Listener, is_superuser := IsSuperuser}) ->
-    (not IsSuperuser) andalso emqx_config:get_listener_conf(Zone, Listener, [acl, enable]).
+    (not IsSuperuser) andalso emqx_config:get_zone_conf(Zone, [acl, enable]).
 
 %%--------------------------------------------------------------------
 %% Parse Topic Filters
@@ -1737,10 +1737,10 @@ flag(true)  -> 1;
 flag(false) -> 0.
 
 get_mqtt_conf(Zone, Listener, Key) ->
-    emqx_config:get_listener_conf(Zone, Listener, [mqtt, Key]).
+    emqx_config:get_zone_conf(Zone, [mqtt, Key]).
 
 get_mqtt_conf(Zone, Listener, Key, Default) ->
-    emqx_config:get_listener_conf(Zone, Listener, [mqtt, Key], Default).
+    emqx_config:get_zone_conf(Zone, [mqtt, Key], Default).
 
 %%--------------------------------------------------------------------
 %% For CT tests

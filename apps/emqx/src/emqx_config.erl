@@ -25,6 +25,12 @@
         , put/2
         ]).
 
+-export([ get_zone_conf/2
+        , get_zone_conf/3
+        , put_zone_conf/3
+        , find_zone_conf/2
+        ]).
+
 -export([ get_listener_conf/3
         , get_listener_conf/4
         , put_listener_conf/4
@@ -44,6 +50,8 @@
 
 -define(CONF, ?MODULE).
 -define(RAW_CONF, {?MODULE, raw}).
+-define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
+-define(LISTENER_CONF_PATH(ZONE, LISTENER, PATH), [zones, ZONE, listeners, LISTENER | PATH]).
 
 -export_type([update_request/0, raw_config/0, config/0]).
 -type update_request() :: term().
@@ -67,32 +75,39 @@ get(KeyPath, Default) ->
 find(KeyPath) ->
     emqx_map_lib:deep_find(KeyPath, get()).
 
+-spec get_zone_conf(atom(), emqx_map_lib:config_key_path()) -> term().
+get_zone_conf(Zone, KeyPath) ->
+    ?MODULE:get(?ZONE_CONF_PATH(Zone, KeyPath)).
+
+-spec get_zone_conf(atom(), emqx_map_lib:config_key_path(), term()) -> term().
+get_zone_conf(Zone, KeyPath, Default) ->
+    ?MODULE:get(?ZONE_CONF_PATH(Zone, KeyPath), Default).
+
+-spec put_zone_conf(atom(), emqx_map_lib:config_key_path(), term()) -> ok.
+put_zone_conf(Zone, KeyPath, Conf) ->
+    ?MODULE:put(?ZONE_CONF_PATH(Zone, KeyPath), Conf).
+
+-spec find_zone_conf(atom(), emqx_map_lib:config_key_path()) ->
+    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+find_zone_conf(Zone, KeyPath) ->
+    find(?ZONE_CONF_PATH(Zone, KeyPath)).
+
 -spec get_listener_conf(atom(), atom(), emqx_map_lib:config_key_path()) -> term().
 get_listener_conf(Zone, Listener, KeyPath) ->
-    case find_listener_conf(Zone, Listener, KeyPath) of
-        {not_found, SubKeyPath, Data} -> error({not_found, SubKeyPath, Data});
-        {ok, Data} -> Data
-    end.
+    ?MODULE:get(?LISTENER_CONF_PATH(Zone, Listener, KeyPath)).
 
 -spec get_listener_conf(atom(), atom(), emqx_map_lib:config_key_path(), term()) -> term().
 get_listener_conf(Zone, Listener, KeyPath, Default) ->
-    case find_listener_conf(Zone, Listener, KeyPath) of
-        {not_found, _, _} -> Default;
-        {ok, Data} -> Data
-    end.
+    ?MODULE:get(?LISTENER_CONF_PATH(Zone, Listener, KeyPath), Default).
 
 -spec put_listener_conf(atom(), atom(), emqx_map_lib:config_key_path(), term()) -> ok.
 put_listener_conf(Zone, Listener, KeyPath, Conf) ->
-    ?MODULE:put([zones, Zone, listeners, Listener | KeyPath], Conf).
+    ?MODULE:put(?LISTENER_CONF_PATH(Zone, Listener, KeyPath), Conf).
 
 -spec find_listener_conf(atom(), atom(), emqx_map_lib:config_key_path()) ->
     {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
 find_listener_conf(Zone, Listener, KeyPath) ->
-    %% the configs in listener is prior to the ones in the zone
-    case find([zones, Zone, listeners, Listener | KeyPath]) of
-        {not_found, _, _} -> find([zones, Zone | KeyPath]);
-        {ok, Data} -> {ok, Data}
-    end.
+    find(?LISTENER_CONF_PATH(Zone, Listener, KeyPath)).
 
 -spec put(map()) -> ok.
 put(Config) ->

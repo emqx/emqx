@@ -115,5 +115,5 @@ do_check_sub(_Flags, _Caps) -> ok.
 
 get_caps(Zone, Listener) ->
     lists:foldl(fun({K, V}, Acc) ->
-            Acc#{K => emqx_config:get_listener_conf(Zone, Listener, [mqtt, K], V)}
+            Acc#{K => emqx_config:get_zone_conf(Zone, [mqtt, K], V)}
         end, #{}, maps:to_list(?DEFAULT_CAPS)).

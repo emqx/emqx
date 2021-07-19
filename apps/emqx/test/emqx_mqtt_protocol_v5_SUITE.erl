@@ -217,14 +217,14 @@ t_connect_will_message(Config) ->
     ok = emqtt:disconnect(Client4).
 
 t_batch_subscribe(init, Config) ->
-    emqx_config:put_listener_conf(default, mqtt_tcp, [acl, enable], true),
-    emqx_config:put_listener_conf(default, mqtt_quic, [acl, enable], true),
+    emqx_config:put_zone_conf(default, [acl, enable], true),
+    emqx_config:put_zone_conf(default, [acl, enable], true),
     ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
     Config;
 t_batch_subscribe('end', _Config) ->
-    emqx_config:put_listener_conf(default, mqtt_tcp, [acl, enable], false),
-    emqx_config:put_listener_conf(default, mqtt_quic, [acl, enable], false),
+    emqx_config:put_zone_conf(default, [acl, enable], false),
+    emqx_config:put_zone_conf(default, [acl, enable], false),
     meck:unload(emqx_access_control).
 
 t_batch_subscribe(Config) ->
@@ -288,22 +288,22 @@ t_connect_will_retain(Config) ->
 
 t_connect_idle_timeout(_Config) ->
     IdleTimeout = 2000,
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, idle_timeout], IdleTimeout),
-    emqx_config:put_listener_conf(default, mqtt_quic, [mqtt, idle_timeout], IdleTimeout),
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], IdleTimeout),
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], IdleTimeout),
     {ok, Sock} = emqtt_sock:connect({127,0,0,1}, 1883, [], 60000),
     timer:sleep(IdleTimeout),
     ?assertMatch({error, closed}, emqtt_sock:recv(Sock,1024)).
 
 t_connect_emit_stats_timeout(init, Config) ->
     NewIdleTimeout = 1000,
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, idle_timeout], NewIdleTimeout),
-    emqx_config:put_listener_conf(default, mqtt_quic, [mqtt, idle_timeout], NewIdleTimeout),
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], NewIdleTimeout),
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], NewIdleTimeout),
     ok = snabbkaffe:start_trace(),
     [{idle_timeout, NewIdleTimeout} | Config];
 t_connect_emit_stats_timeout('end', _Config) ->
     snabbkaffe:stop(),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, idle_timeout], 15000),
-    emqx_config:put_listener_conf(default, mqtt_quic, [mqtt, idle_timeout], 15000),
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000),
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000),
     ok.
 
 t_connect_emit_stats_timeout(Config) ->
@@ -471,8 +471,8 @@ t_connack_session_present(Config) ->
 t_connack_max_qos_allowed(init, Config) ->
     Config;
 t_connack_max_qos_allowed('end', _Config) ->
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, max_qos_allowed], 2),
-    emqx_config:put_listener_conf(default, mqtt_quic, [mqtt, max_qos_allowed], 2),
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], 2),
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], 2),
     ok.
 t_connack_max_qos_allowed(Config) ->
     ConnFun = ?config(conn_fun, Config),
@@ -480,8 +480,8 @@ t_connack_max_qos_allowed(Config) ->
     Topic = nth(1, ?TOPICS),
 
     %% max_qos_allowed = 0
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, max_qos_allowed], 0),
-    emqx_config:put_listener_conf(default, mqtt_quic, [mqtt, max_qos_allowed], 0),
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], 0),
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], 0),
 
     {ok, Client1} = emqtt:start_link([{proto_ver, v5} | Config]),
     {ok, Connack1} = emqtt:ConnFun(Client1),
@@ -506,8 +506,8 @@ t_connack_max_qos_allowed(Config) ->
     waiting_client_process_exit(Client2),
 
     %% max_qos_allowed = 1
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, max_qos_allowed], 1),
-    emqx_config:put_listener_conf(default, mqtt_quic, [mqtt, max_qos_allowed], 1),
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], 1),
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], 1),
 
     {ok, Client3} = emqtt:start_link([{proto_ver, v5} | Config]),
     {ok, Connack3} = emqtt:ConnFun(Client3),
@@ -532,8 +532,8 @@ t_connack_max_qos_allowed(Config) ->
     waiting_client_process_exit(Client4),
 
     %% max_qos_allowed = 2
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, max_qos_allowed], 2),
-    emqx_config:put_listener_conf(default, mqtt_quic, [mqtt, max_qos_allowed], 2),
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], 2),
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], 2),
 
     {ok, Client5} = emqtt:start_link([{proto_ver, v5} | Config]),
     {ok, Connack5} = emqtt:ConnFun(Client5),
