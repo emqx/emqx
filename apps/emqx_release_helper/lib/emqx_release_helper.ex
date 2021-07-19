@@ -30,6 +30,7 @@ defmodule EmqxReleaseHelper do
         }
     end
     |> Map.merge(%{
+      erts_vsn: :version |> :erlang.system_info() |> to_string(),
       project_path: EMQXUmbrella.MixProject.project_path(),
       enable_bcrypt: EMQXUmbrella.MixProject.enable_bcrypt(),
       enable_plugin_emqx_modules: false,
@@ -69,7 +70,7 @@ defmodule EmqxReleaseHelper do
       platform_lib_dir: "lib",
       platform_log_dir: "log",
       platform_plugins_dir: "etc/plugins",
-      runner_root_dir: EMQXUmbrella.MixProject.project_path(),
+      runner_root_dir: "$(cd $(dirname $(readlink $0 || echo $0))/..; pwd -P)",
       runner_bin_dir: "$RUNNER_ROOT_DIR/bin",
       runner_etc_dir: "$RUNNER_ROOT_DIR/etc",
       runner_lib_dir: "$RUNNER_ROOT_DIR/lib",

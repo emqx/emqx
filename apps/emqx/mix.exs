@@ -19,7 +19,7 @@ defmodule EMQX.MixProject do
   def application do
     [
       mod: {:emqx_app, []},
-      extra_applications: [:logger]
+      extra_applications: [:logger, :os_mon, :syntax_tools]
     ]
   end
 
@@ -29,7 +29,7 @@ defmodule EMQX.MixProject do
       {:recon, "~> 2.5"},
       {:cowboy, github: "emqx/cowboy", tag: "2.8.2"},
       {:esockd, github: "emqx/esockd", tag: "5.8.0"},
-      {:ekka, github: "emqx/ekka", tag: "0.9.0"},
+      {:ekka, github: "emqx/ekka", tag: "0.9.0", runtime: false},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.5.1"},
       {:cuttlefish, github: "emqx/cuttlefish", tag: "v4.0.1"},
       {:hocon, github: "emqx/hocon"},

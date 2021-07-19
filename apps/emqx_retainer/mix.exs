@@ -25,6 +25,8 @@ defmodule EMQXRetainer.MixProject do
   end
 
   defp deps do
-    [{:emqx, in_umbrella: true}]
+    [
+      {:emqx, in_umbrella: true, runtime: false}
+    ]
   end
 end

@@ -18,7 +18,7 @@ defmodule EMQXResource.MixProject do
   def application do
     [
       mod: {:emqx_resource_app, []},
-      extra_applications: [:logger]
+      extra_applications: [:logger, :syntax_tools]
     ]
   end
 

@@ -25,7 +25,7 @@ defmodule EMQXLwm2m.MixProject do
 
   defp deps do
     [
-      {:emqx, in_umbrella: true},
+      {:emqx, in_umbrella: true, runtime: false},
       {:lwm2m_coap, github: "emqx/lwm2m-coap", tag: "v1.1.2"}
     ]
   end

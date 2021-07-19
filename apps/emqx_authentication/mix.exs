@@ -25,7 +25,7 @@ defmodule EMQXAuthentication.MixProject do
 
   defp deps do
     [
-      {:emqx, in_umbrella: true},
+      {:emqx, in_umbrella: true, runtime: false},
       {:jose, "~> 1.11"}
     ]
   end

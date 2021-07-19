@@ -25,7 +25,7 @@ defmodule EMQXCoap.MixProject do
 
   defp deps do
     [
-      {:emqx, in_umbrella: true},
+      {:emqx, in_umbrella: true, runtime: false},
       {:gen_coap, github: "emqx/gen_coap", tag: "v0.3.2"}
     ]
   end

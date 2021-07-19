@@ -25,7 +25,7 @@ defmodule EMQXBridgeMqtt.MixProject do
 
   defp deps do
     [
-      {:emqx, in_umbrella: true, override: true},
+      {:emqx, in_umbrella: true, override: true, runtime: false},
       {:emqx_rule_engine, in_umbrella: true},
       {:emqtt, github: "emqx/emqtt", tag: "v1.2.3"}
     ]

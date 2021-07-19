@@ -20,14 +20,14 @@ defmodule EMQXManagement.MixProject do
     [
       registered: [:emqx_management_sup],
       mod: {:emqx_mgmt_app, []},
-      extra_applications: [:logger]
+      extra_applications: [:logger, :syntax_tools]
     ]
   end
 
   defp deps do
     [
-      {:emqx, in_umbrella: true},
       {:emqx_rule_engine, in_umbrella: true},
+      {:ekka, github: "emqx/ekka", tag: "0.9.0"},
       {:minirest, github: "emqx/minirest", tag: "0.3.5"}
     ]
   end

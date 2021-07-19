@@ -20,13 +20,13 @@ defmodule EMQXRuleEngine.MixProject do
     [
       registered: [:emqx_rule_engine_sup, :emqx_rule_registry],
       mod: {:emqx_rule_engine_app, []},
-      extra_applications: [:logger]
+      extra_applications: [:logger, :syntax_tools]
     ]
   end
 
   defp deps do
     [
-      {:emqx, in_umbrella: true},
+      {:emqx, in_umbrella: true, runtime: false},
       {:ekka, github: "emqx/ekka", tag: "0.9.0"}
     ]
   end
