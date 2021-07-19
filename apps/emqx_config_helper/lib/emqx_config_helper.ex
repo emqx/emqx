@@ -1,0 +1,2 @@
+defmodule EmqxConfigHelper do
+end

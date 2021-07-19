@@ -100,6 +100,10 @@ defmodule EmqxReleaseHelper.Applications do
     overlay :plugin
   end
 
+  application :emqx_config_helper do
+    start_type :load
+  end
+
   application :emqx_exhook, %{release_type: :cloud} do
     start_type :load
     overlay :plugin
