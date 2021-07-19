@@ -91,8 +91,7 @@ do_start_listener(ZoneName, ListenerName, #{type := quic, bind := ListenOn} = Op
                  , {key, maps:get(keyfile, Opts)}
                  , {alpn, ["mqtt"]}
                  , {conn_acceptors, maps:get(acceptors, Opts, DefAcceptors)}
-                 , {idle_timeout_ms, emqx_config:get_listener_conf(ZoneName, ListenerName,
-                                        [mqtt, idle_timeout])}
+                 , {idle_timeout_ms, emqx_config:get_zone_conf(ZoneName, [mqtt, idle_timeout])}
                  ],
     ConnectionOpts = #{conn_callback => emqx_quic_connection
                      , peer_unidi_stream_count => 1

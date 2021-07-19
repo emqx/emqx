@@ -101,7 +101,7 @@ t_basic_v4(_Config) ->
     t_basic([{proto_ver, v4}]).
 
 t_cm(_) ->
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, idle_timeout], 1000),
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
     ClientId = <<"myclient">>,
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
@@ -111,7 +111,7 @@ t_cm(_) ->
     ct:sleep(1200),
     Stats = emqx_cm:get_chan_stats(ClientId),
     ?assertEqual(1, proplists:get_value(subscriptions_cnt, Stats)),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, idle_timeout], 15000).
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000).
 
 t_cm_registry(_) ->
     Info = supervisor:which_children(emqx_cm_sup),
@@ -269,7 +269,7 @@ t_basic(_Opts) ->
     ok = emqtt:disconnect(C).
 
 t_username_as_clientid(_) ->
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, use_username_as_clientid], true),
+    emqx_config:put_zone_conf(default, [mqtt, use_username_as_clientid], true),
     Username = <<"usera">>,
     {ok, C} = emqtt:start_link([{username, Username}]),
     {ok, _} = emqtt:connect(C),
@@ -323,7 +323,7 @@ tls_certcn_as_clientid(TLSVsn) ->
 
 tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     CN = <<"Client">>,
-    emqx_config:put_listener_conf(default, mqtt_ssl, [mqtt, peer_cert_as_clientid], cn),
+    emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], cn),
     SslConf = emqx_ct_helpers:client_ssl_twoway(TLSVsn),
     {ok, Client} = emqtt:start_link([{port, 8883}, {ssl, true}, {ssl_opts, SslConf}]),
     {ok, _} = emqtt:connect(Client),

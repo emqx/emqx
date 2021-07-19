@@ -26,7 +26,7 @@ all() -> emqx_ct:all(?MODULE).
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [flapping_detect],
+    emqx_config:put_zone_conf(default, [flapping_detect],
         #{max_count => 3,
           window_time => 100, % 0.1s
           ban_time => 2000 %% 2s

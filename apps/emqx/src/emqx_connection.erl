@@ -255,17 +255,17 @@ init_state(Transport, Socket, #{zone := Zone, listener := Listener} = Opts) ->
                 },
     Limiter = emqx_limiter:init(Zone, undefined, undefined, []),
     FrameOpts = #{
-        strict_mode => emqx_config:get_listener_conf(Zone, Listener, [mqtt, strict_mode]),
-        max_size => emqx_config:get_listener_conf(Zone, Listener, [mqtt, max_packet_size])
+        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
+        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
     },
     ParseState = emqx_frame:initial_parse_state(FrameOpts),
     Serialize = emqx_frame:serialize_opts(),
     Channel = emqx_channel:init(ConnInfo, Opts),
-    GcState = case emqx_config:get_listener_conf(Zone, Listener, [force_gc]) of
+    GcState = case emqx_config:get_zone_conf(Zone, [force_gc]) of
         #{enable := false} -> undefined;
         GcPolicy -> emqx_gc:init(GcPolicy)
     end,
-    StatsTimer = case emqx_config:get_listener_conf(Zone, Listener, [stats, enable]) of
+    StatsTimer = case emqx_config:get_zone_conf(Zone, [stats, enable]) of
         true -> undefined;
         false -> disabled
     end,
@@ -293,8 +293,8 @@ run_loop(Parent, State = #state{transport = Transport,
                                 peername  = Peername,
                                 channel   = Channel}) ->
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
-    ShutdownPolicy = emqx_config:get_listener_conf(emqx_channel:info(zone, Channel),
-            emqx_channel:info(listener, Channel), [force_shutdown]),
+    ShutdownPolicy = emqx_config:get_zone_conf(emqx_channel:info(zone, Channel),
+            [force_shutdown]),
     emqx_misc:tune_heap_size(ShutdownPolicy),
     case activate_socket(State) of
         {ok, NState} -> hibernate(Parent, NState);
@@ -801,8 +801,8 @@ run_gc(Stats, State = #state{gc_state = GcSt}) ->
     end.
 
 check_oom(State = #state{channel = Channel}) ->
-    ShutdownPolicy = emqx_config:get_listener_conf(emqx_channel:info(zone, Channel),
-        emqx_channel:info(listener, Channel), [force_shutdown]),
+    ShutdownPolicy = emqx_config:get_zone_conf(
+        emqx_channel:info(zone, Channel), [force_shutdown]),
     ?tp(debug, check_oom, #{policy => ShutdownPolicy}),
     case emqx_misc:check_oom(ShutdownPolicy) of
         {shutdown, Reason} ->
@@ -908,5 +908,5 @@ get_state(Pid) ->
 get_active_n(Zone, Listener) ->
     case emqx_config:get([zones, Zone, listeners, Listener, type]) of
         quic -> 100;
-        _ -> emqx_config:get_listener_conf(Zone, Listener, [tcp, active_n])
+        _ -> emqx_config:get_zone_conf(Zone, [tcp, active_n])
     end.

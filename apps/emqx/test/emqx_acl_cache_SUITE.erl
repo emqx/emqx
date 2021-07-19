@@ -80,4 +80,4 @@ t_drain_acl_cache(_) ->
     emqtt:stop(Client).
 
 toggle_acl(Bool) when is_boolean(Bool) ->
-    emqx_config:put_listener_conf(default, mqtt_tcp, [acl, enable], Bool).
+    emqx_config:put_zone_conf(default, [acl, enable], Bool).

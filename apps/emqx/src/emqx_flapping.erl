@@ -90,7 +90,7 @@ detect(#{clientid := ClientId, peerhost := PeerHost, zone := Zone, listener := L
     end.
 
 get_policy(Zone, Listener) ->
-    emqx_config:get_listener_conf(Zone, Listener, [flapping_detect]).
+    emqx_config:get_zone_conf(Zone, [flapping_detect]).
 
 now_diff(TS) -> erlang:system_time(millisecond) - TS.
 

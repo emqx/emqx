@@ -26,8 +26,8 @@ all() -> emqx_ct:all(?MODULE).
 
 t_check_pub(_) ->
     OldConf = emqx_config:get(),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, max_qos_allowed], ?QOS_1),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, retain_available], false),
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_1),
+    emqx_config:put_zone_conf(default, [mqtt, retain_available], false),
     timer:sleep(50),
     ok = emqx_mqtt_caps:check_pub(default, mqtt_tcp, #{qos => ?QOS_1, retain => false}),
     PubFlags1 = #{qos => ?QOS_2, retain => false},
@@ -45,10 +45,10 @@ t_check_sub(_) ->
                 nl  => 0,
                 qos => ?QOS_2
                },
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, max_topic_levels], 2),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, max_qos_allowed], ?QOS_1),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, shared_subscription], false),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [mqtt, wildcard_subscription], false),
+    emqx_config:put_zone_conf(default, [mqtt, max_topic_levels], 2),
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_1),
+    emqx_config:put_zone_conf(default, [mqtt, shared_subscription], false),
+    emqx_config:put_zone_conf(default, [mqtt, wildcard_subscription], false),
     timer:sleep(50),
     ok = emqx_mqtt_caps:check_sub(default, mqtt_tcp, <<"topic">>, SubOpts),
     ?assertEqual({error, ?RC_TOPIC_FILTER_INVALID},
