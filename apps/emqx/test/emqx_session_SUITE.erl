@@ -51,8 +51,7 @@ end_per_testcase(_TestCase, Config) ->
 %%--------------------------------------------------------------------
 
 t_session_init(_) ->
-    Session = emqx_session:init(#{zone => default, listener => mqtt_tcp},
-        #{receive_maximum => 64}),
+    Session = emqx_session:init(#{max_inflight => 64}),
     ?assertEqual(#{}, emqx_session:info(subscriptions, Session)),
     ?assertEqual(0, emqx_session:info(subscriptions_cnt, Session)),
     ?assertEqual(infinity, emqx_session:info(subscriptions_max, Session)),
@@ -377,8 +376,7 @@ session(InitFields) when is_map(InitFields) ->
     maps:fold(fun(Field, Value, Session) ->
                       emqx_session:set_field(Field, Value, Session)
               end,
-              emqx_session:init(#{zone => default, listener => mqtt_tcp},
-                  #{receive_maximum => 0}),
+              emqx_session:init(#{max_inflight => 0}),
               InitFields).
 
 

@@ -983,8 +983,7 @@ session(InitFields) when is_map(InitFields) ->
     maps:fold(fun(Field, Value, Session) ->
                       emqx_session:set_field(Field, Value, Session)
               end,
-              emqx_session:init(#{zone => default, listener => mqtt_tcp},
-                  #{receive_maximum => 0}),
+              emqx_session:init(#{max_inflight => 0}),
               InitFields).
 
 %% conn: 5/s; overall: 10/s

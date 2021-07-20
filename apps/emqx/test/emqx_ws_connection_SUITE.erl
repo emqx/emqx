@@ -468,9 +468,7 @@ channel(InitFields) ->
                    peercert   => undefined,
                    mountpoint => undefined
                   },
-    Session = emqx_session:init(#{zone => default, listener => mqtt_ws},
-                                #{receive_maximum => 0}
-                               ),
+    Session = emqx_session:init(#{max_inflight => 0}),
     maps:fold(fun(Field, Value, Channel) ->
                       emqx_channel:set_field(Field, Value, Channel)
               end,
