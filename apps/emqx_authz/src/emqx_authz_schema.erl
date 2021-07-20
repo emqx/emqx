@@ -11,15 +11,7 @@
 
 -type action() :: publish | subscribe | all.
 -type permission() :: allow | deny.
--type url() :: #{
-    scheme := http | https,
-    host := string(),
-    port := non_neg_integer(),
-    path => string(),
-    query => string(),
-    fragment => string(),
-    userinfo => string()
-}.
+-type url() :: emqx_http_lib:uri_map().
 
 -export([ structs/0
         , fields/1
