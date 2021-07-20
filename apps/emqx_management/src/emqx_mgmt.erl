@@ -85,7 +85,10 @@
 %% Listeners
 -export([ list_listeners/0
         , list_listeners/1
-        , restart_listener/2
+        , list_listeners/2
+        , list_listeners_by_id/1
+        , get_listener/2
+        , manage_listener/2
         ]).
 
 %% Alarms
@@ -451,37 +454,39 @@ reload_plugin(Node, Plugin) ->
 %%--------------------------------------------------------------------
 
 list_listeners() ->
-    [{Node, list_listeners(Node)} || Node <- ekka_mnesia:running_nodes()].
+    lists:append([list_listeners(Node) || Node <- ekka_mnesia:running_nodes()]).
+
+list_listeners(Node, Identifier) ->
+    listener_id_filter(Identifier, list_listeners(Node)).
 
 list_listeners(Node) when Node =:= node() ->
-    Tcp = lists:map(fun({{Protocol, ListenOn}, _Pid}) ->
-        #{protocol        => Protocol,
-          listen_on       => ListenOn,
-          identifier      => Protocol,
-          acceptors       => esockd:get_acceptors({Protocol, ListenOn}),
-          max_conns       => esockd:get_max_connections({Protocol, ListenOn}),
-          current_conns   => esockd:get_current_connections({Protocol, ListenOn}),
-          shutdown_count  => esockd:get_shutdown_count({Protocol, ListenOn})}
-    end, esockd:listeners()),
-    Http = lists:map(fun({Protocol, Opts}) ->
-        #{protocol        => Protocol,
-          listen_on       => proplists:get_value(port, Opts),
-          acceptors       => maps:get(num_acceptors, proplists:get_value(transport_options, Opts, #{}), 0),
-          max_conns       => proplists:get_value(max_connections, Opts),
-          current_conns   => proplists:get_value(all_connections, Opts),
-          shutdown_count  => []}
-    end, ranch:info()),
-    Tcp ++ Http;
+    [{Id, maps:put(node, Node, Conf)} || {Id, Conf} <- emqx_listeners:list()];
 
 list_listeners(Node) ->
     rpc_call(Node, list_listeners, [Node]).
 
--spec restart_listener(node(), atom()) -> ok | {error, term()}.
-restart_listener(Node, Identifier) when Node =:= node() ->
-    emqx_listeners:restart_listener(Identifier);
+list_listeners_by_id(Identifier) ->
+    listener_id_filter(Identifier, list_listeners()).
 
-restart_listener(Node, Identifier) ->
-    rpc_call(Node, restart_listener, [Node, Identifier]).
+get_listener(Node, Identifier) ->
+    case listener_id_filter(Identifier, list_listeners(Node)) of
+        [] ->
+            {error, not_found};
+        [Listener] ->
+            Listener
+    end.
+
+listener_id_filter(Identifier, Listeners) ->
+    Filter =
+        fun({Id, _}) -> Id =:= Identifier end,
+    lists:filter(Filter, Listeners).
+
+-spec manage_listener(Operation :: start_listener|stop_listener|restart_listener, Param :: map()) ->
+    ok | {error, Reason :: term()}.
+manage_listener(Operation, #{identifier := Identifier, node := Node}) when Node =:= node()->
+    erlang:apply(emqx_listeners, Operation, [Identifier]);
+manage_listener(Operation, Param = #{node := Node}) ->
+    rpc_call(Node, restart_listener, [Operation, Param]).
 
 %%--------------------------------------------------------------------
 %% Get Alarms
@@ -542,7 +547,7 @@ item(route, {Topic, Node}) ->
     #{topic => Topic, node => Node}.
 
 %%--------------------------------------------------------------------
-%% Internel Functions.
+%% Internal Functions.
 %%--------------------------------------------------------------------
 
 rpc_call(Node, Fun, Args) ->
