@@ -129,7 +129,7 @@ start_listener(InstaId, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
 start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
     Name = name(InstaId, Type),
     esockd:open_udp(Name, ListenOn, merge_default(SocketOpts),
-                    {emqx_sn_gateway, start_link, [Cfg#{ctx => Ctx}]}).
+                    {emqx_sn_conn, start_link, [Cfg#{ctx => Ctx}]}).
 
 name(InstaId, Type) ->
     list_to_atom(lists:concat([InstaId, ":", Type])).

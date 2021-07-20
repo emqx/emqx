@@ -19,8 +19,10 @@
 
 -include("src/mqttsn/include/emqx_sn.hrl").
 
--export([ parse/1
-        , serialize/1
+-export([ initial_parse_state/1
+        , serialize_opts/0
+        , parse/2
+        , serialize_pkt/2
         , message_type/1
         , format/1
         ]).
@@ -29,17 +31,33 @@
 -define(byte,  8/big-integer).
 -define(short, 16/big-integer).
 
+-type parse_state() :: #{}.
+-type serialize_opts() :: #{}.
+
+-export_type([ parse_state/0
+             , serialize_opts/0
+             ]).
+
+%%--------------------------------------------------------------------
+%% Initial
+
+initial_parse_state(_) ->
+    #{}.
+
+serialize_opts() ->
+    #{}.
+
 %%--------------------------------------------------------------------
 %% Parse MQTT-SN Message
 %%--------------------------------------------------------------------
 
-parse(<<16#01:?byte, Len:?short, Type:?byte, Var/binary>>) ->
-    parse(Type, Len - 4, Var);
-parse(<<Len:?byte, Type:?byte, Var/binary>>) ->
-    parse(Type, Len - 2, Var).
+parse(<<16#01:?byte, Len:?short, Type:?byte, Var/binary>>, _State) ->
+    {ok, parse(Type, Len - 4, Var), <<>>, _State};
+parse(<<Len:?byte, Type:?byte, Var/binary>>, _State) ->
+    {ok, parse(Type, Len - 2, Var), <<>>, _State}.
 
 parse(Type, Len, Var) when Len =:= size(Var) ->
-    {ok, #mqtt_sn_message{type = Type, variable = parse_var(Type, Var)}};
+    #mqtt_sn_message{type = Type, variable = parse_var(Type, Var)};
 parse(_Type, _Len, _Var) ->
     error(malformed_message_len).
 
@@ -127,70 +145,70 @@ parse_topic(2#11, Topic)     -> Topic.
 %% Serialize MQTT-SN Message
 %%--------------------------------------------------------------------
 
-serialize(#mqtt_sn_message{type = Type, variable = Var}) ->
-    VarBin = serialize(Type, Var), VarLen = size(VarBin),
+serialize_pkt(#mqtt_sn_message{type = Type, variable = Var}, Opts) ->
+    VarBin = serialize(Type, Var, Opts), VarLen = size(VarBin),
     if
         VarLen < 254 -> <<(VarLen + 2), Type, VarBin/binary>>;
         true -> <<16#01, (VarLen + 4):?short, Type, VarBin/binary>>
     end.
 
-serialize(?SN_ADVERTISE, {GwId, Duration}) ->
+serialize(?SN_ADVERTISE, {GwId, Duration}, _Opts) ->
     <<GwId, Duration:?short>>;
-serialize(?SN_SEARCHGW, Radius) ->
+serialize(?SN_SEARCHGW, Radius, _Opts) ->
     <<Radius>>;
-serialize(?SN_GWINFO, {GwId, GwAdd}) ->
+serialize(?SN_GWINFO, {GwId, GwAdd}, _Opts) ->
     <<GwId, GwAdd/binary>>;
-serialize(?SN_CONNECT, {Flags, ProtocolId, Duration, ClientId}) ->
+serialize(?SN_CONNECT, {Flags, ProtocolId, Duration, ClientId}, _Opts) ->
     <<(serialize_flags(Flags))/binary, ProtocolId, Duration:?short, ClientId/binary>>;
-serialize(?SN_CONNACK, ReturnCode) ->
+serialize(?SN_CONNACK, ReturnCode, _Opts) ->
     <<ReturnCode>>;
-serialize(?SN_WILLTOPICREQ, _) ->
+serialize(?SN_WILLTOPICREQ, _, _Opts) ->
     <<>>;
-serialize(?SN_WILLTOPIC, undefined) ->
+serialize(?SN_WILLTOPIC, undefined, _Opts) ->
     <<>>;
-serialize(?SN_WILLTOPIC, {Flags, Topic}) ->
+serialize(?SN_WILLTOPIC, {Flags, Topic}, _Opts) ->
     %% The WillTopic must a short topic name
     <<(serialize_flags(Flags))/binary, Topic/binary>>;
-serialize(?SN_WILLMSGREQ, _) ->
+serialize(?SN_WILLMSGREQ, _, _Opts) ->
     <<>>;
-serialize(?SN_WILLMSG, WillMsg) ->
+serialize(?SN_WILLMSG, WillMsg, _Opts) ->
     WillMsg;
-serialize(?SN_REGISTER, {TopicId, MsgId, TopicName}) ->
+serialize(?SN_REGISTER, {TopicId, MsgId, TopicName}, _Opts) ->
     <<TopicId:?short, MsgId:?short, TopicName/binary>>;
-serialize(?SN_REGACK, {TopicId, MsgId, ReturnCode}) ->
+serialize(?SN_REGACK, {TopicId, MsgId, ReturnCode}, _Opts) ->
     <<TopicId:?short, MsgId:?short, ReturnCode>>;
-serialize(?SN_PUBLISH, {Flags=#mqtt_sn_flags{topic_id_type = ?SN_NORMAL_TOPIC}, TopicId, MsgId, Data}) ->
+serialize(?SN_PUBLISH, {Flags=#mqtt_sn_flags{topic_id_type = ?SN_NORMAL_TOPIC}, TopicId, MsgId, Data}, _Opts) ->
     <<(serialize_flags(Flags))/binary, TopicId:?short, MsgId:?short, Data/binary>>;
-serialize(?SN_PUBLISH, {Flags=#mqtt_sn_flags{topic_id_type = ?SN_PREDEFINED_TOPIC}, TopicId, MsgId, Data}) ->
+serialize(?SN_PUBLISH, {Flags=#mqtt_sn_flags{topic_id_type = ?SN_PREDEFINED_TOPIC}, TopicId, MsgId, Data}, _Opts) ->
     <<(serialize_flags(Flags))/binary, TopicId:?short, MsgId:?short, Data/binary>>;
-serialize(?SN_PUBLISH, {Flags=#mqtt_sn_flags{topic_id_type = ?SN_SHORT_TOPIC}, STopicName, MsgId, Data}) ->
+serialize(?SN_PUBLISH, {Flags=#mqtt_sn_flags{topic_id_type = ?SN_SHORT_TOPIC}, STopicName, MsgId, Data}, _Opts) ->
     <<(serialize_flags(Flags))/binary, STopicName:2/binary, MsgId:?short, Data/binary>>;
-serialize(?SN_PUBACK, {TopicId, MsgId, ReturnCode}) ->
+serialize(?SN_PUBACK, {TopicId, MsgId, ReturnCode}, _Opts) ->
     <<TopicId:?short, MsgId:?short, ReturnCode>>;
-serialize(PubRec, MsgId) when PubRec == ?SN_PUBREC; PubRec == ?SN_PUBREL; PubRec == ?SN_PUBCOMP ->
+serialize(PubRec, MsgId, _Opts) when PubRec == ?SN_PUBREC; PubRec == ?SN_PUBREL; PubRec == ?SN_PUBCOMP ->
     <<MsgId:?short>>;
-serialize(Sub, {Flags = #mqtt_sn_flags{topic_id_type = IdType}, MsgId, Topic})
+serialize(Sub, {Flags = #mqtt_sn_flags{topic_id_type = IdType}, MsgId, Topic}, _Opts)
     when Sub == ?SN_SUBSCRIBE; Sub == ?SN_UNSUBSCRIBE ->
     <<(serialize_flags(Flags))/binary, MsgId:16, (serialize_topic(IdType, Topic))/binary>>;
-serialize(?SN_SUBACK, {Flags, TopicId, MsgId, ReturnCode}) ->
+serialize(?SN_SUBACK, {Flags, TopicId, MsgId, ReturnCode}, _Opts) ->
     <<(serialize_flags(Flags))/binary, TopicId:?short, MsgId:?short, ReturnCode>>;
-serialize(?SN_UNSUBACK, MsgId) ->
+serialize(?SN_UNSUBACK, MsgId, _Opts) ->
     <<MsgId:?short>>;
-serialize(?SN_PINGREQ, ClientId) ->
+serialize(?SN_PINGREQ, ClientId, _Opts) ->
     ClientId;
-serialize(?SN_PINGRESP, _) ->
+serialize(?SN_PINGRESP, _, _Opts) ->
     <<>>;
-serialize(?SN_WILLTOPICUPD, {Flags, WillTopic}) ->
+serialize(?SN_WILLTOPICUPD, {Flags, WillTopic}, _Opts) ->
     <<(serialize_flags(Flags))/binary, WillTopic/binary>>;
-serialize(?SN_WILLMSGUPD, WillMsg) ->
+serialize(?SN_WILLMSGUPD, WillMsg, _Opts) ->
     WillMsg;
-serialize(?SN_WILLTOPICRESP, ReturnCode) ->
+serialize(?SN_WILLTOPICRESP, ReturnCode, _Opts) ->
     <<ReturnCode>>;
-serialize(?SN_WILLMSGRESP, ReturnCode) ->
+serialize(?SN_WILLMSGRESP, ReturnCode, _Opts) ->
     <<ReturnCode>>;
-serialize(?SN_DISCONNECT, undefined) ->
+serialize(?SN_DISCONNECT, undefined, _Opts) ->
     <<>>;
-serialize(?SN_DISCONNECT, Duration) ->
+serialize(?SN_DISCONNECT, Duration, _Opts) ->
     <<Duration:?short>>.
 
 serialize_flags(#mqtt_sn_flags{dup = Dup, qos = QoS, retain = Retain, will = Will,
