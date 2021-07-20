@@ -69,8 +69,8 @@ stop() -> gen_server:stop(?MODULE).
 
 %% @doc Detect flapping when a MQTT client disconnected.
 -spec(detect(emqx_types:clientinfo()) -> boolean()).
-detect(#{clientid := ClientId, peerhost := PeerHost, zone := Zone, listener := Listener}) ->
-    Policy = #{max_count := Threshold} = get_policy(Zone, Listener),
+detect(#{clientid := ClientId, peerhost := PeerHost, zone := Zone}) ->
+    Policy = #{max_count := Threshold} = get_policy(Zone),
     %% The initial flapping record sets the detect_cnt to 0.
     InitVal = #flapping{
         clientid = ClientId,
@@ -89,7 +89,7 @@ detect(#{clientid := ClientId, peerhost := PeerHost, zone := Zone, listener := L
             end
     end.
 
-get_policy(Zone, Listener) ->
+get_policy(Zone) ->
     emqx_config:get_zone_conf(Zone, [flapping_detect]).
 
 now_diff(TS) -> erlang:system_time(millisecond) - TS.
@@ -137,12 +137,12 @@ handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({timeout, _TRef, {garbage_collect, Zone, Listener}}, State) ->
+handle_info({timeout, _TRef, {garbage_collect, Zone}}, State) ->
     Timestamp = erlang:system_time(millisecond)
-                - maps:get(window_time, get_policy(Zone, Listener)),
+                - maps:get(window_time, get_policy(Zone)),
     MatchSpec = [{{'_', '_', '_', '$1', '_'},[{'<', '$1', Timestamp}], [true]}],
     ets:select_delete(?FLAPPING_TAB, MatchSpec),
-    start_timer(Zone, Listener),
+    start_timer(Zone),
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->
@@ -155,13 +155,11 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-start_timer(Zone, Listener) ->
-    WindTime = maps:get(window_time, get_policy(Zone, Listener)),
-    emqx_misc:start_timer(WindTime, {garbage_collect, Zone, Listener}).
+start_timer(Zone) ->
+    WindTime = maps:get(window_time, get_policy(Zone)),
+    emqx_misc:start_timer(WindTime, {garbage_collect, Zone}).
 
 start_timers() ->
-    lists:foreach(fun({Zone, ZoneConf}) ->
-            lists:foreach(fun({Listener, _}) ->
-                    start_timer(Zone, Listener)
-                end, maps:to_list(maps:get(listeners, ZoneConf, #{})))
+    lists:foreach(fun({Zone, _ZoneConf}) ->
+            start_timer(Zone)
         end, maps:to_list(emqx_config:get([zones], #{}))).

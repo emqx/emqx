@@ -157,27 +157,27 @@
 %%--------------------------------------------------------------------
 
 -spec(init(emqx_types:clientinfo(), emqx_types:conninfo()) -> session()).
-init(#{zone := Zone, listener := Listener}, #{receive_maximum := MaxInflight}) ->
-    #session{max_subscriptions = get_conf(Zone, Listener, max_subscriptions),
+init(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
+    #session{max_subscriptions = get_conf(Zone, max_subscriptions),
              subscriptions     = #{},
-             upgrade_qos       = get_conf(Zone, Listener, upgrade_qos),
+             upgrade_qos       = get_conf(Zone, upgrade_qos),
              inflight          = emqx_inflight:new(MaxInflight),
-             mqueue            = init_mqueue(Zone, Listener),
+             mqueue            = init_mqueue(Zone),
              next_pkt_id       = 1,
-             retry_interval    = timer:seconds(get_conf(Zone, Listener, retry_interval)),
+             retry_interval    = timer:seconds(get_conf(Zone, retry_interval)),
              awaiting_rel      = #{},
-             max_awaiting_rel  = get_conf(Zone, Listener, max_awaiting_rel),
-             await_rel_timeout = timer:seconds(get_conf(Zone, Listener, await_rel_timeout)),
+             max_awaiting_rel  = get_conf(Zone, max_awaiting_rel),
+             await_rel_timeout = timer:seconds(get_conf(Zone, await_rel_timeout)),
              created_at        = erlang:system_time(millisecond)
             }.
 
 %% @private init mq
-init_mqueue(Zone, Listener) ->
+init_mqueue(Zone) ->
     emqx_mqueue:init(#{
-        max_len => get_conf(Zone, Listener, max_mqueue_len),
-        store_qos0 => get_conf(Zone, Listener, mqueue_store_qos0),
-        priorities => get_conf(Zone, Listener, mqueue_priorities),
-        default_priority => get_conf(Zone, Listener, mqueue_default_priority)
+        max_len => get_conf(Zone, max_mqueue_len),
+        store_qos0 => get_conf(Zone, mqueue_store_qos0),
+        priorities => get_conf(Zone, mqueue_priorities),
+        default_priority => get_conf(Zone, mqueue_default_priority)
     }).
 
 %%--------------------------------------------------------------------
@@ -696,5 +696,5 @@ set_field(Name, Value, Session) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, session)),
     setelement(Pos+1, Session, Value).
 
-get_conf(Zone, Listener, Key) ->
+get_conf(Zone, Key) ->
     emqx_config:get_zone_conf(Zone, [mqtt, Key]).

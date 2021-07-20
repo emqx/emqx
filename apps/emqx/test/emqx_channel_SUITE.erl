@@ -880,7 +880,7 @@ t_check_sub_acls(_) ->
 t_enrich_connack_caps(_) ->
     ok = meck:new(emqx_mqtt_caps, [passthrough, no_history]),
     ok = meck:expect(emqx_mqtt_caps, get_caps,
-                     fun(_Zone, _Listener) ->
+                     fun(_Zone) ->
                         #{max_packet_size => 1024,
                           max_qos_allowed => ?QOS_2,
                           retain_available => true,
