@@ -1095,8 +1095,8 @@ handle_call(discard, Channel) ->
 %    AllPendings = lists:append(Delivers, Pendings),
 %    shutdown_and_reply(takeovered, AllPendings, Channel);
 
-handle_call(list_acl_cache, Channel) ->
-    {reply, emqx_acl_cache:list_acl_cache(), Channel};
+%handle_call(list_acl_cache, Channel) ->
+%    {reply, emqx_acl_cache:list_acl_cache(), Channel};
 
 %% XXX: No Quota Now
 % handle_call({quota, Policy}, Channel) ->
@@ -1375,7 +1375,7 @@ run_hooks(Ctx, Name, Args, Acc) ->
     emqx_hooks:run_fold(Name, Args, Acc).
 
 run_hooks_without_metrics(_Ctx, Name, Args) ->
-    emqx_hooks:run_fold(Name, Args).
+    emqx_hooks:run(Name, Args).
 
 run_hooks_without_metrics(_Ctx, Name, Args, Acc) ->
     emqx_hooks:run_fold(Name, Args, Acc).
