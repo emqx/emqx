@@ -13,7 +13,7 @@ IsWin32 = fun() ->
 
 IsQuicSupp = fun() ->
                 not (IsCentos6() orelse IsWin32() orelse
-                     false =/= os:getenv("EMQX_BUILD_WITHOUT_QUIC")
+                     false =/= os:getenv("BUILD_WITHOUT_QUIC")
                     )
              end,
 
