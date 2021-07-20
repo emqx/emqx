@@ -96,7 +96,6 @@
 
 -type(state() :: #state{}).
 
--define(ACTIVE_N, 100).
 -define(INFO_KEYS, [socktype, peername, sockname, sockstate, active_n]).
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
@@ -419,7 +418,7 @@ handle_msg({incoming, Packet}, State = #state{idle_timer = undefined}) ->
 handle_msg({incoming, Packet},
            State = #state{idle_timer = IdleTimer}) ->
     ok = emqx_misc:cancel_timer(IdleTimer),
-    %% XXX: Serialize with inpunt packets
+    %% XXX: Serialize with input packets
     %%Serialize = emqx_stomp_frame:serialize_opts(),
     NState = State#state{idle_timer = undefined},
     handle_incoming(Packet, NState);
@@ -857,6 +856,7 @@ inc_incoming_stats(Packet = ?PACKET(Type)) ->
         false ->
             ok
     end,
+    %% FIXME:
     emqx_metrics:inc_recv(Packet).
 
 inc_outgoing_stats(Packet = ?PACKET(Type)) ->
