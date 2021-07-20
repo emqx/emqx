@@ -89,7 +89,7 @@ ensure_advertise(State = #state{duration = Duration}) ->
 
 send_advertise(#state{gwid = GwId, sock = Sock, port = Port,
                       addrs = Addrs, duration = Duration}) ->
-    Data = emqx_sn_frame:serialize(?SN_ADVERTISE_MSG(GwId, Duration)),
+    Data = emqx_sn_frame:serialize_pkt(?SN_ADVERTISE_MSG(GwId, Duration), #{}),
     lists:foreach(fun(Addr) ->
                       ?LOG(debug, "SEND SN_ADVERTISE to ~p~n", [Addr]),
                       gen_udp:send(Sock, Addr, Port, Data)
