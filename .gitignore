@@ -48,3 +48,5 @@ scripts/git-token
 apps/*/etc/*.all
 _upgrade_base/
 TAGS
+erlang_ls.config
+.els_cache/
