@@ -585,7 +585,7 @@ handle_call(discard, Channel) ->
 
 handle_call(list_acl_cache, Channel) ->
     %% This won't work
-    {reply, emqx_acl_cache:list_acl_cache(default, mqtt_tcp), Channel};
+    {reply, emqx_acl_cache:list_acl_cache(default), Channel};
 
 %% XXX: No Quota Now
 % handle_call({quota, Policy}, Channel) ->

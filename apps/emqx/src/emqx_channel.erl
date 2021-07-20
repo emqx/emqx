@@ -193,8 +193,8 @@ stats(#channel{session = Session})->
     emqx_session:stats(Session).
 
 -spec(caps(channel()) -> emqx_types:caps()).
-caps(#channel{clientinfo = #{zone := Zone, listener := Listener}}) ->
-    emqx_mqtt_caps:get_caps(Zone, Listener).
+caps(#channel{clientinfo = #{zone := Zone}}) ->
+    emqx_mqtt_caps:get_caps(Zone).
 
 
 %%--------------------------------------------------------------------
@@ -1206,8 +1206,8 @@ run_conn_hooks(ConnPkt, Channel = #channel{conninfo = ConnInfo}) ->
 %%--------------------------------------------------------------------
 %% Check Connect Packet
 
-check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone, listener := Listener}}) ->
-    emqx_packet:check(ConnPkt, emqx_mqtt_caps:get_caps(Zone, Listener)).
+check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
+    emqx_packet:check(ConnPkt, emqx_mqtt_caps:get_caps(Zone)).
 
 %%--------------------------------------------------------------------
 %% Enrich Client Info
@@ -1432,8 +1432,8 @@ check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos    = QoS,
                                                          retain = Retain},
                             variable = #mqtt_packet_publish{topic_name = Topic}
                            },
-               #channel{clientinfo = #{zone := Zone, listener := Listener}}) ->
-    emqx_mqtt_caps:check_pub(Zone, Listener, #{qos => QoS, retain => Retain, topic => Topic}).
+               #channel{clientinfo = #{zone := Zone}}) ->
+    emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain, topic => Topic}).
 
 %%--------------------------------------------------------------------
 %% Check Sub ACL
@@ -1461,9 +1461,8 @@ check_sub_acl(TopicFilter, #channel{clientinfo = ClientInfo}) ->
 %%--------------------------------------------------------------------
 %% Check Sub Caps
 
-check_sub_caps(TopicFilter, SubOpts, #channel{clientinfo = #{zone := Zone,
-        listener := Listener}}) ->
-    emqx_mqtt_caps:check_sub(Zone, Listener, TopicFilter, SubOpts).
+check_sub_caps(TopicFilter, SubOpts, #channel{clientinfo = #{zone := Zone}}) ->
+    emqx_mqtt_caps:check_sub(Zone, TopicFilter, SubOpts).
 
 %%--------------------------------------------------------------------
 %% Enrich SubId
@@ -1485,14 +1484,14 @@ enrich_subopts(SubOpts, #channel{clientinfo = #{zone := Zone, is_bridge := IsBri
 %% Enrich ConnAck Caps
 
 enrich_connack_caps(AckProps, ?IS_MQTT_V5 = #channel{clientinfo = #{
-        zone := Zone, listener := Listener}}) ->
+        zone := Zone}}) ->
     #{max_packet_size       := MaxPktSize,
       max_qos_allowed       := MaxQoS,
       retain_available      := Retain,
       max_topic_alias       := MaxAlias,
       shared_subscription   := Shared,
       wildcard_subscription := Wildcard
-     } = emqx_mqtt_caps:get_caps(Zone, Listener),
+     } = emqx_mqtt_caps:get_caps(Zone),
     NAckProps = AckProps#{'Retain-Available'    => flag(Retain),
                           'Maximum-Packet-Size' => MaxPktSize,
                           'Topic-Alias-Maximum' => MaxAlias,
@@ -1561,9 +1560,9 @@ ensure_connected(Channel = #channel{conninfo = ConnInfo,
 
 init_alias_maximum(#mqtt_packet_connect{proto_ver  = ?MQTT_PROTO_V5,
                                         properties = Properties},
-                   #{zone := Zone, listener := Listener} = _ClientInfo) ->
+                   #{zone := Zone} = _ClientInfo) ->
     #{outbound => emqx_mqtt_props:get('Topic-Alias-Maximum', Properties, 0),
-      inbound  => maps:get(max_topic_alias, emqx_mqtt_caps:get_caps(Zone, Listener))
+      inbound  => maps:get(max_topic_alias, emqx_mqtt_caps:get_caps(Zone))
      };
 init_alias_maximum(_ConnPkt, _ClientInfo) -> undefined.
 

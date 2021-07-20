@@ -20,11 +20,11 @@
 -include("emqx_mqtt.hrl").
 -include("types.hrl").
 
--export([ check_pub/3
-        , check_sub/4
+-export([ check_pub/2
+        , check_sub/3
         ]).
 
--export([ get_caps/2
+-export([ get_caps/1
         ]).
 
 -export_type([caps/0]).
@@ -64,18 +64,18 @@
                         shared_subscription => true
                        }).
 
--spec(check_pub(emqx_types:zone(), atom(),
+-spec(check_pub(emqx_types:zone(),
                 #{qos := emqx_types:qos(),
                   retain := boolean(),
                   topic := emqx_topic:topic()})
       -> ok_or_error(emqx_types:reason_code())).
-check_pub(Zone, Listener, Flags) when is_map(Flags) ->
+check_pub(Zone, Flags) when is_map(Flags) ->
     do_check_pub(case maps:take(topic, Flags) of
                      {Topic, Flags1} ->
                          Flags1#{topic_levels => emqx_topic:levels(Topic)};
                      error ->
                          Flags
-                 end, maps:with(?PUBCAP_KEYS, get_caps(Zone, Listener))).
+                 end, maps:with(?PUBCAP_KEYS, get_caps(Zone))).
 
 do_check_pub(#{topic_levels := Levels}, #{max_topic_levels := Limit})
   when Limit > 0, Levels > Limit ->
@@ -87,12 +87,12 @@ do_check_pub(#{retain := true}, #{retain_available := false}) ->
     {error, ?RC_RETAIN_NOT_SUPPORTED};
 do_check_pub(_Flags, _Caps) -> ok.
 
--spec(check_sub(emqx_types:zone(), atom(),
+-spec(check_sub(emqx_types:zone(),
                 emqx_types:topic(),
                 emqx_types:subopts())
       -> ok_or_error(emqx_types:reason_code())).
-check_sub(Zone, Listener, Topic, SubOpts) ->
-    Caps = maps:with(?SUBCAP_KEYS, get_caps(Zone, Listener)),
+check_sub(Zone, Topic, SubOpts) ->
+    Caps = maps:with(?SUBCAP_KEYS, get_caps(Zone)),
     Flags = lists:foldl(
               fun(max_topic_levels, Map) ->
                       Map#{topic_levels => emqx_topic:levels(Topic)};
@@ -113,7 +113,7 @@ do_check_sub(#{is_shared := true}, #{shared_subscription := false}) ->
     {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED};
 do_check_sub(_Flags, _Caps) -> ok.
 
-get_caps(Zone, Listener) ->
+get_caps(Zone) ->
     lists:foldl(fun({K, V}, Acc) ->
             Acc#{K => emqx_config:get_zone_conf(Zone, [mqtt, K], V)}
         end, #{}, maps:to_list(?DEFAULT_CAPS)).
