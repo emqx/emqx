@@ -18,30 +18,108 @@
 
 -include_lib("emqx/include/emqx.hrl").
 
--rest_api(#{name   => list_routes,
-            method => 'GET',
-            path   => "/routes/",
-            func   => list,
-            descr  => "List routes"}).
+%% API
+-behavior(minirest_api).
 
--rest_api(#{name   => lookup_routes,
-            method => 'GET',
-            path   => "/routes/:bin:topic",
-            func   => lookup,
-            descr  => "Lookup routes to a topic"}).
+-export([api_spec/0]).
 
--export([ list/2
-        , lookup/2
-        ]).
+-export([ routes/2
+        , route/2]).
 
-list(Bindings, Params) when map_size(Bindings) == 0 ->
-    emqx_mgmt:return({ok, emqx_mgmt_api:paginate(emqx_route, Params, fun format/1)}).
+-define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 
-lookup(#{topic := Topic}, _Params) ->
-    Topic1 = emqx_mgmt_util:urldecode(Topic),
-    emqx_mgmt:return({ok, [format(R) || R <- emqx_mgmt:lookup_routes(Topic1)]}).
+api_spec() ->
+    {
+        [routes_api(), route_api()],
+        [route_schema()]
+    }.
+
+route_schema() ->
+    #{
+        route => #{
+            type => object,
+            properties => #{
+                topic => #{
+                    type => string},
+                node => #{
+                    type => string,
+                    example => node()}}}}.
+
+routes_api() ->
+    Metadata = #{
+        get => #{
+            description => "EMQ X routes",
+            parameters => [
+                #{
+                    name => page,
+                    in => query,
+                    description => <<"Page">>,
+                    schema => #{type => integer},
+                    default => 1
+                },
+                #{
+                    name => limit,
+                    in => query,
+                    description => <<"Page size">>,
+                    schema => #{type => integer},
+                    default => emqx_mgmt:max_row_limit()
+                }],
+            responses => #{
+                <<"200">> =>
+                    emqx_mgmt_util:response_array_schema("List route info", <<"route">>)}}},
+    {"/routes", Metadata, routes}.
+
+route_api() ->
+    Metadata = #{
+        get => #{
+            description => "EMQ X routes",
+            parameters => [#{
+                name => topic,
+                in => path,
+                required => true,
+                description => <<"topic">>,
+                schema => #{type => string}
+            }],
+            responses => #{
+                <<"200">> =>
+                    emqx_mgmt_util:response_schema(<<"Route info">>, <<"route">>),
+                <<"404">> =>
+                    emqx_mgmt_util:not_found_schema(<<"Topic not found">>, [?TOPIC_NOT_FOUND])
+            }}},
+    {"/routes/:topic", Metadata, route}.
+
+%%%==============================================================================================
+%% parameters trans
+routes(get, Request) ->
+    Params = cowboy_req:parse_qs(Request),
+    list(Params).
+
+route(get, Request) ->
+    Topic = cowboy_req:binding(topic, Request),
+    lookup(#{topic => Topic}).
+
+%%%==============================================================================================
+%% api apply
+list(Params) ->
+    Data = emqx_mgmt_api:paginate(emqx_route, Params, fun format/1),
+    Response = emqx_json:encode(Data),
+    {200, Response}.
+
+lookup(#{topic := Topic}) ->
+    case emqx_mgmt:lookup_routes(Topic) of
+        [] ->
+            NotFound = #{code => ?TOPIC_NOT_FOUND, reason => <<"Topic not found">>},
+            Response = emqx_json:encode(NotFound),
+            {404, Response};
+        [Route] ->
+            Data = format(Route),
+            Response = emqx_json:encode(Data),
+            {200, Response}
+    end.
+
+%%%==============================================================================================
+%% internal
 format(#route{topic = Topic, dest = {_, Node}}) ->
     #{topic => Topic, node => Node};
 format(#route{topic = Topic, dest = Node}) ->
     #{topic => Topic, node => Node}.
-
