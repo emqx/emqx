@@ -45,6 +45,9 @@ start_listener(ListenerId) ->
 -spec start_listener(atom(), atom(), map()) -> ok | {error, term()}.
 start_listener(ZoneName, ListenerName, #{type := Type, bind := Bind} = Conf) ->
     case do_start_listener(ZoneName, ListenerName, Conf) of
+        {error, listener_disabled} ->
+            console_print("- Skip - starting ~s listener ~s on ~s ~n",
+                          [Type, listener_id(ZoneName, ListenerName), format(Bind)]);
         {ok, _} ->
             console_print("Start ~s listener ~s on ~s successfully.~n",
                 [Type, listener_id(ZoneName, ListenerName), format(Bind)]);
@@ -63,7 +66,9 @@ console_print(_Fmt, _Args) -> ok.
 
 %% Start MQTT/TCP listener
 -spec(do_start_listener(atom(), atom(), map())
-      -> {ok, pid()} | {error, term()}).
+      -> {ok, pid() | {skipped, atom()}} | {error, term()}).
+do_start_listener(_ZoneName, _ListenerName, #{enabled := false}) ->
+    {error, listener_disabled};
 do_start_listener(ZoneName, ListenerName, #{type := tcp, bind := ListenOn} = Opts) ->
     esockd:open(listener_id(ZoneName, ListenerName), ListenOn, merge_default(esockd_opts(Opts)),
                 {emqx_connection, start_link,
