@@ -956,9 +956,9 @@ handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
     AllPendings = lists:append(Delivers, Pendings),
     disconnect_and_shutdown(takeovered, AllPendings, Channel);
 
-handle_call(list_acl_cache, #channel{clientinfo = #{zone := Zone, listener := Listener}}
+handle_call(list_acl_cache, #channel{clientinfo = #{zone := Zone}}
         = Channel) ->
-    {reply, emqx_acl_cache:list_acl_cache(Zone, Listener), Channel};
+    {reply, emqx_acl_cache:list_acl_cache(Zone), Channel};
 
 handle_call({quota, Policy}, Channel) ->
     Zone = info(zone, Channel),
