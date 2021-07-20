@@ -49,14 +49,32 @@
 
 -type(mqtt_sn_type() :: ?SN_ADVERTISE..?SN_WILLMSGRESP).
 
--define(SN_RC_ACCEPTED,        16#00).
+-define(SN_RC_ACCEPTED,         16#00).
 -define(SN_RC_CONGESTION,       16#01).
 -define(SN_RC_INVALID_TOPIC_ID, 16#02).
 -define(SN_RC_NOT_SUPPORTED,    16#03).
+%% Custome Reason code by emqx
+-define(SN_RC_NOT_AUTHORIZE,    16#04).
+-define(SN_RC_FAILED_SESSION,   16#05).
+-define(SN_EXCEED_LIMITATION,   16#06).
+
+-define(SN_RC_NAME(Rc),
+        (begin
+           case Rc of
+               ?SN_RC_ACCEPTED -> accepted;
+               ?SN_RC_CONGESTION -> rejected_congestion;
+               ?SN_RC_INVALID_TOPIC_ID -> rejected_invaild_topic_id;
+               ?SN_RC_NOT_SUPPORTED -> rejected_not_supported;
+               ?SN_RC_NOT_AUTHORIZE -> rejected_not_authorize;
+               ?SN_RC_FAILED_SESSION -> rejected_failed_open_session;
+               ?SN_EXCEED_LIMITATION -> rejected_exceed_limitation;
+               _ -> reserved
+           end
+        end)).
 
 -define(QOS_NEG1, 3).
 
--type(mqtt_sn_return_code() :: ?SN_RC_ACCEPTED .. ?SN_RC_NOT_SUPPORTED).
+-type(mqtt_sn_return_code() :: ?SN_RC_ACCEPTED .. ?SN_EXCEED_LIMITATION).
 
 %%--------------------------------------------------------------------
 %% MQTT-SN Message
@@ -139,6 +157,12 @@
         #mqtt_sn_message{type     = ?SN_SUBSCRIBE,
                          variable = {Flags, MsgId, Topic}}).
 
+-define(SN_SUBSCRIBE_MSG_TYPE(Type, Topic, QoS),
+        #mqtt_sn_message{type     = ?SN_SUBSCRIBE,
+                         variable = {
+                           #mqtt_sn_flags{qos = QoS, topic_id_type = Type},
+                           _, Topic}}).
+
 -define(SN_SUBACK_MSG(Flags, TopicId, MsgId, ReturnCode),
         #mqtt_sn_message{type     = ?SN_SUBACK,
                          variable = {Flags, TopicId, MsgId, ReturnCode}}).
@@ -146,6 +170,12 @@
 -define(SN_UNSUBSCRIBE_MSG(Flags, MsgId, Topic),
        #mqtt_sn_message{type     = ?SN_UNSUBSCRIBE,
                         variable = {Flags, MsgId, Topic}}).
+
+-define(SN_UNSUBSCRIBE_MSG_TYPE(Type, Topic),
+       #mqtt_sn_message{type     = ?SN_UNSUBSCRIBE,
+                        variable = {
+                          #mqtt_sn_flags{topic_id_type = Type},
+                          _, Topic}}).
 
 -define(SN_UNSUBACK_MSG(MsgId),
        #mqtt_sn_message{type     = ?SN_UNSUBACK,
@@ -180,6 +210,5 @@
 -define(SN_PREDEFINED_TOPIC, 1).
 -define(SN_SHORT_TOPIC,      2).
 -define(SN_RESERVED_TOPIC,   3).
-
 
 -define(SN_INVALID_TOPIC_ID, 0).
