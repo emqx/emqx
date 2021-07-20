@@ -147,7 +147,7 @@ on_start(InstId, #{base_url := #{scheme := Scheme,
                , {pool_type, PoolType}
                , {pool_size, PoolSize}
                , {transport, Transport}
-               , {transport, NTransportOpts}],
+               , {transport_opts, NTransportOpts}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     {ok, _} = ehttpc_sup:start_pool(PoolName, PoolOpts),
     {ok, #{pool_name => PoolName,
