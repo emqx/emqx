@@ -241,10 +241,30 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     emqx_cm_locker:trans(ClientId, ResumeStart).
 
 create_session(ClientInfo, ConnInfo) ->
-    Session = emqx_session:init(ClientInfo, ConnInfo),
+    Options = get_session_confs(ClientInfo, ConnInfo),
+    Session = emqx_session:init(Options),
     ok = emqx_metrics:inc('session.created'),
     ok = emqx_hooks:run('session.created', [ClientInfo, emqx_session:info(Session)]),
     Session.
+
+get_session_confs(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
+    #{max_subscriptions => get_conf(Zone, max_subscriptions),
+      upgrade_qos => get_conf(Zone, upgrade_qos),
+      max_inflight => MaxInflight,
+      retry_interval => get_conf(Zone, retry_interval),
+      await_rel_timeout => get_conf(Zone, await_rel_timeout),
+      mqueue => mqueue_confs(Zone)
+     }.
+
+mqueue_confs(Zone) ->
+    #{max_len => get_conf(Zone, max_mqueue_len),
+      store_qos0 => get_conf(Zone, mqueue_store_qos0),
+      priorities => get_conf(Zone, mqueue_priorities),
+      default_priority => get_conf(Zone, mqueue_default_priority)
+     }.
+
+get_conf(Zone, Key) ->
+    emqx_config:get_zone_conf(Zone, [mqtt, Key]).
 
 %% @doc Try to takeover a session.
 -spec(takeover_session(emqx_types:clientid())
