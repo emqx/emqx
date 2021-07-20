@@ -21,16 +21,18 @@
 
 -compile({no_auto_import, [register/1]}).
 
--import(emqx_sn_frame,
-        [ parse/1
-        , serialize/1
-        ]).
-
 -define(ALL(Vars, Types, Exprs),
         ?SETUP(fun() ->
             State = do_setup(),
             fun() -> do_teardown(State) end
          end, ?FORALL(Vars, Types, Exprs))).
+
+parse(D) ->
+    {ok, P, _Rest, _State} = emqx_sn_frame:parse(D, #{}),
+    P.
+
+serialize(P) ->
+    emqx_sn_frame:serialize_pkt(P, #{}).
 
 %%--------------------------------------------------------------------
 %% Properties
@@ -39,7 +41,7 @@
 prop_parse_and_serialize() ->
     ?ALL(Msg, mqtt_sn_message(),
          begin
-             {ok, Msg} = parse(serialize(Msg)),
+             Msg = parse(serialize(Msg)),
              true
          end).
 

@@ -22,10 +22,6 @@
 -include_lib("emqx_gateway/src/mqttsn/include/emqx_sn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--import(emqx_sn_frame, [ parse/1
-                       , serialize/1
-                       ]).
-
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
@@ -33,122 +29,129 @@
 all() ->
     emqx_ct:all(?MODULE).
 
+parse(D) ->
+    {ok, P, _Rest, _State} = emqx_sn_frame:parse(D, #{}),
+    P.
+
+serialize_pkt(P) ->
+    emqx_sn_frame:serialize_pkt(P, #{}).
+
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
 
 t_advertise(_) ->
     Adv = ?SN_ADVERTISE_MSG(1, 100),
-    ?assertEqual({ok, Adv}, parse(serialize(Adv))).
+    ?assertEqual(Adv, parse(serialize_pkt(Adv))).
 
 t_searchgw(_) ->
     Sgw = #mqtt_sn_message{type = ?SN_SEARCHGW, variable = 1},
-    ?assertEqual({ok, Sgw}, parse(serialize(Sgw))).
+    ?assertEqual(Sgw, parse(serialize_pkt(Sgw))).
 
 t_gwinfo(_) ->
     GwInfo = #mqtt_sn_message{type = ?SN_GWINFO, variable = {2, <<"EMQGW">>}},
-    ?assertEqual({ok, GwInfo}, parse(serialize(GwInfo))).
+    ?assertEqual(GwInfo, parse(serialize_pkt(GwInfo))).
 
 t_connect(_) ->
     Flags = #mqtt_sn_flags{will = true, clean_start = true},
     Conn = #mqtt_sn_message{type = ?SN_CONNECT, variable = {Flags, 4, 300, <<"ClientId">>}},
-    ?assertEqual({ok, Conn}, parse(serialize(Conn))).
+    ?assertEqual(Conn, parse(serialize_pkt(Conn))).
 
 t_connack(_) ->
     ConnAck = #mqtt_sn_message{type = ?SN_CONNACK, variable = 2},
-    ?assertEqual({ok, ConnAck}, parse(serialize(ConnAck))).
+    ?assertEqual(ConnAck, parse(serialize_pkt(ConnAck))).
 
 t_willtopicreq(_) ->
     WtReq = #mqtt_sn_message{type = ?SN_WILLTOPICREQ},
-    ?assertEqual({ok, WtReq}, parse(serialize(WtReq))).
+    ?assertEqual(WtReq, parse(serialize_pkt(WtReq))).
 
 t_willtopic(_) ->
     Flags = #mqtt_sn_flags{qos = 1, retain = false},
     Wt = #mqtt_sn_message{type = ?SN_WILLTOPIC, variable = {Flags, <<"WillTopic">>}},
-    ?assertEqual({ok, Wt}, parse(serialize(Wt))).
+    ?assertEqual(Wt, parse(serialize_pkt(Wt))).
 
 t_willmsgreq(_) ->
     WmReq = #mqtt_sn_message{type = ?SN_WILLMSGREQ},
-    ?assertEqual({ok, WmReq}, parse(serialize(WmReq))).
+    ?assertEqual(WmReq, parse(serialize_pkt(WmReq))).
 
 t_willmsg(_) ->
     WlMsg = #mqtt_sn_message{type = ?SN_WILLMSG, variable = <<"WillMsg">>},
-    ?assertEqual({ok, WlMsg}, parse(serialize(WlMsg))).
+    ?assertEqual(WlMsg, parse(serialize_pkt(WlMsg))).
 
 t_register(_) ->
     RegMsg = ?SN_REGISTER_MSG(1, 2, <<"Topic">>),
-    ?assertEqual({ok, RegMsg}, parse(serialize(RegMsg))).
+    ?assertEqual(RegMsg, parse(serialize_pkt(RegMsg))).
 
 t_regack(_) ->
     RegAck = ?SN_REGACK_MSG(1, 2, 0),
-    ?assertEqual({ok, RegAck}, parse(serialize(RegAck))).
+    ?assertEqual(RegAck, parse(serialize_pkt(RegAck))).
 
 t_publish(_) ->
     Flags = #mqtt_sn_flags{dup = false, qos = 1, retain = false, topic_id_type = 2#01},
     PubMsg = #mqtt_sn_message{type = ?SN_PUBLISH, variable = {Flags, 1, 2, <<"Payload">>}},
-    ?assertEqual({ok, PubMsg}, parse(serialize(PubMsg))).
+    ?assertEqual(PubMsg, parse(serialize_pkt(PubMsg))).
 
 t_puback(_) ->
     PubAck = #mqtt_sn_message{type = ?SN_PUBACK, variable = {1, 2, 0}},
-    ?assertEqual({ok, PubAck}, parse(serialize(PubAck))).
+    ?assertEqual(PubAck, parse(serialize_pkt(PubAck))).
 
 t_pubrec(_) ->
     PubRec =  #mqtt_sn_message{type = ?SN_PUBREC, variable = 16#1234},
-    ?assertEqual({ok, PubRec}, parse(serialize(PubRec))).
+    ?assertEqual(PubRec, parse(serialize_pkt(PubRec))).
 
 t_pubrel(_) ->
     PubRel =  #mqtt_sn_message{type = ?SN_PUBREL, variable = 16#1234},
-    ?assertEqual({ok, PubRel}, parse(serialize(PubRel))).
+    ?assertEqual(PubRel, parse(serialize_pkt(PubRel))).
 
 t_pubcomp(_) ->
     PubComp =  #mqtt_sn_message{type = ?SN_PUBCOMP, variable = 16#1234},
-    ?assertEqual({ok, PubComp}, parse(serialize(PubComp))).
+    ?assertEqual(PubComp, parse(serialize_pkt(PubComp))).
 
 t_subscribe(_) ->
     Flags = #mqtt_sn_flags{dup = false, qos = 1, topic_id_type = 16#01},
     SubMsg = #mqtt_sn_message{type = ?SN_SUBSCRIBE, variable = {Flags, 16#4321, 16}},
-    ?assertEqual({ok, SubMsg}, parse(serialize(SubMsg))).
+    ?assertEqual(SubMsg, parse(serialize_pkt(SubMsg))).
 
 t_suback(_) ->
     Flags = #mqtt_sn_flags{qos = 1},
     SubAck = #mqtt_sn_message{type = ?SN_SUBACK, variable = {Flags, 98, 89, 0}},
-    ?assertEqual({ok, SubAck}, parse(serialize(SubAck))).
+    ?assertEqual(SubAck, parse(serialize_pkt(SubAck))).
 
 t_unsubscribe(_) ->
     Flags = #mqtt_sn_flags{dup = false, qos = 1, topic_id_type = 16#01},
     UnSub = #mqtt_sn_message{type = ?SN_UNSUBSCRIBE, variable = {Flags, 16#4321, 16}},
-    ?assertEqual({ok, UnSub}, parse(serialize(UnSub))).
+    ?assertEqual(UnSub, parse(serialize_pkt(UnSub))).
 
 t_unsuback(_) ->
     UnsubAck = #mqtt_sn_message{type = ?SN_UNSUBACK, variable = 72},
-    ?assertEqual({ok, UnsubAck}, parse(serialize(UnsubAck))).
+    ?assertEqual(UnsubAck, parse(serialize_pkt(UnsubAck))).
 
 t_pingreq(_) ->
     Ping = #mqtt_sn_message{type = ?SN_PINGREQ, variable = <<>>},
-    ?assertEqual({ok, Ping}, parse(serialize(Ping))),
+    ?assertEqual(Ping, parse(serialize_pkt(Ping))),
     Ping1 = #mqtt_sn_message{type = ?SN_PINGREQ, variable = <<"ClientId">>},
-    ?assertEqual({ok, Ping1}, parse(serialize(Ping1))).
+    ?assertEqual(Ping1, parse(serialize_pkt(Ping1))).
 
 t_pingresp(_) ->
     PingResp = #mqtt_sn_message{type = ?SN_PINGRESP},
-    ?assertEqual({ok, PingResp}, parse(serialize(PingResp))).
+    ?assertEqual(PingResp, parse(serialize_pkt(PingResp))).
 
 t_disconnect(_) ->
     Disconn = #mqtt_sn_message{type = ?SN_DISCONNECT},
-    ?assertEqual({ok, Disconn}, parse(serialize(Disconn))).
+    ?assertEqual(Disconn, parse(serialize_pkt(Disconn))).
 
 t_willtopicupd(_) ->
     Flags = #mqtt_sn_flags{qos = 1, retain = true},
     WtUpd = #mqtt_sn_message{type = ?SN_WILLTOPICUPD, variable = {Flags, <<"Topic">>}},
-    ?assertEqual({ok, WtUpd}, parse(serialize(WtUpd))).
+    ?assertEqual(WtUpd, parse(serialize_pkt(WtUpd))).
 
 t_willmsgupd(_) ->
     WlMsgUpd = #mqtt_sn_message{type = ?SN_WILLMSGUPD, variable = <<"WillMsg">>},
-    ?assertEqual({ok, WlMsgUpd}, parse(serialize(WlMsgUpd))).
+    ?assertEqual(WlMsgUpd, parse(serialize_pkt(WlMsgUpd))).
 
 t_willmsgresp(_) ->
     UpdResp = #mqtt_sn_message{type = ?SN_WILLMSGRESP, variable = 0},
-    ?assertEqual({ok, UpdResp}, parse(serialize(UpdResp))).
+    ?assertEqual(UpdResp, parse(serialize_pkt(UpdResp))).
 
 t_random_test(_) ->
     random_test_body(),
