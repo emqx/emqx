@@ -16,8 +16,7 @@ bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
 
 quicer() ->
-    %% @todo use tag
-    {quicer, {git, "https://github.com/emqx/quic.git", {branch, "main"}}}.
+    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.7"}}}.
 
 deps(Config) ->
     {deps, OldDeps} = lists:keyfind(deps, 1, Config),
