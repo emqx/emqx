@@ -169,18 +169,16 @@ init(Opts) ->
     MaxInflight = maps:get(max_inflight, Opts, 1),
     QueueOpts = maps:merge(
                   #{max_len => 1000,
-                    store_qos0 => false,
-                    priorities => none,
-                    default_priority => lowest
+                    store_qos0 => true
                    }, maps:get(mqueue, Opts, #{})),
     #session{
-       max_subscriptions = maps:get(max_subscriptions, Opts, 0),
+       max_subscriptions = maps:get(max_subscriptions, Opts, infinity),
        subscriptions     = #{},
        upgrade_qos       = maps:get(upgrade_qos, Opts, false),
        inflight          = emqx_inflight:new(MaxInflight),
        mqueue            = emqx_mqueue:init(QueueOpts),
        next_pkt_id       = 1,
-       retry_interval    = timer:seconds(maps:get(retry_interval, Opts, 0)),
+       retry_interval    = timer:seconds(maps:get(retry_interval, Opts, 30)),
        awaiting_rel      = #{},
        max_awaiting_rel  = maps:get(max_awaiting_rel, Opts, 100),
        await_rel_timeout = timer:seconds(maps:get(await_rel_timeout, Opts, 300)),
