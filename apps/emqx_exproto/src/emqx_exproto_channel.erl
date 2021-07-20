@@ -164,12 +164,21 @@ init(ConnInfo = #{socktype := Socktype,
     try_dispatch(on_socket_created, wrap(Req), Channel).
 
 %% @private
-peercert(nossl, ConnInfo) ->
+peercert(NoSsl, ConnInfo) when NoSsl == nossl;
+                               NoSsl == undefined ->
     ConnInfo;
 peercert(Peercert, ConnInfo) ->
-    ConnInfo#{peercert =>
-              #{cn => esockd_peercert:common_name(Peercert),
-                dn => esockd_peercert:subject(Peercert)}}.
+    Fn = fun(_, V) -> V =/= undefined end,
+    Infos = maps:filter(Fn,
+                        #{cn => esockd_peercert:common_name(Peercert),
+                          dn => esockd_peercert:subject(Peercert)}
+                       ),
+    case maps:size(Infos) of
+        0 ->
+            ConnInfo;
+        _ ->
+            ConnInfo#{peercert => Infos}
+    end.
 
 %% @private
 socktype(tcp) -> 'TCP';
