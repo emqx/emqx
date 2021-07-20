@@ -84,7 +84,7 @@ route_api() ->
                 <<"200">> =>
                     emqx_mgmt_util:response_schema(<<"Route info">>, <<"route">>),
                 <<"404">> =>
-                    emqx_mgmt_util:not_found_schema(<<"Topic not found">>, [?TOPIC_NOT_FOUND])
+                    emqx_mgmt_util:response_error_schema(<<"Topic not found">>, [?TOPIC_NOT_FOUND])
             }}},
     {"/routes/:topic", Metadata, route}.
 
