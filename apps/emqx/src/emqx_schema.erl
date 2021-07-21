@@ -84,8 +84,8 @@ fields("cluster") ->
     [ {"name", t(atom(), "ekka.cluster_name", emqxcl)}
     , {"discovery_strategy", t(union([manual, static, mcast, dns, etcd, k8s]),
         undefined, manual)}
-    , {"autoclean", t(duration(), "ekka.cluster_autoclean", undefined)}
-    , {"autoheal", t(boolean(), "ekka.cluster_autoheal", false)}
+    , {"autoclean", t(duration(), "ekka.cluster_autoclean", "5m")}
+    , {"autoheal", t(boolean(), "ekka.cluster_autoheal", true)}
     , {"static", ref("static")}
     , {"mcast", ref("mcast")}
     , {"proto_dist", t(union([inet_tcp, inet6_tcp, inet_tls]), "ekka.proto_dist", inet_tcp)}
@@ -97,13 +97,13 @@ fields("cluster") ->
     ];
 
 fields("static") ->
-    [ {"seeds", t(hoconsc:array(string()))}];
+    [ {"seeds", t(hoconsc:array(string()), undefined, [])}];
 
 fields("mcast") ->
     [ {"addr", t(string(), undefined, "239.192.0.1")}
     , {"ports", t(hoconsc:array(integer()), undefined, [4369, 4370])}
     , {"iface", t(string(), undefined, "0.0.0.0")}
-    , {"ttl", t(integer(), undefined, 255)}
+    , {"ttl", t(range(0, 255), undefined, 255)}
     , {"loop", t(boolean(), undefined, true)}
     , {"sndbuf", t(bytesize(), undefined, "16KB")}
     , {"recbuf", t(bytesize(), undefined, "16KB")}
@@ -111,12 +111,12 @@ fields("mcast") ->
     ];
 
 fields("dns") ->
-    [ {"name", t(string())}
-    , {"app", t(string())}];
+    [ {"name", t(string(), undefined, "localhost")}
+    , {"app", t(string(), undefined, "emqx")}];
 
 fields("etcd") ->
     [ {"server", t(comma_separated_list())}
-    , {"prefix", t(string())}
+    , {"prefix", t(string(), undefined, "emqxcl")}
     , {"node_ttl", t(duration(), undefined, "1m")}
     , {"ssl", ref("etcd_ssl")}
     ];
@@ -126,11 +126,11 @@ fields("etcd_ssl") ->
 
 fields("k8s") ->
     [ {"apiserver", t(string())}
-    , {"service_name", t(string())}
+    , {"service_name", t(string(), undefined, "emqx")}
     , {"address_type", t(union([ip, dns, hostname]))}
-    , {"app_name", t(string())}
-    , {"namespace", t(string())}
-    , {"suffix", t(string(), undefined, "")}
+    , {"app_name", t(string(), undefined, "emqx")}
+    , {"namespace", t(string(), undefined, "default")}
+    , {"suffix", t(string(), undefined, "pod.local")}
     ];
 
 fields("rlog") ->
@@ -149,12 +149,12 @@ fields("node") ->
     , {"config_files", t(list(string()), "emqx.config_files",
         [ filename:join([os:getenv("RUNNER_ETC_DIR"), "emqx.conf"])
         ])}
-    , {"global_gc_interval", t(duration_s(), "emqx.global_gc_interval", undefined)}
+    , {"global_gc_interval", t(duration_s(), "emqx.global_gc_interval", "15m")}
     , {"crash_dump_dir", t(file(), "vm_args.-env ERL_CRASH_DUMP", undefined)}
-    , {"dist_net_ticktime", t(integer(), "vm_args.-kernel net_ticktime", undefined)}
-    , {"dist_listen_min", t(integer(), "kernel.inet_dist_listen_min", undefined)}
-    , {"dist_listen_max", t(integer(), "kernel.inet_dist_listen_max", undefined)}
-    , {"backtrace_depth", t(integer(), "emqx.backtrace_depth", 16)}
+    , {"dist_net_ticktime", t(duration(), "vm_args.-kernel net_ticktime", "2m")}
+    , {"dist_listen_min", t(range(1024, 65535), "kernel.inet_dist_listen_min", 6369)}
+    , {"dist_listen_max", t(range(1024, 65535), "kernel.inet_dist_listen_max", 6369)}
+    , {"backtrace_depth", t(integer(), "emqx.backtrace_depth", 23)}
     ];
 
 fields("rpc") ->
@@ -162,7 +162,7 @@ fields("rpc") ->
     , {"async_batch_size", t(integer(), "gen_rpc.max_batch_size", 256)}
     , {"port_discovery",t(union(manual, stateless), "gen_rpc.port_discovery", stateless)}
     , {"tcp_server_port", t(integer(), "gen_rpc.tcp_server_port", 5369)}
-    , {"tcp_client_num", t(range(0, 255), undefined, 0)}
+    , {"tcp_client_num", t(range(1, 256), undefined, 1)}
     , {"connect_timeout", t(duration(), "gen_rpc.connect_timeout", "5s")}
     , {"send_timeout", t(duration(), "gen_rpc.send_timeout", "5s")}
     , {"authentication_timeout", t(duration(), "gen_rpc.authentication_timeout", "5s")}
@@ -180,7 +180,7 @@ fields("log") ->
     , {"console_handler", ref("console_handler")}
     , {"file_handlers", ref("file_handlers")}
     , {"time_offset", t(string(), undefined, "system")}
-    , {"chars_limit", maybe_infinity(integer())}
+    , {"chars_limit", maybe_infinity(range(1, inf))}
     , {"supervisor_reports", t(union([error, progress]), undefined, error)}
     , {"max_depth", t(union([infinity, integer()]),
                       "kernel.error_logger_format_depth", 80)}
@@ -228,6 +228,7 @@ fields("log_burst_limit") ->
     , {"window_time", t(duration(), undefined, "1s")}
     ];
 
+%% disable lager in case some app deps on it
 fields("lager") ->
     [ {"handlers", t(string(), "lager.handlers", "")}
     , {"crash_log", t(boolean(), "lager.crash_log", false)}
@@ -249,7 +250,7 @@ fields("acl") ->
 
 fields("acl_cache") ->
     [ {"enable", t(boolean(), undefined, true)}
-    , {"max_size", maybe_infinity(range(1, 1048576), 32)}
+    , {"max_size", t(range(1, 1048576), undefined, 32)}
     , {"ttl", t(duration(), undefined, "1m")}
     ];
 
@@ -257,26 +258,26 @@ fields("mqtt") ->
     [ {"mountpoint", t(binary(), undefined, <<>>)}
     , {"idle_timeout", maybe_infinity(duration(), "15s")}
     , {"max_packet_size", t(bytesize(), undefined, "1MB")}
-    , {"max_clientid_len", t(integer(), undefined, 65535)}
-    , {"max_topic_levels", t(integer(), undefined, 65535)}
+    , {"max_clientid_len", t(range(23, 65535), undefined, 65535)}
+    , {"max_topic_levels", t(range(1, 65535), undefined, 65535)}
     , {"max_qos_allowed", t(range(0, 2), undefined, 2)}
-    , {"max_topic_alias", t(integer(), undefined, 65535)}
+    , {"max_topic_alias", t(range(0, 65535), undefined, 65535)}
     , {"retain_available", t(boolean(), undefined, true)}
     , {"wildcard_subscription", t(boolean(), undefined, true)}
     , {"shared_subscription", t(boolean(), undefined, true)}
-    , {"ignore_loop_deliver", t(boolean())}
+    , {"ignore_loop_deliver", t(boolean(), undefined, false)}
     , {"strict_mode", t(boolean(), undefined, false)}
     , {"response_information", t(string(), undefined, "")}
     , {"server_keepalive", maybe_disabled(integer())}
     , {"keepalive_backoff", t(float(), undefined, 0.75)}
-    , {"max_subscriptions", maybe_infinity(integer())}
+    , {"max_subscriptions", maybe_infinity(range(1, inf))}
     , {"upgrade_qos", t(boolean(), undefined, false)}
-    , {"max_inflight", t(range(1, 65535))}
+    , {"max_inflight", t(range(1, 65535), undefined, 32)}
     , {"retry_interval", t(duration_s(), undefined, "30s")}
-    , {"max_awaiting_rel", maybe_infinity(duration())}
+    , {"max_awaiting_rel", maybe_infinity(integer(), 100)}
     , {"await_rel_timeout", t(duration_s(), undefined, "300s")}
     , {"session_expiry_interval", t(duration_s(), undefined, "2h")}
-    , {"max_mqueue_len", maybe_infinity(integer(), 1000)}
+    , {"max_mqueue_len", maybe_infinity(range(0, inf), 1000)}
     , {"mqueue_priorities", maybe_disabled(map())}
     , {"mqueue_default_priority", t(union(highest, lowest), undefined, lowest)}
     , {"mqueue_store_qos0", t(boolean(), undefined, true)}
@@ -378,7 +379,7 @@ fields("mqtt_quic_listener") ->
     , {"keyfile", t(string(), undefined, undefined)}
     , {"ciphers", t(comma_separated_list(), undefined, "TLS_AES_256_GCM_SHA384,"
                     "TLS_AES_128_GCM_SHA256,TLS_CHACHA20_POLY1305_SHA256")}
-    , {"idle_timeout", t(duration(), undefined, 60000)}
+    , {"idle_timeout", t(duration(), undefined, "15s")}
     ] ++ base_listener();
 
 fields("ws_opts") ->
@@ -406,10 +407,9 @@ fields("tcp_opts") ->
     , {"recbuf", t(bytesize())}
     , {"sndbuf", t(bytesize())}
     , {"buffer", t(bytesize())}
-    , {"tune_buffer", t(boolean())}
     , {"high_watermark", t(bytesize(), undefined, "1MB")}
-    , {"nodelay", t(boolean())}
-    , {"reuseaddr", t(boolean())}
+    , {"nodelay", t(boolean(), undefined, false)}
+    , {"reuseaddr", t(boolean(), undefined, true)}
     ];
 
 fields("ssl_opts") ->
@@ -470,7 +470,7 @@ fields("broker") ->
     ];
 
 fields("perf") ->
-    [ {"route_lock_type", t(union([key, tab, global]), "emqx.route_lock_type", key)}
+    [ {"route_lock_type", t(union([key, tab, global]), undefined, key)}
     , {"trie_compaction", t(boolean(), "emqx.trie_compaction", true)}
     ];
 
@@ -484,10 +484,10 @@ fields("sysmon_vm") ->
     , {"process_high_watermark", t(percent(), undefined, "80%")}
     , {"process_low_watermark", t(percent(), undefined, "60%")}
     , {"long_gc", maybe_disabled(duration())}
-    , {"long_schedule", maybe_disabled(duration(), 240)}
-    , {"large_heap", maybe_disabled(bytesize(), "8MB")}
+    , {"long_schedule", maybe_disabled(duration(), "240ms")}
+    , {"large_heap", maybe_disabled(bytesize(), "32MB")}
     , {"busy_dist_port", t(boolean(), undefined, true)}
-    , {"busy_port", t(boolean(), undefined, false)}
+    , {"busy_port", t(boolean(), undefined, true)}
     ];
 
 fields("sysmon_os") ->
@@ -540,7 +540,7 @@ tr_logger_level(Conf) -> conf_get("log.primary_level", Conf).
 
 tr_logger(Conf) ->
     CharsLimit = case conf_get("log.chars_limit", Conf) of
-                     -1 -> unlimited;
+                     infinity -> unlimited;
                      V -> V
                  end,
     SingleLine = conf_get("log.single_line", Conf),
