@@ -38,7 +38,7 @@
         ]).
 
 %% Callback
--export([init/3]).
+-export([init/4]).
 
 %% Sys callbacks
 -export([ system_continue/3
@@ -100,14 +100,14 @@
            ]}).
 
 %% udp
-start_link(Socket = {udp, _SockPid, _Sock}, _Peername, Options) ->
-    Args = [self(), Socket, Options],
+start_link(Socket = {udp, _SockPid, _Sock}, Peername, Options) ->
+    Args = [self(), Socket, Peername, Options],
     {ok, proc_lib:spawn_link(?MODULE, init, Args)};
 
 %% tcp/ssl/dtls
 start_link(esockd_transport, Sock, Options) ->
     Socket = {esockd_transport, Sock},
-    Args = [self(), Socket, Options],
+    Args = [self(), Socket, undefined, Options],
     {ok, proc_lib:spawn_link(?MODULE, init, Args)}.
 
 %%--------------------------------------------------------------------
@@ -167,6 +167,12 @@ stop(Pid) ->
 %% Wrapped funcs
 %%--------------------------------------------------------------------
 
+esockd_peername({udp, _SockPid, _Sock}, Peername) ->
+    Peername;
+esockd_peername({esockd_transport, Sock}, _Peername) ->
+    {ok, Peername} = esockd_transport:ensure_ok_or_exit(peername, [Sock]),
+    Peername.
+
 esockd_wait(Socket = {udp, _SockPid, _Sock}) ->
     {ok, Socket};
 esockd_wait({esockd_transport, Sock}) ->
@@ -223,10 +229,10 @@ send(Data, #state{socket = {esockd_transport, Sock}}) ->
 -define(DEFAULT_IDLE_TIMEOUT, 30000).
 -define(DEFAULT_OOM_POLICY, #{max_heap_size => 4194304,message_queue_len => 32000}).
 
-init(Parent, WrappedSock, Options) ->
+init(Parent, WrappedSock, Peername0, Options) ->
     case esockd_wait(WrappedSock) of
         {ok, NWrappedSock} ->
-            {ok, Peername} = esockd_ensure_ok_or_exit(peername, NWrappedSock),
+            Peername = esockd_peername(NWrappedSock, Peername0),
             run_loop(Parent, init_state(NWrappedSock, Peername, Options));
         {error, Reason} ->
             ok = esockd_close(WrappedSock),
