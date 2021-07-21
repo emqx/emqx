@@ -2,13 +2,13 @@
 
 {VSN,
   [
-    {<<"4.3.[0-5]">>, [
+    {<<"4.3.[0-1]">>, [
      {restart_application, emqx_auth_http}
     ]},
     {<<".*">>, []}
   ],
   [
-    {<<"4.3.[0-5]">>, [
+    {<<"4.3.[0-1]">>, [
      {restart_application, emqx_auth_http}
     ]},
     {<<".*">>, []}
