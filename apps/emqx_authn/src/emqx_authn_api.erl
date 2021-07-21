@@ -92,7 +92,7 @@ authenticator_api() ->
             }
         }
     },
-    {"/authentication/authenticators", Metadata, clients}.
+    {"/authentication/authenticators", Metadata, authenticators}.
 
 definitions() ->
     AuthenticatorDef = #{
@@ -361,6 +361,10 @@ definitions() ->
             pool_size =>  #{
                 type => integer,
                 default => 8
+            },
+            enable_pipelining => #{
+                type => boolean,
+                default => true
             }
         }  
     },
