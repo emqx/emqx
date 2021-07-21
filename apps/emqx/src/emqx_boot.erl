@@ -25,5 +25,5 @@ is_enabled(Mod) ->
     (BootMods = boot_modules()) =:= all orelse lists:member(Mod, BootMods).
 
 boot_modules() ->
-    application:get_env(emqx, boot_modules, ?BOOT_MODULES).
+    emqx:get_env(boot_modules, ?BOOT_MODULES).
 

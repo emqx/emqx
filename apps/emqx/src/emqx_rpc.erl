@@ -53,11 +53,9 @@ cast(Key, Node, Mod, Fun, Args) ->
     filter_result(?RPC:cast(rpc_node({Key, Node}), Mod, Fun, Args)).
 
 rpc_node(Node) when is_atom(Node) ->
-    ClientNum = application:get_env(gen_rpc, tcp_client_num, ?DefaultClientNum),
-    {Node, rand:uniform(ClientNum)};
+    {Node, rand:uniform(max_client_num())};
 rpc_node({Key, Node}) when is_atom(Node) ->
-    ClientNum = application:get_env(gen_rpc, tcp_client_num, ?DefaultClientNum),
-    {Node, erlang:phash2(Key, ClientNum) + 1}.
+    {Node, erlang:phash2(Key, max_client_num()) + 1}.
 
 rpc_nodes(Nodes) ->
     rpc_nodes(Nodes, []).
@@ -72,3 +70,6 @@ filter_result({Error, Reason})
     {badrpc, Reason};
 filter_result(Delivery) ->
     Delivery.
+
+max_client_num() ->
+    emqx_config:get([gen_rpc, tcp_client_num]).

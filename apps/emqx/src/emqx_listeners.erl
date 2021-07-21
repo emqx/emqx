@@ -134,7 +134,9 @@ ranch_opts(ListenOn, Opts) ->
     #{num_acceptors => NumAcceptors,
       max_connections => MaxConnections,
       handshake_timeout => maps:get(handshake_timeout, Opts, 15000),
-      socket_opts => ip_port(ListenOn) ++ SocketOpts}.
+      socket_opts => ip_port(ListenOn) ++
+            %% cowboy don't allow us to set 'reuseaddr'
+            proplists:delete(reuseaddr, SocketOpts)}.
 
 ip_port(Port) when is_integer(Port) ->
     [{port, Port}];
