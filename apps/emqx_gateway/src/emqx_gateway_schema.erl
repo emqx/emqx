@@ -34,7 +34,8 @@ structs() -> ["gateway"].
 fields("gateway") ->
     [{stomp, t(ref(stomp))},
      {mqttsn, t(ref(mqttsn))},
-     {exproto, t(ref(exproto))}
+     {exproto, t(ref(exproto))},
+     {coap, t(ref(coap))}
     ];
 
 fields(stomp) ->
@@ -154,8 +155,8 @@ fields(listener_settings) ->
     ];
 
 fields(tcp_listener_settings) ->
-    [ 
-      %% some special confs for tcp listener
+    [
+     %% some special confs for tcp listener
     ] ++ fields(listener_settings);
 
 fields(ssl_listener_settings) ->
@@ -168,12 +169,12 @@ fields(ssl_listener_settings) ->
 
 fields(udp_listener_settings) ->
     [
-      %% some special confs for udp listener 
+      %% some special confs for udp listener
     ] ++ fields(listener_settings);
 
 fields(dtls_listener_settings) ->
     [
-      %% some special confs for dtls listener 
+      %% some special confs for dtls listener
     ] ++
     ssl(undefined, #{handshake_timeout => "15s"
                    , depth => 10
@@ -182,6 +183,20 @@ fields(dtls_listener_settings) ->
 fields(access) ->
     [ {"$id", #{type => string(),
                 nullable => true}}];
+
+fields(coap) ->
+    [{"$id", t(ref(coap_structs))}];
+
+fields(coap_structs) ->
+    [ {enable_stats, t(boolean(), undefined, true)}
+    , {authenticator, t(union([allow_anonymous]))}
+    , {heartbeat, t(duration(), undefined, "15s")}
+    , {resource, t(union([mqtt, pubsub]), undefined, mqtt)}
+    , {notify_type, t(union([non, con, qos]), undefined, qos)}
+    , {subscribe_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
+    , {publish_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
+    , {listener, t(ref(udp_listener_group))}
+    ];
 
 fields(ExtraField) ->
     Mod = list_to_atom(ExtraField++"_schema"),
