@@ -29,10 +29,6 @@
         , stop/0
         ]).
 
--export([ get_env/1
-        , get_env/2
-        ]).
-
 %% PubSub API
 -export([ subscribe/1
         , subscribe/2
@@ -125,15 +121,6 @@ is_running(Node) ->
         undefined            -> false;
         Pid when is_pid(Pid) -> true
     end.
-
-%% @doc Get environment
--spec(get_env(Key :: atom()) -> maybe(term())).
-get_env(Key) ->
-    get_env(Key, undefined).
-
--spec(get_env(Key :: atom(), Default :: term()) -> term()).
-get_env(Key, Default) ->
-    application:get_env(?APP, Key, Default).
 
 %%--------------------------------------------------------------------
 %% PubSub API
