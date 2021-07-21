@@ -86,8 +86,11 @@ authenticate(_Ctx, ClientInfo) ->
 %%  This function should be called after the client has authenticated
 %%  successfully so that the client can be managed in the cluster.
 -spec open_session(context(), boolean(), emqx_types:clientinfo(),
-                   emqx_types:conninfo(), function())
-    -> {ok, #{session := any(),
+                   emqx_types:conninfo(),
+                   fun((emqx_types:clientinfo(),
+                        emqx_types:conninfo()) -> Session)
+                  )
+    -> {ok, #{session := Session,
               present := boolean(),
               pendings => list()
              }}

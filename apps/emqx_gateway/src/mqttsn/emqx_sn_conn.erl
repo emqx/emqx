@@ -79,7 +79,9 @@
           %% Idle Timeout
           idle_timeout :: integer(),
           %% Idle Timer
-          idle_timer :: maybe(reference())
+          idle_timer :: maybe(reference()),
+          %% OOM Policy
+          oom_policy :: maybe(emqx_types:oom_policy())
         }).
 
 -type(state() :: #state{}).
@@ -92,8 +94,6 @@
 
 -define(DEFAULT_GC_OPTS, #{count => 1000, bytes => 1024*1024}).
 -define(DEFAULT_IDLE_TIMEOUT, 30000).
--define(DEFAULT_OOM_POLICY, #{max_heap_size => 4194304,
-                              message_queue_len => 32000}).
 
 -dialyzer({nowarn_function,
            [ system_terminate/4
@@ -101,6 +101,7 @@
            , handle_msg/2
            , shutdown/3
            , stop/3
+           , parse_incoming/3
            ]}).
 
 %% udp
@@ -252,6 +253,7 @@ init_state(WrappedSock, Peername, Options) ->
     GcState = emqx_gateway_utils:init_gc_state(Options),
     StatsTimer = emqx_gateway_utils:stats_timer(Options),
     IdleTimeout = emqx_gateway_utils:idle_timeout(Options),
+    OomPolicy = emqx_gateway_utils:oom_policy(Options),
     IdleTimer = start_timer(IdleTimeout, idle_timeout),
     #state{socket       = WrappedSock,
            peername     = Peername,
@@ -265,13 +267,16 @@ init_state(WrappedSock, Peername, Options) ->
            gc_state     = GcState,
            stats_timer  = StatsTimer,
            idle_timeout = IdleTimeout,
-           idle_timer   = IdleTimer
+           idle_timer   = IdleTimer,
+           oom_policy   = OomPolicy
           }.
 
 run_loop(Parent, State = #state{socket   = Socket,
-                                peername = Peername}) ->
+                                peername = Peername,
+                                oom_policy = OomPolicy
+                               }) ->
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
-    _ = emqx_misc:tune_heap_size(?DEFAULT_OOM_POLICY),
+    _ = emqx_misc:tune_heap_size(OomPolicy),
     case activate_socket(State) of
         {ok, NState} ->
             hibernate(Parent, NState);
@@ -713,8 +718,7 @@ run_gc(Stats, State = #state{gc_state = GcSt}) ->
             State#state{gc_state = GcSt1}
     end.
 
-check_oom(State) ->
-    OomPolicy = ?DEFAULT_OOM_POLICY,
+check_oom(State = #state{oom_policy = OomPolicy}) ->
     case ?ENABLED(OomPolicy) andalso emqx_misc:check_oom(OomPolicy) of
         Shutdown = {shutdown, _Reason} ->
             erlang:send(self(), Shutdown);

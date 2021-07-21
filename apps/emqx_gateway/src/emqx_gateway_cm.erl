@@ -209,8 +209,10 @@ connection_closed(Type, ClientId) ->
 -spec open_session(Type :: atom(), CleanStart :: boolean(),
                    ClientInfo :: emqx_types:clientinfo(),
                    ConnInfo :: emqx_types:conninfo(),
-                   CreateSessionFun :: function())
-    -> {ok, #{session := map(),
+                   CreateSessionFun :: fun((emqx_types:clientinfo(),
+                                            emqx_types:conninfo()) -> Session
+                                       ))
+    -> {ok, #{session := Session,
               present := boolean(),
               pendings => list()
           }}

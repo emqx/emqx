@@ -58,20 +58,6 @@
 -define(SN_RC_FAILED_SESSION,   16#05).
 -define(SN_EXCEED_LIMITATION,   16#06).
 
--define(SN_RC_NAME(Rc),
-        (begin
-           case Rc of
-               ?SN_RC_ACCEPTED -> accepted;
-               ?SN_RC_CONGESTION -> rejected_congestion;
-               ?SN_RC_INVALID_TOPIC_ID -> rejected_invaild_topic_id;
-               ?SN_RC_NOT_SUPPORTED -> rejected_not_supported;
-               ?SN_RC_NOT_AUTHORIZE -> rejected_not_authorize;
-               ?SN_RC_FAILED_SESSION -> rejected_failed_open_session;
-               ?SN_EXCEED_LIMITATION -> rejected_exceed_limitation;
-               _ -> reserved
-           end
-        end)).
-
 -define(QOS_NEG1, 3).
 
 -type(mqtt_sn_return_code() :: ?SN_RC_ACCEPTED .. ?SN_EXCEED_LIMITATION).
