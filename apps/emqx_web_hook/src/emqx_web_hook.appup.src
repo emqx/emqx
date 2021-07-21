@@ -2,22 +2,16 @@
 
 {VSN,
   [
-    {<<"4.3.[0-1]">>, [
+    {<<"4.3.[0-2]">>, [
      {restart_application, emqx_web_hook},
      {apply,{emqx_rule_engine,refresh_resource,[web_hook]}}
-    ]},
-    {"4.3.2", [
-     {apply,{emqx_rule_engine,load_provider,[emqx_web_hook]}}
     ]},
     {<<".*">>, []}
   ],
   [
-    {<<"4.3.[0-1]">>, [
+    {<<"4.3.[0-2]">>, [
      {restart_application, emqx_web_hook},
      {apply,{emqx_rule_engine,refresh_resource,[web_hook]}}
-    ]},
-    {"4.3.2", [
-     {apply,{emqx_rule_engine,load_provider,[emqx_web_hook]}}
     ]},
     {<<".*">>, []}
   ]
