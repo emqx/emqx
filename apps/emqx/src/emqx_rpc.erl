@@ -72,4 +72,4 @@ filter_result(Delivery) ->
     Delivery.
 
 max_client_num() ->
-    emqx_config:get([gen_rpc, tcp_client_num]).
+    emqx_config:get([rpc, tcp_client_num], ?DefaultClientNum).
