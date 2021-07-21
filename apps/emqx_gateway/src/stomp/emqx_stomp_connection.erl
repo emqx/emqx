@@ -87,11 +87,13 @@
           %% GC State
           gc_state :: emqx_gc:gc_state() | undefined,
           %% Stats Timer
-          stats_timer :: disabled | reference(),
+          stats_timer :: disabled | reference() | undefined,
           %% Idle Timeout
           idle_timeout :: integer(),
           %% Idle Timer
-          idle_timer :: reference() | undefined
+          idle_timer :: reference() | undefined,
+          %% OOM Policy
+          oom_policy :: emqx_types:oom_policy() | undefined
         }).
 
 -type(state() :: #state{}).
@@ -121,11 +123,9 @@
                             , system_code_change/4
                             ]}).
 
--dialyzer({nowarn_function, [ensure_stats_timer/2,cancel_stats_timer/1,
-                             terminate/2,handle_call/3,handle_timeout/3,
-                             parse_incoming/3,serialize_and_inc_stats_fun/1,
-                             check_oom/1,inc_incoming_stats/1,
-                             inc_outgoing_stats/1]}).
+-dialyzer({no_match, [ handle_call/3
+                     , serialize_and_inc_stats_fun/1
+                     ]}).
 
 -spec(start_link(esockd:transport(), esockd:socket(), proplists:proplist())
       -> {ok, pid()}).
@@ -244,9 +244,7 @@ init_state(Transport, Socket, Options) ->
                  peername => Peername,
                  sockname => Sockname,
                  peercert => Peercert,
-                 conn_mod => ?MODULE,
-                 zone => default,
-                 listener => mqtt_tcp
+                 conn_mod => ?MODULE
                 },
     ActiveN = emqx_gateway_utils:active_n(Options),
     %% TODO: RateLimit ? How ?
@@ -260,6 +258,7 @@ init_state(Transport, Socket, Options) ->
     GcState = emqx_gateway_utils:init_gc_state(Options),
     StatsTimer = emqx_gateway_utils:stats_timer(Options),
     IdleTimeout = emqx_gateway_utils:idle_timeout(Options),
+    OomPolicy = emqx_gateway_utils:oom_policy(Options),
     IdleTimer = emqx_misc:start_timer(IdleTimeout, idle_timeout),
     #state{transport    = Transport,
            socket       = Socket,
@@ -274,17 +273,16 @@ init_state(Transport, Socket, Options) ->
            gc_state     = GcState,
            stats_timer  = StatsTimer,
            idle_timeout = IdleTimeout,
-           idle_timer   = IdleTimer
+           idle_timer   = IdleTimer,
+           oom_policy   = OomPolicy
           }.
 
 run_loop(Parent, State = #state{transport = Transport,
                                 socket    = Socket,
                                 peername  = Peername,
-                                channel   = _Channel}) ->
+                                oom_policy = OomPolicy}) ->
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
-    % TODO: How yo get oom_policy ???
-    %emqx_misc:tune_heap_size(emqx_gateway_utils:oom_policy(
-    %                           emqx_stomp_channel:info(zone, Channel))),
+    _ = emqx_misc:tune_heap_size(OomPolicy),
     case activate_socket(State) of
         {ok, NState} -> hibernate(Parent, NState);
         {error, Reason} ->
@@ -806,16 +804,12 @@ run_gc(Stats, State = #state{gc_state = GcSt}) ->
             State#state{gc_state = GcSt1}
     end.
 
-check_oom(State = #state{channel = Channel}) ->
-    Zone = emqx_stomp_channel:info(zone, Channel),
-    OomPolicy = emqx_gateway_utils:oom_policy(Zone),
-    ?tp(debug, check_oom, #{policy => OomPolicy}),
+check_oom(State = #state{oom_policy = OomPolicy}) ->
     case ?ENABLED(OomPolicy) andalso emqx_misc:check_oom(OomPolicy) of
         {shutdown, Reason} ->
             %% triggers terminate/2 callback immediately
             erlang:exit({shutdown, Reason});
-        _Other ->
-            ok
+        _Other -> ok
     end,
     State.
 
@@ -847,28 +841,29 @@ close_socket(State = #state{transport = Transport, socket = Socket}) ->
 %% Inc incoming/outgoing stats
 
 %% XXX: Other packet type?
-inc_incoming_stats(Packet = ?PACKET(Type)) ->
+inc_incoming_stats(_Packet) ->
     inc_counter(recv_pkt, 1),
-    case Type =:= ?CMD_SEND of
-        true ->
-            inc_counter(recv_msg, 1),
-            inc_counter(incoming_pubs, 1);
-        false ->
-            ok
-    end,
-    %% FIXME:
-    emqx_metrics:inc_recv(Packet).
+    ok.
+    %case Type =:= ?CMD_SEND of
+    %    true ->
+    %        inc_counter(recv_msg, 1),
+    %        inc_counter(incoming_pubs, 1);
+    %    false ->
+    %        ok
+    %end,
+    %emqx_metrics:inc_recv(Packet).
 
-inc_outgoing_stats(Packet = ?PACKET(Type)) ->
+inc_outgoing_stats(_Packet) ->
     inc_counter(send_pkt, 1),
-    case Type =:= ?CMD_MESSAGE of
-        true ->
-            inc_counter(send_msg, 1),
-            inc_counter(outgoing_pubs, 1);
-        false ->
-            ok
-    end,
-    emqx_metrics:inc_sent(Packet).
+    ok.
+    %case Type =:= ?CMD_MESSAGE of
+    %    true ->
+    %        inc_counter(send_msg, 1),
+    %        inc_counter(outgoing_pubs, 1);
+    %    false ->
+    %        ok
+    %end,
+    %emqx_metrics:inc_sent(Packet).
 
 %%--------------------------------------------------------------------
 %% Helper functions

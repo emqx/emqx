@@ -71,7 +71,9 @@ start_link() ->
                        , state  => any()
                        }.
 
--spec load(gateway_type(), registry_options(), gateway_options()) -> ok | {error, any()}.
+-spec load(gateway_type(), registry_options(), gateway_options())
+  -> ok
+   | {error, any()}.
 load(Type, RgOpts, GwOpts) ->
     CbMod = proplists:get_value(cbkmod, RgOpts, Type),
     Dscrptr = #{ cbkmod => CbMod

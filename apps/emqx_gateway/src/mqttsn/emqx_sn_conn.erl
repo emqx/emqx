@@ -720,8 +720,9 @@ run_gc(Stats, State = #state{gc_state = GcSt}) ->
 
 check_oom(State = #state{oom_policy = OomPolicy}) ->
     case ?ENABLED(OomPolicy) andalso emqx_misc:check_oom(OomPolicy) of
-        Shutdown = {shutdown, _Reason} ->
-            erlang:send(self(), Shutdown);
+        {shutdown, Reason} ->
+            %% triggers terminate/2 callback immediately
+            erlang:exit({shutdown, Reason});
         _Other -> ok
     end,
     State.
