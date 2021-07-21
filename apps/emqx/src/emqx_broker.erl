@@ -243,7 +243,7 @@ route(Routes, Delivery) ->
 do_route({To, Node}, Delivery) when Node =:= node() ->
     {Node, To, dispatch(To, Delivery)};
 do_route({To, Node}, Delivery) when is_atom(Node) ->
-    {Node, To, forward(Node, To, Delivery, emqx:get_env(rpc_mode, async))};
+    {Node, To, forward(Node, To, Delivery, emqx_config:get([rpc, mode]))};
 do_route({To, Group}, Delivery) when is_tuple(Group); is_binary(Group) ->
     {share, To, emqx_shared_sub:dispatch(Group, To, Delivery)}.
 

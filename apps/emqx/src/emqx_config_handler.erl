@@ -216,10 +216,10 @@ load_config_file() ->
     lists:foldl(fun(ConfFile, Acc) ->
             {ok, RawConf} = hocon:load(ConfFile, #{format => richmap}),
             emqx_map_lib:deep_merge(Acc, RawConf)
-        end, #{}, emqx:get_env(config_files, [])).
+        end, #{}, application:get_env(emqx, config_files, [])).
 
 emqx_override_conf_name() ->
-    File = filename:join([emqx:get_env(data_dir), "emqx_override.conf"]),
+    File = filename:join([emqx_config:get([node, data_dir]), "emqx_override.conf"]),
     ok = filelib:ensure_dir(File),
     File.
 

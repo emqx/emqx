@@ -28,8 +28,6 @@
 -export([ insert/1
         , match/1
         , delete/1
-        , put_compaction_flag/1
-        , put_default_compaction_flag/0
         ]).
 
 -export([ empty/0
@@ -50,20 +48,11 @@
         , count = 0 :: non_neg_integer()
         }).
 
--define(IS_COMPACT, true).
-
 -rlog_shard({?ROUTE_SHARD, ?TRIE}).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
-
-put_compaction_flag(Bool) when is_boolean(Bool) ->
-    _ = persistent_term:put({?MODULE, compaction}, Bool),
-    ok.
-
-put_default_compaction_flag() ->
-    ok = put_compaction_flag(?IS_COMPACT).
 
 %% @doc Create or replicate topics table.
 -spec(mnesia(boot | copy) -> ok).
@@ -279,16 +268,7 @@ match_compact([Word | Words], Prefix, IsWildcard, Acc0) ->
     lookup_topic(MlTopic).
 
 is_compact() ->
-    case persistent_term:get({?MODULE, compaction}, undefined) of
-        undefined ->
-            Default = ?IS_COMPACT,
-            FromEnv = emqx:get_env(trie_compaction, Default),
-            _ = put_compaction_flag(FromEnv),
-            true = is_boolean(FromEnv),
-            FromEnv;
-        Value when is_boolean(Value) ->
-            Value
-    end.
+    emqx_config:get([broker, perf, trie_compaction]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -315,10 +295,11 @@ words(T) -> emqx_topic:words(T).
 
 make_prefixes_t(Topic) -> make_prefixes(words(Topic)).
 
-with_compact_flag(IsCmopact, F) ->
-    put_compaction_flag(IsCmopact),
+with_compact_flag(IsCompact, F) ->
+    OldV = is_compact(),
+    set_compact(IsCompact),
     try F()
-    after put_default_compaction_flag()
+    after set_compact(OldV)
     end.
 
 make_prefixes_test_() ->
@@ -343,6 +324,9 @@ do_compact_test() ->
     ?assertEqual([<<"a/+">>, <<"+">>, <<"+">>, <<"+">>, <<"b">>],
                  do_compact(words(<<"a/+/+/+/+/b">>))),
     ok.
+
+set_compact(Bool) ->
+    emqx_config:put([broker, perf, trie_compaction], Bool).
 
 clear_tables() -> ekka_mnesia:clear_table(?TRIE).
 
