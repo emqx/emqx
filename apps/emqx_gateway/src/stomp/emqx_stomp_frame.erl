@@ -98,7 +98,7 @@
 
 -record(frame_limit, {max_header_num, max_header_length, max_body_length}).
 
--type(parse_result() :: {ok, stomp_frame(), binary()}
+-type(parse_result() :: {ok, stomp_frame(), binary(), parse_state()}
                       | {more, parse_state()}).
 
 -type(parse_state() ::
@@ -107,7 +107,7 @@
         state := #parser_state{}
        }).
 
--dialyzer({nowarn_function, [serialize_pkt/2,make/1]}).
+%-dialyzer({nowarn_function, [serialize_pkt/2,make/1]}).
 
 %% @doc Initialize a parser
 -spec initial_parse_state(map()) -> parse_state().

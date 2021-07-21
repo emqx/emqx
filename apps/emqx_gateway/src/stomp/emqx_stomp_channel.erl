@@ -79,7 +79,7 @@
                | {event, conn_state()|updated}
                | {close, Reason :: atom()}).
 
--type(replies() :: emqx_stomp_frame:packet() | reply() | [reply()]).
+-type(replies() :: stomp_frame() | reply() | [reply()]).
 
 -define(TIMER_TABLE, #{
           incoming_timer => incoming,
@@ -96,11 +96,6 @@
          }).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
-
--dialyzer({nowarn_function, [init/2,enrich_conninfo/2,ensure_connected/1,
-                             process_connect/1,handle_in/2,handle_info/2,
-                             ensure_disconnected/2,reverse_heartbeats/1,
-                             negotiate_version/2]}).
 
 %%--------------------------------------------------------------------
 %% Init the channel
@@ -136,6 +131,7 @@ init(ConnInfo = #{peername := {PeerHost, _},
             , clientinfo_override = Override
             , timers = #{}
             , transaction = #{}
+            , conn_state = idle
             }.
 
 setting_peercert_infos(NoSSL, ClientInfo)
@@ -180,7 +176,7 @@ enrich_conninfo(_Packet,
                 Channel = #channel{conninfo = ConnInfo}) ->
     %% XXX: How enrich more infos?
     NConnInfo = ConnInfo#{ proto_name => <<"STOMP">>
-                         , proto_ver => undefined
+                         , proto_ver => <<"1.2">>
                          , clean_start => true
                          , keepalive => 0
                          , expiry_interval => 0
@@ -320,7 +316,7 @@ process_connect(Channel = #channel{
 %% Handle incoming packet
 %%--------------------------------------------------------------------
 
--spec handle_in(emqx_types:packet(), channel())
+-spec handle_in(stomp_frame() | {frame_error, any()}, channel())
       -> {ok, channel()}
        | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}
@@ -467,12 +463,12 @@ handle_in(?PACKET(?CMD_COMMIT, Headers), Channel) ->
         case trans_pipeline(lists:reverse(Actions), [], Chann0) of
             {ok, Outgoings, Chann1} ->
                 maybe_outgoing_receipt(receipt_id(Headers), Outgoings, Chann1);
-            {error, Reason} ->
+            {error, Reason, Chann1} ->
                 %% FIXME: atomic for transaction ??
                 ErrMsg = io_lib:format("Execute transaction ~s falied: ~0p",
                                        [TxId, Reason]
                                       ),
-                handle_out(error, {receipt_id(Headers), ErrMsg}, Chann0)
+                handle_out(error, {receipt_id(Headers), ErrMsg}, Chann1)
         end
     end);
 
@@ -563,13 +559,15 @@ handle_out(receipt, ReceiptId, Channel) ->
 -spec(handle_call(Req :: term(), channel())
       -> {reply, Reply :: term(), channel()}
        | {shutdown, Reason :: term(), Reply :: term(), channel()}
-       | {shutdown, Reason :: term(), Reply :: term(), emqx_types:packet(), channel()}).
+       | {shutdown, Reason :: term(), Reply :: term(), stomp_frame(), channel()}).
 handle_call(kick, Channel) ->
     NChannel = ensure_disconnected(kicked, Channel),
-    shutdown_and_reply(kicked, ok, NChannel);
+    Frame = error_frame(undefined, <<"Kicked out">>),
+    shutdown_and_reply(kicked, ok, Frame, NChannel);
 
 handle_call(discard, Channel) ->
-    shutdown_and_reply(discarded, ok, Channel);
+    Frame = error_frame(undefined, <<"Discarded">>),
+    shutdown_and_reply(discarded, ok, Frame, Channel);
 
 %% XXX: No Session Takeover
 %handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
@@ -785,8 +783,11 @@ shutdown_with_recepit(Reason, ReceiptId, Channel) ->
 shutdown(Reason, AckFrame, Channel) ->
     {shutdown, Reason, AckFrame, Channel}.
 
-shutdown_and_reply(Reason, Reply, Channel) ->
-    {shutdown, Reason, Reply, Channel}.
+%shutdown_and_reply(Reason, Reply, Channel) ->
+%    {shutdown, Reason, Reply, Channel}.
+
+shutdown_and_reply(Reason, Reply, OutPkt, Channel) ->
+    {shutdown, Reason, Reply, OutPkt, Channel}.
 
 do_negotiate_version(undefined) ->
     {ok, <<"1.0">>};
