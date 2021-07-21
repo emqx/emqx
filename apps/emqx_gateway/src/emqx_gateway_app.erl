@@ -45,7 +45,7 @@ load_default_gateway_applications() ->
 
 gateway_type_searching() ->
     %% FIXME: Hardcoded apps
-    [emqx_stomp_impl, emqx_sn_impl, emqx_exproto_impl].
+    [emqx_stomp_impl, emqx_sn_impl, emqx_exproto_impl, emqx_coap_impl].
 
 load(Mod) ->
     try
