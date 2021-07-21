@@ -20,7 +20,11 @@
 structs() -> ["emqx_authz"].
 
 fields("emqx_authz") ->
-    [ {rules, rules()}
+    [ {enable, #{type => boolean(),
+                 default => true}}
+    , {deny_action, #{type => hoconsc:enum([reply, disconnect]),
+                      default => reply}}
+    , {rules, rules()}
     ];
 fields(http) ->
     [ {principal, principal()}

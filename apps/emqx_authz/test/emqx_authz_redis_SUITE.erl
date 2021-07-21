@@ -37,7 +37,8 @@ init_per_suite(Config) ->
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end ),
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
     ok = emqx_config:update_config([zones, default, acl, cache, enable], false),
-    ok = emqx_config:update_config([zones, default, acl, enable], true),
+    ok = emqx_config:update_config([emqx_authz, enable], true),
+    ok = emqx_config:update_config([emqx_authz, deny_action], reply),
     Rules = [#{ <<"config">> => #{
                     <<"server">> => <<"127.0.0.1:27017">>,
                     <<"pool_size">> => 1,
@@ -75,18 +76,18 @@ t_authz(_) ->
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, []} end),
     % nomatch
-    ?assertEqual(deny,
+    ?assertEqual({deny, reply},
                  emqx_access_control:authorize(ClientInfo, subscribe, <<"#">>)),
-    ?assertEqual(deny,
+    ?assertEqual({deny, reply},
                  emqx_access_control:authorize(ClientInfo, publish, <<"#">>)),
 
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?RULE1 ++ ?RULE2} end),
     % nomatch
-    ?assertEqual(deny,
+    ?assertEqual({deny, reply},
         emqx_access_control:authorize(ClientInfo, subscribe, <<"+">>)),
     % nomatch
-    ?assertEqual(deny,
+    ?assertEqual({deny, reply},
         emqx_access_control:authorize(ClientInfo, subscribe, <<"test/username">>)),
 
     ?assertEqual(allow,
@@ -99,7 +100,7 @@ t_authz(_) ->
     ?assertEqual(allow,
         emqx_access_control:authorize(ClientInfo, subscribe, <<"#">>)),
     % nomatch
-    ?assertEqual(deny,
+    ?assertEqual({deny, reply},
         emqx_access_control:authorize(ClientInfo, publish, <<"#">>)),
     ok.
 

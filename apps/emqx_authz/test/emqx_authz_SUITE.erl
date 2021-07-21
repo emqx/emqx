@@ -29,9 +29,13 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
+    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_schema, includes, fun() -> ["emqx_authz"] end ),
+
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
     ok = emqx_config:update_config([zones, default, acl, cache, enable], false),
-    ok = emqx_config:update_config([zones, default, acl, enable], true),
+    ok = emqx_config:update_config([emqx_authz, enable], true),
+    ok = emqx_config:update_config([emqx_authz, deny_action], reply),
     emqx_authz:update(replace, []),
     Config.
 
@@ -142,24 +146,24 @@ t_authz(_) ->
     Rules3 = [emqx_authz:init_rule(Rule) || Rule <- [?RULE3, ?RULE4]],
     Rules4 = [emqx_authz:init_rule(Rule) || Rule <- [?RULE4, ?RULE1]],
 
-    ?assertEqual({stop, deny},
+    ?assertEqual({stop, {deny, reply}},
         emqx_authz:authorize(ClientInfo1, subscribe, <<"#">>, deny, [])),
-    ?assertEqual({stop, deny},
+    ?assertEqual({stop, {deny, reply}},
         emqx_authz:authorize(ClientInfo1, subscribe, <<"+">>, deny, Rules1)),
     ?assertEqual({stop, allow},
         emqx_authz:authorize(ClientInfo1, subscribe, <<"+">>, deny, Rules2)),
     ?assertEqual({stop, allow},
         emqx_authz:authorize(ClientInfo1, publish, <<"test">>, deny, Rules3)),
-    ?assertEqual({stop, deny},
+    ?assertEqual({stop, {deny, reply}},
         emqx_authz:authorize(ClientInfo1, publish, <<"test">>, deny, Rules4)),
-    ?assertEqual({stop, deny},
+    ?assertEqual({stop, {deny, reply}},
         emqx_authz:authorize(ClientInfo2, subscribe, <<"#">>, deny, Rules2)),
-    ?assertEqual({stop, deny},
+    ?assertEqual({stop, {deny, reply}},
         emqx_authz:authorize(ClientInfo3, publish, <<"test">>, deny, Rules3)),
-    ?assertEqual({stop, deny},
+    ?assertEqual({stop, {deny, reply}},
         emqx_authz:authorize(ClientInfo3, publish, <<"fake">>, deny, Rules4)),
-    ?assertEqual({stop, deny},
+    ?assertEqual({stop, {deny, reply}},
         emqx_authz:authorize(ClientInfo4, publish, <<"test">>, deny, Rules3)),
-    ?assertEqual({stop, deny},
+    ?assertEqual({stop, {deny, reply}},
         emqx_authz:authorize(ClientInfo4, publish, <<"fake">>, deny, Rules4)),
     ok.

@@ -875,7 +875,7 @@ t_check_pub_alias(_) ->
 t_check_sub_acls(_) ->
     emqx_config:put_zone_conf(default, [acl, enable], true),
     TopicFilter = {<<"t">>, ?DEFAULT_SUBOPTS},
-    [{TopicFilter, 0}] = emqx_channel:check_sub_acls([TopicFilter], channel()).
+    [{TopicFilter, {0, reply}}] = emqx_channel:check_sub_acls([TopicFilter], channel()).
 
 t_enrich_connack_caps(_) ->
     ok = meck:new(emqx_mqtt_caps, [passthrough, no_history]),

@@ -52,7 +52,7 @@ check_authorization_cache(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
 do_authorize(ClientInfo, PubSub, Topic) ->
     case run_hooks('client.authorize', [ClientInfo, PubSub, Topic], allow) of
         allow  -> allow;
-        _Other -> deny
+        Deny -> Deny
     end.
 
 -compile({inline, [run_hooks/3]}).

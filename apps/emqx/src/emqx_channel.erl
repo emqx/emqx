@@ -426,17 +426,15 @@ handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), Channel = #channel{session = S
     end;
 
 handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
-          Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
+          Channel = #channel{clientinfo = ClientInfo}) ->
     case emqx_packet:check(Packet) of
         ok ->
             TopicFilters0 = parse_topic_filters(TopicFilters),
             TopicFilters1 = put_subid_in_subopts(Properties, TopicFilters0),
             TupleTopicFilters0 = check_sub_acls(TopicFilters1, Channel),
-            HasAclDeny = lists:any(fun({_TopicFilter, ReasonCode}) ->
-                    ReasonCode =:= ?RC_NOT_AUTHORIZED
-                end, TupleTopicFilters0),
-            DenyAction = emqx_config:get_zone_conf(Zone, [acl, deny_action]),
-            case DenyAction =:= disconnect andalso HasAclDeny of
+            case lists:any(fun({_TopicFilter, AuthZ}) ->
+                    AuthZ =:= {?RC_NOT_AUTHORIZED, disconnect}
+                end, TupleTopicFilters0) of
                 true -> handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel);
                 false ->
                     Replace = fun
@@ -444,7 +442,7 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
                                       _Fun(lists:keyreplace(Key, 1, TupleList, Tuple), More);
                                 _Fun(TupleList, []) -> TupleList
                               end,
-                    TopicFilters2 = [ TopicFilter || {TopicFilter, 0} <- TupleTopicFilters0],
+                    TopicFilters2 = [ TopicFilter || {TopicFilter, {0, reply}} <- TupleTopicFilters0],
                     TopicFilters3 = run_hooks('client.subscribe',
                                               [ClientInfo, Properties],
                                               TopicFilters2),
@@ -537,8 +535,7 @@ process_connect(AckProps, Channel = #channel{conninfo = ConnInfo,
 %% Process Publish
 %%--------------------------------------------------------------------
 
-process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
-                Channel = #channel{clientinfo = #{zone := Zone}}) ->
+process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
     case pipeline([fun check_quota_exceeded/2,
                    fun process_alias/2,
                    fun check_pub_alias/2,
@@ -548,21 +545,20 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
         {ok, NPacket, NChannel} ->
             Msg = packet_to_message(NPacket, NChannel),
             do_publish(PacketId, Msg, NChannel);
-        {error, Rc = ?RC_NOT_AUTHORIZED, NChannel} ->
+        {error, {Rc = ?RC_NOT_AUTHORIZED, reply}, NChannel} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s.",
                  [Topic, emqx_reason_codes:text(Rc)]),
-            case emqx_config:get_zone_conf(Zone, [acl_deny_action]) of
-                ignore ->
-                    case QoS of
-                       ?QOS_0 -> {ok, NChannel};
-                       ?QOS_1 ->
-                            handle_out(puback, {PacketId, Rc}, NChannel);
-                       ?QOS_2 ->
-                            handle_out(pubrec, {PacketId, Rc}, NChannel)
-                    end;
-                disconnect ->
-                    handle_out(disconnect, Rc, NChannel)
+            case QoS of
+               ?QOS_0 -> {ok, NChannel};
+               ?QOS_1 ->
+                    handle_out(puback, {PacketId, Rc}, NChannel);
+               ?QOS_2 ->
+                    handle_out(pubrec, {PacketId, Rc}, NChannel)
             end;
+        {error, {Rc = ?RC_NOT_AUTHORIZED, disconnect}, NChannel} ->
+            ?LOG(warning, "Cannot publish message to ~s due to ~s.",
+                 [Topic, emqx_reason_codes:text(Rc)]),
+            handle_out(disconnect, Rc, NChannel);
         {error, Rc = ?RC_QUOTA_EXCEEDED, NChannel} ->
             ?LOG(warning, "Cannot publish messages to ~s due to ~s.",
                  [Topic, emqx_reason_codes:text(Rc)]),
@@ -1418,11 +1414,11 @@ check_pub_alias(_Packet, _Channel) -> ok.
 
 check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
               #channel{clientinfo = ClientInfo}) ->
-    case is_acl_enabled(ClientInfo) andalso
-         emqx_access_control:authorize(ClientInfo, publish, Topic) of
+    case emqx_access_control:authorize(ClientInfo, publish, Topic) of
         false -> ok;
         allow -> ok;
-        deny  -> {error, ?RC_NOT_AUTHORIZED}
+        {deny, reply}  -> {error, {?RC_NOT_AUTHORIZED, reply}};
+        {deny, disconnect}  -> {error, {?RC_NOT_AUTHORIZED, disconnect}}
     end.
 
 %%--------------------------------------------------------------------
@@ -1444,16 +1440,17 @@ check_sub_acls(TopicFilters, Channel) ->
 check_sub_acls([ TopicFilter = {Topic, _} | More] , Channel, Acc) ->
     case check_sub_acl(Topic, Channel) of
         allow ->
-            check_sub_acls(More, Channel, [ {TopicFilter, 0} | Acc]);
-        deny ->
-            check_sub_acls(More, Channel, [ {TopicFilter, ?RC_NOT_AUTHORIZED} | Acc])
+            check_sub_acls(More, Channel, [ {TopicFilter, {0, reply}} | Acc]);
+        {deny, reply} ->
+            check_sub_acls(More, Channel, [ {TopicFilter, {?RC_NOT_AUTHORIZED, reply}} | Acc]);
+        {deny, disconnect} ->
+            check_sub_acls([], Channel, [ {TopicFilter, {?RC_NOT_AUTHORIZED, disconnect}} | Acc])
     end;
 check_sub_acls([], _Channel, Acc) ->
     lists:reverse(Acc).
 
 check_sub_acl(TopicFilter, #channel{clientinfo = ClientInfo}) ->
-    case is_acl_enabled(ClientInfo) andalso
-         emqx_access_control:authorize(ClientInfo, subscribe, TopicFilter) of
+    case emqx_access_control:authorize(ClientInfo, subscribe, TopicFilter) of
         false  -> allow;
         Result -> Result
     end.
@@ -1618,11 +1615,6 @@ maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
             {ok, ensure_timer(expire_timer, timer:seconds(I), Channel)};
         _ -> shutdown(Reason, Channel)
     end.
-
-%%--------------------------------------------------------------------
-%% Is ACL enabled?
-is_acl_enabled(#{zone := Zone, is_superuser := IsSuperuser}) ->
-    (not IsSuperuser) andalso emqx_config:get_zone_conf(Zone, [acl, enable]).
 
 %%--------------------------------------------------------------------
 %% Parse Topic Filters

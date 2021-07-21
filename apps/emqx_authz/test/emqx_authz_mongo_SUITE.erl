@@ -39,7 +39,8 @@ init_per_suite(Config) ->
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
     ct:pal("---- emqx_hooks: ~p", [ets:tab2list(emqx_hooks)]),
     ok = emqx_config:update_config([zones, default, acl, cache, enable], false),
-    ok = emqx_config:update_config([zones, default, acl, enable], true),
+    ok = emqx_config:update_config([emqx_authz, enable], true),
+    ok = emqx_config:update_config([emqx_authz, deny_action], reply),
     Rules = [#{ <<"config">> => #{
                         <<"mongo_type">> => <<"single">>,
                         <<"server">> => <<"127.0.0.1:27017">>,
@@ -98,23 +99,23 @@ t_authz(_) ->
                    },
 
     meck:expect(emqx_resource, query, fun(_, _) -> [] end),
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)), % nomatch
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, publish, <<"#">>)), % nomatch
+    ?assertEqual({deny, reply}, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)), % nomatch
+    ?assertEqual({deny, reply}, emqx_access_control:authorize(ClientInfo1, publish, <<"#">>)), % nomatch
 
     meck:expect(emqx_resource, query, fun(_, _) -> ?RULE1 ++ ?RULE2 end),
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"+">>)),
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, publish, <<"+">>)),
+    ?assertEqual({deny, reply}, emqx_access_control:authorize(ClientInfo1, subscribe, <<"+">>)),
+    ?assertEqual({deny, reply}, emqx_access_control:authorize(ClientInfo1, publish, <<"+">>)),
 
     meck:expect(emqx_resource, query, fun(_, _) -> ?RULE2 ++ ?RULE1 end),
     ?assertEqual(allow, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)),
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"+">>)),
+    ?assertEqual({deny, reply}, emqx_access_control:authorize(ClientInfo1, subscribe, <<"+">>)),
 
     meck:expect(emqx_resource, query, fun(_, _) -> ?RULE3 ++ ?RULE4 end),
     ?assertEqual(allow, emqx_access_control:authorize(ClientInfo2, subscribe, <<"test/test_clientid">>)),
-    ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo2, publish,   <<"test/test_clientid">>)),
-    ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo2, subscribe, <<"test/test_username">>)),
+    ?assertEqual({deny, reply},  emqx_access_control:authorize(ClientInfo2, publish,   <<"test/test_clientid">>)),
+    ?assertEqual({deny, reply},  emqx_access_control:authorize(ClientInfo2, subscribe, <<"test/test_username">>)),
     ?assertEqual(allow, emqx_access_control:authorize(ClientInfo2, publish,   <<"test/test_username">>)),
-    ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo3, subscribe, <<"test">>)), % nomatch
-    ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo3, publish,   <<"test">>)), % nomatch
+    ?assertEqual({deny, reply},  emqx_access_control:authorize(ClientInfo3, subscribe, <<"test">>)), % nomatch
+    ?assertEqual({deny, reply},  emqx_access_control:authorize(ClientInfo3, publish,   <<"test">>)), % nomatch
     ok.
 

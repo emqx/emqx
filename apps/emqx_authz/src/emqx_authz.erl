@@ -42,8 +42,12 @@ register_metrics() ->
 init() ->
     ok = register_metrics(),
     emqx_config_handler:add_handler(?CONF_KEY_PATH, ?MODULE),
-    NRules = [init_rule(Rule) || Rule <- lookup()],
-    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]}, -1).
+    case emqx_config:get([emqx_authz, enable], false) of
+        true ->
+            NRules = [init_rule(Rule) || Rule <- lookup()],
+            ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]}, -1);
+        false -> ok
+    end.
 
 lookup() ->
     emqx_config:get(?CONF_KEY_PATH, []).
@@ -191,10 +195,10 @@ authorize(#{username := Username,
         {matched, deny} ->
             ?LOG(info, "Client failed authorization: Username: ~p, IP: ~p, Topic: ~p, Permission: deny", [Username, IpAddress, Topic]),
             emqx_metrics:inc(?AUTHZ_METRICS(deny)),
-            {stop, deny};
+            {stop, {deny, emqx_config:get([emqx_authz, deny_action], reply)}};
         nomatch ->
             ?LOG(info, "Client failed authorization: Username: ~p, IP: ~p, Topic: ~p, Reasion: ~p", [Username, IpAddress, Topic, "no-match rule"]),
-            {stop, deny}
+            {stop, {deny, emqx_config:get([emqx_authz, deny_action], reply)}}
     end.
 
 do_authorize(Client, PubSub, Topic,
