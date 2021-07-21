@@ -50,6 +50,7 @@ translate_env(EnvName) ->
     case application:get_env(?APP, EnvName) of
         undefined -> ok;
         {ok, Req} ->
+            {ok, EnablePipelining} = application:get_env(?APP, enable_pipelining),
             {ok, PoolSize} = application:get_env(?APP, pool_size),
             {ok, ConnectTimeout} = application:get_env(?APP, connect_timeout),
             URL = proplists:get_value(url, Req),
@@ -88,6 +89,7 @@ translate_env(EnvName) ->
                         end,
             PoolOpts = [{host, Host},
                         {port, Port},
+                        {enable_pipelining, EnablePipelining},
                         {pool_size, PoolSize},
                         {pool_type, random},
                         {connect_timeout, ConnectTimeout},
