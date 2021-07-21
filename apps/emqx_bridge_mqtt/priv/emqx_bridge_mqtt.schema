@@ -75,6 +75,14 @@
   {datatype, string}
 ]}.
 
+{mapping, "bridge.mqtt.$name.verify", "emqx_bridge_mqtt.bridges", [
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "bridge.mqtt.$name.server_name_indication", "emqx_bridge_mqtt.bridges", [
+  {datatype, string}
+]}.
+
 {mapping, "bridge.mqtt.$name.ciphers", "emqx_bridge_mqtt.bridges", [
   {datatype, string}
 ]}.
@@ -144,6 +152,8 @@
                (ciphers)      -> true;
                (psk_ciphers)  -> true;
                (tls_versions) -> true;
+               (verify)       -> true;
+               (server_name_indication) -> true;
                (_Opt)         -> false
             end,
 
@@ -153,6 +163,14 @@
                     [{ciphers, Split(Ciphers)}];
                (psk_ciphers, Ciphers) ->
                     [{ciphers, MapPSKCiphers(Split(Ciphers))}, {user_lookup_fun, {fun emqx_psk:lookup/3, <<>>}}];
+               (verify, true) ->
+                    [{verify, verify_peer}];
+               (verify, false) ->
+                    [{verify, verify_none}];
+               (server_name_indication, "disabled") ->
+                    [{server_name_indication, disabled}];
+               (server_name_indication, Hostname) ->
+                    [{server_name_indication, Hostname}];
                (Opt, Val) ->
                     [{Opt, Val}]
             end,
