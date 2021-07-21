@@ -43,6 +43,8 @@
 
 -define(ACTIVE_N, 100).
 -define(DEFAULT_IDLE_TIMEOUT, 30000).
+-define(DEFAULT_OOM_POLICY, #{max_heap_size => 4194304,
+                              message_queue_len => 32000}).
 
 -spec childspec(supervisor:worker(), Mod :: atom())
     -> supervisor:child_spec().
@@ -160,7 +162,7 @@ force_gc_policy(Options) ->
 
 -spec oom_policy(map()) -> emqx_types:oom_policy().
 oom_policy(Options) ->
-    maps:get(force_shutdown_policy, Options).
+    maps:get(force_shutdown_policy, Options, ?DEFAULT_OOM_POLICY).
 
 -spec stats_timer(map()) -> undefined | disabled.
 stats_timer(Options) ->
