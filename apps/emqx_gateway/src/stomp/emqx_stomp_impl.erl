@@ -33,20 +33,19 @@
 
 -define(TCP_OPTS, [binary, {packet, raw}, {reuseaddr, true}, {nodelay, true}]).
 
--dialyzer({nowarn_function, [load/0]}).
-
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
+-spec load() -> ok | {error, any()}.
 load() ->
     RegistryOptions = [ {cbkmod, ?MODULE}
-                      , {schema, emqx_stomp_schema}
                       ],
 
     YourOptions = [param1, param2],
     emqx_gateway_registry:load(stomp, RegistryOptions, YourOptions).
 
+-spec unload() -> ok | {error, any()}.
 unload() ->
     emqx_gateway_registry:unload(stomp).
 
