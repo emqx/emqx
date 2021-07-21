@@ -506,7 +506,7 @@ connect(Options) when is_list(Options) ->
 connect(Options = #{disk_cache := DiskCache, ecpool_worker_id := Id, pool_name := Pool}) ->
     Options0 = case DiskCache of
                    true ->
-                       DataDir = filename:join([emqx:get_env(data_dir), replayq, Pool, integer_to_list(Id)]),
+                       DataDir = filename:join([emqx_config:get([node, data_dir]), replayq, Pool, integer_to_list(Id)]),
                        QueueOption = #{replayq_dir => DataDir},
                        Options#{queue => QueueOption};
                    false ->

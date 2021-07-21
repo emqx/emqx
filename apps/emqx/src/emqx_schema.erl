@@ -145,20 +145,20 @@ fields("node") ->
                                        sensitive => true,
                                        override_env => "EMQX_NODE_COOKIE"
                                       })}
-    , {"data_dir", t(string(), "emqx.data_dir", undefined)}
+    , {"data_dir", t(string(), undefined, undefined)}
     , {"config_files", t(list(string()), "emqx.config_files",
         [ filename:join([os:getenv("RUNNER_ETC_DIR"), "emqx.conf"])
         ])}
-    , {"global_gc_interval", t(duration_s(), "emqx.global_gc_interval", "15m")}
+    , {"global_gc_interval", t(duration_s(), undefined, "15m")}
     , {"crash_dump_dir", t(file(), "vm_args.-env ERL_CRASH_DUMP", undefined)}
     , {"dist_net_ticktime", t(duration(), "vm_args.-kernel net_ticktime", "2m")}
     , {"dist_listen_min", t(range(1024, 65535), "kernel.inet_dist_listen_min", 6369)}
     , {"dist_listen_max", t(range(1024, 65535), "kernel.inet_dist_listen_max", 6369)}
-    , {"backtrace_depth", t(integer(), "emqx.backtrace_depth", 23)}
+    , {"backtrace_depth", t(integer(), undefined, 23)}
     ];
 
 fields("rpc") ->
-    [ {"mode", t(union(sync, async), "emqx.rpc_mode", async)}
+    [ {"mode", t(union(sync, async), undefined, async)}
     , {"async_batch_size", t(integer(), "gen_rpc.max_batch_size", 256)}
     , {"port_discovery",t(union(manual, stateless), "gen_rpc.port_discovery", stateless)}
     , {"tcp_server_port", t(integer(), "gen_rpc.tcp_server_port", 5369)}
@@ -455,7 +455,7 @@ fields("rule") ->
     [ {"$id", t(string())}];
 
 fields("plugins") ->
-    [ {"expand_plugins_dir", t(string(), "emqx.expand_plugins_dir", undefined)}
+    [ {"expand_plugins_dir", t(string())}
     ];
 
 fields("broker") ->
@@ -471,7 +471,7 @@ fields("broker") ->
 
 fields("perf") ->
     [ {"route_lock_type", t(union([key, tab, global]), undefined, key)}
-    , {"trie_compaction", t(boolean(), "emqx.trie_compaction", true)}
+    , {"trie_compaction", t(boolean(), undefined, true)}
     ];
 
 fields("sysmon") ->

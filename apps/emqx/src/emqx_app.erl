@@ -69,7 +69,7 @@ stop(_State) ->
       andalso emqx_listeners:stop().
 
 set_backtrace_depth() ->
-    Depth = emqx:get_env(backtrace_depth, 16),
+    Depth = emqx_config:get([node, backtrace_depth]),
     _ = erlang:system_flag(backtrace_depth, Depth),
     ok.
 
