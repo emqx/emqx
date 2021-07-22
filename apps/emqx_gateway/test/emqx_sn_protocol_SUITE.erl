@@ -65,9 +65,6 @@ init_per_suite(Config) ->
 end_per_suite(_) ->
     emqx_ct_helpers:stop_apps([emqx_gateway]).
 
-set_special_confs(emqx) ->
-    application:set_env(emqx, plugins_loaded_file,
-                        emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins"));
 set_special_confs(emqx_gateway) ->
     emqx_config:put(
       [emqx_gateway],
