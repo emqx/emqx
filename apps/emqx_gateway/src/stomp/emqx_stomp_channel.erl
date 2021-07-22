@@ -166,8 +166,9 @@ info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
 info(ctx, #channel{ctx = Ctx}) ->
     Ctx.
 
-stats(_Channel) ->
-    [].
+-spec(stats(channel()) -> emqx_types:stats()).
+stats(#channel{subscriptions = Subs}) ->
+    [{subscriptions_cnt, length(Subs)}].
 
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
