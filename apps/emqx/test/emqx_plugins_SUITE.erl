@@ -43,6 +43,7 @@ init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules([]),
     emqx_ct_helpers:start_apps([]),
     emqx_config:put([plugins, expand_plugins_dir], DataPath),
+    ?assertEqual(ok, emqx_plugins:load()),
     Config.
 
 end_per_suite(_Config) ->
