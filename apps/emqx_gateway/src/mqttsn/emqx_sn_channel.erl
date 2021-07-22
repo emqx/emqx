@@ -728,8 +728,8 @@ convert_topic_id_to_name({{id, TopicId}, Flags, Data},
     end.
 
 check_pub_acl({TopicName, _Flags, _Data},
-              #channel{clientinfo = ClientInfo}) ->
-    case emqx_access_control:authorize(ClientInfo, publish, TopicName) of
+              #channel{ctx = Ctx, clientinfo = ClientInfo}) ->
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, TopicName) of
         allow -> ok;
         deny  -> {error, ?SN_RC_NOT_AUTHORIZE}
     end.
@@ -833,9 +833,8 @@ preproc_subs_type(?SN_SUBSCRIBE_MSG_TYPE(_Reserved, _TopicId, _QoS),
     {error, ?SN_RC_NOT_SUPPORTED}.
 
 check_subscribe_acl({_TopicId, TopicName, _QoS},
-                    Channel = #channel{clientinfo = ClientInfo}) ->
-    case emqx_access_control:authorize(
-           ClientInfo, subscribe, TopicName) of
+                    Channel = #channel{ctx = Ctx, clientinfo = ClientInfo}) ->
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, TopicName) of
         allow ->
             {ok, Channel};
         _ ->
