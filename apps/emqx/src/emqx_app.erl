@@ -42,6 +42,7 @@
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
+    emqx_config:load(),
     set_backtrace_depth(),
     print_otp_version_warning(),
     print_banner(),
