@@ -31,21 +31,11 @@ all() ->
 
 init_per_suite(Config) ->
     application:set_env(ekka, strict_mode, true),
-    emqx_ct_helpers:start_apps([emqx_authn], fun set_special_configs/1),
+    emqx_ct_helpers:start_apps([emqx_authn]),
     Config.
 
 end_per_suite(_) ->
-    file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_authn.conf')),
     emqx_ct_helpers:stop_apps([emqx_authn]),
-    ok.
-
-set_special_configs(emqx_authn) ->
-    application:set_env(emqx, plugins_etc_dir,
-                        emqx_ct_helpers:deps_path(emqx_authn, "test")),
-    Conf = #{<<"emqx_authn">> => #{<<"authenticators">> => [], <<"enable">> => false}},
-    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_authn.conf'), jsx:encode(Conf)),
-    ok;
-set_special_configs(_App) ->
     ok.
 
 t_chain(_) ->
