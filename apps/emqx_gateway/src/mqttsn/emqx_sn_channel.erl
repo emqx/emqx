@@ -723,7 +723,7 @@ check_pub_acl({TopicName, _Flags, _Data},
               #channel{clientinfo = ClientInfo}) ->
     case emqx_access_control:authorize(ClientInfo, publish, TopicName) of
         allow -> ok;
-        deny  -> {error, ?SN_RC_NOT_AUTHORIZE}
+        {deny, _}  -> {error, ?SN_RC_NOT_AUTHORIZE}
     end.
 
 convert_pub_to_msg({TopicName, Flags, Data},

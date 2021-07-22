@@ -33,7 +33,7 @@ authenticate(Credential) ->
 
 %% @doc Check ACL
 -spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic())
-      -> allow | deny.
+      -> allow | {deny, reply | disconnect}.
 authorize(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
     case emqx_acl_cache:is_enabled(Zone) of
         true  -> check_authorization_cache(ClientInfo, PubSub, Topic);
@@ -52,7 +52,8 @@ check_authorization_cache(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
 do_authorize(ClientInfo, PubSub, Topic) ->
     case run_hooks('client.authorize', [ClientInfo, PubSub, Topic], allow) of
         allow  -> allow;
-        Deny -> Deny
+        {deny, reply} -> {deny, reply};
+        {deny, disconnect} -> {deny, disconnect}
     end.
 
 -compile({inline, [run_hooks/3]}).

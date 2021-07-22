@@ -310,7 +310,7 @@ handle_call({subscribe, TopicFilter, Qos},
                          clientinfo = ClientInfo}) ->
     case is_acl_enabled(ClientInfo) andalso
          emqx_access_control:authorize(ClientInfo, subscribe, TopicFilter) of
-        deny ->
+        {deny, _} ->
             {reply, {error, ?RESP_PERMISSION_DENY, <<"ACL deny">>}, Channel};
         _ ->
             {ok, NChannel} = do_subscribe([{TopicFilter, #{qos => Qos}}], Channel),
@@ -330,7 +330,7 @@ handle_call({publish, Topic, Qos, Payload},
                                         mountpoint := Mountpoint}}) ->
     case is_acl_enabled(ClientInfo) andalso
          emqx_access_control:authorize(ClientInfo, publish, Topic) of
-        deny ->
+        {deny, _} ->
             {reply, {error, ?RESP_PERMISSION_DENY, <<"ACL deny">>}, Channel};
         _ ->
             Msg = emqx_message:make(From, Qos, Topic, Payload),

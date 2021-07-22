@@ -131,7 +131,7 @@ connection_closed(_Ctx = #{type := Type}, ClientId) ->
 
 -spec authorize(context(), emqx_types:clientinfo(),
                 emqx_types:pubsub(), emqx_types:topic())
-    -> allow | deny.
+    -> allow | {deny, reply | disconnect}.
 authorize(_Ctx, ClientInfo, PubSub, Topic) ->
     emqx_access_control:authorize(ClientInfo, PubSub, Topic).
 

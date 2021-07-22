@@ -38,7 +38,7 @@
         , get_oldest_key/0
         ]).
 
--type(acl_result() :: allow | {deny, reply} | {deny, disconnect}).
+-type(acl_result() :: allow | {deny, reply | disconnect}).
 -type(system_time() :: integer()).
 -type(cache_key() :: {emqx_types:pubsub(), emqx_types:topic()}).
 -type(cache_val() :: {acl_result(), system_time()}).

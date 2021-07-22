@@ -1412,7 +1412,6 @@ check_pub_alias(_Packet, _Channel) -> ok.
 check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
               #channel{clientinfo = ClientInfo}) ->
     case emqx_access_control:authorize(ClientInfo, publish, Topic) of
-        false -> ok;
         allow -> ok;
         {deny, reply}  -> {error, {?RC_NOT_AUTHORIZED, reply}};
         {deny, disconnect}  -> {error, {?RC_NOT_AUTHORIZED, disconnect}}
@@ -1434,32 +1433,21 @@ check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos    = QoS,
 check_sub_acls(TopicFilters, Channel) ->
     check_sub_acls(TopicFilters, Channel, []).
 
-check_sub_acls([ TopicFilter = {Topic, _} | More] , Channel, Acc) ->
-    case check_sub_acl(Topic, Channel) of
+check_sub_acls([ TopicFilter = {Topic, _} | More] , Channel = #channel{clientinfo = ClientInfo}, Acc) ->
+    case emqx_access_control:authorize(ClientInfo, subscribe, Topic) of
         allow ->
             check_sub_acls(More, Channel, [ {TopicFilter, {0, reply}} | Acc]);
         {deny, reply} ->
             check_sub_acls(More, Channel, [ {TopicFilter, {?RC_NOT_AUTHORIZED, reply}} | Acc]);
         {deny, disconnect} ->
-            check_sub_acls([], Channel, [ {TopicFilter, {?RC_NOT_AUTHORIZED, disconnect}} | Acc])
+            {disconnect, []}
     end;
 check_sub_acls([], _Channel, Acc) ->
-    case lists:any(fun({_TopicFilter, AuthZ}) ->
-                            AuthZ =:= {?RC_NOT_AUTHORIZED, disconnect}
-                   end, Acc) of
-        true -> {disconnect, []};
-        false ->
-            AccOut = lists:foldr(fun({TopicFilter, {ReasonCode, reply}}, AccIn) ->
-                                      lists:append(AccIn, [{TopicFilter, ReasonCode}])
-                                 end, [], Acc),
-            {reply, AccOut}
-    end.
-
-check_sub_acl(TopicFilter, #channel{clientinfo = ClientInfo}) ->
-    case emqx_access_control:authorize(ClientInfo, subscribe, TopicFilter) of
-        false  -> allow;
-        Result -> Result
-    end.
+    AccOut = lists:foldr(
+               fun({TopicFilter, {ReasonCode, reply}}, AccIn) ->
+                    lists:append(AccIn, [{TopicFilter, ReasonCode}])
+               end, [], Acc),
+    {reply, AccOut}.
 
 %%--------------------------------------------------------------------
 %% Check Sub Caps

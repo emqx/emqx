@@ -354,7 +354,7 @@ handle_in(Frame = ?PACKET(?CMD_SEND, Headers),
                       }) ->
     Topic = header(<<"destination">>, Headers),
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, Topic) of
-        deny ->
+        {deny, _} ->
             handle_out(error, {receipt_id(Headers), "ACL Deny"}, Channel);
         allow ->
             case header(<<"transaction">>, Headers) of
@@ -388,7 +388,7 @@ handle_in(?PACKET(?CMD_SUBSCRIBE, Headers),
             handle_out(error, {receipt_id(Headers), ErrMsg}, Channel);
         false ->
             case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, Topic) of
-                deny ->
+                {deny, _} ->
                     handle_out(error, {receipt_id(Headers), "ACL Deny"}, Channel);
                 allow ->
                     _ = emqx_broker:subscribe(MountedTopic),
