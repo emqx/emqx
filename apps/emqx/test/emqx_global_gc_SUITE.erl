@@ -24,7 +24,7 @@
 all() -> emqx_ct:all(?MODULE).
 
 t_run_gc(_) ->
-    ok = application:set_env(emqx, global_gc_interval, 1),
+    ok = emqx_config:put([node, global_gc_interval], 1),
     {ok, _} = emqx_global_gc:start_link(),
     ok = timer:sleep(1500),
     {ok, MilliSecs} = emqx_global_gc:run(),

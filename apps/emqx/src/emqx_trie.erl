@@ -270,6 +270,9 @@ match_compact([Word | Words], Prefix, IsWildcard, Acc0) ->
 is_compact() ->
     emqx_config:get([broker, perf, trie_compaction], true).
 
+set_compact(Bool) ->
+    emqx_config:put([broker, perf, trie_compaction], Bool).
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -324,9 +327,6 @@ do_compact_test() ->
     ?assertEqual([<<"a/+">>, <<"+">>, <<"+">>, <<"+">>, <<"b">>],
                  do_compact(words(<<"a/+/+/+/+/b">>))),
     ok.
-
-set_compact(Bool) ->
-    emqx_config:put([broker, perf, trie_compaction], Bool).
 
 clear_tables() -> ekka_mnesia:clear_table(?TRIE).
 
