@@ -268,7 +268,7 @@ match_compact([Word | Words], Prefix, IsWildcard, Acc0) ->
     lookup_topic(MlTopic).
 
 is_compact() ->
-    emqx_config:get([broker, perf, trie_compaction]).
+    emqx_config:get([broker, perf, trie_compaction], true).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
