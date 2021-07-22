@@ -53,20 +53,21 @@ start_link(Pool, Id) ->
     gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)},
                           ?MODULE, [Pool, Id], []).
 
-async_call(FunName, Req = #{conn := Conn}, Options) ->
-    cast(pick(Conn), {rpc, FunName, Req, Options, self()}).
+async_call(FunName, Req = #{conn := Conn},
+           Options = #{pool_name := PoolName}) ->
+    cast(pick(PoolName, Conn), {rpc, FunName, Req, Options, self()}).
 
 %%--------------------------------------------------------------------
 %% cast, pick
 %%--------------------------------------------------------------------
 
--compile({inline, [cast/2, pick/1]}).
+-compile({inline, [cast/2, pick/2]}).
 
 cast(Deliver, Msg) ->
     gen_server:cast(Deliver, Msg).
 
-pick(Conn) ->
-    gproc_pool:pick_worker(exproto_gcli_pool, Conn).
+pick(PoolName, Conn) ->
+    gproc_pool:pick_worker(PoolName, Conn).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

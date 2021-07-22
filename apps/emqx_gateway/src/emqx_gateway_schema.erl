@@ -33,7 +33,8 @@ structs() -> ["emqx_gateway"].
 
 fields("emqx_gateway") ->
     [{stomp, t(ref(stomp))},
-     {mqttsn, t(ref(mqttsn))}
+     {mqttsn, t(ref(mqttsn))},
+     {exproto, t(ref(exproto))}
     ];
 
 fields(stomp) ->
@@ -72,6 +73,26 @@ fields(mqttsn_predefined) ->
     , {topic, t(string())}
     ];
 
+fields(exproto) ->
+    [{"$id", t(ref(exproto_structs))}];
+
+fields(exproto_structs) ->
+    [ {server, t(ref(exproto_grpc_server))}
+    , {handler, t(ref(exproto_grpc_handler))}
+    , {authenticator, t(union([allow_anonymous]))}
+    , {listener, t(ref(udp_tcp_listener_group))}
+    ];
+
+fields(exproto_grpc_server) ->
+    [ {bind, t(integer())}
+      %% TODO: ssl options
+    ];
+
+fields(exproto_grpc_handler) ->
+    [ {address, t(string())}
+      %% TODO: ssl
+    ];
+
 fields(clientinfo_override) ->
     [ {username, t(string())}
     , {password, t(string())}
@@ -85,6 +106,13 @@ fields(udp_listener_group) ->
 
 fields(tcp_listener_group) ->
     [ {tcp, t(ref(tcp_listener))}
+    , {ssl, t(ref(ssl_listener))}
+    ];
+
+fields(udp_tcp_listener_group) ->
+    [ {udp, t(ref(udp_listener))}
+    , {dtls, t(ref(dtls_listener))}
+    , {tcp, t(ref(tcp_listener))}
     , {ssl, t(ref(ssl_listener))}
     ];
 
