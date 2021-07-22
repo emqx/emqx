@@ -54,15 +54,13 @@ routes_api() ->
                     name => page,
                     in => query,
                     description => <<"Page">>,
-                    schema => #{type => integer},
-                    default => 1
+                    schema => #{type => integer, default => 1}
                 },
                 #{
                     name => limit,
                     in => query,
                     description => <<"Page size">>,
-                    schema => #{type => integer},
-                    default => emqx_mgmt:max_row_limit()
+                    schema => #{type => integer, default => emqx_mgmt:max_row_limit()}
                 }],
             responses => #{
                 <<"200">> =>
