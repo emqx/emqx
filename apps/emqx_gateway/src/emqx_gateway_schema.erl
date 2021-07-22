@@ -142,7 +142,7 @@ fields(listener_settings) ->
     , {proxy_protocol, t(boolean())}
     , {proxy_protocol_timeout, t(duration())}
     , {backlog, t(integer(), undefined, 1024)}
-    , {send_timeout, t(duration(), undefined, "15s")}
+    , {send_timeout, t(duration(), undefined, "15s")}       %% FIXME: mapping it
     , {send_timeout_close, t(boolean(), undefined, true)}
     , {recbuf, t(bytesize())}
     , {sndbuf, t(bytesize())}

@@ -125,7 +125,7 @@ call(ConnStr, Req) ->
         Pid when is_pid(Pid) ->
             case erlang:is_process_alive(Pid) of
                 true ->
-                    emqx_exproto_conn:call(Pid, Req);
+                    emqx_gateway_conn:call(Pid, Req);
                 false ->
                     {error, ?RESP_CONN_PROCESS_NOT_ALIVE,
                             <<"Connection process is not alive">>}

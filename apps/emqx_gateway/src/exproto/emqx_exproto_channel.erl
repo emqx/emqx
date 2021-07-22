@@ -274,8 +274,10 @@ handle_call({auth, ClientInfo, _Password}, Channel = #channel{conn_state = conne
     ?LOG(warning, "Duplicated authorized command, dropped ~p", [ClientInfo]),
     {reply, {error, ?RESP_PERMISSION_DENY, <<"Duplicated authenticate command">>}, Channel};
 handle_call({auth, ClientInfo0, Password},
-            Channel = #channel{conninfo = ConnInfo,
-                               clientinfo = ClientInfo}) ->
+            Channel = #channel{
+                         ctx = Ctx,
+                         conninfo = ConnInfo,
+                         clientinfo = ClientInfo}) ->
     ClientInfo1 = enrich_clientinfo(ClientInfo0, ClientInfo),
     ConnInfo1 = enrich_conninfo(ClientInfo1, ConnInfo),
 
@@ -284,14 +286,23 @@ handle_call({auth, ClientInfo0, Password},
 
     #{clientid := ClientId, username := Username} = ClientInfo1,
 
-    case emqx_access_control:authenticate(ClientInfo1#{password => Password}) of
-        ok ->
+    case emqx_gateway_ctx:authenticate(
+           Ctx, ClientInfo1#{password => Password}) of
+        {ok, NClientInfo} ->
+            SessFun = fun(_, _) -> #{} end,
             emqx_logger:set_metadata_clientid(ClientId),
-            case emqx_cm:open_session(true, ClientInfo1, ConnInfo1) of
+            case emqx_gateway_ctx:open_session(
+                   Ctx,
+                   true,
+                   NClientInfo,
+                   ConnInfo1,
+                   SessFun
+                  ) of
                 {ok, _Session} ->
                     ?LOG(debug, "Client ~s (Username: '~s') authorized successfully!",
                                 [ClientId, Username]),
-                    {reply, ok, [{event, connected}], ensure_connected(Channel1)};
+                    {reply, ok, [{event, connected}],
+                     ensure_connected(Channel1#channel{clientinfo = NClientInfo})};
                 {error, Reason} ->
                     ?LOG(warning, "Client ~s (Username: '~s') open session failed for ~0p",
                          [ClientId, Username, Reason]),
@@ -315,10 +326,10 @@ handle_call({start_timer, keepalive, Interval},
 
 handle_call({subscribe, TopicFilter, Qos},
             Channel = #channel{
+                         ctx = Ctx,
                          conn_state = connected,
                          clientinfo = ClientInfo}) ->
-    case is_acl_enabled(ClientInfo) andalso
-         emqx_access_control:authorize(ClientInfo, subscribe, TopicFilter) of
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, TopicFilter) of
         deny ->
             {reply, {error, ?RESP_PERMISSION_DENY, <<"ACL deny">>}, Channel};
         _ ->
@@ -333,12 +344,12 @@ handle_call({unsubscribe, TopicFilter},
 
 handle_call({publish, Topic, Qos, Payload},
             Channel = #channel{
+                         ctx = Ctx,
                          conn_state = connected,
                          clientinfo = ClientInfo
                                     = #{clientid := From,
                                         mountpoint := Mountpoint}}) ->
-    case is_acl_enabled(ClientInfo) andalso
-         emqx_access_control:authorize(ClientInfo, publish, Topic) of
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, Topic) of
         deny ->
             {reply, {error, ?RESP_PERMISSION_DENY, <<"ACL deny">>}, Channel};
         _ ->
@@ -463,9 +474,6 @@ do_unsubscribe(TopicFilter, UnSubOpts, Channel =
 %% @private
 parse_topic_filters(TopicFilters) ->
     lists:map(fun emqx_topic:parse/1, TopicFilters).
-
-is_acl_enabled(#{zone := Zone, listener := Listener, is_superuser := IsSuperuser}) ->
-    (not IsSuperuser) andalso emqx_config:get_listener_conf(Zone, Listener, [authorization, enable]).
 
 %%--------------------------------------------------------------------
 %% Ensure & Hooks
