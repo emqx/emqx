@@ -76,10 +76,8 @@ add_handler(ConfKeyPath, HandlerName) ->
 
 -spec init(term()) -> {ok, state()}.
 init(_) ->
-    RawConf = load_config_file(),
-    {_MappedEnvs, Conf} = hocon_schema:map_translate(emqx_schema, RawConf, #{}),
-    ok = save_config_to_emqx(to_plainmap(Conf), to_plainmap(RawConf)),
     {ok, #{handlers => #{?MOD => ?MODULE}}}.
+
 handle_call({add_child, ConfKeyPath, HandlerName}, _From,
             State = #{handlers := Handlers}) ->
     {reply, ok, State#{handlers =>
@@ -89,7 +87,7 @@ handle_call({update_config, ConfKeyPath, UpdateReq, RawConf}, _From,
             #{handlers := Handlers} = State) ->
     OldConf = emqx_config:get(),
     try {RootKeys, Conf} = do_update_config(ConfKeyPath, Handlers, RawConf, UpdateReq),
-        Result = save_configs(RootKeys, Conf),
+        Result = emqx_config:save_configs(Conf, #{overridden_keys => RootKeys}),
         do_post_update_config(ConfKeyPath, Handlers, OldConf, emqx_config:get()),
         {reply, Result, State}
     catch
@@ -164,71 +162,6 @@ merge_to_old_config(UpdateReq, RawConf) when is_map(UpdateReq), is_map(RawConf) 
     maps:merge(RawConf, UpdateReq);
 merge_to_old_config(UpdateReq, _RawConf) ->
     UpdateReq.
-
-%%============================================================================
-save_configs(RootKeys, RawConf) ->
-    {_MappedEnvs, Conf} = hocon_schema:map_translate(emqx_schema, to_richmap(RawConf), #{}),
-    %% We may need also support hot config update for the apps that use application envs.
-    %% If so uncomment the following line to update the configs to application env
-    %save_config_to_app_env(_MappedEnvs),
-    save_config_to_emqx(to_plainmap(Conf), RawConf),
-    save_config_to_disk(RootKeys, RawConf).
-
-% save_config_to_app_env(MappedEnvs) ->
-%     lists:foreach(fun({AppName, Envs}) ->
-%             [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
-%         end, MappedEnvs).
-
-save_config_to_emqx(Conf, RawConf) ->
-    ?LOG(debug, "set config: ~p", [Conf]),
-    emqx_config:put(emqx_map_lib:unsafe_atom_key_map(Conf)),
-    emqx_config:put_raw(RawConf).
-
-save_config_to_disk(RootKeys, Conf) ->
-    FileName = emqx_override_conf_name(),
-    OldConf = read_old_config(FileName),
-    %% We don't save the overall config to file, but only the sub configs
-    %% under RootKeys
-    write_new_config(FileName,
-        maps:merge(OldConf, maps:with(RootKeys, Conf))).
-
-write_new_config(FileName, Conf) ->
-    case file:write_file(FileName, jsx:prettify(jsx:encode(Conf))) of
-        ok -> ok;
-        {error, Reason} ->
-            logger:error("write to ~s failed, ~p", [FileName, Reason]),
-            {error, Reason}
-    end.
-
-read_old_config(FileName) ->
-    case file:read_file(FileName) of
-        {ok, Text} ->
-            try jsx:decode(Text, [{return_maps, true}]) of
-                Conf when is_map(Conf) -> Conf;
-                _ -> #{}
-            catch _Err : _Reason ->
-                #{}
-            end;
-        _ -> #{}
-    end.
-
-load_config_file() ->
-    lists:foldl(fun(ConfFile, Acc) ->
-            {ok, RawConf} = hocon:load(ConfFile, #{format => richmap}),
-            emqx_map_lib:deep_merge(Acc, RawConf)
-        end, #{}, application:get_env(emqx, config_files, [])).
-
-emqx_override_conf_name() ->
-    File = filename:join([emqx_config:get([node, data_dir]), "emqx_override.conf"]),
-    ok = filelib:ensure_dir(File),
-    File.
-
-to_richmap(Map) ->
-    {ok, RichMap} = hocon:binary(jsx:encode(Map), #{format => richmap}),
-    RichMap.
-
-to_plainmap(RichMap) ->
-    hocon_schema:richmap_to_map(RichMap).
 
 bin(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
 bin(B) when is_binary(B) -> B;
