@@ -18,21 +18,12 @@
 
  -behaviour(application).
 
--include_lib("emqx/include/logger.hrl").
-
- -emqx_plugin(?MODULE).
-
  -export([ start/2
          , stop/1
          ]).
 
 start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqx_statsd_sup:start_link(),
-    {ok, _} = emqx_statsd_sup:start_statsd(),
-    ?LOG(info, "emqx statsd start: successfully"),
-    {ok, Sup}.
+    emqx_statsd_sup:start_link().
 
 stop(_) ->
-    ok = emqx_statsd_sup:stop_statsd(),
-    ?LOG(info, "emqx statsd stop: successfully"),
     ok.

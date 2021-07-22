@@ -13,7 +13,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_statsd]).
 
-all() -> 
+all() ->
     emqx_ct:all(?MODULE).
 
 t_statsd(_) ->

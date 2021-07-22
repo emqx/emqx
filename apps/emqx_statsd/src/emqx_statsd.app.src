@@ -1,6 +1,6 @@
 {application, emqx_statsd,
  [{description, "An OTP application"},
-  {vsn, "0.1.0"},
+  {vsn, "5.0.0"},
   {registered, []},
   {mod, {emqx_statsd_app, []}},
   {applications,
