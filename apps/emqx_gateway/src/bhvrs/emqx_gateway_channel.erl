@@ -49,7 +49,7 @@
                | {event, conn_state() | updated}
                | {close, Reason :: atom()}.
 
--type replies() :: emqx_gateway_frame:packet() | reply() | [reply()].
+-type replies() :: reply() | [reply()].
 
 %% @doc Handle the incoming frame
 -callback handle_in(emqx_gateway_frame:frame() | {frame_error, any()},

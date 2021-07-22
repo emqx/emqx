@@ -82,7 +82,7 @@
                | {event, conn_state()|updated}
                | {close, Reason :: atom()}).
 
--type(replies() :: stomp_frame() | reply() | [reply()]).
+-type(replies() :: reply() | [reply()]).
 
 -define(TIMER_TABLE, #{
           incoming_timer => keepalive,
@@ -537,7 +537,7 @@ handle_out(connerr, {Headers, ReceiptId, ErrMsg}, Channel) ->
 
 handle_out(error, {ReceiptId, ErrMsg}, Channel) ->
     Frame = error_frame(ReceiptId, ErrMsg),
-    {ok, Frame, Channel};
+    {ok, {outgoing, Frame}, Channel};
 
 handle_out(connected, Headers, Channel = #channel{
                                             ctx = Ctx,
@@ -554,7 +554,7 @@ handle_out(receipt, undefined, Channel) ->
     {ok, Channel};
 handle_out(receipt, ReceiptId, Channel) ->
     Frame = receipt_frame(ReceiptId),
-    {ok, Frame, Channel}.
+    {ok, {outgoing, Frame}, Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle call
@@ -758,7 +758,7 @@ handle_timeout(_TRef, {keepalive_send, NewVal},
         {error, timeout} ->
             NHrtBt = emqx_stomp_heartbeat:reset(outgoing, NewVal, HrtBt),
             NChannel = Channel#channel{heartbeat = NHrtBt},
-            {ok, emqx_stomp_frame:make(heartbeat),
+            {ok, {outgoing, emqx_stomp_frame:make(heartbeat)},
              reset_timer(outgoing_timer, NChannel)};
         {ok, NHrtBt} ->
             {ok, reset_timer(outgoing_timer,
@@ -897,7 +897,9 @@ add_action(TxId, Action, ReceiptId, Channel = #channel{transaction = Trans}) ->
             NTrans = Trans#{TxId => {_StartedAt, [Action|Actions]}},
             {ok, Channel#channel{transaction = NTrans}};
         _ ->
-            {ok, error_frame(ReceiptId, ["Transaction ", TxId, " not found"]), Channel}
+            ErrFrame = error_frame(ReceiptId,
+                                   ["Transaction ", TxId, " not found"]),
+            {ok, {outgoing, ErrFrame}, Channel}
     end.
 
 %%--------------------------------------------------------------------

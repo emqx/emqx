@@ -87,7 +87,7 @@
                | {event, conn_state()|updated}
                | {close, Reason :: atom()}).
 
--type(replies() :: emqx_sn_frame:packet() | reply() | [reply()]).
+-type(replies() :: reply() | [reply()]).
 
 -define(TIMER_TABLE, #{
           alive_timer  => keepalive,
