@@ -158,7 +158,7 @@ load() ->
     %% the app env 'config_files' should be set before emqx get started.
     ConfFiles = application:get_env(emqx, config_files, []),
     RawRichConf = lists:foldl(fun(ConfFile, Acc) ->
-        Raw = load_hocon_file(ConfFile),
+        Raw = load_hocon_file(ConfFile, richmap),
         emqx_map_lib:deep_merge(Acc, Raw)
     end, #{}, ConfFiles),
     {_MappedEnvs, RichConf} = hocon_schema:map_translate(emqx_schema, RawRichConf, #{}),
@@ -195,7 +195,7 @@ save_to_emqx_config(Conf, RawConf) ->
 -spec save_to_override_conf(config()) -> ok | {error, term()}.
 save_to_override_conf(Conf) ->
     FileName = emqx_override_conf_name(),
-    OldConf = load_hocon_file(FileName),
+    OldConf = load_hocon_file(FileName, map),
     MergedConf = maps:merge(OldConf, Conf),
     ok = filelib:ensure_dir(FileName),
     case file:write_file(FileName, jsx:prettify(jsx:encode(MergedConf))) of
@@ -205,10 +205,10 @@ save_to_override_conf(Conf) ->
             {error, Reason}
     end.
 
-load_hocon_file(FileName) ->
+load_hocon_file(FileName, LoadType) ->
     case filelib:is_regular(FileName) of
         true ->
-            {ok, Raw0} = hocon:load(FileName, #{format => richmap}),
+            {ok, Raw0} = hocon:load(FileName, #{format => LoadType}),
             Raw0;
         false -> #{}
     end.
