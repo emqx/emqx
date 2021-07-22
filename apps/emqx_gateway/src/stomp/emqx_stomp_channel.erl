@@ -16,6 +16,8 @@
 
 -module(emqx_stomp_channel).
 
+-behavior(emqx_gateway_channel).
+
 -include("src/stomp/include/emqx_stomp.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -595,6 +597,16 @@ handle_call(list_acl_cache, Channel) ->
 handle_call(Req, Channel) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     reply(ignored, Channel).
+
+
+%%--------------------------------------------------------------------
+%% Handle cast
+%%--------------------------------------------------------------------
+
+-spec handle_cast(Req :: term(), channel())
+      -> ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}.
+handle_cast(_Req, Channel) ->
+    {ok, Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle Info
