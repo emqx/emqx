@@ -16,6 +16,8 @@
 
 -module(emqx_sn_channel).
 
+-behavior(emqx_gateway_channel).
+
 -include("src/mqttsn/include/emqx_sn.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -1270,7 +1272,7 @@ handle_timeout(_TRef, {keepalive, _StatVal},
   when ConnState =:= disconnected;
        ConnState =:= asleep ->
     {ok, Channel};
-handle_timeout(_TRef, {keepalive, StatVal},
+handle_timeout(_TRef, {keepalive, {StatVal, _}},
                Channel = #channel{keepalive = Keepalive}) ->
     case emqx_keepalive:check(StatVal, Keepalive) of
         {ok, NKeepalive} ->
@@ -1422,5 +1424,3 @@ returncode_name(?SN_RC_NOT_AUTHORIZE) -> rejected_not_authorize;
 returncode_name(?SN_RC_FAILED_SESSION) -> rejected_failed_open_session;
 returncode_name(?SN_EXCEED_LIMITATION) -> rejected_exceed_limitation;
 returncode_name(_) -> accepted.
-
-

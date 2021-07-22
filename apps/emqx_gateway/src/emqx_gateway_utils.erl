@@ -43,6 +43,7 @@
 
 -define(ACTIVE_N, 100).
 -define(DEFAULT_IDLE_TIMEOUT, 30000).
+-define(DEFAULT_GC_OPTS, #{count => 1000, bytes => 1024*1024}).
 -define(DEFAULT_OOM_POLICY, #{max_heap_size => 4194304,
                               message_queue_len => 32000}).
 
@@ -158,7 +159,7 @@ init_gc_state(Options) ->
 
 -spec force_gc_policy(map()) -> emqx_gc:opts() | undefined.
 force_gc_policy(Options) ->
-    maps:get(force_gc_policy, Options, undefined).
+    maps:get(force_gc_policy, Options, ?DEFAULT_GC_OPTS).
 
 -spec oom_policy(map()) -> emqx_types:oom_policy().
 oom_policy(Options) ->
