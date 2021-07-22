@@ -15,7 +15,10 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% @doc The frame parser for MQTT-SN protocol
 -module(emqx_sn_frame).
+
+-behavior(emqx_gateway_frame).
 
 -include("src/mqttsn/include/emqx_sn.hrl").
 

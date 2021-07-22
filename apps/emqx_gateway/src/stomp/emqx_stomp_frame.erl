@@ -68,6 +68,8 @@
 
 -module(emqx_stomp_frame).
 
+-behavior(emqx_gateway_frame).
+
 -include("src/stomp/include/emqx_stomp.hrl").
 
 -export([ initial_parse_state/1
