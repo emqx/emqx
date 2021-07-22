@@ -17,6 +17,15 @@
 
 -compile({no_auto_import, [get/0, get/1]}).
 
+-export([ load/0
+        , save_configs/2
+        , save_to_app_env/1
+        , save_to_emqx_config/2
+        , save_to_override_conf/1
+        , to_richmap/1
+        , to_plainmap/1
+        ]).
+
 -export([ get/0
         , get/1
         , get/2
@@ -141,3 +150,75 @@ put_raw(Config) ->
 -spec put_raw(emqx_map_lib:config_key_path(), term()) -> ok.
 put_raw(KeyPath, Config) ->
     put_raw(emqx_map_lib:deep_put(KeyPath, get_raw(), Config)).
+
+%%============================================================================
+%% Load/Update configs From/To files
+%%============================================================================
+load() ->
+    %% the app env 'config_files' should be set before emqx get started.
+    ConfFiles = application:get_env(emqx, config_files, []),
+    RawRichConf = lists:foldl(fun(ConfFile, Acc) ->
+        Raw = load_hocon_file(ConfFile),
+        emqx_map_lib:deep_merge(Acc, Raw)
+    end, #{}, ConfFiles),
+    {_MappedEnvs, RichConf} = hocon_schema:map_translate(emqx_schema, RawRichConf, #{}),
+    ok = save_to_emqx_config(to_plainmap(RichConf), to_plainmap(RawRichConf)).
+
+-spec save_configs(raw_config(), Opts) -> ok | {error, term()}
+  when Opts :: #{overridden_keys => all | [binary()]}.
+save_configs(RawConf, Opts) ->
+    {_MappedEnvs, RichConf} = hocon_schema:map_translate(emqx_schema, to_richmap(RawConf), #{}),
+    save_to_emqx_config(to_plainmap(RichConf), RawConf),
+
+    %% We may need also support hot config update for the apps that use application envs.
+    %% If that is the case uncomment the following line to update the configs to application env
+    %save_to_app_env(_MappedEnvs),
+
+    %% We don't save the entire config to emqx_override.conf, but only the sub configs
+    %% specified by RootKeys
+    case maps:get(overridden_keys, Opts, all) of
+        all -> save_to_override_conf(RawConf);
+        RootKeys -> save_to_override_conf(maps:with(RootKeys, RawConf))
+    end.
+
+-spec save_to_app_env([tuple()]) -> ok.
+save_to_app_env(AppEnvs) ->
+    lists:foreach(fun({AppName, Envs}) ->
+            [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
+        end, AppEnvs).
+
+-spec save_to_emqx_config(config(), raw_config()) -> ok.
+save_to_emqx_config(Conf, RawConf) ->
+    emqx_config:put(emqx_map_lib:unsafe_atom_key_map(Conf)),
+    emqx_config:put_raw(RawConf).
+
+-spec save_to_override_conf(config()) -> ok | {error, term()}.
+save_to_override_conf(Conf) ->
+    FileName = emqx_override_conf_name(),
+    OldConf = load_hocon_file(FileName),
+    MergedConf = maps:merge(OldConf, Conf),
+    ok = filelib:ensure_dir(FileName),
+    case file:write_file(FileName, jsx:prettify(jsx:encode(MergedConf))) of
+        ok -> ok;
+        {error, Reason} ->
+            logger:error("write to ~s failed, ~p", [FileName, Reason]),
+            {error, Reason}
+    end.
+
+load_hocon_file(FileName) ->
+    case filelib:is_regular(FileName) of
+        true ->
+            {ok, Raw0} = hocon:load(FileName, #{format => richmap}),
+            Raw0;
+        false -> #{}
+    end.
+
+emqx_override_conf_name() ->
+    filename:join([emqx_config:get([node, data_dir]), "emqx_override.conf"]).
+
+to_richmap(Map) ->
+    {ok, RichMap} = hocon:binary(jsx:encode(Map), #{format => richmap}),
+    RichMap.
+
+to_plainmap(RichMap) ->
+    hocon_schema:richmap_to_map(RichMap).
