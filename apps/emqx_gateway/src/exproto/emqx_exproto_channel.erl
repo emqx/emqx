@@ -41,6 +41,8 @@
 -export_type([channel/0]).
 
 -record(channel, {
+          %% Context
+          ctx :: emqx_gateway_ctx:context(),
           %% gRPC channel options
           gcli :: map(),
           %% Conn info
@@ -121,7 +123,9 @@ info(session, #channel{subscriptions = Subs,
 info(conn_state, #channel{conn_state = ConnState}) ->
     ConnState;
 info(will_msg, _) ->
-    undefined.
+    undefined;
+info(ctx, #channel{ctx = Ctx}) ->
+    Ctx.
 
 -spec(stats(channel()) -> emqx_types:stats()).
 stats(#channel{subscriptions = Subs}) ->
@@ -145,15 +149,19 @@ init(ConnInfo = #{socktype := Socktype,
                   peername := Peername,
                   sockname := Sockname,
                   peercert := Peercert}, Options) ->
-    GRpcChann = proplists:get_value(handler, Options),
+    Ctx = maps:get(ctx, Options),
+    GRpcChann = maps:get(handler, Options),
+    PoolName = maps:get(pool_name, Options),
     NConnInfo = default_conninfo(ConnInfo),
     ClientInfo = default_clientinfo(ConnInfo),
-    Channel = #channel{gcli = #{channel => GRpcChann},
-                       conninfo = NConnInfo,
-                       clientinfo = ClientInfo,
-                       conn_state = connecting,
-                       timers = #{}
-                      },
+    Channel = #channel{
+                 ctx = Ctx,
+                 gcli = #{channel => GRpcChann, pool_name => PoolName},
+                 conninfo = NConnInfo,
+                 clientinfo = ClientInfo,
+                 conn_state = connecting,
+                 timers = #{}
+                },
 
     Req = #{conninfo =>
             peercert(Peercert,
@@ -203,12 +211,13 @@ handle_in(Data, Channel) ->
 -spec(handle_deliver(list(emqx_types:deliver()), channel())
       -> {ok, channel()}
        | {shutdown, Reason :: term(), channel()}).
-handle_deliver(Delivers, Channel = #channel{clientinfo = ClientInfo}) ->
+handle_deliver(Delivers, Channel = #channel{ctx = Ctx,
+                                            clientinfo = ClientInfo}) ->
     %% XXX: ?? Nack delivers from shared subscriptions
     Mountpoint = maps:get(mountpoint, ClientInfo),
     NodeStr = atom_to_binary(node(), utf8),
     Msgs = lists:map(fun({_, _, Msg}) ->
-               ok = emqx_metrics:inc('messages.delivered'),
+               ok = metrics_inc(Ctx, 'messages.delivered'),
                Msg1 = emqx_hooks:run_fold('message.delivered',
                                           [ClientInfo], Msg),
                NMsg = emqx_mountpoint:unmount(Mountpoint, Msg1),
@@ -462,28 +471,35 @@ is_acl_enabled(#{zone := Zone, listener := Listener, is_superuser := IsSuperuser
 %% Ensure & Hooks
 %%--------------------------------------------------------------------
 
-ensure_connected(Channel = #channel{conninfo = ConnInfo,
-                                    clientinfo = ClientInfo}) ->
+ensure_connected(Channel = #channel{
+                              ctx = Ctx,
+                              conninfo = ConnInfo,
+                              clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
-    ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
+    ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
     Channel#channel{conninfo   = NConnInfo,
                     conn_state = connected
                    }.
 
 ensure_disconnected(Reason, Channel = #channel{
+                                         ctx = Ctx,
                                          conn_state = connected,
                                          conninfo = ConnInfo,
                                          clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
-    ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo]),
+    ok = run_hooks(Ctx, 'client.disconnected', [ClientInfo, Reason, NConnInfo]),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected};
 
 ensure_disconnected(_Reason, Channel = #channel{conninfo = ConnInfo}) ->
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
-run_hooks(Name, Args) ->
-    ok = emqx_metrics:inc(Name), emqx_hooks:run(Name, Args).
+run_hooks(Ctx, Name, Args) ->
+    emqx_gateway_ctx:metrics_inc(Ctx, Name),
+    emqx_hooks:run(Name, Args).
+
+metrics_inc(Ctx, Name) ->
+    emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
 %%--------------------------------------------------------------------
 %% Enrich Keepalive

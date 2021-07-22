@@ -497,6 +497,7 @@ handle_in(PubPkt = ?SN_PUBLISH_MSG(_Flags, TopicId0, MsgId, _Data), Channel) ->
 
 handle_in(?SN_PUBACK_MSG(TopicId, MsgId, ReturnCode),
           Channel = #channel{
+                       ctx = Ctx,
                        registry = Registry,
                        session = Session,
                        clientinfo = ClientInfo = #{clientid := ClientId}}) ->
@@ -514,12 +515,12 @@ handle_in(?SN_PUBACK_MSG(TopicId, MsgId, ReturnCode),
                 {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
                     ?LOG(warning, "The PUBACK MsgId ~w is inuse.",
                                   [MsgId]),
-                    ok = metrics_inc('packets.puback.inuse', Channel),
+                    ok = metrics_inc(Ctx, 'packets.puback.inuse'),
                     {ok, Channel};
                 {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
                     ?LOG(warning, "The PUBACK MsgId ~w is not found.",
                                   [MsgId]),
-                    ok = metrics_inc('packets.puback.missed', Channel),
+                    ok = metrics_inc(Ctx, 'packets.puback.missed'),
                     {ok, Channel}
             end;
         ?SN_RC_INVALID_TOPIC_ID ->
@@ -540,7 +541,9 @@ handle_in(?SN_PUBACK_MSG(TopicId, MsgId, ReturnCode),
     end;
 
 handle_in(?SN_PUBREC_MSG(?SN_PUBREC, MsgId),
-          Channel = #channel{session = Session, clientinfo = ClientInfo}) ->
+          Channel = #channel{ctx = Ctx,
+                             session = Session,
+                             clientinfo = ClientInfo}) ->
     case emqx_session:pubrec(MsgId, Session) of
         {ok, Msg, NSession} ->
             ok = after_message_acked(ClientInfo, Msg, Channel),
@@ -548,28 +551,28 @@ handle_in(?SN_PUBREC_MSG(?SN_PUBREC, MsgId),
             handle_out(pubrel, MsgId, NChannel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?LOG(warning, "The PUBREC MsgId ~w is inuse.", [MsgId]),
-            ok = metrics_inc('packets.pubrec.inuse', Channel),
+            ok = metrics_inc(Ctx, 'packets.pubrec.inuse'),
             handle_out(pubrel, MsgId, Channel);
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?LOG(warning, "The PUBREC ~w is not found.", [MsgId]),
-            ok = metrics_inc('packets.pubrec.missed', Channel),
+            ok = metrics_inc(Ctx, 'packets.pubrec.missed'),
             handle_out(pubrel, MsgId, Channel)
     end;
 
 handle_in(?SN_PUBREC_MSG(?SN_PUBREL, MsgId),
-          Channel = #channel{session = Session}) ->
+          Channel = #channel{ctx = Ctx, session = Session}) ->
     case emqx_session:pubrel(MsgId, Session) of
         {ok, NSession} ->
             NChannel = Channel#channel{session = NSession},
             handle_out(pubcomp, MsgId, NChannel);
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?LOG(warning, "The PUBREL MsgId ~w is not found.", [MsgId]),
-            ok = metrics_inc('packets.pubrel.missed', Channel),
+            ok = metrics_inc(Ctx, 'packets.pubrel.missed'),
             handle_out(pubcomp, MsgId, Channel)
     end;
 
 handle_in(?SN_PUBREC_MSG(?SN_PUBCOMP, MsgId),
-          Channel = #channel{session = Session}) ->
+          Channel = #channel{ctx = Ctx, session = Session}) ->
     case emqx_session:pubcomp(MsgId, Session) of
         {ok, NSession} ->
             {ok, Channel#channel{session = NSession}};
@@ -577,11 +580,11 @@ handle_in(?SN_PUBREC_MSG(?SN_PUBCOMP, MsgId),
             handle_out(publish, Publishes,
                        Channel#channel{session = NSession});
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
-            ok = metrics_inc('packets.pubcomp.inuse', Channel),
+            ok = metrics_inc(Ctx, 'packets.pubcomp.inuse'),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?LOG(warning, "The PUBCOMP MsgId ~w is not found", [MsgId]),
-            ok = metrics_inc('packets.pubcomp.missed', Channel),
+            ok = metrics_inc(Ctx, 'packets.pubcomp.missed'),
             {ok, Channel}
     end;
 
@@ -664,9 +667,8 @@ handle_in({frame_error, Reason},
     ?LOG(error, "Unexpected frame error: ~p", [Reason]),
     shutdown(Reason, Channel).
 
-after_message_acked(ClientInfo, Msg,
-                    Channel = #channel{ctx = Ctx}) ->
-    ok = metrics_inc('messages.acked', Channel),
+after_message_acked(ClientInfo, Msg, #channel{ctx = Ctx}) ->
+    ok = metrics_inc(Ctx, 'messages.acked'),
     run_hooks_without_metrics(Ctx,
         'message.acked',
         [ClientInfo, emqx_message:set_header(puback_props, #{}, Msg)]).
@@ -756,7 +758,7 @@ do_publish(TopicId, MsgId, Msg = #message{qos = ?QOS_1}, Channel) ->
     handle_out(puback, {TopicId, MsgId, ?SN_RC_ACCEPTED}, Channel);
 
 do_publish(TopicId, MsgId, Msg = #message{qos = ?QOS_2},
-           Channel = #channel{session = Session}) ->
+           Channel = #channel{ctx = Ctx, session = Session}) ->
     case emqx_session:publish(MsgId, Msg, Session) of
         {ok, _PubRes, NSession} ->
             NChannel1 = ensure_timer(await_timer,
@@ -764,14 +766,14 @@ do_publish(TopicId, MsgId, Msg = #message{qos = ?QOS_2},
                                     ),
             handle_out(pubrec, MsgId, NChannel1);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
-            ok = metrics_inc('packets.publish.inuse', Channel),
+            ok = metrics_inc(Ctx, 'packets.publish.inuse'),
             %% XXX: Use PUBACK to reply a PUBLISH Error Code
             handle_out(puback , {TopicId, MsgId, ?SN_RC_NOT_SUPPORTED},
                        Channel);
         {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED} ->
             ?LOG(warning, "Dropped the qos2 packet ~w "
                  "due to awaiting_rel is full.", [MsgId]),
-            ok = emqx_metrics:inc('packets.publish.dropped'),
+            ok = metrics_inc(Ctx, 'packets.publish.dropped'),
             handle_out(puback, {TopicId, MsgId, ?SN_RC_CONGESTION}, Channel)
     end.
 
@@ -1022,7 +1024,7 @@ do_deliver({MsgId, Msg},
                         ctx = Ctx,
                         clientinfo = ClientInfo
                                    = #{mountpoint := Mountpoint}}) ->
-    metrics_inc('messages.delivered', Channel),
+    metrics_inc(Ctx, 'messages.delivered'),
     Msg1 = run_hooks_without_metrics(
              Ctx,
              'message.delivered',
@@ -1197,33 +1199,36 @@ publish_will_msg(Msg) ->
       -> {ok, channel()}
        | {ok, replies(), channel()}.
 handle_deliver(Delivers, Channel = #channel{
+                                      ctx = Ctx,
                                       conn_state = ConnState,
                                       session    = Session,
                                       clientinfo = #{clientid := ClientId}}) 
   when ConnState =:= disconnected;
        ConnState =:= asleep ->
     NSession = emqx_session:enqueue(
-                 ignore_local(maybe_nack(Delivers), ClientId, Session),
+                 ignore_local(maybe_nack(Delivers), ClientId, Session, Ctx),
                  Session
                 ),
     {ok, Channel#channel{session = NSession}};
 
 handle_deliver(Delivers, Channel = #channel{
+                                      ctx = Ctx,
                                       takeover = true,
                                       pendings = Pendings,
                                       session = Session,
                                       clientinfo = #{clientid := ClientId}}) ->
     NPendings = lists:append(
                   Pendings,
-                  ignore_local(maybe_nack(Delivers), ClientId, Session)
+                  ignore_local(maybe_nack(Delivers), ClientId, Session, Ctx)
                  ),
     {ok, Channel#channel{pendings = NPendings}};
 
 handle_deliver(Delivers, Channel = #channel{
+                                      ctx = Ctx,
                                       session = Session,
                                       clientinfo = #{clientid := ClientId}}) ->
     case emqx_session:deliver(
-           ignore_local(Delivers, ClientId, Session),
+           ignore_local(Delivers, ClientId, Session, Ctx),
            Session
           ) of
         {ok, Publishes, NSession} ->
@@ -1234,13 +1239,13 @@ handle_deliver(Delivers, Channel = #channel{
             {ok, Channel#channel{session = NSession}}
     end.
 
-ignore_local(Delivers, Subscriber, Session) ->
+ignore_local(Delivers, Subscriber, Session, Ctx) ->
     Subs = emqx_session:info(subscriptions, Session),
     lists:dropwhile(fun({deliver, Topic, #message{from = Publisher}}) ->
                         case maps:find(Topic, Subs) of
                             {ok, #{nl := 1}} when Subscriber =:= Publisher ->
-                                ok = emqx_metrics:inc('delivery.dropped'),
-                                ok = emqx_metrics:inc('delivery.dropped.no_local'),
+                                ok = metrics_inc(Ctx, 'delivery.dropped'),
+                                ok = metrics_inc(Ctx, 'delivery.dropped.no_local'),
                                 true;
                             _ ->
                                 false
@@ -1413,7 +1418,7 @@ run_hooks_without_metrics(_Ctx, Name, Args) ->
 run_hooks_without_metrics(_Ctx, Name, Args, Acc) ->
     emqx_hooks:run_fold(Name, Args, Acc).
 
-metrics_inc(Name, #channel{ctx = Ctx}) ->
+metrics_inc(Ctx, Name) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
 returncode_name(?SN_RC_ACCEPTED) -> accepted;
