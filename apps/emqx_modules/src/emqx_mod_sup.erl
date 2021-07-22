@@ -36,7 +36,6 @@
                             type => Type,
                             modules => [Mod]}).
 
--spec(start_link() -> startlink_ret()).
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
@@ -60,7 +59,14 @@ stop_child(ChildId) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    {ok, {{one_for_one, 10, 100}, []}}.
+    Env = [],
+    {ok, {{one_for_one, 10, 3600},
+          [#{id       => telemetry,
+             start    => {emqx_mod_telemetry, start_link, [Env]},
+             restart  => permanent,
+             shutdown => 5000,
+             type     => worker,
+             modules  => [emqx_mod_telemetry]}]}}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
