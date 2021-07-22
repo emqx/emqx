@@ -27,6 +27,7 @@ defmodule EMQXWebHook.MixProject do
   defp deps do
     [
       {:emqx_rule_engine, in_umbrella: true},
+      {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.2.1"},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.1.6"}
     ]
   end

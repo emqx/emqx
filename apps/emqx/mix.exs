@@ -29,12 +29,12 @@ defmodule EMQX.MixProject do
       {:recon, "~> 2.5"},
       {:cowboy, github: "emqx/cowboy", tag: "2.8.2"},
       {:esockd, github: "emqx/esockd", tag: "5.8.0"},
-      {:ekka, github: "emqx/ekka", tag: "0.9.0", runtime: false},
+      {:ekka, github: "emqx/ekka", tag: "0.10.2"},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.5.1"},
       {:cuttlefish, github: "emqx/cuttlefish", tag: "v4.0.1"},
       {:hocon, github: "emqx/hocon"},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4"},
-      {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.13.0"}
+      {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.14.0"}
     ]
   end
 end

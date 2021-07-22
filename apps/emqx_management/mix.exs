@@ -27,7 +27,8 @@ defmodule EMQXManagement.MixProject do
   defp deps do
     [
       {:emqx_rule_engine, in_umbrella: true},
-      {:ekka, github: "emqx/ekka", tag: "0.9.0"},
+      {:ekka, github: "emqx/ekka", tag: "0.10.2"},
+      {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.2.1"},
       {:minirest, github: "emqx/minirest", tag: "0.3.5"}
     ]
   end

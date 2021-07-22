@@ -26,6 +26,7 @@ defmodule EMQXAuthentication.MixProject do
   defp deps do
     [
       {:emqx, in_umbrella: true, runtime: false},
+      {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.2.1"},
       {:jose, "~> 1.11"}
     ]
   end

@@ -9,8 +9,7 @@ defmodule EmqxConfigHelper.Hocon do
 
     options
     |> Keyword.fetch!(:schema_module)
-    |> :hocon_schema.check(config, %{atom_key: true, return_plain: true})
-    |> IO.inspect
+    |> :hocon_schema.generate(config, %{atom_key: true, return_plain: true})
     |> Enum.each(fn {application, envs} ->
       Config.config(application, Enum.to_list(envs))
     end)

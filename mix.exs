@@ -4,7 +4,8 @@ defmodule EMQXUmbrella.MixProject do
   def project do
     [
       apps_path: "apps",
-      version: "5.0.0",
+      # apps/emqx/include/emqx_release.hrl
+      version: "5.0-pre",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       releases: releases()
@@ -30,7 +31,9 @@ defmodule EMQXUmbrella.MixProject do
       {:eetcd, "~> 0.3", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.2", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
-      {:typerefl, github: "k32/typerefl", tag: "0.6.2", manager: :rebar3, override: true}
+      {:typerefl, github: "k32/typerefl", tag: "0.6.2", manager: :rebar3, override: true},
+      {:gen_rpc, github: "emqx/gen_rpc", tag: "2.5.1", override: true},
+      {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.14.0", override: true}
       | (enable_bcrypt() && [{:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.0"}]) || []
     ]
   end
