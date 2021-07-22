@@ -34,14 +34,14 @@ groups() ->
     [{compact, Cases}, {not_compact, Cases}].
 
 init_per_group(compact, Config) ->
-    emqx_trie:put_compaction_flag(true),
+    emqx_trie:set_compact(true),
     Config;
 init_per_group(not_compact, Config) ->
-    emqx_trie:put_compaction_flag(false),
+    emqx_trie:set_compact(false),
     Config.
 
 end_per_group(_, _) ->
-    emqx_trie:put_default_compaction_flag().
+    ok.
 
 init_per_suite(Config) ->
     application:load(emqx),

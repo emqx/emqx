@@ -786,7 +786,7 @@ t_shared_subscriptions_client_terminates_when_qos_eq_2('end', _Config) ->
 t_shared_subscriptions_client_terminates_when_qos_eq_2(Config) ->
     ConnFun = ?config(conn_fun, Config),
     process_flag(trap_exit, true),
-    application:set_env(emqx, shared_dispatch_ack_enabled, true),
+    emqx_config:put([broker, shared_dispatch_ack_enabled], true),
 
     Topic = nth(1, ?TOPICS),
     SharedTopic = list_to_binary("$share/sharename/" ++ binary_to_list(<<"TopicA">>)),

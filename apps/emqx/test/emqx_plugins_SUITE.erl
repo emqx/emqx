@@ -40,16 +40,10 @@ init_per_suite(Config) ->
     ct:pal("Executing ~s~n", [CmdPath]),
     ct:pal("~n ~s~n", [os:cmd(CmdPath)]),
 
-    put(loaded_file, filename:join([DataPath, "loaded_plugins"])),
     emqx_ct_helpers:boot_modules([]),
-    emqx_ct_helpers:start_apps([], fun(_) -> set_special_cfg(DataPath) end),
-
+    emqx_ct_helpers:start_apps([]),
+    emqx_config:put([plugins, expand_plugins_dir], DataPath),
     Config.
-
-set_special_cfg(PluginsDir) ->
-    application:set_env(emqx, plugins_loaded_file, get(loaded_file)),
-    application:set_env(emqx, expand_plugins_dir, PluginsDir),
-    ok.
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
@@ -62,8 +56,7 @@ t_load(_) ->
     ?assertEqual({error, not_started}, emqx_plugins:unload(emqx_mini_plugin)),
     ?assertEqual({error, not_started}, emqx_plugins:unload(emqx_hocon_plugin)),
 
-    application:set_env(emqx, expand_plugins_dir, undefined),
-    application:set_env(emqx, plugins_loaded_file, undefined).
+    emqx_config:put([plugins, expand_plugins_dir], undefined).
 
 t_load_ext_plugin(_) ->
     ?assertError({plugin_app_file_not_found, _},
