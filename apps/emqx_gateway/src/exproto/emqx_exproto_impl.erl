@@ -168,8 +168,18 @@ start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
              frame_mod => emqx_exproto_frame,
              chann_mod => emqx_exproto_channel
             },
-    esockd:open(Name, ListenOn, merge_default_by_type(Type, SocketOpts),
-                {emqx_gateway_conn, start_link, [NCfg]}).
+    MFA = {emqx_gateway_conn, start_link, [NCfg]},
+    NSockOpts = merge_default_by_type(Type, SocketOpts),
+    do_start_listener(Type, Name, ListenOn, NSockOpts, MFA).
+
+do_start_listener(Type, Name, ListenOn, Opts, MFA)
+  when Type == tcp;
+       Type == ssl ->
+    esockd:open(Name, ListenOn, Opts, MFA);
+do_start_listener(udp, Name, ListenOn, Opts, MFA) ->
+    esockd:open_udp(Name, ListenOn, Opts, MFA);
+do_start_listener(dtls, Name, ListenOn, Opts, MFA) ->
+    esockd:open_dtls(Name, ListenOn, Opts, MFA).
 
 name(InstaId, Type) ->
     list_to_atom(lists:concat([InstaId, ":", Type])).
