@@ -340,7 +340,7 @@ handle_in(Packet = ?AUTH_PACKET(ReasonCode, _Properties),
                         handle_out(connack, NReasonCode, Channel);
                     _ ->
                         handle_out(disconnect, NReasonCode, Channel)
-                end 
+                end
         end
     catch
         _Class:_Reason ->
@@ -431,18 +431,15 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
         ok ->
             TopicFilters0 = parse_topic_filters(TopicFilters),
             TopicFilters1 = put_subid_in_subopts(Properties, TopicFilters0),
-            TupleTopicFilters0 = check_sub_acls(TopicFilters1, Channel),
-            case lists:any(fun({_TopicFilter, AuthZ}) ->
-                    AuthZ =:= {?RC_NOT_AUTHORIZED, disconnect}
-                end, TupleTopicFilters0) of
-                true -> handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel);
-                false ->
+            case check_sub_acls(TopicFilters1, Channel) of
+                {disconnect, _} -> handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel);
+                {reply, TupleTopicFilters0} ->
                     Replace = fun
                                 _Fun(TupleList, [ Tuple = {Key, _Value} | More]) ->
                                       _Fun(lists:keyreplace(Key, 1, TupleList, Tuple), More);
                                 _Fun(TupleList, []) -> TupleList
                               end,
-                    TopicFilters2 = [ TopicFilter || {TopicFilter, {0, reply}} <- TupleTopicFilters0],
+                    TopicFilters2 = [ TopicFilter || {TopicFilter, 0} <- TupleTopicFilters0],
                     TopicFilters3 = run_hooks('client.subscribe',
                                               [ClientInfo, Properties],
                                               TopicFilters2),
@@ -1447,7 +1444,16 @@ check_sub_acls([ TopicFilter = {Topic, _} | More] , Channel, Acc) ->
             check_sub_acls([], Channel, [ {TopicFilter, {?RC_NOT_AUTHORIZED, disconnect}} | Acc])
     end;
 check_sub_acls([], _Channel, Acc) ->
-    lists:reverse(Acc).
+    case lists:any(fun({_TopicFilter, AuthZ}) ->
+                            AuthZ =:= {?RC_NOT_AUTHORIZED, disconnect}
+                   end, Acc) of
+        true -> {disconnect, []};
+        false ->
+            AccOut = lists:foldr(fun({TopicFilter, {ReasonCode, reply}}, AccIn) ->
+                                      lists:append(AccIn, [{TopicFilter, ReasonCode}])
+                                 end, [], Acc),
+            {reply, AccOut}
+    end.
 
 check_sub_acl(TopicFilter, #channel{clientinfo = ClientInfo}) ->
     case emqx_access_control:authorize(ClientInfo, subscribe, TopicFilter) of

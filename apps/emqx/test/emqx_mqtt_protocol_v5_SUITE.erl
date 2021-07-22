@@ -220,7 +220,7 @@ t_batch_subscribe(init, Config) ->
     emqx_config:put_zone_conf(default, [acl, enable], true),
     emqx_config:put_zone_conf(default, [acl, enable], true),
     ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
+    meck:expect(emqx_access_control, authorize, fun(_, _, _) -> {deny, reply} end),
     Config;
 t_batch_subscribe('end', _Config) ->
     emqx_config:put_zone_conf(default, [acl, enable], false),
