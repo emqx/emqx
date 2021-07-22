@@ -53,7 +53,6 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     %delete_default_app(),
-    file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
     meck:unload(emqx_schema),
     emqx_ct_helpers:stop_apps([emqx_authz]).
 
