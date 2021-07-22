@@ -68,7 +68,7 @@ start_grpc_server(InstaId, Options = #{bind := ListenOn}) ->
                   SslOpts ->
                       [{ssl_options, SslOpts}]
               end,
-    grpc:start_server(InstaId, ListenOn, Services, SvrOptions),
+    _ = grpc:start_server(InstaId, ListenOn, Services, SvrOptions),
     io:format("Start ~s gRPC server on ~p successfully.~n",
                [InstaId, ListenOn]).
 
@@ -82,7 +82,7 @@ start_grpc_client_channel(InstaId, Options = #{address := UriStr}) ->
                   "~s://~s:~w", [Scheme, Host, Port])
                ),
     ClientOpts = case Scheme of
-                     https ->
+                     "https" ->
                          SslOpts = maps:to_list(maps:get(ssl, Options, #{})),
                          #{gun_opts =>
                            #{transport => ssl,

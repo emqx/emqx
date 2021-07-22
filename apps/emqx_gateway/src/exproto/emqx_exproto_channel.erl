@@ -100,11 +100,11 @@
 %%--------------------------------------------------------------------
 
 %% @doc Get infos of the channel.
--spec(info(channel()) -> emqx_types:infos()).
+-spec info(channel()) -> emqx_types:infos().
 info(Channel) ->
     maps:from_list(info(?INFO_KEYS, Channel)).
 
--spec(info(list(atom())|atom(), channel()) -> term()).
+-spec info(list(atom())|atom(), channel()) -> term().
 info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 info(conninfo, #channel{conninfo = ConnInfo}) ->
@@ -127,7 +127,7 @@ info(will_msg, _) ->
 info(ctx, #channel{ctx = Ctx}) ->
     Ctx.
 
--spec(stats(channel()) -> emqx_types:stats()).
+-spec stats(channel()) -> emqx_types:stats().
 stats(#channel{subscriptions = Subs}) ->
     [{subscriptions_cnt, maps:size(Subs)},
      {subscriptions_max, 0},
@@ -144,7 +144,7 @@ stats(#channel{subscriptions = Subs}) ->
 %% Init the channel
 %%--------------------------------------------------------------------
 
--spec(init(emqx_exproto_types:conninfo(), proplists:proplist()) -> channel()).
+-spec init(emqx_exproto_types:conninfo(), map()) -> channel().
 init(ConnInfo = #{socktype := Socktype,
                   peername := Peername,
                   sockname := Sockname,
@@ -201,16 +201,16 @@ address({Host, Port}) ->
 %% Handle incoming packet
 %%--------------------------------------------------------------------
 
--spec(handle_in(binary(), channel())
+-spec handle_in(binary(), channel())
       -> {ok, channel()}
-       | {shutdown, Reason :: term(), channel()}).
+       | {shutdown, Reason :: term(), channel()}.
 handle_in(Data, Channel) ->
     Req = #{bytes => Data},
     {ok, try_dispatch(on_received_bytes, wrap(Req), Channel)}.
 
--spec(handle_deliver(list(emqx_types:deliver()), channel())
+-spec handle_deliver(list(emqx_types:deliver()), channel())
       -> {ok, channel()}
-       | {shutdown, Reason :: term(), channel()}).
+       | {shutdown, Reason :: term(), channel()}.
 handle_deliver(Delivers, Channel = #channel{ctx = Ctx,
                                             clientinfo = ClientInfo}) ->
     %% XXX: ?? Nack delivers from shared subscriptions
@@ -233,9 +233,9 @@ handle_deliver(Delivers, Channel = #channel{ctx = Ctx,
     Req = #{messages => Msgs},
     {ok, try_dispatch(on_received_messages, wrap(Req), Channel)}.
 
--spec(handle_timeout(reference(), Msg :: term(), channel())
+-spec handle_timeout(reference(), Msg :: term(), channel())
       -> {ok, channel()}
-       | {shutdown, Reason :: term(), channel()}).
+       | {shutdown, Reason :: term(), channel()}.
 handle_timeout(_TRef, {keepalive, _StatVal},
                Channel = #channel{keepalive = undefined}) ->
     {ok, Channel};
@@ -257,10 +257,10 @@ handle_timeout(_TRef, Msg, Channel) ->
     ?WARN("Unexpected timeout: ~p", [Msg]),
     {ok, Channel}.
 
--spec(handle_call(any(), channel())
-     -> {reply, Reply :: term(), channel()}
-      | {reply, Reply :: term(), replies(), channel()}
-      | {shutdown, Reason :: term(), Reply :: term(), channel()}).
+-spec handle_call(any(), channel())
+    -> {reply, Reply :: term(), channel()}
+     | {reply, Reply :: term(), replies(), channel()}
+     | {shutdown, Reason :: term(), Reply :: term(), channel()}.
 
 handle_call({send, Data}, Channel) ->
     {reply, ok, [{outgoing, Data}], Channel};
@@ -355,17 +355,17 @@ handle_call(Req, Channel) ->
     ?LOG(warning, "Unexpected call: ~p", [Req]),
     {reply, {error, unexpected_call}, Channel}.
 
--spec(handle_cast(any(), channel())
-     -> {ok, channel()}
-      | {ok, replies(), channel()}
-      | {shutdown, Reason :: term(), channel()}).
+-spec handle_cast(any(), channel())
+    -> {ok, channel()}
+     | {ok, replies(), channel()}
+     | {shutdown, Reason :: term(), channel()}.
 handle_cast(Req, Channel) ->
     ?WARN("Unexpected call: ~p", [Req]),
     {ok, Channel}.
 
--spec(handle_info(any(), channel())
-      -> {ok, channel()}
-       | {shutdown, Reason :: term(), channel()}).
+-spec handle_info(any(), channel())
+    -> {ok, channel()}
+     | {shutdown, Reason :: term(), channel()}.
 handle_info({subscribe, TopicFilters}, Channel) ->
     do_subscribe(TopicFilters, Channel);
 
@@ -401,7 +401,7 @@ handle_info(Info, Channel) ->
     ?LOG(warning, "Unexpected info: ~p", [Info]),
     {ok, Channel}.
 
--spec(terminate(any(), channel()) -> channel()).
+-spec terminate(any(), channel()) -> channel().
 terminate(Reason, Channel) ->
     Req = #{reason => stringfy(Reason)},
     try_dispatch(on_socket_closed, wrap(Req), Channel).
