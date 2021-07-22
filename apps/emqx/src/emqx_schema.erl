@@ -68,7 +68,6 @@ includes() ->[].
 -else.
 includes() ->
     [ "emqx_data_bridge"
-    , "emqx_telemetry"
     , "emqx_retainer"
     , "emqx_statsd"
     , "emqx_authn"

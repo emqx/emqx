@@ -281,7 +281,6 @@ relx_apps(ReleaseType) ->
     , emqx_statsd
     ]
     ++ [quicer || is_quicer_supported()]
-    ++ [emqx_telemetry || not is_enterprise()]
     ++ [emqx_license || is_enterprise()]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
     ++ relx_apps_per_rel(ReleaseType)

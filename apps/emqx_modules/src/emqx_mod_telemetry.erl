@@ -14,9 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_telemetry).
+-module(emqx_mod_telemetry).
 
 -behaviour(gen_server).
+
+-behaviour(emqx_gen_mod).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -24,7 +26,7 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--include("emqx_telemetry.hrl").
+-include("emqx_modules.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -46,12 +48,18 @@
         , code_change/3
         ]).
 
--export([ enable/0
-        , disable/0
-        , is_enabled/0
+%% emqx_gen_mod callbacks
+-export([ load/1
+        , unload/1
+        , description/0
+        ]).
+
+-export([ get_status/0
         , get_uuid/0
         , get_telemetry/0
         ]).
+
+-export([official_version/1]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -63,24 +71,17 @@
                    ]).
 
 -record(telemetry, {
-          id :: non_neg_integer(),
-
-          uuid :: binary(),
-
-          enabled :: boolean()
-        }).
+    id :: non_neg_integer(),
+    uuid :: binary()
+}).
 
 -record(state, {
-          uuid :: undefined | binary(),
-
-          enabled :: undefined | boolean(),
-
-          url :: string(),
-
-          report_interval :: undefined | non_neg_integer(),
-
-          timer = undefined :: undefined | reference()
-        }).
+    uuid :: undefined | binary(),
+    enabled :: undefined | boolean(),
+    url :: string(),
+    report_interval :: undefined | non_neg_integer(),
+    timer = undefined :: undefined | reference()
+}).
 
 %% The count of 100-nanosecond intervals between the UUID epoch
 %% 1582-10-15 00:00:00 and the UNIX epoch 1970-01-01 00:00:00.
@@ -116,20 +117,23 @@ start_link(Opts) ->
 stop() ->
     gen_server:stop(?MODULE).
 
-enable() ->
+load(_Env) ->
     gen_server:call(?MODULE, enable).
 
-disable() ->
+unload(_Env) ->
     gen_server:call(?MODULE, disable).
 
-is_enabled() ->
-    gen_server:call(?MODULE, is_enabled).
+get_status() ->
+    gen_server:call(?MODULE, get_status).
 
 get_uuid() ->
     gen_server:call(?MODULE, get_uuid).
 
 get_telemetry() ->
     gen_server:call(?MODULE, get_telemetry).
+
+description() ->
+    "".
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -141,42 +145,40 @@ get_telemetry() ->
 %% Given the chance of having two nodes bootstraping with the write
 %% is very small, it should be safe to ignore.
 -dialyzer([{nowarn_function, [init/1]}]).
-init([Opts]) ->
-    State = #state{url = ?TELEMETRY_URL,
-                   report_interval = timer:seconds(?REPORT_INTERVAR)},
-    NState = case mnesia:dirty_read(?TELEMETRY, ?UNIQUE_ID) of
-                 [] ->
-                     Enabled = proplists:get_value(enabled, Opts, true),
-                     UUID = generate_uuid(),
-                     ekka_mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
-                                                                    uuid = UUID,
-                                                                    enabled = Enabled}),
-                     State#state{enabled = Enabled, uuid = UUID};
-                 [#telemetry{uuid = UUID, enabled = Enabled} | _] ->
-                     State#state{enabled = Enabled, uuid = UUID}
-             end,
-    case official_version(emqx_app:get_release()) of
+init(_Opts) ->
+    UUID1 = case mnesia:dirty_read(?TELEMETRY, ?UNIQUE_ID) of
+        [] ->
+            UUID = generate_uuid(),
+            ekka_mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
+                                                           uuid = UUID}),
+            UUID;
+        [#telemetry{uuid = UUID} | _] ->
+            UUID
+    end,
+    {ok, #state{url = ?TELEMETRY_URL,
+                report_interval = timer:seconds(?REPORT_INTERVAR),
+                enabled = false,
+                uuid = UUID1}}.
+
+handle_call(enable, _From, State) ->
+    case ?MODULE:official_version(emqx_app:get_release()) of
         true ->
-            _ = erlang:send(self(), first_report),
-            {ok, NState};
+            report_telemetry(State),
+            {reply, ok, ensure_report_timer(State#state{enabled = true})};
         false ->
-            {ok, NState#state{enabled = false}}
-    end.
+            {reply, {error, not_official_version}, State}
+    end;
 
-handle_call(enable, _From, State = #state{uuid = UUID}) ->
-    ekka_mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
-                                                   uuid = UUID,
-                                                   enabled = true}),
-    _ = erlang:send(self(), first_report),
-    {reply, ok, State#state{enabled = true}};
+handle_call(disable, _From, State = #state{timer = Timer}) ->
+    case ?MODULE:official_version(emqx_app:get_release()) of
+        true ->
+            emqx_misc:cancel_timer(Timer),
+            {reply, ok, State#state{enabled = false, timer = undefined}};
+        false ->
+            {reply, {error, not_official_version}, State}
+    end;
 
-handle_call(disable, _From, State = #state{uuid = UUID}) ->
-    ekka_mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
-                                                   uuid = UUID,
-                                                   enabled = false}),
-    {reply, ok, State#state{enabled = false}};
-
-handle_call(is_enabled, _From, State = #state{enabled = Enabled}) ->
+handle_call(get_status, _From, State = #state{enabled = Enabled}) ->
     {reply, Enabled, State};
 
 handle_call(get_uuid, _From, State = #state{uuid = UUID}) ->
@@ -197,15 +199,6 @@ handle_continue(Continue, State) ->
     ?LOG(error, "Unexpected continue: ~p", [Continue]),
     {noreply, State}.
 
-handle_info(first_report, State) ->
-    case is_pid(erlang:whereis(emqx)) of
-        true ->
-            report_telemetry(State),
-            {noreply, ensure_report_timer(State)};
-        false ->
-            _ = erlang:send_after(1000, self(), first_report),
-            {noreply, State}
-    end;
 handle_info({timeout, TRef, time_to_report_telemetry_data}, State = #state{timer = TRef,
                                                                            enabled = false}) ->
     {noreply, State};
