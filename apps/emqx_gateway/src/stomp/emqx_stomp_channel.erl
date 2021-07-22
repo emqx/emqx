@@ -42,6 +42,7 @@
         ]).
 
 -export([ handle_call/2
+        , handle_cast/2
         , handle_info/2
         ]).
 
@@ -84,8 +85,8 @@
 -type(replies() :: stomp_frame() | reply() | [reply()]).
 
 -define(TIMER_TABLE, #{
-          incoming_timer => incoming,
-          outgoing_timer => outgoing,
+          incoming_timer => keepalive,
+          outgoing_timer => keepalive_send,
           clean_trans_timer => clean_trans
         }).
 
@@ -740,7 +741,7 @@ handle_deliver(Delivers,
        | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}).
 
-handle_timeout(_TRef, {incoming, NewVal},
+handle_timeout(_TRef, {keepalive, NewVal},
         Channel = #channel{heartbeat = HrtBt}) ->
     case emqx_stomp_heartbeat:check(incoming, NewVal, HrtBt) of
         {error, timeout} ->
@@ -751,7 +752,7 @@ handle_timeout(_TRef, {incoming, NewVal},
                             )}
     end;
 
-handle_timeout(_TRef, {outgoing, NewVal},
+handle_timeout(_TRef, {keepalive_send, NewVal},
                Channel = #channel{heartbeat = HrtBt}) ->
     case emqx_stomp_heartbeat:check(outgoing, NewVal, HrtBt) of
         {error, timeout} ->
