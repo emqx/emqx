@@ -1272,7 +1272,7 @@ handle_timeout(_TRef, {keepalive, _StatVal},
   when ConnState =:= disconnected;
        ConnState =:= asleep ->
     {ok, Channel};
-handle_timeout(_TRef, {keepalive, {StatVal, _}},
+handle_timeout(_TRef, {keepalive, StatVal},
                Channel = #channel{keepalive = Keepalive}) ->
     case emqx_keepalive:check(StatVal, Keepalive) of
         {ok, NKeepalive} ->
