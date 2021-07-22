@@ -568,16 +568,22 @@ handle_timeout(_TRef, limit_timeout, State) ->
                          limit_timer = undefined
                         },
     handle_info(activate_socket, NState);
-handle_timeout(TRef, keepalive, State = #state{
+handle_timeout(TRef, Keepalive, State = #state{
                                            chann_mod = ChannMod,
                                            socket = Socket,
-                                           channel = Channel})->
+                                           channel = Channel})
+    when Keepalive == keepalive;
+         Keepalive == keepalive_send ->
+    Stat = case Keepalive of
+               keepalive -> recv_oct;
+               keepalive_send -> send_oct
+           end,
     case ChannMod:info(conn_state, Channel) of
         disconnected -> {ok, State};
         _ ->
-            case esockd_getstat(Socket, [recv_oct, send_oct]) of
-                {ok, [{recv_oct, RecvOct}, {send_oct, SendOct}]} ->
-                    handle_timeout(TRef, {keepalive, {RecvOct, SendOct}}, State);
+            case esockd_getstat(Socket, [Stat]) of
+                {ok, [{Stat, RecvOct}]} ->
+                    handle_timeout(TRef, {Keepalive, RecvOct}, State);
                 {error, Reason} ->
                     handle_info({sock_error, Reason}, State)
             end
