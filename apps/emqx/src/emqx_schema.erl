@@ -164,7 +164,7 @@ fields("node") ->
     , {"config_files", t(list(string()), "emqx.config_files",
         [ filename:join([os:getenv("RUNNER_ETC_DIR"), "emqx.conf"])
         ])}
-    , {"global_gc_interval", t(duration_s(), undefined, "15m")}
+    , {"global_gc_interval", t(duration(), undefined, "15m")}
     , {"crash_dump_dir", t(file(), "vm_args.-env ERL_CRASH_DUMP", undefined)}
     , {"dist_net_ticktime", t(duration(), "vm_args.-kernel net_ticktime", "2m")}
     , {"dist_listen_min", t(range(1024, 65535), "kernel.inet_dist_listen_min", 6369)}
@@ -257,13 +257,13 @@ fields("auth") ->
     [ {"enable", t(boolean(), undefined, false)}
     ];
 
-fields("acl") ->
-    [ {"enable", t(boolean(), undefined, false)}
-    , {"cache", ref("acl_cache")}
+fields("authorization") ->
+    [ {"enable", t(boolean(), undefined, true)}
+    , {"cache", ref("authorization_cache")}
     , {"deny_action", t(union(ignore, disconnect), undefined, ignore)}
     ];
 
-fields("acl_cache") ->
+fields("authorization_cache") ->
     [ {"enable", t(boolean(), undefined, true)}
     , {"max_size", t(range(1, 1048576), undefined, 32)}
     , {"ttl", t(duration(), undefined, "1m")}
@@ -288,10 +288,10 @@ fields("mqtt") ->
     , {"max_subscriptions", maybe_infinity(range(1, inf))}
     , {"upgrade_qos", t(boolean(), undefined, false)}
     , {"max_inflight", t(range(1, 65535), undefined, 32)}
-    , {"retry_interval", t(duration_s(), undefined, "30s")}
+    , {"retry_interval", t(duration(), undefined, "30s")}
     , {"max_awaiting_rel", maybe_infinity(integer(), 100)}
-    , {"await_rel_timeout", t(duration_s(), undefined, "300s")}
-    , {"session_expiry_interval", t(duration_s(), undefined, "2h")}
+    , {"await_rel_timeout", t(duration(), undefined, "300s")}
+    , {"session_expiry_interval", t(duration(), undefined, "2h")}
     , {"max_mqueue_len", maybe_infinity(range(0, inf), 1000)}
     , {"mqueue_priorities", maybe_disabled(map())}
     , {"mqueue_default_priority", t(union(highest, lowest), undefined, lowest)}
@@ -306,7 +306,7 @@ fields("zones") ->
 
 fields("zone_settings") ->
     [ {"mqtt", ref("mqtt")}
-    , {"acl", ref("acl")}
+    , {"authorization", ref("authorization")}
     , {"auth", ref("auth")}
     , {"stats", ref("stats")}
     , {"flapping_detect", ref("flapping_detect")}
@@ -507,10 +507,10 @@ fields("sysmon_vm") ->
     ];
 
 fields("sysmon_os") ->
-    [ {"cpu_check_interval", t(duration_s(), undefined, 60)}
+    [ {"cpu_check_interval", t(duration(), undefined, "60s")}
     , {"cpu_high_watermark", t(percent(), undefined, "80%")}
     , {"cpu_low_watermark", t(percent(), undefined, "60%")}
-    , {"mem_check_interval", maybe_disabled(duration_s(), 60)}
+    , {"mem_check_interval", maybe_disabled(duration(), "60s")}
     , {"sysmem_high_watermark", t(percent(), undefined, "70%")}
     , {"procmem_high_watermark", t(percent(), undefined, "5%")}
     ];
@@ -518,7 +518,7 @@ fields("sysmon_os") ->
 fields("alarm") ->
     [ {"actions", t(hoconsc:array(atom()), undefined, [log, publish])}
     , {"size_limit", t(integer(), undefined, 1000)}
-    , {"validity_period", t(duration_s(), undefined, "24h")}
+    , {"validity_period", t(duration(), undefined, "24h")}
     ];
 
 fields(ExtraField) ->

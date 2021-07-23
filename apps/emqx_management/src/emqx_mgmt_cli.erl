@@ -590,18 +590,21 @@ print({client, {ClientId, ChanPid}}) ->
     InfoKeys = [clientid, username, peername,
                 clean_start, keepalive, expiry_interval,
                 subscriptions_cnt, inflight_cnt, awaiting_rel_cnt, send_msg, mqueue_len, mqueue_dropped,
-                connected, created_at, connected_at] ++ case maps:is_key(disconnected_at, Info) of
-                                                            true  -> [disconnected_at];
-                                                            false -> []
-                                                        end,
+                connected, created_at, connected_at] ++
+                case maps:is_key(disconnected_at, Info) of
+                    true  -> [disconnected_at];
+                    false -> []
+                end,
+    Info1 = Info#{expiry_interval => maps:get(expiry_interval, Info) div 1000},
     emqx_ctl:print("Client(~s, username=~s, peername=~s, "
                     "clean_start=~s, keepalive=~w, session_expiry_interval=~w, "
                     "subscriptions=~w, inflight=~w, awaiting_rel=~w, delivered_msgs=~w, enqueued_msgs=~w, dropped_msgs=~w, "
-                    "connected=~s, created_at=~w, connected_at=~w" ++ case maps:is_key(disconnected_at, Info) of
-                                                                          true  -> ", disconnected_at=~w)~n";
-                                                                          false -> ")~n"
-                                                                      end,
-                    [format(K, maps:get(K, Info)) || K <- InfoKeys]);
+                    "connected=~s, created_at=~w, connected_at=~w" ++
+                    case maps:is_key(disconnected_at, Info1) of
+                        true  -> ", disconnected_at=~w)~n";
+                        false -> ")~n"
+                    end,
+        [format(K, maps:get(K, Info1)) || K <- InfoKeys]);
 
 print({emqx_route, #route{topic = Topic, dest = {_, Node}}}) ->
     emqx_ctl:print("~s -> ~s~n", [Topic, Node]);

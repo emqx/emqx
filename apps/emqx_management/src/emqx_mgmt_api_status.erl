@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_status).
 %% API
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -export([api_spec/0]).
 

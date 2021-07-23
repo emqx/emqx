@@ -87,7 +87,7 @@ code_change(_OldVsn, State, _Extra) ->
 ensure_timer(State) ->
     case emqx_config:get([node, global_gc_interval]) of
         undefined -> State;
-        Interval  -> TRef = emqx_misc:start_timer(timer:seconds(Interval), run),
+        Interval  -> TRef = emqx_misc:start_timer(Interval, run),
                      State#{timer := TRef}
     end.
 

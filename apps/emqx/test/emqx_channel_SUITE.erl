@@ -28,7 +28,7 @@ all() ->
     emqx_ct:all(?MODULE).
 
 mqtt_conf() ->
-    #{await_rel_timeout => 300,
+    #{await_rel_timeout => 300000,
     idle_timeout => 15000,
     ignore_loop_deliver => false,
     keepalive_backoff => 0.75,
@@ -49,9 +49,9 @@ mqtt_conf() ->
     peer_cert_as_username => disabled,
     response_information => [],
     retain_available => true,
-    retry_interval => 30,
+    retry_interval => 30000,
     server_keepalive => disabled,
-    session_expiry_interval => 7200,
+    session_expiry_interval => 7200000,
     shared_subscription => true,
     strict_mode => false,
     upgrade_qos => false,
@@ -140,7 +140,7 @@ listener_mqtt_ws_conf() ->
 default_zone_conf() ->
     #{zones =>
         #{default =>
-            #{  acl => #{
+            #{  authorization => #{
                     cache => #{enable => true,max_size => 32, ttl => 60000},
                     deny_action => ignore,
                     enable => false
@@ -863,7 +863,7 @@ t_packing_alias(_) ->
                    channel())).
 
 t_check_pub_acl(_) ->
-    emqx_config:put_zone_conf(default, [acl, enable], true),
+    emqx_config:put_zone_conf(default, [authorization, enable], true),
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
     ok = emqx_channel:check_pub_acl(Publish, channel()).
 
@@ -873,7 +873,7 @@ t_check_pub_alias(_) ->
     ok = emqx_channel:check_pub_alias(#mqtt_packet{variable = Publish}, Channel).
 
 t_check_sub_acls(_) ->
-    emqx_config:put_zone_conf(default, [acl, enable], true),
+    emqx_config:put_zone_conf(default, [authorization, enable], true),
     TopicFilter = {<<"t">>, ?DEFAULT_SUBOPTS},
     [{TopicFilter, 0}] = emqx_channel:check_sub_acls([TopicFilter], channel()).
 

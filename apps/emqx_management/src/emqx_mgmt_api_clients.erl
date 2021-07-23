@@ -16,7 +16,7 @@
 
 -module(emqx_mgmt_api_clients).
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -include_lib("emqx/include/emqx.hrl").
 
@@ -48,12 +48,12 @@
     , {<<"clean_start">>, atom}
     , {<<"proto_name">>, binary}
     , {<<"proto_ver">>, integer}
-    , {<<"_like_clientid">>, binary}
-    , {<<"_like_username">>, binary}
-    , {<<"_gte_created_at">>, timestamp}
-    , {<<"_lte_created_at">>, timestamp}
-    , {<<"_gte_connected_at">>, timestamp}
-    , {<<"_lte_connected_at">>, timestamp}]}).
+    , {<<"like_clientid">>, binary}
+    , {<<"like_username">>, binary}
+    , {<<"gte_created_at">>, timestamp}
+    , {<<"lte_created_at">>, timestamp}
+    , {<<"gte_connected_at">>, timestamp}
+    , {<<"lte_connected_at">>, timestamp}]}).
 
 -define(query_fun, {?MODULE, query}).
 -define(format_fun, {?MODULE, format_channel_info}).
@@ -214,112 +214,106 @@ schemas() ->
 clients_api() ->
     Metadata = #{
         get => #{
-            description => "List clients",
+            description => <<"List clients">>,
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_array_schema(<<"List clients 200 OK">>, <<"client">>)}}},
+                <<"200">> => emqx_mgmt_util:response_array_schema(<<"List clients 200 OK">>, client)}}},
     {"/clients", Metadata, clients}.
 
 client_api() ->
     Metadata = #{
         get => #{
-            description => "Get clients info by client ID",
+            description => <<"Get clients info by client ID">>,
             parameters => [#{
                 name => clientid,
                 in => path,
                 schema => #{type => string},
-                required => true,
-                example => 123456}],
+                required => true
+            }],
             responses => #{
                 <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"List clients 200 OK">>, <<"client">>)}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"List clients 200 OK">>, client)}},
         delete => #{
-            description => "Kick out client by client ID",
+            description => <<"Kick out client by client ID">>,
             parameters => [#{
                 name => clientid,
                 in => path,
                 schema => #{type => string},
-                required => true,
-                example => 123456}],
+                required => true
+            }],
             responses => #{
                 <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"List clients 200 OK">>, <<"client">>)}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"List clients 200 OK">>, client)}}},
     {"/clients/:clientid", Metadata, client}.
 
 clients_acl_cache_api() ->
     Metadata = #{
         get => #{
-            description => "Get client acl cache",
+            description => <<"Get client acl cache">>,
             parameters => [#{
                 name => clientid,
                 in => path,
                 schema => #{type => string},
-                required => true,
-                example => 123456}],
+                required => true
+            }],
             responses => #{
                 <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"List clients 200 OK">>, <<"acl_cache">>)}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Get client acl cache">>, acl_cache)}},
         delete => #{
-            description => "Clean client acl cache",
+            description => <<"Clean client acl cache">>,
             parameters => [#{
                 name => clientid,
                 in => path,
                 schema => #{type => string},
-                required => true,
-                example => 123456}],
+                required => true
+            }],
             responses => #{
                 <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Delete clients 200 OK">>)}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Delete clients acl cache OK">>)}}},
     {"/clients/:clientid/acl_cache", Metadata, acl_cache}.
 
 subscribe_api() ->
     Metadata = #{
         post => #{
-            description => "subscribe",
-            parameters => [
-                #{
-                    name => clientid,
-                    in => path,
-                    schema => #{type => string},
-                    required => true,
-                    example => 123456
-                }
-            ],
+            description => <<"Subscribe">>,
+            parameters => [#{
+                name => clientid,
+                in => path,
+                schema => #{type => string},
+                required => true
+            }],
             'requestBody' => emqx_mgmt_util:request_body_schema(#{
                 type => object,
                 properties => #{
-                    <<"topic">> => #{
+                    topic => #{
                         type => string,
-                        example => <<"topic_1">>,
                         description => <<"Topic">>},
-                    <<"qos">> => #{
+                    qos => #{
                         type => integer,
                         enum => [0, 1, 2],
                         example => 0,
                         description => <<"QoS">>}}}),
             responses => #{
                 <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"subscribe ok">>)}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Subscribe ok">>)}},
         delete => #{
-            description => "unsubscribe",
+            description => <<"Unsubscribe">>,
             parameters => [
                 #{
                     name => clientid,
                     in => path,
                     schema => #{type => string},
-                    required => true,
-                    example => 123456
+                    required => true
                 },
                 #{
                     name => topic,
                     in => query,
                     schema => #{type => string},
-                    required => true,
-                    example => <<"topic_1">>
+                    required => true
                 }
             ],
             responses => #{
                 <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"unsubscribe ok">>)}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Unsubscribe ok">>)}}},
     {"/clients/:clientid/subscribe", Metadata, subscribe}.
 
 %%%==============================================================================================
@@ -373,17 +367,15 @@ subscribe_batch(post, Request) ->
 %% api apply
 
 list(Params) ->
-    Data = emqx_mgmt_api:cluster_query(maps:to_list(Params), ?CLIENT_QS_SCHEMA, ?query_fun),
-    Body = emqx_json:encode(Data),
-    {200, Body}.
+    Response = emqx_mgmt_api:cluster_query(maps:to_list(Params), ?CLIENT_QS_SCHEMA, ?query_fun),
+    {200, Response}.
 
 lookup(#{clientid := ClientID}) ->
     case emqx_mgmt:lookup_client({clientid, ClientID}, ?format_fun) of
         [] ->
             {404, ?CLIENT_ID_NOT_FOUND};
         ClientInfo ->
-            Response = emqx_json:encode(hd(ClientInfo)),
-            {200, Response}
+            {200, hd(ClientInfo)}
     end.
 
 kickout(#{clientid := ClientID}) ->
@@ -395,9 +387,10 @@ get_acl_cache(#{clientid := ClientID})->
         {error, not_found} ->
             {404, ?CLIENT_ID_NOT_FOUND};
         {error, Reason} ->
-            {500, #{code => <<"UNKNOW_ERROR">>, reason => io_lib:format("~p", [Reason])}};
+            Message = list_to_binary(io_lib:format("~p", [Reason])),
+            {500, #{code => <<"UNKNOW_ERROR">>, message => Message}};
         Caches ->
-            Response = emqx_json:encode([format_acl_cache(Cache) || Cache <- Caches]),
+            Response = [format_acl_cache(Cache) || Cache <- Caches],
             {200, Response}
     end.
 
@@ -408,7 +401,8 @@ clean_acl_cache(#{clientid := ClientID}) ->
         {error, not_found} ->
             {404, ?CLIENT_ID_NOT_FOUND};
         {error, Reason} ->
-            {500, #{code => <<"UNKNOW_ERROR">>, reason => io_lib:format("~p", [Reason])}}
+            Message = list_to_binary(io_lib:format("~p", [Reason])),
+            {500, #{code => <<"UNKNOW_ERROR">>, message => Message}}
     end.
 
 subscribe(#{clientid := ClientID, topic := Topic, qos := Qos}) ->
@@ -416,8 +410,8 @@ subscribe(#{clientid := ClientID, topic := Topic, qos := Qos}) ->
         {error, channel_not_found} ->
             {404, ?CLIENT_ID_NOT_FOUND};
         {error, Reason} ->
-            Body = emqx_json:encode(#{code => <<"UNKNOW_ERROR">>, reason => io_lib:format("~p", [Reason])}),
-            {500, Body};
+            Message = list_to_binary(io_lib:format("~p", [Reason])),
+            {500, #{code => <<"UNKNOW_ERROR">>, message => Message}};
         ok ->
             {200}
     end.
@@ -427,8 +421,8 @@ unsubscribe(#{clientid := ClientID, topic := Topic}) ->
         {error, channel_not_found} ->
             {404, ?CLIENT_ID_NOT_FOUND};
         {error, Reason} ->
-            Body = emqx_json:encode(#{code => <<"UNKNOW_ERROR">>, reason => io_lib:format("~p", [Reason])}),
-            {500, Body};
+            Message = list_to_binary(io_lib:format("~p", [Reason])),
+            {500, #{code => <<"UNKNOW_ERROR">>, message => Message}};
         {unsubscribe, [{Topic, #{}}]} ->
             {200}
     end.

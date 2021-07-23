@@ -20,9 +20,11 @@
 -include("emqx_mqtt.hrl").
 
 %% APIs
--export([ start/0
+-export([ list/0
+        , start/0
         , restart/0
         , stop/0
+        , is_running/1
         ]).
 
 -export([ start_listener/1
@@ -32,6 +34,57 @@
         , restart_listener/1
         , restart_listener/3
         ]).
+
+-spec(list() -> [{ListenerId :: atom(), ListenerConf :: map()}]).
+list() ->
+    Zones = maps:to_list(emqx_config:get([zones], #{})),
+    lists:append([list(ZoneName, ZoneConf) || {ZoneName, ZoneConf} <- Zones]).
+
+list(ZoneName, ZoneConf) ->
+    Listeners = maps:to_list(maps:get(listeners, ZoneConf, #{})),
+    [
+        begin
+            ListenerId = listener_id(ZoneName, LName),
+            Running = is_running(ListenerId),
+            Conf = merge_zone_and_listener_confs(ZoneConf, LConf),
+            {ListenerId, maps:put(running, Running, Conf)}
+        end
+        || {LName, LConf} <- Listeners].
+
+-spec is_running(ListenerId :: atom()) -> boolean() | {error, no_found}.
+is_running(ListenerId) ->
+    Zones = maps:to_list(emqx_config:get([zones], #{})),
+    Listeners = lists:append(
+        [
+            [{listener_id(ZoneName, LName),merge_zone_and_listener_confs(ZoneConf, LConf)}
+                || {LName, LConf} <- maps:to_list(maps:get(listeners, ZoneConf, #{}))]
+        || {ZoneName, ZoneConf} <- Zones]),
+    case proplists:get_value(ListenerId, Listeners, undefined) of
+        undefined ->
+            {error, no_found};
+        Conf ->
+            is_running(ListenerId, Conf)
+    end.
+
+is_running(ListenerId, #{type := tcp, bind := ListenOn})->
+    try esockd:listener({ListenerId, ListenOn}) of
+        Pid when is_pid(Pid)->
+            true
+    catch _:_ ->
+        false
+    end;
+
+is_running(ListenerId, #{type := ws})->
+    try
+        Info = ranch:info(ListenerId),
+        proplists:get_value(status, Info) =:= running
+    catch _:_ ->
+        false
+    end;
+
+is_running(_ListenerId, #{type := quic})->
+%%    TODO: quic support
+    {error, no_found}.
 
 %% @doc Start all listeners.
 -spec(start() -> ok).
@@ -52,6 +105,8 @@ start_listener(ZoneName, ListenerName, #{type := Type, bind := Bind} = Conf) ->
         {ok, _} ->
             console_print("Start ~s listener ~s on ~s successfully.~n",
                 [Type, listener_id(ZoneName, ListenerName), format(Bind)]);
+        {error, {already_started, Pid}} ->
+            {error, {already_started, Pid}};
         {error, Reason} ->
             io:format(standard_error, "Failed to start ~s listener ~s on ~s: ~0p~n",
                       [Type, listener_id(ZoneName, ListenerName), format(Bind), Reason]),

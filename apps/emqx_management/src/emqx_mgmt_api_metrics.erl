@@ -16,7 +16,7 @@
 
 -module(emqx_mgmt_api_metrics).
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -export([api_spec/0]).
 
@@ -283,13 +283,12 @@ metrics_schema() ->
 metrics_api() ->
     Metadata = #{
         get => #{
-            description => "EMQ X metrics",
+            description => <<"EMQ X metrics">>,
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_schema(<<"List all metrics">>, <<"metrics">>)}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"List all metrics">>, metrics)}}},
     {"/metrics", Metadata, list}.
 
 %%%==============================================================================================
 %% api apply
 list(get, _) ->
-    Response = emqx_json:encode(emqx_mgmt:get_metrics()),
-    {200, Response}.
+    {200, emqx_mgmt:get_metrics()}.

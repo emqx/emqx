@@ -25,8 +25,8 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_config:put([sysmon, os], #{
-        cpu_check_interval => 60,cpu_high_watermark => 0.8,
-        cpu_low_watermark => 0.6,mem_check_interval => 60,
+        cpu_check_interval => 60000,cpu_high_watermark => 0.8,
+        cpu_low_watermark => 0.6,mem_check_interval => 60000,
         procmem_high_watermark => 0.05,sysmem_high_watermark => 0.7}),
     application:ensure_all_started(os_mon),
     Config.
@@ -38,11 +38,11 @@ t_api(_) ->
     gen_event:swap_handler(alarm_handler, {emqx_alarm_handler, swap}, {alarm_handler, []}),
     {ok, _} = emqx_os_mon:start_link(),
 
-    ?assertEqual(60, emqx_os_mon:get_mem_check_interval()),
-    ?assertEqual(ok, emqx_os_mon:set_mem_check_interval(30)),
-    ?assertEqual(60, emqx_os_mon:get_mem_check_interval()),
-    ?assertEqual(ok, emqx_os_mon:set_mem_check_interval(122)),
-    ?assertEqual(120, emqx_os_mon:get_mem_check_interval()),
+    ?assertEqual(60000, emqx_os_mon:get_mem_check_interval()),
+    ?assertEqual(ok, emqx_os_mon:set_mem_check_interval(30000)),
+    ?assertEqual(60000, emqx_os_mon:get_mem_check_interval()),
+    ?assertEqual(ok, emqx_os_mon:set_mem_check_interval(122000)),
+    ?assertEqual(120000, emqx_os_mon:get_mem_check_interval()),
 
     ?assertEqual(70, emqx_os_mon:get_sysmem_high_watermark()),
     ?assertEqual(ok, emqx_os_mon:set_sysmem_high_watermark(0.8)),
