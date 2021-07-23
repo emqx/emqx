@@ -31,8 +31,6 @@
         , on_insta_destroy/3
         ]).
 
--define(TCP_OPTS, [binary, {packet, raw}, {reuseaddr, true}, {nodelay, true}]).
-
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -41,15 +39,13 @@
 load() ->
     RegistryOptions = [ {cbkmod, ?MODULE}
                       ],
-
-    YourOptions = [param1, param2],
-    emqx_gateway_registry:load(stomp, RegistryOptions, YourOptions).
+    emqx_gateway_registry:load(stomp, RegistryOptions, []).
 
 -spec unload() -> ok | {error, any()}.
 unload() ->
     emqx_gateway_registry:unload(stomp).
 
-init([param1, param2]) ->
+init(_) ->
     GwState = #{},
     {ok, GwState}.
 
@@ -125,11 +121,13 @@ name(InstaId, Type) ->
     list_to_atom(lists:concat([InstaId, ":", Type])).
 
 merge_default(Options) ->
+    Default = emqx_gateway_utils:default_tcp_options(),
     case lists:keytake(tcp_options, 1, Options) of
         {value, {tcp_options, TcpOpts}, Options1} ->
-            [{tcp_options, emqx_misc:merge_opts(?TCP_OPTS, TcpOpts)} | Options1];
+            [{tcp_options, emqx_misc:merge_opts(Default, TcpOpts)}
+             | Options1];
         false ->
-            [{tcp_options, ?TCP_OPTS} | Options]
+            [{tcp_options, Default} | Options]
     end.
 
 stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
