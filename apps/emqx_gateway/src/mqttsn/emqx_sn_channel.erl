@@ -183,6 +183,8 @@ info(ctx, #channel{ctx = Ctx}) ->
     Ctx.
 
 -spec(stats(channel()) -> emqx_types:stats()).
+stats(#channel{session = undefined})->
+    [];
 stats(#channel{session = Session})->
     emqx_session:stats(Session).
 
