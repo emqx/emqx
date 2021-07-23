@@ -28,7 +28,7 @@ all() ->
     emqx_ct:all(?MODULE).
 
 mqtt_conf() ->
-    #{await_rel_timeout => 300,
+    #{await_rel_timeout => 300000,
     idle_timeout => 15000,
     ignore_loop_deliver => false,
     keepalive_backoff => 0.75,

@@ -63,7 +63,7 @@ t_session_init(_) ->
     ?assertEqual(0, emqx_mqueue:len(emqx_session:info(mqueue, Session))),
     ?assertEqual(0, emqx_session:info(awaiting_rel_cnt, Session)),
     ?assertEqual(100, emqx_session:info(awaiting_rel_max, Session)),
-    ?assertEqual(300, emqx_session:info(await_rel_timeout, Session)),
+    ?assertEqual(300000, emqx_session:info(await_rel_timeout, Session)),
     ?assert(is_integer(emqx_session:info(created_at, Session))).
 
 %%--------------------------------------------------------------------
@@ -74,7 +74,7 @@ t_session_info(_) ->
     ?assertMatch(#{subscriptions  := #{},
                    upgrade_qos    := false,
                    retry_interval := 30000,
-                   await_rel_timeout := 300
+                   await_rel_timeout := 300000
                   }, emqx_session:info(session())).
 
 t_session_stats(_) ->
@@ -344,7 +344,7 @@ t_replay(_) ->
 
 t_expire_awaiting_rel(_) ->
     {ok, Session} = emqx_session:expire(awaiting_rel, session()),
-    Timeout = emqx_session:info(await_rel_timeout, Session) * 1000,
+    Timeout = emqx_session:info(await_rel_timeout, Session),
     Session1 = emqx_session:set_field(awaiting_rel, #{1 => Ts = ts(millisecond)}, Session),
     {ok, Timeout, Session2} = emqx_session:expire(awaiting_rel, Session1),
     ?assertEqual(#{1 => Ts}, emqx_session:info(awaiting_rel, Session2)).
