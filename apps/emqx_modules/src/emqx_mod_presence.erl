@@ -102,7 +102,7 @@ connected_presence(#{peerhost := PeerHost,
       keepalive => Keepalive,
       connack => 0, %% Deprecated?
       clean_start => CleanStart,
-      expiry_interval => ExpiryInterval,
+      expiry_interval => ExpiryInterval div 1000,
       connected_at => ConnectedAt,
       ts => erlang:system_time(millisecond)
      }.
