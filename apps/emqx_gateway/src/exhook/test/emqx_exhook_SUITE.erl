@@ -40,7 +40,7 @@
 
 % set_special_cfgs(emqx) ->
 %     application:set_env(emqx, allow_anonymous, false),
-%     application:set_env(emqx, enable_acl_cache, false),
+%     application:set_env(emqx, enable_authz_cache, false),
 %     application:set_env(emqx, plugins_loaded_file, undefined),
 %     application:set_env(emqx, modules_loaded_file, undefined);
 % set_special_cfgs(emqx_exhook) ->

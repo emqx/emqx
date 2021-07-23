@@ -60,9 +60,9 @@ metrics_schema() ->
                 'client.disconnected' => #{
                     type => integer,
                     description => <<"Number of client disconnects">>},
-                'client.check_acl' => #{
+                'client.check_authz' => #{
                     type => integer,
-                    description => <<"Number of ACL rule checks">>},
+                    description => <<"Number of Authorization rule checks">>},
                 'client.subscribe' => #{
                     type => integer,
                     description => <<"Number of client subscriptions">>},
@@ -167,7 +167,7 @@ metrics_schema() ->
                     description => <<"Number of received PUBLISH packet with occupied identifiers">>},
                 'packets.publish.auth_error' => #{
                     type => integer,
-                    description => <<"Number of received PUBLISH packets with failed the ACL check">>},
+                    description => <<"Number of received PUBLISH packets with failed the Authorization check">>},
                 'packets.publish.error' => #{
                     type => integer,
                     description => <<"Number of received PUBLISH packet that cannot be published">>},
@@ -227,7 +227,7 @@ metrics_schema() ->
                     description => <<"Number of received SUBSCRIBE packet with failed subscriptions">>},
                 'packets.subscribe.auth_error' => #{
                     type => integer,
-                    description => <<"Number of received SUBACK packet with failed ACL check">>},
+                    description => <<"Number of received SUBACK packet with failed Authorization check">>},
                 'packets.suback.sent' => #{
                     type => integer,
                     description => <<"Number of sent SUBACK packet">>},

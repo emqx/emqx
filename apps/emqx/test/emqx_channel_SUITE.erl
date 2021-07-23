@@ -862,20 +862,20 @@ t_packing_alias(_) ->
                    #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"z">>}},
                    channel())).
 
-t_check_pub_acl(_) ->
+t_check_pub_authz(_) ->
     emqx_config:put_zone_conf(default, [authorization, enable], true),
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
-    ok = emqx_channel:check_pub_acl(Publish, channel()).
+    ok = emqx_channel:check_pub_authz(Publish, channel()).
 
 t_check_pub_alias(_) ->
     Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},
     Channel = emqx_channel:set_field(alias_maximum, #{inbound => 10}, channel()),
     ok = emqx_channel:check_pub_alias(#mqtt_packet{variable = Publish}, Channel).
 
-t_check_sub_acls(_) ->
+t_check_sub_authzs(_) ->
     emqx_config:put_zone_conf(default, [authorization, enable], true),
     TopicFilter = {<<"t">>, ?DEFAULT_SUBOPTS},
-    [{TopicFilter, 0}] = emqx_channel:check_sub_acls([TopicFilter], channel()).
+    [{TopicFilter, 0}] = emqx_channel:check_sub_authzs([TopicFilter], channel()).
 
 t_enrich_connack_caps(_) ->
     ok = meck:new(emqx_mqtt_caps, [passthrough, no_history]),

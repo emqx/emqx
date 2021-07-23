@@ -87,10 +87,10 @@ t_clients(_) ->
     AfterKickoutResponse = emqx_mgmt_api_test_util:request_api(get, Client2Path),
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse),
 
-    %% get /clients/:clientid/acl_cache should has no acl cache
-    Client1AclCachePath = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1), "acl_cache"]),
-    {ok, Client1AclCache} = emqx_mgmt_api_test_util:request_api(get, Client1AclCachePath),
-    ?assertEqual("[]", Client1AclCache),
+    %% get /clients/:clientid/authz_cache should has no authz cache
+    Client1AuthzCachePath = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1), "authz_cache"]),
+    {ok, Client1AuthzCache} = emqx_mgmt_api_test_util:request_api(get, Client1AuthzCachePath),
+    ?assertEqual("[]", Client1AuthzCache),
 
     %% post /clients/:clientid/subscribe
     SubscribeBody = #{topic => Topic, qos => Qos},

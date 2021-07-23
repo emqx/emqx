@@ -153,7 +153,7 @@ To subscribe any topic, issue following command:
 - {username} and {password} are optional.
 - if {username} or {password} is incorrect, the error code `unauthorized` will be returned.
 - topic is subscribed with qos1.
-- if the subscription failed due to ACL deny, the error code `forbidden` will be returned.
+- if the subscription failed due to Authorization deny, the error code `forbidden` will be returned.
 
 CoAP Client Unobserve Operation (unsubscribe topic)
 ---------------------------------------------------
@@ -196,7 +196,7 @@ Issue a coap put command to publish messages. For example:
 - payload could be any binary data.
 - payload data type is "application/octet-stream".
 - publish message will be sent with qos0.
-- if the publishing failed due to ACL deny, the error code `forbidden` will be returned.
+- if the publishing failed due to Authorization deny, the error code `forbidden` will be returned.
 
 CoAP Client Keep Alive
 ----------------------
@@ -230,7 +230,7 @@ ClientId, Username, Password and Topic
 --------------------------------------
 ClientId/username/password/topic in the coap URI are the concepts in mqtt. That is to say, emqx-coap is trying to fit coap message into mqtt system, by borrowing the client/username/password/topic from mqtt.
 
-The Auth/ACL/Hook features in mqtt also applies on coap stuff. For example:
+The Auth/Authorization/Hook features in mqtt also applies on coap stuff. For example:
 - If username/password is not authorized, coap client will get an unauthorized error.
 - If username or clientid is not allowed to published specific topic, coap message will be dropped in fact, although coap client will get an acknoledgement from emqx-coap.
 - If a coap message is published, a 'message.publish' hook is able to capture this message as well.

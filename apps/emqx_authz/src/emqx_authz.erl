@@ -72,7 +72,7 @@ post_config_update(NewRules, _OldConf) ->
     Action = find_action_in_hooks(),
     ok = emqx_hooks:del('client.authorize', Action),
     ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [InitedRules]}, -1),
-    ok = emqx_acl_cache:drain_cache().
+    ok = emqx_authz_cache:drain_cache().
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -178,7 +178,7 @@ b2l(B) when is_binary(B) -> binary_to_list(B).
 %%--------------------------------------------------------------------
 
 %% @doc Check AuthZ
--spec(authorize(emqx_types:clientinfo(), emqx_types:all(), emqx_topic:topic(), emqx_permission_rule:acl_result(), rules())
+-spec(authorize(emqx_types:clientinfo(), emqx_types:all(), emqx_topic:topic(), allow | deny, rules())
       -> {stop, allow} | {ok, deny}).
 authorize(#{username := Username,
             peerhost := IpAddress

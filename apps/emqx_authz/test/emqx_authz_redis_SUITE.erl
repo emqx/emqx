@@ -46,7 +46,7 @@ init_per_suite(Config) ->
                     <<"auto_reconnect">> => true,
                     <<"ssl">> => #{<<"enable">> => false}
                 },
-                <<"cmd">> => <<"HGETALL mqtt_acl:%u">>,
+                <<"cmd">> => <<"HGETALL mqtt_authz:%u">>,
                 <<"type">> => <<"redis">> }],
     emqx_authz:update(replace, Rules),
     Config.

@@ -38,7 +38,7 @@
         , trace/1
         , log/1
         , mgmt/1
-        , acl/1
+        , authz/1
         ]).
 
 -define(PROC_INFOKEYS, [status,
@@ -515,31 +515,31 @@ listeners(_) ->
                    ]).
 
 %%--------------------------------------------------------------------
-%% @doc acl Command
+%% @doc authz Command
 
-acl(["cache-clean", "node", Node]) ->
-    case emqx_mgmt:clean_acl_cache_all(erlang:list_to_existing_atom(Node)) of
+authz(["cache-clean", "node", Node]) ->
+    case emqx_mgmt:clean_authz_cache_all(erlang:list_to_existing_atom(Node)) of
         ok ->
-            emqx_ctl:print("ACL cache drain started on node ~s.~n", [Node]);
+            emqx_ctl:print("Authorization cache drain started on node ~s.~n", [Node]);
         {error, Reason} ->
-            emqx_ctl:print("ACL drain failed on node ~s: ~0p.~n", [Node, Reason])
+            emqx_ctl:print("Authorization drain failed on node ~s: ~0p.~n", [Node, Reason])
     end;
 
-acl(["cache-clean", "all"]) ->
-    case emqx_mgmt:clean_acl_cache_all() of
+authz(["cache-clean", "all"]) ->
+    case emqx_mgmt:clean_authz_cache_all() of
         ok ->
-            emqx_ctl:print("Started ACL cache drain in all nodes~n");
+            emqx_ctl:print("Started Authorization cache drain in all nodes~n");
         {error, Reason} ->
-            emqx_ctl:print("ACL cache-clean failed: ~p.~n", [Reason])
+            emqx_ctl:print("Authorization cache-clean failed: ~p.~n", [Reason])
     end;
 
-acl(["cache-clean", ClientId]) ->
-    emqx_mgmt:clean_acl_cache(ClientId);
+authz(["cache-clean", ClientId]) ->
+    emqx_mgmt:clean_authz_cache(ClientId);
 
-acl(_) ->
-    emqx_ctl:usage([{"acl cache-clean all",             "Clears acl cache on all nodes"},
-                    {"acl cache-clean node <Node>",     "Clears acl cache on given node"},
-                    {"acl cache-clean <ClientId>",      "Clears acl cache for given client"}
+authz(_) ->
+    emqx_ctl:usage([{"authz cache-clean all",             "Clears authorization cache on all nodes"},
+                    {"authz cache-clean node <Node>",     "Clears authorization cache on given node"},
+                    {"authz cache-clean <ClientId>",      "Clears authorization cache for given client"}
                    ]).
 
 %%--------------------------------------------------------------------

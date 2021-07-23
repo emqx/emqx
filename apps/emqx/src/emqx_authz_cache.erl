@@ -14,16 +14,16 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_acl_cache).
+-module(emqx_authz_cache).
 
 -include("emqx.hrl").
 
--export([ list_acl_cache/1
-        , get_acl_cache/3
-        , put_acl_cache/4
-        , cleanup_acl_cache/1
-        , empty_acl_cache/0
-        , dump_acl_cache/0
+-export([ list_authz_cache/1
+        , get_authz_cache/3
+        , put_authz_cache/4
+        , cleanup_authz_cache/1
+        , empty_authz_cache/0
+        , dump_authz_cache/0
         , get_cache_max_size/1
         , get_cache_ttl/1
         , is_enabled/1
@@ -38,16 +38,16 @@
         , get_oldest_key/0
         ]).
 
--type(acl_result() :: allow | deny).
+-type(authz_result() :: allow | deny).
 -type(system_time() :: integer()).
 -type(cache_key() :: {emqx_types:pubsub(), emqx_types:topic()}).
--type(cache_val() :: {acl_result(), system_time()}).
+-type(cache_val() :: {authz_result(), system_time()}).
 
--type(acl_cache_entry() :: {cache_key(), cache_val()}).
+-type(authz_cache_entry() :: {cache_key(), cache_val()}).
 
 %% Wrappers for key and value
 cache_k(PubSub, Topic)-> {PubSub, Topic}.
-cache_v(AclResult)-> {AclResult, time_now()}.
+cache_v(AuthzResult)-> {AuthzResult, time_now()}.
 drain_k() -> {?MODULE, drain_timestamp}.
 
 -spec(is_enabled(atom()) -> boolean()).
@@ -62,71 +62,71 @@ get_cache_max_size(Zone) ->
 get_cache_ttl(Zone) ->
     emqx_config:get_zone_conf(Zone, [authorization, cache, ttl]).
 
--spec(list_acl_cache(atom()) -> [acl_cache_entry()]).
-list_acl_cache(Zone) ->
-    cleanup_acl_cache(Zone),
-    map_acl_cache(fun(Cache) -> Cache end).
+-spec(list_authz_cache(atom()) -> [authz_cache_entry()]).
+list_authz_cache(Zone) ->
+    cleanup_authz_cache(Zone),
+    map_authz_cache(fun(Cache) -> Cache end).
 
-%% We'll cleanup the cache before replacing an expired acl.
--spec get_acl_cache(atom(), emqx_types:pubsub(), emqx_topic:topic()) ->
-    acl_result() | not_found.
-get_acl_cache(Zone, PubSub, Topic) ->
+%% We'll cleanup the cache before replacing an expired authz.
+-spec get_authz_cache(atom(), emqx_types:pubsub(), emqx_topic:topic()) ->
+    authz_result() | not_found.
+get_authz_cache(Zone, PubSub, Topic) ->
     case erlang:get(cache_k(PubSub, Topic)) of
         undefined -> not_found;
-        {AclResult, CachedAt} ->
+        {AuthzResult, CachedAt} ->
             if_expired(get_cache_ttl(Zone), CachedAt,
                 fun(false) ->
-                      AclResult;
+                      AuthzResult;
                    (true) ->
-                      cleanup_acl_cache(Zone),
+                      cleanup_authz_cache(Zone),
                       not_found
                 end)
     end.
 
 %% If the cache get full, and also the latest one
 %%   is expired, then delete all the cache entries
--spec put_acl_cache(atom(), emqx_types:pubsub(), emqx_topic:topic(), acl_result())
+-spec put_authz_cache(atom(), emqx_types:pubsub(), emqx_topic:topic(), authz_result())
     -> ok.
-put_acl_cache(Zone, PubSub, Topic, AclResult) ->
+put_authz_cache(Zone, PubSub, Topic, AuthzResult) ->
     MaxSize = get_cache_max_size(Zone), true = (MaxSize =/= 0),
     Size = get_cache_size(),
     case Size < MaxSize of
         true ->
-            add_acl(PubSub, Topic, AclResult);
+            add_authz(PubSub, Topic, AuthzResult);
         false ->
             NewestK = get_newest_key(),
-            {_AclResult, CachedAt} = erlang:get(NewestK),
+            {_AuthzResult, CachedAt} = erlang:get(NewestK),
             if_expired(get_cache_ttl(Zone), CachedAt,
                 fun(true) ->
                       % all cache expired, cleanup first
-                      empty_acl_cache(),
-                      add_acl(PubSub, Topic, AclResult);
+                      empty_authz_cache(),
+                      add_authz(PubSub, Topic, AuthzResult);
                    (false) ->
                       % cache full, perform cache replacement
-                      evict_acl_cache(),
-                      add_acl(PubSub, Topic, AclResult)
+                      evict_authz_cache(),
+                      add_authz(PubSub, Topic, AuthzResult)
                 end)
     end.
 
-%% delete all the acl entries
--spec(empty_acl_cache() -> ok).
-empty_acl_cache() ->
-    foreach_acl_cache(fun({CacheK, _CacheV}) -> erlang:erase(CacheK) end),
+%% delete all the authz entries
+-spec(empty_authz_cache() -> ok).
+empty_authz_cache() ->
+    foreach_authz_cache(fun({CacheK, _CacheV}) -> erlang:erase(CacheK) end),
     set_cache_size(0),
     keys_queue_set(queue:new()).
 
-%% delete the oldest acl entry
--spec(evict_acl_cache() -> ok).
-evict_acl_cache() ->
+%% delete the oldest authz entry
+-spec(evict_authz_cache() -> ok).
+evict_authz_cache() ->
     OldestK = keys_queue_out(),
     erlang:erase(OldestK),
     decr_cache_size().
 
 %% cleanup all the expired cache entries
--spec(cleanup_acl_cache(atom()) -> ok).
-cleanup_acl_cache(Zone) ->
+-spec(cleanup_authz_cache(atom()) -> ok).
+cleanup_authz_cache(Zone) ->
     keys_queue_set(
-        cleanup_acl(get_cache_ttl(Zone), keys_queue_get())).
+        cleanup_authz(get_cache_ttl(Zone), keys_queue_get())).
 
 get_oldest_key() ->
     keys_queue_pick(queue_front()).
@@ -134,22 +134,22 @@ get_newest_key() ->
     keys_queue_pick(queue_rear()).
 
 get_cache_size() ->
-    case erlang:get(acl_cache_size) of
+    case erlang:get(authz_cache_size) of
         undefined -> 0;
         Size -> Size
     end.
 
-dump_acl_cache() ->
-    map_acl_cache(fun(Cache) -> Cache end).
+dump_authz_cache() ->
+    map_authz_cache(fun(Cache) -> Cache end).
 
-map_acl_cache(Fun) ->
-    [Fun(R) || R = {{SubPub, _T}, _Acl} <- get(), SubPub =:= publish
-                                           orelse SubPub =:= subscribe].
-foreach_acl_cache(Fun) ->
-    _ = map_acl_cache(Fun),
+map_authz_cache(Fun) ->
+    [Fun(R) || R = {{SubPub, _T}, _Authz} <- get(), SubPub =:= publish
+                                             orelse SubPub =:= subscribe].
+foreach_authz_cache(Fun) ->
+    _ = map_authz_cache(Fun),
     ok.
 
-%% All acl cache entries added before `drain_cache()` invocation will become expired
+%% All authz cache entries added before `drain_cache()` invocation will become expired
 drain_cache() ->
     _ = persistent_term:put(drain_k(), time_now()),
     ok.
@@ -158,52 +158,52 @@ drain_cache() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-add_acl(PubSub, Topic, AclResult) ->
+add_authz(PubSub, Topic, AuthzResult) ->
     K = cache_k(PubSub, Topic),
-    V = cache_v(AclResult),
+    V = cache_v(AuthzResult),
     case erlang:get(K) of
-        undefined -> add_new_acl(K, V);
-        {_AclResult, _CachedAt} ->
-            update_acl(K, V)
+        undefined -> add_new_authz(K, V);
+        {_AuthzResult, _CachedAt} ->
+            update_authz(K, V)
     end.
 
-add_new_acl(K, V) ->
+add_new_authz(K, V) ->
     erlang:put(K, V),
     keys_queue_in(K),
     incr_cache_size().
 
-update_acl(K, V) ->
+update_authz(K, V) ->
     erlang:put(K, V),
     keys_queue_update(K).
 
-cleanup_acl(TTL, KeysQ) ->
+cleanup_authz(TTL, KeysQ) ->
     case queue:out(KeysQ) of
         {{value, OldestK}, KeysQ2} ->
-            {_AclResult, CachedAt} = erlang:get(OldestK),
+            {_AuthzResult, CachedAt} = erlang:get(OldestK),
             if_expired(TTL, CachedAt,
                 fun(false) -> KeysQ;
                    (true) ->
                       erlang:erase(OldestK),
                       decr_cache_size(),
-                      cleanup_acl(TTL, KeysQ2)
+                      cleanup_authz(TTL, KeysQ2)
                 end);
         {empty, KeysQ} -> KeysQ
     end.
 
 incr_cache_size() ->
-    erlang:put(acl_cache_size, get_cache_size() + 1), ok.
+    erlang:put(authz_cache_size, get_cache_size() + 1), ok.
 decr_cache_size() ->
     Size = get_cache_size(),
     case Size > 1 of
         true ->
-          erlang:put(acl_cache_size, Size-1);
+          erlang:put(authz_cache_size, Size-1);
         false ->
-          erlang:put(acl_cache_size, 0)
+          erlang:put(authz_cache_size, 0)
     end,
     ok.
 
 set_cache_size(N) ->
-    erlang:put(acl_cache_size, N), ok.
+    erlang:put(authz_cache_size, N), ok.
 
 %%% Ordered Keys Q %%%
 keys_queue_in(Key) ->
@@ -236,9 +236,9 @@ keys_queue_remove(Key, KeysQ) ->
       end, KeysQ).
 
 keys_queue_set(KeysQ) ->
-    erlang:put(acl_keys_q, KeysQ), ok.
+    erlang:put(authz_keys_q, KeysQ), ok.
 keys_queue_get() ->
-    case erlang:get(acl_keys_q) of
+    case erlang:get(authz_keys_q) of
         undefined -> queue:new();
         KeysQ -> KeysQ
     end.
