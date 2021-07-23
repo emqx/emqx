@@ -52,15 +52,15 @@ drain_k() -> {?MODULE, drain_timestamp}.
 
 -spec(is_enabled(atom()) -> boolean()).
 is_enabled(Zone) ->
-    emqx_config:get_zone_conf(Zone, [acl, cache, enable]).
+    emqx_config:get_zone_conf(Zone, [mqtt, authorize, enable]).
 
 -spec(get_cache_max_size(atom()) -> integer()).
 get_cache_max_size(Zone) ->
-    emqx_config:get_zone_conf(Zone, [acl, cache, max_size]).
+    emqx_config:get_zone_conf(Zone, [mqtt, authorize, cache, max_size]).
 
 -spec(get_cache_ttl(atom()) -> integer()).
 get_cache_ttl(Zone) ->
-    emqx_config:get_zone_conf(Zone, [acl, cache, ttl]).
+    emqx_config:get_zone_conf(Zone, [mqtt, authorize, cache, ttl]).
 
 -spec(list_acl_cache(atom()) -> [acl_cache_entry()]).
 list_acl_cache(Zone) ->

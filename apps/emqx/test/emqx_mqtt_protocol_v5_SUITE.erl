@@ -217,14 +217,12 @@ t_connect_will_message(Config) ->
     ok = emqtt:disconnect(Client4).
 
 t_batch_subscribe(init, Config) ->
-    emqx_config:put_zone_conf(default, [acl, enable], true),
-    emqx_config:put_zone_conf(default, [acl, enable], true),
+    emqx_config:put_zone_conf(default, [mqtt, authorize, enable], true),
     ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
     Config;
 t_batch_subscribe('end', _Config) ->
-    emqx_config:put_zone_conf(default, [acl, enable], false),
-    emqx_config:put_zone_conf(default, [acl, enable], false),
+    emqx_config:put_zone_conf(default, [mqtt, authorize, enable], false),
     meck:unload(emqx_access_control).
 
 t_batch_subscribe(Config) ->

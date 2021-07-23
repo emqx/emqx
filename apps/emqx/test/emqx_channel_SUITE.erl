@@ -29,34 +29,40 @@ all() ->
 
 mqtt_conf() ->
     #{await_rel_timeout => 300,
-    idle_timeout => 15000,
-    ignore_loop_deliver => false,
-    keepalive_backoff => 0.75,
-    max_awaiting_rel => 100,
-    max_clientid_len => 65535,
-    max_inflight => 32,
-    max_mqueue_len => 1000,
-    max_packet_size => 1048576,
-    max_qos_allowed => 2,
-    max_subscriptions => infinity,
-    max_topic_alias => 65535,
-    max_topic_levels => 65535,
-    mountpoint => <<>>,
-    mqueue_default_priority => lowest,
-    mqueue_priorities => #{},
-    mqueue_store_qos0 => true,
-    peer_cert_as_clientid => disabled,
-    peer_cert_as_username => disabled,
-    response_information => [],
-    retain_available => true,
-    retry_interval => 30,
-    server_keepalive => disabled,
-    session_expiry_interval => 7200,
-    shared_subscription => true,
-    strict_mode => false,
-    upgrade_qos => false,
-    use_username_as_clientid => false,
-    wildcard_subscription => true}.
+      idle_timeout => 15000,
+      ignore_loop_deliver => false,
+      keepalive_backoff => 0.75,
+      max_awaiting_rel => 100,
+      max_clientid_len => 65535,
+      max_inflight => 32,
+      max_mqueue_len => 1000,
+      max_packet_size => 1048576,
+      max_qos_allowed => 2,
+      max_subscriptions => infinity,
+      max_topic_alias => 65535,
+      max_topic_levels => 65535,
+      mountpoint => <<>>,
+      mqueue_default_priority => lowest,
+      mqueue_priorities => #{},
+      mqueue_store_qos0 => true,
+      peer_cert_as_clientid => disabled,
+      peer_cert_as_username => disabled,
+      response_information => [],
+      retain_available => true,
+      retry_interval => 30,
+      server_keepalive => disabled,
+      session_expiry_interval => 7200,
+      shared_subscription => true,
+      strict_mode => false,
+      upgrade_qos => false,
+      use_username_as_clientid => false,
+      wildcard_subscription => true,
+      authorize => #{
+        enable => false,
+        deny_action => reply,
+        cache => #{}
+       }
+     }.
 
 listener_mqtt_tcp_conf() ->
     #{acceptors => 16,
@@ -863,7 +869,7 @@ t_packing_alias(_) ->
                    channel())).
 
 t_check_pub_acl(_) ->
-    emqx_config:put_zone_conf(default, [acl, enable], true),
+    emqx_config:put_zone_conf(default, [mqtt, authorize, enable], true),
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
     ok = emqx_channel:check_pub_acl(Publish, channel()).
 
@@ -873,7 +879,7 @@ t_check_pub_alias(_) ->
     ok = emqx_channel:check_pub_alias(#mqtt_packet{variable = Publish}, Channel).
 
 t_check_sub_acls(_) ->
-    emqx_config:put_zone_conf(default, [acl, enable], true),
+    emqx_config:put_zone_conf(default, [mqtt, authorize, enable], true),
     TopicFilter = {<<"t">>, ?DEFAULT_SUBOPTS},
     [{TopicFilter, 0}] = emqx_channel:check_sub_acls([TopicFilter], channel()).
 

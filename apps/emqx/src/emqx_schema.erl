@@ -257,13 +257,13 @@ fields("auth") ->
     [ {"enable", t(boolean(), undefined, false)}
     ];
 
-fields("acl") ->
+fields("authz") ->
     [ {"enable", t(boolean(), undefined, false)}
-    , {"cache", ref("acl_cache")}
-    , {"deny_action", t(union(ignore, disconnect), undefined, ignore)}
+    , {"cache", ref("authz_cache")}
+    , {"deny_action", t(union(reply, disconnect), undefined, reply)}
     ];
 
-fields("acl_cache") ->
+fields("authz_cache") ->
     [ {"enable", t(boolean(), undefined, true)}
     , {"max_size", t(range(1, 1048576), undefined, 32)}
     , {"ttl", t(duration(), undefined, "1m")}
@@ -299,6 +299,7 @@ fields("mqtt") ->
     , {"use_username_as_clientid", t(boolean(), undefined, false)}
     , {"peer_cert_as_username", maybe_disabled(union([cn, dn, crt, pem, md5]))}
     , {"peer_cert_as_clientid", maybe_disabled(union([cn, dn, crt, pem, md5]))}
+    , {"authorize", ref("authz")}
     ];
 
 fields("zones") ->
@@ -306,7 +307,6 @@ fields("zones") ->
 
 fields("zone_settings") ->
     [ {"mqtt", ref("mqtt")}
-    , {"acl", ref("acl")}
     , {"auth", ref("auth")}
     , {"stats", ref("stats")}
     , {"flapping_detect", ref("flapping_detect")}
