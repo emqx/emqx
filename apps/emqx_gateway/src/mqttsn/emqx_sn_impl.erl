@@ -32,8 +32,6 @@
         , on_insta_destroy/3
         ]).
 
--define(UDP_SOCKOPTS, []).
-
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -41,8 +39,7 @@
 load() ->
     RegistryOptions = [ {cbkmod, ?MODULE}
                       ],
-    YourOptions = [params1, params2],
-    emqx_gateway_registry:load(mqttsn, RegistryOptions, YourOptions).
+    emqx_gateway_registry:load(mqttsn, RegistryOptions, []).
 
 unload() ->
     emqx_gateway_registry:unload(mqttsn).
@@ -140,11 +137,13 @@ name(InstaId, Type) ->
     list_to_atom(lists:concat([InstaId, ":", Type])).
 
 merge_default(Options) ->
+    Default = emqx_gateway_utils:default_udp_options(),
     case lists:keytake(udp_options, 1, Options) of
         {value, {udp_options, TcpOpts}, Options1} ->
-            [{udp_options, emqx_misc:merge_opts(?UDP_SOCKOPTS, TcpOpts)} | Options1];
+            [{udp_options, emqx_misc:merge_opts(Default, TcpOpts)}
+             | Options1];
         false ->
-            [{udp_options, ?UDP_SOCKOPTS} | Options]
+            [{udp_options, Default} | Options]
     end.
 
 stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->

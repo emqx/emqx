@@ -191,4 +191,3 @@ started_gateway_pid() ->
 is_a_gateway_id(Id) ->
     Id /= emqx_gateway_registry.
 
-

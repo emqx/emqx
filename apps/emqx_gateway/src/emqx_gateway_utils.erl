@@ -41,6 +41,10 @@
         , oom_policy/1
         ]).
 
+-export([ default_tcp_options/0
+        , default_udp_options/0
+        ]).
+
 -define(ACTIVE_N, 100).
 -define(DEFAULT_IDLE_TIMEOUT, 30000).
 -define(DEFAULT_GC_OPTS, #{count => 1000, bytes => 1024*1024}).
@@ -172,3 +176,13 @@ stats_timer(Options) ->
 -spec enable_stats(map()) -> boolean().
 enable_stats(Options) ->
     maps:get(enable_stats, Options, true).
+
+%%--------------------------------------------------------------------
+%% Envs2
+
+default_tcp_options() ->
+    [binary, {packet, raw}, {reuseaddr, true},
+     {nodelay, true}, {backlog, 512}].
+
+default_udp_options() ->
+    [binary].

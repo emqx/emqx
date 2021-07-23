@@ -14,7 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc The gateway connection management
+%% @doc The Gateway Connection-Manager
+%%
+%% For a certain type of protocol, this is a single instance of the manager.
+%% It means that no matter how many instances of the stomp gateway are created,
+%% they all share a single this Connection-Manager
 -module(emqx_gateway_cm).
 
 -behaviour(gen_server).
@@ -57,19 +61,23 @@
         ]).
 
 -record(state, {
-          type      :: atom(),    %% Gateway Id
+          type      :: atom(),    %% Gateway Type
           locker    :: pid(),     %% ClientId Locker for CM
           registry  :: pid(),     %% ClientId Registry server
           chan_pmon :: emqx_pmon:pmon()
          }).
 
+-type option() :: {type, gateway_type()}.
+-type options() :: list(option()).
+
 -define(T_TAKEOVER, 15000).
+-define(DEFAULT_BATCH_SIZE, 10000).
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
-%% XXX: Options for cm process
+-spec start_link(options()) -> {ok, pid()} | ignore | {error, any()}.
 start_link(Options) ->
     Type = proplists:get_value(type, Options),
     gen_server:start_link({local, procname(Type)}, ?MODULE, Options, []).
@@ -416,7 +424,7 @@ handle_cast(_Msg, State) ->
 
 handle_info({'DOWN', _MRef, process, Pid, _Reason},
             State = #state{type = Type, chan_pmon = PMon}) ->
-    ChanPids = [Pid | emqx_misc:drain_down(10000)],  %% XXX: Fixed BATCH_SIZE
+    ChanPids = [Pid | emqx_misc:drain_down(?DEFAULT_BATCH_SIZE)],
     {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
 
     CmTabs = cmtabs(Type),

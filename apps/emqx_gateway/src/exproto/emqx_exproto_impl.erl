@@ -32,11 +32,6 @@
         , on_insta_destroy/3
         ]).
 
--define(TCP_SOCKOPTS, [binary, {packet, raw}, {reuseaddr, true},
-                       {backlog, 512}, {nodelay, true}]).
-
--define(UDP_SOCKOPTS, []).
-
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -186,21 +181,23 @@ name(InstaId, Type) ->
 
 merge_default_by_type(Type, Options) when Type =:= tcp;
                                           Type =:= ssl ->
+    Default = emqx_gateway_utils:default_tcp_options(),
     case lists:keytake(tcp_options, 1, Options) of
         {value, {tcp_options, TcpOpts}, Options1} ->
-            [{tcp_options, emqx_misc:merge_opts(?TCP_SOCKOPTS, TcpOpts)}
+            [{tcp_options, emqx_misc:merge_opts(Default, TcpOpts)}
              | Options1];
         false ->
-            [{tcp_options, ?TCP_SOCKOPTS} | Options]
+            [{tcp_options, Default} | Options]
     end;
 merge_default_by_type(Type, Options) when Type =:= udp;
                                           Type =:= dtls ->
+    Default = emqx_gateway_utils:default_udp_options(),
     case lists:keytake(udp_options, 1, Options) of
         {value, {udp_options, TcpOpts}, Options1} ->
-            [{udp_options, emqx_misc:merge_opts(?UDP_SOCKOPTS, TcpOpts)}
+            [{udp_options, emqx_misc:merge_opts(Default, TcpOpts)}
              | Options1];
         false ->
-            [{udp_options, ?UDP_SOCKOPTS} | Options]
+            [{udp_options, Default} | Options]
     end.
 
 stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
