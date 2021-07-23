@@ -31,7 +31,9 @@
 -spec load() -> ok.
 load() ->
     Cmds = [Fun || {Fun, _} <- ?MODULE:module_info(exports), is_cmd(Fun)],
-    lists:foreach(fun(Cmd) -> emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, []) end, Cmds).
+    lists:foreach(fun(Cmd) ->
+        emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, [])
+     end, Cmds).
 
 -spec unload() -> ok.
 unload() ->
@@ -44,7 +46,6 @@ is_cmd(Fun) ->
         _ -> false
     end.
 
-
 %%--------------------------------------------------------------------
 %% Cmds
 
@@ -56,25 +57,25 @@ gateway(["list"]) ->
     end, emqx_gateway:list());
 
 gateway(["lookup", GatewayInstaId]) ->
-    case emqx_gateway:lookup(GatewayInstaId) of
+    case emqx_gateway:lookup(atom(GatewayInstaId)) of
         undefined ->
-            emqx_ctl:print("undefined");
+            emqx_ctl:print("undefined~n");
         Info ->
             emqx_ctl:print("~p~n", [Info])
     end;
 
 gateway(["stop", GatewayInstaId]) ->
-    case emqx_gateway:stop(GatewayInstaId) of
+    case emqx_gateway:stop(atom(GatewayInstaId)) of
         ok ->
-            emqx_ctl:print("ok");
+            emqx_ctl:print("ok~n");
         {error, Reason} ->
             emqx_ctl:print("Error: ~p~n", [Reason])
     end;
 
 gateway(["start", GatewayInstaId]) ->
-    case emqx_gateway:start(GatewayInstaId) of
+    case emqx_gateway:start(atom(GatewayInstaId)) of
         ok ->
-            emqx_ctl:print("ok");
+            emqx_ctl:print("ok~n");
         {error, Reason} ->
             emqx_ctl:print("Error: ~p~n", [Reason])
     end;
@@ -136,7 +137,7 @@ gateway(_) ->
     Tab = emqx_gateway_metrics:tabname(GatewayType),
     case ets:info(Tab) of
         undefined ->
-            emqx_ctl:print("Bad Gateway Tyep.~n");
+            emqx_ctl:print("Bad Gateway Type.~n");
         _ ->
             lists:foreach(
               fun({K, V}) ->
@@ -148,6 +149,13 @@ gateway(_) ->
     emqx_ctl:usage([ {"gateway-metrics <Type>",
                         "List all metrics for a type of gateway"}
                    ]).
+
+atom(Id) ->
+    try
+        list_to_existing_atom(Id)
+    catch
+        _ : _ -> undefined
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
