@@ -82,8 +82,8 @@ node_schema() ->
                     type => integer,
                     description => <<"Number of used processes">>},
                 uptime => #{
-                    type => string,
-                    description => <<"EMQ X Broker runtime">>},
+                    type => integer,
+                    description => <<"EMQ X Broker runtime, millisecond">>},
                 version => #{
                     type => string,
                     description => <<"EMQ X Broker version">>},
