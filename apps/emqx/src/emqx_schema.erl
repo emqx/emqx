@@ -290,7 +290,7 @@ fields("mqtt") ->
     , {"max_inflight", t(range(1, 65535), undefined, 32)}
     , {"retry_interval", t(duration(), undefined, "30s")}
     , {"max_awaiting_rel", maybe_infinity(integer(), 100)}
-    , {"await_rel_timeout", t(duration_s(), undefined, "300s")}
+    , {"await_rel_timeout", t(duration(), undefined, "300s")}
     , {"session_expiry_interval", t(duration_s(), undefined, "2h")}
     , {"max_mqueue_len", maybe_infinity(range(0, inf), 1000)}
     , {"mqueue_priorities", maybe_disabled(map())}

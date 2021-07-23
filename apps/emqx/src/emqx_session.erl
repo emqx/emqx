@@ -181,7 +181,7 @@ init(Opts) ->
        retry_interval    = maps:get(retry_interval, Opts, 30000),
        awaiting_rel      = #{},
        max_awaiting_rel  = maps:get(max_awaiting_rel, Opts, 100),
-       await_rel_timeout = timer:seconds(maps:get(await_rel_timeout, Opts, 300)),
+       await_rel_timeout = maps:get(await_rel_timeout, Opts, 300000),
        created_at        = erlang:system_time(millisecond)
       }.
 
@@ -229,7 +229,7 @@ info(awaiting_rel_cnt, #session{awaiting_rel = AwaitingRel}) ->
 info(awaiting_rel_max, #session{max_awaiting_rel = Max}) ->
     Max;
 info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
-    Timeout div 1000;
+    Timeout;
 info(created_at, #session{created_at = CreatedAt}) ->
     CreatedAt.
 

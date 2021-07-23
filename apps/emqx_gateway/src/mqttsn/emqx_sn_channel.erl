@@ -1393,7 +1393,7 @@ interval(alive_timer, #channel{keepalive = KeepAlive}) ->
 interval(retry_timer, #channel{session = Session}) ->
     emqx_session:info(retry_interval, Session);
 interval(await_timer, #channel{session = Session}) ->
-    timer:seconds(emqx_session:info(await_rel_timeout, Session)).
+    emqx_session:info(await_rel_timeout, Session).
 
 %%--------------------------------------------------------------------
 %% Helper functions
