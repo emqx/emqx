@@ -82,19 +82,6 @@
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
 
--define(SESSION_STATS_KEYS,
-        [subscriptions_cnt,
-         subscriptions_max,
-         inflight_cnt,
-         inflight_max,
-         mqueue_len,
-         mqueue_max,
-         mqueue_dropped,
-         next_pkt_id,
-         awaiting_rel_cnt,
-         awaiting_rel_max
-        ]).
-
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
 %%--------------------------------------------------------------------
