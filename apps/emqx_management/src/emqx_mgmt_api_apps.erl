@@ -16,7 +16,7 @@
 
 -module(emqx_mgmt_api_apps).
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -export([api_spec/0]).
 
@@ -76,17 +76,17 @@ app_without_secret_schema() ->
 apps_api() ->
     Metadata = #{
         get => #{
-            description => "List EMQ X apps",
+            description => <<"List EMQ X apps">>,
             responses => #{
                 <<"200">> =>
                     emqx_mgmt_util:response_array_schema(<<"All apps">>,
                         app_without_secret_schema())}},
         post => #{
-            description => "EMQ X create apps",
+            description => <<"EMQ X create apps">>,
             'requestBody' => emqx_mgmt_util:request_body_schema(<<"app">>),
             responses => #{
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Create apps">>, <<"app_secret">>),
+                    emqx_mgmt_util:response_schema(<<"Create apps">>, app_secret),
                 <<"400">> =>
                     emqx_mgmt_util:response_error_schema(<<"App ID already exist">>, [?BAD_APP_ID])}}},
     {"/apps", Metadata, apps}.
@@ -94,30 +94,29 @@ apps_api() ->
 app_api() ->
     Metadata = #{
         get => #{
-            description => "EMQ X apps",
+            description => <<"EMQ X apps">>,
             parameters => [#{
                 name => app_id,
                 in => path,
                 required => true,
-                schema => #{type => string},
-                example => <<"admin">>}],
+                schema => #{type => string}}],
             responses => #{
                 <<"404">> =>
                     emqx_mgmt_util:response_error_schema(<<"App id not found">>),
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema("Get App", app_without_secret_schema())}},
+                    emqx_mgmt_util:response_schema(<<"Get App">>, app_without_secret_schema())}},
         delete => #{
-            description => "EMQ X apps",
+            description => <<"EMQ X apps">>,
             parameters => [#{
                 name => app_id,
                 in => path,
                 required => true,
-                schema => #{type => string},
-                example => <<"admin">>}],
+                schema => #{type => string}
+            }],
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_schema("Remove app ok")}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Remove app ok">>)}},
         put => #{
-            description => "EMQ X update apps",
+            description => <<"EMQ X update apps">>,
             parameters => [#{
                 name => app_id,
                 in => path,
@@ -175,23 +174,19 @@ app(put, Request) ->
 %%%==============================================================================================
 %% api apply
 list(_) ->
-    Data = [format_without_app_secret(Apps) || Apps <- emqx_mgmt_auth:list_apps()],
-    Response = emqx_json:encode(Data),
-    {200, Response}.
+    {200, [format_without_app_secret(Apps) || Apps <- emqx_mgmt_auth:list_apps()]}.
 
 create(#{app_id := AppID, name := Name, secret := Secret,
     desc := Desc, status := Status, expired := Expired}) ->
     case emqx_mgmt_auth:add_app(AppID, Name, Secret, Desc, Status, Expired) of
         {ok, AppSecret} ->
-            Response = emqx_json:encode(#{secret => AppSecret}),
-            {200, Response};
+            {200, #{secret => AppSecret}};
         {error, alread_existed} ->
             Message = list_to_binary(io_lib:format("appid ~p already existed", [AppID])),
-            {400, #{code => 'BAD_APP_ID', reason => Message}};
+            {400, #{code => 'BAD_APP_ID', message => Message}};
         {error, Reason} ->
-            Data = #{code => 'UNKNOW_ERROR',
-                reason => list_to_binary(io_lib:format("~p", [Reason]))},
-            Response = emqx_json:encode(Data),
+            Response = #{code => 'UNKNOW_ERROR',
+                message => list_to_binary(io_lib:format("~p", [Reason]))},
             {500, Response}
     end.
 
@@ -200,8 +195,7 @@ lookup(#{app_id := AppID}) ->
         undefined ->
             {404, ?APP_ID_NOT_FOUND};
         App ->
-            Data = format_with_app_secret(App),
-            Response = emqx_json:encode(Data),
+            Response = format_with_app_secret(App),
             {200, Response}
     end.
 
@@ -216,8 +210,7 @@ update(App = #{app_id := AppID, name := Name, desc := Desc, status := Status, ex
         {error, not_found} ->
             {404, ?APP_ID_NOT_FOUND};
         {error, Reason} ->
-            Data = #{code => 'UNKNOW_ERROR', reason => list_to_binary(io_lib:format("~p", [Reason]))},
-            Response = emqx_json:encode(Data),
+            Response = #{code => 'UNKNOW_ERROR', message => list_to_binary(io_lib:format("~p", [Reason]))},
             {500, Response}
     end.
 

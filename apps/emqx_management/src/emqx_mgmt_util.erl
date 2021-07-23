@@ -93,16 +93,22 @@ urldecode(S) ->
 
 request_body_array_schema(Schema) when is_map(Schema) ->
     json_content_schema("", #{type => array, items => Schema});
+request_body_array_schema(Ref) when is_atom(Ref) ->
+    request_body_array_schema(atom_to_binary(Ref, utf8));
 request_body_array_schema(Ref) when is_binary(Ref) ->
     json_content_schema("", #{type => array, items => minirest:ref(Ref)}).
 
 request_body_schema(Schema) when is_map(Schema) ->
     json_content_schema("", Schema);
+request_body_schema(Ref) when is_atom(Ref) ->
+    request_body_schema(atom_to_binary(Ref));
 request_body_schema(Ref) when is_binary(Ref) ->
     json_content_schema("", minirest:ref(Ref)).
 
 response_array_schema(Description, Schema) when is_map(Schema) ->
     json_content_schema(Description, #{type => array, items => Schema});
+response_array_schema(Description, Ref) when is_atom(Ref) ->
+    response_array_schema(Description, atom_to_binary(Ref, utf8));
 response_array_schema(Description, Ref) when is_binary(Ref) ->
     json_content_schema(Description, #{type => array, items => minirest:ref(Ref)}).
 
@@ -111,6 +117,8 @@ response_schema(Description) ->
 
 response_schema(Description, Schema) when is_map(Schema) ->
     json_content_schema(Description, Schema);
+response_schema(Description, Ref) when is_atom(Ref) ->
+    response_schema(Description, atom_to_binary(Ref, utf8));
 response_schema(Description, Ref) when is_binary(Ref) ->
     json_content_schema(Description, minirest:ref(Ref)).
 
@@ -125,10 +133,12 @@ response_error_schema(Description, Enum) ->
             code => #{
                 type => string,
                 enum => Enum},
-            reason => #{
+            message => #{
                 type => string}}},
     json_content_schema(Description, Schema).
 
+response_page_schema(Def) when is_atom(Def) ->
+    response_page_schema(atom_to_binary(Def, utf8));
 response_page_schema(Def) when is_binary(Def) ->
     Schema = #{
         type => object,
@@ -147,6 +157,8 @@ response_page_schema(Def) when is_binary(Def) ->
                 items => minirest:ref(Def)}}},
     json_content_schema("", Schema).
 
+response_batch_schema(DefName) when is_atom(DefName) ->
+    response_batch_schema(atom_to_binary(DefName, utf8));
 response_batch_schema(DefName) when is_binary(DefName) ->
     Schema = #{
         type => object,

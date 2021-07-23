@@ -60,13 +60,13 @@ t_publish_api(_) ->
     ?assertEqual(receive_assert(?TOPIC1, 0, Payload), ok),
     emqtt:disconnect(Client).
 
-t_publish_batch_api(_) ->
+t_publish_bulk_api(_) ->
     {ok, Client} = emqtt:start_link(#{username => <<"api_username">>, clientid => <<"api_clientid">>}),
     {ok, _} = emqtt:connect(Client),
     {ok, _, [0]} = emqtt:subscribe(Client, ?TOPIC1),
     {ok, _, [0]} = emqtt:subscribe(Client, ?TOPIC2),
     Payload = <<"hello">>,
-    Path = emqx_mgmt_api_test_util:api_path(["publish_batch"]),
+    Path = emqx_mgmt_api_test_util:api_path(["publish", "bulk"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Body =[#{topic => ?TOPIC1, payload => Payload}, #{topic => ?TOPIC2, payload => Payload}],
     {ok, Response} = emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, Body),

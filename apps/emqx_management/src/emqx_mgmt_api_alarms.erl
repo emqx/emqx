@@ -16,7 +16,7 @@
 
 -module(emqx_mgmt_api_alarms).
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -export([api_spec/0]).
 
@@ -58,7 +58,7 @@ alarm_schema() ->
 alarms_api() ->
     Metadata = #{
         get => #{
-            description => "EMQ X alarms",
+            description => <<"EMQ X alarms">>,
             parameters => [#{
                 name => activated,
                 in => query,
@@ -68,9 +68,9 @@ alarms_api() ->
             }],
             responses => #{
                 <<"200">> =>
-                emqx_mgmt_util:response_array_schema(<<"List all alarms">>, <<"alarm">>)}},
+                emqx_mgmt_util:response_array_schema(<<"List all alarms">>, alarm)}},
         delete => #{
-            description => "Remove all deactivated alarms",
+            description => <<"Remove all deactivated alarms">>,
             responses => #{
                 <<"200">> =>
                 emqx_mgmt_util:response_schema(<<"Remove all deactivated alarms ok">>)}}},

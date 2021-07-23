@@ -16,7 +16,7 @@
 
 -module(emqx_mgmt_api_listeners).
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -export([api_spec/0]).
 
@@ -78,28 +78,28 @@ listener_schema() ->
 listeners_api() ->
     Metadata = #{
         get => #{
-            description => "List listeners in cluster",
+            description => <<"List listeners in cluster">>,
             responses => #{
                 <<"200">> =>
-                    emqx_mgmt_util:response_array_schema(<<"List all listeners">>, <<"listener">>)}}},
+                    emqx_mgmt_util:response_array_schema(<<"List all listeners">>, listener)}}},
     {"/listeners", Metadata, listeners}.
 
 restart_listeners_api() ->
     Metadata = #{
         get => #{
-            description => "List listeners by listener ID",
+            description => <<"List listeners by listener ID">>,
             parameters => [param_path_identifier()],
             responses => #{
                 <<"404">> =>
                     emqx_mgmt_util:response_error_schema(<<"Listener id not found">>, ['BAD_LISTENER_ID']),
                 <<"200">> =>
-                    emqx_mgmt_util:response_array_schema(<<"List listener info ok">>, <<"listener">>)}}},
+                    emqx_mgmt_util:response_array_schema(<<"List listener info ok">>, listener)}}},
     {"/listeners/:identifier", Metadata, listener}.
 
 manage_listeners_api() ->
     Metadata = #{
         get => #{
-            description => "Restart listeners in cluster",
+            description => <<"Restart listeners in cluster">>,
             parameters => [
                 param_path_identifier(),
                 param_path_operation()],
@@ -119,7 +119,7 @@ manage_listeners_api() ->
 manage_nodes_listeners_api() ->
     Metadata = #{
         get => #{
-            description => "Restart listeners in cluster",
+            description => <<"Restart listeners in cluster">>,
             parameters => [
                 param_path_node(),
                 param_path_identifier(),
@@ -140,26 +140,26 @@ manage_nodes_listeners_api() ->
 nodes_listeners_api() ->
     Metadata = #{
         get => #{
-            description => "Get listener info in one node",
+            description => <<"Get listener info in one node">>,
             parameters => [param_path_node(), param_path_identifier()],
             responses => #{
                 <<"404">> =>
                     emqx_mgmt_util:response_error_schema(<<"Node name or listener id not found">>,
                         ['BAD_NODE_NAME', 'BAD_LISTENER_ID']),
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Get listener info ok">>, <<"listener">>)}}},
+                    emqx_mgmt_util:response_schema(<<"Get listener info ok">>, listener)}}},
     {"/nodes/:node/listeners/:identifier", Metadata, node_listener}.
 
 nodes_listener_api() ->
     Metadata = #{
         get => #{
-            description => "List listeners in one node",
+            description => <<"List listeners in one node">>,
             parameters => [param_path_node()],
             responses => #{
                 <<"404">> =>
                     emqx_mgmt_util:response_error_schema(<<"Listener id not found">>),
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Get listener info ok">>, <<"listener">>)}}},
+                    emqx_mgmt_util:response_schema(<<"Get listener info ok">>, listener)}}},
     {"/nodes/:node/listeners", Metadata, node_listeners}.
 %%%==============================================================================================
 %% parameters

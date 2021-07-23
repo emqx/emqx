@@ -17,7 +17,7 @@
 %% API
 -include_lib("emqx/include/emqx.hrl").
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -export([api_spec/0]).
 
@@ -33,7 +33,7 @@ api_spec() ->
 publish_api() ->
     MeteData = #{
         post => #{
-            description => "publish",
+            description => <<"Publish">>,
             'requestBody' => #{
                 content => #{
                     'application/json' => #{
@@ -41,13 +41,13 @@ publish_api() ->
                             type => object,
                             properties => maps:with([id], message_properties())}}}},
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_schema(<<"publish ok">>, <<"message">>)}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"publish ok">>, message)}}},
     {"/publish", MeteData, publish}.
 
 publish_batch_api() ->
     MeteData = #{
         post => #{
-            description => "publish",
+            description => <<"publish">>,
             'requestBody' => #{
                 content => #{
                     'application/json' => #{
@@ -57,8 +57,8 @@ publish_batch_api() ->
                                 type => object,
                                 properties =>  maps:with([id], message_properties())}}}}},
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_array_schema(<<"publish ok">>, <<"message">>)}}},
-    {"/publish_batch", MeteData, publish_batch}.
+                <<"200">> => emqx_mgmt_util:response_array_schema(<<"publish ok">>, message)}}},
+    {"/publish/bulk", MeteData, publish_batch}.
 
 message_schema() ->
     #{
@@ -110,14 +110,13 @@ publish(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Message = message(emqx_json:decode(Body, [return_maps])),
     _ = emqx_mgmt:publish(Message),
-    {200, emqx_json:encode(format_message(Message))}.
+    {200, format_message(Message)}.
 
 publish_batch(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Messages = messages(emqx_json:decode(Body, [return_maps])),
     _ = [emqx_mgmt:publish(Message) || Message <- Messages],
-    ResponseBody = emqx_json:encode(format_message(Messages)),
-    {200, ResponseBody}.
+    {200, format_message(Messages)}.
 
 message(Map) ->
     From    = maps:get(<<"from">>, Map, http_api),

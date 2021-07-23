@@ -16,7 +16,7 @@
 
 -module(emqx_mgmt_api_subscriptions).
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -include_lib("emqx/include/emqx.hrl").
 
@@ -47,7 +47,7 @@ api_spec() ->
 subscriptions_api() ->
     MetaData = #{
         get => #{
-            description => "List subscriptions",
+            description => <<"List subscriptions">>,
             parameters => [
                 #{
                     name => page,
@@ -93,7 +93,7 @@ subscriptions_api() ->
                 }
             ],
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_page_schema(<<"subscription">>)}}},
+                <<"200">> => emqx_mgmt_util:response_page_schema(subscription)}}},
     {"/subscriptions", MetaData, subscriptions}.
 
 subscription_schema() ->
