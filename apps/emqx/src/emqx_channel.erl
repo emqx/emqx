@@ -737,7 +737,7 @@ process_disconnect(ReasonCode, Properties, Channel) ->
 
 maybe_update_expiry_interval(#{'Session-Expiry-Interval' := Interval},
                              Channel = #channel{conninfo = ConnInfo}) ->
-    Channel#channel{conninfo = ConnInfo#{expiry_interval => Interval}};
+    Channel#channel{conninfo = ConnInfo#{expiry_interval => timer:seconds(Interval)}};
 maybe_update_expiry_interval(_Properties, Channel) -> Channel.
 
 %%--------------------------------------------------------------------
