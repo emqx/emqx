@@ -30,8 +30,8 @@ groups() ->
 
 init_per_suite(Config) ->
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
-    ok = emqx_config:update_config([zones, default, acl, cache, enable], false),
-    ok = emqx_config:update_config([zones, default, acl, enable], true),
+    ok = emqx_config:update_config([zones, default, authorization, cache, enable], false),
+    ok = emqx_config:update_config([zones, default, authorization, enable], true),
     emqx_authz:update(replace, []),
     Config.
 
