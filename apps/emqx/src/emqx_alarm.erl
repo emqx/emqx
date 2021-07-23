@@ -36,6 +36,8 @@
         , stop/0
         ]).
 
+-export([format/1]).
+
 %% API
 -export([ activate/1
         , activate/2
@@ -156,6 +158,27 @@ handle_update_config(#{<<"validity_period">> := Period0} = NewConf, OldConf) ->
     maps:merge(OldConf, NewConf);
 handle_update_config(NewConf, OldConf) ->
     maps:merge(OldConf, NewConf).
+
+format(#activated_alarm{name = Name, message = Message, activate_at = At, details = Details}) ->
+    Now = erlang:system_time(microsecond),
+    #{
+        node => node(),
+        name => Name,
+        message => Message,
+        duration => Now - At,
+        details => Details
+    };
+format(#deactivated_alarm{name = Name, message = Message, activate_at = At, details = Details,
+            deactivate_at = DAt}) ->
+    #{
+        node => node(),
+        name => Name,
+        message => Message,
+        duration => DAt - At,
+        details => Details
+    };
+format(_) ->
+    {error, unknow_alarm}.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
