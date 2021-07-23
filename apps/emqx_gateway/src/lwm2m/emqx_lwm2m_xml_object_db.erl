@@ -88,10 +88,7 @@ stop() ->
 init([]) ->
     _ = ets:new(?LWM2M_OBJECT_DEF_TAB, [set, named_table, protected]),
     _ = ets:new(?LWM2M_OBJECT_NAME_TO_ID_TAB, [set, named_table, protected]),
-    PluginsEtcDir = emqx:get_env(plugins_etc_dir),
-    DefBaseDir = re:replace(PluginsEtcDir, "plugins", "lwm2m_xml", [{return, list}]),
-    BaseDir = application:get_env(emqx_lwm2m, xml_dir, DefBaseDir),
-    load(BaseDir),
+    load(emqx_config:get([emqx_lwm2m, xml_dir])),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->

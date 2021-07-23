@@ -37,15 +37,6 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_modules]).
 
-set_special_configs(emqx_modules) ->
-    application:set_env(emqx, plugins_etc_dir,
-                        emqx_ct_helpers:deps_path(emqx_modules, "test")),
-    Conf = #{},
-    ok = file:write_file(filename:join(emqx:get_env(plugins_etc_dir), 'emqx_modules.conf'), jsx:encode(Conf)),
-    ok;
-set_special_configs(_App) ->
-    ok.
-
 t_uuid(_) ->
     UUID = emqx_mod_telemetry:generate_uuid(),
     Parts = binary:split(UUID, <<"-">>, [global, trim]),
