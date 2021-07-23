@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_nodes).
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -export([api_spec/0]).
 
@@ -103,15 +103,15 @@ node_schema() ->
 nodes_api() ->
     Metadata = #{
         get => #{
-            description => "List EMQ X nodes",
+            description => <<"List EMQ X nodes">>,
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_array_schema(<<"List EMQ X Nodes">>, <<"node">>)}}},
+                <<"200">> => emqx_mgmt_util:response_array_schema(<<"List EMQ X Nodes">>, node)}}},
     {"/nodes", Metadata, nodes}.
 
 node_api() ->
     Metadata = #{
         get => #{
-            description => "Get node info",
+            description => <<"Get node info">>,
             parameters => [#{
                 name => node_name,
                 in => path,
@@ -121,13 +121,13 @@ node_api() ->
                 example => node()}],
             responses => #{
                 <<"400">> => emqx_mgmt_util:response_error_schema(<<"Node error">>, ['SOURCE_ERROR']),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Get EMQ X Nodes info by name">>, <<"node">>)}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Get EMQ X Nodes info by name">>, node)}}},
     {"/nodes/:node_name", Metadata, node}.
 
 node_metrics_api() ->
     Metadata = #{
         get => #{
-            description => "Get node metrics",
+            description => <<"Get node metrics">>,
             parameters => [#{
                 name => node_name,
                 in => path,
@@ -137,13 +137,13 @@ node_metrics_api() ->
                 example => node()}],
             responses => #{
                 <<"400">> => emqx_mgmt_util:response_error_schema(<<"Node error">>, ['SOURCE_ERROR']),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Get EMQ X Node Metrics">>, <<"metrics">>)}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Get EMQ X Node Metrics">>, metrics)}}},
     {"/nodes/:node_name/metrics", Metadata, node_metrics}.
 
 node_stats_api() ->
     Metadata = #{
         get => #{
-            description => "Get node stats",
+            description => <<"Get node stats">>,
             parameters => [#{
                 name => node_name,
                 in => path,
@@ -153,7 +153,7 @@ node_stats_api() ->
                 example => node()}],
             responses => #{
                 <<"400">> => emqx_mgmt_util:response_error_schema(<<"Node error">>, ['SOURCE_ERROR']),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Get EMQ X Node Stats">>, <<"stats">>)}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Get EMQ X Node Stats">>, stats)}}},
     {"/nodes/:node_name/stats", Metadata, node_metrics}.
 
 %%%==============================================================================================
@@ -177,32 +177,30 @@ node_stats(get, Request) ->
 %% api apply
 list(#{}) ->
     NodesInfo = [format(Node, NodeInfo) || {Node, NodeInfo} <- emqx_mgmt:list_nodes()],
-    Response = emqx_json:encode(NodesInfo),
-    {200, Response}.
+    {200, NodesInfo}.
 
 get_node(#{node := Node}) ->
     case emqx_mgmt:lookup_node(Node) of
         #{node_status := 'ERROR'} ->
-            {400, emqx_json:encode(#{code => 'SOURCE_ERROR', reason => <<"rpc_failed">>})};
+            {400, #{code => 'SOURCE_ERROR', message => <<"rpc_failed">>}};
         NodeInfo ->
-            Response = emqx_json:encode(format(Node, NodeInfo)),
-            {200, Response}
+            {200, format(Node, NodeInfo)}
     end.
 
 get_metrics(#{node := Node}) ->
     case emqx_mgmt:get_metrics(Node) of
         {error, _} ->
-            {400, emqx_json:encode(#{code => 'SOURCE_ERROR', reason => <<"rpc_failed">>})};
+            {400, #{code => 'SOURCE_ERROR', message => <<"rpc_failed">>}};
         Metrics ->
-            {200, emqx_json:encode(Metrics)}
+            {200, Metrics}
     end.
 
 get_stats(#{node := Node}) ->
     case emqx_mgmt:get_stats(Node) of
         {error, _} ->
-            {400, emqx_json:encode(#{code => 'SOURCE_ERROR', reason => <<"rpc_failed">>})};
+            {400, #{code => 'SOURCE_ERROR', message => <<"rpc_failed">>}};
         Stats ->
-            {200, emqx_json:encode(Stats)}
+            {200, Stats}
     end.
 
 %%============================================================================================================

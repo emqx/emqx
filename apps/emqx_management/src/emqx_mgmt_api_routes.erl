@@ -19,7 +19,7 @@
 -include_lib("emqx/include/emqx.hrl").
 
 %% API
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -export([api_spec/0]).
 
@@ -48,7 +48,7 @@ route_schema() ->
 routes_api() ->
     Metadata = #{
         get => #{
-            description => "EMQ X routes",
+            description => <<"EMQ X routes">>,
             parameters => [
                 #{
                     name => page,
@@ -64,13 +64,13 @@ routes_api() ->
                 }],
             responses => #{
                 <<"200">> =>
-                    emqx_mgmt_util:response_array_schema("List route info", <<"route">>)}}},
+                    emqx_mgmt_util:response_array_schema("List route info", route)}}},
     {"/routes", Metadata, routes}.
 
 route_api() ->
     Metadata = #{
         get => #{
-            description => "EMQ X routes",
+            description => <<"EMQ X routes">>,
             parameters => [#{
                 name => topic,
                 in => path,
@@ -80,7 +80,7 @@ route_api() ->
             }],
             responses => #{
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Route info">>, <<"route">>),
+                    emqx_mgmt_util:response_schema(<<"Route info">>, route),
                 <<"404">> =>
                     emqx_mgmt_util:response_error_schema(<<"Topic not found">>, [?TOPIC_NOT_FOUND])
             }}},
@@ -99,20 +99,15 @@ route(get, Request) ->
 %%%==============================================================================================
 %% api apply
 list(Params) ->
-    Data = emqx_mgmt_api:paginate(emqx_route, Params, fun format/1),
-    Response = emqx_json:encode(Data),
+    Response = emqx_mgmt_api:paginate(emqx_route, Params, fun format/1),
     {200, Response}.
 
 lookup(#{topic := Topic}) ->
     case emqx_mgmt:lookup_routes(Topic) of
         [] ->
-            NotFound = #{code => ?TOPIC_NOT_FOUND, reason => <<"Topic not found">>},
-            Response = emqx_json:encode(NotFound),
-            {404, Response};
+            {404, #{code => ?TOPIC_NOT_FOUND, message => <<"Topic not found">>}};
         [Route] ->
-            Data = format(Route),
-            Response = emqx_json:encode(Data),
-            {200, Response}
+            {200, format(Route)}
     end.
 
 %%%==============================================================================================

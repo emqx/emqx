@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_stats).
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -export([api_spec/0]).
 
@@ -96,13 +96,12 @@ stats_schema() ->
 stats_api() ->
     Metadata = #{
         get => #{
-            description => "EMQ X stats",
+            description => <<"EMQ X stats">>,
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_schema(<<"List stats ok">>, <<"stats">>)}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"List stats ok">>, stats)}}},
     {"/stats", Metadata, list}.
 
 %%%==============================================================================================
 %% api apply
 list(get, _Request) ->
-    Response = emqx_json:encode(emqx_mgmt:get_stats()),
-    {200, Response}.
+    {200, emqx_mgmt:get_stats()}.
