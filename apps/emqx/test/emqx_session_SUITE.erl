@@ -309,9 +309,11 @@ t_enqueue(_) ->
 
 t_retry(_) ->
     Delivers = [delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)],
-    Session = session(#{retry_interval => 100000}),
+    RetryIntervalMs = 100, %% 0.1s
+    Session = session(#{retry_interval => RetryIntervalMs}),
     {ok, Pubs, Session1} = emqx_session:deliver(Delivers, Session),
-    ok = timer:sleep(200),
+    ElapseMs = 200, %% 0.2s
+    ok = timer:sleep(ElapseMs),
     Msgs1 = [{I, emqx_message:set_flag(dup, Msg)} || {I, Msg} <- Pubs],
     {ok, Msgs1, 100, Session2} = emqx_session:retry(Session1),
     ?assertEqual(2, emqx_session:info(inflight_cnt, Session2)).
