@@ -36,8 +36,8 @@ init_per_suite(Config) ->
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end ),
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
-    ok = emqx_config:update([zones, default, acl, cache, enable], false),
-    ok = emqx_config:update([zones, default, acl, enable], true),
+    ok = emqx_config:update([zones, default, authorization, cache, enable], false),
+    ok = emqx_config:update([zones, default, authorization, enable], true),
     Rules = [#{ <<"config">> => #{
                     <<"server">> => <<"127.0.0.1:27017">>,
                     <<"pool_size">> => 1,
