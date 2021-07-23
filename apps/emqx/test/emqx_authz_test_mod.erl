@@ -14,20 +14,20 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_acl_test_mod).
+-module(emqx_authz_test_mod).
 
-%% ACL callbacks
+%% Authorization callbacks
 -export([ init/1
         , authorize/2
         , description/0
         ]).
 
-init(AclOpts) ->
-    {ok, AclOpts}.
+init(AuthzOpts) ->
+    {ok, AuthzOpts}.
 
 authorize({_User, _PubSub, _Topic}, _State) ->
     allow.
 
 description() ->
-    "Test ACL Mod".
+    "Test Authorization Mod".
 

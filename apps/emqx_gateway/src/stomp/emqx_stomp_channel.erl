@@ -359,7 +359,7 @@ handle_in(Frame = ?PACKET(?CMD_SEND, Headers),
     Topic = header(<<"destination">>, Headers),
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, Topic) of
         deny ->
-            handle_out(error, {receipt_id(Headers), "ACL Deny"}, Channel);
+            handle_out(error, {receipt_id(Headers), "Authorization Deny"}, Channel);
         allow ->
             case header(<<"transaction">>, Headers) of
                 undefined ->
@@ -393,7 +393,7 @@ handle_in(?PACKET(?CMD_SUBSCRIBE, Headers),
         false ->
             case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, Topic) of
                 deny ->
-                    handle_out(error, {receipt_id(Headers), "ACL Deny"}, Channel);
+                    handle_out(error, {receipt_id(Headers), "Authorization Deny"}, Channel);
                 allow ->
                     _ = emqx_broker:subscribe(MountedTopic),
                     maybe_outgoing_receipt(
@@ -585,9 +585,9 @@ handle_call(discard, Channel) ->
 %    AllPendings = lists:append(Delivers, Pendings),
 %    shutdown_and_reply(takeovered, AllPendings, Channel);
 
-handle_call(list_acl_cache, Channel) ->
+handle_call(list_authz_cache, Channel) ->
     %% This won't work
-    {reply, emqx_acl_cache:list_acl_cache(default), Channel};
+    {reply, emqx_authz_cache:list_authz_cache(default), Channel};
 
 %% XXX: No Quota Now
 % handle_call({quota, Policy}, Channel) ->
@@ -652,8 +652,8 @@ handle_info({sock_closed, Reason},
     ?LOG(error, "Unexpected sock_closed: ~p", [Reason]),
     {ok, Channel};
 
-handle_info(clean_acl_cache, Channel) ->
-    ok = emqx_acl_cache:empty_acl_cache(),
+handle_info(clean_authz_cache, Channel) ->
+    ok = emqx_authz_cache:empty_authz_cache(),
     {ok, Channel};
 
 handle_info(Info, Channel) ->

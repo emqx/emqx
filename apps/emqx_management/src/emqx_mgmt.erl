@@ -42,11 +42,11 @@
 -export([ lookup_client/2
         , lookup_client/3
         , kickout_client/1
-        , list_acl_cache/1
-        , clean_acl_cache/1
-        , clean_acl_cache/2
-        , clean_acl_cache_all/0
-        , clean_acl_cache_all/1
+        , list_authz_cache/1
+        , clean_authz_cache/1
+        , clean_authz_cache/2
+        , clean_authz_cache_all/0
+        , clean_authz_cache_all/1
         , set_ratelimit_policy/2
         , set_quota_policy/2
         ]).
@@ -266,39 +266,39 @@ kickout_client(Node, ClientId) when Node =:= node() ->
 kickout_client(Node, ClientId) ->
     rpc_call(Node, kickout_client, [Node, ClientId]).
 
-list_acl_cache(ClientId) ->
-    call_client(ClientId, list_acl_cache).
+list_authz_cache(ClientId) ->
+    call_client(ClientId, list_authz_cache).
 
-clean_acl_cache(ClientId) ->
-    Results = [clean_acl_cache(Node, ClientId) || Node <- ekka_mnesia:running_nodes()],
+clean_authz_cache(ClientId) ->
+    Results = [clean_authz_cache(Node, ClientId) || Node <- ekka_mnesia:running_nodes()],
     case lists:any(fun(Item) -> Item =:= ok end, Results) of
         true  -> ok;
         false -> lists:last(Results)
     end.
 
-clean_acl_cache(Node, ClientId) when Node =:= node() ->
+clean_authz_cache(Node, ClientId) when Node =:= node() ->
     case emqx_cm:lookup_channels(ClientId) of
         [] ->
             {error, not_found};
         Pids when is_list(Pids) ->
-            erlang:send(lists:last(Pids), clean_acl_cache),
+            erlang:send(lists:last(Pids), clean_authz_cache),
             ok
     end;
-clean_acl_cache(Node, ClientId) ->
-    rpc_call(Node, clean_acl_cache, [Node, ClientId]).
+clean_authz_cache(Node, ClientId) ->
+    rpc_call(Node, clean_authz_cache, [Node, ClientId]).
 
-clean_acl_cache_all() ->
-    Results = [{Node, clean_acl_cache_all(Node)} || Node <- ekka_mnesia:running_nodes()],
+clean_authz_cache_all() ->
+    Results = [{Node, clean_authz_cache_all(Node)} || Node <- ekka_mnesia:running_nodes()],
     case lists:filter(fun({_Node, Item}) -> Item =/= ok end, Results) of
         []  -> ok;
         BadNodes -> {error, BadNodes}
     end.
 
-clean_acl_cache_all(Node) when Node =:= node() ->
-    emqx_acl_cache:drain_cache();
+clean_authz_cache_all(Node) when Node =:= node() ->
+    emqx_authz_cache:drain_cache();
 
-clean_acl_cache_all(Node) ->
-    rpc_call(Node, clean_acl_cache_all, [Node]).
+clean_authz_cache_all(Node) ->
+    rpc_call(Node, clean_authz_cache_all, [Node]).
 
 set_ratelimit_policy(ClientId, Policy) ->
     call_client(ClientId, {ratelimit, Policy}).

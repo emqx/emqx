@@ -488,7 +488,7 @@ handle_in(PubPkt = ?SN_PUBLISH_MSG(_Flags, TopicId0, MsgId, _Data), Channel) ->
           [ fun check_qos3_enable/2
           , fun preproc_pub_pkt/2
           , fun convert_topic_id_to_name/2
-          , fun check_pub_acl/2
+          , fun check_pub_authz/2
           , fun convert_pub_to_msg/2
           ], PubPkt, Channel) of
         {ok, Msg, NChannel} ->
@@ -593,7 +593,7 @@ handle_in(?SN_PUBREC_MSG(?SN_PUBCOMP, MsgId),
 handle_in(SubPkt = ?SN_SUBSCRIBE_MSG(_, MsgId, _), Channel) ->
     case emqx_misc:pipeline(
            [ fun preproc_subs_type/2
-           , fun check_subscribe_acl/2
+           , fun check_subscribe_authz/2
            , fun do_subscribe/2
            ], SubPkt, Channel) of
         {ok, {TopicId, GrantedQoS}, NChannel} ->
@@ -729,7 +729,7 @@ convert_topic_id_to_name({{id, TopicId}, Flags, Data},
             {ok, {TopicName, Flags, Data}, Channel}
     end.
 
-check_pub_acl({TopicName, _Flags, _Data},
+check_pub_authz({TopicName, _Flags, _Data},
               #channel{ctx = Ctx, clientinfo = ClientInfo}) ->
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, TopicName) of
         allow -> ok;
@@ -834,7 +834,7 @@ preproc_subs_type(?SN_SUBSCRIBE_MSG_TYPE(_Reserved, _TopicId, _QoS),
                   _Channel) ->
     {error, ?SN_RC_NOT_SUPPORTED}.
 
-check_subscribe_acl({_TopicId, TopicName, _QoS},
+check_subscribe_authz({_TopicId, TopicName, _QoS},
                     Channel = #channel{ctx = Ctx, clientinfo = ClientInfo}) ->
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, TopicName) of
         allow ->
@@ -1097,8 +1097,8 @@ handle_call(discard, Channel) ->
 %    AllPendings = lists:append(Delivers, Pendings),
 %    shutdown_and_reply(takeovered, AllPendings, Channel);
 
-%handle_call(list_acl_cache, Channel) ->
-%    {reply, emqx_acl_cache:list_acl_cache(), Channel};
+%handle_call(list_authz_cache, Channel) ->
+%    {reply, emqx_authz_cache:list_authz_cache(), Channel};
 
 %% XXX: No Quota Now
 % handle_call({quota, Policy}, Channel) ->
@@ -1162,8 +1162,8 @@ handle_info({sock_closed, Reason},
     ?LOG(error, "Unexpected sock_closed: ~p", [Reason]),
     {ok, Channel};
 
-handle_info(clean_acl_cache, Channel) ->
-    ok = emqx_acl_cache:empty_acl_cache(),
+handle_info(clean_authz_cache, Channel) ->
+    ok = emqx_authz_cache:empty_authz_cache(),
     {ok, Channel};
 
 handle_info(Info, Channel) ->

@@ -129,7 +129,7 @@
 
 %             {'on_client_authorize', Resp} = emqx_exhook_demo_svr:take(),
 %             Expected =
-%                 #{result => aclresult_to_bool(Result),
+%                 #{result => authzresult_to_bool(Result),
 %                   type => pubsub_to_enum(PubSub),
 %                   topic => Topic,
 %                   clientinfo => from_clientinfo(ClientInfo)
@@ -425,7 +425,7 @@
 % authresult_to_bool(AuthResult) ->
 %     maps:get(auth_result, AuthResult, undefined) == success.
 
-% aclresult_to_bool(Result) ->
+% authzresult_to_bool(Result) ->
 %     Result == allow.
 
 % pubsub_to_enum(publish) -> 'PUBLISH';
@@ -490,7 +490,7 @@
 
 % set_special_cfgs(emqx) ->
 %     application:set_env(emqx, allow_anonymous, false),
-%     application:set_env(emqx, enable_acl_cache, false),
+%     application:set_env(emqx, enable_authz_cache, false),
 %     application:set_env(emqx, modules_loaded_file, undefined),
 %     application:set_env(emqx, plugins_loaded_file,
 %                         emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins"));

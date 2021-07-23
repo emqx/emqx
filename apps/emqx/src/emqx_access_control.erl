@@ -31,22 +31,22 @@
 authenticate(Credential) ->
     run_hooks('client.authenticate', [Credential], ok).
 
-%% @doc Check ACL
+%% @doc Check Authorization
 -spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic())
       -> allow | deny.
 authorize(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
-    case emqx_acl_cache:is_enabled(Zone) of
+    case emqx_authz_cache:is_enabled(Zone) of
         true  -> check_authorization_cache(ClientInfo, PubSub, Topic);
         false -> do_authorize(ClientInfo, PubSub, Topic)
     end.
 
 check_authorization_cache(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
-    case emqx_acl_cache:get_acl_cache(Zone, PubSub, Topic) of
+    case emqx_authz_cache:get_authz_cache(Zone, PubSub, Topic) of
         not_found ->
-            AclResult = do_authorize(ClientInfo, PubSub, Topic),
-            emqx_acl_cache:put_acl_cache(Zone, PubSub, Topic, AclResult),
-            AclResult;
-        AclResult -> AclResult
+            AuthzResult = do_authorize(ClientInfo, PubSub, Topic),
+            emqx_authz_cache:put_authz_cache(Zone, PubSub, Topic, AuthzResult),
+            AuthzResult;
+        AuthzResult -> AuthzResult
     end.
 
 do_authorize(ClientInfo, PubSub, Topic) ->

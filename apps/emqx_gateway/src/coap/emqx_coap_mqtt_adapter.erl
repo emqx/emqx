@@ -228,7 +228,7 @@ chann_subscribe(Topic, State = #state{clientid = ClientId}) ->
             emqx_hooks:run('session.subscribed', [clientinfo(State), Topic, ?SUBOPTS]),
             ok;
         deny  ->
-            ?LOG(warning, "subscribe to ~p by clientid ~p failed due to acl check.",
+            ?LOG(warning, "subscribe to ~p by clientid ~p failed due to authz check.",
                  [Topic, ClientId]),
             {error, forbidden}
     end.
@@ -248,7 +248,7 @@ chann_publish(Topic, Payload, State = #state{clientid = ClientId}) ->
                         emqx_message:make(ClientId, ?QOS_0, Topic, Payload))),
             ok;
         deny  ->
-            ?LOG(warning, "publish to ~p by clientid ~p failed due to acl check.",
+            ?LOG(warning, "publish to ~p by clientid ~p failed due to authz check.",
                  [Topic, ClientId]),
             {error, forbidden}
     end.

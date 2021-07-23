@@ -68,7 +68,7 @@
 %             ?assert(false)
 %     end.
 
-% t_publish_acl_deny(_Config) ->
+% t_publish_authz_deny(_Config) ->
 %     Topic = <<"abc">>, Payload = <<"123">>,
 %     TopicStr = binary_to_list(Topic),
 %     URI = "coap://127.0.0.1/mqtt/"++TopicStr++"?c=client1&u=tom&p=secret",
@@ -110,7 +110,7 @@
 
 %     [] = emqx:subscribers(Topic).
 
-% t_observe_acl_deny(_Config) ->
+% t_observe_authz_deny(_Config) ->
 %     Topic = <<"abc">>, TopicStr = binary_to_list(Topic),
 %     Uri = "coap://127.0.0.1/mqtt/"++TopicStr++"?c=client1&u=tom&p=secret",
 %     ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history]),
@@ -265,7 +265,7 @@
 %     end.
 
 % % mqtt connection kicked by coap with same client id
-% t_acl(_Config) ->
+% t_authz(_Config) ->
 %     OldPath = emqx:get_env(plugins_etc_dir),
 %     application:set_env(emqx, plugins_etc_dir,
 %                         emqx_ct_helpers:deps_path(emqx_authz, "test")),

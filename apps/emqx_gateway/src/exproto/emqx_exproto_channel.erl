@@ -318,7 +318,7 @@ handle_call({subscribe, TopicFilter, Qos},
                          clientinfo = ClientInfo}) ->
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, TopicFilter) of
         deny ->
-            {reply, {error, ?RESP_PERMISSION_DENY, <<"ACL deny">>}, Channel};
+            {reply, {error, ?RESP_PERMISSION_DENY, <<"Authorization deny">>}, Channel};
         _ ->
             {ok, NChannel} = do_subscribe([{TopicFilter, #{qos => Qos}}], Channel),
             {reply, ok, NChannel}
@@ -338,7 +338,7 @@ handle_call({publish, Topic, Qos, Payload},
                                         mountpoint := Mountpoint}}) ->
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, Topic) of
         deny ->
-            {reply, {error, ?RESP_PERMISSION_DENY, <<"ACL deny">>}, Channel};
+            {reply, {error, ?RESP_PERMISSION_DENY, <<"Authorization deny">>}, Channel};
         _ ->
             Msg = emqx_message:make(From, Qos, Topic, Payload),
             NMsg = emqx_mountpoint:mount(Mountpoint, Msg),

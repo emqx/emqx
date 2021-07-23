@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_acl_cache_SUITE).
+-module(emqx_authz_cache_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -26,7 +26,7 @@ all() -> emqx_ct:all(?MODULE).
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
-    toggle_acl(true),
+    toggle_authz(true),
     Config.
 
 end_per_suite(_Config) ->
@@ -36,7 +36,7 @@ end_per_suite(_Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-t_clean_acl_cache(_) ->
+t_clean_authz_cache(_) ->
     {ok, Client} = emqtt:start_link([{clientid, <<"emqx_c">>}]),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
@@ -49,14 +49,14 @@ t_clean_acl_cache(_) ->
             lists:last(Pids);
         _ -> {error, not_found}
     end,
-    Caches = gen_server:call(ClientPid, list_acl_cache),
-    ct:log("acl caches: ~p", [Caches]),
+    Caches = gen_server:call(ClientPid, list_authz_cache),
+    ct:log("authz caches: ~p", [Caches]),
     ?assert(length(Caches) > 0),
-    erlang:send(ClientPid, clean_acl_cache),
-    ?assertEqual(0, length(gen_server:call(ClientPid, list_acl_cache))),
+    erlang:send(ClientPid, clean_authz_cache),
+    ?assertEqual(0, length(gen_server:call(ClientPid, list_authz_cache))),
     emqtt:stop(Client).
 
-t_drain_acl_cache(_) ->
+t_drain_authz_cache(_) ->
     {ok, Client} = emqtt:start_link([{clientid, <<"emqx_c">>}]),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
@@ -69,15 +69,15 @@ t_drain_acl_cache(_) ->
                         lists:last(Pids);
                     _ -> {error, not_found}
                 end,
-    Caches = gen_server:call(ClientPid, list_acl_cache),
-    ct:log("acl caches: ~p", [Caches]),
+    Caches = gen_server:call(ClientPid, list_authz_cache),
+    ct:log("authz caches: ~p", [Caches]),
     ?assert(length(Caches) > 0),
-    emqx_acl_cache:drain_cache(),
-    ?assertEqual(0, length(gen_server:call(ClientPid, list_acl_cache))),
+    emqx_authz_cache:drain_cache(),
+    ?assertEqual(0, length(gen_server:call(ClientPid, list_authz_cache))),
     ct:sleep(100),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
-    ?assert(length(gen_server:call(ClientPid, list_acl_cache)) > 0),
+    ?assert(length(gen_server:call(ClientPid, list_authz_cache)) > 0),
     emqtt:stop(Client).
 
-toggle_acl(Bool) when is_boolean(Bool) ->
+toggle_authz(Bool) when is_boolean(Bool) ->
     emqx_config:put_zone_conf(default, [authorization, enable], Bool).

@@ -29,7 +29,7 @@
 
 -export([ clients/2
         , client/2
-        , acl_cache/2
+        , authz_cache/2
         , subscribe/2
         , subscribe_batch/2]).
 
@@ -67,7 +67,7 @@ api_spec() ->
 apis() ->
     [ clients_api()
     , client_api()
-    , clients_acl_cache_api()
+    , clients_authz_cache_api()
     , subscribe_api()].
 
 schemas() ->
@@ -187,8 +187,8 @@ schemas() ->
             }
         }
        },
-    AclCache = #{
-        acl_cache => #{
+    AuthzCache = #{
+        authz_cache => #{
             type => object,
             properties => #{
                 topic => #{
@@ -209,7 +209,7 @@ schemas() ->
             }
         }
     },
-    [Client, AclCache].
+    [Client, AuthzCache].
 
 clients_api() ->
     Metadata = #{
@@ -245,10 +245,10 @@ client_api() ->
                 <<"200">> => emqx_mgmt_util:response_schema(<<"List clients 200 OK">>, client)}}},
     {"/clients/:clientid", Metadata, client}.
 
-clients_acl_cache_api() ->
+clients_authz_cache_api() ->
     Metadata = #{
         get => #{
-            description => <<"Get client acl cache">>,
+            description => <<"Get client authz cache">>,
             parameters => [#{
                 name => clientid,
                 in => path,
@@ -257,9 +257,9 @@ clients_acl_cache_api() ->
             }],
             responses => #{
                 <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Get client acl cache">>, acl_cache)}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Get client authz cache">>, <<"authz_cache">>)}},
         delete => #{
-            description => <<"Clean client acl cache">>,
+            description => <<"Clean client authz cache">>,
             parameters => [#{
                 name => clientid,
                 in => path,
@@ -268,8 +268,8 @@ clients_acl_cache_api() ->
             }],
             responses => #{
                 <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Delete clients acl cache OK">>)}}},
-    {"/clients/:clientid/acl_cache", Metadata, acl_cache}.
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Delete clients 200 OK">>)}}},
+    {"/clients/:clientid/authz_cache", Metadata, authz_cache}.
 
 subscribe_api() ->
     Metadata = #{
@@ -329,13 +329,13 @@ client(delete, Request) ->
     ClientID = cowboy_req:binding(clientid, Request),
     kickout(#{clientid => ClientID}).
 
-acl_cache(get, Request) ->
+authz_cache(get, Request) ->
     ClientID = cowboy_req:binding(clientid, Request),
-    get_acl_cache(#{clientid => ClientID});
+    get_authz_cache(#{clientid => ClientID});
 
-acl_cache(delete, Request) ->
+authz_cache(delete, Request) ->
     ClientID = cowboy_req:binding(clientid, Request),
-    clean_acl_cache(#{clientid => ClientID}).
+    clean_authz_cache(#{clientid => ClientID}).
 
 subscribe(post, Request) ->
     ClientID = cowboy_req:binding(clientid, Request),
@@ -382,20 +382,20 @@ kickout(#{clientid := ClientID}) ->
     emqx_mgmt:kickout_client(ClientID),
     {200}.
 
-get_acl_cache(#{clientid := ClientID})->
-    case emqx_mgmt:list_acl_cache(ClientID) of
+get_authz_cache(#{clientid := ClientID})->
+    case emqx_mgmt:list_authz_cache(ClientID) of
         {error, not_found} ->
             {404, ?CLIENT_ID_NOT_FOUND};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("~p", [Reason])),
             {500, #{code => <<"UNKNOW_ERROR">>, message => Message}};
         Caches ->
-            Response = [format_acl_cache(Cache) || Cache <- Caches],
+            Response = [format_authz_cache(Cache) || Cache <- Caches],
             {200, Response}
     end.
 
-clean_acl_cache(#{clientid := ClientID}) ->
-    case emqx_mgmt:clean_acl_cache(ClientID) of
+clean_authz_cache(#{clientid := ClientID}) ->
+    case emqx_mgmt:clean_authz_cache(ClientID) of
         ok ->
             {200};
         {error, not_found} ->
@@ -483,11 +483,11 @@ peer_to_binary({Addr, Port}) ->
 peer_to_binary(Addr) ->
     list_to_binary(inet:ntoa(Addr)).
 
-format_acl_cache({{PubSub, Topic}, {AclResult, Timestamp}}) ->
+format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
     #{
         access => PubSub,
         topic => Topic,
-        result => AclResult,
+        result => AuthzResult,
         updated_time => Timestamp
     }.
 

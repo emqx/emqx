@@ -35,7 +35,7 @@
         , list_apps/0
         ]).
 
-%% APP Auth/ACL API
+%% APP Auth/Authorization API
 -export([is_authorized/2]).
 
 -define(APP, emqx_management).

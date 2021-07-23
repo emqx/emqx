@@ -350,7 +350,7 @@ t_ack(_) ->
                                                   body    = _}, _, _} = parse(Data4)
                     end).
 
-%% TODO: Mountpoint, AuthChain, ACL + Mountpoint, ClientInfoOverride,
+%% TODO: Mountpoint, AuthChain, Authorization + Mountpoint, ClientInfoOverride,
 %%       Listeners, Metrics, Stats, ClientInfo
 %%
 %% TODO: Start/Stop, List Instace

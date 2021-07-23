@@ -14,34 +14,34 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mgmt_api_acl).
+-module(emqx_mgmt_api_authz).
 
 -include("emqx_mgmt.hrl").
 
--rest_api(#{name   => clean_acl_cache_all,
+-rest_api(#{name   => clean_authz_cache_all,
             method => 'DELETE',
-            path   => "/acl-cache",
+            path   => "/authz-cache",
             func   => clean_all,
-            descr  => "Clean acl cache on all nodes"}).
+            descr  => "Clean authz cache on all nodes"}).
 
--rest_api(#{name   => clean_acl_cache_node,
+-rest_api(#{name   => clean_authz_cache_node,
             method => 'DELETE',
-            path   => "nodes/:atom:node/acl-cache",
+            path   => "nodes/:atom:node/authz-cache",
             func   => clean_node,
-            descr  => "Clean acl cache on specific node"}).
+            descr  => "Clean authz cache on specific node"}).
 
 -export([ clean_all/2
         , clean_node/2
         ]).
 
 clean_all(_Bindings, _Params) ->
-    case emqx_mgmt:clean_acl_cache_all() of
+    case emqx_mgmt:clean_authz_cache_all() of
       ok -> emqx_mgmt:return();
       {error, Reason} -> emqx_mgmt:return({error, ?ERROR1, Reason})
     end.
 
 clean_node(#{node := Node}, _Params) ->
-    case emqx_mgmt:clean_acl_cache_all(Node) of
+    case emqx_mgmt:clean_authz_cache_all(Node) of
       ok -> emqx_mgmt:return();
       {error, Reason} -> emqx_mgmt:return({error, ?ERROR1, Reason})
     end.

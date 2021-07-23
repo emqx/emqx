@@ -431,12 +431,12 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
         ok ->
             TopicFilters0 = parse_topic_filters(TopicFilters),
             TopicFilters1 = put_subid_in_subopts(Properties, TopicFilters0),
-            TupleTopicFilters0 = check_sub_acls(TopicFilters1, Channel),
-            HasAclDeny = lists:any(fun({_TopicFilter, ReasonCode}) ->
+            TupleTopicFilters0 = check_sub_authzs(TopicFilters1, Channel),
+            HasAuthzDeny = lists:any(fun({_TopicFilter, ReasonCode}) ->
                     ReasonCode =:= ?RC_NOT_AUTHORIZED
                 end, TupleTopicFilters0),
             DenyAction = emqx_config:get_zone_conf(Zone, [authorization, deny_action]),
-            case DenyAction =:= disconnect andalso HasAclDeny of
+            case DenyAction =:= disconnect andalso HasAuthzDeny of
                 true -> handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel);
                 false ->
                     Replace = fun
@@ -542,7 +542,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
     case pipeline([fun check_quota_exceeded/2,
                    fun process_alias/2,
                    fun check_pub_alias/2,
-                   fun check_pub_acl/2,
+                   fun check_pub_authz/2,
                    fun check_pub_caps/2
                   ], Packet, Channel) of
         {ok, NPacket, NChannel} ->
@@ -956,9 +956,9 @@ handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
     AllPendings = lists:append(Delivers, Pendings),
     disconnect_and_shutdown(takeovered, AllPendings, Channel);
 
-handle_call(list_acl_cache, #channel{clientinfo = #{zone := Zone}}
+handle_call(list_authz_cache, #channel{clientinfo = #{zone := Zone}}
         = Channel) ->
-    {reply, emqx_acl_cache:list_acl_cache(Zone), Channel};
+    {reply, emqx_authz_cache:list_authz_cache(Zone), Channel};
 
 handle_call({quota, Policy}, Channel) ->
     Zone = info(zone, Channel),
@@ -1009,8 +1009,8 @@ handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnected}
     ?LOG(error, "Unexpected sock_closed: ~p", [Reason]),
     {ok, Channel};
 
-handle_info(clean_acl_cache, Channel) ->
-    ok = emqx_acl_cache:empty_acl_cache(),
+handle_info(clean_authz_cache, Channel) ->
+    ok = emqx_authz_cache:empty_authz_cache(),
     {ok, Channel};
 
 handle_info(Info, Channel) ->
@@ -1414,11 +1414,11 @@ check_pub_alias(#mqtt_packet{
 check_pub_alias(_Packet, _Channel) -> ok.
 
 %%--------------------------------------------------------------------
-%% Check Pub ACL
+%% Check Pub Authorization
 
-check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
+check_pub_authz(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
               #channel{clientinfo = ClientInfo}) ->
-    case is_acl_enabled(ClientInfo) andalso
+    case is_authz_enabled(ClientInfo) andalso
          emqx_access_control:authorize(ClientInfo, publish, Topic) of
         false -> ok;
         allow -> ok;
@@ -1436,23 +1436,23 @@ check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos    = QoS,
     emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain, topic => Topic}).
 
 %%--------------------------------------------------------------------
-%% Check Sub ACL
+%% Check Sub Authorization
 
-check_sub_acls(TopicFilters, Channel) ->
-    check_sub_acls(TopicFilters, Channel, []).
+check_sub_authzs(TopicFilters, Channel) ->
+    check_sub_authzs(TopicFilters, Channel, []).
 
-check_sub_acls([ TopicFilter = {Topic, _} | More] , Channel, Acc) ->
-    case check_sub_acl(Topic, Channel) of
+check_sub_authzs([ TopicFilter = {Topic, _} | More] , Channel, Acc) ->
+    case check_sub_authz(Topic, Channel) of
         allow ->
-            check_sub_acls(More, Channel, [ {TopicFilter, 0} | Acc]);
+            check_sub_authzs(More, Channel, [ {TopicFilter, 0} | Acc]);
         deny ->
-            check_sub_acls(More, Channel, [ {TopicFilter, ?RC_NOT_AUTHORIZED} | Acc])
+            check_sub_authzs(More, Channel, [ {TopicFilter, ?RC_NOT_AUTHORIZED} | Acc])
     end;
-check_sub_acls([], _Channel, Acc) ->
+check_sub_authzs([], _Channel, Acc) ->
     lists:reverse(Acc).
 
-check_sub_acl(TopicFilter, #channel{clientinfo = ClientInfo}) ->
-    case is_acl_enabled(ClientInfo) andalso
+check_sub_authz(TopicFilter, #channel{clientinfo = ClientInfo}) ->
+    case is_authz_enabled(ClientInfo) andalso
          emqx_access_control:authorize(ClientInfo, subscribe, TopicFilter) of
         false  -> allow;
         Result -> Result
@@ -1620,8 +1620,8 @@ maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Is ACL enabled?
-is_acl_enabled(#{zone := Zone, is_superuser := IsSuperuser}) ->
+%% Is Authorization enabled?
+is_authz_enabled(#{zone := Zone, is_superuser := IsSuperuser}) ->
     (not IsSuperuser) andalso emqx_config:get_zone_conf(Zone, [authorization, enable]).
 
 %%--------------------------------------------------------------------
