@@ -30,7 +30,7 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
--export([handle_update_config/2]).
+-export([pre_config_update/2]).
 
 -export([ start_link/0
         , stop/0
@@ -153,10 +153,10 @@ get_alarms(activated) ->
 get_alarms(deactivated) ->
     gen_server:call(?MODULE, {get_alarms, deactivated}).
 
-handle_update_config(#{<<"validity_period">> := Period0} = NewConf, OldConf) ->
+pre_config_update(#{<<"validity_period">> := Period0} = NewConf, OldConf) ->
     ?MODULE ! {update_timer, hocon_postprocess:duration(Period0)},
     maps:merge(OldConf, NewConf);
-handle_update_config(NewConf, OldConf) ->
+pre_config_update(NewConf, OldConf) ->
     maps:merge(OldConf, NewConf).
 
 format(#activated_alarm{name = Name, message = Message, activate_at = At, details = Details}) ->

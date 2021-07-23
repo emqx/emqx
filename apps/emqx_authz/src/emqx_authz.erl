@@ -31,7 +31,7 @@
         , match/4
         ]).
 
--export([post_update_config/2, handle_update_config/2]).
+-export([post_config_update/2, pre_config_update/2]).
 
 -define(CONF_KEY_PATH, [emqx_authz, rules]).
 
@@ -52,21 +52,21 @@ update(Cmd, Rules) ->
     emqx_config:update(?CONF_KEY_PATH, {Cmd, Rules}).
 
 %% For now we only support re-creating the entire rule list
-handle_update_config({head, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
+pre_config_update({head, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
     [Rule | OldConf];
-handle_update_config({tail, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
+pre_config_update({tail, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
     OldConf ++ [Rule];
-handle_update_config({_, NewConf}, _OldConf) ->
+pre_config_update({_, NewConf}, _OldConf) ->
     %% overwrite the entire config!
     case is_list(NewConf) of
         true -> NewConf;
         false -> [NewConf]
     end.
 
-post_update_config(undefined, _OldConf) ->
+post_config_update(undefined, _OldConf) ->
     %_ = [release_rules(Rule) || Rule <- OldConf],
     ok;
-post_update_config(NewRules, _OldConf) ->
+post_config_update(NewRules, _OldConf) ->
     %_ = [release_rules(Rule) || Rule <- OldConf],
     InitedRules = [init_rule(Rule) || Rule <- NewRules],
     Action = find_action_in_hooks(),
