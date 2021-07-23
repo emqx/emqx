@@ -53,12 +53,12 @@ start_link() ->
 %%--------------------------------------------------------------------
 
 get_mem_check_interval() ->
-    memsup:get_check_interval() div 1000.
+    memsup:get_check_interval().
 
-set_mem_check_interval(Seconds) when Seconds < 60 ->
+set_mem_check_interval(Seconds) when Seconds < 60000 ->
     memsup:set_check_interval(1);
 set_mem_check_interval(Seconds) ->
-    memsup:set_check_interval(Seconds div 60).
+    memsup:set_check_interval(Seconds div 60000).
 
 get_sysmem_high_watermark() ->
     memsup:get_sysmem_high_watermark().
