@@ -1114,7 +1114,7 @@ clean_timer(Name, Channel = #channel{timers = Timers}) ->
 interval(alive_timer, #channel{keepalive = KeepAlive}) ->
     emqx_keepalive:info(interval, KeepAlive);
 interval(retry_timer, #channel{session = Session}) ->
-    timer:seconds(emqx_session:info(retry_interval, Session));
+    emqx_session:info(retry_interval, Session);
 interval(await_timer, #channel{session = Session}) ->
     timer:seconds(emqx_session:info(await_rel_timeout, Session));
 interval(expire_timer, #channel{conninfo = ConnInfo}) ->

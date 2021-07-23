@@ -164,7 +164,7 @@ fields("node") ->
     , {"config_files", t(list(string()), "emqx.config_files",
         [ filename:join([os:getenv("RUNNER_ETC_DIR"), "emqx.conf"])
         ])}
-    , {"global_gc_interval", t(duration_s(), undefined, "15m")}
+    , {"global_gc_interval", t(duration(), undefined, "15m")}
     , {"crash_dump_dir", t(file(), "vm_args.-env ERL_CRASH_DUMP", undefined)}
     , {"dist_net_ticktime", t(duration(), "vm_args.-kernel net_ticktime", "2m")}
     , {"dist_listen_min", t(range(1024, 65535), "kernel.inet_dist_listen_min", 6369)}
@@ -288,7 +288,7 @@ fields("mqtt") ->
     , {"max_subscriptions", maybe_infinity(range(1, inf))}
     , {"upgrade_qos", t(boolean(), undefined, false)}
     , {"max_inflight", t(range(1, 65535), undefined, 32)}
-    , {"retry_interval", t(duration_s(), undefined, "30s")}
+    , {"retry_interval", t(duration(), undefined, "30s")}
     , {"max_awaiting_rel", maybe_infinity(integer(), 100)}
     , {"await_rel_timeout", t(duration_s(), undefined, "300s")}
     , {"session_expiry_interval", t(duration_s(), undefined, "2h")}
