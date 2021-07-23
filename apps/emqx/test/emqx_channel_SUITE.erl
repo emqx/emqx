@@ -51,7 +51,7 @@ mqtt_conf() ->
     retain_available => true,
     retry_interval => 30000,
     server_keepalive => disabled,
-    session_expiry_interval => 7200,
+    session_expiry_interval => 7200000,
     shared_subscription => true,
     strict_mode => false,
     upgrade_qos => false,
