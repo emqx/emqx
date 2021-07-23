@@ -435,7 +435,7 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
             HasAclDeny = lists:any(fun({_TopicFilter, ReasonCode}) ->
                     ReasonCode =:= ?RC_NOT_AUTHORIZED
                 end, TupleTopicFilters0),
-            DenyAction = emqx_config:get_zone_conf(Zone, [acl, deny_action]),
+            DenyAction = emqx_config:get_zone_conf(Zone, [authorization, deny_action]),
             case DenyAction =:= disconnect andalso HasAclDeny of
                 true -> handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel);
                 false ->
@@ -551,7 +551,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
         {error, Rc = ?RC_NOT_AUTHORIZED, NChannel} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s.",
                  [Topic, emqx_reason_codes:text(Rc)]),
-            case emqx_config:get_zone_conf(Zone, [acl_deny_action]) of
+            case emqx_config:get_zone_conf(Zone, [authorization, deny_action]) of
                 ignore ->
                     case QoS of
                        ?QOS_0 -> {ok, NChannel};
@@ -1622,7 +1622,7 @@ maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
 %%--------------------------------------------------------------------
 %% Is ACL enabled?
 is_acl_enabled(#{zone := Zone, is_superuser := IsSuperuser}) ->
-    (not IsSuperuser) andalso emqx_config:get_zone_conf(Zone, [acl, enable]).
+    (not IsSuperuser) andalso emqx_config:get_zone_conf(Zone, [authorization, enable]).
 
 %%--------------------------------------------------------------------
 %% Parse Topic Filters

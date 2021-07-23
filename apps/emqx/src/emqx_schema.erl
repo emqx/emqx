@@ -257,13 +257,13 @@ fields("auth") ->
     [ {"enable", t(boolean(), undefined, false)}
     ];
 
-fields("acl") ->
-    [ {"enable", t(boolean(), undefined, false)}
-    , {"cache", ref("acl_cache")}
+fields("authorization") ->
+    [ {"enable", t(boolean(), undefined, true)}
+    , {"cache", ref("authorization_cache")}
     , {"deny_action", t(union(ignore, disconnect), undefined, ignore)}
     ];
 
-fields("acl_cache") ->
+fields("authorization_cache") ->
     [ {"enable", t(boolean(), undefined, true)}
     , {"max_size", t(range(1, 1048576), undefined, 32)}
     , {"ttl", t(duration(), undefined, "1m")}
@@ -306,7 +306,7 @@ fields("zones") ->
 
 fields("zone_settings") ->
     [ {"mqtt", ref("mqtt")}
-    , {"acl", ref("acl")}
+    , {"authorization", ref("authorization")}
     , {"auth", ref("auth")}
     , {"stats", ref("stats")}
     , {"flapping_detect", ref("flapping_detect")}

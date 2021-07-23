@@ -456,7 +456,7 @@ parse_topic_filters(TopicFilters) ->
     lists:map(fun emqx_topic:parse/1, TopicFilters).
 
 is_acl_enabled(#{zone := Zone, listener := Listener, is_superuser := IsSuperuser}) ->
-    (not IsSuperuser) andalso emqx_config:get_listener_conf(Zone, Listener, [acl, enable]).
+    (not IsSuperuser) andalso emqx_config:get_listener_conf(Zone, Listener, [authorization, enable]).
 
 %%--------------------------------------------------------------------
 %% Ensure & Hooks
