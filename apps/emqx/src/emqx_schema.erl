@@ -507,7 +507,7 @@ fields("sysmon_vm") ->
     ];
 
 fields("sysmon_os") ->
-    [ {"cpu_check_interval", t(duration_s(), undefined, 60)}
+    [ {"cpu_check_interval", t(duration(), undefined, 60)}
     , {"cpu_high_watermark", t(percent(), undefined, "80%")}
     , {"cpu_low_watermark", t(percent(), undefined, "60%")}
     , {"mem_check_interval", maybe_disabled(duration_s(), 60)}
