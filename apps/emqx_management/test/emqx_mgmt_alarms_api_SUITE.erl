@@ -1,0 +1,73 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+-module(emqx_mgmt_alarms_api_SUITE).
+
+
+-compile(export_all).
+-compile(nowarn_export_all).
+
+-include_lib("eunit/include/eunit.hrl").
+
+-define(ACT_ALARM, test_act_alarm).
+-define(DE_ACT_ALARM, test_de_act_alarm).
+
+all() ->
+    [t_alarms_api, t_delete_alarms_api].
+
+init_per_suite(Config) ->
+    ekka_mnesia:start(),
+    emqx_mgmt_auth:mnesia(boot),
+    emqx_ct_helpers:start_apps([emqx_management], fun set_special_configs/1),
+    Config.
+
+end_per_suite(_) ->
+    emqx_ct_helpers:stop_apps([emqx_management]).
+
+set_special_configs(emqx_management) ->
+    emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
+        applications =>[#{id => "admin", secret => "public"}]}),
+    ok;
+set_special_configs(_App) ->
+    ok.
+
+t_alarms_api(_) ->
+    ok = emqx_alarm:activate(?ACT_ALARM),
+    ok = emqx_alarm:activate(?DE_ACT_ALARM),
+    ok = emqx_alarm:deactivate(?DE_ACT_ALARM),
+    get_alarms(1, true),
+    get_alarms(1, false).
+
+t_delete_alarms_api(_) ->
+    Path = emqx_mgmt_api_test_util:api_path(["alarms"]),
+    {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Path),
+    get_alarms(1, true),
+    get_alarms(0, false).
+
+get_alarms(AssertCount, Activated) when is_atom(Activated) ->
+    get_alarms(AssertCount, atom_to_list(Activated));
+get_alarms(AssertCount, Activated) ->
+    Path = emqx_mgmt_api_test_util:api_path(["alarms"]),
+    Qs = "activated=" ++ Activated,
+    Headers = emqx_mgmt_api_test_util:auth_header_(),
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, Qs, Headers),
+    Data = emqx_json:decode(Response, [return_maps]),
+    Meta  = maps:get(<<"meta">>,  Data),
+    Page  = maps:get(<<"page">>,  Meta),
+    Limit = maps:get(<<"limit">>, Meta),
+    Count = maps:get(<<"count">>, Meta),
+    ?assertEqual(Page, 1),
+    ?assertEqual(Limit, emqx_mgmt:max_row_limit()),
+    ?assert(Count >= AssertCount).
