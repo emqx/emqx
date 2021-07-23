@@ -860,12 +860,13 @@ t_will_case01(_) ->
     timer:sleep(3000),
 
     receive
-        {deliver, WillTopic, #message{payload = WillMsg}} -> ok;
-        Msg -> ct:print("recevived --- unex: ~p", [Msg])
+        {deliver, WillTopic, #message{payload = WillMsg}} ->
+            ok
     after
         1000 -> ct:fail(wait_willmsg_timeout)
     end,
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
     send_disconnect_msg(Socket, undefined),
     ?assertEqual(udp_receive_timeout, receive_response(Socket)),
 
