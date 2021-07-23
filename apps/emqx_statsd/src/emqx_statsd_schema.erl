@@ -4,41 +4,38 @@
 
 -behaviour(hocon_schema).
 
+-export([to_ip_port/1]).
+
 -export([ structs/0
         , fields/1]).
+
+-typerefl_from_string({ip_port/0, emqx_statsd_schema, to_ip_port}).
 
 structs() -> ["emqx_statsd"].
 
 fields("emqx_statsd") ->
-    [ {host, fun host/1}
-    , {port, fun port/1}
-    , {prefix, fun prefix/1}
-    , {tags, map()}
-    , {batch_size, fun batch_size/1}
-    , {sample_time_interval, fun duration_s/1}
-    , {flush_time_interval,  fun duration_s/1}].
+    [ {enable, emqx_schema:t(boolean(), undefined, false)}
+    , {server, fun server/1}
+    , {sample_time_interval, fun duration_ms/1}
+    , {flush_time_interval,  fun duration_ms/1}
+    ].
 
-host(type) -> string();
-host(default) -> "127.0.0.1";
-host(nullable) -> false;
-host(_) -> undefined.
+server(type) -> emqx_schema:ip_port();
+server(default) -> "127.0.0.1:8125";
+server(nullable) -> false;
+server(_) -> undefined.
 
-port(type) -> integer();
-port(default) -> 8125;
-port(nullable) -> true;
-port(_) -> undefined.
+duration_ms(type) -> emqx_schema:duration_ms();
+duration_ms(nullable) -> false;
+duration_ms(default) -> "10s";
+duration_ms(_) -> undefined.
 
-prefix(type) -> string();
-prefix(default) -> "emqx";
-prefix(nullable) -> true;
-prefix(_) -> undefined.
-
-batch_size(type) -> integer();
-batch_size(nullable) -> false;
-batch_size(default) -> 10;
-batch_size(_) -> undefined.
-
-duration_s(type) -> emqx_schema:duration_s();
-duration_s(nullable) -> false;
-duration_s(default) -> "10s";
-duration_s(_) -> undefined.
+to_ip_port(Str) ->
+     case string:tokens(Str, ":") of
+         [Ip, Port] ->
+             case inet:parse_address(Ip) of
+                 {ok, R} -> {ok, {R, list_to_integer(Port)}};
+                 _ -> {error, Str}
+             end;
+         _ -> {error, Str}
+     end.

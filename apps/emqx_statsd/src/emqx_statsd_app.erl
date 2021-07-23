@@ -18,12 +18,23 @@
 
  -behaviour(application).
 
+-include("emqx_statsd.hrl").
+
  -export([ start/2
          , stop/1
          ]).
 
 start(_StartType, _StartArgs) ->
-    emqx_statsd_sup:start_link().
-
+    {ok, Sup} = emqx_statsd_sup:start_link(),
+    maybe_enable_statsd(),
+    {ok, Sup}.
 stop(_) ->
     ok.
+
+maybe_enable_statsd() ->
+    case emqx_config:get([?APP, enable], false) of
+        true ->
+            emqx_statsd_sup:start_child(emqx_statsd, emqx_config:get([?APP], #{}));
+        false ->
+            ok
+    end.
