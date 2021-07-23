@@ -49,7 +49,7 @@ lookup() ->
     emqx_config:get(?CONF_KEY_PATH, []).
 
 update(Cmd, Rules) ->
-    emqx_config:update_config(?CONF_KEY_PATH, {Cmd, Rules}).
+    emqx_config:update(?CONF_KEY_PATH, {Cmd, Rules}).
 
 %% For now we only support re-creating the entire rule list
 handle_update_config({head, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
