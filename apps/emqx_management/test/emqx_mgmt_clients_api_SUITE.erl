@@ -83,6 +83,7 @@ t_clients(_) ->
     %% delete /clients/:clientid kickout
     Client2Path = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId2)]),
     {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Client2Path),
+    timer:sleep(200),
     AfterKickoutResponse = emqx_mgmt_api_test_util:request_api(get, Client2Path),
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse),
 
