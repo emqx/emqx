@@ -34,6 +34,8 @@
         , lock_tables/0
         ]).
 
+-export([is_compact/0, set_compact/1]).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
