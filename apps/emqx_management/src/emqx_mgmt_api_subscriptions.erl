@@ -29,11 +29,11 @@
         ]).
 
 -define(SUBS_QS_SCHEMA, {emqx_suboption,
-        [{<<"clientid">>, binary},
-        {<<"topic">>, binary},
-        {<<"share">>, binary},
-        {<<"qos">>, integer},
-        {<<"match_topic">>, binary}]}).
+        [ {<<"clientid">>, binary}
+        , {<<"topic">>, binary}
+        , {<<"share">>, binary}
+        , {<<"qos">>, integer}
+        , {<<"match_topic">>, binary}]}).
 
 -define(query_fun, {?MODULE, query}).
 -define(format_fun, {?MODULE, format}).
@@ -111,8 +111,8 @@ subscription_schema() ->
     }.
 
 subscriptions(get, Request) ->
-    Qs = cowboy_req:parse_qs(Request),
-    list(Qs).
+    Params = cowboy_req:parse_qs(Request),
+    list(Params).
 
 list(Params) ->
     {200, emqx_mgmt_api:cluster_query(Params, ?SUBS_QS_SCHEMA, ?query_fun)}.
