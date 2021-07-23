@@ -28,7 +28,7 @@ all() ->
     emqx_ct:all(?MODULE).
 
 mqtt_conf() ->
-    #{await_rel_timeout => 300,
+    #{await_rel_timeout => 300000,
     idle_timeout => 15000,
     ignore_loop_deliver => false,
     keepalive_backoff => 0.75,
@@ -49,9 +49,9 @@ mqtt_conf() ->
     peer_cert_as_username => disabled,
     response_information => [],
     retain_available => true,
-    retry_interval => 30,
+    retry_interval => 30000,
     server_keepalive => disabled,
-    session_expiry_interval => 7200,
+    session_expiry_interval => 7200000,
     shared_subscription => true,
     strict_mode => false,
     upgrade_qos => false,

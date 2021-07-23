@@ -737,7 +737,7 @@ process_disconnect(ReasonCode, Properties, Channel) ->
 
 maybe_update_expiry_interval(#{'Session-Expiry-Interval' := Interval},
                              Channel = #channel{conninfo = ConnInfo}) ->
-    Channel#channel{conninfo = ConnInfo#{expiry_interval => Interval}};
+    Channel#channel{conninfo = ConnInfo#{expiry_interval => timer:seconds(Interval)}};
 maybe_update_expiry_interval(_Properties, Channel) -> Channel.
 
 %%--------------------------------------------------------------------
@@ -1114,11 +1114,11 @@ clean_timer(Name, Channel = #channel{timers = Timers}) ->
 interval(alive_timer, #channel{keepalive = KeepAlive}) ->
     emqx_keepalive:info(interval, KeepAlive);
 interval(retry_timer, #channel{session = Session}) ->
-    timer:seconds(emqx_session:info(retry_interval, Session));
+    emqx_session:info(retry_interval, Session);
 interval(await_timer, #channel{session = Session}) ->
-    timer:seconds(emqx_session:info(await_rel_timeout, Session));
+    emqx_session:info(await_rel_timeout, Session);
 interval(expire_timer, #channel{conninfo = ConnInfo}) ->
-    timer:seconds(maps:get(expiry_interval, ConnInfo));
+    maps:get(expiry_interval, ConnInfo);
 interval(will_timer, #channel{will_msg = WillMsg}) ->
     timer:seconds(will_delay_interval(WillMsg)).
 
@@ -1176,7 +1176,7 @@ enrich_conninfo(ConnPkt = #mqtt_packet_connect{
 %% If the Session Expiry Interval is absent the value 0 is used.
 expiry_interval(_, #mqtt_packet_connect{proto_ver  = ?MQTT_PROTO_V5,
                                             properties = ConnProps}) ->
-    emqx_mqtt_props:get('Session-Expiry-Interval', ConnProps, 0);
+    timer:seconds(emqx_mqtt_props:get('Session-Expiry-Interval', ConnProps, 0));
 expiry_interval(Zone, #mqtt_packet_connect{clean_start = false}) ->
     get_mqtt_conf(Zone, session_expiry_interval);
 expiry_interval(_, #mqtt_packet_connect{clean_start = true}) ->
@@ -1615,7 +1615,7 @@ maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
     case maps:get(expiry_interval, ConnInfo) of
         ?UINT_MAX -> {ok, Channel};
         I when I > 0 ->
-            {ok, ensure_timer(expire_timer, timer:seconds(I), Channel)};
+            {ok, ensure_timer(expire_timer, I, Channel)};
         _ -> shutdown(Reason, Channel)
     end.
 
