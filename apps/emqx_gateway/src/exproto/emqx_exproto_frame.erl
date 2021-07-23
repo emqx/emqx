@@ -25,6 +25,8 @@
         , parse/2
         , serialize_pkt/2
         , format/1
+        , is_message/1
+        , type/1
         ]).
 
 initial_parse_state(_) ->
@@ -41,3 +43,8 @@ serialize_pkt(Data, _Opts) ->
 
 format(Data) ->
     io_lib:format("~p", [Data]).
+
+is_message(_) -> true.
+
+type(_) -> unknown.
+
