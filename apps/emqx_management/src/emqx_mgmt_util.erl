@@ -31,7 +31,8 @@
         , response_array_schema/2
         , response_error_schema/1
         , response_error_schema/2
-        , batch_response_schema/1]).
+        , response_page_schema/1
+        , response_batch_schema/1]).
 
 -export([urldecode/1]).
 
@@ -128,7 +129,25 @@ response_error_schema(Description, Enum) ->
                 type => string}}},
     json_content_schema(Description, Schema).
 
-batch_response_schema(DefName) when is_binary(DefName) ->
+response_page_schema(Def) when is_binary(Def) ->
+    Schema = #{
+        type => object,
+        properties => #{
+            meta => #{
+                type => object,
+                properties => #{
+                    page => #{
+                        type => integer},
+                    limit => #{
+                        type => integer},
+                    count => #{
+                        type => integer}}},
+            data => #{
+                type => array,
+                items => minirest:ref(Def)}}},
+    json_content_schema("", Schema).
+
+response_batch_schema(DefName) when is_binary(DefName) ->
     Schema = #{
         type => object,
         properties => #{

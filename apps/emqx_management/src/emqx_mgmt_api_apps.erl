@@ -122,8 +122,7 @@ app_api() ->
                 name => app_id,
                 in => path,
                 required => true,
-                schema => #{type => string},
-                default => <<"admin">>
+                schema => #{type => string}
             }],
             'requestBody' => emqx_mgmt_util:request_body_schema(app_without_secret_schema()),
             responses => #{

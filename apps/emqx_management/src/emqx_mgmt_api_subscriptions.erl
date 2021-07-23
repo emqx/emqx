@@ -16,79 +16,107 @@
 
 -module(emqx_mgmt_api_subscriptions).
 
+-behavior(minirest_api).
+
 -include_lib("emqx/include/emqx.hrl").
 
--define(SUBS_QS_SCHEMA, {emqx_suboption,
-            [{<<"clientid">>, binary},
-             {<<"topic">>, binary},
-             {<<"share">>, binary},
-             {<<"qos">>, integer},
-             {<<"_match_topic">>, binary}]}).
+-export([api_spec/0]).
 
--rest_api(#{name   => list_subscriptions,
-            method => 'GET',
-            path   => "/subscriptions/",
-            func   => list,
-            descr  => "A list of subscriptions in the cluster"}).
-
--rest_api(#{name   => list_node_subscriptions,
-            method => 'GET',
-            path   => "/nodes/:atom:node/subscriptions/",
-            func   => list,
-            descr  => "A list of subscriptions on a node"}).
-
--rest_api(#{name   => lookup_client_subscriptions,
-            method => 'GET',
-            path   => "/subscriptions/:bin:clientid",
-            func   => lookup,
-            descr  => "A list of subscriptions of a client"}).
-
--rest_api(#{name   => lookup_client_subscriptions_with_node,
-            method => 'GET',
-            path   => "/nodes/:atom:node/subscriptions/:bin:clientid",
-            func   => lookup,
-            descr  => "A list of subscriptions of a client on the node"}).
-
--export([ list/2
-        , lookup/2
-        ]).
+-export([subscriptions/2]).
 
 -export([ query/3
         , format/1
         ]).
 
+-define(SUBS_QS_SCHEMA, {emqx_suboption,
+        [ {<<"clientid">>, binary}
+        , {<<"topic">>, binary}
+        , {<<"share">>, binary}
+        , {<<"qos">>, integer}
+        , {<<"match_topic">>, binary}]}).
+
 -define(query_fun, {?MODULE, query}).
 -define(format_fun, {?MODULE, format}).
 
-list(Bindings, Params) when map_size(Bindings) == 0 ->
-    case proplists:get_value(<<"topic">>, Params) of
-        undefined ->
-            emqx_mgmt:return({ok, emqx_mgmt_api:cluster_query(Params, ?SUBS_QS_SCHEMA, ?query_fun)});
-        Topic ->
-            emqx_mgmt:return({ok, emqx_mgmt:list_subscriptions_via_topic(emqx_mgmt_util:urldecode(Topic), ?format_fun)})
-    end;
+api_spec() ->
+    {
+        [subscriptions_api()],
+        [subscription_schema()]
+    }.
 
-list(#{node := Node} = Bindings, Params) ->
-    case proplists:get_value(<<"topic">>, Params) of
-        undefined ->
-            case Node =:= node() of
-                true ->
-                    emqx_mgmt:return({ok, emqx_mgmt_api:node_query(Node, Params, ?SUBS_QS_SCHEMA, ?query_fun)});
-                false ->
-                    case rpc:call(Node, ?MODULE, list, [Bindings, Params]) of
-                        {badrpc, Reason} -> emqx_mgmt:return({error, Reason});
-                        Res -> Res
-                    end
-            end;
-        Topic ->
-            emqx_mgmt:return({ok, emqx_mgmt:list_subscriptions_via_topic(Node, emqx_mgmt_util:urldecode(Topic), ?format_fun)})
-    end.
+subscriptions_api() ->
+    MetaData = #{
+        get => #{
+            description => "List subscriptions",
+            parameters => [
+                #{
+                    name => page,
+                    in => query,
+                    description => <<"Page">>,
+                    schema => #{type => integer}
+                },
+                #{
+                    name => limit,
+                    in => query,
+                    description => <<"Page size">>,
+                    schema => #{type => integer}
+                },
+                #{
+                    name => clientid,
+                    in => query,
+                    description => <<"Client ID">>,
+                    schema => #{type => string}
+                },
+                #{
+                    name => qos,
+                    in => query,
+                    description => <<"QoS">>,
+                    schema => #{type => integer}
+                },
+                #{
+                    name => share,
+                    in => query,
+                    description => <<"Shared subscription">>,
+                    schema => #{type => boolean}
+                },
+                #{
+                    name => topic,
+                    in => query,
+                    description => <<"Topic">>,
+                    schema => #{type => string}
+                }
+                #{
+                    name => match_topic,
+                    in => query,
+                    description => <<"Match topic string">>,
+                    schema => #{type => string}
+                }
+            ],
+            responses => #{
+                <<"200">> => emqx_mgmt_util:response_page_schema(<<"subscription">>)}}},
+    {"/subscriptions", MetaData, subscriptions}.
 
-lookup(#{node := Node, clientid := ClientId}, _Params) ->
-    emqx_mgmt:return({ok, format(emqx_mgmt:lookup_subscriptions(Node, emqx_mgmt_util:urldecode(ClientId)))});
+subscription_schema() ->
+    #{
+        subscription => #{
+            type => object,
+            properties => #{
+                topic => #{
+                    type => string},
+                clientid => #{
+                    type => string},
+                qos => #{
+                    type => integer,
+                    enum => [0,1,2]}}}
+    }.
 
-lookup(#{clientid := ClientId}, _Params) ->
-    emqx_mgmt:return({ok, format(emqx_mgmt:lookup_subscriptions(emqx_mgmt_util:urldecode(ClientId)))}).
+subscriptions(get, Request) ->
+    Params = cowboy_req:parse_qs(Request),
+    list(Params).
+
+list(Params) ->
+    {200, emqx_mgmt_api:cluster_query(Params, ?SUBS_QS_SCHEMA, ?query_fun)}.
+
 
 format(Items) when is_list(Items) ->
     [format(Item) || Item <- Items];
@@ -98,10 +126,10 @@ format({{Subscriber, Topic}, Options}) ->
 
 format({_Subscriber, Topic, Options = #{share := Group}}) ->
     QoS = maps:get(qos, Options),
-    #{node => node(), topic => filename:join([<<"$share">>, Group, Topic]), clientid => maps:get(subid, Options), qos => QoS};
+    #{topic => filename:join([<<"$share">>, Group, Topic]), clientid => maps:get(subid, Options), qos => QoS};
 format({_Subscriber, Topic, Options}) ->
     QoS = maps:get(qos, Options),
-    #{node => node(), topic => Topic, clientid => maps:get(subid, Options), qos => QoS}.
+    #{topic => Topic, clientid => maps:get(subid, Options), qos => QoS}.
 
 %%--------------------------------------------------------------------
 %% Query Function
