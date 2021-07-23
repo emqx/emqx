@@ -83,7 +83,7 @@ t_clients(_) ->
     %% delete /clients/:clientid kickout
     Client2Path = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId2)]),
     {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Client2Path),
-    timer:sleep(200),
+    timer:sleep(100),
     AfterKickoutResponse = emqx_mgmt_api_test_util:request_api(get, Client2Path),
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse),
 
@@ -96,6 +96,7 @@ t_clients(_) ->
     SubscribeBody = #{topic => Topic, qos => Qos},
     SubscribePath =  emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1), "subscribe"]),
     {ok, _} =  emqx_mgmt_api_test_util:request_api(post, SubscribePath, "", AuthHeader, SubscribeBody),
+    timer:sleep(100),
     [{{_, AfterSubTopic}, #{qos := AfterSubQos}}] = emqx_mgmt:lookup_subscriptions(ClientId1),
     ?assertEqual(AfterSubTopic, Topic),
     ?assertEqual(AfterSubQos, Qos),
@@ -103,4 +104,5 @@ t_clients(_) ->
     %% delete /clients/:clientid/subscribe
     UnSubscribeQuery = "topic=" ++ binary_to_list(Topic),
     {ok, _} =  emqx_mgmt_api_test_util:request_api(delete, SubscribePath, UnSubscribeQuery, AuthHeader),
+    timer:sleep(100),
     ?assertEqual([], emqx_mgmt:lookup_subscriptions(Client1)).
