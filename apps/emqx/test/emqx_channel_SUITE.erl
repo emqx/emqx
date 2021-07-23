@@ -49,7 +49,7 @@ mqtt_conf() ->
     peer_cert_as_username => disabled,
     response_information => [],
     retain_available => true,
-    retry_interval => 30,
+    retry_interval => 30000,
     server_keepalive => disabled,
     session_expiry_interval => 7200,
     shared_subscription => true,

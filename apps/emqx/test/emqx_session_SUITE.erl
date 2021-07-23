@@ -59,7 +59,7 @@ t_session_init(_) ->
     ?assertEqual(0, emqx_session:info(inflight_cnt, Session)),
     ?assertEqual(64, emqx_session:info(inflight_max, Session)),
     ?assertEqual(1, emqx_session:info(next_pkt_id, Session)),
-    ?assertEqual(30, emqx_session:info(retry_interval, Session)),
+    ?assertEqual(30000, emqx_session:info(retry_interval, Session)),
     ?assertEqual(0, emqx_mqueue:len(emqx_session:info(mqueue, Session))),
     ?assertEqual(0, emqx_session:info(awaiting_rel_cnt, Session)),
     ?assertEqual(100, emqx_session:info(awaiting_rel_max, Session)),
@@ -73,7 +73,7 @@ t_session_init(_) ->
 t_session_info(_) ->
     ?assertMatch(#{subscriptions  := #{},
                    upgrade_qos    := false,
-                   retry_interval := 30,
+                   retry_interval := 30000,
                    await_rel_timeout := 300
                   }, emqx_session:info(session())).
 
@@ -309,7 +309,7 @@ t_enqueue(_) ->
 
 t_retry(_) ->
     Delivers = [delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)],
-    Session = session(#{retry_interval => 100}),
+    Session = session(#{retry_interval => 100000}),
     {ok, Pubs, Session1} = emqx_session:deliver(Delivers, Session),
     ok = timer:sleep(200),
     Msgs1 = [{I, emqx_message:set_flag(dup, Msg)} || {I, Msg} <- Pubs],
