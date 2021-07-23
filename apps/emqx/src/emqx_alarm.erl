@@ -249,7 +249,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 get_validity_period() ->
-    timer:seconds(emqx_config:get([alarm, validity_period])).
+    emqx_config:get([alarm, validity_period]).
 
 deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name,
         details = Details0, message = Msg0}) ->
