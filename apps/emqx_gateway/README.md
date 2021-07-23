@@ -22,9 +22,31 @@
 
 ## ROADMAP
 
-Gateway v0.1: Management support
+Gateway v0.1: "Basic Functionals"
+    - Management support
+    - Conn/Frame/Protocol Template
+    - Support Stomp/MQTT-SN/CoAP/LwM2M/ExProto
 
-Gateway v0.2: Conn/Frame/Protocol Template
+Gateway v0.2: "Integration & Friendly Management"
+    - Hooks & Metrics & Statistic
+    - HTTP APIs
+    - Management in the cluster
+    - Integrate with AuthN
+    - Integrate with `emqx_config`
+    - Improve hocon config
+    - Mountpoint & ClientInfo's Metadata
+    - The Concept Review
+
+Gateway v0.3: "Fault tolerance and high availability"
+    - The restart mechanism for gateway-instance
+    - Consistency of cluster state
+    - Configuration hot update
+
+Gateway v1.0: "Best practices for each type of protocol"
+    - CoAP
+    - Stomp
+    - MQTT-SN
+    - LwM2M
 
 ### Compatible with EMQ X
 
