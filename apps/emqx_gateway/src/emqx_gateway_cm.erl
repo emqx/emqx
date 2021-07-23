@@ -243,6 +243,7 @@ open_session(Type, true = _CleanStart, ClientInfo, ConnInfo, CreateSessionFun) -
 
 open_session(_Type, false = _CleanStart,
              _ClientInfo, _ConnInfo, _CreateSessionFun) ->
+    %% TODO:
     {error, not_supported_now}.
 
 %% @private
@@ -253,7 +254,8 @@ create_session(Type, ClientInfo, ConnInfo, CreateSessionFun) ->
                     [ClientInfo, ConnInfo]
                    ),
         ok = emqx_gateway_metrics:inc(Type, 'session.created'),
-        SessionInfo = case is_record(Session, emqx_session) of
+        SessionInfo = case is_tuple(Session)
+                           andalso element(1, Session) == session of
                           true -> emqx_session:info(Session);
                           _ ->
                               case is_map(Session) of

@@ -348,7 +348,7 @@ handle_in(?SN_SEARCHGW_MSG(_Radius),
 
 handle_in(?SN_ADVERTISE_MSG(_GwId, _Radius), Channel) ->
     % ingore
-    {ok, Channel};
+    shutdown(normal, Channel);
 
 handle_in(?SN_PUBLISH_MSG(#mqtt_sn_flags{qos = ?QOS_NEG1,
                                          topic_id_type = TopicIdType

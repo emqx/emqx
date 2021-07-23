@@ -22,7 +22,6 @@
 %%
 -module(emqx_gateway_frame).
 
-
 -type parse_state() :: map().
 
 -type frame() :: any().
@@ -38,11 +37,21 @@
 %% @doc Initial the frame parser states
 -callback initial_parse_state(map()) -> parse_state().
 
+%% @doc
 -callback serialize_opts() -> serialize_options().
 
+%% @doc
 -callback serialize_pkt(Frame :: any(), serialize_options()) -> iodata().
 
+%% @doc
 -callback parse(binary(), parse_state()) -> parse_result().
 
+%% @doc
 -callback format(Frame :: any()) -> string().
+
+%% @doc
+-callback type(Frame :: any()) -> atom().
+
+%% @doc
+-callback is_message(Frame :: any()) -> boolean().
 

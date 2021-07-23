@@ -84,6 +84,10 @@
         , format/1
         ]).
 
+-export([ type/1
+        , is_message/1
+        ]).
+
 -define(NULL,  0).
 -define(CR,    $\r).
 -define(LF,    $\n).
@@ -290,3 +294,27 @@ make(Command, Headers, Body) ->
 
 %% @doc Format a frame
 format(Frame) -> serialize_pkt(Frame, #{}).
+
+is_message(#stomp_frame{command = CMD})
+    when CMD == ?CMD_SEND;
+         CMD == ?CMD_MESSAGE ->
+    true;
+is_message(_) -> false.
+
+type(#stomp_frame{command = CMD}) ->
+    type(CMD);
+type(?CMD_STOMP)       -> connect;
+type(?CMD_CONNECT)     -> connect;
+type(?CMD_SEND)        -> send;
+type(?CMD_SUBSCRIBE)   -> subscribe;
+type(?CMD_UNSUBSCRIBE) -> unsubscribe;
+type(?CMD_BEGIN)       -> 'begin';
+type(?CMD_COMMIT)      -> commit;
+type(?CMD_ABORT)       -> abort;
+type(?CMD_ACK)         -> ack;
+type(?CMD_NACK)        -> nack;
+type(?CMD_DISCONNECT)  -> disconnect;
+type(?CMD_CONNECTED)   -> connected;
+type(?CMD_MESSAGE)     -> message;
+type(?CMD_RECEIPT)     -> receipt;
+type(?CMD_ERROR)       -> error.

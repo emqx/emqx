@@ -28,6 +28,8 @@
         , serialize_pkt/2
         , message_type/1
         , format/1
+        , type/1
+        , is_message/1
         ]).
 
 -define(flag,  1/binary).
@@ -326,3 +328,38 @@ format_flag(#mqtt_sn_flags{dup = Dup, qos = QoS, retain = Retain, will = Will, c
                   [Dup, QoS, Retain, Will, CleanStart, TopicType]);
 format_flag(_Flag) -> "invalid flag".
 
+is_message(#mqtt_sn_message{type = Type})
+    when Type == ?SN_PUBLISH ->
+    true;
+is_message(_) ->
+    false.
+
+type(#mqtt_sn_message{type = Type}) ->
+    type(Type);
+type(?SN_ADVERTISE)     -> advertise;
+type(?SN_SEARCHGW)      -> serachgw;
+type(?SN_GWINFO)        -> gwinfo;
+type(?SN_CONNECT)       -> connect;
+type(?SN_CONNACK)       -> connack;
+type(?SN_WILLTOPICREQ)  -> willtopicreq;
+type(?SN_WILLTOPIC)     -> willtopic;
+type(?SN_WILLMSGREQ)    -> willmsgreq;
+type(?SN_WILLMSG)       -> willmsg;
+type(?SN_REGISTER)      -> register;
+type(?SN_REGACK)        -> regack;
+type(?SN_PUBLISH)       -> publish;
+type(?SN_PUBACK)        -> puback;
+type(?SN_PUBCOMP)       -> pubcomp;
+type(?SN_PUBREC)        -> pubrec;
+type(?SN_PUBREL)        -> pubrel;
+type(?SN_SUBSCRIBE)     -> subscribe;
+type(?SN_SUBACK)        -> suback;
+type(?SN_UNSUBSCRIBE)   -> unsubscribe;
+type(?SN_UNSUBACK)      -> unsuback;
+type(?SN_PINGREQ)       -> pingreq;
+type(?SN_PINGRESP)      -> pingresp;
+type(?SN_DISCONNECT)    -> disconnect;
+type(?SN_WILLTOPICUPD)  -> willtopicupd;
+type(?SN_WILLTOPICRESP) -> willtopicresp;
+type(?SN_WILLMSGUPD)    -> willmsgupd;
+type(?SN_WILLMSGRESP)   -> willmsgresp.
