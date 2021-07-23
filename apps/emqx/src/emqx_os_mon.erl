@@ -128,5 +128,5 @@ start_check_timer() ->
     Interval = emqx_config:get([sysmon, os, cpu_check_interval]),
     case erlang:system_info(system_architecture) of
         "x86_64-pc-linux-musl" -> ok;
-        _ -> emqx_misc:start_timer(timer:seconds(Interval), check)
+        _ -> emqx_misc:start_timer(Interval, check)
     end.

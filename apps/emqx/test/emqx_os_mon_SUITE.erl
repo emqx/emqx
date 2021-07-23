@@ -25,7 +25,7 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_config:put([sysmon, os], #{
-        cpu_check_interval => 60,cpu_high_watermark => 0.8,
+        cpu_check_interval => 60000,cpu_high_watermark => 0.8,
         cpu_low_watermark => 0.6,mem_check_interval => 60,
         procmem_high_watermark => 0.05,sysmem_high_watermark => 0.7}),
     application:ensure_all_started(os_mon),
