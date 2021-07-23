@@ -49,11 +49,15 @@ start_link(Opts) ->
 
 init([Opts]) ->
     process_flag(trap_exit, true),
-    Tags = tags(maps:get(tags, Opts, ?DEFAULT_TAGS)),
+    Tags = tags(maps:get(tags, Opts, #{})),
+    {Host, Port} = maps:get(server, Opts, {?DEFAULT_HOST, ?DEFAULT_PORT}),
     Opts1 = maps:without([sample_time_interval,
-                          flush_time_interval], Opts#{tags => Tags}),
+                          flush_time_interval], Opts#{tags => Tags,
+                                                      host => Host,
+                                                      port => Port,
+                                                      prefix => <<"emqx">>}),
     {ok, Pid} = estatsd:start_link(maps:to_list(Opts1)),
-    SampleTimeInterval = maps:get(sample_time_interval, Opts, ?DEFAULT_SAMPLE_TIME_INTERVAL),
+    SampleTimeInterval = maps:get(sample_time_interval, Opts, ?DEFAULT_FLUSH_TIME_INTERVAL),
     FlushTimeInterval = maps:get(flush_time_interval, Opts, ?DEFAULT_FLUSH_TIME_INTERVAL),
     {ok, ensure_timer(#state{sample_time_interval = SampleTimeInterval,
                              flush_time_interval = FlushTimeInterval,

@@ -250,5 +250,4 @@ emqx_feature() ->
     , emqx_bridge_mqtt
     , emqx_modules
     , emqx_management
-    , emqx_retainer
-    , emqx_statsd].
+    , emqx_retainer].
