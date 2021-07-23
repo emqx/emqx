@@ -246,15 +246,24 @@ open_session(_Type, false = _CleanStart,
     {error, not_supported_now}.
 
 %% @private
-create_session(_Type, ClientInfo, ConnInfo, CreateSessionFun) ->
+create_session(Type, ClientInfo, ConnInfo, CreateSessionFun) ->
     try
         Session = emqx_gateway_utils:apply(
                     CreateSessionFun,
                     [ClientInfo, ConnInfo]
                    ),
-        %% TODO: v0.2 session metrics & hooks
-        %ok = emqx_metrics:inc('session.created'),
-        %ok = emqx_hooks:run('session.created', [ClientInfo, emqx_session:info(Session)]),
+        ok = emqx_gateway_metrics:inc(Type, 'session.created'),
+        SessionInfo = case is_record(Session, emqx_session) of
+                          true -> emqx_session:info(Session);
+                          _ ->
+                              case is_map(Session) of
+                                  false ->
+                                      throw(session_structure_should_be_map);
+                                  _ ->
+                                      Session
+                              end
+                      end,
+        ok = emqx_hooks:run('session.created', [ClientInfo, SessionInfo]),
         Session
     catch
         Class : Reason : Stk ->
