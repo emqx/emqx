@@ -32,72 +32,72 @@ defmodule EmqxReleaseHelper.Applications do
 
   application :emqx_authz do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_data_bridge do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_sn do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_authentication do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_dashboard do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_management do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_statsd do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_stomp do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_bridge_mqtt do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_retainer do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_telemetry do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_coap do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_rule_engine do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_web_hook do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_config_helper do
@@ -106,22 +106,22 @@ defmodule EmqxReleaseHelper.Applications do
 
   application :emqx_exhook, %{release_type: :cloud} do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_exproto, %{release_type: :cloud} do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_prometheus, %{release_type: :cloud} do
     start_type :permanent
-    overlay :plugin
+    overlay :application
   end
 
   application :emqx_lwm2m, %{release_type: :cloud} do
     start_type :permanent
-    overlay :plugin
+    overlay :application
 
     overlay do
       copy "lwm2m_xml", "etc/lwm2m_xml"
@@ -130,7 +130,7 @@ defmodule EmqxReleaseHelper.Applications do
 
   application :emqx_psk_file, %{release_type: :cloud} do
     start_type :permanent
-    overlay :plugin
+    overlay :application
 
     overlay do
       copy "etc/psk.txt", "etc/psk.txt"

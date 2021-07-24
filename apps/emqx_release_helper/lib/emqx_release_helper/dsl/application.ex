@@ -44,11 +44,11 @@ defmodule EmqxReleaseHelper.DSL.Application do
     end
   end
 
-  defmacro overlay(:plugin) do
+  defmacro overlay(:application) do
     block =
       Macro.escape(
         quote do
-          &plugin_overlay/1
+          &application_overlay/1
         end
       )
 
@@ -131,7 +131,7 @@ defmodule EmqxReleaseHelper.DSL.Application do
     end
   end
 
-  def plugin_overlay(%{app_source_path: app_source_path, release_path: release_path} = config) do
+  def application_overlay(%{app_source_path: app_source_path, release_path: release_path} = config) do
     "#{app_source_path}/etc"
     |> File.ls()
     |> case do
