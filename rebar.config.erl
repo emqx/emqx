@@ -276,6 +276,9 @@ relx_apps(ReleaseType) ->
     ++ [emqx_license || is_enterprise()]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
     ++ relx_apps_per_rel(ReleaseType)
+       %% NOTE: applications below are only loaded after node start/restart
+       %% TODO: Add loaded/unloaded state to plugin apps
+       %%       then we can always start plugin apps
     ++ [{N, load} || N <- relx_plugin_apps(ReleaseType)].
 
 relx_apps_per_rel(cloud) ->
@@ -293,8 +296,7 @@ is_app(Name) ->
     end.
 
 relx_plugin_apps(ReleaseType) ->
-    []
-    ++ relx_plugin_apps_per_rel(ReleaseType)
+    relx_plugin_apps_per_rel(ReleaseType)
     ++ relx_plugin_apps_enterprise(is_enterprise())
     ++ relx_plugin_apps_extra().
 
