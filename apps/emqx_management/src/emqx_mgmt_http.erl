@@ -54,25 +54,17 @@ start_listener({Proto, Port, Options}) ->
                     type => apiKey,
                     name => "authorization",
                     in => header}}}},
+    Modules = minirest_api:find_api_modules(apps()) -- [emqx_mgmt_api_apps],
     Minirest = #{
         protocol => Proto,
         base_path => ?BASE_PATH,
-        apps => apps(),
+        modules => Modules,
         authorization => Authorization,
         security => [#{application => []}],
         swagger_global_spec => GlobalSpec},
     MinirestOptions = maps:merge(Minirest, RanchOptions),
     {ok, _} = minirest:start(listener_name(Proto), MinirestOptions),
     io:format("Start ~p listener on ~p successfully.~n", [listener_name(Proto), Port]).
-
-apps() ->
-    Apps = [App || {App, _, _} <- application:loaded_applications(),
-        case re:run(atom_to_list(App), "^emqx") of
-            {match,[{0,4}]} -> true;
-            _ -> false
-        end],
-    Plugins = lists:map(fun(Plugin) -> Plugin#plugin.name end, emqx_plugins:list()),
-    Apps ++ Plugins.
 
 ranch_opts(Port, Options0) ->
     Options = lists:foldl(
@@ -116,3 +108,12 @@ format({Addr, Port}) when is_list(Addr) ->
     io_lib:format("~s:~w", [Addr, Port]);
 format({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
+
+apps() ->
+    Apps = [App || {App, _, _} <- application:loaded_applications(), App =/= emqx_dashboard],
+    lists:filter(fun(App) ->
+        case re:run(atom_to_list(App), "^emqx") of
+            {match,[{0,4}]} -> true;
+            _ -> false
+        end
+    end, Apps).

@@ -60,7 +60,7 @@ start_listener({Proto, Port, Options}) ->
     Minirest = #{
         protocol => Proto,
         base_path => ?BASE_PATH,
-        apps => apps(),
+        modules => minirest_api:find_api_modules(apps()),
         authorization => Authorization,
         security => [#{application => []}],
         swagger_global_spec => GlobalSpec,
