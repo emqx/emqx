@@ -20,12 +20,25 @@
 
 -include("emqx_authn.hrl").
 
--export([ api_spec/0 ]).
+-export([ api_spec/0
+        , authenticators/2
+        , authenticators2/2
+        , position/2
+        , import_users/2
+        , users/2
+        , users2/2
+        ]).
 
 api_spec() ->
-    {[authenticator_api()], definitions()}.
+    {[ authenticators_api()
+     , authenticators_api2()
+     , position_api()
+     , import_users_api()
+     , users_api()
+     , users2_api()
+     ], definitions()}.
 
-authenticator_api() ->
+authenticators_api() ->
     Example1 = #{name => <<"example">>,
                  mechanism => <<"password-based">>,
                  config => #{
@@ -86,24 +99,506 @@ authenticator_api() ->
             },
             responses => #{
                 <<"201">> => #{
-                    description => <<"Created successfully">>,
-                    content => #{}
+                    description => <<"Created">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"returned_authenticator">>)
+                        }
+                    }
+                }
+            }
+        },
+        get => #{
+            description => "List authenticators",
+            responses => #{
+                <<"200">> => #{
+                    description => <<"OK">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => #{
+                                type => array,
+                                items => minirest:ref(<<"returned_authenticator">>)
+                            }
+                        }
+                    }
                 }
             }
         }
     },
     {"/authentication/authenticators", Metadata, authenticators}.
 
+authenticators_api2() ->
+    Metadata = #{
+        get => #{
+            description => "Get authenicator by id",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                        type => string
+                    },
+                    required => true
+                }
+            ],
+            responses => #{
+                <<"200">> => #{
+                    description => <<"OK">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"returned_authenticator">>)
+                        }
+                    }
+                },
+                <<"404">> => #{
+                    description => <<"Not Found">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>)
+                        }
+                    }
+                }
+            }
+        },
+        put => #{
+            description => "Update authenticator",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                       type => string
+                    },
+                    required => true
+                }
+            ],
+            requestBody => #{
+                content => #{
+                    'application/json' => #{
+                        schema => #{
+                            oneOf => [ minirest:ref(<<"password_based">>)
+                                     , minirest:ref(<<"jwt">>)
+                                     , minirest:ref(<<"scram">>)
+                                     ]   
+                        }
+                    }
+                }
+            },
+            responses => #{
+                <<"200">> => #{
+                    description => <<"OK">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"returned_authenticator">>)
+                        }
+                    }
+                },
+                <<"404">> => #{
+                    description => <<"Not Found">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>)
+                        }
+                    }
+                }
+            }
+        },
+        delete => #{
+            description => "Delete authenticator",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                       type => string
+                    },
+                    required => true
+                }
+            ],
+            responses => #{
+                <<"204">> => #{
+                    description => <<"No Content">>
+                },
+                <<"404">> => #{
+                    description => <<"Not Found">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>)
+                        }
+                    }
+                }
+            }
+        }
+    },
+    {"/authentication/authenticators/:id", Metadata, authenticators2}.
+
+position_api() ->
+    Metadata = #{
+        post => #{
+            description => "Change the order of authenticators",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                        type => string
+                    },
+                    required => true
+                }
+            ],
+            requestBody => #{
+                content => #{
+                    'application/json' => #{
+                        schema => #{
+                            type => object,
+                            required => [position],
+                            properties => #{
+                                position => #{
+                                    type => integer,
+                                    example => 1
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            responses => #{
+                <<"204">> => #{
+                    description => <<"No Content">>
+                },
+                <<"404">> => #{
+                    description => <<"Not Found">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>)
+                        }
+                    }
+                }
+            }
+        }
+    },
+    {"/authentication/authenticators/:id/position", Metadata, position}.
+
+import_users_api() ->
+    Metadata = #{
+        post => #{
+            description => "Import users from json/csv file",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                        type => string
+                    },
+                    required => true
+                }
+            ],
+            requestBody => #{
+                content => #{
+                    'application/json' => #{
+                        schema => #{
+                            type => object,
+                            required => [filename],
+                            properties => #{
+                                filename => #{
+                                    type => string
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            responses => #{
+                <<"204">> => #{
+                    description => <<"No Content">>
+                },
+                <<"400">> => #{
+                    description => <<"Bad Request">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>)
+                        }
+                    }
+                },
+                <<"404">> => #{
+                    description => <<"Not Found">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>)
+                        }
+                    }
+                }
+            }
+        }
+    },
+    {"/authentication/authenticators/:id/import-users", Metadata, import_users}.
+
+users_api() ->
+    Metadata = #{
+        post => #{
+            description => "Add user",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                        type => string
+                    },
+                    required => true
+                }
+            ],
+            requestBody => #{
+                content => #{
+                    'application/json' => #{
+                        schema => #{
+                            type => object,
+                            required => [user_id, password],
+                            properties => #{
+                                user_id => #{
+                                    type => string
+                                },
+                                password => #{
+                                    type => string
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            responses => #{
+                <<"201">> => #{
+                    description => <<"Created">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => #{
+                                type => object,
+                                required => [user_id],
+                                properties => #{
+                                    user_id => #{
+                                        type => string
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                <<"400">> => #{
+                    description => <<"Bad Request">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>)
+                        }
+                    }
+                }
+            }
+        },
+        get => #{
+            description => "List users",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                        type => string
+                    },
+                    required => true
+                }
+            ],
+            responses => #{
+                <<"200">> => #{
+                    description => <<"OK">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => #{
+                                type => array,
+                                items => #{
+                                    type => object,
+                                    required => [user_id],
+                                    properties => #{
+                                        user_id => #{
+                                            type => string
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    {"/authentication/authenticators/:id/users", Metadata, users}.
+
+users2_api() ->
+    Metadata = #{
+        patch => #{
+            description => "Update user",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                        type => string
+                    },
+                    required => true
+                },
+                #{
+                    name => user_id,
+                    in => path,
+                    schema => #{
+                        type => string
+                    },
+                    required => true
+                }
+            ],
+            requestBody => #{
+                content => #{
+                    'application/json' => #{
+                        schema => #{
+                            type => object,
+                            required => [password],
+                            properties => #{
+                                password => #{
+                                    type => string
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            responses => #{
+                <<"200">> => #{
+                    description => <<"OK">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => #{
+                                type => array,
+                                items => #{
+                                    type => object,
+                                    required => [user_id],
+                                    properties => #{
+                                        user_id => #{
+                                            type => string
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                <<"404">> => #{
+                    description => <<"Not Found">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>)
+                        }
+                    }
+                }
+            }
+        },
+        get => #{
+            description => "Get user info",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                        type => string
+                    },
+                    required => true
+                },
+                #{
+                    name => user_id,
+                    in => path,
+                    schema => #{
+                        type => string
+                    },
+                    required => true
+                }
+            ],
+            responses => #{
+                <<"200">> => #{
+                    description => <<"OK">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => #{
+                                type => array,
+                                items => #{
+                                    type => object,
+                                    required => [user_id],
+                                    properties => #{
+                                        user_id => #{
+                                            type => string
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                <<"404">> => #{
+                    description => <<"Not Found">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>)
+                        }
+                    }
+                }
+            }
+        },
+        delete => #{
+            description => "Delete user",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                        type => string
+                    },
+                    required => true
+                },
+                #{
+                    name => user_id,
+                    in => path,
+                    schema => #{
+                        type => string
+                    },
+                    required => true
+                }
+            ],
+            responses => #{
+                <<"204">> => #{
+                    description => <<"No Content">>
+                },
+                <<"404">> => #{
+                    description => <<"Not Found">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>)
+                        }
+                    }
+                }
+            }
+        }
+    },
+    {"/authentication/authenticators/:id/users/:user_id", Metadata, users2}.
+
+
 definitions() ->
     AuthenticatorDef = #{
+        oneOf => [ minirest:ref(<<"password_based">>)
+                 , minirest:ref(<<"jwt">>)
+                 , minirest:ref(<<"scram">>)
+                 ]   
+    },
+
+    ReturnedAuthenticatorDef = #{
         allOf => [
             #{
                 type => object,
-                required => [name],
                 properties => #{
-                    name => #{
-                        type => string,
-                        example => "exmaple"
+                    id => #{
+                        type => string
                     }
                 }
             },
@@ -111,99 +606,108 @@ definitions() ->
                 oneOf => [ minirest:ref(<<"password_based">>)
                          , minirest:ref(<<"jwt">>)
                          , minirest:ref(<<"scram">>)
-                ]    
+                         ]    
             }
         ]
     },
 
     PasswordBasedDef = #{
-        type => object,
-        properties => #{
-            mechanism => #{
-                type => string,
-                enum => [<<"password-based">>],
-                example => <<"password-based">>
+        allOf => [
+            #{
+                type => object,
+                required => [name, mechanism],
+                properties => #{
+                    name => #{
+                        type => string,
+                        example => "exmaple"
+                    },
+                    mechanism => #{
+                        type => string,
+                        enum => [<<"password-based">>],
+                        example => <<"password-based">>
+                    }
+                }
             },
-            config => #{
+            #{
                 oneOf => [ minirest:ref(<<"password_based_built_in_database">>)
                          , minirest:ref(<<"password_based_mysql">>)
                          , minirest:ref(<<"password_based_pgsql">>)
                          , minirest:ref(<<"password_based_http_server">>)
-                         ]
+                         ]    
             }
-        }
+        ]
     },
 
     JWTDef = #{
         type => object,
+        required => [name, mechanism],
         properties => #{
+            name => #{
+                type => string,
+                example => "exmaple"
+            },
             mechanism => #{
                 type => string,
                 enum => [<<"jwt">>],
                 example => <<"jwt">>
             },
-            config => #{
+            use_jwks => #{
+                type => boolean,
+                default => false,
+                example => false
+            },
+            algorithm => #{
+                type => string,
+                enum => [<<"hmac-based">>, <<"public-key">>],
+                default => <<"hmac-based">>,
+                example => <<"hmac-based">>
+            },
+            secret => #{
+                type => string
+            },
+            secret_base64_encoded => #{
+                type => boolean,
+                default => false
+            },
+            certificate => #{
+                type => string
+            },
+            verify_claims => #{
                 type => object,
-                properties => #{
-                    use_jwks => #{
-                        type => boolean,
-                        default => false,
-                        example => false
-                    },
-                    algorithm => #{
-                        type => string,
-                        enum => [<<"hmac-based">>, <<"public-key">>],
-                        default => <<"hmac-based">>,
-                        example => <<"hmac-based">>
-                    },
-                    secret => #{
-                        type => string
-                    },
-                    secret_base64_encoded => #{
-                        type => boolean,
-                        default => false
-                    },
-                    certificate => #{
-                        type => string
-                    },
-                    verify_claims => #{
-                        type => object,
-                        additionalProperties => #{
-                            type => string
-                        }
-                    },
-                    ssl => minirest:ref(<<"ssl">>)
-                } 
-            }
+                additionalProperties => #{
+                    type => string
+                }
+            },
+            ssl => minirest:ref(<<"ssl">>)
         }
     },
     
     SCRAMDef = #{
         type => object,
+        required => [name, mechanism],
         properties => #{
+            name => #{
+                type => string,
+                example => "exmaple"
+            },
             mechanism => #{
                 type => string,
                 enum => [<<"scram">>],
                 example => <<"scram">>
             },
-            config => #{
-                type => object,
-                properties => #{
-                    server_type => #{
-                        type => string,
-                        enum => [<<"built-in-database">>],
-                        default => <<"built-in-database">>
-                    },
-                    algorithm => #{
-                        type => string,
-                        enum => [<<"sha256">>, <<"sha512">>],
-                        default => <<"sha256">>
-                    },
-                    iteration_count => #{
-                        type => integer,
-                        default => 4096
-                    }
-                }
+            server_type => #{
+                type => string,
+                enum => [<<"built-in-database">>],
+                default => <<"built-in-database">>
+            },
+            algorithm => #{
+                type => string,
+                enum => [<<"sha256">>, <<"sha512">>],
+                default => <<"sha256">>
+            },
+            iteration_count => #{
+                type => integer,
+                default => 4096
             }
         }
     },
@@ -410,7 +914,7 @@ definitions() ->
                 properties => #{
                     enable => #{
                         type => boolean,
-                        default => false    
+                        default => false
                     },
                     hostname => #{
                         type => string
@@ -420,7 +924,22 @@ definitions() ->
         }
     },
 
+    ErrorDef = #{
+        type => object,
+        properties => #{
+            code => #{
+                type => string,
+                enum => [<<"NOT_FOUND">>],
+                example => <<"NOT_FOUND">>
+            },
+            message => #{
+                type => string
+            }
+        }
+    },
+
     [ #{<<"authenticator">> => AuthenticatorDef}
+    , #{<<"returned_authenticator">> => ReturnedAuthenticatorDef}
     , #{<<"password_based">> => PasswordBasedDef}
     , #{<<"jwt">> => JWTDef}
     , #{<<"scram">> => SCRAMDef}
@@ -430,4 +949,163 @@ definitions() ->
     , #{<<"password_based_http_server">> => PasswordBasedHTTPServerDef}
     , #{<<"password_hash_algorithm">> => PasswordHashAlgorithmDef}
     , #{<<"ssl">> => SSLDef}
+    , #{<<"error">> => ErrorDef}
     ].
+
+authenticators(post, Request) ->
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    AuthenticatorConfig = emqx_json:decode(Body, [return_maps]),
+    Config = #{<<"emqx_authn">> => #{
+                   <<"authenticators">> => [AuthenticatorConfig]
+               }},
+    NConfig = hocon_schema:check_plain(emqx_authn_schema, Config,
+                                       #{nullable => true}),
+    #{emqx_authn := #{authenticators := [NAuthenticatorConfig]}} = emqx_map_lib:unsafe_atom_key_map(NConfig),
+    case emqx_authn:create_authenticator(?CHAIN, NAuthenticatorConfig) of
+        {ok, Authenticator2} ->
+            {201, Authenticator2};
+        {error, Reason} ->
+            serialize_error(Reason)
+    end;
+authenticators(get, _Request) ->
+    {ok, Authenticators} = emqx_authn:list_authenticators(?CHAIN),
+    {200, Authenticators}.
+
+authenticators2(get, Request) ->
+    AuthenticatorID = cowboy_req:binding(id, Request),
+    case emqx_authn:lookup_authenticator(?CHAIN, AuthenticatorID) of
+        {ok, Authenticator} ->
+           {200, Authenticator};
+        {error, Reason} ->
+            serialize_error(Reason)
+    end;
+authenticators2(put, Request) ->
+    AuthenticatorID = cowboy_req:binding(id, Request),
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    AuthenticatorConfig = emqx_json:decode(Body, [return_maps]),
+    Config = #{<<"emqx_authn">> => #{
+                   <<"authenticators">> => [AuthenticatorConfig]
+               }},
+    NConfig = hocon_schema:check_plain(emqx_authn_schema, Config,
+                                       #{nullable => true}),
+    #{emqx_authn := #{authenticators := [NAuthenticatorConfig]}} = emqx_map_lib:unsafe_atom_key_map(NConfig),
+    case emqx_authn:update_or_create_authenticator(?CHAIN, AuthenticatorID, NAuthenticatorConfig) of
+        {ok, Authenticator} ->
+            {200, Authenticator};
+        {error, Reason} ->
+            serialize_error(Reason)
+    end;
+authenticators2(delete, Request) ->
+    AuthenticatorID = cowboy_req:binding(id, Request),
+    case emqx_authn:delete_authenticator(?CHAIN, AuthenticatorID) of
+        ok ->
+            {204};
+        {error, Reason} ->
+            serialize_error(Reason)
+    end.
+
+position(post, Request) ->
+    AuthenticatorID = cowboy_req:binding(id, Request),
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    case emqx_json:decode(Body, [return_maps]) of
+        #{<<"position">> := Position} when is_integer(Position) ->
+            case emqx_authn:move_authenticator_to_the_nth(?CHAIN, AuthenticatorID, Position) of
+                ok ->
+                    {204};
+                {error, Reason} ->
+                    serialize_error(Reason)
+            end;
+        _ ->
+            serialize_error({missing_parameter, position})
+    end.
+
+import_users(post, Request) ->
+    AuthenticatorID = cowboy_req:binding(id, Request),
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    case emqx_json:decode(Body, [return_maps]) of
+        #{<<"filename">> := Filename} when is_binary(Filename) ->
+            case emqx_authn:import_users(?CHAIN, AuthenticatorID, Filename) of
+                ok ->
+                    {204};
+                {error, Reason} ->
+                    serialize_error(Reason)
+            end;
+        _ ->
+            serialize_error({missing_parameter, filename})
+    end.
+
+users(post, Request) ->
+    AuthenticatorID = cowboy_req:binding(id, Request),
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    case emqx_json:decode(Body, [return_maps]) of
+        #{<<"user_id">> := _,
+          <<"password">> := _} = UserInfo ->
+            case emqx_authn:add_user(?CHAIN, AuthenticatorID, UserInfo) of
+                {ok, User} ->
+                    {201, User};
+                {error, Reason} ->
+                    serialize_error(Reason)
+            end;
+        _ ->
+            serialize_error({missing_parameter, user_id})
+    end;
+users(get, Request) ->
+    AuthenticatorID = cowboy_req:binding(id, Request),
+    case emqx_authn:list_users(?CHAIN, AuthenticatorID) of
+        {ok, Users} ->
+            {200, Users};
+        {error, Reason} ->
+            serialize_error(Reason)
+    end.
+
+users2(patch, Request) ->
+    AuthenticatorID = cowboy_req:binding(id, Request),
+    UserID = cowboy_req:binding(user_id, Request),
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    case emqx_json:decode(Body, [return_maps]) of
+        #{<<"password">> := _} = UserInfo ->
+            case emqx_authn:add_user(?CHAIN, AuthenticatorID, UserID, UserInfo) of
+                {ok, User} ->
+                    {200, User};
+                {error, Reason} ->
+                    serialize_error(Reason)
+            end;
+        _ ->
+            serialize_error({missing_parameter, password})
+    end;
+users2(get, Request) ->
+    AuthenticatorID = cowboy_req:binding(id, Request),
+    UserID = cowboy_req:binding(user_id, Request),
+    case emqx_authn:lookup_user(?CHAIN, AuthenticatorID, UserID) of
+        {ok, User} ->
+            {200, User};
+        {error, Reason} ->
+            serialize_error(Reason)
+    end;
+users2(delete, Request) ->
+    AuthenticatorID = cowboy_req:binding(id, Request),
+    UserID = cowboy_req:binding(user_id, Request),
+    case emqx_authn:delete_user(?CHAIN, AuthenticatorID, UserID) of
+        ok ->
+            {204};
+        {error, Reason} ->
+            serialize_error(Reason)
+    end.
+
+serialize_error({not_found, {authenticator, ID}}) ->
+    {404, #{code => <<"NOT_FOUND">>,
+            message => list_to_binary(io_lib:format("Authenticator '~s' does not exist", [ID]))}};
+serialize_error(name_has_be_used) ->
+    {409, #{code => <<"ALREADY_EXISTS">>,
+            message => <<"Name has be used">>}};
+serialize_error(out_of_range) ->
+    {400, #{code => <<"OUT_OF_RANGE">>,
+            message => <<"Out of range">>}};
+serialize_error({missing_parameter, Name}) ->
+    {400, #{code => <<"MISSING_PARAMETER">>,
+            message => list_to_binary(
+                io_lib:format("The input parameter '~p' that is mandatory for processing this request is not supplied", [Name])
+            )}};
+serialize_error(_) ->
+    {400, #{code => <<"BAD_REQUEST">>,
+            message => <<"Todo">>}}.

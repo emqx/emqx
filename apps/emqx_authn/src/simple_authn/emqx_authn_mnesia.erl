@@ -23,8 +23,8 @@
 
 -export([ structs/0, fields/1 ]).
 
--export([ create/3
-        , update/4
+-export([ create/1
+        , update/2
         , authenticate/2
         , destroy/1
         ]).
@@ -39,7 +39,7 @@
 
 -type user_id_type() :: clientid | username.
 
--type user_group() :: {chain_id(), authenticator_name()}.
+-type user_group() :: {binary(), binary()}.
 -type user_id() :: binary().
 
 -record(user_info,
@@ -81,8 +81,10 @@ mnesia(copy) ->
 structs() -> [config].
 
 fields(config) ->
-    [ {server_type, {enum, ['built-in-database']}}
-    , {user_id_type, fun user_id_type/1}
+    [ {name,                    fun emqx_authn_schema:authenticator_name/1}
+    , {mechanism,               {enum, ['password-based']}}
+    , {server_type,             {enum, ['built-in-database']}}
+    , {user_id_type,            fun user_id_type/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     ];
 
@@ -111,25 +113,29 @@ salt_rounds(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(ChainID, AuthenticatorName, #{user_id_type := Type,
-                                     password_hash_algorithm := #{name := bcrypt,
-                                                                  salt_rounds := SaltRounds}}) ->
+create(#{ user_id_type := Type
+        , password_hash_algorithm := #{name := bcrypt,
+                                       salt_rounds := SaltRounds}
+        , '_unique' := Unique
+        }) ->
     {ok, _} = application:ensure_all_started(bcrypt),
-    State = #{user_group => {ChainID, AuthenticatorName},
+    State = #{user_group => Unique,
               user_id_type => Type,
               password_hash_algorithm => bcrypt,
               salt_rounds => SaltRounds},
     {ok, State};
 
-create(ChainID, AuthenticatorName, #{user_id_type := Type,
-                                     password_hash_algorithm := #{name := Name}}) ->
-    State = #{user_group => {ChainID, AuthenticatorName},
+create(#{ user_id_type := Type
+        , password_hash_algorithm := #{name := Name}
+        , '_unique' := Unique
+        }) ->
+    State = #{user_group => Unique,
               user_id_type => Type,
               password_hash_algorithm => Name},
     {ok, State}.
 
-update(ChainID, AuthenticatorName, Config, _State) ->
-    create(ChainID, AuthenticatorName, Config).
+update(Config, #{user_group := Unique}) ->
+    create(Config#{'_unique' => Unique}).
 
 authenticate(#{auth_method := _}, _) ->
     ignore;

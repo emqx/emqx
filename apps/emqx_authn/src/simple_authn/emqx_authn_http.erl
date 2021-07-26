@@ -26,8 +26,8 @@
         , validations/0
         ]).
 
--export([ create/3
-        , update/4
+-export([ create/1
+        , update/2
         , authenticate/2
         , destroy/1
         ]).
@@ -57,7 +57,9 @@ fields(post) ->
     ] ++ common_fields().
 
 common_fields() ->
-    [ {server_type,     {enum, ['http-server']}}
+    [ {name,            fun emqx_authn_schema:authenticator_name/1}
+    , {mechanism,       {enum, ['password-based']}}
+    , {server_type,     {enum, ['http-server']}}
     , {url,             fun url/1}
     , {form_data,       fun form_data/1}
     , {request_timeout, fun request_timeout/1}
@@ -105,37 +107,41 @@ request_timeout(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(ChainID, AuthenticatorName,
-        #{method := Method,
-          url := URL,
-          headers := Headers,
-          form_data := FormData,
-          request_timeout := RequestTimeout} = Config) ->
+create(#{ method := Method
+        , url := URL
+        , headers := Headers
+        , form_data := FormData
+        , request_timeout := RequestTimeout
+        , '_unique' := Unique
+        } = Config) ->
     #{path := Path,
       query := Query} = URIMap = parse_url(URL),
-    State = #{method          => Method,
-              path            => Path,
-              base_query      => cow_qs:parse_qs(list_to_binary(Query)),
-              headers         => normalize_headers(Headers),
-              form_data       => maps:to_list(FormData),
-              request_timeout => RequestTimeout},
-    ResourceID = <<ChainID/binary, "/", AuthenticatorName/binary>>,
-    case emqx_resource:create_local(ResourceID,
+    State = #{ method          => Method
+             , path            => Path
+             , base_query      => cow_qs:parse_qs(list_to_binary(Query))
+             , headers         => normalize_headers(Headers)
+             , form_data       => maps:to_list(FormData)
+             , request_timeout => RequestTimeout
+             },
+    case emqx_resource:create_local(Unique,
                                     emqx_connector_http,
                                     Config#{base_url => maps:remove(query, URIMap),
                                             pool_type => random}) of
         {ok, _} ->
-            {ok, State#{resource_id => ResourceID}};
+            {ok, State#{resource_id => Unique}};
         {error, already_created} ->
-            {ok, State#{resource_id => ResourceID}};
+            {ok, State#{resource_id => Unique}};
         {error, Reason} ->
             {error, Reason}
     end.
 
-update(_ChainID, _AuthenticatorName, Config, #{resource_id := ResourceID} = State) ->
-    case emqx_resource:update_local(ResourceID, emqx_connector_http, Config, []) of
-        {ok, _} -> {ok, State};
-        {error, Reason} -> {error, Reason}
+update(Config, State) ->
+    case create(Config) of
+        {ok, NewState} ->
+            ok = destroy(State),
+            {ok, NewState};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 authenticate(#{auth_method := _}, _) ->

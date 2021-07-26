@@ -24,8 +24,8 @@
         , fields/1
         ]).
 
--export([ create/3
-        , update/4
+-export([ create/1
+        , update/2
         , authenticate/2
         , destroy/1
         ]).
@@ -48,27 +48,24 @@ fields('hmac-based') ->
     , {algorithm,             {enum, ['hmac-based']}}
     , {secret,                fun secret/1}
     , {secret_base64_encoded, fun secret_base64_encoded/1}
-    , {verify_claims,         fun verify_claims/1}
-    ];
+    ] ++ common_fields();
 
 fields('public-key') ->
     [ {use_jwks,              {enum, [false]}}
     , {algorithm,             {enum, ['public-key']}}
     , {certificate,           fun certificate/1}
-    , {verify_claims,         fun verify_claims/1}
-    ];
+    ] ++ common_fields();
 
 fields('jwks') ->
     [ {use_jwks,              {enum, [true]}}
     , {endpoint,              fun endpoint/1}
     , {refresh_interval,      fun refresh_interval/1}
-    , {verify_claims,         fun verify_claims/1}
     , {ssl,                   #{type => hoconsc:union(
                                          [ hoconsc:ref(?MODULE, ssl_enable)
                                          , hoconsc:ref(?MODULE, ssl_disable)
                                          ]),
                                 default => #{<<"enable">> => false}}}
-    ];
+    ] ++ common_fields();
 
 fields(ssl_enable) ->
     [ {enable,                 #{type => true}}
@@ -81,6 +78,12 @@ fields(ssl_enable) ->
 
 fields(ssl_disable) ->
     [ {enable, #{type => false}} ].
+
+common_fields() ->
+    [ {name,            fun emqx_authn_schema:authenticator_name/1}
+    , {mechanism,       {enum, [jwt]}}
+    , {verify_claims,   fun verify_claims/1}
+    ].
 
 secret(type) -> string();
 secret(_) -> undefined.
@@ -129,18 +132,18 @@ verify_claims(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(_ChainID, _AuthenticatorName, Config) ->
-    create(Config).
+create(#{verify_claims := VerifyClaims} = Config) ->
+    create2(Config#{verify_claims => handle_verify_claims(VerifyClaims)}).
 
-update(_ChainID, _AuthenticatorName, #{use_jwks := false} = Config, #{jwk := Connector})
+update(#{use_jwks := false} = Config, #{jwk := Connector})
   when is_pid(Connector) ->
     _ = emqx_authn_jwks_connector:stop(Connector),
     create(Config);
 
-update(_ChainID, _AuthenticatorName, #{use_jwks := false} = Config, _) ->
+update(#{use_jwks := false} = Config, _) ->
     create(Config);
 
-update(_ChainID, _AuthenticatorName, #{use_jwks := true} = Config, #{jwk := Connector} = State)
+update(#{use_jwks := true} = Config, #{jwk := Connector} = State)
   when is_pid(Connector) ->
     ok = emqx_authn_jwks_connector:update(Connector, Config),
     case maps:get(verify_cliams, Config, undefined) of
@@ -150,7 +153,7 @@ update(_ChainID, _AuthenticatorName, #{use_jwks := true} = Config, #{jwk := Conn
             {ok, State#{verify_claims => handle_verify_claims(VerifyClaims)}}
     end;
 
-update(_ChainID, _AuthenticatorName, #{use_jwks := true} = Config, _) ->
+update(#{use_jwks := true} = Config, _) ->
     create(Config).
 
 authenticate(#{auth_method := _}, _) ->
@@ -180,9 +183,6 @@ destroy(_) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-create(#{verify_claims := VerifyClaims} = Config) ->
-    create2(Config#{verify_claims => handle_verify_claims(VerifyClaims)}).
 
 create2(#{use_jwks := false,
           algorithm := 'hmac-based',

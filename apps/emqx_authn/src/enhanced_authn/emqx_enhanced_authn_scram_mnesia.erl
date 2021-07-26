@@ -26,8 +26,8 @@
         , fields/1
         ]).
 
--export([ create/3
-        , update/4
+-export([ create/1
+        , update/2
         , authenticate/2
         , destroy/1
         ]).
@@ -71,7 +71,9 @@ mnesia(copy) ->
 structs() -> [config].
 
 fields(config) ->
-    [ {server_type,     fun server_type/1}
+    [ {name,            fun emqx_authn_schema:authenticator_name/1}
+    , {mechanism,       {enum, [scram]}}
+    , {server_type,     fun server_type/1}
     , {algorithm,       fun algorithm/1}
     , {iteration_count, fun iteration_count/1}
     ].
@@ -92,16 +94,18 @@ iteration_count(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(ChainID, Authenticator, #{algorithm := Algorithm,
-                                 iteration_count := IterationCount}) ->
-    State = #{user_group => {ChainID, Authenticator},
+create(#{ algorithm := Algorithm
+        , iteration_count := IterationCount
+        , '_unique' := Unique
+        }) ->
+    State = #{user_group => Unique,
               algorithm => Algorithm,
               iteration_count => IterationCount},
     {ok, State}.
 
-update(_ChainID, _Authenticator, _Config, _State) ->
-    {error, update_not_suppored}.
-
+update(Config, #{user_group := Unique}) ->
+    create(Config#{'_unique' => Unique}).
+    
 authenticate(#{auth_method := AuthMethod,
                auth_data := AuthData,
                auth_cache := AuthCache}, State) ->

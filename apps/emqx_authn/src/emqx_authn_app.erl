@@ -42,16 +42,16 @@ initialize() ->
                                                   authenticators => []}),
     initialize(AuthNConfig).
 
-initialize(#{enable := Enable, authenticators := Authenticators}) ->
+initialize(#{enable := Enable, authenticators := AuthenticatorsConfig}) ->
     {ok, _} = emqx_authn:create_chain(#{id => ?CHAIN}),
-    initialize_authenticators(Authenticators),
+    initialize_authenticators(AuthenticatorsConfig),
     Enable =:= true andalso emqx_authn:enable(),
     ok.
 
 initialize_authenticators([]) ->
     ok;
-initialize_authenticators([#{name := Name} = Authenticator | More]) ->
-    case emqx_authn:create_authenticator(?CHAIN, Authenticator) of
+initialize_authenticators([#{name := Name} = AuthenticatorConfig | More]) ->
+    case emqx_authn:create_authenticator(?CHAIN, AuthenticatorConfig) of
         {ok, _} ->
             initialize_authenticators(More);
         {error, Reason} ->
