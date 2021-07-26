@@ -54,11 +54,10 @@ start_listener({Proto, Port, Options}) ->
                     type => apiKey,
                     name => "authorization",
                     in => header}}}},
-    Modules = minirest_api:find_api_modules(apps()) -- [emqx_mgmt_api_apps],
     Minirest = #{
         protocol => Proto,
         base_path => ?BASE_PATH,
-        modules => Modules,
+        modules => api_modules(),
         authorization => Authorization,
         security => [#{application => []}],
         swagger_global_spec => GlobalSpec},
@@ -117,3 +116,11 @@ apps() ->
             _ -> false
         end
     end, Apps).
+
+-ifdef(TEST).
+api_modules() ->
+    minirest_api:find_api_modules(apps()).
+-else.
+api_modules() ->
+    minirest_api:find_api_modules(apps()) -- [emqx_mgmt_api_apps].
+-endif.
