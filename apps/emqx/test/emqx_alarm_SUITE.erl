@@ -28,14 +28,14 @@ all() -> emqx_ct:all(?MODULE).
 init_per_testcase(t_size_limit, Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
-    emqx_config:update_config([alarm], #{
+    emqx_config:update([alarm], #{
             <<"size_limit">> => 2
         }),
     Config;
 init_per_testcase(t_validity_period, Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
-    emqx_config:update_config([alarm], #{
+    emqx_config:update([alarm], #{
             <<"validity_period">> => <<"1s">>
         }),
     Config;

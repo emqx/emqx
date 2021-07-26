@@ -46,7 +46,7 @@
         , find_listener_conf/3
         ]).
 
--export([ update_config/2
+-export([ update/2
         ]).
 
 %% raw configs is the config that is now parsed and tranlated by hocon schema
@@ -126,9 +126,9 @@ put(Config) ->
 put(KeyPath, Config) ->
     put(emqx_map_lib:deep_put(KeyPath, get(), Config)).
 
--spec update_config(emqx_map_lib:config_key_path(), update_request()) ->
+-spec update(emqx_map_lib:config_key_path(), update_request()) ->
     ok | {error, term()}.
-update_config(ConfKeyPath, UpdateReq) ->
+update(ConfKeyPath, UpdateReq) ->
     emqx_config_handler:update_config(ConfKeyPath, UpdateReq, get_raw()).
 
 -spec get_raw() -> map().

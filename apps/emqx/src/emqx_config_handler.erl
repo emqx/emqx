@@ -29,7 +29,7 @@
         ]).
 
 %% emqx_config_handler callbacks
--export([ handle_update_config/2
+-export([ pre_config_update/2
         ]).
 
 %% gen_server callbacks
@@ -45,14 +45,14 @@
 -type handler_name() :: module().
 -type handlers() :: #{emqx_config:config_key() => handlers(), ?MOD => handler_name()}.
 
--optional_callbacks([ handle_update_config/2
-                    , post_update_config/2
+-optional_callbacks([ pre_config_update/2
+                    , post_config_update/2
                     ]).
 
--callback handle_update_config(emqx_config:update_request(), emqx_config:raw_config()) ->
+-callback pre_config_update(emqx_config:update_request(), emqx_config:raw_config()) ->
     emqx_config:update_request().
 
--callback post_update_config(emqx_config:config(), emqx_config:config()) -> any().
+-callback post_config_update(emqx_config:config(), emqx_config:config()) -> any().
 
 -type state() :: #{
     handlers := handlers(),
@@ -88,7 +88,7 @@ handle_call({update_config, ConfKeyPath, UpdateReq, RawConf}, _From,
     OldConf = emqx_config:get(),
     try {RootKeys, Conf} = do_update_config(ConfKeyPath, Handlers, RawConf, UpdateReq),
         Result = emqx_config:save_configs(Conf, #{overridden_keys => RootKeys}),
-        do_post_update_config(ConfKeyPath, Handlers, OldConf, emqx_config:get()),
+        do_post_config_update(ConfKeyPath, Handlers, OldConf, emqx_config:get()),
         {reply, Result, State}
     catch
         Error : Reason : ST ->
@@ -113,43 +113,43 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 do_update_config([], Handlers, OldRawConf, UpdateReq) ->
-    call_handle_update_config(Handlers, OldRawConf, UpdateReq);
+    call_pre_config_update(Handlers, OldRawConf, UpdateReq);
 do_update_config([ConfKey | ConfKeyPath], Handlers, OldRawConf, UpdateReq) ->
     SubOldRawConf = get_sub_config(bin(ConfKey), OldRawConf),
     SubHandlers = maps:get(ConfKey, Handlers, #{}),
     NewUpdateReq = do_update_config(ConfKeyPath, SubHandlers, SubOldRawConf, UpdateReq),
-    call_handle_update_config(Handlers, OldRawConf, #{bin(ConfKey) => NewUpdateReq}).
+    call_pre_config_update(Handlers, OldRawConf, #{bin(ConfKey) => NewUpdateReq}).
 
-do_post_update_config([], Handlers, OldConf, NewConf) ->
-    call_post_update_config(Handlers, OldConf, NewConf);
-do_post_update_config([ConfKey | ConfKeyPath], Handlers, OldConf, NewConf) ->
+do_post_config_update([], Handlers, OldConf, NewConf) ->
+    call_post_config_update(Handlers, OldConf, NewConf);
+do_post_config_update([ConfKey | ConfKeyPath], Handlers, OldConf, NewConf) ->
     SubOldConf = get_sub_config(ConfKey, OldConf),
     SubNewConf = get_sub_config(ConfKey, NewConf),
     SubHandlers = maps:get(ConfKey, Handlers, #{}),
-    _ = do_post_update_config(ConfKeyPath, SubHandlers, SubOldConf, SubNewConf),
-    call_post_update_config(Handlers, OldConf, NewConf).
+    _ = do_post_config_update(ConfKeyPath, SubHandlers, SubOldConf, SubNewConf),
+    call_post_config_update(Handlers, OldConf, NewConf).
 
 get_sub_config(ConfKey, Conf) when is_map(Conf) ->
     maps:get(ConfKey, Conf, undefined);
 get_sub_config(_, _Conf) -> %% the Conf is a primitive
     undefined.
 
-call_handle_update_config(Handlers, OldRawConf, UpdateReq) ->
+call_pre_config_update(Handlers, OldRawConf, UpdateReq) ->
     HandlerName = maps:get(?MOD, Handlers, undefined),
-    case erlang:function_exported(HandlerName, handle_update_config, 2) of
-        true -> HandlerName:handle_update_config(UpdateReq, OldRawConf);
+    case erlang:function_exported(HandlerName, pre_config_update, 2) of
+        true -> HandlerName:pre_config_update(UpdateReq, OldRawConf);
         false -> merge_to_old_config(UpdateReq, OldRawConf)
     end.
 
-call_post_update_config(Handlers, OldConf, NewConf) ->
+call_post_config_update(Handlers, OldConf, NewConf) ->
     HandlerName = maps:get(?MOD, Handlers, undefined),
-    case erlang:function_exported(HandlerName, post_update_config, 2) of
-        true -> _ = HandlerName:post_update_config(NewConf, OldConf);
+    case erlang:function_exported(HandlerName, post_config_update, 2) of
+        true -> _ = HandlerName:post_config_update(NewConf, OldConf);
         false -> ok
     end.
 
 %% callbacks for the top-level handler
-handle_update_config(UpdateReq, OldConf) ->
+pre_config_update(UpdateReq, OldConf) ->
     FullRawConf = merge_to_old_config(UpdateReq, OldConf),
     {maps:keys(UpdateReq), FullRawConf}.
 

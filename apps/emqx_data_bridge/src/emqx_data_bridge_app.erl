@@ -19,7 +19,7 @@
 
 -behaviour(emqx_config_handler).
 
--export([start/2, stop/1, handle_update_config/2]).
+-export([start/2, stop/1, pre_config_update/2]).
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_data_bridge_sup:start_link(),
@@ -31,11 +31,11 @@ stop(_State) ->
     ok.
 
 %% internal functions
-handle_update_config({update, Bridge = #{<<"name">> := Name}}, OldConf) ->
+pre_config_update({update, Bridge = #{<<"name">> := Name}}, OldConf) ->
     [Bridge | remove_bridge(Name, OldConf)];
-handle_update_config({delete, Name}, OldConf) ->
+pre_config_update({delete, Name}, OldConf) ->
     remove_bridge(Name, OldConf);
-handle_update_config(NewConf, _OldConf) when is_list(NewConf) ->
+pre_config_update(NewConf, _OldConf) when is_list(NewConf) ->
     %% overwrite the entire config!
     NewConf.
 
