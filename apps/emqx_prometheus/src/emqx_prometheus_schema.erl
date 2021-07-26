@@ -27,4 +27,5 @@ structs() -> ["emqx_prometheus"].
 fields("emqx_prometheus") ->
     [ {push_gateway_server, emqx_schema:t(string())}
     , {interval, emqx_schema:t(emqx_schema:duration_ms(), undefined, "15s")}
+    , {enable, emqx_schema:t(boolean(), undefined, false)}
     ].

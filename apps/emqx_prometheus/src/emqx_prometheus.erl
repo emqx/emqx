@@ -25,12 +25,6 @@
 -include_lib("prometheus/include/prometheus.hrl").
 -include_lib("prometheus/include/prometheus_model.hrl").
 
--rest_api(#{name   => stats,
-            method => 'GET',
-            path   => "/emqx_prometheus",
-            func   => stats,
-            descr  => "Get emqx all stats info"
-           }).
 
 -import(prometheus_model_helpers,
         [ create_mf/5
@@ -38,11 +32,8 @@
         , counter_metric/1
         ]).
 
-%% REST APIs
--export([stats/2]).
-
 %% APIs
--export([start_link/2]).
+-export([start_link/1]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -59,6 +50,8 @@
         , collect_metrics/2
         ]).
 
+-export([collect/1]).
+
 -define(C(K, L), proplists:get_value(K, L, 0)).
 
 -define(TIMER_MSG, '#interval').
@@ -69,25 +62,17 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-start_link(PushGateway, Interval) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [PushGateway, Interval], []).
-
-%%--------------------------------------------------------------------
-%% REST APIs
-
-stats(_Bindings, Params) ->
-    collect(proplists:get_value(<<"type">>, Params, <<"json">>)).
+start_link(Opts) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([undefined, Interval]) ->
-    {ok, #state{interval = Interval}};
-
-init([PushGateway, Interval]) ->
-    Ref = erlang:start_timer(Interval, self(), ?TIMER_MSG),
-    {ok, #state{timer = Ref, push_gateway = PushGateway, interval = Interval}}.
+init([Opts]) ->
+    Interval = maps:get(interval, Opts),
+    PushGateway = maps:get(push_gateway_server, Opts),
+    {ok, ensure_timer(#state{push_gateway = PushGateway, interval = Interval})}.
 
 handle_call(_Msg, _From, State) ->
     {noreply, State}.
@@ -95,12 +80,12 @@ handle_call(_Msg, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({timeout, R, ?TIMER_MSG}, S = #state{interval=I, timer=R, push_gateway=Uri}) ->
+handle_info({timeout, R, ?TIMER_MSG}, State = #state{timer=R, push_gateway=Uri}) ->
     [Name, Ip] = string:tokens(atom_to_list(node()), "@"),
     Url = lists:concat([Uri, "/metrics/job/", Name, "/instance/",Name, "~", Ip]),
     Data = prometheus_text_format:format(),
     httpc:request(post, {Url, [], "text/plain", Data}, [{autoredirect, true}], []),
-    {noreply, S#state{timer = erlang:start_timer(I, self(), ?TIMER_MSG)}};
+    {noreply, ensure_timer(State)};
 
 handle_info(_Msg, State) ->
     {noreply, State}.
@@ -111,6 +96,8 @@ code_change(_OldVsn, State, _Extra) ->
 terminate(_Reason, _State) ->
     ok.
 
+ensure_timer(State = #state{interval = Interval}) ->
+    State#state{timer = emqx_misc:start_timer(Interval, ?TIMER_MSG)}.
 %%--------------------------------------------------------------------
 %% prometheus callbacks
 %%--------------------------------------------------------------------
@@ -138,18 +125,16 @@ collect(<<"json">>) ->
     Metrics = emqx_metrics:all(),
     Stats = emqx_stats:getstats(),
     VMData = emqx_vm_data(),
-    Data = [{stats, [collect_stats(Name, Stats) || Name <- emqx_stats()]},
-            {metrics, [collect_stats(Name, VMData) || Name <- emqx_vm()]},
-            {packets, [collect_stats(Name, Metrics) || Name <- emqx_metrics_packets()]},
-            {messages, [collect_stats(Name, Metrics) || Name <- emqx_metrics_messages()]},
-            {delivery, [collect_stats(Name, Metrics) || Name <- emqx_metrics_delivery()]},
-            {client, [collect_stats(Name, Metrics) || Name <- emqx_metrics_client()]},
-            {session, [collect_stats(Name, Metrics) || Name <- emqx_metrics_session()]}],
-    return({ok, Data});
+    [{stats, [collect_stats(Name, Stats) || Name <- emqx_stats()]},
+     {metrics, [collect_stats(Name, VMData) || Name <- emqx_vm()]},
+     {packets, [collect_stats(Name, Metrics) || Name <- emqx_metrics_packets()]},
+     {messages, [collect_stats(Name, Metrics) || Name <- emqx_metrics_messages()]},
+     {delivery, [collect_stats(Name, Metrics) || Name <- emqx_metrics_delivery()]},
+     {client, [collect_stats(Name, Metrics) || Name <- emqx_metrics_client()]},
+     {session, [collect_stats(Name, Metrics) || Name <- emqx_metrics_session()]}];
 
 collect(<<"prometheus">>) ->
-    Data = prometheus_text_format:format(),
-    {ok, #{<<"content-type">> => <<"text/plain">>}, Data}.
+    prometheus_text_format:format().
 
 %% @private
 collect_stats(Name, Stats) ->
@@ -608,7 +593,3 @@ emqx_cluster_data() ->
     #{running_nodes := Running, stopped_nodes := Stopped} = ekka_mnesia:cluster_info(),
     [{nodes_running, length(Running)},
      {nodes_stopped, length(Stopped)}].
-
-%% TODO: V5 API
-return(_) ->
-    ok.

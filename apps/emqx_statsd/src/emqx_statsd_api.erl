@@ -99,7 +99,7 @@ enable_statsd(true) ->
     emqx_statsd_sup:start_child(?APP, emqx_config:get([?APP], #{})),
     {200};
 enable_statsd(false) ->
-    ok = emqx_statsd_sup:stop_child(?APP),
+    _ = emqx_statsd_sup:stop_child(?APP),
     {200}.
 
 get_raw(Key, Def) ->
