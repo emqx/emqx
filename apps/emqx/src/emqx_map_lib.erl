@@ -19,6 +19,7 @@
         , deep_get/3
         , deep_find/2
         , deep_put/3
+        , deep_remove/2
         , deep_merge/2
         , safe_atom_key_map/1
         , unsafe_atom_key_map/1
@@ -63,6 +64,19 @@ deep_put([], _Map, Config) -> %% not map, replace it
 deep_put([Key | KeyPath], Map, Config) ->
     SubMap = deep_put(KeyPath, maps:get(Key, Map, #{}), Config),
     Map#{Key => SubMap}.
+
+-spec deep_remove(config_key_path(), map()) -> map().
+deep_remove([], Map) ->
+    Map;
+deep_remove([Key], Map) ->
+    maps:remove(Key, Map);
+deep_remove([Key | KeyPath], Map) ->
+    case maps:find(Key, Map) of
+        {ok, SubMap} when is_map(SubMap) ->
+            Map#{Key => deep_remove(KeyPath, SubMap)};
+        {ok, _Val} -> Map;
+        error -> Map
+    end.
 
 %% #{a => #{b => 3, c => 2}, d => 4}
 %%  = deep_merge(#{a => #{b => 1, c => 2}, d => 4}, #{a => #{b => 3}}).
