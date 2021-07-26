@@ -93,6 +93,7 @@ includes() ->
     , "emqx_management"
     , "emqx_dashboard"
     , "emqx_gateway"
+    , "emqx_prometheus"
     ].
 -endif.
 

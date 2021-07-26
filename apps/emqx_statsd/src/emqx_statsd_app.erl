@@ -34,7 +34,7 @@ stop(_) ->
 maybe_enable_statsd() ->
     case emqx_config:get([?APP, enable], false) of
         true ->
-            emqx_statsd_sup:start_child(emqx_statsd, emqx_config:get([?APP], #{}));
+            emqx_statsd_sup:start_child(?APP, emqx_config:get([?APP], #{}));
         false ->
             ok
     end.
