@@ -16,95 +16,226 @@
 
 -module(emqx_dashboard_api).
 
+-behaviour(minirest_api).
+
 -include("emqx_dashboard.hrl").
 
--rest_api(#{name   => auth_user,
-            method => 'POST',
-            path   => "/auth",
-            func   => auth,
-            descr  => "Authenticate an user"
-           }).
+-import(emqx_mgmt_util, [ response_schema/1
+                        , response_schema/2
+                        , request_body_schema/1
+                        , response_array_schema/2
+                        ]).
 
--rest_api(#{name   => create_user,
-            method => 'POST',
-            path   => "/users/",
-            func   => create,
-            descr  => "Create an user"
-           }).
+-export([api_spec/0]).
 
--rest_api(#{name   => list_users,
-            method => 'GET',
-            path   => "/users/",
-            func   => list,
-            descr  => "List users"
-           }).
-
--rest_api(#{name   => update_user,
-            method => 'PUT',
-            path   => "/users/:bin:name",
-            func   => update,
-            descr  => "Update an user"
-           }).
-
--rest_api(#{name   => delete_user,
-            method => 'DELETE',
-            path   => "/users/:bin:name",
-            func   => delete,
-            descr  => "Delete an user"
-           }).
-
--rest_api(#{name   => change_pwd,
-            method => 'PUT',
-            path   => "/change_pwd/:bin:username",
-            func   => change_pwd,
-            descr  => "Change password for an user"
-           }).
-
--export([ list/2
-        , create/2
-        , update/2
-        , delete/2
-        , auth/2
+-export([ auth/2
+        , users/2
+        , user/2
         , change_pwd/2
         ]).
 
+api_spec() ->
+    {[auth_api(), users_api(), user_api(), change_pwd_api()], schemas()}.
+
+schemas() ->
+    [#{auth => #{
+        type => object,
+        properties => #{
+            username => #{
+                type => string,
+                description => <<"Username">>},
+            password => #{
+                type => string,
+                description => <<"password">>}
+        }
+    }},
+    #{show_user => #{
+        type => object,
+        properties => #{
+            username => #{
+                type => string,
+                description => <<"Username">>},
+            tag => #{
+                type => string,
+                description => <<"Tag">>}
+        }
+    }},
+    #{create_user => #{
+        type => object,
+        properties => #{
+            username => #{
+                type => string,
+                description => <<"Username">>},
+            password => #{
+                type => string,
+                description => <<"Password">>},
+            tag => #{
+                type => string,
+                description => <<"Tag">>}
+        }
+    }}].
+
+auth_api() ->
+    Metadata = #{
+        post => #{
+            description => <<"Dashboard Auth">>,
+            'requestBody' => request_body_schema(auth),
+            responses => #{
+                <<"200">> =>
+                    response_schema(<<"Dashboard Auth successfully">>),
+                <<"400">> => bad_request()
+            },
+            security => []
+        }
+    },
+    {"/auth", Metadata, auth}.
+
+users_api() ->
+    Metadata = #{
+        get => #{
+            description => <<"Get dashboard users">>,
+            responses => #{
+                <<"200">> => response_array_schema(<<"">>, show_user)
+            }
+        }
+    },
+    {"/users", Metadata, users}.
+
+user_api() ->
+    Metadata = #{
+        delete => #{
+            description => <<"Delete dashboard users">>,
+            responses => #{
+                <<"200">> => response_schema(<<"Delete User successfully">>),
+                <<"400">> => bad_request()
+            }
+        },
+        put => #{
+            description => <<"Update dashboard users">>,
+            'requestBody' => request_body_schema(#{
+                type => object,
+                properties => #{
+                    tags => #{
+                        type => string
+                    }
+                }
+            }),
+            responses => #{
+                <<"200">> => response_schema(<<"Update Users successfully">>),
+                <<"400">> => bad_request()
+            }
+        },
+        post => #{
+            description => <<"Create dashboard users">>,
+            'requestBody' => request_body_schema(create_user),
+            responses => #{
+                <<"200">> => response_schema(<<"Create Users successfully">>),
+                <<"400">> => bad_request()
+            }
+        }
+    },
+    {"/users/:username", Metadata, user}.
+
+change_pwd_api() ->
+    Metadata = #{
+        put => #{
+            description => <<"Update dashboard users password">>,
+            'requestBody' => request_body_schema(#{
+                type => object,
+                properties => #{
+                    old_pwd => #{
+                        type => string
+                    },
+                    new_pwd => #{
+                        type => string
+                    }
+                }
+            }),
+            responses => #{
+                <<"200">> => response_schema(<<"Update Users password successfully">>),
+                <<"400">> => bad_request()
+            }
+        }
+    },
+    {"/change_pwd/:username", Metadata, change_pwd}.
+
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
 
-auth(_Bindings, Params) ->
-    Username = proplists:get_value(<<"username">>, Params),
-    Password = proplists:get_value(<<"password">>, Params),
-    return(emqx_dashboard_admin:check(Username, Password)).
+auth(post, Request) ->
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    Params = emqx_json:decode(Body, [return_maps]),
+    Username = maps:get(<<"username">>, Params),
+    Password = maps:get(<<"password">>, Params),
+    case emqx_dashboard_admin:check(Username, Password) of
+        ok ->
+            {200};
+        {error, Reason} ->
+            {400, #{code => <<"AUTH_FAIL">>, message => Reason}}
+    end.
 
-change_pwd(#{username := Username}, Params) ->
-    OldPwd = proplists:get_value(<<"old_pwd">>, Params),
-    NewPwd = proplists:get_value(<<"new_pwd">>, Params),
-    return(emqx_dashboard_admin:change_password(Username, OldPwd, NewPwd)).
+users(get, _Request) ->
+    {200, [row(User) || User <- emqx_dashboard_admin:all_users()]}.
 
-create(_Bindings, Params) ->
-    Username = proplists:get_value(<<"username">>, Params),
-    Password = proplists:get_value(<<"password">>, Params),
-    Tags = proplists:get_value(<<"tags">>, Params),
-    return(case ?EMPTY(Username) orelse ?EMPTY(Password) of
-               true  -> {error, <<"Username or password undefined">>};
-               false -> emqx_dashboard_admin:add_user(Username, Password, Tags)
-           end).
+user(put, Request) ->
+    Username = cowboy_req:binding(username, Request),
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    Params = emqx_json:decode(Body, [return_maps]),
+    Tags = maps:get(<<"tags">>, Params),
+    case emqx_dashboard_admin:update_user(Username, Tags) of
+        ok -> {200};
+        {error, Reason} ->
+            {400, #{code => <<"UPDATE_FAIL">>, message => Reason}}
+    end;
 
-list(_Bindings, _Params) ->
-    return({ok, [row(User) || User <- emqx_dashboard_admin:all_users()]}).
+user(delete, Request) ->
+    Username = cowboy_req:binding(username, Request),
+    case Username == <<"admin">> of
+        true -> {400, #{code => <<"CONNOT_DELETE_ADMIN">>,
+                        message => <<"Cannot delete admin">>}};
+        false ->
+            _ = emqx_dashboard_admin:remove_user(Username),
+            {200}
+    end;
 
-update(#{name := Username}, Params) ->
-    Tags = proplists:get_value(<<"tags">>, Params),
-    return(emqx_dashboard_admin:update_user(Username, Tags)).
+user(post, Request) ->
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    Params = emqx_json:decode(Body, [return_maps]),
+    Tags = maps:get(<<"tags">>, Params),
+    Username = maps:get(<<"username">>, Params),
+    Password = maps:get(<<"password">>, Params),
+    case ?EMPTY(Username) orelse ?EMPTY(Password) of
+        true  ->
+            {400, #{code => <<"CREATE_USER_FAIL">>,
+                    message => <<"Username or password undefined">>}};
+        false ->
+            case emqx_dashboard_admin:add_user(Username, Password, Tags) of
+                ok -> {200};
+                {error, Reason} ->
+                    {400, #{code => <<"CREATE_USER_FAIL">>, message => Reason}}
+            end
+    end.
 
-delete(#{name := <<"admin">>}, _Params) ->
-    return({error, <<"Cannot delete admin">>});
-
-delete(#{name := Username}, _Params) ->
-    return(emqx_dashboard_admin:remove_user(Username)).
+change_pwd(put, Request) ->
+    Username = cowboy_req:binding(username, Request),
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    Params = emqx_json:decode(Body, [return_maps]),
+    OldPwd = maps:get(<<"old_pwd">>, Params),
+    NewPwd = maps:get(<<"new_pwd">>, Params),
+    case emqx_dashboard_admin:change_password(Username, OldPwd, NewPwd) of
+        ok -> {200};
+        {error, Reason} ->
+            {400, #{code => <<"CHANGE_PWD_FAIL">>, message => Reason}}
+    end.
 
 row(#mqtt_admin{username = Username, tags = Tags}) ->
     #{username => Username, tags => Tags}.
 
-return(_) ->
-%%    TODO: V5 API
-    ok.
+bad_request() ->
+    response_schema(<<"Bad Request">>,
+                    #{
+                        type => object,
+                        properties => #{
+                            message => #{type => string},
+                            code => #{type => string}
+                        }
+                    }).
