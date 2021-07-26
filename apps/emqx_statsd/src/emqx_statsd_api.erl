@@ -23,7 +23,6 @@
 -import(emqx_mgmt_util, [ response_schema/1
                         , response_schema/2
                         , request_body_schema/1
-                        , request_body_schema/2
                         ]).
 
 -export([api_spec/0]).
@@ -102,7 +101,6 @@ enable_statsd(true) ->
 enable_statsd(false) ->
     ok = emqx_statsd_sup:stop_child(?APP),
     {200}.
-
 
 get_raw(Key, Def) ->
     emqx_config:get_raw([<<"emqx_statsd">>]++ [Key], Def).
