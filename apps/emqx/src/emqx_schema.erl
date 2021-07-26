@@ -638,7 +638,7 @@ formatter(text, CharsLimit, SingleLine) ->
 %% utils
 -spec(conf_get(string() | [string()], hocon:config()) -> term()).
 conf_get(Key, Conf) ->
-    V = hocon_schema:deep_get(Key, Conf, value),
+    V = hocon_schema:get_value(Key, Conf),
     case is_binary(V) of
         true ->
             binary_to_list(V);
@@ -647,7 +647,7 @@ conf_get(Key, Conf) ->
     end.
 
 conf_get(Key, Conf, Default) ->
-    V = hocon_schema:deep_get(Key, Conf, value, Default),
+    V = hocon_schema:get_value(Key, Conf, Default),
     case is_binary(V) of
         true ->
             binary_to_list(V);
@@ -863,11 +863,9 @@ options(k8s, Conf) ->
 options(manual, _Conf) ->
     [].
 
-to_atom(#{value := Val}= _RichMap) ->
-    to_atom(Val);
 to_atom(Atom) when is_atom(Atom) ->
     Atom;
 to_atom(Str) when is_list(Str) ->
     list_to_atom(Str);
 to_atom(Bin) when is_binary(Bin) ->
-    list_to_atom(binary_to_list(Bin)).
+    binary_to_atom(Bin, utf8).
