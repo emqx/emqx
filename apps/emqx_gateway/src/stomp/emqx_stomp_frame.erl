@@ -242,7 +242,7 @@ unescape(_Ch) -> error(cannnot_unescape).
 serialize_opts() ->
     #{}.
 
-serialize_pkt(#stomp_frame{command = heartbeat}, _SerializeOpts) ->
+serialize_pkt(#stomp_frame{command = ?CMD_HEARTBEAT}, _SerializeOpts) ->
     <<$\n>>;
 
 serialize_pkt(#stomp_frame{command = Cmd, headers = Headers, body = Body},
@@ -279,8 +279,8 @@ new_state(#parser_state{limit = Limit}) ->
 
 %% @doc Make a frame
 
-make(heartbeat) ->
-    #stomp_frame{command = heartbeat}.
+make(?CMD_HEARTBEAT) ->
+    #stomp_frame{command = ?CMD_HEARTBEAT}.
 
 make(<<"CONNECTED">>, Headers) ->
     #stomp_frame{command = <<"CONNECTED">>,
@@ -317,4 +317,5 @@ type(?CMD_DISCONNECT)  -> disconnect;
 type(?CMD_CONNECTED)   -> connected;
 type(?CMD_MESSAGE)     -> message;
 type(?CMD_RECEIPT)     -> receipt;
-type(?CMD_ERROR)       -> error.
+type(?CMD_ERROR)       -> error;
+type(?CMD_HEARTBEAT)   -> heartbeat.

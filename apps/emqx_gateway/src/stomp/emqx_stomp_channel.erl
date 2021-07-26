@@ -758,7 +758,7 @@ handle_timeout(_TRef, {keepalive_send, NewVal},
         {error, timeout} ->
             NHrtBt = emqx_stomp_heartbeat:reset(outgoing, NewVal, HrtBt),
             NChannel = Channel#channel{heartbeat = NHrtBt},
-            {ok, {outgoing, emqx_stomp_frame:make(heartbeat)},
+            {ok, {outgoing, emqx_stomp_frame:make(?CMD_HEARTBEAT)},
              reset_timer(outgoing_timer, NChannel)};
         {ok, NHrtBt} ->
             {ok, reset_timer(outgoing_timer,
