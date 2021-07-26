@@ -269,6 +269,7 @@ relx_apps(ReleaseType) ->
     , emqx_bridge_mqtt
     , emqx_modules
     , emqx_management
+    , emqx_dashboard
     , emqx_retainer
     , emqx_statsd
     ]

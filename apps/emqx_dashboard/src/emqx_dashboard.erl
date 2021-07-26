@@ -16,114 +16,112 @@
 
 -module(emqx_dashboard).
 
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/logger.hrl").
+-define(APP, ?MODULE).
 
-%%-import(proplists, [get_value/3]).
 
 -export([ start_listeners/0
         , stop_listeners/0
         , start_listener/1
-        , stop_listener/1
-        ]).
+        , stop_listener/1]).
 
-%% for minirest
--export([ filter/1
-        , is_authorized/1
-        ]).
+%% Authorization
+-export([authorize_appid/1]).
 
--define(APP, ?MODULE).
+
+-define(BASE_PATH, "/api/v5").
 
 %%--------------------------------------------------------------------
-%% Start/Stop listeners.
+%% Start/Stop Listeners
 %%--------------------------------------------------------------------
 
 start_listeners() ->
-    lists:foreach(fun(Listener) -> start_listener(Listener) end, listeners()).
-
-%% Start HTTP Listener
-start_listener(_) -> ok.
-%% TODO: V5 API
-%%start_listener({Proto, Port, Options}) when Proto == http ->
-%%    Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
-%%                {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
-%%                {"/api/v4/[...]", minirest, http_handlers()}],
-%%    minirest:start_http(listener_name(Proto), ranch_opts(Port, Options), Dispatch);
-%%
-%%start_listener({Proto, Port, Options}) when Proto == https ->
-%%    Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
-%%                {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
-%%                {"/api/v4/[...]", minirest, http_handlers()}],
-%%    minirest:start_https(listener_name(Proto), ranch_opts(Port, Options), Dispatch).
-%%
-%%ranch_opts(Port, Options0) ->
-%%    NumAcceptors = get_value(num_acceptors, Options0, 4),
-%%    MaxConnections = get_value(max_connections, Options0, 512),
-%%    Options = lists:foldl(fun({K, _V}, Acc) when K =:= max_connections orelse K =:= num_acceptors ->
-%%                              Acc;
-%%                             ({inet6, true}, Acc) -> [inet6 | Acc];
-%%                             ({inet6, false}, Acc) -> Acc;
-%%                             ({ipv6_v6only, true}, Acc) -> [{ipv6_v6only, true} | Acc];
-%%                             ({ipv6_v6only, false}, Acc) -> Acc;
-%%                             ({K, V}, Acc)->
-%%                              [{K, V} | Acc]
-%%                          end, [], Options0),
-%%    #{num_acceptors => NumAcceptors,
-%%      max_connections => MaxConnections,
-%%      socket_opts => [{port, Port} | Options]}.
+    lists:foreach(fun start_listener/1, listeners()).
 
 stop_listeners() ->
-    lists:foreach(fun(Listener) -> stop_listener(Listener) end, listeners()).
+    lists:foreach(fun stop_listener/1, listeners()).
 
-stop_listener(_) ->
-    ok.
-%% TODO: V5 API
-%%stop_listener({Proto, _Port, _}) ->
-%%    minirest:stop_http(listener_name(Proto)).
+start_listener({Proto, Port, Options}) ->
+    {ok, _} = application:ensure_all_started(minirest),
+    Authorization = {?MODULE, authorize_appid},
+    RanchOptions = ranch_opts(Port, Options),
+    GlobalSpec = #{
+        openapi => "3.0.0",
+        info => #{title => "EMQ X Dashboard API", version => "5.0.0"},
+        servers => [#{url => ?BASE_PATH}],
+        components => #{
+            schemas => #{},
+            securitySchemes => #{
+                application => #{
+                    type => apiKey,
+                    name => "authorization",
+                    in => header}}}},
+    Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
+                {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}}],
+    Minirest = #{
+        protocol => Proto,
+        base_path => ?BASE_PATH,
+        apps => apps(),
+        authorization => Authorization,
+        security => [#{application => []}],
+        swagger_global_spec => GlobalSpec,
+        dispatch => Dispatch},
+    MinirestOptions = maps:merge(Minirest, RanchOptions),
+    {ok, _} = minirest:start(listener_name(Proto), MinirestOptions),
+    io:format("Start ~p listener on ~p successfully.~n", [listener_name(Proto), Port]).
+
+apps() ->
+    [App || {App, _, _} <- application:loaded_applications(),
+        case re:run(atom_to_list(App), "^emqx") of
+            {match,[{0,4}]} -> true;
+            _ -> false
+        end].
+
+ranch_opts(Port, Options0) ->
+    Options = lists:foldl(
+                  fun
+                      ({K, _V}, Acc) when K =:= max_connections orelse K =:= num_acceptors -> Acc;
+                      ({inet6, true}, Acc) -> [inet6 | Acc];
+                      ({inet6, false}, Acc) -> Acc;
+                      ({ipv6_v6only, true}, Acc) -> [{ipv6_v6only, true} | Acc];
+                      ({ipv6_v6only, false}, Acc) -> Acc;
+                      ({K, V}, Acc)->
+                          [{K, V} | Acc]
+                  end, [], Options0),
+    maps:from_list([{port, Port} | Options]).
+
+stop_listener({Proto, Port, _}) ->
+    io:format("Stop dashboard listener on ~s successfully.~n",[format(Port)]),
+    minirest:stop(listener_name(Proto)).
 
 listeners() ->
-    application:get_env(?APP, listeners, []).
+    [{Protocol, Port, maps:to_list(maps:without([protocol, port], Map))}
+        || Map = #{protocol := Protocol,port := Port}
+        <- emqx_config:get([emqx_dashboard, listeners], [])].
 
-%%listener_name(Proto) ->
-%%    list_to_atom(atom_to_list(Proto) ++ ":dashboard").
+listener_name(Proto) ->
+    list_to_atom(atom_to_list(Proto) ++ ":dashboard").
 
-%%--------------------------------------------------------------------
-%% HTTP Handlers and Dispatcher
-%%--------------------------------------------------------------------
-
-%%http_handlers() ->
-%%    Plugins = lists:map(fun(Plugin) -> Plugin#plugin.name end, emqx_plugins:list()),
-%%    [{"/api/v4/",
-%%      minirest:handler(#{apps => Plugins ++  [emqx_modules],
-%%                         filter => fun ?MODULE:filter/1}),
-%%      [{authorization, fun ?MODULE:is_authorized/1}]}].
-
-%%--------------------------------------------------------------------
-%% Basic Authorization
-%%--------------------------------------------------------------------
-
-is_authorized(Req) ->
-    is_authorized(binary_to_list(cowboy_req:path(Req)), Req).
-
-is_authorized("/api/v4/auth", _Req) ->
-    true;
-is_authorized(_Path, Req) ->
+authorize_appid(Req) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
         {basic, Username, Password} ->
             case emqx_dashboard_admin:check(iolist_to_binary(Username),
                                             iolist_to_binary(Password)) of
-                ok -> true;
-                {error, Reason} ->
-                    ?LOG(error, "[Dashboard] Authorization Failure: username=~s, reason=~p",
-                                [Username, Reason]),
-                    false
+                ok ->
+                    ok;
+                {error, _} ->
+                    {401, #{<<"WWW-Authenticate">> =>
+                              <<"Basic Realm=\"minirest-server\"">>},
+                            <<"UNAUTHORIZED">>}
             end;
-         _  -> false
+        _ ->
+            {401, #{<<"WWW-Authenticate">> =>
+                      <<"Basic Realm=\"minirest-server\"">>},
+                    <<"UNAUTHORIZED">>}
     end.
 
-filter(#{app := emqx_modules}) -> true;
-filter(#{app := App}) ->
-    case emqx_plugins:find_plugin(App) of
-        false -> false;
-        Plugin -> Plugin#plugin.active
-    end.
+format(Port) when is_integer(Port) ->
+    io_lib:format("0.0.0.0:~w", [Port]);
+format({Addr, Port}) when is_list(Addr) ->
+    io_lib:format("~s:~w", [Addr, Port]);
+format({Addr, Port}) when is_tuple(Addr) ->
+    io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
