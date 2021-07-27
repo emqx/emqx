@@ -44,10 +44,18 @@ t_compile(_) ->
     Rule4 = {allow, {'or', [{client, all}, {user, all}]}, pubsub, [ <<"testTopics1">>,  <<"testTopics2">>]},
     Compile4 = {allow, {'or', [{client, all}, {user, all}]}, pubsub, [[<<"testTopics1">>],  [<<"testTopics2">>]]},
 
+    Rule5 = {allow, {ipaddrs, ["127.0.0.1", "192.168.1.0/24"]}, pubsub, <<"%c">>},
+    Compile5 = {allow, {ipaddrs,[{{127,0,0,1},{127,0,0,1},32},
+                                 {{192,168,1,0},{192,168,1,255},24}]},
+                       pubsub,
+                       [{pattern,[<<"%c">>]}]
+               },
+
     ?assertEqual(Compile1, emqx_access_rule:compile(Rule1)),
     ?assertEqual(Compile2, emqx_access_rule:compile(Rule2)),
     ?assertEqual(Compile3, emqx_access_rule:compile(Rule3)),
-    ?assertEqual(Compile4, emqx_access_rule:compile(Rule4)).
+    ?assertEqual(Compile4, emqx_access_rule:compile(Rule4)),
+    ?assertEqual(Compile5, emqx_access_rule:compile(Rule5)).
 
 t_match(_) ->
     ClientInfo1 = #{zone => external,
@@ -94,4 +102,6 @@ t_match(_) ->
     ?assertEqual({matched, allow}, emqx_access_rule:match(ClientInfo1, <<"Topic">>,
                                                             emqx_access_rule:compile({allow, {'and', [{ipaddr, "127.0.0.1"}, {user, <<"TestUser">>}]}, publish, <<"Topic">>}))),
     ?assertEqual({matched, allow}, emqx_access_rule:match(ClientInfo1, <<"Topic">>,
-                                                            emqx_access_rule:compile({allow, {'or', [{ipaddr, "127.0.0.1"}, {user, <<"WrongUser">>}]}, publish, ["Topic"]}))).
+                                                            emqx_access_rule:compile({allow, {'or', [{ipaddr, "127.0.0.1"}, {user, <<"WrongUser">>}]}, publish, ["Topic"]}))),
+    ?assertEqual({matched, allow}, emqx_access_rule:match(ClientInfo2, <<"Topic">>,
+                                                          emqx_access_rule:compile({allow, {ipaddrs, ["127.0.0.1", "192.168.0.0/24"]}, publish, ["Topic"]}))).
