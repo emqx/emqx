@@ -34,7 +34,7 @@ description() ->
     "AuthZ with Mongo".
 
 authorize(Client, PubSub, Topic,
-            #{resource_id := ResourceID,
+            #{id := ResourceID,
               collection := Collection,
               find := Find
              }) ->

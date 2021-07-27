@@ -50,7 +50,7 @@ parse_query(Sql) ->
     end.
 
 authorize(Client, PubSub, Topic,
-            #{resource_id := ResourceID,
+            #{id := ResourceID,
               sql := {SQL, Params}
              }) ->
     case emqx_resource:query(ResourceID, {sql, SQL, replvar(Params, Client)}) of
