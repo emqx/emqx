@@ -42,7 +42,6 @@ LABEL org.label-schema.docker.dockerfile="Dockerfile" \
 
 ARG EMQX_NAME=emqx
 
-COPY deploy/docker/docker-entrypoint.sh /usr/bin/
 COPY --from=builder /emqx/_build/$EMQX_NAME/rel/emqx /opt/emqx
 
 RUN ln -s /opt/emqx/bin/* /usr/local/bin/
@@ -74,6 +73,14 @@ VOLUME ["/opt/emqx/log", "/opt/emqx/data"]
 # - 6369 6370 for distributed node
 EXPOSE 1883 8081 8083 8084 8883 11883 18083 4369 4370 5369 6369 6370
 
-ENTRYPOINT ["/usr/bin/docker-entrypoint.sh"]
+# Use short name Erlang node to boot EMQ X
+# Erlang distribution will rely on container's hostname resolution
+ENV EMQX_NODE_NAME emqx
+
+# The default rpc port discovery 'stateless' is mostly for clusters
+# having static node names. So it's troulbe-free for multiple emqx nodes
+# running on the same host.
+# When start emqx in docker, it's mostly one emqx node in one container
+ENV EMQX_RPC__PORT_DISCOVERY manual
 
 CMD ["/opt/emqx/bin/emqx", "foreground"]

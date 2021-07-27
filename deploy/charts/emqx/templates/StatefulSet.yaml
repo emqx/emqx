@@ -127,8 +127,6 @@ spec:
             value: k8s
           - name: EMQX_CLUSTER__K8S__SERVICE_NAME
             value: {{ include "emqx.fullname" . }}-headless
-          - name: EMQX_CLUSTER__K8S__NAMESPACE
-            value: {{ .Release.Namespace }}
           resources:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:

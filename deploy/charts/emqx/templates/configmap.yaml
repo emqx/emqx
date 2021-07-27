@@ -10,5 +10,5 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 data:
   {{- range $index, $value := .Values.emqxConfig}}
-    {{$index}}: "{{ $value }}" 
+    {{$index}}: "{{ $value }}"
   {{- end}}
