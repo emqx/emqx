@@ -45,6 +45,7 @@ translate_env() ->
            port := Port,
            scheme := Scheme} = URIMap} = emqx_http_lib:uri_parse(URL),
     Path = path(URIMap),
+    {ok, EnablePipelining} = application:get_env(?APP, enable_pipelining),
     PoolSize = application:get_env(?APP, pool_size, 32),
     MoreOpts = case Scheme of
                    http ->
@@ -77,6 +78,7 @@ translate_env() ->
                 end,
     PoolOpts = [{host, Host},
                 {port, Port},
+                {enable_pipelining, EnablePipelining},
                 {pool_size, PoolSize},
                 {pool_type, hash},
                 {connect_timeout, 5000},

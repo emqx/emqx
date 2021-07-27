@@ -54,6 +54,7 @@ base_deps() ->
   [ {emqx_dashboard, [{re, "emqx_.*"}]}
   , {emqx_management, [{re, "emqx_.*"}, {exclude, emqx_dashboard}]}
   , {{re, "emqx_.*"}, [emqx]}
+  , {emqx_web_hook, [ehttpc]}
   ].
 
 main([Profile | _]) ->

@@ -43,6 +43,11 @@
   {datatype, integer}
 ]}.
 
+{mapping, "web.hook.enable_pipelining", "emqx_web_hook.enable_pipelining", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {mapping, "web.hook.rule.client.connect.$name", "emqx_web_hook.rules", [
   {datatype, string}
 ]}.
