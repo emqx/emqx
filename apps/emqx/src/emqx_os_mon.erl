@@ -85,11 +85,10 @@ init([]) ->
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
-    {reply, ignored, State}.
+    {reply, {error, {unexpected_call, Req}}, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "unexpected_cast_discarded: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({timeout, _Timer, check}, State) ->
@@ -111,7 +110,7 @@ handle_info({timeout, _Timer, check}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    ?LOG(error, "unexpected info: ~p", [Info]),
+    ?LOG(info, "unexpected_info_discarded: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
