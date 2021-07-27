@@ -48,8 +48,8 @@ t_mnesia_authenticator(_) ->
                             }},
     {ok, #{name := AuthenticatorName, id := ID}} = ?AUTH:create_authenticator(?CHAIN, AuthenticatorConfig),
 
-    UserInfo = #{<<"user_id">> => <<"myuser">>,
-                 <<"password">> => <<"mypass">>},
+    UserInfo = #{user_id => <<"myuser">>,
+                 password => <<"mypass">>},
     ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:add_user(?CHAIN, ID, UserInfo)),
     ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:lookup_user(?CHAIN, ID, <<"myuser">>)),
 
@@ -68,7 +68,7 @@ t_mnesia_authenticator(_) ->
     ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo3, ok)),
     ?assertEqual({error, bad_username_or_password}, emqx_access_control:authenticate(ClientInfo3)),
 
-    UserInfo2 = UserInfo#{<<"password">> => <<"mypass2">>},
+    UserInfo2 = UserInfo#{password => <<"mypass2">>},
     ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:update_user(?CHAIN, ID, <<"myuser">>, UserInfo2)),
     ClientInfo4 = ClientInfo#{password => <<"mypass2">>},
     ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo4, ok)),
@@ -133,12 +133,12 @@ t_multi_mnesia_authenticator(_) ->
 
     ?assertEqual({ok, #{user_id => <<"myuser">>}},
                  ?AUTH:add_user(?CHAIN, ID1,
-                                #{<<"user_id">> => <<"myuser">>,
-                                  <<"password">> => <<"mypass1">>})),
+                                #{user_id => <<"myuser">>,
+                                  password => <<"mypass1">>})),
     ?assertEqual({ok, #{user_id => <<"myclient">>}},
                  ?AUTH:add_user(?CHAIN, ID2,
-                                #{<<"user_id">> => <<"myclient">>,
-                                  <<"password">> => <<"mypass2">>})),
+                                #{user_id => <<"myclient">>,
+                                  password => <<"mypass2">>})),
 
     ClientInfo1 = #{username => <<"myuser">>,
                     clientid => <<"myclient">>,
