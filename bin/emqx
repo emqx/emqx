@@ -332,7 +332,6 @@ if [ -z "$NAME_ARG" ]; then
             NODENAME="$(grep -E '^-name' "$LATEST_VM_ARGS" | awk '{print $2}')"
         else
             # for boot commands, inspect emqx.conf for node name
-            # todo: use get command from hocon escript
             NODENAME="$(call_hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
         fi
     fi
