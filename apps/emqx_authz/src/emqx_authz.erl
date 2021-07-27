@@ -83,19 +83,22 @@ find_action_in_hooks() ->
     [Action] = [Action || {callback,{?MODULE, authorize, _} = Action, _, _} <- Callbacks ],
     Action.
 
+gen_id(Type) ->
+    iolist_to_binary([io_lib:format("~s_~s",[?APP, Type]), "_", integer_to_list(erlang:system_time())]).
+
 create_resource(#{type := DB,
                   config := Config
                  } = Rule) ->
-    ResourceID = iolist_to_binary([io_lib:format("~s_~s",[?APP, DB]), "_", integer_to_list(erlang:system_time())]),
+    ResourceID = gen_id(DB),
     case emqx_resource:create(
             ResourceID,
             list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
             Config)
     of
         {ok, _} ->
-            Rule#{resource_id => ResourceID};
+            Rule#{id => ResourceID};
         {error, already_created} ->
-            Rule#{resource_id => ResourceID};
+            Rule#{id => ResourceID};
         {error, Reason} ->
             error({load_config_error, Reason})
     end.
@@ -108,7 +111,8 @@ init_rule(#{topics := Topics,
          } = Rule) when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(Topics) ->
     NTopics = [compile_topic(Topic) || Topic <- Topics],
     Rule#{principal => compile_principal(Principal),
-          topics => NTopics
+          topics => NTopics,
+          id => gen_id(simple)
          };
 
 init_rule(#{principal := Principal,
@@ -199,7 +203,8 @@ authorize(#{username := Username,
 
 do_authorize(Client, PubSub, Topic,
                [Connector = #{principal := Principal,
-                              type := DB} | Tail] ) ->
+                              type := DB,
+                              enable := true} | Tail] ) ->
     case match_principal(Client, Principal) of
         true ->
             Mod = list_to_existing_atom(io_lib:format("~s_~s",[emqx_authz, DB])),

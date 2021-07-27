@@ -74,17 +74,19 @@ end_per_suite(_Config) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 t_init_rule(_) ->
-    ?assertEqual(#{permission => deny,
-                   action => all,
-                   principal => all,
-                   topics => [['#']]
+    ?assertMatch(#{permission := deny,
+                   action := all,
+                   principal := all,
+                   topics := [['#']],
+                   id := _ID
                   }, emqx_authz:init_rule(?RULE1)),
-    ?assertEqual(#{permission => allow,
-                   action => all,
-                   principal =>
-                        #{ipaddress => {{127,0,0,1},{127,0,0,1},32}},
-                   topics => [#{eq => ['#']},
-                              #{eq => ['+']}]
+    ?assertMatch(#{permission := allow,
+                   action := all,
+                   principal :=
+                        #{ipaddress := {{127,0,0,1},{127,0,0,1},32}},
+                   topics := [#{eq := ['#']},
+                              #{eq := ['+']}],
+                   id := _ID
                   }, emqx_authz:init_rule(?RULE2)),
     ?assertMatch(
        #{permission := allow,
@@ -94,7 +96,8 @@ t_init_rule(_) ->
                             #{clientid := {re_pattern, _, _, _, _}}
                            ]
                  },
-         topics := [[<<"test">>]]
+         topics := [[<<"test">>]],
+         id := _ID
         }, emqx_authz:init_rule(?RULE3)),
     ?assertMatch(
        #{permission := deny,
@@ -106,7 +109,8 @@ t_init_rule(_) ->
                  },
          topics := [#{pattern := [<<"%u">>]},
                     #{pattern := [<<"%c">>]}
-                   ]
+                   ],
+         id := _ID
         }, emqx_authz:init_rule(?RULE4)),
     ok.
 

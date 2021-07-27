@@ -34,7 +34,7 @@ description() ->
     "AuthZ with redis".
 
 authorize(Client, PubSub, Topic,
-            #{resource_id := ResourceID,
+            #{id := ResourceID,
               cmd := CMD
              }) ->
     NCMD = string:tokens(replvar(CMD, Client), " "),
