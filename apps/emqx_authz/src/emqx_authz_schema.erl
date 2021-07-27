@@ -25,6 +25,8 @@ fields("emqx_authz") ->
 fields(http) ->
     [ {principal, principal()}
     , {type, #{type => http}}
+    , {enable, #{type => boolean(),
+                 default => true}}
     , {config, #{type => hoconsc:union([ hoconsc:ref(?MODULE, http_get)
                                        , hoconsc:ref(?MODULE, http_post)
                                        ])}
@@ -188,4 +190,6 @@ connector_fields(DB) ->
           end,
     [ {principal, principal()}
     , {type, #{type => DB}}
+    , {enable, #{type => boolean(),
+                 default => true}}
     ] ++ Mod:fields("").
