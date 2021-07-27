@@ -52,7 +52,8 @@ t_api(_) ->
     ?assertEqual(ok, emqx_os_mon:set_procmem_high_watermark(0.11)),
     ?assertEqual(11, emqx_os_mon:get_procmem_high_watermark()),
 
-    ?assertEqual(ignored, gen_server:call(emqx_os_mon, ignored)),
+    ?assertEqual({error, {unexpected_call, ignored}},
+                 gen_server:call(emqx_os_mon, ignored)),
     ?assertEqual(ok, gen_server:cast(emqx_os_mon, ignored)),
     emqx_os_mon ! ignored,
     gen_server:stop(emqx_os_mon),
