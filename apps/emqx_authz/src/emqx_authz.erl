@@ -116,6 +116,7 @@ init_rule(#{topics := Topics,
          };
 
 init_rule(#{principal := Principal,
+            enable := true,
             type := http,
             config := #{url := Url} = Config
            } = Rule) ->
@@ -124,6 +125,7 @@ init_rule(#{principal := Principal,
     NRule#{principal => compile_principal(Principal)};
 
 init_rule(#{principal := Principal,
+            enable := true,
             type := DB
          } = Rule) when DB =:= redis;
                         DB =:= mongo ->
@@ -131,6 +133,7 @@ init_rule(#{principal := Principal,
     NRule#{principal => compile_principal(Principal)};
 
 init_rule(#{principal := Principal,
+            enable := true,
             type := DB,
             sql := SQL
          } = Rule) when DB =:= mysql;
@@ -139,7 +142,11 @@ init_rule(#{principal := Principal,
     NRule = create_resource(Rule),
     NRule#{principal => compile_principal(Principal),
            sql => Mod:parse_query(SQL)
-          }.
+          };
+init_rule(#{enable := false,
+            type := _DB
+         } = Rule) ->
+    Rule.
 
 compile_principal(all) -> all;
 compile_principal(#{username := Username}) ->
