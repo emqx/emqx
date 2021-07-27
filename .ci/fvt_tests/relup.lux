@@ -135,7 +135,7 @@
 [shell bench]
     ???publish complete
     ??SH-PROMPT:
-    !sleep 30
+    !sleep 10
     ?SH-PROMPT
 
     !curl --user admin:public --silent --show-error http://localhost:8081/api/v4/rules | jq --raw-output ".data[0].metrics[] | select(.node==\"emqx@127.0.0.1\").matched"
