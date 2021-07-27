@@ -39,15 +39,14 @@ end_per_suite(_) ->
 
 t_jwt_authenticator(_) ->
     AuthenticatorName = <<"myauthenticator">>,
-    Config = #{use_jwks => false,
+    Config = #{name => AuthenticatorName,
+               mechanism => jwt,
+               use_jwks => false,
                algorithm => 'hmac-based',
                secret => <<"abcdef">>,
                secret_base64_encoded => false,
                verify_claims => []},
-    AuthenticatorConfig = #{name => AuthenticatorName,
-                            mechanism => jwt,
-                            config => Config},
-    ?assertEqual({ok, AuthenticatorConfig}, ?AUTH:create_authenticator(?CHAIN, AuthenticatorConfig)),
+    {ok, #{name := AuthenticatorName, id := ID}} = ?AUTH:create_authenticator(?CHAIN, Config),
 
     Payload = #{<<"username">> => <<"myuser">>},
     JWS = generate_jws('hmac-based', Payload, <<"abcdef">>),
@@ -62,11 +61,11 @@ t_jwt_authenticator(_) ->
     %% secret_base64_encoded
     Config2 = Config#{secret => base64:encode(<<"abcdef">>),
                       secret_base64_encoded => true},
-    ?assertMatch({ok, _}, ?AUTH:update_authenticator(?CHAIN, AuthenticatorName, Config2)),
+    ?assertMatch({ok, _}, ?AUTH:update_authenticator(?CHAIN, ID, Config2)),
     ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo, ok)),
 
     Config3 = Config#{verify_claims => [{<<"username">>, <<"${mqtt-username}">>}]},
-    ?assertMatch({ok, _}, ?AUTH:update_authenticator(?CHAIN, AuthenticatorName, Config3)),
+    ?assertMatch({ok, _}, ?AUTH:update_authenticator(?CHAIN, ID, Config3)),
     ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo, ok)),
     ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo#{username => <<"otheruser">>}, ok)),
 
@@ -109,7 +108,7 @@ t_jwt_authenticator(_) ->
     ClientInfo8 = ClientInfo#{password => JWS8},
     ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo8, ok)),
 
-    ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, AuthenticatorName)),
+    ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID)),
     ok.
 
 t_jwt_authenticator2(_) ->
@@ -117,14 +116,13 @@ t_jwt_authenticator2(_) ->
     PublicKey = list_to_binary(filename:join([Dir, "data/public_key.pem"])),
     PrivateKey = list_to_binary(filename:join([Dir, "data/private_key.pem"])),
     AuthenticatorName = <<"myauthenticator">>,
-    Config = #{use_jwks => false,
+    Config = #{name => AuthenticatorName,
+               mechanism => jwt,
+               use_jwks => false,
                algorithm => 'public-key',
                certificate => PublicKey,
                verify_claims => []},
-    AuthenticatorConfig = #{name => AuthenticatorName,
-                            mechanism => jwt,
-                            config => Config},
-    ?assertEqual({ok, AuthenticatorConfig}, ?AUTH:create_authenticator(?CHAIN, AuthenticatorConfig)),
+    {ok, #{name := AuthenticatorName, id := ID}} = ?AUTH:create_authenticator(?CHAIN, Config),
 
     Payload = #{<<"username">> => <<"myuser">>},
     JWS = generate_jws('public-key', Payload, PrivateKey),
@@ -133,7 +131,7 @@ t_jwt_authenticator2(_) ->
     ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo, ok)),
     ?assertEqual({stop, {error, not_authorized}}, ?AUTH:authenticate(ClientInfo#{password => <<"badpassword">>}, ok)),
 
-    ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, AuthenticatorName)),
+    ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID)),
     ok.
 
 generate_jws('hmac-based', Payload, Secret) ->

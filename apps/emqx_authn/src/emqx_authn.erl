@@ -194,20 +194,25 @@ do_update_authenticator(ChainID, AuthenticatorID, #{name := NewName} = Config, C
                         false ->
                             case CreateWhenNotFound of
                                 true ->
-                                    case do_create_authenticator(ChainID, AuthenticatorID, Config) of
-                                        {ok, Authenticator} ->
-                                            NAuthenticators = Authenticators ++ [{AuthenticatorID, NewName, Authenticator}],
-                                            ok = mnesia:write(?CHAIN_TAB, Chain#chain{authenticators = NAuthenticators}, write),
-                                            {ok, serialize_authenticator(Authenticator)};
-                                        {error, Reason} ->
-                                            {error, Reason}
-                                    end;
+                                    case lists:keymember(NewName, 2, Authenticators) of
+                                        true ->
+                                            {error, name_has_be_used};
+                                        false ->
+                                            case do_create_authenticator(ChainID, AuthenticatorID, Config) of
+                                                {ok, Authenticator} ->
+                                                    NAuthenticators = Authenticators ++ [{AuthenticatorID, NewName, Authenticator}],
+                                                    ok = mnesia:write(?CHAIN_TAB, Chain#chain{authenticators = NAuthenticators}, write),
+                                                    {ok, serialize_authenticator(Authenticator)};
+                                                {error, Reason} ->
+                                                    {error, Reason}
+                                            end
+                                        end;
                                 false ->
                                     {error, {not_found, {authenticator, AuthenticatorID}}}
                             end;
                         {value,
                          {_, _, #authenticator{provider = Provider,
-                                               state    = #{version := Version} = State}},
+                                               state    = #{version := Version} = State} = Authenticator},
                          Others} ->
                             case lists:keymember(NewName, 2, Others) of
                                 true ->
@@ -215,12 +220,12 @@ do_update_authenticator(ChainID, AuthenticatorID, #{name := NewName} = Config, C
                                 false ->
                                     case (NewProvider = authenticator_provider(Config)) =:= Provider of
                                         true ->
-                                            Unique = {ChainID, AuthenticatorID, Version},
+                                            Unique = <<ChainID/binary, "/", AuthenticatorID/binary, ":", Version/binary>>,
                                             case Provider:update(Config#{'_unique' => Unique}, State) of
                                                 {ok, NewState} ->
-                                                    NewAuthenticator = #authenticator{name = NewName,
-                                                                                      config = Config,
-                                                                                      state = switch_version(NewState)},
+                                                    NewAuthenticator = Authenticator#authenticator{name = NewName,
+                                                                                                   config = Config,
+                                                                                                   state = switch_version(NewState)},
                                                     NewAuthenticators = replace_authenticator(AuthenticatorID, NewAuthenticator, Authenticators),
                                                     ok = mnesia:write(?CHAIN_TAB, Chain#chain{authenticators = NewAuthenticators}, write),
                                                     {ok, serialize_authenticator(NewAuthenticator)};
@@ -228,12 +233,13 @@ do_update_authenticator(ChainID, AuthenticatorID, #{name := NewName} = Config, C
                                                     {error, Reason}
                                             end;
                                         false ->
-                                            case NewProvider:create(Config#{'_unique' => {ChainID, AuthenticatorID, Version}}) of
+                                            Unique = <<ChainID/binary, "/", AuthenticatorID/binary, ":", Version/binary>>,
+                                            case NewProvider:create(Config#{'_unique' => Unique}) of
                                                 {ok, NewState} ->
-                                                    NewAuthenticator = #authenticator{name = NewName,
-                                                                                      provider = NewProvider,
-                                                                                      config = Config,
-                                                                                      state = switch_version(NewState)},
+                                                    NewAuthenticator = Authenticator#authenticator{name = NewName,
+                                                                                                   provider = NewProvider,
+                                                                                                   config = Config,
+                                                                                                   state = switch_version(NewState)},
                                                     NewAuthenticators = replace_authenticator(AuthenticatorID, NewAuthenticator, Authenticators),
                                                     ok = mnesia:write(?CHAIN_TAB, Chain#chain{authenticators = NewAuthenticators}, write),
                                                     _ = Provider:destroy(State),

@@ -26,7 +26,6 @@
         , provider :: module()
         , config :: map()
         , state :: map()
-        , version :: binary()
         }).
 
 -record(chain,

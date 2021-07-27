@@ -29,6 +29,56 @@
         , users2/2
         ]).
 
+-define(EXAMPLE_1, #{name => <<"example 1">>,
+                     mechanism => <<"password-based">>,
+                     server_type => <<"built-in-example">>,
+                     user_id_type => <<"username">>,
+                     password_hash_algorithm => #{
+                         name => <<"sha256">>    
+                     }}).
+
+-define(EXAMPLE_2, #{name => <<"example 2">>,
+                     mechanism => <<"password-based">>,
+                     server_type => <<"http-server">>,
+                     method => <<"post">>,
+                     url => <<"http://localhost:80/login">>,
+                     headers => #{
+                        <<"content-type">> => <<"application/json">>
+                     },
+                     form_data => #{
+                        <<"username">> => <<"${mqtt-username}">>,
+                        <<"password">> => <<"${mqtt-password}">>
+                     }}).
+
+-define(EXAMPLE_3, #{name => <<"example 3">>,
+                     mechanism => <<"jwt">>,
+                     use_jwks => false,
+                     algorithm => <<"hmac-based">>,
+                     secret => <<"mysecret">>,
+                     secret_base64_encoded => false,
+                     verify_claims => #{
+                         <<"username">> => <<"${mqtt-username}">>
+                     }}).
+
+-define(ERR_RESPONSE(Desc), #{description => Desc,
+                              content => #{
+                                  'application/json' => #{
+                                      schema => minirest:ref(<<"error">>),
+                                      examples => #{
+                                        example1 => #{
+                                            summary => <<"Not Found">>,
+                                            value => #{code => <<"NOT_FOUND">>, message => <<"Authenticator '67e4c9d3' does not exist">>}
+                                        },
+                                        example2 => #{
+                                            summary => <<"Conflict">>,
+                                            value => #{code => <<"ALREADY_EXISTS">>, message => <<"Name has be used">>}
+                                        },
+                                        example3 => #{
+                                            summary => <<"Bad Request 1">>,
+                                            value => #{code => <<"OUT_OF_RANGE">>, message => <<"Out of range">>}
+                                        }
+                                  }}}}).
+
 api_spec() ->
     {[ authenticators_api()
      , authenticators_api2()
@@ -39,40 +89,6 @@ api_spec() ->
      ], definitions()}.
 
 authenticators_api() ->
-    Example1 = #{name => <<"example">>,
-                 mechanism => <<"password-based">>,
-                 config => #{
-                     server_type => <<"built-in-example">>,
-                     user_id_type => <<"username">>,
-                     password_hash_algorithm => #{
-                         name => <<"sha256">>    
-                     }
-                 }},
-    Example2 = #{name => <<"example">>,
-                 mechanism => <<"password-based">>,
-                 config => #{
-                     server_type => <<"http-server">>,
-                     method => <<"post">>,
-                     url => <<"http://localhost:80/login">>,
-                     headers => #{
-                        <<"content-type">> => <<"application/json">>
-                     },
-                     form_data => #{
-                        <<"username">> => <<"${mqtt-username}">>,
-                        <<"password">> => <<"${mqtt-password}">>
-                     }
-                 }},
-    Example3 = #{name => <<"example">>,
-                 mechanism => <<"jwt">>,
-                 config => #{
-                     use_jwks => false,
-                     algorithm => <<"hmac-based">>,
-                     secret => <<"mysecret">>,
-                     secret_base64_encoded => false,
-                     verify_claims => #{
-                         <<"username">> => <<"${mqtt-username}">>
-                     }
-                 }},
     Metadata = #{
         post => #{
             description => "Create authenticator",
@@ -83,15 +99,15 @@ authenticators_api() ->
                         examples => #{
                             default => #{
                                 summary => <<"Default">>,
-                                value => emqx_json:encode(Example1)
+                                value => emqx_json:encode(?EXAMPLE_1)
                             },
                             http => #{
                                 summary => <<"Authentication provided by HTTP Server">>,
-                                value => emqx_json:encode(Example2)
+                                value => emqx_json:encode(?EXAMPLE_2)
                             },
                             jwt => #{
                                 summary => <<"JWT Authentication">>,
-                                value => emqx_json:encode(Example3)
+                                value => emqx_json:encode(?EXAMPLE_3)
                             }
                         }
                     }
@@ -102,10 +118,26 @@ authenticators_api() ->
                     description => <<"Created">>,
                     content => #{
                         'application/json' => #{
-                            schema => minirest:ref(<<"returned_authenticator">>)
+                            schema => minirest:ref(<<"returned_authenticator">>),
+                            examples => #{
+                                example1 => #{
+                                    summary => <<"Example 1">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 1">>, ?EXAMPLE_1))
+                                },
+                                example2 => #{
+                                    summary => <<"Example 2">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 2">>, ?EXAMPLE_2))
+                                },
+                                example3 => #{
+                                    summary => <<"Example 3">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 3">>, ?EXAMPLE_3))
+                                }
+                            }
                         }
                     }
-                }
+                },
+                <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
+                <<"409">> => ?ERR_RESPONSE(<<"Conflict">>)
             }
         },
         get => #{
@@ -118,6 +150,15 @@ authenticators_api() ->
                             schema => #{
                                 type => array,
                                 items => minirest:ref(<<"returned_authenticator">>)
+                            },
+                            examples => #{
+                                example1 => #{
+                                    summary => <<"Example 1">>,
+                                    value => emqx_json:encode([ maps:put(id, <<"example 1">>, ?EXAMPLE_1)
+                                                              , maps:put(id, <<"example 2">>, ?EXAMPLE_2)
+                                                              , maps:put(id, <<"example 3">>, ?EXAMPLE_3)
+                                                              ])
+                                }
                             }
                         }
                     }
@@ -146,18 +187,25 @@ authenticators_api2() ->
                     description => <<"OK">>,
                     content => #{
                         'application/json' => #{
-                            schema => minirest:ref(<<"returned_authenticator">>)
+                            schema => minirest:ref(<<"returned_authenticator">>),
+                            examples => #{
+                                example1 => #{
+                                    summary => <<"Example 1">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 1">>, ?EXAMPLE_1))
+                                },
+                                example2 => #{
+                                    summary => <<"Example 2">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 2">>, ?EXAMPLE_2))
+                                },
+                                example3 => #{
+                                    summary => <<"Example 3">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 3">>, ?EXAMPLE_3))
+                                }
+                            }
                         }
                     }
                 },
-                <<"404">> => #{
-                    description => <<"Not Found">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>)
-                        }
-                    }
-                }
+                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
             }
         },
         put => #{
@@ -180,6 +228,16 @@ authenticators_api2() ->
                                      , minirest:ref(<<"jwt">>)
                                      , minirest:ref(<<"scram">>)
                                      ]   
+                        },
+                        examples => #{
+                            example1 => #{
+                                summary => <<"Example 1">>,
+                                value => emqx_json:encode(?EXAMPLE_1)
+                            },
+                            example2 => #{
+                                summary => <<"Example 2">>,
+                                value => emqx_json:encode(?EXAMPLE_2)
+                            }
                         }
                     }
                 }
@@ -189,18 +247,27 @@ authenticators_api2() ->
                     description => <<"OK">>,
                     content => #{
                         'application/json' => #{
-                            schema => minirest:ref(<<"returned_authenticator">>)
+                            schema => minirest:ref(<<"returned_authenticator">>),
+                            examples => #{
+                                example1 => #{
+                                    summary => <<"Example 1">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 1">>, ?EXAMPLE_1))
+                                },
+                                example2 => #{
+                                    summary => <<"Example 2">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 2">>, ?EXAMPLE_2))
+                                },
+                                example3 => #{
+                                    summary => <<"Example 3">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 3">>, ?EXAMPLE_3))
+                                }
+                            }
                         }
                     }
                 },
-                <<"404">> => #{
-                    description => <<"Not Found">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>)
-                        }
-                    }
-                }
+                <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
+                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>),
+                <<"409">> => ?ERR_RESPONSE(<<"Conflict">>)
             }
         },
         delete => #{
@@ -219,14 +286,7 @@ authenticators_api2() ->
                 <<"204">> => #{
                     description => <<"No Content">>
                 },
-                <<"404">> => #{
-                    description => <<"Not Found">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>)
-                        }
-                    }
-                }
+                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
             }
         }
     },
@@ -266,14 +326,8 @@ position_api() ->
                 <<"204">> => #{
                     description => <<"No Content">>
                 },
-                <<"404">> => #{
-                    description => <<"Not Found">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>)
-                        }
-                    }
-                }
+                <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
+                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
             }
         }
     },
@@ -312,22 +366,8 @@ import_users_api() ->
                 <<"204">> => #{
                     description => <<"No Content">>
                 },
-                <<"400">> => #{
-                    description => <<"Bad Request">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>)
-                        }
-                    }
-                },
-                <<"404">> => #{
-                    description => <<"Not Found">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>)
-                        }
-                    }
-                }
+                <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
+                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
             }
         }
     },
@@ -382,14 +422,8 @@ users_api() ->
                         }
                     }
                 },
-                <<"400">> => #{
-                    description => <<"Bad Request">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>)
-                        }
-                    }
-                }
+                <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
+                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
             }
         },
         get => #{
@@ -423,7 +457,8 @@ users_api() ->
                             }
                         }
                     }
-                }
+                },
+                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
             }
         }
     },
@@ -486,14 +521,8 @@ users2_api() ->
                         }
                     }
                 },
-                <<"404">> => #{
-                    description => <<"Not Found">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>)
-                        }
-                    }
-                }
+                <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
+                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
             }
         },
         get => #{
@@ -536,14 +565,7 @@ users2_api() ->
                         }
                     }
                 },
-                <<"404">> => #{
-                    description => <<"Not Found">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>)
-                        }
-                    }
-                }
+                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
             }
         },
         delete => #{
@@ -570,14 +592,7 @@ users2_api() ->
                 <<"204">> => #{
                     description => <<"No Content">>
                 },
-                <<"404">> => #{
-                    description => <<"Not Found">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>)
-                        }
-                    }
-                }
+                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
             }
         }
     },
@@ -1007,47 +1022,43 @@ authenticators2(delete, Request) ->
 position(post, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    case emqx_json:decode(Body, [return_maps]) of
-        #{<<"position">> := Position} when is_integer(Position) ->
-            case emqx_authn:move_authenticator_to_the_nth(?CHAIN, AuthenticatorID, Position) of
-                ok ->
-                    {204};
-                {error, Reason} ->
-                    serialize_error(Reason)
-            end;
-        _ ->
-            serialize_error({missing_parameter, position})
+    NBody = emqx_json:decode(Body, [return_maps]),
+    Config = hocon_schema:check_plain(emqx_authn_other_schema, #{<<"position">> => NBody},
+                                      #{nullable => true}, ["position"]),
+    #{position := #{position := Position}} = emqx_map_lib:unsafe_atom_key_map(Config),
+    case emqx_authn:move_authenticator_to_the_nth(?CHAIN, AuthenticatorID, Position) of
+        ok ->
+            {204};
+        {error, Reason} ->
+            serialize_error(Reason)
     end.
 
 import_users(post, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    case emqx_json:decode(Body, [return_maps]) of
-        #{<<"filename">> := Filename} when is_binary(Filename) ->
-            case emqx_authn:import_users(?CHAIN, AuthenticatorID, Filename) of
-                ok ->
-                    {204};
-                {error, Reason} ->
-                    serialize_error(Reason)
-            end;
-        _ ->
-            serialize_error({missing_parameter, filename})
+    NBody = emqx_json:decode(Body, [return_maps]),
+    Config = hocon_schema:check_plain(emqx_authn_other_schema, #{<<"filename">> => NBody},
+                                      #{nullable => true}, ["filename"]),
+    #{filename := #{filename := Filename}} = emqx_map_lib:unsafe_atom_key_map(Config),
+    case emqx_authn:import_users(?CHAIN, AuthenticatorID, Filename) of
+        ok ->
+            {204};
+        {error, Reason} ->
+            serialize_error(Reason)
     end.
 
 users(post, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    case emqx_json:decode(Body, [return_maps]) of
-        #{<<"user_id">> := _,
-          <<"password">> := _} = UserInfo ->
-            case emqx_authn:add_user(?CHAIN, AuthenticatorID, UserInfo) of
-                {ok, User} ->
-                    {201, User};
-                {error, Reason} ->
-                    serialize_error(Reason)
-            end;
-        _ ->
-            serialize_error({missing_parameter, user_id})
+    NBody = emqx_json:decode(Body, [return_maps]),
+    Config = hocon_schema:check_plain(emqx_authn_other_schema, #{<<"user_info">> => NBody},
+                                      #{nullable => true}, ["user_info"]),
+    #{user_info := UserInfo} = emqx_map_lib:unsafe_atom_key_map(Config),
+    case emqx_authn:add_user(?CHAIN, AuthenticatorID, UserInfo) of
+        {ok, User} ->
+            {201, User};
+        {error, Reason} ->
+            serialize_error(Reason)
     end;
 users(get, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
@@ -1062,16 +1073,15 @@ users2(patch, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     UserID = cowboy_req:binding(user_id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    case emqx_json:decode(Body, [return_maps]) of
-        #{<<"password">> := _} = UserInfo ->
-            case emqx_authn:add_user(?CHAIN, AuthenticatorID, UserID, UserInfo) of
-                {ok, User} ->
-                    {200, User};
-                {error, Reason} ->
-                    serialize_error(Reason)
-            end;
-        _ ->
-            serialize_error({missing_parameter, password})
+    NBody = emqx_json:decode(Body, [return_maps]),
+    Config = hocon_schema:check_plain(emqx_authn_other_schema, #{<<"new_user_info">> => NBody},
+                                      #{nullable => true}, ["new_user_info"]),
+    #{new_user_info := NewUserInfo} = emqx_map_lib:unsafe_atom_key_map(Config),
+    case emqx_authn:update_user(?CHAIN, AuthenticatorID, UserID, NewUserInfo) of
+        {ok, User} ->
+            {200, User};
+        {error, Reason} ->
+            serialize_error(Reason)
     end;
 users2(get, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
@@ -1106,6 +1116,6 @@ serialize_error({missing_parameter, Name}) ->
             message => list_to_binary(
                 io_lib:format("The input parameter '~p' that is mandatory for processing this request is not supplied", [Name])
             )}};
-serialize_error(_) ->
+serialize_error(Reason) ->
     {400, #{code => <<"BAD_REQUEST">>,
-            message => <<"Todo">>}}.
+            message => list_to_binary(io_lib:format("Todo: ~p", [Reason]))}}.

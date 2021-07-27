@@ -178,8 +178,8 @@ import_users(Filename0, State) ->
             {error, {unsupported_file_format, Extension}}
     end.
 
-add_user(#{<<"user_id">> := UserID,
-           <<"password">> := Password},
+add_user(#{user_id := UserID,
+           password := Password},
          #{user_group := UserGroup} = State) ->
     trans(
         fun() ->
@@ -203,7 +203,7 @@ delete_user(UserID, #{user_group := UserGroup}) ->
             end
         end).
 
-update_user(UserID, #{<<"password">> := Password},
+update_user(UserID, #{password := Password},
             #{user_group := UserGroup} = State) ->
     trans(
         fun() ->

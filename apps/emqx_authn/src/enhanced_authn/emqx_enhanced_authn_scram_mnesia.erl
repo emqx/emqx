@@ -133,8 +133,8 @@ destroy(#{user_group := UserGroup}) ->
         end).
 
 %% TODO: binary to atom
-add_user(#{<<"user_id">> := UserID,
-           <<"password">> := Password}, #{user_group := UserGroup} = State) ->
+add_user(#{user_id := UserID,
+           password := Password}, #{user_group := UserGroup} = State) ->
     trans(
         fun() ->
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
@@ -157,7 +157,7 @@ delete_user(UserID, #{user_group := UserGroup}) ->
             end
         end).
 
-update_user(UserID, #{<<"password">> := Password},
+update_user(UserID, #{password := Password},
             #{user_group := UserGroup} = State) ->
     trans(
         fun() ->
