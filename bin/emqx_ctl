@@ -8,6 +8,10 @@ ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 # shellcheck disable=SC1090
 . "$ROOT_DIR"/releases/emqx_vars
 
+export ROOTDIR="$RUNNER_ROOT_DIR"
+export ERTS_DIR="$ROOTDIR/erts-$ERTS_VSN"
+export BINDIR="$ERTS_DIR/bin"
+
 export RUNNER_ROOT_DIR
 export REL_VSN
 
@@ -27,10 +31,21 @@ else
     EPMD_ARG="-start_epmd true"
 fi
 
-relx_get_nodename() {
-    id="longname$(relx_gen_id)-${NAME}"
-    "$BINDIR/erl" -boot start_clean -eval '[Host] = tl(string:tokens(atom_to_list(node()),"@")), io:format("~s~n", [Host]), halt()' -noshell "${NAME_TYPE}" "$id"
+call_hocon() {
+    export RUNNER_ROOT_DIR
+    export RUNNER_ETC_DIR
+    "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" hocon "$@" \
+        || die "ERROR: call_hocon failed: $*" $?
 }
+
+# Support for IPv6 Dist. See: https://github.com/emqtt/emqttd/issues/1460
+PROTO_DIST="$(call_hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get cluster.proto_dist | tr -d \")"
+if [ -z "$PROTO_DIST" ]; then
+    PROTO_DIST_ARG=""
+else
+    PROTO_DIST_ARG="-proto_dist $PROTO_DIST"
+fi
+
 
 # Control a node
 relx_nodetool() {
@@ -41,23 +56,22 @@ relx_nodetool() {
                                 -setcookie "$COOKIE" "$command" "$@"
 }
 
-if [ -z "$NAME_ARG" ]; then
-    NODENAME="${EMQX_NODE_NAME:-}"
-    [ -z "$NODENAME" ] && [ -n "$EMQX_NAME" ] && [ -n "$EMQX_HOST" ] && NODENAME="${EMQX_NAME}@${EMQX_HOST}"
-    [ -z "$NODENAME" ] && NODENAME="$(grep -E '^-name' "$LATEST_VM_ARGS" | awk '{print $2}')"
-    if [ -z "$NODENAME" ]; then
-        echoerr "vm.args needs to have a -name parameter."
-        echoerr "  -sname is not supported."
-        echoerr "perhaps you do not have read permissions on $RUNNER_ETC_DIR/emqx.conf"
-        exit 1
-    else
-        NAME_ARG="-name ${NODENAME# *}"
-    fi
+NAME="${EMQX_NODE_NAME:-}"
+[ -n "$EMQX_NAME" ] && [ -n "$EMQX_HOST" ] && NAME="${EMQX_NAME}@${EMQX_HOST}"
+[ -z "$NAME" ] && NAME="$(grep -E '^-s?name' "$LATEST_VM_ARGS" | awk '{print $2}')"
+if [ -z "$NAME" ]; then
+    echoerr "Failed to read node name from $LATEST_VM_ARGS"
+    echoerr "Ensure the node is running and you have permission to read $LATEST_VM_ARGS"
+    exit 1
 fi
 
-# Extract the name type and name from the NAME_ARG for REMSH
-NAME_TYPE="$(echo "$NAME_ARG" | awk '{print $1}')"
-NAME="$(echo "$NAME_ARG" | awk '{print $2}')"
+case "$NAME" in
+    *@*)
+        NAME_TYPE='-name'
+       ;;
+    *)
+        NAME_TYPE='-sname'
+esac
 
 COOKIE="${EMQX_NODE_COOKIE:-}"
 [ -z "$COOKIE" ] && COOKIE="$(grep -E '^-setcookie' "$LATEST_VM_ARGS" | awk '{print $2}')"
@@ -66,18 +80,6 @@ if [ -z "$COOKIE" ]; then
     exit 1
 fi
 
-# Support for IPv6 Dist. See: https://github.com/emqtt/emqttd/issues/1460
-PROTO_DIST=$(grep -E '^[ \t]*cluster.proto_dist[ \t]*=[ \t]*' "$RUNNER_ETC_DIR"/emqx.conf 2> /dev/null | tail -1 | awk -F"= " '{print $NF}')
-if [ -z "$PROTO_DIST" ]; then
-    PROTO_DIST_ARG=""
-else
-    PROTO_DIST_ARG="-proto_dist $PROTO_DIST"
-fi
-
-export ROOTDIR="$RUNNER_ROOT_DIR"
-export ERTS_DIR="$ROOTDIR/erts-$ERTS_VSN"
-export BINDIR="$ERTS_DIR/bin"
 cd "$ROOTDIR"
 
 relx_nodetool rpc emqx_ctl run_command "$@"
-
