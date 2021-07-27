@@ -28,7 +28,8 @@
 -type(who() :: all | binary() |
                {client, binary()} |
                {user, binary()} |
-               {ipaddr, esockd_cidr:cidr_string()}).
+               {ipaddr, esockd_cidr:cidr_string()} |
+               {ipaddrs, list(esockd_cidr:cidr_string())}).
 
 -type(access() :: subscribe | publish | pubsub).
 
@@ -52,6 +53,8 @@ compile(who, all) ->
     all;
 compile(who, {ipaddr, CIDR}) ->
     {ipaddr, esockd_cidr:parse(CIDR, true)};
+compile(who, {ipaddrs, CIDRs}) ->
+    {ipaddrs, lists:map(fun(CIDR) -> esockd_cidr:parse(CIDR, true) end, CIDRs)};
 compile(who, {client, all}) ->
     {client, all};
 compile(who, {client, ClientId}) ->
@@ -107,8 +110,14 @@ match_who(#{username := Username}, {user, Username}) ->
     true;
 match_who(#{peerhost := undefined}, {ipaddr, _Tup}) ->
     false;
+match_who(#{peerhost := undefined}, {ipaddrs, _}) ->
+    false;
 match_who(#{peerhost := IP}, {ipaddr, CIDR}) ->
     esockd_cidr:match(IP, CIDR);
+match_who(#{peerhost := IP}, {ipaddrs, CIDRs}) ->
+    lists:any(fun(CIDR) ->
+        esockd_cidr:match(IP, CIDR)
+    end, CIDRs);
 match_who(ClientInfo, {'and', Conds}) when is_list(Conds) ->
     lists:foldl(fun(Who, Allow) ->
                   match_who(ClientInfo, Who) andalso Allow
