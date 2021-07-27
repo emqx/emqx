@@ -17,21 +17,20 @@
 -define(APP, emqx_authn).
 -define(CHAIN, <<"mqtt">>).
 
--type chain_id() :: binary().
--type authenticator_name() :: binary().
--type mechanism() :: 'password-based' | jwt | scram.
+-define(VER_1, <<"1">>).
+-define(VER_2, <<"2">>).
 
 -record(authenticator,
-        { name :: authenticator_name()
-        , mechanism :: mechanism()
+        { id :: binary()
+        , name :: binary()
         , provider :: module()
         , config :: map()
         , state :: map()
         }).
 
 -record(chain,
-        { id :: chain_id()
-        , authenticators :: [{authenticator_name(), #authenticator{}}]
+        { id :: binary()
+        , authenticators :: [{binary(), binary(), #authenticator{}}]
         , created_at :: integer()
         }).
 

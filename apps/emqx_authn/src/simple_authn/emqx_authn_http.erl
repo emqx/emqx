@@ -26,15 +26,8 @@
         , validations/0
         ]).
 
--type accept() :: 'application/json' | 'application/x-www-form-urlencoded'.
--type content_type() :: accept().
-
--reflect_type([ accept/0
-              , content_type/0
-              ]).
-
--export([ create/3
-        , update/4
+-export([ create/1
+        , update/2
         , authenticate/2
         , destroy/1
         ]).
@@ -53,45 +46,55 @@ fields("") ->
 
 fields(get) ->
     [ {method,          #{type => get,
-                          default => get}}
+                          default => post}}
+    , {headers,         fun headers_no_content_type/1}
     ] ++ common_fields();
 
 fields(post) ->
     [ {method,          #{type => post,
-                          default => get}}
-    , {content_type,    fun content_type/1}
+                          default => post}}
+    , {headers,         fun headers/1}
     ] ++ common_fields().
 
 common_fields() ->
-    [ {server_type,     {enum, ['http-server']}}
+    [ {name,            fun emqx_authn_schema:authenticator_name/1}
+    , {mechanism,       {enum, ['password-based']}}
+    , {server_type,     {enum, ['http-server']}}
     , {url,             fun url/1}
-    , {accept,          fun accept/1}
-    , {headers,         fun headers/1}
     , {form_data,       fun form_data/1}
     , {request_timeout, fun request_timeout/1}
-    ] ++ proplists:delete(base_url, emqx_connector_http:fields(config)).
+    ] ++ maps:to_list(maps:without([ base_url
+                                   , pool_type],
+                      maps:from_list(emqx_connector_http:fields(config)))).
 
 validations() ->
-    [ {check_ssl_opts, fun check_ssl_opts/1} ].
+    [ {check_ssl_opts, fun check_ssl_opts/1}
+    , {check_headers, fun check_headers/1}
+    ].
 
 url(type) -> binary();
 url(nullable) -> false;
 url(validate) -> [fun check_url/1];
 url(_) -> undefined.
 
-accept(type) -> accept();
-accept(default) -> 'application/json';
-accept(_) -> undefined.
-
-content_type(type) -> content_type();
-content_type(default) -> 'application/json';
-content_type(_) -> undefined.
-
-headers(type) -> list();
-headers(default) -> [];
+headers(type) -> map();
+headers(converter) ->
+    fun(Headers) ->
+       maps:merge(default_headers(), transform_header_name(Headers))
+    end;
+headers(default) -> default_headers();
 headers(_) -> undefined.
 
-form_data(type) -> binary();
+headers_no_content_type(type) -> map();
+headers_no_content_type(converter) ->
+    fun(Headers) ->
+       maps:merge(default_headers_no_content_type(), transform_header_name(Headers)) 
+    end;
+headers_no_content_type(default) -> default_headers_no_content_type();
+headers_no_content_type(_) -> undefined.
+
+%% TODO: Using map()
+form_data(type) -> map();
 form_data(nullable) -> false;
 form_data(validate) -> [fun check_form_data/1];
 form_data(_) -> undefined.
@@ -104,46 +107,41 @@ request_timeout(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(ChainID, AuthenticatorName,
-        #{method := Method,
-          url := URL,
-          accept := Accept,
-          headers := Headers,
-          form_data := FormData,
-          request_timeout := RequestTimeout} = Config) ->
-    ContentType = maps:get(content_type, Config, undefined),
-    DefaultHeader0 = case ContentType of
-                         undefined -> #{};
-                         _ -> #{<<"content-type">> => atom_to_binary(ContentType, utf8)}
-                     end,
-    DefaultHeader = DefaultHeader0#{<<"accept">> => atom_to_binary(Accept, utf8)},
-    NHeaders = maps:to_list(maps:merge(DefaultHeader, maps:from_list(Headers))),
-    NFormData = preprocess_form_data(FormData),
+create(#{ method := Method
+        , url := URL
+        , headers := Headers
+        , form_data := FormData
+        , request_timeout := RequestTimeout
+        , '_unique' := Unique
+        } = Config) ->
     #{path := Path,
       query := Query} = URIMap = parse_url(URL),
-    BaseURL = generate_base_url(URIMap),
-    State = #{method          => Method,
-              path            => Path,
-              base_query      => cow_qs:parse_qs(list_to_binary(Query)),
-              accept          => Accept,
-              content_type    => ContentType,
-              headers         => NHeaders,
-              form_data       => NFormData,
-              request_timeout => RequestTimeout},
-    ResourceID = <<ChainID/binary, "/", AuthenticatorName/binary>>,
-    case emqx_resource:create_local(ResourceID, emqx_connector_http, Config#{base_url => BaseURL}) of
+    State = #{ method          => Method
+             , path            => Path
+             , base_query      => cow_qs:parse_qs(list_to_binary(Query))
+             , headers         => normalize_headers(Headers)
+             , form_data       => maps:to_list(FormData)
+             , request_timeout => RequestTimeout
+             },
+    case emqx_resource:create_local(Unique,
+                                    emqx_connector_http,
+                                    Config#{base_url => maps:remove(query, URIMap),
+                                            pool_type => random}) of
         {ok, _} ->
-            {ok, State#{resource_id => ResourceID}};
+            {ok, State#{resource_id => Unique}};
         {error, already_created} ->
-            {ok, State#{resource_id => ResourceID}};
+            {ok, State#{resource_id => Unique}};
         {error, Reason} ->
             {error, Reason}
     end.
 
-update(_ChainID, _AuthenticatorName, Config, #{resource_id := ResourceID} = State) ->
-    case emqx_resource:update_local(ResourceID, emqx_connector_http, Config, []) of
-        {ok, _} -> {ok, State};
-        {error, Reason} -> {error, Reason}
+update(Config, State) ->
+    case create(Config) of
+        {ok, NewState} ->
+            ok = destroy(State),
+            {ok, NewState};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 authenticate(#{auth_method := _}, _) ->
@@ -182,26 +180,38 @@ check_url(URL) ->
     end.
 
 check_form_data(FormData) ->
-    KVs = binary:split(FormData, [<<"&">>], [global]),
-    case false =:= lists:any(fun(T) -> T =:= <<>> end, KVs) of
-        true ->
-            NKVs = [list_to_tuple(binary:split(KV, [<<"=">>], [global])) || KV <- KVs],
-            false =:= 
-                lists:any(fun({K, V}) ->
-                              K =:= <<>> orelse V =:= <<>>;
-                             (_) ->
-                              true
-                          end, NKVs);
-        false ->
-            false
-    end.
+    lists:any(fun({_, V}) ->
+                  not is_binary(V)
+              end, maps:to_list(FormData)).
+
+default_headers() ->
+    maps:put(<<"content-type">>,
+             <<"application/json">>,
+             default_headers_no_content_type()).
+
+default_headers_no_content_type() ->
+    #{ <<"accept">> => <<"application/json">>
+     , <<"cache-control">> => <<"no-cache">>
+     , <<"connection">> => <<"keep-alive">>
+     , <<"keep-alive">> => <<"timeout=5">>
+     }.
+
+transform_header_name(Headers) ->
+    maps:fold(fun(K0, V, Acc) ->
+                  K = list_to_binary(string:to_lower(binary_to_list(K0))),
+                  maps:put(K, V, Acc)
+              end, #{}, Headers).
 
 check_ssl_opts(Conf) ->
     emqx_connector_http:check_ssl_opts("url", Conf).
 
-preprocess_form_data(FormData) ->
-    KVs = binary:split(FormData, [<<"&">>], [global]),
-    [list_to_tuple(binary:split(KV, [<<"=">>], [global])) || KV <- KVs].
+check_headers(Conf) ->
+    Method = hocon_schema:get_value("method", Conf),
+    Headers = hocon_schema:get_value("headers", Conf),
+    case Method =:= get andalso maps:get(<<"content-type">>, Headers, undefined) =/= undefined of
+        true -> false;
+        false -> true
+    end.
 
 parse_url(URL) ->
     {ok, URIMap} = emqx_http_lib:uri_parse(URL),
@@ -212,15 +222,12 @@ parse_url(URL) ->
             URIMap
     end.
 
-generate_base_url(#{scheme := Scheme,
-                    host := Host,
-                    port := Port}) ->
-    iolist_to_binary(io_lib:format("~p://~s:~p", [Scheme, Host, Port])).
+normalize_headers(Headers) ->
+    [{atom_to_binary(K), V} || {K, V} <- maps:to_list(Headers)].
 
 generate_request(Credential, #{method := Method,
                                path := Path,
                                base_query := BaseQuery,
-                               content_type := ContentType,
                                headers := Headers,
                                form_data := FormData0}) ->
     FormData = replace_placeholders(FormData0, Credential),
@@ -230,6 +237,7 @@ generate_request(Credential, #{method := Method,
             {NPath, Headers};
         post ->
             NPath = append_query(Path, BaseQuery),
+            ContentType = proplists:get_value(<<"content-type">>, Headers),
             Body = serialize_body(ContentType, FormData),
             {NPath, Headers, Body}
     end.
@@ -249,6 +257,8 @@ replace_placeholder(<<"${mqtt-username}">>, Credential) ->
     maps:get(username, Credential, undefined);
 replace_placeholder(<<"${mqtt-clientid}">>, Credential) ->
     maps:get(clientid, Credential, undefined);
+replace_placeholder(<<"${mqtt-password}">>, Credential) ->
+    maps:get(password, Credential, undefined);
 replace_placeholder(<<"${ip-address}">>, Credential) ->
     maps:get(peerhost, Credential, undefined);
 replace_placeholder(<<"${cert-subject}">>, Credential) ->
@@ -272,9 +282,9 @@ qs([], Acc) ->
 qs([{K, V} | More], Acc) ->
     qs(More, [["&", emqx_http_lib:uri_encode(K), "=", emqx_http_lib:uri_encode(V)] | Acc]).
 
-serialize_body('application/json', FormData) ->
+serialize_body(<<"application/json">>, FormData) ->
     emqx_json:encode(FormData);
-serialize_body('application/x-www-form-urlencoded', FormData) ->
+serialize_body(<<"application/x-www-form-urlencoded">>, FormData) ->
     qs(FormData).
 
 safely_parse_body(ContentType, Body) ->

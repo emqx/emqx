@@ -25,57 +25,34 @@
         , fields/1
         ]).
 
--reflect_type([ authenticator_name/0
-              ]).
+-export([ authenticator_name/1
+        ]).
 
-structs() -> ["emqx_authn"].
+structs() -> [ "emqx_authn" ].
 
 fields("emqx_authn") ->
     [ {enable, fun enable/1}
     , {authenticators, fun authenticators/1}
-    ];
-
-fields('password-based') ->
-    [ {name,      fun authenticator_name/1}
-    , {mechanism, {enum, ['password-based']}}
-    , {config,    hoconsc:t(hoconsc:union(
-                             [ hoconsc:ref(emqx_authn_mnesia, config)
-                             , hoconsc:ref(emqx_authn_mysql, config)
-                             , hoconsc:ref(emqx_authn_pgsql, config)
-                             , hoconsc:ref(emqx_authn_http, get)
-                             , hoconsc:ref(emqx_authn_http, post)
-                             ]))}
-    ];
-
-fields(jwt) ->
-    [ {name,      fun authenticator_name/1}
-    , {mechanism, {enum, [jwt]}}
-    , {config,    hoconsc:t(hoconsc:union(
-                             [ hoconsc:ref(emqx_authn_jwt, 'hmac-based')
-                             , hoconsc:ref(emqx_authn_jwt, 'public-key')
-                             , hoconsc:ref(emqx_authn_jwt, 'jwks')
-                             ]))}
-    ];
-
-fields(scram) ->
-    [ {name,      fun authenticator_name/1}
-    , {mechanism, {enum, [scram]}}
-    , {config,    hoconsc:t(hoconsc:union(
-                             [ hoconsc:ref(emqx_enhanced_authn_scram_mnesia, config)
-                             ]))}
     ].
 
+authenticator_name(type) -> binary();
+authenticator_name(nullable) -> false;
+authenticator_name(_) -> undefined.
+
 enable(type) -> boolean();
-enable(defualt) -> false;
+enable(default) -> false;
 enable(_) -> undefined.
 
 authenticators(type) ->
-    hoconsc:array({union, [ hoconsc:ref(?MODULE, 'password-based')
-                          , hoconsc:ref(?MODULE, jwt)
-                          , hoconsc:ref(?MODULE, scram)]});
+    hoconsc:array({union, [ hoconsc:ref(emqx_authn_mnesia, config)
+                          , hoconsc:ref(emqx_authn_mysql, config)
+                          , hoconsc:ref(emqx_authn_pgsql, config)
+                          , hoconsc:ref(emqx_authn_http, get)
+                          , hoconsc:ref(emqx_authn_http, post)
+                          , hoconsc:ref(emqx_authn_jwt, 'hmac-based')
+                          , hoconsc:ref(emqx_authn_jwt, 'public-key')
+                          , hoconsc:ref(emqx_authn_jwt, 'jwks')
+                          , hoconsc:ref(emqx_enhanced_authn_scram_mnesia, config)
+                          ]});
 authenticators(default) -> [];
 authenticators(_) -> undefined.
-
-authenticator_name(type) -> authenticator_name();
-authenticator_name(nullable) -> false;
-authenticator_name(_) -> undefined.

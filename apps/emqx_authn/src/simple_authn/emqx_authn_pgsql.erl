@@ -23,8 +23,8 @@
 
 -export([ structs/0, fields/1 ]).
 
--export([ create/3
-        , update/4
+-export([ create/1
+        , update/2
         , authenticate/2
         , destroy/1
         ]).
@@ -36,7 +36,9 @@
 structs() -> [config].
 
 fields(config) ->
-    [ {server_type,             {enum, [pgsql]}}
+    [ {name,                    fun emqx_authn_schema:authenticator_name/1}
+    , {mechanism,               {enum, ['password-based']}}
+    , {server_type,             {enum, [pgsql]}}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position,           {enum, [prefix, suffix]}}
     , {query,                   fun query/1}
@@ -54,26 +56,32 @@ query(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(ChainID, ServiceName, #{query := Query0,
-                               password_hash_algorithm := Algorithm} = Config) ->
+create(#{ query := Query0
+        , password_hash_algorithm := Algorithm
+        , salt_position := SaltPosition
+        , '_unique' := Unique
+        } = Config) ->
     {Query, PlaceHolders} = parse_query(Query0),
-    ResourceID = iolist_to_binary(io_lib:format("~s/~s",[ChainID, ServiceName])),
     State = #{query => Query,
               placeholders => PlaceHolders,
-              password_hash_algorithm => Algorithm},
-    case emqx_resource:create_local(ResourceID, emqx_connector_pgsql, Config) of
+              password_hash_algorithm => Algorithm,
+              salt_position => SaltPosition},
+    case emqx_resource:create_local(Unique, emqx_connector_pgsql, Config) of
         {ok, _} ->
-            {ok, State#{resource_id => ResourceID}};
+            {ok, State#{resource_id => Unique}};
         {error, already_created} ->
-            {ok, State#{resource_id => ResourceID}};
+            {ok, State#{resource_id => Unique}};
         {error, Reason} ->
             {error, Reason}
     end.
 
-update(_ChainID, _ServiceName, Config, #{resource_id := ResourceID} = State) ->
-    case emqx_resource:update_local(ResourceID, emqx_connector_pgsql, Config, []) of
-        {ok, _} -> {ok, State};
-        {error, Reason} -> {error, Reason}
+update(Config, State) ->
+    case create(Config) of
+        {ok, NewState} ->
+            ok = destroy(State),
+            {ok, NewState};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 authenticate(#{auth_method := _}, _) ->

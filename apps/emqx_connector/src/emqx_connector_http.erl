@@ -53,14 +53,15 @@ fields("") ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}];
 
 fields(config) ->
-    [ {base_url,        fun base_url/1}
-    , {connect_timeout, fun connect_timeout/1}
-    , {max_retries,     fun max_retries/1}
-    , {retry_interval,  fun retry_interval/1}
-    , {pool_type,       fun pool_type/1}
-    , {pool_size,       fun pool_size/1}
-    , {ssl_opts,        #{type => hoconsc:ref(?MODULE, ssl_opts),
-                          default => #{}}}
+    [ {base_url,          fun base_url/1}
+    , {connect_timeout,   fun connect_timeout/1}
+    , {max_retries,       fun max_retries/1}
+    , {retry_interval,    fun retry_interval/1}
+    , {pool_type,         fun pool_type/1}
+    , {pool_size,         fun pool_size/1}
+    , {enable_pipelining, fun enable_pipelining/1}
+    , {ssl_opts,          #{type => hoconsc:ref(?MODULE, ssl_opts),
+                            default => #{}}}
     ];
 
 fields(ssl_opts) ->
@@ -100,6 +101,10 @@ pool_type(_) -> undefined.
 pool_size(type) -> non_neg_integer();
 pool_size(default) -> 8;
 pool_size(_) -> undefined.
+
+enable_pipelining(type) -> boolean();
+enable_pipelining(default) -> true;
+enable_pipelining(_) -> undefined.
 
 cacertfile(type) -> string();
 cacertfile(nullable) -> true;
@@ -147,7 +152,7 @@ on_start(InstId, #{base_url := #{scheme := Scheme,
                , {pool_type, PoolType}
                , {pool_size, PoolSize}
                , {transport, Transport}
-               , {transport, NTransportOpts}],
+               , {transport_opts, NTransportOpts}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     {ok, _} = ehttpc_sup:start_pool(PoolName, PoolOpts),
     {ok, #{pool_name => PoolName,

@@ -31,10 +31,9 @@
         , create_authenticator/2
         , delete_authenticator/2
         , update_authenticator/3
+        , update_or_create_authenticator/3
         , lookup_authenticator/2
         , list_authenticators/1
-        , move_authenticator_to_the_front/2
-        , move_authenticator_to_the_end/2
         , move_authenticator_to_the_nth/3
         ]).
 
@@ -95,7 +94,7 @@ authenticate(Credential, _AuthResult) ->
 
 do_authenticate([], _) ->
     {stop, {error, not_authorized}};
-do_authenticate([{_, #authenticator{provider = Provider, state = State}} | More], Credential) ->
+do_authenticate([{_, _, #authenticator{provider = Provider, state = State}} | More], Credential) ->
     case Provider:authenticate(Credential, State) of
         ignore ->
             do_authenticate(More, Credential);
@@ -130,7 +129,7 @@ delete_chain(ID) ->
                 [] ->
                     {error, {not_found, {chain, ID}}};
                 [#chain{authenticators = Authenticators}] ->
-                    _ = [do_delete_authenticator(Authenticator) || {_, Authenticator} <- Authenticators],
+                    _ = [do_delete_authenticator(Authenticator) || {_, _, Authenticator} <- Authenticators],
                     mnesia:delete(?CHAIN_TAB, ID, write)
             end
         end).
@@ -147,25 +146,21 @@ list_chains() ->
     Chains = ets:tab2list(?CHAIN_TAB),
     {ok, [serialize_chain(Chain) || Chain <- Chains]}.
 
-create_authenticator(ChainID, #{name := Name,
-                                mechanism := Mechanism,
-                                config := Config}) ->
+create_authenticator(ChainID, #{name := Name} = Config) ->
     UpdateFun =
         fun(Chain = #chain{authenticators = Authenticators}) ->
-            case lists:keymember(Name, 1, Authenticators) of
+            case lists:keymember(Name, 2, Authenticators) of
                 true ->
-                    {error, {already_exists, {authenticator, Name}}};
+                    {error, name_has_be_used};
                 false ->
-                    Provider = authenticator_provider(Mechanism, Config),
-                    case Provider:create(ChainID, Name, Config) of
-                        {ok, State} ->
-                            Authenticator = #authenticator{name = Name,
-                                                           mechanism = Mechanism,
-                                                           provider = Provider,
-                                                           config = Config,
-                                                           state = State},
-                            NChain = Chain#chain{authenticators = Authenticators ++ [{Name, Authenticator}]},
-                            ok = mnesia:write(?CHAIN_TAB, NChain, write),
+                    AlreadyExist = fun(ID) ->
+                                       lists:keymember(ID, 1, Authenticators)
+                                   end,
+                    AuthenticatorID = gen_id(AlreadyExist),
+                    case do_create_authenticator(ChainID, AuthenticatorID, Config) of
+                        {ok, Authenticator} ->
+                            NAuthenticators = Authenticators ++ [{AuthenticatorID, Name, Authenticator}],
+                            ok = mnesia:write(?CHAIN_TAB, Chain#chain{authenticators = NAuthenticators}, write),
                             {ok, serialize_authenticator(Authenticator)};
                         {error, Reason} ->
                             {error, Reason}
@@ -174,12 +169,12 @@ create_authenticator(ChainID, #{name := Name,
         end,
     update_chain(ChainID, UpdateFun).
 
-delete_authenticator(ChainID, AuthenticatorName) ->
+delete_authenticator(ChainID, AuthenticatorID) ->
     UpdateFun = fun(Chain = #chain{authenticators = Authenticators}) ->
-                    case lists:keytake(AuthenticatorName, 1, Authenticators) of
+                    case lists:keytake(AuthenticatorID, 1, Authenticators) of
                         false ->
-                            {error, {not_found, {authenticator, AuthenticatorName}}};
-                        {value, {_, Authenticator}, NAuthenticators} ->
+                            {error, {not_found, {authenticator, AuthenticatorID}}};
+                        {value, {_, _, Authenticator}, NAuthenticators} ->
                             _ = do_delete_authenticator(Authenticator),
                             NChain = Chain#chain{authenticators = NAuthenticators},
                             mnesia:write(?CHAIN_TAB, NChain, write)
@@ -187,38 +182,86 @@ delete_authenticator(ChainID, AuthenticatorName) ->
                 end,
     update_chain(ChainID, UpdateFun).
 
-update_authenticator(ChainID, AuthenticatorName, Config) ->
+update_authenticator(ChainID, AuthenticatorID, Config) ->
+    do_update_authenticator(ChainID, AuthenticatorID, Config, false).
+
+update_or_create_authenticator(ChainID, AuthenticatorID, Config) ->
+    do_update_authenticator(ChainID, AuthenticatorID, Config, true).
+
+do_update_authenticator(ChainID, AuthenticatorID, #{name := NewName} = Config, CreateWhenNotFound) ->
     UpdateFun = fun(Chain = #chain{authenticators = Authenticators}) ->
-                    case proplists:get_value(AuthenticatorName, Authenticators, undefined) of
-                        undefined ->
-                            {error, {not_found, {authenticator, AuthenticatorName}}};
-                        #authenticator{provider = Provider,
-                                       config   = OriginalConfig,
-                                       state    = State} = Authenticator ->
-                            NewConfig = maps:merge(OriginalConfig, Config),
-                            case Provider:update(ChainID, AuthenticatorName, NewConfig, State) of
-                                {ok, NState} ->
-                                    NAuthenticator = Authenticator#authenticator{config = NewConfig,
-                                                                                 state = NState},
-                                    NAuthenticators = update_value(AuthenticatorName, NAuthenticator, Authenticators),
-                                    ok = mnesia:write(?CHAIN_TAB, Chain#chain{authenticators = NAuthenticators}, write),
-                                    {ok, serialize_authenticator(NAuthenticator)};
-                                {error, Reason} ->
-                                    {error, Reason}
+                    case lists:keytake(AuthenticatorID, 1, Authenticators) of
+                        false ->
+                            case CreateWhenNotFound of
+                                true ->
+                                    case lists:keymember(NewName, 2, Authenticators) of
+                                        true ->
+                                            {error, name_has_be_used};
+                                        false ->
+                                            case do_create_authenticator(ChainID, AuthenticatorID, Config) of
+                                                {ok, Authenticator} ->
+                                                    NAuthenticators = Authenticators ++ [{AuthenticatorID, NewName, Authenticator}],
+                                                    ok = mnesia:write(?CHAIN_TAB, Chain#chain{authenticators = NAuthenticators}, write),
+                                                    {ok, serialize_authenticator(Authenticator)};
+                                                {error, Reason} ->
+                                                    {error, Reason}
+                                            end
+                                        end;
+                                false ->
+                                    {error, {not_found, {authenticator, AuthenticatorID}}}
+                            end;
+                        {value,
+                         {_, _, #authenticator{provider = Provider,
+                                               state    = #{version := Version} = State} = Authenticator},
+                         Others} ->
+                            case lists:keymember(NewName, 2, Others) of
+                                true ->
+                                    {error, name_has_be_used};
+                                false ->
+                                    case (NewProvider = authenticator_provider(Config)) =:= Provider of
+                                        true ->
+                                            Unique = <<ChainID/binary, "/", AuthenticatorID/binary, ":", Version/binary>>,
+                                            case Provider:update(Config#{'_unique' => Unique}, State) of
+                                                {ok, NewState} ->
+                                                    NewAuthenticator = Authenticator#authenticator{name = NewName,
+                                                                                                   config = Config,
+                                                                                                   state = switch_version(NewState)},
+                                                    NewAuthenticators = replace_authenticator(AuthenticatorID, NewAuthenticator, Authenticators),
+                                                    ok = mnesia:write(?CHAIN_TAB, Chain#chain{authenticators = NewAuthenticators}, write),
+                                                    {ok, serialize_authenticator(NewAuthenticator)};
+                                                {error, Reason} ->
+                                                    {error, Reason}
+                                            end;
+                                        false ->
+                                            Unique = <<ChainID/binary, "/", AuthenticatorID/binary, ":", Version/binary>>,
+                                            case NewProvider:create(Config#{'_unique' => Unique}) of
+                                                {ok, NewState} ->
+                                                    NewAuthenticator = Authenticator#authenticator{name = NewName,
+                                                                                                   provider = NewProvider,
+                                                                                                   config = Config,
+                                                                                                   state = switch_version(NewState)},
+                                                    NewAuthenticators = replace_authenticator(AuthenticatorID, NewAuthenticator, Authenticators),
+                                                    ok = mnesia:write(?CHAIN_TAB, Chain#chain{authenticators = NewAuthenticators}, write),
+                                                    _ = Provider:destroy(State),
+                                                    {ok, serialize_authenticator(NewAuthenticator)};
+                                                {error, Reason} ->
+                                                    {error, Reason}
+                                            end
+                                    end
                             end
                     end
-                 end,
+                end,
     update_chain(ChainID, UpdateFun).
 
-lookup_authenticator(ChainID, AuthenticatorName) ->
+lookup_authenticator(ChainID, AuthenticatorID) ->
     case mnesia:dirty_read(?CHAIN_TAB, ChainID) of
         [] ->
             {error, {not_found, {chain, ChainID}}};
         [#chain{authenticators = Authenticators}] ->
-            case proplists:get_value(AuthenticatorName, Authenticators, undefined) of
-                undefined ->
-                    {error, {not_found, {authenticator, AuthenticatorName}}};
-                Authenticator ->
+            case lists:keyfind(AuthenticatorID, 1, Authenticators) of
+                false ->
+                    {error, {not_found, {authenticator, AuthenticatorID}}};
+                {_, _, Authenticator} ->
                     {ok, serialize_authenticator(Authenticator)}
             end
     end.
@@ -231,9 +274,9 @@ list_authenticators(ChainID) ->
             {ok, serialize_authenticators(Authenticators)}
     end.
 
-move_authenticator_to_the_front(ChainID, AuthenticatorName) ->
+move_authenticator_to_the_nth(ChainID, AuthenticatorID, N) ->
     UpdateFun = fun(Chain = #chain{authenticators = Authenticators}) ->
-                    case move_authenticator_to_the_front_(AuthenticatorName, Authenticators) of
+                    case move_authenticator_to_the_nth_(AuthenticatorID, Authenticators, N) of
                         {ok, NAuthenticators} ->
                             NChain = Chain#chain{authenticators = NAuthenticators},
                             mnesia:write(?CHAIN_TAB, NChain, write);
@@ -243,108 +286,94 @@ move_authenticator_to_the_front(ChainID, AuthenticatorName) ->
                  end,
     update_chain(ChainID, UpdateFun).
 
-move_authenticator_to_the_end(ChainID, AuthenticatorName) ->
-    UpdateFun = fun(Chain = #chain{authenticators = Authenticators}) ->
-                    case move_authenticator_to_the_end_(AuthenticatorName, Authenticators) of
-                        {ok, NAuthenticators} ->
-                            NChain = Chain#chain{authenticators = NAuthenticators},
-                            mnesia:write(?CHAIN_TAB, NChain, write);
-                        {error, Reason} ->
-                            {error, Reason}
-                    end
-                 end,
-    update_chain(ChainID, UpdateFun).
+import_users(ChainID, AuthenticatorID, Filename) ->
+    call_authenticator(ChainID, AuthenticatorID, import_users, [Filename]).
 
-move_authenticator_to_the_nth(ChainID, AuthenticatorName, N) ->
-    UpdateFun = fun(Chain = #chain{authenticators = Authenticators}) ->
-                    case move_authenticator_to_the_nth_(AuthenticatorName, Authenticators, N) of
-                        {ok, NAuthenticators} ->
-                            NChain = Chain#chain{authenticators = NAuthenticators},
-                            mnesia:write(?CHAIN_TAB, NChain, write);
-                        {error, Reason} ->
-                            {error, Reason}
-                    end
-                 end,
-    update_chain(ChainID, UpdateFun).
+add_user(ChainID, AuthenticatorID, UserInfo) ->
+    call_authenticator(ChainID, AuthenticatorID, add_user, [UserInfo]).
 
-import_users(ChainID, AuthenticatorName, Filename) ->
-    call_authenticator(ChainID, AuthenticatorName, import_users, [Filename]).
+delete_user(ChainID, AuthenticatorID, UserID) ->
+    call_authenticator(ChainID, AuthenticatorID, delete_user, [UserID]).
 
-add_user(ChainID, AuthenticatorName, UserInfo) ->
-    call_authenticator(ChainID, AuthenticatorName, add_user, [UserInfo]).
+update_user(ChainID, AuthenticatorID, UserID, NewUserInfo) ->
+    call_authenticator(ChainID, AuthenticatorID, update_user, [UserID, NewUserInfo]).
 
-delete_user(ChainID, AuthenticatorName, UserID) ->
-    call_authenticator(ChainID, AuthenticatorName, delete_user, [UserID]).
+lookup_user(ChainID, AuthenticatorID, UserID) ->
+    call_authenticator(ChainID, AuthenticatorID, lookup_user, [UserID]).
 
-update_user(ChainID, AuthenticatorName, UserID, NewUserInfo) ->
-    call_authenticator(ChainID, AuthenticatorName, update_user, [UserID, NewUserInfo]).
-
-lookup_user(ChainID, AuthenticatorName, UserID) ->
-    call_authenticator(ChainID, AuthenticatorName, lookup_user, [UserID]).
-
-list_users(ChainID, AuthenticatorName) ->
-    call_authenticator(ChainID, AuthenticatorName, list_users, []).
+list_users(ChainID, AuthenticatorID) ->
+    call_authenticator(ChainID, AuthenticatorID, list_users, []).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-authenticator_provider('password-based', #{server_type := 'built-in-database'}) ->
+authenticator_provider(#{mechanism := 'password-based', server_type := 'built-in-database'}) ->
     emqx_authn_mnesia;
-authenticator_provider('password-based', #{server_type := 'mysql'}) ->
+authenticator_provider(#{mechanism := 'password-based', server_type := 'mysql'}) ->
     emqx_authn_mysql;
-authenticator_provider('password-based', #{server_type := 'pgsql'}) ->
+authenticator_provider(#{mechanism := 'password-based', server_type := 'pgsql'}) ->
     emqx_authn_pgsql;
-authenticator_provider('password-based', #{server_type := 'http-server'}) ->
+authenticator_provider(#{mechanism := 'password-based', server_type := 'http-server'}) ->
     emqx_authn_http;
-authenticator_provider(jwt, _) ->
+authenticator_provider(#{mechanism := jwt}) ->
     emqx_authn_jwt;
-authenticator_provider(scram, #{server_type := 'built-in-database'}) ->
+authenticator_provider(#{mechanism := scram, server_type := 'built-in-database'}) ->
     emqx_enhanced_authn_scram_mnesia.
 
+gen_id(AlreadyExist) ->
+    ID = list_to_binary(emqx_rule_id:gen()),
+    case AlreadyExist(ID) of
+        true -> gen_id(AlreadyExist);
+        false -> ID
+    end.
+
+switch_version(State = #{version := ?VER_1}) ->
+    State#{version := ?VER_2};
+switch_version(State = #{version := ?VER_2}) ->
+    State#{version := ?VER_1};
+switch_version(State) ->
+    State#{version => ?VER_1}.
+
+do_create_authenticator(ChainID, AuthenticatorID, #{name := Name} = Config) ->
+    Provider = authenticator_provider(Config),
+    Unique = <<ChainID/binary, "/", AuthenticatorID/binary, ":", ?VER_1/binary>>,
+    case Provider:create(Config#{'_unique' => Unique}) of
+        {ok, State} ->
+            Authenticator = #authenticator{id = AuthenticatorID,
+                                           name = Name,
+                                           provider = Provider,
+                                           config = Config,
+                                           state = switch_version(State)},
+            {ok, Authenticator};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 do_delete_authenticator(#authenticator{provider = Provider, state = State}) ->
-    Provider:destroy(State).
+    _ = Provider:destroy(State),
+    ok.
     
-update_value(Key, Value, List) ->
-    lists:keyreplace(Key, 1, List, {Key, Value}).
+replace_authenticator(ID, #authenticator{name = Name} = Authenticator, Authenticators) ->
+    lists:keyreplace(ID, 1, Authenticators, {ID, Name, Authenticator}).
 
-move_authenticator_to_the_front_(AuthenticatorName, Authenticators) ->
-    move_authenticator_to_the_front_(AuthenticatorName, Authenticators, []).
-
-move_authenticator_to_the_front_(AuthenticatorName, [], _) ->
-    {error, {not_found, {authenticator, AuthenticatorName}}};
-move_authenticator_to_the_front_(AuthenticatorName, [{AuthenticatorName, _} = Authenticator | More], Passed) ->
-    {ok, [Authenticator | (lists:reverse(Passed) ++ More)]};
-move_authenticator_to_the_front_(AuthenticatorName, [Authenticator | More], Passed) ->
-    move_authenticator_to_the_front_(AuthenticatorName, More, [Authenticator | Passed]).
-
-move_authenticator_to_the_end_(AuthenticatorName, Authenticators) ->
-    move_authenticator_to_the_end_(AuthenticatorName, Authenticators, []).
-
-move_authenticator_to_the_end_(AuthenticatorName, [], _) ->
-    {error, {not_found, {authenticator, AuthenticatorName}}};
-move_authenticator_to_the_end_(AuthenticatorName, [{AuthenticatorName, _} = Authenticator | More], Passed) ->
-    {ok, lists:reverse(Passed) ++ More ++ [Authenticator]};
-move_authenticator_to_the_end_(AuthenticatorName, [Authenticator | More], Passed) ->
-    move_authenticator_to_the_end_(AuthenticatorName, More, [Authenticator | Passed]).
-
-move_authenticator_to_the_nth_(AuthenticatorName, Authenticators, N)
+move_authenticator_to_the_nth_(AuthenticatorID, Authenticators, N)
   when N =< length(Authenticators) andalso N > 0 ->
-    move_authenticator_to_the_nth_(AuthenticatorName, Authenticators, N, []);
+    move_authenticator_to_the_nth_(AuthenticatorID, Authenticators, N, []);
 move_authenticator_to_the_nth_(_, _, _) ->
     {error, out_of_range}.
 
-move_authenticator_to_the_nth_(AuthenticatorName, [], _, _) ->
-    {error, {not_found, {authenticator, AuthenticatorName}}};
-move_authenticator_to_the_nth_(AuthenticatorName, [{AuthenticatorName, _} = Authenticator | More], N, Passed)
+move_authenticator_to_the_nth_(AuthenticatorID, [], _, _) ->
+    {error, {not_found, {authenticator, AuthenticatorID}}};
+move_authenticator_to_the_nth_(AuthenticatorID, [{AuthenticatorID, _, _} = Authenticator | More], N, Passed)
   when N =< length(Passed) ->
     {L1, L2} = lists:split(N - 1, lists:reverse(Passed)),
     {ok, L1 ++ [Authenticator] ++ L2 ++ More};
-move_authenticator_to_the_nth_(AuthenticatorName, [{AuthenticatorName, _} = Authenticator | More], N, Passed) ->
+move_authenticator_to_the_nth_(AuthenticatorID, [{AuthenticatorID, _, _} = Authenticator | More], N, Passed) ->
     {L1, L2} = lists:split(N - length(Passed) - 1, More),
     {ok, lists:reverse(Passed) ++ L1 ++ [Authenticator] ++ L2};
-move_authenticator_to_the_nth_(AuthenticatorName, [Authenticator | More], N, Passed) ->
-    move_authenticator_to_the_nth_(AuthenticatorName, More, N, [Authenticator | Passed]).
+move_authenticator_to_the_nth_(AuthenticatorID, [Authenticator | More], N, Passed) ->
+    move_authenticator_to_the_nth_(AuthenticatorID, More, N, [Authenticator | Passed]).
 
 update_chain(ChainID, UpdateFun) ->
     trans(
@@ -357,24 +386,15 @@ update_chain(ChainID, UpdateFun) ->
             end
         end).
 
-% lookup_chain_by_listener(ListenerID, AuthNType) ->
-%     case mnesia:dirty_read(?BINDING_TAB, {ListenerID, AuthNType}) of
-%         [] ->
-%             {error, not_found};
-%         [#binding{chain_id = ChainID}] ->
-%             {ok, ChainID}
-%     end.
-
-
-call_authenticator(ChainID, AuthenticatorName, Func, Args) ->
+call_authenticator(ChainID, AuthenticatorID, Func, Args) ->
     case mnesia:dirty_read(?CHAIN_TAB, ChainID) of
         [] ->
             {error, {not_found, {chain, ChainID}}};
         [#chain{authenticators = Authenticators}] ->
-            case proplists:get_value(AuthenticatorName, Authenticators, undefined) of
-                undefined ->
-                    {error, {not_found, {authenticator, AuthenticatorName}}};
-                #authenticator{provider = Provider, state = State} ->
+            case lists:keyfind(AuthenticatorID, 1, Authenticators) of
+                false ->
+                    {error, {not_found, {authenticator, AuthenticatorID}}};
+                {_, _, #authenticator{provider = Provider, state = State}} ->
                     case erlang:function_exported(Provider, Func, length(Args) + 1) of
                         true ->
                             erlang:apply(Provider, Func, Args ++ [State]);
@@ -391,20 +411,12 @@ serialize_chain(#chain{id = ID,
       authenticators => serialize_authenticators(Authenticators),
       created_at => CreatedAt}.
 
-% serialize_binding(#binding{bound = {ListenerID, _},
-%                            chain_id = ChainID}) ->
-%     #{listener_id => ListenerID,
-%       chain_id => ChainID}.
-
 serialize_authenticators(Authenticators) ->
-    [serialize_authenticator(Authenticator) || {_, Authenticator} <- Authenticators].
+    [serialize_authenticator(Authenticator) || {_, _, Authenticator} <- Authenticators].
 
-serialize_authenticator(#authenticator{name = Name,
-                                       mechanism = Mechanism,
+serialize_authenticator(#authenticator{id = ID,
                                        config = Config}) ->
-    #{name => Name,
-      mechanism => Mechanism,
-      config => Config}.
+    Config#{id => ID}.
 
 trans(Fun) ->
     trans(Fun, []).

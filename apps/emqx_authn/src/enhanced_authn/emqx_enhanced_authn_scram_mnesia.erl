@@ -26,8 +26,8 @@
         , fields/1
         ]).
 
--export([ create/3
-        , update/4
+-export([ create/1
+        , update/2
         , authenticate/2
         , destroy/1
         ]).
@@ -71,7 +71,9 @@ mnesia(copy) ->
 structs() -> [config].
 
 fields(config) ->
-    [ {server_type,     fun server_type/1}
+    [ {name,            fun emqx_authn_schema:authenticator_name/1}
+    , {mechanism,       {enum, [scram]}}
+    , {server_type,     fun server_type/1}
     , {algorithm,       fun algorithm/1}
     , {iteration_count, fun iteration_count/1}
     ].
@@ -80,7 +82,7 @@ server_type(type) -> hoconsc:enum(['built-in-database']);
 server_type(default) -> 'built-in-database';
 server_type(_) -> undefined.
 
-algorithm(type) -> hoconsc:enum([sha256, sha256]);
+algorithm(type) -> hoconsc:enum([sha256, sha512]);
 algorithm(default) -> sha256;
 algorithm(_) -> undefined.
 
@@ -92,16 +94,18 @@ iteration_count(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(ChainID, Authenticator, #{algorithm := Algorithm,
-                                 iteration_count := IterationCount}) ->
-    State = #{user_group => {ChainID, Authenticator},
+create(#{ algorithm := Algorithm
+        , iteration_count := IterationCount
+        , '_unique' := Unique
+        }) ->
+    State = #{user_group => Unique,
               algorithm => Algorithm,
               iteration_count => IterationCount},
     {ok, State}.
 
-update(_ChainID, _Authenticator, _Config, _State) ->
-    {error, update_not_suppored}.
-
+update(Config, #{user_group := Unique}) ->
+    create(Config#{'_unique' => Unique}).
+    
 authenticate(#{auth_method := AuthMethod,
                auth_data := AuthData,
                auth_cache := AuthCache}, State) ->
@@ -129,8 +133,8 @@ destroy(#{user_group := UserGroup}) ->
         end).
 
 %% TODO: binary to atom
-add_user(#{<<"user_id">> := UserID,
-           <<"password">> := Password}, #{user_group := UserGroup} = State) ->
+add_user(#{user_id := UserID,
+           password := Password}, #{user_group := UserGroup} = State) ->
     trans(
         fun() ->
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
@@ -153,7 +157,7 @@ delete_user(UserID, #{user_group := UserGroup}) ->
             end
         end).
 
-update_user(UserID, #{<<"password">> := Password},
+update_user(UserID, #{password := Password},
             #{user_group := UserGroup} = State) ->
     trans(
         fun() ->
