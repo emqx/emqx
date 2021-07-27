@@ -26,8 +26,10 @@
     ?SH-PROMPT
 
     !cd emqx
-    !sed -i 's|listener.wss.external[ \t]*=.*|listener.wss.external = 8085|g' etc/emqx.conf
-    !sed -i '/emqx_telemetry/d' data/loaded_plugins
+    !export EMQX_LOG__CONSOLE_HANDLER__ENABLE=true
+    !export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
+    !export EMQX_LOG__PRIMARY_LEVEL=debug
+    !export EMQX_ZONES__DEFAULT__LISTENERS__MQTT_WSS__BIND="0.0.0.0:8085"
 
     !./bin/emqx start
     ?EMQ X .* is started successfully!
@@ -40,7 +42,9 @@
     ?SH-PROMPT
     !cd emqx2
 
-    !sed -i '/emqx_telemetry/d' data/loaded_plugins
+    !export EMQX_LOG__CONSOLE_HANDLER__ENABLE=true
+    !export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
+    !export EMQX_LOG__PRIMARY_LEVEL=debug
 
     !./bin/emqx start
     ?EMQ X .* is started successfully!
@@ -131,7 +135,7 @@
 [shell bench]
     ???publish complete
     ??SH-PROMPT:
-    !sleep 5
+    !sleep 30
     ?SH-PROMPT
 
     !curl --user admin:public --silent --show-error http://localhost:8081/api/v4/rules | jq --raw-output ".data[0].metrics[] | select(.node==\"emqx@127.0.0.1\").matched"

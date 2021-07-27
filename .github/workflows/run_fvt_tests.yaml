@@ -273,6 +273,16 @@ jobs:
         - uses: actions/upload-artifact@v1
           if: failure()
           with:
+            name: emqx_logs
+            path: packages/emqx/log/emqx.log.1
+        - uses: actions/upload-artifact@v1
+          if: failure()
+          with:
+            name: emqx2_logs
+            path: packages/emqx2/log/emqx.log.1
+        - uses: actions/upload-artifact@v1
+          if: failure()
+          with:
             name: lux_logs
             path: lux_logs
 
