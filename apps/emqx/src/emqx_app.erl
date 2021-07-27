@@ -19,6 +19,7 @@
 -behaviour(application).
 
 -export([ start/2
+        , prep_stop/1
         , stop/1
         , get_description/0
         , get_release/0
@@ -63,11 +64,12 @@ start(_Type, _Args) ->
     print_vsn(),
     {ok, Sup}.
 
--spec(stop(State :: term()) -> term()).
-stop(_State) ->
+prep_stop(_State) ->
     ok = emqx_alarm_handler:unload(),
     emqx_boot:is_enabled(listeners)
       andalso emqx_listeners:stop().
+
+stop(_State) -> ok.
 
 set_backtrace_depth() ->
     Depth = emqx_config:get([node, backtrace_depth]),
