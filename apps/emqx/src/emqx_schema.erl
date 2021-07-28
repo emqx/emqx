@@ -79,22 +79,11 @@ structs() -> ["cluster", "node", "rpc", "log", "lager",
               "plugins", "sysmon", "alarm"]
              ++ ?MODULE:includes().
 
--ifdef(TEST).
-includes() ->[].
+-ifndef(EMQX_EXT_SCHEMAS).
+includes() -> [].
 -else.
 includes() ->
-    [ "emqx_data_bridge"
-    , "emqx_retainer"
-    , "emqx_statsd"
-    , "emqx_authn"
-    , "emqx_authz"
-    , "emqx_bridge_mqtt"
-    , "emqx_modules"
-    , "emqx_management"
-    , "emqx_dashboard"
-    , "emqx_gateway"
-    , "emqx_prometheus"
-    ].
+    [FieldName || {FieldName, _SchemaMod} <- ?EMQX_EXT_SCHEMAS].
 -endif.
 
 fields("cluster") ->
@@ -525,9 +514,16 @@ fields("alarm") ->
     , {"validity_period", t(duration(), undefined, "24h")}
     ];
 
-fields(ExtraField) ->
-    Mod = to_atom(ExtraField++"_schema"),
-    Mod:fields(ExtraField).
+fields(FieldName) ->
+    extra_schema_fields(FieldName).
+
+-ifndef(EMQX_EXT_SCHEMAS).
+extra_schema_fields(FieldName) -> error({unknown_field, FieldName}).
+-else.
+extra_schema_fields(FieldName) ->
+    {_, Mod} = lists:keyfind(FieldName, 1, ?EMQX_EXT_SCHEMAS),
+    Mod:fields(FieldName).
+-endif.
 
 mqtt_listener() ->
     base_listener() ++
