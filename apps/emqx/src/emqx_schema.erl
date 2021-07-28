@@ -433,30 +433,6 @@ fields("deflate_opts") ->
     , {"client_max_window_bits", t(range(8, 15), undefined, 15)}
     ];
 
-
-fields("presence") ->
-    [ {"qos", t(range(0, 2), undefined, 1)}];
-
-fields("subscription") ->
-    [ {"$id", ref("subscription_settings")}];
-
-fields("subscription_settings") ->
-    [ {"topic", t(string())}
-    , {"qos", t(range(0, 2), undefined, 1)}
-    , {"nl", t(range(0, 1), undefined, 0)}
-    , {"rap", t(range(0, 1), undefined, 0)}
-    , {"rh", t(range(0, 2), undefined, 0)}
-    ];
-
-fields("rewrite") ->
-    [ {"rule", ref("rule")}
-    , {"pub_rule", ref("rule")}
-    , {"sub_rule", ref("rule")}
-    ];
-
-fields("rule") ->
-    [ {"$id", t(string())}];
-
 fields("plugins") ->
     [ {"expand_plugins_dir", t(string())}
     ];
