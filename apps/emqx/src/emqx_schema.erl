@@ -516,6 +516,8 @@ fields(FieldName) ->
     extra_schema_fields(FieldName).
 
 -ifndef(EMQX_EXT_SCHEMAS).
+%% Function extra_schema_fields/1 only terminates with explicit exception
+-dialyzer([{nowarn_function, [extra_schema_fields/1]}]).
 extra_schema_fields(FieldName) -> error({unknown_field, FieldName}).
 -else.
 extra_schema_fields(FieldName) ->
