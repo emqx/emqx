@@ -167,11 +167,6 @@ relx_get_pid() {
     fi
 }
 
-relx_get_nodename() {
-    id="longname$(relx_gen_id)-${NAME}"
-    "$BINDIR/erl" -boot "$REL_DIR/start_clean" -eval '[Host] = tl(string:tokens(atom_to_list(node()),"@")), io:format("~s~n", [Host]), halt()' -noshell "${NAME_TYPE}" "$id"
-}
-
 # Connect to a remote node
 relx_rem_sh() {
     # Generate a unique id used to allow multiple remsh to the same node
@@ -227,6 +222,8 @@ relx_start_command() {
 
 # Function to generate app.config and vm.args
 generate_config() {
+    local name_type="$1"
+    local node_name="$2"
     ## Delete the *.siz files first or it cann't start after
     ## changing the config 'log.rotation.size'
     rm -rf "${RUNNER_LOG_DIR}"/*.siz
@@ -277,6 +274,7 @@ generate_config() {
             fi
         fi
     done
+    echo "$name_type $node_name" >> "$TMP_ARG_FILE"
     ## rename the generated vm.<time>.args file
     mv -f "$TMP_ARG_FILE" "$HOCON_GEN_ARG_FILE"
 
@@ -315,44 +313,43 @@ case "$1" in
         ;;
 esac
 
-
-if [ -z "$NAME_ARG" ]; then
-    NODENAME="${EMQX_NODE_NAME:-}"
-    # compatible with docker entrypoint
-    [ -z "$NODENAME" ] && [ -n "$EMQX_NAME" ] && [ -n "$EMQX_HOST" ] && NODENAME="${EMQX_NAME}@${EMQX_HOST}"
-    if [ -z "$NODENAME" ]; then
-        if [ "$IS_BOOT_COMMAND" = 'no' ]; then
-            # for non-boot commands, inspect vm.<time>.args for node name
-            # shellcheck disable=SC2012,SC2086
-            LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
-            if [ -z "$LATEST_VM_ARGS" ]; then
-                echo "For command $1, there is no vm.*.args config file found in $CONFIGS_DIR/"
-                exit 1
-            fi
-            NODENAME="$(grep -E '^-name' "$LATEST_VM_ARGS" | awk '{print $2}')"
-        else
-            # for boot commands, inspect emqx.conf for node name
-            # todo: use get command from hocon escript
-            NODENAME="$(call_hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
+## Possible ways to configure emqx node name:
+## 1. configure node.name in emqx.conf
+## 2. override with environment variable EMQX_NODE_NAME
+## 3. override with environment variable EMQX_NAME and EMQX_HOST (deprecated)
+## Node name is either short-name (without '@'), e.g. 'emqx'
+## or long name (with '@') e.g. 'emqx@example.net' or 'emqx@127.0.0.1'
+NAME="${EMQX_NODE_NAME:-}"
+# to be backward compatible
+[ -n "$EMQX_NAME" ] && [ -n "$EMQX_HOST" ] && NAME="${EMQX_NAME}@${EMQX_HOST}"
+if [ -z "$NAME" ]; then
+    if [ "$IS_BOOT_COMMAND" = 'no' ]; then
+        # for non-boot commands, inspect vm.<time>.args for node name
+        # shellcheck disable=SC2012,SC2086
+        LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
+        if [ -z "$LATEST_VM_ARGS" ]; then
+            echoerr "For command $1, there is no vm.*.args file found in $CONFIGS_DIR/"
+            exit 1
         fi
+        NAME="$(grep -E '^-s?name' "$LATEST_VM_ARGS" | awk '{print $2}')"
+    else
+        # for boot commands, inspect emqx.conf for node name
+        NAME="$(call_hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
     fi
-    if [ -z "$NODENAME" ]; then
-        echoerr "Failed to resolve emqx node name"
-        if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-            echoerr "Make sure runner has read permission on '$RUNNER_ETC_DIR/emqx.conf'"
-        fi
-        echoerr "Maybe override node name with environment variable ENQX_NODE_NAME='name@host.name'"
-        echoerr "or, EMQX_NAME='name' and EMQX_HOST='host.name'"
-        exit 1
-    fi
-    NAME_ARG="-name ${NODENAME# *}"
 fi
 
-# Extract the name type and name from the NAME_ARG for REMSH
-NAME_TYPE="$(echo "$NAME_ARG" | awk '{print $1}')"
-NAME="$(echo "$NAME_ARG" | awk '{print $2}')"
-NODENAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
-export ESCRIPT_NAME="$NODENAME"
+# force to use 'emqx' short name
+[ -z "$NAME" ] && NAME='emqx'
+
+case "$NAME" in
+    *@*)
+        NAME_TYPE='-name'
+       ;;
+    *)
+        NAME_TYPE='-sname'
+esac
+SHORT_NAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
+export ESCRIPT_NAME="$SHORT_NAME"
 
 PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 
@@ -385,19 +382,6 @@ fi
 
 cd "$ROOTDIR"
 
-# User can specify an sname without @hostname
-# This will fail when creating remote shell
-# So here we check for @ and add @hostname if missing
-case $NAME in
-    *@*)
-        # Nothing to do
-        ;;
-    *)
-        NAME=$NAME@$(relx_get_nodename)
-        ;;
-esac
-
-# Check the first argument for instructions
 case "$1" in
     start|start_boot)
         # Make sure a node IS not running
@@ -597,7 +581,7 @@ case "$1" in
         fi
 
         #generate app.config and vm.args
-        generate_config
+        generate_config "$NAME_TYPE" "$NAME"
 
         # Setup beam-required vars
         EMU="beam"
@@ -640,7 +624,7 @@ case "$1" in
         export EMQX_LOG__CONSOLE_HANDLER__ENABLE="${EMQX_LOG__CONSOLE_HANDLER__ENABLE:-true}"
 
         #generate app.config and vm.args
-        generate_config
+        generate_config "$NAME_TYPE" "$NAME"
 
         [ -f "$REL_DIR/$REL_NAME.boot" ] && BOOTFILE="$REL_NAME" || BOOTFILE=start
         FOREGROUNDOPTIONS="-noshell -noinput +Bd"

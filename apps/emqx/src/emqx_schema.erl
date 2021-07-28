@@ -156,7 +156,9 @@ fields("rlog") ->
     ];
 
 fields("node") ->
-    [ {"name", t(string(), "vm_args.-name", "emqx@127.0.0.1", "EMQX_NODE_NAME")}
+    [ {"name", hoconsc:t(string(), #{default => "emqx@127.0.0.1",
+                                     override_env => "EMQX_NODE_NAME"
+                                    })}
     , {"cookie", hoconsc:t(string(), #{mapping => "vm_args.-setcookie",
                                        default => "emqxsecretcookie",
                                        sensitive => true,
