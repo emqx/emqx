@@ -160,7 +160,7 @@ fields("node") ->
     , {"dist_net_ticktime", t(duration(), "vm_args.-kernel net_ticktime", "2m")}
     , {"dist_listen_min", t(range(1024, 65535), "kernel.inet_dist_listen_min", 6369)}
     , {"dist_listen_max", t(range(1024, 65535), "kernel.inet_dist_listen_max", 6369)}
-    , {"backtrace_depth", t(integer(), undefined, 23)}
+    , {"backtrace_depth", t(integer(), "emqx_machine.backtrace_depth", 23)}
     ];
 
 fields("rpc") ->

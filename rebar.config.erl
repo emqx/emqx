@@ -264,7 +264,8 @@ relx_apps(ReleaseType) ->
     , inets
     , compiler
     , runtime_tools
-    , emqx
+    , {emqx, load} % started by emqx_machine
+    , emqx_machine
     , {mnesia, load}
     , {ekka, load}
     , {emqx_plugin_libs, load}
