@@ -74,7 +74,7 @@
 %% will be used by emqx_ct_helper to find the dependent apps
 -export([includes/0]).
 
-structs() -> ["cluster", "node", "rpc", "log", "lager",
+structs() -> ["cluster", "node", "rpc", "log",
               "zones", "listeners", "broker",
               "plugins", "sysmon", "alarm"]
              ++ ?MODULE:includes().
@@ -234,12 +234,6 @@ fields("log_burst_limit") ->
     [ {"enable", t(boolean(), undefined, true)}
     , {"max_count", t(integer(), undefined, 10000)}
     , {"window_time", t(duration(), undefined, "1s")}
-    ];
-
-%% disable lager in case some app deps on it
-fields("lager") ->
-    [ {"handlers", t(string(), "lager.handlers", "")}
-    , {"crash_log", t(boolean(), "lager.crash_log", false)}
     ];
 
 fields("stats") ->
