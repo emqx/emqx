@@ -594,7 +594,7 @@ tr_logger(Conf) ->
                 filters => Filters,
                 filesync_repeat_interval => no_repeat
             }}
-        || {HandlerName, SubConf} <- maps:to_list(conf_get("log.file_handlers", Conf))],
+        || {HandlerName, SubConf} <- maps:to_list(conf_get("log.file_handlers", Conf, #{}))],
 
     [{handler, default, undefined}] ++ ConsoleHandler ++ FileHandlers.
 

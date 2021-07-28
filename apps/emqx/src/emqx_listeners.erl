@@ -306,7 +306,7 @@ merge_zone_and_listener_confs(ZoneConf, ListenerConf) ->
 
 apply_on_listener(ListenerId, Do) ->
     {ZoneName, ListenerName} = decode_listener_id(ListenerId),
-    case emqx_config:find([zones, ZoneName, listeners, ListenerName]) of
-        {not_found, _, _} -> error({not_found, ListenerId});
+    case emqx_config:find_listener_conf(ZoneName, ListenerName, []) of
+        {not_found, _, _} -> error({listener_config_not_found, ZoneName, ListenerName});
         {ok, Conf} -> Do(ZoneName, ListenerName, Conf)
     end.

@@ -25,7 +25,7 @@
 all() -> emqx_ct:all(?MODULE).
 
 t_check_pub(_) ->
-    OldConf = emqx_config:get(),
+    OldConf = emqx_config:get([zones]),
     emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_1),
     emqx_config:put_zone_conf(default, [mqtt, retain_available], false),
     timer:sleep(50),
@@ -36,10 +36,10 @@ t_check_pub(_) ->
     PubFlags2 = #{qos => ?QOS_1, retain => true},
     ?assertEqual({error, ?RC_RETAIN_NOT_SUPPORTED},
                  emqx_mqtt_caps:check_pub(default, PubFlags2)),
-    emqx_config:put(OldConf).
+    emqx_config:put([zones], OldConf).
 
 t_check_sub(_) ->
-    OldConf = emqx_config:get(),
+    OldConf = emqx_config:get([zones]),
     SubOpts = #{rh  => 0,
                 rap => 0,
                 nl  => 0,
@@ -57,4 +57,4 @@ t_check_sub(_) ->
                  emqx_mqtt_caps:check_sub(default, <<"+/#">>, SubOpts)),
     ?assertEqual({error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED},
                  emqx_mqtt_caps:check_sub(default, <<"topic">>, SubOpts#{share => true})),
-    emqx_config:put(OldConf).
+    emqx_config:put([zones], OldConf).
