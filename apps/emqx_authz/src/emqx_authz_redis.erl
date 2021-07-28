@@ -34,8 +34,8 @@ description() ->
     "AuthZ with redis".
 
 authorize(Client, PubSub, Topic,
-            #{id := ResourceID,
-              cmd := CMD
+            #{cmd := CMD,
+              annotations := #{id := ResourceID}
              }) ->
     NCMD = string:tokens(replvar(CMD, Client), " "),
     case emqx_resource:query(ResourceID, {cmd, NCMD}) of
