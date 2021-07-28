@@ -16,7 +16,7 @@
 
 -module(emqx_authn_utils).
 
--export([ replace_placeholder/2
+-export([ replace_placeholders/2
         , gen_salt/0
         ]).
 
@@ -24,23 +24,23 @@
 %% APIs
 %%------------------------------------------------------------------------------
 
-replace_placeholder(PlaceHolders, Data) ->
-    replace_placeholder(PlaceHolders, Data, []).
+replace_placeholders(PlaceHolders, Data) ->
+    replace_placeholders(PlaceHolders, Data, []).
 
-replace_placeholder([], _Data, Acc) ->
+replace_placeholders([], _Data, Acc) ->
     lists:reverse(Acc);
-replace_placeholder([<<"${mqtt-username}">> | More], #{username := Username} = Data, Acc) ->
-    replace_placeholder(More, Data, [convert_to_sql_param(Username) | Acc]);
-replace_placeholder([<<"${mqtt-clientid}">> | More], #{clientid := ClientID} = Data, Acc) ->
-    replace_placeholder(More, Data, [convert_to_sql_param(ClientID) | Acc]);
-replace_placeholder([<<"${ip-address}">> | More], #{peerhost := IPAddress} = Data, Acc) ->
-    replace_placeholder(More, Data, [convert_to_sql_param(IPAddress) | Acc]);
-replace_placeholder([<<"${cert-subject}">> | More], #{dn := Subject} = Data, Acc) ->
-    replace_placeholder(More, Data, [convert_to_sql_param(Subject) | Acc]);
-replace_placeholder([<<"${cert-common-name}">> | More], #{cn := CommonName} = Data, Acc) ->
-    replace_placeholder(More, Data, [convert_to_sql_param(CommonName) | Acc]);
-replace_placeholder([_ | More], Data, Acc) ->
-    replace_placeholder(More, Data, [null | Acc]).
+replace_placeholders([<<"${mqtt-username}">> | More], #{username := Username} = Data, Acc) ->
+    replace_placeholders(More, Data, [convert_to_sql_param(Username) | Acc]);
+replace_placeholders([<<"${mqtt-clientid}">> | More], #{clientid := ClientID} = Data, Acc) ->
+    replace_placeholders(More, Data, [convert_to_sql_param(ClientID) | Acc]);
+replace_placeholders([<<"${ip-address}">> | More], #{peerhost := IPAddress} = Data, Acc) ->
+    replace_placeholders(More, Data, [convert_to_sql_param(IPAddress) | Acc]);
+replace_placeholders([<<"${cert-subject}">> | More], #{dn := Subject} = Data, Acc) ->
+    replace_placeholders(More, Data, [convert_to_sql_param(Subject) | Acc]);
+replace_placeholders([<<"${cert-common-name}">> | More], #{cn := CommonName} = Data, Acc) ->
+    replace_placeholders(More, Data, [convert_to_sql_param(CommonName) | Acc]);
+replace_placeholders([_ | More], Data, Acc) ->
+    replace_placeholders(More, Data, [null | Acc]).
 
 gen_salt() ->
     <<X:128/big-unsigned-integer>> = crypto:strong_rand_bytes(16),

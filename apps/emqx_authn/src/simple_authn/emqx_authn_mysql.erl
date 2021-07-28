@@ -46,24 +46,11 @@ fields(config) ->
     , {query,                   fun query/1}
     , {query_timeout,           fun query_timeout/1}
     ] ++ emqx_connector_schema_lib:relational_db_fields()
-    ++ emqx_connector_schema_lib:ssl_fields();
+    ++ emqx_connector_schema_lib:ssl_fields().
 
-fields(bcrypt) ->
-    [ {name, {enum, [bcrypt]}}
-    , {salt_rounds, fun salt_rounds/1}
-    ];
-
-fields(other_algorithms) ->
-    [ {name, {enum, [plain, md5, sha, sha256, sha512]}}
-    ].
-
-password_hash_algorithm(type) -> {union, [hoconsc:ref(bcrypt), hoconsc:ref(other_algorithms)]};
-password_hash_algorithm(default) -> #{<<"name">> => sha256};
+password_hash_algorithm(type) -> {enum, [plain, md5, sha, sha256, sha512, bcrypt]};
+password_hash_algorithm(default) -> sha256;
 password_hash_algorithm(_) -> undefined.
-
-salt_rounds(type) -> integer();
-salt_rounds(default) -> 10;
-salt_rounds(_) -> undefined.
 
 salt_position(type) -> {enum, [prefix, suffix]};
 salt_position(default) -> prefix;
@@ -118,7 +105,7 @@ authenticate(#{password := Password} = Credential,
                placeholders := PlaceHolders,
                query := Query,
                query_timeout := Timeout} = State) ->
-    Params = emqx_authn_utils:replace_placeholder(PlaceHolders, Credential),
+    Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
     case emqx_resource:query(ResourceID, {sql, Query, Params, Timeout}) of
         {ok, _Columns, []} -> ignore;
         {ok, Columns, Rows} ->
@@ -137,7 +124,7 @@ destroy(#{resource_id := ResourceID}) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-check_password(undefined, _Algorithm, _Selected) ->
+check_password(undefined, _Selected, _State) ->
     {error, bad_username_or_password};
 check_password(Password,
                #{password_hash := Hash},

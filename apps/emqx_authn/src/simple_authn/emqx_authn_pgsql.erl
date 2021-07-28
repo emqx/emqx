@@ -45,7 +45,8 @@ fields(config) ->
     ] ++ emqx_connector_schema_lib:relational_db_fields()
     ++ emqx_connector_schema_lib:ssl_fields().
 
-password_hash_algorithm(type) -> string();
+password_hash_algorithm(type) -> {enum, [plain, md5, sha, sha256, sha512, bcrypt]};
+password_hash_algorithm(default) -> sha256;
 password_hash_algorithm(_) -> undefined.
 
 query(type) -> string();
@@ -90,7 +91,7 @@ authenticate(#{password := Password} = Credential,
              #{resource_id := ResourceID,
                query := Query,
                placeholders := PlaceHolders} = State) ->
-    Params = emqx_authn_utils:replace_placeholder(PlaceHolders, Credential),
+    Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
     case emqx_resource:query(ResourceID, {sql, Query, Params}) of
         {ok, _Columns, []} -> ignore;
         {ok, Columns, Rows} ->
@@ -109,7 +110,7 @@ destroy(#{resource_id := ResourceID}) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-check_password(undefined, _Algorithm, _Selected) ->
+check_password(undefined, _Selected, _State) ->
     {error, bad_username_or_password};
 check_password(Password,
                #{password_hash := Hash},
