@@ -87,20 +87,16 @@ gen_id(Type) ->
     iolist_to_binary([io_lib:format("~s_~s",[?APP, Type]), "_", integer_to_list(erlang:system_time())]).
 
 create_resource(#{type := DB,
-                  config := Config
-                 } = Rule) ->
+                  config := Config}) ->
     ResourceID = gen_id(DB),
     case emqx_resource:create(
             ResourceID,
             list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
             Config)
     of
-        {ok, _} ->
-            Rule#{id => ResourceID};
-        {error, already_created} ->
-            Rule#{id => ResourceID};
-        {error, Reason} ->
-            error({load_config_error, Reason})
+        {ok, _} -> ResourceID;
+        {error, already_created} -> ResourceID;
+        {error, Reason} -> {error, Reason}
     end.
 
 -spec(init_rule(rule()) -> rule()).
@@ -109,10 +105,10 @@ init_rule(#{topics := Topics,
             permission := Permission,
             principal := Principal
          } = Rule) when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(Topics) ->
-    NTopics = [compile_topic(Topic) || Topic <- Topics],
-    Rule#{principal => compile_principal(Principal),
-          topics => NTopics,
-          id => gen_id(simple)
+    Rule#{annotations =>
+            #{id => gen_id(simple),
+              principal => compile_principal(Principal),
+              topics => [compile_topic(Topic) || Topic <- Topics]}
          };
 
 init_rule(#{principal := Principal,
@@ -121,16 +117,28 @@ init_rule(#{principal := Principal,
             config := #{url := Url} = Config
            } = Rule) ->
     NConfig = maps:merge(Config, #{base_url => maps:remove(query, Url)}),
-    NRule = create_resource(Rule#{config := NConfig}),
-    NRule#{principal => compile_principal(Principal)};
+    case create_resource(Rule#{config := NConfig}) of
+        {error, Reason} -> error({load_config_error, Reason});
+        Id -> Rule#{annotations => 
+                      #{id => Id,
+                        principal => compile_principal(Principal)
+                       }
+                   }
+    end;
 
 init_rule(#{principal := Principal,
             enable := true,
             type := DB
          } = Rule) when DB =:= redis;
                         DB =:= mongo ->
-    NRule = create_resource(Rule),
-    NRule#{principal => compile_principal(Principal)};
+    case create_resource(Rule) of
+        {error, Reason} -> error({load_config_error, Reason});
+        Id -> Rule#{annotations => 
+                      #{id => Id,
+                        principal => compile_principal(Principal)
+                       }
+                   }
+    end;
 
 init_rule(#{principal := Principal,
             enable := true,
@@ -139,10 +147,16 @@ init_rule(#{principal := Principal,
          } = Rule) when DB =:= mysql;
                         DB =:= pgsql ->
     Mod = list_to_existing_atom(io_lib:format("~s_~s",[?APP, DB])),
-    NRule = create_resource(Rule),
-    NRule#{principal => compile_principal(Principal),
-           sql => Mod:parse_query(SQL)
-          };
+    case create_resource(Rule) of
+        {error, Reason} -> error({load_config_error, Reason});
+        Id -> Rule#{annotations => 
+                      #{id => Id,
+                        principal => compile_principal(Principal),
+                        sql => Mod:parse_query(SQL)
+                       }
+                   }
+    end;
+
 init_rule(#{enable := false,
             type := _DB
          } = Rule) ->
@@ -209,9 +223,10 @@ authorize(#{username := Username,
     end.
 
 do_authorize(Client, PubSub, Topic,
-               [Connector = #{principal := Principal,
-                              type := DB,
-                              enable := true} | Tail] ) ->
+               [Connector = #{type := DB,
+                              enable := true,
+                              annotations := #{principal := Principal}
+                             } | Tail] ) ->
     case match_principal(Client, Principal) of
         true ->
             Mod = list_to_existing_atom(io_lib:format("~s_~s",[emqx_authz, DB])),
@@ -230,9 +245,11 @@ do_authorize(Client, PubSub, Topic,
 do_authorize(_Client, _PubSub, _Topic, []) -> nomatch.
 
 match(Client, PubSub, Topic,
-      #{principal := Principal,
-        topics := TopicFilters,
-        action := Action
+      #{action := Action,
+        annotations := #{
+            principal := Principal,
+            topics := TopicFilters
+        }
        }) ->
     match_action(PubSub, Action) andalso
     match_principal(Client, Principal) andalso

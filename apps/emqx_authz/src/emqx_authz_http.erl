@@ -34,12 +34,12 @@ description() ->
     "AuthZ with http".
 
 authorize(Client, PubSub, Topic,
-            #{id := ResourceID,
-              type := http,
+            #{type := http,
               config := #{url := #{path := Path} = Url,
                           headers := Headers,
                           method := Method,
-                          request_timeout := RequestTimeout} = Config
+                          request_timeout := RequestTimeout} = Config,
+              annotations := #{id := ResourceID}
              }) ->
     Request = case Method of
                   get  -> 

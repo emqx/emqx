@@ -74,44 +74,36 @@ end_per_suite(_Config) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 t_init_rule(_) ->
-    ?assertMatch(#{permission := deny,
-                   action := all,
-                   principal := all,
-                   topics := [['#']],
-                   id := _ID
+    ?assertMatch(#{annotations := #{id := _ID,
+                                 principal := all,
+                                 topics := [['#']]}
                   }, emqx_authz:init_rule(?RULE1)),
-    ?assertMatch(#{permission := allow,
-                   action := all,
-                   principal :=
-                        #{ipaddress := {{127,0,0,1},{127,0,0,1},32}},
-                   topics := [#{eq := ['#']},
-                              #{eq := ['+']}],
-                   id := _ID
+    ?assertMatch(#{annotations := #{principal :=
+                                        #{ipaddress := {{127,0,0,1},{127,0,0,1},32}},
+                                   topics := [#{eq := ['#']},
+                                              #{eq := ['+']}],
+                                   id := _ID}
                   }, emqx_authz:init_rule(?RULE2)),
-    ?assertMatch(
-       #{permission := allow,
-         action := publish,
-         principal :=
-                #{'and' := [#{username := {re_pattern, _, _, _, _}},
-                            #{clientid := {re_pattern, _, _, _, _}}
-                           ]
-                 },
-         topics := [[<<"test">>]],
-         id := _ID
-        }, emqx_authz:init_rule(?RULE3)),
-    ?assertMatch(
-       #{permission := deny,
-         action := publish,
-         principal :=
-                #{'or' := [#{username := {re_pattern, _, _, _, _}},
-                           #{clientid := {re_pattern, _, _, _, _}}
-                          ]
-                 },
-         topics := [#{pattern := [<<"%u">>]},
-                    #{pattern := [<<"%c">>]}
-                   ],
-         id := _ID
-        }, emqx_authz:init_rule(?RULE4)),
+    ?assertMatch(#{annotations :=
+                    #{principal :=
+                             #{'and' := [#{username := {re_pattern, _, _, _, _}},
+                                         #{clientid := {re_pattern, _, _, _, _}}
+                                        ]
+                              },
+                      topics := [[<<"test">>]],
+                      id := _ID}
+                     }, emqx_authz:init_rule(?RULE3)),
+    ?assertMatch(#{annotations :=
+                    #{principal :=
+                             #{'or' := [#{username := {re_pattern, _, _, _, _}},
+                                        #{clientid := {re_pattern, _, _, _, _}}
+                                       ]
+                              },
+                      topics := [#{pattern := [<<"%u">>]},
+                                 #{pattern := [<<"%c">>]}
+                                ],
+                      id := _ID}
+                     }, emqx_authz:init_rule(?RULE4)),
     ok.
 
 t_authz(_) ->
