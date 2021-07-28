@@ -79,10 +79,6 @@ is_cover_enabled() ->
 is_enterprise() ->
     filelib:is_regular("EMQX_ENTERPRISE").
 
-emqx_ext_schemas() ->
-    {ok, Schemas} = file:script("extension_schemas.config"),
-    Schemas.
-
 is_quicer_supported() ->
     not (false =/= os:getenv("BUILD_WITHOUT_QUIC") orelse
          is_win32() orelse is_centos_6()
@@ -144,7 +140,6 @@ common_compile_opts() ->
     ] ++
     [{d, 'EMQX_DEP_APPS', AppNames -- [emqx]}] ++
     [{d, 'EMQX_ENTERPRISE'} || is_enterprise()] ++
-    [{d, 'EMQX_EXT_SCHEMAS', emqx_ext_schemas()}] ++
     [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].
 
 prod_compile_opts() ->
@@ -383,7 +378,7 @@ emqx_etc_overlay(edge) ->
     ].
 
 emqx_etc_overlay_common() ->
-    [ {"{{base_dir}}/lib/emqx/etc/emqx.conf.all", "etc/emqx.conf"}
+    [ {"{{base_dir}}/lib/emqx_machine/etc/emqx.conf.all", "etc/emqx.conf"}
     , {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"}
     ].
 

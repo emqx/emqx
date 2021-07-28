@@ -24,7 +24,6 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--type log_level() :: debug | info | notice | warning | error | critical | alert | emergency | all.
 -type duration() :: integer().
 -type duration_s() :: integer().
 -type duration_ms() :: integer().
@@ -60,179 +59,18 @@
 
 -behaviour(hocon_schema).
 
--reflect_type([ log_level/0, duration/0, duration_s/0, duration_ms/0,
+-reflect_type([ duration/0, duration_s/0, duration_ms/0,
                 bytesize/0, wordsize/0, percent/0, file/0,
                 comma_separated_list/0, bar_separated_list/0, ip_port/0,
                 cipher/0,
                 comma_separated_atoms/0]).
 
--export([structs/0, fields/1, translations/0, translation/1]).
+-export([structs/0, fields/1]).
 -export([t/1, t/3, t/4, ref/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([ssl/1]).
 
-%% will be used by emqx_ct_helper to find the dependent apps
--export([includes/0, extra_schema_fields/1]).
-
-structs() -> ["cluster", "node", "rpc", "log",
-              "zones", "listeners", "broker",
-              "plugins", "sysmon", "alarm"]
-             ++ ?MODULE:includes().
-
--ifndef(EMQX_EXT_SCHEMAS).
-includes() -> [].
--else.
-includes() ->
-    [FieldName || {FieldName, _SchemaMod} <- ?EMQX_EXT_SCHEMAS].
--endif.
-
-fields("cluster") ->
-    [ {"name", t(atom(), "ekka.cluster_name", emqxcl)}
-    , {"discovery_strategy", t(union([manual, static, mcast, dns, etcd, k8s]),
-        undefined, manual)}
-    , {"autoclean", t(duration(), "ekka.cluster_autoclean", "5m")}
-    , {"autoheal", t(boolean(), "ekka.cluster_autoheal", true)}
-    , {"static", ref("static")}
-    , {"mcast", ref("mcast")}
-    , {"proto_dist", t(union([inet_tcp, inet6_tcp, inet_tls]), "ekka.proto_dist", inet_tcp)}
-    , {"dns", ref("dns")}
-    , {"etcd", ref("etcd")}
-    , {"k8s", ref("k8s")}
-    , {"db_backend", t(union([mnesia, rlog]), "ekka.db_backend", mnesia)}
-    , {"rlog", ref("rlog")}
-    ];
-
-fields("static") ->
-    [ {"seeds", t(hoconsc:array(string()), undefined, [])}];
-
-fields("mcast") ->
-    [ {"addr", t(string(), undefined, "239.192.0.1")}
-    , {"ports", t(hoconsc:array(integer()), undefined, [4369, 4370])}
-    , {"iface", t(string(), undefined, "0.0.0.0")}
-    , {"ttl", t(range(0, 255), undefined, 255)}
-    , {"loop", t(boolean(), undefined, true)}
-    , {"sndbuf", t(bytesize(), undefined, "16KB")}
-    , {"recbuf", t(bytesize(), undefined, "16KB")}
-    , {"buffer", t(bytesize(), undefined, "32KB")}
-    ];
-
-fields("dns") ->
-    [ {"name", t(string(), undefined, "localhost")}
-    , {"app", t(string(), undefined, "emqx")}];
-
-fields("etcd") ->
-    [ {"server", t(comma_separated_list())}
-    , {"prefix", t(string(), undefined, "emqxcl")}
-    , {"node_ttl", t(duration(), undefined, "1m")}
-    , {"ssl", ref("etcd_ssl")}
-    ];
-
-fields("etcd_ssl") ->
-    ssl(#{});
-
-fields("k8s") ->
-    [ {"apiserver", t(string())}
-    , {"service_name", t(string(), undefined, "emqx")}
-    , {"address_type", t(union([ip, dns, hostname]))}
-    , {"app_name", t(string(), undefined, "emqx")}
-    , {"namespace", t(string(), undefined, "default")}
-    , {"suffix", t(string(), undefined, "pod.local")}
-    ];
-
-fields("rlog") ->
-    [ {"role", t(union([core, replicant]), "ekka.node_role", core)}
-    , {"core_nodes", t(comma_separated_atoms(), "ekka.core_nodes", [])}
-    ];
-
-fields("node") ->
-    [ {"name", hoconsc:t(string(), #{default => "emqx@127.0.0.1",
-                                     override_env => "EMQX_NODE_NAME"
-                                    })}
-    , {"cookie", hoconsc:t(string(), #{mapping => "vm_args.-setcookie",
-                                       default => "emqxsecretcookie",
-                                       sensitive => true,
-                                       override_env => "EMQX_NODE_COOKIE"
-                                      })}
-    , {"data_dir", t(string())}
-    , {"config_files", t(comma_separated_list())}
-    , {"global_gc_interval", t(duration(), undefined, "15m")}
-    , {"crash_dump_dir", t(file(), "vm_args.-env ERL_CRASH_DUMP", undefined)}
-    , {"dist_net_ticktime", t(duration(), "vm_args.-kernel net_ticktime", "2m")}
-    , {"dist_listen_min", t(range(1024, 65535), "kernel.inet_dist_listen_min", 6369)}
-    , {"dist_listen_max", t(range(1024, 65535), "kernel.inet_dist_listen_max", 6369)}
-    , {"backtrace_depth", t(integer(), "emqx_machine.backtrace_depth", 23)}
-    ];
-
-fields("rpc") ->
-    [ {"mode", t(union(sync, async), undefined, async)}
-    , {"async_batch_size", t(integer(), "gen_rpc.max_batch_size", 256)}
-    , {"port_discovery",t(union(manual, stateless), "gen_rpc.port_discovery", stateless)}
-    , {"tcp_server_port", t(integer(), "gen_rpc.tcp_server_port", 5369)}
-    , {"tcp_client_num", t(range(1, 256), undefined, 1)}
-    , {"connect_timeout", t(duration(), "gen_rpc.connect_timeout", "5s")}
-    , {"send_timeout", t(duration(), "gen_rpc.send_timeout", "5s")}
-    , {"authentication_timeout", t(duration(), "gen_rpc.authentication_timeout", "5s")}
-    , {"call_receive_timeout", t(duration(), "gen_rpc.call_receive_timeout", "15s")}
-    , {"socket_keepalive_idle", t(duration_s(), "gen_rpc.socket_keepalive_idle", "7200s")}
-    , {"socket_keepalive_interval", t(duration_s(), "gen_rpc.socket_keepalive_interval", "75s")}
-    , {"socket_keepalive_count", t(integer(), "gen_rpc.socket_keepalive_count", 9)}
-    , {"socket_sndbuf", t(bytesize(), "gen_rpc.socket_sndbuf", "1MB")}
-    , {"socket_recbuf", t(bytesize(), "gen_rpc.socket_recbuf", "1MB")}
-    , {"socket_buffer", t(bytesize(), "gen_rpc.socket_buffer", "1MB")}
-    ];
-
-fields("log") ->
-    [ {"primary_level", t(log_level(), undefined, warning)}
-    , {"console_handler", ref("console_handler")}
-    , {"file_handlers", ref("file_handlers")}
-    , {"time_offset", t(string(), undefined, "system")}
-    , {"chars_limit", maybe_infinity(range(1, inf))}
-    , {"supervisor_reports", t(union([error, progress]), undefined, error)}
-    , {"max_depth", t(union([infinity, integer()]),
-                      "kernel.error_logger_format_depth", 80)}
-    , {"formatter", t(union([text, json]), undefined, text)}
-    , {"single_line", t(boolean(), undefined, true)}
-    , {"sync_mode_qlen", t(integer(), undefined, 100)}
-    , {"drop_mode_qlen", t(integer(), undefined, 3000)}
-    , {"flush_qlen", t(integer(), undefined, 8000)}
-    , {"overload_kill", ref("log_overload_kill")}
-    , {"burst_limit", ref("log_burst_limit")}
-    , {"error_logger", t(atom(), "kernel.error_logger", silent)}
-    ];
-
-fields("console_handler") ->
-    [ {"enable", t(boolean(), undefined, false)}
-    , {"level", t(log_level(), undefined, warning)}
-    ];
-
-fields("file_handlers") ->
-    [ {"$name", ref("log_file_handler")}
-    ];
-
-fields("log_file_handler") ->
-    [ {"level", t(log_level(), undefined, warning)}
-    , {"file", t(file(), undefined, undefined)}
-    , {"rotation", ref("log_rotation")}
-    , {"max_size", maybe_infinity(bytesize(), "10MB")}
-    ];
-
-fields("log_rotation") ->
-    [ {"enable", t(boolean(), undefined, true)}
-    , {"count", t(range(1, 2048), undefined, 10)}
-    ];
-
-fields("log_overload_kill") ->
-    [ {"enable", t(boolean(), undefined, true)}
-    , {"mem_size", t(bytesize(), undefined, "30MB")}
-    , {"qlen", t(integer(), undefined, 20000)}
-    , {"restart_after", t(union(duration(), infinity), undefined, "5s")}
-    ];
-
-fields("log_burst_limit") ->
-    [ {"enable", t(boolean(), undefined, true)}
-    , {"max_count", t(integer(), undefined, 10000)}
-    , {"window_time", t(duration(), undefined, "1s")}
-    ];
+structs() -> ["zones", "listeners", "broker", "plugins", "sysmon", "alarm"].
 
 fields("stats") ->
     [ {"enable", t(boolean(), undefined, true)}
@@ -480,20 +318,7 @@ fields("alarm") ->
     [ {"actions", t(hoconsc:array(atom()), undefined, [log, publish])}
     , {"size_limit", t(integer(), undefined, 1000)}
     , {"validity_period", t(duration(), undefined, "24h")}
-    ];
-
-fields(FieldName) ->
-    ?MODULE:extra_schema_fields(FieldName).
-
--ifndef(EMQX_EXT_SCHEMAS).
-%% Function extra_schema_fields/1 only terminates with explicit exception
--dialyzer([{nowarn_function, [extra_schema_fields/1]}]).
-extra_schema_fields(FieldName) -> error({unknown_field, FieldName}).
--else.
-extra_schema_fields(FieldName) ->
-    {_, Mod} = lists:keyfind(FieldName, 1, ?EMQX_EXT_SCHEMAS),
-    Mod:fields(FieldName).
--endif.
+    ].
 
 mqtt_listener() ->
     base_listener() ++
@@ -508,117 +333,6 @@ base_listener() ->
     , {"max_connections", maybe_infinity(integer(), infinity)}
     , {"rate_limit", ref("rate_limit")}
     ].
-
-translations() -> ["ekka", "kernel", "emqx"].
-
-translation("ekka") ->
-    [ {"cluster_discovery", fun tr_cluster__discovery/1}];
-
-translation("kernel") ->
-    [ {"logger_level", fun tr_logger_level/1}
-    , {"logger", fun tr_logger/1}];
-
-translation("emqx") ->
-    [ {"config_files", fun tr_config_files/1}
-    ].
-
-tr_config_files(Conf) ->
-    case conf_get("emqx.config_files", Conf) of
-        [_ | _] = Files ->
-            Files;
-        _ ->
-            case os:getenv("RUNNER_ETC_DIR") of
-                false ->
-                    [filename:join([code:lib_dir(emqx), "etc", "emqx.conf"])];
-                Dir ->
-                    [filename:join([Dir, "emqx.conf"])]
-            end
-    end.
-
-tr_cluster__discovery(Conf) ->
-    Strategy = conf_get("cluster.discovery_strategy", Conf),
-    {Strategy, filter(options(Strategy, Conf))}.
-
-tr_logger_level(Conf) -> conf_get("log.primary_level", Conf).
-
-tr_logger(Conf) ->
-    CharsLimit = case conf_get("log.chars_limit", Conf) of
-                     infinity -> unlimited;
-                     V -> V
-                 end,
-    SingleLine = conf_get("log.single_line", Conf),
-    FmtName = conf_get("log.formatter", Conf),
-    Formatter = formatter(FmtName, CharsLimit, SingleLine),
-    BasicConf = #{
-        sync_mode_qlen => conf_get("log.sync_mode_qlen", Conf),
-        drop_mode_qlen => conf_get("log.drop_mode_qlen", Conf),
-        flush_qlen => conf_get("log.flush_qlen", Conf),
-        overload_kill_enable => conf_get("log.overload_kill.enable", Conf),
-        overload_kill_qlen => conf_get("log.overload_kill.qlen", Conf),
-        overload_kill_mem_size => conf_get("log.overload_kill.mem_size", Conf),
-        overload_kill_restart_after => conf_get("log.overload_kill.restart_after", Conf),
-        burst_limit_enable => conf_get("log.burst_limit.enable", Conf),
-        burst_limit_max_count => conf_get("log.burst_limit.max_count", Conf),
-        burst_limit_window_time => conf_get("log.burst_limit.window_time", Conf)
-    },
-    Filters = case conf_get("log.supervisor_reports", Conf) of
-                  error -> [{drop_progress_reports, {fun logger_filters:progress/2, stop}}];
-                  progress -> []
-              end,
-    %% For the default logger that outputs to console
-    ConsoleHandler =
-        case conf_get("log.console_handler.enable", Conf) of
-            true ->
-                [{handler, console, logger_std_h, #{
-                    level => conf_get("log.console_handler.level", Conf),
-                    config => BasicConf#{type => standard_io},
-                    formatter => Formatter,
-                    filters => Filters
-                }}];
-            false -> []
-        end,
-    %% For the file logger
-    FileHandlers =
-        [{handler, binary_to_atom(HandlerName, latin1), logger_disk_log_h, #{
-                level => conf_get("level", SubConf),
-                config => BasicConf#{
-                    type => case conf_get("rotation.enable", SubConf) of
-                                true -> wrap;
-                                _ -> halt
-                            end,
-                    file => conf_get("file", SubConf),
-                    max_no_files => conf_get("rotation.count", SubConf),
-                    max_no_bytes => conf_get("max_size", SubConf)
-                },
-                formatter => Formatter,
-                filters => Filters,
-                filesync_repeat_interval => no_repeat
-            }}
-        || {HandlerName, SubConf} <- maps:to_list(conf_get("log.file_handlers", Conf, #{}))],
-
-    [{handler, default, undefined}] ++ ConsoleHandler ++ FileHandlers.
-
-%% helpers
-formatter(json, CharsLimit, SingleLine) ->
-    {emqx_logger_jsonfmt,
-        #{chars_limit => CharsLimit,
-            single_line => SingleLine
-        }};
-formatter(text, CharsLimit, SingleLine) ->
-    {emqx_logger_textfmt,
-        #{template =>
-        [time," [",level,"] ",
-            {clientid,
-                [{peername,
-                    [clientid,"@",peername," "],
-                    [clientid, " "]}],
-                [{peername,
-                    [peername," "],
-                    []}]},
-            msg,"\n"],
-            chars_limit => CharsLimit,
-            single_line => SingleLine
-        }}.
 
 %% utils
 -spec(conf_get(string() | [string()], hocon:config()) -> term()).
@@ -740,8 +454,7 @@ t(Type, Mapping, Default, OverrideEnv, Validator) ->
                      , validator => Validator
                      }).
 
-ref(Field) ->
-    fun (type) -> Field; (_) -> undefined end.
+ref(Field) -> hoconsc:t(hoconsc:ref(?MODULE, Field)).
 
 maybe_disabled(T) ->
     maybe_sth(disabled, T, disabled).
@@ -816,37 +529,6 @@ to_erl_cipher_suite(Str) ->
         {error, Reason} -> error({invalid_cipher, Reason});
         Cipher -> Cipher
     end.
-
-options(static, Conf) ->
-    [{seeds, [to_atom(S) || S <- conf_get("cluster.static.seeds", Conf, [])]}];
-options(mcast, Conf) ->
-    {ok, Addr} = inet:parse_address(conf_get("cluster.mcast.addr", Conf)),
-    {ok, Iface} = inet:parse_address(conf_get("cluster.mcast.iface", Conf)),
-    Ports = conf_get("cluster.mcast.ports", Conf),
-    [{addr, Addr}, {ports, Ports}, {iface, Iface},
-     {ttl, conf_get("cluster.mcast.ttl", Conf, 1)},
-     {loop, conf_get("cluster.mcast.loop", Conf, true)}];
-options(dns, Conf) ->
-    [{name, conf_get("cluster.dns.name", Conf)},
-     {app, conf_get("cluster.dns.app", Conf)}];
-options(etcd, Conf) ->
-    Namespace = "cluster.etcd.ssl",
-    SslOpts = fun(C) ->
-        Options = keys(Namespace, C),
-        lists:map(fun(Key) -> {to_atom(Key), conf_get([Namespace, Key], Conf)} end, Options) end,
-    [{server, conf_get("cluster.etcd.server", Conf)},
-     {prefix, conf_get("cluster.etcd.prefix", Conf, "emqxcl")},
-     {node_ttl, conf_get("cluster.etcd.node_ttl", Conf, 60)},
-     {ssl_options, filter(SslOpts(Conf))}];
-options(k8s, Conf) ->
-    [{apiserver, conf_get("cluster.k8s.apiserver", Conf)},
-     {service_name, conf_get("cluster.k8s.service_name", Conf)},
-     {address_type, conf_get("cluster.k8s.address_type", Conf, ip)},
-     {app_name, conf_get("cluster.k8s.app_name", Conf)},
-     {namespace, conf_get("cluster.k8s.namespace", Conf)},
-     {suffix, conf_get("cluster.k8s.suffix", Conf, "")}];
-options(manual, _Conf) ->
-    [].
 
 to_atom(Atom) when is_atom(Atom) ->
     Atom;

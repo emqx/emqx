@@ -30,6 +30,8 @@ start(_Type, _Args) ->
     ok = print_otp_version_warning(),
     _ = load_modules(),
 
+    ok = load_config_files(),
+
     {ok, _} = application:ensure_all_started(emqx),
 
     _ = emqx_plugins:load(),
@@ -75,3 +77,12 @@ load_modules() ->
 start_modules() ->
     ok.
 -endif.
+
+load_config_files() ->
+    %% the app env 'config_files' for 'emqx` app should be set
+    %% in app.time.config by boot script before starting Erlang VM
+    ConfFiles = application:get_env(emqx, config_files, []),
+    %% emqx_machine_schema is a superset of emqx_schema
+    ok = emqx_config:init_load(emqx_machine_schema, ConfFiles),
+    %% to avoid config being loaded again when emqx app starts.
+    ok = emqx_app:set_init_config_load_done().
