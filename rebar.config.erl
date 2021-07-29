@@ -152,6 +152,7 @@ prod_overrides() ->
     [{add, [ {erl_opts, [deterministic]}]}].
 
 profiles() ->
+    CommonCompileOpts = lists:keydelete('EMQX_EXT_SCHEMAS', 2, common_compile_opts()),
     Vsn = get_vsn(),
     [ {'emqx',          [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, bin)}
@@ -169,10 +170,10 @@ profiles() ->
                         , {relx, relx(Vsn, edge, pkg)}
                         , {overrides, prod_overrides()}
                         ]}
-    , {check,           [ {erl_opts, common_compile_opts()}
+    , {check,           [ {erl_opts, CommonCompileOpts}
                         ]}
     , {test,            [ {deps, test_deps()}
-                        , {erl_opts, common_compile_opts() ++ erl_opts_i()}
+                        , {erl_opts, CommonCompileOpts ++ erl_opts_i() }
                         , {extra_src_dirs, [{"test", [{recursive,true}]}]}
                         ]}
     ] ++ ee_profiles(Vsn).

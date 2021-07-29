@@ -72,7 +72,7 @@
 -export([ssl/1]).
 
 %% will be used by emqx_ct_helper to find the dependent apps
--export([includes/0]).
+-export([includes/0, extra_schema_fields/1]).
 
 structs() -> ["cluster", "node", "rpc", "log", "lager",
               "zones", "listeners", "broker",
@@ -515,7 +515,7 @@ fields("alarm") ->
     ];
 
 fields(FieldName) ->
-    extra_schema_fields(FieldName).
+    ?MODULE:extra_schema_fields(FieldName).
 
 -ifndef(EMQX_EXT_SCHEMAS).
 %% Function extra_schema_fields/1 only terminates with explicit exception

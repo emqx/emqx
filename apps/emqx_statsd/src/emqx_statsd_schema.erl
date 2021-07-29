@@ -11,9 +11,9 @@
 
 -typerefl_from_string({ip_port/0, emqx_statsd_schema, to_ip_port}).
 
-structs() -> ["emqx_statsd"].
+structs() -> ["statsd"].
 
-fields("emqx_statsd") ->
+fields("statsd") ->
     [ {enable, emqx_schema:t(boolean(), undefined, false)}
     , {server, fun server/1}
     , {sample_time_interval, fun duration_ms/1}

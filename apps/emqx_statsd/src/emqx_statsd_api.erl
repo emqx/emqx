@@ -84,23 +84,23 @@ statsd_api() ->
     [{"/statsd", Metadata, statsd}].
 
 statsd(get, _Request) ->
-    Response = emqx_config:get_raw([<<"emqx_statsd">>], #{}),
+    Response = emqx_config:get_raw([<<"statsd">>], #{}),
     {200, Response};
 
 statsd(put, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Params = emqx_json:decode(Body, [return_maps]),
     Enable = maps:get(<<"enable">>, Params),
-    ok = emqx_config:update([emqx_statsd], Params),
+    ok = emqx_config:update([statsd], Params),
     enable_statsd(Enable).
 
 enable_statsd(true) ->
     ok = emqx_statsd_sup:stop_child(?APP),
-    emqx_statsd_sup:start_child(?APP, emqx_config:get([?APP], #{})),
+    emqx_statsd_sup:start_child(?APP, emqx_config:get([statsd], #{})),
     {200};
 enable_statsd(false) ->
     _ = emqx_statsd_sup:stop_child(?APP),
     {200}.
 
 get_raw(Key, Def) ->
-    emqx_config:get_raw([<<"emqx_statsd">>]++ [Key], Def).
+    emqx_config:get_raw([<<"statsd">>]++ [Key], Def).
