@@ -33,16 +33,16 @@ stop(_State) ->
 
 maybe_enable_modules() ->
     emqx_config:get([delayed, enable], true) andalso emqx_delayed:enable(),
-    emqx_config:get([presence, enable], true) andalso emqx_presence:enable(),
     emqx_config:get([telemetry, enable], true) andalso emqx_telemetry:enable(),
     emqx_config:get([recon, enable], true) andalso emqx_recon:enable(),
+    emqx_event_topic:enable(),
     emqx_rewrite:enable(),
     emqx_topic_metrics:enable().
 
 maybe_disable_modules() ->
     emqx_config:get([delayed, enable], true) andalso emqx_delayed:disable(),
-    emqx_config:get([presence, enable], true) andalso emqx_presence:disable(),
     emqx_config:get([telemetry, enable], true) andalso emqx_telemetry:disable(),
     emqx_config:get([recon, enable], true) andalso emqx_recon:disable(),
+    emqx_event_topic:disable(),
     emqx_rewrite:disable(),
     emqx_topic_metrics:disable().
