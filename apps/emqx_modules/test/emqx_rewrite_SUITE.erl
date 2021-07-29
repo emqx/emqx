@@ -22,16 +22,22 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(RULES, [#{action => publish,
-                  source_topic => <<"x/#">>,
-                  re => <<"^x/y/(.+)$">>,
-                  dest_topic => <<"z/y/$1">>
-                },
-                #{action => subscribe,
-                  source_topic => <<"y/+/z/#">>,
-                  re => <<"^y/(.+)/z/(.+)$">>,
-                  dest_topic => <<"y/z/$2">>}
-               ]).
+-define(REWRITE, <<"""
+rewrite: {
+  rules : [
+    {
+      action : publish
+      source_topic : \"x/#\"
+      re : \"^x/y/(.+)$\"
+      dest_topic : \"z/y/$1\"
+    },
+    {
+      action : subscribe
+      source_topic : \"y/+/z/#\"
+      re : \"^y/(.+)/z/(.+)$\"
+      dest_topic : \"y/z/$2\"
+    }
+  ]}""">>).
 
 all() -> emqx_ct:all(?MODULE).
 
@@ -45,11 +51,7 @@ end_per_suite(_Config) ->
 
 %% Test case for emqx_mod_write
 t_mod_rewrite(_Config) ->
-    %% important! let emqx_schema include the current app!
-    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_schema, includes, fun() -> ["rewrite"] end ),
-    meck:expect(emqx_schema, extra_schema_fields, fun(FieldName) -> emqx_modules_schema:fields(FieldName) end),
-    ok = emqx_config:update([rewrite, rules], ?RULES),
+    ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
     ok = emqx_rewrite:enable(),
     {ok, C} = emqtt:start_link([{clientid, <<"rewrite_client">>}]),
     {ok, _} = emqtt:connect(C),
@@ -58,7 +60,7 @@ t_mod_rewrite(_Config) ->
     SubOrigTopics = [<<"y/a/z/b">>, <<"y/def">>],
     SubDestTopics = [<<"y/z/b">>, <<"y/def">>],
     %% Sub Rules
-    {ok, _Props, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- SubOrigTopics]),
+    {ok, _Props1, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- SubOrigTopics]),
     timer:sleep(100),
     Subscriptions = emqx_broker:subscriptions(<<"rewrite_client">>),
     ?assertEqual(SubDestTopics, [Topic || {Topic, _SubOpts} <- Subscriptions]),
@@ -72,7 +74,7 @@ t_mod_rewrite(_Config) ->
     timer:sleep(100),
     ?assertEqual([], emqx_broker:subscriptions(<<"rewrite_client">>)),
     %% Pub Rules
-    {ok, _Props, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- PubDestTopics]),
+    {ok, _Props2, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- PubDestTopics]),
     RecvTopics2 = [begin
                       ok = emqtt:publish(C, Topic, <<"payload">>),
                       {ok, #{topic := RecvTopic}} = receive_publish(100),
@@ -82,11 +84,15 @@ t_mod_rewrite(_Config) ->
     {ok, _, _} = emqtt:unsubscribe(C, PubDestTopics),
 
     ok = emqtt:disconnect(C),
-    ok = emqx_rewrite:disable(),
-    meck:unload(emqx_schema).
+    ok = emqx_rewrite:disable().
 
 t_rewrite_rule(_Config) ->
-    {PubRules, SubRules} = emqx_rewrite:compile(?RULES),
+    {ok, Rewite} = hocon:binary(?REWRITE),
+    #{rewrite := #{rules := Rules}} =
+        hocon_schema:check_plain(emqx_modules_schema, Rewite,
+                                 #{atom_key => true},
+                                 ["rewrite"]),
+    {PubRules, SubRules} = emqx_rewrite:compile(Rules),
     ?assertEqual(<<"z/y/2">>, emqx_rewrite:match_and_rewrite(<<"x/y/2">>, PubRules)),
     ?assertEqual(<<"x/1/2">>, emqx_rewrite:match_and_rewrite(<<"x/1/2">>, PubRules)),
     ?assertEqual(<<"y/z/b">>, emqx_rewrite:match_and_rewrite(<<"y/a/z/b">>, SubRules)),
