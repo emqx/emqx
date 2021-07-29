@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_telemetry_SUITE).
+-module(emqx_telemetry_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -29,8 +29,7 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     ok = ekka_mnesia:start(),
-    ok = emqx_mod_telemetry:mnesia(boot),
-    emqx_ct_helpers:boot_modules(all),
+    ok = emqx_telemetry:mnesia(boot),
     emqx_ct_helpers:start_apps([emqx_modules]),
     Config.
 
@@ -38,57 +37,57 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_modules]).
 
 t_uuid(_) ->
-    UUID = emqx_mod_telemetry:generate_uuid(),
+    UUID = emqx_telemetry:generate_uuid(),
     Parts = binary:split(UUID, <<"-">>, [global, trim]),
     ?assertEqual(5, length(Parts)),
-    {ok, UUID2} = emqx_mod_telemetry:get_uuid(),
-    emqx_mod_telemetry:unload(#{}),
-    emqx_mod_telemetry:load(#{}),
-    {ok, UUID3} = emqx_mod_telemetry:get_uuid(),
+    {ok, UUID2} = emqx_telemetry:get_uuid(),
+    emqx_telemetry:disable(),
+    emqx_telemetry:enable(),
+    {ok, UUID3} = emqx_telemetry:get_uuid(),
     ?assertEqual(UUID2, UUID3).
 
 t_official_version(_) ->
-    true = emqx_mod_telemetry:official_version("0.0.0"),
-    true = emqx_mod_telemetry:official_version("1.1.1"),
-    true = emqx_mod_telemetry:official_version("10.10.10"),
-    false = emqx_mod_telemetry:official_version("0.0.0.0"),
-    false = emqx_mod_telemetry:official_version("1.1.a"),
-    true = emqx_mod_telemetry:official_version("0.0-alpha.1"),
-    true = emqx_mod_telemetry:official_version("1.1-alpha.1"),
-    true = emqx_mod_telemetry:official_version("10.10-alpha.10"),
-    false = emqx_mod_telemetry:official_version("1.1-alpha.0"),
-    true = emqx_mod_telemetry:official_version("1.1-beta.1"),
-    true = emqx_mod_telemetry:official_version("1.1-rc.1"),
-    false = emqx_mod_telemetry:official_version("1.1-alpha.a").
+    true = emqx_telemetry:official_version("0.0.0"),
+    true = emqx_telemetry:official_version("1.1.1"),
+    true = emqx_telemetry:official_version("10.10.10"),
+    false = emqx_telemetry:official_version("0.0.0.0"),
+    false = emqx_telemetry:official_version("1.1.a"),
+    true = emqx_telemetry:official_version("0.0-alpha.1"),
+    true = emqx_telemetry:official_version("1.1-alpha.1"),
+    true = emqx_telemetry:official_version("10.10-alpha.10"),
+    false = emqx_telemetry:official_version("1.1-alpha.0"),
+    true = emqx_telemetry:official_version("1.1-beta.1"),
+    true = emqx_telemetry:official_version("1.1-rc.1"),
+    false = emqx_telemetry:official_version("1.1-alpha.a").
 
 t_get_telemetry(_) ->
-    {ok, TelemetryData} = emqx_mod_telemetry:get_telemetry(),
+    {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
     OTPVersion = bin(erlang:system_info(otp_release)),
     ?assertEqual(OTPVersion, get_value(otp_version, TelemetryData)),
-    {ok, UUID} = emqx_mod_telemetry:get_uuid(),
+    {ok, UUID} = emqx_telemetry:get_uuid(),
     ?assertEqual(UUID, get_value(uuid, TelemetryData)),
     ?assertEqual(0, get_value(num_clients, TelemetryData)).
 
 t_enable(_) ->
-    ok = meck:new(emqx_mod_telemetry, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_mod_telemetry, official_version, fun(_) -> true end),
-    ok = emqx_mod_telemetry:load(#{}),
-    ?assertEqual(true, emqx_mod_telemetry:get_status()),
-    ok = emqx_mod_telemetry:unload(#{}),
-    ?assertEqual(false, emqx_mod_telemetry:get_status()),
-    meck:unload([emqx_mod_telemetry]).
+    ok = meck:new(emqx_telemetry, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_telemetry, official_version, fun(_) -> true end),
+    ok = emqx_telemetry:enable(),
+    ?assertEqual(true, emqx_telemetry:get_status()),
+    ok = emqx_telemetry:disable(),
+    ?assertEqual(false, emqx_telemetry:get_status()),
+    meck:unload([emqx_telemetry]).
 
 t_send_after_enable(_) ->
-    ok = meck:new(emqx_mod_telemetry, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_mod_telemetry, official_version, fun(_) -> true end),
-    ok = emqx_mod_telemetry:unload(#{}),
+    ok = meck:new(emqx_telemetry, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_telemetry, official_version, fun(_) -> true end),
+    ok = emqx_telemetry:disable(),
     ok = snabbkaffe:start_trace(),
     try
-        ok = emqx_mod_telemetry:load(#{}),
+        ok = emqx_telemetry:enable(),
         ?assertMatch({ok, _}, ?block_until(#{?snk_kind := telemetry_data_reported}, 2000, 100))
     after
         ok = snabbkaffe:stop(),
-        meck:unload([emqx_mod_telemetry])
+        meck:unload([emqx_telemetry])
     end.
 
 bin(L) when is_list(L) ->

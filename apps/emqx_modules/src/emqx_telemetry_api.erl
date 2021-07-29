@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_telemetry_api).
+-module(emqx_telemetry_api).
 
 -behavior(minirest_api).
 
@@ -149,7 +149,7 @@ status(put, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Params = emqx_json:decode(Body, [return_maps]),
     Enable = maps:get(<<"enable">>, Params),
-    case Enable =:= emqx_mod_telemetry:get_status() of
+    case Enable =:= emqx_telemetry:get_status() of
         true ->
             Reason = case Enable of
                 true -> <<"Telemetry status is already enabled">>;
@@ -168,7 +168,7 @@ data(get, _Request) ->
 %%--------------------------------------------------------------------
 % cli(["enable", Enable0]) ->
 %     Enable = list_to_atom(Enable0),
-%     case Enable =:= emqx_mod_telemetry:is_enabled() of
+%     case Enable =:= emqx_telemetry:is_enabled() of
 %         true ->
 %             case Enable of
 %                 true -> emqx_ctl:print("Telemetry status is already enabled~n");
@@ -215,18 +215,18 @@ enable_telemetry(Enable) ->
 enable_telemetry(Node, Enable) when Node =:= node() ->
     case Enable of
         true ->
-            emqx_mod_telemetry:load(#{});
+            emqx_telemetry:enable();
         false ->
-            emqx_mod_telemetry:unload(#{})
+            emqx_telemetry:disable()
     end;
 enable_telemetry(Node, Enable) ->
     rpc_call(Node, ?MODULE, enable_telemetry, [Node, Enable]).
 
 get_telemetry_status() ->
-    #{enabled => emqx_mod_telemetry:get_status()}.
+    #{enabled => emqx_telemetry:get_status()}.
 
 get_telemetry_data() ->
-    {ok, TelemetryData} = emqx_mod_telemetry:get_telemetry(),
+    {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
     TelemetryData.
 
 rpc_call(Node, Module, Fun, Args) ->

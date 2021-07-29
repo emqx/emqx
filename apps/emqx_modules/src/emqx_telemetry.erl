@@ -14,11 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_telemetry).
+-module(emqx_telemetry).
 
 -behaviour(gen_server).
-
--behaviour(emqx_gen_mod).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -34,7 +32,7 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
--export([ start_link/1
+-export([ start_link/0
         , stop/0
         ]).
 
@@ -48,10 +46,8 @@
         , code_change/3
         ]).
 
-%% emqx_gen_mod callbacks
--export([ load/1
-        , unload/1
-        , description/0
+-export([ enable/0
+        , disable/0
         ]).
 
 -export([ get_status/0
@@ -111,16 +107,17 @@ mnesia(copy) ->
 %% API
 %%--------------------------------------------------------------------
 
-start_link(Opts) ->
+start_link() ->
+    Opts = emqx_config:get([telemetry], #{}),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
 
 stop() ->
     gen_server:stop(?MODULE).
 
-load(_Env) ->
+enable() ->
     gen_server:call(?MODULE, enable).
 
-unload(_Env) ->
+disable() ->
     gen_server:call(?MODULE, disable).
 
 get_status() ->
@@ -131,9 +128,6 @@ get_uuid() ->
 
 get_telemetry() ->
     gen_server:call(?MODULE, get_telemetry).
-
-description() ->
-    "".
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -300,7 +294,8 @@ active_plugins() ->
                     end, [], emqx_plugins:list()).
 
 active_modules() ->
-    emqx_modules:list().
+    [].
+    % emqx_modules:list().
 
 num_clients() ->
     emqx_stats:getstat('connections.max').

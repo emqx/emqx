@@ -14,55 +14,49 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_presence).
-
--behaviour(emqx_gen_mod).
+-module(emqx_presence).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -logger_header("[Presence]").
 
-%% emqx_gen_mod callbacks
--export([ load/1
-        , unload/1
-        , description/0
+-export([ enable/0
+        , disable/0
         ]).
 
--export([ on_client_connected/3
-        , on_client_disconnected/4
+-export([ on_client_connected/2
+        , on_client_disconnected/3
         ]).
 
 -ifdef(TEST).
 -export([reason/1]).
 -endif.
 
-load(Env) ->
-    emqx_hooks:put('client.connected',    {?MODULE, on_client_connected, [Env]}),
-    emqx_hooks:put('client.disconnected', {?MODULE, on_client_disconnected, [Env]}).
+enable() ->
+    emqx_hooks:put('client.connected',    {?MODULE, on_client_connected, []}),
+    emqx_hooks:put('client.disconnected', {?MODULE, on_client_disconnected, []}).
 
-unload(_Env) ->
+disable() ->
     emqx_hooks:del('client.connected',    {?MODULE, on_client_connected}),
     emqx_hooks:del('client.disconnected', {?MODULE, on_client_disconnected}).
 
-description() ->
-    "EMQ X Presence Module".
 %%--------------------------------------------------------------------
 %% Callbacks
 %%--------------------------------------------------------------------
 
-on_client_connected(ClientInfo = #{clientid := ClientId}, ConnInfo, Env) ->
+on_client_connected(ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     Presence = connected_presence(ClientInfo, ConnInfo),
     case emqx_json:safe_encode(Presence) of
         {ok, Payload} ->
             emqx_broker:safe_publish(
-              make_msg(qos(Env), topic(connected, ClientId), Payload));
+              make_msg(topic(connected, ClientId), Payload));
         {error, _Reason} ->
             ?LOG(error, "Failed to encode 'connected' presence: ~p", [Presence])
     end.
 
 on_client_disconnected(_ClientInfo = #{clientid := ClientId, username := Username},
-                       Reason, _ConnInfo = #{disconnected_at := DisconnectedAt}, Env) ->
+                       Reason, _ConnInfo = #{disconnected_at := DisconnectedAt}) ->
     Presence = #{clientid => ClientId,
                  username => Username,
                  reason => reason(Reason),
@@ -72,7 +66,7 @@ on_client_disconnected(_ClientInfo = #{clientid := ClientId, username := Usernam
     case emqx_json:safe_encode(Presence) of
         {ok, Payload} ->
             emqx_broker:safe_publish(
-              make_msg(qos(Env), topic(disconnected, ClientId), Payload));
+              make_msg(topic(disconnected, ClientId), Payload));
         {error, _Reason} ->
             ?LOG(error, "Failed to encode 'disconnected' presence: ~p", [Presence])
     end.
@@ -107,17 +101,15 @@ connected_presence(#{peerhost := PeerHost,
       ts => erlang:system_time(millisecond)
      }.
 
-make_msg(QoS, Topic, Payload) ->
+make_msg(Topic, Payload) ->
     emqx_message:set_flag(
       sys, emqx_message:make(
-             ?MODULE, QoS, Topic, iolist_to_binary(Payload))).
+             ?MODULE, 0, Topic, iolist_to_binary(Payload))).
 
 topic(connected, ClientId) ->
     emqx_topic:systop(iolist_to_binary(["clients/", ClientId, "/connected"]));
 topic(disconnected, ClientId) ->
     emqx_topic:systop(iolist_to_binary(["clients/", ClientId, "/disconnected"])).
-
-qos(Env) -> maps:get(qos, Env, 0).
 
 -compile({inline, [reason/1]}).
 reason(Reason) when is_atom(Reason) -> Reason;

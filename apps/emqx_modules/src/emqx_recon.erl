@@ -14,36 +14,23 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_recon).
+-module(emqx_recon).
 
--behaviour(emqx_gen_mod).
-
-%% emqx_gen_mod callbacks
--export([ load/1
-        , unload/1
-        , description/0
+-export([ enable/0
+        , disable/0
         ]).
 
 -export([cmd/1]).
 
 
 %%--------------------------------------------------------------------
-%% Load/Unload
+%% enable/disable
 %%--------------------------------------------------------------------
-
--spec(load(list()) -> ok).
-load(_Env) ->
-    load().
-
--spec(unload(list()) -> ok).
-unload(_Env) ->
-    unload().
-
-description() ->
-    "EMQ X Recon Module".
-
-load() ->
+enable() ->
     emqx_ctl:register_command(recon, {?MODULE, cmd}, []).
+
+disable() ->
+    emqx_ctl:unregister_command(recon).
 
 cmd(["memory"]) ->
     Print = fun(Key, Keyword) ->
@@ -75,9 +62,6 @@ cmd(_) ->
                     {"recon node_stats",       "recon:node_stats(10, 1000)"},
                     {"recon remote_load Mod",  "recon:remote_load(Mod)"},
                     {"recon proc_count Attr N","recon:proc_count(Attr, N)"}]).
-
-unload() ->
-    emqx_ctl:unregister_command(recon).
 
 concat(Key, Keyword) ->
     lists:concat([atom_to_list(Key), "/", atom_to_list(Keyword)]).
