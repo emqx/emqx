@@ -90,17 +90,28 @@ jobs:
                 -f .ci/docker-compose-file/docker-compose.yaml \
                 -f .ci/docker-compose-file/docker-compose-enterprise.yaml \
                 up -d --build
-        - name: run eunit
+        - name: run eunit erlang 23
           run: |
-            docker exec -i erlang bash -c "make eunit"
-        - name: run common test
+            docker exec -i erlang23 bash -c "make eunit"
+        - name: run eunit erlang 24
           run: |
-            docker exec -i erlang bash -c "make ct"
-        - name: run cover
+            docker exec -i erlang24 bash -c "make eunit"
+        - name: run common test erlang 23
+          run: |
+            docker exec -i erlang23 bash -c "make ct"
+        - name: run common test erlang 24
+          run: |
+            docker exec -i erlang24 bash -c "make ct"
+        - name: run cover erlang 23
           run: |
             printenv > .env
-            docker exec -i erlang bash -c "make cover"
-            docker exec --env-file .env -i erlang bash -c "make coveralls"
+            docker exec -i erlang23 bash -c "make cover"
+            docker exec --env-file .env -i erlang23 bash -c "make coveralls"
+        - name: run cover erlang 24
+          run: |
+            printenv > .env
+            docker exec -i erlang24 bash -c "make cover"
+            docker exec --env-file .env -i erlang24 bash -c "make coveralls"
         - name: cat rebar.crashdump
           if: failure()
           run: if [ -f 'rebar3.crashdump' ];then cat 'rebar3.crashdump'; fi
@@ -116,15 +127,7 @@ jobs:
 
     finish:
       needs: run_common_test
-
-      strategy:
-        matrix:
-          container:
-            - "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
-            - "emqx/build-env:erl24.0.1-emqx-1-ubuntu20.04"
-
       runs-on: ubuntu-20.04
-      container: ${{ matrix.container }}
       steps:
         - name: Coveralls Finished
           env:
