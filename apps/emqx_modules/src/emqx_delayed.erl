@@ -108,7 +108,7 @@ start_link() ->
     Opts = emqx_config:get([delayed], #{}),
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Opts], []).
 
--spec(store(#delayed_message{}) -> ok).
+-spec(store(#delayed_message{}) -> ok | {error, atom()}).
 store(DelayedMsg) ->
     gen_server:call(?SERVER, {store, DelayedMsg}, infinity).
 
