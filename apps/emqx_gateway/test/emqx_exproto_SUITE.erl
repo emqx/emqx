@@ -72,18 +72,7 @@ set_special_cfg(emqx_gateway) ->
           server => #{bind => 9100},
           handler => #{address => "http://127.0.0.1:9001"},
           listener => listener_confs(LisType)
-         }}),
-
-    Listeners = application:get_env(emqx_exproto, listeners, []),
-    SockOpts = socketopts(LisType),
-    UpgradeOpts = fun(Opts) ->
-                      Opts2 = lists:keydelete(tcp_options, 1, Opts),
-                      Opts3 = lists:keydelete(ssl_options, 1, Opts2),
-                      Opts4 = lists:keydelete(udp_options, 1, Opts3),
-                      Opts5 = lists:keydelete(dtls_options, 1, Opts4),
-                      SockOpts ++ Opts5
-                  end;
-
+         }});
 set_special_cfg(_App) ->
     ok.
 
