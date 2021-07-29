@@ -155,9 +155,12 @@ get_alarms(deactivated) ->
 
 pre_config_update(#{<<"validity_period">> := Period0} = NewConf, OldConf) ->
     ?MODULE ! {update_timer, hocon_postprocess:duration(Period0)},
-    maps:merge(OldConf, NewConf);
+    merge(OldConf, NewConf);
 pre_config_update(NewConf, OldConf) ->
-    maps:merge(OldConf, NewConf).
+    merge(OldConf, NewConf).
+
+merge(undefined, New) -> New;
+merge(Old, New) -> maps:merge(Old, New).
 
 format(#activated_alarm{name = Name, message = Message, activate_at = At, details = Details}) ->
     Now = erlang:system_time(microsecond),

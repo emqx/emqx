@@ -257,4 +257,8 @@ proc_name(Mod, Id) ->
     list_to_atom(lists:concat([Mod, "_", Id])).
 
 pick(InstId) ->
-    gproc_pool:pick_worker(emqx_resource_instance, InstId).
+    Pid = gproc_pool:pick_worker(emqx_resource_instance, InstId),
+    case is_pid(Pid) of
+        true -> Pid;
+        false -> error({failed_to_pick_worker, emqx_resource_instance, InstId})
+    end.

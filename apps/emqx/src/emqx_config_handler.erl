@@ -86,12 +86,12 @@ handle_call({add_child, ConfKeyPath, HandlerName}, _From,
 
 handle_call({update_config, ConfKeyPath, UpdateReq}, _From,
             #{handlers := Handlers} = State) ->
-    OldConf = emqx_config:get(),
-    OldRawConf = emqx_config:get_raw(),
+    OldConf = emqx_config:get_root(ConfKeyPath),
+    OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     try NewRawConf = do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq),
-        OverrideConf = update_override_config(ConfKeyPath, NewRawConf),
+        OverrideConf = update_override_config(NewRawConf),
         Result = emqx_config:save_configs(NewRawConf, OverrideConf),
-        do_post_config_update(ConfKeyPath, Handlers, OldConf, emqx_config:get()),
+        do_post_config_update(ConfKeyPath, Handlers, OldConf, emqx_config:get_root(ConfKeyPath)),
         {reply, Result, State}
     catch
         Error : Reason : ST ->
@@ -100,13 +100,13 @@ handle_call({update_config, ConfKeyPath, UpdateReq}, _From,
     end;
 
 handle_call({remove_config, ConfKeyPath}, _From, #{handlers := Handlers} = State) ->
-    OldConf = emqx_config:get(),
-    OldRawConf = emqx_config:get_raw(),
+    OldConf = emqx_config:get_root(ConfKeyPath),
+    OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     BinKeyPath = bin_path(ConfKeyPath),
     try NewRawConf = emqx_map_lib:deep_remove(BinKeyPath, OldRawConf),
         OverrideConf = emqx_map_lib:deep_remove(BinKeyPath, emqx_config:read_override_conf()),
         Result = emqx_config:save_configs(NewRawConf, OverrideConf),
-        do_post_config_update(ConfKeyPath, Handlers, OldConf, emqx_config:get()),
+        do_post_config_update(ConfKeyPath, Handlers, OldConf, emqx_config:get_root(ConfKeyPath)),
         {reply, Result, State}
     catch
         Error : Reason : ST ->
@@ -176,18 +176,11 @@ merge_to_old_config(UpdateReq, RawConf) when is_map(UpdateReq), is_map(RawConf) 
 merge_to_old_config(UpdateReq, _RawConf) ->
     UpdateReq.
 
-update_override_config(ConfKeyPath, RawConf) ->
-    %% We don't save the entire config to emqx_override.conf, but only the part
-    %% specified by the ConfKeyPath
-    PartialConf = maps:with(root_keys(ConfKeyPath), RawConf),
+update_override_config(RawConf) ->
     OldConf = emqx_config:read_override_conf(),
-    maps:merge(OldConf, PartialConf).
-
-root_keys([]) -> [];
-root_keys([RootKey | _]) -> [bin(RootKey)].
+    maps:merge(OldConf, RawConf).
 
 bin_path(ConfKeyPath) -> [bin(Key) || Key <- ConfKeyPath].
 
-bin(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
-bin(B) when is_binary(B) -> B;
-bin(S) when is_list(S) -> list_to_binary(S).
+bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+bin(B) when is_binary(B) -> B.

@@ -153,10 +153,8 @@ fields("node") ->
                                        sensitive => true,
                                        override_env => "EMQX_NODE_COOKIE"
                                       })}
-    , {"data_dir", t(string(), undefined, undefined)}
-    , {"config_files", t(list(string()), "emqx.config_files",
-        [ filename:join([os:getenv("RUNNER_ETC_DIR"), "emqx.conf"])
-        ])}
+    , {"data_dir", t(string())}
+    , {"config_files", t(comma_separated_list())}
     , {"global_gc_interval", t(duration(), undefined, "15m")}
     , {"crash_dump_dir", t(file(), "vm_args.-env ERL_CRASH_DUMP", undefined)}
     , {"dist_net_ticktime", t(duration(), "vm_args.-kernel net_ticktime", "2m")}
@@ -511,14 +509,31 @@ base_listener() ->
     , {"rate_limit", ref("rate_limit")}
     ].
 
-translations() -> ["ekka", "kernel"].
+translations() -> ["ekka", "kernel", "emqx"].
 
 translation("ekka") ->
     [ {"cluster_discovery", fun tr_cluster__discovery/1}];
 
 translation("kernel") ->
     [ {"logger_level", fun tr_logger_level/1}
-    , {"logger", fun tr_logger/1}].
+    , {"logger", fun tr_logger/1}];
+
+translation("emqx") ->
+    [ {"config_files", fun tr_config_files/1}
+    ].
+
+tr_config_files(Conf) ->
+    case conf_get("emqx.config_files", Conf) of
+        [_ | _] = Files ->
+            Files;
+        _ ->
+            case os:getenv("RUNNER_ETC_DIR") of
+                false ->
+                    [filename:join([code:lib_dir(emqx), "etc", "emqx.conf"])];
+                Dir ->
+                    [filename:join([Dir, "emqx.conf"])]
+            end
+    end.
 
 tr_cluster__discovery(Conf) ->
     Strategy = conf_get("cluster.discovery_strategy", Conf),
@@ -579,7 +594,7 @@ tr_logger(Conf) ->
                 filters => Filters,
                 filesync_repeat_interval => no_repeat
             }}
-        || {HandlerName, SubConf} <- maps:to_list(conf_get("log.file_handlers", Conf))],
+        || {HandlerName, SubConf} <- maps:to_list(conf_get("log.file_handlers", Conf, #{}))],
 
     [{handler, default, undefined}] ++ ConsoleHandler ++ FileHandlers.
 
