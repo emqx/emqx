@@ -244,7 +244,7 @@ fields("auth") ->
     [ {"enable", t(boolean(), undefined, false)}
     ];
 
-fields("authorization") ->
+fields("authorization_settings") ->
     [ {"enable", t(boolean(), undefined, true)}
     , {"cache", ref("authorization_cache")}
     , {"deny_action", t(union(ignore, disconnect), undefined, ignore)}
@@ -293,7 +293,7 @@ fields("zones") ->
 
 fields("zone_settings") ->
     [ {"mqtt", ref("mqtt")}
-    , {"authorization", ref("authorization")}
+    , {"authorization", ref("authorization_settings")}
     , {"auth", ref("auth")}
     , {"stats", ref("stats")}
     , {"flapping_detect", ref("flapping_detect")}
