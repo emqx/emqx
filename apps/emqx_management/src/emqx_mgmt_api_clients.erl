@@ -29,6 +29,7 @@
 
 -export([ clients/2
         , client/2
+        , subscriptions/2
         , authz_cache/2
         , subscribe/2
         , subscribe_batch/2]).
@@ -68,6 +69,7 @@ apis() ->
     [ clients_api()
     , client_api()
     , clients_authz_cache_api()
+    , clients_subscriptions_api()
     , subscribe_api()].
 
 schemas() ->
@@ -209,7 +211,17 @@ schemas() ->
             }
         }
     },
-    [Client, AuthzCache].
+    Subscription = #{
+        subscription => #{
+            type => object,
+            properties => #{
+                topic => #{
+                    type => string},
+                qos => #{
+                    type => integer,
+                    enum => [0,1,2]}}}
+    },
+    [Client, AuthzCache, Subscription].
 
 clients_api() ->
     Metadata = #{
@@ -270,6 +282,21 @@ clients_authz_cache_api() ->
                 <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
                 <<"200">> => emqx_mgmt_util:response_schema(<<"Delete clients 200 OK">>)}}},
     {"/clients/:clientid/authz_cache", Metadata, authz_cache}.
+
+clients_subscriptions_api() ->
+    Metadata = #{
+        get => #{
+            description => <<"Get client subscriptions">>,
+            parameters => [#{
+                name => clientid,
+                in => path,
+                schema => #{type => string},
+                required => true
+            }],
+            responses => #{
+                <<"200">> => emqx_mgmt_util:response_array_schema(<<"Get client subscriptions">>, subscription)}}
+    },
+    {"/clients/:clientid/subscriptions", Metadata, subscriptions}.
 
 subscribe_api() ->
     Metadata = #{
@@ -362,6 +389,14 @@ subscribe_batch(post, Request) ->
              #{topic => Topic, qos => Qos}
          end || TopicInfo <- TopicInfos],
     subscribe_batch(#{clientid => ClientID, topics => Topics}).
+
+subscriptions(get, Request) ->
+    ClientID = cowboy_req:binding(clientid, Request),
+    Subs0 = emqx_mgmt:list_client_subscriptions(ClientID),
+    Subs = lists:map(fun({Topic, SubOpts}) ->
+        #{topic => Topic, qos => maps:get(qos, SubOpts)}
+    end, Subs0),
+    {200, Subs}.
 
 %%%==============================================================================================
 %% api apply
