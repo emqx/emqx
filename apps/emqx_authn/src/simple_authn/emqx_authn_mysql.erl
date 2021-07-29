@@ -17,6 +17,7 @@
 -module(emqx_authn_mysql).
 
 -include("emqx_authn.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
@@ -79,12 +80,13 @@ create(#{ password_hash_algorithm := Algorithm
               salt_position => SaltPosition,
               query => Query,
               placeholders => PlaceHolders,
-              query_timeout => QueryTimeout},
+              query_timeout => QueryTimeout,
+              '_unique' => Unique},
     case emqx_resource:create_local(Unique, emqx_connector_mysql, Config) of
         {ok, _} ->
-            {ok, State#{resource_id => Unique}};
+            {ok, State};
         {error, already_created} ->
-            {ok, State#{resource_id => Unique}};
+            {ok, State};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -101,23 +103,29 @@ update(Config, State) ->
 authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(#{password := Password} = Credential,
-             #{resource_id := ResourceID,
-               placeholders := PlaceHolders,
+             #{placeholders := PlaceHolders,
                query := Query,
-               query_timeout := Timeout} = State) ->
-    Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
-    case emqx_resource:query(ResourceID, {sql, Query, Params, Timeout}) of
-        {ok, _Columns, []} -> ignore;
-        {ok, Columns, Rows} ->
-            %% TODO: Support superuser
-            Selected = maps:from_list(lists:zip(Columns, Rows)),
-            check_password(Password, Selected, State);
-        {error, _Reason} ->
+               query_timeout := Timeout,
+               '_unique' := Unique} = State) ->
+    try
+        Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
+        case emqx_resource:query(Unique, {sql, Query, Params, Timeout}) of
+            {ok, _Columns, []} -> ignore;
+            {ok, Columns, Rows} ->
+                %% TODO: Support superuser
+                Selected = maps:from_list(lists:zip(Columns, Rows)),
+                check_password(Password, Selected, State);
+            {error, _Reason} ->
+                ignore
+        end
+    catch
+        error:Reason ->
+            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [Unique, Reason]),
             ignore
     end.
 
-destroy(#{resource_id := ResourceID}) ->
-    _ = emqx_resource:remove_local(ResourceID),
+destroy(#{'_unique' := Unique}) ->
+    _ = emqx_resource:remove_local(Unique),
     ok.
     
 %%------------------------------------------------------------------------------
@@ -129,8 +137,7 @@ check_password(undefined, _Selected, _State) ->
 check_password(Password,
                #{password_hash := Hash},
                #{password_hash_algorithm := bcrypt}) ->
-    {ok, Hash0} = bcrypt:hashpw(Password, Hash),
-    case list_to_binary(Hash0) =:= Hash of
+    case {ok, Hash} =:= bcrypt:hashpw(Password, Hash) of
         true -> ok;
         false -> {error, bad_username_or_password}
     end;
@@ -150,7 +157,7 @@ check_password(Password,
 
 %% TODO: Support prepare
 parse_query(Query) ->
-    case re:run(Query, "\\$\\{[a-z0-9\\_]+\\}", [global, {capture, all, binary}]) of
+    case re:run(Query, ?RE_PLACEHOLDER, [global, {capture, all, binary}]) of
         {match, Captured} ->
             PlaceHolders = [PlaceHolder || PlaceHolder <- Captured],
             NQuery = re:replace(Query, "'\\$\\{[a-z0-9\\_]+\\}'", "?", [global, {return, binary}]),

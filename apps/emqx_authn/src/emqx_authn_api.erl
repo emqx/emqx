@@ -775,7 +775,11 @@ definitions() ->
                 default => true
             },
             ssl => minirest:ref(<<"ssl">>),
-            password_hash_algorithm => minirest:ref(<<"password_hash_algorithm">>),
+            password_hash_algorithm => #{
+                type => string,
+                enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
+                default => <<"sha256">>
+            },
             salt_position => #{
                 type => string,
                 enum => [<<"prefix">>, <<"suffix">>],
@@ -822,7 +826,11 @@ definitions() ->
                 type => boolean,
                 default => true
             },
-            password_hash_algorithm => minirest:ref(<<"password_hash_algorithm">>),
+            password_hash_algorithm => #{
+                type => string,
+                enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
+                default => <<"sha256">>
+            },
             salt_position => #{
                 type => string,
                 enum => [<<"prefix">>, <<"suffix">>],

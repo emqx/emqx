@@ -17,7 +17,9 @@
 -module(emqx_authn_utils).
 
 -export([ replace_placeholders/2
+        , replace_placeholder/2
         , gen_salt/0
+        , bin/1
         ]).
 
 %%------------------------------------------------------------------------------
@@ -27,24 +29,39 @@
 replace_placeholders(PlaceHolders, Data) ->
     replace_placeholders(PlaceHolders, Data, []).
 
-replace_placeholders([], _Data, Acc) ->
+replace_placeholders([], _Credential, Acc) ->
     lists:reverse(Acc);
-replace_placeholders([<<"${mqtt-username}">> | More], #{username := Username} = Data, Acc) ->
-    replace_placeholders(More, Data, [convert_to_sql_param(Username) | Acc]);
-replace_placeholders([<<"${mqtt-clientid}">> | More], #{clientid := ClientID} = Data, Acc) ->
-    replace_placeholders(More, Data, [convert_to_sql_param(ClientID) | Acc]);
-replace_placeholders([<<"${ip-address}">> | More], #{peerhost := IPAddress} = Data, Acc) ->
-    replace_placeholders(More, Data, [convert_to_sql_param(IPAddress) | Acc]);
-replace_placeholders([<<"${cert-subject}">> | More], #{dn := Subject} = Data, Acc) ->
-    replace_placeholders(More, Data, [convert_to_sql_param(Subject) | Acc]);
-replace_placeholders([<<"${cert-common-name}">> | More], #{cn := CommonName} = Data, Acc) ->
-    replace_placeholders(More, Data, [convert_to_sql_param(CommonName) | Acc]);
-replace_placeholders([_ | More], Data, Acc) ->
-    replace_placeholders(More, Data, [null | Acc]).
+replace_placeholders([Placeholder | More], Credential, Acc) ->
+    case replace_placeholder(Placeholder, Credential) of
+        undefined ->
+            error({cannot_get_variable, Placeholder});
+        V ->
+            replace_placeholders(More, Credential, [convert_to_sql_param(V) | Acc])
+    end.
+
+replace_placeholder(<<"${mqtt-username}">>, Credential) ->
+    maps:get(username, Credential, undefined);
+replace_placeholder(<<"${mqtt-clientid}">>, Credential) ->
+    maps:get(clientid, Credential, undefined);
+replace_placeholder(<<"${mqtt-password}">>, Credential) ->
+    maps:get(password, Credential, undefined);
+replace_placeholder(<<"${ip-address}">>, Credential) ->
+    maps:get(peerhost, Credential, undefined);
+replace_placeholder(<<"${cert-subject}">>, Credential) ->
+    maps:get(dn, Credential, undefined);
+replace_placeholder(<<"${cert-common-name}">>, Credential) ->
+    maps:get(cn, Credential, undefined);
+replace_placeholder(Constant, _) ->
+    Constant.
+
 
 gen_salt() ->
     <<X:128/big-unsigned-integer>> = crypto:strong_rand_bytes(16),
     iolist_to_binary(io_lib:format("~32.16.0b", [X])).
+
+bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+bin(L) when is_list(L) -> list_to_binary(L);
+bin(X) -> X.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -54,7 +71,3 @@ convert_to_sql_param(undefined) ->
     null;
 convert_to_sql_param(V) ->
     bin(V).
-
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(L) when is_list(L) -> list_to_binary(L);
-bin(X) -> X.

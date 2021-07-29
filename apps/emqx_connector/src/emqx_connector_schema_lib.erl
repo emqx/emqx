@@ -71,7 +71,7 @@ ssl_fields() ->
                        [ hoconsc:ref(?MODULE, ssl_on)
                        , hoconsc:ref(?MODULE, ssl_off)
                        ]),
-              default => hoconsc:ref(?MODULE, ssl_off)
+              default => #{<<"enable">> => false}
              }
       }
     ].
