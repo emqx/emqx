@@ -91,15 +91,15 @@ jobs:
                 up -d --build
         - name: run eunit
           run: |
-            docker exec -i ${{ otp_release }} bash -c "make eunit"
+            docker exec -i ${{ matrix.otp_release }} bash -c "make eunit"
         - name: run common test
           run: |
-            docker exec -i ${{ otp_release }} bash -c "make ct"
+            docker exec -i ${{ matrix.otp_release }} bash -c "make ct"
         - name: run cover
           run: |
             printenv > .env
-            docker exec -i ${{ otp_release }} bash -c "make cover"
-            docker exec --env-file .env -i ${{ otp_release }} bash -c "make coveralls"
+            docker exec -i ${{ matrix.otp_release }} bash -c "make cover"
+            docker exec --env-file .env -i ${{ matrix.otp_release }} bash -c "make coveralls"
         - name: cat rebar.crashdump
           if: failure()
           run: if [ -f 'rebar3.crashdump' ];then cat 'rebar3.crashdump'; fi
