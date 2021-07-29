@@ -73,12 +73,12 @@
 %% @doc For the given path, get root value enclosed in a single-key map.
 -spec get_root(emqx_map_lib:config_key_path()) -> map().
 get_root([RootName | _]) ->
-    #{RootName => do_get(?CONF, [RootName])}.
+    #{RootName => do_get(?CONF, [RootName], #{})}.
 
 %% @doc For the given path, get raw root value enclosed in a single-key map.
 %% key is ensured to be binary.
 get_root_raw([RootName | _]) ->
-    #{bin(RootName) => do_get(?RAW_CONF, [RootName])}.
+    #{bin(RootName) => do_get(?RAW_CONF, [RootName], #{})}.
 
 %% @doc Get a config value for the given path.
 %% The path should at least include root config name.
@@ -233,15 +233,21 @@ to_plainmap(RichMap) ->
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
 
-do_get(PtKey, [RootName | KeyPath]) ->
-    RootV = persistent_term:get(PtKey(RootName), #{}),
-    emqx_map_lib:deep_get(KeyPath, RootV).
+do_get(PtKey, KeyPath) ->
+    Ref = make_ref(),
+    Res = do_get(PtKey, KeyPath, Ref),
+    case Res =:= Ref of
+        true -> error({config_not_found, KeyPath});
+        false -> Res
+    end.
 
+do_get(PtKey, [RootName], Default) ->
+    persistent_term:get(PtKey(RootName), Default);
 do_get(PtKey, [RootName | KeyPath], Default) ->
     RootV = persistent_term:get(PtKey(RootName), #{}),
     emqx_map_lib:deep_get(KeyPath, RootV, Default).
 
 do_put(PtKey, [RootName | KeyPath], DeepValue) ->
-    OldValue = do_get(PtKey, [RootName]),
+    OldValue = do_get(PtKey, [RootName], #{}),
     NewValue = emqx_map_lib:deep_put(KeyPath, OldValue, DeepValue),
     persistent_term:put(PtKey(RootName), NewValue).

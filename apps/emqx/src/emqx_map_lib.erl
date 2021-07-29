@@ -32,9 +32,11 @@
 %%-----------------------------------------------------------------
 -spec deep_get(config_key_path(), map()) -> term().
 deep_get(ConfKeyPath, Map) ->
-    case deep_find(ConfKeyPath, Map) of
-        {not_found, KeyPath, Data} -> error({not_found, KeyPath, Data});
-        {ok, Data} -> Data
+    Ref = make_ref(),
+    Res = deep_get(ConfKeyPath, Map, Ref),
+    case Res =:= Ref of
+        true -> error({config_not_found, ConfKeyPath});
+        false -> Res
     end.
 
 -spec deep_get(config_key_path(), map(), term()) -> term().
