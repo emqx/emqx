@@ -53,7 +53,6 @@ t_load_case(_) ->
     ?assertEqual(false, lists:keyfind(MFA, 2, Hooks)),
     ok = emqx_delayed:enable(),
     Hooks1 = emqx_hooks:lookup('message.publish'),
-    ct:pal("----~p~n", [Hooks1]),
     ?assertNotEqual(false, lists:keyfind(MFA, 2, Hooks1)),
     ok.
 
