@@ -50,9 +50,9 @@
         , disable/0
         ]).
 
--export([ get_status/0
-        , get_uuid/0
+-export([ get_uuid/0
         , get_telemetry/0
+        , get_status/0
         ]).
 
 -export([official_version/1]).
@@ -73,7 +73,6 @@
 
 -record(state, {
     uuid :: undefined | binary(),
-    enabled :: undefined | boolean(),
     url :: string(),
     report_interval :: undefined | non_neg_integer(),
     timer = undefined :: undefined | reference()
@@ -121,7 +120,7 @@ disable() ->
     gen_server:call(?MODULE, disable).
 
 get_status() ->
-    gen_server:call(?MODULE, get_status).
+    emqx_config:get([telemetry, enable], true).
 
 get_uuid() ->
     gen_server:call(?MODULE, get_uuid).
@@ -151,14 +150,13 @@ init(_Opts) ->
     end,
     {ok, #state{url = ?TELEMETRY_URL,
                 report_interval = timer:seconds(?REPORT_INTERVAR),
-                enabled = false,
                 uuid = UUID1}}.
 
 handle_call(enable, _From, State) ->
     case ?MODULE:official_version(emqx_app:get_release()) of
         true ->
             report_telemetry(State),
-            {reply, ok, ensure_report_timer(State#state{enabled = true})};
+            {reply, ok, ensure_report_timer(State)};
         false ->
             {reply, {error, not_official_version}, State}
     end;
@@ -167,13 +165,10 @@ handle_call(disable, _From, State = #state{timer = Timer}) ->
     case ?MODULE:official_version(emqx_app:get_release()) of
         true ->
             emqx_misc:cancel_timer(Timer),
-            {reply, ok, State#state{enabled = false, timer = undefined}};
+            {reply, ok, State#state{timer = undefined}};
         false ->
             {reply, {error, not_official_version}, State}
     end;
-
-handle_call(get_status, _From, State = #state{enabled = Enabled}) ->
-    {reply, Enabled, State};
 
 handle_call(get_uuid, _From, State = #state{uuid = UUID}) ->
     {reply, {ok, UUID}, State};
@@ -193,11 +188,11 @@ handle_continue(Continue, State) ->
     ?LOG(error, "Unexpected continue: ~p", [Continue]),
     {noreply, State}.
 
-handle_info({timeout, TRef, time_to_report_telemetry_data}, State = #state{timer = TRef,
-                                                                           enabled = false}) ->
-    {noreply, State};
 handle_info({timeout, TRef, time_to_report_telemetry_data}, State = #state{timer = TRef}) ->
-    report_telemetry(State),
+    case get_status() of
+        true -> report_telemetry(State);
+        false -> ok
+    end,
     {noreply, ensure_report_timer(State)};
 
 handle_info(Info, State) ->

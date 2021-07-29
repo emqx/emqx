@@ -72,9 +72,7 @@ t_enable(_) ->
     ok = meck:new(emqx_telemetry, [non_strict, passthrough, no_history, no_link]),
     ok = meck:expect(emqx_telemetry, official_version, fun(_) -> true end),
     ok = emqx_telemetry:enable(),
-    ?assertEqual(true, emqx_telemetry:get_status()),
     ok = emqx_telemetry:disable(),
-    ?assertEqual(false, emqx_telemetry:get_status()),
     meck:unload([emqx_telemetry]).
 
 t_send_after_enable(_) ->
