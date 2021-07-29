@@ -33,7 +33,7 @@
 
 -export([post_config_update/2, pre_config_update/2]).
 
--define(CONF_KEY_PATH, [emqx_authz, rules]).
+-define(CONF_KEY_PATH, [authorization, rules]).
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
