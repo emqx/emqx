@@ -64,8 +64,10 @@ t_event_topic(_) ->
     {ok, _, [?QOS_1]} = emqtt:subscribe(C1, <<"$event/message_delivered">>, qos1),
     {ok, _, [?QOS_1]} = emqtt:subscribe(C1, <<"$event/message_acked">>, qos1),
     _ = emqx:publish(emqx_message:make(<<"test">>, ?QOS_1, <<"test_sub">>, <<"test">>)),
-    recv_message_publish(<<"clientid">>),
-    recv_message_delivered(<<"clientid">>),
+    {ok, #{qos := QOS1, topic := Topic1}} = receive_publish(100),
+    {ok, #{qos := QOS2, topic := Topic2}} = receive_publish(100),
+    recv_message_publish_or_delivered(<<"clientid">>, QOS1, Topic1),
+    recv_message_publish_or_delivered(<<"clientid">>, QOS2, Topic2),
     recv_message_acked(<<"clientid">>),
 
     {ok, _, [?QOS_1]} = emqtt:subscribe(C1, <<"$event/message_dropped">>, qos1),
@@ -107,12 +109,9 @@ recv_message_dropped(_ClientId) ->
     {ok, #{qos := ?QOS_0, topic := Topic}} = receive_publish(100),
     ?assertMatch(<<"$event/message_dropped">>, Topic).
 
-recv_message_delivered(_ClientId) ->
-    {ok, #{qos := ?QOS_0, topic := Topic}} = receive_publish(100),
-    ?assertMatch(<<"$event/message_delivered">>, Topic).
-
-recv_message_publish(_ClientId) ->
-    {ok, #{qos := ?QOS_1, topic := Topic}} = receive_publish(100),
+recv_message_publish_or_delivered(_ClientId, 0, Topic) ->
+    ?assertMatch(<<"$event/message_delivered">>, Topic);
+recv_message_publish_or_delivered(_ClientId, 1, Topic) ->
     ?assertMatch(<<"test_sub">>, Topic).
 
 recv_message_acked(_ClientId) ->
