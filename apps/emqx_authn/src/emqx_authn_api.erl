@@ -21,6 +21,7 @@
 -include("emqx_authn.hrl").
 
 -export([ api_spec/0
+        , authentication/2
         , authenticators/2
         , authenticators2/2
         , position/2
@@ -80,13 +81,38 @@
                                   }}}}).
 
 api_spec() ->
-    {[ authenticators_api()
+    {[ authentication_api()
+     , authenticators_api()
      , authenticators_api2()
      , position_api()
      , import_users_api()
      , users_api()
      , users2_api()
      ], definitions()}.
+
+authentication_api() ->
+    Metadata = #{
+        post => #{
+            description => "Enable or disbale authentication",
+            requestBody => #{
+                content => #{
+                    'application/json' => #{
+                        schema => #{
+                            type => object,
+                            required => [enable],
+                            properties => #{
+                                enable => #{
+                                    type => boolean,
+                                    example => true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    {"/authentication", Metadata, authentication}.
 
 authenticators_api() ->
     Metadata = #{
@@ -975,6 +1001,21 @@ definitions() ->
     , #{<<"error">> => ErrorDef}
     ].
 
+authentication(post, Request) ->
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    case emqx_json:decode(Body, [return_maps]) of
+        #{<<"enable">> := true} ->
+            ok = emqx_authn:enable(),
+            {204};
+        #{<<"enable">> := false} ->
+            ok = emqx_authn:disable(),
+            {204};
+        #{<<"enable">> := _} ->
+            serialize_error({invalid_parameter, enable});
+        _ ->
+            serialize_error({missing_parameter, enable})
+    end.
+
 authenticators(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     AuthenticatorConfig = emqx_json:decode(Body, [return_maps]),
@@ -1123,6 +1164,11 @@ serialize_error({missing_parameter, Name}) ->
     {400, #{code => <<"MISSING_PARAMETER">>,
             message => list_to_binary(
                 io_lib:format("The input parameter '~p' that is mandatory for processing this request is not supplied", [Name])
+            )}};
+serialize_error({invalid_parameter, Name}) ->
+    {400, #{code => <<"INVALID_PARAMETER">>,
+            message => list_to_binary(
+                io_lib:format("The value of input parameter '~p' is invalid", [Name])
             )}};
 serialize_error(Reason) ->
     {400, #{code => <<"BAD_REQUEST">>,
