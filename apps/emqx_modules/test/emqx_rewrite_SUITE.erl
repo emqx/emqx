@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_rewrite_SUITE).
+-module(emqx_rewrite_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -38,8 +38,6 @@ all() -> emqx_ct:all(?MODULE).
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([emqx_modules]),
-    %% Ensure all the modules unloaded.
-    ok = emqx_modules:unload(),
     Config.
 
 end_per_suite(_Config) ->
@@ -47,7 +45,12 @@ end_per_suite(_Config) ->
 
 %% Test case for emqx_mod_write
 t_mod_rewrite(_Config) ->
-    ok = emqx_mod_rewrite:load(#{rules => ?RULES}),
+    %% important! let emqx_schema include the current app!
+    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_schema, includes, fun() -> ["rewrite"] end ),
+    meck:expect(emqx_schema, extra_schema_fields, fun(FieldName) -> emqx_modules_schema:fields(FieldName) end),
+    ok = emqx_config:update([rewrite, rules], ?RULES),
+    ok = emqx_rewrite:enable(),
     {ok, C} = emqtt:start_link([{clientid, <<"rewrite_client">>}]),
     {ok, _} = emqtt:connect(C),
     PubOrigTopics = [<<"x/y/2">>, <<"x/1/2">>],
@@ -79,14 +82,15 @@ t_mod_rewrite(_Config) ->
     {ok, _, _} = emqtt:unsubscribe(C, PubDestTopics),
 
     ok = emqtt:disconnect(C),
-    ok = emqx_mod_rewrite:unload(?RULES).
+    ok = emqx_rewrite:disable(),
+    meck:unload(emqx_schema).
 
 t_rewrite_rule(_Config) ->
-    {PubRules, SubRules} = emqx_mod_rewrite:compile(?RULES),
-    ?assertEqual(<<"z/y/2">>, emqx_mod_rewrite:match_and_rewrite(<<"x/y/2">>, PubRules)),
-    ?assertEqual(<<"x/1/2">>, emqx_mod_rewrite:match_and_rewrite(<<"x/1/2">>, PubRules)),
-    ?assertEqual(<<"y/z/b">>, emqx_mod_rewrite:match_and_rewrite(<<"y/a/z/b">>, SubRules)),
-    ?assertEqual(<<"y/def">>, emqx_mod_rewrite:match_and_rewrite(<<"y/def">>, SubRules)).
+    {PubRules, SubRules} = emqx_rewrite:compile(?RULES),
+    ?assertEqual(<<"z/y/2">>, emqx_rewrite:match_and_rewrite(<<"x/y/2">>, PubRules)),
+    ?assertEqual(<<"x/1/2">>, emqx_rewrite:match_and_rewrite(<<"x/1/2">>, PubRules)),
+    ?assertEqual(<<"y/z/b">>, emqx_rewrite:match_and_rewrite(<<"y/a/z/b">>, SubRules)),
+    ?assertEqual(<<"y/def">>, emqx_rewrite:match_and_rewrite(<<"y/def">>, SubRules)).
 
 %%--------------------------------------------------------------------
 %% Internal functions

@@ -14,9 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_delayed_SUITE).
+-module(emqx_delayed_SUITE).
 
--import(emqx_mod_delayed, [on_message_publish/1]).
+-import(emqx_delayed, [on_message_publish/1]).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -35,6 +35,8 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
+    ekka_mnesia:start(),
+    ok = emqx_delayed:mnesia(boot),
     emqx_ct_helpers:start_apps([emqx_modules]),
     Config.
 
@@ -46,26 +48,28 @@ end_per_suite(_) ->
 %%--------------------------------------------------------------------
 
 t_load_case(_) ->
-    UnHooks = emqx_hooks:lookup('message.publish'),
-    ?assertEqual([], UnHooks),
-    ok = emqx_mod_delayed:load([]),
     Hooks = emqx_hooks:lookup('message.publish'),
-    ?assertEqual(1, length(Hooks)),
+    MFA = {emqx_delayed,on_message_publish,[]},
+    ?assertEqual(false, lists:keyfind(MFA, 2, Hooks)),
+    ok = emqx_delayed:enable(),
+    Hooks1 = emqx_hooks:lookup('message.publish'),
+    ct:pal("----~p~n", [Hooks1]),
+    ?assertNotEqual(false, lists:keyfind(MFA, 2, Hooks1)),
     ok.
 
 t_delayed_message(_) ->
-    ok = emqx_mod_delayed:load([]),
+    ok = emqx_delayed:enable(),
     DelayedMsg = emqx_message:make(?MODULE, 1, <<"$delayed/1/publish">>, <<"delayed_m">>),
     ?assertEqual({stop, DelayedMsg#message{topic = <<"publish">>, headers = #{allow_publish => false}}}, on_message_publish(DelayedMsg)),
 
     Msg = emqx_message:make(?MODULE, 1, <<"no_delayed_msg">>, <<"no_delayed">>),
     ?assertEqual({ok, Msg}, on_message_publish(Msg)),
 
-    [Key] = mnesia:dirty_all_keys(emqx_mod_delayed),
-    [#delayed_message{msg = #message{payload = Payload}}] = mnesia:dirty_read({emqx_mod_delayed, Key}),
+    [Key] = mnesia:dirty_all_keys(emqx_delayed),
+    [#delayed_message{msg = #message{payload = Payload}}] = mnesia:dirty_read({emqx_delayed, Key}),
     ?assertEqual(<<"delayed_m">>, Payload),
     timer:sleep(5000),
 
-    EmptyKey = mnesia:dirty_all_keys(emqx_mod_delayed),
+    EmptyKey = mnesia:dirty_all_keys(emqx_delayed),
     ?assertEqual([], EmptyKey),
-    ok = emqx_mod_delayed:unload([]).
+    ok = emqx_delayed:disable().

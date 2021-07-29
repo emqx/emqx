@@ -23,40 +23,31 @@
 -export([ structs/0
         , fields/1]).
 
-structs() -> ["emqx_modules"].
+structs() ->
+    ["delayed",
+     "recon",
+     "telemetry",
+     "presence",
+     "rewrite",
+     "topic_metrics"].
 
-fields("emqx_modules") ->
-    [{modules, hoconsc:array(hoconsc:union([ hoconsc:ref(?MODULE, "common")
-                                           , hoconsc:ref(?MODULE, "presence")
-                                           , hoconsc:ref(?MODULE, "rewrite")
-                                           , hoconsc:ref(?MODULE, "topic_metrics")
-                                           , hoconsc:ref(?MODULE, "telemetry")
-                                           ]))}];
-fields("common") ->
-    [ {type, hoconsc:enum([delayed, recon])}
-    , {enable, emqx_schema:t(boolean(), undefined, false)}
+fields(Name) when Name =:= "recon";
+                  Name =:= "telemetry";
+                  Name =:= "presence" ->
+    [ {enable, emqx_schema:t(boolean(), undefined, false)}
     ];
 
-fields("presence") ->
-    [ {type, hoconsc:enum([presence])}
-    , {enable, emqx_schema:t(boolean(), undefined, false)}
-    , {qos, emqx_schema:t(integer(), undefined, 1)}
+fields("delayed") ->
+    [ {enable, emqx_schema:t(boolean(), undefined, false)}
+    , {max_delayed_messages, emqx_schema:t(integer())}
     ];
+
 fields("rewrite") ->
-    [ {type, hoconsc:enum([rewrite])}
-    , {enable, emqx_schema:t(boolean(), undefined, false)}
-    , {rules, hoconsc:array(hoconsc:ref(?MODULE, "rules"))}
+    [ {rules, hoconsc:array(hoconsc:ref(?MODULE, "rules"))}
     ];
 
 fields("topic_metrics") ->
-    [ {type, hoconsc:enum([topic_metrics])}
-    , {enable, emqx_schema:t(boolean(), undefined, false)}
-    , {topics, hoconsc:array(binary())}
-    ];
-
-fields("telemetry") ->
-    [ {type, hoconsc:enum([telemetry])}
-    , {enable, emqx_schema:t(boolean(), undefined, false)}
+    [ {topics, hoconsc:array(binary())}
     ];
 
 fields("rules") ->

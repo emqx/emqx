@@ -1,9 +1,9 @@
 {application, emqx_modules,
- [{description, "EMQ X Module Management"},
+ [{description, "EMQ X Modules"},
   {vsn, "5.0.0"},
   {modules, []},
   {applications, [kernel,stdlib]},
   {mod, {emqx_modules_app, []}},
-  {registered, [emqx_mod_sup]},
+  {registered, [emqx_modules_sup]},
   {env, []}
  ]}.
