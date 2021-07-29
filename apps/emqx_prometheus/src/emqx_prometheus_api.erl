@@ -106,14 +106,14 @@ prometheus_api() ->
 %     {"/prometheus/stats", Metadata, stats}.
 
 prometheus(get, _Request) ->
-    Response = emqx_config:get_raw([<<"emqx_prometheus">>], #{}),
+    Response = emqx_config:get_raw([<<"prometheus">>], #{}),
     {200, Response};
 
 prometheus(put, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Params = emqx_json:decode(Body, [return_maps]),
     Enable = maps:get(<<"enable">>, Params),
-    ok = emqx_config:update([?APP], Params),
+    ok = emqx_config:update([prometheus], Params),
     enable_prometheus(Enable).
 
 % stats(_Bindings, Params) ->
@@ -128,11 +128,11 @@ prometheus(put, Request) ->
 
 enable_prometheus(true) ->
     ok = emqx_prometheus_sup:stop_child(?APP),
-    emqx_prometheus_sup:start_child(?APP, emqx_config:get([?APP], #{})),
+    emqx_prometheus_sup:start_child(?APP, emqx_config:get([prometheus], #{})),
     {200};
 enable_prometheus(false) ->
     _ = emqx_prometheus_sup:stop_child(?APP),
     {200}.
 
 get_raw(Key, Def) ->
-    emqx_config:get_raw([<<"emqx_prometheus">>] ++ [Key], Def).
+    emqx_config:get_raw([<<"prometheus">>] ++ [Key], Def).
