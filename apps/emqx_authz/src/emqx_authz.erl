@@ -49,7 +49,7 @@ lookup() ->
     emqx_config:get(?CONF_KEY_PATH, []).
 
 update(Cmd, Rules) ->
-    emqx_config:update(?CONF_KEY_PATH, {Cmd, Rules}).
+    emqx_config:update(emqx_authz_schema, ?CONF_KEY_PATH, {Cmd, Rules}).
 
 %% For now we only support re-creating the entire rule list
 pre_config_update({head, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
