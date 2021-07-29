@@ -40,7 +40,7 @@ set_special_configs(_App) ->
     ok.
 
 t_stats_api(_) ->
-    StatsPath = emqx_mgmt_api_test_util:api_path(["stats"]),
+    StatsPath = emqx_mgmt_api_test_util:api_path(["stats?aggregate=true"]),
     SystemStats = emqx_mgmt:get_stats(),
     {ok, StatsResponse} = emqx_mgmt_api_test_util:request_api(get, StatsPath),
     Stats = emqx_json:decode(StatsResponse, [return_maps]),
