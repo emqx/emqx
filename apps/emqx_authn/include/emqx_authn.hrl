@@ -20,6 +20,8 @@
 -define(VER_1, <<"1">>).
 -define(VER_2, <<"2">>).
 
+-define(RE_PLACEHOLDER, "\\$\\{[a-z0-9\\-]+\\}").
+
 -record(authenticator,
         { id :: binary()
         , name :: binary()
@@ -35,25 +37,3 @@
         }).
 
 -define(AUTH_SHARD, emqx_authn_shard).
-
--define(CLUSTER_CALL(Module, Func, Args), ?CLUSTER_CALL(Module, Func, Args, ok)).
-
--define(CLUSTER_CALL(Module, Func, Args, ResParttern),
-    fun() ->
-        case LocalResult = erlang:apply(Module, Func, Args) of
-            ResParttern ->
-                Nodes = nodes(),
-                {ResL, BadNodes} = rpc:multicall(Nodes, Module, Func, Args, 5000),
-                NResL = lists:zip(Nodes - BadNodes, ResL),
-                Errors = lists:filter(fun({_, ResParttern}) -> false;
-                                         (_) -> true
-                                      end, NResL),
-                OtherErrors = [{BadNode, node_does_not_exist} || BadNode <- BadNodes],
-                case Errors ++ OtherErrors of
-                    [] -> LocalResult;
-                    NErrors -> {error, NErrors}
-                end;
-            ErrorResult ->
-                {error, ErrorResult}
-        end
-    end()).

@@ -149,11 +149,14 @@ connect(Opts) ->
     WorkerOptions = proplists:get_value(worker_options, Opts, []),
     mongo_api:connect(Type, Hosts, Options, WorkerOptions).
 
-mongo_query(Conn, find, Collection, Selector, Docs) ->
-    mongo_api:find(Conn, Collection, Selector, Docs);
+mongo_query(Conn, find, Collection, Selector, Projector) ->
+    mongo_api:find(Conn, Collection, Selector, Projector);
+
+mongo_query(Conn, find_one, Collection, Selector, Projector) ->
+    mongo_api:find_one(Conn, Collection, Selector, Projector);
 
 %% Todo xxx
-mongo_query(_Conn, _Action, _Collection, _Selector, _Docs) ->
+mongo_query(_Conn, _Action, _Collection, _Selector, _Projector) ->
     ok.
 
 do_start(InstId, Opts0, Config = #{mongo_type := Type,

@@ -132,7 +132,6 @@ destroy(#{user_group := UserGroup}) ->
                                end, mnesia:select(?TAB, MatchSpec, write))
         end).
 
-%% TODO: binary to atom
 add_user(#{user_id := UserID,
            password := Password}, #{user_group := UserGroup} = State) ->
     trans(
