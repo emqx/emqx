@@ -53,6 +53,12 @@ jobs:
           run: make proper
 
     run_common_test:
+        strategy:
+          matrix:
+            otp_release:
+              - "erlang23"
+              - "erlang24"
+
         runs-on: ubuntu-20.04
 
         steps:
@@ -83,28 +89,17 @@ jobs:
                 -f .ci/docker-compose-file/docker-compose.yaml \
                 -f .ci/docker-compose-file/docker-compose-enterprise.yaml \
                 up -d --build
-        - name: run eunit erlang 23
+        - name: run eunit
           run: |
-            docker exec -i erlang23 bash -c "make eunit"
-        - name: run eunit erlang 24
+            docker exec -i ${{ otp_release }} bash -c "make eunit"
+        - name: run common test
           run: |
-            docker exec -i erlang24 bash -c "make eunit"
-        - name: run common test erlang 23
-          run: |
-            docker exec -i erlang23 bash -c "make ct"
-        - name: run common test erlang 24
-          run: |
-            docker exec -i erlang24 bash -c "make ct"
-        - name: run cover erlang 23
+            docker exec -i ${{ otp_release }} bash -c "make ct"
+        - name: run cover
           run: |
             printenv > .env
-            docker exec -i erlang23 bash -c "make cover"
-            docker exec --env-file .env -i erlang23 bash -c "make coveralls"
-        - name: run cover erlang 24
-          run: |
-            printenv > .env
-            docker exec -i erlang24 bash -c "make cover"
-            docker exec --env-file .env -i erlang24 bash -c "make coveralls"
+            docker exec -i ${{ otp_release }} bash -c "make cover"
+            docker exec --env-file .env -i ${{ otp_release }} bash -c "make coveralls"
         - name: cat rebar.crashdump
           if: failure()
           run: if [ -f 'rebar3.crashdump' ];then cat 'rebar3.crashdump'; fi
