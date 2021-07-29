@@ -43,6 +43,7 @@
 
 -export([ default_tcp_options/0
         , default_udp_options/0
+        , default_subopts/0
         ]).
 
 -define(ACTIVE_N, 100).
@@ -186,3 +187,10 @@ default_tcp_options() ->
 
 default_udp_options() ->
     [binary].
+
+default_subopts() ->
+    #{rh  => 0, %% Retain Handling
+      rap => 0, %% Retain as Publish
+      nl  => 0, %% No Local
+      qos => 0  %% QoS
+     }.
