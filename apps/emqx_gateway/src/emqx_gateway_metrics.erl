@@ -49,7 +49,7 @@
 %%--------------------------------------------------------------------
 
 start_link(Type) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Type], []).
+    gen_server:start_link(?MODULE, [Type], []).
 
 -spec inc(gateway_type(), atom()) -> ok.
 inc(Type, Name) ->

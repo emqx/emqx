@@ -23,7 +23,7 @@ authz:{
                 keyfile: "etc/certs/client-key.pem"
               }
            }
-           sql: "select ipaddress, username, clientid, action, permission, topic from mqtt_acl where ipaddr = '%a' or username = '%u' or clientid = '%c'"
+           sql: "select ipaddress, username, clientid, action, permission, topic from mqtt_authz where ipaddr = '%a' or username = '%u' or clientid = '%c'"
        },
        {
            type: pgsql
@@ -36,7 +36,7 @@ authz:{
               auto_reconnect: true
               ssl: {enable: false}
            }
-           sql: "select ipaddress, username, clientid, action, permission, topic from mqtt_acl where ipaddr = '%a' or username = '%u' or username = '$all' or clientid = '%c'"
+           sql: "select ipaddress, username, clientid, action, permission, topic from mqtt_authz where ipaddr = '%a' or username = '%u' or username = '$all' or clientid = '%c'"
        },
        {
            type: redis
@@ -48,7 +48,7 @@ authz:{
               auto_reconnect: true
               ssl: {enable: false}
            }
-           cmd: "HGETALL mqtt_acl:%u"
+           cmd: "HGETALL mqtt_authz:%u"
        },
        {
 					 principal: {username: "^admin?"}
@@ -77,7 +77,7 @@ authz:{
 Create Example Table
 
 ```sql
-CREATE TABLE `mqtt_acl` (
+CREATE TABLE `mqtt_authz` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `ipaddress` VARCHAR(60) NOT NULL DEFAULT '',
   `username` VARCHAR(100) NOT NULL DEFAULT '',
@@ -93,7 +93,7 @@ Sample data in the default configuration:
 
 ```sql
 -- Only 127.0.0.1 users can subscribe to system topics
-INSERT INTO mqtt_acl (ipaddress, username, clientid, action, permission, topic) VALUES ('127.0.0.1', '', '', 'subscribe', 'allow', '$SYS/#');
+INSERT INTO mqtt_authz (ipaddress, username, clientid, action, permission, topic) VALUES ('127.0.0.1', '', '', 'subscribe', 'allow', '$SYS/#');
 ```
 
 #### Pgsql
@@ -104,7 +104,7 @@ Create Example Table
 CREATE TYPE ACTION AS ENUM('publish','subscribe','all');
 CREATE TYPE PERMISSION AS ENUM('allow','deny');
 
-CREATE TABLE mqtt_acl (
+CREATE TABLE mqtt_authz (
   id SERIAL PRIMARY KEY,
   ipaddress CHARACTER VARYING(60) NOT NULL DEFAULT '',
   username CHARACTER VARYING(100) NOT NULL DEFAULT '',
@@ -120,7 +120,7 @@ Sample data in the default configuration:
 
 ```sql
 -- Only 127.0.0.1 users can subscribe to system topics
-INSERT INTO mqtt_acl (ipaddress, username, clientid, action, permission, topic) VALUES ('127.0.0.1', '', '', 'subscribe', 'allow', '$SYS/#');
+INSERT INTO mqtt_authz (ipaddress, username, clientid, action, permission, topic) VALUES ('127.0.0.1', '', '', 'subscribe', 'allow', '$SYS/#');
 ```
 
 #### Redis
@@ -128,7 +128,7 @@ INSERT INTO mqtt_acl (ipaddress, username, clientid, action, permission, topic) 
 Sample data in the default configuration:
 
 ```
-HSET mqtt_acl:emqx '$SYS/#' subscribe
+HSET mqtt_authz:emqx '$SYS/#' subscribe
 ```
 
 A rule of Redis AuthZ defines `publish`, `subscribe`, or `all `information. All lists in the rule are **allow** lists.

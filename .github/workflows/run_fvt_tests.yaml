@@ -36,10 +36,9 @@ jobs:
           timeout-minutes: 5
           run: |
             set -e -u -x
-            echo "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" >> .ci/docker-compose-file/conf.cluster.env
             echo "HOCON_ENV_OVERRIDE_PREFIX=EMQX_" >> .ci/docker-compose-file/conf.cluster.env
-            echo "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s" >> .ci/docker-compose-file/conf.cluster.env
-            echo "EMQX_MQTT__MAX_TOPIC_ALIAS=10" >> .ci/docker-compose-file/conf.cluster.env
+            echo "EMQX_ZONES__DEFAULT__MQTT__RETRY_INTERVAL=2s" >> .ci/docker-compose-file/conf.cluster.env
+            echo "EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10" >> .ci/docker-compose-file/conf.cluster.env
             docker-compose \
                 -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
                 -f .ci/docker-compose-file/docker-compose-python.yaml \
@@ -118,8 +117,8 @@ jobs:
                 --set image.pullPolicy=Never \
                 --set emqxAclConfig="" \
                 --set image.pullPolicy=Never \
-                --set emqxConfig.EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s \
-                --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
+                --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__RETRY_INTERVAL=2s \
+                --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10 \
                 deploy/charts/emqx \
                 --debug
 

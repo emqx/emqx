@@ -22,11 +22,10 @@
 
 -export([ structs/0
         , fields/1
-        , validations/0
         ]).
 
--export([ create/3
-        , update/4
+-export([ create/1
+        , update/2
         , authenticate/2
         , destroy/1
         ]).
@@ -35,72 +34,62 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-structs() -> [config].
+structs() -> [""].
 
 fields("") ->
-    [{config, {union, [ hoconsc:t('hmac-based')
-                      , hoconsc:t('public-key')
-                      , hoconsc:t('jwks')
-                      , hoconsc:t('jwks-using-ssl')
-                      ]}}];
-
-fields(config) ->
-    [{union, [ hoconsc:t('hmac-based')
-             , hoconsc:t('public-key')
-             , hoconsc:t('jwks')
-             , hoconsc:t('jwks-using-ssl')
-             ]}];
+    [ {config, {union, [ hoconsc:t('hmac-based')
+                       , hoconsc:t('public-key')
+                       , hoconsc:t('jwks')
+                       ]}}
+    ];
 
 fields('hmac-based') ->
     [ {use_jwks,              {enum, [false]}}
     , {algorithm,             {enum, ['hmac-based']}}
     , {secret,                fun secret/1}
     , {secret_base64_encoded, fun secret_base64_encoded/1}
-    , {verify_claims,         fun verify_claims/1}
-    ];
+    ] ++ common_fields();
 
 fields('public-key') ->
     [ {use_jwks,              {enum, [false]}}
     , {algorithm,             {enum, ['public-key']}}
     , {certificate,           fun certificate/1}
-    , {verify_claims,         fun verify_claims/1}
-    ];
+    ] ++ common_fields();
 
 fields('jwks') ->
-    [ {enable_ssl,            {enum, [false]}}
-    ] ++ jwks_fields();
+    [ {use_jwks,              {enum, [true]}}
+    , {endpoint,              fun endpoint/1}
+    , {refresh_interval,      fun refresh_interval/1}
+    , {ssl,                   #{type => hoconsc:union(
+                                         [ hoconsc:ref(?MODULE, ssl_enable)
+                                         , hoconsc:ref(?MODULE, ssl_disable)
+                                         ]),
+                                default => #{<<"enable">> => false}}}
+    ] ++ common_fields();
 
-fields('jwks-using-ssl') ->
-    [ {enable_ssl,            {enum, [true]}}
-    , {ssl_opts,              fun ssl_opts/1}
-    ] ++ jwks_fields();
-
-fields(ssl_opts) ->
-    [ {cacertfile,             fun cacertfile/1}
+fields(ssl_enable) ->
+    [ {enable,                 #{type => true}}
+    , {cacertfile,             fun cacertfile/1}
     , {certfile,               fun certfile/1}
     , {keyfile,                fun keyfile/1}
     , {verify,                 fun verify/1}
     , {server_name_indication, fun server_name_indication/1}
     ];
 
-fields(claim) ->
-    [ {"$name", fun expected_claim_value/1} ].
+fields(ssl_disable) ->
+    [ {enable, #{type => false}} ].
 
-validations() ->
-    [ {check_verify_claims, fun check_verify_claims/1} ].
-
-jwks_fields() ->
-    [ {use_jwks,              {enum, [true]}}
-    , {endpoint,              fun endpoint/1}
-    , {refresh_interval,      fun refresh_interval/1}
-    , {verify_claims,         fun verify_claims/1}
+common_fields() ->
+    [ {name,            fun emqx_authn_schema:authenticator_name/1}
+    , {mechanism,       {enum, [jwt]}}
+    , {verify_claims,   fun verify_claims/1}
     ].
 
 secret(type) -> string();
 secret(_) -> undefined.
 
 secret_base64_encoded(type) -> boolean();
-secret_base64_encoded(defualt) -> false;
+secret_base64_encoded(default) -> false;
 secret_base64_encoded(_) -> undefined.
 
 certificate(type) -> string();
@@ -108,10 +97,6 @@ certificate(_) -> undefined.
 
 endpoint(type) -> string();
 endpoint(_) -> undefined.
-
-ssl_opts(type) -> hoconsc:t(hoconsc:ref(ssl_opts));
-ssl_opts(default) -> [];
-ssl_opts(_) -> undefined.
 
 refresh_interval(type) -> integer();
 refresh_interval(default) -> 300;
@@ -134,29 +119,31 @@ verify(_) -> undefined.
 server_name_indication(type) -> string();
 server_name_indication(_) -> undefined.
 
-verify_claims(type) -> hoconsc:array(hoconsc:ref(claim));
-verify_claims(default) -> [];
+verify_claims(type) -> list();
+verify_claims(default) -> #{};
+verify_claims(validate) -> [fun check_verify_claims/1];
+verify_claims(converter) ->
+    fun(VerifyClaims) ->
+        maps:to_list(VerifyClaims)
+    end;
 verify_claims(_) -> undefined.
-
-expected_claim_value(type) -> string();
-expected_claim_value(_) -> undefined.
 
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(_ChainID, _AuthenticatorName, Config) ->
-    create(Config).
+create(#{verify_claims := VerifyClaims} = Config) ->
+    create2(Config#{verify_claims => handle_verify_claims(VerifyClaims)}).
 
-update(_ChainID, _AuthenticatorName, #{use_jwks := false} = Config, #{jwk := Connector})
+update(#{use_jwks := false} = Config, #{jwk := Connector})
   when is_pid(Connector) ->
     _ = emqx_authn_jwks_connector:stop(Connector),
     create(Config);
 
-update(_ChainID, _AuthenticatorName, #{use_jwks := false} = Config, _) ->
+update(#{use_jwks := false} = Config, _) ->
     create(Config);
 
-update(_ChainID, _AuthenticatorName, #{use_jwks := true} = Config, #{jwk := Connector} = State)
+update(#{use_jwks := true} = Config, #{jwk := Connector} = State)
   when is_pid(Connector) ->
     ok = emqx_authn_jwks_connector:update(Connector, Config),
     case maps:get(verify_cliams, Config, undefined) of
@@ -166,10 +153,12 @@ update(_ChainID, _AuthenticatorName, #{use_jwks := true} = Config, #{jwk := Conn
             {ok, State#{verify_claims => handle_verify_claims(VerifyClaims)}}
     end;
 
-update(_ChainID, _AuthenticatorName, #{use_jwks := true} = Config, _) ->
+update(#{use_jwks := true} = Config, _) ->
     create(Config).
 
-authenticate(ClientInfo = #{password := JWT}, #{jwk := JWK,
+authenticate(#{auth_method := _}, _) ->
+    ignore;
+authenticate(Credential = #{password := JWT}, #{jwk := JWK,
                                                 verify_claims := VerifyClaims0}) ->
     JWKs = case erlang:is_pid(JWK) of
                false ->
@@ -178,11 +167,11 @@ authenticate(ClientInfo = #{password := JWT}, #{jwk := JWK,
                    {ok, JWKs0} = emqx_authn_jwks_connector:get_jwks(JWK),
                    JWKs0
            end,
-    VerifyClaims = replace_placeholder(VerifyClaims0, ClientInfo),
+    VerifyClaims = replace_placeholder(VerifyClaims0, Credential),
     case verify(JWT, JWKs, VerifyClaims) of
         ok -> ok;
         {error, invalid_signature} -> ignore;
-        {error, {claims, _}} -> {stop, bad_password}
+        {error, {claims, _}} -> {error, bad_username_or_password}
     end.
 
 destroy(#{jwk := Connector}) when is_pid(Connector) ->
@@ -194,9 +183,6 @@ destroy(_) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-create(#{verify_claims := VerifyClaims} = Config) ->
-    create2(Config#{verify_claims => handle_verify_claims(VerifyClaims)}).
 
 create2(#{use_jwks := false,
           algorithm := 'hmac-based',
@@ -222,8 +208,13 @@ create2(#{use_jwks := false,
            verify_claims => VerifyClaims}};
 
 create2(#{use_jwks := true,
-          verify_claims := VerifyClaims} = Config) ->
-    case emqx_authn_jwks_connector:start_link(Config) of
+          verify_claims := VerifyClaims,
+          ssl := #{enable := Enable} = SSL} = Config) ->
+    SSLOpts = case Enable of
+                  true -> maps:without([enable], SSL);
+                  false -> #{}
+              end,
+    case emqx_authn_jwks_connector:start_link(Config#{ssl_opts => SSLOpts}) of
         {ok, Connector} ->
             {ok, #{jwk => Connector,
                    verify_claims => VerifyClaims}};
@@ -294,12 +285,16 @@ do_verify_claims(Claims, [{Name, Value} | More]) ->
             {error, {claims, {Name, Value0}}}
     end.
 
-check_verify_claims([]) ->
+check_verify_claims(Conf) ->
+    Claims = hocon_schema:get_value("verify_claims", Conf),
+    do_check_verify_claims(Claims).
+
+do_check_verify_claims([]) ->
     false;
-check_verify_claims([{Name, Expected} | More]) ->
+do_check_verify_claims([{Name, Expected} | More]) ->
     check_claim_name(Name) andalso
     check_claim_expected(Expected) andalso
-    check_verify_claims(More).
+    do_check_verify_claims(More).
 
 check_claim_name(exp) ->
     false;

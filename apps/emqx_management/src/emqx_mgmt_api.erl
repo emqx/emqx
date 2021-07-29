@@ -65,10 +65,10 @@ count(Table, Nodes) ->
     lists:sum([rpc_call(Node, ets, info, [Table, size], 5000) || Node <- Nodes]).
 
 page(Params) ->
-    binary_to_integer(proplists:get_value(<<"_page">>, Params, <<"1">>)).
+    binary_to_integer(proplists:get_value(<<"page">>, Params, <<"1">>)).
 
 limit(Params) ->
-    case proplists:get_value(<<"_limit">>, Params) of
+    case proplists:get_value(<<"limit">>, Params) of
         undefined -> emqx_mgmt:max_row_limit();
         Size      -> binary_to_integer(Size)
     end.
@@ -204,7 +204,7 @@ params2qs(Params, QsSchema) ->
     {length(Qs) + length(Fuzzy), {Qs, Fuzzy}}.
 
 %%--------------------------------------------------------------------
-%% Intenal funcs
+%% Internal funcs
 
 pick_params_to_qs([], _, Acc1, Acc2) ->
     NAcc2 = [E || E <- Acc2, not lists:keymember(element(1, E), 1, Acc1)],
@@ -215,12 +215,12 @@ pick_params_to_qs([{Key, Value}|Params], QsKits, Acc1, Acc2) ->
         undefined -> pick_params_to_qs(Params, QsKits, Acc1, Acc2);
         Type ->
             case Key of
-                <<Prefix:5/binary, NKey/binary>>
-                  when Prefix =:= <<"_gte_">>;
-                       Prefix =:= <<"_lte_">> ->
+                <<Prefix:4/binary, NKey/binary>>
+                  when Prefix =:= <<"gte_">>;
+                       Prefix =:= <<"lte_">> ->
                     OpposeKey = case Prefix of
-                                    <<"_gte_">> -> <<"_lte_", NKey/binary>>;
-                                    <<"_lte_">> -> <<"_gte_", NKey/binary>>
+                                    <<"gte_">> -> <<"lte_", NKey/binary>>;
+                                    <<"lte_">> -> <<"gte_", NKey/binary>>
                                 end,
                     case lists:keytake(OpposeKey, 1, Params) of
                         false ->
@@ -252,20 +252,20 @@ qs(K, Value0, Type) ->
             throw({bad_value_type, {K, Type, Value0}})
     end.
 
-qs(<<"_gte_", Key/binary>>, Value) ->
+qs(<<"gte_", Key/binary>>, Value) ->
     {binary_to_existing_atom(Key, utf8), '>=', Value};
-qs(<<"_lte_", Key/binary>>, Value) ->
+qs(<<"lte_", Key/binary>>, Value) ->
     {binary_to_existing_atom(Key, utf8), '=<', Value};
-qs(<<"_like_", Key/binary>>, Value) ->
+qs(<<"like_", Key/binary>>, Value) ->
     {binary_to_existing_atom(Key, utf8), like, Value};
-qs(<<"_match_", Key/binary>>, Value) ->
+qs(<<"match_", Key/binary>>, Value) ->
     {binary_to_existing_atom(Key, utf8), match, Value};
 qs(Key, Value) ->
     {binary_to_existing_atom(Key, utf8), '=:=', Value}.
 
-is_fuzzy_key(<<"_like_", _/binary>>) ->
+is_fuzzy_key(<<"like_", _/binary>>) ->
     true;
-is_fuzzy_key(<<"_match_", _/binary>>) ->
+is_fuzzy_key(<<"match_", _/binary>>) ->
     true;
 is_fuzzy_key(_) ->
     false.
@@ -317,18 +317,18 @@ params2qs_test() ->
               {<<"int">>, integer},
               {<<"atom">>, atom},
               {<<"ts">>, timestamp},
-              {<<"_gte_range">>, integer},
-              {<<"_lte_range">>, integer},
-              {<<"_like_fuzzy">>, binary},
-              {<<"_match_topic">>, binary}],
+              {<<"gte_range">>, integer},
+              {<<"lte_range">>, integer},
+              {<<"like_fuzzy">>, binary},
+              {<<"match_topic">>, binary}],
     Params = [{<<"str">>, <<"abc">>},
               {<<"int">>, <<"123">>},
               {<<"atom">>, <<"connected">>},
               {<<"ts">>, <<"156000">>},
-              {<<"_gte_range">>, <<"1">>},
-              {<<"_lte_range">>, <<"5">>},
-              {<<"_like_fuzzy">>, <<"user">>},
-              {<<"_match_topic">>, <<"t/#">>}],
+              {<<"gte_range">>, <<"1">>},
+              {<<"lte_range">>, <<"5">>},
+              {<<"like_fuzzy">>, <<"user">>},
+              {<<"match_topic">>, <<"t/#">>}],
     ExpectedQs = [{str, '=:=', <<"abc">>},
                   {int, '=:=', 123},
                   {atom, '=:=', connected},

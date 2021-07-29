@@ -30,6 +30,7 @@ fields("emqx_modules") ->
                                            , hoconsc:ref(?MODULE, "presence")
                                            , hoconsc:ref(?MODULE, "rewrite")
                                            , hoconsc:ref(?MODULE, "topic_metrics")
+                                           , hoconsc:ref(?MODULE, "telemetry")
                                            ]))}];
 fields("common") ->
     [ {type, hoconsc:enum([delayed, recon])}
@@ -51,6 +52,11 @@ fields("topic_metrics") ->
     [ {type, hoconsc:enum([topic_metrics])}
     , {enable, emqx_schema:t(boolean(), undefined, false)}
     , {topics, hoconsc:array(binary())}
+    ];
+
+fields("telemetry") ->
+    [ {type, hoconsc:enum([telemetry])}
+    , {enable, emqx_schema:t(boolean(), undefined, false)}
     ];
 
 fields("rules") ->

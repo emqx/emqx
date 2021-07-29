@@ -33,20 +33,19 @@
 
 -define(TCP_OPTS, [binary, {packet, raw}, {reuseaddr, true}, {nodelay, true}]).
 
--dialyzer({nowarn_function, [load/0]}).
-
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
+-spec load() -> ok | {error, any()}.
 load() ->
     RegistryOptions = [ {cbkmod, ?MODULE}
-                      , {schema, emqx_stomp_schema}
                       ],
 
     YourOptions = [param1, param2],
     emqx_gateway_registry:load(stomp, RegistryOptions, YourOptions).
 
+-spec unload() -> ok | {error, any()}.
 unload() ->
     emqx_gateway_registry:unload(stomp).
 
@@ -71,13 +70,12 @@ on_insta_create(_Insta = #{ id := InstaId,
     %% FIXME: Assign ctx to InstaState
     {ok, ListenerPids, _InstaState = #{ctx => Ctx}}.
 
-%% @private
-on_insta_update(NewInsta, OldInstace, GwInstaState = #{ctx := Ctx}, GwState) ->
+on_insta_update(NewInsta, OldInsta, GwInstaState = #{ctx := Ctx}, GwState) ->
     InstaId = maps:get(id, NewInsta),
     try
         %% XXX: 1. How hot-upgrade the changes ???
         %% XXX: 2. Check the New confs first before destroy old instance ???
-        on_insta_destroy(OldInstace, GwInstaState, GwState),
+        on_insta_destroy(OldInsta, GwInstaState, GwState),
         on_insta_create(NewInsta, Ctx, GwState)
     catch
         Class : Reason : Stk ->
@@ -100,22 +98,28 @@ on_insta_destroy(_Insta = #{ id := InstaId,
 %%--------------------------------------------------------------------
 
 start_listener(InstaId, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
+    ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
             io:format("Start stomp ~s:~s listener on ~s successfully.~n",
-                      [InstaId, Type, format(ListenOn)]),
+                      [InstaId, Type, ListenOnStr]),
             Pid;
         {error, Reason} ->
             io:format(standard_error,
                       "Failed to start stomp ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, format(ListenOn), Reason]),
+                      [InstaId, Type, ListenOnStr, Reason]),
             throw({badconf, Reason})
     end.
 
 start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
     Name = name(InstaId, Type),
+    NCfg = Cfg#{
+             ctx => Ctx,
+             frame_mod => emqx_stomp_frame,
+             chann_mod => emqx_stomp_channel
+            },
     esockd:open(Name, ListenOn, merge_default(SocketOpts),
-                {emqx_stomp_connection, start_link, [Cfg#{ctx => Ctx}]}).
+                {emqx_gateway_conn, start_link, [NCfg]}).
 
 name(InstaId, Type) ->
     list_to_atom(lists:concat([InstaId, ":", Type])).
@@ -128,22 +132,16 @@ merge_default(Options) ->
             [{tcp_options, ?TCP_OPTS} | Options]
     end.
 
-format(Port) when is_integer(Port) ->
-    io_lib:format("0.0.0.0:~w", [Port]);
-format({Addr, Port}) when is_list(Addr) ->
-    io_lib:format("~s:~w", [Addr, Port]);
-format({Addr, Port}) when is_tuple(Addr) ->
-    io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
-
 stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
     StopRet = stop_listener(InstaId, Type, ListenOn, SocketOpts, Cfg),
+    ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
         ok -> io:format("Stop stomp ~s:~s listener on ~s successfully.~n",
-                        [InstaId, Type, format(ListenOn)]);
+                        [InstaId, Type, ListenOnStr]);
         {error, Reason} ->
             io:format(standard_error,
                       "Failed to stop stomp ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, format(ListenOn), Reason]
+                      [InstaId, Type, ListenOnStr, Reason]
                      )
     end,
     StopRet.

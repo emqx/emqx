@@ -39,7 +39,7 @@ emqx_test(){
                 unzip -q "${PACKAGE_PATH}/${packagename}"
                 export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60 \
                     EMQX_MQTT__MAX_TOPIC_ALIAS=10
-                [[ $(arch) == *arm* || $(arch) == aarch64 ]] && export EMQX_LISTENER__QUIC__EXTERNAL__ENDPOINT=''
+                [[ $(arch) == *arm* || $(arch) == aarch64 ]] && export EMQX_ZONES__DEFAULT__LISTENERS__MQTT_QUIC__ENABLED=false
                 # sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
                 echo "running ${packagename} start"
@@ -49,7 +49,7 @@ emqx_test(){
                     exit 1
                 fi
                 IDLE_TIME=0
-                while ! curl http://localhost:8081/status >/dev/null 2>&1; do
+                while ! curl http://localhost:8081/api/v5/status >/dev/null 2>&1; do
                     if [ $IDLE_TIME -gt 10 ]
                     then
                         echo "emqx running error"
@@ -124,8 +124,8 @@ export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60
 export EMQX_MQTT__MAX_TOPIC_ALIAS=10
 EOF
         ## for ARM, due to CI env issue, skip start of quic listener for the moment
-        [[ $(arch) == *arm* || $(arch) == aarch64 ]] && tee tee -a "$emqx_env_vars" <<EOF
-export EMQX_LISTENER__QUIC__EXTERNAL__ENDPOINT=''
+        [[ $(arch) == *arm* || $(arch) == aarch64 ]] && tee -a "$emqx_env_vars" <<EOF
+export EMQX_ZONES__DEFAULT__LISTENERS__MQTT_QUIC__ENABLED=false
 EOF
     else
         echo "Error: cannot locate emqx_vars"
@@ -138,7 +138,7 @@ EOF
         exit 1
     fi
     IDLE_TIME=0
-   while ! curl http://localhost:8081/status >/dev/null 2>&1; do
+   while ! curl http://localhost:8081/api/v5/status >/dev/null 2>&1; do
         if [ $IDLE_TIME -gt 10 ]
         then
             echo "emqx running error"
@@ -159,7 +159,7 @@ EOF
             exit 1
         fi
         IDLE_TIME=0
-        while ! curl http://localhost:8081/status >/dev/null 2>&1; do
+        while ! curl http://localhost:8081/api/v5/status >/dev/null 2>&1; do
             if [ $IDLE_TIME -gt 10 ]
             then
                 echo "emqx service error"

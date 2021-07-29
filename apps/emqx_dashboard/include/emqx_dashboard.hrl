@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--record(mqtt_admin, {username, password, tags}).
+-record(mqtt_admin, {username, password, tags, role = undefined}).
 
 -type(mqtt_admin() :: #mqtt_admin{}).
 

@@ -15,31 +15,23 @@
 %%--------------------------------------------------------------------
 
 -define(APP, emqx_authn).
+-define(CHAIN, <<"mqtt">>).
 
--type chain_id() :: binary().
--type authn_type() :: simple | enhanced.
--type authenticator_name() :: binary().
--type authenticator_type() :: mnesia | jwt | mysql | postgresql.
--type listener_id() :: binary().
+-define(VER_1, <<"1">>).
+-define(VER_2, <<"2">>).
 
 -record(authenticator,
-        { name :: authenticator_name()
-        , type :: authenticator_type()
+        { id :: binary()
+        , name :: binary()
         , provider :: module()
         , config :: map()
         , state :: map()
         }).
 
 -record(chain,
-        { id :: chain_id()
-        , type :: authn_type()
-        , authenticators :: [{authenticator_name(), #authenticator{}}]
+        { id :: binary()
+        , authenticators :: [{binary(), binary(), #authenticator{}}]
         , created_at :: integer()
-        }).
-
--record(binding,
-        { bound :: {listener_id(), authn_type()}
-        , chain_id :: chain_id()
         }).
 
 -define(AUTH_SHARD, emqx_authn_shard).

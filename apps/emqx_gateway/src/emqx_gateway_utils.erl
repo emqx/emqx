@@ -25,6 +25,7 @@
         ]).
 
 -export([ apply/2
+        , format_listenon/1
         ]).
 
 -export([ normalize_rawconf/1
@@ -42,6 +43,9 @@
 
 -define(ACTIVE_N, 100).
 -define(DEFAULT_IDLE_TIMEOUT, 30000).
+-define(DEFAULT_GC_OPTS, #{count => 1000, bytes => 1024*1024}).
+-define(DEFAULT_OOM_POLICY, #{max_heap_size => 4194304,
+                              message_queue_len => 32000}).
 
 -spec childspec(supervisor:worker(), Mod :: atom())
     -> supervisor:child_spec().
@@ -88,6 +92,13 @@ apply({F, A}, A2) when is_function(F),
 apply(F, A2) when is_function(F),
                   is_list(A2) ->
     erlang:apply(F, A2).
+
+format_listenon(Port) when is_integer(Port) ->
+    io_lib:format("0.0.0.0:~w", [Port]);
+format_listenon({Addr, Port}) when is_list(Addr) ->
+    io_lib:format("~s:~w", [Addr, Port]);
+format_listenon({Addr, Port}) when is_tuple(Addr) ->
+    io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
 
 -type listener() :: #{}.
 
@@ -148,11 +159,11 @@ init_gc_state(Options) ->
 
 -spec force_gc_policy(map()) -> emqx_gc:opts() | undefined.
 force_gc_policy(Options) ->
-    maps:get(force_gc_policy, Options, undefined).
+    maps:get(force_gc_policy, Options, ?DEFAULT_GC_OPTS).
 
 -spec oom_policy(map()) -> emqx_types:oom_policy().
 oom_policy(Options) ->
-    maps:get(force_shutdown_policy, Options).
+    maps:get(force_shutdown_policy, Options, ?DEFAULT_OOM_POLICY).
 
 -spec stats_timer(map()) -> undefined | disabled.
 stats_timer(Options) ->

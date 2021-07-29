@@ -16,8 +16,7 @@ bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
 
 quicer() ->
-    %% @todo use tag
-    {quicer, {git, "https://github.com/emqx/quic.git", {branch, "main"}}}.
+    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.7"}}}.
 
 deps(Config) ->
     {deps, OldDeps} = lists:keyfind(deps, 1, Config),
@@ -80,6 +79,10 @@ is_cover_enabled() ->
 is_enterprise() ->
     filelib:is_regular("EMQX_ENTERPRISE").
 
+emqx_ext_schemas() ->
+    {ok, Schemas} = file:script("extension_schemas.config"),
+    Schemas.
+
 is_quicer_supported() ->
     not (false =/= os:getenv("BUILD_WITHOUT_QUIC") orelse
          is_win32() orelse is_centos_6()
@@ -135,6 +138,7 @@ common_compile_opts() ->
     , {d, snk_kind, msg}
     ] ++
     [{d, 'EMQX_ENTERPRISE'} || is_enterprise()] ++
+    [{d, 'EMQX_EXT_SCHEMAS', emqx_ext_schemas()}] ++
     [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].
 
 prod_compile_opts() ->
@@ -147,36 +151,29 @@ prod_compile_opts() ->
 prod_overrides() ->
     [{add, [ {erl_opts, [deterministic]}]}].
 
-relup_deps(_Profile) ->
-    % {post_hooks, [{"(linux|darwin|solaris|freebsd|netbsd|openbsd)", compile, "scripts/inject-deps.escript " ++ atom_to_list(Profile)}]}.
-    {post_hooks, []}.
-
 profiles() ->
+    CommonCompileOpts = lists:keydelete('EMQX_EXT_SCHEMAS', 2, common_compile_opts()),
     Vsn = get_vsn(),
     [ {'emqx',          [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, bin)}
                         , {overrides, prod_overrides()}
-                        , relup_deps('emqx')
                         ]}
     , {'emqx-pkg',      [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, pkg)}
                         , {overrides, prod_overrides()}
-                        , relup_deps('emqx-pkg')
                         ]}
     , {'emqx-edge',     [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, bin)}
                         , {overrides, prod_overrides()}
-                        , relup_deps('emqx-edge')
                         ]}
     , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, pkg)}
                         , {overrides, prod_overrides()}
-                        , relup_deps('emqx-edge-pkg')
                         ]}
-    , {check,           [ {erl_opts, common_compile_opts()}
+    , {check,           [ {erl_opts, CommonCompileOpts}
                         ]}
     , {test,            [ {deps, test_deps()}
-                        , {erl_opts, common_compile_opts() ++ erl_opts_i()}
+                        , {erl_opts, CommonCompileOpts ++ erl_opts_i() }
                         , {extra_src_dirs, [{"test", [{recursive,true}]}]}
                         ]}
     ] ++ ee_profiles(Vsn).
@@ -261,7 +258,6 @@ relx_apps(ReleaseType) ->
     , inets
     , compiler
     , runtime_tools
-    , cuttlefish
     , emqx
     , {mnesia, load}
     , {ekka, load}
@@ -279,14 +275,18 @@ relx_apps(ReleaseType) ->
     , emqx_bridge_mqtt
     , emqx_modules
     , emqx_management
+    , emqx_dashboard
     , emqx_retainer
     , emqx_statsd
+    , emqx_prometheus
     ]
     ++ [quicer || is_quicer_supported()]
-    ++ [emqx_telemetry || not is_enterprise()]
     ++ [emqx_license || is_enterprise()]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
     ++ relx_apps_per_rel(ReleaseType)
+       %% NOTE: applications below are only loaded after node start/restart
+       %% TODO: Add loaded/unloaded state to plugin apps
+       %%       then we can always start plugin apps
     ++ [{N, load} || N <- relx_plugin_apps(ReleaseType)].
 
 relx_apps_per_rel(cloud) ->
@@ -304,8 +304,7 @@ is_app(Name) ->
     end.
 
 relx_plugin_apps(ReleaseType) ->
-    []
-    ++ relx_plugin_apps_per_rel(ReleaseType)
+    relx_plugin_apps_per_rel(ReleaseType)
     ++ relx_plugin_apps_enterprise(is_enterprise())
     ++ relx_plugin_apps_extra().
 

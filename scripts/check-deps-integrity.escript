@@ -48,7 +48,7 @@ do_collect_deps([{Name, Ref} | Deps], File, Acc) ->
 count_bad_deps([]) -> 0;
 count_bad_deps([{Name, Refs0} | Rest]) ->
     Refs = lists:keysort(1, Refs0),
-    case is_unique_ref(Refs) of
+    case is_unique_ref(Refs) andalso not_branch_ref(Refs) of
         true ->
             count_bad_deps(Rest);
         false ->
@@ -61,3 +61,7 @@ is_unique_ref([{Ref, _File1}, {Ref, File2} | Rest]) ->
     is_unique_ref([{Ref, File2} | Rest]);
 is_unique_ref(_) ->
     false.
+
+not_branch_ref([]) -> true;
+not_branch_ref([{{git, _Repo, {branch, _Branch}}, _File} | _Rest]) -> false;
+not_branch_ref([_Ref | Rest]) -> not_branch_ref(Rest).

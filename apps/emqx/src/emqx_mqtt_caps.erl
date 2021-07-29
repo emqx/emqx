@@ -25,13 +25,7 @@
         ]).
 
 -export([ get_caps/1
-        , get_caps/2
-        , get_caps/3
         ]).
-
--export([default_caps/0]).
-
--export([default/0]).
 
 -export_type([caps/0]).
 
@@ -46,7 +40,7 @@
                   shared_subscription => boolean()
                  }).
 
--define(UNLIMITED, 0).
+-define(MAX_TOPIC_LEVELS, 65535).
 
 -define(PUBCAP_KEYS, [max_topic_levels,
                       max_qos_allowed,
@@ -62,7 +56,7 @@
 -define(DEFAULT_CAPS, #{max_packet_size => ?MAX_PACKET_SIZE,
                         max_clientid_len => ?MAX_CLIENTID_LEN,
                         max_topic_alias => ?MAX_TOPIC_AlIAS,
-                        max_topic_levels => ?UNLIMITED,
+                        max_topic_levels => ?MAX_TOPIC_LEVELS,
                         max_qos_allowed => ?QOS_2,
                         retain_available => true,
                         wildcard_subscription => true,
@@ -81,7 +75,7 @@ check_pub(Zone, Flags) when is_map(Flags) ->
                          Flags1#{topic_levels => emqx_topic:levels(Topic)};
                      error ->
                          Flags
-                 end, get_caps(Zone, publish)).
+                 end, maps:with(?PUBCAP_KEYS, get_caps(Zone))).
 
 do_check_pub(#{topic_levels := Levels}, #{max_topic_levels := Limit})
   when Limit > 0, Levels > Limit ->
@@ -98,7 +92,7 @@ do_check_pub(_Flags, _Caps) -> ok.
                 emqx_types:subopts())
       -> ok_or_error(emqx_types:reason_code())).
 check_sub(Zone, Topic, SubOpts) ->
-    Caps = get_caps(Zone, subscribe),
+    Caps = maps:with(?SUBCAP_KEYS, get_caps(Zone)),
     Flags = lists:foldl(
               fun(max_topic_levels, Map) ->
                       Map#{topic_levels => emqx_topic:levels(Topic)};
@@ -119,42 +113,7 @@ do_check_sub(#{is_shared := true}, #{shared_subscription := false}) ->
     {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED};
 do_check_sub(_Flags, _Caps) -> ok.
 
-default_caps() ->
-    ?DEFAULT_CAPS.
-
-get_caps(Zone, Cap, Def) ->
-    emqx_zone:get_env(Zone, Cap, Def).
-
-get_caps(Zone, publish) ->
-    with_env(Zone, '$mqtt_pub_caps',
-             fun() ->
-                 filter_caps(?PUBCAP_KEYS, get_caps(Zone))
-             end);
-
-get_caps(Zone, subscribe) ->
-    with_env(Zone, '$mqtt_sub_caps',
-             fun() ->
-                 filter_caps(?SUBCAP_KEYS, get_caps(Zone))
-             end).
-
 get_caps(Zone) ->
-    with_env(Zone, '$mqtt_caps',
-             fun() ->
-                maps:map(fun(Cap, Def) ->
-                    emqx_zone:get_env(Zone, Cap, Def)
-                end, ?DEFAULT_CAPS)
-             end).
-
-filter_caps(Keys, Caps) ->
-    maps:filter(fun(Key, _Val) -> lists:member(Key, Keys) end, Caps).
-
--spec(default() -> caps()).
-default() -> ?DEFAULT_CAPS.
-
-with_env(Zone, Key, InitFun) ->
-    case emqx_zone:get_env(Zone, Key) of
-        undefined -> Caps = InitFun(),
-                     ok = emqx_zone:set_env(Zone, Key, Caps),
-                     Caps;
-        ZoneCaps  -> ZoneCaps
-    end.
+    lists:foldl(fun({K, V}, Acc) ->
+            Acc#{K => emqx_config:get_zone_conf(Zone, [mqtt, K], V)}
+        end, #{}, maps:to_list(?DEFAULT_CAPS)).

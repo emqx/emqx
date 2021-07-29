@@ -54,14 +54,15 @@ groups() ->
       [t_inspect_action
       ,t_republish_action
       ]},
-     {api, [],
-      [t_crud_rule_api,
-       t_list_actions_api,
-       t_show_action_api,
-       t_crud_resources_api,
-       t_list_resource_types_api,
-       t_show_resource_type_api
-       ]},
+%%        TODO: V5 API
+%%     {api, [],
+%%      [t_crud_rule_api,
+%%       t_list_actions_api,
+%%       t_show_action_api,
+%%       t_crud_resources_api,
+%%       t_list_resource_types_api,
+%%       t_show_resource_type_api
+%%       ]},
      {cli, [],
       [t_rules_cli,
        t_actions_cli,

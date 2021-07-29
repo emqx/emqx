@@ -156,6 +156,15 @@ t_async_set_keepalive('end', _Config) ->
     ok.
 
 t_async_set_keepalive(_) ->
+    case os:type() of
+        {unix, darwin} ->
+            %% Mac OSX don't support the feature
+            ok;
+        _ ->
+            do_async_set_keepalive()
+    end.
+
+do_async_set_keepalive() ->
     ClientID = <<"client-tcp-keepalive">>,
     {ok, Client} = emqtt:start_link([{host, "localhost"},
                                      {proto_ver,v5},

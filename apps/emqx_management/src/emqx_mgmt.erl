@@ -42,11 +42,11 @@
 -export([ lookup_client/2
         , lookup_client/3
         , kickout_client/1
-        , list_acl_cache/1
-        , clean_acl_cache/1
-        , clean_acl_cache/2
-        , clean_acl_cache_all/0
-        , clean_acl_cache_all/1
+        , list_authz_cache/1
+        , clean_authz_cache/1
+        , clean_authz_cache/2
+        , clean_authz_cache_all/0
+        , clean_authz_cache_all/1
         , set_ratelimit_policy/2
         , set_quota_policy/2
         ]).
@@ -85,7 +85,10 @@
 %% Listeners
 -export([ list_listeners/0
         , list_listeners/1
-        , restart_listener/2
+        , list_listeners/2
+        , list_listeners_by_id/1
+        , get_listener/2
+        , manage_listener/2
         ]).
 
 %% Alarms
@@ -113,10 +116,11 @@
 
 -define(APP, emqx_management).
 
+%% TODO: remove these function after all api use minirest version 1.X
 return() ->
-    minirest:return().
-return(Response) ->
-    minirest:return(Response).
+    ok.
+return(_Response) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Node Info
@@ -174,7 +178,7 @@ broker_info(Node) ->
 %%--------------------------------------------------------------------
 
 get_metrics() ->
-    [{Node, get_metrics(Node)} || Node <- ekka_mnesia:running_nodes()].
+    nodes_info_count([get_metrics(Node) || Node <- ekka_mnesia:running_nodes()]).
 
 get_metrics(Node) when Node =:= node() ->
     emqx_metrics:all();
@@ -182,12 +186,43 @@ get_metrics(Node) ->
     rpc_call(Node, get_metrics, [Node]).
 
 get_stats() ->
-    [{Node, get_stats(Node)} || Node <- ekka_mnesia:running_nodes()].
+    GlobalStatsKeys =
+        [ 'retained.count'
+        , 'retained.max'
+        , 'routes.count'
+        , 'routes.max'
+        , 'subscriptions.shared.count'
+        , 'subscriptions.shared.max'
+        ],
+    CountStats = nodes_info_count([
+        begin
+            Stats = get_stats(Node),
+            delete_keys(Stats, GlobalStatsKeys)
+        end || Node <- ekka_mnesia:running_nodes()]),
+    GlobalStats = maps:with(GlobalStatsKeys, maps:from_list(get_stats(node()))),
+    maps:merge(CountStats, GlobalStats).
+
+delete_keys(List, []) ->
+    List;
+delete_keys(List, [Key | Keys]) ->
+    delete_keys(proplists:delete(Key, List), Keys).
 
 get_stats(Node) when Node =:= node() ->
     emqx_stats:getstats();
 get_stats(Node) ->
     rpc_call(Node, get_stats, [Node]).
+
+nodes_info_count(PropList) ->
+    NodeCount =
+        fun({Key, Value}, Result) ->
+            Count = maps:get(Key, Result, 0),
+            Result#{Key => Count + Value}
+        end,
+    AllCount =
+        fun(StatsMap, Result) ->
+            lists:foldl(NodeCount, Result, StatsMap)
+        end,
+    lists:foldl(AllCount, #{}, PropList).
 
 %%--------------------------------------------------------------------
 %% Clients
@@ -231,39 +266,39 @@ kickout_client(Node, ClientId) when Node =:= node() ->
 kickout_client(Node, ClientId) ->
     rpc_call(Node, kickout_client, [Node, ClientId]).
 
-list_acl_cache(ClientId) ->
-    call_client(ClientId, list_acl_cache).
+list_authz_cache(ClientId) ->
+    call_client(ClientId, list_authz_cache).
 
-clean_acl_cache(ClientId) ->
-    Results = [clean_acl_cache(Node, ClientId) || Node <- ekka_mnesia:running_nodes()],
+clean_authz_cache(ClientId) ->
+    Results = [clean_authz_cache(Node, ClientId) || Node <- ekka_mnesia:running_nodes()],
     case lists:any(fun(Item) -> Item =:= ok end, Results) of
         true  -> ok;
         false -> lists:last(Results)
     end.
 
-clean_acl_cache(Node, ClientId) when Node =:= node() ->
+clean_authz_cache(Node, ClientId) when Node =:= node() ->
     case emqx_cm:lookup_channels(ClientId) of
         [] ->
             {error, not_found};
         Pids when is_list(Pids) ->
-            erlang:send(lists:last(Pids), clean_acl_cache),
+            erlang:send(lists:last(Pids), clean_authz_cache),
             ok
     end;
-clean_acl_cache(Node, ClientId) ->
-    rpc_call(Node, clean_acl_cache, [Node, ClientId]).
+clean_authz_cache(Node, ClientId) ->
+    rpc_call(Node, clean_authz_cache, [Node, ClientId]).
 
-clean_acl_cache_all() ->
-    Results = [{Node, clean_acl_cache_all(Node)} || Node <- ekka_mnesia:running_nodes()],
+clean_authz_cache_all() ->
+    Results = [{Node, clean_authz_cache_all(Node)} || Node <- ekka_mnesia:running_nodes()],
     case lists:filter(fun({_Node, Item}) -> Item =/= ok end, Results) of
         []  -> ok;
         BadNodes -> {error, BadNodes}
     end.
 
-clean_acl_cache_all(Node) when Node =:= node() ->
-    emqx_acl_cache:drain_cache();
+clean_authz_cache_all(Node) when Node =:= node() ->
+    emqx_authz_cache:drain_cache();
 
-clean_acl_cache_all(Node) ->
-    rpc_call(Node, clean_acl_cache_all, [Node]).
+clean_authz_cache_all(Node) ->
+    rpc_call(Node, clean_authz_cache_all, [Node]).
 
 set_ratelimit_policy(ClientId, Policy) ->
     call_client(ClientId, {ratelimit, Policy}).
@@ -419,36 +454,39 @@ reload_plugin(Node, Plugin) ->
 %%--------------------------------------------------------------------
 
 list_listeners() ->
-    [{Node, list_listeners(Node)} || Node <- ekka_mnesia:running_nodes()].
+    lists:append([list_listeners(Node) || Node <- ekka_mnesia:running_nodes()]).
+
+list_listeners(Node, Identifier) ->
+    listener_id_filter(Identifier, list_listeners(Node)).
 
 list_listeners(Node) when Node =:= node() ->
-    Tcp = lists:map(fun({{Protocol, ListenOn}, _Pid}) ->
-        #{protocol        => Protocol,
-          listen_on       => ListenOn,
-          identifier      => emqx_listeners:find_id_by_listen_on(ListenOn),
-          acceptors       => esockd:get_acceptors({Protocol, ListenOn}),
-          max_conns       => esockd:get_max_connections({Protocol, ListenOn}),
-          current_conns   => esockd:get_current_connections({Protocol, ListenOn}),
-          shutdown_count  => esockd:get_shutdown_count({Protocol, ListenOn})}
-    end, esockd:listeners()),
-    Http = lists:map(fun({Protocol, Opts}) ->
-        #{protocol        => Protocol,
-          listen_on       => proplists:get_value(port, Opts),
-          acceptors       => maps:get(num_acceptors, proplists:get_value(transport_options, Opts, #{}), 0),
-          max_conns       => proplists:get_value(max_connections, Opts),
-          current_conns   => proplists:get_value(all_connections, Opts),
-          shutdown_count  => []}
-    end, ranch:info()),
-    Tcp ++ Http;
+    [{Id, maps:put(node, Node, Conf)} || {Id, Conf} <- emqx_listeners:list()];
 
 list_listeners(Node) ->
     rpc_call(Node, list_listeners, [Node]).
 
-restart_listener(Node, Identifier) when Node =:= node() ->
-    emqx_listeners:restart_listener(Identifier);
+list_listeners_by_id(Identifier) ->
+    listener_id_filter(Identifier, list_listeners()).
 
-restart_listener(Node, Identifier) ->
-    rpc_call(Node, restart_listener, [Node, Identifier]).
+get_listener(Node, Identifier) ->
+    case listener_id_filter(Identifier, list_listeners(Node)) of
+        [] ->
+            {error, not_found};
+        [Listener] ->
+            Listener
+    end.
+
+listener_id_filter(Identifier, Listeners) ->
+    Filter =
+        fun({Id, _}) -> Id =:= Identifier end,
+    lists:filter(Filter, Listeners).
+
+-spec manage_listener(Operation :: start_listener|stop_listener|restart_listener, Param :: map()) ->
+    ok | {error, Reason :: term()}.
+manage_listener(Operation, #{identifier := Identifier, node := Node}) when Node =:= node()->
+    erlang:apply(emqx_listeners, Operation, [Identifier]);
+manage_listener(Operation, Param = #{node := Node}) ->
+    rpc_call(Node, restart_listener, [Operation, Param]).
 
 %%--------------------------------------------------------------------
 %% Get Alarms
@@ -509,7 +547,7 @@ item(route, {Topic, Node}) ->
     #{topic => Topic, node => Node}.
 
 %%--------------------------------------------------------------------
-%% Internel Functions.
+%% Internal Functions.
 %%--------------------------------------------------------------------
 
 rpc_call(Node, Fun, Args) ->

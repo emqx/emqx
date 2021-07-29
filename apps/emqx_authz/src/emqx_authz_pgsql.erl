@@ -50,7 +50,7 @@ parse_query(Sql) ->
     end.
 
 authorize(Client, PubSub, Topic,
-            #{resource_id := ResourceID,
+            #{id := ResourceID,
               sql := {SQL, Params}
              }) ->
     case emqx_resource:query(ResourceID, {sql, SQL, replvar(Params, Client)}) of
@@ -94,7 +94,7 @@ match(Client, PubSub, Topic,
             #{<<"simple_rule">> => Rule},
             #{atom_key => true},
             [simple_rule]),
-    case emqx_authz:match(Client, PubSub, Topic, emqx_authz:compile(NRule)) of
+    case emqx_authz:match(Client, PubSub, Topic, emqx_authz:init_rule(NRule)) of
         true -> {matched, NPermission};
         false -> nomatch
     end.

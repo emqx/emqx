@@ -16,6 +16,8 @@
 
 -module(emqx_stomp_channel).
 
+-behavior(emqx_gateway_channel).
+
 -include("src/stomp/include/emqx_stomp.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -40,6 +42,7 @@
         ]).
 
 -export([ handle_call/2
+        , handle_cast/2
         , handle_info/2
         ]).
 
@@ -79,11 +82,11 @@
                | {event, conn_state()|updated}
                | {close, Reason :: atom()}).
 
--type(replies() :: emqx_stomp_frame:packet() | reply() | [reply()]).
+-type(replies() :: reply() | [reply()]).
 
 -define(TIMER_TABLE, #{
-          incoming_timer => incoming,
-          outgoing_timer => outgoing,
+          incoming_timer => keepalive,
+          outgoing_timer => keepalive_send,
           clean_trans_timer => clean_trans
         }).
 
@@ -97,11 +100,6 @@
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
 
--dialyzer({nowarn_function, [init/2,enrich_conninfo/2,ensure_connected/1,
-                             process_connect/1,handle_in/2,handle_info/2,
-                             ensure_disconnected/2,reverse_heartbeats/1,
-                             negotiate_version/2]}).
-
 %%--------------------------------------------------------------------
 %% Init the channel
 %%--------------------------------------------------------------------
@@ -113,7 +111,8 @@ init(ConnInfo = #{peername := {PeerHost, _},
     Mountpoint = maps:get(mountpoint, Option, undefined),
     ClientInfo = setting_peercert_infos(
                    Peercert,
-                   #{ zone => undefined
+                   #{ zone => default
+                    , listener => mqtt_tcp
                     , protocol => stomp
                     , peerhost => PeerHost
                     , sockport => SockPort
@@ -135,6 +134,7 @@ init(ConnInfo = #{peername := {PeerHost, _},
             , clientinfo_override = Override
             , timers = #{}
             , transaction = #{}
+            , conn_state = idle
             }.
 
 setting_peercert_infos(NoSSL, ClientInfo)
@@ -169,8 +169,9 @@ info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
 info(ctx, #channel{ctx = Ctx}) ->
     Ctx.
 
-stats(_Channel) ->
-    [].
+-spec(stats(channel()) -> emqx_types:stats()).
+stats(#channel{subscriptions = Subs}) ->
+    [{subscriptions_cnt, length(Subs)}].
 
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
@@ -179,7 +180,7 @@ enrich_conninfo(_Packet,
                 Channel = #channel{conninfo = ConnInfo}) ->
     %% XXX: How enrich more infos?
     NConnInfo = ConnInfo#{ proto_name => <<"STOMP">>
-                         , proto_ver => undefined
+                         , proto_ver => <<"1.2">>
                          , clean_start => true
                          , keepalive => 0
                          , expiry_interval => 0
@@ -319,7 +320,7 @@ process_connect(Channel = #channel{
 %% Handle incoming packet
 %%--------------------------------------------------------------------
 
--spec handle_in(emqx_types:packet(), channel())
+-spec handle_in(stomp_frame() | {frame_error, any()}, channel())
       -> {ok, channel()}
        | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}
@@ -358,7 +359,7 @@ handle_in(Frame = ?PACKET(?CMD_SEND, Headers),
     Topic = header(<<"destination">>, Headers),
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, Topic) of
         deny ->
-            handle_out(error, {receipt_id(Headers), "ACL Deny"}, Channel);
+            handle_out(error, {receipt_id(Headers), "Authorization Deny"}, Channel);
         allow ->
             case header(<<"transaction">>, Headers) of
                 undefined ->
@@ -392,7 +393,7 @@ handle_in(?PACKET(?CMD_SUBSCRIBE, Headers),
         false ->
             case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, Topic) of
                 deny ->
-                    handle_out(error, {receipt_id(Headers), "ACL Deny"}, Channel);
+                    handle_out(error, {receipt_id(Headers), "Authorization Deny"}, Channel);
                 allow ->
                     _ = emqx_broker:subscribe(MountedTopic),
                     maybe_outgoing_receipt(
@@ -466,12 +467,12 @@ handle_in(?PACKET(?CMD_COMMIT, Headers), Channel) ->
         case trans_pipeline(lists:reverse(Actions), [], Chann0) of
             {ok, Outgoings, Chann1} ->
                 maybe_outgoing_receipt(receipt_id(Headers), Outgoings, Chann1);
-            {error, Reason} ->
+            {error, Reason, Chann1} ->
                 %% FIXME: atomic for transaction ??
                 ErrMsg = io_lib:format("Execute transaction ~s falied: ~0p",
                                        [TxId, Reason]
                                       ),
-                handle_out(error, {receipt_id(Headers), ErrMsg}, Chann0)
+                handle_out(error, {receipt_id(Headers), ErrMsg}, Chann1)
         end
     end);
 
@@ -536,7 +537,7 @@ handle_out(connerr, {Headers, ReceiptId, ErrMsg}, Channel) ->
 
 handle_out(error, {ReceiptId, ErrMsg}, Channel) ->
     Frame = error_frame(ReceiptId, ErrMsg),
-    {ok, Frame, Channel};
+    {ok, {outgoing, Frame}, Channel};
 
 handle_out(connected, Headers, Channel = #channel{
                                             ctx = Ctx,
@@ -553,7 +554,7 @@ handle_out(receipt, undefined, Channel) ->
     {ok, Channel};
 handle_out(receipt, ReceiptId, Channel) ->
     Frame = receipt_frame(ReceiptId),
-    {ok, Frame, Channel}.
+    {ok, {outgoing, Frame}, Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle call
@@ -562,13 +563,15 @@ handle_out(receipt, ReceiptId, Channel) ->
 -spec(handle_call(Req :: term(), channel())
       -> {reply, Reply :: term(), channel()}
        | {shutdown, Reason :: term(), Reply :: term(), channel()}
-       | {shutdown, Reason :: term(), Reply :: term(), emqx_types:packet(), channel()}).
+       | {shutdown, Reason :: term(), Reply :: term(), stomp_frame(), channel()}).
 handle_call(kick, Channel) ->
     NChannel = ensure_disconnected(kicked, Channel),
-    shutdown_and_reply(kicked, ok, NChannel);
+    Frame = error_frame(undefined, <<"Kicked out">>),
+    shutdown_and_reply(kicked, ok, Frame, NChannel);
 
 handle_call(discard, Channel) ->
-    shutdown_and_reply(discarded, ok, Channel);
+    Frame = error_frame(undefined, <<"Discarded">>),
+    shutdown_and_reply(discarded, ok, Frame, Channel);
 
 %% XXX: No Session Takeover
 %handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
@@ -582,8 +585,9 @@ handle_call(discard, Channel) ->
 %    AllPendings = lists:append(Delivers, Pendings),
 %    shutdown_and_reply(takeovered, AllPendings, Channel);
 
-handle_call(list_acl_cache, Channel) ->
-    {reply, emqx_acl_cache:list_acl_cache(), Channel};
+handle_call(list_authz_cache, Channel) ->
+    %% This won't work
+    {reply, emqx_authz_cache:list_authz_cache(default), Channel};
 
 %% XXX: No Quota Now
 % handle_call({quota, Policy}, Channel) ->
@@ -594,6 +598,16 @@ handle_call(list_acl_cache, Channel) ->
 handle_call(Req, Channel) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     reply(ignored, Channel).
+
+
+%%--------------------------------------------------------------------
+%% Handle cast
+%%--------------------------------------------------------------------
+
+-spec handle_cast(Req :: term(), channel())
+      -> ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}.
+handle_cast(_Req, Channel) ->
+    {ok, Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle Info
@@ -638,8 +652,8 @@ handle_info({sock_closed, Reason},
     ?LOG(error, "Unexpected sock_closed: ~p", [Reason]),
     {ok, Channel};
 
-handle_info(clean_acl_cache, Channel) ->
-    ok = emqx_acl_cache:empty_acl_cache(),
+handle_info(clean_authz_cache, Channel) ->
+    ok = emqx_authz_cache:empty_authz_cache(),
     {ok, Channel};
 
 handle_info(Info, Channel) ->
@@ -727,7 +741,7 @@ handle_deliver(Delivers,
        | {ok, replies(), channel()}
        | {shutdown, Reason :: term(), channel()}).
 
-handle_timeout(_TRef, {incoming, NewVal},
+handle_timeout(_TRef, {keepalive, NewVal},
         Channel = #channel{heartbeat = HrtBt}) ->
     case emqx_stomp_heartbeat:check(incoming, NewVal, HrtBt) of
         {error, timeout} ->
@@ -738,13 +752,13 @@ handle_timeout(_TRef, {incoming, NewVal},
                             )}
     end;
 
-handle_timeout(_TRef, {outgoing, NewVal},
+handle_timeout(_TRef, {keepalive_send, NewVal},
                Channel = #channel{heartbeat = HrtBt}) ->
     case emqx_stomp_heartbeat:check(outgoing, NewVal, HrtBt) of
         {error, timeout} ->
             NHrtBt = emqx_stomp_heartbeat:reset(outgoing, NewVal, HrtBt),
             NChannel = Channel#channel{heartbeat = NHrtBt},
-            {ok, emqx_stomp_frame:make(heartbeat),
+            {ok, {outgoing, emqx_stomp_frame:make(heartbeat)},
              reset_timer(outgoing_timer, NChannel)};
         {ok, NHrtBt} ->
             {ok, reset_timer(outgoing_timer,
@@ -783,8 +797,11 @@ shutdown_with_recepit(Reason, ReceiptId, Channel) ->
 shutdown(Reason, AckFrame, Channel) ->
     {shutdown, Reason, AckFrame, Channel}.
 
-shutdown_and_reply(Reason, Reply, Channel) ->
-    {shutdown, Reason, Reply, Channel}.
+%shutdown_and_reply(Reason, Reply, Channel) ->
+%    {shutdown, Reason, Reply, Channel}.
+
+shutdown_and_reply(Reason, Reply, OutPkt, Channel) ->
+    {shutdown, Reason, Reply, OutPkt, Channel}.
 
 do_negotiate_version(undefined) ->
     {ok, <<"1.0">>};
@@ -880,7 +897,9 @@ add_action(TxId, Action, ReceiptId, Channel = #channel{transaction = Trans}) ->
             NTrans = Trans#{TxId => {_StartedAt, [Action|Actions]}},
             {ok, Channel#channel{transaction = NTrans}};
         _ ->
-            {ok, error_frame(ReceiptId, ["Transaction ", TxId, " not found"]), Channel}
+            ErrFrame = error_frame(ReceiptId,
+                                   ["Transaction ", TxId, " not found"]),
+            {ok, {outgoing, ErrFrame}, Channel}
     end.
 
 %%--------------------------------------------------------------------

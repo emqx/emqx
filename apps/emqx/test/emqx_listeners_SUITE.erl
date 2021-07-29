@@ -71,8 +71,8 @@ generate_config() ->
     hocon_schema:generate(emqx_schema, Conf).
 
 set_app_env({App, Lists}) ->
-    lists:foreach(fun({acl_file, _Var}) ->
-                      application:set_env(App, acl_file, local_path(["etc", "acl.conf"]));
+    lists:foreach(fun({authz_file, _Var}) ->
+                      application:set_env(App, authz_file, local_path(["etc", "authz.conf"]));
                      ({plugins_loaded_file, _Var}) ->
                       application:set_env(App,
                                           plugins_loaded_file,

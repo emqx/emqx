@@ -89,7 +89,7 @@ t_open_session(_) ->
     ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),
     ok = meck:expect(emqx_connection, call, fun(_, _, _) -> ok end),
 
-    ClientInfo = #{zone => external,
+    ClientInfo = #{zone => default, listener => mqtt_tcp,
                    clientid => <<"clientid">>,
                    username => <<"username">>,
                    peerhost => {127,0,0,1}},
@@ -114,7 +114,7 @@ rand_client_id() ->
 
 t_open_session_race_condition(_) ->
     ClientId = rand_client_id(),
-    ClientInfo = #{zone => external,
+    ClientInfo = #{zone => default, listener => mqtt_tcp,
                    clientid => ClientId,
                    username => <<"username">>,
                    peerhost => {127,0,0,1}},

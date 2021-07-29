@@ -27,6 +27,7 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([]),
+    ct:pal("------------config: ~p", [emqx_config:get()]),
     Config.
 
 end_per_suite(_Config) ->
@@ -50,14 +51,6 @@ t_stop_start(_) ->
     true = emqx:is_running(node()),
     ok = emqx:shutdown(for_test),
     false = emqx:is_running(node()).
-
-t_get_env(_) ->
-    ?assertEqual(undefined, emqx:get_env(undefined_key)),
-    ?assertEqual(default_value, emqx:get_env(undefined_key, default_value)),
-    application:set_env(emqx, undefined_key, hello),
-    ?assertEqual(hello, emqx:get_env(undefined_key)),
-    ?assertEqual(hello, emqx:get_env(undefined_key, default_value)),
-    application:unset_env(emqx, undefined_key).
 
 t_emqx_pubsub_api(_) ->
     true = emqx:is_running(node()),

@@ -76,7 +76,7 @@ make_relup() {
     if [ -d "$releases_dir" ]; then
         while read -r zip; do
             local base_vsn
-            base_vsn="$(echo "$zip" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-e]{8})?")"
+            base_vsn="$(echo "$zip" | grep -oE "[0-9]+\.[0-9]+(\.[0-9]+|(-(alpha|beta)\.[0-9]))(-[0-9a-e]{8})?")"
             if [ ! -d "$releases_dir/$base_vsn" ]; then
                 local tmp_dir
                 tmp_dir="$(mktemp -d -t emqx.XXXXXXX)"

@@ -150,4 +150,5 @@ name(presence) -> emqx_mod_presence;
 name(recon) -> emqx_mod_recon;
 name(rewrite) -> emqx_mod_rewrite;
 name(topic_metrics) -> emqx_mod_topic_metrics;
+name(telemetry) -> emqx_mod_telemetry;
 name(Name) -> Name.

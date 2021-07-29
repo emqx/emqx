@@ -23,7 +23,7 @@
 
 -logger_header("[SYSMON]").
 
--export([start_link/1]).
+-export([start_link/0]).
 
 %% compress unused warning
 -export([procinfo/1]).
@@ -37,25 +37,19 @@
         , code_change/3
         ]).
 
--type(option() :: {long_gc, non_neg_integer()}
-                | {long_schedule, non_neg_integer()}
-                | {large_heap, non_neg_integer()}
-                | {busy_port, boolean()}
-                | {busy_dist_port, boolean()}).
-
 -define(SYSMON, ?MODULE).
 
 %% @doc Start the system monitor.
--spec(start_link(list(option())) -> startlink_ret()).
-start_link(Opts) ->
-    gen_server:start_link({local, ?SYSMON}, ?MODULE, [Opts], []).
+-spec(start_link() -> startlink_ret()).
+start_link() ->
+    gen_server:start_link({local, ?SYSMON}, ?MODULE, [], []).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Opts]) ->
-    _ = erlang:system_monitor(self(), parse_opt(Opts)),
+init([]) ->
+    _ = erlang:system_monitor(self(), sysm_opts()),
     emqx_logger:set_proc_metadata(#{sysmon => true}),
 
     %% Monitor cluster partition event
@@ -66,30 +60,28 @@ init([Opts]) ->
 start_timer(State) ->
     State#{timer := emqx_misc:start_timer(timer:seconds(2), reset)}.
 
-parse_opt(Opts) ->
-    parse_opt(Opts, []).
-parse_opt([], Acc) ->
+sysm_opts() ->
+    sysm_opts(maps:to_list(emqx_config:get([sysmon, vm])), []).
+sysm_opts([], Acc) ->
     Acc;
-parse_opt([{long_gc, 0}|Opts], Acc) ->
-    parse_opt(Opts, Acc);
-parse_opt([{long_gc, Ms}|Opts], Acc) when is_integer(Ms) ->
-    parse_opt(Opts, [{long_gc, Ms}|Acc]);
-parse_opt([{long_schedule, 0}|Opts], Acc) ->
-    parse_opt(Opts, Acc);
-parse_opt([{long_schedule, Ms}|Opts], Acc) when is_integer(Ms) ->
-    parse_opt(Opts, [{long_schedule, Ms}|Acc]);
-parse_opt([{large_heap, Size}|Opts], Acc) when is_integer(Size) ->
-    parse_opt(Opts, [{large_heap, Size}|Acc]);
-parse_opt([{busy_port, true}|Opts], Acc) ->
-    parse_opt(Opts, [busy_port|Acc]);
-parse_opt([{busy_port, false}|Opts], Acc) ->
-    parse_opt(Opts, Acc);
-parse_opt([{busy_dist_port, true}|Opts], Acc) ->
-    parse_opt(Opts, [busy_dist_port|Acc]);
-parse_opt([{busy_dist_port, false}|Opts], Acc) ->
-    parse_opt(Opts, Acc);
-parse_opt([_Opt|Opts], Acc) ->
-    parse_opt(Opts, Acc).
+sysm_opts([{_, disabled}|Opts], Acc) ->
+    sysm_opts(Opts, Acc);
+sysm_opts([{long_gc, Ms}|Opts], Acc) when is_integer(Ms) ->
+    sysm_opts(Opts, [{long_gc, Ms}|Acc]);
+sysm_opts([{long_schedule, Ms}|Opts], Acc) when is_integer(Ms) ->
+    sysm_opts(Opts, [{long_schedule, Ms}|Acc]);
+sysm_opts([{large_heap, Size}|Opts], Acc) when is_integer(Size) ->
+    sysm_opts(Opts, [{large_heap, Size}|Acc]);
+sysm_opts([{busy_port, true}|Opts], Acc) ->
+    sysm_opts(Opts, [busy_port|Acc]);
+sysm_opts([{busy_port, false}|Opts], Acc) ->
+    sysm_opts(Opts, Acc);
+sysm_opts([{busy_dist_port, true}|Opts], Acc) ->
+    sysm_opts(Opts, [busy_dist_port|Acc]);
+sysm_opts([{busy_dist_port, false}|Opts], Acc) ->
+    sysm_opts(Opts, Acc);
+sysm_opts([_Opt|Opts], Acc) ->
+    sysm_opts(Opts, Acc).
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),

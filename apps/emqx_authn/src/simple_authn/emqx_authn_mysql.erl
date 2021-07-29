@@ -21,10 +21,12 @@
 
 -behaviour(hocon_schema).
 
--export([ structs/0, fields/1 ]).
+-export([ structs/0
+        , fields/1
+        ]).
 
--export([ create/3
-        , update/4
+-export([ create/1
+        , update/2
         , authenticate/2
         , destroy/1
         ]).
@@ -36,56 +38,87 @@
 structs() -> [config].
 
 fields(config) ->
-    [ {password_hash_algorithm, fun password_hash_algorithm/1}
-    , {salt_position,           {enum, [prefix, suffix]}}
+    [ {name,                    fun emqx_authn_schema:authenticator_name/1}
+    , {mechanism,               {enum, ['password-based']}}
+    , {server_type,             {enum, [mysql]}}
+    , {password_hash_algorithm, fun password_hash_algorithm/1}
+    , {salt_position,           fun salt_position/1}
     , {query,                   fun query/1}
     , {query_timeout,           fun query_timeout/1}
     ] ++ emqx_connector_schema_lib:relational_db_fields()
-    ++ emqx_connector_schema_lib:ssl_fields().
+    ++ emqx_connector_schema_lib:ssl_fields();
 
-password_hash_algorithm(type) -> string();
+fields(bcrypt) ->
+    [ {name, {enum, [bcrypt]}}
+    , {salt_rounds, fun salt_rounds/1}
+    ];
+
+fields(other_algorithms) ->
+    [ {name, {enum, [plain, md5, sha, sha256, sha512]}}
+    ].
+
+password_hash_algorithm(type) -> {union, [hoconsc:ref(bcrypt), hoconsc:ref(other_algorithms)]};
+password_hash_algorithm(default) -> #{<<"name">> => sha256};
 password_hash_algorithm(_) -> undefined.
+
+salt_rounds(type) -> integer();
+salt_rounds(default) -> 10;
+salt_rounds(_) -> undefined.
+
+salt_position(type) -> {enum, [prefix, suffix]};
+salt_position(default) -> prefix;
+salt_position(_) -> undefined.
 
 query(type) -> string();
 query(nullable) -> false;
 query(_) -> undefined.
 
 query_timeout(type) -> integer();
-query_timeout(defualt) -> 5000;
+query_timeout(default) -> 5000;
 query_timeout(_) -> undefined.
 
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(ChainID, ServiceName, #{query := Query0,
-                               password_hash_algorithm := Algorithm} = Config) ->
+create(#{ password_hash_algorithm := Algorithm
+        , salt_position := SaltPosition
+        , query := Query0
+        , query_timeout := QueryTimeout
+        , '_unique' := Unique
+        } = Config) ->
     {Query, PlaceHolders} = parse_query(Query0),
-    ResourceID = iolist_to_binary(io_lib:format("~s/~s",[ChainID, ServiceName])),
-    State = #{query => Query,
+    State = #{password_hash_algorithm => Algorithm,
+              salt_position => SaltPosition,
+              query => Query,
               placeholders => PlaceHolders,
-              password_hash_algorithm => Algorithm},
-    case emqx_resource:create_local(ResourceID, emqx_connector_mysql, Config) of
+              query_timeout => QueryTimeout},
+    case emqx_resource:create_local(Unique, emqx_connector_mysql, Config) of
         {ok, _} ->
-            {ok, State#{resource_id => ResourceID}};
+            {ok, State#{resource_id => Unique}};
         {error, already_created} ->
-            {ok, State#{resource_id => ResourceID}};
+            {ok, State#{resource_id => Unique}};
         {error, Reason} ->
             {error, Reason}
     end.
 
-update(_ChainID, _ServiceName, Config, #{resource_id := ResourceID} = State) ->
-    case emqx_resource:update_local(ResourceID, emqx_connector_mysql, Config, []) of
-        {ok, _} -> {ok, State};
-        {error, Reason} -> {error, Reason}
+update(Config, State) ->
+    case create(Config) of
+        {ok, NewState} ->
+            ok = destroy(State),
+            {ok, NewState};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
-authenticate(#{password := Password} = ClientInfo,
+authenticate(#{auth_method := _}, _) ->
+    ignore;
+authenticate(#{password := Password} = Credential,
              #{resource_id := ResourceID,
                placeholders := PlaceHolders,
                query := Query,
                query_timeout := Timeout} = State) ->
-    Params = emqx_authn_utils:replace_placeholder(PlaceHolders, ClientInfo),
+    Params = emqx_authn_utils:replace_placeholder(PlaceHolders, Credential),
     case emqx_resource:query(ResourceID, {sql, Query, Params, Timeout}) of
         {ok, _Columns, []} -> ignore;
         {ok, Columns, Rows} ->
@@ -105,14 +138,14 @@ destroy(#{resource_id := ResourceID}) ->
 %%------------------------------------------------------------------------------
 
 check_password(undefined, _Algorithm, _Selected) ->
-    {stop, bad_password};
+    {error, bad_username_or_password};
 check_password(Password,
                #{password_hash := Hash},
                #{password_hash_algorithm := bcrypt}) ->
     {ok, Hash0} = bcrypt:hashpw(Password, Hash),
     case list_to_binary(Hash0) =:= Hash of
         true -> ok;
-        false -> {stop, bad_password}
+        false -> {error, bad_username_or_password}
     end;
 check_password(Password,
                #{password_hash := Hash} = Selected,
@@ -125,7 +158,7 @@ check_password(Password,
             end,
     case Hash0 =:= Hash of
         true -> ok;
-        false -> {stop, bad_password}
+        false -> {error, bad_username_or_password}
     end.
 
 %% TODO: Support prepare

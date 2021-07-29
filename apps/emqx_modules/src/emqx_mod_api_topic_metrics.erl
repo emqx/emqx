@@ -16,8 +16,6 @@
 
 -module(emqx_mod_api_topic_metrics).
 
--import(minirest, [return/1]).
-
 -rest_api(#{name   => list_all_topic_metrics,
             method => 'GET',
             path   => "/topic-metrics",
@@ -203,3 +201,7 @@ rpc_call(Node, Fun, Args) ->
         {badrpc, Reason} -> {error, Reason};
         Res -> Res
     end.
+
+return(_) ->
+%%    TODO: V5 API
+    ok.

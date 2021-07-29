@@ -182,7 +182,7 @@ check(Username, Password) ->
 
 init([]) ->
     %% Add default admin user
-    _ = add_default_user(binenv(default_user_username), binenv(default_user_passwd)),
+    _ = add_default_user(binenv(default_username), binenv(default_password)),
     {ok, state}.
 
 handle_call(_Req, _From, State) ->
@@ -217,7 +217,7 @@ salt() ->
     <<Salt:32>>.
 
 binenv(Key) ->
-    iolist_to_binary(application:get_env(emqx_dashboard, Key, "")).
+    iolist_to_binary(emqx_config:get([emqx_dashboard, Key], "")).
 
 add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY(Password) ->
     igonre;

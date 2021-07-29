@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_authz).
+-behaviour(emqx_config_handler).
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -23,12 +24,16 @@
 
 -export([ register_metrics/0
         , init/0
-        , compile/1
+        , init_rule/1
         , lookup/0
-        , update/1
+        , update/2
         , authorize/5
         , match/4
         ]).
+
+-export([post_config_update/2, pre_config_update/2]).
+
+-define(CONF_KEY_PATH, [emqx_authz, rules]).
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
@@ -36,20 +41,38 @@ register_metrics() ->
 
 init() ->
     ok = register_metrics(),
-    Rules = emqx_config:get([emqx_authz, rules], []),
-    NRules = [compile(Rule) || Rule <- Rules],
-    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]},  -1).
+    emqx_config_handler:add_handler(?CONF_KEY_PATH, ?MODULE),
+    NRules = [init_rule(Rule) || Rule <- lookup()],
+    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]}, -1).
 
 lookup() ->
-    emqx_config:get([emqx_authz, rules], []).
+    emqx_config:get(?CONF_KEY_PATH, []).
 
-update(Rules) ->
-    emqx_config:put([emqx_authz], #{rules => Rules}),
-    NRules = [compile(Rule) || Rule <- Rules],
+update(Cmd, Rules) ->
+    emqx_config:update(?CONF_KEY_PATH, {Cmd, Rules}).
+
+%% For now we only support re-creating the entire rule list
+pre_config_update({head, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
+    [Rule | OldConf];
+pre_config_update({tail, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
+    OldConf ++ [Rule];
+pre_config_update({_, NewConf}, _OldConf) ->
+    %% overwrite the entire config!
+    case is_list(NewConf) of
+        true -> NewConf;
+        false -> [NewConf]
+    end.
+
+post_config_update(undefined, _OldConf) ->
+    %_ = [release_rules(Rule) || Rule <- OldConf],
+    ok;
+post_config_update(NewRules, _OldConf) ->
+    %_ = [release_rules(Rule) || Rule <- OldConf],
+    InitedRules = [init_rule(Rule) || Rule <- NewRules],
     Action = find_action_in_hooks(),
     ok = emqx_hooks:del('client.authorize', Action),
-    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]},  -1),
-    ok = emqx_acl_cache:empty_acl_cache().
+    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [InitedRules]}, -1),
+    ok = emqx_authz_cache:drain_cache().
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -60,51 +83,70 @@ find_action_in_hooks() ->
     [Action] = [Action || {callback,{?MODULE, authorize, _} = Action, _, _} <- Callbacks ],
     Action.
 
+gen_id(Type) ->
+    iolist_to_binary([io_lib:format("~s_~s",[?APP, Type]), "_", integer_to_list(erlang:system_time())]).
+
 create_resource(#{type := DB,
                   config := Config
                  } = Rule) ->
-    ResourceID = iolist_to_binary([io_lib:format("~s_~s",[?APP, DB]), "_", integer_to_list(erlang:system_time())]),
+    ResourceID = gen_id(DB),
     case emqx_resource:create(
             ResourceID,
             list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
             Config)
     of
         {ok, _} ->
-            Rule#{resource_id => ResourceID};
+            Rule#{id => ResourceID};
         {error, already_created} ->
-            Rule#{resource_id => ResourceID};
+            Rule#{id => ResourceID};
         {error, Reason} ->
             error({load_config_error, Reason})
     end.
 
--spec(compile(rule()) -> rule()).
-compile(#{topics := Topics,
-          action := Action,
-          permission := Permission,
-          principal := Principal
+-spec(init_rule(rule()) -> rule()).
+init_rule(#{topics := Topics,
+            action := Action,
+            permission := Permission,
+            principal := Principal
          } = Rule) when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(Topics) ->
     NTopics = [compile_topic(Topic) || Topic <- Topics],
     Rule#{principal => compile_principal(Principal),
-          topics => NTopics
+          topics => NTopics,
+          id => gen_id(simple)
          };
 
-compile(#{principal := Principal,
-          type := DB
+init_rule(#{principal := Principal,
+            enable := true,
+            type := http,
+            config := #{url := Url} = Config
+           } = Rule) ->
+    NConfig = maps:merge(Config, #{base_url => maps:remove(query, Url)}),
+    NRule = create_resource(Rule#{config := NConfig}),
+    NRule#{principal => compile_principal(Principal)};
+
+init_rule(#{principal := Principal,
+            enable := true,
+            type := DB
          } = Rule) when DB =:= redis;
                         DB =:= mongo ->
     NRule = create_resource(Rule),
     NRule#{principal => compile_principal(Principal)};
 
-compile(#{principal := Principal,
-          type := DB,
-          sql := SQL
+init_rule(#{principal := Principal,
+            enable := true,
+            type := DB,
+            sql := SQL
          } = Rule) when DB =:= mysql;
                         DB =:= pgsql ->
     Mod = list_to_existing_atom(io_lib:format("~s_~s",[?APP, DB])),
     NRule = create_resource(Rule),
     NRule#{principal => compile_principal(Principal),
            sql => Mod:parse_query(SQL)
-          }.
+          };
+init_rule(#{enable := false,
+            type := _DB
+         } = Rule) ->
+    Rule.
 
 compile_principal(all) -> all;
 compile_principal(#{username := Username}) ->
@@ -147,11 +189,11 @@ b2l(B) when is_binary(B) -> binary_to_list(B).
 %%--------------------------------------------------------------------
 
 %% @doc Check AuthZ
--spec(authorize(emqx_types:clientinfo(), emqx_types:all(), emqx_topic:topic(), emqx_permission_rule:acl_result(), rules())
+-spec(authorize(emqx_types:clientinfo(), emqx_types:all(), emqx_topic:topic(), allow | deny, rules())
       -> {stop, allow} | {ok, deny}).
 authorize(#{username := Username,
-              peerhost := IpAddress
-             } = Client, PubSub, Topic, _DefaultResult, Rules) ->
+            peerhost := IpAddress
+           } = Client, PubSub, Topic, _DefaultResult, Rules) ->
     case do_authorize(Client, PubSub, Topic, Rules) of
         {matched, allow} ->
             ?LOG(info, "Client succeeded authorization: Username: ~p, IP: ~p, Topic: ~p, Permission: allow", [Username, IpAddress, Topic]),
@@ -168,7 +210,8 @@ authorize(#{username := Username,
 
 do_authorize(Client, PubSub, Topic,
                [Connector = #{principal := Principal,
-                              type := DB} | Tail] ) ->
+                              type := DB,
+                              enable := true} | Tail] ) ->
     case match_principal(Client, Principal) of
         true ->
             Mod = list_to_existing_atom(io_lib:format("~s_~s",[emqx_authz, DB])),

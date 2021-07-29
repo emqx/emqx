@@ -36,7 +36,7 @@
 
 lookup_config(_Bindings, _Params) ->
     Config = emqx_config:get([emqx_retainer]),
-    minirest:return({ok, Config}).
+    return({ok, Config}).
 
 update_config(_Bindings, Params) ->
     try
@@ -47,9 +47,9 @@ update_config(_Bindings, Params) ->
         #{emqx_retainer := Conf} = hocon_schema:richmap_to_map(RichConf),
         Action = proplists:get_value(<<"action">>, Params, undefined),
         do_update_config(Action, Conf),
-        minirest:return()
+        return()
     catch _:_:Reason ->
-            minirest:return({error, Reason})
+            return({error, Reason})
     end.
 
 %%------------------------------------------------------------------------------
@@ -58,4 +58,10 @@ update_config(_Bindings, Params) ->
 do_update_config(undefined, Config) ->
     emqx_retainer:update_config(Config);
 do_update_config(<<"test">>, _) ->
+    ok.
+
+%%    TODO: V5 API
+return() ->
+    ok.
+return(_) ->
     ok.

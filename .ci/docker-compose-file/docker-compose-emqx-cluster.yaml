@@ -33,13 +33,6 @@ services:
       - conf.cluster.env
     environment:
       - "EMQX_HOST=node1.emqx.io"
-    command:
-        - /bin/sh
-        - -c
-        - |
-          sed -i "s 127.0.0.1 $$(ip route show |grep "link" |awk '{print $$1}') g" /opt/emqx/etc/acl.conf
-          # sed -i '/emqx_telemetry/d' /opt/emqx/data/loaded_plugins
-          /opt/emqx/bin/emqx foreground
     healthcheck:
       test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
       interval: 5s
@@ -57,13 +50,6 @@ services:
       - conf.cluster.env
     environment:
       - "EMQX_HOST=node2.emqx.io"
-    command:
-      - /bin/sh
-      - -c
-      - |
-        sed -i "s 127.0.0.1 $$(ip route show |grep "link" |awk '{print $$1}') g" /opt/emqx/etc/acl.conf
-        # sed -i '/emqx_telemetry/d' /opt/emqx/data/loaded_plugins
-        /opt/emqx/bin/emqx foreground
     healthcheck:
       test: ["CMD", "/opt/emqx/bin/emqx", "ping"]
       interval: 5s

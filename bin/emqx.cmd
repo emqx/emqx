@@ -20,8 +20,6 @@
 @set erts_vsn={{ erts_vsn }}
 @set erl_opts={{ erl_opts }}
 
-@set "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_"
-
 @set script=%~n0
 
 :: Discover the release root directory from the directory

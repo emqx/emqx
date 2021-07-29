@@ -29,22 +29,14 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = emqx_ct_helpers:start_apps([emqx_authz], fun set_special_configs/1),
+    ok = emqx_ct_helpers:start_apps([emqx_authz]),
+    ok = emqx_config:update([zones, default, authorization, cache, enable], false),
+    ok = emqx_config:update([zones, default, authorization, enable], true),
+    emqx_authz:update(replace, []),
     Config.
 
 end_per_suite(_Config) ->
-    file:delete(filename:join(emqx:get_env(plugins_etc_dir), 'authz.conf')),
     emqx_ct_helpers:stop_apps([emqx_authz]).
-
-set_special_configs(emqx) ->
-    application:set_env(emqx, allow_anonymous, true),
-    application:set_env(emqx, enable_acl_cache, false),
-    ok;
-set_special_configs(emqx_authz) ->
-    emqx_config:put([emqx_authz], #{rules => []}),
-    ok;
-set_special_configs(_App) ->
-    ok.
 
 -define(RULE1, #{principal => all,
                  topics => [<<"#">>],
@@ -81,19 +73,21 @@ set_special_configs(_App) ->
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
-t_compile(_) ->
-    ?assertEqual(#{permission => deny,
-                   action => all,
-                   principal => all,
-                   topics => [['#']]
-                  },emqx_authz:compile(?RULE1)),
-    ?assertEqual(#{permission => allow,
-                   action => all,
-                   principal =>
-                        #{ipaddress => {{127,0,0,1},{127,0,0,1},32}},
-                   topics => [#{eq => ['#']},
-                              #{eq => ['+']}]
-                  }, emqx_authz:compile(?RULE2)),
+t_init_rule(_) ->
+    ?assertMatch(#{permission := deny,
+                   action := all,
+                   principal := all,
+                   topics := [['#']],
+                   id := _ID
+                  }, emqx_authz:init_rule(?RULE1)),
+    ?assertMatch(#{permission := allow,
+                   action := all,
+                   principal :=
+                        #{ipaddress := {{127,0,0,1},{127,0,0,1},32}},
+                   topics := [#{eq := ['#']},
+                              #{eq := ['+']}],
+                   id := _ID
+                  }, emqx_authz:init_rule(?RULE2)),
     ?assertMatch(
        #{permission := allow,
          action := publish,
@@ -102,8 +96,9 @@ t_compile(_) ->
                             #{clientid := {re_pattern, _, _, _, _}}
                            ]
                  },
-         topics := [[<<"test">>]]
-        }, emqx_authz:compile(?RULE3)),
+         topics := [[<<"test">>]],
+         id := _ID
+        }, emqx_authz:init_rule(?RULE3)),
     ?assertMatch(
        #{permission := deny,
          action := publish,
@@ -114,32 +109,41 @@ t_compile(_) ->
                  },
          topics := [#{pattern := [<<"%u">>]},
                     #{pattern := [<<"%c">>]}
-                   ]
-        }, emqx_authz:compile(?RULE4)),
+                   ],
+         id := _ID
+        }, emqx_authz:init_rule(?RULE4)),
     ok.
 
 t_authz(_) ->
     ClientInfo1 = #{clientid => <<"test">>,
                     username => <<"test">>,
-                    peerhost => {127,0,0,1}
+                    peerhost => {127,0,0,1},
+                    zone => default,
+                    listener => mqtt_tcp
                    },
     ClientInfo2 = #{clientid => <<"test">>,
                     username => <<"test">>,
-                    peerhost => {192,168,0,10}
+                    peerhost => {192,168,0,10},
+                    zone => default,
+                    listener => mqtt_tcp
                    },
     ClientInfo3 = #{clientid => <<"test">>,
                     username => <<"fake">>,
-                    peerhost => {127,0,0,1}
+                    peerhost => {127,0,0,1},
+                    zone => default,
+                    listener => mqtt_tcp
                    },
     ClientInfo4 = #{clientid => <<"fake">>,
                     username => <<"test">>,
-                    peerhost => {127,0,0,1}
+                    peerhost => {127,0,0,1},
+                    zone => default,
+                    listener => mqtt_tcp
                    },
 
-    Rules1 = [emqx_authz:compile(Rule) || Rule <- [?RULE1, ?RULE2]],
-    Rules2 = [emqx_authz:compile(Rule) || Rule <- [?RULE2, ?RULE1]],
-    Rules3 = [emqx_authz:compile(Rule) || Rule <- [?RULE3, ?RULE4]],
-    Rules4 = [emqx_authz:compile(Rule) || Rule <- [?RULE4, ?RULE1]],
+    Rules1 = [emqx_authz:init_rule(Rule) || Rule <- [?RULE1, ?RULE2]],
+    Rules2 = [emqx_authz:init_rule(Rule) || Rule <- [?RULE2, ?RULE1]],
+    Rules3 = [emqx_authz:init_rule(Rule) || Rule <- [?RULE3, ?RULE4]],
+    Rules4 = [emqx_authz:init_rule(Rule) || Rule <- [?RULE4, ?RULE1]],
 
     ?assertEqual({stop, deny},
         emqx_authz:authorize(ClientInfo1, subscribe, <<"#">>, deny, [])),
