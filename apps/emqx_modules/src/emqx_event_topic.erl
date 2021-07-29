@@ -18,6 +18,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include("emqx_modules.hrl").
 
 -export([ enable/0
         , disable/0
@@ -37,22 +38,50 @@
 -endif.
 
 enable() ->
-    emqx_hooks:put('client.connected', {?MODULE, on_client_connected, []}),
-    emqx_hooks:put('client.disconnected', {?MODULE, on_client_disconnected, []}),
-    emqx_hooks:put('session.subscribed', {?MODULE, on_session_subscribed, []}),
-    emqx_hooks:put('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}),
-    emqx_hooks:put('message.delivered', {?MODULE, on_message_delivered, []}),
-    emqx_hooks:put('message.acked', {?MODULE, on_message_acked, []}),
-    emqx_hooks:put('message.dropped', {?MODULE, on_message_dropped, []}).
+    Topics = emqx_config:get([event_topic, topics], []),
+    lists:foreach(fun(Topic) ->
+        case Topic of
+            <<"$event/client_connected">> ->
+                emqx_hooks:put('client.connected', {?MODULE, on_client_connected, []});
+            <<"$event/client_disconnected">> ->
+                emqx_hooks:put('client.disconnected', {?MODULE, on_client_disconnected, []});
+            <<"$event/session_subscribed">> ->
+                emqx_hooks:put('session.subscribed', {?MODULE, on_session_subscribed, []});
+            <<"$event/session_unsubscribed">> ->
+                emqx_hooks:put('session.unsubscribed', {?MODULE, on_session_unsubscribed, []});
+            <<"$event/message_delivered">> ->
+                emqx_hooks:put('message.delivered', {?MODULE, on_message_delivered, []});
+            <<"$event/message_acked">> ->
+                emqx_hooks:put('message.acked', {?MODULE, on_message_acked, []});
+            <<"$event/message_dropped">> ->
+                emqx_hooks:put('message.dropped', {?MODULE, on_message_dropped, []});
+            _ ->
+                ok
+        end
+    end, Topics).
 
 disable() ->
-    emqx_hooks:del('client.connected', {?MODULE, on_client_connected}),
-    emqx_hooks:del('client.disconnected', {?MODULE, on_client_disconnected}),
-    emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
-    emqx_hooks:del('session.unsubscribed', {?MODULE, session_unsubscribed}),
-    emqx_hooks:del('message.delivered', {?MODULE, on_message_delivered}),
-    emqx_hooks:del('message.acked', {?MODULE, on_message_acked}),
-    emqx_hooks:del('message.dropped', {?MODULE, on_message_dropped}).
+    Topics = emqx_config:get([event_topic, topics], []),
+    lists:foreach(fun(Topic) ->
+        case Topic of
+            <<"$event/client_connected">> ->
+                emqx_hooks:del('client.connected', {?MODULE, on_client_connected});
+            <<"$event/client_disconnected">> ->
+                emqx_hooks:del('client.disconnected', {?MODULE, on_client_disconnected});
+            <<"$event/session_subscribed">> ->
+                emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed});
+            <<"$event/session_unsubscribed">> ->
+                emqx_hooks:del('session.unsubscribed', {?MODULE, session_unsubscribed});
+            <<"$event/message_delivered">> ->
+                emqx_hooks:del('message.delivered', {?MODULE, on_message_delivered});
+            <<"$event/message_acked">> ->
+                emqx_hooks:del('message.acked', {?MODULE, on_message_acked});
+            <<"$event/message_dropped">> ->
+                emqx_hooks:del('message.dropped', {?MODULE, on_message_dropped});
+            _ ->
+                ok
+        end
+    end, ?BASE_TOPICS -- Topics).
 
 %%--------------------------------------------------------------------
 %% Callbacks
@@ -62,7 +91,8 @@ on_client_connected(ClientInfo, ConnInfo) ->
     Payload0 = connected_payload(ClientInfo, ConnInfo),
     emqx_broker:safe_publish(
               make_msg(<<"$event/client_connected">>,
-                       emqx_json:encode(Payload0))).
+                       emqx_json:encode(Payload0))),
+    ok.
 
 on_client_disconnected(_ClientInfo = #{clientid := ClientId, username := Username},
                        Reason, _ConnInfo = #{disconnected_at := DisconnectedAt}) ->
@@ -73,8 +103,9 @@ on_client_disconnected(_ClientInfo = #{clientid := ClientId, username := Usernam
                  ts => erlang:system_time(millisecond)
                 },
     emqx_broker:safe_publish(
-              make_msg(<<"$event/client_connected">>,
-                       emqx_json:encode(Payload0))).
+              make_msg(<<"$event/client_disconnected">>,
+                       emqx_json:encode(Payload0))),
+    ok.
 
 on_session_subscribed(_ClientInfo = #{clientid := ClientId,
                                       username := Username},
@@ -87,7 +118,8 @@ on_session_subscribed(_ClientInfo = #{clientid := ClientId,
                 },
     emqx_broker:safe_publish(
               make_msg(<<"$event/session_subscribed">>,
-                       emqx_json:encode(Payload0))).
+                       emqx_json:encode(Payload0))),
+    ok.
 
 on_session_unsubscribed(_ClientInfo = #{clientid := ClientId,
                                         username := Username},
@@ -99,7 +131,8 @@ on_session_unsubscribed(_ClientInfo = #{clientid := ClientId,
                 },
     emqx_broker:safe_publish(
               make_msg(<<"$event/session_unsubscribed">>,
-                       emqx_json:encode(Payload0))).
+                       emqx_json:encode(Payload0))),
+    ok.
 
 on_message_dropped(Message = #message{from = ClientId}, _, Reason) ->
     case ignore_sys_message(Message) of
@@ -113,7 +146,8 @@ on_message_dropped(Message = #message{from = ClientId}, _, Reason) ->
                 peerhost => ntoa(emqx_message:get_header(peerhost, Message, undefined))
             },
             emqx_broker:safe_publish(
-                make_msg(<<"$event/message_dropped">>, emqx_json:encode(Payload1)))
+                make_msg(<<"$event/message_dropped">>, emqx_json:encode(Payload1))),
+            ok
     end,
     {ok, Message}.
 
@@ -134,7 +168,8 @@ on_message_delivered(_ClientInfo = #{
                 peerhost => ntoa(PeerHost)
             },
             emqx_broker:safe_publish(
-                make_msg(<<"$event/message_delivered">>, emqx_json:encode(Payload1)))
+                make_msg(<<"$event/message_delivered">>, emqx_json:encode(Payload1))),
+            ok
     end,
     {ok, Message}.
 
@@ -155,7 +190,8 @@ on_message_acked(_ClientInfo = #{
                 peerhost => ntoa(PeerHost)
             },
             emqx_broker:safe_publish(
-                make_msg(<<"$event/message_acked">>, emqx_json:encode(Payload1)))
+                make_msg(<<"$event/message_acked">>, emqx_json:encode(Payload1))),
+            ok
     end,
     {ok, Message}.
 
