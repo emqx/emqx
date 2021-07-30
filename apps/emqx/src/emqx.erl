@@ -221,13 +221,8 @@ shutdown(Reason) ->
 reboot() ->
     lists:foreach(fun application:start/1 , default_started_applications()).
 
--ifdef(EMQX_ENTERPRISE).
-default_started_applications() ->
-    [gproc, esockd, ranch, cowboy, ekka, quicer, emqx].
--else.
 default_started_applications() ->
     [gproc, esockd, ranch, cowboy, ekka, quicer, emqx] ++ emqx_feature().
--endif.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -239,15 +234,9 @@ reload_config(ConfFile) ->
                       [application:set_env(App, Par, Val) || {Par, Val} <- Vals]
                   end, Conf).
 
-
+-ifndef(EMQX_DEP_APPS).
+emqx_feature() -> [].
+-else.
 emqx_feature() ->
-    [ emqx_resource
-    , emqx_authn
-    , emqx_authz
-    , emqx_gateway
-    , emqx_data_bridge
-    , emqx_rule_engine
-    , emqx_bridge_mqtt
-    , emqx_modules
-    , emqx_management
-    , emqx_retainer].
+    ?EMQX_DEP_APPS.
+-endif.
