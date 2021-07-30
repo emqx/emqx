@@ -61,6 +61,7 @@ jobs:
       matrix:
         erl_otp:
         - 23.2.7.2-emqx-2
+        - 24.0.1-emqx-1
 
     steps:
     - uses: actions/checkout@v1
