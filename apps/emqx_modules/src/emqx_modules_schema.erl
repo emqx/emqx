@@ -27,7 +27,7 @@ structs() ->
     ["delayed",
      "recon",
      "telemetry",
-     "event_topic",
+     "event_message",
      "rewrite",
      "topic_metrics"].
 
@@ -45,7 +45,7 @@ fields("rewrite") ->
     [ {rules, hoconsc:array(hoconsc:ref(?MODULE, "rules"))}
     ];
 
-fields("event_topic") ->
+fields("event_message") ->
     [ {topics, fun topics/1}
     ];
 
