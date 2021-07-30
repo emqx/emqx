@@ -38,18 +38,20 @@
          code_change/3]).
 
 -define(MOD, {mod}).
+-define(REMOVE_CONF, '$remove_config').
 
 -type handler_name() :: module().
 -type handlers() :: #{emqx_config:config_key() => handlers(), ?MOD => handler_name()}.
 
 -optional_callbacks([ pre_config_update/2
-                    , post_config_update/2
+                    , post_config_update/3
                     ]).
 
 -callback pre_config_update(emqx_config:update_request(), emqx_config:raw_config()) ->
     emqx_config:update_request().
 
--callback post_config_update(emqx_config:config(), emqx_config:config()) -> any().
+-callback post_config_update(emqx_config:update_request(), emqx_config:config(),
+    emqx_config:config()) -> ok | {error, term()}.
 
 -type state() :: #{
     handlers := handlers(),
@@ -61,13 +63,13 @@ start_link() ->
 
 -spec update_config(module(), emqx_config:config_key_path(), emqx_config:update_request()) ->
     ok | {error, term()}.
-update_config(SchemaModule, ConfKeyPath, UpdateReq) ->
-    gen_server:call(?MODULE, {update_config, SchemaModule, ConfKeyPath, UpdateReq}).
+update_config(SchemaModule, ConfKeyPath, UpdateReq) when UpdateReq =/= ?REMOVE_CONF ->
+    gen_server:call(?MODULE, {change_config, SchemaModule, ConfKeyPath, UpdateReq}).
 
 -spec remove_config(module(), emqx_config:config_key_path()) ->
     ok | {error, term()}.
 remove_config(SchemaModule, ConfKeyPath) ->
-    gen_server:call(?MODULE, {remove_config, SchemaModule, ConfKeyPath}).
+    gen_server:call(?MODULE, {change_config, SchemaModule, ConfKeyPath, ?REMOVE_CONF}).
 
 -spec add_handler(emqx_config:config_key_path(), handler_name()) -> ok.
 add_handler(ConfKeyPath, HandlerName) ->
@@ -84,35 +86,21 @@ handle_call({add_child, ConfKeyPath, HandlerName}, _From,
     {reply, ok, State#{handlers =>
         emqx_map_lib:deep_put(ConfKeyPath, Handlers, #{?MOD => HandlerName})}};
 
-handle_call({update_config, SchemaModule, ConfKeyPath, UpdateReq}, _From,
+handle_call({change_config, SchemaModule, ConfKeyPath, UpdateReq}, _From,
             #{handlers := Handlers} = State) ->
     OldConf = emqx_config:get_root(ConfKeyPath),
     OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
-    try NewRawConf = do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq),
-        OverrideConf = update_override_config(NewRawConf),
-        Result = emqx_config:save_configs(SchemaModule, NewRawConf, OverrideConf),
-        do_post_config_update(ConfKeyPath, Handlers, OldConf, emqx_config:get_root(ConfKeyPath)),
-        {reply, Result, State}
-    catch
-        Error : Reason : ST ->
-            ?LOG(error, "update config failed: ~p", [{Error, Reason, ST}]),
-            {reply, {error, Reason}, State}
-    end;
-
-handle_call({remove_config, SchemaModule, ConfKeyPath}, _From, #{handlers := Handlers} = State) ->
-    OldConf = emqx_config:get_root(ConfKeyPath),
-    OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
-    BinKeyPath = bin_path(ConfKeyPath),
-    try NewRawConf = emqx_map_lib:deep_remove(BinKeyPath, OldRawConf),
-        OverrideConf = emqx_map_lib:deep_remove(BinKeyPath, emqx_config:read_override_conf()),
-        Result = emqx_config:save_configs(SchemaModule, NewRawConf, OverrideConf),
-        do_post_config_update(ConfKeyPath, Handlers, OldConf, emqx_config:get_root(ConfKeyPath)),
-        {reply, Result, State}
-    catch
-        Error : Reason : ST ->
-            ?LOG(error, "update config failed: ~p", [{Error, Reason, ST}]),
-            {reply, {error, Reason}, State}
-    end;
+    Result = try
+        {NewRawConf, OverrideConf} = process_upadate_request(ConfKeyPath, OldRawConf,
+            Handlers, UpdateReq),
+        {AppEnvs, CheckedConf} = emqx_config:check_config(SchemaModule, NewRawConf),
+        do_post_config_update(ConfKeyPath, Handlers, OldConf, CheckedConf, UpdateReq),
+        emqx_config:save_configs(AppEnvs, NewRawConf, CheckedConf, OverrideConf)
+    catch Error:Reason:ST ->
+        ?LOG(error, "change_config failed: ~p", [{Error, Reason, ST}]),
+        {error, Reason}
+    end,
+    {reply, Result, State};
 
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -130,6 +118,16 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+process_upadate_request(ConfKeyPath, OldRawConf, _Handlers, ?REMOVE_CONF) ->
+    BinKeyPath = bin_path(ConfKeyPath),
+    NewRawConf = emqx_map_lib:deep_remove(BinKeyPath, OldRawConf),
+    OverrideConf = emqx_map_lib:deep_remove(BinKeyPath, emqx_config:read_override_conf()),
+    {NewRawConf, OverrideConf};
+process_upadate_request(ConfKeyPath, OldRawConf, Handlers, UpdateReq) ->
+    NewRawConf = do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq),
+    OverrideConf = update_override_config(NewRawConf),
+    {NewRawConf, OverrideConf}.
+
 do_update_config([], Handlers, OldRawConf, UpdateReq) ->
     call_pre_config_update(Handlers, OldRawConf, UpdateReq);
 do_update_config([ConfKey | ConfKeyPath], Handlers, OldRawConf, UpdateReq) ->
@@ -138,14 +136,14 @@ do_update_config([ConfKey | ConfKeyPath], Handlers, OldRawConf, UpdateReq) ->
     NewUpdateReq = do_update_config(ConfKeyPath, SubHandlers, SubOldRawConf, UpdateReq),
     call_pre_config_update(Handlers, OldRawConf, #{bin(ConfKey) => NewUpdateReq}).
 
-do_post_config_update([], Handlers, OldConf, NewConf) ->
-    call_post_config_update(Handlers, OldConf, NewConf);
-do_post_config_update([ConfKey | ConfKeyPath], Handlers, OldConf, NewConf) ->
+do_post_config_update([], Handlers, OldConf, NewConf, UpdateReq) ->
+    call_post_config_update(Handlers, OldConf, NewConf, UpdateReq);
+do_post_config_update([ConfKey | ConfKeyPath], Handlers, OldConf, NewConf, UpdateReq) ->
     SubOldConf = get_sub_config(ConfKey, OldConf),
     SubNewConf = get_sub_config(ConfKey, NewConf),
     SubHandlers = maps:get(ConfKey, Handlers, #{}),
-    _ = do_post_config_update(ConfKeyPath, SubHandlers, SubOldConf, SubNewConf),
-    call_post_config_update(Handlers, OldConf, NewConf).
+    _ = do_post_config_update(ConfKeyPath, SubHandlers, SubOldConf, SubNewConf, UpdateReq),
+    call_post_config_update(Handlers, OldConf, NewConf, UpdateReq).
 
 get_sub_config(ConfKey, Conf) when is_map(Conf) ->
     maps:get(ConfKey, Conf, undefined);
@@ -159,10 +157,10 @@ call_pre_config_update(Handlers, OldRawConf, UpdateReq) ->
         false -> merge_to_old_config(UpdateReq, OldRawConf)
     end.
 
-call_post_config_update(Handlers, OldConf, NewConf) ->
+call_post_config_update(Handlers, OldConf, NewConf, UpdateReq) ->
     HandlerName = maps:get(?MOD, Handlers, undefined),
-    case erlang:function_exported(HandlerName, post_config_update, 2) of
-        true -> _ = HandlerName:post_config_update(NewConf, OldConf);
+    case erlang:function_exported(HandlerName, post_config_update, 3) of
+        true -> HandlerName:post_config_update(UpdateReq, NewConf, OldConf);
         false -> ok
     end.
 
