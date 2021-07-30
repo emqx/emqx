@@ -21,8 +21,6 @@
 
 -behaviour(application).
 
--emqx_plugin(?MODULE).
-
 %% Application callbacks
 -export([ start/2
         , stop/1

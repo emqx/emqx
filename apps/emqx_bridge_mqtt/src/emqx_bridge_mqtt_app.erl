@@ -16,8 +16,6 @@
 
 -module(emqx_bridge_mqtt_app).
 
--emqx_plugin(bridge).
-
 -behaviour(application).
 
 -export([start/2, stop/1]).
