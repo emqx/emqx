@@ -51,7 +51,7 @@
     emqx_config:update_request().
 
 -callback post_config_update(emqx_config:update_request(), emqx_config:config(),
-    emqx_config:config()) -> ok | {error, term()}.
+    emqx_config:config()) -> any().
 
 -type state() :: #{
     handlers := handlers(),
@@ -94,7 +94,7 @@ handle_call({change_config, SchemaModule, ConfKeyPath, UpdateReq}, _From,
         {NewRawConf, OverrideConf} = process_upadate_request(ConfKeyPath, OldRawConf,
             Handlers, UpdateReq),
         {AppEnvs, CheckedConf} = emqx_config:check_config(SchemaModule, NewRawConf),
-        do_post_config_update(ConfKeyPath, Handlers, OldConf, CheckedConf, UpdateReq),
+        _ = do_post_config_update(ConfKeyPath, Handlers, OldConf, CheckedConf, UpdateReq),
         emqx_config:save_configs(AppEnvs, CheckedConf, NewRawConf, OverrideConf)
     catch Error:Reason:ST ->
         ?LOG(error, "change_config failed: ~p", [{Error, Reason, ST}]),
