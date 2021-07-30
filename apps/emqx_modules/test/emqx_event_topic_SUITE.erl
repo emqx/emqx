@@ -94,12 +94,12 @@ recv_connected(ClientId) ->
     {ok, #{qos := ?QOS_0, topic := Topic, payload := Payload}} = receive_publish(100),
     ?assertMatch(<<"$event/client_connected">>, Topic),
     ?assertMatch(#{<<"clientid">> := ClientId,
-                           <<"username">> := <<"username">>,
-                           <<"ipaddress">> := <<"127.0.0.1">>,
-                           <<"proto_name">> := <<"MQTT">>,
-                           <<"proto_ver">> := ?MQTT_PROTO_V4,
-                           <<"connack">> := ?RC_SUCCESS,
-                           <<"clean_start">> := true}, emqx_json:decode(Payload, [return_maps])).
+                   <<"username">> := <<"username">>,
+                   <<"ipaddress">> := <<"127.0.0.1">>,
+                   <<"proto_name">> := <<"MQTT">>,
+                   <<"proto_ver">> := ?MQTT_PROTO_V4,
+                   <<"connack">> := ?RC_SUCCESS,
+                   <<"clean_start">> := true}, emqx_json:decode(Payload, [return_maps])).
 
 recv_subscribed(_ClientId) ->
     {ok, #{qos := ?QOS_0, topic := Topic}} = receive_publish(100),
@@ -126,8 +126,8 @@ recv_disconnected(ClientId) ->
     {ok, #{qos := ?QOS_0, topic := Topic, payload := Payload}} = receive_publish(100),
     ?assertMatch(<<"$event/client_disconnected">>, Topic),
     ?assertMatch(#{<<"clientid">> := ClientId,
-                           <<"username">> := <<"username">>,
-                           <<"reason">> := <<"normal">>}, emqx_json:decode(Payload, [return_maps])).
+                   <<"username">> := <<"username">>,
+                   <<"reason">> := <<"normal">>}, emqx_json:decode(Payload, [return_maps])).
 
 %%--------------------------------------------------------------------
 %% Internal functions
