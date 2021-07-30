@@ -339,7 +339,8 @@ str(Str) when is_list(Str) -> Str;
 str(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 str(Bin) when is_binary(Bin) -> binary_to_list(Bin).
 
-pool_opts(Params = #{<<"url">> := URL}, ResId) ->
+pool_opts(Params = #{<<"url">> := URL,
+                     <<"enable_pipelining">> := EnablePipelining}, ResId) ->
     {ok, #{host := Host,
            port := Port,
            scheme := Scheme}} = emqx_http_lib:uri_parse(URL),
@@ -358,6 +359,7 @@ pool_opts(Params = #{<<"url">> := URL}, ResId) ->
            end,
     [{host, Host},
      {port, Port},
+     {enable_pipelining, EnablePipelining},
      {pool_size, PoolSize},
      {pool_type, hash},
      {connect_timeout, ConnectTimeout},
