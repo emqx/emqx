@@ -22,26 +22,29 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
+-define(EVENT_MESSAGE, <<"""
+event_message: {
+  topics : [
+    \"$event/client_connected\",
+    \"$event/client_disconnected\",
+    \"$event/session_subscribed\",
+    \"$event/session_unsubscribed\",
+    \"$event/message_delivered\",
+    \"$event/message_acked\",
+    \"$event/message_dropped\"
+  ]}""">>).
+
+
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([emqx_modules]),
-    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_schema, includes, fun() -> ["event_message"] end ),
-    meck:expect(emqx_schema, extra_schema_fields, fun(FieldName) -> emqx_modules_schema:fields(FieldName) end),
-    ok = emqx_config:update([event_message, topics], [<<"$event/client_connected">>,
-                                                    <<"$event/client_disconnected">>,
-                                                    <<"$event/session_subscribed">>,
-                                                    <<"$event/session_unsubscribed">>,
-                                                    <<"$event/message_delivered">>,
-                                                    <<"$event/message_acked">>,
-                                                    <<"$event/message_dropped">>]),
+    ok = emqx_config:init_load(emqx_modules_schema, ?EVENT_MESSAGE),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_modules]),
-    meck:unload(emqx_schema).
+    emqx_ct_helpers:stop_apps([emqx_modules]).
 
 t_event_topic(_) ->
     ok = emqx_event_message:enable(),
