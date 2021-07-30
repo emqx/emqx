@@ -38,6 +38,7 @@ Gateway v0.2: "Integration & Friendly Management"
     - The Concept Review
 
 Gateway v0.3: "Fault tolerance and high availability"
+    - A common session modoule for message delivery policy
     - The restart mechanism for gateway-instance
     - Consistency of cluster state
     - Configuration hot update
