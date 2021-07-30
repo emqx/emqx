@@ -54,7 +54,7 @@ fields(rs) ->
     [ {mongo_type, #{type => rs,
                      default => rs}}
     , {servers, fun servers/1}
-    , {replicaset_name, fun emqx_connector_schema_lib:database/1}
+    , {replica_set_name, fun emqx_connector_schema_lib:database/1}
     ] ++ mongo_fields();
 fields(sharded) ->
     [ {mongo_type, #{type => sharded,
@@ -98,7 +98,7 @@ on_start(InstId, Config = #{server := Server,
 
 on_start(InstId, Config = #{servers := Servers,
                             mongo_type := rs,
-                            replicaset_name := RsName}) ->
+                            replica_set_name := RsName}) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
     Opts = [{type,  {rs, RsName}},
             {hosts, Servers}],
