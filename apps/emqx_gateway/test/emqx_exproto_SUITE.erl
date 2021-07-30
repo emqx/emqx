@@ -66,7 +66,7 @@ end_per_group(_, Cfg) ->
 set_special_cfg(emqx_gateway) ->
     LisType = get(grpname),
     emqx_config:put(
-      [emqx_gateway, exproto],
+      [gateway, exproto],
       #{'1' =>
         #{authenticator => allow_anonymous,
           server => #{bind => 9100},

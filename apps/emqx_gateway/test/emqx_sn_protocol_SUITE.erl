@@ -50,6 +50,31 @@
 %% erlang:system_time should be unique and random enough
 -define(CLIENTID, iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-",
                                     integer_to_list(erlang:system_time())])).
+
+-define(CONF_DEFAULT, <<"""
+gateway: {
+    mqttsn.1: {
+        gateway_id: 1
+        broadcast: true
+        enable_stats: true
+        enable_qos3: true
+        predefined: [
+            {id: 1, topic: \"/predefined/topic/name/hello\"},
+            {id: 2, topic: \"/predefined/topic/name/nice\"}
+        ]
+        clientinfo_override: {
+            username: \"user1\"
+            password: \"pw123\"
+        }
+        listener.udp.1: {
+            bind: 1884
+            max_connections: 10240000
+            max_conn_rate: 1000
+        }
+    }
+}
+""">>).
+
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
@@ -58,8 +83,8 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    logger:set_module_level(emqx_sn_gateway, debug),
-    emqx_ct_helpers:start_apps([emqx_gateway], fun set_special_confs/1),
+    ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
+    emqx_ct_helpers:start_apps([emqx_gateway]),
     Config.
 
 end_per_suite(_) ->
@@ -67,7 +92,7 @@ end_per_suite(_) ->
 
 set_special_confs(emqx_gateway) ->
     emqx_config:put(
-      [emqx_gateway],
+      [gateway],
       #{ mqttsn =>
          #{'1' =>
             #{broadcast => true,

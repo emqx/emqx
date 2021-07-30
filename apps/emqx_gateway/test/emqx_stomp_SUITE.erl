@@ -23,6 +23,21 @@
 
 -define(HEARTBEAT, <<$\n>>).
 
+-define(CONF_DEFAULT, <<"""
+gateway: {
+    stomp.1: {
+        authenticator: allow_anonymous
+        clientinfo_override: {
+            username: \"${Packet.headers.login}\"
+            password: \"${Packet.headers.passcode}\"
+        }
+        listener.tcp.1: {
+            bind: 61613
+        }
+    }
+}
+""">>).
+
 all() -> emqx_ct:all(?MODULE).
 
 %%--------------------------------------------------------------------
@@ -30,35 +45,12 @@ all() -> emqx_ct:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Cfg) ->
-    emqx_ct_helpers:start_apps([emqx_gateway], fun set_special_configs/1),
+    ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
+    emqx_ct_helpers:start_apps([emqx_gateway]),
     Cfg.
 
 end_per_suite(_Cfg) ->
     emqx_ct_helpers:stop_apps([emqx_gateway]),
-    ok.
-
-set_special_configs(emqx_gateway) ->
-    emqx_config:put(
-      [emqx_gateway],
-      #{stomp =>
-        #{'1' =>
-          #{authenticator => allow_anonymous,
-            clientinfo_override =>
-                #{password => "${Packet.headers.passcode}",
-                  username => "${Packet.headers.login}"},
-            frame =>
-                #{max_body_length => 8192,
-                  max_headers => 10,
-                  max_headers_length => 1024},
-            listener =>
-                #{tcp =>
-                  #{'1' =>
-                    #{acceptors => 16,active_n => 100,backlog => 1024,
-                      bind => 61613,high_watermark => 1048576,
-                      max_conn_rate => 1000,max_connections => 1024000,
-                      send_timeout => 15000,send_timeout_close => true}}}}}}),
-    ok;
-set_special_configs(_) ->
     ok.
 
 %%--------------------------------------------------------------------
