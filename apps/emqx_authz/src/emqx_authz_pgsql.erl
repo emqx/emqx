@@ -50,8 +50,9 @@ parse_query(Sql) ->
     end.
 
 authorize(Client, PubSub, Topic,
-            #{id := ResourceID,
-              sql := {SQL, Params}
+            #{annotations := #{id := ResourceID,
+                               sql := {SQL, Params}
+                              }
              }) ->
     case emqx_resource:query(ResourceID, {sql, SQL, replvar(Params, Client)}) of
         {ok, _Columns, []} -> nomatch;

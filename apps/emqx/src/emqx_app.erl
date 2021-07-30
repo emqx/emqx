@@ -23,6 +23,7 @@
         , stop/1
         , get_description/0
         , get_release/0
+        , set_init_config_load_done/0
         ]).
 
 -include("emqx.hrl").
@@ -43,8 +44,8 @@
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
-    emqx_config:load(),
-    set_backtrace_depth(),
+    ok = maybe_load_config(),
+    ok = set_backtrace_depth(),
     print_otp_version_warning(),
     print_banner(),
     %% Load application first for ekka_mnesia scanner
@@ -70,6 +71,22 @@ prep_stop(_State) ->
       andalso emqx_listeners:stop().
 
 stop(_State) -> ok.
+
+%% @doc Call this function to make emqx boot without loading config,
+%% in case we want to delegate the config load to a higher level app
+%% which manages emqx app.
+set_init_config_load_done() ->
+    application:set_env(emqx, init_config_load_done, true).
+
+maybe_load_config() ->
+    case application:get_env(emqx, init_config_load_done, false) of
+        true ->
+            ok;
+        false ->
+            %% the app env 'config_files' should be set before emqx get started.
+            ConfFiles = application:get_env(emqx, config_files, []),
+            emqx_config:init_load(emqx_schema, ConfFiles)
+    end.
 
 set_backtrace_depth() ->
     Depth = emqx_config:get([node, backtrace_depth]),

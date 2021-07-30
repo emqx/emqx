@@ -14,11 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_telemetry).
+-module(emqx_telemetry).
 
 -behaviour(gen_server).
-
--behaviour(emqx_gen_mod).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -34,7 +32,7 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
--export([ start_link/1
+-export([ start_link/0
         , stop/0
         ]).
 
@@ -48,15 +46,13 @@
         , code_change/3
         ]).
 
-%% emqx_gen_mod callbacks
--export([ load/1
-        , unload/1
-        , description/0
+-export([ enable/0
+        , disable/0
         ]).
 
--export([ get_status/0
-        , get_uuid/0
+-export([ get_uuid/0
         , get_telemetry/0
+        , get_status/0
         ]).
 
 -export([official_version/1]).
@@ -77,7 +73,6 @@
 
 -record(state, {
     uuid :: undefined | binary(),
-    enabled :: undefined | boolean(),
     url :: string(),
     report_interval :: undefined | non_neg_integer(),
     timer = undefined :: undefined | reference()
@@ -111,29 +106,27 @@ mnesia(copy) ->
 %% API
 %%--------------------------------------------------------------------
 
-start_link(Opts) ->
+start_link() ->
+    Opts = emqx_config:get([telemetry], #{}),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
 
 stop() ->
     gen_server:stop(?MODULE).
 
-load(_Env) ->
+enable() ->
     gen_server:call(?MODULE, enable).
 
-unload(_Env) ->
+disable() ->
     gen_server:call(?MODULE, disable).
 
 get_status() ->
-    gen_server:call(?MODULE, get_status).
+    emqx_config:get([telemetry, enable], true).
 
 get_uuid() ->
     gen_server:call(?MODULE, get_uuid).
 
 get_telemetry() ->
     gen_server:call(?MODULE, get_telemetry).
-
-description() ->
-    "".
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -157,14 +150,13 @@ init(_Opts) ->
     end,
     {ok, #state{url = ?TELEMETRY_URL,
                 report_interval = timer:seconds(?REPORT_INTERVAR),
-                enabled = false,
                 uuid = UUID1}}.
 
 handle_call(enable, _From, State) ->
     case ?MODULE:official_version(emqx_app:get_release()) of
         true ->
             report_telemetry(State),
-            {reply, ok, ensure_report_timer(State#state{enabled = true})};
+            {reply, ok, ensure_report_timer(State)};
         false ->
             {reply, {error, not_official_version}, State}
     end;
@@ -173,13 +165,10 @@ handle_call(disable, _From, State = #state{timer = Timer}) ->
     case ?MODULE:official_version(emqx_app:get_release()) of
         true ->
             emqx_misc:cancel_timer(Timer),
-            {reply, ok, State#state{enabled = false, timer = undefined}};
+            {reply, ok, State#state{timer = undefined}};
         false ->
             {reply, {error, not_official_version}, State}
     end;
-
-handle_call(get_status, _From, State = #state{enabled = Enabled}) ->
-    {reply, Enabled, State};
 
 handle_call(get_uuid, _From, State = #state{uuid = UUID}) ->
     {reply, {ok, UUID}, State};
@@ -199,11 +188,11 @@ handle_continue(Continue, State) ->
     ?LOG(error, "Unexpected continue: ~p", [Continue]),
     {noreply, State}.
 
-handle_info({timeout, TRef, time_to_report_telemetry_data}, State = #state{timer = TRef,
-                                                                           enabled = false}) ->
-    {noreply, State};
 handle_info({timeout, TRef, time_to_report_telemetry_data}, State = #state{timer = TRef}) ->
-    report_telemetry(State),
+    case get_status() of
+        true -> report_telemetry(State);
+        false -> ok
+    end,
     {noreply, ensure_report_timer(State)};
 
 handle_info(Info, State) ->
@@ -300,7 +289,8 @@ active_plugins() ->
                     end, [], emqx_plugins:list()).
 
 active_modules() ->
-    emqx_modules:list().
+    [].
+    % emqx_modules:list().
 
 num_clients() ->
     emqx_stats:getstat('connections.max').

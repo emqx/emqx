@@ -24,8 +24,8 @@
 %% API functions
 -export([ start_link/0
         , add_handler/2
-        , update_config/2
-        , remove_config/1
+        , update_config/3
+        , remove_config/2
         , merge_to_old_config/2
         ]).
 
@@ -59,15 +59,15 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, {}, []).
 
--spec update_config(emqx_config:config_key_path(), emqx_config:update_request()) ->
+-spec update_config(module(), emqx_config:config_key_path(), emqx_config:update_request()) ->
     ok | {error, term()}.
-update_config(ConfKeyPath, UpdateReq) ->
-    gen_server:call(?MODULE, {update_config, ConfKeyPath, UpdateReq}).
+update_config(SchemaModule, ConfKeyPath, UpdateReq) ->
+    gen_server:call(?MODULE, {update_config, SchemaModule, ConfKeyPath, UpdateReq}).
 
--spec remove_config(emqx_config:config_key_path()) ->
+-spec remove_config(module(), emqx_config:config_key_path()) ->
     ok | {error, term()}.
-remove_config(ConfKeyPath) ->
-    gen_server:call(?MODULE, {remove_config, ConfKeyPath}).
+remove_config(SchemaModule, ConfKeyPath) ->
+    gen_server:call(?MODULE, {remove_config, SchemaModule, ConfKeyPath}).
 
 -spec add_handler(emqx_config:config_key_path(), handler_name()) -> ok.
 add_handler(ConfKeyPath, HandlerName) ->
@@ -84,14 +84,14 @@ handle_call({add_child, ConfKeyPath, HandlerName}, _From,
     {reply, ok, State#{handlers =>
         emqx_map_lib:deep_put(ConfKeyPath, Handlers, #{?MOD => HandlerName})}};
 
-handle_call({update_config, ConfKeyPath, UpdateReq}, _From,
+handle_call({update_config, SchemaModule, ConfKeyPath, UpdateReq}, _From,
             #{handlers := Handlers} = State) ->
-    OldConf = emqx_config:get(),
-    OldRawConf = emqx_config:get_raw(),
+    OldConf = emqx_config:get_root(ConfKeyPath),
+    OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     try NewRawConf = do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq),
-        OverrideConf = update_override_config(ConfKeyPath, NewRawConf),
-        Result = emqx_config:save_configs(NewRawConf, OverrideConf),
-        do_post_config_update(ConfKeyPath, Handlers, OldConf, emqx_config:get()),
+        OverrideConf = update_override_config(NewRawConf),
+        Result = emqx_config:save_configs(SchemaModule, NewRawConf, OverrideConf),
+        do_post_config_update(ConfKeyPath, Handlers, OldConf, emqx_config:get_root(ConfKeyPath)),
         {reply, Result, State}
     catch
         Error : Reason : ST ->
@@ -99,14 +99,14 @@ handle_call({update_config, ConfKeyPath, UpdateReq}, _From,
             {reply, {error, Reason}, State}
     end;
 
-handle_call({remove_config, ConfKeyPath}, _From, #{handlers := Handlers} = State) ->
-    OldConf = emqx_config:get(),
-    OldRawConf = emqx_config:get_raw(),
+handle_call({remove_config, SchemaModule, ConfKeyPath}, _From, #{handlers := Handlers} = State) ->
+    OldConf = emqx_config:get_root(ConfKeyPath),
+    OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     BinKeyPath = bin_path(ConfKeyPath),
     try NewRawConf = emqx_map_lib:deep_remove(BinKeyPath, OldRawConf),
         OverrideConf = emqx_map_lib:deep_remove(BinKeyPath, emqx_config:read_override_conf()),
-        Result = emqx_config:save_configs(NewRawConf, OverrideConf),
-        do_post_config_update(ConfKeyPath, Handlers, OldConf, emqx_config:get()),
+        Result = emqx_config:save_configs(SchemaModule, NewRawConf, OverrideConf),
+        do_post_config_update(ConfKeyPath, Handlers, OldConf, emqx_config:get_root(ConfKeyPath)),
         {reply, Result, State}
     catch
         Error : Reason : ST ->
@@ -176,18 +176,11 @@ merge_to_old_config(UpdateReq, RawConf) when is_map(UpdateReq), is_map(RawConf) 
 merge_to_old_config(UpdateReq, _RawConf) ->
     UpdateReq.
 
-update_override_config(ConfKeyPath, RawConf) ->
-    %% We don't save the entire config to emqx_override.conf, but only the part
-    %% specified by the ConfKeyPath
-    PartialConf = maps:with(root_keys(ConfKeyPath), RawConf),
+update_override_config(RawConf) ->
     OldConf = emqx_config:read_override_conf(),
-    maps:merge(OldConf, PartialConf).
-
-root_keys([]) -> [];
-root_keys([RootKey | _]) -> [bin(RootKey)].
+    maps:merge(OldConf, RawConf).
 
 bin_path(ConfKeyPath) -> [bin(Key) || Key <- ConfKeyPath].
 
-bin(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
-bin(B) when is_binary(B) -> B;
-bin(S) when is_list(S) -> list_to_binary(S).
+bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+bin(B) when is_binary(B) -> B.

@@ -17,6 +17,7 @@
 -module(emqx_authn_http).
 
 -include("emqx_authn.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
@@ -122,15 +123,16 @@ create(#{ method := Method
              , headers         => normalize_headers(Headers)
              , form_data       => maps:to_list(FormData)
              , request_timeout => RequestTimeout
+             , '_unique'       => Unique
              },
     case emqx_resource:create_local(Unique,
                                     emqx_connector_http,
                                     Config#{base_url => maps:remove(query, URIMap),
                                             pool_type => random}) of
         {ok, _} ->
-            {ok, State#{resource_id => Unique}};
+            {ok, State};
         {error, already_created} ->
-            {ok, State#{resource_id => Unique}};
+            {ok, State};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -146,27 +148,33 @@ update(Config, State) ->
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
-authenticate(Credential, #{resource_id := ResourceID,
+authenticate(Credential, #{'_unique' := Unique,
                            method := Method,
                            request_timeout := RequestTimeout} = State) ->
-    Request = generate_request(Credential, State),
-    case emqx_resource:query(ResourceID, {Method, Request, RequestTimeout}) of
-        {ok, 204, _Headers} -> ok;
-        {ok, 200, Headers, Body} ->
-            ContentType = proplists:get_value(<<"content-type">>, Headers, <<"application/json">>),
-            case safely_parse_body(ContentType, Body) of
-                {ok, _NBody} ->
-                    %% TODO: Return by user property
-                    ok;
-                {error, _Reason} ->
-                    ok
-            end;
-        {error, _Reason} ->
+    try
+        Request = generate_request(Credential, State),
+        case emqx_resource:query(Unique, {Method, Request, RequestTimeout}) of
+            {ok, 204, _Headers} -> ok;
+            {ok, 200, Headers, Body} ->
+                ContentType = proplists:get_value(<<"content-type">>, Headers, <<"application/json">>),
+                case safely_parse_body(ContentType, Body) of
+                    {ok, _NBody} ->
+                        %% TODO: Return by user property
+                        ok;
+                    {error, _Reason} ->
+                        ok
+                end;
+            {error, _Reason} ->
+                ignore
+        end
+    catch
+        error:Reason ->
+            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [Unique, Reason]),
             ignore
     end.
 
-destroy(#{resource_id := ResourceID}) ->
-    _ = emqx_resource:remove_local(ResourceID),
+destroy(#{'_unique' := Unique}) ->
+    _ = emqx_resource:remove_local(Unique),
     ok.
 
 %%--------------------------------------------------------------------
@@ -242,31 +250,18 @@ generate_request(Credential, #{method := Method,
             {NPath, Headers, Body}
     end.
 
-replace_placeholders(FormData0, Credential) ->
-    FormData = lists:map(fun({K, V0}) ->
-                             case replace_placeholder(V0, Credential) of
-                                 undefined -> {K, undefined};
-                                 V -> {K, bin(V)}
-                             end
-                         end, FormData0),
-    lists:filter(fun({_, V}) ->
-                    V =/= undefined
-                 end, FormData).
+replace_placeholders(KVs, Credential) ->
+    replace_placeholders(KVs, Credential, []).
 
-replace_placeholder(<<"${mqtt-username}">>, Credential) ->
-    maps:get(username, Credential, undefined);
-replace_placeholder(<<"${mqtt-clientid}">>, Credential) ->
-    maps:get(clientid, Credential, undefined);
-replace_placeholder(<<"${mqtt-password}">>, Credential) ->
-    maps:get(password, Credential, undefined);
-replace_placeholder(<<"${ip-address}">>, Credential) ->
-    maps:get(peerhost, Credential, undefined);
-replace_placeholder(<<"${cert-subject}">>, Credential) ->
-    maps:get(dn, Credential, undefined);
-replace_placeholder(<<"${cert-common-name}">>, Credential) ->
-    maps:get(cn, Credential, undefined);
-replace_placeholder(Constant, _) ->
-    Constant.
+replace_placeholders([], _Credential, Acc) ->
+    lists:reverse(Acc);
+replace_placeholders([{K, V0} | More], Credential, Acc) ->
+    case emqx_authn_utils:replace_placeholder(V0, Credential) of
+        undefined ->
+            error({cannot_get_variable, V0});
+        V ->
+            replace_placeholders(More, Credential, [{K, emqx_authn_utils:bin(V)} | Acc])
+    end.
 
 append_query(Path, []) ->
     Path;
@@ -301,7 +296,3 @@ parse_body(<<"application/x-www-form-urlencoded">>, Body) ->
     {ok, cow_qs:parse_qs(Body)};
 parse_body(ContentType, _) ->
     {error, {unsupported_content_type, ContentType}}.
-
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(L) when is_list(L) -> list_to_binary(L);
-bin(X) -> X.

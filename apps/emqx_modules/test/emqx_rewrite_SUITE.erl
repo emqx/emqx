@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_rewrite_SUITE).
+-module(emqx_rewrite_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -22,24 +22,28 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(RULES, [#{action => publish,
-                  source_topic => <<"x/#">>,
-                  re => <<"^x/y/(.+)$">>,
-                  dest_topic => <<"z/y/$1">>
-                },
-                #{action => subscribe,
-                  source_topic => <<"y/+/z/#">>,
-                  re => <<"^y/(.+)/z/(.+)$">>,
-                  dest_topic => <<"y/z/$2">>}
-               ]).
+-define(REWRITE, <<"""
+rewrite: {
+  rules : [
+    {
+      action : publish
+      source_topic : \"x/#\"
+      re : \"^x/y/(.+)$\"
+      dest_topic : \"z/y/$1\"
+    },
+    {
+      action : subscribe
+      source_topic : \"y/+/z/#\"
+      re : \"^y/(.+)/z/(.+)$\"
+      dest_topic : \"y/z/$2\"
+    }
+  ]}""">>).
 
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([emqx_modules]),
-    %% Ensure all the modules unloaded.
-    ok = emqx_modules:unload(),
     Config.
 
 end_per_suite(_Config) ->
@@ -47,7 +51,8 @@ end_per_suite(_Config) ->
 
 %% Test case for emqx_mod_write
 t_mod_rewrite(_Config) ->
-    ok = emqx_mod_rewrite:load(#{rules => ?RULES}),
+    ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
+    ok = emqx_rewrite:enable(),
     {ok, C} = emqtt:start_link([{clientid, <<"rewrite_client">>}]),
     {ok, _} = emqtt:connect(C),
     PubOrigTopics = [<<"x/y/2">>, <<"x/1/2">>],
@@ -55,7 +60,7 @@ t_mod_rewrite(_Config) ->
     SubOrigTopics = [<<"y/a/z/b">>, <<"y/def">>],
     SubDestTopics = [<<"y/z/b">>, <<"y/def">>],
     %% Sub Rules
-    {ok, _Props, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- SubOrigTopics]),
+    {ok, _Props1, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- SubOrigTopics]),
     timer:sleep(100),
     Subscriptions = emqx_broker:subscriptions(<<"rewrite_client">>),
     ?assertEqual(SubDestTopics, [Topic || {Topic, _SubOpts} <- Subscriptions]),
@@ -69,7 +74,7 @@ t_mod_rewrite(_Config) ->
     timer:sleep(100),
     ?assertEqual([], emqx_broker:subscriptions(<<"rewrite_client">>)),
     %% Pub Rules
-    {ok, _Props, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- PubDestTopics]),
+    {ok, _Props2, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- PubDestTopics]),
     RecvTopics2 = [begin
                       ok = emqtt:publish(C, Topic, <<"payload">>),
                       {ok, #{topic := RecvTopic}} = receive_publish(100),
@@ -79,14 +84,19 @@ t_mod_rewrite(_Config) ->
     {ok, _, _} = emqtt:unsubscribe(C, PubDestTopics),
 
     ok = emqtt:disconnect(C),
-    ok = emqx_mod_rewrite:unload(?RULES).
+    ok = emqx_rewrite:disable().
 
 t_rewrite_rule(_Config) ->
-    {PubRules, SubRules} = emqx_mod_rewrite:compile(?RULES),
-    ?assertEqual(<<"z/y/2">>, emqx_mod_rewrite:match_and_rewrite(<<"x/y/2">>, PubRules)),
-    ?assertEqual(<<"x/1/2">>, emqx_mod_rewrite:match_and_rewrite(<<"x/1/2">>, PubRules)),
-    ?assertEqual(<<"y/z/b">>, emqx_mod_rewrite:match_and_rewrite(<<"y/a/z/b">>, SubRules)),
-    ?assertEqual(<<"y/def">>, emqx_mod_rewrite:match_and_rewrite(<<"y/def">>, SubRules)).
+    {ok, Rewite} = hocon:binary(?REWRITE),
+    #{rewrite := #{rules := Rules}} =
+        hocon_schema:check_plain(emqx_modules_schema, Rewite,
+                                 #{atom_key => true},
+                                 ["rewrite"]),
+    {PubRules, SubRules} = emqx_rewrite:compile(Rules),
+    ?assertEqual(<<"z/y/2">>, emqx_rewrite:match_and_rewrite(<<"x/y/2">>, PubRules)),
+    ?assertEqual(<<"x/1/2">>, emqx_rewrite:match_and_rewrite(<<"x/1/2">>, PubRules)),
+    ?assertEqual(<<"y/z/b">>, emqx_rewrite:match_and_rewrite(<<"y/a/z/b">>, SubRules)),
+    ?assertEqual(<<"y/def">>, emqx_rewrite:match_and_rewrite(<<"y/def">>, SubRules)).
 
 %%--------------------------------------------------------------------
 %% Internal functions

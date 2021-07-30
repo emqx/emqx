@@ -40,7 +40,7 @@ set_special_configs(_App) ->
     ok.
 
 t_metrics_api(_) ->
-    MetricsPath = emqx_mgmt_api_test_util:api_path(["metrics"]),
+    MetricsPath = emqx_mgmt_api_test_util:api_path(["metrics?aggregate=true"]),
     SystemMetrics = emqx_mgmt:get_metrics(),
     {ok, MetricsResponse} = emqx_mgmt_api_test_util:request_api(get, MetricsPath),
     Metrics = emqx_json:decode(MetricsResponse, [return_maps]),

@@ -17,9 +17,9 @@
         , fields/1
         ]).
 
-structs() -> ["emqx_authz"].
+structs() -> ["authorization"].
 
-fields("emqx_authz") ->
+fields("authorization") ->
     [ {rules, rules()}
     ];
 fields(http) ->

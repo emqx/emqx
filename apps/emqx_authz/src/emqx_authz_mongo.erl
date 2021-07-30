@@ -34,9 +34,9 @@ description() ->
     "AuthZ with Mongo".
 
 authorize(Client, PubSub, Topic,
-            #{id := ResourceID,
-              collection := Collection,
-              find := Find
+            #{collection := Collection,
+              find := Find,
+              annotations := #{id := ResourceID}
              }) ->
     case emqx_resource:query(ResourceID, {find, Collection, replvar(Find, Client), #{}}) of
         {error, Reason} ->

@@ -14,9 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_rewrite).
-
--behaviour(emqx_gen_mod).
+-module(emqx_rewrite).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -33,21 +31,29 @@
         , rewrite_publish/2
         ]).
 
-%% emqx_gen_mod callbacks
--export([ load/1
-        , unload/1
-        , description/0
+-export([ enable/0
+        , disable/0
         ]).
 
 %%--------------------------------------------------------------------
 %% Load/Unload
 %%--------------------------------------------------------------------
 
-load(Env) ->
-    {PubRules, SubRules} = compile(maps:get(rules, Env, [])),
-    emqx_hooks:put('client.subscribe',   {?MODULE, rewrite_subscribe, [SubRules]}),
-    emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}),
-    emqx_hooks:put('message.publish',    {?MODULE, rewrite_publish, [PubRules]}).
+enable() ->
+    Rules = emqx_config:get([rewrite, rules], []),
+    case Rules =:= [] of
+        true -> ok;
+        false ->
+            {PubRules, SubRules} = compile(Rules),
+            emqx_hooks:put('client.subscribe',   {?MODULE, rewrite_subscribe, [SubRules]}),
+            emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}),
+            emqx_hooks:put('message.publish',    {?MODULE, rewrite_publish, [PubRules]})
+    end.
+
+disable() ->
+    emqx_hooks:del('client.subscribe',   {?MODULE, rewrite_subscribe}),
+    emqx_hooks:del('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
+    emqx_hooks:del('message.publish',    {?MODULE, rewrite_publish}).
 
 rewrite_subscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
     {ok, [{match_and_rewrite(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
@@ -58,13 +64,6 @@ rewrite_unsubscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
 rewrite_publish(Message = #message{topic = Topic}, Rules) ->
     {ok, Message#message{topic = match_and_rewrite(Topic, Rules)}}.
 
-unload(_) ->
-    emqx_hooks:del('client.subscribe',   {?MODULE, rewrite_subscribe}),
-    emqx_hooks:del('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
-    emqx_hooks:del('message.publish',    {?MODULE, rewrite_publish}).
-
-description() ->
-    "EMQ X Topic Rewrite Module".
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------

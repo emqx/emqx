@@ -14,10 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_delayed).
+-module(emqx_delayed).
 
 -behaviour(gen_server).
--behaviour(emqx_gen_mod).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -29,12 +28,6 @@
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
-
-%% emqx_gen_mod callbacks
--export([ load/1
-        , unload/1
-        , description/0
-        ]).
 
 -export([ start_link/0
         , on_message_publish/1
@@ -49,10 +42,12 @@
         , code_change/3
         ]).
 
--record(delayed_message,
-        { key
-        , msg
-        }).
+%% gen_server callbacks
+-export([ enable/0
+        , disable/0
+        ]).
+
+-record(delayed_message, {key, msg}).
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
@@ -63,7 +58,6 @@
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
-
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
                 {type, ordered_set},
@@ -75,25 +69,8 @@ mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?TAB, disc_copies).
 
 %%--------------------------------------------------------------------
-%% Load/Unload
-%%--------------------------------------------------------------------
-
--spec(load(list()) -> ok).
-load(_Env) ->
-    emqx_mod_sup:start_child(?MODULE, worker),
-    emqx:hook('message.publish', {?MODULE, on_message_publish, []}).
-
--spec(unload(list()) -> ok).
-unload(_Env) ->
-    emqx:unhook('message.publish', {?MODULE, on_message_publish}),
-    emqx_mod_sup:stop_child(?MODULE).
-
-description() ->
-    "EMQ X Delayed Publish Module".
-%%--------------------------------------------------------------------
 %% Hooks
 %%--------------------------------------------------------------------
-
 on_message_publish(Msg = #message{
                             id = Id,
                             topic = <<"$delayed/", Topic/binary>>,
@@ -112,7 +89,11 @@ on_message_publish(Msg = #message{
             end,
     PubMsg = Msg#message{topic = Topic1},
     Headers = PubMsg#message.headers,
-    ok = store(#delayed_message{key = {PubAt, Id}, msg = PubMsg}),
+    case store(#delayed_message{key = {PubAt, Id}, msg = PubMsg}) of
+        ok -> ok;
+        {error, Error} ->
+            ?LOG(error, "Store delayed message fail: ~p", [Error])
+    end,
     {stop, PubMsg#message{headers = Headers#{allow_publish => false}}};
 
 on_message_publish(Msg) ->
@@ -124,24 +105,55 @@ on_message_publish(Msg) ->
 
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+    Opts = emqx_config:get([delayed], #{}),
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Opts], []).
 
--spec(store(#delayed_message{}) -> ok).
+-spec(store(#delayed_message{}) -> ok | {error, atom()}).
 store(DelayedMsg) ->
     gen_server:call(?SERVER, {store, DelayedMsg}, infinity).
+
+enable() ->
+    gen_server:call(?SERVER, enable).
+
+disable() ->
+    gen_server:call(?SERVER, disable).
 
 %%--------------------------------------------------------------------
 %% gen_server callback
 %%--------------------------------------------------------------------
 
-init([]) ->
+init([Opts]) ->
+    MaxDelayedMessages = maps:get(max_delayed_messages, Opts, 0),
     {ok, ensure_stats_event(
-           ensure_publish_timer(#{timer => undefined, publish_at => 0}))}.
+           ensure_publish_timer(#{timer => undefined,
+                                  publish_at => 0,
+                                  max_delayed_messages => MaxDelayedMessages}))}.
 
-handle_call({store, DelayedMsg = #delayed_message{key = Key}}, _From, State) ->
+handle_call({store, DelayedMsg = #delayed_message{key = Key}},
+            _From, State = #{max_delayed_messages := 0}) ->
     ok = ekka_mnesia:dirty_write(?TAB, DelayedMsg),
     emqx_metrics:inc('messages.delayed'),
     {reply, ok, ensure_publish_timer(Key, State)};
+
+handle_call({store, DelayedMsg = #delayed_message{key = Key}},
+            _From, State = #{max_delayed_messages := Val}) ->
+    Size = mnesia:table_info(?TAB, size),
+    case Size > Val of
+        true ->
+            {reply, {error, max_delayed_messages_full}, State};
+        false ->
+            ok = ekka_mnesia:dirty_write(?TAB, DelayedMsg),
+            emqx_metrics:inc('messages.delayed'),
+            {reply, ok, ensure_publish_timer(Key, State)}
+    end;
+
+handle_call(enable, _From, State) ->
+    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}),
+    {reply, ok, State};
+
+handle_call(disable, _From, State) ->
+    emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
+    {reply, ok, State};
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),

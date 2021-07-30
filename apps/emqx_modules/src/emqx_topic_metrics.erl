@@ -14,21 +14,15 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_topic_metrics).
+-module(emqx_topic_metrics).
 
 -behaviour(gen_server).
--behaviour(emqx_gen_mod).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -logger_header("[TOPIC_METRICS]").
-
--export([ load/1
-        , unload/1
-        , description/0
-        ]).
 
 -export([ on_message_publish/1
         , on_message_delivered/2
@@ -40,20 +34,17 @@
         , stop/0
         ]).
 
--export([ inc/2
-        , inc/3
-        , val/2
-        , rate/2
-        , metrics/1
+-export([ enable/0
+        , disable/0
+        ]).
+
+-export([ metrics/1
         , register/1
         , unregister/1
         , unregister_all/0
         , is_registered/1
         , all_registered_topics/0
         ]).
-
-%% stats.
--export([ rates/2 ]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -63,7 +54,10 @@
         , terminate/2
         ]).
 
--define(CRefID(Topic), {?MODULE, Topic}).
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
 
 -define(MAX_TOPICS, 512).
 -define(TAB, ?MODULE).
@@ -99,21 +93,15 @@
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
-
-load(_Env) ->
-    emqx_mod_sup:start_child(?MODULE, worker),
+enable() ->
     emqx_hooks:put('message.publish',   {?MODULE, on_message_publish, []}),
     emqx_hooks:put('message.dropped',   {?MODULE, on_message_dropped, []}),
     emqx_hooks:put('message.delivered', {?MODULE, on_message_delivered, []}).
 
-unload(_Env) ->
+disable() ->
     emqx_hooks:del('message.publish',   {?MODULE, on_message_publish}),
     emqx_hooks:del('message.dropped',   {?MODULE, on_message_dropped}),
-    emqx_hooks:del('message.delivered', {?MODULE, on_message_delivered}),
-    emqx_mod_sup:stop_child(?MODULE).
-
-description() ->
-    "EMQ X Topic Metrics Module".
+    emqx_hooks:del('message.delivered', {?MODULE, on_message_delivered}).
 
 on_message_publish(#message{topic = Topic, qos = QoS}) ->
     case is_registered(Topic) of
@@ -150,54 +138,11 @@ on_message_dropped(#message{topic = Topic}, _, _) ->
     end.
 
 start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+    Opts = emqx_config:get([topic_metrics], #{}),
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
 
 stop() ->
     gen_server:stop(?MODULE).
-
-try_inc(Topic, Metric) ->
-    _ = inc(Topic, Metric),
-    ok.
-
-inc(Topic, Metric) ->
-    inc(Topic, Metric, 1).
-
-inc(Topic, Metric, Val) ->
-    case get_counters(Topic) of
-        {error, topic_not_found} ->
-            {error, topic_not_found};
-        CRef ->
-            case metric_idx(Metric) of
-                {error, invalid_metric} ->
-                    {error, invalid_metric};
-                Idx ->
-                    counters:add(CRef, Idx, Val)
-            end
-    end.
-
-val(Topic, Metric) ->
-    case ets:lookup(?TAB, Topic) of
-        [] ->
-            {error, topic_not_found};
-        [{Topic, CRef}] ->
-            case metric_idx(Metric) of
-                {error, invalid_metric} ->
-                    {error, invalid_metric};
-                Idx ->
-                    counters:get(CRef, Idx)
-            end
-    end.
-
-rate(Topic, Metric) ->
-    case rates(Topic, Metric) of
-        #{short := Last} ->
-            Last;
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-rates(Topic, Metric) ->
-    gen_server:call(?MODULE, {get_rates, Topic, Metric}).
 
 metrics(Topic) ->
     case ets:lookup(?TAB, Topic) of
@@ -229,7 +174,7 @@ all_registered_topics() ->
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([]) ->
+init([_Opts]) ->
     erlang:process_flag(trap_exit, true),
     ok = emqx_tables:new(?TAB, [{read_concurrency, true}]),
     erlang:send_after(timer:seconds(?TICKING_INTERVAL), self(), ticking),
@@ -279,7 +224,7 @@ handle_call({get_rates, Topic, Metric}, _From, State = #state{speeds = Speeds}) 
                 undefined ->
                     {reply, {error, invalid_metric}, State};
                 #speed{last = Short, last_medium = Medium, last_long = Long}  ->
-                    {reply, #{ short => Short, medium => Medium, long => Long }, State}
+                    {reply, #{short => Short, medium => Medium, long => Long }, State}
             end
     end.
 
@@ -308,6 +253,47 @@ terminate(_Reason, _State) ->
 %%------------------------------------------------------------------------------
 %% Internal Functions
 %%------------------------------------------------------------------------------
+
+try_inc(Topic, Metric) ->
+    _ = inc(Topic, Metric),
+    ok.
+
+inc(Topic, Metric) ->
+    inc(Topic, Metric, 1).
+
+inc(Topic, Metric, Val) ->
+    case get_counters(Topic) of
+        {error, topic_not_found} ->
+            {error, topic_not_found};
+        CRef ->
+            case metric_idx(Metric) of
+                {error, invalid_metric} ->
+                    {error, invalid_metric};
+                Idx ->
+                    counters:add(CRef, Idx, Val)
+            end
+    end.
+
+val(Topic, Metric) ->
+    case ets:lookup(?TAB, Topic) of
+        [] ->
+            {error, topic_not_found};
+        [{Topic, CRef}] ->
+            case metric_idx(Metric) of
+                {error, invalid_metric} ->
+                    {error, invalid_metric};
+                Idx ->
+                    counters:get(CRef, Idx)
+            end
+    end.
+
+rate(Topic, Metric) ->
+    case gen_server:call(?MODULE, {get_rates, Topic, Metric}) of
+        #{short := Last} ->
+            Last;
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 metric_idx('messages.in') ->       01;
 metric_idx('messages.out') ->      02;

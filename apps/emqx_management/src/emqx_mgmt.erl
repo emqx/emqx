@@ -43,6 +43,8 @@
         , lookup_client/3
         , kickout_client/1
         , list_authz_cache/1
+        , list_client_subscriptions/1
+        , client_subscriptions/2
         , clean_authz_cache/1
         , clean_authz_cache/2
         , clean_authz_cache_all/0
@@ -268,6 +270,23 @@ kickout_client(Node, ClientId) ->
 
 list_authz_cache(ClientId) ->
     call_client(ClientId, list_authz_cache).
+
+list_client_subscriptions(ClientId) ->
+    Results = [client_subscriptions(Node, ClientId) || Node <- ekka_mnesia:running_nodes()],
+    Expected = lists:filter(fun({error, _}) -> false;
+                               ([]) -> false;
+                               (_) -> true
+                            end, Results),
+    case Expected of
+        [] -> [];
+        [Result|_] -> Result
+    end.
+
+client_subscriptions(Node, ClientId) when Node =:= node() ->
+    emqx_broker:subscriptions(ClientId);
+
+client_subscriptions(Node, ClientId) ->
+    rpc_call(Node, client_subscriptions, [Node, ClientId]).
 
 clean_authz_cache(ClientId) ->
     Results = [clean_authz_cache(Node, ClientId) || Node <- ekka_mnesia:running_nodes()],

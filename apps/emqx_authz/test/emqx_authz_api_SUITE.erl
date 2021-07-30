@@ -34,6 +34,13 @@
 % -define(API_VERSION, "v4").
 % -define(BASE_PATH, "api").
 
+-define(CONF_DEFAULT, <<"""
+authorization:{
+    rules: [
+    ]
+}
+""">>).
+
 all() ->
 %%    TODO: V5 API
 %%    emqx_ct:all(?MODULE).
@@ -43,18 +50,14 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    %% important! let emqx_schema include the current app!
-    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_schema, includes, fun() -> ["emqx_authz"] end ),
-    meck:expect(emqx_schema, extra_schema_fields, fun(FieldName) -> emqx_authz_schema:fields(FieldName) end),
-
+    ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
+
     %create_default_app(),
     Config.
 
 end_per_suite(_Config) ->
     %delete_default_app(),
-    meck:unload(emqx_schema),
     emqx_ct_helpers:stop_apps([emqx_authz]).
 
 % set_special_configs(emqx) ->
@@ -78,6 +81,7 @@ end_per_suite(_Config) ->
 % %%------------------------------------------------------------------------------
 
 t_api_unit_test(_Config) ->
+    %% TODO: Decode from JSON or HOCON, instead of hand-crafting decode result
     Rule1 = #{<<"principal">> =>
                     #{<<"and">> => [#{<<"username">> => <<"^test?">>},
                                     #{<<"clientid">> => <<"^test?">>}
@@ -92,7 +96,7 @@ t_api_unit_test(_Config) ->
        principal :=
         #{'and' := [#{username := <<"^test?">>},
                     #{clientid := <<"^test?">>}]},
-       topics := [<<"%u">>]}] = emqx_config:get([emqx_authz, rules]).
+       topics := [<<"%u">>]}] = emqx_config:get([authorization, rules]).
 
 % t_api(_Config) ->
 %     Rule1 = #{<<"principal">> =>

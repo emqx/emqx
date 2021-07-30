@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_presence_SUITE).
+-module(emqx_presence_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -27,16 +27,13 @@ all() -> emqx_ct:all(?MODULE).
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([emqx_modules]),
-    %% Ensure all the modules unloaded.
-    ok = emqx_modules:unload(),
     Config.
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_modules]).
 
-%% Test case for emqx_mod_presence
 t_mod_presence(_) ->
-    ok = emqx_mod_presence:load(#{qos => ?QOS_1}),
+    ok = emqx_presence:enable(),
     {ok, C1} = emqtt:start_link([{clientid, <<"monsys">>}]),
     {ok, _} = emqtt:connect(C1),
     {ok, _Props, [?QOS_1]} = emqtt:subscribe(C1, <<"$SYS/brokers/+/clients/#">>, qos1),
@@ -49,16 +46,16 @@ t_mod_presence(_) ->
     ok = emqtt:disconnect(C2),
     ok = recv_and_check_presence(<<"clientid">>, <<"disconnected">>),
     ok = emqtt:disconnect(C1),
-    ok = emqx_mod_presence:unload([]).
+    ok = emqx_presence:disable().
 
 t_mod_presence_reason(_) ->
-    ?assertEqual(normal, emqx_mod_presence:reason(normal)),
-    ?assertEqual(discarded, emqx_mod_presence:reason({shutdown, discarded})),
-    ?assertEqual(tcp_error, emqx_mod_presence:reason({tcp_error, einval})),
-    ?assertEqual(internal_error, emqx_mod_presence:reason(<<"unknown error">>)).
+    ?assertEqual(normal, emqx_presence:reason(normal)),
+    ?assertEqual(discarded, emqx_presence:reason({shutdown, discarded})),
+    ?assertEqual(tcp_error, emqx_presence:reason({tcp_error, einval})),
+    ?assertEqual(internal_error, emqx_presence:reason(<<"unknown error">>)).
 
 recv_and_check_presence(ClientId, Presence) ->
-    {ok, #{qos := ?QOS_1, topic := Topic, payload := Payload}} = receive_publish(100),
+    {ok, #{qos := ?QOS_0, topic := Topic, payload := Payload}} = receive_publish(100),
     ?assertMatch([<<"$SYS">>, <<"brokers">>, _Node, <<"clients">>, ClientId, Presence],
                  binary:split(Topic, <<"/">>, [global])),
     case Presence of
