@@ -95,7 +95,7 @@ handle_call({change_config, SchemaModule, ConfKeyPath, UpdateReq}, _From,
             Handlers, UpdateReq),
         {AppEnvs, CheckedConf} = emqx_config:check_config(SchemaModule, NewRawConf),
         do_post_config_update(ConfKeyPath, Handlers, OldConf, CheckedConf, UpdateReq),
-        emqx_config:save_configs(AppEnvs, NewRawConf, CheckedConf, OverrideConf)
+        emqx_config:save_configs(AppEnvs, CheckedConf, NewRawConf, OverrideConf)
     catch Error:Reason:ST ->
         ?LOG(error, "change_config failed: ~p", [{Error, Reason, ST}]),
         {error, Reason}

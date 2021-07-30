@@ -195,14 +195,14 @@ init_load(SchemaModule, Conf) when is_list(Conf) orelse is_binary(Conf) ->
             error(failed_to_load_hocon_conf)
     end;
 init_load(SchemaModule, RawRichConf) when is_map(RawRichConf) ->
-    RawConf =  hocon_schema:richmap_to_map(RawRichConf),
     %% check with richmap for line numbers in error reports (future enhancement)
     Opts = #{return_plain => true,
              nullable => true
             },
     %% this call throws exception in case of check failure
-    {_AppEnvs, CheckedConf} = check_config(SchemaModule, RawConf, Opts),
-    ok = save_to_config_map(CheckedConf, RawConf).
+    {_AppEnvs, CheckedConf} = hocon_schema:map_translate(SchemaModule, RawRichConf, Opts),
+    ok = save_to_config_map(emqx_map_lib:unsafe_atom_key_map(CheckedConf),
+            hocon_schema:richmap_to_map(RawRichConf)).
 
 -spec check_config(module(), raw_config()) -> {AppEnvs, CheckedConf}
     when AppEnvs :: app_envs(), CheckedConf :: config().
@@ -211,11 +211,6 @@ check_config(SchemaModule, RawConf) ->
              nullable => true,
              is_richmap => false
             },
-    check_config(SchemaModule, RawConf, Opts).
-
--spec check_config(module(), raw_config(), map()) -> {AppEnvs, CheckedConf}
-    when AppEnvs :: app_envs(), CheckedConf :: config().
-check_config(SchemaModule, RawConf, Opts) ->
     {AppEnvs, CheckedConf} =
         hocon_schema:map_translate(SchemaModule, RawConf, Opts),
     Conf = maps:with(maps:keys(RawConf), CheckedConf),
@@ -225,8 +220,8 @@ check_config(SchemaModule, RawConf, Opts) ->
 read_override_conf() ->
     load_hocon_file(emqx_override_conf_name(), map).
 
--spec save_configs(app_envs(), raw_config(), config(), raw_config()) -> ok | {error, term()}.
-save_configs(_AppEnvs, RawConf, Conf, OverrideConf) ->
+-spec save_configs(app_envs(), config(), raw_config(), raw_config()) -> ok | {error, term()}.
+save_configs(_AppEnvs, Conf, RawConf, OverrideConf) ->
     %% We may need also support hot config update for the apps that use application envs.
     %% If that is the case uncomment the following line to update the configs to app env
     %save_to_app_env(AppEnvs),
