@@ -155,7 +155,8 @@ init([InstaId, PredefTopics]) ->
     % FIXME:
     %ok = ekka_rlog:wait_for_shards([?CM_SHARD], infinity),
     MaxPredefId = lists:foldl(
-                    fun(#{id := TopicId, topic := TopicName}, AccId) ->
+                    fun(#{id := TopicId, topic := TopicName0}, AccId) ->
+                        TopicName = iolist_to_binary(TopicName0),
                         ekka_mnesia:dirty_write(Tab, #emqx_sn_registry{
                                                         key = {predef, TopicId},
                                                         value = TopicName}
