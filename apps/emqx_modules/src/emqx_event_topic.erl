@@ -88,17 +88,24 @@ disable() ->
 %%--------------------------------------------------------------------
 
 on_client_connected(ClientInfo, ConnInfo) ->
-    Payload = connected_payload(ClientInfo, ConnInfo),
+    Payload0 = common_infos(ClientInfo, ConnInfo),
+    Payload = Payload0#{
+        connack         => 0, %% XXX: connack will be removed in 5.0
+        keepalive       => maps:get(keepalive, ConnInfo, 0),
+        clean_start     => maps:get(clean_start, ConnInfo, true),
+        expiry_interval => maps:get(expiry_interval, ConnInfo, 0),
+        connected_at    => maps:get(connected_at, ConnInfo)
+    },
     publish_event_msg(<<"$event/client_connected">>, Payload).
 
-on_client_disconnected(_ClientInfo = #{clientid := ClientId, username := Username},
-                       Reason, _ConnInfo = #{disconnected_at := DisconnectedAt}) ->
-    Payload = #{clientid => ClientId,
-                username => Username,
-                reason => reason(Reason),
-                disconnected_at => DisconnectedAt,
-                ts => erlang:system_time(millisecond)
-               },
+on_client_disconnected(ClientInfo,
+                       Reason, ConnInfo = #{disconnected_at := DisconnectedAt}) ->
+
+    Payload0 = common_infos(ClientInfo, ConnInfo),
+    Payload = Payload0#{
+                  reason => reason(Reason),
+                  disconnected_at => DisconnectedAt
+                 },
     publish_event_msg(<<"$event/client_disconnected">>, Payload).
 
 on_session_subscribed(_ClientInfo = #{clientid := ClientId,
@@ -204,6 +211,24 @@ connected_payload(#{peerhost := PeerHost,
       clean_start => CleanStart,
       expiry_interval => ExpiryInterval div 1000,
       connected_at => ConnectedAt,
+      ts => erlang:system_time(millisecond)
+     }.
+
+common_infos(
+  _ClientInfo = #{clientid := ClientId,
+                  username := Username,
+                  peerhost := PeerHost,
+                  sockport := SockPort
+                 },
+  _ConnInfo = #{proto_name := ProtoName,
+                proto_ver := ProtoVer
+               }) ->
+    #{clientid => ClientId,
+      username => Username,
+      ipaddress => ntoa(PeerHost),
+      sockport => SockPort,
+      proto_name => ProtoName,
+      proto_ver => ProtoVer,
       ts => erlang:system_time(millisecond)
      }.
 
