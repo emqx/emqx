@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_event_topic).
+-module(emqx_event_message).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -38,7 +38,7 @@
 -endif.
 
 enable() ->
-    Topics = emqx_config:get([event_topic, topics], []),
+    Topics = emqx_config:get([event_message, topics], []),
     lists:foreach(fun(Topic) ->
         case Topic of
             <<"$event/client_connected">> ->
@@ -61,7 +61,7 @@ enable() ->
     end, Topics).
 
 disable() ->
-    Topics = emqx_config:get([event_topic, topics], []),
+    Topics = emqx_config:get([event_message, topics], []),
     lists:foreach(fun(Topic) ->
         case Topic of
             <<"$event/client_connected">> ->
@@ -187,33 +187,6 @@ on_message_acked(_ClientInfo = #{
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
-
-connected_payload(#{peerhost := PeerHost,
-                    sockport := SockPort,
-                    clientid := ClientId,
-                    username := Username
-                   },
-                  #{clean_start := CleanStart,
-                    proto_name := ProtoName,
-                    proto_ver := ProtoVer,
-                    keepalive := Keepalive,
-                    connected_at := ConnectedAt,
-                    expiry_interval := ExpiryInterval
-                   }) ->
-    #{clientid => ClientId,
-      username => Username,
-      ipaddress => ntoa(PeerHost),
-      sockport => SockPort,
-      proto_name => ProtoName,
-      proto_ver => ProtoVer,
-      keepalive => Keepalive,
-      connack => 0, %% Deprecated?
-      clean_start => CleanStart,
-      expiry_interval => ExpiryInterval div 1000,
-      connected_at => ConnectedAt,
-      ts => erlang:system_time(millisecond)
-     }.
-
 common_infos(
   _ClientInfo = #{clientid := ClientId,
                   username := Username,

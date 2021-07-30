@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_event_topic_SUITE).
+-module(emqx_event_message_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -28,9 +28,9 @@ init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([emqx_modules]),
     meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_schema, includes, fun() -> ["event_topic"] end ),
+    meck:expect(emqx_schema, includes, fun() -> ["event_message"] end ),
     meck:expect(emqx_schema, extra_schema_fields, fun(FieldName) -> emqx_modules_schema:fields(FieldName) end),
-    ok = emqx_config:update([event_topic, topics], [<<"$event/client_connected">>,
+    ok = emqx_config:update([event_message, topics], [<<"$event/client_connected">>,
                                                     <<"$event/client_disconnected">>,
                                                     <<"$event/session_subscribed">>,
                                                     <<"$event/session_unsubscribed">>,
@@ -44,7 +44,7 @@ end_per_suite(_Config) ->
     meck:unload(emqx_schema).
 
 t_event_topic(_) ->
-    ok = emqx_event_topic:enable(),
+    ok = emqx_event_message:enable(),
     {ok, C1} = emqtt:start_link([{clientid, <<"monsys">>}]),
     {ok, _} = emqtt:connect(C1),
     {ok, _, [?QOS_1]} = emqtt:subscribe(C1, <<"$event/client_connected">>, qos1),
@@ -82,13 +82,13 @@ t_event_topic(_) ->
     ok = emqtt:disconnect(C2),
     ok = recv_disconnected(<<"clientid">>),
     ok = emqtt:disconnect(C1),
-    ok = emqx_event_topic:disable().
+    ok = emqx_event_message:disable().
 
 t_reason(_) ->
-    ?assertEqual(normal, emqx_event_topic:reason(normal)),
-    ?assertEqual(discarded, emqx_event_topic:reason({shutdown, discarded})),
-    ?assertEqual(tcp_error, emqx_event_topic:reason({tcp_error, einval})),
-    ?assertEqual(internal_error, emqx_event_topic:reason(<<"unknown error">>)).
+    ?assertEqual(normal, emqx_event_message:reason(normal)),
+    ?assertEqual(discarded, emqx_event_message:reason({shutdown, discarded})),
+    ?assertEqual(tcp_error, emqx_event_message:reason({tcp_error, einval})),
+    ?assertEqual(internal_error, emqx_event_message:reason(<<"unknown error">>)).
 
 recv_connected(ClientId) ->
     {ok, #{qos := ?QOS_0, topic := Topic, payload := Payload}} = receive_publish(100),
