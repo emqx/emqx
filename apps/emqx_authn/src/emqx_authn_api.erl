@@ -574,7 +574,6 @@ users2_api() ->
                                 type => array,
                                 items => #{
                                     type => object,
-                                    required => [user_id],
                                     properties => #{
                                         user_id => #{
                                             type => string
@@ -618,7 +617,6 @@ users2_api() ->
                                 type => array,
                                 items => #{
                                     type => object,
-                                    required => [user_id],
                                     properties => #{
                                         user_id => #{
                                             type => string
@@ -763,7 +761,7 @@ definitions() ->
     
     SCRAMDef = #{
         type => object,
-        required => [name, mechanism],
+        required => [name, mechanism, server_type],
         properties => #{
             name => #{
                 type => string,
@@ -793,6 +791,7 @@ definitions() ->
 
     PasswordBasedBuiltInDatabaseDef = #{
         type => object,
+        required => [server_type],
         properties => #{
             server_type => #{
                 type => string,
@@ -811,6 +810,12 @@ definitions() ->
 
     PasswordBasedMySQLDef = #{
         type => object,
+        required => [ server_type
+                    , server
+                    , database
+                    , username
+                    , password
+                    , query],
         properties => #{
             server_type => #{
                 type => string,
@@ -863,6 +868,12 @@ definitions() ->
 
     PasswordBasedPgSQLDef = #{
         type => object,
+        required => [ server_type
+                    , server
+                    , database
+                    , username
+                    , password
+                    , query],
         properties => #{
             server_type => #{
                 type => string,
@@ -994,6 +1005,10 @@ definitions() ->
 
     PasswordBasedHTTPServerDef = #{
         type => object,
+        required => [ server_type
+                    , url
+                    , form_data
+                    ],
         properties => #{
             server_type => #{
                 type => string,
@@ -1015,7 +1030,7 @@ definitions() ->
                     type => string
                 }
             },
-            format_data => #{
+            form_data => #{
                 type => string
             },
             connect_timeout => #{
@@ -1054,7 +1069,7 @@ definitions() ->
                 enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
                 default => <<"sha256">>
             },
-                salt_rounds => #{
+            salt_rounds => #{
                 type => integer,
                 default => 10
             }
