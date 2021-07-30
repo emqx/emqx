@@ -18,8 +18,6 @@
 
 -behaviour(application).
 
--emqx_plugin(?MODULE).
-
 -export([start/2]).
 
 -export([stop/1]).

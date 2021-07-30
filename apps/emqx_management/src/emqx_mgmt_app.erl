@@ -18,8 +18,6 @@
 
 -behaviour(application).
 
--emqx_plugin(?MODULE).
-
 -define(APP, emqx_management).
 
 -export([ start/2
