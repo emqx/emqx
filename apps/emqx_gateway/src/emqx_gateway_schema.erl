@@ -29,9 +29,9 @@
 -export([structs/0 , fields/1]).
 -export([t/1, t/3, t/4, ref/1]).
 
-structs() -> ["emqx_gateway"].
+structs() -> ["gateway"].
 
-fields("emqx_gateway") ->
+fields("gateway") ->
     [{stomp, t(ref(stomp))},
      {mqttsn, t(ref(mqttsn))},
      {exproto, t(ref(exproto))}

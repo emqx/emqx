@@ -82,7 +82,7 @@ create_gateway_by_default([{Type, Name, Confs}|More]) ->
     create_gateway_by_default(More).
 
 zipped_confs() ->
-    All = maps:to_list(emqx_config:get([emqx_gateway])),
+    All = maps:to_list(emqx_config:get([gateway])),
     lists:append(lists:foldr(
       fun({Type, Gws}, Acc) ->
         {Names, Confs} = lists:unzip(maps:to_list(Gws)),
