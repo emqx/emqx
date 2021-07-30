@@ -19,9 +19,10 @@
 
 -export([ init_load/2
         , read_override_conf/0
-        , save_configs/3
+        , check_config/2
+        , save_configs/4
         , save_to_app_env/1
-        , save_to_emqx_config/2
+        , save_to_config_map/2
         , save_to_override_conf/1
         ]).
 
@@ -53,7 +54,6 @@
         , remove/2
         ]).
 
-%% raw configs is the config that is now parsed and tranlated by hocon schema
 -export([ get_raw/1
         , get_raw/2
         , put_raw/1
@@ -67,8 +67,11 @@
 
 -export_type([update_request/0, raw_config/0, config/0]).
 -type update_request() :: term().
+%% raw_config() is the config that is NOT parsed and tranlated by hocon schema
 -type raw_config() :: #{binary() => term()} | undefined.
+%% config() is the config that is parsed and tranlated by hocon schema
 -type config() :: #{atom() => term()} | undefined.
+-type app_envs() :: [proplists:property()].
 
 %% @doc For the given path, get root value enclosed in a single-key map.
 -spec get_root(emqx_map_lib:config_key_path()) -> map().
@@ -198,27 +201,36 @@ init_load(SchemaModule, RawRichConf) when is_map(RawRichConf) ->
              nullable => true
             },
     %% this call throws exception in case of check failure
-    {_MappedEnvs, CheckedConf} =
-        hocon_schema:map_translate(SchemaModule, RawRichConf, Opts),
-    ok = save_to_emqx_config(CheckedConf, RawConf).
+    {_AppEnvs, CheckedConf} = check_config(SchemaModule, RawConf, Opts),
+    ok = save_to_config_map(CheckedConf, RawConf).
+
+-spec check_config(module(), raw_config()) -> {AppEnvs, CheckedConf}
+    when AppEnvs :: app_envs(), CheckedConf :: config().
+check_config(SchemaModule, RawConf) ->
+    Opts = #{return_plain => true,
+             nullable => true,
+             is_richmap => false
+            },
+    check_config(SchemaModule, RawConf, Opts).
+
+-spec check_config(module(), raw_config(), map()) -> {AppEnvs, CheckedConf}
+    when AppEnvs :: app_envs(), CheckedConf :: config().
+check_config(SchemaModule, RawConf, Opts) ->
+    {AppEnvs, CheckedConf} =
+        hocon_schema:map_translate(SchemaModule, RawConf, Opts),
+    Conf = maps:with(maps:keys(RawConf), CheckedConf),
+    {AppEnvs, emqx_map_lib:unsafe_atom_key_map(Conf)}.
 
 -spec read_override_conf() -> raw_config().
 read_override_conf() ->
     load_hocon_file(emqx_override_conf_name(), map).
 
--spec save_configs(module(), raw_config(), raw_config()) -> ok | {error, term()}.
-save_configs(SchemaModule, RawConf, OverrideConf) ->
-    Opts = #{return_plain => true,
-             nullable => true,
-             is_richmap => false
-            },
-    {_MappedEnvs, CheckedConf} =
-        hocon_schema:map_translate(SchemaModule, RawConf, Opts),
+-spec save_configs(app_envs(), raw_config(), config(), raw_config()) -> ok | {error, term()}.
+save_configs(_AppEnvs, RawConf, Conf, OverrideConf) ->
     %% We may need also support hot config update for the apps that use application envs.
-    %% If that is the case uncomment the following line to update the configs to application env
-    %save_to_app_env(_MappedEnvs),
-    Conf = maps:with(maps:keys(RawConf), CheckedConf),
-    save_to_emqx_config(Conf, RawConf),
+    %% If that is the case uncomment the following line to update the configs to app env
+    %save_to_app_env(AppEnvs),
+    save_to_config_map(Conf, RawConf),
     %% TODO: merge RawConf to OverrideConf can be done here
     save_to_override_conf(OverrideConf).
 
@@ -228,9 +240,9 @@ save_to_app_env(AppEnvs) ->
             [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
         end, AppEnvs).
 
--spec save_to_emqx_config(config(), raw_config()) -> ok.
-save_to_emqx_config(Conf, RawConf) ->
-    ?MODULE:put(emqx_map_lib:unsafe_atom_key_map(Conf)),
+-spec save_to_config_map(config(), raw_config()) -> ok.
+save_to_config_map(Conf, RawConf) ->
+    ?MODULE:put(Conf),
     ?MODULE:put_raw(RawConf).
 
 -spec save_to_override_conf(raw_config()) -> ok | {error, term()}.
