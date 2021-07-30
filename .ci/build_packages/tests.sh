@@ -151,6 +151,8 @@ EOF
     # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
     emqx stop || kill "$(ps -ef | grep -E '\-progname\s.+emqx\s' |awk '{print $2}')"
 
+    cat /etc/os-release || true
+
     if [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = ubuntu ] \
     || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] ;then
         if ! service emqx start; then
