@@ -61,6 +61,21 @@
                          <<"username">> => <<"${mqtt-username}">>
                      }}).
 
+-define(EXAMPLE_4, #{name => <<"example 4">>,
+                     mechanism => <<"password-based">>,
+                     server_type => <<"mongodb">>,
+                     server => <<"127.0.0.1:27017">>,
+                     database => example,
+                     collection => users,
+                     selector => #{
+                         username => <<"${mqtt-username}">>
+                     },
+                     password_hash_field => <<"password_hash">>,
+                     salt_field => <<"salt">>,
+                     password_hash_algorithm => <<"sha256">>,
+                     salt_position => <<"prefix">>
+                    }).
+
 -define(ERR_RESPONSE(Desc), #{description => Desc,
                               content => #{
                                   'application/json' => #{
@@ -109,6 +124,12 @@ authentication_api() ->
                         }
                     }
                 }
+            },
+            responses => #{
+                <<"204">> => #{
+                    description => <<"No Content">>
+                },
+                <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>)
             }
         }
     },
@@ -134,6 +155,10 @@ authenticators_api() ->
                             jwt => #{
                                 summary => <<"JWT Authentication">>,
                                 value => emqx_json:encode(?EXAMPLE_3)
+                            },
+                            mongodb => #{
+                                summary => <<"Authentication with MongoDB">>,
+                                value => emqx_json:encode(?EXAMPLE_4)
                             }
                         }
                     }
@@ -157,6 +182,10 @@ authenticators_api() ->
                                 example3 => #{
                                     summary => <<"Example 3">>,
                                     value => emqx_json:encode(maps:put(id, <<"example 3">>, ?EXAMPLE_3))
+                                },
+                                example4 => #{
+                                    summary => <<"Example 4">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 4">>, ?EXAMPLE_4))
                                 }
                             }
                         }
@@ -183,6 +212,7 @@ authenticators_api() ->
                                     value => emqx_json:encode([ maps:put(id, <<"example 1">>, ?EXAMPLE_1)
                                                               , maps:put(id, <<"example 2">>, ?EXAMPLE_2)
                                                               , maps:put(id, <<"example 3">>, ?EXAMPLE_3)
+                                                              , maps:put(id, <<"example 4">>, ?EXAMPLE_4)
                                                               ])
                                 }
                             }
@@ -226,6 +256,10 @@ authenticators_api2() ->
                                 example3 => #{
                                     summary => <<"Example 3">>,
                                     value => emqx_json:encode(maps:put(id, <<"example 3">>, ?EXAMPLE_3))
+                                },
+                                example4 => #{
+                                    summary => <<"Example 4">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 4">>, ?EXAMPLE_4))
                                 }
                             }
                         }
@@ -286,6 +320,10 @@ authenticators_api2() ->
                                 example3 => #{
                                     summary => <<"Example 3">>,
                                     value => emqx_json:encode(maps:put(id, <<"example 3">>, ?EXAMPLE_3))
+                                },
+                                example4 => #{
+                                    summary => <<"Example 4">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 4">>, ?EXAMPLE_4))
                                 }
                             }
                         }
@@ -624,7 +662,6 @@ users2_api() ->
     },
     {"/authentication/authenticators/:id/users/:user_id", Metadata, users2}.
 
-
 definitions() ->
     AuthenticatorDef = #{
         oneOf => [ minirest:ref(<<"password_based">>)
@@ -673,6 +710,7 @@ definitions() ->
                 oneOf => [ minirest:ref(<<"password_based_built_in_database">>)
                          , minirest:ref(<<"password_based_mysql">>)
                          , minirest:ref(<<"password_based_pgsql">>)
+                         , minirest:ref(<<"password_based_mongodb">>)
                          , minirest:ref(<<"password_based_http_server">>)
                          ]    
             }
@@ -869,6 +907,91 @@ definitions() ->
         }
     },
 
+    PasswordBasedMongoDBDef = #{
+        type => object,
+        required => [ server_type
+                    , server
+                    , servers
+                    , replica_set_name
+                    , database
+                    , username
+                    , password
+                    , collection
+                    , selector
+                    , password_hash_field
+                    ],
+        properties => #{
+            server_type => #{
+                type => string,
+                enum => [<<"mongodb">>],
+                example => [<<"mongodb">>]
+            },
+            server => #{
+                description => <<"Mutually exclusive with the 'servers' field, only valid in standalone mode">>,
+                type => string,
+                example => <<"127.0.0.1:27017">>
+            },
+            servers => #{
+                description => <<"Mutually exclusive with the 'server' field, only valid in replica set and sharded mode">>,
+                type => array,
+                items => #{
+                    type => string
+                },
+                example => [<<"127.0.0.1:27017">>]
+            },
+            replica_set_name => #{
+                description => <<"Only valid in replica set mode">>,
+                type => string
+            },
+            database => #{
+                type => string
+            },
+            username => #{
+                type => string
+            },
+            password => #{
+                type => string
+            },
+            auth_source => #{
+                type => string,
+                default => <<"admin">>
+            },
+            pool_size => #{
+                type => integer,
+                default => 8
+            },
+            collection => #{
+                type => string
+            },
+            selector => #{
+                type => object,
+                additionalProperties => true,
+                example => <<"{\"username\":\"${mqtt-username}\"}">>
+            },
+            password_hash_field => #{
+                type => string,
+                example => <<"password_hash">>
+            },
+            salt_field => #{
+                type => string,
+                example => <<"salt">>
+            },
+            password_hash_algorithm => #{
+                type => string,
+                enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
+                default => <<"sha256">>,
+                example => <<"sha256">>
+            },
+            salt_position => #{
+                description => <<"Only valid when the 'salt_field' field is specified">>,
+                type => string,
+                enum => [<<"prefix">>, <<"suffix">>],
+                default => <<"prefix">>,
+                example => <<"prefix">>
+            }
+        }
+    },
+
     PasswordBasedHTTPServerDef = #{
         type => object,
         properties => #{
@@ -995,6 +1118,7 @@ definitions() ->
     , #{<<"password_based_built_in_database">> => PasswordBasedBuiltInDatabaseDef}
     , #{<<"password_based_mysql">> => PasswordBasedMySQLDef}
     , #{<<"password_based_pgsql">> => PasswordBasedPgSQLDef}
+    , #{<<"password_based_mongodb">> => PasswordBasedMongoDBDef}
     , #{<<"password_based_http_server">> => PasswordBasedHTTPServerDef}
     , #{<<"password_hash_algorithm">> => PasswordHashAlgorithmDef}
     , #{<<"ssl">> => SSLDef}
