@@ -150,14 +150,14 @@ mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?RES_TYPE_TAB, ram_copies).
 
 dump() ->
-    io:format("Rules: ~p~n"
-              "ActionInstParams: ~p~n"
-              "Resources: ~p~n"
-              "ResourceParams: ~p~n",
-            [ets:tab2list(?RULE_TAB),
-             ets:tab2list(?ACTION_INST_PARAMS_TAB),
-             ets:tab2list(?RES_TAB),
-             ets:tab2list(?RES_PARAMS_TAB)]).
+    ?ULOG("Rules: ~p~n"
+          "ActionInstParams: ~p~n"
+          "Resources: ~p~n"
+          "ResourceParams: ~p~n",
+          [ets:tab2list(?RULE_TAB),
+           ets:tab2list(?ACTION_INST_PARAMS_TAB),
+           ets:tab2list(?RES_TAB),
+           ets:tab2list(?RES_PARAMS_TAB)]).
 
 %%------------------------------------------------------------------------------
 %% Start the registry

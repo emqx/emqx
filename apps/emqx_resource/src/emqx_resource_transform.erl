@@ -59,7 +59,6 @@ form(Mod, Form) ->
         ?Q("-module('@_').") ->
             {[Form], fix_spec_attrs(), fix_spec_funcs(Mod)};
         _ ->
-            %io:format("---other form: ~p~n", [Form]),
             {[Form], [], []}
     end.
 

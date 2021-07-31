@@ -18,18 +18,14 @@ trans([Form | AST], ResAST) ->
   trans(AST, [Form | ResAST]).
 
 trans_func_clauses("on_action_create_" ++ _ = _FuncName , Clauses) ->
-  %io:format("~n[[transing function: ~p]]~n", [_FuncName]),
-  %io:format("~n-----old clauses:~n", []), merl:print(Clauses),
   NewClauses = [
     begin
       Bindings = lists:flatten(get_vars(Args) ++ get_vars(Body, lefth)),
       Body2 = append_to_result(Bindings, Body),
       {clause, LineNo, Args, Guards, Body2}
     end || {clause, LineNo, Args, Guards, Body} <- Clauses],
-  %io:format("~n-----new clauses: ~n"), merl:print(NewClauses),
   NewClauses;
 trans_func_clauses(_FuncName, Clauses) ->
-  %io:format("~n[[discarding function: ~p]]~n", [_FuncName]),
   Clauses.
 
 get_vars(Exprs) ->

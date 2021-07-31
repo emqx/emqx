@@ -61,4 +61,8 @@
         logger:log(Level, Data, #{ mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}
                                  , line => ?LINE})).
 
+%% print to 'user' group leader
+-define(ULOG(Fmt, Args), io:format(user, Fmt, Args)).
+-define(ELOG(Fmt, Args), io:format(standard_error, Fmt, Args)).
+
 -endif.

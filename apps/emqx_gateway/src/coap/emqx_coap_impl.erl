@@ -31,6 +31,8 @@
         , on_insta_destroy/3
         ]).
 
+-include_lib("emqx/include/logger.hrl").
+
 -dialyzer({nowarn_function, [load/0]}).
 
 %%--------------------------------------------------------------------
@@ -103,13 +105,12 @@ start_listener(InstaId, Ctx, ResourceMod, {Type, ListenOn, SocketOpts, Cfg}) ->
     Cfg2 = Cfg#{resource => ResourceMod},
     case start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg2) of
         {ok, Pid} ->
-            io:format("Start coap ~s:~s listener on ~s successfully.~n",
-                      [InstaId, Type, ListenOnStr]),
+            ?ULOG("Start coap ~s:~s listener on ~s successfully.~n",
+                  [InstaId, Type, ListenOnStr]),
             Pid;
         {error, Reason} ->
-            io:format(standard_error,
-                      "Failed to start coap ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, ListenOnStr, Reason]),
+            ?ELOG("Failed to start coap ~s:~s listener on ~s: ~0p~n",
+                  [InstaId, Type, ListenOnStr, Reason]),
             throw({badconf, Reason})
     end.
 
@@ -136,13 +137,11 @@ stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
     StopRet = stop_listener(InstaId, Type, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
-        ok -> io:format("Stop coap ~s:~s listener on ~s successfully.~n",
+        ok -> ?ULOG("Stop coap ~s:~s listener on ~s successfully.~n",
                         [InstaId, Type, ListenOnStr]);
         {error, Reason} ->
-            io:format(standard_error,
-                      "Failed to stop coap ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, ListenOnStr, Reason]
-                     )
+            ?ELOG("Failed to stop coap ~s:~s listener on ~s: ~0p~n",
+                  [InstaId, Type, ListenOnStr, Reason])
     end,
     StopRet.
 
