@@ -20,7 +20,6 @@
 
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[Gateway]").
 
 -export([start/2, stop/1]).
 

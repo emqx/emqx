@@ -23,7 +23,6 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[SN-Proto]").
 
 %% API
 -export([ info/1

@@ -22,7 +22,6 @@
 -include("types.hrl").
 -include("logger.hrl").
 
--logger_header("[SYS]").
 
 -export([ start_link/0
         , stop/0

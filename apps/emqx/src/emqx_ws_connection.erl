@@ -22,7 +22,6 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--logger_header("[MQTT/WS]").
 
 -ifdef(TEST).
 -compile(export_all).

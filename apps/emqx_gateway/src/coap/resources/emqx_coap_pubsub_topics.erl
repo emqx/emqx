@@ -21,7 +21,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
 
--logger_header("[CoAP-PS-TOPICS]").
 
 -export([ start_link/0
         , stop/1

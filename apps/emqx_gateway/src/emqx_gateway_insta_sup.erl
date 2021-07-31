@@ -21,7 +21,6 @@
 
 -include("include/emqx_gateway.hrl").
 
--logger_header("[PGW-Insta-Sup]").
 
 %% APIs
 -export([ start_link/3

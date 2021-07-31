@@ -22,7 +22,6 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--logger_header("[Stats]").
 
 %% APIs
 -export([ start_link/0

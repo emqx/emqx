@@ -22,7 +22,6 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--logger_header("[Banned]").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).

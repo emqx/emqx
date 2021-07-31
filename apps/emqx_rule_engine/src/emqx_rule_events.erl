@@ -20,7 +20,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[RuleEvents]").
 
 -export([ load/1
         , unload/0

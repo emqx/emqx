@@ -19,7 +19,6 @@
 -include("src/exhook/include/emqx_exhook.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[ExHook Svr]").
 
 -define(CNTER, emqx_exhook_counter).
 -define(PB_CLIENT_MOD, emqx_exhook_v_1_hook_provider_client).

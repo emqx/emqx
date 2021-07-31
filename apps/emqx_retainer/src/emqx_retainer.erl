@@ -22,7 +22,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[Retainer]").
 
 -export([start_link/0]).
 
