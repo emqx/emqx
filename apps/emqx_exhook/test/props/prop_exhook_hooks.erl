@@ -30,11 +30,16 @@
         , subopts/0
         ]).
 
+-define(CONF_DEFAULT, <<"
+exhook: { server.default: { url: \"http://127.0.0.1:9000\" } }
+">>).
+
 -define(ALL(Vars, Types, Exprs),
         ?SETUP(fun() ->
             State = do_setup(),
             fun() -> do_teardown(State) end
          end, ?FORALL(Vars, Types, Exprs))).
+
 
 %%--------------------------------------------------------------------
 %% Properties
@@ -76,27 +81,13 @@ prop_client_authenticate() ->
             ClientInfo = inject_magic_into(username, ClientInfo0),
             OutAuthResult = emqx_hooks:run_fold('client.authenticate', [ClientInfo], AuthResult),
             ExpectedAuthResult = case maps:get(username, ClientInfo) of
-                                     <<"baduser">> ->
-                                         AuthResult#{
-                                           auth_result => not_authorized,
-                                           anonymous => false};
-                                     <<"gooduser">> ->
-                                         AuthResult#{
-                                           auth_result => success,
-                                           anonymous => false};
-                                     <<"normaluser">> ->
-                                         AuthResult#{
-                                           auth_result => success,
-                                           anonymous => false};
-                                     _ ->
-                                         case maps:get(auth_result, AuthResult) of
-                                             success ->
-                                                 #{auth_result => success,
-                                                   anonymous => false};
-                                             _ ->
-                                                 #{auth_result => not_authorized,
-                                                   anonymous => false}
-                                         end
+                                     <<"baduser">> -> {error, not_authorized};
+                                     <<"gooduser">> -> ok;
+                                     <<"normaluser">> -> ok;
+                                     _ -> case AuthResult of
+                                              ok -> ok;
+                                              _ -> {error, not_authorized}
+                                          end
                                  end,
             ?assertEqual(ExpectedAuthResult, OutAuthResult),
 
@@ -109,14 +100,14 @@ prop_client_authenticate() ->
             true
         end).
 
-prop_client_check_acl() ->
+prop_client_authorize() ->
     ?ALL({ClientInfo0, PubSub, Topic, Result},
          {clientinfo(), oneof([publish, subscribe]),
           topic(), oneof([allow, deny])},
         begin
             ClientInfo = inject_magic_into(username, ClientInfo0),
             OutResult = emqx_hooks:run_fold(
-                          'client.check_acl',
+                          'client.authorize',
                           [ClientInfo, PubSub, Topic],
                           Result),
             ExpectedOutResult = case maps:get(username, ClientInfo) of
@@ -127,7 +118,7 @@ prop_client_check_acl() ->
                                  end,
             ?assertEqual(ExpectedOutResult, OutResult),
 
-            {'on_client_check_acl', Resp} = emqx_exhook_demo_svr:take(),
+            {'on_client_authorize', Resp} = emqx_exhook_demo_svr:take(),
             Expected =
                 #{result => aclresult_to_bool(Result),
                   type => pubsub_to_enum(PubSub),
@@ -423,7 +414,7 @@ subopts(SubOpts) ->
      }.
 
 authresult_to_bool(AuthResult) ->
-    maps:get(auth_result, AuthResult, undefined) == success.
+    AuthResult == ok.
 
 aclresult_to_bool(Result) ->
     Result == allow.
@@ -474,7 +465,8 @@ from_message(Msg) ->
 do_setup() ->
     logger:set_primary_config(#{level => warning}),
     _ = emqx_exhook_demo_svr:start(),
-    emqx_ct_helpers:start_apps([emqx_exhook], fun set_special_cfgs/1),
+    ok = emqx_config:init_load(emqx_exhook_schema, ?CONF_DEFAULT),
+    emqx_ct_helpers:start_apps([emqx_exhook]),
     %% waiting first loaded event
     {'on_provider_loaded', _} = emqx_exhook_demo_svr:take(),
     ok.
@@ -486,15 +478,6 @@ do_teardown(_) ->
     _ = emqx_exhook_demo_svr:stop(),
     logger:set_primary_config(#{level => notice}),
     timer:sleep(2000),
-    ok.
-
-set_special_cfgs(emqx) ->
-    application:set_env(emqx, allow_anonymous, false),
-    application:set_env(emqx, enable_acl_cache, false),
-    application:set_env(emqx, modules_loaded_file, undefined),
-    application:set_env(emqx, plugins_loaded_file,
-                        emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins"));
-set_special_cfgs(emqx_exhook) ->
     ok.
 
 %%--------------------------------------------------------------------
@@ -517,7 +500,11 @@ shutdown_reason() ->
     oneof([utf8(), {shutdown, emqx_ct_proper_types:limited_atom()}]).
 
 authresult() ->
-    ?LET(RC, connack_return_code(), #{auth_result => RC}).
+    ?LET(RC, connack_return_code(),
+         case RC of
+             success -> ok;
+             _ -> {error, RC}
+         end).
 
 inject_magic_into(Key, Object) ->
     case castspell() of
