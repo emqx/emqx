@@ -59,7 +59,10 @@ emqx_test(){
                     IDLE_TIME=$((IDLE_TIME+1))
                 done
                 pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
-                "${PACKAGE_PATH}"/emqx/bin/emqx stop
+                "${PACKAGE_PATH}"/emqx/bin/emqx stop &
+                sleep 10
+                cat "${PACKAGE_PATH}"/emqx/log/*
+
                 echo "running ${packagename} stop"
                 rm -rf "${PACKAGE_PATH}"/emqx
             ;;
@@ -150,8 +153,7 @@ EOF
     pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
 
     echo "emqx test finshed"
-    ps -ef
-    ps -ef | grep -E '\-progname\s.+emqx\s' |awk '{print $2}'
+    ps -ef | grep -E '\-progname\s.+emqx\s' | awk '{print $2}'
     emqx stop &
     sleep 10
     cat /var/log/emqx/*
