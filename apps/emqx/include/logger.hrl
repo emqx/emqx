@@ -17,8 +17,6 @@
 -ifndef(EMQX_LOGGER_HRL).
 -define(EMQX_LOGGER_HRL, true).
 
--compile({parse_transform, emqx_logger}).
-
 %% debug | info | notice | warning | error | critical | alert | emergency
 -define(DEBUG(Format), ?LOG(debug, Format, [])).
 -define(DEBUG(Format, Args), ?LOG(debug, Format, Args)).
