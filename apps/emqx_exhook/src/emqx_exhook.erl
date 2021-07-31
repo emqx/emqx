@@ -106,7 +106,6 @@ call_fold(Hookpoint, Req, AccFun, [ServiceName|More]) ->
 %%----------------------------------------------------------
 %% Storage
 
--compile({inline, [save/2]}).
 save(Name, ServiceState) ->
     Saved = persistent_term:get(?APP, []),
     persistent_term:put(?APP, lists:reverse([Name | Saved])),
