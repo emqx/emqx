@@ -157,7 +157,7 @@ EOF
     echo "emqx stopped 1"
 
     # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
-    emqx stop || kill "$(ps -ef | grep -E '\-progname\s.+emqx\s' |awk '{print $2}')"
+    # emqx stop || kill "$(ps -ef | grep -E '\-progname\s.+emqx\s' |awk '{print $2}')"
 
     echo "emqx stopped 2"
 
