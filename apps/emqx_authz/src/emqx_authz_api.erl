@@ -16,74 +16,108 @@
 
 -module(emqx_authz_api).
 
+-behavior(minirest_api).
+
 -include("emqx_authz.hrl").
 
--rest_api(#{name   => lookup_authz,
-            method => 'GET',
-            path   => "/authz",
-            func   => lookup_authz,
-            descr  => "Lookup Authorization"
-           }).
+-define(EXAMPLE_RETURNED_RULES,
+        #{rules => [ #{principal => <<"all">>,
+                       permission => <<"allow">>,
+                       action => <<"all">>,
+                       topics => [<<"#">>],
+                       metadata => #{id => 1}
+                      }
+                   ]
+        }).
 
--rest_api(#{name   => update_authz,
-            method => 'PUT',
-            path   => "/authz",
-            func   => update_authz,
-            descr  => "Rewrite authz list"
-           }).
+-define(EXAMPLE_RULE1, #{principal => <<"all">>,
+                         permission => <<"allow">>,
+                         action => <<"all">>,
+                         topics => [<<"#">>]}).
 
--rest_api(#{name   => append_authz,
-            method => 'POST',
-            path   => "/authz/append",
-            func   => append_authz,
-            descr  => "Add a new rule at the end of the authz list"
-           }).
-
--rest_api(#{name   => push_authz,
-            method => 'POST',
-            path   => "/authz/push",
-            func   => push_authz,
-            descr  => "Add a new rule at the start of the authz list"
-           }).
-
--export([ lookup_authz/2
-        , update_authz/2
-        , append_authz/2
-        , push_authz/2
+-export([ api_spec/0
+        , authorization/2
         ]).
 
-lookup_authz(_Bindings, _Params) ->
-    return({ok, emqx_authz:lookup()}).
+api_spec() ->
+    {[ authorization_api()
+     ], definitions()}.
 
-update_authz(_Bindings, Params) ->
-    Rules = form_rules(Params),
-    return(emqx_authz:update(replace, Rules)).
+definitions() -> emqx_authz_api_schema:definitions().
 
-append_authz(_Bindings, Params) ->
-    Rules = form_rules(Params),
-    return(emqx_authz:update(tail, Rules)).
+authorization_api() ->
+    Metadata = #{
+        get => #{
+            description => "List authorization rules",
+            parameters => [],
+            responses => #{
+                <<"200">> => #{
+                    description => <<"OK">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => #{
+                                type => object,
+                                required => [rules],
+                                properties => #{rules => #{
+                                                  type => array,
+                                                  items => minirest:ref(<<"returned_rules">>)
+                                                 }
+                                               }
+                            },
+                            examples => #{
+                                rules => #{
+                                    summary => <<"Rules">>,
+                                    value => jsx:encode(?EXAMPLE_RETURNED_RULES)
+                                }
+                            }
+                         }
+                    }
+                },
+                <<"404">> => #{description => <<"Not Found">>}
+            }
+        },
+        post => #{
+            description => "Add new rule",
+            requestBody => #{
+                content => #{
+                    'application/json' => #{
+                        schema => minirest:ref(<<"rules">>),
+                        examples => #{
+                            simple_rule => #{
+                                summary => <<"Rules">>,
+                                value => jsx:encode(?EXAMPLE_RULE1)
+                            }
+                       }
+                    }
+                }
+            },
+            responses => #{
+                <<"201">> => #{description => <<"Created">>},
+                <<"400">> => #{description => <<"Bad Request">>}
+            }
+        }
+    },
+    {"/authorization", Metadata, authorization}.
 
-push_authz(_Bindings, Params) ->
-    Rules = form_rules(Params),
-    return(emqx_authz:update(head, Rules)).
+authorization(get, _Request) ->
+    Rules = lists:foldl(fun (#{type := _Type, enable := true, metadata := #{id := Id} = MataData} = Rule, AccIn) ->
+                                NRule = case emqx_resource:health_check(Id) of
+                                    ok ->
+                                        Rule#{metadata => MataData#{status => healthy}};
+                                    _ ->
+                                        Rule#{metadata => MataData#{status => unhealthy}}
+                                end,
+                                lists:append(AccIn, [NRule]);
+                            (Rule, AccIn) ->
+                                lists:append(AccIn, [Rule])
+                        end, [], emqx_authz:lookup()),
+    {200, #{rules => [Rules]}};
+authorization(post, Request) ->
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    RawConfig = jsx:decode(Body, [return_maps]),
+    case emqx_authz:update(head, [RawConfig]) of
+        ok -> {201};
+        {error, Reason} -> {400, #{messgae => atom_to_binary(Reason)}}
+    end.
 
-%%------------------------------------------------------------------------------
-%% Interval Funcs
-%%------------------------------------------------------------------------------
 
-form_rules(Params) ->
-    Params.
-
-%%--------------------------------------------------------------------
-%% EUnits
-%%--------------------------------------------------------------------
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-
--endif.
-
-return(_) ->
-%%    TODO: V5 api
-    ok.
