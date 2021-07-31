@@ -148,12 +148,6 @@ EOF
         IDLE_TIME=$((IDLE_TIME+1))
     done
     pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
-
-    echo "emqx test finshed"
-    emqx stop &
-    sleep 60
-    cat /var/log/emqx/*
-
     # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
     emqx stop || kill "$(ps -ef | grep -E '\-progname\s.+emqx\s' |awk '{print $2}')"
 
