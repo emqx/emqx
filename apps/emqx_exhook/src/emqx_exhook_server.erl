@@ -16,7 +16,7 @@
 
 -module(emqx_exhook_server).
 
--include("src/exhook/include/emqx_exhook.hrl").
+-include("emqx_exhook.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 
@@ -74,13 +74,17 @@
 
 -export_type([server/0]).
 
+-type options() :: #{ url := uri_string:uri_string()
+                    , ssl => map()
+                    }.
+
 -dialyzer({nowarn_function, [inc_metrics/2]}).
 
 %%--------------------------------------------------------------------
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
 
--spec load(atom(), list()) -> {ok, server()} | {error, term()} .
+-spec load(atom(), options()) -> {ok, server()} | {error, term()} .
 load(Name0, Opts0) ->
     Name = to_list(Name0),
     {SvrAddr, ClientOpts} = channel_opts(Opts0),
@@ -117,20 +121,27 @@ to_list(Name) when is_list(Name) ->
     Name.
 
 %% @private
-channel_opts(Opts) ->
-    Scheme = proplists:get_value(scheme, Opts),
-    Host = proplists:get_value(host, Opts),
-    Port = proplists:get_value(port, Opts),
-    SvrAddr = format_http_uri(Scheme, Host, Port),
-    ClientOpts = case Scheme of
-                     https ->
-                         SslOpts = lists:keydelete(ssl, 1, proplists:get_value(ssl_options, Opts, [])),
-                         #{gun_opts =>
-                           #{transport => ssl,
-                             transport_opts => SslOpts}};
-                     _ -> #{}
-                 end,
-    {SvrAddr, ClientOpts}.
+channel_opts(Opts = #{url := URL}) ->
+    io:format("~p~n", [Opts]),
+    case uri_string:parse(URL) of
+        #{scheme := <<"http">>, host := Host, port := Port} ->
+            {format_http_uri("http", Host, Port), #{}};
+        #{scheme := <<"https">>, host := Host, port := Port} ->
+            SslOpts =
+                case maps:get(ssl, Opts, undefined) of
+                    undefined -> [];
+                    MapOpts ->
+                        filter(
+                          [{cacertfile, maps:get(cacertfile, MapOpts, undefined)},
+                           {certfile, maps:get(certfile, MapOpts, undefined)},
+                           {keyfile, maps:get(keyfile, MapOpts, undefined)}
+                          ])
+                end,
+            {format_http_uri("https", Host, Port),
+             #{gun_opts => #{transport => ssl, transport_opts => SslOpts}}};
+        _ ->
+            error(bad_server_url)
+    end.
 
 format_http_uri(Scheme, Host0, Port) ->
     Host = case is_tuple(Host0) of
@@ -138,6 +149,9 @@ format_http_uri(Scheme, Host0, Port) ->
                _ -> Host0
            end,
     lists:flatten(io_lib:format("~s://~s:~w", [Scheme, Host, Port])).
+
+filter(Ls) ->
+    [ E || E <- Ls, E /= undefined].
 
 -spec unload(server()) -> ok.
 unload(#server{name = Name, hookspec = HookSpecs}) ->

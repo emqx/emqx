@@ -16,7 +16,7 @@
 
 -module(emqx_exhook).
 
--include("src/exhook/include/emqx_exhook.hrl").
+-include("emqx_exhook.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 
@@ -40,13 +40,13 @@
 list() ->
     [server(Name) || Name <- running()].
 
--spec enable(atom()|string(), list()) -> ok | {error, term()}.
-enable(Name, Opts) ->
+-spec enable(atom()|string(), map()) -> ok | {error, term()}.
+enable(Name, Options) ->
     case lists:member(Name, running()) of
         true ->
             {error, already_started};
         _ ->
-            case emqx_exhook_server:load(Name, Opts) of
+            case emqx_exhook_server:load(Name, Options) of
                 {ok, ServiceState} ->
                     save(Name, ServiceState);
                 {error, Reason} ->

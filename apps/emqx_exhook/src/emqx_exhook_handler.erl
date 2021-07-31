@@ -16,7 +16,7 @@
 
 -module(emqx_exhook_handler).
 
--include("src/exhook/include/emqx_exhook.hrl").
+-include("emqx_exhook.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -87,6 +87,7 @@ on_client_disconnected(ClientInfo, Reason, _ConnInfo) ->
            },
     cast('client.disconnected', Req).
 
+%% FIXME: `AuthResult`
 on_client_authenticate(ClientInfo, AuthResult) ->
     %% XXX: Bool is missing more information about the atom of the result
     %%      So, the `Req` has missed detailed info too.
