@@ -602,13 +602,8 @@ case "$1" in
             -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
             $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG
 
-        # Dump environment info for logging purposes
-        echo "Exec: $*" -- ${1+$ARGS}
-        echo "Root: $ROOTDIR"
-
         # Log the startup
-        echo "$RUNNER_ROOT_DIR"
-        logger -t "${REL_NAME[$$]}" "Starting up"
+        logger -t "${REL_NAME}[$$]" "$* -- ${1+$ARGS}"
 
         # Start the VM
         exec "$@" -- ${1+$ARGS}
@@ -648,9 +643,8 @@ case "$1" in
             -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
             $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG
 
-        # Dump environment info for logging purposes
-        echo "Exec: $*" -- ${1+$ARGS}
-        echo "Root: $ROOTDIR"
+        # Log the startup
+        logger -t "${REL_NAME}[$$]" "$* -- ${1+$ARGS}"
 
         # Start the VM
         exec "$@" -- ${1+$ARGS}
