@@ -40,7 +40,7 @@
           %% Server name (equal to grpc client channel name)
           name :: server_name(),
           %% The server started options
-          options :: list(),
+          options :: options(),
           %% gRPC channel pid
           channel :: pid(),
           %% Registered hook names and options
@@ -142,11 +142,7 @@ channel_opts(Opts = #{url := URL}) ->
             error(bad_server_url)
     end.
 
-format_http_uri(Scheme, Host0, Port) ->
-    Host = case is_tuple(Host0) of
-               true -> inet:ntoa(Host0);
-               _ -> Host0
-           end,
+format_http_uri(Scheme, Host, Port) ->
     lists:flatten(io_lib:format("~s://~s:~w", [Scheme, Host, Port])).
 
 filter(Ls) ->
