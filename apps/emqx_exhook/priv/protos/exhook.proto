@@ -127,14 +127,14 @@ message ClientAuthorizeRequest {
 
   ClientInfo clientinfo = 1;
 
-  enum AuthzReqType {
+  enum AuthorizeReqType {
 
     PUBLISH = 0;
 
     SUBSCRIBE = 1;
   }
 
-  AuthzReqType type = 2;
+  AuthorizeReqType type = 2;
 
   string topic = 3;
 

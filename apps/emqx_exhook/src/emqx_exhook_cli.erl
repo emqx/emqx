@@ -16,7 +16,7 @@
 
 -module(emqx_exhook_cli).
 
--include("src/exhook/include/emqx_exhook.hrl").
+-include("emqx_exhook.hrl").
 
 -export([cli/1]).
 

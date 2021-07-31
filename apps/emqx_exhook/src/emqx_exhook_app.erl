@@ -18,7 +18,7 @@
 
 -behaviour(application).
 
--include("src/exhook/include/emqx_exhook.hrl").
+-include("emqx_exhook.hrl").
 
 -emqx_plugin(extension).
 
@@ -67,9 +67,10 @@ stop(_State) ->
 %%--------------------------------------------------------------------
 
 load_all_servers() ->
-    lists:foreach(fun({Name, Options}) ->
+    _ = maps:map(fun(Name, Options) ->
         load_server(Name, Options)
-    end, application:get_env(?APP, servers, [])).
+    end, emqx_config:get([exhook, server])),
+    ok.
 
 unload_all_servers() ->
     emqx_exhook:disable_all().
