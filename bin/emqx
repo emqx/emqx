@@ -316,12 +316,9 @@ esac
 ## Possible ways to configure emqx node name:
 ## 1. configure node.name in emqx.conf
 ## 2. override with environment variable EMQX_NODE_NAME
-## 3. override with environment variable EMQX_NAME and EMQX_HOST (deprecated)
 ## Node name is either short-name (without '@'), e.g. 'emqx'
 ## or long name (with '@') e.g. 'emqx@example.net' or 'emqx@127.0.0.1'
 NAME="${EMQX_NODE_NAME:-}"
-# to be backward compatible
-[ -n "$EMQX_NAME" ] && [ -n "$EMQX_HOST" ] && NAME="${EMQX_NAME}@${EMQX_HOST}"
 if [ -z "$NAME" ]; then
     if [ "$IS_BOOT_COMMAND" = 'no' ]; then
         # for non-boot commands, inspect vm.<time>.args for node name
