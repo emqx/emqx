@@ -197,12 +197,18 @@ json_obj(Data, Config) ->
                       json_kv(K, V, D, Config)
               end, maps:new(), Data).
 
-json_kv(mfa, {M, F, A}, Data, _Config) -> %% emqx/snabbkaffe
+json_kv(mfa, {M, F, A}, Data, _Config) -> %% snabbkaffe
     maps:put(mfa, <<(atom_to_binary(M, utf8))/binary, $:,
                     (atom_to_binary(F, utf8))/binary, $/,
                     (integer_to_binary(A))/binary>>, Data);
 json_kv('$kind', Kind, Data, Config) -> %% snabbkaffe
     maps:put(msg, json(Kind, Config), Data);
+json_kv(gl, _, Data, _Config) ->
+    %% drop gl because it's not interesting
+    Data;
+json_kv(file, _, Data, _Config) ->
+    %% drop 'file' because we have mfa
+    Data;
 json_kv(K0, V, Data, Config) ->
     K = json_key(K0),
     case is_map(V) of

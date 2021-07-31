@@ -14,10 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% debug | info | notice | warning | error | critical | alert | emergency
+-ifndef(EMQX_LOGGER_HRL).
+-define(EMQX_LOGGER_HRL, true).
 
 -compile({parse_transform, emqx_logger}).
 
+%% debug | info | notice | warning | error | critical | alert | emergency
 -define(DEBUG(Format), ?LOG(debug, Format, [])).
 -define(DEBUG(Format, Args), ?LOG(debug, Format, Args)).
 
@@ -41,10 +43,21 @@
 
 -define(LOG(Level, Format), ?LOG(Level, Format, [])).
 
--define(LOG(Level, Format, Args),
-        begin
-          (logger:log(Level,#{},#{report_cb => fun(_) -> {'$logger_header'()++(Format), (Args)} end,
-                                  mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY},
-                                  line => ?LINE}))
+-define(LOG(Level, Format, Args, Meta),
+        %% check 'allow' here so we do not have to pass an anonymous function
+        %% down to logger which may cause `badfun` exception during upgrade
+        case logger:allow(Level, ?MODULE) of
+            true ->
+                logger:log(Level, (Format), (Args),
+                           (Meta)#{ mfa => <<(atom_to_binary(?MODULE, utf8))/binary, $:,
+                                             (atom_to_binary(?FUNCTION_NAME, utf8))/binary, $/,
+                                             (integer_to_binary(?FUNCTION_ARITY))/binary>>
+                                  , line => ?LINE
+                                  });
+            false ->
+                ok
         end).
 
+-define(LOG(Level, Format, Args), ?LOG(Level, Format, Args, #{})).
+
+-endif.

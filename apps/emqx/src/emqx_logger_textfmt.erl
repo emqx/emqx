@@ -26,6 +26,7 @@
         , peername  % formatted as a part of templated message
         , clientid  % formatted as a part of templated message
         , gl        % not interesting
+        , file
         ]).
 
 check_config(X) -> logger_formatter:check_config(X).
