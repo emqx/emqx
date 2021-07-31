@@ -219,7 +219,7 @@ json_obj(Data, Config) ->
                       json_kv(K, V, D, Config)
               end, maps:new(), Data).
 
-json_kv(mfa, {M, F, A}, Data, _Config) -> %% snabbkaffe
+json_kv(mfa, {M, F, A}, Data, _Config) ->
     maps:put(mfa, <<(atom_to_binary(M, utf8))/binary, $:,
                     (atom_to_binary(F, utf8))/binary, $/,
                     (integer_to_binary(A))/binary>>, Data);

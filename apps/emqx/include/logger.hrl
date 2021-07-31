@@ -47,9 +47,7 @@
         case logger:allow(Level, ?MODULE) of
             true ->
                 logger:log(Level, (Format), (Args),
-                           (Meta)#{ mfa => <<(atom_to_binary(?MODULE, utf8))/binary, $:,
-                                             (atom_to_binary(?FUNCTION_NAME, utf8))/binary, $/,
-                                             (integer_to_binary(?FUNCTION_ARITY))/binary>>
+                           (Meta)#{ mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}
                                   , line => ?LINE
                                   });
             false ->
@@ -57,5 +55,10 @@
         end).
 
 -define(LOG(Level, Format, Args), ?LOG(Level, Format, Args, #{})).
+
+%% structured logging
+-define(SLOG(Level, Data),
+        logger:log(Level, Data, #{ mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}
+                                 , line => ?LINE})).
 
 -endif.
