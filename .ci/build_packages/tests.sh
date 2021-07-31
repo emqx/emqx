@@ -154,41 +154,29 @@ EOF
     sleep 60
     cat /var/log/emqx/*
 
-    echo "emqx stopped 1"
-
     # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
-    # emqx stop || kill "$(ps -ef | grep -E '\-progname\s.+emqx\s' |awk '{print $2}')"
+    emqx stop || kill "$(ps -ef | grep -E '\-progname\s.+emqx\s' |awk '{print $2}')"
 
-    echo "emqx stopped 2"
-
-    if [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = ubuntu ] ; then
-        echo "ubuntu"
-    fi
-
-    if [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] ;then
-        echo "debian"
-    fi
-
-    if [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = ubuntu ] \
-    || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] ;then
-        echo "ubuntu or debian"
-        if ! service emqx start; then
-            cat /var/log/emqx/erlang.log.1 || true
-            cat /var/log/emqx/emqx.log.1 || true
-            exit 1
-        fi
-        IDLE_TIME=0
-        while ! curl http://localhost:8081/api/v5/status >/dev/null 2>&1; do
-            if [ $IDLE_TIME -gt 10 ]
-            then
-                echo "emqx service error"
-                exit 1
-            fi
-            sleep 10
-            IDLE_TIME=$((IDLE_TIME+1))
-        done
-        service emqx stop
-    fi
+    # if [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = ubuntu ] \
+    # || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] ;then
+    #     echo "ubuntu or debian"
+    #     if ! service emqx start; then
+    #         cat /var/log/emqx/erlang.log.1 || true
+    #         cat /var/log/emqx/emqx.log.1 || true
+    #         exit 1
+    #     fi
+    #     IDLE_TIME=0
+    #     while ! curl http://localhost:8081/api/v5/status >/dev/null 2>&1; do
+    #         if [ $IDLE_TIME -gt 10 ]
+    #         then
+    #             echo "emqx service error"
+    #             exit 1
+    #         fi
+    #         sleep 10
+    #         IDLE_TIME=$((IDLE_TIME+1))
+    #     done
+    #     service emqx stop
+    # fi
 
     echo "running_test ended"
 }
