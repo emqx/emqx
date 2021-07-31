@@ -19,6 +19,7 @@
 -behaviour(gen_server).
 
 -include("src/mqttsn/include/emqx_sn.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([ start_link/2
         , stop/0
@@ -31,8 +32,6 @@
 -record(state, {gwid, sock, port, addrs, duration, tref}).
 
 -define(DEFAULT_DURATION, 15*60*1000).
--define(LOG(Level, Format, Args),
-        emqx_logger:Level("MQTT-SN(broadcast): " ++ Format, Args)).
 
 %%--------------------------------------------------------------------
 %% API
