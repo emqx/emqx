@@ -38,7 +38,7 @@
 structs() -> [""].
 
 fields("") ->
-    redis_fields() ++
+    ldap_fields() ++
     emqx_connector_schema_lib:ssl_fields().
 
 on_jsonify(Config) ->
@@ -51,10 +51,17 @@ on_start(InstId, #{servers := Servers0,
                    bind_password :=  BindPassword,
                    timeout := Timeout,
                    pool_size := PoolSize,
-                   auto_reconnect := AutoReconn} = Config) ->
-    logger:info("starting redis connector: ~p, config: ~p", [InstId, Config]),
+                   auto_reconnect := AutoReconn,
+                   ssl := SSL} = Config) ->
+    logger:info("starting ldap connector: ~p, config: ~p", [InstId, Config]),
     Servers = [begin proplists:get_value(host, S) end || S <- Servers0],
-    SslOpts = init_ssl_opts(Config, InstId),
+    SslOpts = case maps:get(enable, SSL) of
+                  true ->
+                      [{ssl, true},
+                       {sslopts, emqx_plugin_libs_ssl:save_files_return_opts(SSL, "connectors", InstId)}
+                      ];
+                  false -> [{ssl, false}]
+              end,
     Opts = [{servers, Servers},
             {port, Port},
             {bind_dn, BindDn},
@@ -68,14 +75,14 @@ on_start(InstId, #{servers := Servers0,
     {ok, #{poolname => PoolName}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    logger:info("stopping redis connector: ~p", [InstId]),
+    logger:info("stopping ldap connector: ~p", [InstId]),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
 on_query(InstId, {search, Base, Filter, Attributes}, AfterQuery, #{poolname := PoolName} = State) ->
-    logger:debug("redis connector ~p received request: ~p, at state: ~p", [InstId, {Base, Filter, Attributes}, State]),
+    logger:debug("ldap connector ~p received request: ~p, at state: ~p", [InstId, {Base, Filter, Attributes}, State]),
     case Result = ecpool:pick_and_do(PoolName, {?MODULE, search, [Base, Filter, Attributes]}, no_handover) of
         {error, Reason} ->
-            logger:debug("redis connector ~p do request failed, request: ~p, reason: ~p", [InstId, {Base, Filter, Attributes}, Reason]),
+            logger:debug("ldap connector ~p do request failed, request: ~p, reason: ~p", [InstId, {Base, Filter, Attributes}, Reason]),
             emqx_resource:query_failed(AfterQuery);
         _ ->
             emqx_resource:query_success(AfterQuery)
@@ -116,14 +123,7 @@ connect(Opts) ->
     ok = eldap2:simple_bind(LDAP, BindDn, BindPassword),
     {ok, LDAP}.
 
-init_ssl_opts(#{ssl := true} = Config, InstId) ->
-    [{ssl, true},
-     {sslopts, emqx_plugin_libs_ssl:save_files_return_opts(Config, "connectors", InstId)}
-    ];
-init_ssl_opts(_Config, _InstId) ->
-    [{ssl, false}].
-
-redis_fields() ->
+ldap_fields() ->
     [ {servers, fun emqx_connector_schema_lib:servers/1}
     , {port, fun port/1}
     , {pool_size, fun emqx_connector_schema_lib:pool_size/1}

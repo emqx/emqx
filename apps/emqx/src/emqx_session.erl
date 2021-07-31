@@ -55,7 +55,7 @@
 -compile(nowarn_export_all).
 -endif.
 
--export([init/2]).
+-export([init/1]).
 
 -export([ info/1
         , info/2
@@ -92,13 +92,11 @@
 
 -export_type([session/0]).
 
--import(emqx_zone, [get_env/3]).
-
 -record(session, {
           %% Client’s Subscriptions.
           subscriptions :: map(),
           %% Max subscriptions allowed
-          max_subscriptions :: non_neg_integer(),
+          max_subscriptions :: non_neg_integer() | infinity,
           %% Upgrade QoS?
           upgrade_qos :: boolean(),
           %% Client <- Broker: QoS1/2 messages sent to the client but
@@ -117,7 +115,7 @@
           %% have not been completely acknowledged
           awaiting_rel :: map(),
           %% Maximum number of awaiting QoS2 messages allowed
-          max_awaiting_rel :: non_neg_integer(),
+          max_awaiting_rel :: non_neg_integer() | infinity,
           %% Awaiting PUBREL Timeout (Unit: millsecond)
           await_rel_timeout :: timeout(),
           %% Created at
@@ -153,33 +151,39 @@
 
 -define(DEFAULT_BATCH_N, 1000).
 
+-type options() :: #{ max_subscriptions => non_neg_integer()
+                    , upgrade_qos => boolean()
+                    , retry_interval => timeout()
+                    , max_awaiting_rel => non_neg_integer() | infinity
+                    , await_rel_timeout => timeout()
+                    , max_inflight => integer()
+                    , mqueue => emqx_mqueue:options()
+                    }.
 
 %%--------------------------------------------------------------------
 %% Init a Session
 %%--------------------------------------------------------------------
 
--spec(init(emqx_types:clientinfo(), emqx_types:conninfo()) -> session()).
-init(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
-    #session{max_subscriptions = get_env(Zone, max_subscriptions, 0),
-             subscriptions     = #{},
-             upgrade_qos       = get_env(Zone, upgrade_qos, false),
-             inflight          = emqx_inflight:new(MaxInflight),
-             mqueue            = init_mqueue(Zone),
-             next_pkt_id       = 1,
-             retry_interval    = timer:seconds(get_env(Zone, retry_interval, 0)),
-             awaiting_rel      = #{},
-             max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
-             await_rel_timeout = timer:seconds(get_env(Zone, await_rel_timeout, 300)),
-             created_at        = erlang:system_time(millisecond)
-            }.
-
-%% @private init mq
-init_mqueue(Zone) ->
-    emqx_mqueue:init(#{max_len => get_env(Zone, max_mqueue_len, 1000),
-                       store_qos0 => get_env(Zone, mqueue_store_qos0, true),
-                       priorities => get_env(Zone, mqueue_priorities, none),
-                       default_priority => get_env(Zone, mqueue_default_priority, lowest)
-                      }).
+-spec(init(options()) -> session()).
+init(Opts) ->
+    MaxInflight = maps:get(max_inflight, Opts, 1),
+    QueueOpts = maps:merge(
+                  #{max_len => 1000,
+                    store_qos0 => true
+                   }, maps:get(mqueue, Opts, #{})),
+    #session{
+       max_subscriptions = maps:get(max_subscriptions, Opts, infinity),
+       subscriptions     = #{},
+       upgrade_qos       = maps:get(upgrade_qos, Opts, false),
+       inflight          = emqx_inflight:new(MaxInflight),
+       mqueue            = emqx_mqueue:init(QueueOpts),
+       next_pkt_id       = 1,
+       retry_interval    = maps:get(retry_interval, Opts, 30000),
+       awaiting_rel      = #{},
+       max_awaiting_rel  = maps:get(max_awaiting_rel, Opts, 100),
+       await_rel_timeout = maps:get(await_rel_timeout, Opts, 300000),
+       created_at        = erlang:system_time(millisecond)
+      }.
 
 %%--------------------------------------------------------------------
 %% Info, Stats
@@ -207,7 +211,7 @@ info(inflight_cnt, #session{inflight = Inflight}) ->
 info(inflight_max, #session{inflight = Inflight}) ->
     emqx_inflight:max_size(Inflight);
 info(retry_interval, #session{retry_interval = Interval}) ->
-    Interval div 1000;
+    Interval;
 info(mqueue, #session{mqueue = MQueue}) ->
     MQueue;
 info(mqueue_len, #session{mqueue = MQueue}) ->
@@ -225,7 +229,7 @@ info(awaiting_rel_cnt, #session{awaiting_rel = AwaitingRel}) ->
 info(awaiting_rel_max, #session{max_awaiting_rel = Max}) ->
     Max;
 info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
-    Timeout div 1000;
+    Timeout;
 info(created_at, #session{created_at = CreatedAt}) ->
     CreatedAt.
 
@@ -253,7 +257,7 @@ subscribe(ClientInfo = #{clientid := ClientId}, TopicFilter, SubOpts,
     end.
 
 -compile({inline, [is_subscriptions_full/1]}).
-is_subscriptions_full(#session{max_subscriptions = 0}) ->
+is_subscriptions_full(#session{max_subscriptions = infinity}) ->
     false;
 is_subscriptions_full(#session{subscriptions = Subs,
                                max_subscriptions = MaxLimit}) ->
@@ -302,7 +306,7 @@ publish(_PacketId, Msg, Session) ->
     {ok, emqx_broker:publish(Msg), Session}.
 
 -compile({inline, [is_awaiting_full/1]}).
-is_awaiting_full(#session{max_awaiting_rel = 0}) ->
+is_awaiting_full(#session{max_awaiting_rel = infinity}) ->
     false;
 is_awaiting_full(#session{awaiting_rel = AwaitingRel,
                           max_awaiting_rel = MaxLimit}) ->
@@ -696,4 +700,3 @@ age(Now, Ts) -> Now - Ts.
 set_field(Name, Value, Session) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, session)),
     setelement(Pos+1, Session, Value).
-

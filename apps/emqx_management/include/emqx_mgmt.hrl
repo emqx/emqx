@@ -35,3 +35,29 @@
 -define(VERSIONS, ["4.0", "4.1", "4.2", "4.3"]).
 
 -define(MANAGEMENT_SHARD, emqx_management_shard).
+
+-define(GENERATE_API_METADATA(MetaData),
+    maps:fold(
+        fun(Method, MethodDef0, NextMetaData) ->
+            Default = #{
+                tags => [?MODULE],
+                security => [#{application => []}]},
+            MethodDef =
+                lists:foldl(
+                    fun(Key, NMethodDef) ->
+                        case maps:is_key(Key, NMethodDef) of
+                            true ->
+                                NMethodDef;
+                            false ->
+                                maps:put(Key, maps:get(Key, Default), NMethodDef)
+                        end
+                    end, MethodDef0, maps:keys(Default)),
+            maps:put(Method, MethodDef, NextMetaData)
+        end,
+        #{}, MetaData)).
+
+-define(GENERATE_API(Path, MetaData, Function),
+    {Path, ?GENERATE_API_METADATA(MetaData), Function}).
+
+-define(GENERATE_APIS(Apis),
+    [?GENERATE_API(Path, MetaData, Function) || {Path, MetaData, Function} <- Apis]).

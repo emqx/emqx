@@ -9,7 +9,7 @@
 [![Community](https://img.shields.io/badge/Community-EMQ%20X-yellow)](https://askemq.com)
 [![YouTube](https://img.shields.io/badge/Subscribe-EMQ%20中文-FF0000?logo=youtube)](https://www.youtube.com/channel/UCir_r04HIsLjf2qqyZ4A8Cg)
 
-[![最棒的物联网 MQTT 开源团队期待您的加入](https://www.emqx.io/static/img/github_readme_cn_bg.png)](https://careers.emqx.cn/)
+[![最棒的物联网 MQTT 开源团队期待您的加入](https://static.emqx.net/images/github_readme_cn_bg.png)](https://careers.emqx.cn/)
 
 [English](./README.md) | 简体中文 | [日本語](./README-JP.md) | [русский](./README-RU.md)
 
@@ -18,7 +18,7 @@
 从 3.0 版本开始，*EMQ X* 完整支持 MQTT V5.0 协议规范，向下兼容 MQTT V3.1 和 V3.1.1，并支持 MQTT-SN、CoAP、LwM2M、WebSocket 和 STOMP 等通信协议。EMQ X 3.0 单集群可支持千万级别的 MQTT 并发连接。
 
 - 新功能的完整列表，请参阅 [EMQ X Release Notes](https://github.com/emqx/emqx/releases)。
-- 获取更多信息，请访问 [EMQ X 官网](https://www.emqx.cn/)。
+- 获取更多信息，请访问 [EMQ X 官网](https://www.emqx.io/zh)。
 
 ## 安装
 
@@ -34,7 +34,7 @@ docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p
 
 #### 二进制软件包安装
 
-需从 [EMQ X 下载](https://www.emqx.cn/downloads) 页面获取相应操作系统的二进制软件包。
+需从 [EMQ X 下载](https://www.emqx.com/zh/downloads) 页面获取相应操作系统的二进制软件包。
 
 - [单节点安装文档](https://docs.emqx.cn/broker/latest/getting-started/install.html)
 - [集群配置文档](https://docs.emqx.cn/broker/latest/advanced/cluster.html)
@@ -133,7 +133,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 - [Facebook](https://www.facebook.com/emqxmqtt)
 - [Reddit](https://www.reddit.com/r/emqx/)
 - [Weibo](https://weibo.com/emqtt)
-- [Blog](https://www.emqx.cn/blog)
+- [Blog](https://www.emqx.com/zh/blog)
 
 欢迎你将任何 bug、问题和功能请求提交到 [emqx/emqx](https://github.com/emqx/emqx/issues)。
 
@@ -145,7 +145,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 
 [MQTT Version 5.0](https://docs.oasis-open.org/mqtt/mqtt/v5.0/cs02/mqtt-v5.0-cs02.html)
 
-[MQTT SN](http://mqtt.org/new/wp-content/uploads/2009/06/MQTT-SN_spec_v1.2.pdf)
+[MQTT SN](https://www.oasis-open.org/committees/download.php/66091/MQTT-SN_spec_v1.2.pdf)
 
 ## 开源许可
 

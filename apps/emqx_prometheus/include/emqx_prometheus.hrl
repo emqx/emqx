@@ -1,0 +1,1 @@
+-define(APP, emqx_prometheus).

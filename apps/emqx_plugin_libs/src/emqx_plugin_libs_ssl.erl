@@ -45,7 +45,7 @@
 -spec save_files_return_opts(opts_input(), atom() | string() | binary(),
                              string() | binary()) -> opts().
 save_files_return_opts(Options, SubDir, ResId) ->
-    Dir = filename:join([emqx:get_env(data_dir), SubDir, ResId]),
+    Dir = filename:join([emqx_config:get([node, data_dir]), SubDir, ResId]),
     save_files_return_opts(Options, Dir).
 
 %% @doc Parse ssl options input.
@@ -57,7 +57,7 @@ save_files_return_opts(Options, Dir) ->
     Get = fun(Key) -> GetD(Key, undefined) end,
     KeyFile = Get(keyfile),
     CertFile = Get(certfile),
-    CAFile = GetD(cacertfile, Get(cafile)),
+    CAFile = Get(cacertfile),
     Key = do_save_file(KeyFile, Dir),
     Cert = do_save_file(CertFile, Dir),
     CA = do_save_file(CAFile, Dir),
@@ -76,7 +76,7 @@ save_files_return_opts(Options, Dir) ->
 %% empty string is returned if the input is empty.
 -spec save_file(file_input(), atom() | string() | binary()) -> string().
 save_file(Param, SubDir) ->
-   Dir = filename:join([emqx:get_env(data_dir), SubDir]),
+   Dir = filename:join([emqx_config:get([node, data_dir]), SubDir]),
    do_save_file(Param, Dir).
 
 filter([]) -> [];

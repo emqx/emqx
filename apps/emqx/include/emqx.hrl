@@ -23,6 +23,10 @@
 
 -define(Otherwise, true).
 
+-define(COMMON_SHARD, emqx_common_shard).
+-define(SHARED_SUB_SHARD, emqx_shared_sub_shard).
+-define(MOD_DELAYED_SHARD, emqx_delayed_shard).
+
 %%--------------------------------------------------------------------
 %% Banner
 %%--------------------------------------------------------------------
@@ -30,12 +34,6 @@
 -define(PROTOCOL_VERSION, "MQTT/5.0").
 
 -define(ERTS_MINIMUM_REQUIRED, "10.0").
-
-%%--------------------------------------------------------------------
-%% Configs
-%%--------------------------------------------------------------------
-
--define(NO_PRIORITY_TABLE, none).
 
 %%--------------------------------------------------------------------
 %% Topics' prefix: $SYS | $queue | $share
@@ -86,6 +84,9 @@
 
 -define(ROUTE_SHARD, route_shard).
 
+
+-define(RULE_ENGINE_SHARD, emqx_rule_engine_shard).
+
 -record(route, {
           topic :: binary(),
           dest  :: node() | {binary(), node()}
@@ -101,8 +102,7 @@
           descr          :: string(),
           vendor         :: string() | undefined,
           active = false :: boolean(),
-          info   = #{}   :: map(),
-          type           :: atom()
+          info   = #{}   :: map()
         }).
 
 %%--------------------------------------------------------------------
@@ -134,4 +134,3 @@
         }).
 
 -endif.
-

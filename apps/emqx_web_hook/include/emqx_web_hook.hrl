@@ -1,1 +1,0 @@
--define(APP, emqx_web_hook).

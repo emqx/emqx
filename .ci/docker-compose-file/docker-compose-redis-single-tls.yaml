@@ -5,15 +5,17 @@ services:
     container_name: redis
     image: redis:${REDIS_TAG}
     volumes:
-      - ../../apps/emqx_auth_redis/test/emqx_auth_redis_SUITE_data/certs:/tls
+      - ../../apps/emqx/etc/certs/cacert.pem:/etc/certs/ca.crt
+      - ../../apps/emqx/etc/certs/cert.pem:/etc/certs/redis.crt
+      - ../../apps/emqx/etc/certs/key.pem:/etc/certs/redis.key
     command:
       - redis-server
       - "--bind 0.0.0.0 ::"
       - --requirepass public
       - --tls-port 6380
-      - --tls-cert-file /tls/redis.crt
-      - --tls-key-file /tls/redis.key
-      - --tls-ca-cert-file /tls/ca.crt
+      - --tls-cert-file /etc/certs/redis.crt
+      - --tls-key-file /etc/certs/redis.key
+      - --tls-ca-cert-file /etc/certs/ca.crt
     restart: always
     networks:
       - emqx_bridge

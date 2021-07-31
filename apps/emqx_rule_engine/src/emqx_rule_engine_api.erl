@@ -21,8 +21,6 @@
 
 -logger_header("[RuleEngineAPI]").
 
--import(minirest,  [return/1]).
-
 -rest_api(#{name   => create_rule,
             method => 'POST',
             path   => "/rules/",
@@ -552,3 +550,6 @@ get_rule_metrics(Id) ->
 get_action_metrics(Id) ->
     [maps:put(node, Node, rpc:call(Node, emqx_rule_metrics, get_action_metrics, [Id]))
      || Node <- ekka_mnesia:running_nodes()].
+
+%%    TODO: V5 API
+return(_) -> ok.

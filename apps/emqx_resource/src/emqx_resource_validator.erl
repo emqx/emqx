@@ -20,7 +20,7 @@
         , max/2
         , equals/2
         , enum/1
-        , required/1
+        , not_empty/1
         ]).
 
 max(Type, Max) ->
@@ -38,8 +38,8 @@ enum(Items) ->
             err_limit({enum, {is_member_of, Items}, {got, Value}}))
     end.
 
-required(ErrMsg) ->
-    fun(undefined) -> {error, ErrMsg};
+not_empty(ErrMsg) ->
+    fun(<<>>) -> {error, ErrMsg};
        (_) -> ok
     end.
 

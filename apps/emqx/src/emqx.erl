@@ -29,10 +29,6 @@
         , stop/0
         ]).
 
--export([ get_env/1
-        , get_env/2
-        ]).
-
 %% PubSub API
 -export([ subscribe/1
         , subscribe/2
@@ -126,15 +122,6 @@ is_running(Node) ->
         Pid when is_pid(Pid) -> true
     end.
 
-%% @doc Get environment
--spec(get_env(Key :: atom()) -> maybe(term())).
-get_env(Key) ->
-    get_env(Key, undefined).
-
--spec(get_env(Key :: atom(), Default :: term()) -> term()).
-get_env(Key, Default) ->
-    application:get_env(?APP, Key, Default).
-
 %%--------------------------------------------------------------------
 %% PubSub API
 %%--------------------------------------------------------------------
@@ -227,7 +214,6 @@ shutdown() ->
 shutdown(Reason) ->
     ?LOG(critical, "emqx shutdown for ~s", [Reason]),
     _ = emqx_alarm_handler:unload(),
-    _ = emqx_plugins:unload(),
     lists:foreach(fun application:stop/1
                  , lists:reverse(default_started_applications())
                  ).
@@ -235,13 +221,8 @@ shutdown(Reason) ->
 reboot() ->
     lists:foreach(fun application:start/1 , default_started_applications()).
 
--ifdef(EMQX_ENTERPRISE).
 default_started_applications() ->
-    [gproc, esockd, ranch, cowboy, ekka, emqx].
--else.
-default_started_applications() ->
-    [gproc, esockd, ranch, cowboy, ekka, emqx, emqx_modules].
--endif.
+    [gproc, esockd, ranch, cowboy, ekka, quicer, emqx] ++ emqx_feature().
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -253,3 +234,9 @@ reload_config(ConfFile) ->
                       [application:set_env(App, Par, Val) || {Par, Val} <- Vals]
                   end, Conf).
 
+-ifndef(EMQX_DEP_APPS).
+emqx_feature() -> [].
+-else.
+emqx_feature() ->
+    ?EMQX_DEP_APPS.
+-endif.

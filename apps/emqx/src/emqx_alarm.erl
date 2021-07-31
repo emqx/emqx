@@ -17,6 +17,7 @@
 -module(emqx_alarm).
 
 -behaviour(gen_server).
+-behaviour(emqx_config_handler).
 
 -include("emqx.hrl").
 -include("logger.hrl").
@@ -29,9 +30,13 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
--export([ start_link/1
+-export([pre_config_update/2]).
+
+-export([ start_link/0
         , stop/0
         ]).
+
+-export([format/1]).
 
 %% API
 -export([ activate/1
@@ -75,20 +80,15 @@
         }).
 
 -record(state, {
-          actions :: [action()],
-
-          size_limit :: non_neg_integer(),
-
-          validity_period :: non_neg_integer(),
-
-          timer = undefined :: undefined | reference()
+          timer :: reference()
         }).
-
--type action() :: log | publish | event.
 
 -define(ACTIVATED_ALARM, emqx_activated_alarm).
 
 -define(DEACTIVATED_ALARM, emqx_deactivated_alarm).
+
+-rlog_shard({?COMMON_SHARD, ?ACTIVATED_ALARM}).
+-rlog_shard({?COMMON_SHARD, ?DEACTIVATED_ALARM}).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -120,8 +120,8 @@ mnesia(copy) ->
 %% API
 %%--------------------------------------------------------------------
 
-start_link(Opts) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 stop() ->
     gen_server:stop(?MODULE).
@@ -153,27 +153,50 @@ get_alarms(activated) ->
 get_alarms(deactivated) ->
     gen_server:call(?MODULE, {get_alarms, deactivated}).
 
+pre_config_update(#{<<"validity_period">> := Period0} = NewConf, OldConf) ->
+    ?MODULE ! {update_timer, hocon_postprocess:duration(Period0)},
+    merge(OldConf, NewConf);
+pre_config_update(NewConf, OldConf) ->
+    merge(OldConf, NewConf).
+
+merge(undefined, New) -> New;
+merge(Old, New) -> maps:merge(Old, New).
+
+format(#activated_alarm{name = Name, message = Message, activate_at = At, details = Details}) ->
+    Now = erlang:system_time(microsecond),
+    #{
+        node => node(),
+        name => Name,
+        message => Message,
+        duration => Now - At,
+        details => Details
+    };
+format(#deactivated_alarm{name = Name, message = Message, activate_at = At, details = Details,
+            deactivate_at = DAt}) ->
+    #{
+        node => node(),
+        name => Name,
+        message => Message,
+        duration => DAt - At,
+        details => Details
+    };
+format(_) ->
+    {error, unknow_alarm}.
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    Opts = [{actions, [log, publish]}],
-    init([Opts]);
-init([Opts]) ->
     deactivate_all_alarms(),
-    Actions = proplists:get_value(actions, Opts),
-    SizeLimit = proplists:get_value(size_limit, Opts),
-    ValidityPeriod = timer:seconds(proplists:get_value(validity_period, Opts)),
-    {ok, ensure_delete_timer(#state{actions = Actions,
-                                    size_limit = SizeLimit,
-                                    validity_period = ValidityPeriod})}.
+    emqx_config_handler:add_handler([alarm], ?MODULE),
+    {ok, #state{timer = ensure_timer(undefined, get_validity_period())}}.
 
 %% suppress dialyzer warning due to dirty read/write race condition.
 %% TODO: change from dirty_read/write to transactional.
 %% TODO: handle mnesia write errors.
 -dialyzer([{nowarn_function, [handle_call/3]}]).
-handle_call({activate_alarm, Name, Details}, _From, State = #state{actions = Actions}) ->
+handle_call({activate_alarm, Name, Details}, _From, State) ->
     case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
         [#activated_alarm{name = Name}] ->
             {reply, {error, already_existed}, State};
@@ -182,18 +205,17 @@ handle_call({activate_alarm, Name, Details}, _From, State = #state{actions = Act
                                      details = Details,
                                      message = normalize_message(Name, Details),
                                      activate_at = erlang:system_time(microsecond)},
-            mnesia:dirty_write(?ACTIVATED_ALARM, Alarm),
-            do_actions(activate, Alarm, Actions),
+            ekka_mnesia:dirty_write(?ACTIVATED_ALARM, Alarm),
+            do_actions(activate, Alarm, emqx_config:get([alarm, actions])),
             {reply, ok, State}
     end;
 
-handle_call({deactivate_alarm, Name, Details}, _From, State = #state{
-        actions = Actions, size_limit = SizeLimit}) ->
+handle_call({deactivate_alarm, Name, Details}, _From, State) ->
     case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
         [] ->
             {reply, {error, not_found}, State};
         [Alarm] ->
-            deactivate_alarm(Details, SizeLimit, Actions, Alarm),
+            deactivate_alarm(Details, Alarm),
             {reply, ok, State}
     end;
 
@@ -202,9 +224,14 @@ handle_call(delete_all_deactivated_alarms, _From, State) ->
     {reply, ok, State};
 
 handle_call({get_alarms, all}, _From, State) ->
-    Alarms = [normalize(Alarm) ||
-              Alarm <- ets:tab2list(?ACTIVATED_ALARM)
-                    ++ ets:tab2list(?DEACTIVATED_ALARM)],
+    {atomic, Alarms} =
+        ekka_mnesia:ro_transaction(
+          ?COMMON_SHARD,
+          fun() ->
+                  [normalize(Alarm) ||
+                      Alarm <- ets:tab2list(?ACTIVATED_ALARM)
+                          ++ ets:tab2list(?DEACTIVATED_ALARM)]
+          end),
     {reply, Alarms, State};
 
 handle_call({get_alarms, activated}, _From, State) ->
@@ -223,11 +250,15 @@ handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({timeout, TRef, delete_expired_deactivated_alarm},
-            State = #state{timer = TRef,
-                           validity_period = ValidityPeriod}) ->
-    delete_expired_deactivated_alarms(erlang:system_time(microsecond) - ValidityPeriod * 1000),
-    {noreply, ensure_delete_timer(State)};
+handle_info({timeout, _TRef, delete_expired_deactivated_alarm},
+       #state{timer = TRef} = State) ->
+    Period = get_validity_period(),
+    delete_expired_deactivated_alarms(erlang:system_time(microsecond) - Period * 1000),
+    {noreply, State#state{timer = ensure_timer(TRef, Period)}};
+
+handle_info({update_timer, Period}, #state{timer = TRef} = State) ->
+    ?LOG(warning, "update the 'validity_period' timer to ~p", [Period]),
+    {noreply, State#state{timer = ensure_timer(TRef, Period)}};
 
 handle_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
@@ -243,16 +274,18 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-deactivate_alarm(Details, SizeLimit, Actions, #activated_alarm{
-        activate_at = ActivateAt, name = Name, details = Details0,
-        message = Msg0}) ->
-    case SizeLimit > 0 andalso
-         (mnesia:table_info(?DEACTIVATED_ALARM, size) >= SizeLimit) of
+get_validity_period() ->
+    emqx_config:get([alarm, validity_period]).
+
+deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name,
+        details = Details0, message = Msg0}) ->
+    SizeLimit = emqx_config:get([alarm, size_limit]),
+    case SizeLimit > 0 andalso (mnesia:table_info(?DEACTIVATED_ALARM, size) >= SizeLimit) of
         true ->
             case mnesia:dirty_first(?DEACTIVATED_ALARM) of
                 '$end_of_table' -> ok;
                 ActivateAt2 ->
-                    mnesia:dirty_delete(?DEACTIVATED_ALARM, ActivateAt2)
+                    ekka_mnesia:dirty_delete(?DEACTIVATED_ALARM, ActivateAt2)
             end;
         false -> ok
     end,
@@ -261,9 +294,9 @@ deactivate_alarm(Details, SizeLimit, Actions, #activated_alarm{
     DeActAlarm = make_deactivated_alarm(ActivateAt, Name, Details,
                     normalize_message(Name, Details),
                     erlang:system_time(microsecond)),
-    mnesia:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
-    mnesia:dirty_delete(?ACTIVATED_ALARM, Name),
-    do_actions(deactivate, DeActAlarm, Actions).
+    ekka_mnesia:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
+    ekka_mnesia:dirty_delete(?ACTIVATED_ALARM, Name),
+    do_actions(deactivate, DeActAlarm, emqx_config:get([alarm, actions])).
 
 make_deactivated_alarm(ActivateAt, Name, Details, Message, DeActivateAt) ->
     #deactivated_alarm{
@@ -279,7 +312,7 @@ deactivate_all_alarms() ->
                              details = Details,
                              message = Message,
                              activate_at = ActivateAt}) ->
-            mnesia:dirty_write(?DEACTIVATED_ALARM,
+            ekka_mnesia:dirty_write(?DEACTIVATED_ALARM,
                 #deactivated_alarm{
                     activate_at = ActivateAt,
                     name = Name,
@@ -291,7 +324,7 @@ deactivate_all_alarms() ->
 
 %% Delete all records from the given table, ignore result.
 clear_table(TableName) ->
-    case mnesia:clear_table(TableName) of
+    case ekka_mnesia:clear_table(TableName) of
         {aborted, Reason} ->
             ?LOG(warning, "Faile to clear table ~p reason: ~p",
                  [TableName, Reason]);
@@ -299,9 +332,12 @@ clear_table(TableName) ->
             ok
     end.
 
-ensure_delete_timer(State = #state{validity_period = ValidityPeriod}) ->
-    TRef = emqx_misc:start_timer(ValidityPeriod, delete_expired_deactivated_alarm),
-    State#state{timer = TRef}.
+ensure_timer(OldTRef, Period) ->
+    _ = case is_reference(OldTRef) of
+        true -> erlang:cancel_timer(OldTRef);
+        false -> ok
+    end,
+    emqx_misc:start_timer(Period, delete_expired_deactivated_alarm).
 
 delete_expired_deactivated_alarms(Checkpoint) ->
     delete_expired_deactivated_alarms(mnesia:dirty_first(?DEACTIVATED_ALARM), Checkpoint).
@@ -311,7 +347,7 @@ delete_expired_deactivated_alarms('$end_of_table', _Checkpoint) ->
 delete_expired_deactivated_alarms(ActivatedAt, Checkpoint) ->
     case ActivatedAt =< Checkpoint of
         true ->
-            mnesia:dirty_delete(?DEACTIVATED_ALARM, ActivatedAt),
+            ekka_mnesia:dirty_delete(?DEACTIVATED_ALARM, ActivatedAt),
             NActivatedAt = mnesia:dirty_next(?DEACTIVATED_ALARM, ActivatedAt),
             delete_expired_deactivated_alarms(NActivatedAt, Checkpoint);
         false ->
@@ -372,9 +408,9 @@ normalize_message(high_system_memory_usage, #{high_watermark := HighWatermark}) 
 normalize_message(high_process_memory_usage, #{high_watermark := HighWatermark}) ->
     list_to_binary(io_lib:format("Process memory usage is higher than ~p%", [HighWatermark]));
 normalize_message(high_cpu_usage, #{usage := Usage}) ->
-    list_to_binary(io_lib:format("~p% cpu usage", [Usage]));
+    list_to_binary(io_lib:format("~s cpu usage", [Usage]));
 normalize_message(too_many_processes, #{usage := Usage}) ->
-    list_to_binary(io_lib:format("~p% process usage", [Usage]));
+    list_to_binary(io_lib:format("~s process usage", [Usage]));
 normalize_message(partition, #{occurred := Node}) ->
     list_to_binary(io_lib:format("Partition occurs at node ~s", [Node]));
 normalize_message(<<"resource", _/binary>>, #{type := Type, id := ID}) ->

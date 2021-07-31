@@ -38,15 +38,22 @@ all() -> emqx_ct:all(?MODULE).
 % t_add(_) ->
 %     error('TODO').
     
-t_add_del_hook(_) ->
+t_add_put_del_hook(_) ->
     {ok, _} = emqx_hooks:start_link(),
     ok = emqx:hook(test_hook, {?MODULE, hook_fun1, []}),
     ok = emqx:hook(test_hook, {?MODULE, hook_fun2, []}),
     ?assertEqual({error, already_exists},
                  emqx:hook(test_hook, {?MODULE, hook_fun2, []})),
-    Callbacks = [{callback, {?MODULE, hook_fun1, []}, undefined, 0},
-                 {callback, {?MODULE, hook_fun2, []}, undefined, 0}],
-    ?assertEqual(Callbacks, emqx_hooks:lookup(test_hook)),
+    Callbacks0 = [{callback, {?MODULE, hook_fun1, []}, undefined, 0},
+                  {callback, {?MODULE, hook_fun2, []}, undefined, 0}],
+    ?assertEqual(Callbacks0, emqx_hooks:lookup(test_hook)),
+
+    ok = emqx_hooks:put(test_hook, {?MODULE, hook_fun1, [test]}),
+    ok = emqx_hooks:put(test_hook, {?MODULE, hook_fun2, [test]}),
+    Callbacks1 = [{callback, {?MODULE, hook_fun1, [test]}, undefined, 0},
+                  {callback, {?MODULE, hook_fun2, [test]}, undefined, 0}],
+    ?assertEqual(Callbacks1, emqx_hooks:lookup(test_hook)),
+
     ok = emqx:unhook(test_hook, {?MODULE, hook_fun1}),
     ok = emqx:unhook(test_hook, {?MODULE, hook_fun2}),
     timer:sleep(200),
@@ -61,10 +68,21 @@ t_add_del_hook(_) ->
                   {callback, {?MODULE, hook_fun8, []}, undefined, 8},
                   {callback, {?MODULE, hook_fun2, []}, undefined, 2}],
     ?assertEqual(Callbacks2, emqx_hooks:lookup(emqx_hook)),
-    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun2, []}),
-    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun8, []}),
-    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun9, []}),
-    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun10, []}),
+
+    ok = emqx_hooks:put(emqx_hook, {?MODULE, hook_fun8, [test]}, 3),
+    ok = emqx_hooks:put(emqx_hook, {?MODULE, hook_fun2, [test]}, 4),
+    ok = emqx_hooks:put(emqx_hook, {?MODULE, hook_fun10, [test]}, 1),
+    ok = emqx_hooks:put(emqx_hook, {?MODULE, hook_fun9, [test]}, 2),
+    Callbacks3 = [{callback, {?MODULE, hook_fun2, [test]}, undefined, 4},
+                  {callback, {?MODULE, hook_fun8, [test]}, undefined, 3},
+                  {callback, {?MODULE, hook_fun9, [test]}, undefined, 2},
+                  {callback, {?MODULE, hook_fun10, [test]}, undefined, 1}],
+    ?assertEqual(Callbacks3, emqx_hooks:lookup(emqx_hook)),
+
+    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun2, [test]}),
+    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun8, [test]}),
+    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun9, [test]}),
+    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun10, [test]}),
     timer:sleep(200),
     ?assertEqual([], emqx_hooks:lookup(emqx_hook)),
     ok = emqx_hooks:stop().

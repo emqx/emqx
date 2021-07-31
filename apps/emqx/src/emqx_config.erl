@@ -15,132 +15,271 @@
 %%--------------------------------------------------------------------
 -module(emqx_config).
 
--compile({no_auto_import, [get/0, get/1]}).
+-compile({no_auto_import, [get/0, get/1, put/2]}).
 
--export([ get/0
-        , get/1
+-export([ init_load/2
+        , read_override_conf/0
+        , check_config/2
+        , save_configs/4
+        , save_to_app_env/1
+        , save_to_config_map/2
+        , save_to_override_conf/1
+        ]).
+
+-export([get_root/1,
+         get_root_raw/1]).
+
+-export([ get/1
         , get/2
+        , find/1
         , put/1
         , put/2
         ]).
 
--export([ update_config/2
+-export([ get_zone_conf/2
+        , get_zone_conf/3
+        , put_zone_conf/3
+        , find_zone_conf/2
         ]).
 
-%% raw configs is the config that is now parsed and tranlated by hocon schema
--export([ get_raw/0
-        , get_raw/1
+-export([ get_listener_conf/3
+        , get_listener_conf/4
+        , put_listener_conf/4
+        , find_listener_conf/3
+        ]).
+
+-export([ update/2
+        , update/3
+        , remove/1
+        , remove/2
+        ]).
+
+-export([ get_raw/1
         , get_raw/2
         , put_raw/1
         , put_raw/2
         ]).
 
--export([ deep_get/2
-        , deep_get/3
-        , deep_put/3
-        , safe_atom_key_map/1
-        , unsafe_atom_key_map/1
-        ]).
+-define(CONF, fun(ROOT) -> {?MODULE, bin(ROOT)} end).
+-define(RAW_CONF, fun(ROOT) -> {?MODULE, raw, bin(ROOT)} end).
+-define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
+-define(LISTENER_CONF_PATH(ZONE, LISTENER, PATH), [zones, ZONE, listeners, LISTENER | PATH]).
 
--define(CONF, ?MODULE).
--define(RAW_CONF, {?MODULE, raw}).
-
--export_type([update_request/0, raw_config/0, config_key/0, config_key_path/0]).
+-export_type([update_request/0, raw_config/0, config/0]).
 -type update_request() :: term().
--type raw_config() :: hocon:config() | undefined.
--type config_key() :: atom() | binary().
--type config_key_path() :: [config_key()].
+%% raw_config() is the config that is NOT parsed and tranlated by hocon schema
+-type raw_config() :: #{binary() => term()} | undefined.
+%% config() is the config that is parsed and tranlated by hocon schema
+-type config() :: #{atom() => term()} | undefined.
+-type app_envs() :: [proplists:property()].
 
--spec get() -> map().
-get() ->
-    persistent_term:get(?CONF, #{}).
+%% @doc For the given path, get root value enclosed in a single-key map.
+-spec get_root(emqx_map_lib:config_key_path()) -> map().
+get_root([RootName | _]) ->
+    #{RootName => do_get(?CONF, [RootName], #{})}.
 
--spec get(config_key_path()) -> term().
-get(KeyPath) ->
-    deep_get(KeyPath, get()).
+%% @doc For the given path, get raw root value enclosed in a single-key map.
+%% key is ensured to be binary.
+get_root_raw([RootName | _]) ->
+    #{bin(RootName) => do_get(?RAW_CONF, [RootName], #{})}.
 
--spec get(config_key_path(), term()) -> term().
-get(KeyPath, Default) ->
-    deep_get(KeyPath, get(), Default).
+%% @doc Get a config value for the given path.
+%% The path should at least include root config name.
+-spec get(emqx_map_lib:config_key_path()) -> term().
+get(KeyPath) -> do_get(?CONF, KeyPath).
+
+-spec get(emqx_map_lib:config_key_path(), term()) -> term().
+get(KeyPath, Default) -> do_get(?CONF, KeyPath, Default).
+
+-spec find(emqx_map_lib:config_key_path()) ->
+    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+find(KeyPath) ->
+    emqx_map_lib:deep_find(KeyPath, get_root(KeyPath)).
+
+-spec get_zone_conf(atom(), emqx_map_lib:config_key_path()) -> term().
+get_zone_conf(Zone, KeyPath) ->
+    ?MODULE:get(?ZONE_CONF_PATH(Zone, KeyPath)).
+
+-spec get_zone_conf(atom(), emqx_map_lib:config_key_path(), term()) -> term().
+get_zone_conf(Zone, KeyPath, Default) ->
+    ?MODULE:get(?ZONE_CONF_PATH(Zone, KeyPath), Default).
+
+-spec put_zone_conf(atom(), emqx_map_lib:config_key_path(), term()) -> ok.
+put_zone_conf(Zone, KeyPath, Conf) ->
+    ?MODULE:put(?ZONE_CONF_PATH(Zone, KeyPath), Conf).
+
+-spec find_zone_conf(atom(), emqx_map_lib:config_key_path()) ->
+    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+find_zone_conf(Zone, KeyPath) ->
+    find(?ZONE_CONF_PATH(Zone, KeyPath)).
+
+-spec get_listener_conf(atom(), atom(), emqx_map_lib:config_key_path()) -> term().
+get_listener_conf(Zone, Listener, KeyPath) ->
+    ?MODULE:get(?LISTENER_CONF_PATH(Zone, Listener, KeyPath)).
+
+-spec get_listener_conf(atom(), atom(), emqx_map_lib:config_key_path(), term()) -> term().
+get_listener_conf(Zone, Listener, KeyPath, Default) ->
+    ?MODULE:get(?LISTENER_CONF_PATH(Zone, Listener, KeyPath), Default).
+
+-spec put_listener_conf(atom(), atom(), emqx_map_lib:config_key_path(), term()) -> ok.
+put_listener_conf(Zone, Listener, KeyPath, Conf) ->
+    ?MODULE:put(?LISTENER_CONF_PATH(Zone, Listener, KeyPath), Conf).
+
+-spec find_listener_conf(atom(), atom(), emqx_map_lib:config_key_path()) ->
+    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+find_listener_conf(Zone, Listener, KeyPath) ->
+    find(?LISTENER_CONF_PATH(Zone, Listener, KeyPath)).
 
 -spec put(map()) -> ok.
 put(Config) ->
-    persistent_term:put(?CONF, Config).
+    maps:fold(fun(RootName, RootValue, _) ->
+                      ?MODULE:put([RootName], RootValue)
+              end, [], Config).
 
--spec put(config_key_path(), term()) -> ok.
-put(KeyPath, Config) ->
-    put(deep_put(KeyPath, get(), Config)).
+-spec put(emqx_map_lib:config_key_path(), term()) -> ok.
+put(KeyPath, Config) -> do_put(?CONF, KeyPath, Config).
 
--spec update_config(config_key_path(), update_request()) ->
+-spec update(emqx_map_lib:config_key_path(), update_request()) ->
     ok | {error, term()}.
-update_config(ConfKeyPath, UpdateReq) ->
-    emqx_config_handler:update_config(ConfKeyPath, UpdateReq, get_raw()).
+update(ConfKeyPath, UpdateReq) ->
+    update(emqx_schema, ConfKeyPath, UpdateReq).
 
--spec get_raw() -> map().
-get_raw() ->
-    persistent_term:get(?RAW_CONF, #{}).
+-spec update(module(), emqx_map_lib:config_key_path(), update_request()) ->
+    ok | {error, term()}.
+update(SchemaModule, ConfKeyPath, UpdateReq) ->
+    emqx_config_handler:update_config(SchemaModule, ConfKeyPath, UpdateReq).
 
--spec get_raw(config_key_path()) -> term().
-get_raw(KeyPath) ->
-    deep_get(KeyPath, get_raw()).
+-spec remove(emqx_map_lib:config_key_path()) -> ok | {error, term()}.
+remove(ConfKeyPath) ->
+    remove(emqx_schema, ConfKeyPath).
 
--spec get_raw(config_key_path(), term()) -> term().
-get_raw(KeyPath, Default) ->
-    deep_get(KeyPath, get_raw(), Default).
+remove(SchemaModule, ConfKeyPath) ->
+    emqx_config_handler:remove_config(SchemaModule, ConfKeyPath).
+
+-spec get_raw(emqx_map_lib:config_key_path()) -> term().
+get_raw(KeyPath) -> do_get(?RAW_CONF, KeyPath).
+
+-spec get_raw(emqx_map_lib:config_key_path(), term()) -> term().
+get_raw(KeyPath, Default) -> do_get(?RAW_CONF, KeyPath, Default).
 
 -spec put_raw(map()) -> ok.
 put_raw(Config) ->
-    persistent_term:put(?RAW_CONF, Config).
+    maps:fold(fun(RootName, RootV, _) ->
+                      ?MODULE:put_raw([RootName], RootV)
+              end, [], hocon_schema:get_value([], Config)).
 
--spec put_raw(config_key_path(), term()) -> ok.
-put_raw(KeyPath, Config) ->
-    put_raw(deep_put(KeyPath, get_raw(), Config)).
+-spec put_raw(emqx_map_lib:config_key_path(), term()) -> ok.
+put_raw(KeyPath, Config) -> do_put(?RAW_CONF, KeyPath, Config).
 
-%%-----------------------------------------------------------------
--dialyzer([{nowarn_function, [deep_get/2]}]).
--spec deep_get(config_key_path(), map()) -> term().
-deep_get(ConfKeyPath, Map) ->
-    do_deep_get(ConfKeyPath, Map, fun(KeyPath, Data) ->
-        error({not_found, KeyPath, Data}) end).
+%%============================================================================
+%% Load/Update configs From/To files
+%%============================================================================
 
--spec deep_get(config_key_path(), map(), term()) -> term().
-deep_get(ConfKeyPath, Map, Default) ->
-    do_deep_get(ConfKeyPath, Map, fun(_, _) -> Default end).
-
--spec deep_put(config_key_path(), map(), term()) -> map().
-deep_put([], Map, Config) when is_map(Map) ->
-    Config;
-deep_put([Key | KeyPath], Map, Config) ->
-    SubMap = deep_put(KeyPath, maps:get(Key, Map, #{}), Config),
-    Map#{Key => SubMap}.
-
-unsafe_atom_key_map(Map) ->
-    covert_keys_to_atom(Map, fun(K) -> binary_to_atom(K, utf8) end).
-
-safe_atom_key_map(Map) ->
-    covert_keys_to_atom(Map, fun(K) -> binary_to_existing_atom(K, utf8) end).
-
-%%---------------------------------------------------------------------------
-
--spec do_deep_get(config_key_path(), map(), fun((config_key(), term()) -> any())) -> term().
-do_deep_get([], Map, _) ->
-    Map;
-do_deep_get([Key | KeyPath], Map, OnNotFound) when is_map(Map) ->
-    case maps:find(Key, Map) of
-        {ok, SubMap} -> do_deep_get(KeyPath, SubMap, OnNotFound);
-        error -> OnNotFound(Key, Map)
+%% @doc Initial load of the given config files.
+%% NOTE: The order of the files is significant, configs from files orderd
+%% in the rear of the list overrides prior values.
+-spec init_load(module(), [string()] | binary() | hocon:config()) -> ok.
+init_load(SchemaModule, Conf) when is_list(Conf) orelse is_binary(Conf) ->
+    ParseOptions = #{format => richmap},
+    Parser = case is_binary(Conf) of
+              true -> fun hocon:binary/2;
+              false -> fun hocon:files/2
+             end,
+    case Parser(Conf, ParseOptions) of
+        {ok, RawRichConf} ->
+            init_load(SchemaModule, RawRichConf);
+        {error, Reason} ->
+            logger:error(#{msg => failed_to_load_hocon_conf,
+                           reason => Reason
+                          }),
+            error(failed_to_load_hocon_conf)
     end;
-do_deep_get([Key | _KeyPath], Data, OnNotFound) ->
-    OnNotFound(Key, Data).
+init_load(SchemaModule, RawRichConf) when is_map(RawRichConf) ->
+    %% check with richmap for line numbers in error reports (future enhancement)
+    Opts = #{return_plain => true,
+             nullable => true
+            },
+    %% this call throws exception in case of check failure
+    {_AppEnvs, CheckedConf} = hocon_schema:map_translate(SchemaModule, RawRichConf, Opts),
+    ok = save_to_config_map(emqx_map_lib:unsafe_atom_key_map(CheckedConf),
+            hocon_schema:richmap_to_map(RawRichConf)).
 
-covert_keys_to_atom(BinKeyMap, Conv) when is_map(BinKeyMap) ->
-    maps:fold(
-        fun(K, V, Acc) when is_binary(K) ->
-              Acc#{Conv(K) => covert_keys_to_atom(V, Conv)};
-           (K, V, Acc) when is_atom(K) ->
-              %% richmap keys
-              Acc#{K => covert_keys_to_atom(V, Conv)}
-        end, #{}, BinKeyMap);
-covert_keys_to_atom(ListV, Conv) when is_list(ListV) ->
-    [covert_keys_to_atom(V, Conv) || V <- ListV];
-covert_keys_to_atom(Val, _) -> Val.
+-spec check_config(module(), raw_config()) -> {AppEnvs, CheckedConf}
+    when AppEnvs :: app_envs(), CheckedConf :: config().
+check_config(SchemaModule, RawConf) ->
+    Opts = #{return_plain => true,
+             nullable => true,
+             is_richmap => false
+            },
+    {AppEnvs, CheckedConf} =
+        hocon_schema:map_translate(SchemaModule, RawConf, Opts),
+    Conf = maps:with(maps:keys(RawConf), CheckedConf),
+    {AppEnvs, emqx_map_lib:unsafe_atom_key_map(Conf)}.
+
+-spec read_override_conf() -> raw_config().
+read_override_conf() ->
+    load_hocon_file(emqx_override_conf_name(), map).
+
+-spec save_configs(app_envs(), config(), raw_config(), raw_config()) -> ok | {error, term()}.
+save_configs(_AppEnvs, Conf, RawConf, OverrideConf) ->
+    %% We may need also support hot config update for the apps that use application envs.
+    %% If that is the case uncomment the following line to update the configs to app env
+    %save_to_app_env(AppEnvs),
+    save_to_config_map(Conf, RawConf),
+    %% TODO: merge RawConf to OverrideConf can be done here
+    save_to_override_conf(OverrideConf).
+
+-spec save_to_app_env([tuple()]) -> ok.
+save_to_app_env(AppEnvs) ->
+    lists:foreach(fun({AppName, Envs}) ->
+            [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
+        end, AppEnvs).
+
+-spec save_to_config_map(config(), raw_config()) -> ok.
+save_to_config_map(Conf, RawConf) ->
+    ?MODULE:put(Conf),
+    ?MODULE:put_raw(RawConf).
+
+-spec save_to_override_conf(raw_config()) -> ok | {error, term()}.
+save_to_override_conf(RawConf) ->
+    FileName = emqx_override_conf_name(),
+    ok = filelib:ensure_dir(FileName),
+    case file:write_file(FileName, jsx:prettify(jsx:encode(RawConf))) of
+        ok -> ok;
+        {error, Reason} ->
+            logger:error("write to ~s failed, ~p", [FileName, Reason]),
+            {error, Reason}
+    end.
+
+load_hocon_file(FileName, LoadType) ->
+    case filelib:is_regular(FileName) of
+        true ->
+            {ok, Raw0} = hocon:load(FileName, #{format => LoadType}),
+            Raw0;
+        false -> #{}
+    end.
+
+emqx_override_conf_name() ->
+    filename:join([?MODULE:get([node, data_dir]), "emqx_override.conf"]).
+
+bin(Bin) when is_binary(Bin) -> Bin;
+bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+do_get(PtKey, KeyPath) ->
+    Ref = make_ref(),
+    Res = do_get(PtKey, KeyPath, Ref),
+    case Res =:= Ref of
+        true -> error({config_not_found, KeyPath});
+        false -> Res
+    end.
+
+do_get(PtKey, [RootName], Default) ->
+    persistent_term:get(PtKey(RootName), Default);
+do_get(PtKey, [RootName | KeyPath], Default) ->
+    RootV = persistent_term:get(PtKey(RootName), #{}),
+    emqx_map_lib:deep_get(KeyPath, RootV, Default).
+
+do_put(PtKey, [RootName | KeyPath], DeepValue) ->
+    OldValue = do_get(PtKey, [RootName], #{}),
+    NewValue = emqx_map_lib:deep_put(KeyPath, OldValue, DeepValue),
+    persistent_term:put(PtKey(RootName), NewValue).

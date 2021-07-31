@@ -18,15 +18,11 @@
 
 -module(emqx_bridge_mqtt).
 
--behaviour(emqx_bridge_connect).
-
-%% behaviour callbacks
 -export([ start/1
         , send/2
         , stop/1
         ]).
 
-%% optional behaviour callbacks
 -export([ ensure_subscribed/3
         , ensure_unsubscribed/2
         ]).
@@ -35,6 +31,9 @@
 -export([ handle_puback/2
         , handle_publish/2
         , handle_disconnected/2
+        ]).
+
+-export([ check_subscriptions/1
         ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -49,26 +48,31 @@
 %% emqx_bridge_connect callbacks
 %%--------------------------------------------------------------------
 
-start(Config = #{address := Address}) ->
+start(Config) ->
     Parent = self(),
+    Address = maps:get(address, Config),
     Mountpoint = maps:get(receive_mountpoint, Config, undefined),
+    Subscriptions = maps:get(subscriptions, Config, []),
+    Subscriptions1 = check_subscriptions(Subscriptions),
     Handlers = make_hdlr(Parent, Mountpoint),
     {Host, Port} = case string:tokens(Address, ":") of
                        [H] -> {H, 1883};
                        [H, P] -> {H, list_to_integer(P)}
                    end,
-    ClientConfig = Config#{msg_handler => Handlers,
-                           host => Host,
-                           port => Port,
-                           force_ping => true
-                          },
-    case emqtt:start_link(replvar(ClientConfig)) of
+    Config1 = Config#{
+        msg_handler => Handlers,
+        host => Host,
+        port => Port,
+        force_ping => true,
+        proto_ver => maps:get(proto_ver, Config, v4)
+    },
+    case emqtt:start_link(without_config(Config1)) of
         {ok, Pid} ->
             case emqtt:connect(Pid) of
                 {ok, _} ->
                     try
-                        subscribe_remote_topics(Pid, maps:get(subscriptions, Config, [])),
-                        {ok, #{client_pid => Pid}}
+                        Subscriptions2 = subscribe_remote_topics(Pid, Subscriptions1),
+                        {ok, #{client_pid => Pid, subscriptions => Subscriptions2}}
                     catch
                         throw : Reason ->
                             ok = stop(#{client_pid => Pid}),
@@ -86,25 +90,25 @@ stop(#{client_pid := Pid}) ->
     safe_stop(Pid, fun() -> emqtt:stop(Pid) end, 1000),
     ok.
 
-ensure_subscribed(#{client_pid := Pid}, Topic, QoS) when is_pid(Pid) ->
+ensure_subscribed(#{client_pid := Pid, subscriptions := Subs} = Conn, Topic, QoS) when is_pid(Pid) ->
     case emqtt:subscribe(Pid, Topic, QoS) of
-        {ok, _, _} -> ok;
-        Error -> Error
+        {ok, _, _} -> Conn#{subscriptions => [{Topic, QoS}|Subs]};
+        Error -> {error, Error}
     end;
 ensure_subscribed(_Conn, _Topic, _QoS) ->
     %% return ok for now
     %% next re-connect should should call start with new topic added to config
     ok.
 
-ensure_unsubscribed(#{client_pid := Pid}, Topic) when is_pid(Pid) ->
+ensure_unsubscribed(#{client_pid := Pid, subscriptions := Subs} = Conn, Topic) when is_pid(Pid) ->
     case emqtt:unsubscribe(Pid, Topic) of
-        {ok, _, _} -> ok;
-        Error -> Error
+        {ok, _, _} -> Conn#{subscriptions => lists:keydelete(Topic, 1, Subs)};
+        Error -> {error, Error}
     end;
-ensure_unsubscribed(_, _) ->
+ensure_unsubscribed(Conn, _) ->
     %% return ok for now
     %% next re-connect should should call start with this topic deleted from config
-    ok.
+    Conn.
 
 safe_stop(Pid, StopF, Timeout) ->
     MRef = monitor(process, Pid),
@@ -169,36 +173,18 @@ make_hdlr(Parent, Mountpoint) ->
      }.
 
 subscribe_remote_topics(ClientPid, Subscriptions) ->
-    lists:foreach(fun({Topic, Qos}) ->
-                          case emqtt:subscribe(ClientPid, Topic, Qos) of
-                              {ok, _, _} -> ok;
-                              Error -> throw(Error)
-                          end
-                  end, Subscriptions).
+    lists:map(fun({Topic, Qos}) ->
+        case emqtt:subscribe(ClientPid, Topic, Qos) of
+            {ok, _, _} -> {Topic, Qos};
+            Error -> throw(Error)
+        end
+    end, Subscriptions).
 
-%%--------------------------------------------------------------------
-%% Internal funcs
-%%--------------------------------------------------------------------
+without_config(Config) ->
+    maps:without([conn_type, address, receive_mountpoint, subscriptions], Config).
 
-replvar(Options) ->
-    replvar([clientid, max_inflight], Options).
-
-replvar([], Options) ->
-    Options;
-replvar([Key|More], Options) ->
-    case maps:get(Key, Options, undefined) of
-        undefined ->
-            replvar(More, Options);
-        Val ->
-            replvar(More, maps:put(Key, feedvar(Key, Val, Options), Options))
-    end.
-
-%% ${node} => node()
-feedvar(clientid, ClientId, _) ->
-    iolist_to_binary(re:replace(ClientId, "\\${node}", atom_to_list(node())));
-
-feedvar(max_inflight, 0, _) ->
-    infinity;
-
-feedvar(max_inflight, Size, _) ->
-    Size.
+check_subscriptions(Subscriptions) ->
+    lists:map(fun(#{qos := QoS, topic := Topic}) ->
+        true = emqx_topic:validate({filter, Topic}),
+        {Topic, QoS}
+    end, Subscriptions).

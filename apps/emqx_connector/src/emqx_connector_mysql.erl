@@ -37,6 +37,9 @@
 structs() -> [""].
 
 fields("") ->
+    [{config, #{type => hoconsc:ref(?MODULE, config)}}];
+
+fields(config) ->
     emqx_connector_schema_lib:relational_db_fields() ++
     emqx_connector_schema_lib:ssl_fields().
 
@@ -51,14 +54,14 @@ on_start(InstId, #{server := {Host, Port},
                    username := User,
                    password := Password,
                    auto_reconnect := AutoReconn,
-                   pool_size := PoolSize} = Config) ->
+                   pool_size := PoolSize,
+                   ssl := SSL } = Config) ->
     logger:info("starting mysql connector: ~p, config: ~p", [InstId, Config]),
-    SslOpts = case maps:get(ssl, Config) of
+    SslOpts = case maps:get(enable, SSL) of
         true ->
             [{ssl, [{server_name_indication, disable} |
-                    emqx_plugin_libs_ssl:save_files_return_opts(Config, "connectors", InstId)]}];
-        false ->
-            []
+                    emqx_plugin_libs_ssl:save_files_return_opts(SSL, "connectors", InstId)]}];
+        false -> []
     end,
     Options = [{host, Host},
                {port, Port},

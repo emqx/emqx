@@ -63,6 +63,7 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `service.nodePorts.dashboard`  | Kubernetes node port for dashboard. |nil|
 | `service.loadBalancerIP`  | loadBalancerIP for Service |	nil |
 | `service.loadBalancerSourceRanges` |	Address(es) that are allowed when service is LoadBalancer |	[] |
+| `service.externalIPs` |	ExternalIPs for the service |	[] |
 | `service.annotations` |	Service annotations |	{}(evaluated as a template)|
 | `ingress.dashboard.enabled` |	Enable ingress for EMQX Dashboard |	false |
 | `ingress.dashboard.path` | Ingress path for EMQX Dashboard |	/ |
@@ -75,4 +76,3 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `ingress.mgmt.tls` | Ingress tls for EMQX Mgmt API |	[] |
 | `ingress.mgmt.annotations` | Ingress annotations for EMQX Mgmt API |	{} |
 | `emqxConfig` | Emqx configuration item, see the [documentation](https://hub.docker.com/r/emqx/emqx) | |
-| `emqxAclConfig` | Emqx acl configuration item, see the [documentation](https://docs.emqx.io/broker/latest/en/advanced/acl-file.html) | |

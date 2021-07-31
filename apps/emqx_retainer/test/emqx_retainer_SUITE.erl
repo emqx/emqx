@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(APP, emqx).
+-define(APP, emqx_retainer).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -31,23 +31,50 @@ all() -> emqx_ct:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_retainer]),
+    application:stop(emqx_retainer),
+    emqx_ct_helpers:start_apps([emqx_retainer], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_retainer]).
 
 init_per_testcase(TestCase, Config) ->
-    emqx_retainer:clean(<<"#">>),
-    case TestCase of
-        t_message_expiry_2 ->
-            application:set_env(emqx_retainer, expiry_interval, 2000);
-        _ ->
-            application:set_env(emqx_retainer, expiry_interval, 0)
-    end,
-    application:stop(emqx_retainer),
+    emqx_retainer:clean(),
+    DefaultCfg = new_emqx_retainer_conf(),
+    NewCfg = case TestCase of
+                 t_message_expiry_2 ->
+                     DefaultCfg#{msg_expiry_interval := 2000};
+                 t_flow_control ->
+                     DefaultCfg#{flow_control := #{max_read_number => 1,
+                                                   msg_deliver_quota => 1,
+                                                   quota_release_interval => timer:seconds(1)}};
+                 _ ->
+                     DefaultCfg
+             end,
+    emqx_retainer:update_config(NewCfg),
     application:ensure_all_started(emqx_retainer),
     Config.
+
+set_special_configs(emqx_retainer) ->
+    init_emqx_retainer_conf();
+set_special_configs(_) ->
+    ok.
+
+init_emqx_retainer_conf() ->
+    emqx_config:put([?APP], new_emqx_retainer_conf()).
+
+new_emqx_retainer_conf() ->
+    #{enable => true,
+      msg_expiry_interval => 0,
+      msg_clear_interval => 0,
+      connector => [#{type => mnesia,
+                      config =>
+                          #{max_retained_messages => 0,
+                            storage_type => ram}}],
+      flow_control => #{max_read_number => 0,
+                        msg_deliver_quota => 0,
+                        quota_release_interval => 0},
+                      max_payload_size => 1024 * 1024}.
 
 %%--------------------------------------------------------------------
 %% Test Cases
@@ -75,18 +102,35 @@ t_retain_handling(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
 
+    %% rh = 0, no wildcard, and with empty retained message
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
+    ?assertEqual(0, length(receive_messages(1))),
+    {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained">>),
+
+    %% rh = 0, has wildcard, and with empty retained message
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
+    ?assertEqual(0, length(receive_messages(1))),
+    {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained/#">>),
+
     emqtt:publish(C1, <<"retained">>, <<"this is a retained message">>, [{qos, 0}, {retain, true}]),
 
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(1, length(receive_messages(1))),
+
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(1, length(receive_messages(1))),
+
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
+    ?assertEqual(1, length(receive_messages(1))),
+
     {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained">>),
 
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 1}]),
     ?assertEqual(1, length(receive_messages(1))),
+
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 1}]),
     ?assertEqual(0, length(receive_messages(1))),
+
     {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained">>),
 
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 2}]),
@@ -162,14 +206,31 @@ t_clean(_) ->
     emqtt:publish(C1, <<"retained/0">>, <<"this is a retained message 0">>, [{qos, 0}, {retain, true}]),
     emqtt:publish(C1, <<"retained/1">>, <<"this is a retained message 1">>, [{qos, 0}, {retain, true}]),
     emqtt:publish(C1, <<"retained/test/0">>, <<"this is a retained message 2">>, [{qos, 0}, {retain, true}]),
-
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(3, length(receive_messages(3))),
 
-    1 = emqx_retainer:clean(<<"retained/test/0">>),
-    2 = emqx_retainer:clean(<<"retained/+">>),
+    ok = emqx_retainer:delete(<<"retained/test/0">>),
+    ok = emqx_retainer:delete(<<"retained/+">>),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(0, length(receive_messages(3))),
+
+    ok = emqtt:disconnect(C1).
+
+t_flow_control(_) ->
+    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+    emqtt:publish(C1, <<"retained/0">>, <<"this is a retained message 0">>, [{qos, 0}, {retain, true}]),
+    emqtt:publish(C1, <<"retained/1">>, <<"this is a retained message 1">>, [{qos, 0}, {retain, true}]),
+    emqtt:publish(C1, <<"retained/3">>, <<"this is a retained message 3">>, [{qos, 0}, {retain, true}]),
+    Begin = erlang:system_time(millisecond),
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
+    ?assertEqual(3, length(receive_messages(3))),
+    End = erlang:system_time(millisecond),
+    Diff = End - Begin,
+
+    %% msg_deliver_quota = 1 and quota_release_interval = 1, and there has three message
+    %% so total wait time is between in 1 ~ 2s(may be timer will delay, so plus 0.5s to maximum)
+    ?assert(Diff > timer:seconds(1) andalso Diff < timer:seconds(2.5)),
 
     ok = emqtt:disconnect(C1).
 
@@ -192,4 +253,3 @@ receive_messages(Count, Msgs) ->
     after 2000 ->
             Msgs
     end.
-

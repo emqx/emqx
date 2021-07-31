@@ -7,3 +7,6 @@ EMQ X Management API
 
 http://restful-api-design.readthedocs.io/en/latest/scope.html
 
+default application see:
+header:
+authorization: Basic YWRtaW46cHVibGlj

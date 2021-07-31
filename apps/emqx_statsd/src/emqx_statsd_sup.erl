@@ -7,63 +7,48 @@
 
 -behaviour(supervisor).
 
--include("emqx_statsd.hrl").
-
--export([start_link/0]).
-
--export([start_statsd/0, stop_statsd/0]).
+-export([ start_link/0
+        , start_child/1
+        , start_child/2
+        , stop_child/1
+        ]).
 
 -export([init/1]).
 
--export([estatsd_options/0]).
+%% Helper macro for declaring children of supervisor
+-define(CHILD(Mod, Opts), #{id => Mod,
+                            start => {Mod, start_link, [Opts]},
+                            restart => permanent,
+                            shutdown => 5000,
+                            type => worker,
+                            modules => [Mod]}).
 
- start_link() ->
-     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
- init([]) ->
-    {ok, {{one_for_one, 10, 100}, []}}.
+-spec start_child(supervisor:child_spec()) -> ok.
+start_child(ChildSpec) when is_map(ChildSpec) ->
+    assert_started(supervisor:start_child(?MODULE, ChildSpec)).
 
-start_statsd() ->
-    {ok, Pid} = supervisor:start_child(?MODULE, estatsd_child_spec()),
-    {ok, _Pid1} = supervisor:start_child(?MODULE, emqx_statsd_child_spec(Pid)).
+-spec start_child(atom(), map()) -> ok.
+start_child(Mod, Opts) when is_atom(Mod) andalso is_map(Opts) ->
+    assert_started(supervisor:start_child(?MODULE, ?CHILD(Mod, Opts))).
 
-stop_statsd() ->
-    ok = supervisor:terminate_child(?MODULE, emqx_statsd),
-    ok = supervisor:terminate_child(?MODULE, estatsd).
-%%==============================================================================================
-%% internal
-estatsd_child_spec() ->
-    #{id       => estatsd
-    , start    => {estatsd, start_link, [estatsd_options()]}
-    , restart  => permanent
-    , shutdown => 5000
-    , type     => worker
-    , modules  => [estatsd]}.
+-spec(stop_child(any()) -> ok | {error, term()}).
+stop_child(ChildId) ->
+    case supervisor:terminate_child(?MODULE, ChildId) of
+        ok -> supervisor:delete_child(?MODULE, ChildId);
+        Error -> Error
+    end.
 
-estatsd_options() ->
-    Host =  get_conf(host, ?DEFAULT_HOST),
-    Port =  get_conf(port, ?DEFAULT_PORT),
-    Prefix = get_conf(prefix, ?DEFAULT_PREFIX),
-    Tags = tags(get_conf(tags, ?DEFAULT_TAGS)),
-    BatchSize = get_conf(batch_size, ?DEFAULT_BATCH_SIZE),
-    [{host, Host}, {port, Port}, {prefix, Prefix}, {tags, Tags}, {batch_size, BatchSize}].
+init([]) ->
+    {ok, {{one_for_one, 10, 3600}, []}}.
 
-tags(Map) ->
-    Tags = maps:to_list(Map),
-    [{atom_to_binary(Key, utf8), Value} || {Key, Value} <- Tags].
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
-emqx_statsd_child_spec(Pid) ->
-    #{id       => emqx_statsd
-    , start    => {emqx_statsd, start_link, [[{estatsd_pid, Pid} | emqx_statsd_options()]]}
-    , restart  => permanent
-    , shutdown => 5000
-    , type     => worker
-    , modules  => [emqx_statsd]}.
-
-emqx_statsd_options() ->
-    SampleTimeInterval = get_conf(sample_time_interval, ?DEFAULT_SAMPLE_TIME_INTERVAL) * 1000,
-    FlushTimeInterval = get_conf(flush_time_interval, ?DEFAULT_FLUSH_TIME_INTERVAL) * 1000,
-    [{sample_time_interval, SampleTimeInterval}, {flush_time_interval, FlushTimeInterval}].
-
-get_conf(Key, Default) ->
-    emqx_config:get([?APP, Key], Default).
+assert_started({ok, _Pid}) -> ok;
+assert_started({ok, _Pid, _Info}) -> ok;
+assert_started({error, {already_tarted, _Pid}}) -> ok;
+assert_started({error, Reason}) -> erlang:error(Reason).

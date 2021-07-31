@@ -5,11 +5,6 @@
 %%======================================================================================
 %% Hocon Schema Definitions
 
--define(BRIDGE_FIELDS(T),
-    [{name, hoconsc:t(typerefl:binary())},
-     {type, hoconsc:t(typerefl:atom(T))},
-     {config, hoconsc:t(hoconsc:ref(list_to_atom("emqx_connector_"++atom_to_list(T)), ""))}]).
-
 -define(TYPES, [mysql, pgsql, mongo, redis, ldap]).
 -define(BRIDGES, [hoconsc:ref(?MODULE, T) || T <- ?TYPES]).
 
@@ -19,8 +14,13 @@ fields("emqx_data_bridge") ->
     [{bridges, #{type => hoconsc:array(hoconsc:union(?BRIDGES)),
                  default => []}}];
 
-fields(mysql) -> ?BRIDGE_FIELDS(mysql);
-fields(pgsql) -> ?BRIDGE_FIELDS(pgsql);
-fields(mongo) -> ?BRIDGE_FIELDS(mongo);
-fields(redis) -> ?BRIDGE_FIELDS(redis);
-fields(ldap) -> ?BRIDGE_FIELDS(ldap).
+fields(mysql) -> connector_fields(mysql);
+fields(pgsql) -> connector_fields(pgsql);
+fields(mongo) -> connector_fields(mongo);
+fields(redis) -> connector_fields(redis);
+fields(ldap)  -> connector_fields(ldap).
+
+connector_fields(DB) ->
+    Mod = list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
+    [{name, hoconsc:t(typerefl:binary())},
+     {type, #{type => DB}}] ++ Mod:fields("").

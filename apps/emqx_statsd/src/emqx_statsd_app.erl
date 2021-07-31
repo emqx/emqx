@@ -18,9 +18,7 @@
 
  -behaviour(application).
 
--include_lib("emqx/include/logger.hrl").
-
- -emqx_plugin(?MODULE).
+-include("emqx_statsd.hrl").
 
  -export([ start/2
          , stop/1
@@ -28,11 +26,15 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_statsd_sup:start_link(),
-    {ok, _} = emqx_statsd_sup:start_statsd(),
-    ?LOG(info, "emqx statsd start: successfully"),
+    maybe_enable_statsd(),
     {ok, Sup}.
-
 stop(_) ->
-    ok = emqx_statsd_sup:stop_statsd(),
-    ?LOG(info, "emqx statsd stop: successfully"),
     ok.
+
+maybe_enable_statsd() ->
+    case emqx_config:get([statsd, enable], false) of
+        true ->
+            emqx_statsd_sup:start_child(?APP, emqx_config:get([statsd], #{}));
+        false ->
+            ok
+    end.

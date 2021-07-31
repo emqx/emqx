@@ -18,9 +18,6 @@
 
 -module(emqx_bridge_rpc).
 
--behaviour(emqx_bridge_connect).
-
-%% behaviour callbacks
 -export([ start/1
         , send/2
         , stop/1
@@ -33,17 +30,15 @@
 
 -type ack_ref() :: emqx_bridge_worker:ack_ref().
 -type batch() :: emqx_bridge_worker:batch().
--type node_or_tuple() :: atom() | {atom(), term()}.
-
 -define(HEARTBEAT_INTERVAL, timer:seconds(1)).
 
 -define(RPC, emqx_rpc).
 
-start(#{address := Remote}) ->
-    case poke(Remote) of
+start(#{node := RemoteNode}) ->
+    case poke(RemoteNode) of
         ok ->
-            Pid = proc_lib:spawn_link(?MODULE, heartbeat, [self(), Remote]),
-            {ok, #{client_pid => Pid, address => Remote}};
+            Pid = proc_lib:spawn_link(?MODULE, heartbeat, [self(), RemoteNode]),
+            {ok, #{client_pid => Pid, remote_node => RemoteNode}};
         Error ->
             Error
     end.
@@ -62,9 +57,9 @@ stop(#{client_pid := Pid}) when is_pid(Pid) ->
     ok.
 
 %% @doc Callback for `emqx_bridge_connect' behaviour
--spec send(#{address := node_or_tuple(), _ => _}, batch()) -> {ok, ack_ref()} | {error, any()}.
-send(#{address := Remote}, Batch) ->
-    case ?RPC:call(Remote, ?MODULE, handle_send, [Batch]) of
+-spec send(#{remote_node := atom(), _ => _}, batch()) -> {ok, ack_ref()} | {error, any()}.
+send(#{remote_node := RemoteNode}, Batch) ->
+    case ?RPC:call(RemoteNode, ?MODULE, handle_send, [Batch]) of
         ok ->
             Ref = make_ref(),
             self() ! {batch_ack, Ref},
@@ -93,8 +88,8 @@ heartbeat(Parent, RemoteNode) ->
             end
     end.
 
-poke(Node) ->
-    case ?RPC:call(Node, erlang, node, []) of
-        Node -> ok;
+poke(RemoteNode) ->
+    case ?RPC:call(RemoteNode, erlang, node, []) of
+        RemoteNode -> ok;
         {badrpc, Reason} -> {error, Reason}
     end.

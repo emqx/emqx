@@ -322,8 +322,8 @@ ensure_config(Strategy) ->
     ensure_config(Strategy, _AckEnabled = true).
 
 ensure_config(Strategy, AckEnabled) ->
-    application:set_env(emqx, shared_subscription_strategy, Strategy),
-    application:set_env(emqx, shared_dispatch_ack_enabled, AckEnabled),
+    emqx_config:put([broker, shared_subscription_strategy], Strategy),
+    emqx_config:put([broker, shared_dispatch_ack_enabled], AckEnabled),
     ok.
 
 subscribed(Group, Topic, Pid) ->

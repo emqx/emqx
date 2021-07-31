@@ -19,16 +19,23 @@
 -behaviour(application).
 
 -export([ start/2
+        , prep_stop/1
         , stop/1
         , get_description/0
         , get_release/0
+        , set_init_config_load_done/0
         ]).
 
 -include("emqx.hrl").
 
 -define(APP, emqx).
 
--define(EMQX_SHARDS, [route_shard]).
+-define(EMQX_SHARDS, [ ?ROUTE_SHARD
+                     , ?COMMON_SHARD
+                     , ?SHARED_SUB_SHARD
+                     , ?RULE_ENGINE_SHARD
+                     , ?MOD_DELAYED_SHARD
+                     ]).
 
 -include("emqx_release.hrl").
 
@@ -37,13 +44,16 @@
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
-    set_backtrace_depth(),
+    ok = maybe_load_config(),
+    ok = set_backtrace_depth(),
     print_otp_version_warning(),
     print_banner(),
     %% Load application first for ekka_mnesia scanner
     _ = load_ce_modules(),
     ekka:start(),
     ok = ekka_rlog:wait_for_shards(?EMQX_SHARDS, infinity),
+    false == os:getenv("EMQX_NO_QUIC")
+        andalso application:ensure_all_started(quicer),
     {ok, Sup} = emqx_sup:start_link(),
     ok = start_autocluster(),
     %% ok = emqx_plugins:init(),
@@ -55,14 +65,31 @@ start(_Type, _Args) ->
     print_vsn(),
     {ok, Sup}.
 
--spec(stop(State :: term()) -> term()).
-stop(_State) ->
+prep_stop(_State) ->
     ok = emqx_alarm_handler:unload(),
     emqx_boot:is_enabled(listeners)
       andalso emqx_listeners:stop().
 
+stop(_State) -> ok.
+
+%% @doc Call this function to make emqx boot without loading config,
+%% in case we want to delegate the config load to a higher level app
+%% which manages emqx app.
+set_init_config_load_done() ->
+    application:set_env(emqx, init_config_load_done, true).
+
+maybe_load_config() ->
+    case application:get_env(emqx, init_config_load_done, false) of
+        true ->
+            ok;
+        false ->
+            %% the app env 'config_files' should be set before emqx get started.
+            ConfFiles = application:get_env(emqx, config_files, []),
+            emqx_config:init_load(emqx_schema, ConfFiles)
+    end.
+
 set_backtrace_depth() ->
-    Depth = application:get_env(?APP, backtrace_depth, 16),
+    Depth = emqx_config:get([node, backtrace_depth]),
     _ = erlang:system_flag(backtrace_depth, Depth),
     ok.
 

@@ -18,19 +18,31 @@
 
 -behaviour(application).
 
--export([start/2]).
-
--export([stop/1]).
+-export([ start/2
+        , stop/1
+        ]).
 
 start(_Type, _Args) ->
-    % the configs for emqx_modules is so far still in emqx application
-    % Ensure it's loaded
-    _ = application:load(emqx),
-    {ok, Pid} = emqx_mod_sup:start_link(),
-    ok = emqx_modules:load(),
-    emqx_ctl:register_command(modules, {emqx_modules, cli}, []),
-    {ok, Pid}.
+    {ok, Sup} = emqx_modules_sup:start_link(),
+    maybe_enable_modules(),
+    {ok, Sup}.
 
 stop(_State) ->
-    emqx_ctl:unregister_command(modules),
-    emqx_modules:unload().
+    maybe_disable_modules(),
+    ok.
+
+maybe_enable_modules() ->
+    emqx_config:get([delayed, enable], true) andalso emqx_delayed:enable(),
+    emqx_config:get([telemetry, enable], true) andalso emqx_telemetry:enable(),
+    emqx_config:get([recon, enable], true) andalso emqx_recon:enable(),
+    emqx_event_message:enable(),
+    emqx_rewrite:enable(),
+    emqx_topic_metrics:enable().
+
+maybe_disable_modules() ->
+    emqx_config:get([delayed, enable], true) andalso emqx_delayed:disable(),
+    emqx_config:get([telemetry, enable], true) andalso emqx_telemetry:disable(),
+    emqx_config:get([recon, enable], true) andalso emqx_recon:disable(),
+    emqx_event_message:disable(),
+    emqx_rewrite:disable(),
+    emqx_topic_metrics:disable().

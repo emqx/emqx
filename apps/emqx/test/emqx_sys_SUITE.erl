@@ -25,8 +25,6 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     application:load(emqx),
-    ok = application:set_env(emqx, broker_sys_interval, 1),
-    ok = application:set_env(emqx, broker_sys_heartbeat, 1),
     ok = emqx_logger:set_log_level(emergency),
     Config.
 

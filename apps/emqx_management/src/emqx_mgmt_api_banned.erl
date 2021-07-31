@@ -44,7 +44,7 @@
         ]).
 
 list(_Bindings, Params) ->
-    minirest:return({ok, emqx_mgmt_api:paginate(emqx_banned, Params, fun format/1)}).
+    emqx_mgmt:return({ok, emqx_mgmt_api:paginate(emqx_banned, Params, fun format/1)}).
 
 create(_Bindings, Params) ->
     case pipeline([fun ensure_required/1,
@@ -52,9 +52,9 @@ create(_Bindings, Params) ->
         {ok, NParams} ->
             {ok, Banned} = pack_banned(NParams),
             ok = emqx_mgmt:create_banned(Banned),
-            minirest:return({ok, maps:from_list(Params)});
+            emqx_mgmt:return({ok, maps:from_list(Params)});
         {error, Code, Message} ->
-            minirest:return({error, Code, Message})
+            emqx_mgmt:return({error, Code, Message})
     end.
 
 delete(#{as := As, who := Who}, _) ->
@@ -64,9 +64,9 @@ delete(#{as := As, who := Who}, _) ->
                    fun validate_params/1], Params) of
         {ok, NParams} ->
             do_delete(proplists:get_value(<<"as">>, NParams), proplists:get_value(<<"who">>, NParams)),
-            minirest:return();
+            emqx_mgmt:return();
         {error, Code, Message} ->
-            minirest:return({error, Code, Message})
+            emqx_mgmt:return({error, Code, Message})
     end.
 
 pipeline([], Params) ->

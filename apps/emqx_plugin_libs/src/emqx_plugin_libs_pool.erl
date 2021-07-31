@@ -54,5 +54,5 @@ health_check(PoolName, CheckFunc, State) when is_function(CheckFunc) ->
     end || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
     case length(Status) > 0 andalso lists:all(fun(St) -> St =:= true end, Status) of
         true -> {ok, State};
-        false -> {error, test_query_failed, State}
+        false -> {error, health_check_failed, State}
     end.

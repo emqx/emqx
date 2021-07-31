@@ -45,9 +45,9 @@ structs() -> [""].
 
 fields("") ->
     [ {config, #{type => hoconsc:union(
-                  [ hoconsc:ref(cluster)
-                  , hoconsc:ref(single)
-                  , hoconsc:ref(sentinel)
+                  [ hoconsc:ref(?MODULE, cluster)
+                  , hoconsc:ref(?MODULE, single)
+                  , hoconsc:ref(?MODULE, sentinel)
                   ])}
       }
     ];
@@ -78,10 +78,11 @@ on_jsonify(Config) ->
     Config.
 
 %% ===================================================================
-on_start(InstId, #{config :=#{redis_type := Type,
-                              database := Database,
-                              pool_size := PoolSize,
-                              auto_reconnect := AutoReconn} = Config}) ->
+on_start(InstId, #{redis_type := Type,
+                   database := Database,
+                   pool_size := PoolSize,
+                   auto_reconnect := AutoReconn,
+                   ssl := SSL } = Config) ->
     logger:info("starting redis connector: ~p, config: ~p", [InstId, Config]),
     Servers = case Type of
                 single -> [{servers, [maps:get(server, Config)]}];
@@ -92,8 +93,13 @@ on_start(InstId, #{config :=#{redis_type := Type,
             {password, maps:get(password, Config, "")},
             {auto_reconnect, reconn_interval(AutoReconn)}
            ] ++ Servers,
-    Options = init_ssl_opts(Config, InstId) ++
-              [{sentinel, maps:get(sentinel, Config, undefined)}],
+    Options = case maps:get(enable, SSL) of
+                  true ->
+                      [{ssl, true},
+                       {ssl_options, emqx_plugin_libs_ssl:save_files_return_opts(SSL, "connectors", InstId)}
+                      ];
+                  false -> [{ssl, false}]
+              end ++ [{sentinel, maps:get(sentinel, Config, undefined)}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     case Type of
         cluster ->
@@ -134,7 +140,7 @@ on_health_check(_InstId, #{type := cluster, poolname := PoolName} = State) ->
                 eredis_cluster_pool_worker:is_connected(Pid) =:= true
             end, Workers) of
         true -> {ok, State};
-        false -> {error, test_query_failed, State}
+        false -> {error, health_check_failed, State}
     end;
 on_health_check(_InstId, #{poolname := PoolName} = State) ->
     emqx_plugin_libs_pool:health_check(PoolName, fun ?MODULE:do_health_check/1, State).
@@ -156,13 +162,6 @@ cmd(Conn, _Type, Command) ->
 %% ===================================================================
 connect(Opts) ->
     eredis:start_link(Opts).
-
-init_ssl_opts(#{ssl := true} = Config, InstId) ->
-    [{ssl, true},
-     {ssl_opts, emqx_plugin_libs_ssl:save_files_return_opts(Config, "connectors", InstId)}
-    ];
-init_ssl_opts(_Config, _InstId) ->
-    [{ssl, false}].
 
 redis_fields() ->
     [ {pool_size, fun emqx_connector_schema_lib:pool_size/1}

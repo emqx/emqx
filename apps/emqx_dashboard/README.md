@@ -26,7 +26,7 @@ GET    |  /nodes/:node/sessions/               |  A list of sessions on a node
 GET    |  /subscriptions/:clientid             |  A list of subscriptions of a client
 GET    |  /nodes/:node/subscriptions/:clientid |  A list of subscriptions of a client on the node
 GET    |  /nodes/:node/subscriptions/          |  A list of subscriptions on a node
-PUT    |  /clients/:clientid/clean_acl_cache   |  Clean ACL cache of a client
+PUT    |  /clients/:clientid/clean_authz_cache   |  Clean Authorization cache of a client
 GET    |  /configs/                            |  Get all configs
 GET    |  /nodes/:node/configs/                |  Get all configs of a node
 GET    |  /nodes/:node/plugin_configs/:plugin  |  Get configurations of a plugin on the node

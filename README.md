@@ -8,7 +8,7 @@
 [![Twitter](https://img.shields.io/badge/Follow-EMQ-1DA1F2?logo=twitter)](https://twitter.com/EMQTech)
 [![YouTube](https://img.shields.io/badge/Subscribe-EMQ-FF0000?logo=youtube)](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q)
 
-[![The best IoT MQTT open source team looks forward to your joining](https://www.emqx.io/static/img/github_readme_en_bg.png)](https://www.emqx.io/careers)
+[![The best IoT MQTT open source team looks forward to your joining](https://static.emqx.net/images/github_readme_en_bg.png)](https://www.emqx.com/en/careers)
 
 English | [简体中文](./README-CN.md) | [日本語](./README-JP.md) | [русский](./README-RU.md)
 
@@ -17,7 +17,7 @@ English | [简体中文](./README-CN.md) | [日本語](./README-JP.md) | [рус
 Starting from 3.0 release, *EMQ X* broker fully supports MQTT V5.0 protocol specifications and backward compatible with MQTT V3.1 and V3.1.1,  as well as other communication protocols such as MQTT-SN, CoAP, LwM2M, WebSocket and STOMP. The 3.0 release of the *EMQ X* broker can scaled to 10+ million concurrent MQTT connections on one cluster.
 
 - For full list of new features, please read [EMQ X Release Notes](https://github.com/emqx/emqx/releases).
-- For more information, please visit [EMQ X homepage](https://www.emqx.io).
+- For more information, please visit [EMQ X homepage](https://www.emqx.io/).
 
 ## Installation
 
@@ -33,7 +33,7 @@ docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p
 
 #### Installing via Binary Package
 
-Get the binary package of the corresponding OS from [EMQ X Download](https://www.emqx.io/downloads) page.
+Get the binary package of the corresponding OS from [EMQ X Download](https://www.emqx.com/en/downloads) page.
 
 - [Single Node Install](https://docs.emqx.io/en/broker/latest/getting-started/install.html)
 - [Multi Node Install](https://docs.emqx.io/en/broker/latest/advanced/cluster.html)
@@ -134,7 +134,7 @@ You can read the mqtt protocol via the following links:
 
 [MQTT Version 5.0](https://docs.oasis-open.org/mqtt/mqtt/v5.0/cs02/mqtt-v5.0-cs02.html)
 
-[MQTT SN](http://mqtt.org/new/wp-content/uploads/2009/06/MQTT-SN_spec_v1.2.pdf)
+[MQTT SN](https://www.oasis-open.org/committees/download.php/66091/MQTT-SN_spec_v1.2.pdf)
 
 ## License
 

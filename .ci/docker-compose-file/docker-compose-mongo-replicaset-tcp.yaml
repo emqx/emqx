@@ -1,0 +1,81 @@
+version: "3"
+
+services:
+  mongo1:
+    hostname: mongo1
+    container_name: mongo1
+    image: mongo:${MONGO_TAG}
+    environment:
+      MONGO_INITDB_DATABASE: mqtt
+    networks:
+      - emqx_bridge
+    expose:
+      - 27017
+    ports:
+      - 27011:27017
+    restart: always
+    command:
+      --ipv6
+      --bind_ip_all
+      --replSet rs0
+      
+  mongo2:
+    hostname: mongo2
+    container_name: mongo2
+    image: mongo:${MONGO_TAG}
+    environment:
+      MONGO_INITDB_DATABASE: mqtt
+    networks:
+      - emqx_bridge
+    expose:
+      - 27017
+    ports:
+      - 27012:27017
+    restart: always
+    command:
+      --ipv6
+      --bind_ip_all
+      --replSet rs0
+
+  mongo3:
+    hostname: mongo3
+    container_name: mongo3
+    image: mongo:${MONGO_TAG}
+    environment:
+      MONGO_INITDB_DATABASE: mqtt
+    networks:
+      - emqx_bridge
+    expose:
+      - 27017
+    ports:
+      - 27013:27017
+    restart: always
+    command:
+      --ipv6
+      --bind_ip_all
+      --replSet rs0
+      
+  mongo_client:
+    image: mongo:${MONGO_TAG}
+    container_name: mongo_client
+    networks:
+      - emqx_bridge
+    depends_on:
+      - mongo1
+      - mongo2
+      - mongo3
+    command:
+      - /bin/bash
+      - -c
+      - |
+        while ! mongo --host mongo1 --eval 'db.runCommand("ping").ok' --quiet > /dev/null 2>&1; do
+            sleep 1
+        done
+        while ! mongo --host mongo2 --eval 'db.runCommand("ping").ok' --quiet > /dev/null 2>&1; do
+            sleep 1
+        done
+        while ! mongo --host mongo3 --eval 'db.runCommand("ping").ok' --quiet > /dev/null 2>&1; do
+            sleep 1
+        done
+        mongo --host mongo1 --eval "rs.initiate( { _id : 'rs0', members: [ { _id : 0, host : 'mongo1:27017' }, { _id : 1, host : 'mongo2:27017' }, { _id : 2, host : 'mongo3:27017' } ] })" --quiet
+        mongo --host mongo1 --eval "rs.status()" --quiet

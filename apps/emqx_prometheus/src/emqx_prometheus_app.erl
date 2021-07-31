@@ -18,20 +18,25 @@
 
 -behaviour(application).
 
--emqx_plugin(?MODULE).
+-include("emqx_prometheus.hrl").
 
 %% Application callbacks
 -export([ start/2
         , stop/1
         ]).
 
--define(APP, emqx_prometheus).
-
 start(_StartType, _StartArgs) ->
-    PushGateway = emqx_config:get([?APP, push_gateway_server], undefined),
-    Interval = emqx_config:get([?APP, interval], 15000),
-    emqx_prometheus_sup:start_link(PushGateway, Interval).
+    {ok, Sup} = emqx_prometheus_sup:start_link(),
+    maybe_enable_prometheus(),
+    {ok, Sup}.
 
 stop(_State) ->
     ok.
 
+maybe_enable_prometheus() ->
+    case emqx_config:get([prometheus, enable], false) of
+        true ->
+            emqx_prometheus_sup:start_child(?APP, emqx_config:get([prometheus], #{}));
+        false ->
+            ok
+    end.
