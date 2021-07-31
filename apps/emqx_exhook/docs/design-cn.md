@@ -68,7 +68,7 @@ service HookProvider {
 
   rpc OnClientAuthenticate(ClientAuthenticateRequest) returns (ValuedResponse) {};
 
-  rpc OnClientCheckAcl(ClientCheckAclRequest) returns (ValuedResponse) {};
+  rpc OnClientAuthorize(ClientAuthorizeRequest) returns (ValuedResponse) {};
 
   rpc OnClientSubscribe(ClientSubscribeRequest) returns (EmptySuccess) {};
 
@@ -101,16 +101,12 @@ service HookProvider {
 ### 配置文件示例
 
 ```
-## 配置 gRPC 服务地址 (HTTP)
-##
-## s1 为服务器的名称
-exhook.server.s1.url = http://127.0.0.1:9001
-
-## 配置 gRPC 服务地址 (HTTPS)
-##
-## s2 为服务器名称
-exhook.server.s2.url = https://127.0.0.1:9002
-exhook.server.s2.cacertfile = ca.pem
-exhook.server.s2.certfile = cert.pem
-exhook.server.s2.keyfile = key.pem
+exhook: {
+    ## 配置 gRPC 服务地址 (HTTP)
+    ##
+    ## default 为服务器的名称
+    server.default: {
+        url: "http://127.0.0.1:9000"
+    }
+}
 ```
