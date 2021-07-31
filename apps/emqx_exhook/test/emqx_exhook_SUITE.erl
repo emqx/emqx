@@ -22,6 +22,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(CONF_DEFAULT, <<"
+exhook: { server.default: { url: \"http://127.0.0.1:9000\" } }
+">>).
+
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
@@ -30,20 +34,13 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
     _ = emqx_exhook_demo_svr:start(),
-    emqx_ct_helpers:start_apps([emqx_exhook], fun set_special_cfgs/1),
+    ok = emqx_config:init_load(emqx_exhook_schema, ?CONF_DEFAULT),
+    emqx_ct_helpers:start_apps([emqx_exhook]),
     Cfg.
 
 end_per_suite(_Cfg) ->
     emqx_ct_helpers:stop_apps([emqx_exhook]),
     emqx_exhook_demo_svr:stop().
-
-set_special_cfgs(emqx) ->
-    application:set_env(emqx, allow_anonymous, false),
-    application:set_env(emqx, enable_acl_cache, false),
-    application:set_env(emqx, plugins_loaded_file, undefined),
-    application:set_env(emqx, modules_loaded_file, undefined);
-set_special_cfgs(emqx_exhook) ->
-    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -51,14 +48,10 @@ set_special_cfgs(emqx_exhook) ->
 
 t_noserver_nohook(_) ->
     emqx_exhook:disable(default),
-    ?assertEqual([], ets:tab2list(emqx_hooks)),
-
-    Opts = proplists:get_value(
-             default,
-             application:get_env(emqx_exhook, servers, [])
-            ),
+    ?assertEqual([], loaded_exhook_hookpoints()),
+    Opts = emqx_config:get([exhook, server, default]),
     ok = emqx_exhook:enable(default, Opts),
-    ?assertNotEqual([], ets:tab2list(emqx_hooks)).
+    ?assertNotEqual([], loaded_exhook_hookpoints()).
 
 t_cli_list(_) ->
     meck_print(),
@@ -94,3 +87,17 @@ meck_print() ->
 
 unmeck_print() ->
     meck:unload(emqx_ctl).
+
+loaded_exhook_hookpoints() ->
+    lists:filtermap(fun(E) ->
+        Name = element(2, E),
+        Callbacks = element(3, E),
+        case lists:any(fun is_exhook_callback/1, Callbacks) of
+            true -> {true, Name};
+            _ -> false
+        end
+    end, ets:tab2list(emqx_hooks)).
+
+is_exhook_callback(Cb) ->
+    Action = element(2, Cb),
+    emqx_exhook_handler == element(1, Action).
