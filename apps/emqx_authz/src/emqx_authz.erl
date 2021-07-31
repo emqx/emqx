@@ -41,41 +41,55 @@ register_metrics() ->
 init() ->
     ok = register_metrics(),
     emqx_config_handler:add_handler(?CONF_KEY_PATH, ?MODULE),
-    NRules = [init_rule(Rule) || Rule <- lookup()],
+    NRules = [init_rule(Rule) || Rule <- emqx_config:get(?CONF_KEY_PATH, [])],
     ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]}, -1).
 
 lookup() ->
-    emqx_config:get(?CONF_KEY_PATH, []).
+    {_M, _F, A}= find_action_in_hooks(),
+    A.
 
 update(Cmd, Rules) ->
     emqx_config:update(emqx_authz_schema, ?CONF_KEY_PATH, {Cmd, Rules}).
 
 %% For now we only support re-creating the entire rule list
-pre_config_update({head, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
-    [Rule | OldConf];
-pre_config_update({tail, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
-    OldConf ++ [Rule];
-pre_config_update({_, NewConf}, _OldConf) ->
+pre_config_update({head, Rules}, OldConf) when is_list(Rules), is_list(OldConf) ->
+    Rules ++ OldConf;
+pre_config_update({tail, Rules}, OldConf) when is_list(Rules), is_list(OldConf) ->
+    OldConf ++ Rules;
+pre_config_update({_, Rules}, _OldConf) when is_list(Rules)->
     %% overwrite the entire config!
-    case is_list(NewConf) of
-        true -> NewConf;
-        false -> [NewConf]
-    end.
+    Rules.
 
 post_config_update(_, undefined, _OldConf) ->
-    %_ = [release_rules(Rule) || Rule <- OldConf],
     ok;
+post_config_update({head, Rules}, _NewRules, _OldConf) ->
+    InitedRules = [init_rule(Rule) || Rule <- check_rules(Rules)],
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [lists:append(InitedRules, lookup())]}, -1),
+    ok = emqx_authz_cache:drain_cache();
+post_config_update({tail, Rules}, _NewRules, _OldConf) ->
+    InitedRules = [init_rule(Rule) || Rule <- check_rules(Rules)],
+    emqx_hooks:put('client.authorize', {?MODULE, authorize, [lists:append(InitedRules, lookup())]}, -1),
+    ok = emqx_authz_cache:drain_cache();
 post_config_update(_, NewRules, _OldConf) ->
-    %_ = [release_rules(Rule) || Rule <- OldConf],
+    %% overwrite the entire config!
+    OldInitedRules = lookup(),
     InitedRules = [init_rule(Rule) || Rule <- NewRules],
-    Action = find_action_in_hooks(),
-    ok = emqx_hooks:del('client.authorize', Action),
-    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [InitedRules]}, -1),
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [InitedRules]}, -1),
+    lists:foreach(fun (#{type := _Type, enable := true, metadata := #{id := Id}}) ->
+                         ok = emqx_resource:remove(Id);
+                      (_) -> ok
+                  end, OldInitedRules),
     ok = emqx_authz_cache:drain_cache().
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+check_rules(RawRules) ->
+    {ok, Conf} = hocon:binary(jsx:encode(#{<<"authorization">> => #{<<"rules">> => RawRules}}), #{format => richmap}),
+    CheckConf = hocon_schema:check(emqx_authz_schema, Conf, #{atom_key => true}),
+    #{authorization := #{rules := Rules}} = hocon_schema:richmap_to_map(CheckConf),
+    Rules.
 
 find_action_in_hooks() ->
     Callbacks = emqx_hooks:lookup('client.authorize'),
