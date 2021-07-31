@@ -122,7 +122,6 @@ to_list(Name) when is_list(Name) ->
 
 %% @private
 channel_opts(Opts = #{url := URL}) ->
-    io:format("~p~n", [Opts]),
     case uri_string:parse(URL) of
         #{scheme := <<"http">>, host := Host, port := Port} ->
             {format_http_uri("http", Host, Port), #{}};

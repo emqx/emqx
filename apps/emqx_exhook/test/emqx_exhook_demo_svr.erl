@@ -33,7 +33,7 @@
         , on_client_connected/2
         , on_client_disconnected/2
         , on_client_authenticate/2
-        , on_client_check_acl/2
+        , on_client_authorize/2
         , on_client_subscribe/2
         , on_client_unsubscribe/2
         , on_session_created/2
@@ -122,7 +122,7 @@ on_provider_loaded(Req, Md) ->
                      #{name => <<"client.connected">>},
                      #{name => <<"client.disconnected">>},
                      #{name => <<"client.authenticate">>},
-                     #{name => <<"client.check_acl">>},
+                     #{name => <<"client.authorize">>},
                      #{name => <<"client.subscribe">>},
                      #{name => <<"client.unsubscribe">>},
                      #{name => <<"session.created">>},
@@ -197,10 +197,10 @@ on_client_authenticate(#{clientinfo := #{username := Username}} = Req, Md) ->
             {ok, #{type => 'IGNORE'}, Md}
     end.
 
--spec on_client_check_acl(emqx_exhook_pb:client_check_acl_request(), grpc:metadata())
+-spec on_client_authorize(emqx_exhook_pb:client_authorize_request(), grpc:metadata())
     -> {ok, emqx_exhook_pb:valued_response(), grpc:metadata()}
      | {error, grpc_cowboy_h:error_response()}.
-on_client_check_acl(#{clientinfo := #{username := Username}} = Req, Md) ->
+on_client_authorize(#{clientinfo := #{username := Username}} = Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
     %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     %% some cases for testing

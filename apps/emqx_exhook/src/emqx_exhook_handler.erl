@@ -87,7 +87,6 @@ on_client_disconnected(ClientInfo, Reason, _ConnInfo) ->
            },
     cast('client.disconnected', Req).
 
-%% FIXME: `AuthResult`
 on_client_authenticate(ClientInfo, AuthResult) ->
     %% XXX: Bool is missing more information about the atom of the result
     %%      So, the `Req` has missed detailed info too.
@@ -95,7 +94,7 @@ on_client_authenticate(ClientInfo, AuthResult) ->
     %%      The return value of `call_fold` just a bool, that has missed
     %%      detailed info too.
     %%
-    Bool = maps:get(auth_result, AuthResult, undefined) == success,
+    Bool = AuthResult == ok,
     Req = #{clientinfo => clientinfo(ClientInfo),
             result => Bool
            },
@@ -103,8 +102,8 @@ on_client_authenticate(ClientInfo, AuthResult) ->
     case call_fold('client.authenticate', Req,
                    fun merge_responsed_bool/2) of
         {StopOrOk, #{result := Result0}} when is_boolean(Result0) ->
-            Result = case Result0 of true -> success; _ -> not_authorized end,
-            {StopOrOk, AuthResult#{auth_result => Result, anonymous => false}};
+            Result = case Result0 of true -> ok; _ -> {error, not_authorized} end,
+            {StopOrOk, Result};
         _ ->
             {ok, AuthResult}
     end.
