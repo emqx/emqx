@@ -41,7 +41,7 @@
 -export([do_subscribe/3]).
 
 -define(CLIENT_QS_SCHEMA, {emqx_channel_info,
-    [ {<<"clientid">>, binary}
+    [ {<<"node">>, atom}
     , {<<"username">>, binary}
     , {<<"zone">>, atom}
     , {<<"ip_address">>, ip}
@@ -227,6 +227,92 @@ clients_api() ->
     Metadata = #{
         get => #{
             description => <<"List clients">>,
+            parameters => [
+                #{
+                    name => node,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => username,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => zone,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => ip_address,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => conn_state,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => clean_start,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => proto_name,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => proto_ver,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => like_clientid,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => like_username,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => gte_created_at,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => lte_created_at,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => gte_connected_at,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => lte_connected_at,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                }
+            ],
             responses => #{
                 <<"200">> => emqx_mgmt_util:response_array_schema(<<"List clients 200 OK">>, client)}}},
     {"/clients", Metadata, clients}.
