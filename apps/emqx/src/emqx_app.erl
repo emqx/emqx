@@ -53,7 +53,6 @@ start(_Type, _Args) ->
     ok = maybe_start_quicer(),
     {ok, Sup} = emqx_sup:start_link(),
     ok = maybe_start_listeners(),
-    ok = start_autocluster(),
     ok = emqx_alarm_handler:load(),
     register(emqx, self()),
     {ok, Sup}.
@@ -132,9 +131,3 @@ get_release() ->
 
 release_in_macro() ->
     element(2, ?EMQX_RELEASE).
-
-start_autocluster() ->
-    ekka:callback(prepare, fun emqx:shutdown/1),
-    ekka:callback(reboot,  fun emqx:reboot/0),
-    _ = ekka:autocluster(?APP), %% returns 'ok' or a pid or 'any()' as in spec
-    ok.

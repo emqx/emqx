@@ -458,8 +458,13 @@ coveralls() ->
 app_names() -> list_dir("apps") ++ list_dir("lib-ee").
 
 list_dir(Dir) ->
-    {ok, Names} = file:list_dir(Dir),
-    [list_to_atom(Name) || Name <- Names, filelib:is_dir(filename:join([Dir, Name]))].
+    case filelib:is_dir(Dir) of
+        true ->
+            {ok, Names} = file:list_dir(Dir),
+            [list_to_atom(Name) || Name <- Names, filelib:is_dir(filename:join([Dir, Name]))];
+        false ->
+            []
+    end.
 
 %% ==== Enterprise supports below ==================================================================
 

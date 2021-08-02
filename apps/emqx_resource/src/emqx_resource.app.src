@@ -8,7 +8,8 @@
     stdlib,
     gproc,
     hocon,
-    jsx
+    jsx,
+    emqx
    ]},
   {env,[]},
   {modules, []},

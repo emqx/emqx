@@ -14,6 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% @doc This supervisor manages workers which should never need a restart
+%% due to config changes or when joining a cluster.
 -module(emqx_machine_sup).
 
 -behaviour(supervisor).
@@ -34,15 +36,6 @@ init([]) ->
                  period => 10
                 },
     {ok, {SupFlags, Children}}.
-
-% child_supervisor(Mod) ->
-%     #{id => Mod,
-%       start => {Mod, start_link, []},
-%       restart => permanent,
-%       shutdown => infinity,
-%       type => supervisor,
-%       modules => [Mod]
-%      }.
 
 child_worker(M, Args) ->
     #{id       => M,
