@@ -24,14 +24,16 @@ jobs:
               git config --global credential.helper store
               echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
               make deps-emqx-ee
+              echo "PROFILE=emqx-ee" >> $GITHUB_ENV
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             else
+              echo "PROFILE=emqx" >> $GITHUB_ENV
               echo "TARGET=emqx/emqx" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             fi
         - name: make emqx image
-          run: make docker
+          run: make $PROFILE-docker
         - name: run emqx
           timeout-minutes: 5
           run: |
@@ -79,11 +81,13 @@ jobs:
               echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
               make deps-emqx-ee
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
+              echo "PROFILE=emqx-ee" >> $GITHUB_ENV
             else
               echo "TARGET=emqx/emqx" >> $GITHUB_ENV
+              echo "PROFILE=emqx" >> $GITHUB_ENV
             fi
         - name: make emqx image
-          run: make docker
+          run: make $PROFILE-docker
         - name: install k3s
           env:
             KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"

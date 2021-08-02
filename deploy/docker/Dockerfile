@@ -1,9 +1,6 @@
-ARG BUILD_FROM=emqx/build-env:erl23.2.7.2-emqx-2-alpine-amd64
-ARG RUN_FROM=alpine:3.12
+ARG BUILD_FROM=emqx/build-env:erl23.2.7.2-emqx-2-alpine
+ARG RUN_FROM=alpine:3.14
 FROM ${BUILD_FROM} AS builder
-
-ARG QEMU_ARCH=x86_64
-COPY tmp/qemu-$QEMU_ARCH-stati* /usr/bin/
 
 RUN apk add --no-cache \
     git \
@@ -43,10 +40,9 @@ LABEL org.label-schema.docker.dockerfile="Dockerfile" \
     org.label-schema.vcs-url="https://github.com/emqx/emqx" \
     maintainer="Raymond M Mouthaan <raymondmmouthaan@gmail.com>, Huang Rui <vowstar@gmail.com>, EMQ X Team <support@emqx.io>"
 
-ARG QEMU_ARCH=x86_64
 ARG EMQX_NAME=emqx
 
-COPY deploy/docker/docker-entrypoint.sh tmp/qemu-$QEMU_ARCH-stati* /usr/bin/
+COPY deploy/docker/docker-entrypoint.sh /usr/bin/
 COPY --from=builder /emqx/_build/$EMQX_NAME/rel/emqx /opt/emqx
 
 RUN ln -s /opt/emqx/bin/* /usr/local/bin/
