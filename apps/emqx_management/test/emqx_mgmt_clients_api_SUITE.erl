@@ -94,15 +94,15 @@ t_clients(_) ->
 
     %% post /clients/:clientid/subscribe
     SubscribeBody = #{topic => Topic, qos => Qos},
-    SubscribePath =  emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1), "subscribe"]),
+    SubscribePath = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1), "subscribe"]),
     {ok, _} =  emqx_mgmt_api_test_util:request_api(post, SubscribePath, "", AuthHeader, SubscribeBody),
     timer:sleep(100),
     [{{_, AfterSubTopic}, #{qos := AfterSubQos}}] = emqx_mgmt:lookup_subscriptions(ClientId1),
     ?assertEqual(AfterSubTopic, Topic),
     ?assertEqual(AfterSubQos, Qos),
 
-    %% delete /clients/:clientid/subscribe
-    UnSubscribeQuery = "topic=" ++ binary_to_list(Topic),
-    {ok, _} =  emqx_mgmt_api_test_util:request_api(delete, SubscribePath, UnSubscribeQuery, AuthHeader),
+    %% post /clients/:clientid/unsubscribe
+    UnSubscribePath = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1), "unsubscribe"]),
+    {ok, _} =  emqx_mgmt_api_test_util:request_api(post, UnSubscribePath, "", AuthHeader, SubscribeBody),
     timer:sleep(100),
     ?assertEqual([], emqx_mgmt:lookup_subscriptions(Client1)).
