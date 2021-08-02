@@ -9,21 +9,23 @@
 -define(EXCHANGE_LIFETIME, 247000).
 -define(NON_LIFETIME, 145000).
 
--record(data, { cache :: undefined | emqx_coap_message()
-              , retry_interval :: non_neg_integer()
-              , retry_count :: non_neg_integer()
-              }).
+-record(transport, { cache :: undefined | emqx_coap_message()
+                   , retry_interval :: non_neg_integer()
+                   , retry_count :: non_neg_integer()
+                   }).
 
--type data() :: #data{}.
+-type transport() :: #transport{}.
 
 -export([ new/0, idle/4, maybe_reset/4
         , maybe_resend/4, wait_ack/4, until_stop/4]).
 
--spec new() -> data().
+-export_type([transport/0]).
+
+-spec new() -> transport().
 new() ->
-    #data{cache = undefined,
-          retry_interval = 0,
-          retry_count = 0}.
+    #transport{cache = undefined,
+               retry_interval = 0,
+               retry_count = 0}.
 
 idle(in,
      #coap_message{type = non, id = MsgId, method = Method} = Msg,
@@ -50,14 +52,14 @@ idle(in,
      #coap_message{id = MsgId,
                    type = con,
                    method = Method} = Msg,
-     Data,
+     Transport,
      #{resource := Resource} = Cfg) ->
     Ret = #{next => maybe_resend,
             timeouts =>[{stop_timeout, ?EXCHANGE_LIFETIME}]},
     case Method of
         undefined ->
             ResetMsg = #coap_message{type = reset, id = MsgId},
-            Ret#{data => Data#data{cache = ResetMsg},
+            Ret#{transport => Transport#transport{cache = ResetMsg},
                  out  => ResetMsg};
         _ ->
             {RetMsg, SubInfo} =
@@ -72,7 +74,7 @@ idle(in,
                 end,
             RetMsg2 = RetMsg#coap_message{type = ack},
             Ret#{out => RetMsg2,
-                 data => Data#data{cache = RetMsg2},
+                 transport => Transport#transport{cache = RetMsg2},
                  subscribe => SubInfo}
     end;
 
@@ -81,11 +83,11 @@ idle(out, #coap_message{type = non} = Msg, _, _) ->
       out => Msg,
       timeouts => [{stop_timeout, ?NON_LIFETIME}]};
 
-idle(out, Msg, Data, _) ->
+idle(out, Msg, Transport, _) ->
     _ = emqx_misc:rand_seed(),
     Timeout = ?ACK_TIMEOUT + rand:uniform(?ACK_RANDOM_FACTOR),
     #{next => wait_ack,
-      data => Data#data{cache = Msg},
+      transport => Transport#transport{cache = Msg},
       out => Msg,
       timeouts => [ {state_timeout, Timeout, ack_timeout}
                   , {stop_timeout, ?EXCHANGE_LIFETIME}]}.
@@ -99,7 +101,7 @@ maybe_reset(in, Message, _, _) ->
     end,
     ?EMPTY_RESULT.
 
-maybe_resend(in, _, _, #data{cache = Cache}) ->
+maybe_resend(in, _, _, #transport{cache = Cache}) ->
     #{out => Cache}.
 
 wait_ack(in, #coap_message{type = Type}, _, _) ->
@@ -115,14 +117,14 @@ wait_ack(in, #coap_message{type = Type}, _, _) ->
 wait_ack(state_timeout,
          ack_timeout,
          _,
-         #data{cache = Msg,
-               retry_interval = Timeout,
-               retry_count = Count} =Data) ->
+         #transport{cache = Msg,
+                    retry_interval = Timeout,
+                    retry_count = Count} =Transport) ->
     case Count < ?MAX_RETRANSMIT of
         true ->
             Timeout2 = Timeout * 2,
-            #{data => Data#data{retry_interval = Timeout2,
-                                retry_count = Count + 1},
+            #{transport => Transport#transport{retry_interval = Timeout2,
+                                               retry_count = Count + 1},
               out => Msg,
               timeouts => [{state_timeout, Timeout2, ack_timeout}]};
         _ ->

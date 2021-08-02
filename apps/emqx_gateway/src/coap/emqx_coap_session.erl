@@ -47,52 +47,52 @@
 new() ->
     _ = emqx_misc:rand_seed(),
     #session{ transport_manager = emqx_coap_tm:new()
-            , observe_manager = emqx_coap_observe_res:new()
+            , observe_manager = emqx_coap_observe_res:new_manager()
             , next_msg_id = rand:uniform(?MAX_MESSAGE_ID)}.
 
 %%%-------------------------------------------------------------------
 %%% Process Message
 %%%-------------------------------------------------------------------
-received(Session, Cfg, #coap_message{type = ack} = Msg) ->
-    handle_response(Session, Cfg, Msg);
+received(#coap_message{type = ack} = Msg, Cfg, Session) ->
+    handle_response(Msg, Cfg, Session);
 
-received(Session, Cfg, #coap_message{type = reset} = Msg) ->
-    handle_response(Session, Cfg, Msg);
+received(#coap_message{type = reset} = Msg, Cfg, Session) ->
+    handle_response(Msg, Cfg, Session);
 
-received(Session, Cfg, #coap_message{method = Method} = Msg) when is_atom(Method) ->
-    handle_request(Session, Cfg, Msg);
+received(#coap_message{method = Method} = Msg, Cfg, Session) when is_atom(Method) ->
+    handle_request(Msg, Cfg, Session);
 
-received(Session, Cfg, Msg) ->
-    handle_response(Session, Cfg, Msg).
+received(Msg, Cfg, Session) ->
+    handle_response(Msg, Cfg, Session).
 
-reply(Session, Cfg, Req, Method) ->
-    reply(Session, Cfg, Req, Method, <<>>).
+reply(Req, Method, Cfg, Session) ->
+    reply(Req, Method, <<>>, Cfg, Session).
 
-reply(Session, Cfg, Req, Method, Payload) ->
+reply(Req, Method, Payload, Cfg, Session) ->
     Response = emqx_coap_message:response(Method, Payload, Req),
-    handle_out(Session, Cfg, Response).
+    handle_out(Response, Cfg, Session).
 
-ack(Session, Cfg, Req) ->
-    piggyback(Session, Cfg, Req, <<>>).
+ack(Req, Cfg, Session) ->
+    piggyback(Req, <<>>, Cfg, Session).
 
-piggyback(Session, Cfg, Req, Payload) ->
+piggyback(Req, Payload, Cfg, Session) ->
     Response = emqx_coap_message:ack(Req),
     Response2 = emqx_coap_message:set_payload(Payload, Response),
-    handle_out(Session, Cfg, Response2).
+    handle_out(Response2, Cfg, Session).
 
-deliver(Session, Cfg, Delivers) ->
+deliver(Delivers, Cfg, Session) ->
     Fun = fun({_, Topic, Message},
               #{out := OutAcc,
                 session := #session{observe_manager = OM,
                                     next_msg_id = MsgId} = SAcc} = Acc) ->
-                  case emqx_coap_observe_res:res_changed(OM, Topic) of
+                  case emqx_coap_observe_res:res_changed(Topic, OM) of
                       undefined ->
                           Acc;
                       {Token, SeqId, OM2} ->
                           Msg = mqtt_to_coap(Message, MsgId, Token, SeqId, Cfg),
                           SAcc2 = SAcc#session{next_msg_id = next_msg_id(MsgId),
                                                observe_manager = OM2},
-                          #{out := Out} = Result = call_transport_manager(SAcc2, Cfg, Msg, handle_out),
+                          #{out := Out} = Result = call_transport_manager(handle_out, Msg, Cfg, SAcc2),
                           Result#{out := [Out | OutAcc]}
                   end
           end,
@@ -101,35 +101,35 @@ deliver(Session, Cfg, Delivers) ->
                   session => Session},
                 Delivers).
 
-timeout(Session, Cfg, Timer) ->
-    call_transport_manager(Session, Cfg, Timer, ?FUNCTION_NAME).
+timeout(Timer, Cfg, Session) ->
+    call_transport_manager(?FUNCTION_NAME, Timer, Cfg, Session).
 
-transfer_result(Result, From, Value) ->
-    ?TRANSFER_RESULT(Result, [out, subscribe], From, Value).
+transfer_result(From, Value, Result) ->
+    ?TRANSFER_RESULT([out, subscribe], From, Value, Result).
 
 %%%-------------------------------------------------------------------
 %%% Internal functions
 %%%-------------------------------------------------------------------
-handle_request(Session, Cfg, Msg) ->
-    call_transport_manager(Session, Cfg, Msg, ?FUNCTION_NAME).
+handle_request(Msg, Cfg, Session) ->
+    call_transport_manager(?FUNCTION_NAME, Msg, Cfg, Session).
 
-handle_response(Session, Cfg, Msg) ->
-    call_transport_manager(Session, Cfg, Msg, ?FUNCTION_NAME).
+handle_response(Msg, Cfg, Session) ->
+    call_transport_manager(?FUNCTION_NAME, Msg, Cfg, Session).
 
-handle_out(Session, Cfg, Msg) ->
-    call_transport_manager(Session, Cfg, Msg, ?FUNCTION_NAME).
+handle_out(Msg, Cfg, Session) ->
+    call_transport_manager(?FUNCTION_NAME, Msg, Cfg, Session).
 
-call_transport_manager(#session{transport_manager = TM} = Session,
-                       Cfg,
+call_transport_manager(Fun,
                        Msg,
-                       Fun) ->
+                       Cfg,
+                       #session{transport_manager = TM} = Session) ->
     try
-        Result = emqx_coap_tm:Fun(Msg, TM, Cfg),
+        Result = emqx_coap_tm:Fun(Msg, Cfg, TM),
         {ok, _, Session2} = emqx_misc:pipeline([fun process_tm/2,
                                                 fun process_subscribe/2],
                                                Result,
                                                Session),
-        emqx_coap_channel:transfer_result(Result, session, Session2)
+        emqx_coap_channel:transfer_result(session, Session2, Result)
     catch Type:Reason:Stack ->
             ?ERROR("process transmission with, message:~p failed~n
 Type:~p,Reason:~p~n,StackTrace:~p~n", [Msg, Type, Reason, Stack]),
@@ -146,10 +146,10 @@ process_subscribe(#{subscribe := Sub}, #session{observe_manager = OM} =  Session
         undefined ->
             {ok, Session};
         {Topic, Token} ->
-            OM2 = emqx_coap_observe_res:insert(OM, Topic, Token),
+            OM2 = emqx_coap_observe_res:insert(Topic, Token, OM),
             {ok, Session#session{observe_manager = OM2}};
         Topic ->
-            OM2 = emqx_coap_observe_res:remove(OM, Topic),
+            OM2 = emqx_coap_observe_res:remove(Topic, OM),
             {ok, Session#session{observe_manager = OM2}}
     end;
 process_subscribe(_, Session) ->

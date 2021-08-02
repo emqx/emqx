@@ -23,7 +23,7 @@
 -define(MAXIMUM_MAX_AGE, 4294967295).
 
 -define(EMPTY_RESULT, #{}).
--define(TRANSFER_RESULT(R1, Keys, From, Value),
+-define(TRANSFER_RESULT(Keys, From, Value, R1),
         begin
             R2 = maps:with(Keys, R1),
             R2#{From => Value}
