@@ -29,7 +29,6 @@ init([]) ->
     {ok, {{one_for_one, 10, 100},
            %% always start emqx_config_handler first to load the emqx.conf to emqx_config
           [ child_spec(emqx_config_handler, worker)
-          , child_spec(emqx_global_gc, worker)
           , child_spec(emqx_pool_sup, supervisor)
           , child_spec(emqx_hooks, worker)
           , child_spec(emqx_stats, worker)

@@ -32,13 +32,15 @@ start(_Type, _Args) ->
 
     ok = load_config_files(),
 
+    {ok, RootSupPid} = emqx_machine_sup:start_link(),
+
     {ok, _} = application:ensure_all_started(emqx),
 
     _ = emqx_plugins:load(),
     _ = start_modules(),
 
     ok = print_vsn(),
-    emqx_machine_sup:start_link().
+    {ok, RootSupPid}.
 
 prep_stop(_State) ->
     application:stop(emqx).

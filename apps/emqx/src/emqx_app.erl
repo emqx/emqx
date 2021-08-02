@@ -24,6 +24,7 @@
         , get_description/0
         , get_release/0
         , set_init_config_load_done/0
+        , set_override_conf_file/1
         ]).
 
 -include("emqx.hrl").
@@ -69,6 +70,13 @@ stop(_State) -> ok.
 %% which manages emqx app.
 set_init_config_load_done() ->
     application:set_env(emqx, init_config_load_done, true).
+
+%% @doc This API is mostly for testing.
+%% The override config file is typically located in the 'data' dir when
+%% it is a emqx release, but emqx app should not have to konw where the
+%% 'data' dir is located.
+set_override_conf_file(File) ->
+    application:set_env(emqx, override_conf_file, File).
 
 maybe_load_config() ->
     case application:get_env(emqx, init_config_load_done, false) of

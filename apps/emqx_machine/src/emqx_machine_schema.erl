@@ -128,10 +128,8 @@ fields("node") ->
                                        sensitive => true,
                                        override_env => "EMQX_NODE_COOKIE"
                                       })}
-    , {"data_dir", t(string(), undefined, undefined)}
-    , {"config_files", t(list(string()), "emqx.config_files",
-        [ filename:join([os:getenv("RUNNER_ETC_DIR"), "emqx.conf"])
-        ])}
+    , {"data_dir", hoconsc:t(string(), #{nullable => false})}
+    , {"config_files", t(list(string()), "emqx.config_files", undefined)}
     , {"global_gc_interval", t(emqx_schema:duration(), undefined, "15m")}
     , {"crash_dump_dir", t(file(), "vm_args.-env ERL_CRASH_DUMP", undefined)}
     , {"dist_net_ticktime", t(emqx_schema:duration(), "vm_args.-kernel net_ticktime", "2m")}
@@ -230,6 +228,7 @@ translation("kernel") ->
     , {"logger", fun tr_logger/1}];
 translation("emqx") ->
     [ {"config_files", fun tr_config_files/1}
+    , {"override_conf_file", fun tr_override_conf_fie/1}
     ].
 
 tr_config_files(Conf) ->
@@ -244,6 +243,12 @@ tr_config_files(Conf) ->
                     [filename:join([Dir, "emqx.conf"])]
             end
     end.
+
+tr_override_conf_fie(Conf) ->
+    DataDir = conf_get("node.data_dir", Conf),
+    %% assert, this config is not nullable
+    [_ | _] = DataDir,
+    filename:join([DataDir, "emqx_override.conf"]).
 
 tr_cluster__discovery(Conf) ->
     Strategy = conf_get("cluster.discovery_strategy", Conf),
