@@ -138,7 +138,7 @@ common_compile_opts() ->
     , {compile_info, [{emqx_vsn, get_vsn()}]}
     , {d, snk_kind, msg}
     ] ++
-    [{d, 'EMQX_DEP_APPS', AppNames -- [emqx]}] ++
+    [{d, 'EMQX_DEP_APPS', AppNames -- [emqx, emqx_machine]}] ++
     [{d, 'EMQX_ENTERPRISE'} || is_enterprise()] ++
     [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].
 
