@@ -216,6 +216,8 @@ jobs:
       fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        erl_otp:
+          - 23.2.7.2-emqx-2
         arch:
           - amd64
           - arm64
@@ -295,7 +297,7 @@ jobs:
         done
     - name: build emqx packages
       env:
-        ERL_OTP: erl23.2.7.2-emqx-2
+        ERL_OTP: erl${{ matrix.erl_otp }}
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
@@ -336,17 +338,14 @@ jobs:
 
   docker:
     runs-on: ubuntu-20.04
-
     needs: prepare
 
     strategy:
       fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
-        arch:
-          - [amd64, x86_64]
-          - [arm64v8, aarch64]
-          - [arm32v7, arm]
+        erl_otp:
+          - 23.2.7.2-emqx-2
 
     steps:
     - uses: actions/download-artifact@v2
@@ -355,22 +354,49 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-    - name: build emqx docker image
-      env:
-        PROFILE: ${{ matrix.profile }}
-        ARCH: ${{ matrix.arch[0] }}
-        QEMU_ARCH: ${{ matrix.arch[1] }}
-      run: |
-        sudo docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-
-        cd source
-        sudo TARGET=emqx/$PROFILE ARCH=$ARCH QEMU_ARCH=$QEMU_ARCH  make docker
-        cd _packages/$PROFILE && for var in $(ls ${PROFILE}-docker-* ); do sudo bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"; done && cd -
-    - uses: actions/upload-artifact@v1
-      if: startsWith(github.ref, 'refs/tags/')
+    - uses: docker/setup-buildx-action@v1
+    - uses: docker/setup-qemu-action@v1
       with:
-        name: ${{ matrix.profile }}
-        path: source/_packages/${{ matrix.profile }}/.
+        image: tonistiigi/binfmt:latest
+        platforms: all
+    - name: build emqx docker image
+      if: github.event_name != 'release'
+      env:
+        ERL_OTP: erl${{ matrix.erl_otp }}
+        PROFILE: ${{ matrix.profile }}
+      run: |
+        cd source
+        PKG_VSN="$(./pkg-vsn.sh)"
+        docker buildx build --no-cache \
+           --platform=linux/amd64,linux/arm64 \
+           --build-arg PKG_VSN=$PKG_VSN  \
+           --build-arg BUILD_FROM=emqx/build-env:$ERL_OTP-alpine  \
+           --build-arg RUN_FROM=alpine:3.14 \
+           --build-arg EMQX_NAME=$PROFILE \
+           --tag emqx/$PROFILE:$PKG_VSN \
+           -f deploy/docker/Dockerfile .
+    - uses: docker/login-action@v1
+      if: github.event_name == 'release'
+      with:
+        username: ${{ secrets.DOCKER_HUB_USER }}
+        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+    - name: build emqx docker image
+      if: github.event_name == 'release'
+      env:
+        ERL_OTP: erl${{ matrix.erl_otp }}
+        PROFILE: ${{ matrix.profile }}
+      run: |
+        cd source
+        PKG_VSN="$(./pkg-vsn.sh)"
+        docker buildx build --no-cache \
+           --platform=linux/amd64,linux/arm64 \
+           --build-arg PKG_VSN=$PKG_VSN  \
+           --build-arg BUILD_FROM=emqx/build-env:$ERL_OTP-alpine  \
+           --build-arg RUN_FROM=alpine:3.14 \
+           --build-arg EMQX_NAME=$PROFILE \
+           --tag emqx/$PROFILE:$PKG_VSN \
+           -f deploy/docker/Dockerfile \
+           --push .
 
   delete-artifact:
     runs-on: ubuntu-20.04

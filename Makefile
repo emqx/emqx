@@ -153,7 +153,14 @@ run: $(PROFILE) quickrun
 quickrun:
 	./_build/$(PROFILE)/rel/emqx/bin/emqx console
 
-include docker.mk
+## docker target is to create docker instructions
+.PHONY: $(REL_PROFILES:%=%-docker)
+define gen-docker-target
+$1-docker: $(COMMON_DEPS)
+	@$(BUILD) $1 docker
+endef
+ALL_ZIPS = $(REL_PROFILES)
+$(foreach zt,$(ALL_ZIPS),$(eval $(call gen-docker-target,$(zt))))
 
 conf-segs:
 	@scripts/merge-config.escript
