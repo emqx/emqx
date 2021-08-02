@@ -211,11 +211,14 @@ shutdown() ->
     shutdown(normal).
 
 shutdown(Reason) ->
-    ?LOG(critical, "emqx shutdown for ~s", [Reason]),
+    ?SLOG(critical, #{msg => "stopping_apps", reason => Reason}),
     _ = emqx_alarm_handler:unload(),
-    lists:foreach(fun application:stop/1
-                 , lists:reverse(default_started_applications())
-                 ).
+    lists:foreach(fun stop_app/1, lists:reverse(default_started_applications())).
+
+
+stop_app(App) ->
+    ?SLOG(debug, #{msg => "stopping_app", app => App}),
+    application:stop(App).
 
 reboot() ->
     lists:foreach(fun application:start/1 , default_started_applications()).
