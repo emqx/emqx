@@ -502,10 +502,10 @@ listener_id_filter(Identifier, Listeners) ->
 
 -spec manage_listener(Operation :: start_listener|stop_listener|restart_listener, Param :: map()) ->
     ok | {error, Reason :: term()}.
-manage_listener(Operation, #{identifier := Identifier, node := Node}) when Node =:= node()->
-    erlang:apply(emqx_listeners, Operation, [Identifier]);
+manage_listener(Operation, #{id := ID, node := Node}) when Node =:= node()->
+    erlang:apply(emqx_listeners, Operation, [ID]);
 manage_listener(Operation, Param = #{node := Node}) ->
-    rpc_call(Node, restart_listener, [Operation, Param]).
+    rpc_call(Node, manage_listener, [Operation, Param]).
 
 %%--------------------------------------------------------------------
 %% Get Alarms
