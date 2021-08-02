@@ -20,7 +20,6 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--logger_header("[EMQ X]").
 
 %% Start/Stop the application
 -export([ start/0
@@ -77,8 +76,8 @@ set_debug_secret(PathToSecretFile) ->
                 catch _ : _ -> error({badfile, PathToSecretFile})
                 end;
             {error, Reason} ->
-                io:format("Failed to read debug_info encryption key file ~s: ~p~n",
-                          [PathToSecretFile, Reason]),
+                ?ULOG("Failed to read debug_info encryption key file ~s: ~p~n",
+                      [PathToSecretFile, Reason]),
                 error(Reason)
         end,
     F = fun(init) -> ok;

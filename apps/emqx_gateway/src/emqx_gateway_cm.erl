@@ -26,7 +26,6 @@
 -include("include/emqx_gateway.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[PGW-CM]").
 
 %% APIs
 -export([start_link/1]).

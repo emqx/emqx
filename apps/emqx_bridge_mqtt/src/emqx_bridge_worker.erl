@@ -116,7 +116,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
--logger_header("[Bridge]").
 
 %% same as default in-flight limit for emqtt
 -define(DEFAULT_BATCH_SIZE, 32).

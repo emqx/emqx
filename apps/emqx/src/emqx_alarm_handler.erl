@@ -21,7 +21,6 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
--logger_header("[Alarm Handler]").
 
 %% gen_event callbacks
 -export([ init/1

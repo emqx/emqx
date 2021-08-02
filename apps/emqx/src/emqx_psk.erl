@@ -18,7 +18,6 @@
 
 -include("logger.hrl").
 
--logger_header("[PSK]").
 
 %% SSL PSK Callbacks
 -export([lookup/3]).

@@ -22,7 +22,6 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
 
--logger_header("[CoAP-RES]").
 
 -export([ init/1
         , stop/1

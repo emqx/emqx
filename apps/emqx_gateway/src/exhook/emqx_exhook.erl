@@ -19,7 +19,6 @@
 -include("src/exhook/include/emqx_exhook.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[ExHook]").
 
 %% Mgmt APIs
 -export([ enable/2

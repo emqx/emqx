@@ -119,10 +119,10 @@ on_action_create_inspect(Id, Params) ->
 
 -spec on_action_inspect(selected_data(), env_vars()) -> any().
 on_action_inspect(Selected, Envs) ->
-    io:format("[inspect]~n"
-              "\tSelected Data: ~p~n"
-              "\tEnvs: ~p~n"
-              "\tAction Init Params: ~p~n", [Selected, Envs, ?bound_v('Params', Envs)]),
+    ?ULOG("[inspect]~n"
+          "\tSelected Data: ~p~n"
+          "\tEnvs: ~p~n"
+          "\tAction Init Params: ~p~n", [Selected, Envs, ?bound_v('Params', Envs)]),
     emqx_rule_metrics:inc_actions_success(?bound_v('Id', Envs)).
 
 

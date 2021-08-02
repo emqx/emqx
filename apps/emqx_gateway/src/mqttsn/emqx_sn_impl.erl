@@ -32,6 +32,8 @@
         , on_insta_destroy/3
         ]).
 
+-include_lib("emqx/include/logger.hrl").
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -113,13 +115,12 @@ start_listener(InstaId, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
-            io:format("Start mqttsn ~s:~s listener on ~s successfully.~n",
-                      [InstaId, Type, ListenOnStr]),
+            ?ULOG("Start mqttsn ~s:~s listener on ~s successfully.~n",
+                  [InstaId, Type, ListenOnStr]),
             Pid;
         {error, Reason} ->
-            io:format(standard_error,
-                      "Failed to start mqttsn ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, ListenOnStr, Reason]),
+            ?ELOG("Failed to start mqttsn ~s:~s listener on ~s: ~0p~n",
+                  [InstaId, Type, ListenOnStr, Reason]),
             throw({badconf, Reason})
     end.
 
@@ -150,13 +151,11 @@ stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
     StopRet = stop_listener(InstaId, Type, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
-        ok -> io:format("Stop mqttsn ~s:~s listener on ~s successfully.~n",
-                        [InstaId, Type, ListenOnStr]);
+        ok -> ?ULOG("Stop mqttsn ~s:~s listener on ~s successfully.~n",
+                    [InstaId, Type, ListenOnStr]);
         {error, Reason} ->
-            io:format(standard_error,
-                      "Failed to stop mqttsn ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, ListenOnStr, Reason]
-                     )
+            ?ELOG("Failed to stop mqttsn ~s:~s listener on ~s: ~0p~n",
+                  [InstaId, Type, ListenOnStr, Reason])
     end,
     StopRet.
 

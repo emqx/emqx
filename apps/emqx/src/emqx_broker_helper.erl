@@ -21,7 +21,6 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--logger_header("[Broker Helper]").
 
 -export([start_link/0]).
 

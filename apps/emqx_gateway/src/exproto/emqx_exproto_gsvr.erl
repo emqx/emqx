@@ -22,7 +22,6 @@
 -include("src/exproto/include/emqx_exproto.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[ExProto gServer]").
 
 -define(IS_QOS(X), (X =:= 0 orelse X =:= 1 orelse X =:= 2)).
 

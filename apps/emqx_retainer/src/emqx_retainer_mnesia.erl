@@ -23,7 +23,6 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 
--logger_header("[Retainer]").
 
 -export([delete_message/2
         , store_retained/2

@@ -32,6 +32,8 @@
         , on_insta_destroy/3
         ]).
 
+-include_lib("emqx/include/logger.hrl").
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -64,8 +66,7 @@ start_grpc_server(InstaId, Options = #{bind := ListenOn}) ->
                       [{ssl_options, SslOpts}]
               end,
     _ = grpc:start_server(InstaId, ListenOn, Services, SvrOptions),
-    io:format("Start ~s gRPC server on ~p successfully.~n",
-               [InstaId, ListenOn]).
+    ?ULOG("Start ~s gRPC server on ~p successfully.~n", [InstaId, ListenOn]).
 
 start_grpc_client_channel(InstaId, Options = #{address := UriStr}) ->
     UriMap = uri_string:parse(UriStr),
@@ -146,13 +147,12 @@ start_listener(InstaId, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
-            io:format("Start exproto ~s:~s listener on ~s successfully.~n",
+            ?ULOG("Start exproto ~s:~s listener on ~s successfully.~n",
                       [InstaId, Type, ListenOnStr]),
             Pid;
         {error, Reason} ->
-            io:format(standard_error,
-                      "Failed to start exproto ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, ListenOnStr, Reason]),
+            ?ELOG("Failed to start exproto ~s:~s listener on ~s: ~0p~n",
+                  [InstaId, Type, ListenOnStr, Reason]),
             throw({badconf, Reason})
     end.
 
@@ -204,13 +204,11 @@ stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
     StopRet = stop_listener(InstaId, Type, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
-        ok -> io:format("Stop exproto ~s:~s listener on ~s successfully.~n",
-                        [InstaId, Type, ListenOnStr]);
+        ok -> ?ULOG("Stop exproto ~s:~s listener on ~s successfully.~n",
+                    [InstaId, Type, ListenOnStr]);
         {error, Reason} ->
-            io:format(standard_error,
-                      "Failed to stop exproto ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, ListenOnStr, Reason]
-                     )
+            ?ELOG("Failed to stop exproto ~s:~s listener on ~s: ~0p~n",
+                  [InstaId, Type, ListenOnStr, Reason])
     end,
     StopRet.
 

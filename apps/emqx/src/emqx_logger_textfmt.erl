@@ -19,25 +19,24 @@
 -export([format/2]).
 -export([check_config/1]).
 
-%% metadata fields which we do not wish to merge into log data
--define(WITHOUT_MERGE,
-        [ report_cb % just a callback
-        , time      % formatted as a part of templated message
-        , peername  % formatted as a part of templated message
-        , clientid  % formatted as a part of templated message
-        , gl        % not interesting
-        ]).
-
 check_config(X) -> logger_formatter:check_config(X).
 
-format(#{msg := Msg0, meta := Meta} = Event, Config) ->
-    Msg = maybe_merge(Msg0, Meta),
-    logger_formatter:format(Event#{msg := Msg}, Config).
+format(#{msg := {report, Report}, meta := Meta} = Event, Config) when is_map(Report) ->
+    logger_formatter:format(Event#{msg := {report, enrich(Report, Meta)}}, Config);
+format(#{msg := {Fmt, Args}, meta := Meta} = Event, Config) when is_list(Fmt) ->
+    {NewFmt, NewArgs} = enrich_fmt(Fmt, Args, Meta),
+    logger_formatter:format(Event#{msg := {NewFmt, NewArgs}}, Config).
 
-maybe_merge({report, Report}, Meta) when is_map(Report) ->
-    {report, maps:merge(Report, filter(Meta))};
-maybe_merge(Report, _Meta) ->
-    Report.
+enrich(Report, #{mfa := Mfa, line := Line}) ->
+    Report#{mfa => mfa(Mfa), line => Line};
+enrich(Report, _) -> Report.
 
-filter(Meta) ->
-    maps:without(?WITHOUT_MERGE, Meta).
+enrich_fmt(Fmt, Args, #{mfa := Mfa, line := Line}) ->
+    {Fmt ++ " mfa: ~s line: ~w", Args ++ [mfa(Mfa), Line]};
+enrich_fmt(Fmt, Args, _) ->
+    {Fmt, Args}.
+
+mfa({M, F, A}) ->
+    <<(atom_to_binary(M, utf8))/binary, $:,
+      (atom_to_binary(F, utf8))/binary, $/,
+      (integer_to_binary(A))/binary>>.

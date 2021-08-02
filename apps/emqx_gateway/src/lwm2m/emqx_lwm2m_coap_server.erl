@@ -28,8 +28,7 @@
         , stop_listener/2
         ]).
 
--define(LOG(Level, Format, Args),
-    logger:Level("LwM2M: " ++ Format, Args)).
+-include_lib("emqx/include/logger.hrl").
 
 start(Envs) ->
     start_listeners(Envs).
@@ -50,11 +49,11 @@ stop_listeners(Envs) ->
 start_listener({Proto, ListenOn, Opts}) ->
     case start_listener(Proto, ListenOn, Opts) of
         {ok, _Pid} ->
-            io:format("Start lwm2m:~s listener on ~s successfully.~n",
-                      [Proto, format(ListenOn)]);
+            ?ULOG("Start lwm2m:~s listener on ~s successfully.~n",
+                  [Proto, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to start lwm2m:~s listener on ~s: ~0p~n",
-                      [Proto, format(ListenOn), Reason]),
+            ?ELOG("Failed to start lwm2m:~s listener on ~s: ~0p~n",
+                  [Proto, format(ListenOn), Reason]),
             error(Reason)
     end.
 
@@ -66,11 +65,11 @@ start_listener(dtls, ListenOn, Opts) ->
 stop_listener({Proto, ListenOn, _Opts}) ->
     Ret = stop_listener(Proto, ListenOn),
     case Ret of
-        ok -> io:format("Stop lwm2m:~s listener on ~s successfully.~n",
-                        [Proto, format(ListenOn)]);
+        ok -> ?ULOG("Stop lwm2m:~s listener on ~s successfully.~n",
+                    [Proto, format(ListenOn)]);
         {error, Reason} ->
-            io:format(standard_error, "Failed to stop lwm2m:~s listener on ~s: ~0p~n",
-                      [Proto, format(ListenOn), Reason])
+            ?ELOG("Failed to stop lwm2m:~s listener on ~s: ~0p~n",
+                  [Proto, format(ListenOn), Reason])
     end,
     Ret.
 

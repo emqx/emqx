@@ -20,7 +20,6 @@
 -include("emqx_bridge_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[Bridge]").
 
 %% APIs
 -export([ start_link/0

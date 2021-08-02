@@ -209,7 +209,7 @@ init_load(SchemaModule, RawRichConf) when is_map(RawRichConf) ->
 check_config(SchemaModule, RawConf) ->
     Opts = #{return_plain => true,
              nullable => true,
-             is_richmap => false
+             format => map
             },
     {AppEnvs, CheckedConf} =
         hocon_schema:map_translate(SchemaModule, RawConf, Opts),

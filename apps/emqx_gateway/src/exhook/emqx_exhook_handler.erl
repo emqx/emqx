@@ -20,7 +20,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[ExHook]").
 
 -export([ on_client_connect/2
         , on_client_connack/3
