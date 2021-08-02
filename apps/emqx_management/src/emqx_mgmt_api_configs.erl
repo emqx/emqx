@@ -20,93 +20,85 @@
 
 -export([api_spec/0]).
 
--export([brokers/2]).
+-export([ config/2
+        ]).
+
+-define(CONFIG_NAMES, [log, rpc, broker, zones, sysmon, alarm]).
+
+-define(PARAM_CONF_PATH, [#{
+    name => conf_path,
+    in => query,
+    description => <<"The config path in jq syntax">>,
+    required => false,
+    schema => #{type => string, default => <<".">>}
+}]).
 
 api_spec() ->
-    {[config_apis()], config_schemas()}.
+    {config_apis(), config_schemas()}.
 
-config_schema() -> [
-    #{
-        broker => #{
-            type => object,
-        }
-    }
-|| RootKey <- ].
+config_schemas() ->
+    [#{RootName => #{type => object}} %% TODO: generate this from hocon schema
+     || RootName <- ?CONFIG_NAMES].
 
 config_apis() ->
+    [config_api(RootName) || RootName <- ?CONFIG_NAMES].
+
+config_api(RootName) when is_atom(RootName) ->
+    RootNameStr = atom_to_list(RootName),
+    Descr = fun(Prefix) -> list_to_binary(Prefix ++ " " ++ RootNameStr) end,
     Metadata = #{
         get => #{
-            description => <<"EMQ X configs">>,
-            parameters => [#{
-                name => activated,
-                in => query,
-                description => <<"All configs, if not specified">>,
-                required => false,
-                schema => #{type => boolean, default => true}
-            }],
+            description => Descr("Get configs for"),
+            parameters => ?PARAM_CONF_PATH,
             responses => #{
-                <<"200">> =>
-                emqx_mgmt_util:response_array_schema(<<"List all configs">>, config)}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"The config value for log">>,
+                    RootName)
+            }
+        },
         delete => #{
-            description => <<"Remove all deactivated configs">>,
+            description => Descr("Remove configs for"),
+            parameters => ?PARAM_CONF_PATH,
             responses => #{
-                <<"200">> =>
-                emqx_mgmt_util:response_schema(<<"Remove all deactivated configs ok">>)}}},
-    {"/configs", Metadata, configs}.
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Remove configs successfully">>),
+                <<"400">> => emqx_mgmt_util:response_error_schema(
+                    <<"It's not able to remove the config">>, ['INVALID_OPERATION'])
+            }
+        },
+        put => #{
+            description => Descr("Update configs for"),
+            'requestBody' => emqx_mgmt_util:request_body_schema(RootName),
+            responses => #{
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Update configs successfully">>,
+                    RootName),
+                <<"400">> => emqx_mgmt_util:response_error_schema(
+                    <<"Update configs failed">>, ['UPDATE_FAILED'])
+            }
+        }
+    },
+    {"/configs/" ++ RootNameStr, Metadata, config}.
 
 %%%==============================================================================================
 %% parameters trans
-configs(get, Request) ->
-    case proplists:get_value(<<"activated">>, cowboy_req:parse_qs(Request), undefined) of
-        undefined ->
-            list(#{activated => undefined});
-        <<"true">> ->
-            list(#{activated => true});
-        <<"false">> ->
-            list(#{activated => false})
-    end;
+config(get, Req) ->
+    %% TODO: query the config specified by the query string param 'conf_path'
+    Conf = emqx_config:get_raw([root_name_from_path(Req)]),
+    {200, Conf};
 
-configs(delete, _Request) ->
-    delete().
+config(delete, Req) ->
+    %% TODO: remove the config specified by the query string param 'conf_path'
+    emqx_config:remove([binary_to_existing_atom(root_name_from_path(Req), latin1)]),
+    {200};
 
-%%%==============================================================================================
-%% api apply
-list(#{activated := true}) ->
-    do_list(activated);
-list(#{activated := false}) ->
-    do_list(deactivated);
-list(#{activated := undefined}) ->
-    do_list(activated).
+config(put, Req) ->
+    RootName = root_name_from_path(Req),
+    AtomRootName = binary_to_existing_atom(RootName, latin1),
+    ok = emqx_config:update([AtomRootName], http_body(Req)),
+    {200, emqx_config:get_raw([RootName])}.
 
-delete() ->
-    _ = emqx_mgmt:delete_all_deactivated_configs(),
-    {200}.
+root_name_from_path(Req) ->
+    <<"/api/v5/configs/", RootName/binary>> = cowboy_req:path(Req),
+    RootName.
 
-%%%==============================================================================================
-%% internal
-do_list(Type) ->
-    {Table, Function} =
-        case Type of
-            activated ->
-                {?ACTIVATED_ALARM, query_activated};
-            deactivated ->
-                {?DEACTIVATED_ALARM, query_deactivated}
-        end,
-    Response = emqx_mgmt_api:cluster_query([], {Table, []}, {?MODULE, Function}),
-    {200, Response}.
-
-query_activated(_, Start, Limit) ->
-    query(?ACTIVATED_ALARM, Start, Limit).
-
-query_deactivated(_, Start, Limit) ->
-    query(?DEACTIVATED_ALARM, Start, Limit).
-
-query(Table, Start, Limit) ->
-    Ms = [{'$1',[],['$1']}],
-    emqx_mgmt_api:select_table(Table, Ms, Start, Limit, fun format_config/1).
-
-format_config(Alarms) when is_list(Alarms) ->
-    [emqx_config:format(Alarm) || Alarm <- Alarms];
-
-format_config(Alarm) ->
-    emqx_config:format(Alarm).
+http_body(Req) ->
+    {ok, Body, _} = cowboy_req:read_body(Req),
+    Body.
