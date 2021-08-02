@@ -346,6 +346,7 @@ relx_overlay(ReleaseType) ->
     , {copy, "bin/emqx", "bin/emqx-{{release_version}}"} %% for relup
     , {copy, "bin/emqx_ctl", "bin/emqx_ctl-{{release_version}}"} %% for relup
     , {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"} %% for relup
+    , {copy, "apps/emqx_gateway/src/lwm2m/lwm2m_xml", "etc/lwm2m_xml"}
     , {template, "bin/emqx.cmd", "bin/emqx.cmd"}
     , {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"}
     , {copy, "bin/nodetool", "bin/nodetool"}

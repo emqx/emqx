@@ -44,7 +44,8 @@ load_default_gateway_applications() ->
 
 gateway_type_searching() ->
     %% FIXME: Hardcoded apps
-    [emqx_stomp_impl, emqx_sn_impl, emqx_exproto_impl, emqx_coap_impl].
+    [emqx_stomp_impl, emqx_sn_impl, emqx_exproto_impl,
+     emqx_coap_impl, emqx_lwm2m_impl].
 
 load(Mod) ->
     try
@@ -81,10 +82,14 @@ create_gateway_by_default([{Type, Name, Confs}|More]) ->
     create_gateway_by_default(More).
 
 zipped_confs() ->
-    All = maps:to_list(emqx_config:get([gateway])),
+    All = maps:to_list(
+            maps:without(exclude_options(), emqx_config:get([gateway]))),
     lists:append(lists:foldr(
       fun({Type, Gws}, Acc) ->
         {Names, Confs} = lists:unzip(maps:to_list(Gws)),
         Types = [ Type || _ <- lists:seq(1, length(Names))],
         [lists:zip3(Types, Names, Confs) | Acc]
       end, [], All)).
+
+exclude_options() ->
+   [lwm2m_xml_dir].
