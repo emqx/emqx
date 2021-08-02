@@ -98,7 +98,7 @@ relx_usage() {
             echo "                      don't make it permanent"
             ;;
         *)
-            echo "Usage: $REL_NAME {start|start_boot <file>|ertspath|foreground|stop|restart|reboot|pid|ping|console|console_clean|console_boot <file>|attach|remote_console|upgrade|downgrade|install|uninstall|versions|escript|rpc|rpcterms|eval|root_dir}"
+            echo "Usage: $REL_NAME {start|start_boot <file>|ertspath|foreground|stop|restart|reboot|pid|ping|console|console_clean|console_boot <file>|attach|remote_console|upgrade|downgrade|install|uninstall|versions|escript|ctl|rpc|rpcterms|eval|root_dir}"
             ;;
     esac
 }
@@ -651,6 +651,17 @@ case "$1" in
         ;;
     ertspath)
         echo "$ERTS_PATH"
+        ;;
+    ctl)
+        # Make sure a node IS running
+        if ! relx_nodetool "ping" > /dev/null; then
+            echo "Node is not running!"
+            exit 1
+        fi
+
+        shift
+
+        relx_nodetool rpc emqx_ctl run_command "$@"
         ;;
     rpc)
         # Make sure a node IS running
