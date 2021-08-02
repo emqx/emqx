@@ -22,7 +22,7 @@
 % This module is for future use. Disabled now.
 
 %% API
--export([ start_link/0
+-export([ start_link/1
         , stop/0
         , find_name/1
         , find_objectid/1
@@ -49,8 +49,8 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+start_link(XmlDir) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [XmlDir], []).
 
 find_objectid(ObjectId) ->
     ObjectIdInt =   case is_list(ObjectId) of
@@ -85,10 +85,10 @@ stop() ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init([]) ->
+init([XmlDir]) ->
     _ = ets:new(?LWM2M_OBJECT_DEF_TAB, [set, named_table, protected]),
     _ = ets:new(?LWM2M_OBJECT_NAME_TO_ID_TAB, [set, named_table, protected]),
-    load(emqx_config:get([emqx_lwm2m, xml_dir])),
+    load(XmlDir),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->
@@ -107,8 +107,6 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
-
 
 %%--------------------------------------------------------------------
 %% Internal functions

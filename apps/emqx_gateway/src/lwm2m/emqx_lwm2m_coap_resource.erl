@@ -363,9 +363,12 @@ check_epn(undefined) -> false;
 check_epn(_)         -> true.
 
 check_lifetime(undefined) -> false;
-check_lifetime(LifeTime) when is_integer(LifeTime) ->
-    Max = proplists:get_value(lifetime_max, lwm2m_coap_responder:options(), 315360000),
-    Min = proplists:get_value(lifetime_min, lwm2m_coap_responder:options(), 0),
+check_lifetime(LifeTime0) when is_integer(LifeTime0) ->
+    LifeTime = timer:seconds(LifeTime0),
+    Envs = proplists:get_value(config, lwm2m_coap_responder:options(), #{}),
+    Max = maps:get(lifetime_max, Envs, 315360000),
+    Min = maps:get(lifetime_min, Envs, 0),
+
     if
         LifeTime >= Min, LifeTime =< Max ->
             true;
