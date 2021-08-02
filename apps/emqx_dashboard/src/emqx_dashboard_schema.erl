@@ -27,6 +27,7 @@ fields("emqx_dashboard") ->
                                                hoconsc:ref(?MODULE, "https")]))}
     , {default_username, fun default_username/1}
     , {default_password, fun default_password/1}
+    , {sample_interval, emqx_schema:t(emqx_schema:duration_s(), undefined, "10s")}
     ];
 
 fields("http") ->
