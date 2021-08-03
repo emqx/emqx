@@ -20,8 +20,6 @@
 
 -include("emqx_exhook.hrl").
 
--emqx_plugin(extension).
-
 -define(CNTER, emqx_exhook_counter).
 
 -export([ start/2
