@@ -60,10 +60,18 @@
         , put_raw/2
         ]).
 
--define(CONF, fun(ROOT) -> {?MODULE, bin(ROOT)} end).
--define(RAW_CONF, fun(ROOT) -> {?MODULE, raw, bin(ROOT)} end).
+-define(CONF, conf).
+-define(RAW_CONF, raw_conf).
+-define(PERSIS_KEY(TYPE, ROOT), {?MODULE, TYPE, bin(ROOT)}).
 -define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
 -define(LISTENER_CONF_PATH(ZONE, LISTENER, PATH), [zones, ZONE, listeners, LISTENER | PATH]).
+
+-define(ATOM_CONF_PATH(PATH, EXP, EXP_ON_FAIL),
+    try [atom(Key) || Key <- PATH] of
+        AtomKeyPath -> EXP
+    catch
+        error:badarg -> EXP_ON_FAIL
+    end).
 
 -export_type([update_request/0, raw_config/0, config/0]).
 -type update_request() :: term().
@@ -94,7 +102,8 @@ get(KeyPath, Default) -> do_get(?CONF, KeyPath, Default).
 -spec find(emqx_map_lib:config_key_path()) ->
     {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
 find(KeyPath) ->
-    emqx_map_lib:deep_find(KeyPath, get_root(KeyPath)).
+    ?ATOM_CONF_PATH(KeyPath, emqx_map_lib:deep_find(AtomKeyPath, get_root(KeyPath)),
+        {not_found, KeyPath}).
 
 -spec get_zone_conf(atom(), emqx_map_lib:config_key_path()) -> term().
 get_zone_conf(Zone, KeyPath) ->
@@ -141,20 +150,20 @@ put(KeyPath, Config) -> do_put(?CONF, KeyPath, Config).
 
 -spec update(emqx_map_lib:config_key_path(), update_request()) ->
     ok | {error, term()}.
-update(ConfKeyPath, UpdateReq) ->
-    update(emqx_schema, ConfKeyPath, UpdateReq).
+update(KeyPath, UpdateReq) ->
+    update(emqx_schema, KeyPath, UpdateReq).
 
 -spec update(module(), emqx_map_lib:config_key_path(), update_request()) ->
     ok | {error, term()}.
-update(SchemaModule, ConfKeyPath, UpdateReq) ->
-    emqx_config_handler:update_config(SchemaModule, ConfKeyPath, UpdateReq).
+update(SchemaModule, KeyPath, UpdateReq) ->
+    emqx_config_handler:update_config(SchemaModule, KeyPath, UpdateReq).
 
 -spec remove(emqx_map_lib:config_key_path()) -> ok | {error, term()}.
-remove(ConfKeyPath) ->
-    remove(emqx_schema, ConfKeyPath).
+remove(KeyPath) ->
+    remove(emqx_schema, KeyPath).
 
-remove(SchemaModule, ConfKeyPath) ->
-    emqx_config_handler:remove_config(SchemaModule, ConfKeyPath).
+remove(SchemaModule, KeyPath) ->
+    emqx_config_handler:remove_config(SchemaModule, KeyPath).
 
 -spec get_raw(emqx_map_lib:config_key_path()) -> term().
 get_raw(KeyPath) -> do_get(?RAW_CONF, KeyPath).
@@ -262,24 +271,41 @@ load_hocon_file(FileName, LoadType) ->
 emqx_override_conf_name() ->
     filename:join([?MODULE:get([node, data_dir]), "emqx_override.conf"]).
 
-bin(Bin) when is_binary(Bin) -> Bin;
-bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
-
-do_get(PtKey, KeyPath) ->
+do_get(Type, KeyPath) ->
     Ref = make_ref(),
-    Res = do_get(PtKey, KeyPath, Ref),
+    Res = do_get(Type, KeyPath, Ref),
     case Res =:= Ref of
         true -> error({config_not_found, KeyPath});
         false -> Res
     end.
 
-do_get(PtKey, [RootName], Default) ->
-    persistent_term:get(PtKey(RootName), Default);
-do_get(PtKey, [RootName | KeyPath], Default) ->
-    RootV = persistent_term:get(PtKey(RootName), #{}),
-    emqx_map_lib:deep_get(KeyPath, RootV, Default).
+do_get(Type, [RootName], Default) ->
+    persistent_term:get(?PERSIS_KEY(Type, RootName), Default);
+do_get(Type, [RootName | KeyPath], Default) ->
+    RootV = persistent_term:get(?PERSIS_KEY(Type, RootName), #{}),
+    do_deep_get(Type, KeyPath, RootV, Default).
 
-do_put(PtKey, [RootName | KeyPath], DeepValue) ->
-    OldValue = do_get(PtKey, [RootName], #{}),
-    NewValue = emqx_map_lib:deep_put(KeyPath, OldValue, DeepValue),
-    persistent_term:put(PtKey(RootName), NewValue).
+do_put(Type, [RootName | KeyPath], DeepValue) ->
+    OldValue = do_get(Type, [RootName], #{}),
+    NewValue = do_deep_put(Type, KeyPath, OldValue, DeepValue),
+    persistent_term:put(?PERSIS_KEY(Type, RootName), NewValue).
+
+do_deep_get(?CONF, KeyPath, Map, Default) ->
+    ?ATOM_CONF_PATH(KeyPath, emqx_map_lib:deep_get(AtomKeyPath, Map, Default),
+        Default);
+do_deep_get(?RAW_CONF, KeyPath, Map, Default) ->
+    emqx_map_lib:deep_get([bin(Key) || Key <- KeyPath], Map, Default).
+
+do_deep_put(?CONF, KeyPath, Map, Value) ->
+    ?ATOM_CONF_PATH(KeyPath, emqx_map_lib:deep_put(AtomKeyPath, Map, Value),
+        error({not_found, KeyPath}));
+do_deep_put(?RAW_CONF, KeyPath, Map, Value) ->
+    emqx_map_lib:deep_put([bin(Key) || Key <- KeyPath], Map, Value).
+
+atom(Bin) when is_binary(Bin) ->
+    binary_to_existing_atom(Bin, latin1);
+atom(Atom) when is_atom(Atom) ->
+    Atom.
+
+bin(Bin) when is_binary(Bin) -> Bin;
+bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
