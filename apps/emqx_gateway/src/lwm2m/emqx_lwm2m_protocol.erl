@@ -301,7 +301,7 @@ auto_observe_object_list(Expected, Registered) ->
 send_auto_observe(CoapPid, RegInfo, EndpointName) ->
     %% - auto observe the objects
     Envs = proplists:get_value(config, lwm2m_coap_responder:options(), #{}), 
-    case proplists:get_value(auto_observe, Envs, false) of
+    case maps:get(auto_observe, Envs, false) of
         false ->
             ?LOG(info, "Auto Observe Disabled", []);
         TrueOrObjList ->
