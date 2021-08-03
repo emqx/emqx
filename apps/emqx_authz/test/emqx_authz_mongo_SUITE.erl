@@ -50,8 +50,10 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
+    emqx_authz:update(replace, []),
     emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
-    meck:unload(emqx_resource).
+    meck:unload(emqx_resource),
+    ok.
 
 -define(RULE1,[#{<<"topics">> => [<<"#">>],
                  <<"permission">> => <<"deny">>,
