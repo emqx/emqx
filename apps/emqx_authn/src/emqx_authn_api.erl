@@ -1186,12 +1186,12 @@ authenticators2(put, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
     AuthenticatorConfig = emqx_json:decode(Body, [return_maps]),
-    Config = #{<<"emqx_authn">> => #{
+    Config = #{<<"authentication">> => #{
                    <<"authenticators">> => [AuthenticatorConfig]
                }},
     NConfig = hocon_schema:check_plain(emqx_authn_schema, Config,
                                        #{nullable => true}),
-    #{emqx_authn := #{authenticators := [NAuthenticatorConfig]}} = emqx_map_lib:unsafe_atom_key_map(NConfig),
+    #{authentication := #{authenticators := [NAuthenticatorConfig]}} = emqx_map_lib:unsafe_atom_key_map(NConfig),
     case emqx_authn:update_or_create_authenticator(?CHAIN, AuthenticatorID, NAuthenticatorConfig) of
         {ok, Authenticator} ->
             {200, Authenticator};
