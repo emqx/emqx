@@ -28,9 +28,9 @@
 -export([ authenticator_name/1
         ]).
 
-structs() -> [ "emqx_authn" ].
+structs() -> [ "authentication" ].
 
-fields("emqx_authn") ->
+fields("authentication") ->
     [ {enable, fun enable/1}
     , {authenticators, fun authenticators/1}
     ].
