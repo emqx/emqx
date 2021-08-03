@@ -131,6 +131,27 @@ authentication_api() ->
                 },
                 <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>)
             }
+        },
+        get => #{
+            description => "Get status of authentication",
+            responses => #{
+                <<"200">> => #{
+                    description => <<"OK">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => #{
+                                type => object,
+                                properties => #{
+                                    enabled => #{
+                                        type => boolean,
+                                        example => true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     },
     {"/authentication", Metadata, authentication}.
@@ -1153,7 +1174,10 @@ authentication(post, Request) ->
             serialize_error({invalid_parameter, enable});
         _ ->
             serialize_error({missing_parameter, enable})
-    end.
+    end;
+authentication(get, _Request) ->
+    Enabled = emqx_authn:is_enabled(),
+    {200, #{enabled => Enabled}}.
 
 authenticators(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
