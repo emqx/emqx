@@ -156,14 +156,14 @@ update(KeyPath, UpdateReq) ->
 -spec update(module(), emqx_map_lib:config_key_path(), update_request()) ->
     ok | {error, term()}.
 update(SchemaModule, KeyPath, UpdateReq) ->
-    emqx_config_handler:update_config(SchemaModule, KeyPath, UpdateReq).
+    emqx_config_handler:update_config(SchemaModule, KeyPath, {update, UpdateReq}).
 
 -spec remove(emqx_map_lib:config_key_path()) -> ok | {error, term()}.
 remove(KeyPath) ->
     remove(emqx_schema, KeyPath).
 
 remove(SchemaModule, KeyPath) ->
-    emqx_config_handler:remove_config(SchemaModule, KeyPath).
+    emqx_config_handler:update_config(SchemaModule, KeyPath, remove).
 
 -spec get_raw(emqx_map_lib:config_key_path()) -> term().
 get_raw(KeyPath) -> do_get(?RAW_CONF, KeyPath).
