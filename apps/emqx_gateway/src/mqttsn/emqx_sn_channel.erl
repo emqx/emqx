@@ -119,7 +119,7 @@ init(ConnInfo = #{peername := {PeerHost, _},
     EnableQoS3 = maps:get(enable_qos3, Option, true),
     ClientInfo = set_peercert_infos(
                    Peercert,
-                   #{ zone => undefined  %% XXX:
+                   #{ zone => default
                     , protocol => 'mqtt-sn'
                     , peerhost => PeerHost
                     , sockport => SockPort
