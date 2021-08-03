@@ -129,11 +129,7 @@ test_deps() ->
     ].
 
 common_compile_opts() ->
-    AppNames = list_dir("apps") ++
-               case is_enterprise() of
-                    true -> list_dir("lib-ee");
-                    false -> []
-               end,
+    AppNames = app_names(),
     [ debug_info % alwyas include debug_info
     , {compile_info, [{emqx_vsn, get_vsn()}]}
     , {d, snk_kind, msg}
@@ -427,11 +423,7 @@ dialyzer(Config) ->
             [ list_to_atom(App) || App <- string:tokens(Value, ",")]
     end,
 
-    AppNames = [list_dir("apps")] ++ 
-               case is_enterprise() of
-                    true -> [list_dir("lib-ee")];
-                    false -> []
-               end,
+    AppNames = app_names(),
 
     KnownApps = [Name ||  Name <- AppsToAnalyse, lists:member(Name, AppNames)],
 
@@ -462,6 +454,8 @@ coveralls() ->
       _ ->
         []
     end.
+
+app_names() -> list_dir("apps") ++ list_dir("lib-ee").
 
 list_dir(Dir) ->
     {ok, Names} = file:list_dir(Dir),
