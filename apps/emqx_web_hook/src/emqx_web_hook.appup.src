@@ -3,16 +3,24 @@
 {VSN,
   [
     {<<"4.3.[0-2]">>, [
-     {restart_application, emqx_web_hook},
-     {apply,{emqx_rule_engine,refresh_resource,[web_hook]}}
+     {apply, {application, stop,[emqx_web_hook]}},
+     {load_module, emqx_web_hook_app, brutal_purge, soft_purge, []},
+     {load_module, emqx_web_hook, brutal_purge, soft_purge, []},
+     {load_module, emqx_web_hook_actions, brutal_purge, soft_purge, []},
+     {apply,{emqx_rule_engine, refresh_resource, [web_hook]}}
     ]},
+    {<<"4.3.3">>, []},
     {<<".*">>, []}
   ],
   [
     {<<"4.3.[0-2]">>, [
-     {restart_application, emqx_web_hook},
-     {apply,{emqx_rule_engine,refresh_resource,[web_hook]}}
+     {apply, {application, stop, [emqx_web_hook]}},
+     {load_module, emqx_web_hook_app, brutal_purge, soft_purge, []},
+     {load_module, emqx_web_hook, brutal_purge, soft_purge, []},
+     {load_module, emqx_web_hook_actions, brutal_purge, soft_purge, []},
+     {apply, {emqx_rule_engine, refresh_resource, [web_hook]}}
     ]},
+    {<<"4.3.3">>, []},
     {<<".*">>, []}
   ]
 }.
