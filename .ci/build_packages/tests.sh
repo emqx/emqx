@@ -153,13 +153,11 @@ EOF
     pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
 
     echo "emqx test finshed"
-    ps -ef | grep -E '\-progname\s.+emqx\s' | awk '{print $2}'
-    emqx stop &
-    sleep 10
-    cat /var/log/emqx/*
 
     # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
-    # emqx stop || kill "$(ps -ef | grep -E '\-progname\s.+emqx\s' |awk '{print $2}')"
+    emqx stop || kill "$(ps -ef | grep -E '\-progname\s.+emqx\s' |awk '{print $2}')"
+
+    echo "start daemon test"
 
     if [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = ubuntu ] \
     || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] ;then
