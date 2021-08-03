@@ -383,8 +383,14 @@ refresh_resource(Type) when is_atom(Type) ->
     lists:foreach(fun refresh_resource/1,
                   emqx_rule_registry:get_resources_by_type(Type));
 
-refresh_resource(#resource{id = ResId}) ->
-    emqx_rule_monitor:ensure_resource_retrier(ResId, ?T_RETRY).
+refresh_resource(#resource{id = ResId, type = Type, config = Config}) ->
+    try
+        {ok, #resource_type{on_create = {M, F}}} =
+            emqx_rule_registry:find_resource_type(Type),
+        ok = emqx_rule_engine:init_resource(M, F, ResId, Config)
+    catch _:_ ->
+        emqx_rule_monitor:ensure_resource_retrier(ResId, ?T_RETRY)
+    end.
 
 -spec(refresh_rules() -> ok).
 refresh_rules() ->
