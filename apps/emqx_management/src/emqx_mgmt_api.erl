@@ -87,8 +87,8 @@ node_query(Node, Params, {Tab, QsSchema}, QueryFun) ->
     {_, Rows} = do_query(Node, Qs, QueryFun, Start, Limit+1),
     Meta = #{page => Page, limit => Limit},
     NMeta = case CodCnt =:= 0 of
-                true -> Meta#{count => count(Tab), hasnext => length(Rows) > Limit};
-                _ -> Meta#{count => -1, hasnext => length(Rows) > Limit}
+                true -> Meta#{count => count(Tab)};
+                _ -> Meta#{count => length(Rows)}
             end,
     #{meta => NMeta, data => lists:sublist(Rows, Limit)}.
 
@@ -120,8 +120,8 @@ cluster_query(Params, {Tab, QsSchema}, QueryFun) ->
     Rows = do_cluster_query(Nodes, Qs, QueryFun, Start, Limit+1, []),
     Meta = #{page => Page, limit => Limit},
     NMeta = case CodCnt =:= 0 of
-                true -> Meta#{count => count(Tab, Nodes), hasnext => length(Rows) > Limit};
-                _ -> Meta#{count => -1, hasnext => length(Rows) > Limit}
+                true -> Meta#{count => count(Tab, Nodes)};
+                _ -> Meta#{count => length(Rows)}
             end,
     #{meta => NMeta, data => lists:sublist(Rows, Limit)}.
 

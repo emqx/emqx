@@ -32,6 +32,7 @@
         , subscriptions/2
         , authz_cache/2
         , subscribe/2
+        , unsubscribe/2
         , subscribe_batch/2]).
 
 -export([ query/3
@@ -41,7 +42,7 @@
 -export([do_subscribe/3]).
 
 -define(CLIENT_QS_SCHEMA, {emqx_channel_info,
-    [ {<<"clientid">>, binary}
+    [ {<<"node">>, atom}
     , {<<"username">>, binary}
     , {<<"zone">>, atom}
     , {<<"ip_address">>, ip}
@@ -70,7 +71,8 @@ apis() ->
     , client_api()
     , clients_authz_cache_api()
     , clients_subscriptions_api()
-    , subscribe_api()].
+    , subscribe_api()
+    , unsubscribe_api()].
 
 schemas() ->
     Client = #{
@@ -211,22 +213,98 @@ schemas() ->
             }
         }
     },
-    Subscription = #{
-        subscription => #{
-            type => object,
-            properties => #{
-                topic => #{
-                    type => string},
-                qos => #{
-                    type => integer,
-                    enum => [0,1,2]}}}
-    },
-    [Client, AuthzCache, Subscription].
+    [Client, AuthzCache].
 
 clients_api() ->
     Metadata = #{
         get => #{
             description => <<"List clients">>,
+            parameters => [
+                #{
+                    name => node,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => username,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => zone,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => ip_address,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => conn_state,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => clean_start,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => proto_name,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => proto_ver,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => like_clientid,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => like_username,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => gte_created_at,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => lte_created_at,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => gte_connected_at,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                },
+                #{
+                    name => lte_connected_at,
+                    in => query,
+                    required => false,
+                    schema => #{type => string}
+                }
+            ],
             responses => #{
                 <<"200">> => emqx_mgmt_util:response_array_schema(<<"List clients 200 OK">>, client)}}},
     {"/clients", Metadata, clients}.
@@ -284,6 +362,15 @@ clients_authz_cache_api() ->
     {"/clients/:clientid/authz_cache", Metadata, authz_cache}.
 
 clients_subscriptions_api() ->
+    SubscriptionSchema = #{
+        type => object,
+        properties => #{
+            topic => #{
+                type => string},
+            qos => #{
+                type => integer,
+                enum => [0,1,2]}}
+    },
     Metadata = #{
         get => #{
             description => <<"Get client subscriptions">>,
@@ -294,10 +381,33 @@ clients_subscriptions_api() ->
                 required => true
             }],
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_array_schema(<<"Get client subscriptions">>, subscription)}}
+                <<"200">> =>
+                    emqx_mgmt_util:response_array_schema(<<"Get client subscriptions">>, SubscriptionSchema)}}
     },
     {"/clients/:clientid/subscriptions", Metadata, subscriptions}.
 
+unsubscribe_api() ->
+    Metadata = #{
+        post => #{
+            description => <<"Unsubscribe">>,
+            parameters => [
+                #{
+                    name => clientid,
+                    in => path,
+                    schema => #{type => string},
+                    required => true
+                }
+            ],
+            'requestBody' => emqx_mgmt_util:request_body_schema(#{
+                type => object,
+                properties => #{
+                    topic => #{
+                        type => string,
+                        description => <<"Topic">>}}}),
+            responses => #{
+                <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Unsubscribe ok">>)}}},
+    {"/clients/:clientid/unsubscribe", Metadata, unsubscribe}.
 subscribe_api() ->
     Metadata = #{
         post => #{
@@ -321,32 +431,14 @@ subscribe_api() ->
                         description => <<"QoS">>}}}),
             responses => #{
                 <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Subscribe ok">>)}},
-        delete => #{
-            description => <<"Unsubscribe">>,
-            parameters => [
-                #{
-                    name => clientid,
-                    in => path,
-                    schema => #{type => string},
-                    required => true
-                },
-                #{
-                    name => topic,
-                    in => query,
-                    schema => #{type => string},
-                    required => true
-                }
-            ],
-            responses => #{
-                <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Unsubscribe ok">>)}}},
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Subscribe ok">>)}}},
     {"/clients/:clientid/subscribe", Metadata, subscribe}.
 
 %%%==============================================================================================
 %% parameters trans
-clients(get, _Request) ->
-    list(#{}).
+clients(get, Request) ->
+    Params = cowboy_req:parse_qs(Request),
+    list(Params).
 
 client(get, Request) ->
     ClientID = cowboy_req:binding(clientid, Request),
@@ -370,11 +462,13 @@ subscribe(post, Request) ->
     TopicInfo = emqx_json:decode(Body, [return_maps]),
     Topic = maps:get(<<"topic">>, TopicInfo),
     Qos = maps:get(<<"qos">>, TopicInfo, 0),
-    subscribe(#{clientid => ClientID, topic => Topic, qos => Qos});
+    subscribe(#{clientid => ClientID, topic => Topic, qos => Qos}).
 
-subscribe(delete, Request) ->
+unsubscribe(post, Request) ->
     ClientID = cowboy_req:binding(clientid, Request),
-    #{topic := Topic} = cowboy_req:match_qs([topic], Request),
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    TopicInfo = emqx_json:decode(Body, [return_maps]),
+    Topic = maps:get(<<"topic">>, TopicInfo),
     unsubscribe(#{clientid => ClientID, topic => Topic}).
 
 %% TODO: batch
@@ -402,7 +496,7 @@ subscriptions(get, Request) ->
 %% api apply
 
 list(Params) ->
-    Response = emqx_mgmt_api:cluster_query(maps:to_list(Params), ?CLIENT_QS_SCHEMA, ?query_fun),
+    Response = emqx_mgmt_api:cluster_query(Params, ?CLIENT_QS_SCHEMA, ?query_fun),
     {200, Response}.
 
 lookup(#{clientid := ClientID}) ->
@@ -486,7 +580,7 @@ format_channel_info({_, ClientInfo, ClientStats}) ->
     ClientInfoMap3 = maps:put(ip_address, IpAddress, ClientInfoMap2),
     ClientInfoMap  = maps:put(connected, Connected, ClientInfoMap3),
     RemoveList = [
-        auth_result
+          auth_result
         , peername
         , sockname
         , peerhost
@@ -495,6 +589,7 @@ format_channel_info({_, ClientInfo, ClientStats}) ->
         , conn_props
         , peercert
         , sockstate
+        , subscriptions
         , receive_maximum
         , protocol
         , is_superuser
