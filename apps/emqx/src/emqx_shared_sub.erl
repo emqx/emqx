@@ -171,7 +171,8 @@ dispatch_with_ack(SubPid, Topic, Msg) ->
     %% For QoS 1/2 message, expect an ack
     Ref = erlang:monitor(process, SubPid),
     Sender = self(),
-    _ = erlang:send(SubPid, {deliver, Topic, with_ack_ref(Msg, {Sender, Ref})}),
+    SharedMsg = #{pid => erlang:pid_to_list(Sender), ref => erlang:ref_to_list(Ref)},
+    _ = erlang:send(SubPid, {deliver, Topic, with_ack_ref(Msg, SharedMsg)}),
     Timeout = case Msg#message.qos of
                   ?QOS_1 -> timer:seconds(?SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS);
                   ?QOS_2 -> infinity
@@ -200,7 +201,14 @@ without_ack_ref(Msg) ->
     emqx_message:set_headers(#{shared_dispatch_ack => ?NO_ACK}, Msg).
 
 get_ack_ref(Msg) ->
-    emqx_message:get_header(shared_dispatch_ack, Msg, ?NO_ACK).
+    case emqx_message:get_header(shared_dispatch_ack, Msg) of
+        #{pid := SenderS, ref := RefS} ->
+            Sender = erlang:list_to_pid(SenderS),
+            Ref = erlang:list_to_ref(RefS),
+            {Sender, Ref};
+        _ ->
+            ?NO_ACK
+    end.
 
 -spec(is_ack_required(emqx_types:message()) -> boolean()).
 is_ack_required(Msg) -> ?NO_ACK =/= get_ack_ref(Msg).
