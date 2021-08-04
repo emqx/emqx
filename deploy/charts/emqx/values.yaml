@@ -17,6 +17,11 @@ image:
 ## Forces the recreation of pods during helm upgrades. This can be useful to update configuration values even if the container image did not change.
 recreatePods: false
 
+# Pod deployment policy
+# value: OrderedReady | Parallel
+# To redeploy a chart with existing PVC(s), the value must be set to Parallel to avoid deadlock
+podManagementPolicy: Parallel
+
 persistence:
   enabled: false
   size: 20Mi
