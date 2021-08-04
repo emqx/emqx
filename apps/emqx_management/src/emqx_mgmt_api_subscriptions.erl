@@ -68,6 +68,12 @@ subscriptions_api() ->
                     schema => #{type => string}
                 },
                 #{
+                    name => node,
+                    in => query,
+                    description => <<"Node name">>,
+                    schema => #{type => string}
+                },
+                #{
                     name => qos,
                     in => query,
                     description => <<"QoS">>,
@@ -101,6 +107,8 @@ subscription_schema() ->
         subscription => #{
             type => object,
             properties => #{
+                node => #{
+                    type => string},
                 topic => #{
                     type => string},
                 clientid => #{
@@ -115,8 +123,12 @@ subscriptions(get, Request) ->
     list(Params).
 
 list(Params) ->
-    {200, emqx_mgmt_api:cluster_query(Params, ?SUBS_QS_SCHEMA, ?query_fun)}.
-
+    case proplists:get_value(<<"node">>, Params, undefined) of
+        undefined ->
+            {200, emqx_mgmt_api:cluster_query(Params, ?SUBS_QS_SCHEMA, ?query_fun)};
+        Node ->
+            {200, emqx_mgmt_api:node_query(binary_to_atom(Node, utf8), Params, ?SUBS_QS_SCHEMA, ?query_fun)}
+    end.
 
 format(Items) when is_list(Items) ->
     [format(Item) || Item <- Items];
@@ -126,10 +138,20 @@ format({{Subscriber, Topic}, Options}) ->
 
 format({_Subscriber, Topic, Options = #{share := Group}}) ->
     QoS = maps:get(qos, Options),
-    #{topic => filename:join([<<"$share">>, Group, Topic]), clientid => maps:get(subid, Options), qos => QoS};
+    #{
+        topic => filename:join([<<"$share">>, Group, Topic]),
+        clientid => maps:get(subid, Options),
+        qos => QoS,
+        node => node()
+    };
 format({_Subscriber, Topic, Options}) ->
     QoS = maps:get(qos, Options),
-    #{topic => Topic, clientid => maps:get(subid, Options), qos => QoS}.
+    #{
+        topic => Topic,
+        clientid => maps:get(subid, Options),
+        qos => QoS,
+        node => node()
+    }.
 
 %%--------------------------------------------------------------------
 %% Query Function
