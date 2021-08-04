@@ -21,7 +21,6 @@
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[ExProto Channel]").
 
 -export([ info/1
         , info/2

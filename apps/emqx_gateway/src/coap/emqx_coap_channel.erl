@@ -67,9 +67,9 @@
 -define(DISCONNECT_WAIT_TIME, timer:seconds(10)).
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session]).
 
-%%%===================================================================
-%%% API
-%%%===================================================================
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
 info(Channel) ->
     maps:from_list(info(?INFO_KEYS, Channel)).
@@ -101,7 +101,7 @@ init(ConnInfo = #{peername := {PeerHost, _},
     ClientInfo = set_peercert_infos(
                    Peercert,
                    #{ zone => default
-                    , protocol => 'mqtt-coap'
+                    , protocol => 'coap'
                     , peerhost => PeerHost
                     , sockport => SockPort
                     , clientid => emqx_guid:to_base62(emqx_guid:gen())
@@ -132,8 +132,8 @@ auth_subscribe(Topic,
                  clientinfo := ClientInfo}) ->
     emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, Topic).
 
-transfer_result(Result, From, Value) ->
-    ?TRANSFER_RESULT(Result, [out], From, Value).
+transfer_result(From, Value, Result) ->
+    ?TRANSFER_RESULT([out], From, Value, Result).
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
@@ -147,17 +147,17 @@ handle_in(#coap_message{method = post,
         <<>> ->
             handle_command(Msg, Channel);
         _ ->
-            call_session(Channel, received, [Msg])
+            call_session(received, [Msg], Channel)
     end;
 
 handle_in(Msg, Channel) ->
-    call_session(ensure_keepalive_timer(Channel), received, [Msg]).
+    call_session(received, [Msg], ensure_keepalive_timer(Channel)).
 
 %%--------------------------------------------------------------------
 %% Handle Delivers from broker to client
 %%--------------------------------------------------------------------
 handle_deliver(Delivers, Channel) ->
-    call_session(Channel, deliver, [Delivers]).
+    call_session(deliver, [Delivers], Channel).
 
 %%--------------------------------------------------------------------
 %% Handle timeout
@@ -165,14 +165,14 @@ handle_deliver(Delivers, Channel) ->
 handle_timeout(_, {keepalive, NewVal}, #channel{keepalive = KeepAlive} = Channel) ->
     case emqx_keepalive:check(NewVal, KeepAlive) of
         {ok, NewKeepAlive} ->
-            Channel2 = ensure_keepalive_timer(Channel, fun make_timer/4),
+            Channel2 = ensure_keepalive_timer(fun make_timer/4, Channel),
             {ok, Channel2#channel{keepalive = NewKeepAlive}};
         {error, timeout} ->
             {shutdown, timeout, Channel}
     end;
 
 handle_timeout(_, {transport, Msg}, Channel) ->
-    call_session(Channel, timeout, [Msg]);
+    call_session(timeout, [Msg], Channel);
 
 handle_timeout(_, disconnect, Channel) ->
     {shutdown, normal, Channel};
@@ -207,9 +207,9 @@ handle_info(Info, Channel) ->
 terminate(_Reason, _Channel) ->
     ok.
 
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 set_peercert_infos(NoSSL, ClientInfo)
   when NoSSL =:= nossl;
        NoSSL =:= undefined ->
@@ -232,9 +232,9 @@ make_timer(Name, Time, Msg, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = Timers#{Name => TRef}}.
 
 ensure_keepalive_timer(Channel) ->
-    ensure_keepalive_timer(Channel, fun ensure_timer/4).
+    ensure_keepalive_timer(fun ensure_timer/4, Channel).
 
-ensure_keepalive_timer(#channel{config = Cfg} = Channel, Fun) ->
+ensure_keepalive_timer(Fun, #channel{config = Cfg} = Channel) ->
     Interval = maps:get(heartbeat, Cfg),
     Fun(keepalive, Interval, keepalive, Channel).
 
@@ -285,9 +285,9 @@ run_conn_hooks(Input, Channel = #channel{ctx = Ctx,
                                          conninfo = ConnInfo}) ->
     ConnProps = #{},
     case run_hooks(Ctx, 'client.connect', [ConnInfo], ConnProps) of
-                   Error = {error, _Reason} -> Error;
-                   _NConnProps ->
-                       {ok, Input, Channel}
+        Error = {error, _Reason} -> Error;
+        _NConnProps ->
+            {ok, Input, Channel}
     end.
 
 enrich_clientinfo({Queries, Msg},
@@ -339,11 +339,10 @@ ensure_connected(Channel = #channel{ctx = Ctx,
     Channel#channel{conninfo = NConnInfo}.
 
 process_connect(Channel = #channel{ctx = Ctx,
-                                   session = Session,
                                    conninfo = ConnInfo,
                                    clientinfo = ClientInfo},
                 Msg) ->
-    SessFun = fun(_,_) -> Session end,
+    SessFun = fun(_,_) -> emqx_coap_session:new() end,
     case emqx_gateway_ctx:open_session(
            Ctx,
            true,
@@ -367,14 +366,16 @@ run_hooks(Ctx, Name, Args, Acc) ->
     emqx_hooks:run_fold(Name, Args, Acc).
 
 reply(Channel, Method, Payload, Req) ->
-    call_session(Channel, reply, [Req, Method, Payload]).
+    call_session(reply, [Req, Method, Payload], Channel).
 
 ack(Channel, Method, Payload, Req) ->
-    call_session(Channel, piggyback, [Req, Method, Payload]).
+    call_session(piggyback, [Req, Method, Payload], Channel).
 
-call_session(#channel{session = Session,
-                      config = Cfg} = Channel, F, A) ->
-    case erlang:apply(emqx_coap_session, F, [Session, Cfg | A]) of
+call_session(F,
+             A,
+             #channel{session = Session,
+                      config = Cfg} = Channel) ->
+    case erlang:apply(emqx_coap_session, F, A ++ [Cfg, Session]) of
         #{out := Out,
           session := Session2} ->
             {ok, {outgoing, Out}, Channel#channel{session = Session2}};

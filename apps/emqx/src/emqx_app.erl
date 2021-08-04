@@ -27,6 +27,8 @@
         ]).
 
 -include("emqx.hrl").
+-include("emqx_release.hrl").
+-include("logger.hrl").
 
 -define(APP, emqx).
 
@@ -37,7 +39,6 @@
                      , ?MOD_DELAYED_SHARD
                      ]).
 
--include("emqx_release.hrl").
 
 %%--------------------------------------------------------------------
 %% Application callbacks
@@ -113,17 +114,17 @@ start_ce_modules() ->
 print_otp_version_warning() -> ok.
 -else.
 print_otp_version_warning() ->
-    io:format("WARNING: Running on Erlang/OTP version ~p. Recommended: 23~n",
-              [?OTP_RELEASE]).
+    ?ULOG("WARNING: Running on Erlang/OTP version ~p. Recommended: 23~n",
+          [?OTP_RELEASE]).
 -endif. % OTP_RELEASE
 
 -ifndef(TEST).
 
 print_banner() ->
-    io:format("Starting ~s on node ~s~n", [?APP, node()]).
+    ?ULOG("Starting ~s on node ~s~n", [?APP, node()]).
 
 print_vsn() ->
-    io:format("~s ~s is running now!~n", [get_description(), get_release()]).
+    ?ULOG("~s ~s is running now!~n", [get_description(), get_release()]).
 
 -else. % TEST
 

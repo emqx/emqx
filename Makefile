@@ -5,7 +5,7 @@ BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 export EMQX_DESC ?= EMQ X
-export EMQX_CE_DASHBOARD_VERSION ?= v4.3.1
+export EMQX_DASHBOARD_VERSION ?= v5.0.0-beta.3
 ifeq ($(OS),Windows_NT)
 	export REBAR_COLOR=none
 endif
@@ -153,7 +153,14 @@ run: $(PROFILE) quickrun
 quickrun:
 	./_build/$(PROFILE)/rel/emqx/bin/emqx console
 
-include docker.mk
+## docker target is to create docker instructions
+.PHONY: $(REL_PROFILES:%=%-docker)
+define gen-docker-target
+$1-docker: $(COMMON_DEPS)
+	@$(BUILD) $1 docker
+endef
+ALL_ZIPS = $(REL_PROFILES)
+$(foreach zt,$(ALL_ZIPS),$(eval $(call gen-docker-target,$(zt))))
 
 conf-segs:
 	@scripts/merge-config.escript

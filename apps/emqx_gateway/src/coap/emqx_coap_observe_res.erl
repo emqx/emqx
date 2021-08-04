@@ -17,7 +17,7 @@
 -module(emqx_coap_observe_res).
 
 %% API
--export([ new/0, insert/3, remove/2
+-export([ new_manager/0, insert/3, remove/2
         , res_changed/2, foreach/2]).
 -export_type([manager/0]).
 
@@ -26,6 +26,7 @@
 -type topic() :: binary().
 -type token() :: binary().
 -type seq_id() :: 0 .. ?MAX_SEQ_ID.
+
 -type res() :: #{ token := token()
                 , seq_id := seq_id()
                 }.
@@ -35,12 +36,12 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
--spec new() -> manager().
-new() ->
+-spec new_manager() -> manager().
+new_manager() ->
     #{}.
 
--spec insert(manager(), topic(), token()) -> manager().
-insert(Manager, Topic, Token) ->
+-spec insert(topic(), token(), manager()) -> manager().
+insert(Topic, Token, Manager) ->
     case maps:get(Topic, Manager, undefined) of
         undefined ->
             Manager#{Topic => new_res(Token)};
@@ -48,12 +49,12 @@ insert(Manager, Topic, Token) ->
             Manager
     end.
 
--spec remove(manager(), topic()) -> manager().
-remove(Manager, Topic) ->
+-spec remove(topic(), manager()) -> manager().
+remove(Topic, Manager) ->
     maps:remove(Topic, Manager).
 
--spec res_changed(manager(), topic()) -> undefined | {token(), seq_id(), manager()}.
-res_changed(Manager, Topic) ->
+-spec res_changed(topic(), manager()) -> undefined | {token(), seq_id(), manager()}.
+res_changed(Topic, Manager) ->
     case maps:get(Topic, Manager, undefined) of
         undefined ->
             undefined;

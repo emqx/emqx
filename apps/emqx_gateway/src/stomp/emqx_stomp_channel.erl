@@ -22,7 +22,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[Stomp-Proto]").
 
 -import(proplists, [get_value/2, get_value/3]).
 

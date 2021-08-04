@@ -24,7 +24,6 @@
 -include("types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--logger_header("[CM]").
 
 -export([start_link/0]).
 

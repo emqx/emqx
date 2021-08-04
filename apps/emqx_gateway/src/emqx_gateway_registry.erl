@@ -19,7 +19,6 @@
 
 -include("include/emqx_gateway.hrl").
 
--logger_header("[PGW-Registry]").
 
 -behavior(gen_server).
 

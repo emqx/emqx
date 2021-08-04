@@ -18,6 +18,7 @@
 -module(emqx_listeners).
 
 -include("emqx_mqtt.hrl").
+-include("logger.hrl").
 
 %% APIs
 -export([ list/0
@@ -108,14 +109,13 @@ start_listener(ZoneName, ListenerName, #{type := Type, bind := Bind} = Conf) ->
         {error, {already_started, Pid}} ->
             {error, {already_started, Pid}};
         {error, Reason} ->
-            io:format(standard_error, "Failed to start ~s listener ~s on ~s: ~0p~n",
-                      [Type, listener_id(ZoneName, ListenerName), format(Bind), Reason]),
+            ?ELOG("Failed to start ~s listener ~s on ~s: ~0p~n",
+                  [Type, listener_id(ZoneName, ListenerName), format(Bind), Reason]),
             error(Reason)
     end.
 
 -ifndef(TEST).
-console_print(Fmt, Args) ->
-    io:format(Fmt, Args).
+console_print(Fmt, Args) -> ?ULOG(Fmt, Args).
 -else.
 console_print(_Fmt, _Args) -> ok.
 -endif.

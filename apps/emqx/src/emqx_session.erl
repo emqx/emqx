@@ -48,7 +48,6 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--logger_header("[Session]").
 
 -ifdef(TEST).
 -compile(export_all).

@@ -20,7 +20,6 @@
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[AuthZ]").
 
 -export([ register_metrics/0
         , init/0

@@ -16,11 +16,10 @@
 
 -module(emqx_exhook_handler).
 
--include("src/exhook/include/emqx_exhook.hrl").
+-include("emqx_exhook.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[ExHook]").
 
 -export([ on_client_connect/2
         , on_client_connack/3
@@ -95,7 +94,7 @@ on_client_authenticate(ClientInfo, AuthResult) ->
     %%      The return value of `call_fold` just a bool, that has missed
     %%      detailed info too.
     %%
-    Bool = maps:get(auth_result, AuthResult, undefined) == success,
+    Bool = AuthResult == ok,
     Req = #{clientinfo => clientinfo(ClientInfo),
             result => Bool
            },
@@ -103,8 +102,8 @@ on_client_authenticate(ClientInfo, AuthResult) ->
     case call_fold('client.authenticate', Req,
                    fun merge_responsed_bool/2) of
         {StopOrOk, #{result := Result0}} when is_boolean(Result0) ->
-            Result = case Result0 of true -> success; _ -> not_authorized end,
-            {StopOrOk, AuthResult#{auth_result => Result, anonymous => false}};
+            Result = case Result0 of true -> ok; _ -> {error, not_authorized} end,
+            {StopOrOk, Result};
         _ ->
             {ok, AuthResult}
     end.

@@ -20,7 +20,6 @@
 
 -include("logger.hrl").
 
--logger_header("[OS_MON]").
 
 -export([start_link/0]).
 

@@ -19,7 +19,6 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
--logger_header("[Tracer]").
 
 %% APIs
 -export([ trace/2

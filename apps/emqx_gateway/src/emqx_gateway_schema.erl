@@ -34,8 +34,10 @@ structs() -> ["gateway"].
 fields("gateway") ->
     [{stomp, t(ref(stomp))},
      {mqttsn, t(ref(mqttsn))},
-     {exproto, t(ref(exproto))},
-     {coap, t(ref(coap))}
+     {coap, t(ref(coap))},
+     {lwm2m, t(ref(lwm2m))},
+     {lwm2m_xml_dir, t(string())},
+     {exproto, t(ref(exproto))}
     ];
 
 fields(stomp) ->
@@ -74,6 +76,21 @@ fields(mqttsn_predefined) ->
     , {topic, t(string())}
     ];
 
+fields(lwm2m) ->
+    [{"$id", t(ref(lwm2m_structs))}
+    ];
+
+fields(lwm2m_structs) ->
+    [ {lifetime_min, t(duration())}
+    , {lifetime_max, t(duration())}
+    , {qmode_time_windonw, t(integer())}
+    , {auto_observe, t(boolean())}
+    , {mountpoint, t(string())}
+    , {update_msg_publish_condition, t(union([always, contains_object_list]))}
+    , {translators, t(ref(translators))}
+    , {listener, t(ref(udp_listener_group))}
+    ];
+
 fields(exproto) ->
     [{"$id", t(ref(exproto_structs))}];
 
@@ -99,6 +116,9 @@ fields(clientinfo_override) ->
     , {password, t(string())}
     , {clientid, t(string())}
     ];
+
+fields(translators) ->
+    [{"$name", t(string())}];
 
 fields(udp_listener_group) ->
     [ {udp, t(ref(udp_listener))}

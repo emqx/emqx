@@ -42,6 +42,9 @@
 
 -elvis([{elvis_style, no_nested_try_catch, #{ ignore => [emqx_logger_jsonfmt]}}]).
 
+%% this is what used when calling logger:log(Level, Report, Meta).
+-define(DEFAULT_FORMATTER, fun logger:format_otp_report/1).
+
 -type config() :: #{depth       => pos_integer() | unlimited,
                     report_cb   => logger:report_cb(),
                     single_line => boolean()}.
@@ -55,7 +58,11 @@ format(#{level := Level, msg := Msg, meta := Meta}, Config0) when is_map(Config0
 
 format(Msg, Meta, Config) ->
     Data0 =
-        try Meta#{msg => format_msg(Msg, Meta, Config)}
+        try maybe_format_msg(Msg, Meta, Config) of
+            Map when is_map(Map) ->
+                maps:merge(Map, Meta);
+            Bin when is_binary(Bin) ->
+                Meta#{msg => Bin}
         catch
             C:R:S ->
                 Meta#{ msg => "emqx_logger_jsonfmt_format_error"
@@ -68,12 +75,26 @@ format(Msg, Meta, Config) ->
     Data = maps:without([report_cb], Data0),
     jiffy:encode(json_obj(Data, Config)).
 
+maybe_format_msg({report, Report} = Msg, #{report_cb := Cb} = Meta, Config) ->
+    case is_map(Report) andalso Cb =:= ?DEFAULT_FORMATTER of
+        true ->
+            %% reporting a map without a customised format function
+            Report;
+        false ->
+            format_msg(Msg, Meta, Config)
+    end;
+maybe_format_msg(Msg, Meta, Config) ->
+    format_msg(Msg, Meta, Config).
+
 format_msg({string, Chardata}, Meta, Config) ->
+    %% already formatted
     format_msg({"~ts", [Chardata]}, Meta, Config);
 format_msg({report, _} = Msg, Meta, #{report_cb := Fun} = Config)
   when is_function(Fun,1); is_function(Fun,2) ->
+    %% a format callback function in config, no idea when this happens, but leaving it
     format_msg(Msg, Meta#{report_cb => Fun}, maps:remove(report_cb, Config));
 format_msg({report, Report}, #{report_cb := Fun} = Meta, Config) when is_function(Fun, 1) ->
+    %% a format callback function of arity 1
     case Fun(Report) of
         {Format, Args} when is_list(Format), is_list(Args) ->
             format_msg({Format, Args}, maps:remove(report_cb, Meta), Config);
@@ -84,6 +105,7 @@ format_msg({report, Report}, #{report_cb := Fun} = Meta, Config) when is_functio
              }
     end;
 format_msg({report, Report}, #{report_cb := Fun}, Config) when is_function(Fun, 2) ->
+    %% a format callback function of arity 2
     case Fun(Report, maps:with([depth, single_line], Config)) of
         Chardata when ?IS_STRING(Chardata) ->
             try
@@ -197,12 +219,18 @@ json_obj(Data, Config) ->
                       json_kv(K, V, D, Config)
               end, maps:new(), Data).
 
-json_kv(mfa, {M, F, A}, Data, _Config) -> %% emqx/snabbkaffe
+json_kv(mfa, {M, F, A}, Data, _Config) ->
     maps:put(mfa, <<(atom_to_binary(M, utf8))/binary, $:,
                     (atom_to_binary(F, utf8))/binary, $/,
                     (integer_to_binary(A))/binary>>, Data);
 json_kv('$kind', Kind, Data, Config) -> %% snabbkaffe
     maps:put(msg, json(Kind, Config), Data);
+json_kv(gl, _, Data, _Config) ->
+    %% drop gl because it's not interesting
+    Data;
+json_kv(file, _, Data, _Config) ->
+    %% drop 'file' because we have mfa
+    Data;
 json_kv(K0, V, Data, Config) ->
     K = json_key(K0),
     case is_map(V) of

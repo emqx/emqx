@@ -20,7 +20,6 @@
 
 -include("include/emqx_gateway.hrl").
 
--logger_header("[PGW-Metrics]").
 
 %% APIs
 -export([start_link/1]).

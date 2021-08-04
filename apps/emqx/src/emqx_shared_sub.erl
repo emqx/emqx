@@ -23,7 +23,6 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--logger_header("[Shared Sub]").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).

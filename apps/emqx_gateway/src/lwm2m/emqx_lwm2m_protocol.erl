@@ -75,7 +75,8 @@ call(Pid, Msg, Timeout) ->
     end.
 
 init(CoapPid, EndpointName, Peername = {_Peerhost, _Port}, RegInfo = #{<<"lt">> := LifeTime, <<"lwm2m">> := Ver}) ->
-    Mountpoint = proplists:get_value(mountpoint, lwm2m_coap_responder:options(), ""),
+    Envs = proplists:get_value(config, lwm2m_coap_responder:options(), #{}),
+    Mountpoint = iolist_to_binary(maps:get(mountpoint, Envs, "")),
     Lwm2mState = #lwm2m_state{peername = Peername,
                               endpoint_name = EndpointName,
                               version = Ver,
@@ -89,7 +90,10 @@ init(CoapPid, EndpointName, Peername = {_Peerhost, _Port}, RegInfo = #{<<"lt">> 
         ok ->
             _ = run_hooks('client.connack', [conninfo(Lwm2mState), success], undefined),
 
-            Sockport = proplists:get_value(port, lwm2m_coap_responder:options(), 5683),
+            %% FIXME:
+            Sockport = 5683,
+            %Sockport = proplists:get_value(port, lwm2m_coap_responder:options(), 5683),
+
             ClientInfo1 = maps:put(sockport, Sockport, ClientInfo),
             Lwm2mState1 = Lwm2mState#lwm2m_state{started_at = time_now(),
                                                  mountpoint = maps:get(mountpoint, ClientInfo1)},
@@ -124,8 +128,10 @@ update_reg_info(NewRegInfo, Lwm2mState=#lwm2m_state{life_timer = LifeTimer, regi
                                                     coap_pid = CoapPid, endpoint_name = Epn}) ->
     UpdatedRegInfo = maps:merge(RegInfo, NewRegInfo),
 
-    _ = case proplists:get_value(update_msg_publish_condition,
-            lwm2m_coap_responder:options(), contains_object_list) of
+    Envs = proplists:get_value(config, lwm2m_coap_responder:options(), #{}),
+
+    _ = case maps:get(update_msg_publish_condition,
+                      Envs, contains_object_list) of
         always ->
             send_to_broker(<<"update">>, #{<<"data">> => UpdatedRegInfo}, Lwm2mState);
         contains_object_list ->
@@ -294,7 +300,8 @@ auto_observe_object_list(Expected, Registered) ->
 
 send_auto_observe(CoapPid, RegInfo, EndpointName) ->
     %% - auto observe the objects
-    case proplists:get_value(auto_observe, lwm2m_coap_responder:options(), false) of
+    Envs = proplists:get_value(config, lwm2m_coap_responder:options(), #{}), 
+    case maps:get(auto_observe, Envs, false) of
         false ->
             ?LOG(info, "Auto Observe Disabled", []);
         TrueOrObjList ->
@@ -379,7 +386,12 @@ get_cached_downlink_messages() ->
 is_cache_mode(RegInfo, StartedAt) ->
     case is_psm(RegInfo) orelse is_qmode(RegInfo) of
         true ->
-            QModeTimeWind = proplists:get_value(qmode_time_window, lwm2m_coap_responder:options(), 22),
+            Envs = proplists:get_value(
+                     config,
+                     lwm2m_coap_responder:options(),
+                     #{}
+                    ),
+            QModeTimeWind = maps:get(qmode_time_window, Envs, 22),
             Now = time_now(),
             if (Now - StartedAt) >= QModeTimeWind -> true;
                 true -> false
@@ -400,15 +412,17 @@ is_qmode(_) -> false.
 %%--------------------------------------------------------------------
 
 downlink_topic(EventType, Lwm2mState = #lwm2m_state{mountpoint = Mountpoint}) ->
-    Topics = proplists:get_value(topics, lwm2m_coap_responder:options(), []),
-    DnTopic = proplists:get_value(downlink_topic_key(EventType), Topics,
-                                  default_downlink_topic(EventType)),
+    Envs = proplists:get_value(config, lwm2m_coap_responder:options(), #{}),
+    Topics = maps:get(translators, Envs, #{}),
+    DnTopic = maps:get(downlink_topic_key(EventType), Topics,
+                       default_downlink_topic(EventType)),
     take_place(mountpoint(iolist_to_binary(DnTopic), Mountpoint), Lwm2mState).
 
 uplink_topic(EventType, Lwm2mState = #lwm2m_state{mountpoint = Mountpoint}) ->
-    Topics = proplists:get_value(topics, lwm2m_coap_responder:options(), []),
-    UpTopic = proplists:get_value(uplink_topic_key(EventType), Topics,
-                                  default_uplink_topic(EventType)),
+    Envs = proplists:get_value(config, lwm2m_coap_responder:options(), #{}),
+    Topics = maps:get(translators, Envs, #{}),
+    UpTopic = maps:get(uplink_topic_key(EventType), Topics,
+                       default_uplink_topic(EventType)),
     take_place(mountpoint(iolist_to_binary(UpTopic), Mountpoint), Lwm2mState).
 
 downlink_topic_key(EventType) when is_binary(EventType) ->

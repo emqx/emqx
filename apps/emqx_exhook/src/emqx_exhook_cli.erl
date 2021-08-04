@@ -16,7 +16,7 @@
 
 -module(emqx_exhook_cli).
 
--include("src/exhook/include/emqx_exhook.hrl").
+-include("emqx_exhook.hrl").
 
 -export([cli/1]).
 
@@ -30,7 +30,7 @@ cli(["server", "list"]) ->
 cli(["server", "enable", Name0]) ->
     if_enabled(fun() ->
         Name = list_to_atom(Name0),
-        case proplists:get_value(Name, application:get_env(?APP, servers, [])) of
+        case maps:get(Name, emqx_config:get([exhook, server]), undefined) of
             undefined ->
                 emqx_ctl:print("not_found~n");
             Opts ->

@@ -21,7 +21,6 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--logger_header("[Pool]").
 
 %% APIs
 -export([start_link/2]).
