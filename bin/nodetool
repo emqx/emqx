@@ -72,9 +72,15 @@ do(Args) ->
             %% a "pong"
             io:format("pong\n");
         ["stop"] ->
-            io:format("~p\n", [rpc:call(TargetNode, init, stop, [], 60000)]);
-        ["restart", "-config", ConfigFile | _RestArgs1] ->
-            io:format("~p\n", [rpc:call(TargetNode, emqx, restart, [ConfigFile], 60000)]);
+            case rpc:call(TargetNode, emqx_machine, graceful_shutdown, [], 60000) of
+                ok ->
+                    ok;
+                {badrpc, nodedown} ->
+                    %% nodetool commands are always executed after a ping
+                    %% which if the code gets here, it's because the target node
+                    %% has shutdown before RPC returns.
+                    ok
+            end;
         ["rpc", Module, Function | RpcArgs] ->
             case rpc:call(TargetNode, list_to_atom(Module), list_to_atom(Function),
                           [RpcArgs], 60000) of
@@ -141,7 +147,7 @@ do(Args) ->
             end;
         Other ->
             io:format("Other: ~p\n", [Other]),
-            io:format("Usage: nodetool {genconfig, chkconfig|getpid|ping|stop|restart|reboot|rpc|rpc_infinity|rpcterms|eval [Terms]} [RPC]\n")
+            io:format("Usage: nodetool {genconfig, chkconfig|getpid|ping|stop|rpc|rpc_infinity|rpcterms|eval [Terms]} [RPC]\n")
     end,
     net_kernel:stop().
 

@@ -18,11 +18,9 @@
 
 -export([ start/2
         , stop/1
-        , prep_stop/1
         ]).
 
-%% Shutdown and reboot
--export([ shutdown/1
+-export([ stop_apps/1
         , ensure_apps_started/0
         ]).
 
@@ -50,10 +48,8 @@ start(_Type, _Args) ->
     ok = print_vsn(),
 
     ok = start_autocluster(),
+    ok = emqx_machine:start(),
     {ok, RootSupPid}.
-
-prep_stop(_State) ->
-    application:stop(emqx).
 
 stop(_State) ->
     ok.
@@ -96,13 +92,13 @@ load_config_files() ->
     ok = emqx_app:set_init_config_load_done().
 
 start_autocluster() ->
-    ekka:callback(prepare, fun ?MODULE:shutdown/1),
+    ekka:callback(prepare, fun ?MODULE:stop_apps/1),
     ekka:callback(reboot,  fun ?MODULE:ensure_apps_started/0),
     _ = ekka:autocluster(emqx), %% returns 'ok' or a pid or 'any()' as in spec
     ok.
 
-shutdown(Reason) ->
-    ?SLOG(critical, #{msg => "stopping_apps", reason => Reason}),
+stop_apps(Reason) ->
+    ?SLOG(info, #{msg => "stopping_apps", reason => Reason}),
     _ = emqx_alarm_handler:unload(),
     lists:foreach(fun stop_one_app/1, lists:reverse(sorted_reboot_apps())).
 
