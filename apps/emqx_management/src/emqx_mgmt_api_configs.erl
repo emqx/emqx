@@ -98,7 +98,7 @@ config(delete, Req) ->
 config(put, Req) ->
     Path = [binary_to_atom(Key, latin1) || Key <- conf_path_from_querystr(Req)],
     ok = emqx_config:update(Path, http_body(Req)),
-    {201, emqx_config:get_raw(Path)}.
+    {200, emqx_config:get_raw(Path)}.
 
 conf_path_from_querystr(Req) ->
     case proplists:get_value(<<"conf_path">>, cowboy_req:parse_qs(Req)) of
