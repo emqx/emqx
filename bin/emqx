@@ -5,7 +5,8 @@
 set -e
 set -o pipefail
 
-if [ -n "$DEBUG" ]; then
+DEBUG="${DEBUG:-0}"
+if [ "$DEBUG" -eq 1 ]; then
     set -x
 fi
 
@@ -113,7 +114,7 @@ check_user() {
             echo "You need to be root or use sudo to run this command"
             exit 1
         fi
-        CMD="\"$RUNNER_SCRIPT\" "
+        CMD="DEBUG=$DEBUG \"$RUNNER_SCRIPT\" "
         for ARG in "$@"; do
             CMD="${CMD} \"$ARG\""
         done
