@@ -47,6 +47,8 @@ jobs:
         path: ./rebar3.crashdump
     - name: tmate debug
       uses: mxschmitt/action-tmate@v3
+      with:
+        sudo: false
     - name: packages test
       run: |
         export CODE_PATH=$GITHUB_WORKSPACE
