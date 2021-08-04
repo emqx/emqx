@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,11 +14,14 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_kernel_sup).
+%% @doc This supervisor manages workers which should never need a restart
+%% due to config changes or when joining a cluster.
+-module(emqx_machine_sup).
 
 -behaviour(supervisor).
 
--export([start_link/0]).
+-export([ start_link/0
+        ]).
 
 -export([init/1]).
 
@@ -26,33 +29,19 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    {ok, {{one_for_one, 10, 100},
-           %% always start emqx_config_handler first to load the emqx.conf to emqx_config
-          [ child_spec(emqx_config_handler, worker)
-          , child_spec(emqx_pool_sup, supervisor)
-          , child_spec(emqx_hooks, worker)
-          , child_spec(emqx_stats, worker)
-          , child_spec(emqx_metrics, worker)
-          , child_spec(emqx_ctl, worker)
-          ]}}.
+    GlobalGC = child_worker(emqx_global_gc, []),
+    Children = [GlobalGC],
+    SupFlags = #{strategy => one_for_all,
+                 intensity => 100,
+                 period => 10
+                },
+    {ok, {SupFlags, Children}}.
 
-child_spec(M, Type) ->
-    child_spec(M, Type, []).
-
-child_spec(M, worker, Args) ->
+child_worker(M, Args) ->
     #{id       => M,
       start    => {M, start_link, Args},
       restart  => permanent,
       shutdown => 5000,
       type     => worker,
-      modules  => [M]
-     };
-
-child_spec(M, supervisor, Args) ->
-    #{id       => M,
-      start    => {M, start_link, Args},
-      restart  => permanent,
-      shutdown => infinity,
-      type     => supervisor,
       modules  => [M]
      }.
