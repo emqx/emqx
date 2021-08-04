@@ -10,6 +10,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 spec:
   serviceName: {{ include "emqx.fullname" . }}-headless
+  podManagementPolicy: Parallel
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:
     - metadata:
