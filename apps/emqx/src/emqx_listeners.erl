@@ -34,10 +34,15 @@
         , stop_listener/3
         , restart_listener/1
         , restart_listener/3
+        , has_listener_conf_by_type/1
         ]).
 
+%% @doc List configured listeners.
 -spec(list() -> [{ListenerId :: atom(), ListenerConf :: map()}]).
 list() ->
+    [{listener_id(ZoneName, LName), LConf} || {ZoneName, LName, LConf} <- do_list()].
+
+do_list() ->
     Zones = maps:to_list(emqx_config:get([zones], #{})),
     lists:append([list(ZoneName, ZoneConf) || {ZoneName, ZoneConf} <- Zones]).
 
@@ -45,26 +50,19 @@ list(ZoneName, ZoneConf) ->
     Listeners = maps:to_list(maps:get(listeners, ZoneConf, #{})),
     [
         begin
-            ListenerId = listener_id(ZoneName, LName),
-            Running = is_running(ListenerId),
             Conf = merge_zone_and_listener_confs(ZoneConf, LConf),
-            {ListenerId, maps:put(running, Running, Conf)}
+            Running = is_running(listener_id(ZoneName, LName), Conf),
+            {ZoneName , LName, maps:put(running, Running, Conf)}
         end
-        || {LName, LConf} <- Listeners].
+        || {LName, LConf} <- Listeners, is_map(LConf)].
 
 -spec is_running(ListenerId :: atom()) -> boolean() | {error, no_found}.
 is_running(ListenerId) ->
-    Zones = maps:to_list(emqx_config:get([zones], #{})),
-    Listeners = lists:append(
-        [
-            [{listener_id(ZoneName, LName),merge_zone_and_listener_confs(ZoneConf, LConf)}
-                || {LName, LConf} <- maps:to_list(maps:get(listeners, ZoneConf, #{}))]
-        || {ZoneName, ZoneConf} <- Zones]),
-    case proplists:get_value(ListenerId, Listeners, undefined) of
-        undefined ->
-            {error, no_found};
-        Conf ->
-            is_running(ListenerId, Conf)
+    case lists:filtermap(fun({_Zone, Id, #{running := IsRunning}}) ->
+                                 Id =:= ListenerId andalso {true, IsRunning}
+                         end, do_list()) of
+        [IsRunning] -> IsRunning;
+        [] -> {error, not_found}
     end.
 
 is_running(ListenerId, #{type := tcp, bind := ListenOn})->
@@ -271,9 +269,11 @@ listener_id(ZoneName, ListenerName) ->
     list_to_atom(lists:append([atom_to_list(ZoneName), ":", atom_to_list(ListenerName)])).
 
 decode_listener_id(Id) ->
-    case string:split(atom_to_list(Id), ":", leading) of
-        [Zone, Listen] -> {list_to_atom(Zone), list_to_atom(Listen)};
-        _ -> error({invalid_listener_id, Id})
+    try
+        [Zone, Listen] = string:split(atom_to_list(Id), ":", leading),
+        {list_to_existing_atom(Zone), list_to_existing_atom(Listen)}
+    catch
+        _ : _ -> error({invalid_listener_id, Id})
     end.
 
 ssl_opts(Opts) ->
@@ -291,11 +291,16 @@ is_ssl(Opts) ->
     emqx_map_lib:deep_get([ssl, enable], Opts, false).
 
 foreach_listeners(Do) ->
-    lists:foreach(fun({ZoneName, ZoneConf}) ->
-            lists:foreach(fun({LName, LConf}) ->
-                    Do(ZoneName, LName, merge_zone_and_listener_confs(ZoneConf, LConf))
-                end, maps:to_list(maps:get(listeners, ZoneConf, #{})))
-        end, maps:to_list(emqx_config:get([zones], #{}))).
+    lists:foreach(
+        fun({ZoneName, LName, LConf}) ->
+                Do(ZoneName, LName, LConf)
+        end, do_list()).
+
+has_listener_conf_by_type(Type) ->
+    lists:any(
+        fun({_Zone, _LName, LConf}) when is_map(LConf) ->
+                Type =:= maps:get(type, LConf)
+        end, do_list()).
 
 %% merge the configs in zone and listeners in a manner that
 %% all config entries in the listener are prior to the ones in the zone.
