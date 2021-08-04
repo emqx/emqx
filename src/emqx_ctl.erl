@@ -137,11 +137,11 @@ help() ->
 
 -spec(print(io:format()) -> ok).
 print(Msg) ->
-    io:format(format(Msg)).
+    io:format("~s", [format(Msg)]).
 
 -spec(print(io:format(), [term()]) -> ok).
 print(Format, Args) ->
-    io:format(format(Format, Args)).
+    io:format("~s", [format(Format, Args)]).
 
 -spec(usage([cmd_usage()]) -> ok).
 usage(UsageList) ->
@@ -231,4 +231,3 @@ zip_cmd([X | Xs], [Y | Ys]) -> [{X, Y} | zip_cmd(Xs, Ys)];
 zip_cmd([X | Xs], []) -> [{X, ""} | zip_cmd(Xs, [])];
 zip_cmd([], [Y | Ys]) -> [{"", Y} | zip_cmd([], Ys)];
 zip_cmd([], []) -> [].
-
