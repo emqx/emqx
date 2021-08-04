@@ -299,6 +299,33 @@ bootstrapd() {
     fi
 }
 
+# check if a PID is down
+is_down() {
+    PID="$1"
+    if kill -s 0 "$PID" 2>/dev/null; then
+        return 1
+    fi
+    return 0
+}
+
+wait_for() {
+    local WAIT_TIME
+    local CMD
+    WAIT_TIME="$1"
+    shift
+    CMD="$*"
+    while true; do
+        if $CMD >/dev/null 2>&1; then
+            return 0
+        fi
+        if [ "$WAIT_TIME" -le 0 ]; then
+            return 1
+        fi
+        WAIT_TIME=$((WAIT_TIME - 1))
+        sleep 1
+    done
+}
+
 # Use $CWD/etc/sys.config if exists
 if [ -z "$RELX_CONFIG_PATH" ]; then
     if [ -f "$RUNNER_ETC_DIR/sys.config" ]; then
@@ -437,22 +464,16 @@ case "$1" in
                           "$(relx_start_command)"
 
         WAIT_TIME=${WAIT_FOR_ERLANG:-15}
-        while [ "$WAIT_TIME" -gt 0 ]; do
-            if ! relx_nodetool "ping" >/dev/null 2>&1; then
-                WAIT_TIME=$((WAIT_TIME - 1))
-                sleep 1
-                continue
-            fi
-            sleep 1
-            if relx_nodetool "ping" >/dev/null 2>&1; then
-                echo "$EMQX_DESCRIPTION $REL_VSN is started successfully!"
-                exit 0
-            fi
-        done && echo "$EMQX_DESCRIPTION $REL_VSN failed to start within ${WAIT_FOR_ERLANG:-15} seconds,"
-        echo "see the output of '$0 console' for more information."
-        echo "If you want to wait longer, set the environment variable"
-        echo "WAIT_FOR_ERLANG to the number of seconds to wait."
-        exit 1
+        if wait_for "$WAIT_TIME" 'relx_nodetool' 'ping'; then
+            echo "$EMQX_DESCRIPTION $REL_VSN is started successfully!"
+            exit 0
+        else
+            echo "$EMQX_DESCRIPTION $REL_VSN failed to start within ${WAIT_TIME} seconds,"
+            echo "see the output of '$0 console' for more information."
+            echo "If you want to wait longer, set the environment variable"
+            echo "WAIT_FOR_ERLANG to the number of seconds to wait."
+            exit 1
+        fi
         ;;
 
     stop)
@@ -462,11 +483,11 @@ case "$1" in
             echoerr "emqx_graceful_shutdown_failed PID=[$PID]"
             exit 1
         fi
-        while kill -s 0 "$PID" 2>/dev/null; do
-            sleep 1
-        done
-        echoerr "emqx_pid_dangling_after ${max_wait} seconds PID=[$PID]"
-        exit 1
+        WAIT_TIME=30
+        if ! wait_for "$WAIT_TIME" is_down "$PID"; then
+            echoerr "emqx_pid_dangling_after ${WAIT_TIME} seconds PID=[$PID]"
+            exit 1
+        fi
         ;;
 
     restart|reboot)
