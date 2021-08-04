@@ -104,10 +104,12 @@ init([Insta, Ctx0, _GwDscrptr]) ->
     end.
 
 do_init_context(InstaId, RawConf, Ctx) ->
-    Auth = case maps:get(authenticators, RawConf, []) of
-               [] -> undefined;
-               AuthCfgs when is_list(AuthCfgs) ->
-                   create_authenticators_for_gateway_insta(InstaId, AuthCfgs)
+    Auth = case maps:get(authentication, RawConf, #{enable => false}) of
+               #{enable := true,
+                 authenticators := AuthCfgs} when is_list(AuthCfgs) ->
+                   create_authenticators_for_gateway_insta(InstaId, AuthCfgs);
+               _ ->
+                   undefined
            end,
     Ctx#{auth => Auth}.
 
