@@ -43,10 +43,19 @@ export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
 export ERTS_LIB_DIR="$ERTS_DIR/../lib"
 MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
 
+# Echo to stderr on errors
+echoerr() { echo "ERROR: $*" 1>&2; }
+
 die() {
-    echo >&2 "$1"
+    echoerr "ERROR: $1"
     errno=${2:-1}
     exit "$errno"
+}
+
+assert_node_alive() {
+    if ! relx_nodetool "ping" > /dev/null; then
+        die "node_is_not_running!" 1
+    fi
 }
 
 relx_usage() {
@@ -146,9 +155,6 @@ if [ "$ULIMIT_F" -lt 1024 ]; then
     echo "!!!!"
 fi
 
-# Echo to stderr on errors
-echoerr() { echo "$@" 1>&2; }
-
 SED_REPLACE="sed -i "
 case $(sed --help 2>&1) in
     *GNU*) SED_REPLACE="sed -i ";;
@@ -205,7 +211,7 @@ call_hocon() {
     export RUNNER_ETC_DIR
     export REL_VSN
     "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" hocon "$@" \
-        || die "ERROR: call_hocon failed: $*" $?
+        || die "call_hocon_failed: $*" $?
 }
 
 # Run an escript in the node's environment
@@ -282,7 +288,7 @@ generate_config() {
 
     # shellcheck disable=SC2086
     if ! relx_nodetool chkconfig $CONFIG_ARGS; then
-        die "Error reading $CONFIG_ARGS"
+        die "failed_to_check_config $CONFIG_ARGS"
     fi
 }
 
@@ -327,7 +333,7 @@ if [ -z "$NAME" ]; then
         # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
         if [ -z "$LATEST_VM_ARGS" ]; then
-            echoerr "For command $1, there is no vm.*.args file found in $CONFIGS_DIR/"
+            echoerr "no_vm_arg_file_found_for $1 in $CONFIGS_DIR/"
             exit 1
         fi
         NAME="$(grep -E '^-s?name' "$LATEST_VM_ARGS" | awk '{print $2}')"
@@ -360,7 +366,7 @@ if [ -z "$COOKIE" ]; then
         # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
         if [ -z "$LATEST_VM_ARGS" ]; then
-            echo "For command $1, there is no vm.*.args config file found in $CONFIGS_DIR/"
+            echoerr "no_vm_arg_file_found_for $1 in $CONFIGS_DIR/"
             exit 1
         fi
         COOKIE="$(grep -E '^-setcookie' "$LATEST_VM_ARGS" | awk '{print $2}')"
@@ -385,8 +391,7 @@ case "$1" in
     start|start_boot)
         # Make sure a node IS not running
         if relx_nodetool "ping" >/dev/null 2>&1; then
-            echo "Node is already running!"
-            exit 1
+            die "node_is_already_running!"
         fi
         # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
         bootstrapd
@@ -454,11 +459,14 @@ case "$1" in
         # Wait for the node to completely stop...
         PID="$(relx_get_pid)"
         if ! relx_nodetool "stop"; then
+            echoerr "emqx_graceful_shutdown_failed PID=[$PID]"
             exit 1
         fi
         while kill -s 0 "$PID" 2>/dev/null; do
             sleep 1
         done
+        echoerr "emqx_pid_dangling_after ${max_wait} seconds PID=[$PID]"
+        exit 1
         ;;
 
     restart|reboot)
@@ -474,10 +482,7 @@ case "$1" in
         ;;
 
     ping)
-        ## See if the VM is alive
-        if ! relx_nodetool "ping"; then
-            exit 1
-        fi
+        assert_node_alive
         ;;
 
     escript)
@@ -488,11 +493,7 @@ case "$1" in
         ;;
 
     attach)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
         bootstrapd
@@ -502,11 +503,7 @@ case "$1" in
         ;;
 
     remote_console)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
         bootstrapd
@@ -524,11 +521,7 @@ case "$1" in
 
         COMMAND="$1"; shift
 
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         ERL_FLAGS="$ERL_FLAGS $EPMD_ARG" \
         exec "$BINDIR/escript" "$ROOTDIR/bin/install_upgrade.escript" \
@@ -536,11 +529,7 @@ case "$1" in
         ;;
 
     versions)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         COMMAND="$1"; shift
 
@@ -652,54 +641,34 @@ case "$1" in
         echo "$ERTS_PATH"
         ;;
     ctl)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         shift
 
         relx_nodetool rpc emqx_ctl run_command "$@"
         ;;
     rpc)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         shift
 
         relx_nodetool rpc "$@"
         ;;
     rpcterms)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         shift
 
         relx_nodetool rpcterms "$@"
         ;;
     root_dir)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         shift
         relx_nodetool "eval" 'code:root_dir()'
         ;;
     eval)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         shift
         relx_nodetool "eval" "$@"
