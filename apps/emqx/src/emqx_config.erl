@@ -32,6 +32,7 @@
 -export([ get/1
         , get/2
         , find/1
+        , find_raw/1
         , put/1
         , put/2
         ]).
@@ -62,7 +63,7 @@
 
 -define(CONF, conf).
 -define(RAW_CONF, raw_conf).
--define(PERSIS_KEY(TYPE, ROOT), {?MODULE, TYPE, bin(ROOT)}).
+-define(PERSIS_KEY(TYPE, ROOT), {?MODULE, TYPE, ROOT}).
 -define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
 -define(LISTENER_CONF_PATH(ZONE, LISTENER, PATH), [zones, ZONE, listeners, LISTENER | PATH]).
 
@@ -101,9 +102,28 @@ get(KeyPath, Default) -> do_get(?CONF, KeyPath, Default).
 
 -spec find(emqx_map_lib:config_key_path()) ->
     {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+find([]) ->
+    Ref = make_ref(),
+    Res = do_get(?CONF, [], Ref),
+    case Res =:= Ref of
+        true -> {not_found, []};
+        false -> {ok, Res}
+    end;
 find(KeyPath) ->
     ?ATOM_CONF_PATH(KeyPath, emqx_map_lib:deep_find(AtomKeyPath, get_root(KeyPath)),
         {not_found, KeyPath}).
+
+-spec find_raw(emqx_map_lib:config_key_path()) ->
+    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+find_raw([]) ->
+    Ref = make_ref(),
+    Res = do_get(?RAW_CONF, [], Ref),
+    case Res =:= Ref of
+        true -> {not_found, []};
+        false -> {ok, Res}
+    end;
+find_raw(KeyPath) ->
+    emqx_map_lib:deep_find([bin(Key) || Key <- KeyPath], get_root_raw(KeyPath)).
 
 -spec get_zone_conf(atom(), emqx_map_lib:config_key_path()) -> term().
 get_zone_conf(Zone, KeyPath) ->
@@ -279,16 +299,30 @@ do_get(Type, KeyPath) ->
         false -> Res
     end.
 
+do_get(Type, [], Default) ->
+    AllConf = lists:foldl(fun
+            ({?PERSIS_KEY(Type0, RootName), Conf}, AccIn) when Type0 == Type ->
+                AccIn#{RootName => Conf};
+            (_, AccIn) -> AccIn
+        end, #{}, persistent_term:get()),
+    case map_size(AllConf) == 0 of
+        true -> Default;
+        false -> AllConf
+    end;
 do_get(Type, [RootName], Default) ->
-    persistent_term:get(?PERSIS_KEY(Type, RootName), Default);
+    persistent_term:get(?PERSIS_KEY(Type, bin(RootName)), Default);
 do_get(Type, [RootName | KeyPath], Default) ->
-    RootV = persistent_term:get(?PERSIS_KEY(Type, RootName), #{}),
+    RootV = persistent_term:get(?PERSIS_KEY(Type, bin(RootName)), #{}),
     do_deep_get(Type, KeyPath, RootV, Default).
 
+do_put(Type, [], DeepValue) ->
+    maps:fold(fun(RootName, Value, _Res) ->
+            do_put(Type, [RootName], Value)
+        end, ok, DeepValue);
 do_put(Type, [RootName | KeyPath], DeepValue) ->
     OldValue = do_get(Type, [RootName], #{}),
     NewValue = do_deep_put(Type, KeyPath, OldValue, DeepValue),
-    persistent_term:put(?PERSIS_KEY(Type, RootName), NewValue).
+    persistent_term:put(?PERSIS_KEY(Type, bin(RootName)), NewValue).
 
 do_deep_get(?CONF, KeyPath, Map, Default) ->
     ?ATOM_CONF_PATH(KeyPath, emqx_map_lib:deep_get(AtomKeyPath, Map, Default),

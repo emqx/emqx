@@ -28,7 +28,7 @@
 -define(PARAM_CONF_PATH, [#{
     name => conf_path,
     in => query,
-    description => <<"The config path in jq syntax">>,
+    description => <<"The config path separated by '.' character">>,
     required => false,
     schema => #{type => string, default => <<".">>}
 }]).
@@ -81,23 +81,28 @@ config_api(RootName) when is_atom(RootName) ->
 %% parameters trans
 config(get, Req) ->
     %% TODO: query the config specified by the query string param 'conf_path'
-    Conf = emqx_config:get_raw([root_name_from_path(Req)]),
+    Conf = emqx_config:get_raw([root_name_from_path(Req) | conf_path_from_querystr(Req)]),
     {200, Conf};
 
 config(delete, Req) ->
     %% TODO: remove the config specified by the query string param 'conf_path'
-    emqx_config:remove([binary_to_existing_atom(root_name_from_path(Req), latin1)]),
+    emqx_config:remove([root_name_from_path(Req) | conf_path_from_querystr(Req)]),
     {200};
 
 config(put, Req) ->
     RootName = root_name_from_path(Req),
-    AtomRootName = binary_to_existing_atom(RootName, latin1),
-    ok = emqx_config:update([AtomRootName], http_body(Req)),
+    ok = emqx_config:update([RootName], http_body(Req)),
     {200, emqx_config:get_raw([RootName])}.
 
 root_name_from_path(Req) ->
     <<"/api/v5/configs/", RootName/binary>> = cowboy_req:path(Req),
-    RootName.
+    string:trim(RootName, trailing, "/").
+
+conf_path_from_querystr(Req) ->
+    case proplists:get_value(<<"conf_path">>, cowboy_req:parse_qs(Req)) of
+        undefined -> [];
+        Path -> [string:lexemes(Path, ". ")]
+    end.
 
 http_body(Req) ->
     {ok, Body, _} = cowboy_req:read_body(Req),
