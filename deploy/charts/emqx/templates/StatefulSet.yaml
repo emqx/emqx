@@ -127,7 +127,7 @@ spec:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:
           - name: emqx-data
-            mountPath: "/opt/emqx/data/mnesia"
+            mountPath: "/opt/emqx/data/"
           {{ if .Values.emqxLicneseSecretName  }}
           - name: emqx-license
             mountPath: "/opt/emqx/etc/emqx.lic"
