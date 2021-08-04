@@ -20,7 +20,7 @@ jobs:
 
         os:
         - ubuntu20.04
-        - centos7
+#       - centos7
 
     container: emqx/build-env:${{ matrix.erl_otp }}-${{ matrix.os }}
 
