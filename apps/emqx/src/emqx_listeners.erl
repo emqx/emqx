@@ -34,7 +34,7 @@
         , stop_listener/3
         , restart_listener/1
         , restart_listener/3
-        , has_listener_conf_by_type/1
+        , has_enabled_listener_conf_by_type/1
         ]).
 
 %% @doc List configured listeners.
@@ -296,10 +296,11 @@ foreach_listeners(Do) ->
                 Do(ZoneName, LName, LConf)
         end, do_list()).
 
-has_listener_conf_by_type(Type) ->
+has_enabled_listener_conf_by_type(Type) ->
     lists:any(
         fun({_Zone, _LName, LConf}) when is_map(LConf) ->
-                Type =:= maps:get(type, LConf)
+                Type =:= maps:get(type, LConf) andalso
+                maps:get(enabled, LConf, true)
         end, do_list()).
 
 %% merge the configs in zone and listeners in a manner that

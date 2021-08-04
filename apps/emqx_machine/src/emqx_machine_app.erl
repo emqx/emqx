@@ -127,15 +127,11 @@ start_one_app(App) ->
 %% 1. due to static static config change
 %% 2. after join a cluster
 reboot_apps() ->
-    [gproc, esockd, ranch, cowboy, ekka, quicer, emqx | ?EMQX_DEP_APPS].
-
-%% quicer can not be added to emqx's .app because it might be opted out at build time
-implicit_deps() ->
-    [{emqx, [quicer]}].
+    [gproc, esockd, ranch, cowboy, ekka, emqx | ?EMQX_DEP_APPS].
 
 sorted_reboot_apps() ->
     Apps = [{App, app_deps(App)} || App <- reboot_apps()],
-    sorted_reboot_apps(Apps ++ implicit_deps()).
+    sorted_reboot_apps(Apps).
 
 app_deps(App) ->
     case application:get_key(App, applications) of
