@@ -362,15 +362,6 @@ clients_authz_cache_api() ->
     {"/clients/:clientid/authz_cache", Metadata, authz_cache}.
 
 clients_subscriptions_api() ->
-    SubscriptionSchema = #{
-        type => object,
-        properties => #{
-            topic => #{
-                type => string},
-            qos => #{
-                type => integer,
-                enum => [0,1,2]}}
-    },
     Metadata = #{
         get => #{
             description => <<"Get client subscriptions">>,
@@ -382,7 +373,7 @@ clients_subscriptions_api() ->
             }],
             responses => #{
                 <<"200">> =>
-                    emqx_mgmt_util:response_array_schema(<<"Get client subscriptions">>, SubscriptionSchema)}}
+                    emqx_mgmt_util:response_array_schema(<<"Get client subscriptions">>, subscription)}}
     },
     {"/clients/:clientid/subscriptions", Metadata, subscriptions}.
 
@@ -486,9 +477,9 @@ subscribe_batch(post, Request) ->
 
 subscriptions(get, Request) ->
     ClientID = cowboy_req:binding(clientid, Request),
-    Subs0 = emqx_mgmt:list_client_subscriptions(ClientID),
+    {Node, Subs0} = emqx_mgmt:list_client_subscriptions(ClientID),
     Subs = lists:map(fun({Topic, SubOpts}) ->
-        #{topic => Topic, qos => maps:get(qos, SubOpts)}
+        #{node => Node, clientid => ClientID, topic => Topic, qos => maps:get(qos, SubOpts)}
     end, Subs0),
     {200, Subs}.
 

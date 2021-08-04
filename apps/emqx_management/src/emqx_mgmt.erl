@@ -283,7 +283,7 @@ list_client_subscriptions(ClientId) ->
     end.
 
 client_subscriptions(Node, ClientId) when Node =:= node() ->
-    emqx_broker:subscriptions(ClientId);
+    {Node, emqx_broker:subscriptions(ClientId)};
 
 client_subscriptions(Node, ClientId) ->
     rpc_call(Node, client_subscriptions, [Node, ClientId]).
