@@ -73,7 +73,7 @@ emqx_test(){
                 fi
 
                 echo "running ${packagename} start"
-                running_test
+                run_test
                 echo "running ${packagename} stop"
 
                 dpkg -r "${EMQX_NAME}"
@@ -99,7 +99,7 @@ emqx_test(){
                 fi
 
                 echo "running ${packagename} start"
-                running_test
+                run_test
                 echo "running ${packagename} stop"
 
                 rpm -e "${EMQX_NAME}"
@@ -113,7 +113,7 @@ emqx_test(){
     done
 }
 
-running_test(){
+run_test(){
     # sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
     emqx_env_vars=$(dirname "$(readlink "$(command -v emqx)")")/../releases/emqx_vars
 
@@ -132,7 +132,7 @@ EOF
         exit 1
     fi
 
-    if ! su - emqx -c "emqx start"; then
+    if ! emqx 'start'; then
         cat /var/log/emqx/erlang.log.1 || true
         cat /var/log/emqx/emqx.log.1 || true
         exit 1
@@ -148,8 +148,15 @@ EOF
         IDLE_TIME=$((IDLE_TIME+1))
     done
     pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
+    export DEBUG=1
     # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
-    emqx stop || kill "$(ps -ef | grep -E '\-progname\s.+emqx\s' |awk '{print $2}')"
+    ps -ef | grep -E '\-progname\s.+emqx\s'
+    if ! emqx 'stop'; then
+        echo "ERROR: failed_to_stop_emqx_with_the_stop_command"
+        cat /var/log/emqx/erlang.log.1 || true
+        cat /var/log/emqx/emqx.log.1 || true
+        exit 1
+    fi
 
     if [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = ubuntu ] \
     || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] ;then
