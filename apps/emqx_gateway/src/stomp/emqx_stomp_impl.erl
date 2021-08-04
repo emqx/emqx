@@ -16,8 +16,6 @@
 
 -module(emqx_stomp_impl).
 
--include_lib("emqx_gateway/include/emqx_gateway.hrl").
-
 -behavior(emqx_gateway_impl).
 
 %% APIs
@@ -31,7 +29,8 @@
         , on_insta_destroy/3
         ]).
 
--define(TCP_OPTS, [binary, {packet, raw}, {reuseaddr, true}, {nodelay, true}]).
+-include_lib("emqx_gateway/include/emqx_gateway.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -41,15 +40,13 @@
 load() ->
     RegistryOptions = [ {cbkmod, ?MODULE}
                       ],
-
-    YourOptions = [param1, param2],
-    emqx_gateway_registry:load(stomp, RegistryOptions, YourOptions).
+    emqx_gateway_registry:load(stomp, RegistryOptions, []).
 
 -spec unload() -> ok | {error, any()}.
 unload() ->
     emqx_gateway_registry:unload(stomp).
 
-init([param1, param2]) ->
+init(_) ->
     GwState = #{},
     {ok, GwState}.
 
@@ -101,13 +98,12 @@ start_listener(InstaId, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
-            io:format("Start stomp ~s:~s listener on ~s successfully.~n",
-                      [InstaId, Type, ListenOnStr]),
+            ?ULOG("Start stomp ~s:~s listener on ~s successfully.~n",
+                  [InstaId, Type, ListenOnStr]),
             Pid;
         {error, Reason} ->
-            io:format(standard_error,
-                      "Failed to start stomp ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, ListenOnStr, Reason]),
+            ?ELOG("Failed to start stomp ~s:~s listener on ~s: ~0p~n",
+                  [InstaId, Type, ListenOnStr, Reason]),
             throw({badconf, Reason})
     end.
 
@@ -125,24 +121,24 @@ name(InstaId, Type) ->
     list_to_atom(lists:concat([InstaId, ":", Type])).
 
 merge_default(Options) ->
+    Default = emqx_gateway_utils:default_tcp_options(),
     case lists:keytake(tcp_options, 1, Options) of
         {value, {tcp_options, TcpOpts}, Options1} ->
-            [{tcp_options, emqx_misc:merge_opts(?TCP_OPTS, TcpOpts)} | Options1];
+            [{tcp_options, emqx_misc:merge_opts(Default, TcpOpts)}
+             | Options1];
         false ->
-            [{tcp_options, ?TCP_OPTS} | Options]
+            [{tcp_options, Default} | Options]
     end.
 
 stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
     StopRet = stop_listener(InstaId, Type, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
-        ok -> io:format("Stop stomp ~s:~s listener on ~s successfully.~n",
-                        [InstaId, Type, ListenOnStr]);
+        ok -> ?ULOG("Stop stomp ~s:~s listener on ~s successfully.~n",
+                    [InstaId, Type, ListenOnStr]);
         {error, Reason} ->
-            io:format(standard_error,
-                      "Failed to stop stomp ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, ListenOnStr, Reason]
-                     )
+            ?ELOG("Failed to stop stomp ~s:~s listener on ~s: ~0p~n",
+                  [InstaId, Type, ListenOnStr, Reason])
     end,
     StopRet.
 

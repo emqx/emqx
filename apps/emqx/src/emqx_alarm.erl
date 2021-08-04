@@ -22,8 +22,6 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
--logger_header("[Alarm Handler]").
-
 %% Mnesia bootstrap
 -export([mnesia/1]).
 

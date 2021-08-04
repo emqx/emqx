@@ -27,6 +27,7 @@
 %% Authorization
 -export([authorize_appid/1]).
 
+-include_lib("emqx/include/logger.hrl").
 
 -define(BASE_PATH, "/api/v5").
 
@@ -67,7 +68,7 @@ start_listener({Proto, Port, Options}) ->
         dispatch => Dispatch},
     MinirestOptions = maps:merge(Minirest, RanchOptions),
     {ok, _} = minirest:start(listener_name(Proto), MinirestOptions),
-    io:format("Start ~p listener on ~p successfully.~n", [listener_name(Proto), Port]).
+    ?ULOG("Start ~p listener on ~p successfully.~n", [listener_name(Proto), Port]).
 
 apps() ->
     [App || {App, _, _} <- application:loaded_applications(),
@@ -90,7 +91,7 @@ ranch_opts(Port, Options0) ->
     maps:from_list([{port, Port} | Options]).
 
 stop_listener({Proto, Port, _}) ->
-    io:format("Stop dashboard listener on ~s successfully.~n",[format(Port)]),
+    ?ULOG("Stop dashboard listener on ~s successfully.~n", [format(Port)]),
     minirest:stop(listener_name(Proto)).
 
 listeners() ->

@@ -20,7 +20,6 @@
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[GW-Conn]").
 
 %% API
 -export([ start_link/3
@@ -640,8 +639,13 @@ next_incoming_msgs(Packets) ->
 %%--------------------------------------------------------------------
 %% Handle incoming packet
 
-handle_incoming(Packet, State = #state{frame_mod = FrameMod}) ->
-    ok = inc_incoming_stats(Packet),
+handle_incoming(Packet, State = #state{
+                                   channel = Channel,
+                                   frame_mod = FrameMod,
+                                   chann_mod = ChannMod
+                                  }) ->
+    Ctx = ChannMod:info(ctx, Channel),
+    ok = inc_incoming_stats(Ctx, FrameMod, Packet),
     ?LOG(debug, "RECV ~s", [FrameMod:format(Packet)]),
     with_channel(handle_in, [Packet], State).
 
@@ -688,7 +692,7 @@ serialize_and_inc_stats_fun(#state{
                     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'delivery.dropped'),
                     <<>>;
             Data -> ?LOG(debug, "SEND ~s", [FrameMod:format(Packet)]),
-                    ok = inc_outgoing_stats(Packet),
+                    ok = inc_outgoing_stats(Ctx, FrameMod, Packet),
                     Data
         end
     end.
@@ -796,30 +800,31 @@ close_socket(State = #state{socket = Socket}) ->
 %%--------------------------------------------------------------------
 %% Inc incoming/outgoing stats
 
-%% XXX: How to stats?
-inc_incoming_stats(_Packet) ->
+inc_incoming_stats(Ctx, FrameMod, Packet) ->
     inc_counter(recv_pkt, 1),
-    ok.
-    %case Type =:= ?CMD_SEND of
-    %    true ->
-    %        inc_counter(recv_msg, 1),
-    %        inc_counter(incoming_pubs, 1);
-    %    false ->
-    %        ok
-    %end,
-    %emqx_metrics:inc_recv(Packet).
+    case FrameMod:is_message(Packet) of
+        true ->
+            inc_counter(recv_msg, 1),
+            inc_counter(incoming_pubs, 1);
+        false ->
+            ok
+    end,
+    Name = list_to_atom(
+             lists:concat(["packets.", FrameMod:type(Packet), ".recevied"])),
+    emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
-inc_outgoing_stats(_Packet) ->
+inc_outgoing_stats(Ctx, FrameMod, Packet) ->
     inc_counter(send_pkt, 1),
-    ok.
-    %case Type =:= ?CMD_MESSAGE of
-    %    true ->
-    %        inc_counter(send_msg, 1),
-    %        inc_counter(outgoing_pubs, 1);
-    %    false ->
-    %        ok
-    %end,
-    %emqx_metrics:inc_sent(Packet).
+    case FrameMod:is_message(Packet) of
+        true ->
+            inc_counter(send_msg, 1),
+            inc_counter(outgoing_pubs, 1);
+        false ->
+            ok
+    end,
+    Name = list_to_atom(
+             lists:concat(["packets.", FrameMod:type(Packet), ".sent"])),
+    emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
 %%--------------------------------------------------------------------
 %% Helper functions

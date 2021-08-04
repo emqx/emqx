@@ -14,10 +14,10 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+-ifndef(EMQX_LOGGER_HRL).
+-define(EMQX_LOGGER_HRL, true).
+
 %% debug | info | notice | warning | error | critical | alert | emergency
-
--compile({parse_transform, emqx_logger}).
-
 -define(DEBUG(Format), ?LOG(debug, Format, [])).
 -define(DEBUG(Format, Args), ?LOG(debug, Format, Args)).
 
@@ -41,10 +41,28 @@
 
 -define(LOG(Level, Format), ?LOG(Level, Format, [])).
 
--define(LOG(Level, Format, Args),
-        begin
-          (logger:log(Level,#{},#{report_cb => fun(_) -> {'$logger_header'()++(Format), (Args)} end,
-                                  mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY},
-                                  line => ?LINE}))
+-define(LOG(Level, Format, Args, Meta),
+        %% check 'allow' here so we do not have to pass an anonymous function
+        %% down to logger which may cause `badfun` exception during upgrade
+        case logger:allow(Level, ?MODULE) of
+            true ->
+                logger:log(Level, (Format), (Args),
+                           (Meta)#{ mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}
+                                  , line => ?LINE
+                                  });
+            false ->
+                ok
         end).
 
+-define(LOG(Level, Format, Args), ?LOG(Level, Format, Args, #{})).
+
+%% structured logging
+-define(SLOG(Level, Data),
+        logger:log(Level, Data, #{ mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}
+                                 , line => ?LINE})).
+
+%% print to 'user' group leader
+-define(ULOG(Fmt, Args), io:format(user, Fmt, Args)).
+-define(ELOG(Fmt, Args), io:format(standard_error, Fmt, Args)).
+
+-endif.

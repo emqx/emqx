@@ -20,8 +20,8 @@
 
 -include("logger.hrl").
 -include("types.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 
--logger_header("[Hooks]").
 
 -export([ start_link/0
         , stop/0
@@ -32,6 +32,8 @@
         , add/3
         , add/4
         , put/2
+        , put/3
+        , put/4
         , del/2
         , run/2
         , run_fold/3
@@ -130,11 +132,25 @@ add(HookPoint, Action, Filter, Priority) when is_integer(Priority) ->
 
 %% @doc Like add/2, it register a callback, discard 'already_exists' error.
 -spec(put(hookpoint(), action() | #callback{}) -> ok).
-put(HookPoint, Callback) ->
+put(HookPoint, Callback) when is_record(Callback, callback) ->
     case add(HookPoint, Callback) of
         ok -> ok;
-        {error, already_exists} -> ok
-    end.
+        {error, already_exists} ->
+            gen_server:call(?SERVER, {put, HookPoint, Callback}, infinity)
+    end;
+put(HookPoint, Action) when is_function(Action); is_tuple(Action) ->
+    ?MODULE:put(HookPoint, #callback{action = Action, priority = 0}).
+
+-spec(put(hookpoint(), action(), filter() | integer() | list()) -> ok).
+put(HookPoint, Action, {_M, _F, _A} = Filter) ->
+    ?MODULE:put(HookPoint, #callback{action = Action, filter = Filter, priority = 0});
+put(HookPoint, Action, Priority) when is_integer(Priority) ->
+    ?MODULE:put(HookPoint, #callback{action = Action, priority = Priority}).
+
+-spec(put(hookpoint(), action(), filter(), integer()) -> ok).
+put(HookPoint, Action, Filter, Priority) when is_integer(Priority) ->
+    ?MODULE:put(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
+
 
 %% @doc Unregister a callback.
 -spec(del(hookpoint(), action() | {module(), atom()}) -> ok).
@@ -215,13 +231,18 @@ init([]) ->
     ok = emqx_tables:new(?TAB, [{keypos, #hook.name}, {read_concurrency, true}]),
     {ok, #{}}.
 
-handle_call({add, HookPoint, Callback = #callback{action = Action}}, _From, State) ->
-    Reply = case lists:keymember(Action, #callback.action, Callbacks = lookup(HookPoint)) of
-                true ->
-                    {error, already_exists};
-                false ->
-                    insert_hook(HookPoint, add_callback(Callback, Callbacks))
+handle_call({add, HookPoint, Callback = #callback{action = {M, F, _}}}, _From, State) ->
+    Reply = case lists:any(fun (#callback{action = {M0, F0, _}}) ->
+                                 M0 =:= M andalso F0 =:= F
+                           end, Callbacks = lookup(HookPoint)) of
+                true -> {error, already_exists};
+                false -> insert_hook(HookPoint, add_callback(Callback, Callbacks))
             end,
+    {reply, Reply, State};
+
+handle_call({put, HookPoint, Callback = #callback{action = {M, F, _}}}, _From, State) ->
+    Callbacks = del_callback({M, F}, lookup(HookPoint)),
+    Reply = update_hook(HookPoint, add_callback(Callback, Callbacks)),
     {reply, Reply, State};
 
 handle_call(Req, _From, State) ->
@@ -257,6 +278,10 @@ code_change(_OldVsn, State, _Extra) ->
 
 insert_hook(HookPoint, Callbacks) ->
     ets:insert(?TAB, #hook{name = HookPoint, callbacks = Callbacks}), ok.
+update_hook(HookPoint, Callbacks) ->
+    Ms = ets:fun2ms(fun ({hook, K, V}) when K =:= HookPoint -> {hook, K, Callbacks} end),
+    ets:select_replace(emqx_hooks, Ms),
+    ok.
 
 add_callback(C, Callbacks) ->
     add_callback(C, Callbacks, []).

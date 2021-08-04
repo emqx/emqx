@@ -32,7 +32,7 @@
         , on_insta_destroy/3
         ]).
 
--define(UDP_SOCKOPTS, []).
+-include_lib("emqx/include/logger.hrl").
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -41,8 +41,7 @@
 load() ->
     RegistryOptions = [ {cbkmod, ?MODULE}
                       ],
-    YourOptions = [params1, params2],
-    emqx_gateway_registry:load(mqttsn, RegistryOptions, YourOptions).
+    emqx_gateway_registry:load(mqttsn, RegistryOptions, []).
 
 unload() ->
     emqx_gateway_registry:unload(mqttsn).
@@ -116,13 +115,12 @@ start_listener(InstaId, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
-            io:format("Start mqttsn ~s:~s listener on ~s successfully.~n",
-                      [InstaId, Type, ListenOnStr]),
+            ?ULOG("Start mqttsn ~s:~s listener on ~s successfully.~n",
+                  [InstaId, Type, ListenOnStr]),
             Pid;
         {error, Reason} ->
-            io:format(standard_error,
-                      "Failed to start mqttsn ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, ListenOnStr, Reason]),
+            ?ELOG("Failed to start mqttsn ~s:~s listener on ~s: ~0p~n",
+                  [InstaId, Type, ListenOnStr, Reason]),
             throw({badconf, Reason})
     end.
 
@@ -140,24 +138,24 @@ name(InstaId, Type) ->
     list_to_atom(lists:concat([InstaId, ":", Type])).
 
 merge_default(Options) ->
+    Default = emqx_gateway_utils:default_udp_options(),
     case lists:keytake(udp_options, 1, Options) of
         {value, {udp_options, TcpOpts}, Options1} ->
-            [{udp_options, emqx_misc:merge_opts(?UDP_SOCKOPTS, TcpOpts)} | Options1];
+            [{udp_options, emqx_misc:merge_opts(Default, TcpOpts)}
+             | Options1];
         false ->
-            [{udp_options, ?UDP_SOCKOPTS} | Options]
+            [{udp_options, Default} | Options]
     end.
 
 stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
     StopRet = stop_listener(InstaId, Type, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
-        ok -> io:format("Stop mqttsn ~s:~s listener on ~s successfully.~n",
-                        [InstaId, Type, ListenOnStr]);
+        ok -> ?ULOG("Stop mqttsn ~s:~s listener on ~s successfully.~n",
+                    [InstaId, Type, ListenOnStr]);
         {error, Reason} ->
-            io:format(standard_error,
-                      "Failed to stop mqttsn ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, ListenOnStr, Reason]
-                     )
+            ?ELOG("Failed to stop mqttsn ~s:~s listener on ~s: ~0p~n",
+                  [InstaId, Type, ListenOnStr, Reason])
     end,
     StopRet.
 

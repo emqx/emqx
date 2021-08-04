@@ -22,7 +22,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[Stomp-Proto]").
 
 -import(proplists, [get_value/2, get_value/3]).
 
@@ -59,6 +58,8 @@
           conninfo      :: emqx_types:conninfo(),
           %% Stomp Client Info
           clientinfo    :: emqx_types:clientinfo(),
+          %% Session
+          session       :: undefined | map(),
           %% ClientInfo override specs
           clientinfo_override :: map(),
           %% Connection Channel
@@ -303,12 +304,12 @@ process_connect(Channel = #channel{
            ConnInfo,
            SessFun
           ) of
-        {ok, _Sess} -> %% The stomp protocol doesn't have session
+        {ok, #{session := Session}} ->
             #{proto_ver := Version} = ConnInfo,
             #{heartbeat := Heartbeat} = ClientInfo,
             Headers = [{<<"version">>, Version},
                        {<<"heart-beat">>, reverse_heartbeats(Heartbeat)}],
-            handle_out(connected, Headers, Channel);
+            handle_out(connected, Headers, Channel#channel{session = Session});
         {error, Reason} ->
             ?LOG(error, "Failed to open session du to ~p", [Reason]),
             Headers = [{<<"version">>, <<"1.0,1.1,1.2">>},
@@ -373,46 +374,59 @@ handle_in(?PACKET(?CMD_SUBSCRIBE, Headers),
           Channel = #channel{
                        ctx = Ctx,
                        subscriptions = Subs,
-                       clientinfo = ClientInfo = #{mountpoint := Mountpoint}
+                       clientinfo = ClientInfo
                       }) ->
+
     SubId = header(<<"id">>, Headers),
     Topic = header(<<"destination">>, Headers),
     Ack   = header(<<"ack">>, Headers, <<"auto">>),
-
-    MountedTopic = emqx_mountpoint:mount(Mountpoint, Topic),
-
-    case lists:keyfind(SubId, 1, Subs) of
-        {SubId, MountedTopic, Ack} ->
-            maybe_outgoing_receipt(receipt_id(Headers), Channel);
-        {SubId, _OtherTopic, _OtherAck} ->
-            %% FIXME:
-            ?LOG(error, "Conflicts with subscribed topics ~s, id: ~s",
-                        [_OtherTopic, SubId]),
-            ErrMsg = "Conflict subscribe id ",
-            handle_out(error, {receipt_id(Headers), ErrMsg}, Channel);
-        false ->
-            case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, Topic) of
-                deny ->
-                    handle_out(error, {receipt_id(Headers), "Authorization Deny"}, Channel);
-                allow ->
-                    _ = emqx_broker:subscribe(MountedTopic),
-                    maybe_outgoing_receipt(
-                      receipt_id(Headers),
-                      Channel#channel{subscriptions = [{SubId, MountedTopic, Ack} | Subs]}
-                     )
-            end
+    case emqx_misc:pipeline(
+          [ fun parse_topic_filter/2
+          , fun check_subscribed_status/2
+          , fun check_sub_acl/2
+          ], {SubId, Topic}, Channel) of
+        {ok, {_, TopicFilter}, NChannel} ->
+            TopicFilters = [TopicFilter],
+            NTopicFilters = run_hooks(Ctx, 'client.subscribe',
+                                      [ClientInfo, #{}], TopicFilters),
+            case do_subscribe(NTopicFilters, NChannel) of
+                [] ->
+                    ErrMsg = "Permission denied",
+                    handle_out(error, {receipt_id(Headers), ErrMsg}, Channel);
+                [MountedTopic|_] ->
+                    NChannel1 = NChannel#channel{
+                                  subscriptions = [{SubId, MountedTopic, Ack}
+                                                   | Subs]
+                                 },
+                    handle_out(receipt, receipt_id(Headers), NChannel1)
+            end;
+        {error, ErrMsg, NChannel} ->
+            ?LOG(error, "Failed to subscribe topic ~s, reason: ~s",
+                        [Topic, ErrMsg]),
+            handle_out(error, {receipt_id(Headers), ErrMsg}, NChannel)
     end;
 
 handle_in(?PACKET(?CMD_UNSUBSCRIBE, Headers),
-          Channel = #channel{subscriptions = Subs}) ->
+          Channel = #channel{
+                       ctx = Ctx,
+                       clientinfo = ClientInfo
+                                  = #{mountpoint := Mountpoint},
+                       subscriptions = Subs}) ->
     SubId = header(<<"id">>, Headers),
-    {ok, NChannel} = case lists:keyfind(SubId, 1, Subs) of
-                       {SubId, Topic, _Ack} ->
-                           ok = emqx_broker:unsubscribe(Topic),
-                           {ok, Channel#channel{subscriptions = lists:keydelete(SubId, 1, Subs)}};
-                       false ->
-                           {ok, Channel}
-                   end,
+    {ok, NChannel} =
+        case lists:keyfind(SubId, 1, Subs) of
+            {SubId, MountedTopic, _Ack} ->
+                Topic = emqx_mountpoint:unmount(Mountpoint, MountedTopic),
+                %% XXX: eval the return topics?
+                _ = run_hooks(Ctx, 'client.unsubscribe',
+                              [ClientInfo, #{}], [{Topic, #{}}]),
+                ok = emqx_broker:unsubscribe(MountedTopic),
+                _ = run_hooks(Ctx, 'session.unsubscribe',
+                              [ClientInfo, MountedTopic, #{}]),
+                {ok, Channel#channel{subscriptions = lists:keydelete(SubId, 1, Subs)}};
+             false ->
+                 {ok, Channel}
+        end,
     handle_out(receipt, receipt_id(Headers), NChannel);
 
 %% XXX: How to ack a frame ???
@@ -520,6 +534,54 @@ trans_pipeline([{Func, Args}|More], Outgoings, Channel) ->
         {error, Reason} ->
             {error, Reason, Channel}
     end.
+
+%%--------------------------------------------------------------------
+%% Subs
+
+parse_topic_filter({SubId, Topic}, Channel) ->
+    TopicFilter = emqx_topic:parse(Topic),
+    {ok, {SubId, TopicFilter}, Channel}.
+
+check_subscribed_status({SubId, TopicFilter},
+                        #channel{
+                           subscriptions = Subs,
+                           clientinfo = #{mountpoint := Mountpoint}
+                          }) ->
+    MountedTopic = emqx_mountpoint:mount(Mountpoint, TopicFilter),
+    case lists:keyfind(SubId, 1, Subs) of
+        {SubId, MountedTopic, _Ack} ->
+            ok;
+        {SubId, _OtherTopic, _Ack} ->
+            {error, "Conflict subscribe id"};
+        false ->
+            ok
+    end.
+
+check_sub_acl({_SubId, TopicFilter},
+              #channel{
+                 ctx = Ctx,
+                 clientinfo = ClientInfo}) ->
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, TopicFilter) of
+        deny -> {error, "ACL Deny"};
+        allow -> ok
+    end.
+
+do_subscribe(TopicFilters, Channel) ->
+    do_subscribe(TopicFilters, Channel, []).
+
+do_subscribe([], _Channel, Acc) ->
+    lists:reverse(Acc);
+do_subscribe([{TopicFilter, Option}|More],
+             Channel = #channel{
+                          ctx = Ctx,
+                          clientinfo = ClientInfo
+                                     = #{clientid := ClientId,
+                                         mountpoint := Mountpoint}}, Acc) ->
+    SubOpts = maps:merge(emqx_gateway_utils:default_subopts(), Option),
+    MountedTopic = emqx_mountpoint:mount(Mountpoint, TopicFilter),
+    _ = emqx_broker:subscribe(MountedTopic, ClientId, SubOpts),
+    run_hooks(Ctx, 'session.subscribed', [ClientInfo, MountedTopic, SubOpts]),
+    do_subscribe(More, Channel, [MountedTopic|Acc]).
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packet
@@ -758,7 +820,7 @@ handle_timeout(_TRef, {keepalive_send, NewVal},
         {error, timeout} ->
             NHrtBt = emqx_stomp_heartbeat:reset(outgoing, NewVal, HrtBt),
             NChannel = Channel#channel{heartbeat = NHrtBt},
-            {ok, {outgoing, emqx_stomp_frame:make(heartbeat)},
+            {ok, {outgoing, emqx_stomp_frame:make(?CMD_HEARTBEAT)},
              reset_timer(outgoing_timer, NChannel)};
         {ok, NHrtBt} ->
             {ok, reset_timer(outgoing_timer,
@@ -777,8 +839,11 @@ handle_timeout(_TRef, clean_trans, Channel = #channel{transaction = Trans}) ->
 %% Terminate
 %%--------------------------------------------------------------------
 
-terminate(_Reason, _Channel) ->
-    ok.
+terminate(Reason, #channel{
+                      ctx = Ctx,
+                      session = Session,
+                      clientinfo = ClientInfo}) ->
+    run_hooks(Ctx, 'session.terminated', [ClientInfo, Reason, Session]).
 
 reply(Reply, Channel) ->
     {reply, Reply, Channel}.

@@ -133,10 +133,16 @@ test_deps() ->
     ].
 
 common_compile_opts() ->
+    AppNames = list_dir("apps") ++
+               case is_enterprise() of
+                    true -> list_dir("lib-ee");
+                    false -> []
+               end,
     [ debug_info % alwyas include debug_info
     , {compile_info, [{emqx_vsn, get_vsn()}]}
     , {d, snk_kind, msg}
     ] ++
+    [{d, 'EMQX_DEP_APPS', AppNames -- [emqx]}] ++
     [{d, 'EMQX_ENTERPRISE'} || is_enterprise()] ++
     [{d, 'EMQX_EXT_SCHEMAS', emqx_ext_schemas()}] ++
     [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].
@@ -269,6 +275,7 @@ relx_apps(ReleaseType) ->
     , emqx_authn
     , emqx_authz
     , emqx_gateway
+    , {emqx_exhook, load}
     , emqx_data_bridge
     , emqx_rule_engine
     , emqx_rule_actions
@@ -339,6 +346,7 @@ relx_overlay(ReleaseType) ->
     , {copy, "bin/emqx", "bin/emqx-{{release_version}}"} %% for relup
     , {copy, "bin/emqx_ctl", "bin/emqx_ctl-{{release_version}}"} %% for relup
     , {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"} %% for relup
+    , {copy, "apps/emqx_gateway/src/lwm2m/lwm2m_xml", "etc/lwm2m_xml"}
     , {template, "bin/emqx.cmd", "bin/emqx.cmd"}
     , {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"}
     , {copy, "bin/nodetool", "bin/nodetool"}

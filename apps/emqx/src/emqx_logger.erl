@@ -56,8 +56,6 @@
         , stop_log_handler/1
         ]).
 
--export([parse_transform/2]).
-
 -type(peername_str() :: list()).
 -type(logger_dst() :: file:filename() | console | unknown).
 -type(logger_handler_info() :: #{
@@ -234,13 +232,6 @@ set_log_level(Level) ->
         {error, Error} -> {error, {primary_logger_level, Error}}
     end.
 
-%% @doc The parse transform for prefixing a module-specific logger header to the logs.
-%% The logger header can be specified by "-logger_header(Header)", where Header
-%% must be a string (list).
-%% @end
-parse_transform(AST, _Opts) ->
-    trans(AST, "", []).
-
 %%--------------------------------------------------------------------
 %% Internal Functions
 %%--------------------------------------------------------------------
@@ -307,31 +298,3 @@ list_stopped_handler_config() ->
         undefined -> [];
         ConfList -> maps:values(ConfList)
     end.
-
-%% @doc The following parse-transforms stripped off the module attribute named
-%% `-logger_header(Header)` (if there's one) from the source code, and then
-%% generate a function named '$logger_header'/0, which returns the logger header.
-%% @end
-trans([], LogHeader, ResAST) ->
-    lists:reverse([header_fun(LogHeader) | ResAST]);
-trans([{eof, L} | AST], LogHeader, ResAST) ->
-    lists:reverse([{eof, L}, header_fun(LogHeader) | ResAST]) ++ AST;
-trans([{attribute, _, module, _Mod} = M | AST], Header, ResAST) ->
-    trans(AST, Header, [export_header_fun(), M | ResAST]);
-trans([{attribute, _, logger_header, Header} | AST], _, ResAST) ->
-    io_lib:printable_list(Header) orelse erlang:error({invalid_string, Header}),
-    trans(AST, Header, ResAST);
-trans([F | AST], LogHeader, ResAST) ->
-    trans(AST, LogHeader, [F | ResAST]).
-
-export_header_fun() ->
-    {attribute,erl_anno:new(0),export,[{'$logger_header',0}]}.
-
-header_fun(LogHeader) ->
-    L = erl_anno:new(0),
-    {function,L,'$logger_header',0,
-         [{clause,L,
-             [], [], [{string,L,pad(LogHeader)}]}]}.
-
-pad("") -> "";
-pad(Str) -> Str ++ " ".

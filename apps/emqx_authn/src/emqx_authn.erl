@@ -20,6 +20,7 @@
 
 -export([ enable/0
         , disable/0
+        , is_enabled/0
         ]).
 
 -export([authenticate/2]).
@@ -83,6 +84,14 @@ enable() ->
 disable() ->
     emqx:unhook('client.authenticate', {?MODULE, authenticate, []}),
     ok.
+
+is_enabled() ->
+    Callbacks = emqx_hooks:lookup('client.authenticate'),
+    lists:any(fun({callback, {?MODULE, authenticate, []}, _, _}) ->
+                  true;
+                 (_) ->
+                  false
+              end, Callbacks).
 
 authenticate(Credential, _AuthResult) ->
     case mnesia:dirty_read(?CHAIN_TAB, ?CHAIN) of

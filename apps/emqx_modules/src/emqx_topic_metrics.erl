@@ -22,7 +22,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
--logger_header("[TOPIC_METRICS]").
 
 -export([ on_message_publish/1
         , on_message_delivered/2

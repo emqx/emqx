@@ -22,7 +22,6 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--logger_header("[Router Helper]").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).

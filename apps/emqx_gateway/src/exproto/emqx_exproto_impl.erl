@@ -32,10 +32,7 @@
         , on_insta_destroy/3
         ]).
 
--define(TCP_SOCKOPTS, [binary, {packet, raw}, {reuseaddr, true},
-                       {backlog, 512}, {nodelay, true}]).
-
--define(UDP_SOCKOPTS, []).
+-include_lib("emqx/include/logger.hrl").
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -69,8 +66,7 @@ start_grpc_server(InstaId, Options = #{bind := ListenOn}) ->
                       [{ssl_options, SslOpts}]
               end,
     _ = grpc:start_server(InstaId, ListenOn, Services, SvrOptions),
-    io:format("Start ~s gRPC server on ~p successfully.~n",
-               [InstaId, ListenOn]).
+    ?ULOG("Start ~s gRPC server on ~p successfully.~n", [InstaId, ListenOn]).
 
 start_grpc_client_channel(InstaId, Options = #{address := UriStr}) ->
     UriMap = uri_string:parse(UriStr),
@@ -151,13 +147,12 @@ start_listener(InstaId, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
-            io:format("Start exproto ~s:~s listener on ~s successfully.~n",
+            ?ULOG("Start exproto ~s:~s listener on ~s successfully.~n",
                       [InstaId, Type, ListenOnStr]),
             Pid;
         {error, Reason} ->
-            io:format(standard_error,
-                      "Failed to start exproto ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, ListenOnStr, Reason]),
+            ?ELOG("Failed to start exproto ~s:~s listener on ~s: ~0p~n",
+                  [InstaId, Type, ListenOnStr, Reason]),
             throw({badconf, Reason})
     end.
 
@@ -186,34 +181,34 @@ name(InstaId, Type) ->
 
 merge_default_by_type(Type, Options) when Type =:= tcp;
                                           Type =:= ssl ->
+    Default = emqx_gateway_utils:default_tcp_options(),
     case lists:keytake(tcp_options, 1, Options) of
         {value, {tcp_options, TcpOpts}, Options1} ->
-            [{tcp_options, emqx_misc:merge_opts(?TCP_SOCKOPTS, TcpOpts)}
+            [{tcp_options, emqx_misc:merge_opts(Default, TcpOpts)}
              | Options1];
         false ->
-            [{tcp_options, ?TCP_SOCKOPTS} | Options]
+            [{tcp_options, Default} | Options]
     end;
 merge_default_by_type(Type, Options) when Type =:= udp;
                                           Type =:= dtls ->
+    Default = emqx_gateway_utils:default_udp_options(),
     case lists:keytake(udp_options, 1, Options) of
         {value, {udp_options, TcpOpts}, Options1} ->
-            [{udp_options, emqx_misc:merge_opts(?UDP_SOCKOPTS, TcpOpts)}
+            [{udp_options, emqx_misc:merge_opts(Default, TcpOpts)}
              | Options1];
         false ->
-            [{udp_options, ?UDP_SOCKOPTS} | Options]
+            [{udp_options, Default} | Options]
     end.
 
 stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
     StopRet = stop_listener(InstaId, Type, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
-        ok -> io:format("Stop exproto ~s:~s listener on ~s successfully.~n",
-                        [InstaId, Type, ListenOnStr]);
+        ok -> ?ULOG("Stop exproto ~s:~s listener on ~s successfully.~n",
+                    [InstaId, Type, ListenOnStr]);
         {error, Reason} ->
-            io:format(standard_error,
-                      "Failed to stop exproto ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, ListenOnStr, Reason]
-                     )
+            ?ELOG("Failed to stop exproto ~s:~s listener on ~s: ~0p~n",
+                  [InstaId, Type, ListenOnStr, Reason])
     end,
     StopRet.
 

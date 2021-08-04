@@ -23,7 +23,6 @@
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
 
--logger_header("[Broker]").
 
 -export([start_link/2]).
 

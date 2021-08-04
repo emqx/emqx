@@ -23,7 +23,6 @@
 -include("types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--logger_header("[MQTT]").
 
 -ifdef(TEST).
 -compile(export_all).

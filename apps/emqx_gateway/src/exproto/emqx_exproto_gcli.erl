@@ -21,7 +21,6 @@
 
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[ExProto gClient]").
 
 %% APIs
 -export([async_call/3]).

@@ -14,7 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc The gateway connection management
+%% @doc The Gateway Connection-Manager
+%%
+%% For a certain type of protocol, this is a single instance of the manager.
+%% It means that no matter how many instances of the stomp gateway are created,
+%% they all share a single this Connection-Manager
 -module(emqx_gateway_cm).
 
 -behaviour(gen_server).
@@ -22,7 +26,6 @@
 -include("include/emqx_gateway.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[PGW-CM]").
 
 %% APIs
 -export([start_link/1]).
@@ -57,19 +60,23 @@
         ]).
 
 -record(state, {
-          type      :: atom(),    %% Gateway Id
+          type      :: atom(),    %% Gateway Type
           locker    :: pid(),     %% ClientId Locker for CM
           registry  :: pid(),     %% ClientId Registry server
           chan_pmon :: emqx_pmon:pmon()
          }).
 
+-type option() :: {type, gateway_type()}.
+-type options() :: list(option()).
+
 -define(T_TAKEOVER, 15000).
+-define(DEFAULT_BATCH_SIZE, 10000).
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
-%% XXX: Options for cm process
+-spec start_link(options()) -> {ok, pid()} | ignore | {error, any()}.
 start_link(Options) ->
     Type = proplists:get_value(type, Options),
     gen_server:start_link({local, procname(Type)}, ?MODULE, Options, []).
@@ -235,18 +242,29 @@ open_session(Type, true = _CleanStart, ClientInfo, ConnInfo, CreateSessionFun) -
 
 open_session(_Type, false = _CleanStart,
              _ClientInfo, _ConnInfo, _CreateSessionFun) ->
+    %% TODO:
     {error, not_supported_now}.
 
 %% @private
-create_session(_Type, ClientInfo, ConnInfo, CreateSessionFun) ->
+create_session(Type, ClientInfo, ConnInfo, CreateSessionFun) ->
     try
         Session = emqx_gateway_utils:apply(
                     CreateSessionFun,
                     [ClientInfo, ConnInfo]
                    ),
-        %% TODO: v0.2 session metrics & hooks
-        %ok = emqx_metrics:inc('session.created'),
-        %ok = emqx_hooks:run('session.created', [ClientInfo, emqx_session:info(Session)]),
+        ok = emqx_gateway_metrics:inc(Type, 'session.created'),
+        SessionInfo = case is_tuple(Session)
+                           andalso element(1, Session) == session of
+                          true -> emqx_session:info(Session);
+                          _ ->
+                              case is_map(Session) of
+                                  false ->
+                                      throw(session_structure_should_be_map);
+                                  _ ->
+                                      Session
+                              end
+                      end,
+        ok = emqx_hooks:run('session.created', [ClientInfo, SessionInfo]),
         Session
     catch
         Class : Reason : Stk ->
@@ -416,7 +434,7 @@ handle_cast(_Msg, State) ->
 
 handle_info({'DOWN', _MRef, process, Pid, _Reason},
             State = #state{type = Type, chan_pmon = PMon}) ->
-    ChanPids = [Pid | emqx_misc:drain_down(10000)],  %% XXX: Fixed BATCH_SIZE
+    ChanPids = [Pid | emqx_misc:drain_down(?DEFAULT_BATCH_SIZE)],
     {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
 
     CmTabs = cmtabs(Type),

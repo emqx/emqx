@@ -30,12 +30,7 @@ groups() ->
 
 init_per_suite(Config) ->
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end ),
-
-    %% important! let emqx_schema include the current app!
-    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_schema, includes, fun() -> ["authorization"] end ),
-    meck:expect(emqx_schema, extra_schema_fields, fun(FieldName) -> emqx_authz_schema:fields(FieldName) end),
+    meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
 
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
 
@@ -55,7 +50,6 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
-    meck:unload(emqx_schema),
     meck:unload(emqx_resource).
 
 %%------------------------------------------------------------------------------

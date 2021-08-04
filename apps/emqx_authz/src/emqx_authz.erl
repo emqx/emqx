@@ -20,7 +20,6 @@
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[AuthZ]").
 
 -export([ register_metrics/0
         , init/0
@@ -31,7 +30,7 @@
         , match/4
         ]).
 
--export([post_config_update/2, pre_config_update/2]).
+-export([post_config_update/3, pre_config_update/2]).
 
 -define(CONF_KEY_PATH, [authorization, rules]).
 
@@ -63,10 +62,10 @@ pre_config_update({_, NewConf}, _OldConf) ->
         false -> [NewConf]
     end.
 
-post_config_update(undefined, _OldConf) ->
+post_config_update(_, undefined, _OldConf) ->
     %_ = [release_rules(Rule) || Rule <- OldConf],
     ok;
-post_config_update(NewRules, _OldConf) ->
+post_config_update(_, NewRules, _OldConf) ->
     %_ = [release_rules(Rule) || Rule <- OldConf],
     InitedRules = [init_rule(Rule) || Rule <- NewRules],
     Action = find_action_in_hooks(),

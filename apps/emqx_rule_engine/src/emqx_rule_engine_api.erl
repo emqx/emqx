@@ -19,7 +19,6 @@
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[RuleEngineAPI]").
 
 -rest_api(#{name   => create_rule,
             method => 'POST',

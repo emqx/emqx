@@ -19,7 +19,6 @@
 
 -behaviour(gen_server).
 
--logger_header("[PGW-CM-Registy]").
 
 -export([start_link/1]).
 

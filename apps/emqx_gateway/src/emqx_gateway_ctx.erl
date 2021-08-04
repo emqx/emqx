@@ -19,7 +19,6 @@
 
 -include("include/emqx_gateway.hrl").
 
--logger_header(["PGW-Ctx"]).
 
 %% @doc The running context for a Connection/Channel process.
 %%

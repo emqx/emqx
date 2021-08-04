@@ -27,13 +27,12 @@ structs() ->
     ["delayed",
      "recon",
      "telemetry",
-     "presence",
+     "event_message",
      "rewrite",
      "topic_metrics"].
 
 fields(Name) when Name =:= "recon";
-                  Name =:= "telemetry";
-                  Name =:= "presence" ->
+                  Name =:= "telemetry" ->
     [ {enable, emqx_schema:t(boolean(), undefined, false)}
     ];
 
@@ -46,6 +45,10 @@ fields("rewrite") ->
     [ {rules, hoconsc:array(hoconsc:ref(?MODULE, "rules"))}
     ];
 
+fields("event_message") ->
+    [ {topics, fun topics/1}
+    ];
+
 fields("topic_metrics") ->
     [ {topics, hoconsc:array(binary())}
     ];
@@ -56,3 +59,20 @@ fields("rules") ->
     , {re, emqx_schema:t(binary())}
     , {dest_topic, emqx_schema:t(binary())}
     ].
+
+topics(type) -> hoconsc:array(binary());
+topics(default) -> [];
+% topics(validator) -> [
+%     fun(Conf) ->
+%         case lists:member(Conf, ["$event/client_connected",
+%                                  "$event/client_disconnected",
+%                                  "$event/session_subscribed",
+%                                  "$event/session_unsubscribed",
+%                                  "$event/message_delivered",
+%                                  "$event/message_acked",
+%                                  "$event/message_dropped"]) of
+%             true -> ok;
+%             false -> {error, "Bad event topic"}
+%         end
+%     end];
+topics(_) -> undefined.

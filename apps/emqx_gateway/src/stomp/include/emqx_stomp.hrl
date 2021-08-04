@@ -43,6 +43,7 @@
 -define(CMD_MESSAGE,   <<"MESSAGE">>).
 -define(CMD_RECEIPT,   <<"RECEIPT">>).
 -define(CMD_ERROR,     <<"ERROR">>).
+-define(CMD_HEARTBEAT, <<"HEARTBEAT">>).
 
 %-type client_command() :: ?CMD_SEND | ?CMD_SUBSCRIBE | ?CMD_UNSUBSCRIBE
 %                        | ?CMD_BEGIN | ?CMD_COMMIT | ?CMD_ABORT | ?CMD_ACK
@@ -53,7 +54,7 @@
 
 %-type server_command() :: ?CMD_CONNECTED | ?CMD_MESSAGE | ?CMD_RECEIPT
 %                        | ?CMD_ERROR.
--type server_command() :: binary() | heartbeat.
+-type server_command() :: binary().
 
 -record(stomp_frame, {
           command :: client_command() | server_command(),

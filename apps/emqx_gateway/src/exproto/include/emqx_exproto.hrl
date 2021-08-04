@@ -19,7 +19,6 @@
 -define(TCP_SOCKOPTS, [binary, {packet, raw}, {reuseaddr, true},
                        {backlog, 512}, {nodelay, true}]).
 
-%% TODO:
 -define(UDP_SOCKOPTS, []).
 
 %%--------------------------------------------------------------------

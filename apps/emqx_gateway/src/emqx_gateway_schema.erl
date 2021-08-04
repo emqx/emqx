@@ -29,11 +29,14 @@
 -export([structs/0 , fields/1]).
 -export([t/1, t/3, t/4, ref/1]).
 
-structs() -> ["emqx_gateway"].
+structs() -> ["gateway"].
 
-fields("emqx_gateway") ->
+fields("gateway") ->
     [{stomp, t(ref(stomp))},
      {mqttsn, t(ref(mqttsn))},
+     {coap, t(ref(coap))},
+     {lwm2m, t(ref(lwm2m))},
+     {lwm2m_xml_dir, t(string())},
      {exproto, t(ref(exproto))}
     ];
 
@@ -73,6 +76,21 @@ fields(mqttsn_predefined) ->
     , {topic, t(string())}
     ];
 
+fields(lwm2m) ->
+    [{"$id", t(ref(lwm2m_structs))}
+    ];
+
+fields(lwm2m_structs) ->
+    [ {lifetime_min, t(duration())}
+    , {lifetime_max, t(duration())}
+    , {qmode_time_windonw, t(integer())}
+    , {auto_observe, t(boolean())}
+    , {mountpoint, t(string())}
+    , {update_msg_publish_condition, t(union([always, contains_object_list]))}
+    , {translators, t(ref(translators))}
+    , {listener, t(ref(udp_listener_group))}
+    ];
+
 fields(exproto) ->
     [{"$id", t(ref(exproto_structs))}];
 
@@ -98,6 +116,9 @@ fields(clientinfo_override) ->
     , {password, t(string())}
     , {clientid, t(string())}
     ];
+
+fields(translators) ->
+    [{"$name", t(string())}];
 
 fields(udp_listener_group) ->
     [ {udp, t(ref(udp_listener))}
@@ -154,8 +175,8 @@ fields(listener_settings) ->
     ];
 
 fields(tcp_listener_settings) ->
-    [ 
-      %% some special confs for tcp listener
+    [
+     %% some special confs for tcp listener
     ] ++ fields(listener_settings);
 
 fields(ssl_listener_settings) ->
@@ -168,12 +189,12 @@ fields(ssl_listener_settings) ->
 
 fields(udp_listener_settings) ->
     [
-      %% some special confs for udp listener 
+      %% some special confs for udp listener
     ] ++ fields(listener_settings);
 
 fields(dtls_listener_settings) ->
     [
-      %% some special confs for dtls listener 
+      %% some special confs for dtls listener
     ] ++
     ssl(undefined, #{handshake_timeout => "15s"
                    , depth => 10
@@ -182,6 +203,20 @@ fields(dtls_listener_settings) ->
 fields(access) ->
     [ {"$id", #{type => string(),
                 nullable => true}}];
+
+fields(coap) ->
+    [{"$id", t(ref(coap_structs))}];
+
+fields(coap_structs) ->
+    [ {enable_stats, t(boolean(), undefined, true)}
+    , {authenticator, t(union([allow_anonymous]))}
+    , {heartbeat, t(duration(), undefined, "15s")}
+    , {resource, t(union([mqtt, pubsub]), undefined, mqtt)}
+    , {notify_type, t(union([non, con, qos]), undefined, qos)}
+    , {subscribe_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
+    , {publish_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
+    , {listener, t(ref(udp_listener_group))}
+    ];
 
 fields(ExtraField) ->
     Mod = list_to_atom(ExtraField++"_schema"),

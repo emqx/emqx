@@ -19,7 +19,6 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
--logger_header("[Plugins]").
 
 -export([ load/0
         , load/1
