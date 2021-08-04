@@ -47,6 +47,14 @@ start_listener({Proto, Port, Options}) ->
         openapi => "3.0.0",
         info => #{title => "EMQ X API", version => "5.0.0"},
         servers => [#{url => ?BASE_PATH}],
+        tags => [#{
+            name => configs,
+            description => <<"The query string parameter `conf_path` is of jq format.">>,
+            externalDocs => #{
+                description => "Find out more about the path syntax in jq",
+                url => "https://stedolan.github.io/jq/manual/"
+            }
+        }],
         components => #{
             schemas => #{},
             securitySchemes => #{
