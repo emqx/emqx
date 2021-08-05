@@ -40,6 +40,8 @@
     }
 }).
 
+-define(ERR_MSG(MSG), io_lib:format("~p", [MSG])).
+
 api_spec() ->
     {config_apis(), []}.
 
@@ -92,8 +94,11 @@ config(get, Req) ->
 
 config(delete, Req) ->
     %% TODO: remove the config specified by the query string param 'conf_path'
-    emqx_config:remove(conf_path_from_querystr(Req)),
-    {200};
+    case emqx_config:remove(conf_path_from_querystr(Req)) of
+        ok -> {200};
+        {error, Reason} ->
+            {400, ?ERR_MSG(Reason)}
+    end;
 
 config(put, Req) ->
     Path = [binary_to_atom(Key, latin1) || Key <- conf_path_from_querystr(Req)],
