@@ -29,13 +29,11 @@
 -export([structs/0, fields/1]).
 -export([t/1, t/3, t/4, ref/1]).
 
-structs() -> [server].
+structs() -> [servers].
 
-fields(server) ->
-    [{"$name", t(ref(server_structs))}];
-
-fields(server_structs) ->
-    [ {url, t(string(), "emqx_exhook.url", "")}
+fields(servers) ->
+    [ {name, string()}
+    , {url, string()}
     , {ssl, t(ref(ssl_conf_group))}
     ];
 

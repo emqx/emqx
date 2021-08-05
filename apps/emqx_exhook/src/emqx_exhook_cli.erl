@@ -30,7 +30,7 @@ cli(["server", "list"]) ->
 cli(["server", "enable", Name0]) ->
     if_enabled(fun() ->
         Name = list_to_atom(Name0),
-        case maps:get(Name, emqx_config:get([exhook, server]), undefined) of
+        case find_server_options(Name) of
             undefined ->
                 emqx_ctl:print("not_found~n");
             Opts ->
@@ -58,6 +58,14 @@ print(ok) ->
     emqx_ctl:print("ok~n");
 print({error, Reason}) ->
     emqx_ctl:print("~p~n", [Reason]).
+
+find_server_options(Name) ->
+    Ls = emqx_config:get([exhook, servers]),
+    case [ E || E = #{name := N} <- Ls, N =:= Name] of
+        [] -> undefined;
+        [Options] ->
+            maps:remove(name, Options)
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
