@@ -65,10 +65,14 @@ stop(_State) ->
 %%--------------------------------------------------------------------
 
 load_all_servers() ->
-    _ = maps:map(fun(Name, Options) ->
-        load_server(Name, Options)
-    end, emqx_config:get([exhook, server])),
-    ok.
+    try
+        lists:foreach(fun(#{name := Name} = Options) ->
+            load_server(Name, maps:remove(name, Options))
+        end, emqx_config:get([exhook, servers]))
+    catch
+        _Class : _Reason ->
+            ok
+    end, ok.
 
 unload_all_servers() ->
     emqx_exhook:disable_all().
