@@ -160,7 +160,9 @@ do_deinit(Name) ->
     ok.
 
 do_init(ChannName) ->
-    Req = #{broker => maps:from_list(emqx_sys:info())},
+    SysInfo = maps:with([version, sysdescr, uptime, datetime],
+                        maps:from_list(emqx_sys:info())),
+    Req = #{broker => SysInfo},
     case do_call(ChannName, 'on_provider_loaded', Req) of
         {ok, InitialResp} ->
             try
