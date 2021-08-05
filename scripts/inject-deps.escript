@@ -52,7 +52,7 @@ base_deps() ->
   %% so the appup instructions for emqx_dashboard is always the last
   %% to be executed
   [ {emqx_dashboard, [{re, "emqx_.*"}]}
-  , {emqx_management, [{re, "emqx_.*"}, {exclude, emqx_dashboard}]}
+  , {emqx_management, [{re, "emqx_.*"}, {exclude, emqx_dashboard}, minirest]}
   , {{re, "emqx_.*"}, [emqx]}
   , {emqx_web_hook, [ehttpc]}
   ].
