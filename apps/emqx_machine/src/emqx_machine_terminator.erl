@@ -38,7 +38,7 @@ start() ->
 terminator_loop() ->
     receive
         graceful_shutdown ->
-            ok = emqx_machine_app:stop_apps(normal),
+            ok = emqx_machine:stop_apps(normal),
             exit_loop()
     after
         1000 ->
