@@ -114,7 +114,7 @@ postcondition(_State, {call, emqx_sys, info, []}, Info) ->
 postcondition(_State, {call, emqx_sys, version, []}, Version) ->
     is_list(Version);
 postcondition(_State, {call, emqx_sys, uptime, []}, Uptime) ->
-    is_list(Uptime);
+    is_integer(Uptime);
 postcondition(_State, {call, emqx_sys, datetime, []}, Datetime) ->
     is_list(Datetime);
 postcondition(_State, {call, emqx_sys, sysdescr, []}, Sysdescr) ->
