@@ -267,7 +267,7 @@ message BrokerInfo {
 
   string sysdescr = 2;
 
-  string uptime = 3;
+  int64 uptime = 3;
 
   string datetime = 4;
 }
