@@ -16,6 +16,7 @@ ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
 CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
 REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
+SCHEMA_MOD=emqx_machine_schema
 
 WHOAMI=$(whoami)
 
@@ -240,7 +241,7 @@ generate_config() {
     ## ths command populates two files: app.<time>.config and vm.<time>.args
     ## disable SC2086 to allow EMQX_LICENSE_CONF_OPTION to split
     # shellcheck disable=SC2086
-    call_hocon -v -t "$NOW_TIME" -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf $EMQX_LICENSE_CONF_OPTION -d "$RUNNER_DATA_DIR"/configs generate
+    call_hocon -v -t "$NOW_TIME" -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf $EMQX_LICENSE_CONF_OPTION -d "$RUNNER_DATA_DIR"/configs generate
 
     ## filenames are per-hocon convention
     local CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
@@ -331,7 +332,7 @@ if [ -z "$NAME" ]; then
         NAME="$(grep -E '^-s?name' "$LATEST_VM_ARGS" | awk '{print $2}')"
     else
         # for boot commands, inspect emqx.conf for node name
-        NAME="$(call_hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
+        NAME="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
     fi
 fi
 
@@ -353,7 +354,7 @@ PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 COOKIE="${EMQX_NODE_COOKIE:-}"
 if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        COOKIE="$(call_hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
+        COOKIE="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
     else
         # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
@@ -370,7 +371,7 @@ if [ -z "$COOKIE" ]; then
 fi
 
 # Support for IPv6 Dist. See: https://github.com/emqtt/emqttd/issues/1460
-PROTO_DIST="$(call_hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get cluster.proto_dist | tr -d \")"
+PROTO_DIST="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get cluster.proto_dist | tr -d \")"
 if [ -z "$PROTO_DIST" ]; then
     PROTO_DIST_ARG=""
 else

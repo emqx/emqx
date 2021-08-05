@@ -28,6 +28,10 @@
 -export([ authenticator_name/1
         ]).
 
+%% Export it for emqx_gateway_schema module
+-export([ authenticators/1
+        ]).
+
 structs() -> [ "authentication" ].
 
 fields("authentication") ->

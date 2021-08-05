@@ -3,7 +3,7 @@
   {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_dashboard_sup]},
-  {applications, [kernel,stdlib,mnesia,minirest]},
+  {applications, [kernel,stdlib,mnesia,minirest,emqx]},
   {mod, {emqx_dashboard_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},

@@ -36,7 +36,4 @@ enrich_fmt(Fmt, Args, #{mfa := Mfa, line := Line}) ->
 enrich_fmt(Fmt, Args, _) ->
     {Fmt, Args}.
 
-mfa({M, F, A}) ->
-    <<(atom_to_binary(M, utf8))/binary, $:,
-      (atom_to_binary(F, utf8))/binary, $/,
-      (integer_to_binary(A))/binary>>.
+mfa({M, F, A}) -> atom_to_list(M) ++ ":" ++ atom_to_list(F) ++ "/" ++ integer_to_list(A).

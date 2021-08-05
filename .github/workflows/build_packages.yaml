@@ -31,8 +31,8 @@ jobs:
       - name: set profile
         id: set_profile
         shell: bash
+        working-directory: source
         run: |
-          cd source
           vsn="$(./pkg-vsn.sh)"
           pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
           if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -44,20 +44,18 @@ jobs:
             echo "::set-output name=old_vsns::$old_vsns"
             echo "::set-output name=profiles::[\"emqx\", \"emqx-edge\"]"
           fi
-      - name: get_all_deps
-        if: endsWith(github.repository, 'emqx')
-        run: |
-          make -C source deps-all
-          rm source/rebar.lock
-          zip -ryq source.zip source/* source/.[^.]*
-      - name: get_all_deps
+      - name: set get token
         if: endsWith(github.repository, 'enterprise')
         run: |
           echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
           git config --global credential.helper store
-          echo "${{ secrets.CI_GIT_TOKEN }}" >> source/scripts/git-token
-          make -C source deps-all
-          zip -ryq source.zip source/* source/.[^.]*
+      - name: get deps
+        working-directory: source
+        run: |
+          make ensure-rebar3
+          ./rebar3 as default get-deps
+      - name: gen zip file
+        run: zip -ryq source.zip source/* source/.[^.]*
       - uses: actions/upload-artifact@v2
         with:
           name: source
@@ -181,7 +179,6 @@ jobs:
         cd source
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
-        rm -rf _build/${{ matrix.profile }}/lib
         make ${{ matrix.profile }}-zip
     - name: test
       run: |
@@ -222,8 +219,6 @@ jobs:
       fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
-        erl_otp:
-          - 23.2.7.2-emqx-2
         arch:
           - amd64
           - arm64
@@ -239,6 +234,8 @@ jobs:
           - centos6
           - raspbian10
           # - raspbian9
+        erl_otp:
+          - 23.2.7.2-emqx-2
         exclude:
         - os: centos6
           arch: arm64
@@ -264,15 +261,11 @@ jobs:
         shell: bash
 
     steps:
-    - name: prepare docker
-      run: |
-        mkdir -p $HOME/.docker
-        echo '{ "experimental": "enabled" }' | tee $HOME/.docker/config.json
-        echo '{ "experimental": true, "storage-driver": "overlay2", "max-concurrent-downloads": 50, "max-concurrent-uploads": 50}' | sudo tee /etc/docker/daemon.json
-        sudo systemctl restart docker
-        docker info
-        docker buildx create --use --name mybuild
-        docker run --rm --privileged tonistiigi/binfmt --install all
+    - uses: docker/setup-buildx-action@v1
+    - uses: docker/setup-qemu-action@v1
+      with:
+        image: tonistiigi/binfmt:latest
+        platforms: all
     - uses: actions/download-artifact@v2
       with:
         name: source
@@ -285,6 +278,7 @@ jobs:
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
         OLD_VSNS: ${{ needs.prepare.outputs.old_vsns }}
+      working-directory: source
       run: |
         set -e -x -u
         broker=$PROFILE
@@ -295,8 +289,8 @@ jobs:
             export ARCH="arm"
         fi
 
-        mkdir -p source/_upgrade_base
-        cd source/_upgrade_base
+        mkdir -p _upgrade_base
+        cd _upgrade_base
         old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
         for tag in ${old_vsns[@]}; do
           if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip) | grep -oE "^[23]+")" ];then
@@ -311,32 +305,25 @@ jobs:
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
+      working-directory: source
       run: |
-        set -e -u
-        cd source
-        docker buildx build --no-cache \
-          --platform=linux/$ARCH \
-          -t cross_build_emqx_for_$SYSTEM \
-          -f .ci/build_packages/Dockerfile \
-          --build-arg BUILD_FROM=emqx/build-env:$ERL_OTP-$SYSTEM \
-          --build-arg EMQX_NAME=$PROFILE \
-          --output type=tar,dest=/tmp/cross-build-$PROFILE-for-$SYSTEM.tar .
-
-        mkdir -p /tmp/packages/$PROFILE
-        tar -xvf /tmp/cross-build-$PROFILE-for-$SYSTEM.tar --wildcards emqx/_packages/$PROFILE/*
-        mv emqx/_packages/$PROFILE/* /tmp/packages/$PROFILE/
-        rm -rf /tmp/cross-build-$PROFILE-for-$SYSTEM.tar
-
-        docker rm -f $(docker ps -a -q)
-        docker volume prune -f
+        docker run -i --rm \
+        -v $(pwd):/emqx \
+        --workdir /emqx \
+        --platform linux/$ARCH \
+        emqx/build-env:$ERL_OTP-$SYSTEM \
+        bash -euc "make $PROFILE-zip || cat rebar3.crashdump; \
+                   make $PROFILE-pkg || cat rebar3.crashdump; \
+                   EMQX_NAME=$PROFILE && .ci/build_packages/tests.sh"
     - name: create sha256
       env:
         PROFILE: ${{ matrix.profile}}
+      working-directory: source
       run: |
-        if [ -d /tmp/packages/$PROFILE ]; then
-          cd /tmp/packages/$PROFILE
+        if [ -d _packages/$PROFILE ]; then
+          cd _packages/$PROFILE
             for var in $(ls emqx-* ); do
-              bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"
+              sudo bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"
             done
           cd -
         fi
@@ -344,7 +331,7 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       with:
         name: ${{ matrix.profile }}
-        path: /tmp/packages/${{ matrix.profile }}/.
+        path: source/_packages/${{ matrix.profile }}/.
 
   docker:
     runs-on: ubuntu-20.04
@@ -374,8 +361,8 @@ jobs:
       env:
         ERL_OTP: erl${{ matrix.erl_otp }}
         PROFILE: ${{ matrix.profile }}
+      working-directory: source
       run: |
-        cd source
         PKG_VSN="$(./pkg-vsn.sh)"
         docker buildx build --no-cache \
            --platform=linux/amd64,linux/arm64 \
@@ -395,8 +382,8 @@ jobs:
       env:
         ERL_OTP: erl${{ matrix.erl_otp }}
         PROFILE: ${{ matrix.profile }}
+      working-directory: source
       run: |
-        cd source
         PKG_VSN="$(./pkg-vsn.sh)"
         docker buildx build --no-cache \
            --platform=linux/amd64,linux/arm64 \

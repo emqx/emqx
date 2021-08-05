@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,39 +14,28 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_sys_SUITE).
+-module(emqx_machine_app_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx),
-    ok = emqx_logger:set_log_level(emergency),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    application:unload(emqx),
-    ok = emqx_logger:set_log_level(error),
-    ok.
-    
-% t_version(_) ->
-%     error('TODO').
+    emqx_ct_helpers:stop_apps([]).
 
-% t_sysdescr(_) ->
-%     error('TODO').
-
-% t_datetime(_) ->
-%     error('TODO').
-
-% t_sys_interval(_) ->
-%     error('TODO').
-
-% t_sys_heatbeat_interval(_) ->
-%     error('TODO').
-
-% t_info(_) ->
-%     error('TODO').
+t_shutdown_reboot(_Config) ->
+    emqx_machine_app:shutdown(normal),
+    false = emqx:is_running(node()),
+    emqx_machine_app:ensure_apps_started(),
+    true = emqx:is_running(node()),
+    ok = emqx_machine_app:shutdown(for_test),
+    false = emqx:is_running(node()).

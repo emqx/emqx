@@ -26,7 +26,6 @@
 -define(CONF_DEFAULT, <<"""
 gateway: {
     stomp.1: {
-        authenticator: allow_anonymous
         clientinfo_override: {
             username: \"${Packet.headers.login}\"
             password: \"${Packet.headers.passcode}\"
