@@ -49,7 +49,7 @@ start() ->
     ok = emqx_machine_terminator:start().
 
 graceful_shutdown() ->
-    emqx_machine_terminator:graceful().
+    emqx_machine_terminator:graceful_wait().
 
 set_backtrace_depth() ->
     {ok, Depth} = application:get_env(emqx_machine, backtrace_depth),

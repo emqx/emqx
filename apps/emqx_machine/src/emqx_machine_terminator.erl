@@ -16,43 +16,40 @@
 
 -module(emqx_machine_terminator).
 
+-behaviour(gen_server).
+
 -export([ start/0
         , graceful/0
-        , terminator_loop/0
+        , graceful_wait/0
         ]).
 
+-export([init/1, format_status/2,
+         handle_cast/2, handle_call/3, handle_info/2,
+         terminate/2, code_change/3]).
+
 -define(TERMINATOR, ?MODULE).
+-define(DO_IT, graceful_shutdown).
 
 %% @doc This API is called to shutdown the Erlang VM by RPC call from remote shell node.
 %% The shutown of apps is delegated to a to a process instead of doing it in the RPC spawned
 %% process which has a remote group leader.
 start() ->
-    _ = spawn_link(
-          fun() ->
-                  register(?TERMINATOR, self()),
-                  terminator_loop()
-          end),
+    {ok, _} = gen_server:start_link({local, ?TERMINATOR}, ?MODULE, [], []),
+    %% NOTE: Do not link this process under any supervision tree
     ok.
 
-%% internal use
-terminator_loop() ->
-    receive
-        graceful_shutdown ->
-            ok = emqx_machine:stop_apps(normal),
-            exit_loop()
-    after
-        1000 ->
-            %% keep looping for beam reload
-            ?MODULE:terminator_loop()
-    end.
-
-%% @doc Shutdown the Erlang VM.
+%% @doc Send a signal to activate the terminator.
 graceful() ->
+    ?TERMINATOR ! ?DO_IT,
+    ok.
+
+%% @doc Shutdown the Erlang VM and wait until the terminator dies or the VM dies.
+graceful_wait() ->
     case whereis(?TERMINATOR) of
         undefined ->
             exit(emqx_machine_not_started);
         Pid ->
-            Pid ! graceful_shutdown,
+            ok = graceful(),
             Ref = monitor(process, Pid),
             %% NOTE: not exactly sure, but maybe there is a chance that
             %% Erlang VM goes down before this receive.
@@ -60,8 +57,28 @@ graceful() ->
             receive {'DOWN', Ref, process, Pid, _} -> ok end
     end.
 
-%% Loop until Erlang VM exits
-exit_loop() ->
+init(_) ->
+    ok = emqx_machine_signal_handler:start(),
+    {ok, #{}}.
+
+handle_info(?DO_IT, State) ->
+    ok = emqx_machine:stop_apps(normal),
     init:stop(),
-    timer:sleep(100),
-    exit_loop().
+    {noreply, State};
+handle_info(_, State) ->
+    {noreply, State}.
+
+handle_cast(_Cast, State) ->
+    {noreply, State}.
+
+handle_call(_Call, _From, State) ->
+    {noreply, State}.
+
+format_status(_Opt, [_Pdict,_S]) ->
+    ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+terminate(_Args, _State) ->
+    ok.
