@@ -1,12 +1,16 @@
 %% -*- mode: erlang -*-
 {VSN,
- [ {<<"4.3.[0-3]">>,
-    [ {restart_application, emqx_management}
+ [ {<<"4.3.[0-4]">>,
+    [ {apply,{minirest,stop_http,['http:management']}},
+      {apply,{minirest,stop_http,['https:management']}},
+      {restart_application, emqx_management}
     ]},
    {<<".*">>, []}
  ],
- [ {<<"4.3.[0-3]">>,
-    [ {restart_application, emqx_management}
+ [ {<<"4.3.[0-4]">>,
+    [ {apply,{minirest,stop_http,['http:management']}},
+      {apply,{minirest,stop_http,['https:management']}},
+      {restart_application, emqx_management}
     ]},
    {<<".*">>, []}
  ]
