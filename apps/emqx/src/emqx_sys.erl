@@ -30,6 +30,13 @@
 -export([ version/0
         , uptime/0
         , datetime/0
+        , rfc3339_time/0
+        , rfc3339_time/1
+        , timestamp/0
+        , timestamp/1
+        , rfc3339_to_timestamp/1
+        , rfc3339_to_timestamp/2
+        , timestamp_to_rfc3339/1
         , sysdescr/0
         ]).
 
@@ -100,6 +107,46 @@ datetime() ->
     lists:flatten(
         io_lib:format(
             "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
+
+%% @doc rfc3339 datetime string
+%% rfc3339 "YYYY-MM-DD{T}HH:MM:SS+Offset" or "YYYY-MM-DD HH:MM:SS.SSS+Offset"
+-spec(rfc3339_time() -> string()).
+rfc3339_time() ->
+    rfc3339_time(second).
+
+-spec(rfc3339_time(second | millisecond) -> string()).
+rfc3339_time(second) ->
+    calendar:system_time_to_rfc3339(timestamp(second));
+
+rfc3339_time(millisecond) ->
+    calendar:system_time_to_rfc3339(timestamp(millisecond),
+        [{unit, millisecond}]).
+
+%% @doc Trans rfc3339 datetime string to timestamp,
+%% rfc3339 "YYYY-MM-DD{T}HH:MM:SS+Offset" or "YYYY-MM-DD HH:MM:SS.SSS+Offset"
+-spec(rfc3339_to_timestamp(string()) -> integer()).
+rfc3339_to_timestamp(DateTimeString) ->
+    rfc3339_to_timestamp(DateTimeString, second).
+
+%% @doc Get timestamp millisecond
+-spec(timestamp() -> integer()).
+timestamp() ->
+    timestamp(millisecond).
+
+%% @doc Get timestamp second or millisecond
+-spec(timestamp(second | millisecond) -> integer()).
+timestamp(second) ->
+    erlang:system_time(second);
+timestamp(millisecond) ->
+    erlang:system_time(millisecond).
+
+rfc3339_to_timestamp(DateTimeString, millisecond) ->
+    calendar:rfc3339_to_system_time(DateTimeString, [{unit, millisecond}]);
+rfc3339_to_timestamp(DateTimeString, second) ->
+    calendar:rfc3339_to_system_time(DateTimeString, [{unit, second}]).
+
+timestamp_to_rfc3339(Timestamp) ->
+    calendar:system_time_to_rfc3339(Timestamp).
 
 sys_interval() ->
     emqx_config:get([broker, sys_msg_interval]).
