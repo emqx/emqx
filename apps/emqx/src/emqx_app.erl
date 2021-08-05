@@ -96,13 +96,22 @@ maybe_start_listeners() ->
     end.
 
 maybe_start_quicer() ->
-    case os:getenv("EMQX_NO_QUIC") of
-        X when X =:= "1" orelse X =:= "true" ->
-            ok;
-        _ ->
-            {ok, _} = application:ensure_all_started(quicer),
-            ok
+    case is_quicer_app_present() andalso is_quic_listener_configured() of
+        true -> {ok, _} = application:ensure_all_started(quicer), ok;
+        false -> ok
     end.
+
+is_quicer_app_present() ->
+    case application:load(quicer) of
+        ok -> true;
+        {error, {already_loaded, _}} -> true;
+        _ ->
+            ?SLOG(info, #{msg => "quicer_app_not_found"}),
+            false
+    end.
+
+is_quic_listener_configured() ->
+    emqx_listeners:has_enabled_listener_conf_by_type(quic).
 
 get_description() ->
     {ok, Descr0} = application:get_key(?APP, description),

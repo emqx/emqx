@@ -192,7 +192,8 @@ fields("force_gc") ->
 
 fields("listeners") ->
     [ {"$name", hoconsc:union(
-        [ hoconsc:ref("mqtt_tcp_listener")
+        [ disabled
+        , hoconsc:ref("mqtt_tcp_listener")
         , hoconsc:ref("mqtt_ws_listener")
         , hoconsc:ref("mqtt_quic_listener")
         ])}
