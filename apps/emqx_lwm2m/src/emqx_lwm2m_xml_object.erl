@@ -24,6 +24,7 @@
         , get_object_name/1
         , get_object_and_resource_id/2
         , get_resource_type/2
+        , get_resource_range/2
         , get_resource_name/2
         , get_resource_operations/2
         ]).
@@ -61,6 +62,13 @@ get_resource_type(ResourceIdInt, ObjDefinition) ->
     ResourceIdString = integer_to_list(ResourceIdInt),
     [#xmlText{value=DataType}] = xmerl_xpath:string("Resources/Item[@ID=\""++ResourceIdString++"\"]/Type/text()", ObjDefinition),
     DataType.
+
+get_resource_range(ResourceIdInt, ObjDefinition) ->
+    ResourceIdString = integer_to_list(ResourceIdInt),
+    case xmerl_xpath:string("Resources/Item[@ID=\""++ResourceIdString++"\"]/RangeEnumeration/text()", ObjDefinition) of
+        [#xmlText{value=Range}] -> Range;
+        _ -> ""
+    end.
 
 get_resource_name(ResourceIdInt, ObjDefinition) ->
     ResourceIdString = integer_to_list(ResourceIdInt),

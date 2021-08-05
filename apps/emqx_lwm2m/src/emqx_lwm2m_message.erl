@@ -125,9 +125,8 @@ value(Value, ResourceId, ObjDefinition) ->
         "String" ->
             Value;  % keep binary type since it is same as a string for jsx
         "Integer" ->
-            Size = byte_size(Value)*8,
-            <<IntResult:Size/signed>> = Value,
-            IntResult;
+            Range = emqx_lwm2m_xml_object:get_resource_range(ResourceId, ObjDefinition),
+            decode_int(Value, Range);
         "Float" ->
             Size = byte_size(Value)*8,
             <<FloatResult:Size/float>> = Value,
@@ -388,3 +387,36 @@ binary_to_number(NumStr) ->
         error:badarg ->
             binary_to_float(NumStr)
     end.
+
+-define(MIN_INTEGER(Bits), (-(1 bsl (Bits - 1)))).
+-define(MAX_INTEGER(Bits), ((1 bsl (Bits - 1)) - 1)).
+
+decode_int(Bin, "") ->
+    dec_int(Bin, ?MIN_INTEGER(64), ?MAX_INTEGER(64));
+decode_int(Bin, Str) ->
+    case string:tokens(Str, "-\s") of
+        [NStr, "bit"] ->
+            N = list_to_integer(NStr),
+            dec_int(Bin, ?MAX_INTEGER(N), ?MAX_INTEGER(N));
+        [MinStr, MaxStr] ->
+            Min = list_to_integer(MinStr),
+            Max = list_to_integer(MaxStr),
+            dec_int(Bin, Min, Max);
+        _ ->
+            %% sorry, unsupported range info?
+            dec_int(Bin, ?MAX_INTEGER(64), ?MAX_INTEGER(64))
+    end.
+
+dec_int(Bin, Min, Max) ->
+    Bits = byte_size(Bin) * 8,
+    <<UnSigned:Bits/unsigned>> = Bin,
+    case is_in_rage(UnSigned, Min, Max) of
+        true ->
+            UnSigned;
+        false ->
+            <<Signed:Bits/signed>> = Bin,
+            Signed
+    end.
+
+is_in_rage(N, Min, Max) ->
+    N >= Min andalso N =< Max.
