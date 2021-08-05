@@ -25,6 +25,10 @@
 
 -export([init/2]).
 
+-export([ filter/1
+        , authorize_appid/1
+        ]).
+
 -include_lib("emqx/include/emqx.hrl").
 
 -define(APP, emqx_management).
@@ -87,8 +91,8 @@ http_handlers() ->
     Plugins = lists:map(fun(Plugin) -> Plugin#plugin.name end, emqx_plugins:list()),
     [{"/api/v4", minirest:handler(#{apps   => Plugins ++ [emqx_modules] -- ?EXCEPT_PLUGIN,
                                     except => ?EXCEPT,
-                                    filter => fun filter/1}),
-                 [{authorization, fun authorize_appid/1}]}].
+                                    filter => fun ?MODULE:filter/1}),
+                 [{authorization, fun ?MODULE:authorize_appid/1}]}].
 
 %%--------------------------------------------------------------------
 %% Handle 'status' request
