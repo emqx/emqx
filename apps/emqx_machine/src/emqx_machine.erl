@@ -30,6 +30,8 @@
 
 %% @doc EMQ X boot entrypoint.
 start() ->
+    os:set_signal(sighup, ignore),
+    os:set_signal(sigterm, handle), %% default is handle
     ok = set_backtrace_depth(),
     ok = print_otp_version_warning(),
 
@@ -101,7 +103,16 @@ stop_apps(Reason) ->
 
 stop_one_app(App) ->
     ?SLOG(debug, #{msg => "stopping_app", app => App}),
-    application:stop(App).
+    try
+        _ = application:stop(App)
+    catch
+        C : E ->
+            ?SLOG(error, #{msg => "failed_to_stop_app",
+                           app => App,
+                           exception => C,
+                           reason => E})
+    end.
+
 
 ensure_apps_started() ->
     lists:foreach(fun start_one_app/1, sorted_reboot_apps()).
@@ -110,7 +121,7 @@ start_one_app(App) ->
     ?SLOG(debug, #{msg => "starting_app", app => App}),
     case application:ensure_all_started(App) of
         {ok, Apps} ->
-            ?SLOG(debug, #{msg => "started_apps", apps => [App | Apps]});
+            ?SLOG(debug, #{msg => "started_apps", apps => Apps});
         {error, Reason} ->
             ?SLOG(critical, #{msg => "failed_to_start_app", app => App, reason => Reason}),
             error({faile_to_start_app, App, Reason})
