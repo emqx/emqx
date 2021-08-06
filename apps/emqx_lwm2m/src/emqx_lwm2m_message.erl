@@ -22,6 +22,9 @@
         , opaque_to_json/2
         , translate_json/1
         ]).
+-ifdef(TEST).
+-export([ bits/1 ]).
+-endif.
 
 -include("emqx_lwm2m.hrl").
 
@@ -364,23 +367,6 @@ encode_number(Int) when is_integer(Int) ->
 encode_number(Float) when is_float(Float) ->
     <<Float:64/float>>.
 
-encode_int(Int) when Int >= 0 ->
-    binary:encode_unsigned(Int);
-encode_int(Int) when Int < 0 ->
-    Size = byte_size_of_signed(-Int) * 8,
-    <<Int:Size/signed>>.
-
-byte_size_of_signed(UInt) ->
-    byte_size_of_signed(UInt, 0).
-
-byte_size_of_signed(UInt, N) ->
-    BitSize = (8*N - 1),
-    Max = (1 bsl BitSize),
-    if
-        UInt =< Max -> N;
-        UInt > Max -> byte_size_of_signed(UInt, N+1)
-    end.
-
 binary_to_number(NumStr) ->
     try
         binary_to_integer(NumStr)
@@ -388,3 +374,26 @@ binary_to_number(NumStr) ->
         error:badarg ->
             binary_to_float(NumStr)
     end.
+
+encode_int(Int) ->
+    Bits = bits(Int),
+    <<Int:Bits/signed>>.
+
+bits(I) when I < 0 -> bits_neg(I);
+bits(I) -> bits_pos(I).
+
+%% Quote:
+%% Integer: An 8, 16, 32 or 64-bit signed integer.
+%% The valid range of the value for a Resource SHOULD be defined.
+%% This data type is also used for the purpose of enumeration.
+%%
+%% NOTE: Integer should not be encoded to 24-bits, 40-bits, etc.
+bits_pos(I) when I < (1 bsl 7)  -> 8;
+bits_pos(I) when I < (1 bsl 15) -> 16;
+bits_pos(I) when I < (1 bsl 31) -> 32;
+bits_pos(I) when I < (1 bsl 63) -> 64.
+
+bits_neg(I) when I >= -((1 bsl 7))  -> 8;
+bits_neg(I) when I >= -((1 bsl 15)) -> 16;
+bits_neg(I) when I >= -((1 bsl 31)) -> 32;
+bits_neg(I) when I >= -((1 bsl 63)) -> 64.
