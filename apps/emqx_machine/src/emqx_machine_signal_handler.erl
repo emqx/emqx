@@ -42,10 +42,12 @@ handle_event(Event, State) ->
     %% delegate other events back to erl_signal_handler
     %% erl_signal_handler does not make use of the State
     %% so we can pass whatever from here
-    erl_signal_handler:handle_event(Event, State),
+    _ = erl_signal_handler:handle_event(Event, State),
     {ok, State}.
 
 handle_info(stop, State) ->
+    {ok, State};
+handle_info(_Other, State) ->
     {ok, State}.
 
 handle_call(_Request, State) ->
