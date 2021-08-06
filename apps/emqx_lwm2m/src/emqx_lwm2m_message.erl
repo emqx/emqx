@@ -364,21 +364,21 @@ encode_number(Int) when is_integer(Int) ->
 encode_number(Float) when is_float(Float) ->
     <<Float:64/float>>.
 
-encode_int(Int) when Int >= 0 ->
-    binary:encode_unsigned(Int);
-encode_int(Int) when Int < 0 ->
-    Size = byte_size_of_signed(-Int) * 8,
+encode_int(Int) ->
+    Size = int_byte_size(Int) * 8,
     <<Int:Size/signed>>.
 
-byte_size_of_signed(UInt) ->
-    byte_size_of_signed(UInt, 0).
+int_byte_size(Int) when Int >= 0 ->
+    do_int_byte_size(Int, 0);
+int_byte_size(Int) when Int < 0 ->
+    do_int_byte_size(-Int, 0).
 
-byte_size_of_signed(UInt, N) ->
+do_int_byte_size(UInt, N) ->
     BitSize = (8*N - 1),
     Max = (1 bsl BitSize),
     if
-        UInt =< Max -> N;
-        UInt > Max -> byte_size_of_signed(UInt, N+1)
+        UInt < Max -> N;
+        UInt >= Max -> do_int_byte_size(UInt, N+1)
     end.
 
 binary_to_number(NumStr) ->
