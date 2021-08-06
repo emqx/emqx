@@ -27,6 +27,10 @@
 
 -export([sorted_reboot_apps/0]).
 
+-ifdef(TEST).
+-export([sorted_reboot_apps/1]).
+-endif.
+
 -include_lib("emqx/include/logger.hrl").
 
 %% @doc EMQ X boot entrypoint.
@@ -150,13 +154,17 @@ app_deps(App) ->
 
 sorted_reboot_apps(Apps) ->
     G = digraph:new(),
-    lists:foreach(fun({App, Deps}) -> add_app(G, App, Deps) end, Apps),
-    case digraph_utils:topsort(G) of
-        Sorted when is_list(Sorted) ->
-            Sorted;
-        false ->
-            Loops = find_loops(G),
-            error({circular_application_dependency, Loops})
+    try
+        lists:foreach(fun({App, Deps}) -> add_app(G, App, Deps) end, Apps),
+        case digraph_utils:topsort(G) of
+            Sorted when is_list(Sorted) ->
+                Sorted;
+            false ->
+                Loops = find_loops(G),
+                error({circular_application_dependency, Loops})
+        end
+    after
+        digraph:delete(G)
     end.
 
 add_app(G, App, undefined) ->
