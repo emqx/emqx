@@ -27,6 +27,8 @@
          handle_cast/2, handle_call/3, handle_info/2,
          terminate/2, code_change/3]).
 
+-include_lib("emqx/include/logger.hrl").
+
 -define(TERMINATOR, ?MODULE).
 -define(DO_IT, graceful_shutdown).
 
@@ -62,8 +64,20 @@ init(_) ->
     {ok, #{}}.
 
 handle_info(?DO_IT, State) ->
-    ok = emqx_machine:stop_apps(normal),
-    init:stop(),
+    try
+        emqx_machine:stop_apps(normal)
+    catch
+        C : E : St ->
+            Apps = [element(1, A) || A <- application:which_applications()],
+            ?SLOG(error, #{msg => "failed_to_stop_apps",
+                           exception => C,
+                           reason => E,
+                           stacktrace => St,
+                           remaining_apps => Apps
+                          })
+    after
+        init:stop()
+    end,
     {noreply, State};
 handle_info(_, State) ->
     {noreply, State}.
