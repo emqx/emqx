@@ -40,7 +40,7 @@
 list() ->
     [server(Name) || Name <- running()].
 
--spec enable(atom()|string(), map()) -> ok | {error, term()}.
+-spec enable(binary(), map()) -> ok | {error, term()}.
 enable(Name, Options) ->
     case lists:member(Name, running()) of
         true ->
@@ -55,7 +55,7 @@ enable(Name, Options) ->
             end
     end.
 
--spec disable(atom()|string()) -> ok | {error, term()}.
+-spec disable(binary()) -> ok | {error, term()}.
 disable(Name) ->
     case server(Name) of
         undefined -> {error, not_running};
@@ -111,7 +111,6 @@ save(Name, ServiceState) ->
     persistent_term:put(?APP, lists:reverse([Name | Saved])),
     persistent_term:put({?APP, Name}, ServiceState).
 
--compile({inline, [unsave/1]}).
 unsave(Name) ->
     case persistent_term:get(?APP, []) of
         [] ->
@@ -122,11 +121,9 @@ unsave(Name) ->
     persistent_term:erase({?APP, Name}),
     ok.
 
--compile({inline, [running/0]}).
 running() ->
     persistent_term:get(?APP, []).
 
--compile({inline, [server/1]}).
 server(Name) ->
     case catch persistent_term:get({?APP, Name}) of
         {'EXIT', {badarg,_}} -> undefined;
