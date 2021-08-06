@@ -20,11 +20,16 @@
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
 
 -export([ register_metrics/0
         , init/0
         , init_rule/1
         , lookup/0
+        , lookup/1
         , update/2
         , authorize/5
         , match/4
@@ -45,8 +50,13 @@ init() ->
     ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]}, -1).
 
 lookup() ->
-    {_M, _F, A}= find_action_in_hooks(),
+    {_M, _F, [A]}= find_action_in_hooks(),
     A.
+lookup(Id) ->
+    case find_rule_by_id(Id, lookup()) of
+        {error, Reason} -> {error, Reason};
+        {_, Rule} -> Rule
+    end.
 
 update(Cmd, Rules) ->
     emqx_config:update(emqx_authz_schema, ?CONF_KEY_PATH, {Cmd, Rules}).
@@ -56,6 +66,13 @@ pre_config_update({head, Rules}, OldConf) when is_list(Rules), is_list(OldConf) 
     Rules ++ OldConf;
 pre_config_update({tail, Rules}, OldConf) when is_list(Rules), is_list(OldConf) ->
     OldConf ++ Rules;
+pre_config_update({{replace_once, Id}, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
+    {Index, _} = case find_rule_by_id(Id, lookup()) of
+                            {error, Reason} -> error(Reason);
+                            R -> R
+                 end,
+    {OldConf1, OldConf2} = lists:split(Index, OldConf),
+    lists:droplast(OldConf1) ++ [Rule] ++ OldConf2;
 pre_config_update({_, Rules}, _OldConf) when is_list(Rules)->
     %% overwrite the entire config!
     Rules.
@@ -63,19 +80,38 @@ pre_config_update({_, Rules}, _OldConf) when is_list(Rules)->
 post_config_update(_, undefined, _OldConf) ->
     ok;
 post_config_update({head, Rules}, _NewRules, _OldConf) ->
-    InitedRules = [init_rule(Rule) || Rule <- check_rules(Rules)],
-    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [lists:append(InitedRules, lookup())]}, -1),
+    InitedRules = [init_rule(R) || R <- check_rules(Rules)],
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [InitedRules ++ lookup()]}, -1),
     ok = emqx_authz_cache:drain_cache();
+
 post_config_update({tail, Rules}, _NewRules, _OldConf) ->
-    InitedRules = [init_rule(Rule) || Rule <- check_rules(Rules)],
-    emqx_hooks:put('client.authorize', {?MODULE, authorize, [lists:append(InitedRules, lookup())]}, -1),
+    InitedRules = [init_rule(R) || R <- check_rules(Rules)],
+    emqx_hooks:put('client.authorize', {?MODULE, authorize, [lookup() ++ InitedRules]}, -1),
     ok = emqx_authz_cache:drain_cache();
+
+post_config_update({{replace_once, Id}, Rule}, _NewRules, _OldConf) when is_map(Rule) ->
+    OldInitedRules = lookup(),
+    {Index, OldRule} = case find_rule_by_id(Id, OldInitedRules) of
+                           {error, Reason} -> error(Reason);
+                            R -> R
+                       end,
+    case maps:get(type, OldRule, undefined) of
+       undefined -> ok;
+       _ ->
+            #{annotations := #{id := Id}} = OldRule,
+            ok = emqx_resource:remove(Id)
+    end,
+    {OldRules1, OldRules2 } = lists:split(Index, OldInitedRules),
+    InitedRules = [init_rule(R#{annotations => #{id => Id}}) || R <- check_rules([Rule])],
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [lists:droplast(OldRules1) ++ InitedRules ++ OldRules2]}, -1),
+    ok = emqx_authz_cache:drain_cache();
+
 post_config_update(_, NewRules, _OldConf) ->
     %% overwrite the entire config!
     OldInitedRules = lookup(),
     InitedRules = [init_rule(Rule) || Rule <- NewRules],
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [InitedRules]}, -1),
-    lists:foreach(fun (#{type := _Type, enable := true, metadata := #{id := Id}}) ->
+    lists:foreach(fun (#{type := _Type, enable := true, annotations := #{id := Id}}) ->
                          ok = emqx_resource:remove(Id);
                       (_) -> ok
                   end, OldInitedRules),
@@ -91,6 +127,14 @@ check_rules(RawRules) ->
     #{authorization := #{rules := Rules}} = hocon_schema:richmap_to_map(CheckConf),
     Rules.
 
+find_rule_by_id(Id, Rules) -> find_rule_by_id(Id, Rules, 1).
+find_rule_by_id(_RuleId, [], _N) -> {error, not_found_rule};
+find_rule_by_id(RuleId, [ Rule = #{annotations := #{id := Id}} | Tail], N) ->
+    case RuleId =:= Id of
+        true -> {N, Rule};
+        false -> find_rule_by_id(RuleId, Tail, N + 1)
+    end.
+
 find_action_in_hooks() ->
     Callbacks = emqx_hooks:lookup('client.authorize'),
     [Action] = [Action || {callback,{?MODULE, authorize, _} = Action, _, _} <- Callbacks ],
@@ -99,6 +143,19 @@ find_action_in_hooks() ->
 gen_id(Type) ->
     iolist_to_binary([io_lib:format("~s_~s",[?APP, Type]), "_", integer_to_list(erlang:system_time())]).
 
+create_resource(#{type := DB,
+                  config := Config,
+                  annotations := #{id := ResourceID}}) ->
+    case emqx_resource:update(
+            ResourceID,
+            list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
+            Config,
+            [])
+    of
+        {ok, _} -> ResourceID;
+        {error, already_created} -> ResourceID;
+        {error, Reason} -> {error, Reason}
+    end;
 create_resource(#{type := DB,
                   config := Config}) ->
     ResourceID = gen_id(DB),
@@ -116,13 +173,19 @@ create_resource(#{type := DB,
 init_rule(#{topics := Topics,
             action := Action,
             permission := Permission,
-            principal := Principal
-         } = Rule) when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(Topics) ->
+            principal := Principal,
+            annotations := #{id := Id}
+           } = Rule) when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(Topics) ->
     Rule#{annotations =>
-            #{id => gen_id(simple),
+            #{id => Id,
               principal => compile_principal(Principal),
               topics => [compile_topic(Topic) || Topic <- Topics]}
          };
+init_rule(#{topics := Topics,
+            action := Action,
+            permission := Permission
+           } = Rule) when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(Topics) ->
+    init_rule(Rule#{annotations =>#{id => gen_id(simple)}});
 
 init_rule(#{principal := Principal,
             enable := true,
@@ -132,7 +195,7 @@ init_rule(#{principal := Principal,
     NConfig = maps:merge(Config, #{base_url => maps:remove(query, Url)}),
     case create_resource(Rule#{config := NConfig}) of
         {error, Reason} -> error({load_config_error, Reason});
-        Id -> Rule#{annotations => 
+        Id -> Rule#{annotations =>
                       #{id => Id,
                         principal => compile_principal(Principal)
                        }
@@ -146,7 +209,7 @@ init_rule(#{principal := Principal,
                         DB =:= mongo ->
     case create_resource(Rule) of
         {error, Reason} -> error({load_config_error, Reason});
-        Id -> Rule#{annotations => 
+        Id -> Rule#{annotations =>
                       #{id => Id,
                         principal => compile_principal(Principal)
                        }
@@ -162,7 +225,7 @@ init_rule(#{principal := Principal,
     Mod = list_to_existing_atom(io_lib:format("~s_~s",[?APP, DB])),
     case create_resource(Rule) of
         {error, Reason} -> error({load_config_error, Reason});
-        Id -> Rule#{annotations => 
+        Id -> Rule#{annotations =>
                       #{id => Id,
                         principal => compile_principal(Principal),
                         sql => Mod:parse_query(SQL)

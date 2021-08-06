@@ -20,13 +20,17 @@
 
 -include("emqx_authz.hrl").
 
+-define(EXAMPLE_RETURNED_RULE1,
+        #{principal => <<"all">>,
+          permission => <<"allow">>,
+          action => <<"all">>,
+          topics => [<<"#">>],
+          annotations => #{id => 1}
+         }).
+
+
 -define(EXAMPLE_RETURNED_RULES,
-        #{rules => [ #{principal => <<"all">>,
-                       permission => <<"allow">>,
-                       action => <<"all">>,
-                       topics => [<<"#">>],
-                       metadata => #{id => 1}
-                      }
+        #{rules => [?EXAMPLE_RETURNED_RULE1 
                    ]
         }).
 
@@ -37,10 +41,12 @@
 
 -export([ api_spec/0
         , authorization/2
+        , authorization_once/2
         ]).
 
 api_spec() ->
-    {[ authorization_api()
+    {[ authorization_api(),
+       authorization_api2()
      ], definitions()}.
 
 definitions() -> emqx_authz_api_schema:definitions().
@@ -99,13 +105,79 @@ authorization_api() ->
     },
     {"/authorization", Metadata, authorization}.
 
+authorization_api2() ->
+    Metadata = #{
+        get => #{
+            description => "List authorization rules",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                       type => string
+                    },
+                    required => true
+                }
+            ],
+            responses => #{
+                <<"200">> => #{
+                    description => <<"OK">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"returned_rules">>),
+                            examples => #{
+                                rules => #{
+                                    summary => <<"Rules">>,
+                                    value => jsx:encode(?EXAMPLE_RETURNED_RULE1)
+                                }
+                            }
+                         }
+                    }
+                },
+                <<"404">> => #{description => <<"Not Found">>}
+            }
+        },
+        put => #{
+            description => "Update rule",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                       type => string
+                    },
+                    required => true
+                }
+            ],
+            requestBody => #{
+                content => #{
+                    'application/json' => #{
+                        schema => minirest:ref(<<"rules">>),
+                        examples => #{
+                            simple_rule => #{
+                                summary => <<"Rules">>,
+                                value => jsx:encode(?EXAMPLE_RULE1)
+                            }
+                       }
+                    }
+                }
+            },
+            responses => #{
+                <<"201">> => #{description => <<"Created">>},
+                <<"400">> => #{description => <<"Bad Request">>}
+            }
+        }
+    },
+    {"/authorization/:id", Metadata, authorization_once}.
+    
+
 authorization(get, _Request) ->
-    Rules = lists:foldl(fun (#{type := _Type, enable := true, metadata := #{id := Id} = MataData} = Rule, AccIn) ->
+    Rules = lists:foldl(fun (#{type := _Type, enable := true, annotations := #{id := Id} = Annotations} = Rule, AccIn) ->
                                 NRule = case emqx_resource:health_check(Id) of
                                     ok ->
-                                        Rule#{metadata => MataData#{status => healthy}};
+                                        Rule#{annotations => Annotations#{status => healthy}};
                                     _ ->
-                                        Rule#{metadata => MataData#{status => unhealthy}}
+                                        Rule#{annotations => Annotations#{status => unhealthy}}
                                 end,
                                 lists:append(AccIn, [NRule]);
                             (Rule, AccIn) ->
@@ -120,4 +192,29 @@ authorization(post, Request) ->
         {error, Reason} -> {400, #{messgae => atom_to_binary(Reason)}}
     end.
 
+authorization_once(get, Request) ->
+    Id = cowboy_req:binding(id, Request),
+    case emqx_authz:lookup(Id) of
+        {error, Reason} -> {404, #{messgae => atom_to_binary(Reason)}};
+        Rule ->
+            case maps:get(type, Rule, undefined) of
+                undefined -> {200, Rule};
+                _ -> 
+                    case emqx_resource:health_check(Id) of
+                        ok ->
+                            {200, Rule#{annotations => #{status => healthy}}};
+                        _ ->
+                            {200, Rule#{annotations => #{status => unhealthy}}}
+                    end
+
+            end
+    end;
+authorization_once(put, Request) ->
+    RuleId = cowboy_req:binding(id, Request),
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    RawConfig = jsx:decode(Body, [return_maps]),
+    case emqx_authz:update({replace_once, RuleId}, RawConfig) of
+        ok -> {200};
+        {error, Reason} -> {400, #{messgae => atom_to_binary(Reason)}}
+    end.
 
