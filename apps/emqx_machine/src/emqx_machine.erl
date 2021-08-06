@@ -51,9 +51,7 @@ start() ->
 
     ok = print_vsn(),
 
-    ok = start_autocluster(),
-    %% NOTE: keep this to the end
-    ok = emqx_machine_terminator:start().
+    ok = start_autocluster().
 
 graceful_shutdown() ->
     emqx_machine_terminator:graceful_wait().
