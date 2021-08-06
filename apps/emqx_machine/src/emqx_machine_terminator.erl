@@ -45,7 +45,17 @@ is_running() -> is_pid(whereis(?TERMINATOR)).
 
 %% @doc Send a signal to activate the terminator.
 graceful() ->
-    ?TERMINATOR ! ?DO_IT,
+    try
+        _ = gen_server:call(?TERMINATOR, ?DO_IT, infinity)
+    catch
+        _ : _ ->
+            %% failed to notify terminator, probably due to not started yet
+            %% or node is going down, either case, the caller
+            %% should issue a shutdown to be sure
+            %% NOTE: not exit_loop here because we do not want to
+            %% block erl_signal_server
+            init:stop()
+    end,
     ok.
 
 %% @doc Shutdown the Erlang VM and wait until the terminator dies or the VM dies.
@@ -72,7 +82,13 @@ init(_) ->
     ok = emqx_machine_signal_handler:start(),
     {ok, #{}}.
 
-handle_info(?DO_IT, State) ->
+handle_info(_, State) ->
+    {noreply, State}.
+
+handle_cast(_Cast, State) ->
+    {noreply, State}.
+
+handle_call(?DO_IT, _From, State) ->
     try
         emqx_machine:stop_apps(normal)
     catch
@@ -87,13 +103,7 @@ handle_info(?DO_IT, State) ->
     after
         init:stop()
     end,
-    {noreply, State};
-handle_info(_, State) ->
-    {noreply, State}.
-
-handle_cast(_Cast, State) ->
-    {noreply, State}.
-
+    {reply, ok, State};
 handle_call(_Call, _From, State) ->
     {noreply, State}.
 
