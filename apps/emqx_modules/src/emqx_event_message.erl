@@ -172,7 +172,7 @@ on_message_acked(_ClientInfo = #{
     case ignore_sys_message(Message) of
         true -> ok;
         false ->
-            Message1 = remove_header(Message),
+            Message1 = remove_internal_headers(Message),
             Payload0 = base_message(Message1),
             Payload = Payload0#{
                 from_clientid => ClientId,
@@ -266,5 +266,5 @@ publish_event_msg(Topic, Payload) ->
     _ = emqx_broker:safe_publish(make_msg(Topic, emqx_json:encode(Payload))),
     ok.
 
-remove_header(Message) ->
+remove_internal_headers(Message) ->
     emqx_message:remove_header(shared_dispatch_ack, Message).
