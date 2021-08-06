@@ -16,8 +16,9 @@
 
 -module(emqx_machine).
 
--export([start/0,
-         graceful_shutdown/0
+-export([ start/0
+        , graceful_shutdown/0
+        , is_ready/0
         ]).
 
 -export([ stop_apps/1
@@ -40,7 +41,6 @@ start() ->
     _ = load_modules(),
     ok = load_config_files(),
 
-
     ok = ensure_apps_started(),
 
     _ = emqx_plugins:load(),
@@ -48,6 +48,7 @@ start() ->
     ok = print_vsn(),
 
     ok = start_autocluster(),
+    %% NOTE: keep this to the end
     ok = emqx_machine_terminator:start().
 
 graceful_shutdown() ->
@@ -57,6 +58,10 @@ set_backtrace_depth() ->
     {ok, Depth} = application:get_env(emqx_machine, backtrace_depth),
     _ = erlang:system_flag(backtrace_depth, Depth),
     ok.
+
+%% @doc Return true if boot is complete.
+is_ready() ->
+    emqx_machine_terminator:is_running().
 
 -if(?OTP_RELEASE > 22).
 print_otp_version_warning() -> ok.

@@ -21,6 +21,7 @@
 -export([ start/0
         , graceful/0
         , graceful_wait/0
+        , is_running/0
         ]).
 
 -export([init/1, format_status/2,
@@ -40,6 +41,8 @@ start() ->
     %% NOTE: Do not link this process under any supervision tree
     ok.
 
+is_running() -> is_pid(whereis(?TERMINATOR)).
+
 %% @doc Send a signal to activate the terminator.
 graceful() ->
     ?TERMINATOR ! ?DO_IT,
@@ -49,7 +52,8 @@ graceful() ->
 graceful_wait() ->
     case whereis(?TERMINATOR) of
         undefined ->
-            exit(emqx_machine_not_started);
+            ?SLOG(warning, #{msg => "shutdown_before_boot_is_complete"}),
+            exit_loop();
         Pid ->
             ok = graceful(),
             Ref = monitor(process, Pid),
@@ -58,6 +62,11 @@ graceful_wait() ->
             %% In which case, the remote caller will get {badrpc, nodedown}
             receive {'DOWN', Ref, process, Pid, _} -> ok end
     end.
+
+exit_loop() ->
+    init:stop(),
+    timer:sleep(100),
+    exit_loop().
 
 init(_) ->
     ok = emqx_machine_signal_handler:start(),
