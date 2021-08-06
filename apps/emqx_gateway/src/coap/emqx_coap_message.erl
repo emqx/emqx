@@ -24,7 +24,13 @@
 %% convenience functions for message construction
 -module(emqx_coap_message).
 
--export([request/2, request/3, request/4, ack/1, response/1, response/2, response/3]).
+-export([ request/2, request/3, request/4
+        , ack/1, response/1, response/2
+        , reset/1, piggyback/2, piggyback/3
+        , response/3]).
+
+-export([is_request/1]).
+
 -export([set/3, set_payload/2, get_content/1, set_content/2, set_content/3, get_option/2]).
 
 -include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
@@ -42,10 +48,13 @@ request(Type, Method, Content=#coap_content{}, Options) ->
     set_content(Content,
                 #coap_message{type = Type, method = Method, options = Options}).
 
-ack(Request = #coap_message{}) ->
-    #coap_message{type = ack,
-                  id = Request#coap_message.id}.
+ack(#coap_message{id = Id}) ->
+    #coap_message{type = ack, id = Id}.
 
+reset(#coap_message{id = Id}) ->
+    #coap_message{type = reset, id = Id}.
+
+%% just make a response
 response(#coap_message{type = Type,
                        id = Id,
                        token = Token}) ->
@@ -60,6 +69,19 @@ response(Method, Payload, Request) ->
     set_method(Method,
                set_payload(Payload,
                            response(Request))).
+
+%% make a response which maybe is a piggyback ack
+piggyback(Method, Request) ->
+    piggyback(Method, <<>>, Request).
+
+piggyback(Method, Payload, Request) ->
+    Reply = response(Method, Payload, Request),
+    case Reply of
+        #coap_message{type = con} ->
+            Reply#coap_message{type = ack};
+        _ ->
+            Reply
+    end.
 
 %% omit option for its default value
 set(max_age, ?DEFAULT_MAX_AGE, Msg) -> Msg;
@@ -144,3 +166,9 @@ set_payload_block(Content, BlockId, {Num, _, Size}, Msg) ->
             set(BlockId, {Num, false, Size},
                 set_payload(binary:part(Content, OffsetBegin, ContentSize - OffsetBegin), Msg))
     end.
+
+is_request(#coap_message{method = Method}) when is_atom(Method) ->
+    Method =/= undefined;
+
+is_request(_) ->
+    false.

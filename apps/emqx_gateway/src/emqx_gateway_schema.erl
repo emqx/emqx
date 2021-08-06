@@ -215,8 +215,7 @@ fields(coap) ->
 fields(coap_structs) ->
     [ {enable_stats, t(boolean(), undefined, true)}
     , {authentication,  t(ref(authentication))}
-    , {heartbeat, t(duration(), undefined, "15s")}
-    , {resource, t(union([mqtt, pubsub]), undefined, mqtt)}
+    , {heartbeat, t(duration(), undefined, "30s")}
     , {notify_type, t(union([non, con, qos]), undefined, qos)}
     , {subscribe_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
     , {publish_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
