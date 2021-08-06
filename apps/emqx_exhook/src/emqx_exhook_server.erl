@@ -84,7 +84,7 @@
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
 
--spec load(atom(), options()) -> {ok, server()} | {error, term()} .
+-spec load(binary(), options()) -> {ok, server()} | {error, term()} .
 load(Name0, Opts0) ->
     Name = to_list(Name0),
     {SvrAddr, ClientOpts} = channel_opts(Opts0),

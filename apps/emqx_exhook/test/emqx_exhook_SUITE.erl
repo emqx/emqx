@@ -53,7 +53,7 @@ end_per_suite(_Cfg) ->
 %%--------------------------------------------------------------------
 
 t_noserver_nohook(_) ->
-    emqx_exhook:disable(default),
+    emqx_exhook:disable(<<"default">>),
     ?assertEqual([], loaded_exhook_hookpoints()),
     [#{name := Name} = Opts] = emqx_config:get([exhook, servers]),
     ok = emqx_exhook:enable(Name, Opts),
