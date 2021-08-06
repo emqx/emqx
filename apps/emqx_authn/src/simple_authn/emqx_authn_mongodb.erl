@@ -41,7 +41,7 @@ structs() -> [""].
 fields("") ->
     [ {config, {union, [ hoconsc:t(standalone)
                        , hoconsc:t('replica-set')
-                       , hoconsc:t(sharded)
+                       , hoconsc:t('sharded-cluster')
                        ]}}
     ];
 
@@ -51,7 +51,7 @@ fields(standalone) ->
 fields('replica-set') ->
     common_fields() ++ emqx_connector_mongo:fields(rs);
 
-fields(sharded) ->
+fields('sharded-cluster') ->
     common_fields() ++ emqx_connector_mongo:fields(sharded).
 
 common_fields() ->
