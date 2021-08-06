@@ -29,18 +29,19 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    GlobalGC = child_worker(emqx_global_gc, []),
-    Children = [GlobalGC],
-    SupFlags = #{strategy => one_for_all,
+    GlobalGC = child_worker(emqx_global_gc, [], permanent),
+    Terminator = child_worker(emqx_machine_terminator, [], transient),
+    Children = [GlobalGC, Terminator],
+    SupFlags = #{strategy => one_for_one,
                  intensity => 100,
                  period => 10
                 },
     {ok, {SupFlags, Children}}.
 
-child_worker(M, Args) ->
+child_worker(M, Args, Restart) ->
     #{id       => M,
       start    => {M, start_link, Args},
-      restart  => permanent,
+      restart  => Restart,
       shutdown => 5000,
       type     => worker,
       modules  => [M]

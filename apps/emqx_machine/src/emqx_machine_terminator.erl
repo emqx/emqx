@@ -18,7 +18,7 @@
 
 -behaviour(gen_server).
 
--export([ start/0
+-export([ start_link/0
         , graceful/0
         , graceful_wait/0
         , is_running/0
@@ -36,10 +36,8 @@
 %% @doc This API is called to shutdown the Erlang VM by RPC call from remote shell node.
 %% The shutown of apps is delegated to a to a process instead of doing it in the RPC spawned
 %% process which has a remote group leader.
-start() ->
-    {ok, _} = gen_server:start_link({local, ?TERMINATOR}, ?MODULE, [], []),
-    %% NOTE: Do not link this process under any supervision tree
-    ok.
+start_link() ->
+    {ok, _} = gen_server:start_link({local, ?TERMINATOR}, ?MODULE, [], []).
 
 is_running() -> is_pid(whereis(?TERMINATOR)).
 

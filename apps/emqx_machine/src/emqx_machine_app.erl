@@ -24,9 +24,7 @@
 
 start(_Type, _Args) ->
     ok = emqx_machine:start(),
-    {ok, Sup} = emqx_machine_sup:start_link(),
-    ok = emqx_machine_terminator:start(),
-    {ok, Sup}.
+    emqx_machine_sup:start_link().
 
 stop(_State) ->
     ok.
