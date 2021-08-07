@@ -17,8 +17,43 @@
 -module(emqx_quic_connection).
 
 %% Callbacks
--export([ new_conn/2
+-export([ init/1
+        , new_conn/2
+        , connected/2
+        , shutdown/2
         ]).
 
-new_conn(Conn, {_L, COpts, _S}) when is_map(COpts) ->
-    emqx_connection:start_link(emqx_quic_stream, Conn, COpts).
+-type cb_state() :: map() | proplists:proplist().
+
+
+-spec init(cb_state()) -> cb_state().
+init(ConnOpts) when is_list(ConnOpts) ->
+    init(maps:from_list(ConnOpts));
+init(ConnOpts) when is_map(ConnOpts) ->
+    ConnOpts.
+
+-spec new_conn(quicer:connection_handler(), cb_state()) -> {ok, cb_state()} | {error, any()}.
+new_conn(Conn, S) ->
+    case emqx_connection:start_link(emqx_quic_stream, Conn, S) of
+        {ok, _Pid} ->
+            ok = quicer:async_handshake(Conn),
+            {ok, S};
+        Other ->
+            {error, Other}
+    end.
+
+-spec connected(quicer:connection_handler(), cb_state()) -> {ok, cb_state()} | {error, any()}.
+connected(Conn, #{slow_start := false} = S) ->
+    case emqx_connection:start_link(emqx_quic_stream, Conn, S) of
+        {ok, _Pid} ->
+            {ok, S};
+        Other ->
+            {error, Other}
+    end;
+connected(_Conn, S) ->
+    {ok, S}.
+
+-spec shutdown(quicer:connection_handler(), cb_state()) -> {ok, cb_state()} | {error, any()}.
+shutdown(Conn, S) ->
+    quicer:async_close_connection(Conn),
+    {ok, S}.

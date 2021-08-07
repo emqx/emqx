@@ -88,5 +88,8 @@ ensure_ok_or_exit(Fun, Args = [Sock|_]) when is_atom(Fun), is_list(Args) ->
 async_send(Stream, Data, Options) when is_list(Data) ->
     async_send(Stream, iolist_to_binary(Data), Options);
 async_send(Stream, Data, _Options) when is_binary(Data) ->
-    {ok, _Len} = quicer:send(Stream, Data),
-    ok.
+    case quicer:send(Stream, Data) of
+        {ok, _Len} -> ok;
+        Other ->
+            Other
+    end.

@@ -178,9 +178,6 @@ do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts)
 do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
     case [ A || {quicer, _, _} = A<-application:which_applications() ] of
         [_] ->
-            %% @fixme unsure why we need reopen lib and reopen config.
-            quicer_nif:open_lib(),
-            quicer_nif:reg_open(),
             DefAcceptors = erlang:system_info(schedulers_online) * 8,
             ListenOpts = [ {cert, maps:get(certfile, Opts)}
                          , {key, maps:get(keyfile, Opts)}
@@ -189,13 +186,13 @@ do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
                          , {idle_timeout_ms, emqx_config:get_zone_conf(zone(Opts),
                                                 [mqtt, idle_timeout])}
                          ],
-            ConnectionOpts = #{conn_callback => emqx_quic_connection
+            ConnectionOpts = #{ conn_callback => emqx_quic_connection
                               , peer_unidi_stream_count => 1
                               , peer_bidi_stream_count => 10
                               , zone => zone(Opts)
                               , listener => {quic, ListenerName}
                               },
-            StreamOpts = [],
+            StreamOpts = [{stream_callback, emqx_quic_stream}],
             quicer:start_listener(listener_id(quic, ListenerName),
                                   port(ListenOn), {ListenOpts, ConnectionOpts, StreamOpts});
         [] ->
