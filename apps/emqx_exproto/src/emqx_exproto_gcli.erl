@@ -89,15 +89,22 @@ handle_cast({rpc, Fun, Req, Options, From}, State = #state{streams = Streams}) -
         {ok, Stream} ->
             case catch grpc_client:send(Stream, Req) of
                 ok ->
-                    ?LOG(debug, "Send to ~p method successfully, request: ~0p", [Fun, Req]),
+                    ?LOG(debug, "Send to ~s method successfully, request: ~0p", [Fun, Req]),
                     reply(From, Fun, ok),
                     {noreply, State#state{streams = Streams#{Fun => Stream}}};
+                {'EXIT', {not_found, _Stk}} ->
+                    %% Not found the stream, reopen it
+                    ?LOG(info, "Can not find the old stream ref for ~s; "
+                               "re-try with a new stream!", [Fun]),
+                    handle_cast({rpc, Fun, Req, Options, From},
+                                State#state{streams = maps:remove(Fun, Streams)});
                 {'EXIT', {timeout, _Stk}} ->
-                    ?LOG(error, "Send to ~p method timeout, request: ~0p", [Fun, Req]),
+                    ?LOG(error, "Send to ~s method timeout, request: ~0p", [Fun, Req]),
                     reply(From, Fun, {error, timeout}),
                     {noreply, State#state{streams = Streams#{Fun => Stream}}};
                 {'EXIT', {Reason1, _Stk}} ->
-                    ?LOG(error, "Send to ~p method failure, request: ~0p, stacktrace: ~0p", [Fun, Req, _Stk]),
+                    ?LOG(error, "Send to ~s method failure, request: ~0p, reason: ~p, "
+                                "stacktrace: ~0p", [Fun, Req, Reason1, _Stk]),
                     reply(From, Fun, {error, Reason1}),
                     {noreply, State#state{streams = Streams#{Fun => undefined}}}
             end

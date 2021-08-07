@@ -243,7 +243,7 @@ handle_timeout(_TRef, {keepalive, StatVal},
     end;
 
 handle_timeout(_TRef, force_close, Channel = #channel{closed_reason = Reason}) ->
-    {shutdown, {error, {force_close, Reason}}, Channel};
+    {shutdown, Reason, Channel};
 
 handle_timeout(_TRef, Msg, Channel) ->
     ?WARN("Unexpected timeout: ~p", [Msg]),
@@ -269,7 +269,7 @@ handle_call({auth, ClientInfo0, Password},
             Channel = #channel{conninfo = ConnInfo,
                                clientinfo = ClientInfo}) ->
     ClientInfo1 = enrich_clientinfo(ClientInfo0, ClientInfo),
-    NConnInfo = enrich_conninfo(ClientInfo1, ConnInfo),
+    NConnInfo = enrich_conninfo(ClientInfo0, ConnInfo),
 
     Channel1 = Channel#channel{conninfo = NConnInfo,
                                clientinfo = ClientInfo1},
@@ -373,13 +373,13 @@ handle_info({sock_closed, Reason},
     case queue:len(Queue) =:= 0
          andalso Inflight =:= undefined of
         true ->
-            Channel1 = ensure_disconnected({sock_closed, Reason}, Channel),
-            {shutdown, {sock_closed, Reason}, Channel1};
+            Channel1 = ensure_disconnected(Reason, Channel),
+            {shutdown, Reason, Channel1};
         _ ->
             %% delayed close process for flushing all callback funcs to gRPC server
-            Channel1 = Channel#channel{closed_reason = {sock_closed, Reason}},
+            Channel1 = Channel#channel{closed_reason = Reason},
             Channel2 = ensure_timer(force_timer, Channel1),
-            {ok, ensure_disconnected({sock_closed, Reason}, Channel2)}
+            {ok, ensure_disconnected(Reason, Channel2)}
     end;
 
 handle_info({hreply, on_socket_created, ok}, Channel) ->
