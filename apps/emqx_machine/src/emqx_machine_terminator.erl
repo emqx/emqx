@@ -41,7 +41,8 @@ start_link() ->
 
 is_running() -> is_pid(whereis(?TERMINATOR)).
 
-%% @doc Call terminator to stop applications, then issue init:stop() to terminat the VM.
+%% @doc Call `emqx_machine_terminator' to stop applications
+%% then call init:stop() stop beam.
 graceful() ->
     try
         _ = gen_server:call(?TERMINATOR, ?DO_IT, infinity)

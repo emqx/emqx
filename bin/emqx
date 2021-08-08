@@ -480,14 +480,19 @@ case "$1" in
         # Wait for the node to completely stop...
         PID="$(relx_get_pid)"
         if ! relx_nodetool "stop"; then
-            echoerr "emqx_graceful_shutdown_failed PID=[$PID]"
+            echoerr "Graceful shutdown failed PID=[$PID]"
             exit 1
         fi
-        WAIT_TIME=30
+        WAIT_TIME="${WAIT_FOR_ERLANG_STOP:-60}"
         if ! wait_for "$WAIT_TIME" is_down "$PID"; then
-            echoerr "emqx_pid_dangling_after ${WAIT_TIME} seconds PID=[$PID]"
+            msg="dangling after ${WAIT_TIME} seconds"
+            # also log to syslog
+            logger -t "${REL_NAME}[${PID}]" "STOP: $msg"
+            # log to user console
+            echoerr "STOP: $msg"
             exit 1
         fi
+        logger -t "${REL_NAME}[${PID}]" "STOP: OK"
         ;;
 
     restart|reboot)
@@ -612,7 +617,7 @@ case "$1" in
             $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG
 
         # Log the startup
-        logger -t "${REL_NAME}[$$]" "$* -- ${1+$ARGS}"
+        logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS}"
 
         # Start the VM
         exec "$@" -- ${1+$ARGS}
@@ -653,7 +658,7 @@ case "$1" in
             $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG
 
         # Log the startup
-        logger -t "${REL_NAME}[$$]" "$* -- ${1+$ARGS}"
+        logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS}"
 
         # Start the VM
         exec "$@" -- ${1+$ARGS}
