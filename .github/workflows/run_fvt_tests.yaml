@@ -258,6 +258,10 @@ jobs:
             done
         - name: build emqx
           run: make -C emqx ${PROFILE}-zip
+        - uses: actions/upload-artifact@v2
+          with:
+            name: emqx
+            path: emqx/_packages/**/*.zip
         - name: build emqtt-bench
           run: make -C emqtt-bench
         - name: build lux
