@@ -52,6 +52,8 @@
         , hexstr2bin/1
         ]).
 
+-define(OOM_FACTOR, 1.25).
+
 %% @doc Parse v4 or v6 string format address to tuple.
 %% `Host' itself is returned if it's not an ip string.
 maybe_parse_ip(Host) ->
@@ -216,11 +218,25 @@ do_check_oom([{Val, Max, Reason}|Rest]) ->
 
 tune_heap_size(#{max_heap_size := MaxHeapSize}) ->
     %% If set to zero, the limit is disabled.
-    erlang:process_flag(max_heap_size, #{size => MaxHeapSize,
-                                         kill => false,
+    erlang:process_flag(max_heap_size, #{size => must_kill_heap_size(MaxHeapSize),
+                                         kill => true,
                                          error_logger => true
                                         });
 tune_heap_size(undefined) -> ok.
+
+%% We multiply the size with factor ?OOM_FACTOR, to give the
+%% process a chance to suicide by `check_oom/1`
+must_kill_heap_size(Size) ->
+    MaxAllowedSize = case erlang:system_info(wordsize) of
+        8 -> % arch_64
+            (1 bsl 59) - 1;
+        4 -> % arch_32
+            (1 bsl 27) - 1
+    end,
+    case ceil(Size * ?OOM_FACTOR) of
+        Size0 when Size0 >= MaxAllowedSize -> MaxAllowedSize;
+        Size0 -> Size0
+    end.
 
 -spec(proc_name(atom(), pos_integer()) -> atom()).
 proc_name(Mod, Id) ->
