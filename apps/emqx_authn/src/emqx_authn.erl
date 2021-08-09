@@ -325,6 +325,8 @@ authenticator_provider(#{mechanism := 'password-based', server_type := 'pgsql'})
     emqx_authn_pgsql;
 authenticator_provider(#{mechanism := 'password-based', server_type := 'mongodb'}) ->
     emqx_authn_mongodb;
+authenticator_provider(#{mechanism := 'password-based', server_type := 'redis'}) ->
+    emqx_authn_redis;
 authenticator_provider(#{mechanism := 'password-based', server_type := 'http-server'}) ->
     emqx_authn_http;
 authenticator_provider(#{mechanism := jwt}) ->
