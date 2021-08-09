@@ -40,14 +40,14 @@
     }
 }).
 
--define(PREFIX, "/configs/").
+-define(PREFIX, "/configs").
 
 -define(MAX_DEPTH, 1).
 
 -define(ERR_MSG(MSG), io_lib:format("~p", [MSG])).
 
 api_spec() ->
-    {config_apis(), []}.
+    {config_apis() ++ [config_reset_api()], []}.
 
 config_apis() ->
     [config_api(ConfPath, Schema) || {ConfPath, Schema} <-
@@ -55,26 +55,20 @@ config_apis() ->
 
 config_api(ConfPath, Schema) ->
     Path = path_join(ConfPath),
+    Descr = fun(Str) ->
+        list_to_binary([Str, " ", path_join(ConfPath, ".")])
+    end,
     Metadata = #{
         get => #{
-            description => <<"Get configs">>,
+            description => Descr("Get configs for"),
             responses => #{
                 <<"200">> => ?TEXT_BODY("Get configs successfully", Schema),
                 <<"404">> => emqx_mgmt_util:response_error_schema(
                     <<"Config not found">>, ['NOT_FOUND'])
             }
         },
-        delete => #{
-            description => <<"Remove configs for">>,
-            parameters => ?PARAM_CONF_PATH,
-            responses => #{
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Remove configs successfully">>),
-                <<"400">> => emqx_mgmt_util:response_error_schema(
-                    <<"It's not able to remove the config">>, ['INVALID_OPERATION'])
-            }
-        },
         put => #{
-            description => <<"Update configs for">>,
+            description => Descr("Update configs for"),
             'requestBody' => ?TEXT_BODY("The format of the request body is depend on the 'conf_path' parameter in the query string", Schema),
             responses => #{
                 <<"200">> => ?TEXT_BODY("Update configs successfully", Schema),
@@ -83,7 +77,23 @@ config_api(ConfPath, Schema) ->
             }
         }
     },
-    {?PREFIX ++ Path, Metadata, config}.
+    {?PREFIX ++ "/" ++ Path, Metadata, config}.
+
+config_reset_api() ->
+    Metadata = #{
+        delete => #{
+            description => <<"Reset or remove the config entry specified by the query string parameter `conf_path`.<br/>
+- For a config entry that has default value, this resets it to the default value;
+- For a config entry that is dynamic such as a listener Id, this will remove the config entry">>,
+            parameters => ?PARAM_CONF_PATH,
+            responses => #{
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Remove configs successfully">>),
+                <<"400">> => emqx_mgmt_util:response_error_schema(
+                    <<"It's not able to remove the config">>, ['INVALID_OPERATION'])
+            }
+        }
+    },
+    {?PREFIX, Metadata, config}.
 
 %%%==============================================================================================
 %% parameters trans
@@ -115,7 +125,7 @@ conf_path_from_querystr(Req) ->
     end.
 
 conf_path_from_http_path(Req) ->
-    <<"/api/v5", ?PREFIX, Path/binary>> = cowboy_req:path(Req),
+    <<"/api/v5", ?PREFIX, "/", Path/binary>> = cowboy_req:path(Req),
     string:lexemes(Path, "/ ").
 
 http_body(Req) ->
@@ -160,9 +170,12 @@ gen_schema(_Conf) ->
     %% by the hocon schema
     #{type => string}.
 
-path_join([P]) -> str(P);
-path_join([P | Path]) ->
-    str(P) ++ "/" ++ path_join(Path).
+path_join(Path) ->
+    path_join(Path, "/").
+
+path_join([P], _Sp) -> str(P);
+path_join([P | Path], Sp) ->
+    str(P) ++ Sp ++ path_join(Path, Sp).
 
 str(S) when is_list(S) -> S;
 str(S) when is_binary(S) -> binary_to_list(S);
