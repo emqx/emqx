@@ -302,7 +302,7 @@ do_get(Type, KeyPath) ->
 do_get(Type, [], Default) ->
     AllConf = lists:foldl(fun
             ({?PERSIS_KEY(Type0, RootName), Conf}, AccIn) when Type0 == Type ->
-                AccIn#{RootName => Conf};
+                AccIn#{conf_key(Type0, RootName) => Conf};
             (_, AccIn) -> AccIn
         end, #{}, persistent_term:get()),
     case map_size(AllConf) == 0 of
@@ -343,3 +343,8 @@ atom(Atom) when is_atom(Atom) ->
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+conf_key(?CONF, RootName) ->
+    atom(RootName);
+conf_key(?RAW_CONF, RootName) ->
+    bin(RootName).
