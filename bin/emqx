@@ -489,7 +489,7 @@ case "$1" in
             # also log to syslog
             logger -t "${REL_NAME}[${PID}]" "STOP: $msg"
             # log to user console
-            echoerr "STOP: $msg"
+            echoerr "stop failed, $msg"
             exit 1
         fi
         logger -t "${REL_NAME}[${PID}]" "STOP: OK"
