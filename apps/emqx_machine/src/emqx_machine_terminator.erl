@@ -41,7 +41,8 @@ start_link() ->
 
 is_running() -> is_pid(whereis(?TERMINATOR)).
 
-%% @doc Send a signal to activate the terminator.
+%% @doc Call `emqx_machine_terminator' to stop applications
+%% then call init:stop() stop beam.
 graceful() ->
     try
         _ = gen_server:call(?TERMINATOR, ?DO_IT, infinity)
@@ -52,28 +53,19 @@ graceful() ->
             %% should issue a shutdown to be sure
             %% NOTE: not exit_loop here because we do not want to
             %% block erl_signal_server
+            ?ELOG("Shutdown before node is ready?~n", []),
             init:stop()
     end,
     ok.
 
-%% @doc Shutdown the Erlang VM and wait until the terminator dies or the VM dies.
+%% @doc Shutdown the Erlang VM and wait indefinitely.
 graceful_wait() ->
-    case whereis(?TERMINATOR) of
-        undefined ->
-            ?SLOG(warning, #{msg => "shutdown_before_boot_is_complete"}),
-            exit_loop();
-        Pid ->
-            ok = graceful(),
-            Ref = monitor(process, Pid),
-            %% NOTE: not exactly sure, but maybe there is a chance that
-            %% Erlang VM goes down before this receive.
-            %% In which case, the remote caller will get {badrpc, nodedown}
-            receive {'DOWN', Ref, process, Pid, _} -> ok end
-    end.
+    ok = graceful(),
+    exit_loop().
 
 exit_loop() ->
-    init:stop(),
     timer:sleep(100),
+    init:stop(),
     exit_loop().
 
 init(_) ->
