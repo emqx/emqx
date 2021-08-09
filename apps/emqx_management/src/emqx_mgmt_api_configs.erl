@@ -31,14 +31,18 @@
     schema => #{type => string, default => <<".">>}
 }]).
 
--define(TEXT_BODY(DESCR), #{
+-define(TEXT_BODY(DESCR, SCHEMA), #{
     description => list_to_binary(DESCR),
     content => #{
         <<"text/plain">> => #{
-            schema => #{}
+            schema => SCHEMA
         }
     }
 }).
+
+-define(PREFIX, "/configs/").
+
+-define(MAX_DEPTH, 1).
 
 -define(ERR_MSG(MSG), io_lib:format("~p", [MSG])).
 
@@ -46,15 +50,16 @@ api_spec() ->
     {config_apis(), []}.
 
 config_apis() ->
-    [config_api()].
+    [config_api(ConfPath, Schema) || {ConfPath, Schema} <-
+     get_conf_schema(emqx_config:get([]), ?MAX_DEPTH)].
 
-config_api() ->
+config_api(ConfPath, Schema) ->
+    Path = path_join(ConfPath),
     Metadata = #{
         get => #{
             description => <<"Get configs">>,
-            parameters => ?PARAM_CONF_PATH,
             responses => #{
-                <<"200">> => ?TEXT_BODY("Get configs successfully"),
+                <<"200">> => ?TEXT_BODY("Get configs successfully", Schema),
                 <<"404">> => emqx_mgmt_util:response_error_schema(
                     <<"Config not found">>, ['NOT_FOUND'])
             }
@@ -70,22 +75,20 @@ config_api() ->
         },
         put => #{
             description => <<"Update configs for">>,
-            parameters => ?PARAM_CONF_PATH,
-            'requestBody' => ?TEXT_BODY("The format of the request body is depend on the 'conf_path' parameter in the query string"),
+            'requestBody' => ?TEXT_BODY("The format of the request body is depend on the 'conf_path' parameter in the query string", Schema),
             responses => #{
-                <<"200">> => ?TEXT_BODY("Update configs successfully"),
+                <<"200">> => ?TEXT_BODY("Update configs successfully", Schema),
                 <<"400">> => emqx_mgmt_util:response_error_schema(
                     <<"Update configs failed">>, ['UPDATE_FAILED'])
             }
         }
     },
-    {"/configs", Metadata, config}.
+    {?PREFIX ++ Path, Metadata, config}.
 
 %%%==============================================================================================
 %% parameters trans
 config(get, Req) ->
-    %% TODO: query the config specified by the query string param 'conf_path'
-    case emqx_config:find_raw(conf_path_from_querystr(Req)) of
+    case emqx_config:find_raw(conf_path_from_http_path(Req)) of
         {ok, Conf} ->
             {200, Conf};
         {not_found, _, _} ->
@@ -93,15 +96,15 @@ config(get, Req) ->
     end;
 
 config(delete, Req) ->
-    %% TODO: remove the config specified by the query string param 'conf_path'
-    case emqx_config:remove(conf_path_from_querystr(Req)) of
+    %% remove the config specified by the query string param 'conf_path'
+    case emqx_config:remove(conf_path_from_http_path(Req) ++ conf_path_from_querystr(Req)) of
         ok -> {200};
         {error, Reason} ->
             {400, ?ERR_MSG(Reason)}
     end;
 
 config(put, Req) ->
-    Path = [binary_to_atom(Key, latin1) || Key <- conf_path_from_querystr(Req)],
+    Path = conf_path_from_http_path(Req),
     ok = emqx_config:update(Path, http_body(Req)),
     {200, emqx_config:get_raw(Path)}.
 
@@ -111,8 +114,56 @@ conf_path_from_querystr(Req) ->
         Path -> string:lexemes(Path, ". ")
     end.
 
+conf_path_from_http_path(Req) ->
+    <<"/api/v5", ?PREFIX, Path/binary>> = cowboy_req:path(Req),
+    string:lexemes(Path, "/ ").
+
 http_body(Req) ->
     {ok, Body, _} = cowboy_req:read_body(Req),
     try jsx:decode(Body, [{return_maps, true}])
     catch error:badarg -> Body
     end.
+
+get_conf_schema(Conf, MaxDepth) ->
+    get_conf_schema([], maps:to_list(Conf), [], MaxDepth).
+
+get_conf_schema(_BasePath, [], Result, _MaxDepth) ->
+    Result;
+get_conf_schema(BasePath, [{Key, Conf} | Confs], Result, MaxDepth) ->
+    Path = BasePath ++ [Key],
+    Depth = length(Path),
+    Result1 = case is_map(Conf) of
+        true when Depth < MaxDepth ->
+            get_conf_schema(Path, maps:to_list(Conf), Result, MaxDepth);
+        true when Depth >= MaxDepth -> Result;
+        false -> Result
+    end,
+    get_conf_schema(BasePath, Confs, [{Path, gen_schema(Conf)} | Result1], MaxDepth).
+
+%% TODO: generate from hocon schema
+gen_schema(Conf) when is_boolean(Conf) ->
+    #{type => boolean};
+gen_schema(Conf) when is_binary(Conf); is_atom(Conf) ->
+    #{type => string};
+gen_schema(Conf) when is_number(Conf) ->
+    #{type => number};
+gen_schema(Conf) when is_list(Conf) ->
+    #{type => array, items => case Conf of
+            [] -> #{}; %% don't know the type
+            _ -> gen_schema(hd(Conf))
+        end};
+gen_schema(Conf) when is_map(Conf) ->
+    #{type => object, properties =>
+        maps:map(fun(_K, V) -> gen_schema(V) end, Conf)};
+gen_schema(_Conf) ->
+    %% the conf is not of JSON supported type, it may have been converted
+    %% by the hocon schema
+    #{type => string}.
+
+path_join([P]) -> str(P);
+path_join([P | Path]) ->
+    str(P) ++ "/" ++ path_join(Path).
+
+str(S) when is_list(S) -> S;
+str(S) when is_binary(S) -> binary_to_list(S);
+str(S) when is_atom(S) -> atom_to_list(S).
