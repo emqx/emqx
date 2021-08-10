@@ -1,5 +1,31 @@
 %%-*- mode: erlang -*-
 
+{mapping, "exhook.request_failed_action", "emqx_exhook.request_failed_action", [
+  {default, "ignore"},
+  {datatype, {enum, [ignore, deny]}}
+]}.
+
+{mapping, "exhook.request_timeout", "emqx_exhook.request_timeout", [
+  {default, "5s"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "exhook.auto_reconnect", "emqx_exhook.auto_reconnect", [
+  {default, "60s"},
+  {datatype, string}
+]}.
+
+{translation, "emqx_exhook.auto_reconnect", fun(Conf) ->
+  case cuttlefish:conf_get("exhook.auto_reconnect", Conf) of
+      "false" -> false;
+      Dur ->
+          case cuttlefish_duration:parse(Dur, ms) of
+              Ms when is_integer(Ms) -> Ms;
+              {error, Reason} -> error(Reason)
+          end
+  end
+end}.
+
 {mapping, "exhook.server.$name.url", "emqx_exhook.servers", [
   {datatype, string}
 ]}.
