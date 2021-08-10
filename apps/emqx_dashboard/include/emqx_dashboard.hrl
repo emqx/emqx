@@ -21,3 +21,8 @@
 -define(EMPTY_KEY(Key), ((Key == undefined) orelse (Key == <<>>))).
 
 -define(DASHBOARD_SHARD, emqx_dashboard_shard).
+
+-record(mqtt_collect, {
+    timestamp :: integer(),
+    collect
+    }).

@@ -6,7 +6,8 @@
   {applications,
    [kernel,
     stdlib,
-    estatsd
+    estatsd,
+    emqx
    ]},
   {env,[]},
   {modules, []},

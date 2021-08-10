@@ -11,9 +11,9 @@
 -mode(compile).
 
 main(_) ->
-    BaseConf = "apps/emqx/etc/emqx.conf",
+    BaseConf = "apps/emqx_machine/etc/emqx_machine.conf",
     {ok, Bin} = file:read_file(BaseConf),
-    Apps = filelib:wildcard("emqx_*", "apps/"),
+    Apps = filelib:wildcard("*", "apps/"),
     Conf = lists:foldl(fun(App, Acc) ->
         Filename = filename:join([apps, App, "etc", App]) ++ ".conf",
         case filelib:is_regular(Filename) of
@@ -23,4 +23,4 @@ main(_) ->
             false -> Acc
         end
     end, Bin, Apps),
-    ok = file:write_file("apps/emqx/etc/emqx.conf.all", Conf).
+    ok = file:write_file("apps/emqx_machine/etc/emqx.conf.all", Conf).

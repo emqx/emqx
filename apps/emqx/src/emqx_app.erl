@@ -24,6 +24,7 @@
         , get_description/0
         , get_release/0
         , set_init_config_load_done/0
+        , set_override_conf_file/1
         ]).
 
 -include("emqx.hrl").
@@ -46,24 +47,14 @@
 
 start(_Type, _Args) ->
     ok = maybe_load_config(),
-    ok = set_backtrace_depth(),
-    print_otp_version_warning(),
-    print_banner(),
     %% Load application first for ekka_mnesia scanner
-    _ = load_ce_modules(),
     ekka:start(),
     ok = ekka_rlog:wait_for_shards(?EMQX_SHARDS, infinity),
-    false == os:getenv("EMQX_NO_QUIC")
-        andalso application:ensure_all_started(quicer),
+    ok = maybe_start_quicer(),
     {ok, Sup} = emqx_sup:start_link(),
-    ok = start_autocluster(),
-    %% ok = emqx_plugins:init(),
-    %% _ = emqx_plugins:load(),
-    %% _ = start_ce_modules(),
-    emqx_boot:is_enabled(listeners) andalso (ok = emqx_listeners:start()),
-    register(emqx, self()),
+    ok = maybe_start_listeners(),
     ok = emqx_alarm_handler:load(),
-    print_vsn(),
+    register(emqx, self()),
     {ok, Sup}.
 
 prep_stop(_State) ->
@@ -79,6 +70,13 @@ stop(_State) -> ok.
 set_init_config_load_done() ->
     application:set_env(emqx, init_config_load_done, true).
 
+%% @doc This API is mostly for testing.
+%% The override config file is typically located in the 'data' dir when
+%% it is a emqx release, but emqx app should not have to konw where the
+%% 'data' dir is located.
+set_override_conf_file(File) ->
+    application:set_env(emqx, override_conf_file, File).
+
 maybe_load_config() ->
     case application:get_env(emqx, init_config_load_done, false) of
         true ->
@@ -89,52 +87,31 @@ maybe_load_config() ->
             emqx_config:init_load(emqx_schema, ConfFiles)
     end.
 
-set_backtrace_depth() ->
-    Depth = emqx_config:get([node, backtrace_depth]),
-    _ = erlang:system_flag(backtrace_depth, Depth),
-    ok.
+maybe_start_listeners() ->
+    case emqx_boot:is_enabled(listeners) of
+        true ->
+            ok = emqx_listeners:start();
+        false ->
+            ok
+    end.
 
--ifndef(EMQX_ENTERPRISE).
-load_ce_modules() ->
-    application:load(emqx_modules).
-start_ce_modules() ->
-    application:ensure_all_started(emqx_modules).
--else.
-load_ce_modules() ->
-    ok.
-start_ce_modules() ->
-    ok.
--endif.
+maybe_start_quicer() ->
+    case is_quicer_app_present() andalso is_quic_listener_configured() of
+        true -> {ok, _} = application:ensure_all_started(quicer), ok;
+        false -> ok
+    end.
 
-%%--------------------------------------------------------------------
-%% Print Banner
-%%--------------------------------------------------------------------
+is_quicer_app_present() ->
+    case application:load(quicer) of
+        ok -> true;
+        {error, {already_loaded, _}} -> true;
+        _ ->
+            ?SLOG(info, #{msg => "quicer_app_not_found"}),
+            false
+    end.
 
--if(?OTP_RELEASE> 22).
-print_otp_version_warning() -> ok.
--else.
-print_otp_version_warning() ->
-    ?ULOG("WARNING: Running on Erlang/OTP version ~p. Recommended: 23~n",
-          [?OTP_RELEASE]).
--endif. % OTP_RELEASE
-
--ifndef(TEST).
-
-print_banner() ->
-    ?ULOG("Starting ~s on node ~s~n", [?APP, node()]).
-
-print_vsn() ->
-    ?ULOG("~s ~s is running now!~n", [get_description(), get_release()]).
-
--else. % TEST
-
-print_vsn() ->
-    ok.
-
-print_banner() ->
-    ok.
-
--endif. % TEST
+is_quic_listener_configured() ->
+    emqx_listeners:has_enabled_listener_conf_by_type(quic).
 
 get_description() ->
     {ok, Descr0} = application:get_key(?APP, description),
@@ -163,12 +140,3 @@ get_release() ->
 
 release_in_macro() ->
     element(2, ?EMQX_RELEASE).
-
-%%--------------------------------------------------------------------
-%% Autocluster
-%%--------------------------------------------------------------------
-start_autocluster() ->
-    ekka:callback(prepare, fun emqx:shutdown/1),
-    ekka:callback(reboot,  fun emqx:reboot/0),
-    _ = ekka:autocluster(?APP), %% returns 'ok' or a pid or 'any()' as in spec
-    ok.

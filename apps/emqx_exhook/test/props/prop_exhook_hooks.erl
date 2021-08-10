@@ -31,7 +31,13 @@
         ]).
 
 -define(CONF_DEFAULT, <<"
-exhook: { server.default: { url: \"http://127.0.0.1:9000\" } }
+exhook: {
+    servers: [
+        { name: \"default\"
+          url: \"http://127.0.0.1:9000\"
+        }
+    ]
+}
 ">>).
 
 -define(ALL(Vars, Types, Exprs),

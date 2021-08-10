@@ -46,7 +46,7 @@ fields(stomp) ->
 fields(stomp_structs) ->
     [ {frame, t(ref(stomp_frame))}
     , {clientinfo_override, t(ref(clientinfo_override))}
-    , {authenticator, t(union([allow_anonymous]))}
+    , {authentication,  t(ref(authentication))}
     , {listener, t(ref(tcp_listener_group))}
     ];
 
@@ -97,7 +97,7 @@ fields(exproto) ->
 fields(exproto_structs) ->
     [ {server, t(ref(exproto_grpc_server))}
     , {handler, t(ref(exproto_grpc_handler))}
-    , {authenticator, t(union([allow_anonymous]))}
+    , {authentication,  t(ref(authentication))}
     , {listener, t(ref(udp_tcp_listener_group))}
     ];
 
@@ -109,6 +109,11 @@ fields(exproto_grpc_server) ->
 fields(exproto_grpc_handler) ->
     [ {address, t(string())}
       %% TODO: ssl
+    ];
+
+fields(authentication) ->
+    [ {enable, #{type => boolean(), default => false}}
+    , {authenticators, fun emqx_authn_schema:authenticators/1}
     ];
 
 fields(clientinfo_override) ->
@@ -209,7 +214,7 @@ fields(coap) ->
 
 fields(coap_structs) ->
     [ {enable_stats, t(boolean(), undefined, true)}
-    , {authenticator, t(union([allow_anonymous]))}
+    , {authentication,  t(ref(authentication))}
     , {heartbeat, t(duration(), undefined, "15s")}
     , {resource, t(union([mqtt, pubsub]), undefined, mqtt)}
     , {notify_type, t(union([non, con, qos]), undefined, qos)}

@@ -84,7 +84,7 @@
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
 
--spec load(atom(), options()) -> {ok, server()} | {error, term()} .
+-spec load(binary(), options()) -> {ok, server()} | {error, term()} .
 load(Name0, Opts0) ->
     Name = to_list(Name0),
     {SvrAddr, ClientOpts} = channel_opts(Opts0),
@@ -160,7 +160,10 @@ do_deinit(Name) ->
     ok.
 
 do_init(ChannName) ->
-    Req = #{broker => maps:from_list(emqx_sys:info())},
+    %% BrokerInfo defined at: exhook.protos
+    BrokerInfo = maps:with([version, sysdescr, uptime, datetime],
+                        maps:from_list(emqx_sys:info())),
+    Req = #{broker => BrokerInfo},
     case do_call(ChannName, 'on_provider_loaded', Req) of
         {ok, InitialResp} ->
             try

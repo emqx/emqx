@@ -23,7 +23,13 @@
 -include_lib("common_test/include/ct.hrl").
 
 -define(CONF_DEFAULT, <<"
-exhook: { server.default: { url: \"http://127.0.0.1:9000\" } }
+exhook: {
+    servers: [
+        { name: \"default\"
+          url: \"http://127.0.0.1:9000\"
+        }
+    ]
+}
 ">>).
 
 %%--------------------------------------------------------------------
@@ -47,10 +53,10 @@ end_per_suite(_Cfg) ->
 %%--------------------------------------------------------------------
 
 t_noserver_nohook(_) ->
-    emqx_exhook:disable(default),
+    emqx_exhook:disable(<<"default">>),
     ?assertEqual([], loaded_exhook_hookpoints()),
-    Opts = emqx_config:get([exhook, server, default]),
-    ok = emqx_exhook:enable(default, Opts),
+    [#{name := Name} = Opts] = emqx_config:get([exhook, servers]),
+    ok = emqx_exhook:enable(Name, Opts),
     ?assertNotEqual([], loaded_exhook_hookpoints()).
 
 t_cli_list(_) ->

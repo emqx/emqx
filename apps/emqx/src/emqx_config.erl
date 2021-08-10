@@ -260,7 +260,7 @@ load_hocon_file(FileName, LoadType) ->
     end.
 
 emqx_override_conf_name() ->
-    filename:join([?MODULE:get([node, data_dir]), "emqx_override.conf"]).
+    application:get_env(emqx, override_conf_file, "emqx_override.conf").
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).

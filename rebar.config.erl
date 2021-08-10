@@ -79,10 +79,6 @@ is_cover_enabled() ->
 is_enterprise() ->
     filelib:is_regular("EMQX_ENTERPRISE").
 
-emqx_ext_schemas() ->
-    {ok, Schemas} = file:script("extension_schemas.config"),
-    Schemas.
-
 is_quicer_supported() ->
     not (false =/= os:getenv("BUILD_WITHOUT_QUIC") orelse
          is_win32() orelse is_centos_6()
@@ -110,7 +106,7 @@ project_app_dirs() ->
 
 plugins(HasElixir) ->
     [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {tag, "2.0.0"}}}
-    , {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0"}}}
+    , {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0.3"}}}
       %% emqx main project does not require port-compiler
       %% pin at root level for deterministic
     , {pc, {git, "https://github.com/emqx/port_compiler.git", {tag, "v1.11.1"}}}
@@ -133,18 +129,13 @@ test_deps() ->
     ].
 
 common_compile_opts() ->
-    AppNames = list_dir("apps") ++
-               case is_enterprise() of
-                    true -> list_dir("lib-ee");
-                    false -> []
-               end,
+    AppNames = app_names(),
     [ debug_info % alwyas include debug_info
     , {compile_info, [{emqx_vsn, get_vsn()}]}
     , {d, snk_kind, msg}
     ] ++
-    [{d, 'EMQX_DEP_APPS', AppNames -- [emqx]}] ++
+    [{d, 'EMQX_DEP_APPS', AppNames -- [emqx, emqx_machine]}] ++
     [{d, 'EMQX_ENTERPRISE'} || is_enterprise()] ++
-    [{d, 'EMQX_EXT_SCHEMAS', emqx_ext_schemas()}] ++
     [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].
 
 prod_compile_opts() ->
@@ -264,7 +255,8 @@ relx_apps(ReleaseType) ->
     , inets
     , compiler
     , runtime_tools
-    , emqx
+    , {emqx, load} % started by emqx_machine
+    , emqx_machine
     , {mnesia, load}
     , {ekka, load}
     , {emqx_plugin_libs, load}
@@ -275,7 +267,7 @@ relx_apps(ReleaseType) ->
     , emqx_authn
     , emqx_authz
     , emqx_gateway
-    , {emqx_exhook, load}
+    , emqx_exhook
     , emqx_data_bridge
     , emqx_rule_engine
     , emqx_rule_actions
@@ -382,7 +374,7 @@ emqx_etc_overlay(edge) ->
     ].
 
 emqx_etc_overlay_common() ->
-    [ {"{{base_dir}}/lib/emqx/etc/emqx.conf.all", "etc/emqx.conf"}
+    [ {"{{base_dir}}/lib/emqx_machine/etc/emqx.conf.all", "etc/emqx.conf"}
     , {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"}
     ].
 
@@ -431,11 +423,7 @@ dialyzer(Config) ->
             [ list_to_atom(App) || App <- string:tokens(Value, ",")]
     end,
 
-    AppNames = [list_dir("apps")] ++ 
-               case is_enterprise() of
-                    true -> [list_dir("lib-ee")];
-                    false -> []
-               end,
+    AppNames = app_names(),
 
     KnownApps = [Name ||  Name <- AppsToAnalyse, lists:member(Name, AppNames)],
 
@@ -467,9 +455,16 @@ coveralls() ->
         []
     end.
 
+app_names() -> list_dir("apps") ++ list_dir("lib-ee").
+
 list_dir(Dir) ->
-    {ok, Names} = file:list_dir(Dir),
-    [list_to_atom(Name) || Name <- Names, filelib:is_dir(filename:join([Dir, Name]))].
+    case filelib:is_dir(Dir) of
+        true ->
+            {ok, Names} = file:list_dir(Dir),
+            [list_to_atom(Name) || Name <- Names, filelib:is_dir(filename:join([Dir, Name]))];
+        false ->
+            []
+    end.
 
 %% ==== Enterprise supports below ==================================================================
 

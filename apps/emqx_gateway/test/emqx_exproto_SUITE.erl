@@ -139,9 +139,9 @@ t_auth_deny(Cfg) ->
               },
     Password = <<"123456">>,
 
-    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_access_control, authenticate,
-                     fun(_) -> {error, ?RC_NOT_AUTHORIZED} end),
+    ok = meck:new(emqx_gateway_ctx, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_gateway_ctx, authenticate,
+                     fun(_, _) -> {error, ?RC_NOT_AUTHORIZED} end),
 
     ConnBin = frame_connect(Client, Password),
     ConnAckBin = frame_connack(1),
@@ -152,7 +152,7 @@ t_auth_deny(Cfg) ->
     SockType =/= udp andalso begin
         {error, closed} = recv(Sock, 5000)
     end,
-    meck:unload([emqx_access_control]).
+    meck:unload([emqx_gateway_ctx]).
 
 t_acl_deny(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
@@ -164,8 +164,8 @@ t_acl_deny(Cfg) ->
               },
     Password = <<"123456">>,
 
-    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
+    ok = meck:new(emqx_gateway_ctx, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_gateway_ctx, authorize, fun(_, _, _, _) -> deny end),
 
     ConnBin = frame_connect(Client, Password),
     ConnAckBin = frame_connack(0),
@@ -188,7 +188,7 @@ t_acl_deny(Cfg) ->
     send(Sock, PubBin),
     {ok, PubBinFailedAck} = recv(Sock, 5000),
 
-    meck:unload([emqx_access_control]),
+    meck:unload([emqx_gateway_ctx]),
 
     send(Sock, PubBin),
     {ok, PubBinSuccesAck} = recv(Sock, 5000),

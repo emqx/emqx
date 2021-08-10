@@ -23,7 +23,6 @@
 
 %% Start/Stop the application
 -export([ start/0
-        , restart/1
         , is_running/1
         , stop/0
         ]).
@@ -50,12 +49,6 @@
         , unhook/2
         , run_hook/2
         , run_fold_hook/3
-        ]).
-
-%% Shutdown and reboot
--export([ shutdown/0
-        , shutdown/1
-        , reboot/0
         ]).
 
 %% Troubleshooting
@@ -94,18 +87,7 @@ set_debug_secret(PathToSecretFile) ->
 %% @doc Start emqx application
 -spec(start() -> {ok, list(atom())} | {error, term()}).
 start() ->
-    %% Check OS
-    %% Check VM
-    %% Check Mnesia
     application:ensure_all_started(?APP).
-
--spec(restart(string()) -> ok).
-restart(ConfFile) ->
-    reload_config(ConfFile),
-    shutdown(),
-    ok = application:stop(mnesia),
-    _ = application:start(mnesia),
-    reboot().
 
 %% @doc Stop emqx application.
 -spec(stop() -> ok | {error, term()}).
@@ -202,40 +184,3 @@ run_hook(HookPoint, Args) ->
 -spec(run_fold_hook(emqx_hooks:hookpoint(), list(any()), any()) -> any()).
 run_fold_hook(HookPoint, Args, Acc) ->
     emqx_hooks:run_fold(HookPoint, Args, Acc).
-
-%%--------------------------------------------------------------------
-%% Shutdown and reboot
-%%--------------------------------------------------------------------
-
-shutdown() ->
-    shutdown(normal).
-
-shutdown(Reason) ->
-    ?LOG(critical, "emqx shutdown for ~s", [Reason]),
-    _ = emqx_alarm_handler:unload(),
-    lists:foreach(fun application:stop/1
-                 , lists:reverse(default_started_applications())
-                 ).
-
-reboot() ->
-    lists:foreach(fun application:start/1 , default_started_applications()).
-
-default_started_applications() ->
-    [gproc, esockd, ranch, cowboy, ekka, quicer, emqx] ++ emqx_feature().
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-reload_config(ConfFile) ->
-    {ok, [Conf]} = file:consult(ConfFile),
-    lists:foreach(fun({App, Vals}) ->
-                      [application:set_env(App, Par, Val) || {Par, Val} <- Vals]
-                  end, Conf).
-
--ifndef(EMQX_DEP_APPS).
-emqx_feature() -> [].
--else.
-emqx_feature() ->
-    ?EMQX_DEP_APPS.
--endif.

@@ -109,7 +109,7 @@ format_listenon({Addr, Port}) when is_tuple(Addr) ->
 
 -type rawconf() ::
         #{ clientinfo_override => #{}
-         , authenticators      := #{}
+         , authenticators      := list()
          , listeners           => listener()
          , atom()              => any()
          }.

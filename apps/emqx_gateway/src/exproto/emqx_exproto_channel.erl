@@ -588,7 +588,7 @@ default_conninfo(ConnInfo) ->
 
 default_clientinfo(#{peername := {PeerHost, _},
                      sockname := {_, SockPort}}) ->
-    #{zone         => external,
+    #{zone         => default,
       protocol     => undefined,
       peerhost     => PeerHost,
       sockport     => SockPort,
