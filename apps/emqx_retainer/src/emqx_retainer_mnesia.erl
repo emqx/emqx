@@ -33,8 +33,6 @@
 
 -export([create_resource/1]).
 
--define(DEF_MAX_RETAINED_MESSAGES, 0).
-
 -rlog_shard({?RETAINER_SHARD, ?TAB}).
 
 -record(retained, {topic, msg, expiry_time}).
@@ -229,10 +227,7 @@ make_match_spec(Filter) ->
 
 -spec is_table_full() -> boolean().
 is_table_full() ->
-    [#{config := Cfg} | _] = emqx_config:get([?APP, connector]),
-    Limit = maps:get(max_retained_messages,
-                     Cfg,
-                     ?DEF_MAX_RETAINED_MESSAGES),
+    #{max_retained_messages := Limit} = emqx_config:get([?APP, config]),
     Limit > 0 andalso (table_size() >= Limit).
 
 -spec table_size() -> non_neg_integer().
