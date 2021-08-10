@@ -20,18 +20,9 @@
 
 -include("emqx_exhook.hrl").
 
--define(CNTER, emqx_exhook_counter).
-
 -export([ start/2
         , stop/1
         , prep_stop/1
-        ]).
-
-%% Internal export
--export([ load_server/2
-        , unload_server/1
-        , unload_exhooks/0
-        , init_hooks_cnter/0
         ]).
 
 %%--------------------------------------------------------------------
@@ -40,21 +31,11 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_exhook_sup:start_link(),
-
-    %% Init counter
-    init_hooks_cnter(),
-
-    %% Load all dirvers
-    load_all_servers(),
-
-    %% Register CLI
     emqx_ctl:register_command(exhook, {emqx_exhook_cli, cli}, []),
     {ok, Sup}.
 
 prep_stop(State) ->
     emqx_ctl:unregister_command(exhook),
-    _ = unload_exhooks(),
-    ok = unload_all_servers(),
     State.
 
 stop(_State) ->
@@ -63,35 +44,3 @@ stop(_State) ->
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
-
-load_all_servers() ->
-    try
-        lists:foreach(fun(#{name := Name} = Options) ->
-            load_server(Name, maps:remove(name, Options))
-        end, emqx_config:get([exhook, servers]))
-    catch
-        _Class : _Reason ->
-            ok
-    end, ok.
-
-unload_all_servers() ->
-    emqx_exhook:disable_all().
-
-load_server(Name, Options) ->
-    emqx_exhook:enable(Name, Options).
-
-unload_server(Name) ->
-    emqx_exhook:disable(Name).
-
-unload_exhooks() ->
-    [emqx:unhook(Name, {M, F}) ||
-     {Name, {M, F, _A}} <- ?ENABLED_HOOKS].
-
-init_hooks_cnter() ->
-    try
-        _ = ets:new(?CNTER, [named_table, public]), ok
-    catch
-        error:badarg:_ ->
-            ok
-    end.
-
