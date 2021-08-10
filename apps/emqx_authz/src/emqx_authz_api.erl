@@ -30,7 +30,7 @@
 
 
 -define(EXAMPLE_RETURNED_RULES,
-        #{rules => [?EXAMPLE_RETURNED_RULE1 
+        #{rules => [?EXAMPLE_RETURNED_RULE1
                    ]
         }).
 
@@ -101,6 +101,29 @@ authorization_api() ->
                 <<"201">> => #{description => <<"Created">>},
                 <<"400">> => #{description => <<"Bad Request">>}
             }
+        },
+        put => #{
+            description => "Update all rules",
+            requestBody => #{
+                content => #{
+                    'application/json' => #{
+                        schema => #{
+                            type => array,
+                            items => minirest:ref(<<"returned_rules">>)
+                        },
+                        examples => #{
+                            rules => #{
+                                summary => <<"Rules">>,
+                                value => jsx:encode([?EXAMPLE_RULE1])
+                            }
+                        }
+                    }
+                }
+            },
+            responses => #{
+                <<"201">> => #{description => <<"Created">>},
+                <<"400">> => #{description => <<"Bad Request">>}
+            }
         }
     },
     {"/authorization", Metadata, authorization}.
@@ -163,13 +186,29 @@ authorization_api2() ->
                 }
             },
             responses => #{
-                <<"201">> => #{description => <<"Created">>},
+                <<"204">> => #{description => <<"No Content">>},
+                <<"400">> => #{description => <<"Bad Request">>}
+            }
+        },
+        delete => #{
+            description => "Delete rule",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                       type => string
+                    },
+                    required => true
+                }
+            ],
+            responses => #{
+                <<"204">> => #{description => <<"No Content">>},
                 <<"400">> => #{description => <<"Bad Request">>}
             }
         }
     },
     {"/authorization/:id", Metadata, authorization_once}.
-    
 
 authorization(get, _Request) ->
     Rules = lists:foldl(fun (#{type := _Type, enable := true, annotations := #{id := Id} = Annotations} = Rule, AccIn) ->
@@ -183,12 +222,19 @@ authorization(get, _Request) ->
                             (Rule, AccIn) ->
                                 lists:append(AccIn, [Rule])
                         end, [], emqx_authz:lookup()),
-    {200, #{rules => [Rules]}};
+    {200, #{rules => Rules}};
 authorization(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     RawConfig = jsx:decode(Body, [return_maps]),
     case emqx_authz:update(head, [RawConfig]) of
         ok -> {201};
+        {error, Reason} -> {400, #{messgae => atom_to_binary(Reason)}}
+    end;
+authorization(put, Request) ->
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    RawConfig = jsx:decode(Body, [return_maps]),
+    case emqx_authz:update(replace, RawConfig) of
+        ok -> {204};
         {error, Reason} -> {400, #{messgae => atom_to_binary(Reason)}}
     end.
 
@@ -199,7 +245,7 @@ authorization_once(get, Request) ->
         Rule ->
             case maps:get(type, Rule, undefined) of
                 undefined -> {200, Rule};
-                _ -> 
+                _ ->
                     case emqx_resource:health_check(Id) of
                         ok ->
                             {200, Rule#{annotations => #{status => healthy}}};
@@ -214,7 +260,12 @@ authorization_once(put, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     RawConfig = jsx:decode(Body, [return_maps]),
     case emqx_authz:update({replace_once, RuleId}, RawConfig) of
-        ok -> {200};
+        ok -> {204};
+        {error, Reason} -> {400, #{messgae => atom_to_binary(Reason)}}
+    end;
+authorization_once(delete, Request) ->
+    RuleId = cowboy_req:binding(id, Request),
+    case emqx_authz:update({replace_once, RuleId}, #{}) of
+        ok -> {204};
         {error, Reason} -> {400, #{messgae => atom_to_binary(Reason)}}
     end.
-

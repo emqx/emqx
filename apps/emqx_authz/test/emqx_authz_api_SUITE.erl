@@ -28,11 +28,12 @@
                       , create_default_app/0
                       , delete_default_app/0
                       , default_auth_header/0
+                      , auth_header/2
                       ]).
 
 -define(HOST, "http://127.0.0.1:8081/").
 -define(API_VERSION, "v5").
--define(BASE_PATH, "api/authorization").
+-define(BASE_PATH, "api").
 
 -define(CONF_DEFAULT, <<"authorization: {rules: []}">>).
 
@@ -43,91 +44,80 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
-    ok = emqx_ct_helpers:start_apps([emqx_authz]),
+    ekka_mnesia:start(),
+    emqx_mgmt_auth:mnesia(boot),
+    ok = emqx_ct_helpers:start_apps([emqx_management, emqx_authz], fun set_special_configs/1),
     ok = emqx_config:update([zones, default, authorization, cache, enable], false),
     ok = emqx_config:update([zones, default, authorization, enable], true),
 
-    create_default_app(),
     Config.
 
 end_per_suite(_Config) ->
     ok = emqx_authz:update(replace, []),
-    delete_default_app(),
-    emqx_ct_helpers:stop_apps([emqx_authz]),
+    emqx_ct_helpers:stop_apps([emqx_authz, emqx_management]),
     ok.
 
-% set_special_configs(emqx) ->
-%     application:set_env(emqx, allow_anonymous, true),
-%     application:set_env(emqx, enable_authz_cache, false),
-%     ok;
-% set_special_configs(emqx_authz) ->
-%     emqx_config:put([emqx_authz], #{rules => []}),
-%     ok;
-
-% set_special_configs(emqx_management) ->
-%     emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
-%         applications =>[#{id => "admin", secret => "public"}]}),
-%     ok;
-
-% set_special_configs(_App) ->
-%     ok.
+set_special_configs(emqx_management) ->
+    emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
+        applications =>[#{id => "admin", secret => "public"}]}),
+    ok;
+set_special_configs(emqx_authz) ->
+    emqx_config:put([authorization], #{rules => []}),
+    ok;
+set_special_configs(_App) ->
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
 
-% t_api_unit_test(_Config) ->
-%     %% TODO: Decode from JSON or HOCON, instead of hand-crafting decode result
-%     Rule1 = #{<<"principal">> =>
-%                     #{<<"and">> => [#{<<"username">> => <<"^test?">>},
-%                                     #{<<"clientid">> => <<"^test?">>}
-%                                    ]},
-%               <<"action">> => <<"subscribe">>,
-%               <<"topics">> => [<<"%u">>],
-%               <<"permission">> => <<"allow">>
-%             },
-%     ok = emqx_authz_api:push_authz(#{}, Rule1),
-%     [#{action := subscribe,
-%        permission := allow,
-%        principal :=
-%         #{'and' := [#{username := <<"^test?">>},
-%                     #{clientid := <<"^test?">>}]},
-%        topics := [<<"%u">>]}] = emqx_config:get([authorization, rules]).
-
 t_post(_) ->
-    Rules1 = request(get, uri(), []),
-    ct:print("============~p~n",[Rules1]),
-    ok.
+    {ok, 200, Result1} = request(get, uri(["authorization"]), []),
+    ?assertEqual([], get_rules(Result1)),
 
-t_api(_Config) ->
-    Rule1 = #{<<"principal">> =>
-                    #{<<"and">> => [#{<<"username">> => <<"^test?">>},
-                                    #{<<"clientid">> => <<"^test?">>}
-                                   ]},
-              <<"action">> => <<"subscribe">>,
-              <<"topics">> => [<<"%u">>],
-              <<"permission">> => <<"allow">>
-            },
-    {ok, _} = request_http_rest_add(["authz/push"], #{rules => [Rule1]}),
-    {ok, Result1} = request_http_rest_lookup(["authz"]),
-    ?assertMatch([Rule1 | _ ], get_http_data(Result1)),
+    {ok, 201, _} = request(post, uri(["authorization"]),
+                           #{<<"action">> => <<"all">>, <<"permission">> => <<"deny">>,
+                             <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}),
+    {ok, 201, _} = request(post, uri(["authorization"]),
+                           #{<<"action">> => <<"all">>, <<"permission">> => <<"deny">>,
+                             <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}),
+    {ok, 201, _} = request(post, uri(["authorization"]),
+                           #{<<"action">> => <<"all">>, <<"permission">> => <<"deny">>,
+                             <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}),
+    {ok, 200, Result2} = request(get, uri(["authorization"]), []),
+    ?assertEqual(3, length(get_rules(Result2))),
 
-    Rule2 = #{<<"principal">> => #{<<"ipaddress">> => <<"127.0.0.1">>},
-              <<"action">> => <<"publish">>,
-              <<"topics">> => [#{<<"eq">> => <<"#">>},
-                               #{<<"eq">> => <<"+">>}
-                              ],
-              <<"permission">> => <<"deny">>
-            },
-    {ok, _} = request_http_rest_add(["authz/append"], #{rules => [Rule2]}),
-    {ok, Result2} = request_http_rest_lookup(["authz"]),
-    ?assertEqual(Rule2#{<<"principal">> => #{<<"ipaddress">> => "127.0.0.1"}},
-                 lists:last(get_http_data(Result2))),
+    {ok, 204, _} = request(put, uri(["authorization"]),
+                           [ #{<<"action">> => <<"all">>, <<"permission">> => <<"allow">>, <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}
+                           , #{<<"action">> => <<"all">>, <<"permission">> => <<"allow">>, <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}
+                           , #{<<"action">> => <<"all">>, <<"permission">> => <<"allow">>, <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}
+                           , #{<<"action">> => <<"all">>, <<"permission">> => <<"allow">>, <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}
+                           ]),
 
-    {ok, _} = request_http_rest_update(["authz"], #{rules => []}),
-    {ok, Result3} = request_http_rest_lookup(["authz"]),
-    ?assertEqual([], get_http_data(Result3)),
+    {ok, 200, Result3} = request(get, uri(["authorization"]), []),
+    Rules = get_rules(Result3),
+    ?assertEqual(4, length(Rules)),
+
+    lists:foreach(fun(#{<<"permission">> := Allow}) ->
+                          ?assertEqual(<<"allow">>, Allow)
+                  end, Rules),
+
+    #{<<"annotations">> := #{<<"id">> := Id}} = lists:nth(2, Rules),
+
+    {ok, 204, _} = request(put, uri(["authorization", binary_to_list(Id)]),
+                           #{<<"action">> => <<"all">>, <<"permission">> => <<"deny">>,
+                             <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}),
+
+    {ok, 200, Result4} = request(get, uri(["authorization", binary_to_list(Id)]), []),
+    ?assertMatch(#{<<"annotations">> := #{<<"id">> := Id},
+                   <<"permission">> := <<"deny">>
+                  }, jsx:decode(Result4)),
+
+    lists:foreach(fun(#{<<"annotations">> := #{<<"id">> := Id}}) ->
+                    {ok, 204, _} = request(delete, uri(["authorization", binary_to_list(Id)]), [])
+                  end, Rules),
+    {ok, 200, Result5} = request(get, uri(["authorization"]), []),
+    ?assertEqual([], get_rules(Result5)),
     ok.
 
 %%--------------------------------------------------------------------
@@ -136,9 +126,10 @@ t_api(_Config) ->
 
 request(Method, Url, Body) ->
     Request = case Body of
-        [] -> {Url, [{"username", "admin"}, {"password", "public"}]};
-        _ -> {Url, [{"username", "admin"}, {"password", "public"}], "application/json", Body}
+        [] -> {Url, [auth_header("admin", "public")]};
+        _ -> {Url, [auth_header("admin", "public")], "application/json", jsx:encode(Body)}
     end,
+    ct:pal("Method: ~p, Request: ~p", [Method, Request]),
     case httpc:request(Method, Request, [], [{body_format, binary}]) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
@@ -148,28 +139,10 @@ request(Method, Url, Body) ->
             {error, Reason}
     end.
 
-request_http_rest_list(Path) ->
-    request_api(get, uri(Path), default_auth_header()).
-
-request_http_rest_lookup(Path) ->
-    request_api(get, uri([Path]), default_auth_header()).
-
-request_http_rest_add(Path, Params) ->
-    request_api(post, uri(Path), [], default_auth_header(), Params).
-
-request_http_rest_update(Path, Params) ->
-    request_api(put, uri([Path]), [], default_auth_header(), Params).
-
-request_http_rest_delete(Login) ->
-    request_api(delete, uri([Login]), default_auth_header()).
-
 uri() -> uri([]).
 uri(Parts) when is_list(Parts) ->
-    NParts = [b2l(E) || E <- Parts],
+    NParts = [E || E <- Parts],
     ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION | NParts]).
 
-%% @private
-b2l(B) when is_binary(B) ->
-    binary_to_list(B);
-b2l(L) when is_list(L) ->
-    L.
+get_rules(Result) ->
+    maps:get(<<"rules">>, jsx:decode(Result), []).
