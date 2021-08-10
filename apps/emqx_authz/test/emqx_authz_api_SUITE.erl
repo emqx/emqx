@@ -75,28 +75,33 @@ t_post(_) ->
     {ok, 200, Result1} = request(get, uri(["authorization"]), []),
     ?assertEqual([], get_rules(Result1)),
 
-    {ok, 201, _} = request(post, uri(["authorization"]),
-                           #{<<"action">> => <<"all">>, <<"permission">> => <<"deny">>,
-                             <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}),
-    {ok, 201, _} = request(post, uri(["authorization"]),
-                           #{<<"action">> => <<"all">>, <<"permission">> => <<"deny">>,
-                             <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}),
-    {ok, 201, _} = request(post, uri(["authorization"]),
-                           #{<<"action">> => <<"all">>, <<"permission">> => <<"deny">>,
-                             <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}),
+    lists:foreach(fun(_) ->
+                        {ok, 201, _} = request(post, uri(["authorization"]),
+                                         #{<<"action">> => <<"all">>,
+                                           <<"permission">> => <<"deny">>,
+                                           <<"principal">> => <<"all">>,
+                                           <<"topics">> => [<<"#">>]}
+                                        )
+                  end, lists:seq(1, 20)),
     {ok, 200, Result2} = request(get, uri(["authorization"]), []),
-    ?assertEqual(3, length(get_rules(Result2))),
+    ?assertEqual(20, length(get_rules(Result2))),
+
+    lists:foreach(fun(Page) ->
+                          Query = "?page=" ++ integer_to_list(Page) ++ "&&limit=10",
+                          Url = uri(["authorization" ++ Query]),
+                          {ok, 200, Result} = request(get, Url, []),
+                          ?assertEqual(10, length(get_rules(Result)))
+                  end, lists:seq(1, 2)),
 
     {ok, 204, _} = request(put, uri(["authorization"]),
                            [ #{<<"action">> => <<"all">>, <<"permission">> => <<"allow">>, <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}
-                           , #{<<"action">> => <<"all">>, <<"permission">> => <<"allow">>, <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}
                            , #{<<"action">> => <<"all">>, <<"permission">> => <<"allow">>, <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}
                            , #{<<"action">> => <<"all">>, <<"permission">> => <<"allow">>, <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}
                            ]),
 
     {ok, 200, Result3} = request(get, uri(["authorization"]), []),
     Rules = get_rules(Result3),
-    ?assertEqual(4, length(Rules)),
+    ?assertEqual(3, length(Rules)),
 
     lists:foreach(fun(#{<<"permission">> := Allow}) ->
                           ?assertEqual(<<"allow">>, Allow)
