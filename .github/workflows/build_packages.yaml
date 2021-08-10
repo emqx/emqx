@@ -14,7 +14,7 @@ jobs:
       matrix:
         container:
           - "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
-          - "emqx/build-env:erl24.0.1-emqx-1-ubuntu20.04"
+          - "emqx/build-env:erl24.0.5-emqx-1-ubuntu20.04"
 
     runs-on: ubuntu-20.04
     container: ${{ matrix.container }}
@@ -85,7 +85,7 @@ jobs:
     - uses: gleam-lang/setup-erlang@v1.1.0
       id: install_erlang
       with:
-        otp-version: 23.2
+        otp-version: 24.0.5
     - name: build
       env:
         PYTHON: python
@@ -141,7 +141,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
-          - 23.2.7.2-emqx-2
+          - 24.0.5-emqx-1
         exclude:
           - profile: emqx-edge
 
@@ -221,7 +221,7 @@ jobs:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
           - 23.2.7.2-emqx-2
-          - 24.0.1-emqx-1
+          - 24.0.5-emqx-1
         arch:
           - amd64
           - arm64
@@ -237,8 +237,6 @@ jobs:
           - centos6
           - raspbian10
           # - raspbian9
-        erl_otp:
-          - 23.2.7.2-emqx-2
         exclude:
         - os: centos6
           arch: arm64
@@ -341,7 +339,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
-          - 23.2.7.2-emqx-2
+          - 24.0.5-emqx-1
 
     steps:
     - uses: actions/download-artifact@v2

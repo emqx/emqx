@@ -23,7 +23,7 @@ services:
 
   erlang24:
     container_name: erlang24
-    image: emqx/build-env:erl24.0.1-emqx-1-ubuntu20.04
+    image: emqx/build-env:erl24.0.5-emqx-1-ubuntu20.04
     env_file:
       - conf.env
     environment:

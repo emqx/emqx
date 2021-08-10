@@ -16,7 +16,7 @@ jobs:
         - uses: gleam-lang/setup-erlang@v1.1.2
           id: install_erlang
           with:
-            otp-version: 23.2
+            otp-version: 24.0.5
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -72,7 +72,7 @@ jobs:
         - uses: gleam-lang/setup-erlang@v1.1.2
           id: install_erlang
           with:
-            otp-version: 23.2
+            otp-version: 24.0.5
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -187,7 +187,7 @@ jobs:
           matrix:
             container:
               - "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
-              - "emqx/build-env:erl24.0.1-emqx-1-ubuntu20.04"
+              - "emqx/build-env:erl24.0.5-emqx-1-ubuntu20.04"
 
         runs-on: ubuntu-20.04
         container: ${{ matrix.container }}
