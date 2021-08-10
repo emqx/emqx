@@ -21,6 +21,7 @@
 -export([api_spec/0]).
 
 -export([ config/2
+        , config_reset/2
         ]).
 
 -define(PARAM_CONF_PATH, [#{
@@ -41,6 +42,7 @@
 }).
 
 -define(PREFIX, "/configs").
+-define(PREFIX_RESET, "/configs_reset").
 
 -define(MAX_DEPTH, 1).
 
@@ -81,42 +83,43 @@ config_api(ConfPath, Schema) ->
 
 config_reset_api() ->
     Metadata = #{
-        delete => #{
-            description => <<"Reset or remove the config entry specified by the query string parameter `conf_path`.<br/>
+        post => #{
+            description => <<"Reset the config entry specified by the query string parameter `conf_path`.<br/>
 - For a config entry that has default value, this resets it to the default value;
-- For a config entry that is dynamic such as a listener Id, this will remove the config entry">>,
+- For a config entry that has no default value, an error 400 will be returned">>,
             parameters => ?PARAM_CONF_PATH,
             responses => #{
                 <<"200">> => emqx_mgmt_util:response_schema(<<"Remove configs successfully">>),
                 <<"400">> => emqx_mgmt_util:response_error_schema(
-                    <<"It's not able to remove the config">>, ['INVALID_OPERATION'])
+                    <<"It's not able to reset the config">>, ['INVALID_OPERATION'])
             }
         }
     },
-    {?PREFIX, Metadata, config}.
+    {?PREFIX_RESET, Metadata, config_reset}.
 
 %%%==============================================================================================
 %% parameters trans
 config(get, Req) ->
-    case emqx_config:find_raw(conf_path_from_http_path(Req)) of
+    case emqx_config:find_raw(conf_path(Req)) of
         {ok, Conf} ->
             {200, Conf};
         {not_found, _, _} ->
             {404, #{code => 'NOT_FOUND', message => <<"Config cannot found">>}}
     end;
 
-config(delete, Req) ->
-    %% remove the config specified by the query string param 'conf_path'
-    case emqx_config:remove(conf_path_from_http_path(Req) ++ conf_path_from_querystr(Req)) of
-        ok -> {200};
-        {error, Reason} ->
-            {400, ?ERR_MSG(Reason)}
-    end;
-
 config(put, Req) ->
-    Path = conf_path_from_http_path(Req),
+    Path = conf_path(Req),
     ok = emqx_config:update(Path, http_body(Req)),
     {200, emqx_config:get_raw(Path)}.
+
+config_reset(post, Req) ->
+    %% reset the config specified by the query string param 'conf_path'
+    Path = conf_path_reset(Req),
+    case emqx_config:remove(Path ++ conf_path_from_querystr(Req)) of
+        ok -> {200, emqx_config:get_raw(Path)};
+        {error, Reason} ->
+            {400, ?ERR_MSG(Reason)}
+    end.
 
 conf_path_from_querystr(Req) ->
     case proplists:get_value(<<"conf_path">>, cowboy_req:parse_qs(Req)) of
@@ -124,8 +127,12 @@ conf_path_from_querystr(Req) ->
         Path -> string:lexemes(Path, ". ")
     end.
 
-conf_path_from_http_path(Req) ->
-    <<"/api/v5", ?PREFIX, "/", Path/binary>> = cowboy_req:path(Req),
+conf_path(Req) ->
+    <<"/api/v5", ?PREFIX, Path/binary>> = cowboy_req:path(Req),
+    string:lexemes(Path, "/ ").
+
+conf_path_reset(Req) ->
+    <<"/api/v5", ?PREFIX_RESET, Path/binary>> = cowboy_req:path(Req),
     string:lexemes(Path, "/ ").
 
 http_body(Req) ->
