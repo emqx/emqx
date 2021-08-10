@@ -131,7 +131,9 @@ defmodule EmqxReleaseHelper.DSL.Application do
     end
   end
 
-  def application_overlay(%{app_source_path: app_source_path, release_path: release_path} = config) do
+  def application_overlay(
+        %{app_source_path: app_source_path, release_path: release_path} = config
+      ) do
     "#{app_source_path}/etc"
     |> File.ls()
     |> case do

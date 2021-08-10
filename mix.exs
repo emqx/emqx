@@ -33,7 +33,9 @@ defmodule EMQXUmbrella.MixProject do
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       {:typerefl, github: "k32/typerefl", tag: "0.6.2", manager: :rebar3, override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.5.1", override: true},
-      {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.14.0", override: true}
+      {:gen_coap, github: "emqx/gen_coap", tag: "v0.3.2", override: true},
+      {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.14.0", override: true},
+      {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.2.1", override: true}
       | (enable_bcrypt() && [{:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.0"}]) || []
     ]
   end

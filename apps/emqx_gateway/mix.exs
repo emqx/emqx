@@ -18,7 +18,7 @@ defmodule EMQXStomp.MixProject do
 
   def application do
     [
-      registered: [:],
+      registered: [],
       mod: {:emqx_gateway_app, []},
       extra_applications: [:logger]
     ]
