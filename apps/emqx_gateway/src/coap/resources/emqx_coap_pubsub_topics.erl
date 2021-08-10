@@ -154,8 +154,11 @@ handle_info(Info, State) ->
 
 terminate(Reason, #state{}) ->
     ets:delete(?COAP_TOPIC_TABLE),
-    ?LOG(error, "the ~p terminate for reason ~p", [?MODULE, Reason]),
-    ok.
+    Level = case Reason =:= normal orelse Reason =:= shutdown of
+                true -> debug;
+                false -> error
+            end,
+    ?SLOG(Level, #{terminate_reason => Reason}).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
