@@ -45,17 +45,34 @@
         ]).
 
 api_spec() ->
-    {[ authorization_api(),
-       authorization_api2()
+    {[ api(),
+       once_api()
      ], definitions()}.
 
 definitions() -> emqx_authz_api_schema:definitions().
 
-authorization_api() ->
+api() ->
     Metadata = #{
         get => #{
             description => "List authorization rules",
-            parameters => [],
+            parameters => [
+                #{
+                    name => page,
+                    in => query,
+                    schema => #{
+                       type => integer
+                    },
+                    required => false
+                },
+                #{
+                    name => limit,
+                    in => query,
+                    schema => #{
+                       type => integer
+                    },
+                    required => false
+                }
+            ],
             responses => #{
                 <<"200">> => #{
                     description => <<"OK">>,
@@ -128,7 +145,7 @@ authorization_api() ->
     },
     {"/authorization", Metadata, authorization}.
 
-authorization_api2() ->
+once_api() ->
     Metadata = #{
         get => #{
             description => "List authorization rules",
@@ -210,7 +227,7 @@ authorization_api2() ->
     },
     {"/authorization/:id", Metadata, authorization_once}.
 
-authorization(get, _Request) ->
+authorization(get, Request) ->
     Rules = lists:foldl(fun (#{type := _Type, enable := true, annotations := #{id := Id} = Annotations} = Rule, AccIn) ->
                                 NRule = case emqx_resource:health_check(Id) of
                                     ok ->
@@ -222,7 +239,21 @@ authorization(get, _Request) ->
                             (Rule, AccIn) ->
                                 lists:append(AccIn, [Rule])
                         end, [], emqx_authz:lookup()),
-    {200, #{rules => Rules}};
+    Query = cowboy_req:parse_qs(Request),
+    case lists:keymember(<<"page">>, 1, Query) andalso lists:keymember(<<"limit">>, 1, Query) of
+        true ->
+            {<<"page">>, Page} = lists:keyfind(<<"page">>, 1, Query),
+            {<<"limit">>, Limit} = lists:keyfind(<<"limit">>, 1, Query),
+            Index = (binary_to_integer(Page) - 1) * binary_to_integer(Limit),
+            {_, Rules1} = lists:split(Index, Rules),
+            case binary_to_integer(Limit) < length(Rules1) of
+                true ->
+                    {Rules2, _} = lists:split(binary_to_integer(Limit), Rules1),
+                    {200, #{rules => Rules2}};
+                false -> {200, #{rules => Rules1}}
+            end;
+        false -> {200, #{rules => Rules}}
+    end;
 authorization(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     RawConfig = jsx:decode(Body, [return_maps]),
