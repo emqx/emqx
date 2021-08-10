@@ -3,7 +3,7 @@ version: '3.9'
 services:
   haproxy:
     container_name: haproxy
-    image: haproxy:2.3
+    image: haproxy:2.4
     depends_on:
       - emqx1
       - emqx2
