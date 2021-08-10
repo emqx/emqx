@@ -19,7 +19,6 @@
 
 -include("include/emqx_gateway.hrl").
 
--logger_header(["PGW-Ctx"]).
 
 %% @doc The running context for a Connection/Channel process.
 %%
@@ -33,7 +32,7 @@
            %% Gateway ID
          , type   := gateway_type()
            %% Autenticator
-         , auth   := emqx_authn:chain_id()
+         , auth   := emqx_authn:chain_id() | undefined
            %% The ConnectionManager PID
          , cm     := pid()
          }.
@@ -66,6 +65,8 @@
 -spec authenticate(context(), emqx_types:clientinfo())
     -> {ok, emqx_types:clientinfo()}
      | {error, any()}.
+authenticate(_Ctx = #{auth := undefined}, ClientInfo) ->
+    {ok, mountpoint(ClientInfo)};
 authenticate(_Ctx = #{auth := ChainId}, ClientInfo0) ->
     ClientInfo = ClientInfo0#{
                    zone => default,
@@ -79,7 +80,7 @@ authenticate(_Ctx = #{auth := ChainId}, ClientInfo0) ->
             {error, Reason}
     end;
 authenticate(_Ctx, ClientInfo) ->
-    {ok, ClientInfo}.
+    {ok, mountpoint(ClientInfo)}.
 
 %% @doc Register the session to the cluster.
 %%

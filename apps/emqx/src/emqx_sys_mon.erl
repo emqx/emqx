@@ -21,7 +21,6 @@
 -include("types.hrl").
 -include("logger.hrl").
 
--logger_header("[SYSMON]").
 
 -export([start_link/0]).
 

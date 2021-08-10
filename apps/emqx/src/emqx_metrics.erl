@@ -24,7 +24,6 @@
 -include("emqx_mqtt.hrl").
 -include("emqx.hrl").
 
--logger_header("[Metrics]").
 
 -export([ start_link/0
         , stop/0

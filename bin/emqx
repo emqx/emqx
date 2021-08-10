@@ -5,7 +5,8 @@
 set -e
 set -o pipefail
 
-if [ -n "$DEBUG" ]; then
+DEBUG="${DEBUG:-0}"
+if [ "$DEBUG" -eq 1 ]; then
     set -x
 fi
 
@@ -16,6 +17,7 @@ ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
 CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
 REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
+SCHEMA_MOD=emqx_machine_schema
 
 WHOAMI=$(whoami)
 
@@ -41,10 +43,19 @@ export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
 export ERTS_LIB_DIR="$ERTS_DIR/../lib"
 MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
 
+# Echo to stderr on errors
+echoerr() { echo "ERROR: $*" 1>&2; }
+
 die() {
-    echo >&2 "$1"
+    echoerr "ERROR: $1"
     errno=${2:-1}
     exit "$errno"
+}
+
+assert_node_alive() {
+    if ! relx_nodetool "ping" > /dev/null; then
+        die "node_is_not_running!" 1
+    fi
 }
 
 relx_usage() {
@@ -98,7 +109,7 @@ relx_usage() {
             echo "                      don't make it permanent"
             ;;
         *)
-            echo "Usage: $REL_NAME {start|start_boot <file>|ertspath|foreground|stop|restart|reboot|pid|ping|console|console_clean|console_boot <file>|attach|remote_console|upgrade|downgrade|install|uninstall|versions|escript|rpc|rpcterms|eval|root_dir}"
+            echo "Usage: $REL_NAME {start|start_boot <file>|ertspath|foreground|stop|pid|ping|console|console_clean|console_boot <file>|attach|remote_console|upgrade|downgrade|install|uninstall|versions|escript|ctl|rpc|rpcterms|eval|root_dir}"
             ;;
     esac
 }
@@ -112,7 +123,7 @@ check_user() {
             echo "You need to be root or use sudo to run this command"
             exit 1
         fi
-        CMD="\"$RUNNER_SCRIPT\" "
+        CMD="DEBUG=$DEBUG \"$RUNNER_SCRIPT\" "
         for ARG in "$@"; do
             CMD="${CMD} \"$ARG\""
         done
@@ -143,9 +154,6 @@ if [ "$ULIMIT_F" -lt 1024 ]; then
     echo "!!!! WARNING: ulimit -n is ${ULIMIT_F}; 1024 is the recommended minimum."
     echo "!!!!"
 fi
-
-# Echo to stderr on errors
-echoerr() { echo "$@" 1>&2; }
 
 SED_REPLACE="sed -i "
 case $(sed --help 2>&1) in
@@ -203,7 +211,7 @@ call_hocon() {
     export RUNNER_ETC_DIR
     export REL_VSN
     "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" hocon "$@" \
-        || die "ERROR: call_hocon failed: $*" $?
+        || die "call_hocon_failed: $*" $?
 }
 
 # Run an escript in the node's environment
@@ -240,7 +248,7 @@ generate_config() {
     ## ths command populates two files: app.<time>.config and vm.<time>.args
     ## disable SC2086 to allow EMQX_LICENSE_CONF_OPTION to split
     # shellcheck disable=SC2086
-    call_hocon -v -t "$NOW_TIME" -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf $EMQX_LICENSE_CONF_OPTION -d "$RUNNER_DATA_DIR"/configs generate
+    call_hocon -v -t "$NOW_TIME" -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf $EMQX_LICENSE_CONF_OPTION -d "$RUNNER_DATA_DIR"/configs generate
 
     ## filenames are per-hocon convention
     local CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
@@ -280,7 +288,7 @@ generate_config() {
 
     # shellcheck disable=SC2086
     if ! relx_nodetool chkconfig $CONFIG_ARGS; then
-        die "Error reading $CONFIG_ARGS"
+        die "failed_to_check_config $CONFIG_ARGS"
     fi
 }
 
@@ -289,6 +297,33 @@ bootstrapd() {
     if [ -e "$RUNNER_DATA_DIR/.erlang.cookie" ]; then
         chown "$RUNNER_USER" "$RUNNER_DATA_DIR"/.erlang.cookie
     fi
+}
+
+# check if a PID is down
+is_down() {
+    PID="$1"
+    if kill -s 0 "$PID" 2>/dev/null; then
+        return 1
+    fi
+    return 0
+}
+
+wait_for() {
+    local WAIT_TIME
+    local CMD
+    WAIT_TIME="$1"
+    shift
+    CMD="$*"
+    while true; do
+        if $CMD >/dev/null 2>&1; then
+            return 0
+        fi
+        if [ "$WAIT_TIME" -le 0 ]; then
+            return 1
+        fi
+        WAIT_TIME=$((WAIT_TIME - 1))
+        sleep 1
+    done
 }
 
 # Use $CWD/etc/sys.config if exists
@@ -316,25 +351,22 @@ esac
 ## Possible ways to configure emqx node name:
 ## 1. configure node.name in emqx.conf
 ## 2. override with environment variable EMQX_NODE_NAME
-## 3. override with environment variable EMQX_NAME and EMQX_HOST (deprecated)
 ## Node name is either short-name (without '@'), e.g. 'emqx'
 ## or long name (with '@') e.g. 'emqx@example.net' or 'emqx@127.0.0.1'
 NAME="${EMQX_NODE_NAME:-}"
-# to be backward compatible
-[ -n "$EMQX_NAME" ] && [ -n "$EMQX_HOST" ] && NAME="${EMQX_NAME}@${EMQX_HOST}"
 if [ -z "$NAME" ]; then
     if [ "$IS_BOOT_COMMAND" = 'no' ]; then
         # for non-boot commands, inspect vm.<time>.args for node name
         # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
         if [ -z "$LATEST_VM_ARGS" ]; then
-            echoerr "For command $1, there is no vm.*.args file found in $CONFIGS_DIR/"
+            echoerr "no_vm_arg_file_found_for $1 in $CONFIGS_DIR/"
             exit 1
         fi
         NAME="$(grep -E '^-s?name' "$LATEST_VM_ARGS" | awk '{print $2}')"
     else
         # for boot commands, inspect emqx.conf for node name
-        NAME="$(call_hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
+        NAME="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
     fi
 fi
 
@@ -356,12 +388,12 @@ PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 COOKIE="${EMQX_NODE_COOKIE:-}"
 if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        COOKIE="$(call_hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
+        COOKIE="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
     else
         # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
         if [ -z "$LATEST_VM_ARGS" ]; then
-            echo "For command $1, there is no vm.*.args config file found in $CONFIGS_DIR/"
+            echoerr "no_vm_arg_file_found_for $1 in $CONFIGS_DIR/"
             exit 1
         fi
         COOKIE="$(grep -E '^-setcookie' "$LATEST_VM_ARGS" | awk '{print $2}')"
@@ -373,7 +405,7 @@ if [ -z "$COOKIE" ]; then
 fi
 
 # Support for IPv6 Dist. See: https://github.com/emqtt/emqttd/issues/1460
-PROTO_DIST="$(call_hocon -s emqx_schema -c "$RUNNER_ETC_DIR"/emqx.conf get cluster.proto_dist | tr -d \")"
+PROTO_DIST="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get cluster.proto_dist | tr -d \")"
 if [ -z "$PROTO_DIST" ]; then
     PROTO_DIST_ARG=""
 else
@@ -386,8 +418,7 @@ case "$1" in
     start|start_boot)
         # Make sure a node IS not running
         if relx_nodetool "ping" >/dev/null 2>&1; then
-            echo "Node is already running!"
-            exit 1
+            die "node_is_already_running!"
         fi
         # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
         bootstrapd
@@ -433,33 +464,35 @@ case "$1" in
                           "$(relx_start_command)"
 
         WAIT_TIME=${WAIT_FOR_ERLANG:-15}
-        while [ "$WAIT_TIME" -gt 0 ]; do
-            if ! relx_nodetool "ping" >/dev/null 2>&1; then
-                WAIT_TIME=$((WAIT_TIME - 1))
-                sleep 1
-                continue
-            fi
-            sleep 1
-            if relx_nodetool "ping" >/dev/null 2>&1; then
-                echo "$EMQX_DESCRIPTION $REL_VSN is started successfully!"
-                exit 0
-            fi
-        done && echo "$EMQX_DESCRIPTION $REL_VSN failed to start within ${WAIT_FOR_ERLANG:-15} seconds,"
-        echo "see the output of '$0 console' for more information."
-        echo "If you want to wait longer, set the environment variable"
-        echo "WAIT_FOR_ERLANG to the number of seconds to wait."
-        exit 1
+        if wait_for "$WAIT_TIME" 'relx_nodetool' 'ping'; then
+            echo "$EMQX_DESCRIPTION $REL_VSN is started successfully!"
+            exit 0
+        else
+            echo "$EMQX_DESCRIPTION $REL_VSN failed to start within ${WAIT_TIME} seconds,"
+            echo "see the output of '$0 console' for more information."
+            echo "If you want to wait longer, set the environment variable"
+            echo "WAIT_FOR_ERLANG to the number of seconds to wait."
+            exit 1
+        fi
         ;;
 
     stop)
         # Wait for the node to completely stop...
         PID="$(relx_get_pid)"
         if ! relx_nodetool "stop"; then
+            echoerr "Graceful shutdown failed PID=[$PID]"
             exit 1
         fi
-        while kill -s 0 "$PID" 2>/dev/null; do
-            sleep 1
-        done
+        WAIT_TIME="${WAIT_FOR_ERLANG_STOP:-60}"
+        if ! wait_for "$WAIT_TIME" is_down "$PID"; then
+            msg="dangling after ${WAIT_TIME} seconds"
+            # also log to syslog
+            logger -t "${REL_NAME}[${PID}]" "STOP: $msg"
+            # log to user console
+            echoerr "STOP: $msg"
+            exit 1
+        fi
+        logger -t "${REL_NAME}[${PID}]" "STOP: OK"
         ;;
 
     restart|reboot)
@@ -475,10 +508,7 @@ case "$1" in
         ;;
 
     ping)
-        ## See if the VM is alive
-        if ! relx_nodetool "ping"; then
-            exit 1
-        fi
+        assert_node_alive
         ;;
 
     escript)
@@ -489,11 +519,7 @@ case "$1" in
         ;;
 
     attach)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
         bootstrapd
@@ -503,11 +529,7 @@ case "$1" in
         ;;
 
     remote_console)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
         bootstrapd
@@ -525,11 +547,7 @@ case "$1" in
 
         COMMAND="$1"; shift
 
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         ERL_FLAGS="$ERL_FLAGS $EPMD_ARG" \
         exec "$BINDIR/escript" "$ROOTDIR/bin/install_upgrade.escript" \
@@ -537,11 +555,7 @@ case "$1" in
         ;;
 
     versions)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         COMMAND="$1"; shift
 
@@ -602,13 +616,8 @@ case "$1" in
             -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
             $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG
 
-        # Dump environment info for logging purposes
-        echo "Exec: $*" -- ${1+$ARGS}
-        echo "Root: $ROOTDIR"
-
         # Log the startup
-        echo "$RUNNER_ROOT_DIR"
-        logger -t "${REL_NAME[$$]}" "Starting up"
+        logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS}"
 
         # Start the VM
         exec "$@" -- ${1+$ARGS}
@@ -648,9 +657,8 @@ case "$1" in
             -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
             $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG
 
-        # Dump environment info for logging purposes
-        echo "Exec: $*" -- ${1+$ARGS}
-        echo "Root: $ROOTDIR"
+        # Log the startup
+        logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS}"
 
         # Start the VM
         exec "$@" -- ${1+$ARGS}
@@ -658,44 +666,35 @@ case "$1" in
     ertspath)
         echo "$ERTS_PATH"
         ;;
+    ctl)
+        assert_node_alive
+
+        shift
+
+        relx_nodetool rpc emqx_ctl run_command "$@"
+        ;;
     rpc)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         shift
 
         relx_nodetool rpc "$@"
         ;;
     rpcterms)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         shift
 
         relx_nodetool rpcterms "$@"
         ;;
     root_dir)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         shift
         relx_nodetool "eval" 'code:root_dir()'
         ;;
     eval)
-        # Make sure a node IS running
-        if ! relx_nodetool "ping" > /dev/null; then
-            echo "Node is not running!"
-            exit 1
-        fi
+        assert_node_alive
 
         shift
         relx_nodetool "eval" "$@"

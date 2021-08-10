@@ -4,6 +4,8 @@ services:
   redis_server:
     container_name: redis 
     image: redis:${REDIS_TAG}
+    ports:
+      - "6379:6379"
     command:
       - redis-server
       - "--bind 0.0.0.0 ::"

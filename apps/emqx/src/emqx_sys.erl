@@ -22,7 +22,6 @@
 -include("types.hrl").
 -include("logger.hrl").
 
--logger_header("[SYS]").
 
 -export([ start_link/0
         , stop/0
@@ -90,7 +89,7 @@ version() -> emqx_app:get_release().
 sysdescr() -> emqx_app:get_description().
 
 %% @doc Get sys uptime
--spec(uptime() -> string()).
+-spec(uptime() -> Milliseconds :: integer()).
 uptime() ->
     gen_server:call(?SYS, uptime).
 
@@ -143,7 +142,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, heartbeat}, State = #state{heartbeat = TRef}) ->
-    publish_any(uptime, iolist_to_binary(uptime(State))),
+    publish_any(uptime, integer_to_binary(uptime(State))),
     publish_any(datetime, iolist_to_binary(datetime())),
     {noreply, heartbeat(State)};
 
@@ -168,22 +167,7 @@ terminate(_Reason, #state{heartbeat = TRef1, ticker = TRef2}) ->
 %%-----------------------------------------------------------------------------
 
 uptime(#state{start_time = Ts}) ->
-    Secs = timer:now_diff(erlang:timestamp(), Ts) div 1000000,
-    lists:flatten(uptime(seconds, Secs)).
-uptime(seconds, Secs) when Secs < 60 ->
-    [integer_to_list(Secs), " seconds"];
-uptime(seconds, Secs) ->
-    [uptime(minutes, Secs div 60), integer_to_list(Secs rem 60), " seconds"];
-uptime(minutes, M) when M < 60 ->
-    [integer_to_list(M), " minutes, "];
-uptime(minutes, M) ->
-    [uptime(hours, M div 60), integer_to_list(M rem 60), " minutes, "];
-uptime(hours, H) when H < 24 ->
-    [integer_to_list(H), " hours, "];
-uptime(hours, H) ->
-    [uptime(days, H div 24), integer_to_list(H rem 24), " hours, "];
-uptime(days, D) ->
-    [integer_to_list(D), " days, "].
+    timer:now_diff(erlang:timestamp(), Ts) div 1000.
 
 publish_any(Name, Value) ->
     _ = publish(Name, Value),

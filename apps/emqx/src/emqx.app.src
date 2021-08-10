@@ -1,6 +1,6 @@
 {application, emqx,
  [{id, "emqx"},
-  {description, "EMQ X"},
+  {description, "EMQ X Core"},
   {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},

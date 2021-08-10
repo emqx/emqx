@@ -149,7 +149,7 @@ node_info(Node) when Node =:= node() ->
           max_fds           => proplists:get_value(max_fds, lists:usort(lists:flatten(erlang:system_info(check_io)))),
           connections       => ets:info(emqx_channel, size),
           node_status       => 'Running',
-          uptime            => iolist_to_binary(proplists:get_value(uptime, BrokerInfo)),
+          uptime            => proplists:get_value(uptime, BrokerInfo),
           version           => iolist_to_binary(proplists:get_value(version, BrokerInfo))
           };
 node_info(Node) ->
@@ -283,7 +283,7 @@ list_client_subscriptions(ClientId) ->
     end.
 
 client_subscriptions(Node, ClientId) when Node =:= node() ->
-    emqx_broker:subscriptions(ClientId);
+    {Node, emqx_broker:subscriptions(ClientId)};
 
 client_subscriptions(Node, ClientId) ->
     rpc_call(Node, client_subscriptions, [Node, ClientId]).
@@ -502,10 +502,10 @@ listener_id_filter(Identifier, Listeners) ->
 
 -spec manage_listener(Operation :: start_listener|stop_listener|restart_listener, Param :: map()) ->
     ok | {error, Reason :: term()}.
-manage_listener(Operation, #{identifier := Identifier, node := Node}) when Node =:= node()->
-    erlang:apply(emqx_listeners, Operation, [Identifier]);
+manage_listener(Operation, #{id := ID, node := Node}) when Node =:= node()->
+    erlang:apply(emqx_listeners, Operation, [ID]);
 manage_listener(Operation, Param = #{node := Node}) ->
-    rpc_call(Node, restart_listener, [Operation, Param]).
+    rpc_call(Node, manage_listener, [Operation, Param]).
 
 %%--------------------------------------------------------------------
 %% Get Alarms

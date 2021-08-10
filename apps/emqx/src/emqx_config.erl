@@ -238,7 +238,7 @@ init_load(SchemaModule, RawRichConf) when is_map(RawRichConf) ->
 check_config(SchemaModule, RawConf) ->
     Opts = #{return_plain => true,
              nullable => true,
-             is_richmap => false
+             format => map
             },
     {AppEnvs, CheckedConf} =
         hocon_schema:map_translate(SchemaModule, RawConf, Opts),
@@ -289,7 +289,7 @@ load_hocon_file(FileName, LoadType) ->
     end.
 
 emqx_override_conf_name() ->
-    filename:join([?MODULE:get([node, data_dir]), "emqx_override.conf"]).
+    application:get_env(emqx, override_conf_file, "emqx_override.conf").
 
 do_get(Type, KeyPath) ->
     Ref = make_ref(),

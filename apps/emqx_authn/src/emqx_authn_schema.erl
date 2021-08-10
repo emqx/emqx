@@ -28,9 +28,13 @@
 -export([ authenticator_name/1
         ]).
 
-structs() -> [ "emqx_authn" ].
+%% Export it for emqx_gateway_schema module
+-export([ authenticators/1
+        ]).
 
-fields("emqx_authn") ->
+structs() -> [ "authentication" ].
+
+fields("authentication") ->
     [ {enable, fun enable/1}
     , {authenticators, fun authenticators/1}
     ].
@@ -49,7 +53,10 @@ authenticators(type) ->
                           , hoconsc:ref(emqx_authn_pgsql, config)
                           , hoconsc:ref(emqx_authn_mongodb, standalone)
                           , hoconsc:ref(emqx_authn_mongodb, 'replica-set')
-                          , hoconsc:ref(emqx_authn_mongodb, sharded)
+                          , hoconsc:ref(emqx_authn_mongodb, 'sharded-cluster')
+                          , hoconsc:ref(emqx_authn_redis, standalone)
+                          , hoconsc:ref(emqx_authn_redis, cluster)
+                          , hoconsc:ref(emqx_authn_redis, sentinel)
                           , hoconsc:ref(emqx_authn_http, get)
                           , hoconsc:ref(emqx_authn_http, post)
                           , hoconsc:ref(emqx_authn_jwt, 'hmac-based')

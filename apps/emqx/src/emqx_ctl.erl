@@ -21,7 +21,6 @@
 -include("types.hrl").
 -include("logger.hrl").
 
--logger_header("[Ctl]").
 
 -export([start_link/0, stop/0]).
 
@@ -137,11 +136,11 @@ help() ->
 
 -spec(print(io:format()) -> ok).
 print(Msg) ->
-    io:format(format(Msg)).
+    io:format("~s", [format(Msg)]).
 
 -spec(print(io:format(), [term()]) -> ok).
 print(Format, Args) ->
-    io:format(format(Format, Args)).
+    io:format("~s", [format(Format, Args)]).
 
 -spec(usage([cmd_usage()]) -> ok).
 usage(UsageList) ->

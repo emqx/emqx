@@ -101,5 +101,7 @@ t_authenticate(_) ->
                    username => <<"myuser">>,
 			       password => <<"mypass">>},
     ?assertEqual(ok, emqx_access_control:authenticate(ClientInfo)),
+    ?assertEqual(false, emqx_authn:is_enabled()),
     emqx_authn:enable(),
+    ?assertEqual(true, emqx_authn:is_enabled()),
     ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo)).

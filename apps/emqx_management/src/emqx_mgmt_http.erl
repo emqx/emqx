@@ -24,6 +24,7 @@
 -export([authorize_appid/1]).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -define(APP, emqx_management).
 
@@ -71,7 +72,7 @@ start_listener({Proto, Port, Options}) ->
         swagger_global_spec => GlobalSpec},
     MinirestOptions = maps:merge(Minirest, RanchOptions),
     {ok, _} = minirest:start(listener_name(Proto), MinirestOptions),
-    io:format("Start ~p listener on ~p successfully.~n", [listener_name(Proto), Port]).
+    ?ULOG("Start ~p listener on ~p successfully.~n", [listener_name(Proto), Port]).
 
 ranch_opts(Port, Options0) ->
     Options = lists:foldl(
@@ -87,7 +88,7 @@ ranch_opts(Port, Options0) ->
     maps:from_list([{port, Port} | Options]).
 
 stop_listener({Proto, Port, _}) ->
-    io:format("Stop http:management listener on ~s successfully.~n",[format(Port)]),
+    ?ULOG("Stop http:management listener on ~s successfully.~n",[format(Port)]),
     minirest:stop(listener_name(Proto)).
 
 listeners() ->

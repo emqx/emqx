@@ -21,7 +21,6 @@
 
 -include("include/emqx_gateway.hrl").
 
--logger_header("[PGW-Insta-Sup]").
 
 %% APIs
 -export([ start_link/3
@@ -87,8 +86,8 @@ call(Pid, Req) ->
 
 init([Insta, Ctx0, _GwDscrptr]) ->
     process_flag(trap_exit, true),
-    #{rawconf := RawConf} = Insta,
-    Ctx   = do_init_context(RawConf, Ctx0),
+    #{id := InstaId, rawconf := RawConf} = Insta,
+    Ctx   = do_init_context(InstaId, RawConf, Ctx0),
     State = #state{
                insta = Insta,
                ctx   = Ctx,
@@ -104,16 +103,18 @@ init([Insta, Ctx0, _GwDscrptr]) ->
             {ok, NState}
     end.
 
-do_init_context(RawConf, Ctx) ->
-    Auth = case maps:get(authenticator, RawConf, allow_anonymous) of
-               allow_anonymous -> allow_anonymous;
-               Funcs when is_list(Funcs) ->
-                   create_authenticator_for_gateway_insta(Funcs)
+do_init_context(InstaId, RawConf, Ctx) ->
+    Auth = case maps:get(authentication, RawConf, #{enable => false}) of
+               #{enable := true,
+                 authenticators := AuthCfgs} when is_list(AuthCfgs) ->
+                   create_authenticators_for_gateway_insta(InstaId, AuthCfgs);
+               _ ->
+                   undefined
            end,
     Ctx#{auth => Auth}.
 
 do_deinit_context(Ctx) ->
-    cleanup_authenticator_for_gateway_insta(maps:get(auth, Ctx)),
+    cleanup_authenticators_for_gateway_insta(maps:get(auth, Ctx)),
     ok.
 
 handle_call(info, _From, State = #state{insta = Insta}) ->
@@ -214,13 +215,42 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-create_authenticator_for_gateway_insta(_Funcs) ->
-    todo.
+%% @doc AuthCfgs is a array of authenticatior configurations,
+%% see: emqx_authn_schema:authenticators/1
+create_authenticators_for_gateway_insta(InstaId0, AuthCfgs) ->
+    ChainId = atom_to_binary(InstaId0, utf8),
+    case emqx_authn:create_chain(#{id => ChainId}) of
+        {ok, _ChainInfo} ->
+            Results = lists:map(fun(AuthCfg = #{name := Name}) ->
+                         case emqx_authn:create_authenticator(
+                                ChainId,
+                                AuthCfg) of
+                             {ok, _AuthInfo} -> ok;
+                             {error, Reason} -> {Name, Reason}
+                         end
+                      end, AuthCfgs),
+            NResults = [ E || E <- Results, E /= ok],
+            NResults /= [] andalso begin
+                logger:error("Failed to create authenticators: ~p", [NResults]),
+                throw({bad_autheticators, NResults})
+            end, ok;
+        {error, Reason} ->
+            logger:error("Failed to create authenticator chain: ~p", [Reason]),
+            throw({bad_chain, {ChainId, Reason}})
+    end.
 
-cleanup_authenticator_for_gateway_insta(allow_anonymouse) ->
+cleanup_authenticators_for_gateway_insta(undefined) ->
     ok;
-cleanup_authenticator_for_gateway_insta(_ChainId) ->
-    todo.
+cleanup_authenticators_for_gateway_insta(ChainId) ->
+    case emqx_authn:delete_chain(ChainId) of
+        ok -> ok;
+        {error, {not_found, _}} ->
+            logger:warning("Failed clean authenticator chain: ~s, "
+                           "reason: not_found", [ChainId]);
+        {error, Reason} ->
+            logger:error("Failed clean authenticator chain: ~s, "
+                         "reason: ~p", [ChainId, Reason])
+    end.
 
 cb_insta_destroy(State = #state{insta = Insta = #{type := Type},
                                 insta_state = InstaState}) ->

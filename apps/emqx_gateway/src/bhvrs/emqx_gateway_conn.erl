@@ -20,7 +20,6 @@
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[PGW-Conn]").
 
 %% API
 -export([ start_link/3

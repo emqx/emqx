@@ -105,6 +105,7 @@ user_api() ->
     Metadata = #{
         delete => #{
             description => <<"Delete dashboard users">>,
+            parameters => [path_param_username()],
             responses => #{
                 <<"200">> => response_schema(<<"Delete User successfully">>),
                 <<"400">> => bad_request()
@@ -112,6 +113,7 @@ user_api() ->
         },
         put => #{
             description => <<"Update dashboard users">>,
+            parameters => [path_param_username()],
             'requestBody' => request_body_schema(#{
                 type => object,
                 properties => #{
@@ -127,6 +129,7 @@ user_api() ->
         },
         post => #{
             description => <<"Create dashboard users">>,
+            parameters => [path_param_username()],
             'requestBody' => request_body_schema(create_user),
             responses => #{
                 <<"200">> => response_schema(<<"Create Users successfully">>),
@@ -140,6 +143,7 @@ change_pwd_api() ->
     Metadata = #{
         put => #{
             description => <<"Update dashboard users password">>,
+            parameters => [path_param_username()],
             'requestBody' => request_body_schema(#{
                 type => object,
                 properties => #{
@@ -158,6 +162,15 @@ change_pwd_api() ->
         }
     },
     {"/change_pwd/:username", Metadata, change_pwd}.
+
+path_param_username() ->
+    #{
+        name => username,
+        in => path,
+        required => true,
+        schema => #{type => string},
+        example => <<"admin">>
+    }.
 
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
 

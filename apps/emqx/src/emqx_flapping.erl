@@ -22,8 +22,6 @@
 -include("types.hrl").
 -include("logger.hrl").
 
--logger_header("[Flapping]").
-
 -export([start_link/0, stop/0]).
 
 %% API

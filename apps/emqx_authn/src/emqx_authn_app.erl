@@ -36,8 +36,8 @@ stop(_State) ->
     ok.
 
 initialize() ->
-    AuthNConfig = emqx_config:get([emqx_authn], #{enable => false,
-                                                  authenticators => []}),
+    AuthNConfig = emqx_config:get([authentication], #{enable => false,
+                                                      authenticators => []}),
     initialize(AuthNConfig).
 
 initialize(#{enable := Enable, authenticators := AuthenticatorsConfig}) ->

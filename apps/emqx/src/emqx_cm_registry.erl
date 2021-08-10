@@ -23,7 +23,6 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--logger_header("[Registry]").
 
 -export([start_link/0]).
 

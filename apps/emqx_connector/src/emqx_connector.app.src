@@ -12,7 +12,8 @@
     eredis,
     epgsql,
     mysql,
-    mongodb
+    mongodb,
+    emqx
    ]},
   {env,[]},
   {modules, []},

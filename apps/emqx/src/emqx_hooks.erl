@@ -22,7 +22,6 @@
 -include("types.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
--logger_header("[Hooks]").
 
 -export([ start_link/0
         , stop/0

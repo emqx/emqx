@@ -32,7 +32,7 @@
 
 -define(EXAMPLE_1, #{name => <<"example 1">>,
                      mechanism => <<"password-based">>,
-                     server_type => <<"built-in-example">>,
+                     server_type => <<"built-in-database">>,
                      user_id_type => <<"username">>,
                      password_hash_algorithm => #{
                          name => <<"sha256">>    
@@ -72,6 +72,16 @@
                      },
                      password_hash_field => <<"password_hash">>,
                      salt_field => <<"salt">>,
+                     password_hash_algorithm => <<"sha256">>,
+                     salt_position => <<"prefix">>
+                    }).
+
+-define(EXAMPLE_5, #{name => <<"example 5">>,
+                     mechanism => <<"password-based">>,
+                     server_type => <<"redis">>,
+                     server => <<"127.0.0.1:6379">>,
+                     database => 0,
+                     query => <<"HMGET ${mqtt-username} password_hash salt">>,
                      password_hash_algorithm => <<"sha256">>,
                      salt_position => <<"prefix">>
                     }).
@@ -131,6 +141,27 @@ authentication_api() ->
                 },
                 <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>)
             }
+        },
+        get => #{
+            description => "Get status of authentication",
+            responses => #{
+                <<"200">> => #{
+                    description => <<"OK">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => #{
+                                type => object,
+                                properties => #{
+                                    enabled => #{
+                                        type => boolean,
+                                        example => true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     },
     {"/authentication", Metadata, authentication}.
@@ -159,6 +190,10 @@ authenticators_api() ->
                             mongodb => #{
                                 summary => <<"Authentication with MongoDB">>,
                                 value => emqx_json:encode(?EXAMPLE_4)
+                            },
+                            redis => #{
+                                summary => <<"Authentication with Redis">>,
+                                value => emqx_json:encode(?EXAMPLE_5)
                             }
                         }
                     }
@@ -171,6 +206,7 @@ authenticators_api() ->
                         'application/json' => #{
                             schema => minirest:ref(<<"returned_authenticator">>),
                             examples => #{
+                                %% TODO: return full content
                                 example1 => #{
                                     summary => <<"Example 1">>,
                                     value => emqx_json:encode(maps:put(id, <<"example 1">>, ?EXAMPLE_1))
@@ -186,6 +222,10 @@ authenticators_api() ->
                                 example4 => #{
                                     summary => <<"Example 4">>,
                                     value => emqx_json:encode(maps:put(id, <<"example 4">>, ?EXAMPLE_4))
+                                },
+                                example5 => #{
+                                    summary => <<"Example 4">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 5">>, ?EXAMPLE_5))
                                 }
                             }
                         }
@@ -213,6 +253,7 @@ authenticators_api() ->
                                                               , maps:put(id, <<"example 2">>, ?EXAMPLE_2)
                                                               , maps:put(id, <<"example 3">>, ?EXAMPLE_3)
                                                               , maps:put(id, <<"example 4">>, ?EXAMPLE_4)
+                                                              , maps:put(id, <<"example 5">>, ?EXAMPLE_5)
                                                               ])
                                 }
                             }
@@ -260,6 +301,10 @@ authenticators_api2() ->
                                 example4 => #{
                                     summary => <<"Example 4">>,
                                     value => emqx_json:encode(maps:put(id, <<"example 4">>, ?EXAMPLE_4))
+                                },
+                                example5 => #{
+                                    summary => <<"Example 5">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 5">>, ?EXAMPLE_5))
                                 }
                             }
                         }
@@ -324,6 +369,10 @@ authenticators_api2() ->
                                 example4 => #{
                                     summary => <<"Example 4">>,
                                     value => emqx_json:encode(maps:put(id, <<"example 4">>, ?EXAMPLE_4))
+                                },
+                                example5 => #{
+                                    summary => <<"Example 5">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 5">>, ?EXAMPLE_5))
                                 }
                             }
                         }
@@ -1003,6 +1052,66 @@ definitions() ->
         }
     },
 
+    PasswordBasedRedisDef = #{
+        type => object,
+        required => [],
+        properties => #{
+            server_type => #{
+                type => string,
+                enum => [<<"redis">>],
+                example => [<<"redis">>]
+            },
+            server => #{
+                description => <<"Mutually exclusive with the 'servers' field, only valid in standalone mode">>,
+                type => string,
+                example => <<"127.0.0.1:27017">>
+            },
+            servers => #{
+                description => <<"Mutually exclusive with the 'server' field, only valid in cluster and sentinel mode">>,
+                type => array,
+                items => #{
+                    type => string
+                },
+                example => [<<"127.0.0.1:27017">>]
+            },
+            sentinel => #{
+                description => <<"Only valid in sentinel mode">>,
+                type => string
+            },
+            password => #{
+                type => string
+            },
+            database => #{
+                type => integer,
+                exmaple => 0
+            },
+            query => #{
+                type => string,
+                example => <<"HMGET ${mqtt-username} password_hash salt">>
+            },
+            password_hash_algorithm => #{
+                type => string,
+                enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
+                default => <<"sha256">>,
+                example => <<"sha256">>
+            },
+            salt_position => #{
+                type => string,
+                enum => [<<"prefix">>, <<"suffix">>],
+                default => <<"prefix">>,
+                example => <<"prefix">>
+            },
+            pool_size => #{
+                type => integer,
+                default => 8
+            },
+            auto_reconnect => #{
+                type => boolean,
+                default => true
+            }
+        }
+    },
+
     PasswordBasedHTTPServerDef = #{
         type => object,
         required => [ server_type
@@ -1134,6 +1243,7 @@ definitions() ->
     , #{<<"password_based_mysql">> => PasswordBasedMySQLDef}
     , #{<<"password_based_pgsql">> => PasswordBasedPgSQLDef}
     , #{<<"password_based_mongodb">> => PasswordBasedMongoDBDef}
+    , #{<<"password_based_redis">> => PasswordBasedRedisDef}
     , #{<<"password_based_http_server">> => PasswordBasedHTTPServerDef}
     , #{<<"password_hash_algorithm">> => PasswordHashAlgorithmDef}
     , #{<<"ssl">> => SSLDef}
@@ -1153,17 +1263,20 @@ authentication(post, Request) ->
             serialize_error({invalid_parameter, enable});
         _ ->
             serialize_error({missing_parameter, enable})
-    end.
+    end;
+authentication(get, _Request) ->
+    Enabled = emqx_authn:is_enabled(),
+    {200, #{enabled => Enabled}}.
 
 authenticators(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     AuthenticatorConfig = emqx_json:decode(Body, [return_maps]),
-    Config = #{<<"emqx_authn">> => #{
+    Config = #{<<"authentication">> => #{
                    <<"authenticators">> => [AuthenticatorConfig]
                }},
     NConfig = hocon_schema:check_plain(emqx_authn_schema, Config,
                                        #{nullable => true}),
-    #{emqx_authn := #{authenticators := [NAuthenticatorConfig]}} = emqx_map_lib:unsafe_atom_key_map(NConfig),
+    #{authentication := #{authenticators := [NAuthenticatorConfig]}} = emqx_map_lib:unsafe_atom_key_map(NConfig),
     case emqx_authn:create_authenticator(?CHAIN, NAuthenticatorConfig) of
         {ok, Authenticator2} ->
             {201, Authenticator2};
@@ -1186,12 +1299,12 @@ authenticators2(put, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
     AuthenticatorConfig = emqx_json:decode(Body, [return_maps]),
-    Config = #{<<"emqx_authn">> => #{
+    Config = #{<<"authentication">> => #{
                    <<"authenticators">> => [AuthenticatorConfig]
                }},
     NConfig = hocon_schema:check_plain(emqx_authn_schema, Config,
                                        #{nullable => true}),
-    #{emqx_authn := #{authenticators := [NAuthenticatorConfig]}} = emqx_map_lib:unsafe_atom_key_map(NConfig),
+    #{authentication := #{authenticators := [NAuthenticatorConfig]}} = emqx_map_lib:unsafe_atom_key_map(NConfig),
     case emqx_authn:update_or_create_authenticator(?CHAIN, AuthenticatorID, NAuthenticatorConfig) of
         {ok, Authenticator} ->
             {200, Authenticator};

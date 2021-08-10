@@ -57,8 +57,9 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    %delete_default_app(),
-    emqx_ct_helpers:stop_apps([emqx_authz]).
+    ok = emqx_authz:update(replace, []),
+    emqx_ct_helpers:stop_apps([emqx_authz]),
+    ok.
 
 % set_special_configs(emqx) ->
 %     application:set_env(emqx, allow_anonymous, true),

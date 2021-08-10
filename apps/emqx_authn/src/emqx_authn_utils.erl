@@ -18,6 +18,7 @@
 
 -export([ replace_placeholders/2
         , replace_placeholder/2
+        , hash/4
         , gen_salt/0
         , bin/1
         ]).
@@ -54,6 +55,10 @@ replace_placeholder(<<"${cert-common-name}">>, Credential) ->
 replace_placeholder(Constant, _) ->
     Constant.
 
+hash(Algorithm, Password, Salt, prefix) ->
+    emqx_passwd:hash(Algorithm, <<Salt/binary, Password/binary>>);
+hash(Algorithm, Password, Salt, suffix) ->
+    emqx_passwd:hash(Algorithm, <<Password/binary, Salt/binary>>).
 
 gen_salt() ->
     <<X:128/big-unsigned-integer>> = crypto:strong_rand_bytes(16),

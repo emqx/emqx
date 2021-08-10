@@ -26,36 +26,32 @@
 
 api_spec() ->
     {
-        [publish_api(), publish_batch_api()],
+        [publish_api(), publish_bulk_api()],
         [message_schema()]
     }.
 
 publish_api() ->
+    Schema = #{
+        type => object,
+        properties => maps:without([id], message_properties())
+    },
     MeteData = #{
         post => #{
             description => <<"Publish">>,
-            'requestBody' => #{
-                content => #{
-                    'application/json' => #{
-                        schema => #{
-                            type => object,
-                            properties => maps:with([id], message_properties())}}}},
+            'requestBody' => emqx_mgmt_util:request_body_schema(Schema),
             responses => #{
                 <<"200">> => emqx_mgmt_util:response_schema(<<"publish ok">>, message)}}},
     {"/publish", MeteData, publish}.
 
-publish_batch_api() ->
+publish_bulk_api() ->
+    Schema = #{
+        type => object,
+        properties => maps:without([id], message_properties())
+    },
     MeteData = #{
         post => #{
             description => <<"publish">>,
-            'requestBody' => #{
-                content => #{
-                    'application/json' => #{
-                        schema => #{
-                            type => array,
-                            items => #{
-                                type => object,
-                                properties =>  maps:with([id], message_properties())}}}}},
+            'requestBody' => emqx_mgmt_util:request_body_array_schema(Schema),
             responses => #{
                 <<"200">> => emqx_mgmt_util:response_array_schema(<<"publish ok">>, message)}}},
     {"/publish/bulk", MeteData, publish_batch}.

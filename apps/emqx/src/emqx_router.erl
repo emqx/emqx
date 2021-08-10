@@ -23,7 +23,6 @@
 -include("types.hrl").
 -include_lib("ekka/include/ekka.hrl").
 
--logger_header("[Router]").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).

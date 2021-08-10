@@ -132,11 +132,7 @@ check_password(Password,
                #{password_hash_algorithm := Algorithm,
                  salt_position := SaltPosition}) ->
     Salt = maps:get(salt, Selected, <<>>),
-    Hash0 = case SaltPosition of
-                prefix -> emqx_passwd:hash(Algorithm, <<Salt/binary, Password/binary>>);
-                suffix -> emqx_passwd:hash(Algorithm, <<Password/binary, Salt/binary>>)
-            end,
-    case Hash0 =:= Hash of
+    case Hash =:= emqx_authn_utils:hash(Algorithm, Password, Salt, SaltPosition) of
         true -> ok;
         false -> {error, bad_username_or_password}
     end.
