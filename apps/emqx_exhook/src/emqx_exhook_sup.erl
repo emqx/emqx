@@ -26,6 +26,13 @@
         , stop_grpc_client_channel/1
         ]).
 
+-define(CHILD(Mod, Type, Args),
+            #{ id => Mod
+             , start => {Mod, start_link, Args}
+             , type => Type
+             }
+       ).
+
 %%--------------------------------------------------------------------
 %%  Supervisor APIs & Callbacks
 %%--------------------------------------------------------------------
@@ -34,7 +41,14 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    {ok, {{one_for_one, 10, 100}, []}}.
+    Mngr = ?CHILD(emqx_exhook_mngr, worker, [servers(), auto_reconnect()]),
+    {ok, {{one_for_one, 10, 100}, [Mngr]}}.
+
+servers() ->
+    application:get_env(emqx_exhook, servers, []).
+
+auto_reconnect() ->
+    application:get_env(emqx_exhook, auto_reconnect, 60000).
 
 %%--------------------------------------------------------------------
 %% APIs
