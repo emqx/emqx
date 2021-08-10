@@ -221,15 +221,31 @@ clients_api() ->
             description => <<"List clients">>,
             parameters => [
                 #{
+                    name => page,
+                    in => query,
+                    required => false,
+                    description => <<"Page">>,
+                    schema => #{type => integer}
+                },
+                #{
+                    name => limit,
+                    in => query,
+                    required => false,
+                    description => <<"Page limit">>,
+                    schema => #{type => integer}
+                },
+                #{
                     name => node,
                     in => query,
                     required => false,
+                    description => <<"Node name">>,
                     schema => #{type => string}
                 },
                 #{
                     name => username,
                     in => query,
                     required => false,
+                    description => <<"User name">>,
                     schema => #{type => string}
                 },
                 #{
@@ -242,66 +258,77 @@ clients_api() ->
                     name => ip_address,
                     in => query,
                     required => false,
+                    description => <<"IP address">>,
                     schema => #{type => string}
                 },
                 #{
                     name => conn_state,
                     in => query,
                     required => false,
-                    schema => #{type => string}
+                    description => <<"The current connection status of the client, the possible values are connected,idle,disconnected">>,
+                    schema => #{type => string, enum => [connected, idle, disconnected]}
                 },
                 #{
                     name => clean_start,
                     in => query,
                     required => false,
-                    schema => #{type => string}
+                    description => <<"Whether the client uses a new session">>,
+                    schema => #{type => boolean}
                 },
                 #{
                     name => proto_name,
                     in => query,
                     required => false,
-                    schema => #{type => string}
+                    description => <<"Client protocol name, the possible values are MQTT,CoAP,LwM2M,MQTT-SN">>,
+                    schema => #{type => string, enum => ['MQTT', 'CoAP', 'LwM2M', 'MQTT-SN']}
                 },
                 #{
                     name => proto_ver,
                     in => query,
                     required => false,
+                    description => <<"Client protocol version">>,
                     schema => #{type => string}
                 },
                 #{
                     name => like_clientid,
                     in => query,
                     required => false,
+                    description => <<"Fuzzy search of client identifier by substring method">>,
                     schema => #{type => string}
                 },
                 #{
                     name => like_username,
                     in => query,
                     required => false,
+                    description => <<"Client user name, fuzzy search by substring">>,
                     schema => #{type => string}
                 },
                 #{
                     name => gte_created_at,
                     in => query,
                     required => false,
+                    description => <<"Search client session creation time by less than or equal method">>,
                     schema => #{type => string}
                 },
                 #{
                     name => lte_created_at,
                     in => query,
                     required => false,
+                    description => <<"Search client session creation time by greater than or equal method">>,
                     schema => #{type => string}
                 },
                 #{
                     name => gte_connected_at,
                     in => query,
                     required => false,
+                    description => <<"Search client connection creation time by less than or equal method">>,
                     schema => #{type => string}
                 },
                 #{
                     name => lte_connected_at,
                     in => query,
                     required => false,
+                    description => <<"Search client connection creation time by greater than or equal method">>,
                     schema => #{type => string}
                 }
             ],
