@@ -302,9 +302,19 @@ bootstrapd() {
 # check if a PID is down
 is_down() {
     PID="$1"
-    if kill -s 0 "$PID" 2>/dev/null; then
+    if ps -p "$PID" >/dev/null; then
+        # still around
+        # shellcheck disable=SC2009 # this grep pattern is not a part of the progra names
+        if ps -p "$PID" | grep -q 'defunct'; then
+            # zombie state, print parent pid
+            parent="$(ps -o ppid= -p "$PID" | tr -d ' ')"
+            echo "WARN: $PID is marked <defunct>, parent:"
+            ps -p "$parent"
+            return 0
+        fi
         return 1
     fi
+    # it's gone
     return 0
 }
 
@@ -484,12 +494,12 @@ case "$1" in
             exit 1
         fi
         WAIT_TIME="${WAIT_FOR_ERLANG_STOP:-60}"
-        if ! wait_for "$WAIT_TIME" is_down "$PID"; then
+        if ! wait_for "$WAIT_TIME" 'is_down' "$PID"; then
             msg="dangling after ${WAIT_TIME} seconds"
             # also log to syslog
             logger -t "${REL_NAME}[${PID}]" "STOP: $msg"
             # log to user console
-            echoerr "STOP: $msg"
+            echoerr "stop failed, $msg"
             exit 1
         fi
         logger -t "${REL_NAME}[${PID}]" "STOP: OK"
