@@ -71,7 +71,7 @@ subscriptions_api() ->
                     name => qos,
                     in => query,
                     description => <<"QoS">>,
-                    schema => #{type => integer}
+                    schema => #{type => integer, enum => [0, 1, 2]}
                 },
                 #{
                     name => share,
