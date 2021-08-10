@@ -16,6 +16,16 @@
 
 -module(emqx_dashboard_api).
 
+-ifndef(EMQX_ENTERPRISE).
+
+-define(RELEASE, community).
+
+-else.
+
+-define(VERSION, enterprise).
+
+-endif.
+
 -behaviour(minirest_api).
 
 -include("emqx_dashboard.hrl").
@@ -28,17 +38,27 @@
 
 -export([api_spec/0]).
 
--export([ auth/2
+-export([ login/2
+        , logout/2
         , users/2
         , user/2
         , change_pwd/2
         ]).
 
-api_spec() ->
-    {[auth_api(), users_api(), user_api(), change_pwd_api()], schemas()}.
+-define(EMPTY(V), (V == undefined orelse V == <<>>)).
 
-schemas() ->
-    [#{auth => #{
+api_spec() ->
+    {
+        [ login_api()
+        , logout_api()
+        , users_api()
+        , user_api()
+        , change_pwd_api()
+        ],
+        []}.
+
+login_api() ->
+    AuthSchema = #{
         type => object,
         properties => #{
             username => #{
@@ -46,10 +66,55 @@ schemas() ->
                 description => <<"Username">>},
             password => #{
                 type => string,
-                description => <<"password">>}
+                description => <<"Password">>}}},
+    TokenSchema = #{
+        type => object,
+        properties => #{
+            token => #{
+                type => string,
+                description => <<"JWT Token">>},
+            license => #{
+                type => object,
+                properties => #{
+                    edition => #{
+                        type => string,
+                        enum => [community, enterprise]}}},
+            version => #{
+                type => string}}},
+
+    Metadata = #{
+        post => #{
+            description => <<"Dashboard Auth">>,
+            'requestBody' => request_body_schema(AuthSchema),
+            responses => #{
+                <<"200">> =>
+                    response_schema(<<"Dashboard Auth successfully">>, TokenSchema),
+                <<"401">> => unauthorized_request()
+            },
+            security => []
         }
-    }},
-    #{show_user => #{
+    },
+    {"/login", Metadata, login}.
+logout_api() ->
+    AuthSchema = #{
+        type => object,
+        properties => #{
+            username => #{
+                type => string,
+                description => <<"Username">>}}},
+    Metadata = #{
+        post => #{
+            description => <<"Dashboard Auth">>,
+            'requestBody' => request_body_schema(AuthSchema),
+            responses => #{
+                <<"200">> =>
+                    response_schema(<<"Dashboard Auth successfully">>)}
+        }
+    },
+    {"/logout", Metadata, logout}.
+
+users_api() ->
+    ShowSchema = #{
         type => object,
         properties => #{
             username => #{
@@ -57,10 +122,8 @@ schemas() ->
                 description => <<"Username">>},
             tag => #{
                 type => string,
-                description => <<"Tag">>}
-        }
-    }},
-    #{create_user => #{
+                description => <<"Tag">>}}},
+    CreateSchema = #{
         type => object,
         properties => #{
             username => #{
@@ -71,36 +134,17 @@ schemas() ->
                 description => <<"Password">>},
             tag => #{
                 type => string,
-                description => <<"Tag">>}
-        }
-    }}].
-
-auth_api() ->
-    Metadata = #{
-        post => #{
-            description => <<"Dashboard Auth">>,
-            'requestBody' => request_body_schema(auth),
-            responses => #{
-                <<"200">> =>
-                    response_schema(<<"Dashboard Auth successfully">>),
-                <<"400">> => bad_request()
-            },
-            security => []
-        }
-    },
-    {"/auth", Metadata, auth}.
-
-users_api() ->
+                description => <<"Tag">>}}},
     Metadata = #{
         get => #{
             description => <<"Get dashboard users">>,
             responses => #{
-                <<"200">> => response_array_schema(<<"">>, show_user)
+                <<"200">> => response_array_schema(<<"">>, ShowSchema)
             }
         },
         post => #{
             description => <<"Create dashboard users">>,
-            'requestBody' => request_body_schema(create_user),
+            'requestBody' => request_body_schema(CreateSchema),
             responses => #{
                 <<"200">> => response_schema(<<"Create Users successfully">>),
                 <<"400">> => bad_request()
@@ -171,19 +215,25 @@ path_param_username() ->
         example => <<"admin">>
     }.
 
--define(EMPTY(V), (V == undefined orelse V == <<>>)).
-
-auth(post, Request) ->
+login(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Params = emqx_json:decode(Body, [return_maps]),
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
-    case emqx_dashboard_admin:check(Username, Password) of
-        ok ->
-            {200};
-        {error, Reason} ->
-            {400, #{code => <<"AUTH_FAIL">>, message => Reason}}
+    case emqx_dashboard_admin:jwt_sign(Username, Password) of
+        {ok, Token} ->
+            Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
+            {200, #{token => Token, version => Version, license => #{edition => ?RELEASE}}};
+        {error, Code} ->
+            {401, #{code => Code, message => <<"Auth filed">>}}
     end.
+
+logout(_, Request) ->
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    Params = emqx_json:decode(Body, [return_maps]),
+    Username = maps:get(<<"username">>, Params),
+    emqx_dashboard_admin:jwt_destroy_by_username(Username),
+    {200}.
 
 users(get, _Request) ->
     {200, [row(User) || User <- emqx_dashboard_admin:all_users()]};
@@ -249,5 +299,14 @@ bad_request() ->
                         properties => #{
                             message => #{type => string},
                             code => #{type => string}
+                        }
+                    }).
+unauthorized_request() ->
+    response_schema(<<"Unauthorized">>,
+                    #{
+                        type => object,
+                        properties => #{
+                            message => #{type => string},
+                            code => #{type => string, enum => ['PASSWORD_ERROR', 'USERNAME_ERROR']}
                         }
                     }).

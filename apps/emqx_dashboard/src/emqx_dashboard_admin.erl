@@ -18,8 +18,6 @@
 
 -module(emqx_dashboard_admin).
 
--behaviour(gen_server).
-
 -include("emqx_dashboard.hrl").
 
 -rlog_shard({?DASHBOARD_SHARD, mqtt_admin}).
@@ -29,9 +27,6 @@
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
-
-%% API Function Exports
--export([start_link/0]).
 
 %% mqtt_admin api
 -export([ add_user/3
@@ -45,14 +40,12 @@
         , check/2
         ]).
 
-%% gen_server Function Exports
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
+-export([ jwt_sign/2
+        , jwt_verify/1
+        , jwt_destroy_by_username/1
         ]).
+
+-export([add_default_user/0]).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -72,10 +65,6 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-
--spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 -spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
 add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password) ->
@@ -170,35 +159,27 @@ check(Username, Password) ->
         [#mqtt_admin{password = <<Salt:4/binary, Hash/binary>>}] ->
             case Hash =:= md5_hash(Salt, Password) of
                 true  -> ok;
-                false -> {error, <<"Password Error">>}
+                false -> {error, <<"PASSWORD_ERROR">>}
             end;
         [] ->
-            {error, <<"Username Not Found">>}
+            {error, <<"USERNAME_ERROR">>}
     end.
 
 %%--------------------------------------------------------------------
-%% gen_server callbacks
-%%--------------------------------------------------------------------
+%% jwt
+jwt_sign(Username, Password) ->
+    case check(Username, Password) of
+        ok ->
+            emqx_dashboard_jwt:sign(Username, Password);
+        Error ->
+            Error
+    end.
 
-init([]) ->
-    %% Add default admin user
-    _ = add_default_user(binenv(default_username), binenv(default_password)),
-    {ok, state}.
+jwt_verify(Token) ->
+    emqx_dashboard_jwt:verify(Token).
 
-handle_call(_Req, _From, State) ->
-    {reply, error, State}.
-
-handle_cast(_Msg, State) ->
-    {noreply, State}.
-
-handle_info(_Msg, State) ->
-    {noreply, State}.
-
-terminate(_Reason, _State) ->
-    ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+jwt_destroy_by_username(Username) ->
+    emqx_dashboard_jwt:destroy_by_username(Username).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -215,6 +196,9 @@ salt() ->
     _ = emqx_misc:rand_seed(),
     Salt = rand:uniform(16#ffffffff),
     <<Salt:32>>.
+
+add_default_user() ->
+    add_default_user(binenv(default_username), binenv(default_password)).
 
 binenv(Key) ->
     iolist_to_binary(emqx_config:get([emqx_dashboard, Key], "")).
