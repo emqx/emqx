@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_other_schema).
+-module(emqx_authn_implied_schema).
 
 -include("emqx_authn.hrl").
 -include_lib("typerefl/include/types.hrl").

@@ -16,7 +16,16 @@
 
 -module(emqx_authn).
 
+-behaviour(emqx_config_handler).
+
 -include("emqx_authn.hrl").
+
+-export([mnesia/1]).
+
+-export([ pre_config_update/2
+        , post_config_update/3
+        , update_config/2
+        ]).
 
 -export([ enable/0
         , disable/0
@@ -46,8 +55,6 @@
         , list_users/2
         ]).
 
--export([mnesia/1]).
-
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
@@ -74,6 +81,97 @@ mnesia(boot) ->
 
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?CHAIN_TAB, ram_copies).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
+
+pre_config_update({enable, Enable}, _OldConfig) ->
+    Enable;
+pre_config_update({create_authenticator, Config}, OldConfig) ->
+    OldConfig ++ [Config];
+pre_config_update({delete_authenticator, ID}, OldConfig) ->
+    case lookup_authenticator(?CHAIN, ID) of
+        {error, Reason} -> error(Reason);
+        {ok, #{name := Name}} ->
+            lists:filter(fun(#{<<"name">> := N}) ->
+                             N =/= Name
+                         end, OldConfig)
+    end;
+pre_config_update({update_authenticator, ID, Config}, OldConfig) ->
+    case lookup_authenticator(?CHAIN, ID) of
+        {error, Reason} -> error(Reason);
+        {ok, #{name := Name}} ->
+            lists:map(fun(#{<<"name">> := N} = C) ->
+                          case N =:= Name of
+                              true -> Config;
+                              false -> C
+                          end
+                      end, OldConfig)
+    end;
+pre_config_update({update_or_create_authenticator, ID, Config}, OldConfig) ->
+    case lookup_authenticator(?CHAIN, ID) of
+        {error, _Reason} -> OldConfig ++ [Config];
+        {ok, #{name := Name}} ->
+            lists:map(fun(#{<<"name">> := N} = C) ->
+                          case N =:= Name of
+                              true -> Config;
+                              false -> C
+                          end
+                      end, OldConfig)
+    end.
+
+post_config_update({enable, true}, _NewConfig, _OldConfig) ->
+    emqx_authn:enable();
+post_config_update({enable, false}, _NewConfig, _OldConfig) ->
+    emqx_authn:disable();
+post_config_update({create_authenticator, #{<<"name">> := Name}}, NewConfig, _OldConfig) ->
+    case lists:filter(
+             fun(#{name := N}) ->
+                 N =:= Name
+             end, NewConfig) of
+        [Config] ->
+            case create_authenticator(?CHAIN, Config) of
+                {ok, _} -> ok;
+                {error, Reason} -> throw(Reason)
+            end;
+        [_Config | _] ->
+            error(name_has_be_used)
+    end;
+post_config_update({delete_authenticator, ID}, _NewConfig, _OldConfig) ->
+    case delete_authenticator(?CHAIN, ID) of
+        ok -> ok;
+        {error, Reason} -> throw(Reason)
+    end;
+post_config_update({update_authenticator, ID, #{<<"name">> := Name}}, NewConfig, _OldConfig) ->
+    case lists:filter(
+             fun(#{name := N}) ->
+                 N =:= Name
+             end, NewConfig) of
+        [Config] ->
+            case update_authenticator(?CHAIN, ID, Config) of
+                {ok, _} -> ok;
+                {error, Reason} -> throw(Reason)
+            end;
+        [_Config | _] ->
+            error(name_has_be_used)
+    end;
+post_config_update({update_or_create_authenticator, ID, #{<<"name">> := Name}}, NewConfig, _OldConfig) ->
+    case lists:filter(
+             fun(#{name := N}) ->
+                 N =:= Name
+             end, NewConfig) of
+        [Config] ->
+            case update_or_create_authenticator(?CHAIN, ID, Config) of
+                {ok, _} -> ok;
+                {error, Reason} -> throw(Reason)
+            end;
+        [_Config | _] ->
+            error(name_has_be_used)
+    end.
+
+update_config(Path, ConfigRequest) ->
+    emqx_config:update(emqx_authn_schema, Path, ConfigRequest).
 
 enable() ->
     case emqx:hook('client.authenticate', {?MODULE, authenticate, []}) of

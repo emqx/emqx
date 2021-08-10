@@ -1253,14 +1253,9 @@ definitions() ->
 authentication(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     case emqx_json:decode(Body, [return_maps]) of
-        #{<<"enable">> := true} ->
-            ok = emqx_authn:enable(),
+        #{<<"enable">> := Enable} ->
+            emqx_authn:update_config([authentication, enable], {enable, Enable}),
             {204};
-        #{<<"enable">> := false} ->
-            ok = emqx_authn:disable(),
-            {204};
-        #{<<"enable">> := _} ->
-            serialize_error({invalid_parameter, enable});
         _ ->
             serialize_error({missing_parameter, enable})
     end;
@@ -1270,16 +1265,10 @@ authentication(get, _Request) ->
 
 authenticators(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
-    AuthenticatorConfig = emqx_json:decode(Body, [return_maps]),
-    Config = #{<<"authentication">> => #{
-                   <<"authenticators">> => [AuthenticatorConfig]
-               }},
-    NConfig = hocon_schema:check_plain(emqx_authn_schema, Config,
-                                       #{nullable => true}),
-    #{authentication := #{authenticators := [NAuthenticatorConfig]}} = emqx_map_lib:unsafe_atom_key_map(NConfig),
-    case emqx_authn:create_authenticator(?CHAIN, NAuthenticatorConfig) of
-        {ok, Authenticator2} ->
-            {201, Authenticator2};
+    Config = emqx_json:decode(Body, [return_maps]),
+    case emqx_authn:update_config([authentication, authenticators], {create_authenticator, Config}) of
+        ok ->    
+            {204};
         {error, Reason} ->
             serialize_error(Reason)
     end;
@@ -1298,22 +1287,17 @@ authenticators2(get, Request) ->
 authenticators2(put, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    AuthenticatorConfig = emqx_json:decode(Body, [return_maps]),
-    Config = #{<<"authentication">> => #{
-                   <<"authenticators">> => [AuthenticatorConfig]
-               }},
-    NConfig = hocon_schema:check_plain(emqx_authn_schema, Config,
-                                       #{nullable => true}),
-    #{authentication := #{authenticators := [NAuthenticatorConfig]}} = emqx_map_lib:unsafe_atom_key_map(NConfig),
-    case emqx_authn:update_or_create_authenticator(?CHAIN, AuthenticatorID, NAuthenticatorConfig) of
-        {ok, Authenticator} ->
-            {200, Authenticator};
+    Config = emqx_json:decode(Body, [return_maps]),
+    case emqx_authn:update_config([authentication, authenticators],
+                                  {update_or_create_authenticator, AuthenticatorID, Config}) of
+        ok ->
+            {204};
         {error, Reason} ->
             serialize_error(Reason)
     end;
 authenticators2(delete, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
-    case emqx_authn:delete_authenticator(?CHAIN, AuthenticatorID) of
+    case emqx_authn:update_config([authentication, authenticators], {delete_authenticator, AuthenticatorID}) of
         ok ->
             {204};
         {error, Reason} ->
@@ -1324,7 +1308,7 @@ position(post, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
     NBody = emqx_json:decode(Body, [return_maps]),
-    Config = hocon_schema:check_plain(emqx_authn_other_schema, #{<<"position">> => NBody},
+    Config = hocon_schema:check_plain(emqx_authn_implied_schema, #{<<"position">> => NBody},
                                       #{nullable => true}, ["position"]),
     #{position := #{position := Position}} = emqx_map_lib:unsafe_atom_key_map(Config),
     case emqx_authn:move_authenticator_to_the_nth(?CHAIN, AuthenticatorID, Position) of
@@ -1338,7 +1322,7 @@ import_users(post, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
     NBody = emqx_json:decode(Body, [return_maps]),
-    Config = hocon_schema:check_plain(emqx_authn_other_schema, #{<<"filename">> => NBody},
+    Config = hocon_schema:check_plain(emqx_authn_implied_schema, #{<<"filename">> => NBody},
                                       #{nullable => true}, ["filename"]),
     #{filename := #{filename := Filename}} = emqx_map_lib:unsafe_atom_key_map(Config),
     case emqx_authn:import_users(?CHAIN, AuthenticatorID, Filename) of
@@ -1352,7 +1336,7 @@ users(post, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
     NBody = emqx_json:decode(Body, [return_maps]),
-    Config = hocon_schema:check_plain(emqx_authn_other_schema, #{<<"user_info">> => NBody},
+    Config = hocon_schema:check_plain(emqx_authn_implied_schema, #{<<"user_info">> => NBody},
                                       #{nullable => true}, ["user_info"]),
     #{user_info := UserInfo} = emqx_map_lib:unsafe_atom_key_map(Config),
     case emqx_authn:add_user(?CHAIN, AuthenticatorID, UserInfo) of
@@ -1375,7 +1359,7 @@ users2(patch, Request) ->
     UserID = cowboy_req:binding(user_id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
     NBody = emqx_json:decode(Body, [return_maps]),
-    Config = hocon_schema:check_plain(emqx_authn_other_schema, #{<<"new_user_info">> => NBody},
+    Config = hocon_schema:check_plain(emqx_authn_implied_schema, #{<<"new_user_info">> => NBody},
                                       #{nullable => true}, ["new_user_info"]),
     #{new_user_info := NewUserInfo} = emqx_map_lib:unsafe_atom_key_map(Config),
     case emqx_authn:update_user(?CHAIN, AuthenticatorID, UserID, NewUserInfo) of
