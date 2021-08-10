@@ -59,8 +59,11 @@ jobs:
         - name: make paho tests
           run: |
             if ! docker exec -i python /scripts/pytest.sh; then
+              echo "DUMP_CONTAINER_LOGS_BGN"
+              docker logs haproxy
               docker logs node1.emqx.io
               docker logs node2.emqx.io
+              echo "DUMP_CONTAINER_LOGS_END"
               exit 1
             fi
 
