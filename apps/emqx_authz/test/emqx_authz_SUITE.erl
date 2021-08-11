@@ -42,6 +42,10 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_authz]),
     ok.
 
+init_per_testcase(_, Config) ->
+    ok = emqx_authz:update(replace, []),
+    Config.
+
 -define(RULE1, #{<<"principal">> => <<"all">>,
                  <<"topics">> => [<<"#">>],
                  <<"action">> => <<"all">>,
@@ -129,6 +133,43 @@ t_update_rule(_) ->
     ] = emqx_authz:lookup(),
 
     ok = emqx_authz:update(replace, []).
+
+t_move_rule(_) ->
+    ok = emqx_authz:update(replace, [?RULE1, ?RULE2, ?RULE3, ?RULE4]),
+    [#{annotations := #{id := Id1}},
+     #{annotations := #{id := Id2}},
+     #{annotations := #{id := Id3}},
+     #{annotations := #{id := Id4}}
+    ] = emqx_authz:lookup(),
+
+    ok = emqx_authz:move(Id4, <<"top">>),
+    ?assertMatch([#{annotations := #{id := Id4}},
+                  #{annotations := #{id := Id1}},
+                  #{annotations := #{id := Id2}},
+                  #{annotations := #{id := Id3}}
+                 ], emqx_authz:lookup()),
+
+    ok = emqx_authz:move(Id1, <<"bottom">>),
+    ?assertMatch([#{annotations := #{id := Id4}},
+                  #{annotations := #{id := Id2}},
+                  #{annotations := #{id := Id3}},
+                  #{annotations := #{id := Id1}}
+                 ], emqx_authz:lookup()),
+
+    ok = emqx_authz:move(Id3, #{<<"before">> => Id4}),
+    ?assertMatch([#{annotations := #{id := Id3}},
+                  #{annotations := #{id := Id4}},
+                  #{annotations := #{id := Id2}},
+                  #{annotations := #{id := Id1}}
+                 ], emqx_authz:lookup()),
+
+    ok = emqx_authz:move(Id2, #{<<"after">> => Id1}),
+    ?assertMatch([#{annotations := #{id := Id3}},
+                  #{annotations := #{id := Id4}},
+                  #{annotations := #{id := Id1}},
+                  #{annotations := #{id := Id2}}
+                 ], emqx_authz:lookup()),
+    ok.
 
 t_authz(_) ->
     ClientInfo1 = #{clientid => <<"test">>,
