@@ -34,6 +34,8 @@
 %% Helper funcs
 -export([ running/0
         , server/1
+        , put_request_failed_action/1
+        , get_request_failed_action/0
         ]).
 
 %% gen_server callbacks
@@ -100,7 +102,7 @@ call(Pid, Req) ->
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Servers, AutoReconnect, ReqOpts]) ->
+init([Servers, AutoReconnect, ReqOpts0]) ->
     process_flag(trap_exit, true),
     %% XXX: Due to the ExHook Module in the enterprise,
     %% this process may start multiple times and they will share this table
@@ -111,7 +113,13 @@ init([Servers, AutoReconnect, ReqOpts]) ->
             ok
     end,
 
+    %% put the global option
+    put_request_failed_action(
+      maps:get(request_failed_action, ReqOpts0, deny)
+     ),
+
     %% Load the hook servers
+    ReqOpts = maps:without([request_failed_action], ReqOpts0),
     {Waiting, Running} = load_all_servers(Servers, ReqOpts),
     {ok, ensure_reload_timer(
            #state{waiting = Waiting,
@@ -271,6 +279,12 @@ clean_reload_timer(Name, State = #state{trefs = TRefs}) ->
 
 %%--------------------------------------------------------------------
 %% Server state persistent
+
+put_request_failed_action(Val) ->
+    persistent_term:put({?APP, request_failed_action}, Val).
+
+get_request_failed_action() ->
+    persistent_term:get({?APP, request_failed_action}).
 
 save(Name, ServerState) ->
     Saved = persistent_term:get(?APP, []),

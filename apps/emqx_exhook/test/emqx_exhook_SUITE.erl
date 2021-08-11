@@ -55,6 +55,26 @@ t_noserver_nohook(_) ->
     ok = emqx_exhook:enable(default),
     ?assertNotEqual([], ets:tab2list(emqx_hooks)).
 
+t_access_failed_if_no_server_running(_) ->
+    emqx_exhook:disable(default),
+    ClientInfo = #{clientid => <<"user-id-1">>,
+                   username => <<"usera">>,
+                   peerhost => {127,0,0,1},
+                   sockport => 1883,
+                   protocol => mqtt,
+                   mountpoint => undefined
+                  },
+    ?assertMatch({stop, #{auth_result := not_authorized}},
+                 emqx_exhook_handler:on_client_authenticate(ClientInfo, #{auth_result => success})),
+
+    ?assertMatch({stop, deny},
+                 emqx_exhook_handler:on_client_check_acl(ClientInfo, publish, <<"t/1">>, allow)),
+
+    Message = emqx_message:make(<<"t/1">>, <<"abc">>),
+    ?assertMatch({stop, Message},
+                 emqx_exhook_handler:on_message_publish(Message)),
+    emqx_exhook:enable(default).
+
 t_cli_list(_) ->
     meck_print(),
     ?assertEqual( [[emqx_exhook_server:format(emqx_exhook_mngr:server(Name)) || Name  <- emqx_exhook:list()]]
