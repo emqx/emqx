@@ -67,14 +67,13 @@ new_emqx_retainer_conf() ->
     #{enable => true,
       msg_expiry_interval => 0,
       msg_clear_interval => 0,
-      connector => [#{type => mnesia,
-                      config =>
-                          #{max_retained_messages => 0,
-                            storage_type => ram}}],
+      config => #{type => built_in_database,
+                  max_retained_messages => 0,
+                  storage_type => ram},
       flow_control => #{max_read_number => 0,
                         msg_deliver_quota => 0,
                         quota_release_interval => 0},
-                      max_payload_size => 1024 * 1024}.
+      max_payload_size => 1024 * 1024}.
 
 %%--------------------------------------------------------------------
 %% Test Cases

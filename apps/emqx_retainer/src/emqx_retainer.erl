@@ -338,16 +338,16 @@ get_msg_deliver_quota() ->
 update_config(#{clear_timer := ClearTimer,
                 release_quota_timer := QuotaTimer} = State, Conf) ->
     #{enable := Enable,
-      connector := [Connector | _],
+      config := Config,
       flow_control := #{quota_release_interval := QuotaInterval},
       msg_clear_interval := ClearInterval} = Conf,
 
-    #{connector := [OldConnector | _]} = emqx_config:get([?APP]),
+    #{config := OldConfig} = emqx_config:get([?APP]),
 
     case Enable of
         true ->
-            StorageType = maps:get(type, Connector),
-            OldStrorageType = maps:get(type, OldConnector),
+            StorageType = maps:get(type, Config),
+            OldStrorageType = maps:get(type, OldConfig),
             case OldStrorageType of
                 StorageType ->
                     State#{clear_timer := check_timer(ClearTimer,
@@ -368,9 +368,9 @@ update_config(#{clear_timer := ClearTimer,
 enable_retainer(#{context_id := ContextId} = State,
                 #{msg_clear_interval := ClearInterval,
                   flow_control := #{quota_release_interval := ReleaseInterval},
-                  connector := [Connector | _]}) ->
+                  config := Config}) ->
     NewContextId = ContextId + 1,
-    Context = create_resource(new_context(NewContextId), Connector),
+    Context = create_resource(new_context(NewContextId), Config),
     load(Context),
     State#{enable := true,
            context_id := NewContextId,
@@ -416,14 +416,19 @@ check_timer(Timer, _, _) ->
 
 -spec get_backend_module() -> backend().
 get_backend_module() ->
-    [#{type := Backend} | _] = emqx_config:get([?APP, connector]),
-    erlang:list_to_existing_atom(io_lib:format("~s_~s", [?APP, Backend])).
+    #{type := Backend} = emqx_config:get([?APP, config]),
+    ModName = if Backend =:= built_in_database ->
+                      mnesia;
+                 true ->
+                      Backend
+              end,
+    erlang:list_to_existing_atom(io_lib:format("~s_~s", [?APP, ModName])).
 
-create_resource(Context, #{type := mnesia, config := Cfg}) ->
+create_resource(Context, #{type := built_in_database} = Cfg) ->
     emqx_retainer_mnesia:create_resource(Cfg),
     Context;
 
-create_resource(Context, #{type := DB, config := Config}) ->
+create_resource(Context, #{type := DB} = Config) ->
     ResourceID = erlang:iolist_to_binary([io_lib:format("~s_~s", [?APP, DB])]),
     case emqx_resource:create(
            ResourceID,
