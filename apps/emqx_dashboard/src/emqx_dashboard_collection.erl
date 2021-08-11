@@ -56,7 +56,7 @@ start_link() ->
 get_collect() -> gen_server:call(whereis(?MODULE), get_collect).
 
 init([]) ->
-    timer(timer:seconds(interval()), collect),
+    timer(next_interval(), collect),
     timer(get_today_remaining_seconds(), clear_expire_data),
     ExpireInterval = emqx_config:get([emqx_dashboard, monitor, interval], ?EXPIRE_INTERVAL),
     State = #{
@@ -67,6 +67,15 @@ init([]) ->
         last_collects => {0, 0, 0}
     },
     {ok, State}.
+
+%% @doc every whole interval seconds;
+%% example:
+%% interval is 10s
+%% now 15:01:07 (or 15:07:01 ~ 15:07:10)
+%% next will be 15:01:10, 15:01:20, 15:01:30 ...
+%% ensure all counters in cluster have sync time
+next_interval() ->
+    (1000 * interval()) - (erlang:system_time(millisecond) rem (1000 * interval())) - 1.
 
 interval() ->
     emqx_config:get([?APP, sample_interval], ?DEFAULT_INTERVAL).
@@ -82,17 +91,17 @@ handle_cast(_Req, State) ->
     {noreply, State}.
 
 handle_info(collect, State = #{collect := Collect, count := 1, temp_collect := TempCollect, last_collects := LastCollect}) ->
+    timer(next_interval(), collect),
     NewLastCollect = flush(collect_all(Collect), LastCollect),
     TempCollect1 = temp_collect(TempCollect),
-    timer(timer:seconds(interval()), collect),
     {noreply, State#{count => count(),
                      collect => ?COLLECT,
                      temp_collect => TempCollect1,
                      last_collects => NewLastCollect}};
 
 handle_info(collect, State = #{count := Count, collect := Collect, temp_collect := TempCollect}) ->
+    timer(next_interval(), collect),
     TempCollect1 = temp_collect(TempCollect),
-    timer(timer:seconds(interval()), collect),
     {noreply, State#{count => Count - 1,
                      collect => collect_all(Collect),
                      temp_collect => TempCollect1}, hibernate};
@@ -170,4 +179,4 @@ get_today_remaining_seconds() ->
 
 get_local_time() ->
     (calendar:datetime_to_gregorian_seconds(calendar:local_time()) -
-        calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}})) * 1000.
+        calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}})).
