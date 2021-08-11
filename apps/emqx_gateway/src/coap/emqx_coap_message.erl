@@ -27,7 +27,7 @@
 -export([request/2, request/3, request/4, ack/1, response/1, response/2, response/3]).
 -export([set/3, set_payload/2, get_content/1, set_content/2, set_content/3, get_option/2]).
 
--include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
+-include("emqx_coap.hrl").
 
 request(Type, Method) ->
     request(Type, Method, <<>>, []).

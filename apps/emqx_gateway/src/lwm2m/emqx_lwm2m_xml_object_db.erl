@@ -16,7 +16,7 @@
 
 -module(emqx_lwm2m_xml_object_db).
 
--include("src/lwm2m/include/emqx_lwm2m.hrl").
+-include("emqx_lwm2m.hrl").
 -include_lib("xmerl/include/xmerl.hrl").
 
 % This module is for future use. Disabled now.

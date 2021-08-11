@@ -23,7 +23,7 @@
         , translate_json/1
         ]).
 
--include("src/lwm2m/include/emqx_lwm2m.hrl").
+-include("emqx_lwm2m.hrl").
 
 -define(LOG(Level, Format, Args), logger:Level("LWM2M-JSON: " ++ Format, Args)).
 

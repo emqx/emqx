@@ -16,7 +16,7 @@
 
 -module(emqx_coap_resource).
 
--include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
+-include("emqx_coap.hrl").
 
 -type context() :: any().
 -type topic() :: binary().

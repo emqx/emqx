@@ -41,7 +41,7 @@
 
 -export([parse_object_list/1]).
 
--include("src/lwm2m/include/emqx_lwm2m.hrl").
+-include("emqx_lwm2m.hrl").
 
 -define(PREFIX, <<"rd">>).
 

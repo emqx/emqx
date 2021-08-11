@@ -19,7 +19,7 @@
 -behavior(emqx_gateway_channel).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
+-include("emqx_coap.hrl").
 
 %% API
 -export([]).

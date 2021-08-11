@@ -16,7 +16,7 @@
 
 -module(emqx_lwm2m_protocol).
 
--include("src/lwm2m/include/emqx_lwm2m.hrl").
+-include("emqx_lwm2m.hrl").
 
 -include_lib("emqx/include/emqx.hrl").
 
@@ -300,7 +300,7 @@ auto_observe_object_list(Expected, Registered) ->
 
 send_auto_observe(CoapPid, RegInfo, EndpointName) ->
     %% - auto observe the objects
-    Envs = proplists:get_value(config, lwm2m_coap_responder:options(), #{}), 
+    Envs = proplists:get_value(config, lwm2m_coap_responder:options(), #{}),
     case maps:get(auto_observe, Envs, false) of
         false ->
             ?LOG(info, "Auto Observe Disabled", []);
@@ -557,4 +557,3 @@ stats(_State) ->
                 ],
     ProcStats = emqx_misc:proc_stats(),
     lists:append([SockStats, ConnStats, ChanStats, ProcStats]).
-

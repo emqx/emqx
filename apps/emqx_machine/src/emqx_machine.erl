@@ -138,7 +138,7 @@ start_one_app(App) ->
 %% 1. due to static static config change
 %% 2. after join a cluster
 reboot_apps() ->
-    [gproc, esockd, ranch, cowboy, ekka, emqx | ?EMQX_DEP_APPS].
+    [gproc, esockd, ranch, cowboy, ekka, emqx]. %% | ?EMQX_DEP_APPS].
 
 sorted_reboot_apps() ->
     Apps = [{App, app_deps(App)} || App <- reboot_apps()],

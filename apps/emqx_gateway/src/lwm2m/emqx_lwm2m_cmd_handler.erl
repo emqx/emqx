@@ -16,7 +16,7 @@
 
 -module(emqx_lwm2m_cmd_handler).
 
--include("src/lwm2m/include/emqx_lwm2m.hrl").
+-include("emqx_lwm2m.hrl").
 
 -include_lib("lwm2m_coap/include/coap.hrl").
 

@@ -19,7 +19,7 @@
 
 % -behavior(emqx_exproto_v_1_connection_adapter_bhvr).
 
--include("src/exproto/include/emqx_exproto.hrl").
+-include("emqx_exproto.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 

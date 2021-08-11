@@ -7,7 +7,6 @@ defmodule EmqxReleaseHelper.Applications do
     overlay %{release_type: release_type} do
       copy "etc/certs", "etc/certs"
 
-      template "etc/acl.conf", "etc/acl.conf"
       template "etc/emqx.conf", "etc/emqx.conf"
       template "etc/ssl_dist.conf", "etc/ssl_dist.conf"
       template "etc/emqx_#{release_type}/vm.args", "etc/vm.args"
@@ -30,22 +29,17 @@ defmodule EmqxReleaseHelper.Applications do
     start_type :permanent
   end
 
-  application :emqx_authz do
-    start_type :permanent
-    overlay :application
-  end
-
   application :emqx_data_bridge do
     start_type :permanent
     overlay :application
   end
 
-  application :emqx_sn do
+  application :emqx_authn do
     start_type :permanent
     overlay :application
   end
 
-  application :emqx_authentication do
+  application :emqx_authz do
     start_type :permanent
     overlay :application
   end
@@ -65,11 +59,6 @@ defmodule EmqxReleaseHelper.Applications do
     overlay :application
   end
 
-  application :emqx_stomp do
-    start_type :permanent
-    overlay :application
-  end
-
   application :emqx_bridge_mqtt do
     start_type :permanent
     overlay :application
@@ -80,22 +69,12 @@ defmodule EmqxReleaseHelper.Applications do
     overlay :application
   end
 
-  application :emqx_telemetry do
-    start_type :permanent
-    overlay :application
-  end
-
-  application :emqx_coap do
-    start_type :permanent
-    overlay :application
-  end
-
   application :emqx_rule_engine do
     start_type :permanent
     overlay :application
   end
 
-  application :emqx_web_hook do
+  application :emqx_rule_actions do
     start_type :permanent
     overlay :application
   end
@@ -104,37 +83,9 @@ defmodule EmqxReleaseHelper.Applications do
     start_type :load
   end
 
-  application :emqx_exhook, %{release_type: :cloud} do
-    start_type :permanent
-    overlay :application
-  end
-
-  application :emqx_exproto, %{release_type: :cloud} do
-    start_type :permanent
-    overlay :application
-  end
-
   application :emqx_prometheus, %{release_type: :cloud} do
     start_type :permanent
     overlay :application
-  end
-
-  application :emqx_lwm2m, %{release_type: :cloud} do
-    start_type :permanent
-    overlay :application
-
-    overlay do
-      copy "lwm2m_xml", "etc/lwm2m_xml"
-    end
-  end
-
-  application :emqx_psk_file, %{release_type: :cloud} do
-    start_type :permanent
-    overlay :application
-
-    overlay do
-      copy "etc/psk.txt", "etc/psk.txt"
-    end
   end
 
   application :bcrypt, %{enable_bcrypt: true, release_type: :cloud} do

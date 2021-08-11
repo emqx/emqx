@@ -1,7 +1,7 @@
 -module(emqx_coap_transport).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
+-include("emqx_coap.hrl").
 
 -define(ACK_TIMEOUT, 2000).
 -define(ACK_RANDOM_FACTOR, 1000).

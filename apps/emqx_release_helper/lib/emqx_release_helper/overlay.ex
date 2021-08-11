@@ -26,10 +26,6 @@ defmodule EmqxReleaseHelper.Overlay do
 
     copy "bin/install_upgrade.escript", "bin/install_upgrade.escript-#{release_version}"
 
-    template "data/loaded_plugins.tmpl", "data/loaded_plugins"
-
-    template "data/loaded_modules.tmpl", "data/loaded_modules"
-
     template "data/emqx_vars", "releases/emqx_vars"
     template "data/BUILT_ON", "releases/#{release_version}/BUILT_ON"
     # template "bin/emqx.cmd", "bin/emqx.cmd"

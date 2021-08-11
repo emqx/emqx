@@ -25,7 +25,7 @@
 -export([binary_to_hex_string/1]).
 -endif.
 
--include("src/lwm2m/include/emqx_lwm2m.hrl").
+-include("emqx_lwm2m.hrl").
 
 -define(LOG(Level, Format, Args), logger:Level("LWM2M-TLV: " ++ Format, Args)).
 
@@ -162,4 +162,3 @@ encode_value(Value) ->
 binary_to_hex_string(Data) ->
     lists:flatten([io_lib:format("~2.16.0B ",[X]) || <<X:8>> <= Data ]).
 -endif.
-

@@ -16,7 +16,7 @@
 
 -module(emqx_lwm2m_timer).
 
--include("src/lwm2m/include/emqx_lwm2m.hrl").
+-include("emqx_lwm2m.hrl").
 
 -export([ cancel_timer/1
         , start_timer/2

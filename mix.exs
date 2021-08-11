@@ -15,6 +15,7 @@ defmodule EMQXUmbrella.MixProject do
   defp deps do
     [
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
+      {:jsx, "~> 3.1", override: true},
       {:gun, github: "emqx/gun", tag: "1.3.4", override: true},
       {:hocon, github: "emqx/hocon", override: true},
       {:cuttlefish,
@@ -25,13 +26,14 @@ defmodule EMQXUmbrella.MixProject do
       {:getopt, github: "emqx/getopt", tag: "v1.0.2", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.8.2", override: true},
       {:cowlib, "~> 2.8", override: true},
+      {:ranch, "~> 2.0", override: true},
       {:poolboy, github: "emqx/poolboy", tag: "1.5.2", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.8.0", override: true},
       {:gproc, "~> 0.9", override: true},
       {:eetcd, "~> 0.3", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.2", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
-      {:typerefl, github: "k32/typerefl", tag: "0.6.2", manager: :rebar3, override: true},
+      {:typerefl, github: "k32/typerefl", tag: "0.8.3", manager: :rebar3, override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.5.1", override: true},
       {:gen_coap, github: "emqx/gen_coap", tag: "v0.3.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.14.0", override: true},

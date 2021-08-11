@@ -30,8 +30,8 @@
 %% API
 -export([]).
 
--include("include/emqx_coap.hrl").
--include("apps/emqx/include/types.hrl").
+-include_lib("emqx/include/types.hrl").
+-include("emqx_coap.hrl").
 
 -define(VERSION, 1).
 

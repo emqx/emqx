@@ -26,7 +26,7 @@
 -export_type([manager/0, event_result/1]).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
+-include("emqx_coap.hrl").
 
 -type direction() :: in | out.
 -type state_machine_id() :: {direction(), non_neg_integer()}.

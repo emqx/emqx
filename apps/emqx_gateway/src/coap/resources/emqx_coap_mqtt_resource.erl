@@ -20,7 +20,7 @@
 -behaviour(emqx_coap_resource).
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
+-include("emqx_coap.hrl").
 
 
 -export([ init/1

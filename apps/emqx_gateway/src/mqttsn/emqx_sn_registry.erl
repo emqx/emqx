@@ -21,7 +21,7 @@
 
 -behaviour(gen_server).
 
--include("src/mqttsn/include/emqx_sn.hrl").
+-include("emqx_sn.hrl").
 
 -define(LOG(Level, Format, Args),
         emqx_logger:Level("MQTT-SN(registry): " ++ Format, Args)).

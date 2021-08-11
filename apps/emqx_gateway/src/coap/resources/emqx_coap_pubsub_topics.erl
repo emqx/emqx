@@ -19,7 +19,7 @@
 -behaviour(gen_server).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
+-include("emqx_coap.hrl").
 
 
 -export([ start_link/0
