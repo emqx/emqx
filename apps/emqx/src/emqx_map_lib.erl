@@ -23,6 +23,8 @@
         , deep_merge/2
         , safe_atom_key_map/1
         , unsafe_atom_key_map/1
+        , jsonable_map/1
+        , deep_convert/2
         ]).
 
 -export_type([config_key/0, config_key_path/0]).
@@ -97,21 +99,42 @@ deep_merge(BaseMap, NewMap) ->
         end, #{}, BaseMap),
     maps:merge(MergedBase, maps:with(NewKeys, NewMap)).
 
+-spec deep_convert(map(), fun((K::any(), V::any()) -> {K1::any(), V1::any()})) -> map().
+deep_convert(Map, ConvFun) when is_map(Map) ->
+    maps:fold(fun(K, V, Acc) ->
+            {K1, V1} = ConvFun(K, deep_convert(V, ConvFun)),
+            Acc#{K1 => V1}
+        end, #{}, Map);
+deep_convert(ListV, ConvFun) when is_list(ListV) ->
+    [deep_convert(V, ConvFun) || V <- ListV];
+deep_convert(Val, _) -> Val.
+
+-spec unsafe_atom_key_map(#{binary() | atom() => any()}) -> #{atom() => any()}.
 unsafe_atom_key_map(Map) ->
     covert_keys_to_atom(Map, fun(K) -> binary_to_atom(K, utf8) end).
 
+-spec safe_atom_key_map(#{binary() | atom() => any()}) -> #{atom() => any()}.
 safe_atom_key_map(Map) ->
     covert_keys_to_atom(Map, fun(K) -> binary_to_existing_atom(K, utf8) end).
 
+-spec jsonable_map(map()) -> map().
+jsonable_map(Map) ->
+    deep_convert(Map, fun(K, V) ->
+            {jsonable_value(K), jsonable_value(V)}
+        end).
+
+jsonable_value([]) -> [];
+jsonable_value(Val) when is_list(Val) ->
+    case io_lib:printable_unicode_list(Val) of
+        true -> unicode:characters_to_binary(Val);
+        false -> Val
+    end;
+jsonable_value(Val) ->
+    Val.
+
 %%---------------------------------------------------------------------------
-covert_keys_to_atom(BinKeyMap, Conv) when is_map(BinKeyMap) ->
-    maps:fold(
-        fun(K, V, Acc) when is_binary(K) ->
-              Acc#{Conv(K) => covert_keys_to_atom(V, Conv)};
-           (K, V, Acc) when is_atom(K) ->
-              %% richmap keys
-              Acc#{K => covert_keys_to_atom(V, Conv)}
-        end, #{}, BinKeyMap);
-covert_keys_to_atom(ListV, Conv) when is_list(ListV) ->
-    [covert_keys_to_atom(V, Conv) || V <- ListV];
-covert_keys_to_atom(Val, _) -> Val.
+covert_keys_to_atom(BinKeyMap, Conv) ->
+    deep_convert(BinKeyMap, fun
+            (K, V) when is_atom(K) -> {K, V};
+            (K, V) when is_binary(K) -> {Conv(K), V}
+        end).
