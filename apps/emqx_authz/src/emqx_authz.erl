@@ -30,6 +30,7 @@
         , init_rule/1
         , lookup/0
         , lookup/1
+        , move/2
         , update/2
         , authorize/5
         , match/4
@@ -53,32 +54,99 @@ lookup() ->
     {_M, _F, [A]}= find_action_in_hooks(),
     A.
 lookup(Id) ->
-    case find_rule_by_id(Id, lookup()) of
-        {error, Reason} -> {error, Reason};
+    try find_rule_by_id(Id, lookup()) of
         {_, Rule} -> Rule
+    catch
+        error:Reason -> {error, Reason}
     end.
+
+move(Id, Position) ->
+    emqx_config:update(emqx_authz_schema, ?CONF_KEY_PATH, {move, Id, Position}).
 
 update(Cmd, Rules) ->
     emqx_config:update(emqx_authz_schema, ?CONF_KEY_PATH, {Cmd, Rules}).
 
-%% For now we only support re-creating the entire rule list
-pre_config_update({head, Rules}, OldConf) when is_list(Rules), is_list(OldConf) ->
-    Rules ++ OldConf;
-pre_config_update({tail, Rules}, OldConf) when is_list(Rules), is_list(OldConf) ->
-    OldConf ++ Rules;
-pre_config_update({{replace_once, Id}, Rule}, OldConf) when is_map(Rule), is_list(OldConf) ->
-    {Index, _} = case find_rule_by_id(Id, lookup()) of
-                            {error, Reason} -> error(Reason);
-                            R -> R
-                 end,
-    {OldConf1, OldConf2} = lists:split(Index, OldConf),
-    lists:droplast(OldConf1) ++ [Rule] ++ OldConf2;
-pre_config_update({_, Rules}, _OldConf) when is_list(Rules)->
+pre_config_update({move, Id, <<"top">>}, Conf) when is_list(Conf) ->
+    {Index, _} = find_rule_by_id(Id),
+    {List1, List2} = lists:split(Index, Conf),
+    [lists:nth(Index, Conf)] ++ lists:droplast(List1) ++ List2;
+
+pre_config_update({move, Id, <<"bottom">>}, Conf) when is_list(Conf) ->
+    {Index, _} = find_rule_by_id(Id),
+    {List1, List2} = lists:split(Index, Conf),
+    lists:droplast(List1) ++ List2 ++ [lists:nth(Index, Conf)];
+
+pre_config_update({move, Id, #{<<"before">> := BeforeId}}, Conf) when is_list(Conf) ->
+    {Index1, _} = find_rule_by_id(Id),
+    Conf1 = lists:nth(Index1, Conf),
+    {Index2, _} = find_rule_by_id(BeforeId),
+    Conf2 = lists:nth(Index2, Conf),
+
+    {List1, List2} = lists:split(Index2, Conf),
+    lists:delete(Conf1, lists:droplast(List1))
+    ++ [Conf1] ++ [Conf2]
+    ++ lists:delete(Conf1, List2);
+
+pre_config_update({move, Id, #{<<"after">> := AfterId}}, Conf) when is_list(Conf) ->
+    {Index1, _} = find_rule_by_id(Id),
+    Conf1 = lists:nth(Index1, Conf),
+    {Index2, _} = find_rule_by_id(AfterId),
+
+    {List1, List2} = lists:split(Index2, Conf),
+    lists:delete(Conf1, List1)
+    ++ [Conf1]
+    ++ lists:delete(Conf1, List2);
+
+pre_config_update({head, Rules}, Conf) when is_list(Rules), is_list(Conf) ->
+    Rules ++ Conf;
+pre_config_update({tail, Rules}, Conf) when is_list(Rules), is_list(Conf) ->
+    Conf ++ Rules;
+pre_config_update({{replace_once, Id}, Rule}, Conf) when is_map(Rule), is_list(Conf) ->
+    {Index, _} = find_rule_by_id(Id),
+    {List1, List2} = lists:split(Index, Conf),
+    lists:droplast(List1) ++ [Rule] ++ List2;
+pre_config_update({_, Rules}, _Conf) when is_list(Rules)->
     %% overwrite the entire config!
     Rules.
 
-post_config_update(_, undefined, _OldConf) ->
+post_config_update(_, undefined, _Conf) ->
     ok;
+post_config_update({move, Id, <<"top">>}, _NewRules, _OldRules) ->
+    InitedRules = lookup(),
+    {Index, Rule} = find_rule_by_id(Id, InitedRules),
+    {Rules1, Rules2 } = lists:split(Index, InitedRules),
+    Rules3 = [Rule] ++ lists:droplast(Rules1) ++ Rules2,
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Rules3]}, -1),
+    ok = emqx_authz_cache:drain_cache();
+post_config_update({move, Id, <<"bottom">>}, _NewRules, _OldRules) ->
+    InitedRules = lookup(),
+    {Index, Rule} = find_rule_by_id(Id, InitedRules),
+    {Rules1, Rules2 } = lists:split(Index, InitedRules),
+    Rules3 = lists:droplast(Rules1) ++ Rules2 ++ [Rule],
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Rules3]}, -1),
+    ok = emqx_authz_cache:drain_cache();
+post_config_update({move, Id, #{<<"before">> := BeforeId}}, _NewRules, _OldRules) ->
+    InitedRules = lookup(),
+    {_, Rule0} = find_rule_by_id(Id, InitedRules),
+    {Index, Rule1} = find_rule_by_id(BeforeId, InitedRules),
+    {Rules1, Rules2} = lists:split(Index, InitedRules),
+    Rules3 = lists:delete(Rule0, lists:droplast(Rules1))
+             ++ [Rule0] ++ [Rule1]
+             ++ lists:delete(Rule0, Rules2),
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Rules3]}, -1),
+    ok = emqx_authz_cache:drain_cache();
+
+post_config_update({move, Id, #{<<"after">> := AfterId}}, _NewRules, _OldRules) ->
+    InitedRules = lookup(),
+    {_, Rule} = find_rule_by_id(Id, InitedRules),
+    {Index, _} = find_rule_by_id(AfterId, InitedRules),
+    {Rules1, Rules2} = lists:split(Index, InitedRules),
+    Rules3 = lists:delete(Rule, Rules1)
+             ++ [Rule]
+             ++ lists:delete(Rule, Rules2),
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Rules3]}, -1),
+    ok = emqx_authz_cache:drain_cache();
+
 post_config_update({head, Rules}, _NewRules, _OldConf) ->
     InitedRules = [init_rule(R) || R <- check_rules(Rules)],
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [InitedRules ++ lookup()]}, -1),
@@ -91,10 +159,7 @@ post_config_update({tail, Rules}, _NewRules, _OldConf) ->
 
 post_config_update({{replace_once, Id}, Rule}, _NewRules, _OldConf) when is_map(Rule) ->
     OldInitedRules = lookup(),
-    {Index, OldRule} = case find_rule_by_id(Id, OldInitedRules) of
-                           {error, Reason} -> error(Reason);
-                            R -> R
-                       end,
+    {Index, OldRule} = find_rule_by_id(Id, OldInitedRules),
     case maps:get(type, OldRule, undefined) of
        undefined -> ok;
        _ ->
@@ -127,8 +192,9 @@ check_rules(RawRules) ->
     #{authorization := #{rules := Rules}} = hocon_schema:richmap_to_map(CheckConf),
     Rules.
 
+find_rule_by_id(Id) -> find_rule_by_id(Id, lookup()).
 find_rule_by_id(Id, Rules) -> find_rule_by_id(Id, Rules, 1).
-find_rule_by_id(_RuleId, [], _N) -> {error, not_found_rule};
+find_rule_by_id(_RuleId, [], _N) -> error(not_found_rule);
 find_rule_by_id(RuleId, [ Rule = #{annotations := #{id := Id}} | Tail], N) ->
     case RuleId =:= Id of
         true -> {N, Rule};

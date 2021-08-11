@@ -35,7 +35,36 @@
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
 
--define(CONF_DEFAULT, <<"authorization: {rules: []}">>).
+-define(RULE1, #{<<"principal">> => <<"all">>,
+                 <<"topics">> => [<<"#">>],
+                 <<"action">> => <<"all">>,
+                 <<"permission">> => <<"deny">>}
+       ).
+-define(RULE2, #{<<"principal">> =>
+                    #{<<"ipaddress">> => <<"127.0.0.1">>},
+                 <<"topics">> =>
+                        [#{<<"eq">> => <<"#">>},
+                         #{<<"eq">> => <<"+">>}
+                        ] ,
+                 <<"action">> => <<"all">>,
+                 <<"permission">> => <<"allow">>}
+       ).
+-define(RULE3,#{<<"principal">> =>
+                    #{<<"and">> => [#{<<"username">> => <<"^test?">>},
+                                    #{<<"clientid">> => <<"^test?">>}
+                                   ]},
+                <<"topics">> => [<<"test">>],
+                <<"action">> => <<"publish">>,
+                <<"permission">> => <<"allow">>}
+       ).
+-define(RULE4,#{<<"principal">> =>
+                    #{<<"or">> => [#{<<"username">> => <<"^test">>},
+                                   #{<<"clientid">> => <<"test?">>}
+                                  ]},
+                <<"topics">> => [<<"%u">>,<<"%c">>],
+                <<"action">> => <<"publish">>,
+                <<"permission">> => <<"deny">>}
+       ).
 
 all() ->
     emqx_ct:all(?MODULE).
@@ -71,7 +100,7 @@ set_special_configs(_App) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_post(_) ->
+t_api(_) ->
     {ok, 200, Result1} = request(get, uri(["authorization"]), []),
     ?assertEqual([], get_rules(Result1)),
 
@@ -123,6 +152,48 @@ t_post(_) ->
                   end, Rules),
     {ok, 200, Result5} = request(get, uri(["authorization"]), []),
     ?assertEqual([], get_rules(Result5)),
+    ok.
+
+t_move_rule(_) ->
+    ok = emqx_authz:update(replace, [?RULE1, ?RULE2, ?RULE3, ?RULE4]),
+    [#{annotations := #{id := Id1}},
+     #{annotations := #{id := Id2}},
+     #{annotations := #{id := Id3}},
+     #{annotations := #{id := Id4}}
+    ] = emqx_authz:lookup(),
+
+    {ok, 204, _} = request(post, uri(["authorization", Id4, "move"]),
+                           #{<<"position">> => <<"top">>}),
+    ?assertMatch([#{annotations := #{id := Id4}},
+                  #{annotations := #{id := Id1}},
+                  #{annotations := #{id := Id2}},
+                  #{annotations := #{id := Id3}}
+                 ], emqx_authz:lookup()),
+
+    {ok, 204, _} = request(post, uri(["authorization", Id1, "move"]),
+                           #{<<"position">> => <<"bottom">>}),
+    ?assertMatch([#{annotations := #{id := Id4}},
+                  #{annotations := #{id := Id2}},
+                  #{annotations := #{id := Id3}},
+                  #{annotations := #{id := Id1}}
+                 ], emqx_authz:lookup()),
+
+    {ok, 204, _} = request(post, uri(["authorization", Id3, "move"]),
+                           #{<<"position">> => #{<<"before">> => Id4}}),
+    ?assertMatch([#{annotations := #{id := Id3}},
+                  #{annotations := #{id := Id4}},
+                  #{annotations := #{id := Id2}},
+                  #{annotations := #{id := Id1}}
+                 ], emqx_authz:lookup()),
+
+    {ok, 204, _} = request(post, uri(["authorization", Id2, "move"]),
+                           #{<<"position">> => #{<<"after">> => Id1}}),
+    ?assertMatch([#{annotations := #{id := Id3}},
+                  #{annotations := #{id := Id4}},
+                  #{annotations := #{id := Id1}},
+                  #{annotations := #{id := Id2}}
+                 ], emqx_authz:lookup()),
+
     ok.
 
 %%--------------------------------------------------------------------

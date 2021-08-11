@@ -40,18 +40,20 @@
                          topics => [<<"#">>]}).
 
 -export([ api_spec/0
-        , authorization/2
-        , authorization_once/2
+        , rules/2
+        , rule/2
+        , move_rule/2
         ]).
 
 api_spec() ->
-    {[ api(),
-       once_api()
+    {[ rules_api()
+     , rule_api()
+     , move_rule_api()
      ], definitions()}.
 
 definitions() -> emqx_authz_api_schema:definitions().
 
-api() ->
+rules_api() ->
     Metadata = #{
         get => #{
             description => "List authorization rules",
@@ -135,6 +137,7 @@ api() ->
             }
         },
         put => #{
+
             description => "Update all rules",
             requestBody => #{
                 content => #{
@@ -174,9 +177,9 @@ api() ->
             }
         }
     },
-    {"/authorization", Metadata, authorization}.
+    {"/authorization", Metadata, rules}.
 
-once_api() ->
+rule_api() ->
     Metadata = #{
         get => #{
             description => "List authorization rules",
@@ -321,9 +324,101 @@ once_api() ->
             }
         }
     },
-    {"/authorization/:id", Metadata, authorization_once}.
+    {"/authorization/:id", Metadata, rule}.
 
-authorization(get, Request) ->
+move_rule_api() ->
+    Metadata = #{
+        post => #{
+            description => "Change the order of rules",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                        type => string
+                    },
+                    required => true
+                }
+            ],
+            requestBody => #{
+                content => #{
+                    'application/json' => #{
+                        schema => #{
+                            type => object,
+                            required => [position],
+                            properties => #{
+                                position => #{
+                                    oneOf => [
+                                        #{type => string,
+                                          enum => [<<"top">>, <<"bottom">>]
+                                        },
+                                        #{type => object,
+                                          required => ['after'],
+                                          properties => #{
+                                            'after' => #{
+                                              type => string
+                                             }
+                                           }
+                                        },
+                                        #{type => object,
+                                          required => ['before'],
+                                          properties => #{
+                                            'before' => #{
+                                              type => string
+                                             }
+                                           }
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            responses => #{
+                <<"204">> => #{
+                    description => <<"No Content">>
+                },
+                <<"404">> => #{
+                    description => <<"Bad Request">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>),
+                            examples => #{
+                                example1 => #{
+                                    summary => <<"Not Found">>,
+                                    value => #{
+                                        code => <<"NOT_FOUND">>,
+                                        message => <<"rule xxx not found">>
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                <<"400">> => #{
+                    description => <<"Bad Request">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>),
+                            examples => #{
+                                example1 => #{
+                                    summary => <<"Bad Request">>,
+                                    value => #{
+                                        code => <<"BAD_REQUEST">>,
+                                        message => <<"Bad Request">>
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    {"/authorization/:id/move", Metadata, move_rule}.
+
+rules(get, Request) ->
     Rules = lists:foldl(fun (#{type := _Type, enable := true, annotations := #{id := Id} = Annotations} = Rule, AccIn) ->
                                 NRule = case emqx_resource:health_check(Id) of
                                     ok ->
@@ -350,7 +445,7 @@ authorization(get, Request) ->
             end;
         false -> {200, #{rules => Rules}}
     end;
-authorization(post, Request) ->
+rules(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     RawConfig = jsx:decode(Body, [return_maps]),
     case emqx_authz:update(head, [RawConfig]) of
@@ -359,7 +454,7 @@ authorization(post, Request) ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end;
-authorization(put, Request) ->
+rules(put, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     RawConfig = jsx:decode(Body, [return_maps]),
     case emqx_authz:update(replace, RawConfig) of
@@ -369,7 +464,7 @@ authorization(put, Request) ->
                     messgae => atom_to_binary(Reason)}}
     end.
 
-authorization_once(get, Request) ->
+rule(get, Request) ->
     Id = cowboy_req:binding(id, Request),
     case emqx_authz:lookup(Id) of
         {error, Reason} -> {404, #{messgae => atom_to_binary(Reason)}};
@@ -386,7 +481,7 @@ authorization_once(get, Request) ->
 
             end
     end;
-authorization_once(put, Request) ->
+rule(put, Request) ->
     RuleId = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
     RawConfig = jsx:decode(Body, [return_maps]),
@@ -399,10 +494,23 @@ authorization_once(put, Request) ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end;
-authorization_once(delete, Request) ->
+rule(delete, Request) ->
     RuleId = cowboy_req:binding(id, Request),
     case emqx_authz:update({replace_once, RuleId}, #{}) of
         ok -> {204};
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    messgae => atom_to_binary(Reason)}}
+    end.
+move_rule(post, Request) ->
+    RuleId = cowboy_req:binding(id, Request),
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    #{<<"position">> := Position} = jsx:decode(Body, [return_maps]),
+    case emqx_authz:move(RuleId, Position) of
+        ok -> {204};
+        {error, not_found_rule} ->
+            {404, #{code => <<"NOT_FOUND">>,
+                    messgae => <<"rule ", RuleId/binary, " not found">>}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
