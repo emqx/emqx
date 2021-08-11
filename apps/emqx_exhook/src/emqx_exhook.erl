@@ -65,29 +65,54 @@ cast(Hookpoint, Req) ->
 
 cast(_, _, []) ->
     ok;
-cast(Hookpoint, Req, [ServiceName|More]) ->
+cast(Hookpoint, Req, [ServerName|More]) ->
     %% XXX: Need a real asynchronous running
     _ = emqx_exhook_server:call(Hookpoint, Req,
-                                emqx_exhook_mngr:server(ServiceName)),
+                                emqx_exhook_mngr:server(ServerName)),
     cast(Hookpoint, Req, More).
 
 -spec call_fold(atom(), term(), function())
   -> {ok, term()}
    | {stop, term()}.
 call_fold(Hookpoint, Req, AccFun) ->
-    call_fold(Hookpoint, Req, AccFun, emqx_exhook_mngr:running()).
+    FailedAction = emqx_exhook_mngr:get_request_failed_action(),
+    ServerNames = emqx_exhook_mngr:running(),
+    case ServerNames == [] andalso FailedAction == deny of
+        true ->
+            {stop, deny_action_result(Hookpoint, Req)};
+        _ ->
+            call_fold(Hookpoint, Req, FailedAction, AccFun, ServerNames)
+    end.
 
-call_fold(_, Req, _, []) ->
+call_fold(_, Req, _, _, []) ->
     {ok, Req};
-call_fold(Hookpoint, Req, AccFun, [ServiceName|More]) ->
-    case emqx_exhook_server:call(Hookpoint, Req,
-                                 emqx_exhook_mngr:server(ServiceName)) of
+call_fold(Hookpoint, Req, FailedAction, AccFun, [ServerName|More]) ->
+    Server = emqx_exhook_mngr:server(ServerName),
+    case emqx_exhook_server:call(Hookpoint, Req, Server) of
         {ok, Resp} ->
             case AccFun(Req, Resp) of
-                {stop, NReq} -> {stop, NReq};
-                {ok, NReq} -> call_fold(Hookpoint, NReq, AccFun, More);
-                _ -> call_fold(Hookpoint, Req, AccFun, More)
+                {stop, NReq} ->
+                    {stop, NReq};
+                {ok, NReq} ->
+                    call_fold(Hookpoint, NReq, FailedAction, AccFun, More);
+                _ ->
+                    call_fold(Hookpoint, Req, FailedAction, AccFun, More)
             end;
         _ ->
-            call_fold(Hookpoint, Req, AccFun, More)
+            case FailedAction of
+                deny ->
+                    {stop, deny_action_result(Hookpoint, Req)};
+                _ ->
+                    call_fold(Hookpoint, Req, FailedAction, AccFun, More)
+            end
     end.
+
+%% XXX: Hard-coded the deny response
+deny_action_result('client.authenticate', _) ->
+    #{result => false};
+deny_action_result('client.check_acl', _) ->
+    #{result => false};
+deny_action_result('message.publish', Msg) ->
+    %% TODO: Not support to deny a message
+    %% maybe we can put the 'allow_publish' into message header
+    Msg.

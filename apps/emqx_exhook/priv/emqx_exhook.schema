@@ -1,7 +1,7 @@
 %%-*- mode: erlang -*-
 
 {mapping, "exhook.request_failed_action", "emqx_exhook.request_failed_action", [
-  {default, "ignore"},
+  {default, "deny"},
   {datatype, {enum, [ignore, deny]}}
 ]}.
 

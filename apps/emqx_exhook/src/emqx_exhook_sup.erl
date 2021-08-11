@@ -47,13 +47,18 @@ init([]) ->
     {ok, {{one_for_one, 10, 100}, [Mngr]}}.
 
 servers() ->
-    application:get_env(emqx_exhook, servers, []).
+    env(servers, []).
 
 auto_reconnect() ->
-    application:get_env(emqx_exhook, auto_reconnect, 60000).
+    env(auto_reconnect, 60000).
 
 request_options() ->
-    #{timeout => application:get_env(emqx_exhook, request_timeout, 5000)}.
+    #{timeout => env(request_timeout, 5000),
+      request_failed_action => env(request_failed_action, deny)
+     }.
+
+env(Key, Def) ->
+    application:get_env(emqx_exhook, Key, Def).
 
 %%--------------------------------------------------------------------
 %% APIs
