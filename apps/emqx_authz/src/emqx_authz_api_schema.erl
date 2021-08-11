@@ -134,6 +134,18 @@ definitions() ->
                             properties => #{ipaddress => #{type => string}},
                             example => #{ipaddress => <<"127.0.0.1">>}
                            },
+    ErrorDef = #{
+        type => object,
+        properties => #{
+            code => #{
+                type => string,
+                example => <<"BAD_REQUEST">>
+            },
+            message => #{
+                type => string
+            }
+        }
+    },
     [ #{<<"returned_rules">> => RetruenedRules}
     , #{<<"rules">> => Rules}
     , #{<<"simple_rule">> => SimpleRule}
@@ -141,4 +153,5 @@ definitions() ->
     , #{<<"principal_username">> => PrincipalUsername}
     , #{<<"principal_clientid">> => PrincipalClientid}
     , #{<<"principal_ipaddress">> => PrincipalIpaddress}
+    , #{<<"error">> => ErrorDef}
     ].
