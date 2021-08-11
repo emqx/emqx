@@ -20,10 +20,8 @@
 -include_lib("emqx/include/logger.hrl").
 
 
-%% Mgmt APIs
--export([ enable/2
+-export([ enable/1
         , disable/1
-        , disable_all/0
         , list/0
         ]).
 
@@ -35,64 +33,54 @@
 %% Mgmt APIs
 %%--------------------------------------------------------------------
 
-%% XXX: Only return the running servers
--spec list() -> [emqx_exhook_server:server()].
-list() ->
-    [server(Name) || Name <- running()].
-
--spec enable(binary(), map()) -> ok | {error, term()}.
-enable(Name, Options) ->
-    case lists:member(Name, running()) of
-        true ->
-            {error, already_started};
-        _ ->
-            case emqx_exhook_server:load(Name, Options) of
-                {ok, ServiceState} ->
-                    save(Name, ServiceState);
-                {error, Reason} ->
-                    ?LOG(error, "Load server ~p failed: ~p", [Name, Reason]),
-                    {error, Reason}
-            end
-    end.
+-spec enable(atom()|string()) -> ok | {error, term()}.
+enable(Name) ->
+    with_mngr(fun(Pid) -> emqx_exhook_mngr:enable(Pid, Name) end).
 
 -spec disable(binary()) -> ok | {error, term()}.
 disable(Name) ->
-    case server(Name) of
-        undefined -> {error, not_running};
-        Service ->
-            ok = emqx_exhook_server:unload(Service),
-            unsave(Name)
+    with_mngr(fun(Pid) -> emqx_exhook_mngr:disable(Pid, Name) end).
+
+-spec list() -> [atom() | string()].
+list() ->
+    with_mngr(fun(Pid) -> emqx_exhook_mngr:list(Pid) end).
+
+with_mngr(Fun) ->
+    case lists:keyfind(emqx_exhook_mngr, 1,
+                       supervisor:which_children(emqx_exhook_sup)) of
+        {_, Pid, _, _} ->
+            Fun(Pid);
+        _ ->
+            {error, no_manager_svr}
     end.
 
--spec disable_all() -> ok.
-disable_all() ->
-    lists:foreach(fun disable/1, running()).
-
-%%----------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Dispatch APIs
-%%----------------------------------------------------------
+%%--------------------------------------------------------------------
 
 -spec cast(atom(), map()) -> ok.
 cast(Hookpoint, Req) ->
-    cast(Hookpoint, Req, running()).
+    cast(Hookpoint, Req, emqx_exhook_mngr:running()).
 
 cast(_, _, []) ->
     ok;
 cast(Hookpoint, Req, [ServiceName|More]) ->
     %% XXX: Need a real asynchronous running
-    _ = emqx_exhook_server:call(Hookpoint, Req, server(ServiceName)),
+    _ = emqx_exhook_server:call(Hookpoint, Req,
+                                emqx_exhook_mngr:server(ServiceName)),
     cast(Hookpoint, Req, More).
 
 -spec call_fold(atom(), term(), function())
   -> {ok, term()}
    | {stop, term()}.
 call_fold(Hookpoint, Req, AccFun) ->
-    call_fold(Hookpoint, Req, AccFun, running()).
+    call_fold(Hookpoint, Req, AccFun, emqx_exhook_mngr:running()).
 
 call_fold(_, Req, _, []) ->
     {ok, Req};
 call_fold(Hookpoint, Req, AccFun, [ServiceName|More]) ->
-    case emqx_exhook_server:call(Hookpoint, Req, server(ServiceName)) of
+    case emqx_exhook_server:call(Hookpoint, Req,
+                                 emqx_exhook_mngr:server(ServiceName)) of
         {ok, Resp} ->
             case AccFun(Req, Resp) of
                 {stop, NReq} -> {stop, NReq};
@@ -101,31 +89,4 @@ call_fold(Hookpoint, Req, AccFun, [ServiceName|More]) ->
             end;
         _ ->
             call_fold(Hookpoint, Req, AccFun, More)
-    end.
-
-%%----------------------------------------------------------
-%% Storage
-
-save(Name, ServiceState) ->
-    Saved = persistent_term:get(?APP, []),
-    persistent_term:put(?APP, lists:reverse([Name | Saved])),
-    persistent_term:put({?APP, Name}, ServiceState).
-
-unsave(Name) ->
-    case persistent_term:get(?APP, []) of
-        [] ->
-            persistent_term:erase(?APP);
-        Saved ->
-            persistent_term:put(?APP, lists:delete(Name, Saved))
-    end,
-    persistent_term:erase({?APP, Name}),
-    ok.
-
-running() ->
-    persistent_term:get(?APP, []).
-
-server(Name) ->
-    case catch persistent_term:get({?APP, Name}) of
-        {'EXIT', {badarg,_}} -> undefined;
-        Service -> Service
     end.
