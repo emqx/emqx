@@ -23,7 +23,18 @@
 -include_lib("emqx/include/logger.hrl").
 
 %% APIs
--export([start_link/2]).
+-export([start_link/3]).
+
+%% Mgmt API
+-export([ enable/2
+        , disable/2
+        , list/1
+        ]).
+
+%% Helper funcs
+-export([ running/0
+        , server/1
+        ]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -36,13 +47,15 @@
 
 -record(state, {
           %% Running servers
-          running :: map(),
+          running :: map(),         %% XXX: server order?
           %% Wait to reload servers
           waiting :: map(),
           %% Marked stopped servers
           stopped :: map(),
           %% Auto reconnect timer interval
           auto_reconnect :: false | non_neg_integer(),
+          %% Request options
+          request_options :: grpc_client:options(),
           %% Timer references
           trefs :: map()
          }).
@@ -54,24 +67,40 @@
                           | {port, inet:port_number()}
                           ].
 
+-define(DEFAULT_TIMEOUT, 60000).
+
 -define(CNTER, emqx_exhook_counter).
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
--spec start_link(servers(), false | non_neg_integer())
+-spec start_link(servers(), false | non_neg_integer(), grpc_client:options())
     ->ignore
      | {ok, pid()}
      | {error, any()}.
-start_link(Servers, AutoReconnect) ->
-    gen_server:start_link(?MODULE, [Servers, AutoReconnect], []).
+start_link(Servers, AutoReconnect, ReqOpts) ->
+    gen_server:start_link(?MODULE, [Servers, AutoReconnect, ReqOpts], []).
+
+-spec enable(pid(), atom()|string()) -> ok | {error, term()}.
+enable(Pid, Name) ->
+    call(Pid, {load, Name}).
+
+-spec disable(pid(), atom()|string()) -> ok | {error, term()}.
+disable(Pid, Name) ->
+    call(Pid, {unload, Name}).
+
+list(Pid) ->
+    call(Pid, list).
+
+call(Pid, Req) ->
+    gen_server:call(Pid, Req, ?DEFAULT_TIMEOUT).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Servers, AutoReconnect]) ->
+init([Servers, AutoReconnect, ReqOpts]) ->
     %% XXX: Due to the ExHook Module in the enterprise,
     %% this process may start multiple times and they will share this table
     try
@@ -82,29 +111,53 @@ init([Servers, AutoReconnect]) ->
     end,
 
     %% Load the hook servers
-    {Waiting, Running} = load_all_servers(Servers),
+    {Waiting, Running} = load_all_servers(Servers, ReqOpts),
     {ok, ensure_reload_timer(
            #state{waiting = Waiting,
                   running = Running,
                   stopped = #{},
+                  request_options = ReqOpts,
                   auto_reconnect = AutoReconnect,
                   trefs = #{}
                  }
           )}.
 
 %% @private
-load_all_servers(Servers) ->
-    load_all_servers(Servers, #{}, #{}).
-load_all_servers([], Waiting, Running) ->
+load_all_servers(Servers, ReqOpts) ->
+    load_all_servers(Servers, ReqOpts, #{}, #{}).
+load_all_servers([], _Request, Waiting, Running) ->
     {Waiting, Running};
-load_all_servers([{Name, Options}|More], Waiting, Running) ->
-    {NWaiting, NRunning} = case emqx_exhook:enable(Name, Options) of
-        ok ->
-            {Waiting, Running#{Name => Options}};
-        {error, _} ->
-            {Waiting#{Name => Options}, Running}
-    end,
-    load_all_servers(More, NWaiting, NRunning).
+load_all_servers([{Name, Options}|More], ReqOpts, Waiting, Running) ->
+    {NWaiting, NRunning} =
+        case emqx_exhook_server:load(Name, Options, ReqOpts) of
+            {ok, ServerState} ->
+                save(Name, ServerState),
+                {Waiting, Running#{Name => Options}};
+            {error, _} ->
+                {Waiting#{Name => Options}, Running}
+        end,
+    load_all_servers(More, ReqOpts, NWaiting, NRunning).
+
+handle_call({load, Name}, _From, State) ->
+    {Result, NState} = do_load_server(Name, State),
+    {reply, Result, NState};
+
+handle_call({unload, Name}, _From, State) ->
+    case do_unload_server(Name, State) of
+        {error, Reason} ->
+            {reply, {error, Reason}, State};
+        {ok, NState} ->
+            {reply, ok, NState}
+    end;
+
+handle_call(list, _From, State = #state{
+                                    running = Running,
+                                    waiting = Waiting,
+                                    stopped = Stopped}) ->
+    ServerNames = maps:keys(Running)
+                    ++ maps:keys(Waiting)
+                    ++ maps:keys(Stopped),
+    {reply, ServerNames, State};
 
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -113,33 +166,27 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({timeout, _Ref, {reload, Name}},
-            State0 = #state{waiting = Waiting,
-                            running = Running,
-                            trefs = TRefs}) ->
-    State = State0#state{trefs = maps:remove(Name, TRefs)},
-    case maps:get(Name, Waiting, undefined) of
-        undefined ->
-            {noreply, State};
-        Options ->
-            case emqx_exhook:enable(Name, Options) of
-                ok ->
-                    ?LOG(warning, "Reconnect to exhook callback server "
-                                  "\"~s\" successfully!", [Name]),
-                    {noreply, State#state{
-                                running = maps:put(Name, Options, Running),
-                                waiting = maps:remove(Name, Waiting)}
-                    };
-                {error, _} ->
-                    {noreply, ensure_reload_timer(State)}
-            end
+handle_info({timeout, _Ref, {reload, Name}}, State) ->
+    {Result, NState} = do_load_server(Name, State),
+    case Result of
+        ok ->
+            {noreply, NState};
+        {error, not_found} ->
+            {noreply, NState};
+        {error, Reason} ->
+            ?LOG(warning, "Failed to reload exhook callback server \"~s\", "
+                          "Reason: ~0p", [Name, Reason]),
+            {noreply, ensure_reload_timer(NState)}
     end;
 
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
-    _ = emqx_exhook:disable_all(),
+terminate(_Reason, State = #state{stopped = Stopped}) ->
+    _ = maps:fold(fun(Name, _, AccIn) ->
+            {ok, NAccIn} = do_unload_server(Name, AccIn),
+            NAccIn
+        end, State, Stopped),
     _ = unload_exhooks(),
     ok.
 
@@ -153,6 +200,49 @@ code_change(_OldVsn, State, _Extra) ->
 unload_exhooks() ->
     [emqx:unhook(Name, {M, F}) ||
      {Name, {M, F, _A}} <- ?ENABLED_HOOKS].
+
+do_load_server(Name, State0 = #state{
+                                 waiting = Waiting,
+                                 running = Running,
+                                 stopped = Stopped,
+                                 request_options = ReqOpts}) ->
+    State = clean_reload_timer(Name, State0),
+    case maps:get(Name, Running, undefined) of
+        undefined ->
+            case maps:get(Name, Stopped,
+                          maps:get(Name, Waiting, undefined)) of
+                undefined ->
+                    {{error, not_found}, State};
+                Options ->
+                    case emqx_exhook_server:load(Name, Options, ReqOpts) of
+                        {ok, ServerState} ->
+                            save(Name, ServerState),
+                            ?LOG(info, "Load exhook callback server "
+                                          "\"~s\" successfully!", [Name]),
+                            {ok, State#state{
+                                   running = maps:put(Name, Options, Running),
+                                   waiting = maps:remove(Name, Waiting),
+                                   stopped = maps:remove(Name, Stopped)
+                                  }
+                            };
+                        {error, Reason} ->
+                            {{error, Reason}, State}
+                    end
+            end;
+        _ ->
+            {{error, already_started}, State}
+    end.
+
+do_unload_server(Name, State = #state{running = Running, stopped = Stopped}) ->
+    case maps:take(Name, Running) of
+        error -> {error, not_running};
+        {Options, NRunning} ->
+            ok = emqx_exhook_server:unload(server(Name)),
+            ok = unsave(Name),
+            {ok, State#state{running = NRunning,
+                             stopped = maps:put(Name, Options, Stopped)
+                            }}
+    end.
 
 ensure_reload_timer(State = #state{auto_reconnect = false}) ->
     State;
@@ -169,3 +259,38 @@ ensure_reload_timer(State = #state{waiting = Waiting,
         end
     end, TRefs, Waiting),
     State#state{trefs = NRefs}.
+
+clean_reload_timer(Name, State = #state{trefs = TRefs}) ->
+    case maps:take(Name, TRefs) of
+        error -> State;
+        {TRef, NTRefs} ->
+            _ = erlang:cancel_timer(TRef),
+            State#state{trefs = NTRefs}
+    end.
+
+%%--------------------------------------------------------------------
+%% Server state persistent
+
+save(Name, ServerState) ->
+    Saved = persistent_term:get(?APP, []),
+    persistent_term:put(?APP, lists:reverse([Name | Saved])),
+    persistent_term:put({?APP, Name}, ServerState).
+
+unsave(Name) ->
+    case persistent_term:get(?APP, []) of
+        [] ->
+            persistent_term:erase(?APP);
+        Saved ->
+            persistent_term:put(?APP, lists:delete(Name, Saved))
+    end,
+    persistent_term:erase({?APP, Name}),
+    ok.
+
+running() ->
+    persistent_term:get(?APP, []).
+
+server(Name) ->
+    case catch persistent_term:get({?APP, Name}) of
+        {'EXIT', {badarg,_}} -> undefined;
+        Service -> Service
+    end.
