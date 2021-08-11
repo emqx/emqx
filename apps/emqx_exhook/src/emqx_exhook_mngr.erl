@@ -101,6 +101,7 @@ call(Pid, Req) ->
 %%--------------------------------------------------------------------
 
 init([Servers, AutoReconnect, ReqOpts]) ->
+    process_flag(trap_exit, true),
     %% XXX: Due to the ExHook Module in the enterprise,
     %% this process may start multiple times and they will share this table
     try
@@ -182,11 +183,11 @@ handle_info({timeout, _Ref, {reload, Name}}, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, State = #state{stopped = Stopped}) ->
+terminate(_Reason, State = #state{running = Running}) ->
     _ = maps:fold(fun(Name, _, AccIn) ->
             {ok, NAccIn} = do_unload_server(Name, AccIn),
             NAccIn
-        end, State, Stopped),
+        end, State, Running),
     _ = unload_exhooks(),
     ok.
 

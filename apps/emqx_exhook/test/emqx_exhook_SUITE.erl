@@ -53,15 +53,14 @@ end_per_suite(_Cfg) ->
 %%--------------------------------------------------------------------
 
 t_noserver_nohook(_) ->
-    emqx_exhook:disable(<<"default">>),
-    ?assertEqual([], loaded_exhook_hookpoints()),
-    [#{name := Name} = Opts] = emqx_config:get([exhook, servers]),
-    ok = emqx_exhook:enable(Name, Opts),
-    ?assertNotEqual([], loaded_exhook_hookpoints()).
+    emqx_exhook:disable(default),
+    ?assertEqual([], ets:tab2list(emqx_hooks)),
+    ok = emqx_exhook:enable(default),
+    ?assertNotEqual([], ets:tab2list(emqx_hooks)).
 
 t_cli_list(_) ->
     meck_print(),
-    ?assertEqual( [[emqx_exhook_server:format(Svr) || Svr <- emqx_exhook:list()]]
+    ?assertEqual( [[emqx_exhook_server:format(emqx_exhook_mngr:server(Name)) || Name  <- emqx_exhook:list()]]
                 , emqx_exhook_cli:cli(["server", "list"])
                 ),
     unmeck_print().
@@ -70,7 +69,7 @@ t_cli_enable_disable(_) ->
     meck_print(),
     ?assertEqual([already_started], emqx_exhook_cli:cli(["server", "enable", "default"])),
     ?assertEqual(ok, emqx_exhook_cli:cli(["server", "disable", "default"])),
-    ?assertEqual([], emqx_exhook_cli:cli(["server", "list"])),
+    ?assertEqual([["name=default, hooks=#{}, active=false"]], emqx_exhook_cli:cli(["server", "list"])),
 
     ?assertEqual([not_running], emqx_exhook_cli:cli(["server", "disable", "default"])),
     ?assertEqual(ok, emqx_exhook_cli:cli(["server", "enable", "default"])),
