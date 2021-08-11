@@ -22,25 +22,18 @@
 
 cli(["server", "list"]) ->
     if_enabled(fun() ->
-        Services = emqx_exhook:list(),
-        [emqx_ctl:print("HookServer(~s)~n",
-                        [emqx_exhook_server:format(Service)]) || Service <- Services]
+        ServerNames = emqx_exhook:list(),
+        [emqx_ctl:print("Server(~s)~n", [format(Name)]) || Name <- ServerNames]
     end);
 
-cli(["server", "enable", Name0]) ->
+cli(["server", "enable", Name]) ->
     if_enabled(fun() ->
-        Name = list_to_atom(Name0),
-        case proplists:get_value(Name, application:get_env(?APP, servers, [])) of
-            undefined ->
-                emqx_ctl:print("not_found~n");
-            Opts ->
-                print(emqx_exhook:enable(Name, Opts))
-        end
+        print(emqx_exhook:enable(list_to_existing_atom(Name)))
     end);
 
 cli(["server", "disable", Name]) ->
     if_enabled(fun() ->
-        print(emqx_exhook:disable(list_to_atom(Name)))
+        print(emqx_exhook:disable(list_to_existing_atom(Name)))
     end);
 
 cli(["server", "stats"]) ->
@@ -65,7 +58,8 @@ print({error, Reason}) ->
 
 if_enabled(Fun) ->
     case lists:keymember(?APP, 1, application:which_applications()) of
-        true -> Fun();
+        true ->
+            Fun();
         _ -> hint()
     end.
 
@@ -79,3 +73,11 @@ stats() ->
             _ -> Acc
         end
     end, [], emqx_metrics:all())).
+
+format(Name) ->
+    case emqx_exhook_mngr:server(Name) of
+        undefined ->
+            io_lib:format("name=~s, hooks=#{}, active=false", [Name]);
+        Server ->
+            emqx_exhook_server:format(Server)
+    end.

@@ -25,7 +25,7 @@
 -define(PB_CLIENT_MOD, emqx_exhook_v_1_hook_provider_client).
 
 %% Load/Unload
--export([ load/2
+-export([ load/3
         , unload/1
         ]).
 
@@ -40,8 +40,8 @@
 -record(server, {
           %% Server name (equal to grpc client channel name)
           name :: server_name(),
-          %% The server started options
-          options :: list(),
+          %% The function options
+          options :: map(),
           %% gRPC channel pid
           channel :: pid(),
           %% Registered hook names and options
@@ -81,8 +81,8 @@
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
 
--spec load(atom(), list()) -> {ok, server()} | {error, term()} .
-load(Name0, Opts0) ->
+-spec load(atom(), list(), map()) -> {ok, server()} | {error, term()} .
+load(Name0, Opts0, ReqOpts) ->
     Name = to_list(Name0),
     {SvrAddr, ClientOpts} = channel_opts(Opts0),
     case emqx_exhook_sup:start_grpc_client_channel(
@@ -90,7 +90,7 @@ load(Name0, Opts0) ->
            SvrAddr,
            ClientOpts) of
         {ok, _ChannPoolPid} ->
-            case do_init(Name) of
+            case do_init(Name, ReqOpts) of
                 {ok, HookSpecs} ->
                     %% Reigster metrics
                     Prefix = lists:flatten(
@@ -99,7 +99,7 @@ load(Name0, Opts0) ->
                     %% Ensure hooks
                     ensure_hooks(HookSpecs),
                     {ok, #server{name = Name,
-                                 options = Opts0,
+                                 options = ReqOpts,
                                  channel = _ChannPoolPid,
                                  hookspec = HookSpecs,
                                  prefix = Prefix }};
@@ -141,19 +141,19 @@ format_http_uri(Scheme, Host0, Port) ->
     lists:flatten(io_lib:format("~s://~s:~w", [Scheme, Host, Port])).
 
 -spec unload(server()) -> ok.
-unload(#server{name = Name, hookspec = HookSpecs}) ->
-    _ = do_deinit(Name),
+unload(#server{name = Name, options = ReqOpts, hookspec = HookSpecs}) ->
+    _ = do_deinit(Name, ReqOpts),
     _ = may_unload_hooks(HookSpecs),
     _ = emqx_exhook_sup:stop_grpc_client_channel(Name),
     ok.
 
-do_deinit(Name) ->
-    _ = do_call(Name, 'on_provider_unloaded', #{}),
+do_deinit(Name, ReqOpts) ->
+    _ = do_call(Name, 'on_provider_unloaded', #{}, ReqOpts),
     ok.
 
-do_init(ChannName) ->
+do_init(ChannName, ReqOpts) ->
     Req = #{broker => maps:from_list(emqx_sys:info())},
-    case do_call(ChannName, 'on_provider_loaded', Req) of
+    case do_call(ChannName, 'on_provider_loaded', Req, ReqOpts) of
         {ok, InitialResp} ->
             try
                 {ok, resovle_hookspec(maps:get(hooks, InitialResp, []))}
@@ -219,7 +219,7 @@ may_unload_hooks(HookSpecs) ->
     end, maps:keys(HookSpecs)).
 
 format(#server{name = Name, hookspec = Hooks}) ->
-    io_lib:format("name=~p, hooks=~0p", [Name, Hooks]).
+    io_lib:format("name=~s, hooks=~0p, active=true", [Name, Hooks]).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -232,7 +232,8 @@ name(#server{name = Name}) ->
   -> ignore
    | {ok, Resp :: term()}
    | {error, term()}.
-call(Hookpoint, Req, #server{name = ChannName, hookspec = Hooks, prefix = Prefix}) ->
+call(Hookpoint, Req, #server{name = ChannName, options = ReqOpts,
+                             hookspec = Hooks, prefix = Prefix}) ->
     GrpcFunc = hk2func(Hookpoint),
     case maps:get(Hookpoint, Hooks, undefined) of
         undefined -> ignore;
@@ -247,7 +248,7 @@ call(Hookpoint, Req, #server{name = ChannName, hookspec = Hooks, prefix = Prefix
                 false -> ignore;
                 _ ->
                     inc_metrics(Prefix, Hookpoint),
-                    do_call(ChannName, GrpcFunc, Req)
+                    do_call(ChannName, GrpcFunc, Req, ReqOpts)
             end
     end.
 
@@ -265,9 +266,9 @@ match_topic_filter(_, []) ->
 match_topic_filter(TopicName, TopicFilter) ->
     lists:any(fun(F) -> emqx_topic:match(TopicName, F) end, TopicFilter).
 
--spec do_call(string(), atom(), map()) -> {ok, map()} | {error, term()}.
-do_call(ChannName, Fun, Req) ->
-    Options = #{channel => ChannName},
+-spec do_call(string(), atom(), map(), map()) -> {ok, map()} | {error, term()}.
+do_call(ChannName, Fun, Req, ReqOpts) ->
+    Options = ReqOpts#{channel => ChannName},
     ?LOG(debug, "Call ~0p:~0p(~0p, ~0p)", [?PB_CLIENT_MOD, Fun, Req, Options]),
     case catch apply(?PB_CLIENT_MOD, Fun, [Req, Options]) of
         {ok, Resp, _Metadata} ->
