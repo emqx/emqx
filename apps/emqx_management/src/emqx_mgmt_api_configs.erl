@@ -89,7 +89,7 @@ config_reset_api() ->
 - For a config entry that has no default value, an error 400 will be returned">>,
             parameters => ?PARAM_CONF_PATH,
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Remove configs successfully">>),
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Reset configs successfully">>),
                 <<"400">> => emqx_mgmt_util:response_error_schema(
                     <<"It's not able to reset the config">>, ['INVALID_OPERATION'])
             }
@@ -100,7 +100,8 @@ config_reset_api() ->
 %%%==============================================================================================
 %% parameters trans
 config(get, Req) ->
-    case emqx_config:find_raw(conf_path(Req)) of
+    Path = conf_path(Req),
+    case emqx_map_lib:deep_find(Path, get_full_config()) of
         {ok, Conf} ->
             {200, Conf};
         {not_found, _, _} ->
@@ -110,16 +111,20 @@ config(get, Req) ->
 config(put, Req) ->
     Path = conf_path(Req),
     ok = emqx_config:update(Path, http_body(Req)),
-    {200, emqx_config:get_raw(Path)}.
+    {200, emqx_map_lib:deep_get(Path, get_full_config())}.
 
 config_reset(post, Req) ->
     %% reset the config specified by the query string param 'conf_path'
-    Path = conf_path_reset(Req),
-    case emqx_config:remove(Path ++ conf_path_from_querystr(Req)) of
-        ok -> {200, emqx_config:get_raw(Path)};
+    Path = conf_path_reset(Req) ++ conf_path_from_querystr(Req),
+    case emqx_config:reset(Path) of
+        ok -> {200};
         {error, Reason} ->
             {400, ?ERR_MSG(Reason)}
     end.
+
+get_full_config() ->
+    emqx_map_lib:jsonable_map(
+        emqx_config:fill_defaults(emqx_config:get_raw([]))).
 
 conf_path_from_querystr(Req) ->
     case proplists:get_value(<<"conf_path">>, cowboy_req:parse_qs(Req)) of
