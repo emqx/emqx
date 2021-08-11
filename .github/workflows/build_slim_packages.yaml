@@ -15,8 +15,7 @@ jobs:
     strategy:
       matrix:
         erl_otp:
-        - erl23.2.7.2-emqx-2
-        - erl24.0.1-emqx-1
+        - erl24.0.5-emqx-1
 
         os:
         - ubuntu20.04
@@ -60,7 +59,7 @@ jobs:
     strategy:
       matrix:
         erl_otp:
-        - 23.2.7.2-emqx-2
+        - 24.0.5-emqx-1
 
     steps:
     - uses: actions/checkout@v1
