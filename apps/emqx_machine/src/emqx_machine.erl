@@ -138,7 +138,32 @@ start_one_app(App) ->
 %% 1. due to static static config change
 %% 2. after join a cluster
 reboot_apps() ->
-    [gproc, esockd, ranch, cowboy, ekka, emqx | ?EMQX_DEP_APPS].
+    [ gproc
+    , esockd
+    , ranch
+    , cowboy
+    , ekka
+    , emqx
+    , emqx_prometheus
+    , emqx_modules
+    , emqx_dashboard
+    , emqx_connector
+    , emqx_gateway
+    , emqx_statsd
+    , emqx_resource
+    , emqx_rule_engine
+    , emqx_data_bridge
+    , emqx_bridge_mqtt
+    , emqx_plugin_libs
+    , emqx_config_helper
+    , emqx_management
+    , emqx_release_helper
+    , emqx_retainer
+    , emqx_exhook
+    , emqx_rule_actions
+    , emqx_authn
+    , emqx_authz
+    ].
 
 sorted_reboot_apps() ->
     Apps = [{App, app_deps(App)} || App <- reboot_apps()],
