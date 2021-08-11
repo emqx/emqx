@@ -30,6 +30,7 @@
             #{ id => Mod
              , start => {Mod, start_link, Args}
              , type => Type
+             , shutdown => 15000
              }
        ).
 
