@@ -76,7 +76,7 @@ t_post(_) ->
     ?assertEqual([], get_rules(Result1)),
 
     lists:foreach(fun(_) ->
-                        {ok, 201, _} = request(post, uri(["authorization"]),
+                        {ok, 204, _} = request(post, uri(["authorization"]),
                                          #{<<"action">> => <<"all">>,
                                            <<"permission">> => <<"deny">>,
                                            <<"principal">> => <<"all">>,

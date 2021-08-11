@@ -95,8 +95,7 @@ api() ->
                             }
                          }
                     }
-                },
-                <<"404">> => #{description => <<"Not Found">>}
+                }
             }
         },
         post => #{
@@ -115,8 +114,24 @@ api() ->
                 }
             },
             responses => #{
-                <<"201">> => #{description => <<"Created">>},
-                <<"400">> => #{description => <<"Bad Request">>}
+                <<"204">> => #{description => <<"Created">>},
+                <<"400">> => #{
+                    description => <<"Bad Request">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>),
+                            examples => #{
+                                example1 => #{
+                                    summary => <<"Bad Request">>,
+                                    value => #{
+                                        code => <<"BAD_REQUEST">>,
+                                        message => <<"Bad Request">>
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         put => #{
@@ -138,8 +153,24 @@ api() ->
                 }
             },
             responses => #{
-                <<"201">> => #{description => <<"Created">>},
-                <<"400">> => #{description => <<"Bad Request">>}
+                <<"204">> => #{description => <<"Created">>},
+                <<"400">> => #{
+                    description => <<"Bad Request">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>),
+                            examples => #{
+                                example1 => #{
+                                    summary => <<"Bad Request">>,
+                                    value => #{
+                                        code => <<"BAD_REQUEST">>,
+                                        message => <<"Bad Request">>
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     },
@@ -174,7 +205,23 @@ once_api() ->
                          }
                     }
                 },
-                <<"404">> => #{description => <<"Not Found">>}
+                <<"404">> => #{
+                    description => <<"Bad Request">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>),
+                            examples => #{
+                                example1 => #{
+                                    summary => <<"Not Found">>,
+                                    value => #{
+                                        code => <<"NOT_FOUND">>,
+                                        message => <<"rule xxx not found">>
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         put => #{
@@ -204,7 +251,40 @@ once_api() ->
             },
             responses => #{
                 <<"204">> => #{description => <<"No Content">>},
-                <<"400">> => #{description => <<"Bad Request">>}
+                <<"404">> => #{
+                    description => <<"Bad Request">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>),
+                            examples => #{
+                                example1 => #{
+                                    summary => <<"Not Found">>,
+                                    value => #{
+                                        code => <<"NOT_FOUND">>,
+                                        message => <<"rule xxx not found">>
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                <<"400">> => #{
+                    description => <<"Bad Request">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>),
+                            examples => #{
+                                example1 => #{
+                                    summary => <<"Bad Request">>,
+                                    value => #{
+                                        code => <<"BAD_REQUEST">>,
+                                        message => <<"Bad Request">>
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         delete => #{
@@ -221,7 +301,23 @@ once_api() ->
             ],
             responses => #{
                 <<"204">> => #{description => <<"No Content">>},
-                <<"400">> => #{description => <<"Bad Request">>}
+                <<"400">> => #{
+                    description => <<"Bad Request">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"error">>),
+                            examples => #{
+                                example1 => #{
+                                    summary => <<"Bad Request">>,
+                                    value => #{
+                                        code => <<"BAD_REQUEST">>,
+                                        message => <<"Bad Request">>
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     },
@@ -258,15 +354,19 @@ authorization(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     RawConfig = jsx:decode(Body, [return_maps]),
     case emqx_authz:update(head, [RawConfig]) of
-        ok -> {201};
-        {error, Reason} -> {400, #{messgae => atom_to_binary(Reason)}}
+        ok -> {204};
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    messgae => atom_to_binary(Reason)}}
     end;
 authorization(put, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     RawConfig = jsx:decode(Body, [return_maps]),
     case emqx_authz:update(replace, RawConfig) of
         ok -> {204};
-        {error, Reason} -> {400, #{messgae => atom_to_binary(Reason)}}
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    messgae => atom_to_binary(Reason)}}
     end.
 
 authorization_once(get, Request) ->
@@ -292,11 +392,18 @@ authorization_once(put, Request) ->
     RawConfig = jsx:decode(Body, [return_maps]),
     case emqx_authz:update({replace_once, RuleId}, RawConfig) of
         ok -> {204};
-        {error, Reason} -> {400, #{messgae => atom_to_binary(Reason)}}
+        {error, not_found_rule} ->
+            {404, #{code => <<"NOT_FOUND">>,
+                    messgae => <<"rule ", RuleId/binary, " not found">>}};
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    messgae => atom_to_binary(Reason)}}
     end;
 authorization_once(delete, Request) ->
     RuleId = cowboy_req:binding(id, Request),
     case emqx_authz:update({replace_once, RuleId}, #{}) of
         ok -> {204};
-        {error, Reason} -> {400, #{messgae => atom_to_binary(Reason)}}
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    messgae => atom_to_binary(Reason)}}
     end.
