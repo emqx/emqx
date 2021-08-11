@@ -20,14 +20,20 @@
 -export([ init_load/2
         , read_override_conf/0
         , check_config/2
+        , fill_defaults/1
+        , fill_defaults/2
         , save_configs/4
         , save_to_app_env/1
         , save_to_config_map/2
         , save_to_override_conf/1
         ]).
 
--export([get_root/1,
-         get_root_raw/1]).
+-export([ get_root/1
+        , get_root_raw/1
+        ]).
+
+-export([ get_default_value/1
+        ]).
 
 -export([ get/1
         , get/2
@@ -35,6 +41,12 @@
         , find_raw/1
         , put/1
         , put/2
+        ]).
+
+-export([ save_schema_mod/1
+        , get_schema_mod/0
+        , get_schema_mod/1
+        , get_root_names/0
         ]).
 
 -export([ get_zone_conf/2
@@ -53,6 +65,7 @@
         , update/3
         , remove/1
         , remove/2
+        , reset/1
         ]).
 
 -export([ get_raw/1
@@ -63,6 +76,7 @@
 
 -define(CONF, conf).
 -define(RAW_CONF, raw_conf).
+-define(PERSIS_MOD_ROOTNAMES, {?MODULE, default_conf}).
 -define(PERSIS_KEY(TYPE, ROOT), {?MODULE, TYPE, ROOT}).
 -define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
 -define(LISTENER_CONF_PATH(ZONE, LISTENER, PATH), [zones, ZONE, listeners, LISTENER | PATH]).
@@ -170,20 +184,49 @@ put(KeyPath, Config) -> do_put(?CONF, KeyPath, Config).
 
 -spec update(emqx_map_lib:config_key_path(), update_request()) ->
     ok | {error, term()}.
-update(KeyPath, UpdateReq) ->
-    update(emqx_schema, KeyPath, UpdateReq).
+update([RootName | _] = KeyPath, UpdateReq) ->
+    update(get_schema_mod(RootName), KeyPath, UpdateReq).
 
 -spec update(module(), emqx_map_lib:config_key_path(), update_request()) ->
     ok | {error, term()}.
-update(SchemaModule, KeyPath, UpdateReq) ->
-    emqx_config_handler:update_config(SchemaModule, KeyPath, {update, UpdateReq}).
+update(SchemaMod, KeyPath, UpdateReq) ->
+    emqx_config_handler:update_config(SchemaMod, KeyPath, {update, UpdateReq}).
 
 -spec remove(emqx_map_lib:config_key_path()) -> ok | {error, term()}.
-remove(KeyPath) ->
-    remove(emqx_schema, KeyPath).
+remove([RootName | _] = KeyPath) ->
+    remove(get_schema_mod(RootName), KeyPath).
 
-remove(SchemaModule, KeyPath) ->
-    emqx_config_handler:update_config(SchemaModule, KeyPath, remove).
+remove(SchemaMod, KeyPath) ->
+    emqx_config_handler:update_config(SchemaMod, KeyPath, remove).
+
+-spec reset(emqx_map_lib:config_key_path()) -> ok | {error, term()}.
+reset([RootName | _] = KeyPath) ->
+    case get_default_value(KeyPath) of
+        {ok, Default} ->
+            emqx_config_handler:update_config(get_schema_mod(RootName), KeyPath,
+                {update, Default});
+        {error, _} = Error ->
+            Error
+    end.
+
+-spec get_default_value(emqx_map_lib:config_key_path()) -> ok | {error, term()}.
+get_default_value([RootName | _] = KeyPath) ->
+    BinKeyPath = [bin(Key) || Key <- KeyPath],
+    case find_raw([RootName]) of
+        {ok, RawConf} ->
+            RawConf1 = emqx_map_lib:deep_remove(BinKeyPath, RawConf),
+            SchemaMod = get_schema_mod(RootName),
+            try fill_defaults(SchemaMod, RawConf1) of FullConf ->
+                case emqx_map_lib:deep_find(BinKeyPath, FullConf) of
+                    {not_found, _, _} -> {error, no_default_value};
+                    {ok, Val} -> {ok, Val}
+                end
+            catch error:_ ->
+                {error, required_conf}
+            end;
+        {not_found, _, _} ->
+            {error, {rootname_not_found, RootName}}
+    end.
 
 -spec get_raw(emqx_map_lib:config_key_path()) -> term().
 get_raw(KeyPath) -> do_get(?RAW_CONF, KeyPath).
@@ -208,7 +251,7 @@ put_raw(KeyPath, Config) -> do_put(?RAW_CONF, KeyPath, Config).
 %% NOTE: The order of the files is significant, configs from files orderd
 %% in the rear of the list overrides prior values.
 -spec init_load(module(), [string()] | binary() | hocon:config()) -> ok.
-init_load(SchemaModule, Conf) when is_list(Conf) orelse is_binary(Conf) ->
+init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     ParseOptions = #{format => richmap},
     Parser = case is_binary(Conf) of
               true -> fun hocon:binary/2;
@@ -216,38 +259,77 @@ init_load(SchemaModule, Conf) when is_list(Conf) orelse is_binary(Conf) ->
              end,
     case Parser(Conf, ParseOptions) of
         {ok, RawRichConf} ->
-            init_load(SchemaModule, RawRichConf);
+            init_load(SchemaMod, RawRichConf);
         {error, Reason} ->
             logger:error(#{msg => failed_to_load_hocon_conf,
                            reason => Reason
                           }),
             error(failed_to_load_hocon_conf)
     end;
-init_load(SchemaModule, RawRichConf) when is_map(RawRichConf) ->
+init_load(SchemaMod, RawRichConf) when is_map(RawRichConf) ->
     %% check with richmap for line numbers in error reports (future enhancement)
     Opts = #{return_plain => true,
              nullable => true
             },
     %% this call throws exception in case of check failure
-    {_AppEnvs, CheckedConf} = hocon_schema:map_translate(SchemaModule, RawRichConf, Opts),
-    ok = save_to_config_map(emqx_map_lib:unsafe_atom_key_map(CheckedConf),
-            hocon_schema:richmap_to_map(RawRichConf)).
+    {_AppEnvs, CheckedConf} = hocon_schema:map_translate(SchemaMod, RawRichConf, Opts),
+    ok = save_schema_mod(SchemaMod),
+    ok = save_to_config_map(emqx_map_lib:unsafe_atom_key_map(normalize_conf(CheckedConf)),
+            normalize_conf(hocon_schema:richmap_to_map(RawRichConf))).
+
+normalize_conf(Conf) ->
+    maps:with(get_root_names(), Conf).
 
 -spec check_config(module(), raw_config()) -> {AppEnvs, CheckedConf}
     when AppEnvs :: app_envs(), CheckedConf :: config().
-check_config(SchemaModule, RawConf) ->
+check_config(SchemaMod, RawConf) ->
     Opts = #{return_plain => true,
              nullable => true,
              format => map
             },
     {AppEnvs, CheckedConf} =
-        hocon_schema:map_translate(SchemaModule, RawConf, Opts),
+        hocon_schema:map_translate(SchemaMod, RawConf, Opts),
     Conf = maps:with(maps:keys(RawConf), CheckedConf),
     {AppEnvs, emqx_map_lib:unsafe_atom_key_map(Conf)}.
+
+-spec fill_defaults(raw_config()) -> map().
+fill_defaults(RawConf) ->
+    RootNames = get_root_names(),
+    maps:fold(fun(Key, Conf, Acc) ->
+            SubMap = #{Key => Conf},
+            WithDefaults = case lists:member(Key, RootNames) of
+                true -> fill_defaults(get_schema_mod(Key), SubMap);
+                false -> SubMap
+            end,
+            maps:merge(Acc, WithDefaults)
+        end, #{}, RawConf).
+
+-spec fill_defaults(module(), raw_config()) -> map().
+fill_defaults(SchemaMod, RawConf) ->
+    hocon_schema:check_plain(SchemaMod, RawConf,
+        #{nullable => true, no_conversion => true}, [str(K) || K <- maps:keys(RawConf)]).
 
 -spec read_override_conf() -> raw_config().
 read_override_conf() ->
     load_hocon_file(emqx_override_conf_name(), map).
+
+-spec save_schema_mod(module()) -> ok.
+save_schema_mod(SchemaMod) ->
+    OldMods = get_schema_mod(),
+    NewMods = maps:from_list([{bin(RootName), SchemaMod} || RootName <- SchemaMod:structs()]),
+    persistent_term:put(?PERSIS_MOD_ROOTNAMES, maps:merge(OldMods, NewMods)).
+
+-spec get_schema_mod() -> #{binary() => atom()}.
+get_schema_mod() ->
+    persistent_term:get(?PERSIS_MOD_ROOTNAMES, #{}).
+
+-spec get_schema_mod(atom() | binary()) -> [module()].
+get_schema_mod(RootName) ->
+    maps:get(bin(RootName), get_schema_mod()).
+
+-spec get_root_names() -> [binary()].
+get_root_names() ->
+    maps:keys(get_schema_mod()).
 
 -spec save_configs(app_envs(), config(), raw_config(), raw_config()) -> ok | {error, term()}.
 save_configs(_AppEnvs, Conf, RawConf, OverrideConf) ->
@@ -338,10 +420,20 @@ do_deep_put(?RAW_CONF, KeyPath, Map, Value) ->
 
 atom(Bin) when is_binary(Bin) ->
     binary_to_existing_atom(Bin, latin1);
+atom(Str) when is_list(Str) ->
+    list_to_existing_atom(Str);
 atom(Atom) when is_atom(Atom) ->
     Atom.
 
+str(Bin) when is_binary(Bin) ->
+    binary_to_list(Bin);
+str(Str) when is_list(Str) ->
+    Str;
+str(Atom) when is_atom(Atom) ->
+    atom_to_list(Atom).
+
 bin(Bin) when is_binary(Bin) -> Bin;
+bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
 
 conf_key(?CONF, RootName) ->

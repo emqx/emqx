@@ -54,6 +54,7 @@
         , emqx_dashboard_schema
         , emqx_gateway_schema
         , emqx_prometheus_schema
+        , emqx_rule_engine_schema
         , emqx_exhook_schema
         ]).
 
