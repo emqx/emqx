@@ -41,7 +41,8 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Mngr = ?CHILD(emqx_exhook_mngr, worker, [servers(), auto_reconnect()]),
+    Mngr = ?CHILD(emqx_exhook_mngr, worker,
+                  [servers(), auto_reconnect(), request_options()]),
     {ok, {{one_for_one, 10, 100}, [Mngr]}}.
 
 servers() ->
@@ -49,6 +50,9 @@ servers() ->
 
 auto_reconnect() ->
     application:get_env(emqx_exhook, auto_reconnect, 60000).
+
+request_options() ->
+    #{timeout => application:get_env(emqx_exhook, request_timeout, 5000)}.
 
 %%--------------------------------------------------------------------
 %% APIs
