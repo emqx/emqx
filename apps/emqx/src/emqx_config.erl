@@ -176,8 +176,8 @@ find_listener_conf(Zone, Listener, KeyPath) ->
 -spec put(map()) -> ok.
 put(Config) ->
     maps:fold(fun(RootName, RootValue, _) ->
-                      ?MODULE:put([RootName], RootValue)
-              end, [], Config).
+            ?MODULE:put([RootName], RootValue)
+        end, ok, Config).
 
 -spec put(emqx_map_lib:config_key_path(), term()) -> ok.
 put(KeyPath, Config) -> do_put(?CONF, KeyPath, Config).
@@ -209,7 +209,7 @@ reset([RootName | _] = KeyPath) ->
             Error
     end.
 
--spec get_default_value(emqx_map_lib:config_key_path()) -> ok | {error, term()}.
+-spec get_default_value(emqx_map_lib:config_key_path()) -> {ok, term()} | {error, term()}.
 get_default_value([RootName | _] = KeyPath) ->
     BinKeyPath = [bin(Key) || Key <- KeyPath],
     case find_raw([RootName]) of
@@ -235,8 +235,8 @@ get_raw(KeyPath, Default) -> do_get(?RAW_CONF, KeyPath, Default).
 -spec put_raw(map()) -> ok.
 put_raw(Config) ->
     maps:fold(fun(RootName, RootV, _) ->
-                      ?MODULE:put_raw([RootName], RootV)
-              end, [], hocon_schema:get_value([], Config)).
+            ?MODULE:put_raw([RootName], RootV)
+        end, ok, hocon_schema:get_value([], Config)).
 
 -spec put_raw(emqx_map_lib:config_key_path(), term()) -> ok.
 put_raw(KeyPath, Config) -> do_put(?RAW_CONF, KeyPath, Config).
@@ -321,7 +321,7 @@ save_schema_mod(SchemaMod) ->
 get_schema_mod() ->
     persistent_term:get(?PERSIS_MOD_ROOTNAMES, #{}).
 
--spec get_schema_mod(atom() | binary()) -> [module()].
+-spec get_schema_mod(atom() | binary()) -> module().
 get_schema_mod(RootName) ->
     maps:get(bin(RootName), get_schema_mod()).
 
