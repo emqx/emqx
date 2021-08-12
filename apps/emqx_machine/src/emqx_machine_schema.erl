@@ -54,6 +54,7 @@
         , emqx_dashboard_schema
         , emqx_gateway_schema
         , emqx_prometheus_schema
+        , emqx_exhook_schema
         ]).
 
 %% TODO: add a test case to ensure the list elements are unique
