@@ -49,7 +49,7 @@
         , update_or_create_authenticator/3
         , lookup_authenticator/2
         , list_authenticators/1
-        , move_authenticator_to_the_nth/3
+        , move_authenticator/3
         ]).
 
 -export([ import_users/3
@@ -108,6 +108,30 @@ pre_config_update({update_or_create_authenticator, ID, Config}, OldConfig) ->
                               false -> C
                           end
                       end, OldConfig)
+    end;
+pre_config_update({move, ID, Position}, OldConfig) ->
+    case lookup_authenticator(?CHAIN, ID) of
+        {error, Reason} -> error(Reason);
+        {ok, #{name := Name}} ->
+            {ok, Found, Part1, Part2} = split_by_name(Name, OldConfig),
+            case Position of
+                <<"top">> ->
+                    [Found | Part1] ++ Part2;
+                <<"bottom">> ->
+                    Part1 ++ Part2 ++ [Found];
+                Before ->
+                    case binary:split(Before, <<":">>, [global]) of
+                        [<<"before">>, ID0] ->
+                            case lookup_authenticator(?CHAIN, ID0) of
+                                {error, Reason} -> error(Reason);
+                                {ok, #{name := Name1}} ->
+                                    {ok, NFound, NPart1, NPart2} = split_by_name(Name1, Part1 + Part2),
+                                    NPart1 ++ [Found, NFound | NPart2]
+                            end;
+                        _ ->
+                            error({invalid_parameter, position})
+                    end
+            end
     end.
 
 post_config_update({enable, true}, _NewConfig, _OldConfig) ->
@@ -157,6 +181,22 @@ post_config_update({update_or_create_authenticator, ID, #{<<"name">> := Name}}, 
             end;
         [_Config | _] ->
             error(name_has_be_used)
+    end;
+post_config_update({move, ID, Position}, _NewConfig, _OldConfig) ->
+    NPosition = case Position of
+                    <<"top">> -> top;
+                    <<"bottom">> -> bottom;
+                    Before ->
+                        case binary:split(Before, <<":">>, [global]) of
+                            [<<"before">>, ID0] ->
+                                {before, ID0};
+                            _ ->
+                                error({invalid_parameter, position})
+                        end
+                end,
+    case move_authenticator(?CHAIN, ID, NPosition) of
+        ok -> ok;
+        {error, Reason} -> throw(Reason)
     end.
 
 update_config(Path, ConfigRequest) ->
@@ -255,8 +295,8 @@ list_authenticators(ChainID) ->
             {ok, serialize_authenticators(Authenticators)}
     end.
 
-move_authenticator_to_the_nth(ChainID, AuthenticatorID, N) ->
-    gen_server:call(?MODULE, {move_authenticator, ChainID, AuthenticatorID, N}).
+move_authenticator(ChainID, AuthenticatorID, Position) ->
+    gen_server:call(?MODULE, {move_authenticator, ChainID, AuthenticatorID, Position}).
 
 import_users(ChainID, AuthenticatorID, Filename) ->
     gen_server:call(?MODULE, {import_users, ChainID, AuthenticatorID, Filename}).
@@ -364,16 +404,16 @@ handle_call({update_or_create_authenticator, ChainID, AuthenticatorID, Config}, 
     Reply = update_or_create_authenticator(ChainID, AuthenticatorID, Config, true),
     reply(Reply, State);
 
-handle_call({move_authenticator, ChainID, AuthenticatorID, N}, _From, State) ->
+handle_call({move_authenticator, ChainID, AuthenticatorID, Position}, _From, State) ->
     UpdateFun = 
         fun(#chain{authenticators = Authenticators} = Chain) ->
-            case move_authenticator_to_the_nth_(AuthenticatorID, Authenticators, N) of
-                        {ok, NAuthenticators} ->
-                            true = ets:insert(?CHAIN_TAB, Chain#chain{authenticators = NAuthenticators}),
-                            ok;
-                        {error, Reason} ->
-                            {error, Reason}
-                    end
+            case do_move_authenticator(AuthenticatorID, Authenticators, Position) of
+                {ok, NAuthenticators} ->
+                    true = ets:insert(?CHAIN_TAB, Chain#chain{authenticators = NAuthenticators}),
+                    ok;
+                {error, Reason} ->
+                    {error, Reason}
+            end
         end,
     Reply = update_chain(ChainID, UpdateFun),
     reply(Reply, State);
@@ -457,6 +497,21 @@ switch_version(State = #{version := ?VER_2}) ->
     State#{version := ?VER_1};
 switch_version(State) ->
     State#{version => ?VER_1}.
+
+split_by_name(Name, Config) ->
+    {Part1, Part2, true} = lists:foldl(
+             fun(#{<<"name">> := N} = C, {P1, P2, F0}) ->
+                 F = case N =:= Name of
+                         true -> true;
+                         false -> F0
+                     end,
+                 case F of
+                     false -> {[C | P1], P2, F};
+                     true -> {P1, [C | P2], F}
+                 end
+             end, {[], [], false}, Config),
+    [Found | NPart2] = lists:reverse(Part2),
+    {ok, Found, lists:reverse(Part1), NPart2}.
 
 do_create_authenticator(ChainID, AuthenticatorID, #{name := Name} = Config) ->
     Provider = authenticator_provider(Config),
@@ -546,23 +601,27 @@ update_or_create_authenticator(ChainID, AuthenticatorID, #{name := NewName} = Co
 replace_authenticator(ID, #authenticator{name = Name} = Authenticator, Authenticators) ->
     lists:keyreplace(ID, 1, Authenticators, {ID, Name, Authenticator}).
 
-move_authenticator_to_the_nth_(AuthenticatorID, Authenticators, N)
-  when N =< length(Authenticators) andalso N > 0 ->
-    move_authenticator_to_the_nth_(AuthenticatorID, Authenticators, N, []);
-move_authenticator_to_the_nth_(_, _, _) ->
-    {error, out_of_range}.
+do_move_authenticator(AuthenticatorID, Authenticators, Position) when is_binary(AuthenticatorID) ->
+    case lists:keytake(AuthenticatorID, 1, Authenticators) of
+        false ->
+            {error, {not_found, {authenticator, AuthenticatorID}}};
+        {value, Authenticator, NAuthenticators} ->
+            do_move_authenticator(Authenticator, NAuthenticators, Position)
+    end;
 
-move_authenticator_to_the_nth_(AuthenticatorID, [], _, _) ->
-    {error, {not_found, {authenticator, AuthenticatorID}}};
-move_authenticator_to_the_nth_(AuthenticatorID, [{AuthenticatorID, _, _} = Authenticator | More], N, Passed)
-  when N =< length(Passed) ->
-    {L1, L2} = lists:split(N - 1, lists:reverse(Passed)),
-    {ok, L1 ++ [Authenticator] ++ L2 ++ More};
-move_authenticator_to_the_nth_(AuthenticatorID, [{AuthenticatorID, _, _} = Authenticator | More], N, Passed) ->
-    {L1, L2} = lists:split(N - length(Passed) - 1, More),
-    {ok, lists:reverse(Passed) ++ L1 ++ [Authenticator] ++ L2};
-move_authenticator_to_the_nth_(AuthenticatorID, [Authenticator | More], N, Passed) ->
-    move_authenticator_to_the_nth_(AuthenticatorID, More, N, [Authenticator | Passed]).
+do_move_authenticator(Authenticator, Authenticators, top) ->
+    {ok, [Authenticator | Authenticators]};
+do_move_authenticator(Authenticator, Authenticators, bottom) ->
+    {ok, Authenticators ++ [Authenticator]};
+do_move_authenticator(Authenticator, Authenticators, {before, ID}) ->
+    insert(Authenticator, Authenticators, ID, []).
+
+insert(_, [], ID, _) ->
+    {error, {not_found, {authenticator, ID}}};
+insert(Authenticator, [{ID, _, _} | _] = Authenticators, ID, Acc) ->
+    {ok, lists:reverse(Acc) ++ [Authenticator | Authenticators]};
+insert(Authenticator, [{_, _, _} = Authenticator0 | More], ID, Acc) ->
+    insert(Authenticator, More, ID, [Authenticator0 | Acc]).
 
 update_chain(ChainID, UpdateFun) ->
     case ets:lookup(?CHAIN_TAB, ChainID) of

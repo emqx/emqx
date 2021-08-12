@@ -25,12 +25,10 @@
         , fields/1
         ]).
 
-structs() -> [ "filename", "position", "user_info", "new_user_info"].
+structs() -> [ "filename", "user_info", "new_user_info"].
 
 fields("filename") ->
     [ {filename, fun filename/1} ];
-fields("position") ->
-    [ {position, fun position/1} ];
 fields("user_info") ->
     [ {user_id, fun user_id/1}
     , {password, fun password/1}
@@ -42,11 +40,6 @@ fields("new_user_info") ->
 filename(type) -> string();
 filename(nullable) -> false;
 filename(_) -> undefined.
-
-position(type) -> integer();
-position(validate) -> [fun (Position) -> Position > 0 end];
-position(nullable) -> false;
-position(_) -> undefined.
 
 user_id(type) -> binary();
 user_id(nullable) -> false;

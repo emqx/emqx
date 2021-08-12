@@ -24,7 +24,7 @@
         , authentication/2
         , authenticators/2
         , authenticators2/2
-        , position/2
+        , move/2
         , import_users/2
         , users/2
         , users2/2
@@ -109,7 +109,7 @@ api_spec() ->
     {[ authentication_api()
      , authenticators_api()
      , authenticators_api2()
-     , position_api()
+     , move_api()
      , import_users_api()
      , users_api()
      , users2_api()
@@ -405,10 +405,10 @@ authenticators_api2() ->
     },
     {"/authentication/authenticators/:id", Metadata, authenticators2}.
 
-position_api() ->
+move_api() ->
     Metadata = #{
         post => #{
-            description => "Change the order of authenticators",
+            description => "Move authenticator",
             parameters => [
                 #{
                     name => id,
@@ -423,14 +423,30 @@ position_api() ->
                 content => #{
                     'application/json' => #{
                         schema => #{
-                            type => object,
-                            required => [position],
-                            properties => #{
-                                position => #{
-                                    type => integer,
-                                    example => 1
+                            oneOf => [
+                                #{
+                                    type => object,
+                                    required => [position],
+                                    properties => #{
+                                        position => #{
+                                            type => string,
+                                            enum => [<<"top">>, <<"bottom">>],
+                                            example => <<"top">>
+                                        }
+                                    }
+                                },
+                                #{
+                                    type => object,
+                                    required => [position],
+                                    properties => #{
+                                        position => #{
+                                            type => string,
+                                            description => <<"before:<authenticator_id>">>,
+                                            example => <<"before:67e4c9d3">>
+                                        }
+                                    }
                                 }
-                            }
+                            ]
                         }
                     }
                 }
@@ -444,7 +460,7 @@ position_api() ->
             }
         }
     },
-    {"/authentication/authenticators/:id/position", Metadata, position}.
+    {"/authentication/authenticators/:id/move", Metadata, move}.
 
 import_users_api() ->
     Metadata = #{
@@ -1304,18 +1320,17 @@ authenticators2(delete, Request) ->
             serialize_error(Reason)
     end.
 
-position(post, Request) ->
+move(post, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    NBody = emqx_json:decode(Body, [return_maps]),
-    Config = hocon_schema:check_plain(emqx_authn_implied_schema, #{<<"position">> => NBody},
-                                      #{nullable => true}, ["position"]),
-    #{position := #{position := Position}} = emqx_map_lib:unsafe_atom_key_map(Config),
-    case emqx_authn:move_authenticator_to_the_nth(?CHAIN, AuthenticatorID, Position) of
-        ok ->
-            {204};
-        {error, Reason} ->
-            serialize_error(Reason)
+    case emqx_json:decode(Body, [return_maps]) of
+        #{<<"position">> := Position} ->
+            case emqx_authn:update_config([authentication, authenticators], {move_authenticator, AuthenticatorID, Position}) of
+                ok -> {204};
+                {error, Reason} -> serialize_error(Reason)
+            end;
+        _ ->
+            serialize_error({missing_parameter, position})
     end.
 
 import_users(post, Request) ->
@@ -1393,9 +1408,6 @@ serialize_error({not_found, {authenticator, ID}}) ->
 serialize_error(name_has_be_used) ->
     {409, #{code => <<"ALREADY_EXISTS">>,
             message => <<"Name has be used">>}};
-serialize_error(out_of_range) ->
-    {400, #{code => <<"OUT_OF_RANGE">>,
-            message => <<"Out of range">>}};
 serialize_error({missing_parameter, Name}) ->
     {400, #{code => <<"MISSING_PARAMETER">>,
             message => list_to_binary(

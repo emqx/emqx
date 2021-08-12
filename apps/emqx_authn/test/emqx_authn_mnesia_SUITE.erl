@@ -144,7 +144,7 @@ t_multi_mnesia_authenticator(_) ->
                     clientid => <<"myclient">>,
 			        password => <<"mypass1">>},
     ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo1, ok)),
-    ?assertEqual(ok, ?AUTH:move_authenticator_to_the_nth(?CHAIN, ID2, 1)),
+    ?assertEqual(ok, ?AUTH:move_authenticator(?CHAIN, ID2, top)),
 
     ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo1, ok)),
     ClientInfo2 = ClientInfo1#{password => <<"mypass2">>},

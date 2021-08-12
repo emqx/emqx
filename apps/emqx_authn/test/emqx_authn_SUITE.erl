@@ -86,10 +86,18 @@ t_authenticator(_) ->
     ?assertMatch({ok, #{id := ?CHAIN, authenticators := [#{name := AuthenticatorName1}, #{name := AuthenticatorName2}]}}, ?AUTH:lookup_chain(?CHAIN)),
     ?assertMatch({ok, [#{name := AuthenticatorName1}, #{name := AuthenticatorName2}]}, ?AUTH:list_authenticators(?CHAIN)),
 
-    ?assertEqual(ok, ?AUTH:move_authenticator_to_the_nth(?CHAIN, ID2, 1)),
+    ?assertEqual(ok, ?AUTH:move_authenticator(?CHAIN, ID2, top)),
     ?assertMatch({ok, [#{name := AuthenticatorName2}, #{name := AuthenticatorName1}]}, ?AUTH:list_authenticators(?CHAIN)),
-    ?assertEqual({error, out_of_range}, ?AUTH:move_authenticator_to_the_nth(?CHAIN, ID2, 3)),
-    ?assertEqual({error, out_of_range}, ?AUTH:move_authenticator_to_the_nth(?CHAIN, ID2, 0)),
+
+    ?assertEqual(ok, ?AUTH:move_authenticator(?CHAIN, ID2, bottom)),
+    ?assertMatch({ok, [#{name := AuthenticatorName1}, #{name := AuthenticatorName2}]}, ?AUTH:list_authenticators(?CHAIN)),
+
+    ?assertEqual(ok, ?AUTH:move_authenticator(?CHAIN, ID2, {before, ID1})),
+    
+    ?assertMatch({ok, [#{name := AuthenticatorName2}, #{name := AuthenticatorName1}]}, ?AUTH:list_authenticators(?CHAIN)),
+
+    ?assertEqual({error, {not_found, {authenticator, <<"nonexistent">>}}}, ?AUTH:move_authenticator(?CHAIN, ID2, {before, <<"nonexistent">>})),
+
     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID1)),
     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID2)),
     ?assertEqual({ok, []}, ?AUTH:list_authenticators(?CHAIN)),
