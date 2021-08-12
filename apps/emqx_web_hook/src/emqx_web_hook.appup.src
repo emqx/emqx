@@ -10,6 +10,10 @@
      {apply,{emqx_rule_engine, refresh_resource, [web_hook]}}
     ]},
     {<<"4.3.3">>, []},
+    {<<"4.3.4">>, [
+      {load_module, emqx_web_hook_actions, brutal_purge, soft_purge, []},
+      {apply,{emqx_rule_engine, refresh_resource, [web_hook]}}
+    ]},
     {<<".*">>, []}
   ],
   [
@@ -21,6 +25,10 @@
      {apply, {emqx_rule_engine, refresh_resource, [web_hook]}}
     ]},
     {<<"4.3.3">>, []},
+    {<<"4.3.4">>, [
+      {load_module, emqx_web_hook_actions, brutal_purge, soft_purge, []},
+      {apply,{emqx_rule_engine, refresh_resource, [web_hook]}}
+    ]},
     {<<".*">>, []}
   ]
 }.
