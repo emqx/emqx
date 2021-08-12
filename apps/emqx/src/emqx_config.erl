@@ -214,15 +214,13 @@ get_default_value([RootName | _] = KeyPath) ->
     BinKeyPath = [bin(Key) || Key <- KeyPath],
     case find_raw([RootName]) of
         {ok, RawConf} ->
-            RawConf1 = emqx_map_lib:deep_remove(BinKeyPath, RawConf),
-            SchemaMod = get_schema_mod(RootName),
-            try fill_defaults(SchemaMod, RawConf1) of FullConf ->
+            RawConf1 = emqx_map_lib:deep_remove(BinKeyPath, #{bin(RootName) => RawConf}),
+            try fill_defaults(get_schema_mod(RootName), RawConf1) of FullConf ->
                 case emqx_map_lib:deep_find(BinKeyPath, FullConf) of
                     {not_found, _, _} -> {error, no_default_value};
                     {ok, Val} -> {ok, Val}
                 end
-            catch error:_ ->
-                {error, required_conf}
+            catch error : Reason -> {error, Reason}
             end;
         {not_found, _, _} ->
             {error, {rootname_not_found, RootName}}
