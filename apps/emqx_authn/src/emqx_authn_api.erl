@@ -1070,7 +1070,13 @@ definitions() ->
 
     PasswordBasedRedisDef = #{
         type => object,
-        required => [],
+        required => [ server_type
+                    , server
+                    , servers
+                    , password
+                    , database
+                    , query
+                    ],
         properties => #{
             server_type => #{
                 type => string,
@@ -1099,7 +1105,7 @@ definitions() ->
             },
             database => #{
                 type => integer,
-                exmaple => 0
+                example => 0
             },
             query => #{
                 type => string,
