@@ -33,7 +33,7 @@
 %% Mgmt APIs
 %%--------------------------------------------------------------------
 
--spec enable(atom()|string()) -> ok | {error, term()}.
+-spec enable(binary()) -> ok | {error, term()}.
 enable(Name) ->
     with_mngr(fun(Pid) -> emqx_exhook_mngr:enable(Pid, Name) end).
 
@@ -109,7 +109,7 @@ call_fold(Hookpoint, Req, FailedAction, AccFun, [ServerName|More]) ->
 %% XXX: Hard-coded the deny response
 deny_action_result('client.authenticate', _) ->
     #{result => false};
-deny_action_result('client.check_acl', _) ->
+deny_action_result('client.authorize', _) ->
     #{result => false};
 deny_action_result('message.publish', Msg) ->
     %% TODO: Not support to deny a message

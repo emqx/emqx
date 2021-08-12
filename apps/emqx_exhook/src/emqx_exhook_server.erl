@@ -38,7 +38,7 @@
 
 -record(server, {
           %% Server name (equal to grpc client channel name)
-          name :: server_name(),
+          name :: binary(),
           %% The function options
           options :: map(),
           %% gRPC channel pid
@@ -49,7 +49,6 @@
           prefix :: list()
        }).
 
--type server_name() :: string().
 -type server() :: #server{}.
 
 -type hookpoint() :: 'client.connect'
@@ -84,9 +83,8 @@
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
 
--spec load(atom(), options(), map()) -> {ok, server()} | {error, term()} .
-load(Name0, Opts0, ReqOpts) ->
-    Name = to_list(Name0),
+-spec load(binary(), options(), map()) -> {ok, server()} | {error, term()} .
+load(Name, Opts0, ReqOpts) ->
     {SvrAddr, ClientOpts} = channel_opts(Opts0),
     case emqx_exhook_sup:start_grpc_client_channel(
            Name,
@@ -113,19 +111,11 @@ load(Name0, Opts0, ReqOpts) ->
     end.
 
 %% @private
-to_list(Name) when is_atom(Name) ->
-    atom_to_list(Name);
-to_list(Name) when is_binary(Name) ->
-    binary_to_list(Name);
-to_list(Name) when is_list(Name) ->
-    Name.
-
-%% @private
 channel_opts(Opts = #{url := URL}) ->
     case uri_string:parse(URL) of
-        #{scheme := <<"http">>, host := Host, port := Port} ->
+        #{scheme := "http", host := Host, port := Port} ->
             {format_http_uri("http", Host, Port), #{}};
-        #{scheme := <<"https">>, host := Host, port := Port} ->
+        #{scheme := "https", host := Host, port := Port} ->
             SslOpts =
                 case maps:get(ssl, Opts, undefined) of
                     undefined -> [];
@@ -230,7 +220,8 @@ may_unload_hooks(HookSpecs) ->
     end, maps:keys(HookSpecs)).
 
 format(#server{name = Name, hookspec = Hooks}) ->
-    io_lib:format("name=~s, hooks=~0p, active=true", [Name, Hooks]).
+    lists:flatten(
+      io_lib:format("name=~s, hooks=~0p, active=true", [Name, Hooks])).
 
 %%--------------------------------------------------------------------
 %% APIs

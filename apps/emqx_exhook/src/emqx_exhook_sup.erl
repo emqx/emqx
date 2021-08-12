@@ -58,7 +58,7 @@ request_options() ->
      }.
 
 env(Key, Def) ->
-    application:get_env(emqx_exhook, Key, Def).
+    emqx_config:get([exhook, Key], Def).
 
 %%--------------------------------------------------------------------
 %% APIs
