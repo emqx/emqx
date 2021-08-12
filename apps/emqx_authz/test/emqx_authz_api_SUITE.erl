@@ -147,8 +147,8 @@ t_api(_) ->
                    <<"permission">> := <<"deny">>
                   }, jsx:decode(Result4)),
 
-    lists:foreach(fun(#{<<"annotations">> := #{<<"id">> := Id}}) ->
-                    {ok, 204, _} = request(delete, uri(["authorization", binary_to_list(Id)]), [])
+    lists:foreach(fun(#{<<"annotations">> := #{<<"id">> := Id0}}) ->
+                    {ok, 204, _} = request(delete, uri(["authorization", binary_to_list(Id0)]), [])
                   end, Rules),
     {ok, 200, Result5} = request(get, uri(["authorization"]), []),
     ?assertEqual([], get_rules(Result5)),
