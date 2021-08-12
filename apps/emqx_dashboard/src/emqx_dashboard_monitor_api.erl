@@ -10,7 +10,12 @@
 
 -export([api_spec/0]).
 
--export([counters/2, current_counters/2]).
+-export([ monitor/2
+        , counters/2
+        , monitor_nodes/2
+        , monitor_nodes_counters/2
+        , current_counters/2
+        ]).
 
 -define(COUNTERS, [ connection
                   , route
@@ -20,7 +25,14 @@
                   , dropped]).
 
 api_spec() ->
-    {[monitor_api(), monitor_current_api()], [counters_schema()]}.
+    {
+        [ monitor_api()
+        , monitor_nodes_api()
+        , monitor_nodes_counters_api()
+        , monitor_counters_api()
+        , monitor_current_api()],
+        []
+    }.
 
 monitor_api() ->
     Metadata = #{
@@ -28,21 +40,48 @@ monitor_api() ->
             description => <<"List monitor data">>,
             parameters => [
                 #{
-                    name => node,
+                    name => aggregate,
                     in => query,
                     required => false,
-                    schema => #{type => string}
-                },
-                #{
-                    name => counter,
-                    in => query,
-                    required => false,
-                    schema => #{type => string, enum => ?COUNTERS}
+                    schema => #{type => boolean}
                 }
             ],
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Monitor count data">>, counters)}}},
-    {"/monitor", Metadata, counters}.
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Monitor count data">>, counters_schema())}}},
+    {"/monitor", Metadata, monitor}.
+
+monitor_nodes_api() ->
+    Metadata = #{
+        get => #{
+            description => <<"List monitor data">>,
+            parameters => [path_param_node()],
+            responses => #{
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Monitor count data in node">>, counters_schema())}}},
+    {"/monitor/nodes/:node", Metadata, monitor_nodes}.
+
+monitor_nodes_counters_api() ->
+    Metadata = #{
+        get => #{
+            description => <<"List monitor data">>,
+            parameters => [
+                path_param_node(),
+                path_param_counter()
+            ],
+            responses => #{
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Monitor single count data in node">>, counter_schema())}}},
+    {"/monitor/nodes/:node/counters/:counter", Metadata, monitor_nodes_counters}.
+
+monitor_counters_api() ->
+    Metadata = #{
+        get => #{
+            description => <<"List monitor data">>,
+            parameters => [
+                path_param_counter()
+            ],
+            responses => #{
+                <<"200">> =>
+                    emqx_mgmt_util:response_schema(<<"Monitor single count data">>, counter_schema())}}},
+    {"/monitor/counters/:counter", Metadata, counters}.
 monitor_current_api() ->
     Metadata = #{
         get => #{
@@ -51,6 +90,24 @@ monitor_current_api() ->
                 <<"200">> => emqx_mgmt_util:response_schema(<<"Current monitor data">>,
                     current_counters_schema())}}},
     {"/monitor/current", Metadata, current_counters}.
+
+path_param_node() ->
+    #{
+        name => node,
+        in => path,
+        required => true,
+        schema => #{type => string},
+        example => node()
+    }.
+
+path_param_counter() ->
+    #{
+        name => counter,
+        in => path,
+        required => true,
+        schema => #{type => string, enum => ?COUNTERS},
+        example => hd(?COUNTERS)
+    }.
 
 current_counters_schema() ->
     #{
@@ -69,13 +126,14 @@ counters_schema() ->
         end,
     Properties = lists:foldl(Fun, #{}, ?COUNTERS),
     #{
-        counters => #{
-            type => object,
-            properties => Properties}
+        type => object,
+        properties => Properties
     }.
 
 counters_schema(Name) ->
-    #{Name => #{
+    #{Name => counter_schema()}.
+counter_schema() ->
+    #{
         type => array,
         items => #{
             type => object,
@@ -83,16 +141,25 @@ counters_schema(Name) ->
                 timestamp => #{
                     type => integer},
                 count => #{
-                    type => integer}}}}}.
+                    type => integer}}}}.
 %%%==============================================================================================
 %% parameters trans
+monitor(get, Request) ->
+    Aggregate = proplists:get_value(<<"aggregate">>, cowboy_req:parse_qs(Request), <<"false">>),
+    {200, list_collect(Aggregate)}.
+
+monitor_nodes(get, Request) ->
+    Node = cowboy_req:binding(node, Request),
+    lookup([{<<"node">>, Node}]).
+
+monitor_nodes_counters(get, Request) ->
+    Node = cowboy_req:binding(node, Request),
+    Counter = cowboy_req:binding(counter, Request),
+    lookup([{<<"node">>, Node}, {<<"counter">>, Counter}]).
+
 counters(get, Request) ->
-    case cowboy_req:parse_qs(Request) of
-        [] ->
-            {200, get_collect()};
-        Params ->
-            lookup(Params)
-    end.
+    Counter = cowboy_req:binding(counter, Request),
+    lookup([{<<"counter">>, Counter}]).
 
 current_counters(get, _) ->
     Data = [get_collect(Node) || Node <- ekka_mnesia:running_nodes()],
@@ -107,7 +174,15 @@ current_counters(get, _) ->
     },
     {200, Response}.
 
-    %%%==============================================================================================
+format_current_metrics(Collects) ->
+    format_current_metrics(Collects, {0,0,0,0}).
+format_current_metrics([], Acc) ->
+    Acc;
+format_current_metrics([{Received, Sent, Sub, Conn} | Collects], {Received1, Sent1, Sub1, Conn1}) ->
+    format_current_metrics(Collects, {Received1 + Received, Sent1 + Sent, Sub1 + Sub, Conn1 + Conn}).
+
+
+%%%==============================================================================================
 %% api apply
 
 lookup(Params) ->
@@ -122,19 +197,18 @@ lookup_(#{node := Node, counter := Counter}) ->
 lookup_(#{node := Node}) ->
     {200, sampling(Node)};
 lookup_(#{counter := Counter}) ->
-    Data = [sampling(Node, Counter) || Node <- ekka_mnesia:running_nodes()],
+    CounterData = merger_counters([sampling(Node, Counter) || Node <- ekka_mnesia:running_nodes()]),
+    Data = hd(maps:values(CounterData)),
     {200, Data}.
 
-format_current_metrics(Collects) ->
-    format_current_metrics(Collects, {0,0,0,0}).
-format_current_metrics([], Acc) ->
-    Acc;
-format_current_metrics([{Received, Sent, Sub, Conn} | Collects], {Received1, Sent1, Sub1, Conn1}) ->
-    format_current_metrics(Collects, {Received1 + Received, Sent1 + Sent, Sub1 + Sub, Conn1 + Conn}).
-
-get_collect() ->
-    Counters = [sampling(Node) || Node <- ekka_mnesia:running_nodes()],
-    merger_counters(Counters).
+list_collect(Aggregate) ->
+    case Aggregate of
+        <<"true">> ->
+            [maps:put(node, Node, sampling(Node)) || Node <- ekka_mnesia:running_nodes()];
+        _ ->
+            Counters = [sampling(Node) || Node <- ekka_mnesia:running_nodes()],
+            merger_counters(Counters)
+    end.
 
 get_collect(Node) when Node =:= node() ->
     emqx_dashboard_collection:get_collect();
