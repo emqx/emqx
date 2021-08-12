@@ -40,6 +40,7 @@
 %% Authentication circle
 -export([ authenticate/2
         , open_session/5
+        , open_session/6
         , insert_channel_info/4
         , set_chan_info/3
         , set_chan_stats/3
@@ -96,15 +97,18 @@ authenticate(_Ctx, ClientInfo) ->
               pendings => list()
              }}
      | {error, any()}.
-open_session(Ctx, false, ClientInfo, ConnInfo, CreateSessionFun) ->
+open_session(Ctx, CleanStart, ClientInfo, ConnInfo, CreateSessionFun) ->
+    open_session(Ctx, CleanStart, ClientInfo, ConnInfo, CreateSessionFun, emqx_session).
+
+open_session(Ctx, false, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
     logger:warning("clean_start=false is not supported now, "
                    "fallback to clean_start mode"),
-    open_session(Ctx, true, ClientInfo, ConnInfo, CreateSessionFun);
+    open_session(Ctx, true, ClientInfo, ConnInfo, CreateSessionFun, SessionMod);
 
 open_session(_Ctx = #{type := Type},
-             CleanStart, ClientInfo, ConnInfo, CreateSessionFun) ->
+             CleanStart, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
     emqx_gateway_cm:open_session(Type, CleanStart,
-                                 ClientInfo, ConnInfo, CreateSessionFun).
+                                 ClientInfo, ConnInfo, CreateSessionFun, SessionMod).
 
 -spec insert_channel_info(context(),
                           emqx_types:clientid(),
@@ -132,7 +136,7 @@ connection_closed(_Ctx = #{type := Type}, ClientId) ->
 
 -spec authorize(context(), emqx_types:clientinfo(),
                 emqx_types:pubsub(), emqx_types:topic())
-    -> allow | deny.
+               -> allow | deny.
 authorize(_Ctx, ClientInfo, PubSub, Topic) ->
     emqx_access_control:authorize(ClientInfo, PubSub, Topic).
 

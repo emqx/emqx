@@ -94,4 +94,3 @@
 
 %% @doc The callback for process terminated
 -callback terminate(any(), channel()) -> ok.
-

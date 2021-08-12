@@ -21,6 +21,8 @@
 
 -export_type([transport/0]).
 
+-import(emqx_coap_message, [reset/1]).
+
 -spec new() -> transport().
 new() ->
     #transport{cache = undefined,
@@ -28,54 +30,33 @@ new() ->
                retry_count = 0}.
 
 idle(in,
-     #coap_message{type = non, id = MsgId, method = Method} = Msg,
-     _,
-     #{resource := Resource} = Cfg) ->
+     #coap_message{type = non, method = Method} = Msg,
+     Ctx,
+     _) ->
     Ret = #{next => until_stop,
             timeouts => [{stop_timeout, ?NON_LIFETIME}]},
     case Method of
         undefined ->
-            Ret#{out => #coap_message{type = reset, id = MsgId}};
+            ?RESET(Msg);
         _ ->
-            case erlang:apply(Resource, Method, [Msg, Cfg]) of
-                #coap_message{} = Result ->
-                    Ret#{out => Result};
-                {has_sub, Result, Sub} ->
-                    Ret#{out => Result, subscribe => Sub};
-                error ->
-                    Ret#{out =>
-                             emqx_coap_message:response({error, internal_server_error}, Msg)}
-            end
+            Result = call_handler(Msg, Ctx),
+            maps:merge(Ret, Result)
     end;
 
 idle(in,
-     #coap_message{id = MsgId,
-                   type = con,
-                   method = Method} = Msg,
-     Transport,
-     #{resource := Resource} = Cfg) ->
+     #coap_message{type = con, method = Method} = Msg,
+     Ctx,
+     Transport) ->
     Ret = #{next => maybe_resend,
             timeouts =>[{stop_timeout, ?EXCHANGE_LIFETIME}]},
     case Method of
         undefined ->
-            ResetMsg = #coap_message{type = reset, id = MsgId},
+            ResetMsg = reset(Msg),
             Ret#{transport => Transport#transport{cache = ResetMsg},
                  out  => ResetMsg};
         _ ->
-            {RetMsg, SubInfo} =
-                case erlang:apply(Resource, Method, [Msg, Cfg]) of
-                    #coap_message{} = Result ->
-                        {Result, undefined};
-                    {has_sub, Result, Sub} ->
-                        {Result, Sub};
-                    error ->
-                        {emqx_coap_message:response({error, internal_server_error}, Msg),
-                         undefined}
-                end,
-            RetMsg2 = RetMsg#coap_message{type = ack},
-            Ret#{out => RetMsg2,
-                 transport => Transport#transport{cache = RetMsg2},
-                 subscribe => SubInfo}
+            Result = call_handler(Msg, Ctx),
+            maps:merge(Ret, Result)
     end;
 
 idle(out, #coap_message{type = non} = Msg, _, _) ->
@@ -83,7 +64,7 @@ idle(out, #coap_message{type = non} = Msg, _, _) ->
       out => Msg,
       timeouts => [{stop_timeout, ?NON_LIFETIME}]};
 
-idle(out, Msg, Transport, _) ->
+idle(out, Msg, _, Transport) ->
     _ = emqx_misc:rand_seed(),
     Timeout = ?ACK_TIMEOUT + rand:uniform(?ACK_RANDOM_FACTOR),
     #{next => wait_ack,
@@ -133,3 +114,13 @@ wait_ack(state_timeout,
 
 until_stop(_, _, _, _) ->
     ?EMPTY_RESULT.
+
+call_handler(#coap_message{options = Opts} = Msg, Ctx) ->
+    case maps:get(uri_path, Opts, undefined) of
+        [<<"ps">> | RestPath] ->
+            emqx_coap_pubsub_handler:handle_request(RestPath, Msg, Ctx);
+        [<<"mqtt">> | RestPath] ->
+            emqx_coap_mqtt_handler:handle_request(RestPath, Msg, Ctx);
+        _ ->
+            ?REPLY({error, bad_request}, Msg)
+    end.

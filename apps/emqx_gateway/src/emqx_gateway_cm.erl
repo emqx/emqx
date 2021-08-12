@@ -31,6 +31,7 @@
 -export([start_link/1]).
 
 -export([ open_session/5
+        , open_session/6
         , kick_session/2
         , kick_session/3
         , register_channel/4
@@ -225,28 +226,32 @@ connection_closed(Type, ClientId) ->
           }}
      | {error, any()}.
 
-open_session(Type, true = _CleanStart, ClientInfo, ConnInfo, CreateSessionFun) ->
+open_session(Type, CleanStart, ClientInfo, ConnInfo, CreateSessionFun) ->
+    open_session(Type, CleanStart, ClientInfo, ConnInfo, CreateSessionFun, emqx_session).
+
+open_session(Type, true = _CleanStart, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
     Self = self(),
     ClientId = maps:get(clientid, ClientInfo),
     Fun = fun(_) ->
-              ok = discard_session(Type, ClientId),
-              Session = create_session(Type,
-                                       ClientInfo,
-                                       ConnInfo,
-                                       CreateSessionFun
-                                      ),
-              register_channel(Type, ClientId, Self, ConnInfo),
-              {ok, #{session => Session, present => false}}
+                  ok = discard_session(Type, ClientId),
+                  Session = create_session(Type,
+                                           ClientInfo,
+                                           ConnInfo,
+                                           CreateSessionFun,
+                                           SessionMod
+                                          ),
+                  register_channel(Type, ClientId, Self, ConnInfo),
+                  {ok, #{session => Session, present => false}}
           end,
     locker_trans(Type, ClientId, Fun);
 
 open_session(_Type, false = _CleanStart,
-             _ClientInfo, _ConnInfo, _CreateSessionFun) ->
+             _ClientInfo, _ConnInfo, _CreateSessionFun, _SessionMod) ->
     %% TODO:
     {error, not_supported_now}.
 
 %% @private
-create_session(Type, ClientInfo, ConnInfo, CreateSessionFun) ->
+create_session(Type, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
     try
         Session = emqx_gateway_utils:apply(
                     CreateSessionFun,
@@ -255,7 +260,7 @@ create_session(Type, ClientInfo, ConnInfo, CreateSessionFun) ->
         ok = emqx_gateway_metrics:inc(Type, 'session.created'),
         SessionInfo = case is_tuple(Session)
                            andalso element(1, Session) == session of
-                          true -> emqx_session:info(Session);
+                          true -> SessionMod:info(Session);
                           _ ->
                               case is_map(Session) of
                                   false ->

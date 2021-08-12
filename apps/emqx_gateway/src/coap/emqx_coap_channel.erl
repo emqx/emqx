@@ -27,10 +27,11 @@
 -export([ info/1
         , info/2
         , stats/1
-        , auth_publish/2
-        , auth_subscribe/2
-        , reply/4
-        , ack/4
+        , validator/3
+        , get_clientinfo/1
+        , get_config/2
+        , get_config/3
+        , result_keys/0
         , transfer_result/3]).
 
 -export([ init/2
@@ -60,8 +61,15 @@
                   keepalive     :: emqx_keepalive:keepalive() | undefined,
                   %% Timer
                   timers :: #{atom() => disable | undefined | reference()},
+                  token :: binary() | undefined,
                   config :: hocon:config()
                  }).
+
+%% the execuate context for session call
+-record(exec_ctx, { config :: hocon:config(),
+                    ctx :: emqx_gateway_ctx:context(),
+                    clientinfo :: emqx_types:clientinfo()
+                  }).
 
 -type channel() :: #channel{}.
 -define(DISCONNECT_WAIT_TIME, timer:seconds(10)).
@@ -98,13 +106,18 @@ init(ConnInfo = #{peername := {PeerHost, _},
      #{ctx := Ctx} = Config) ->
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Mountpoint = maps:get(mountpoint, Config, undefined),
+    EnableAuth = maps:get(enable, maps:get(authentication, Config)),
     ClientInfo = set_peercert_infos(
                    Peercert,
                    #{ zone => default
                     , protocol => 'coap'
                     , peerhost => PeerHost
                     , sockport => SockPort
-                    , clientid => emqx_guid:to_base62(emqx_guid:gen())
+                    , clientid => if EnableAuth ->
+                                          undefined;
+                                     true ->
+                                          emqx_guid:to_base62(emqx_guid:gen())
+                                  end
                     , username => undefined
                     , is_bridge => false
                     , is_superuser => false
@@ -116,48 +129,52 @@ init(ConnInfo = #{peername := {PeerHost, _},
             , conninfo = ConnInfo
             , clientinfo = ClientInfo
             , timers = #{}
+            , config = Config
             , session = emqx_coap_session:new()
-            , config = Config#{clientinfo => ClientInfo,
-                               ctx => Ctx}
             , keepalive = emqx_keepalive:init(maps:get(heartbeat, Config))
             }.
 
-auth_publish(Topic,
-             #{ctx := Ctx,
-               clientinfo := ClientInfo}) ->
-    emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, Topic).
+validator(Type, Topic, #exec_ctx{ctx = Ctx,
+                                 clientinfo = ClientInfo}) ->
+    emqx_gateway_ctx:authorize(Ctx, ClientInfo, Type, Topic).
 
-auth_subscribe(Topic,
-               #{ctx := Ctx,
-                 clientinfo := ClientInfo}) ->
-    emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, Topic).
+get_clientinfo(#exec_ctx{clientinfo = ClientInfo}) ->
+    ClientInfo.
+
+get_config(Key, Ctx) ->
+    get_config(Key, Ctx, undefined).
+
+get_config(Key, #exec_ctx{config = Cfg}, Def) ->
+    maps:get(Key, Cfg, Def).
+
+result_keys() ->
+    [out, reply, connection].
 
 transfer_result(From, Value, Result) ->
-    ?TRANSFER_RESULT([out], From, Value, Result).
+    ?TRANSFER_RESULT(From, Value, Result).
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
 %%--------------------------------------------------------------------
-%% treat post to root path as a heartbeat
-%% treat post to root path with query string as a command
-handle_in(#coap_message{method = post,
-                        options = Options} = Msg, ChannelT) ->
-    Channel = ensure_keepalive_timer(ChannelT),
-    case maps:get(uri_path, Options, <<>>) of
-        <<>> ->
-            handle_command(Msg, Channel);
+handle_in(Msg, ChannleT) ->
+    Channel = ensure_keepalive_timer(ChannleT),
+    case convert_queries(Msg) of
+        {ok, Msg2} ->
+            case emqx_coap_message:is_request(Msg2) of
+                true ->
+                    check_auth_state(Msg2, Channel);
+                _ ->
+                    call_session(handle_response, Msg2, Channel)
+            end;
         _ ->
-            call_session(received, [Msg], Channel)
-    end;
-
-handle_in(Msg, Channel) ->
-    call_session(received, [Msg], ensure_keepalive_timer(Channel)).
+            response({error, bad_request}, <<"bad uri_query">>, Msg, Channel)
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle Delivers from broker to client
 %%--------------------------------------------------------------------
 handle_deliver(Delivers, Channel) ->
-    call_session(deliver, [Delivers], Channel).
+    call_session(deliver, Delivers, Channel).
 
 %%--------------------------------------------------------------------
 %% Handle timeout
@@ -172,7 +189,7 @@ handle_timeout(_, {keepalive, NewVal}, #channel{keepalive = KeepAlive} = Channel
     end;
 
 handle_timeout(_, {transport, Msg}, Channel) ->
-    call_session(timeout, [Msg], Channel);
+    call_session(timeout, Msg, Channel);
 
 handle_timeout(_, disconnect, Channel) ->
     {shutdown, normal, Channel};
@@ -238,48 +255,123 @@ ensure_keepalive_timer(Fun, #channel{config = Cfg} = Channel) ->
     Interval = maps:get(heartbeat, Cfg),
     Fun(keepalive, Interval, keepalive, Channel).
 
-handle_command(#coap_message{options = Options} = Msg, Channel) ->
-    case maps:get(uri_query, Options, []) of
-        [] ->
-            %% heartbeat
-            ack(Channel, {ok, valid}, <<>>, Msg);
-        QueryPairs ->
-            Queries = lists:foldl(fun(Pair, Acc) ->
-                                          [{K, V}] = cow_qs:parse_qs(Pair),
-                                          Acc#{K => V}
-                                  end,
-                                  #{},
-                                  QueryPairs),
-            case maps:get(<<"action">>, Queries, undefined) of
-                undefined ->
-                    ack(Channel, {error, bad_request}, <<"command without actions">>, Msg);
-                Action ->
-                    handle_command(Action, Queries, Msg, Channel)
-            end
+call_session(Fun,
+             Msg,
+             #channel{session = Session} = Channel) ->
+    Ctx = new_exec_ctx(Channel),
+    Result = erlang:apply(emqx_coap_session, Fun, [Msg, Ctx, Session]),
+    process_result([session, connection, out], Result, Msg, Channel).
+
+process_result([Key | T], Result, Msg, Channel) ->
+    case handle_result(Key, Result, Msg, Channel) of
+        {ok, Channel2} ->
+            process_result(T, Result, Msg, Channel2);
+        Other ->
+            Other
+    end;
+
+process_result(_, _, _, Channel) ->
+    {ok, Channel}.
+
+handle_result(session, #{session := Session}, _, Channel) ->
+    {ok, Channel#channel{session = Session}};
+
+handle_result(connection, #{connection := open}, Msg, Channel) ->
+    do_connect(Msg, Channel);
+
+handle_result(connection, #{connection := close}, Msg, Channel) ->
+    Reply = emqx_coap_message:piggyback({ok, deleted}, Msg),
+    {shutdown, close, {outgoing, Reply}, Channel};
+
+handle_result(out, #{out := Out}, _, Channel) ->
+    {ok, {outgoing, Out}, Channel};
+
+handle_result(_, _, _, Channel) ->
+    {ok, Channel}.
+
+check_auth_state(Method, #channel{config = Cfg} = Channel) ->
+    #{authentication := #{enable := Enable}} = Cfg,
+    check_token(Enable, Method, Channel).
+
+check_token(true,
+            #coap_message{options = Options} = Msg,
+            #channel{token = Token,
+                     clientinfo = ClientInfo} = Channel) ->
+    #{clientid := ClientId} = ClientInfo,
+    case maps:get(uri_query, Options, undefined) of
+        #{<<"clientid">> := ClientId,
+          <<"token">> := Token} ->
+            call_session(handle_request, Msg, Channel);
+        #{<<"clientid">> := DesireId} ->
+            try_takeover(ClientId, DesireId, Msg, Channel);
+        _ ->
+            response({error, unauthorized}, Msg, Channel)
+    end;
+
+check_token(false,
+            #coap_message{options = Options} = Msg,
+            Channel) ->
+    case maps:get(uri_query, Options, undefined) of
+        #{<<"clientid">> := _} ->
+            response({error, unauthorized}, Msg, Channel);
+        #{<<"token">> := _} ->
+            response({error, unauthorized}, Msg, Channel);
+        _ ->
+            call_session(handle_request, Msg, Channel)
     end.
 
-handle_command(<<"connect">>, Queries, Msg, Channel) ->
+response(Method, Req, Channel) ->
+    response(Method, <<>>, Req, Channel).
+
+response(Method, Payload, Req, Channel) ->
+    Reply = emqx_coap_message:piggyback(Method, Payload, Req),
+    call_session(handle_out, Reply, Channel).
+
+try_takeover(undefined,
+             DesireId,
+             #coap_message{options = Opts} = Msg,
+             Channel) ->
+    case maps:get(uri_path, Opts, []) of
+          [<<"mqtt">>, <<"connection">> | _] ->
+            %% may be is a connect request
+            %% TODO need check repeat connect, unless we implement the
+            %% udp connection baseon the clientid
+            call_session(handle_request, Msg, Channel);
+        _ ->
+            do_takeover(DesireId, Msg, Channel)
+    end;
+
+try_takeover(_, DesireId, Msg, Channel) ->
+    do_takeover(DesireId, Msg, Channel).
+
+do_takeover(_DesireId, Msg, Channel) ->
+    %% TODO completed the takeover, now only reset the message
+    Reset = emqx_coap_message:reset(Msg),
+    call_session(handle_out, Reset, Channel).
+
+new_exec_ctx(#channel{config = Cfg,
+                      ctx = Ctx,
+                      clientinfo = ClientInfo}) ->
+    #exec_ctx{config = Cfg,
+              ctx = Ctx,
+              clientinfo = ClientInfo}.
+
+do_connect(#coap_message{options = Opts} = Req, Channel) ->
+    Queries = maps:get(uri_query, Opts),
     case emqx_misc:pipeline(
            [ fun run_conn_hooks/2
            , fun enrich_clientinfo/2
            , fun set_log_meta/2
            , fun auth_connect/2
            ],
-           {Queries, Msg},
+           {Queries, Req},
            Channel) of
         {ok, _Input, NChannel} ->
-            process_connect(ensure_connected(NChannel), Msg);
+            process_connect(ensure_connected(NChannel), Req);
         {error, ReasonCode, NChannel} ->
             ErrMsg = io_lib:format("Login Failed: ~s", [ReasonCode]),
-            ack(NChannel, {error, bad_request}, ErrMsg, Msg)
-    end;
-
-handle_command(<<"disconnect">>, _, Msg, Channel) ->
-    Channel2 = ensure_timer(disconnect, ?DISCONNECT_WAIT_TIME, disconnect, Channel),
-    ack(Channel2, {ok, deleted}, <<>>, Msg);
-
-handle_command(_, _, Msg, Channel) ->
-    ack(Channel, {error, bad_request}, <<"invalid action">>, Msg).
+            response({error, bad_request}, ErrMsg, Req, NChannel)
+    end.
 
 run_conn_hooks(Input, Channel = #channel{ctx = Ctx,
                                          conninfo = ConnInfo}) ->
@@ -291,8 +383,7 @@ run_conn_hooks(Input, Channel = #channel{ctx = Ctx,
     end.
 
 enrich_clientinfo({Queries, Msg},
-                  Channel = #channel{clientinfo = ClientInfo0,
-                                     config = Cfg}) ->
+                  Channel = #channel{clientinfo = ClientInfo0}) ->
     case Queries of
         #{<<"username">> := UserName,
           <<"password">> := Password,
@@ -301,8 +392,7 @@ enrich_clientinfo({Queries, Msg},
                                       password => Password,
                                       clientid => ClientId},
             {ok, NClientInfo} = fix_mountpoint(Msg, ClientInfo),
-            {ok, Channel#channel{clientinfo = NClientInfo,
-                                 config = Cfg#{clientinfo := NClientInfo}}};
+            {ok, Channel#channel{clientinfo = NClientInfo}};
         _ ->
             {error, "invalid queries", Channel}
     end.
@@ -324,7 +414,8 @@ auth_connect(_Input, Channel = #channel{ctx = Ctx,
             {error, Reason}
     end.
 
-fix_mountpoint(_Packet, #{mountpoint := undefined}) -> ok;
+fix_mountpoint(_Packet, #{mountpoint := undefined} = ClientInfo) ->
+    {ok, ClientInfo};
 fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
     %% TODO: Enrich the varibale replacement????
     %%       i.e: ${ClientInfo.auth_result.productKey}
@@ -334,27 +425,33 @@ fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
 ensure_connected(Channel = #channel{ctx = Ctx,
                                     conninfo = ConnInfo,
                                     clientinfo = ClientInfo}) ->
-    NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
+    NConnInfo = ConnInfo#{ connected_at => erlang:system_time(millisecond)
+                         , proto_name => <<"COAP">>
+                         , proto_ver => <<"1">>
+                         },
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
     Channel#channel{conninfo = NConnInfo}.
 
 process_connect(Channel = #channel{ctx = Ctx,
+                                   session = Session,
                                    conninfo = ConnInfo,
                                    clientinfo = ClientInfo},
                 Msg) ->
-    SessFun = fun(_,_) -> emqx_coap_session:new() end,
+    %% inherit the old session
+    SessFun = fun(_,_) -> Session end,
     case emqx_gateway_ctx:open_session(
            Ctx,
            true,
            ClientInfo,
            ConnInfo,
-           SessFun
+           SessFun,
+           emqx_coap_session
           ) of
         {ok, _Sess} ->
-            ack(Channel, {ok, created}, <<"connected">>, Msg);
+            response({ok, created}, <<"connected">>, Msg, Channel);
         {error, Reason} ->
             ?LOG(error, "Failed to open session du to ~p", [Reason]),
-            ack(Channel, {error, bad_request}, <<>>, Msg)
+            response({error, bad_request}, Msg, Channel)
     end.
 
 run_hooks(Ctx, Name, Args) ->
@@ -365,24 +462,20 @@ run_hooks(Ctx, Name, Args, Acc) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name),
     emqx_hooks:run_fold(Name, Args, Acc).
 
-reply(Channel, Method, Payload, Req) ->
-    call_session(reply, [Req, Method, Payload], Channel).
-
-ack(Channel, Method, Payload, Req) ->
-    call_session(piggyback, [Req, Method, Payload], Channel).
-
-call_session(F,
-             A,
-             #channel{session = Session,
-                      config = Cfg} = Channel) ->
-    case erlang:apply(emqx_coap_session, F, A ++ [Cfg, Session]) of
-        #{out := Out,
-          session := Session2} ->
-            {ok, {outgoing, Out}, Channel#channel{session = Session2}};
-        #{out := Out} ->
-            {ok, {outgoing, Out}, Channel};
-        #{session := Session2} ->
-            {ok, Channel#channel{session = Session2}};
-        _ ->
-            {ok, Channel}
+convert_queries(#coap_message{options = Opts} = Msg) ->
+    case maps:get(uri_query, Opts, undefined) of
+        undefined ->
+            {ok, Msg#coap_message{options = Opts#{uri_query => #{}}}};
+        Queries ->
+            convert_queries(Queries, #{}, Msg)
     end.
+
+convert_queries([H | T], Queries, Msg) ->
+    case re:split(H, "=") of
+        [Key, Val] ->
+            convert_queries(T, Queries#{Key => Val}, Msg);
+        _ ->
+            error
+    end;
+convert_queries([], Queries, #coap_message{options = Opts} = Msg) ->
+    {ok, Msg#coap_message{options = Opts#{uri_query => Queries}}}.

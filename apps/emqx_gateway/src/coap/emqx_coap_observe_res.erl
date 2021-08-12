@@ -18,7 +18,7 @@
 
 %% API
 -export([ new_manager/0, insert/3, remove/2
-        , res_changed/2, foreach/2]).
+        , res_changed/2, foreach/2, subscriptions/1]).
 -export_type([manager/0]).
 
 -define(MAX_SEQ_ID, 16777215).
@@ -40,14 +40,15 @@
 new_manager() ->
     #{}.
 
--spec insert(topic(), token(), manager()) -> manager().
+-spec insert(topic(), token(), manager()) -> {seq_id(), manager()}.
 insert(Topic, Token, Manager) ->
-    case maps:get(Topic, Manager, undefined) of
-        undefined ->
-            Manager#{Topic => new_res(Token)};
-        _ ->
-            Manager
-    end.
+    Res = case maps:get(Topic, Manager, undefined) of
+              undefined ->
+                  new_res(Token);
+              Any ->
+                  Any
+          end,
+    {maps:get(seq_id, Res), Manager#{Topic => Res}}.
 
 -spec remove(topic(), manager()) -> manager().
 remove(Topic, Manager) ->
@@ -71,6 +72,9 @@ foreach(F, Manager) ->
               ok,
               Manager),
     ok.
+
+subscriptions(Manager) ->
+    maps:keys(Manager).
 
 %%--------------------------------------------------------------------
 %% Internal functions

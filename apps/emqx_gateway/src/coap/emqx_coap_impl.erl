@@ -57,17 +57,14 @@ init([]) ->
 %%--------------------------------------------------------------------
 
 on_insta_create(_Insta = #{id := InstaId,
-                           rawconf := #{resource := Resource} = RawConf
+                           rawconf := RawConf
                           }, Ctx, _GwState) ->
-    ResourceMod = get_resource_mod(Resource),
     Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
     ListenerPids = lists:map(fun(Lis) ->
-                                     start_listener(InstaId, Ctx, ResourceMod, Lis)
+                                     start_listener(InstaId, Ctx, Lis)
                              end, Listeners),
 
-    {ok, ResCtx} = ResourceMod:init(RawConf),
-    {ok, ListenerPids,  #{ctx => Ctx,
-                          res_ctx => ResCtx}}.
+    {ok, ListenerPids,  #{ctx => Ctx}}.
 
 on_insta_update(NewInsta, OldInsta, GwInstaState = #{ctx := Ctx}, GwState) ->
     InstaId = maps:get(id, NewInsta),
@@ -85,12 +82,10 @@ on_insta_update(NewInsta, OldInsta, GwInstaState = #{ctx := Ctx}, GwState) ->
     end.
 
 on_insta_destroy(_Insta = #{ id := InstaId,
-                             rawconf := #{resource := Resource} = RawConf
+                             rawconf := RawConf
                            },
-                 #{res_ctx := ResCtx} = _GwInstaState,
+                  _GwInstaState,
                  _GWState) ->
-    ResourceMod = get_resource_mod(Resource),
-    ok = ResourceMod:stop(ResCtx),
     Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
     lists:foreach(fun(Lis) ->
                           stop_listener(InstaId, Lis)
@@ -100,10 +95,9 @@ on_insta_destroy(_Insta = #{ id := InstaId,
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-start_listener(InstaId, Ctx, ResourceMod, {Type, ListenOn, SocketOpts, Cfg}) ->
+start_listener(InstaId, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
-    Cfg2 = Cfg#{resource => ResourceMod},
-    case start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg2) of
+    case start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
             ?ULOG("Start coap ~s:~s listener on ~s successfully.~n",
                   [InstaId, Type, ListenOnStr]),
@@ -148,8 +142,3 @@ stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
 stop_listener(InstaId, Type, ListenOn, _SocketOpts, _Cfg) ->
     Name = name(InstaId, Type),
     esockd:close(Name, ListenOn).
-
-get_resource_mod(mqtt) ->
-    emqx_coap_mqtt_resource;
-get_resource_mod(pubsub) ->
-    emqx_coap_pubsub_resource.

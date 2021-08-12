@@ -161,9 +161,7 @@ encode_option(location_query, OptVal) -> {?OPTION_LOCATION_QUERY, OptVal};
 encode_option(proxy_uri, OptVal) -> {?OPTION_PROXY_URI, OptVal};
 encode_option(proxy_scheme, OptVal) -> {?OPTION_PROXY_SCHEME, OptVal};
 encode_option(size1, OptVal) -> {?OPTION_SIZE1, binary:encode_unsigned(OptVal)};
-%% draft-ietf-ore-observe-16
 encode_option(observe, OptVal) -> {?OPTION_OBSERVE, binary:encode_unsigned(OptVal)};
-%% draft-ietf-ore-block-17
 encode_option(block2, OptVal) -> {?OPTION_BLOCK2, encode_block(OptVal)};
 encode_option(block1, OptVal) -> {?OPTION_BLOCK1, encode_block(OptVal)};
 %% unknown opton

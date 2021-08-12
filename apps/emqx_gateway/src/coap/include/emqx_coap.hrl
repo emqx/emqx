@@ -23,11 +23,16 @@
 -define(MAXIMUM_MAX_AGE, 4294967295).
 
 -define(EMPTY_RESULT, #{}).
--define(TRANSFER_RESULT(Keys, From, Value, R1),
+-define(TRANSFER_RESULT(From, Value, R1),
         begin
+            Keys = result_keys(),
             R2 = maps:with(Keys, R1),
             R2#{From => Value}
         end).
+
+-define(RESET(Msg), #{out => emqx_coap_message:reset(Msg)}).
+-define(REPLY(Resp, Payload, Msg), #{out => emqx_coap_message:piggyback(Resp, Payload, Msg)}).
+-define(REPLY(Resp, Msg), ?REPLY(Resp, <<>>, Msg)).
 
 -type coap_message_id() :: 1 .. ?MAX_MESSAGE_ID.
 -type message_type() :: con | non | ack | reset.
