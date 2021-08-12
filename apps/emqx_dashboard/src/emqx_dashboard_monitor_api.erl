@@ -193,7 +193,8 @@ lookup(Params) ->
     lookup_(lists:foldl(Fun, #{}, Params)).
 
 lookup_(#{node := Node, counter := Counter}) ->
-    {200, sampling(Node, Counter)};
+    Data = hd(maps:values(sampling(Node, Counter))),
+    {200, Data};
 lookup_(#{node := Node}) ->
     {200, sampling(Node)};
 lookup_(#{counter := Counter}) ->
