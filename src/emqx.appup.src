@@ -1,4 +1,5 @@
 %% -*- mode: erlang -*-
+Instructions =
 {"4.3.8",
   [
    {"4.3.7", [
@@ -8,14 +9,12 @@
    {"4.3.6", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
      {load_module,emqx_misc,brutal_purge,soft_purge,[]},
-     {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.5", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
      {load_module,emqx_misc,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
-     {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
     ]},
@@ -24,7 +23,6 @@
      {load_module,emqx_misc,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
      {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
-     {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
     ]},
@@ -35,7 +33,6 @@
      {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
      {load_module,emqx_ws_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
-     {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
     ]},
@@ -47,7 +44,6 @@
      {load_module,emqx_ws_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_http_lib,brutal_purge,soft_purge,[]},
      {load_module,emqx_channel,brutal_purge,soft_purge,[]},
-     {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
@@ -65,7 +61,6 @@
      {load_module,emqx_congestion,brutal_purge,soft_purge,[]},
      {load_module,emqx_node_dump,brutal_purge,soft_purge,[]},
      {load_module,emqx_channel,brutal_purge,soft_purge,[]},
-     {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_plugins,brutal_purge,soft_purge,[]},
      {load_module,emqx_logger_textfmt,brutal_purge,soft_purge,[]},
      {load_module,emqx_http_lib,brutal_purge,soft_purge,[]},
@@ -86,7 +81,6 @@
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
      {load_module,emqx_node_dump,brutal_purge,soft_purge,[]},
      {load_module,emqx_channel,brutal_purge,soft_purge,[]},
-     {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_plugins,brutal_purge,soft_purge,[]},
      {load_module,emqx_logger_textfmt,brutal_purge,soft_purge,[]},
      {load_module,emqx_metrics,brutal_purge,soft_purge,[]},
@@ -104,14 +98,12 @@
    {"4.3.6", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
      {load_module,emqx_misc,brutal_purge,soft_purge,[]},
-     {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.5", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
      {load_module,emqx_misc,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
-     {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
     ]},
@@ -120,7 +112,6 @@
      {load_module,emqx_misc,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
      {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
-     {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
     ]},
@@ -131,7 +122,6 @@
      {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
      {load_module,emqx_ws_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
-     {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
     ]},
@@ -143,7 +133,6 @@
      {load_module,emqx_ws_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_http_lib,brutal_purge,soft_purge,[]},
      {load_module,emqx_channel,brutal_purge,soft_purge,[]},
-     {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
@@ -161,7 +150,6 @@
      {load_module,emqx_congestion,brutal_purge,soft_purge,[]},
      {load_module,emqx_node_dump,brutal_purge,soft_purge,[]},
      {load_module,emqx_channel,brutal_purge,soft_purge,[]},
-     {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_plugins,brutal_purge,soft_purge,[]},
      {load_module,emqx_logger_textfmt,brutal_purge,soft_purge,[]},
      {load_module,emqx_http_lib,brutal_purge,soft_purge,[]},
@@ -182,7 +170,6 @@
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
      {load_module,emqx_node_dump,brutal_purge,soft_purge,[]},
      {load_module,emqx_channel,brutal_purge,soft_purge,[]},
-     {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_plugins,brutal_purge,soft_purge,[]},
      {load_module,emqx_logger_textfmt,brutal_purge,soft_purge,[]},
      {load_module,emqx_metrics,brutal_purge,soft_purge,[]},
@@ -190,4 +177,21 @@
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
    ]},
-   {<<".*">>,[]}]}.
+   {<<".*">>,[]}]},
+
+%% Always reload emqx_app for emqx_app:get_release/0 to return the correct version
+Mandatory = [{load_module,emqx_app,brutal_purge,soft_purge,[]}],
+
+Append = fun
+  ({<<".*">>, Instrs}) ->
+      {<<".*">>, Instrs};
+  ({Vsn, Instrs}) ->
+      {Vsn, Instrs ++ Mandatory}
+end,
+
+PostProcess = fun({Vsn, UpList, DownList}) ->
+  {Vsn, [Append(Up) || Up <- UpList],
+        [Append(Dn) || Dn <- DownList]}
+end,
+
+PostProcess(Instructions).
