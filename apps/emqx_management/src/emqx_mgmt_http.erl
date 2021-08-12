@@ -118,8 +118,7 @@ format({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
 
 apps() ->
-    % Apps = [App || {App, _, _} <- application:loaded_applications(), App =/= emqx_dashboard],
-    Apps = [App || {App, _, _} <- application:loaded_applications()],
+    Apps = [App || {App, _, _} <- application:loaded_applications(), App =/= emqx_dashboard],
     lists:filter(fun(App) ->
         case re:run(atom_to_list(App), "^emqx") of
             {match,[{0,4}]} -> true;
