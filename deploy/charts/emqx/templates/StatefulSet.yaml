@@ -121,11 +121,11 @@ spec:
           - name: dashboard
             containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP | default 18083 }}
           {{- if not (empty .Values.emqxConfig.EMQX_LISTENER__TCP__INTERNAL) }}
-          - name: dashboardtls
+          - name: internalmqtt
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENER__TCP__INTERNAL }}
           {{- end }}
           {{- if not (empty .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTPS) }}
-          - name: internalmqtt
+          - name: dashboardtls
             containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTPS }}
           {{- end }}
           - name: ekka
