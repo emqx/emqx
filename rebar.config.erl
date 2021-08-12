@@ -133,11 +133,9 @@ test_deps() ->
     ].
 
 common_compile_opts() ->
-    AppNames = app_names(),
     [ debug_info % alwyas include debug_info
     , {compile_info, [{emqx_vsn, get_vsn()}]}
     ] ++
-    [{d, 'EMQX_DEP_APPS', AppNames -- [emqx, emqx_machine]}] ++
     [{d, 'EMQX_ENTERPRISE'} || is_enterprise()] ++
     [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].
 
