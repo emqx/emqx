@@ -73,17 +73,13 @@
 
 -export_type([server/0]).
 
--type options() :: #{ url := uri_string:uri_string()
-                    , ssl => map()
-                    }.
-
 -dialyzer({nowarn_function, [inc_metrics/2]}).
 
 %%--------------------------------------------------------------------
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
 
--spec load(binary(), options(), map()) -> {ok, server()} | {error, term()} .
+-spec load(binary(), map(), map()) -> {ok, server()} | {error, term()} .
 load(Name, Opts0, ReqOpts) ->
     {SvrAddr, ClientOpts} = channel_opts(Opts0),
     case emqx_exhook_sup:start_grpc_client_channel(
@@ -268,7 +264,7 @@ match_topic_filter(_, []) ->
 match_topic_filter(TopicName, TopicFilter) ->
     lists:any(fun(F) -> emqx_topic:match(TopicName, F) end, TopicFilter).
 
--spec do_call(string(), atom(), map(), map()) -> {ok, map()} | {error, term()}.
+-spec do_call(binary(), atom(), map(), map()) -> {ok, map()} | {error, term()}.
 do_call(ChannName, Fun, Req, ReqOpts) ->
     Options = ReqOpts#{channel => ChannName},
     ?LOG(debug, "Call ~0p:~0p(~0p, ~0p)", [?PB_CLIENT_MOD, Fun, Req, Options]),

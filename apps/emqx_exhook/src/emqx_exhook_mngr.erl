@@ -195,8 +195,10 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, State = #state{running = Running}) ->
     _ = maps:fold(fun(Name, _, AccIn) ->
-            {ok, NAccIn} = do_unload_server(Name, AccIn),
-            NAccIn
+             case do_unload_server(Name, AccIn) of
+                {ok, NAccIn} -> NAccIn;
+                 _ -> AccIn
+             end
         end, State, Running),
     _ = unload_exhooks(),
     ok.

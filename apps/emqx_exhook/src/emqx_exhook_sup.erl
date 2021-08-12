@@ -65,13 +65,13 @@ env(Key, Def) ->
 %%--------------------------------------------------------------------
 
 -spec start_grpc_client_channel(
-        string(),
+        binary(),
         uri_string:uri_string(),
         grpc_client:options()) -> {ok, pid()} | {error, term()}.
 start_grpc_client_channel(Name, SvrAddr, Options) ->
     grpc_client_sup:create_channel_pool(Name, SvrAddr, Options).
 
--spec stop_grpc_client_channel(string()) -> ok.
+-spec stop_grpc_client_channel(binary()) -> ok.
 stop_grpc_client_channel(Name) ->
     %% Avoid crash due to hot-upgrade had unloaded
     %% grpc application
