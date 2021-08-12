@@ -267,13 +267,13 @@ on_action_data_to_webserver(Selected, _Envs =
         {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
             emqx_rule_metrics:inc_actions_success(Id);
         {ok, StatusCode, _} ->
-            ?LOG(warning, "[WebHook Action] HTTP request failed with status code: ~p", [StatusCode]),
+            ?LOG(warning, "HTTP request failed with path: ~p status code: ~p", [NPath, StatusCode]),
             emqx_rule_metrics:inc_actions_error(Id);
         {ok, StatusCode, _, _} ->
-            ?LOG(warning, "[WebHook Action] HTTP request failed with status code: ~p", [StatusCode]),
+            ?LOG(warning, "HTTP request failed with path: ~p status code: ~p", [NPath, StatusCode]),
             emqx_rule_metrics:inc_actions_error(Id);
         {error, Reason} ->
-            ?LOG(error, "[WebHook Action] HTTP request error: ~p", [Reason]),
+            ?LOG(error, "HTTP request failed path: ~p error: ~p", [NPath, Reason]),
             emqx_rule_metrics:inc_actions_error(Id)
     end.
 
@@ -293,20 +293,16 @@ create_req(_, Path, Headers, Body) ->
   {Path, Headers, Body}.
 
 parse_action_params(Params = #{<<"url">> := URL}) ->
-    try
-        {ok, #{path := CommonPath}} = emqx_http_lib:uri_parse(URL),
-        Method = method(maps:get(<<"method">>, Params, <<"POST">>)),
-        Headers = headers(maps:get(<<"headers">>, Params, undefined)),
-        NHeaders = ensure_content_type_header(Headers, Method),
-        #{method => Method,
-          path => merge_path(CommonPath, maps:get(<<"path">>, Params, <<>>)),
-          headers => NHeaders,
-          body => maps:get(<<"body">>, Params, <<>>),
-          request_timeout => cuttlefish_duration:parse(str(maps:get(<<"request_timeout">>, Params, <<"5s">>))),
-          pool => maps:get(<<"pool">>, Params)}
-    catch _:_ ->
-        throw({invalid_params, Params})
-    end.
+    {ok, #{path := CommonPath}} = emqx_http_lib:uri_parse(URL),
+    Method = method(maps:get(<<"method">>, Params, <<"POST">>)),
+    Headers = headers(maps:get(<<"headers">>, Params, undefined)),
+    NHeaders = ensure_content_type_header(Headers, Method),
+    #{method => Method,
+      path => merge_path(CommonPath, maps:get(<<"path">>, Params, <<>>)),
+      headers => NHeaders,
+      body => maps:get(<<"body">>, Params, <<>>),
+      request_timeout => cuttlefish_duration:parse(str(maps:get(<<"request_timeout">>, Params, <<"5s">>))),
+      pool => maps:get(<<"pool">>, Params)}.
 
 ensure_content_type_header(Headers, Method) when Method =:= post orelse Method =:= put ->
     Headers;
