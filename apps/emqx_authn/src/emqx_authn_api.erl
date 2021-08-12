@@ -1336,29 +1336,35 @@ move(post, Request) ->
 import_users(post, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    NBody = emqx_json:decode(Body, [return_maps]),
-    Config = hocon_schema:check_plain(emqx_authn_implied_schema, #{<<"filename">> => NBody},
-                                      #{nullable => true}, ["filename"]),
-    #{filename := #{filename := Filename}} = emqx_map_lib:unsafe_atom_key_map(Config),
-    case emqx_authn:import_users(?CHAIN, AuthenticatorID, Filename) of
-        ok ->
-            {204};
-        {error, Reason} ->
-            serialize_error(Reason)
+    case emqx_json:decode(Body, [return_maps]) of
+        #{<<"filename">> := Filename} ->
+            case emqx_authn:import_users(?CHAIN, AuthenticatorID, Filename) of
+                ok ->
+                    {204};
+                {error, Reason} ->
+                    serialize_error(Reason)
+            end;
+        _ ->
+            serialize_error({missing_parameter, filename})
     end.
 
 users(post, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    NBody = emqx_json:decode(Body, [return_maps]),
-    Config = hocon_schema:check_plain(emqx_authn_implied_schema, #{<<"user_info">> => NBody},
-                                      #{nullable => true}, ["user_info"]),
-    #{user_info := UserInfo} = emqx_map_lib:unsafe_atom_key_map(Config),
-    case emqx_authn:add_user(?CHAIN, AuthenticatorID, UserInfo) of
-        {ok, User} ->
-            {201, User};
-        {error, Reason} ->
-            serialize_error(Reason)
+    case emqx_json:decode(Body, [return_maps]) of
+        #{ <<"user_id">> := UserID
+         , <<"password">> := Password} ->
+            case emqx_authn:add_user(?CHAIN, AuthenticatorID, #{ user_id => UserID
+                                                               , password => Password}) of
+                {ok, User} ->
+                    {201, User};
+                {error, Reason} ->
+                    serialize_error(Reason)
+            end;
+        #{<<"user_id">> := _} ->
+            serialize_error({missing_parameter, password});
+        _ ->
+            serialize_error({missing_parameter, user_id})
     end;
 users(get, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
@@ -1373,15 +1379,16 @@ users2(patch, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     UserID = cowboy_req:binding(user_id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    NBody = emqx_json:decode(Body, [return_maps]),
-    Config = hocon_schema:check_plain(emqx_authn_implied_schema, #{<<"new_user_info">> => NBody},
-                                      #{nullable => true}, ["new_user_info"]),
-    #{new_user_info := NewUserInfo} = emqx_map_lib:unsafe_atom_key_map(Config),
-    case emqx_authn:update_user(?CHAIN, AuthenticatorID, UserID, NewUserInfo) of
-        {ok, User} ->
-            {200, User};
-        {error, Reason} ->
-            serialize_error(Reason)
+    case emqx_json:decode(Body, [return_maps]) of
+        #{<<"password">> := Password} ->
+            case emqx_authn:update_user(?CHAIN, AuthenticatorID, UserID, #{password => Password}) of
+                {ok, User} ->
+                    {200, User};
+                {error, Reason} ->
+                    serialize_error(Reason)
+            end;
+        _ ->
+            serialize_error({missing_parameter, password})
     end;
 users2(get, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
