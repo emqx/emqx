@@ -314,14 +314,15 @@ ensure_content_type_header(Headers, _Method) ->
     lists:keydelete("content-type", 1, Headers).
 
 merge_path(CommonPath, <<>>) ->
-    CommonPath;
+    l2b(CommonPath);
 merge_path(CommonPath, Path0) ->
     case emqx_http_lib:uri_parse(Path0) of
-        {ok, #{path := Path1, 'query' := Query}} ->
-            Path2 = filename:join(CommonPath, Path1),
+        {ok, #{path := Path1, 'query' := Query0}} ->
+            Path2 = l2b(filename:join(CommonPath, Path1)),
+            Query = l2b(Query0),
             <<Path2/binary, "?", Query/binary>>;
         {ok, #{path := Path1}} ->
-            filename:join(CommonPath, Path1)
+            l2b(filename:join(CommonPath, Path1))
     end.
 
 method(GET) when GET == <<"GET">>; GET == <<"get">> -> get;
@@ -386,3 +387,5 @@ test_http_connect(Conf) ->
            ?LOG(error, "check http_connectivity failed: ~p, ~0p", [Conf, {Err, Reason, ST}]),
            false
     end.
+l2b(L) when is_list(L) -> iolist_to_binary(L);
+l2b(Any) -> Any.
