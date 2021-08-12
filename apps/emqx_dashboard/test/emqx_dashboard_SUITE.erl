@@ -96,7 +96,7 @@ t_rest_api(_Config) ->
              , http_post("users", #{<<"username">> => <<"usera">>, <<"password">> => <<"passwd">>})
              , http_post("auth", #{<<"username">> => <<"usera">>, <<"password">> => <<"passwd">>})
              , http_delete("users/usera")
-             , http_put("change_pwd/admin", #{<<"old_pwd">> => <<"public">>, <<"new_pwd">> => <<"newpwd">>})
+             , http_put("users/admin/change_pwd", #{<<"old_pwd">> => <<"public">>, <<"new_pwd">> => <<"newpwd">>})
              , http_post("auth", #{<<"username">> => <<"admin">>, <<"password">> => <<"newpwd">>})
              ]],
     ok.
