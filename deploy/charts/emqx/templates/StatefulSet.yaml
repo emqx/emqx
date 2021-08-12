@@ -63,8 +63,6 @@ spec:
           claimName: {{ tpl . $ }}
         {{- end }}
       {{- end }}
-      - name: emqx-config
-        emptyDir: {}
       {{- if .Values.emqxLicneseSecretName  }}
       - name: emqx-license
         secret:
@@ -132,15 +130,13 @@ spec:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:
           - name: emqx-data
-            mountPath: "/opt/emqx/data/mnesia"
+            mountPath: "/opt/emqx/data"
           {{ if .Values.emqxLicneseSecretName  }}
           - name: emqx-license
             mountPath: "/opt/emqx/etc/emqx.lic"
             subPath: "emqx.lic"
             readOnly: true
           {{ end }}
-          - name: emqx-config
-            mountPath: /opt/emqx/data/configs/
           readinessProbe:
             httpGet:
               path: /api/v5/status
