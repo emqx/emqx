@@ -28,12 +28,12 @@ cli(["server", "list"]) ->
 
 cli(["server", "enable", Name]) ->
     if_enabled(fun() ->
-        print(emqx_exhook:enable(list_to_existing_atom(Name)))
+        print(emqx_exhook:enable(iolist_to_binary(Name)))
     end);
 
 cli(["server", "disable", Name]) ->
     if_enabled(fun() ->
-        print(emqx_exhook:disable(list_to_existing_atom(Name)))
+        print(emqx_exhook:disable(iolist_to_binary(Name)))
     end);
 
 cli(["server", "stats"]) ->
@@ -51,14 +51,6 @@ print(ok) ->
     emqx_ctl:print("ok~n");
 print({error, Reason}) ->
     emqx_ctl:print("~p~n", [Reason]).
-
-find_server_options(Name) ->
-    Ls = emqx_config:get([exhook, servers]),
-    case [ E || E = #{name := N} <- Ls, N =:= Name] of
-        [] -> undefined;
-        [Options] ->
-            maps:remove(name, Options)
-    end.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
@@ -85,7 +77,8 @@ stats() ->
 format(Name) ->
     case emqx_exhook_mngr:server(Name) of
         undefined ->
-            io_lib:format("name=~s, hooks=#{}, active=false", [Name]);
+            lists:flatten(
+              io_lib:format("name=~s, hooks=#{}, active=false", [Name]));
         Server ->
             emqx_exhook_server:format(Server)
     end.

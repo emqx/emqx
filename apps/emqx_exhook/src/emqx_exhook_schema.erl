@@ -26,10 +26,24 @@
 
 -behaviour(hocon_schema).
 
+-type duration() :: integer().
+
+-typerefl_from_string({duration/0, emqx_schema, to_duration}).
+
+-reflect_type([duration/0]).
+
 -export([structs/0, fields/1]).
+
 -export([t/1, t/3, t/4, ref/1]).
 
-structs() -> [servers].
+structs() -> [exhook].
+
+fields(exhook) ->
+    [ {request_failed_action, t(union([deny, ignore]), undefined, deny)}
+    , {request_timeout, t(duration(), undefined, "5s")}
+    , {auto_reconnect, t(union([false, duration()]), undefined, "60s")}
+    , {servers, t(hoconsc:array(ref(servers)), undefined, [])}
+    ];
 
 fields(servers) ->
     [ {name, string()}
