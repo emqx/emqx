@@ -63,6 +63,8 @@ spec:
           claimName: {{ tpl . $ }}
         {{- end }}
       {{- end }}
+      - name: emqx-config
+        emptyDir: {}
       {{- if .Values.emqxLicneseSecretName  }}
       - name: emqx-license
         secret:
@@ -137,6 +139,8 @@ spec:
             subPath: "emqx.lic"
             readOnly: true
           {{ end }}
+          - name: emqx-config
+            mountPath: /opt/emqx/data/configs/
           readinessProbe:
             httpGet:
               path: /api/v5/status
