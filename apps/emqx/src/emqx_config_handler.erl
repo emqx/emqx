@@ -82,8 +82,8 @@ handle_call({add_child, ConfKeyPath, HandlerName}, _From,
 
 handle_call({change_config, SchemaModule, ConfKeyPath, UpdateArgs}, _From,
             #{handlers := Handlers} = State) ->
-    OldConf = emqx_config:get_root(ConfKeyPath),
-    OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
+    OldConf = emqx_config:get([]),
+    OldRawConf = emqx_config:get_raw([]),
     Result = try
         {NewRawConf, OverrideConf} = process_upadate_request(ConfKeyPath, OldRawConf,
             Handlers, UpdateArgs),

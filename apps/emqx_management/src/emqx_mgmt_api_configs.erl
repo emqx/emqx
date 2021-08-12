@@ -46,7 +46,7 @@
 
 -define(MAX_DEPTH, 1).
 
--define(ERR_MSG(MSG), io_lib:format("~p", [MSG])).
+-define(ERR_MSG(MSG), list_to_binary(io_lib:format("~p", [MSG]))).
 
 api_spec() ->
     {config_apis() ++ [config_reset_api()], []}.
