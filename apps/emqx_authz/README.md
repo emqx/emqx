@@ -51,7 +51,7 @@ authz:{
            cmd: "HGETALL mqtt_authz:%u"
        },
        {
-					 principal: {username: "^admin?"}
+           principal: {username: "^admin?"}
            permission: allow
            action: subscribe
            topics: ["$SYS/#"]

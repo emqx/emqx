@@ -52,12 +52,16 @@ overrides() ->
     [ {add, [ {extra_src_dirs, [{"etc", [{recursive,true}]}]}
             , {erl_opts, [{compile_info, [{emqx_vsn, get_vsn()}]}]}
             ]}
-    , {add, snabbkaffe,
-       [{erl_opts, common_compile_opts()}]}
-    ] ++ community_plugin_overrides().
+    ] ++ snabbkaffe_overrides() ++ community_plugin_overrides().
 
 community_plugin_overrides() ->
     [{add, App, [ {erl_opts, [{i, "include"}]}]} || App <- relx_plugin_apps_extra()].
+
+%% Temporary workaround for a rebar3 erl_opts duplication
+%% bug. Ideally, we want to set this define globally
+snabbkaffe_overrides() ->
+    Apps = [snabbkaffe, ekka],
+    [{add, App, [{erl_opts, [{d, snk_kind, msg}]}]} || App <- Apps].
 
 config(HasElixir) ->
     [ {cover_enabled, is_cover_enabled()}
@@ -129,12 +133,9 @@ test_deps() ->
     ].
 
 common_compile_opts() ->
-    AppNames = app_names(),
     [ debug_info % alwyas include debug_info
     , {compile_info, [{emqx_vsn, get_vsn()}]}
-    , {d, snk_kind, msg}
     ] ++
-    [{d, 'EMQX_DEP_APPS', AppNames -- [emqx, emqx_machine]}] ++
     [{d, 'EMQX_ENTERPRISE'} || is_enterprise()] ++
     [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].
 

@@ -3,7 +3,7 @@ version: '3.9'
 services:
   haproxy:
     container_name: haproxy
-    image: haproxy:2.3
+    image: haproxy:2.4
     depends_on:
       - emqx1
       - emqx2
@@ -23,7 +23,8 @@ services:
       - bash
       - -c
       - |
-        cat /usr/local/etc/haproxy/certs/cert.pem /usr/local/etc/haproxy/certs/key.pem > /usr/local/etc/haproxy/certs/emqx.pem
+        set -x
+        cat /usr/local/etc/haproxy/certs/cert.pem /usr/local/etc/haproxy/certs/key.pem > /tmp/emqx.pem
         haproxy -f /usr/local/etc/haproxy/haproxy.cfg
 
   emqx1:

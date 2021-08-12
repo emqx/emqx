@@ -1,9 +1,29 @@
 version: '3.9'
 
 services:
-  erlang:
-    container_name: erlang
+  erlang23:
+    container_name: erlang23
     image: emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04
+    env_file:
+      - conf.env
+    environment:
+      GITHUB_ACTIONS: ${GITHUB_ACTIONS}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITHUB_RUN_ID: ${GITHUB_RUN_ID}
+      GITHUB_SHA: ${GITHUB_SHA}
+      GITHUB_RUN_NUMBER: ${GITHUB_RUN_NUMBER}
+      GITHUB_EVENT_NAME: ${GITHUB_EVENT_NAME}
+      GITHUB_REF: ${GITHUB_REF}
+    networks:
+      - emqx_bridge
+    volumes:
+      - ../..:/emqx
+    working_dir: /emqx
+    tty: true
+
+  erlang24:
+    container_name: erlang24
+    image: emqx/build-env:erl24.0.5-emqx-1-ubuntu20.04
     env_file:
       - conf.env
     environment:

@@ -97,6 +97,14 @@ users_api() ->
             responses => #{
                 <<"200">> => response_array_schema(<<"">>, show_user)
             }
+        },
+        post => #{
+            description => <<"Create dashboard users">>,
+            'requestBody' => request_body_schema(create_user),
+            responses => #{
+                <<"200">> => response_schema(<<"Create Users successfully">>),
+                <<"400">> => bad_request()
+            }
         }
     },
     {"/users", Metadata, users}.
@@ -117,22 +125,13 @@ user_api() ->
             'requestBody' => request_body_schema(#{
                 type => object,
                 properties => #{
-                    tags => #{
+                    tag => #{
                         type => string
                     }
                 }
             }),
             responses => #{
                 <<"200">> => response_schema(<<"Update Users successfully">>),
-                <<"400">> => bad_request()
-            }
-        },
-        post => #{
-            description => <<"Create dashboard users">>,
-            parameters => [path_param_username()],
-            'requestBody' => request_body_schema(create_user),
-            responses => #{
-                <<"200">> => response_schema(<<"Create Users successfully">>),
                 <<"400">> => bad_request()
             }
         }
@@ -161,7 +160,7 @@ change_pwd_api() ->
             }
         }
     },
-    {"/change_pwd/:username", Metadata, change_pwd}.
+    {"/users/:username/change_pwd", Metadata, change_pwd}.
 
 path_param_username() ->
     #{
@@ -187,14 +186,32 @@ auth(post, Request) ->
     end.
 
 users(get, _Request) ->
-    {200, [row(User) || User <- emqx_dashboard_admin:all_users()]}.
+    {200, [row(User) || User <- emqx_dashboard_admin:all_users()]};
+
+users(post, Request) ->
+    {ok, Body, _} = cowboy_req:read_body(Request),
+    Params = emqx_json:decode(Body, [return_maps]),
+    Tag = maps:get(<<"tag">>, Params),
+    Username = maps:get(<<"username">>, Params),
+    Password = maps:get(<<"password">>, Params),
+    case ?EMPTY(Username) orelse ?EMPTY(Password) of
+        true  ->
+            {400, #{code => <<"CREATE_USER_FAIL">>,
+                    message => <<"Username or password undefined">>}};
+        false ->
+            case emqx_dashboard_admin:add_user(Username, Password, Tag) of
+                ok -> {200};
+                {error, Reason} ->
+                    {400, #{code => <<"CREATE_USER_FAIL">>, message => Reason}}
+            end
+    end.
 
 user(put, Request) ->
     Username = cowboy_req:binding(username, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
     Params = emqx_json:decode(Body, [return_maps]),
-    Tags = maps:get(<<"tags">>, Params),
-    case emqx_dashboard_admin:update_user(Username, Tags) of
+    Tag = maps:get(<<"tag">>, Params),
+    case emqx_dashboard_admin:update_user(Username, Tag) of
         ok -> {200};
         {error, Reason} ->
             {400, #{code => <<"UPDATE_FAIL">>, message => Reason}}
@@ -208,24 +225,6 @@ user(delete, Request) ->
         false ->
             _ = emqx_dashboard_admin:remove_user(Username),
             {200}
-    end;
-
-user(post, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Params = emqx_json:decode(Body, [return_maps]),
-    Tags = maps:get(<<"tags">>, Params),
-    Username = maps:get(<<"username">>, Params),
-    Password = maps:get(<<"password">>, Params),
-    case ?EMPTY(Username) orelse ?EMPTY(Password) of
-        true  ->
-            {400, #{code => <<"CREATE_USER_FAIL">>,
-                    message => <<"Username or password undefined">>}};
-        false ->
-            case emqx_dashboard_admin:add_user(Username, Password, Tags) of
-                ok -> {200};
-                {error, Reason} ->
-                    {400, #{code => <<"CREATE_USER_FAIL">>, message => Reason}}
-            end
     end.
 
 change_pwd(put, Request) ->
@@ -240,8 +239,8 @@ change_pwd(put, Request) ->
             {400, #{code => <<"CHANGE_PWD_FAIL">>, message => Reason}}
     end.
 
-row(#mqtt_admin{username = Username, tags = Tags}) ->
-    #{username => Username, tags => Tags}.
+row(#mqtt_admin{username = Username, tags = Tag}) ->
+    #{username => Username, tag => Tag}.
 
 bad_request() ->
     response_schema(<<"Bad Request">>,

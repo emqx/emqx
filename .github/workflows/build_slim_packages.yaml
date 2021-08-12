@@ -15,7 +15,8 @@ jobs:
     strategy:
       matrix:
         erl_otp:
-        - erl23.2.7.2-emqx-2
+        - erl24.0.5-emqx-1
+
         os:
         - ubuntu20.04
         - centos7
@@ -43,7 +44,7 @@ jobs:
       with:
         name: rebar3.crashdump
         path: ./rebar3.crashdump
-    - name: pakcages test
+    - name: packages test
       run: |
         export CODE_PATH=$GITHUB_WORKSPACE
         .ci/build_packages/tests.sh
@@ -58,7 +59,7 @@ jobs:
     strategy:
       matrix:
         erl_otp:
-        - 23.2.7.2-emqx-2
+        - 24.0.5-emqx-1
 
     steps:
     - uses: actions/checkout@v1

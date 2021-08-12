@@ -9,8 +9,14 @@ on:
 
 jobs:
     run_static_analysis:
+        strategy:
+          matrix:
+            container:
+              - "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
+              - "emqx/build-env:erl24.0.5-emqx-1-ubuntu20.04"
+
         runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04
+        container: ${{ matrix.container }}
 
         steps:
         - uses: actions/checkout@v2
@@ -26,8 +32,14 @@ jobs:
           run: make dialyzer
 
     run_proper_test:
+        strategy:
+          matrix:
+            container:
+              - "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
+              - "emqx/build-env:erl24.0.5-emqx-1-ubuntu20.04"
+
         runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04
+        container: ${{ matrix.container }}
 
         steps:
         - uses: actions/checkout@v2
@@ -41,6 +53,12 @@ jobs:
           run: make proper
 
     run_common_test:
+        strategy:
+          matrix:
+            otp_release:
+              - "erlang23"
+              - "erlang24"
+
         runs-on: ubuntu-20.04
 
         steps:
@@ -73,15 +91,15 @@ jobs:
                 up -d --build
         - name: run eunit
           run: |
-            docker exec -i erlang bash -c "make eunit"
+            docker exec -i ${{ matrix.otp_release }} bash -c "make eunit"
         - name: run common test
           run: |
-            docker exec -i erlang bash -c "make ct"
+            docker exec -i ${{ matrix.otp_release }} bash -c "make ct"
         - name: run cover
           run: |
             printenv > .env
-            docker exec -i erlang bash -c "make cover"
-            docker exec --env-file .env -i erlang bash -c "make coveralls"
+            docker exec -i ${{ matrix.otp_release }} bash -c "make cover"
+            docker exec --env-file .env -i ${{ matrix.otp_release }} bash -c "make coveralls"
         - name: cat rebar.crashdump
           if: failure()
           run: if [ -f 'rebar3.crashdump' ];then cat 'rebar3.crashdump'; fi

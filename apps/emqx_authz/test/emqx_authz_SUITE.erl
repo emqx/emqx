@@ -22,6 +22,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(CONF_DEFAULT, <<"authorization: {rules: []}">>).
+
 all() ->
     emqx_ct:all(?MODULE).
 
@@ -29,81 +31,144 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
+    ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
     ok = emqx_config:update([zones, default, authorization, cache, enable], false),
     ok = emqx_config:update([zones, default, authorization, enable], true),
-    emqx_authz:update(replace, []),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_authz]).
+    ok = emqx_authz:update(replace, []),
+    emqx_ct_helpers:stop_apps([emqx_authz]),
+    ok.
 
--define(RULE1, #{principal => all,
-                 topics => [<<"#">>],
-                 action => all,
-                 permission => deny}
+init_per_testcase(_, Config) ->
+    ok = emqx_authz:update(replace, []),
+    Config.
+
+-define(RULE1, #{<<"principal">> => <<"all">>,
+                 <<"topics">> => [<<"#">>],
+                 <<"action">> => <<"all">>,
+                 <<"permission">> => <<"deny">>}
        ).
--define(RULE2, #{principal =>
-                    #{ipaddress => <<"127.0.0.1">>},
-                 topics =>
-                        [#{eq => <<"#">>},
-                         #{eq => <<"+">>}
+-define(RULE2, #{<<"principal">> =>
+                    #{<<"ipaddress">> => <<"127.0.0.1">>},
+                 <<"topics">> =>
+                        [#{<<"eq">> => <<"#">>},
+                         #{<<"eq">> => <<"+">>}
                         ] ,
-                 action => all,
-                 permission => allow}
+                 <<"action">> => <<"all">>,
+                 <<"permission">> => <<"allow">>}
        ).
--define(RULE3,#{principal =>
-                    #{'and' => [#{username => "^test?"},
-                                    #{clientid => "^test?"}
+-define(RULE3,#{<<"principal">> =>
+                    #{<<"and">> => [#{<<"username">> => <<"^test?">>},
+                                    #{<<"clientid">> => <<"^test?">>}
                                    ]},
-                topics => [<<"test">>],
-                action => publish,
-                permission => allow}
+                <<"topics">> => [<<"test">>],
+                <<"action">> => <<"publish">>,
+                <<"permission">> => <<"allow">>}
        ).
--define(RULE4,#{principal =>
-                    #{'or' => [#{username => <<"^test">>},
-                               #{clientid => <<"test?">>}
-                              ]},
-                topics => [<<"%u">>,<<"%c">>],
-                action => publish,
-                permission => deny}
+-define(RULE4,#{<<"principal">> =>
+                    #{<<"or">> => [#{<<"username">> => <<"^test">>},
+                                   #{<<"clientid">> => <<"test?">>}
+                                  ]},
+                <<"topics">> => [<<"%u">>,<<"%c">>],
+                <<"action">> => <<"publish">>,
+                <<"permission">> => <<"deny">>}
        ).
-
 
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
-t_init_rule(_) ->
-    ?assertMatch(#{annotations := #{id := _ID,
-                                 principal := all,
-                                 topics := [['#']]}
-                  }, emqx_authz:init_rule(?RULE1)),
-    ?assertMatch(#{annotations := #{principal :=
-                                        #{ipaddress := {{127,0,0,1},{127,0,0,1},32}},
-                                   topics := [#{eq := ['#']},
-                                              #{eq := ['+']}],
-                                   id := _ID}
-                  }, emqx_authz:init_rule(?RULE2)),
-    ?assertMatch(#{annotations :=
-                    #{principal :=
+
+t_update_rule(_) ->
+    ok = emqx_authz:update(replace, [?RULE2]),
+    ok = emqx_authz:update(head, [?RULE1]),
+    ok = emqx_authz:update(tail, [?RULE3]),
+
+    Lists1 = emqx_authz:check_rules([?RULE1, ?RULE2, ?RULE3]),
+    ?assertMatch(Lists1, emqx_config:get([authorization, rules], [])),
+
+    [#{annotations := #{id := Id1,
+                        principal := all,
+                        topics := [['#']]}
+      },
+     #{annotations := #{id := Id2,
+                        principal := #{ipaddress := {{127,0,0,1},{127,0,0,1},32}},
+                        topics := [#{eq := ['#']}, #{eq := ['+']}]}
+      },
+     #{annotations := #{id := Id3,
+                        principal :=
                              #{'and' := [#{username := {re_pattern, _, _, _, _}},
                                          #{clientid := {re_pattern, _, _, _, _}}
                                         ]
                               },
-                      topics := [[<<"test">>]],
-                      id := _ID}
-                     }, emqx_authz:init_rule(?RULE3)),
-    ?assertMatch(#{annotations :=
-                    #{principal :=
-                             #{'or' := [#{username := {re_pattern, _, _, _, _}},
-                                        #{clientid := {re_pattern, _, _, _, _}}
-                                       ]
-                              },
-                      topics := [#{pattern := [<<"%u">>]},
-                                 #{pattern := [<<"%c">>]}
-                                ],
-                      id := _ID}
-                     }, emqx_authz:init_rule(?RULE4)),
+                        topics := [[<<"test">>]]}
+      }
+    ] = emqx_authz:lookup(),
+
+    ok = emqx_authz:update({replace_once, Id3}, ?RULE4),
+    Lists2 = emqx_authz:check_rules([?RULE1, ?RULE2, ?RULE4]),
+    ?assertMatch(Lists2, emqx_config:get([authorization, rules], [])),
+
+    [#{annotations := #{id := Id1,
+                        principal := all,
+                        topics := [['#']]}
+      },
+     #{annotations := #{id := Id2,
+                        principal := #{ipaddress := {{127,0,0,1},{127,0,0,1},32}},
+                        topics := [#{eq := ['#']},
+                                   #{eq := ['+']}]}
+      },
+     #{annotations := #{id := Id3,
+                        principal :=
+                              #{'or' := [#{username := {re_pattern, _, _, _, _}},
+                                         #{clientid := {re_pattern, _, _, _, _}}
+                                        ]
+                               },
+                        topics := [#{pattern := [<<"%u">>]},
+                                   #{pattern := [<<"%c">>]}
+                                  ]}
+      }
+    ] = emqx_authz:lookup(),
+
+    ok = emqx_authz:update(replace, []).
+
+t_move_rule(_) ->
+    ok = emqx_authz:update(replace, [?RULE1, ?RULE2, ?RULE3, ?RULE4]),
+    [#{annotations := #{id := Id1}},
+     #{annotations := #{id := Id2}},
+     #{annotations := #{id := Id3}},
+     #{annotations := #{id := Id4}}
+    ] = emqx_authz:lookup(),
+
+    ok = emqx_authz:move(Id4, <<"top">>),
+    ?assertMatch([#{annotations := #{id := Id4}},
+                  #{annotations := #{id := Id1}},
+                  #{annotations := #{id := Id2}},
+                  #{annotations := #{id := Id3}}
+                 ], emqx_authz:lookup()),
+
+    ok = emqx_authz:move(Id1, <<"bottom">>),
+    ?assertMatch([#{annotations := #{id := Id4}},
+                  #{annotations := #{id := Id2}},
+                  #{annotations := #{id := Id3}},
+                  #{annotations := #{id := Id1}}
+                 ], emqx_authz:lookup()),
+
+    ok = emqx_authz:move(Id3, #{<<"before">> => Id4}),
+    ?assertMatch([#{annotations := #{id := Id3}},
+                  #{annotations := #{id := Id4}},
+                  #{annotations := #{id := Id2}},
+                  #{annotations := #{id := Id1}}
+                 ], emqx_authz:lookup()),
+
+    ok = emqx_authz:move(Id2, #{<<"after">> => Id1}),
+    ?assertMatch([#{annotations := #{id := Id3}},
+                  #{annotations := #{id := Id4}},
+                  #{annotations := #{id := Id1}},
+                  #{annotations := #{id := Id2}}
+                 ], emqx_authz:lookup()),
     ok.
 
 t_authz(_) ->
@@ -132,10 +197,10 @@ t_authz(_) ->
                     listener => mqtt_tcp
                    },
 
-    Rules1 = [emqx_authz:init_rule(Rule) || Rule <- [?RULE1, ?RULE2]],
-    Rules2 = [emqx_authz:init_rule(Rule) || Rule <- [?RULE2, ?RULE1]],
-    Rules3 = [emqx_authz:init_rule(Rule) || Rule <- [?RULE3, ?RULE4]],
-    Rules4 = [emqx_authz:init_rule(Rule) || Rule <- [?RULE4, ?RULE1]],
+    Rules1 = [emqx_authz:init_rule(Rule) || Rule <- emqx_authz:check_rules([?RULE1, ?RULE2])],
+    Rules2 = [emqx_authz:init_rule(Rule) || Rule <- emqx_authz:check_rules([?RULE2, ?RULE1])],
+    Rules3 = [emqx_authz:init_rule(Rule) || Rule <- emqx_authz:check_rules([?RULE3, ?RULE4])],
+    Rules4 = [emqx_authz:init_rule(Rule) || Rule <- emqx_authz:check_rules([?RULE4, ?RULE1])],
 
     ?assertEqual({stop, deny},
         emqx_authz:authorize(ClientInfo1, subscribe, <<"#">>, deny, [])),

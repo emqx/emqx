@@ -161,9 +161,11 @@ fields("log") ->
     , {"console_handler", ref("console_handler")}
     , {"file_handlers", ref("file_handlers")}
     , {"time_offset", t(string(), undefined, "system")}
-    , {"chars_limit", maybe_infinity(range(1, inf))}
+    , {"chars_limit", #{type => hoconsc:union([unlimited, range(1, inf)]),
+                        default => unlimited
+                       }}
     , {"supervisor_reports", t(union([error, progress]), undefined, error)}
-    , {"max_depth", t(union([infinity, integer()]),
+    , {"max_depth", t(union([unlimited, integer()]),
                       "kernel.error_logger_format_depth", 80)}
     , {"formatter", t(union([text, json]), undefined, text)}
     , {"single_line", t(boolean(), undefined, true)}
@@ -188,7 +190,8 @@ fields("log_file_handler") ->
     [ {"level", t(log_level(), undefined, warning)}
     , {"file", t(file(), undefined, undefined)}
     , {"rotation", ref("log_rotation")}
-    , {"max_size", maybe_infinity(emqx_schema:bytesize(), "10MB")}
+    , {"max_size", #{type => union([infinity, emqx_schema:bytesize()]),
+                     default => "10MB"}}
     ];
 
 fields("log_rotation") ->
@@ -258,8 +261,8 @@ tr_logger_level(Conf) -> conf_get("log.primary_level", Conf).
 
 tr_logger(Conf) ->
     CharsLimit = case conf_get("log.chars_limit", Conf) of
-                     infinity -> unlimited;
-                     V -> V
+                     unlimited -> unlimited;
+                     V when V > 0 -> V
                  end,
     SingleLine = conf_get("log.single_line", Conf),
     FmtName = conf_get("log.formatter", Conf),
@@ -377,15 +380,6 @@ t(Type, Mapping, Default, OverrideEnv) ->
                      }).
 
 ref(Field) -> hoconsc:t(hoconsc:ref(Field)).
-
-maybe_infinity(T) ->
-    maybe_sth(infinity, T, infinity).
-
-maybe_infinity(T, Default) ->
-    maybe_sth(infinity, T, Default).
-
-maybe_sth(What, Type, Default) ->
-    t(union([What, Type]), undefined, Default).
 
 options(static, Conf) ->
     [{seeds, [to_atom(S) || S <- conf_get("cluster.static.seeds", Conf, [])]}];

@@ -16,7 +16,7 @@ jobs:
         - uses: gleam-lang/setup-erlang@v1.1.2
           id: install_erlang
           with:
-            otp-version: 23.2
+            otp-version: 24.0.5
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -59,8 +59,11 @@ jobs:
         - name: make paho tests
           run: |
             if ! docker exec -i python /scripts/pytest.sh; then
+              echo "DUMP_CONTAINER_LOGS_BGN"
+              docker logs haproxy
               docker logs node1.emqx.io
               docker logs node2.emqx.io
+              echo "DUMP_CONTAINER_LOGS_END"
               exit 1
             fi
 
@@ -72,7 +75,7 @@ jobs:
         - uses: gleam-lang/setup-erlang@v1.1.2
           id: install_erlang
           with:
-            otp-version: 23.2
+            otp-version: 24.0.5
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -183,8 +186,15 @@ jobs:
             exit $RESULT
 
     relup_test:
+        strategy:
+          matrix:
+            container:
+              - "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
+              - "emqx/build-env:erl24.0.5-emqx-1-ubuntu20.04"
+
         runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04
+        container: ${{ matrix.container }}
+
         defaults:
           run:
             shell: bash
@@ -295,4 +305,3 @@ jobs:
           with:
             name: lux_logs
             path: lux_logs
-
