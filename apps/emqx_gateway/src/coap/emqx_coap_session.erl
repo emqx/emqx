@@ -162,7 +162,7 @@ deliver(Delivers, Ctx, Session) ->
           end,
     lists:foldl(Fun,
                 #{out => [], session => Session},
-                Delivers).
+                lists:reverse(Delivers)).
 
 timeout(Timer, Ctx, Session) ->
     call_transport_manager(?FUNCTION_NAME, Timer, Ctx, [fun process_tm/3], Session).
@@ -189,8 +189,8 @@ call_transport_manager(Fun,
                                            Session),
         emqx_coap_channel:transfer_result(session, Session2, Result2)
     catch Type:Reason:Stack ->
-            ?ERROR("process transmission with, message:~p failed~n
-Type:~p,Reason:~p~n,StackTrace:~p~n", [Msg, Type, Reason, Stack]),
+            ?ERROR("process transmission with, message:~p failed~nType:~p,Reason:~p~n,StackTrace:~p~n",
+                   [Msg, Type, Reason, Stack]),
             ?REPLY({error, internal_server_error}, Msg)
     end.
 

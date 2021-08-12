@@ -108,10 +108,10 @@ The server manages the client through the ClientId. If the ClientId is wrong, EM
 1.  Create a Connection
 
     Method: POST
-    URI Schema: mqtt/{+topic}{?q\*}
+    URI Schema: mqtt/connection{?q\*}
     q\*:
 
-    -   clientId := client uid
+    -   clientid := client uid
     -   username
     -   password
 
@@ -126,10 +126,10 @@ The server manages the client through the ClientId. If the ClientId is wrong, EM
 2.  Close a Connection
 
     Method : DELETE
-    URI Schema: mqtt/{+topic}{?q\*}
+    URI Schema: mqtt/connection{?q\*}
     q\*:
 
-    -   clientId := client uid
+    -   clientid := client uid
     -   token
 
     Resonse:
@@ -143,12 +143,14 @@ The server manages the client through the ClientId. If the ClientId is wrong, EM
 
 ### Heartbeat
 
-The Coap client can maintain the "connection" with the server through the heartbeat (regardless of whether it is authenticated or not), so that the server will not release related resources
+The Coap client can maintain the "connection" with the server through the heartbeat,
+regardless of whether it is authenticated or not,
+so that the server will not release related resources
 Method : PUT
-URI Schema: mqtt/{+topic}{?q\*}
+URI Schema: mqtt/connection{?q\*}
 q\*:
 
--   clientId if authenticated
+-   clientid if authenticated
 -   token if authenticated
 
 Response:
@@ -166,7 +168,7 @@ CoAP gateway uses some options in query string to conversion between MQTT CoAP.
 
 1.  Shared Options <a id="orgc50043b"></a>
 
-    -   clientId
+    -   clientid
     -   token
 
 2.  Connect Options
@@ -188,9 +190,9 @@ CoAP gateway uses some options in query string to conversion between MQTT CoAP.
     </colgroup>
     <thead>
     <tr>
-    <th scope="col" class="org-left">option</th>
-    <th scope="col" class="org-left">value type</th>
-    <th scope="col" class="org-left">default</th>
+    <th scope="col" class="org-left">Option</th>
+    <th scope="col" class="org-left">Type</th>
+    <th scope="col" class="org-left">Default</th>
     </tr>
     </thead>
 
@@ -204,7 +206,7 @@ CoAP gateway uses some options in query string to conversion between MQTT CoAP.
 
     <tr>
     <td class="org-left">qos</td>
-    <td class="org-left">MQTT QOS</td>
+    <td class="org-left">MQTT Qos</td>
     <td class="org-left">See <a href="#org0345c3e">here</a></td>
     </tr>
 
@@ -231,16 +233,16 @@ CoAP gateway uses some options in query string to conversion between MQTT CoAP.
     </colgroup>
     <thead>
     <tr>
-    <th scope="col" class="org-left">option</th>
-    <th scope="col" class="org-left">value type</th>
-    <th scope="col" class="org-right">default</th>
+    <th scope="col" class="org-left">Option</th>
+    <th scope="col" class="org-left">Type</th>
+    <th scope="col" class="org-right">Default</th>
     </tr>
     </thead>
 
     <tbody>
     <tr>
     <td class="org-left">qos</td>
-    <td class="org-left">MQTT QOS</td>
+    <td class="org-left">MQTT Qos</td>
     <td class="org-right">See <a href="#org2325c7d">here</a></td>
     </tr>
 
@@ -260,7 +262,7 @@ CoAP gateway uses some options in query string to conversion between MQTT CoAP.
     </tbody>
     </table>
 
-5.  MQTT QOS <=> CoAP non/con
+5.  MQTT Qos <=> CoAP non/con
 
     1.notif_type
     Control the type of notify messages when the observed object has changed.Can be:
@@ -268,7 +270,7 @@ CoAP gateway uses some options in query string to conversion between MQTT CoAP.
     -   non
     -   con
     -   qos
-        in this value, MQTT QOS0 -> non, QOS1/QOS2 -> con
+        in this value, MQTT Qos0 -> non, Qos1/Qos2 -> con
 
     2.subscribe_qos <a id="org2325c7d"></a>
     Control the qos of subscribe.Can be:
@@ -300,7 +302,7 @@ CoAP gateway uses some options in query string to conversion between MQTT CoAP.
 
 2.  Session
 
-    Manager the "Transport Mnager" "Observe Resouces Manger" and next message id
+    Manager the "Transport Manager" "Observe Resouces Manger" and next message id
 
 3.  Transport Mnager
 
