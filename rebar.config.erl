@@ -399,10 +399,7 @@ is_debug(VarName) ->
     end.
 
 provide_bcrypt_dep() ->
-    case os:type() of
-        {win32, _} -> false;
-        _ -> true
-    end.
+    not is_win32().
 
 provide_bcrypt_release(ReleaseType) ->
     provide_bcrypt_dep() andalso ReleaseType =:= cloud.
