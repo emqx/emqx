@@ -127,7 +127,7 @@ spec:
     protocol: TCP
     targetPort: mqtt
     {{- if not (empty .Values.emqxConfig.EMQX_LISTENER__TCP__INTERNAL) }}
-  - name: mqtt
+  - name: internalmqtt
     port: {{ .Values.service.internalmqtt | default 11883 }}
     protocol: TCP
     targetPort: internalmqtt
