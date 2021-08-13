@@ -148,7 +148,7 @@ get_config(Key, #exec_ctx{config = Cfg}, Def) ->
     maps:get(Key, Cfg, Def).
 
 result_keys() ->
-    [out, reply, connection].
+    [out, connection].
 
 transfer_result(From, Value, Result) ->
     ?TRANSFER_RESULT(From, Value, Result).
@@ -289,9 +289,9 @@ handle_result(out, #{out := Out}, _, Channel) ->
 handle_result(_, _, _, Channel) ->
     {ok, Channel}.
 
-check_auth_state(Method, #channel{config = Cfg} = Channel) ->
+check_auth_state(Msg, #channel{config = Cfg} = Channel) ->
     #{authentication := #{enable := Enable}} = Cfg,
-    check_token(Enable, Method, Channel).
+    check_token(Enable, Msg, Channel).
 
 check_token(true,
             #coap_message{options = Options} = Msg,
