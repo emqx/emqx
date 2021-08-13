@@ -1,5 +1,6 @@
 apiVersion: v2
 name: emqx
+icon: https://github.com/emqx.png
 description: A Helm chart for EMQ X
 # A chart can be either an 'application' or a 'library' chart.
 #
