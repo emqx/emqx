@@ -51,9 +51,9 @@
 -define(CLIENTID, iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-",
                                     integer_to_list(erlang:system_time())])).
 
--define(CONF_DEFAULT, <<"""
+-define(CONF_DEFAULT, <<"
 gateway: {
-    mqttsn.1: {
+    mqttsn: {
         gateway_id: 1
         broadcast: true
         enable_stats: true
@@ -73,7 +73,7 @@ gateway: {
         }
     }
 }
-""">>).
+">>).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -89,35 +89,6 @@ init_per_suite(Config) ->
 
 end_per_suite(_) ->
     emqx_ct_helpers:stop_apps([emqx_gateway]).
-
-set_special_confs(emqx_gateway) ->
-    emqx_config:put(
-      [gateway],
-      #{ mqttsn =>
-         #{'1' =>
-            #{broadcast => true,
-              clientinfo_override =>
-                  #{password => "pw123",
-                    username => "user1"
-                   },
-              enable_qos3 => true,
-              enable_stats => true,
-              gateway_id => 1,
-              idle_timeout => 30000,
-              listener =>
-                  #{udp =>
-                        #{'1' =>
-                              #{acceptors => 8,active_n => 100,backlog => 1024,bind => 1884,
-                                high_watermark => 1048576,max_conn_rate => 1000,
-                                max_connections => 10240000,send_timeout => 15000,
-                                send_timeout_close => true}}},
-              predefined =>
-                  [#{id => ?PREDEF_TOPIC_ID1, topic => ?PREDEF_TOPIC_NAME1},
-                   #{id => ?PREDEF_TOPIC_ID2, topic => ?PREDEF_TOPIC_NAME2}]}}
-       });
-
-set_special_confs(_App) ->
-    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases

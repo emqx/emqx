@@ -32,16 +32,12 @@
 structs() -> ["gateway"].
 
 fields("gateway") ->
-    [{stomp, t(ref(stomp))},
-     {mqttsn, t(ref(mqttsn))},
-     {coap, t(ref(coap))},
-     {lwm2m, t(ref(lwm2m))},
-     {lwm2m_xml_dir, t(string())},
-     {exproto, t(ref(exproto))}
+    [{stomp, t(ref(stomp_structs))},
+     {mqttsn, t(ref(mqttsn_structs))},
+     {coap, t(ref(coap_structs))},
+     {lwm2m, t(ref(lwm2m_structs))},
+     {exproto, t(ref(exproto_structs))}
     ];
-
-fields(stomp) ->
-    [{"$id", t(ref(stomp_structs))}];
 
 fields(stomp_structs) ->
     [ {frame, t(ref(stomp_frame))}
@@ -55,9 +51,6 @@ fields(stomp_frame) ->
     , {max_headers_length, t(integer(), undefined, 1024)}
     , {max_body_length, t(integer(), undefined, 8192)}
     ];
-
-fields(mqttsn) ->
-    [{"$id", t(ref(mqttsn_structs))}];
 
 fields(mqttsn_structs) ->
     [ {gateway_id, t(integer())}
@@ -76,12 +69,9 @@ fields(mqttsn_predefined) ->
     , {topic, t(string())}
     ];
 
-fields(lwm2m) ->
-    [{"$id", t(ref(lwm2m_structs))}
-    ];
-
 fields(lwm2m_structs) ->
-    [ {lifetime_min, t(duration())}
+    [ {xml_dir, t(string())}
+    , {lifetime_min, t(duration())}
     , {lifetime_max, t(duration())}
     , {qmode_time_windonw, t(integer())}
     , {auto_observe, t(boolean())}
@@ -90,9 +80,6 @@ fields(lwm2m_structs) ->
     , {translators, t(ref(translators))}
     , {listener, t(ref(udp_listener_group))}
     ];
-
-fields(exproto) ->
-    [{"$id", t(ref(exproto_structs))}];
 
 fields(exproto_structs) ->
     [ {server, t(ref(exproto_grpc_server))}
