@@ -93,7 +93,7 @@ t_authenticator(_) ->
     ?assertMatch({ok, [#{name := AuthenticatorName1}, #{name := AuthenticatorName2}]}, ?AUTH:list_authenticators(?CHAIN)),
 
     ?assertEqual(ok, ?AUTH:move_authenticator(?CHAIN, ID2, {before, ID1})),
-    
+
     ?assertMatch({ok, [#{name := AuthenticatorName2}, #{name := AuthenticatorName1}]}, ?AUTH:list_authenticators(?CHAIN)),
 
     ?assertEqual({error, {not_found, {authenticator, <<"nonexistent">>}}}, ?AUTH:move_authenticator(?CHAIN, ID2, {before, <<"nonexistent">>})),
@@ -108,7 +108,7 @@ t_authenticate(_) ->
                    listener => mqtt_tcp,
                    username => <<"myuser">>,
 			       password => <<"mypass">>},
-    ?assertEqual(ok, emqx_access_control:authenticate(ClientInfo)),
+    ?assertEqual({ok, #{superuser => false}}, emqx_access_control:authenticate(ClientInfo)),
     ?assertEqual(false, emqx_authn:is_enabled()),
     emqx_authn:enable(),
     ?assertEqual(true, emqx_authn:is_enabled()),

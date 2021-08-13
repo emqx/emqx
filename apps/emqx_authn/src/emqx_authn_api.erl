@@ -528,6 +528,10 @@ users_api() ->
                                 },
                                 password => #{
                                     type => string
+                                },
+                                superuser => #{
+                                    type => boolean,
+                                    default => false
                                 }
                             }
                         }
@@ -541,10 +545,12 @@ users_api() ->
                         'application/json' => #{
                             schema => #{
                                 type => object,
-                                required => [user_id],
                                 properties => #{
                                     user_id => #{
                                         type => string
+                                    },
+                                    superuser => #{
+                                        type => boolean
                                     }
                                 }
                             }
@@ -576,10 +582,12 @@ users_api() ->
                                 type => array,
                                 items => #{
                                     type => object,
-                                    required => [user_id],
                                     properties => #{
                                         user_id => #{
                                             type => string
+                                        },
+                                        superuser => #{
+                                            type => boolean
                                         }
                                     }
                                 }
@@ -620,10 +628,12 @@ users2_api() ->
                     'application/json' => #{
                         schema => #{
                             type => object,
-                            required => [password],
                             properties => #{
                                 password => #{
                                     type => string
+                                },
+                                superuser => #{
+                                    type => boolean    
                                 }
                             }
                         }
@@ -642,6 +652,9 @@ users2_api() ->
                                     properties => #{
                                         user_id => #{
                                             type => string
+                                        },
+                                        superuser => #{
+                                            type => boolean
                                         }
                                     }
                                 }
@@ -685,6 +698,9 @@ users2_api() ->
                                     properties => #{
                                         user_id => #{
                                             type => string
+                                        },
+                                        superuser => #{
+                                            type => boolean
                                         }
                                     }
                                 }
@@ -1359,9 +1375,11 @@ users(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     case emqx_json:decode(Body, [return_maps]) of
         #{ <<"user_id">> := UserID
-         , <<"password">> := Password} ->
+         , <<"password">> := Password} = UserInfo ->
+            Superuser = maps:get(<<"superuser">>, UserInfo, false),
             case emqx_authn:add_user(?CHAIN, AuthenticatorID, #{ user_id => UserID
-                                                               , password => Password}) of
+                                                               , password => Password
+                                                               , superuser => Superuser}) of
                 {ok, User} ->
                     {201, User};
                 {error, Reason} ->
@@ -1385,16 +1403,18 @@ users2(patch, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     UserID = cowboy_req:binding(user_id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    case emqx_json:decode(Body, [return_maps]) of
-        #{<<"password">> := Password} ->
-            case emqx_authn:update_user(?CHAIN, AuthenticatorID, UserID, #{password => Password}) of
+    UserInfo = emqx_json:decode(Body, [return_maps]),
+    NUserInfo = maps:with([<<"password">>, <<"superuser">>], UserInfo),
+    case NUserInfo =:= #{} of
+        true ->
+            serialize_error({missing_parameter, password});
+        false ->
+            case emqx_authn:update_user(?CHAIN, AuthenticatorID, UserID, UserInfo) of
                 {ok, User} ->
                     {200, User};
                 {error, Reason} ->
                     serialize_error(Reason)
-            end;
-        _ ->
-            serialize_error({missing_parameter, password})
+            end
     end;
 users2(get, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),

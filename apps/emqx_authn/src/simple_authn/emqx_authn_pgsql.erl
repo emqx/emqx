@@ -18,6 +18,7 @@
 
 -include("emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("epgsql/include/epgsql.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
@@ -98,15 +99,20 @@ authenticate(#{password := Password} = Credential,
         case emqx_resource:query(Unique, {sql, Query, Params}) of
             {ok, _Columns, []} -> ignore;
             {ok, Columns, Rows} ->
-                %% TODO: Support superuser
-                Selected = maps:from_list(lists:zip(Columns, Rows)),
-                check_password(Password, Selected, State);
+                NColumns = [Name || #column{name = Name} <- Columns],
+                Selected = maps:from_list(lists:zip(NColumns, Rows)),
+                case check_password(Password, Selected, State) of
+                    ok ->
+                        {ok, #{superuser => maps:get(<<"superuser">>, Selected, false)}};
+                    {error, Reason} ->
+                        {error, Reason}
+                end;
             {error, _Reason} ->
                 ignore
         end
     catch
-        error:Reason ->
-            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [Unique, Reason]),
+        error:Error ->
+            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [Unique, Error]),
             ignore
     end.
 
@@ -121,17 +127,17 @@ destroy(#{'_unique' := Unique}) ->
 check_password(undefined, _Selected, _State) ->
     {error, bad_username_or_password};
 check_password(Password,
-               #{password_hash := Hash},
+               #{<<"password_hash">> := Hash},
                #{password_hash_algorithm := bcrypt}) ->
     case {ok, Hash} =:= bcrypt:hashpw(Password, Hash) of
         true -> ok;
         false -> {error, bad_username_or_password}
     end;
 check_password(Password,
-               #{password_hash := Hash} = Selected,
+               #{<<"password_hash">> := Hash} = Selected,
                #{password_hash_algorithm := Algorithm,
                  salt_position := SaltPosition}) ->
-    Salt = maps:get(salt, Selected, <<>>),
+    Salt = maps:get(<<"salt">>, Selected, <<>>),
     case Hash =:= emqx_authn_utils:hash(Algorithm, Password, Salt, SaltPosition) of
         true -> ok;
         false -> {error, bad_username_or_password}

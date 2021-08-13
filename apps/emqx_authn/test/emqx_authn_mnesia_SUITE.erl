@@ -50,33 +50,36 @@ t_mnesia_authenticator(_) ->
 
     UserInfo = #{user_id => <<"myuser">>,
                  password => <<"mypass">>},
-    ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:add_user(?CHAIN, ID, UserInfo)),
-    ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:lookup_user(?CHAIN, ID, <<"myuser">>)),
+    ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:add_user(?CHAIN, ID, UserInfo)),
+    ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:lookup_user(?CHAIN, ID, <<"myuser">>)),
 
     ClientInfo = #{zone => external,
                    username => <<"myuser">>,
 			       password => <<"mypass">>},
-    ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo, ok)),
+    ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
     ?AUTH:enable(),
-    ?assertEqual(ok, emqx_access_control:authenticate(ClientInfo)),
+    ?assertEqual({ok, #{superuser => false}}, emqx_access_control:authenticate(ClientInfo)),
 
     ClientInfo2 = ClientInfo#{username => <<"baduser">>},
-    ?assertEqual({stop, {error, not_authorized}}, ?AUTH:authenticate(ClientInfo2, ok)),
+    ?assertEqual({stop, {error, not_authorized}}, ?AUTH:authenticate(ClientInfo2, ignored)),
     ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo2)),
 
     ClientInfo3 = ClientInfo#{password => <<"badpass">>},
-    ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo3, ok)),
+    ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo3, ignored)),
     ?assertEqual({error, bad_username_or_password}, emqx_access_control:authenticate(ClientInfo3)),
 
     UserInfo2 = UserInfo#{password => <<"mypass2">>},
-    ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:update_user(?CHAIN, ID, <<"myuser">>, UserInfo2)),
+    ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:update_user(?CHAIN, ID, <<"myuser">>, UserInfo2)),
     ClientInfo4 = ClientInfo#{password => <<"mypass2">>},
-    ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo4, ok)),
+    ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo4, ignored)),
+
+    ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:update_user(?CHAIN, ID, <<"myuser">>, #{superuser => true})),
+    ?assertEqual({stop, {ok, #{superuser => true}}}, ?AUTH:authenticate(ClientInfo4, ignored)),
 
     ?assertEqual(ok, ?AUTH:delete_user(?CHAIN, ID, <<"myuser">>)),
     ?assertEqual({error, not_found}, ?AUTH:lookup_user(?CHAIN, ID, <<"myuser">>)),
 
-    ?assertEqual({ok, #{user_id => <<"myuser">>}}, ?AUTH:add_user(?CHAIN, ID, UserInfo)),
+    ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:add_user(?CHAIN, ID, UserInfo)),
     ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:lookup_user(?CHAIN, ID, <<"myuser">>)),
     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID)),
 
@@ -104,10 +107,16 @@ t_import(_) ->
 
     ClientInfo1 = #{username => <<"myuser1">>,
 			        password => <<"mypassword1">>},
-    ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo1, ok)),
-    ClientInfo2 = ClientInfo1#{username => <<"myuser3">>,
+    ?assertEqual({stop, {ok, #{superuser => true}}}, ?AUTH:authenticate(ClientInfo1, ignored)),
+
+    ClientInfo2 = ClientInfo1#{username => <<"myuser2">>,
+                               password => <<"mypassword2">>},
+    ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo2, ignored)),
+
+    ClientInfo3 = ClientInfo1#{username => <<"myuser3">>,
                                password => <<"mypassword3">>},
-    ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo2, ok)),
+    ?assertEqual({stop, {ok, #{superuser => true}}}, ?AUTH:authenticate(ClientInfo3, ignored)),
+
     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID)),
     ok.
 
@@ -131,11 +140,11 @@ t_multi_mnesia_authenticator(_) ->
     {ok, #{name := AuthenticatorName1, id := ID1}} = ?AUTH:create_authenticator(?CHAIN, AuthenticatorConfig1),
     {ok, #{name := AuthenticatorName2, id := ID2}} = ?AUTH:create_authenticator(?CHAIN, AuthenticatorConfig2),
 
-    ?assertEqual({ok, #{user_id => <<"myuser">>}},
+    ?assertMatch({ok, #{user_id := <<"myuser">>}},
                  ?AUTH:add_user(?CHAIN, ID1,
                                 #{user_id => <<"myuser">>,
                                   password => <<"mypass1">>})),
-    ?assertEqual({ok, #{user_id => <<"myclient">>}},
+    ?assertMatch({ok, #{user_id := <<"myclient">>}},
                  ?AUTH:add_user(?CHAIN, ID2,
                                 #{user_id => <<"myclient">>,
                                   password => <<"mypass2">>})),
@@ -143,12 +152,12 @@ t_multi_mnesia_authenticator(_) ->
     ClientInfo1 = #{username => <<"myuser">>,
                     clientid => <<"myclient">>,
 			        password => <<"mypass1">>},
-    ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo1, ok)),
+    ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo1, ignored)),
     ?assertEqual(ok, ?AUTH:move_authenticator(?CHAIN, ID2, top)),
 
-    ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo1, ok)),
+    ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo1, ignored)),
     ClientInfo2 = ClientInfo1#{password => <<"mypass2">>},
-    ?assertEqual({stop, ok}, ?AUTH:authenticate(ClientInfo2, ok)),
+    ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo2, ignored)),
 
     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID1)),
     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID2)),

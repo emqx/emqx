@@ -235,8 +235,9 @@ do_authenticate([{_, _, #authenticator{provider = Provider, state = State}} | Mo
         ignore ->
             do_authenticate(More, Credential);
         Result ->
-            %% ok
-            %% {ok, AuthData}
+            %% {ok, Extra}
+            %% {ok, Extra, AuthData}
+            %% {ok, MetaData}
             %% {continue, AuthCache}
             %% {continue, AuthData, AuthCache}
             %% {error, Reason}
