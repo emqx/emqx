@@ -65,7 +65,7 @@
         , update/3
         , remove/1
         , remove/2
-        , reset/1
+        , reset/2
         ]).
 
 -export([ get_raw/1
@@ -184,27 +184,31 @@ put(KeyPath, Config) -> do_put(?CONF, KeyPath, Config).
 
 -spec update(emqx_map_lib:config_key_path(), update_request()) ->
     ok | {error, term()}.
-update([RootName | _] = KeyPath, UpdateReq) ->
-    update(get_schema_mod(RootName), KeyPath, UpdateReq).
+update(KeyPath, UpdateReq) ->
+    update(KeyPath, UpdateReq, #{}).
 
--spec update(module(), emqx_map_lib:config_key_path(), update_request()) ->
-    ok | {error, term()}.
-update(SchemaMod, KeyPath, UpdateReq) ->
-    emqx_config_handler:update_config(SchemaMod, KeyPath, {update, UpdateReq}).
+-spec update(emqx_map_lib:config_key_path(), update_request(),
+        emqx_config_handler:update_opts()) -> ok | {error, term()}.
+update([RootName | _] = KeyPath, UpdateReq, Opts) ->
+    emqx_config_handler:update_config(get_schema_mod(RootName), KeyPath,
+        {{update, UpdateReq}, Opts}).
 
 -spec remove(emqx_map_lib:config_key_path()) -> ok | {error, term()}.
-remove([RootName | _] = KeyPath) ->
-    remove(get_schema_mod(RootName), KeyPath).
+remove(KeyPath) ->
+    remove(KeyPath, #{}).
 
-remove(SchemaMod, KeyPath) ->
-    emqx_config_handler:update_config(SchemaMod, KeyPath, remove).
+-spec remove(emqx_map_lib:config_key_path(), emqx_config_handler:update_opts()) ->
+    ok | {error, term()}.
+remove([RootName | _] = KeyPath, Opts) ->
+    emqx_config_handler:update_config(get_schema_mod(RootName), KeyPath, {remove, Opts}).
 
--spec reset(emqx_map_lib:config_key_path()) -> ok | {error, term()}.
-reset([RootName | _] = KeyPath) ->
+-spec reset(emqx_map_lib:config_key_path(), emqx_config_handler:update_opts()) ->
+    ok | {error, term()}.
+reset([RootName | _] = KeyPath, Opts) ->
     case get_default_value(KeyPath) of
         {ok, Default} ->
             emqx_config_handler:update_config(get_schema_mod(RootName), KeyPath,
-                {update, Default});
+                {{update, Default}, Opts});
         {error, _} = Error ->
             Error
     end.

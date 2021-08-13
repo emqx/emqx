@@ -61,10 +61,10 @@ lookup(Id) ->
     end.
 
 move(Id, Position) ->
-    emqx_config:update(emqx_authz_schema, ?CONF_KEY_PATH, {move, Id, Position}).
+    emqx_config:update(?CONF_KEY_PATH, {move, Id, Position}).
 
 update(Cmd, Rules) ->
-    emqx_config:update(emqx_authz_schema, ?CONF_KEY_PATH, {Cmd, Rules}).
+    emqx_config:update(?CONF_KEY_PATH, {Cmd, Rules}).
 
 pre_config_update({move, Id, <<"top">>}, Conf) when is_list(Conf) ->
     {Index, _} = find_rule_by_id(Id),
