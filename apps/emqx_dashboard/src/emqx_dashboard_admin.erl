@@ -40,9 +40,9 @@
         , check/2
         ]).
 
--export([ jwt_sign/2
-        , jwt_verify/1
-        , jwt_destroy_by_username/1
+-export([ sign_token/2
+        , verify_token/1
+        , destroy_token_by_username/1
         ]).
 
 -export([add_default_user/0]).
@@ -166,20 +166,20 @@ check(Username, Password) ->
     end.
 
 %%--------------------------------------------------------------------
-%% jwt
-jwt_sign(Username, Password) ->
+%% token
+sign_token(Username, Password) ->
     case check(Username, Password) of
         ok ->
-            emqx_dashboard_jwt:sign(Username, Password);
+            emqx_dashboard_token:sign(Username, Password);
         Error ->
             Error
     end.
 
-jwt_verify(Token) ->
-    emqx_dashboard_jwt:verify(Token).
+verify_token(Token) ->
+    emqx_dashboard_token:verify(Token).
 
-jwt_destroy_by_username(Username) ->
-    emqx_dashboard_jwt:destroy_by_username(Username).
+destroy_token_by_username(Username) ->
+    emqx_dashboard_token:destroy_by_username(Username).
 
 %%--------------------------------------------------------------------
 %% Internal functions

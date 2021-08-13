@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_dashboard_jwt).
+-module(emqx_dashboard_token).
 
 -include("emqx_dashboard.hrl").
 
@@ -148,7 +148,7 @@ jwk(Username, Password, Salt) ->
     }.
 
 jwt_expiration_time() ->
-    ExpTime = emqx_config:get([emqx_dashboard, jwt_exptime], ?EXPTIME),
+    ExpTime = emqx_config:get([emqx_dashboard, token_expired_time], ?EXPTIME),
     erlang:system_time(millisecond) + ExpTime.
 
 salt() ->

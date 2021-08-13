@@ -105,7 +105,7 @@ listener_name(Proto) ->
 authorize_appid(Req) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
         {bearer, Token} ->
-            case emqx_dashboard_admin:jwt_verify(Token) of
+            case emqx_dashboard_admin:verify_token(Token) of
                 ok ->
                     ok;
                 {error, token_timeout} ->

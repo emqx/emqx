@@ -220,7 +220,7 @@ login(post, Request) ->
     Params = emqx_json:decode(Body, [return_maps]),
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
-    case emqx_dashboard_admin:jwt_sign(Username, Password) of
+    case emqx_dashboard_admin:sign_token(Username, Password) of
         {ok, Token} ->
             Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
             {200, #{token => Token, version => Version, license => #{edition => ?RELEASE}}};
@@ -232,7 +232,7 @@ logout(_, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Params = emqx_json:decode(Body, [return_maps]),
     Username = maps:get(<<"username">>, Params),
-    emqx_dashboard_admin:jwt_destroy_by_username(Username),
+    emqx_dashboard_admin:destroy_token_by_username(Username),
     {200}.
 
 users(get, _Request) ->
