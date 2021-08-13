@@ -20,16 +20,13 @@
 -behavior(emqx_gateway_impl).
 
 %% APIs
--export([ load/0
-        , unload/0
+-export([ reg/0
+        , unreg/0
         ]).
 
--export([]).
-
--export([ init/1
-        , on_insta_create/3
-        , on_insta_update/4
-        , on_insta_destroy/3
+-export([ on_gateway_load/2
+        , on_gateway_update/3
+        , on_gateway_unload/2
         ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -38,24 +35,19 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-load() ->
+reg() ->
     RegistryOptions = [ {cbkmod, ?MODULE}
                       ],
-    emqx_gateway_registry:load(exproto, RegistryOptions, []).
+    emqx_gateway_registry:reg(exproto, RegistryOptions).
 
-unload() ->
-    emqx_gateway_registry:unload(exproto).
-
-init(_) ->
-    GwState = #{},
-    {ok, GwState}.
-
+unreg() ->
+    emqx_gateway_registry:unreg(exproto).
 
 %%--------------------------------------------------------------------
 %% emqx_gateway_registry callbacks
 %%--------------------------------------------------------------------
 
-start_grpc_server(InstaId, Options = #{bind := ListenOn}) ->
+start_grpc_server(GwType, Options = #{bind := ListenOn}) ->
     Services = #{protos => [emqx_exproto_pb],
                  services => #{
                    'emqx.exproto.v1.ConnectionAdapter' => emqx_exproto_gsvr}
@@ -65,10 +57,10 @@ start_grpc_server(InstaId, Options = #{bind := ListenOn}) ->
                   SslOpts ->
                       [{ssl_options, SslOpts}]
               end,
-    _ = grpc:start_server(InstaId, ListenOn, Services, SvrOptions),
-    ?ULOG("Start ~s gRPC server on ~p successfully.~n", [InstaId, ListenOn]).
+    _ = grpc:start_server(GwType, ListenOn, Services, SvrOptions),
+    ?ULOG("Start ~s gRPC server on ~p successfully.~n", [GwType, ListenOn]).
 
-start_grpc_client_channel(InstaId, Options = #{address := UriStr}) ->
+start_grpc_client_channel(GwType, Options = #{address := UriStr}) ->
     UriMap = uri_string:parse(UriStr),
     Scheme = maps:get(scheme, UriMap),
     Host = maps:get(host, UriMap),
@@ -85,79 +77,79 @@ start_grpc_client_channel(InstaId, Options = #{address := UriStr}) ->
                              transport_opts => SslOpts}};
                      _ -> #{}
                  end,
-    grpc_client_sup:create_channel_pool(InstaId, SvrAddr, ClientOpts).
+    grpc_client_sup:create_channel_pool(GwType, SvrAddr, ClientOpts).
 
-on_insta_create(_Insta = #{ id := InstaId,
-                            rawconf := RawConf
-                          }, Ctx, _GwState) ->
+on_gateway_load(_Gateway = #{ type := GwType,
+                              rawconf := RawConf
+                            }, Ctx) ->
     %% XXX: How to monitor it ?
     %% Start grpc client pool & client channel
-    PoolName = pool_name(InstaId),
+    PoolName = pool_name(GwType),
     PoolSize = emqx_vm:schedulers() * 2,
     {ok, _} = emqx_pool_sup:start_link(PoolName, hash, PoolSize,
                                        {emqx_exproto_gcli, start_link, []}),
-    _ = start_grpc_client_channel(InstaId, maps:get(handler, RawConf)),
+    _ = start_grpc_client_channel(GwType, maps:get(handler, RawConf)),
 
     %% XXX: How to monitor it ?
-    _ = start_grpc_server(InstaId, maps:get(server, RawConf)),
+    _ = start_grpc_server(GwType, maps:get(server, RawConf)),
 
     NRawConf = maps:without(
                  [server, handler],
                  RawConf#{pool_name => PoolName}
                 ),
     Listeners = emqx_gateway_utils:normalize_rawconf(
-                  NRawConf#{handler => InstaId}
+                  NRawConf#{handler => GwType}
                  ),
     ListenerPids = lists:map(fun(Lis) ->
-                     start_listener(InstaId, Ctx, Lis)
+                     start_listener(GwType, Ctx, Lis)
                    end, Listeners),
-    {ok, ListenerPids, _InstaState = #{ctx => Ctx}}.
+    {ok, ListenerPids, _GwState = #{ctx => Ctx}}.
 
-on_insta_update(NewInsta, OldInsta, GwInstaState = #{ctx := Ctx}, GwState) ->
-    InstaId = maps:get(id, NewInsta),
+on_gateway_update(NewGateway, OldGateway, GwState = #{ctx := Ctx}) ->
+    GwType = maps:get(type, NewGateway),
     try
         %% XXX: 1. How hot-upgrade the changes ???
         %% XXX: 2. Check the New confs first before destroy old instance ???
-        on_insta_destroy(OldInsta, GwInstaState, GwState),
-        on_insta_create(NewInsta, Ctx, GwState)
+        on_gateway_unload(OldGateway, GwState),
+        on_gateway_load(NewGateway, Ctx)
     catch
         Class : Reason : Stk ->
-            logger:error("Failed to update exproto instance ~s; "
+            logger:error("Failed to update ~s; "
                          "reason: {~0p, ~0p} stacktrace: ~0p",
-                         [InstaId, Class, Reason, Stk]),
+                         [GwType, Class, Reason, Stk]),
             {error, {Class, Reason}}
     end.
 
-on_insta_destroy(_Insta = #{ id := InstaId,
-                             rawconf := RawConf
-                           }, _GwInstaState, _GwState) ->
+on_gateway_unload(_Gateway = #{ type := GwType,
+                                rawconf := RawConf
+                              }, _GwState) ->
     Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
     lists:foreach(fun(Lis) ->
-        stop_listener(InstaId, Lis)
+        stop_listener(GwType, Lis)
     end, Listeners).
 
-pool_name(InstaId) ->
-    list_to_atom(lists:concat([InstaId, "_gcli_pool"])).
+pool_name(GwType) ->
+    list_to_atom(lists:concat([GwType, "_gcli_pool"])).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-start_listener(InstaId, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
+start_listener(GwType, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
-    case start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) of
+    case start_listener(GwType, Ctx, Type, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
-            ?ULOG("Start exproto ~s:~s listener on ~s successfully.~n",
-                      [InstaId, Type, ListenOnStr]),
+            ?ULOG("Start ~s:~s listener on ~s successfully.~n",
+                      [GwType, Type, ListenOnStr]),
             Pid;
         {error, Reason} ->
-            ?ELOG("Failed to start exproto ~s:~s listener on ~s: ~0p~n",
-                  [InstaId, Type, ListenOnStr, Reason]),
+            ?ELOG("Failed to start ~s:~s listener on ~s: ~0p~n",
+                  [GwType, Type, ListenOnStr, Reason]),
             throw({badconf, Reason})
     end.
 
-start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
-    Name = name(InstaId, Type),
+start_listener(GwType, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
+    Name = name(GwType, Type),
     NCfg = Cfg#{
              ctx => Ctx,
              frame_mod => emqx_exproto_frame,
@@ -176,8 +168,8 @@ do_start_listener(udp, Name, ListenOn, Opts, MFA) ->
 do_start_listener(dtls, Name, ListenOn, Opts, MFA) ->
     esockd:open_dtls(Name, ListenOn, Opts, MFA).
 
-name(InstaId, Type) ->
-    list_to_atom(lists:concat([InstaId, ":", Type])).
+name(GwType, Type) ->
+    list_to_atom(lists:concat([GwType, ":", Type])).
 
 merge_default_by_type(Type, Options) when Type =:= tcp;
                                           Type =:= ssl ->
@@ -200,18 +192,18 @@ merge_default_by_type(Type, Options) when Type =:= udp;
             [{udp_options, Default} | Options]
     end.
 
-stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
-    StopRet = stop_listener(InstaId, Type, ListenOn, SocketOpts, Cfg),
+stop_listener(GwType, {Type, ListenOn, SocketOpts, Cfg}) ->
+    StopRet = stop_listener(GwType, Type, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
-        ok -> ?ULOG("Stop exproto ~s:~s listener on ~s successfully.~n",
-                    [InstaId, Type, ListenOnStr]);
+        ok -> ?ULOG("Stop ~s:~s listener on ~s successfully.~n",
+                    [GwType, Type, ListenOnStr]);
         {error, Reason} ->
-            ?ELOG("Failed to stop exproto ~s:~s listener on ~s: ~0p~n",
-                  [InstaId, Type, ListenOnStr, Reason])
+            ?ELOG("Failed to stop ~s:~s listener on ~s: ~0p~n",
+                  [GwType, Type, ListenOnStr, Reason])
     end,
     StopRet.
 
-stop_listener(InstaId, Type, ListenOn, _SocketOpts, _Cfg) ->
-    Name = name(InstaId, Type),
+stop_listener(GwType, Type, ListenOn, _SocketOpts, _Cfg) ->
+    Name = name(GwType, Type),
     esockd:close(Name, ListenOn).

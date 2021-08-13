@@ -67,18 +67,17 @@ set_special_cfg(emqx_gateway) ->
     LisType = get(grpname),
     emqx_config:put(
       [gateway, exproto],
-      #{'1' =>
-        #{authenticator => allow_anonymous,
-          server => #{bind => 9100},
-          handler => #{address => "http://127.0.0.1:9001"},
-          listener => listener_confs(LisType)
-         }});
+      #{authenticator => allow_anonymous,
+        server => #{bind => 9100},
+        handler => #{address => "http://127.0.0.1:9001"},
+        listener => listener_confs(LisType)
+       });
 set_special_cfg(_App) ->
     ok.
 
 listener_confs(Type) ->
     Default = #{bind => 7993, acceptors => 8},
-    #{Type => #{'1' => maps:merge(Default, maps:from_list(socketopts(Type)))}}.
+    #{Type => maps:merge(Default, maps:from_list(socketopts(Type)))}.
 
 %%--------------------------------------------------------------------
 %% Tests cases

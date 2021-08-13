@@ -20,8 +20,8 @@
 
 %% APIs
 -export([ registered_gateway/0
-        , create/4
-        , remove/1
+        , load/2
+        , unload/1
         , lookup/1
         , update/1
         , start/1
@@ -37,48 +37,40 @@ registered_gateway() ->
 %%--------------------------------------------------------------------
 %% Gateway Instace APIs
 
--spec list() -> [instance()].
+-spec list() -> [gateway()].
 list() ->
-    lists:append(lists:map(
-      fun({_, Insta}) -> Insta end,
-      emqx_gateway_sup:list_gateway_insta()
-     )).
+    emqx_gateway_sup:list_gateway_insta().
 
--spec create(gateway_type(), binary(), binary(), map())
+-spec load(gateway_type(), map())
     -> {ok, pid()}
      | {error, any()}.
-create(Type, Name, Descr, RawConf) ->
-    Insta = #{ id => clacu_insta_id(Type, Name)
-             , type => Type
-             , name => Name
-             , descr => Descr
-             , rawconf => RawConf
-             },
-    emqx_gateway_sup:create_gateway_insta(Insta).
+load(GwType, RawConf) ->
+    Gateway = #{ type => GwType
+               , descr => undefined
+               , rawconf => RawConf
+               },
+    emqx_gateway_sup:load_gateway(Gateway).
 
--spec remove(instance_id()) -> ok | {error, any()}.
-remove(InstaId) ->
-    emqx_gateway_sup:remove_gateway_insta(InstaId).
+-spec unload(gateway_type()) -> ok | {error, any()}.
+unload(GwType) ->
+    emqx_gateway_sup:unload_gateway(GwType).
 
--spec lookup(instance_id()) -> instance() | undefined.
-lookup(InstaId) ->
-    emqx_gateway_sup:lookup_gateway_insta(InstaId).
+-spec lookup(gateway_type()) -> gateway() | undefined.
+lookup(GwType) ->
+    emqx_gateway_sup:lookup_gateway(GwType).
 
--spec update(instance()) -> ok | {error, any()}.
-update(NewInsta) ->
-    emqx_gateway_sup:update_gateway_insta(NewInsta).
+-spec update(gateway()) -> ok | {error, any()}.
+update(NewGateway) ->
+    emqx_gateway_sup:update_gateway(NewGateway).
 
--spec start(instance_id()) -> ok | {error, any()}.
-start(InstaId) ->
-    emqx_gateway_sup:start_gateway_insta(InstaId).
+-spec start(gateway_type()) -> ok | {error, any()}.
+start(GwType) ->
+    emqx_gateway_sup:start_gateway_insta(GwType).
 
--spec stop(instance_id()) -> ok | {error, any()}.
-stop(InstaId) ->
-    emqx_gateway_sup:stop_gateway_insta(InstaId).
+-spec stop(gateway_type()) -> ok | {error, any()}.
+stop(GwType) ->
+    emqx_gateway_sup:stop_gateway_insta(GwType).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
-
-clacu_insta_id(Type, Name) when is_binary(Name) ->
-    list_to_atom(lists:concat([Type, "#", binary_to_list(Name)])).

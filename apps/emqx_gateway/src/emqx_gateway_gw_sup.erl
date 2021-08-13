@@ -15,6 +15,10 @@
 %%--------------------------------------------------------------------
 
 %% @doc The Gateway Top supervisor.
+%%
+%%  This supervisor has monitor a bunch of process/resources depended by
+%%  gateway runtime
+%%
 -module(emqx_gateway_gw_sup).
 
 -behaviour(supervisor).
@@ -41,64 +45,62 @@
 start_link(Type) ->
     supervisor:start_link({local, Type}, ?MODULE, [Type]).
 
--spec create_insta(pid(), instance(), map()) -> {ok, GwInstaPid :: pid()} | {error, any()}.
-create_insta(Sup, Insta = #{id := InstaId}, GwDscrptr) ->
-    case emqx_gateway_utils:find_sup_child(Sup, InstaId) of
+-spec create_insta(pid(), gateway(), map()) -> {ok, GwInstaPid :: pid()} | {error, any()}.
+create_insta(Sup, Gateway = #{type := GwType}, GwDscrptr) ->
+    case emqx_gateway_utils:find_sup_child(Sup, GwType) of
         {ok, _GwInstaPid} -> {error, alredy_existed};
         false ->
-            %% XXX: More instances options to it?
-            %%
-            Ctx = ctx(Sup, InstaId),
+            Ctx = ctx(Sup, GwType),
             %%
             ChildSpec = emqx_gateway_utils:childspec(
-                          InstaId,
+                          GwType,
                           worker,
                           emqx_gateway_insta_sup,
-                          [Insta, Ctx, GwDscrptr]
+                          [Gateway, Ctx, GwDscrptr]
                          ),
             emqx_gateway_utils:supervisor_ret(
               supervisor:start_child(Sup, ChildSpec)
              )
     end.
 
--spec remove_insta(pid(), InstaId :: atom()) -> ok | {error, any()}.
-remove_insta(Sup, InstaId) ->
-    case emqx_gateway_utils:find_sup_child(Sup, InstaId) of
+-spec remove_insta(pid(), GwType :: gateway_type()) -> ok | {error, any()}.
+remove_insta(Sup, GwType) ->
+    case emqx_gateway_utils:find_sup_child(Sup, GwType) of
         false -> ok;
         {ok, _GwInstaPid} ->
-            ok = supervisor:terminate_child(Sup, InstaId),
-            ok = supervisor:delete_child(Sup, InstaId)
+            ok = supervisor:terminate_child(Sup, GwType),
+            ok = supervisor:delete_child(Sup, GwType)
     end.
 
--spec update_insta(pid(), NewInsta :: instance()) -> ok | {error, any()}.
-update_insta(Sup, NewInsta = #{id := InstaId}) ->
-    case emqx_gateway_utils:find_sup_child(Sup, InstaId) of
+-spec update_insta(pid(), NewGateway :: gateway()) -> ok | {error, any()}.
+update_insta(Sup, NewGateway = #{type := GwType}) ->
+    case emqx_gateway_utils:find_sup_child(Sup, GwType) of
         false -> {error, not_found};
         {ok, GwInstaPid} ->
-            emqx_gateway_insta_sup:update(GwInstaPid, NewInsta)
+            emqx_gateway_insta_sup:update(GwInstaPid, NewGateway)
     end.
 
--spec start_insta(pid(), atom()) -> ok | {error, any()}.
-start_insta(Sup, InstaId) ->
-    case emqx_gateway_utils:find_sup_child(Sup, InstaId) of
+-spec start_insta(pid(), gateway_type()) -> ok | {error, any()}.
+start_insta(Sup, GwType) ->
+    case emqx_gateway_utils:find_sup_child(Sup, GwType) of
         false -> {error, not_found};
         {ok, GwInstaPid} ->
             emqx_gateway_insta_sup:enable(GwInstaPid)
     end.
 
--spec stop_insta(pid(), atom()) -> ok | {error, any()}.
-stop_insta(Sup, InstaId) ->
-    case emqx_gateway_utils:find_sup_child(Sup, InstaId) of
+-spec stop_insta(pid(), gateway_type()) -> ok | {error, any()}.
+stop_insta(Sup, GwType) ->
+    case emqx_gateway_utils:find_sup_child(Sup, GwType) of
         false -> {error, not_found};
         {ok, GwInstaPid} ->
             emqx_gateway_insta_sup:disable(GwInstaPid)
     end.
 
--spec list_insta(pid()) -> [instance()].
+-spec list_insta(pid()) -> [gateway()].
 list_insta(Sup) ->
     lists:filtermap(
-      fun({InstaId, GwInstaPid, _Type, _Mods}) ->
-        is_gateway_insta_id(InstaId)
+      fun({GwType, GwInstaPid, _Type, _Mods}) ->
+        is_gateway_insta_id(GwType)
           andalso {true, emqx_gateway_insta_sup:info(GwInstaPid)}
       end, supervisor:which_children(Sup)).
 
@@ -119,10 +121,10 @@ init([Type]) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-ctx(Sup, InstaId) ->
+ctx(Sup, GwType) ->
     {_, Type} = erlang:process_info(Sup, registered_name),
     {ok, CM}  = emqx_gateway_utils:find_sup_child(Sup, emqx_gateway_cm),
-    #{ instid => InstaId
+    #{ instid => GwType
      , type => Type
      , cm => CM
      }.

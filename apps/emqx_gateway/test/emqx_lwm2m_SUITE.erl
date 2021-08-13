@@ -30,8 +30,8 @@
 
 -define(CONF_DEFAULT, <<"
 gateway: {
-    lwm2m_xml_dir: \"../../lib/emqx_gateway/src/lwm2m/lwm2m_xml\"
-    lwm2m.1: {
+    lwm2m: {
+        xml_dir: \"../../lib/emqx_gateway/src/lwm2m/lwm2m_xml\"
         lifetime_min: 1s
         lifetime_max: 86400s
         qmode_time_windonw: 22

@@ -23,7 +23,7 @@
 
 -define(CONF_DEFAULT, <<"""
 gateway: {
-    stomp.1 {}
+    stomp {}
 }
 """>>).
 
