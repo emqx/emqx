@@ -27,8 +27,8 @@
         ]).
 
 start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqx_authn_sup:start_link(),
     ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
+    {ok, Sup} = emqx_authn_sup:start_link(),
     initialize(),
     {ok, Sup}.
 
