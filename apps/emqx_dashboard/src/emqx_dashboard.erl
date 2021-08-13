@@ -57,7 +57,8 @@ start_listener({Proto, Port, Options}) ->
                     name => "authorization",
                     in => header}}}},
     Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
-                {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}}],
+                {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
+                {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}],
     Minirest = #{
         protocol => Proto,
         base_path => ?BASE_PATH,
