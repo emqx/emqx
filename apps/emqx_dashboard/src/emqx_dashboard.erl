@@ -104,20 +104,27 @@ listener_name(Proto) ->
 
 authorize_appid(Req) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
-        {basic, Username, Password} ->
-            case emqx_dashboard_admin:check(iolist_to_binary(Username),
-                                            iolist_to_binary(Password)) of
+        {bearer, Token} ->
+            case emqx_dashboard_admin:verify_token(Token) of
                 ok ->
                     ok;
-                {error, _} ->
+                {error, token_timeout} ->
                     {401, #{<<"WWW-Authenticate">> =>
-                              <<"Basic Realm=\"minirest-server\"">>},
-                            <<"UNAUTHORIZED">>}
+                            <<"Bearer Realm=\"minirest-server\"">>},
+                        #{code => <<"TOKEN_TIME_OUT">>,
+                          message => <<"POST '/login', get your new token">>}
+                    };
+                {error, not_found} ->
+                    {401, #{<<"WWW-Authenticate">> =>
+                        <<"Bearer Realm=\"minirest-server\"">>},
+                        #{code => <<"BAD_TOKEN">>,
+                          message => <<"POST '/login'">>}}
             end;
         _ ->
             {401, #{<<"WWW-Authenticate">> =>
-                      <<"Basic Realm=\"minirest-server\"">>},
-                    <<"UNAUTHORIZED">>}
+                    <<"Bearer Realm=\"minirest-server\"">>},
+                  #{code => <<"UNAUTHORIZED">>,
+                    message => <<"POST '/login'">>}}
     end.
 
 format(Port) when is_integer(Port) ->
