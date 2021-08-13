@@ -123,12 +123,14 @@ call(ConnStr, Req) ->
             {error, ?RESP_PARAMS_TYPE_ERROR,
                     <<"The conn type error">>};
         Pid when is_pid(Pid) ->
-            case erlang:is_process_alive(Pid) of
-                true ->
-                    emqx_exproto_conn:call(Pid, Req);
-                false ->
+            case catch emqx_exproto_conn:call(Pid, Req) of
+                {'EXIT',{noproc, _}} ->
                     {error, ?RESP_CONN_PROCESS_NOT_ALIVE,
-                            <<"Connection process is not alive">>}
+                            <<"Connection process is not alive">>};
+                {'EXIT',{timeout, _}} ->
+                    {error, ?RESP_UNKNOWN, <<"Connection is not answered">>};
+                Result ->
+                    Result
             end
     end.
 
