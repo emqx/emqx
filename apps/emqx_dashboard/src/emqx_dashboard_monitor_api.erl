@@ -139,7 +139,8 @@ counter_schema() ->
             type => object,
             properties => #{
                 timestamp => #{
-                    type => integer},
+                    type => integer,
+                    description => <<"Millisecond">>},
                 count => #{
                     type => integer}}}}.
 %%%==============================================================================================
@@ -298,7 +299,7 @@ format([#mqtt_collect{timestamp = Ts, collect = {C, R, S, Re, S1, D}} | Collects
                       [[Ts, S1] | Sent],
                       [[Ts, D]  | Dropped]}).
 add_key(Collects) ->
-    lists:reverse([#{timestamp => Ts, count => C} || [Ts, C] <- Collects]).
+    lists:reverse([#{timestamp => Ts * 1000, count => C} || [Ts, C] <- Collects]).
 
 format_single(Collects, Counter) ->
     #{Counter => format_single(Collects, counter_index(Counter), [])}.
@@ -306,7 +307,7 @@ format_single([], _Index, Acc) ->
     lists:reverse(Acc);
 format_single([#mqtt_collect{timestamp = Ts, collect = Collect} | Collects], Index, Acc) ->
     format_single(Collects, Index,
-        [#{timestamp => Ts, count => erlang:element(Index, Collect)} | Acc]).
+        [#{timestamp => Ts * 1000, count => erlang:element(Index, Collect)} | Acc]).
 
 counter_index(connection)    -> 1;
 counter_index(route)         -> 2;
