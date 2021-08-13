@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc The gateway instance management
+%% @doc The gateway runtime
 -module(emqx_gateway_insta_sup).
 
 -behaviour(gen_server).
@@ -40,42 +40,42 @@
         ]).
 
 -record(state, {
-          insta  :: instance(),
+          gw     :: gateway(),
           ctx    :: emqx_gateway_ctx:context(),
           status :: stopped | running,
           child_pids :: [pid()],
-          insta_state :: emqx_gateway_impl:state() | undefined
+          gw_state :: emqx_gateway_impl:state() | undefined
          }).
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
-start_link(Insta, Ctx, GwDscrptr) ->
+start_link(Gateway, Ctx, GwDscrptr) ->
     gen_server:start_link(
       ?MODULE,
-      [Insta, Ctx, GwDscrptr],
+      [Gateway, Ctx, GwDscrptr],
       []
      ).
 
--spec info(pid()) -> instance().
+-spec info(pid()) -> gateway().
 info(Pid) ->
     gen_server:call(Pid, info).
 
-%% @doc Stop instance
+%% @doc Stop gateway
 -spec disable(pid()) -> ok | {error, any()}.
 disable(Pid) ->
     call(Pid, disable).
 
-%% @doc Start instance
+%% @doc Start gateway 
 -spec enable(pid()) -> ok | {error, any()}.
 enable(Pid) ->
     call(Pid, enable).
 
-%% @doc Update the gateway instance configurations
--spec update(pid(), instance()) -> ok | {error, any()}.
-update(Pid, NewInsta) ->
-    call(Pid, {update, NewInsta}).
+%% @doc Update the gateway configurations
+-spec update(pid(), gateway()) -> ok | {error, any()}.
+update(Pid, NewGateway) ->
+    call(Pid, {update, NewGateway}).
 
 call(Pid, Req) ->
     gen_server:call(Pid, Req, 5000).
@@ -84,30 +84,29 @@ call(Pid, Req) ->
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Insta, Ctx0, _GwDscrptr]) ->
+init([Gateway, Ctx0, _GwDscrptr]) ->
     process_flag(trap_exit, true),
-    #{id := InstaId, rawconf := RawConf} = Insta,
-    Ctx   = do_init_context(InstaId, RawConf, Ctx0),
+    #{type := GwType, rawconf := RawConf} = Gateway,
+    Ctx   = do_init_context(GwType, RawConf, Ctx0),
     State = #state{
-               insta = Insta,
+               gw = Gateway,
                ctx   = Ctx,
                child_pids = [],
                status = stopped
               },
-    case cb_insta_create(State) of
-        {error, _Reason} ->
+    case cb_gateway_load(State) of
+        {error, Reason} ->
             do_deinit_context(Ctx),
-            %% XXX: Return Reason??
-            {stop, create_gateway_instance_failed};
+            {stop, {load_gateway_failure, Reason}};
         {ok, NState} ->
             {ok, NState}
     end.
 
-do_init_context(InstaId, RawConf, Ctx) ->
+do_init_context(GwType, RawConf, Ctx) ->
     Auth = case maps:get(authentication, RawConf, #{enable => false}) of
                #{enable := true,
                  authenticators := AuthCfgs} when is_list(AuthCfgs) ->
-                   create_authenticators_for_gateway_insta(InstaId, AuthCfgs);
+                   create_authenticators_for_gateway_insta(GwType, AuthCfgs);
                _ ->
                    undefined
            end,
@@ -117,13 +116,13 @@ do_deinit_context(Ctx) ->
     cleanup_authenticators_for_gateway_insta(maps:get(auth, Ctx)),
     ok.
 
-handle_call(info, _From, State = #state{insta = Insta}) ->
-    {reply, Insta, State};
+handle_call(info, _From, State = #state{gw = Gateway}) ->
+    {reply, Gateway, State};
 
 handle_call(disable, _From, State = #state{status = Status}) ->
     case Status of
         running ->
-            case cb_insta_destroy(State) of
+            case cb_gateway_unload(State) of
                 {ok, NState} ->
                     {reply, ok, NState};
                 {error, Reason} ->
@@ -136,7 +135,7 @@ handle_call(disable, _From, State = #state{status = Status}) ->
 handle_call(enable, _From, State = #state{status = Status}) ->
     case Status of
         stopped ->
-            case cb_insta_create(State) of
+            case cb_gateway_load(State) of
                 {error, Reason} ->
                     {reply, {error, Reason}, State};
                 {ok, NState} ->
@@ -147,28 +146,30 @@ handle_call(enable, _From, State = #state{status = Status}) ->
     end;
 
 %% Stopped -> update
-handle_call({update, NewInsta}, _From, State = #state{insta = Insta,
+handle_call({update, NewGateway}, _From, State = #state{gw = Gateway,
                                                       status = stopped}) ->
-    case maps:get(id, NewInsta, undefined) == maps:get(id, Insta, undefined) of
+    case maps:get(type, NewGateway, undefined)
+         == maps:get(type, Gateway, undefined) of
         true ->
-            {reply, ok, State#state{insta = NewInsta}};
+            {reply, ok, State#state{gw = NewGateway}};
         false ->
-            {reply, {error, bad_instan_id}, State}
+            {reply, {error, gateway_type_not_match}, State}
     end;
 
 %% Running -> update
-handle_call({update, NewInsta}, _From, State = #state{insta = Insta,
+handle_call({update, NewGateway}, _From, State = #state{gw = Gateway,
                                                       status = running}) ->
-    case maps:get(id, NewInsta, undefined) == maps:get(id, Insta, undefined) of
+    case maps:get(type, NewGateway, undefined)
+         == maps:get(type, Gateway, undefined) of
         true ->
-            case cb_insta_update(NewInsta, State) of
+            case cb_gateway_update(NewGateway, State) of
                 {ok, NState} ->
                     {reply, ok, NState};
                 {error, Reason} ->
                     {reply, {error, Reason}, State}
             end;
         false ->
-            {reply, {error, bad_instan_id}, State}
+            {reply, {error, gateway_type_not_match}, State}
     end;
 
 handle_call(_Request, _From, State) ->
@@ -187,7 +188,7 @@ handle_info({'EXIT', Pid, Reason}, State = #state{child_pids = Pids}) ->
                     logger:error("All child process exited!"),
                     {noreply, State#state{status = stopped,
                                           child_pids = [],
-                                          insta_state = undefined}};
+                                          gw_state = undefined}};
                 RemainPids ->
                     {noreply, State#state{child_pids = RemainPids}}
             end;
@@ -201,10 +202,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, State = #state{ctx = Ctx, child_pids = Pids}) ->
-    %% Cleanup instances
-    %% Step1. Destory instance
-    Pids /= [] andalso (_ = cb_insta_destroy(State)),
-    %% Step2. Delete authenticator resources
+    Pids /= [] andalso (_ = cb_gateway_unload(State)),
     _ = do_deinit_context(Ctx),
     ok.
 
@@ -217,8 +215,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% @doc AuthCfgs is a array of authenticatior configurations,
 %% see: emqx_authn_schema:authenticators/1
-create_authenticators_for_gateway_insta(InstaId0, AuthCfgs) ->
-    ChainId = atom_to_binary(InstaId0, utf8),
+create_authenticators_for_gateway_insta(GwType, AuthCfgs) ->
+    ChainId = atom_to_binary(GwType, utf8),
     case emqx_authn:create_chain(#{id => ChainId}) of
         {ok, _ChainInfo} ->
             Results = lists:map(fun(AuthCfg = #{name := Name}) ->
@@ -245,88 +243,85 @@ cleanup_authenticators_for_gateway_insta(ChainId) ->
     case emqx_authn:delete_chain(ChainId) of
         ok -> ok;
         {error, {not_found, _}} ->
-            logger:warning("Failed clean authenticator chain: ~s, "
+            logger:warning("Failed to clean authenticator chain: ~s, "
                            "reason: not_found", [ChainId]);
         {error, Reason} ->
-            logger:error("Failed clean authenticator chain: ~s, "
+            logger:error("Failed to clean authenticator chain: ~s, "
                          "reason: ~p", [ChainId, Reason])
     end.
 
-cb_insta_destroy(State = #state{insta = Insta = #{type := Type},
-                                insta_state = InstaState}) ->
+cb_gateway_unload(State = #state{gw = Gateway = #{type := GwType},
+                                 gw_state = GwState}) ->
     try
-        #{cbkmod := CbMod,
-          state := GwState} = emqx_gateway_registry:lookup(Type),
-        CbMod:on_insta_destroy(Insta, InstaState, GwState),
+        #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwType),
+        CbMod:on_gateway_unload(Gateway, GwState, GwState),
         {ok, State#state{child_pids = [],
-                         insta_state = undefined,
+                         gw_state = undefined,
                          status = stopped}}
     catch
         Class : Reason : Stk ->
-            logger:error("Destroy instance (~0p, ~0p, _) crashed: "
+            logger:error("Failed to unload gateway (~0p, ~0p) crashed: "
                          "{~p, ~p}, stacktrace: ~0p",
-                         [Insta, InstaState,
+                         [Gateway, GwState,
                           Class, Reason, Stk]),
             {error, {Class, Reason, Stk}}
     end.
 
-cb_insta_create(State = #state{insta = Insta = #{type := Type},
-                               ctx   = Ctx}) ->
+cb_gateway_load(State = #state{gw = Gateway = #{type := GwType},
+                               ctx = Ctx}) ->
     try
-        #{cbkmod := CbMod,
-          state := GwState} = emqx_gateway_registry:lookup(Type),
-        case CbMod:on_insta_create(Insta, Ctx, GwState) of
+        #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwType),
+        case CbMod:on_gateway_load(Gateway, Ctx) of
             {error, Reason} -> throw({callback_return_error, Reason});
-            {ok, InstaPidOrSpecs, InstaState} ->
-                ChildPids = start_child_process(InstaPidOrSpecs),
+            {ok, ChildPidOrSpecs, GwState} ->
+                ChildPids = start_child_process(ChildPidOrSpecs),
                 {ok, State#state{
                        status = running,
                        child_pids = ChildPids,
-                       insta_state = InstaState
+                       gw_state = GwState
                       }}
         end
     catch
         Class : Reason1 : Stk ->
-            logger:error("Create instance (~0p, ~0p, _) crashed: "
+            logger:error("Failed to load ~s gateway (~0p, ~0p) crashed: "
                          "{~p, ~p}, stacktrace: ~0p",
-                         [Insta, Ctx,
+                         [GwType, Gateway, Ctx,
                           Class, Reason1, Stk]),
             {error, {Class, Reason1, Stk}}
     end.
 
-cb_insta_update(NewInsta,
-                State = #state{insta = Insta = #{type := Type},
-                               ctx   = Ctx,
-                               insta_state = GwInstaState}) ->
+cb_gateway_update(NewGateway,
+                State = #state{gw = Gateway = #{type := GwType},
+                               ctx = Ctx,
+                               gw_state = GwState}) ->
     try
-        #{cbkmod := CbMod,
-          state := GwState} = emqx_gateway_registry:lookup(Type),
-        case CbMod:on_insta_update(NewInsta, Insta, GwInstaState, GwState) of
+        #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwType),
+        case CbMod:on_gateway_update(NewGateway, Gateway, GwState) of
             {error, Reason} -> throw({callback_return_error, Reason});
-            {ok, InstaPidOrSpecs, InstaState} ->
+            {ok, ChildPidOrSpecs, NGwState} ->
                 %% XXX: Hot-upgrade ???
-                ChildPids = start_child_process(InstaPidOrSpecs),
+                ChildPids = start_child_process(ChildPidOrSpecs),
                 {ok, State#state{
                        status = running,
                        child_pids = ChildPids,
-                       insta_state = InstaState
+                       gw_state = NGwState
                       }}
         end
     catch
         Class : Reason1 : Stk ->
-            logger:error("Update instance (~0p, ~0p, ~0p, _) crashed: "
+            logger:error("Failed to update gateway (~0p, ~0p, ~0p) crashed: "
                          "{~p, ~p}, stacktrace: ~0p",
-                         [NewInsta, Insta, Ctx,
+                         [NewGateway, Gateway, Ctx,
                           Class, Reason1, Stk]),
             {error, {Class, Reason1, Stk}}
     end.
 
-start_child_process([Indictor|_] = InstaPidOrSpecs) ->
+start_child_process([Indictor|_] = ChildPidOrSpecs) ->
     case erlang:is_pid(Indictor) of
         true ->
-            InstaPidOrSpecs;
+            ChildPidOrSpecs;
         _ ->
-            do_start_child_process(InstaPidOrSpecs)
+            do_start_child_process(ChildPidOrSpecs)
     end.
 
 do_start_child_process(ChildSpecs) when is_list(ChildSpecs) ->

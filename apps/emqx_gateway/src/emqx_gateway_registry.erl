@@ -23,11 +23,9 @@
 -behavior(gen_server).
 
 %% APIs for Impl.
--export([ load/3
-        , unload/1
-        ]).
-
--export([ list/0
+-export([ reg/2
+        , unreg/1
+        , list/0
         , lookup/1
         ]).
 
@@ -44,8 +42,16 @@
         ]).
 
 -record(state, {
-          loaded = #{} :: #{ gateway_type() => descriptor() }
+          reged = #{} :: #{ gateway_type() => descriptor() }
          }).
+
+-type registry_options() :: [registry_option()].
+
+-type registry_option() :: {cbkmod, atom()}.
+
+-type descriptor() :: #{ cbkmod := atom()
+                       , rgopts := registry_options()
+                       }.
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -58,37 +64,24 @@ start_link() ->
 %% Mgmt
 %%--------------------------------------------------------------------
 
--type registry_options() :: [registry_option()].
-
--type registry_option() :: {cbkmod, atom()}.
-
--type gateway_options() :: list().
-
--type descriptor() :: #{ cbkmod := atom()
-                       , rgopts := registry_options()
-                       , gwopts := gateway_options()
-                       , state  => any()
-                       }.
-
--spec load(gateway_type(), registry_options(), gateway_options())
+-spec reg(gateway_type(), registry_options())
   -> ok
    | {error, any()}.
-load(Type, RgOpts, GwOpts) ->
+reg(Type, RgOpts) ->
     CbMod = proplists:get_value(cbkmod, RgOpts, Type),
     Dscrptr = #{ cbkmod => CbMod
                , rgopts => RgOpts
-               , gwopts => GwOpts
                },
-    call({load, Type, Dscrptr}).
+    call({reg, Type, Dscrptr}).
 
--spec unload(gateway_type()) -> ok | {error, any()}.
-unload(Type) ->
+-spec unreg(gateway_type()) -> ok | {error, any()}.
+unreg(Type) ->
     %% TODO: Checking ALL INSTACE HAS STOPPED
-    call({unload, Type}).
+    call({unreg, Type}).
 
 %% TODO:
-%unload(Type, Force) ->
-%    call({unload, Type, Froce}).
+%unreg(Type, Force) ->
+%    call({unreg, Type, Froce}).
 
 %% @doc Return all registered protocol gateway implementation
 -spec list() -> [{gateway_type(), descriptor()}].
@@ -109,41 +102,30 @@ call(Req) ->
 init([]) ->
     %% TODO: Metrics ???
     process_flag(trap_exit, true),
-    {ok, #state{loaded = #{}}}.
+    {ok, #state{reged = #{}}}.
 
-handle_call({load, Type, Dscrptr}, _From, State = #state{loaded = Gateways}) ->
+handle_call({reg, Type, Dscrptr}, _From, State = #state{reged = Gateways}) ->
     case maps:get(Type, Gateways, notfound) of
         notfound ->
-            try
-                GwOpts = maps:get(gwopts, Dscrptr),
-                CbMod  = maps:get(cbkmod, Dscrptr),
-                {ok, GwState} = CbMod:init(GwOpts),
-                NDscrptr = maps:put(state, GwState, Dscrptr),
-                NGateways = maps:put(Type, NDscrptr, Gateways),
-                {reply, ok, State#state{loaded = NGateways}}
-            catch
-                Class : Reason : Stk ->
-                    logger:error("Load ~s crashed {~p, ~p}; stacktrace: ~0p",
-                                  [Type, Class, Reason, Stk]),
-                    {reply, {error, {Class, Reason}}, State}
-            end;
+            NGateways = maps:put(Type, Dscrptr, Gateways),
+            {reply, ok, State#state{reged = NGateways}};
         _ ->
             {reply, {error, already_existed}, State}
     end;
 
-handle_call({unload, Type}, _From, State = #state{loaded = Gateways}) ->
+handle_call({unreg, Type}, _From, State = #state{reged = Gateways}) ->
     case maps:get(Type, Gateways, undefined) of
         undefined ->
             {reply, ok, State};
         _ ->
-            emqx_gateway_sup:stop_all_suptree(Type),
-            {reply, ok, State#state{loaded = maps:remove(Type, Gateways)}}
+            emqx_gateway_sup:unload_gateway(Type),
+            {reply, ok, State#state{reged = maps:remove(Type, Gateways)}}
     end;
 
-handle_call(all, _From, State = #state{loaded = Gateways}) ->
+handle_call(all, _From, State = #state{reged = Gateways}) ->
     {reply, maps:to_list(Gateways), State};
 
-handle_call({lookup, Type}, _From, State = #state{loaded = Gateways}) ->
+handle_call({lookup, Type}, _From, State = #state{reged = Gateways}) ->
     Reply = maps:get(Type, Gateways, undefined),
     {reply, Reply, State};
 

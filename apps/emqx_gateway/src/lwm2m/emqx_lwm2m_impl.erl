@@ -20,36 +20,37 @@
 -behavior(emqx_gateway_impl).
 
 %% APIs
--export([ load/0
-        , unload/0
+-export([ reg/0
+        , unreg/0
         ]).
 
--export([]).
-
--export([ init/1
-        , on_insta_create/3
-        , on_insta_update/4
-        , on_insta_destroy/3
+-export([ on_gateway_load/2
+        , on_gateway_update/3
+        , on_gateway_unload/2
         ]).
+
+-include_lib("emqx/include/logger.hrl").
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
-load() ->
+reg() ->
     RegistryOptions = [ {cbkmod, ?MODULE}
                       ],
-    emqx_gateway_registry:load(lwm2m, RegistryOptions, []).
+    emqx_gateway_registry:reg(lwm2m, RegistryOptions).
 
-unload() ->
-    %% XXX:
-    lwm2m_coap_server_registry:remove_handler(
-      [<<"rd">>],
-      emqx_lwm2m_coap_resource, undefined
-     ),
-    emqx_gateway_registry:unload(lwm2m).
+unreg() ->
+   emqx_gateway_registry:unreg(lwm2m).
 
-init(_) ->
+%%--------------------------------------------------------------------
+%% emqx_gateway_registry callbacks
+%%--------------------------------------------------------------------
+
+on_gateway_load(_Gateway = #{ type := GwType,
+                              rawconf := RawConf
+                            }, Ctx) ->
+
     %% Handler
     _ = lwm2m_coap_server:start_registry(),
     lwm2m_coap_server_registry:add_handler(
@@ -57,75 +58,66 @@ init(_) ->
       emqx_lwm2m_coap_resource, undefined
      ),
     %% Xml registry
-    {ok, _} = emqx_lwm2m_xml_object_db:start_link(
-                emqx_config:get([gateway, lwm2m_xml_dir])
-              ),
+    {ok, _} = emqx_lwm2m_xml_object_db:start_link(maps:get(xml_dir, RawConf)),
 
     %% XXX: Self managed table?
     %% TODO: Improve it later
     {ok, _} = emqx_lwm2m_cm:start_link(),
 
-    GwState = #{},
-    {ok, GwState}.
-
-%% TODO: deinit
-
-%%--------------------------------------------------------------------
-%% emqx_gateway_registry callbacks
-%%--------------------------------------------------------------------
-
-on_insta_create(_Insta = #{ id := InstaId,
-                            rawconf := RawConf
-                          }, Ctx, _GwState) ->
     Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
     ListenerPids = lists:map(fun(Lis) ->
-                     start_listener(InstaId, Ctx, Lis)
+                     start_listener(GwType, Ctx, Lis)
                    end, Listeners),
-    {ok, ListenerPids, _InstaState = #{ctx => Ctx}}.
+    {ok, ListenerPids, _GwState = #{ctx => Ctx}}.
 
-on_insta_update(NewInsta, OldInsta, GwInstaState = #{ctx := Ctx}, GwState) ->
-    InstaId = maps:get(id, NewInsta),
+on_gateway_update(NewGateway, OldGateway, GwState = #{ctx := Ctx}) ->
+    GwType = maps:get(type, NewGateway),
     try
         %% XXX: 1. How hot-upgrade the changes ???
         %% XXX: 2. Check the New confs first before destroy old instance ???
-        on_insta_destroy(OldInsta, GwInstaState, GwState),
-        on_insta_create(NewInsta, Ctx, GwState)
+        on_gateway_unload(OldGateway, GwState),
+        on_gateway_load(NewGateway, Ctx)
     catch
         Class : Reason : Stk ->
-            logger:error("Failed to update stomp instance ~s; "
+            logger:error("Failed to update ~s; "
                          "reason: {~0p, ~0p} stacktrace: ~0p",
-                         [InstaId, Class, Reason, Stk]),
+                         [GwType, Class, Reason, Stk]),
             {error, {Class, Reason}}
     end.
 
-on_insta_destroy(_Insta = #{ id := InstaId,
-                             rawconf := RawConf
-                           }, _GwInstaState, _GwState) ->
+on_gateway_unload(_Gateway = #{ type := GwType,
+                                rawconf := RawConf
+                              }, _GwState) ->
+    %% XXX:
+    lwm2m_coap_server_registry:remove_handler(
+      [<<"rd">>],
+      emqx_lwm2m_coap_resource, undefined
+     ),
+
     Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
     lists:foreach(fun(Lis) ->
-        stop_listener(InstaId, Lis)
+        stop_listener(GwType, Lis)
     end, Listeners).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-start_listener(InstaId, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
+start_listener(GwType, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
-    case start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) of
+    case start_listener(GwType, Ctx, Type, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
-            io:format("Start lwm2m ~s:~s listener on ~s successfully.~n",
-                      [InstaId, Type, ListenOnStr]),
+            ?ULOG("Start ~s:~s listener on ~s successfully.~n",
+                  [GwType, Type, ListenOnStr]),
             Pid;
         {error, Reason} ->
-            io:format(standard_error,
-                      "Failed to start lwm2m ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, ListenOnStr, Reason]),
+            ?ELOG("Failed to start ~s:~s listener on ~s: ~0p~n",
+                  [GwType, Type, ListenOnStr, Reason]),
             throw({badconf, Reason})
     end.
 
-start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
-    Name = name(InstaId, udp),
+start_listener(GwType, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
+    Name = name(GwType, udp),
     NCfg = Cfg#{ctx => Ctx},
     NSocketOpts = merge_default(SocketOpts),
     Options = [{config, NCfg}|NSocketOpts],
@@ -136,8 +128,8 @@ start_listener(InstaId, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
             lwm2m_coap_server:start_dtls(Name, ListenOn, Options)
     end.
 
-name(InstaId, Type) ->
-    list_to_atom(lists:concat([InstaId, ":", Type])).
+name(GwType, Type) ->
+    list_to_atom(lists:concat([GwType, ":", Type])).
 
 merge_default(Options) ->
     Default = emqx_gateway_utils:default_udp_options(),
@@ -149,22 +141,20 @@ merge_default(Options) ->
             [{udp_options, Default} | Options]
     end.
 
-stop_listener(InstaId, {Type, ListenOn, SocketOpts, Cfg}) ->
-    StopRet = stop_listener(InstaId, Type, ListenOn, SocketOpts, Cfg),
+stop_listener(GwType, {Type, ListenOn, SocketOpts, Cfg}) ->
+    StopRet = stop_listener(GwType, Type, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
-        ok -> io:format("Stop lwm2m ~s:~s listener on ~s successfully.~n",
-                        [InstaId, Type, ListenOnStr]);
+        ok -> ?ULOG("Stop ~s:~s listener on ~s successfully.~n",
+                    [GwType, Type, ListenOnStr]);
         {error, Reason} ->
-            io:format(standard_error,
-                      "Failed to stop lwm2m ~s:~s listener on ~s: ~0p~n",
-                      [InstaId, Type, ListenOnStr, Reason]
-                     )
+            ?ELOG("Failed to stop ~s:~s listener on ~s: ~0p~n",
+                  [GwType, Type, ListenOnStr, Reason])
     end,
     StopRet.
 
-stop_listener(InstaId, Type, ListenOn, _SocketOpts, _Cfg) ->
-    Name = name(InstaId, Type),
+stop_listener(GwType, Type, ListenOn, _SocketOpts, _Cfg) ->
+    Name = name(GwType, Type),
     case Type of
         udp ->
             lwm2m_coap_server:stop_udp(Name, ListenOn);

@@ -20,15 +20,13 @@
 -type instance_id()  :: atom().
 -type gateway_type() :: atom().
 
-%% @doc The Gateway Instace defination
--type instance() ::
-        #{ id      := instance_id()
-         , type    := gateway_type()
-         , name    := binary()
+%% @doc The Gateway defination
+-type gateway() ::
+        #{ type    := gateway_type()
          , descr   => binary() | undefined
          %% Appears only in creating or detailed info
          , rawconf => map()
-         %% Appears only in getting instance status/info
+         %% Appears only in getting gateway status/info
          , status  => stopped | running
          }.
 
