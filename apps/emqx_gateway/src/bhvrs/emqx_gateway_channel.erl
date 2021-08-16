@@ -73,7 +73,11 @@
 %% @doc Handle the custom gen_server:call/2 for its connection process
 -callback handle_call(Req :: any(), channel())
     -> {reply, Reply :: any(), channel()}
+     %% Reply to caller and trigger an event(s)
+     | {reply, Reply :: any(),
+        EventOrEvents:: tuple() | list(tuple()), channel()}
      | {shutdown, Reason :: any(), Reply :: any(), channel()}
+     %% Shutdown the process, reply to caller and write a packet to client
      | {shutdown, Reason :: any(), Reply :: any(),
         emqx_gateway_frame:frame(), channel()}.
 
