@@ -120,7 +120,7 @@ start_one_app(App) ->
             ?SLOG(debug, #{msg => "started_apps", apps => Apps});
         {error, Reason} ->
             ?SLOG(critical, #{msg => "failed_to_start_app", app => App, reason => Reason}),
-            error({faile_to_start_app, App, Reason})
+            error({failed_to_start_app, App, Reason})
     end.
 
 %% list of app names which should be rebooted when:
@@ -131,7 +131,6 @@ reboot_apps() ->
     , esockd
     , ranch
     , cowboy
-    , ekka
     , emqx
     , emqx_prometheus
     , emqx_modules
