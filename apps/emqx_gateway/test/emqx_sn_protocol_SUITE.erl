@@ -84,11 +84,11 @@ all() ->
 
 init_per_suite(Config) ->
     ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_ct_helpers:start_apps([emqx_gateway]),
+    emqx_ct_helpers:start_apps([emqx_authn, emqx_gateway]),
     Config.
 
 end_per_suite(_) ->
-    emqx_ct_helpers:stop_apps([emqx_gateway]).
+    emqx_ct_helpers:stop_apps([emqx_gateway, emqx_authn]).
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -98,7 +98,7 @@ end_per_suite(_) ->
 %% Connect
 
 t_connect(_) ->
-    SockName = {'mqttsn#1:udp', 1884},
+    SockName = {'mqttsn:udp', 1884},
     ?assertEqual(true, lists:keymember(SockName, 1, esockd:listeners())),
 
     {ok, Socket} = gen_udp:open(0, [binary]),

@@ -45,11 +45,11 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
     ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_ct_helpers:start_apps([emqx_gateway]),
+    emqx_ct_helpers:start_apps([emqx_authn, emqx_gateway]),
     Cfg.
 
 end_per_suite(_Cfg) ->
-    emqx_ct_helpers:stop_apps([emqx_gateway]),
+    emqx_ct_helpers:stop_apps([emqx_gateway, emqx_authn]),
     ok.
 
 %%--------------------------------------------------------------------
