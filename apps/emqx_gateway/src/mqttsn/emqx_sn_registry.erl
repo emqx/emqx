@@ -149,9 +149,11 @@ init([InstaId, PredefTopics]) ->
                 {ram_copies, [node()]},
                 {record_name, emqx_sn_registry},
                 {attributes, record_info(fields, emqx_sn_registry)},
-                {storage_properties, [{ets, [{read_concurrency, true}]}]}
+                {storage_properties, [{ets, [{read_concurrency, true}]}]},
+                {rlog_shard, ?SN_SHARD}
                ]),
     ok = ekka_mnesia:copy_table(Tab, ram_copies),
+    ok = ekka_rlog:wait_for_shards([?SN_SHARD], infinity),
     % FIXME:
     %ok = ekka_rlog:wait_for_shards([?CM_SHARD], infinity),
     MaxPredefId = lists:foldl(
