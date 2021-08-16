@@ -35,25 +35,48 @@
         , disable/0
         ]).
 
+-export([ list/0
+        , update/1]).
+
 %%--------------------------------------------------------------------
 %% Load/Unload
 %%--------------------------------------------------------------------
 
 enable() ->
     Rules = emqx_config:get([rewrite, rules], []),
-    case Rules =:= [] of
-        true -> ok;
-        false ->
-            {PubRules, SubRules} = compile(Rules),
-            emqx_hooks:put('client.subscribe',   {?MODULE, rewrite_subscribe, [SubRules]}),
-            emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}),
-            emqx_hooks:put('message.publish',    {?MODULE, rewrite_publish, [PubRules]})
-    end.
+    update(Rules, false).
 
 disable() ->
     emqx_hooks:del('client.subscribe',   {?MODULE, rewrite_subscribe}),
     emqx_hooks:del('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
     emqx_hooks:del('message.publish',    {?MODULE, rewrite_publish}).
+
+list() ->
+    maps:get(<<"rules">>, emqx_config:get_raw([<<"rewrite">>], #{}), []).
+
+update(Rules) ->
+    update(Rules, true).
+
+update(Rules0, RefreshConfig) ->
+    Rules = format_params(Rules0),
+    {PubRules, SubRules} = compile(Rules),
+    case Rules =:= [] of
+        true ->
+            ok;
+        false ->
+            {PubRules, SubRules} = compile(Rules),
+            emqx_hooks:put('client.subscribe',   {?MODULE, rewrite_subscribe, [SubRules]}),
+            emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}),
+            emqx_hooks:put('message.publish',    {?MODULE, rewrite_publish, [PubRules]})
+    end,
+    case RefreshConfig of
+        true ->
+            Rewrite = emqx_config:get_raw([<<"rewrite">>], #{}),
+            {ok, _, _} = emqx_config:update([rewrite], maps:put(<<"rules">>, Rules, Rewrite)),
+            ok;
+        _ ->
+            ok
+    end.
 
 rewrite_subscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
     {ok, [{match_and_rewrite(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
@@ -67,20 +90,35 @@ rewrite_publish(Message = #message{topic = Topic}, Rules) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+format_params(ParamsList) when is_list(ParamsList) ->
+    [format_params(Params) || Params <- ParamsList];
+format_params(#{<<"source_topic">> := Topic, <<"re">> := Re, <<"dest_topic">> := Dest, <<"action">> := Action}) ->
+    #{source_topic => Topic, re => Re, dest_topic => Dest, action => binary_to_atom(Action, utf8)};
+format_params(Params) when is_map(Params) ->
+    Params.
 
-compile(Rules) ->
-    lists:foldl(fun(#{source_topic := Topic,
-                      re := Re,
-                      dest_topic := Dest,
-                      action := Action}, {Acc1, Acc2}) ->
-        {ok, MP} = re:compile(Re),
-        case Action of
-            publish ->
-                {[{Topic, MP, Dest} | Acc1], Acc2};
-            subscribe ->
-                {Acc1, [{Topic, MP, Dest} | Acc2]}
-        end
-    end, {[], []}, Rules).
+
+-spec(compile(Rules :: list()) -> {PublishRules :: list(), SubscribeRules :: list()}).
+compile(Rules) when is_list(Rules) ->
+    Fun =
+        fun(Rewrite, {Acc1, Acc2}) ->
+            {Action, Rule} = compile_rule(Rewrite),
+            case Action of
+                publish ->
+                    {[Rule | Acc1], Acc2};
+                subscribe ->
+                    {Acc1, [Rule | Acc2]}
+            end
+        end,
+    lists:foldl(Fun, {[], []}, Rules).
+
+-spec(compile_rule(Rules :: map()) ->
+    {Action :: subscribe | publish, 
+    {Topic :: binary(), Re :: {re_pattern, term(), term(), term(), term()}},
+    Dest :: binary()}).
+compile_rule(#{source_topic := Topic, re := Re, dest_topic := Dest, action := Action}) ->
+    {ok, MP} = re:compile(Re),
+    {Action, {Topic, MP, Dest}}.
 
 match_and_rewrite(Topic, []) ->
     Topic;
