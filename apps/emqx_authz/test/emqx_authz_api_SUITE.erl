@@ -76,13 +76,13 @@ init_per_suite(Config) ->
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
     ok = emqx_ct_helpers:start_apps([emqx_management, emqx_authz], fun set_special_configs/1),
-    ok = emqx_config:update([zones, default, authorization, cache, enable], false),
-    ok = emqx_config:update([zones, default, authorization, enable], true),
+    {ok, _, _} = emqx_config:update([zones, default, authorization, cache, enable], false),
+    {ok, _, _} = emqx_config:update([zones, default, authorization, enable], true),
 
     Config.
 
 end_per_suite(_Config) ->
-    ok = emqx_authz:update(replace, []),
+    {ok, _, _} = emqx_authz:update(replace, []),
     emqx_ct_helpers:stop_apps([emqx_authz, emqx_management]),
     ok.
 
@@ -155,7 +155,7 @@ t_api(_) ->
     ok.
 
 t_move_rule(_) ->
-    ok = emqx_authz:update(replace, [?RULE1, ?RULE2, ?RULE3, ?RULE4]),
+    {ok, _, _} = emqx_authz:update(replace, [?RULE1, ?RULE2, ?RULE3, ?RULE4]),
     [#{annotations := #{id := Id1}},
      #{annotations := #{id := Id2}},
      #{annotations := #{id := Id3}},

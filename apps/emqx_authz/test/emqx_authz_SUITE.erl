@@ -33,17 +33,17 @@ groups() ->
 init_per_suite(Config) ->
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
-    ok = emqx_config:update([zones, default, authorization, cache, enable], false),
-    ok = emqx_config:update([zones, default, authorization, enable], true),
+    {ok, _, _} = emqx_config:update([zones, default, authorization, cache, enable], false),
+    {ok, _, _} = emqx_config:update([zones, default, authorization, enable], true),
     Config.
 
 end_per_suite(_Config) ->
-    ok = emqx_authz:update(replace, []),
+    {ok, _, _} = emqx_authz:update(replace, []),
     emqx_ct_helpers:stop_apps([emqx_authz]),
     ok.
 
 init_per_testcase(_, Config) ->
-    ok = emqx_authz:update(replace, []),
+    {ok, _, _} = emqx_authz:update(replace, []),
     Config.
 
 -define(RULE1, #{<<"principal">> => <<"all">>,
@@ -82,9 +82,9 @@ init_per_testcase(_, Config) ->
 %%------------------------------------------------------------------------------
 
 t_update_rule(_) ->
-    ok = emqx_authz:update(replace, [?RULE2]),
-    ok = emqx_authz:update(head, [?RULE1]),
-    ok = emqx_authz:update(tail, [?RULE3]),
+    {ok, _, _} = emqx_authz:update(replace, [?RULE2]),
+    {ok, _, _} = emqx_authz:update(head, [?RULE1]),
+    {ok, _, _} = emqx_authz:update(tail, [?RULE3]),
 
     Lists1 = emqx_authz:check_rules([?RULE1, ?RULE2, ?RULE3]),
     ?assertMatch(Lists1, emqx_config:get([authorization, rules], [])),
@@ -107,7 +107,7 @@ t_update_rule(_) ->
       }
     ] = emqx_authz:lookup(),
 
-    ok = emqx_authz:update({replace_once, Id3}, ?RULE4),
+    {ok, _, _} = emqx_authz:update({replace_once, Id3}, ?RULE4),
     Lists2 = emqx_authz:check_rules([?RULE1, ?RULE2, ?RULE4]),
     ?assertMatch(Lists2, emqx_config:get([authorization, rules], [])),
 
@@ -132,38 +132,38 @@ t_update_rule(_) ->
       }
     ] = emqx_authz:lookup(),
 
-    ok = emqx_authz:update(replace, []).
+    {ok, _, _} = emqx_authz:update(replace, []).
 
 t_move_rule(_) ->
-    ok = emqx_authz:update(replace, [?RULE1, ?RULE2, ?RULE3, ?RULE4]),
+    {ok, _, _} = emqx_authz:update(replace, [?RULE1, ?RULE2, ?RULE3, ?RULE4]),
     [#{annotations := #{id := Id1}},
      #{annotations := #{id := Id2}},
      #{annotations := #{id := Id3}},
      #{annotations := #{id := Id4}}
     ] = emqx_authz:lookup(),
 
-    ok = emqx_authz:move(Id4, <<"top">>),
+    {ok, _, _} = emqx_authz:move(Id4, <<"top">>),
     ?assertMatch([#{annotations := #{id := Id4}},
                   #{annotations := #{id := Id1}},
                   #{annotations := #{id := Id2}},
                   #{annotations := #{id := Id3}}
                  ], emqx_authz:lookup()),
 
-    ok = emqx_authz:move(Id1, <<"bottom">>),
+    {ok, _, _} = emqx_authz:move(Id1, <<"bottom">>),
     ?assertMatch([#{annotations := #{id := Id4}},
                   #{annotations := #{id := Id2}},
                   #{annotations := #{id := Id3}},
                   #{annotations := #{id := Id1}}
                  ], emqx_authz:lookup()),
 
-    ok = emqx_authz:move(Id3, #{<<"before">> => Id4}),
+    {ok, _, _} = emqx_authz:move(Id3, #{<<"before">> => Id4}),
     ?assertMatch([#{annotations := #{id := Id3}},
                   #{annotations := #{id := Id4}},
                   #{annotations := #{id := Id2}},
                   #{annotations := #{id := Id1}}
                  ], emqx_authz:lookup()),
 
-    ok = emqx_authz:move(Id2, #{<<"after">> => Id1}),
+    {ok, _, _} = emqx_authz:move(Id2, #{<<"after">> => Id1}),
     ?assertMatch([#{annotations := #{id := Id3}},
                   #{annotations := #{id := Id4}},
                   #{annotations := #{id := Id1}},

@@ -35,8 +35,8 @@ init_per_suite(Config) ->
 
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
 
-    ok = emqx_config:update([zones, default, authorization, cache, enable], false),
-    ok = emqx_config:update([zones, default, authorization, enable], true),
+    {ok, _, _} = emqx_config:update([zones, default, authorization, cache, enable], false),
+    {ok, _, _} = emqx_config:update([zones, default, authorization, enable], true),
     Rules = [#{ <<"config">> => #{
                     <<"server">> => <<"127.0.0.1:27017">>,
                     <<"pool_size">> => 1,
@@ -49,11 +49,11 @@ init_per_suite(Config) ->
                 <<"principal">> => <<"all">>,
                 <<"sql">> => <<"abcb">>,
                 <<"type">> => <<"mysql">> }],
-    emqx_authz:update(replace, Rules),
+    {ok, _, _} = emqx_authz:update(replace, Rules),
     Config.
 
 end_per_suite(_Config) ->
-    ok = emqx_authz:update(replace, []),
+    {ok, _, _} = emqx_authz:update(replace, []),
     emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
     meck:unload(emqx_resource).
 
