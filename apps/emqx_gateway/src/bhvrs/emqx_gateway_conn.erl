@@ -550,10 +550,16 @@ handle_call(_From, Req, State = #state{
     case ChannMod:handle_call(Req, Channel) of
         {reply, Reply, NChannel} ->
             {reply, Reply, State#state{channel = NChannel}};
-        {reply, Reply, Replies, NChannel} ->
-            {reply, Reply, Replies, State#state{channel = NChannel}};
+        {reply, Reply, Msgs, NChannel} ->
+            {reply, Reply, Msgs, State#state{channel = NChannel}};
         {shutdown, Reason, Reply, NChannel} ->
-            shutdown(Reason, Reply, State#state{channel = NChannel})
+            shutdown(Reason, Reply, State#state{channel = NChannel});
+        {shutdown, Reason, Reply, Packet, NChannel} ->
+            NState = State#state{channel = NChannel},
+            ok = handle_outgoing(Packet, NState),
+            shutdown(Reason, Reply, NState)
+
+
     end.
 
 %%--------------------------------------------------------------------
@@ -829,7 +835,6 @@ inc_outgoing_stats(Ctx, FrameMod, Packet) ->
 %%--------------------------------------------------------------------
 %% Helper functions
 
--compile({inline, [next_msgs/1]}).
 next_msgs(Event) when is_tuple(Event) ->
     Event;
 next_msgs(More) when is_list(More) ->

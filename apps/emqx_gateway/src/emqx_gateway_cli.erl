@@ -50,30 +50,30 @@ is_cmd(Fun) ->
 %% Cmds
 
 gateway(["list"]) ->
-    lists:foreach(fun(#{id := InstaId, name := Name, type := Type}) ->
+    lists:foreach(fun(#{type := Type, status := Status}) ->
         %% FIXME: Get the real running status
-        emqx_ctl:print("Gateway(~s, name=~s, type=~s, status=running~n",
-                       [InstaId, Name, Type])
+        emqx_ctl:print("Gateway(type=~s, status=~s~n",
+                       [Type, Status])
     end, emqx_gateway:list());
 
-gateway(["lookup", GatewayInstaId]) ->
-    case emqx_gateway:lookup(atom(GatewayInstaId)) of
+gateway(["lookup", GwType]) ->
+    case emqx_gateway:lookup(atom(GwType)) of
         undefined ->
             emqx_ctl:print("undefined~n");
         Info ->
             emqx_ctl:print("~p~n", [Info])
     end;
 
-gateway(["stop", GatewayInstaId]) ->
-    case emqx_gateway:stop(atom(GatewayInstaId)) of
+gateway(["stop", GwType]) ->
+    case emqx_gateway:stop(atom(GwType)) of
         ok ->
             emqx_ctl:print("ok~n");
         {error, Reason} ->
             emqx_ctl:print("Error: ~p~n", [Reason])
     end;
 
-gateway(["start", GatewayInstaId]) ->
-    case emqx_gateway:start(atom(GatewayInstaId)) of
+gateway(["start", GwType]) ->
+    case emqx_gateway:start(atom(GwType)) of
         ok ->
             emqx_ctl:print("ok~n");
         {error, Reason} ->
@@ -83,12 +83,12 @@ gateway(["start", GatewayInstaId]) ->
 gateway(_) ->
     %% TODO: create/remove APIs
     emqx_ctl:usage([ {"gateway list",
-                        "List all created gateway instances"}
-                   , {"gateway lookup <GatewayId>",
+                        "List all gateway"}
+                   , {"gateway lookup <GatewayType>",
                         "Looup a gateway detailed informations"}
-                   , {"gateway stop   <GatewayId>",
-                        "Stop a gateway instance and release all resources"}
-                   , {"gateway start  <GatewayId>",
+                   , {"gateway stop   <GatewayType>",
+                        "Stop a gateway instance"}
+                   , {"gateway start  <GatewayType>",
                         "Start a gateway instance"}
                    ]).
 
@@ -146,8 +146,8 @@ gateway(_) ->
     end;
 
 'gateway-metrics'(_) ->
-    emqx_ctl:usage([ {"gateway-metrics <Type>",
-                        "List all metrics for a type of gateway"}
+    emqx_ctl:usage([ {"gateway-metrics <GatewayType>",
+                        "List all metrics for a gateway"}
                    ]).
 
 atom(Id) ->
