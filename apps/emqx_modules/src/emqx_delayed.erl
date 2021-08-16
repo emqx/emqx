@@ -179,13 +179,8 @@ handle_info(Info, State) ->
 terminate(_Reason, #{timer := TRef}) ->
     emqx_misc:cancel_timer(TRef).
 
-code_change({down, Vsn}, State, _Extra) when Vsn =:= "4.3.0" ->
-    NState = maps:with([timer, publish_at], State),
-    {ok, NState};
-
-code_change(Vsn, State, _Extra) when Vsn =:= "4.3.0" ->
-    NState = ensure_stats_event(State),
-    {ok, NState}.
+code_change(_Vsn, State, _Extra) ->
+    {ok, State}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
