@@ -89,6 +89,9 @@ config_reset_api() ->
 - For a config entry that has no default value, an error 400 will be returned">>,
             parameters => ?PARAM_CONF_PATH,
             responses => #{
+                %% We only return "200" rather than the new configs that has been changed, as
+                %% the schema of the changed configs is depends on the request parameter
+                %% `conf_path`, it cannot be defined here.
                 <<"200">> => emqx_mgmt_util:response_schema(<<"Reset configs successfully">>),
                 <<"400">> => emqx_mgmt_util:response_error_schema(
                     <<"It's not able to reset the config">>, ['INVALID_OPERATION'])
@@ -110,14 +113,15 @@ config(get, Req) ->
 
 config(put, Req) ->
     Path = conf_path(Req),
-    ok = emqx_config:update(Path, http_body(Req)),
-    {200, emqx_map_lib:deep_get(Path, get_full_config())}.
+    {ok, _, RawConf} = emqx_config:update(Path, http_body(Req),
+        #{rawconf_with_defaults => true}),
+    {200, emqx_map_lib:deep_get(Path, emqx_map_lib:jsonable_map(RawConf))}.
 
 config_reset(post, Req) ->
     %% reset the config specified by the query string param 'conf_path'
     Path = conf_path_reset(Req) ++ conf_path_from_querystr(Req),
-    case emqx_config:reset(Path) of
-        ok -> {200};
+    case emqx_config:reset(Path, #{}) of
+        {ok, _, _} -> {200};
         {error, Reason} ->
             {400, ?ERR_MSG(Reason)}
     end.

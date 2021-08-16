@@ -43,7 +43,7 @@
         , put/2
         ]).
 
--export([ save_schema_mod/1
+-export([ save_schema_mod_and_names/1
         , get_schema_mod/0
         , get_schema_mod/1
         , get_root_names/0
@@ -76,7 +76,7 @@
 
 -define(CONF, conf).
 -define(RAW_CONF, raw_conf).
--define(PERSIS_MOD_ROOTNAMES, {?MODULE, default_conf}).
+-define(PERSIS_SCHEMA_MODS, {?MODULE, schema_mods}).
 -define(PERSIS_KEY(TYPE, ROOT), {?MODULE, TYPE, ROOT}).
 -define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
 -define(LISTENER_CONF_PATH(ZONE, LISTENER, PATH), [zones, ZONE, listeners, LISTENER | PATH]).
@@ -183,17 +183,18 @@ put(Config) ->
 put(KeyPath, Config) -> do_put(?CONF, KeyPath, Config).
 
 -spec update(emqx_map_lib:config_key_path(), update_request()) ->
-    ok | {error, term()}.
+    {ok, config(), raw_config()} | {error, term()}.
 update(KeyPath, UpdateReq) ->
     update(KeyPath, UpdateReq, #{}).
 
 -spec update(emqx_map_lib:config_key_path(), update_request(),
-        emqx_config_handler:update_opts()) -> ok | {error, term()}.
+             emqx_config_handler:update_opts()) ->
+    {ok, config(), raw_config()} | {error, term()}.
 update([RootName | _] = KeyPath, UpdateReq, Opts) ->
     emqx_config_handler:update_config(get_schema_mod(RootName), KeyPath,
         {{update, UpdateReq}, Opts}).
 
--spec remove(emqx_map_lib:config_key_path()) -> ok | {error, term()}.
+-spec remove(emqx_map_lib:config_key_path()) -> {ok, config(), raw_config()} | {error, term()}.
 remove(KeyPath) ->
     remove(KeyPath, #{}).
 
@@ -203,7 +204,7 @@ remove([RootName | _] = KeyPath, Opts) ->
     emqx_config_handler:update_config(get_schema_mod(RootName), KeyPath, {remove, Opts}).
 
 -spec reset(emqx_map_lib:config_key_path(), emqx_config_handler:update_opts()) ->
-    ok | {error, term()}.
+    {ok, config(), raw_config()} | {error, term()}.
 reset([RootName | _] = KeyPath, Opts) ->
     case get_default_value(KeyPath) of
         {ok, Default} ->
@@ -275,12 +276,12 @@ init_load(SchemaMod, RawRichConf) when is_map(RawRichConf) ->
             },
     %% this call throws exception in case of check failure
     {_AppEnvs, CheckedConf} = hocon_schema:map_translate(SchemaMod, RawRichConf, Opts),
-    ok = save_schema_mod(SchemaMod),
+    ok = save_schema_mod_and_names(SchemaMod),
     ok = save_to_config_map(emqx_map_lib:unsafe_atom_key_map(normalize_conf(CheckedConf)),
             normalize_conf(hocon_schema:richmap_to_map(RawRichConf))).
 
 normalize_conf(Conf) ->
-    maps:with(get_root_names(), Conf).
+    maps:with(get_root_names(bin), Conf).
 
 -spec check_config(module(), raw_config()) -> {AppEnvs, CheckedConf}
     when AppEnvs :: app_envs(), CheckedConf :: config().
@@ -296,7 +297,7 @@ check_config(SchemaMod, RawConf) ->
 
 -spec fill_defaults(raw_config()) -> map().
 fill_defaults(RawConf) ->
-    RootNames = get_root_names(),
+    RootNames = get_root_names(bin),
     maps:fold(fun(Key, Conf, Acc) ->
             SubMap = #{Key => Conf},
             WithDefaults = case lists:member(Key, RootNames) of
@@ -309,21 +310,26 @@ fill_defaults(RawConf) ->
 -spec fill_defaults(module(), raw_config()) -> map().
 fill_defaults(SchemaMod, RawConf) ->
     hocon_schema:check_plain(SchemaMod, RawConf,
-        #{nullable => true, no_conversion => true}, [str(K) || K <- maps:keys(RawConf)]).
+        #{nullable => true, no_conversion => true}, root_names_from_conf(RawConf)).
 
 -spec read_override_conf() -> raw_config().
 read_override_conf() ->
     load_hocon_file(emqx_override_conf_name(), map).
 
--spec save_schema_mod(module()) -> ok.
-save_schema_mod(SchemaMod) ->
+-spec save_schema_mod_and_names(module()) -> ok.
+save_schema_mod_and_names(SchemaMod) ->
+    RootNames = SchemaMod:structs(),
     OldMods = get_schema_mod(),
-    NewMods = maps:from_list([{bin(RootName), SchemaMod} || RootName <- SchemaMod:structs()]),
-    persistent_term:put(?PERSIS_MOD_ROOTNAMES, maps:merge(OldMods, NewMods)).
+    OldNames = get_root_names(),
+    NewMods = maps:from_list([{bin(Name), SchemaMod} || Name <- RootNames]),
+    persistent_term:put(?PERSIS_SCHEMA_MODS, #{
+        mods => maps:merge(OldMods, NewMods),
+        names => lists:usort(OldNames ++ RootNames)
+    }).
 
 -spec get_schema_mod() -> #{binary() => atom()}.
 get_schema_mod() ->
-    persistent_term:get(?PERSIS_MOD_ROOTNAMES, #{}).
+    maps:get(mods, persistent_term:get(?PERSIS_SCHEMA_MODS, #{mods => #{}})).
 
 -spec get_schema_mod(atom() | binary()) -> module().
 get_schema_mod(RootName) ->
@@ -331,6 +337,9 @@ get_schema_mod(RootName) ->
 
 -spec get_root_names() -> [binary()].
 get_root_names() ->
+    maps:get(names, persistent_term:get(?PERSIS_SCHEMA_MODS, #{names => []})).
+
+get_root_names(bin) ->
     maps:keys(get_schema_mod()).
 
 -spec save_configs(app_envs(), config(), raw_config(), raw_config()) -> ok | {error, term()}.
@@ -419,6 +428,17 @@ do_deep_put(?CONF, KeyPath, Map, Value) ->
         error({not_found, KeyPath}));
 do_deep_put(?RAW_CONF, KeyPath, Map, Value) ->
     emqx_map_lib:deep_put([bin(Key) || Key <- KeyPath], Map, Value).
+
+root_names_from_conf(RawConf) ->
+    Keys = maps:keys(RawConf),
+    StrNames = [str(K) || K <- Keys],
+    AtomNames = lists:foldl(fun(K, Acc) ->
+            try [atom(K) | Acc]
+            catch error:badarg -> Acc
+            end
+        end, [], Keys),
+    PossibleNames = StrNames ++ AtomNames,
+    [Name || Name <- get_root_names(), lists:member(Name, PossibleNames)].
 
 atom(Bin) when is_binary(Bin) ->
     binary_to_existing_atom(Bin, latin1);
