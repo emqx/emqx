@@ -118,7 +118,7 @@ handle_call({unreg, Type}, _From, State = #state{reged = Gateways}) ->
         undefined ->
             {reply, ok, State};
         _ ->
-            emqx_gateway_sup:unload_gateway(Type),
+            _ = emqx_gateway_sup:unload_gateway(Type),
             {reply, ok, State#state{reged = maps:remove(Type, Gateways)}}
     end;
 

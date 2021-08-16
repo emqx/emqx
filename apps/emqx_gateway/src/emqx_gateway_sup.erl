@@ -71,7 +71,7 @@ lookup_gateway(GwType) ->
             undefined
     end.
 
--spec update_gateway(gateway_type())
+-spec update_gateway(gateway())
     -> ok
      | {error, any()}.
 update_gateway(NewGateway = #{type := GwType}) ->
