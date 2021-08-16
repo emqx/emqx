@@ -120,7 +120,8 @@ format_listenon({Addr, Port}) when is_tuple(Addr) ->
             , SocketOpts :: esockd:option()
             , Cfg :: map()
             }).
-normalize_rawconf(RawConf = #{listener := LisMap}) ->
+normalize_rawconf(RawConf) ->
+    LisMap = maps:get(listener, RawConf, #{}),
     Cfg0 = maps:without([listener], RawConf),
     lists:append(maps:fold(fun(Type, Liss, AccIn1) ->
         Listeners =

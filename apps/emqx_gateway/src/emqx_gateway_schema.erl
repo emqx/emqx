@@ -60,6 +60,7 @@ fields(mqttsn_structs) ->
     , {idle_timeout, t(duration())}
     , {predefined, hoconsc:array(ref(mqttsn_predefined))}
     , {clientinfo_override, t(ref(clientinfo_override))}
+    , {authentication,  t(ref(authentication))}
     , {listener, t(ref(udp_listener_group))}
     ];
 
@@ -78,6 +79,7 @@ fields(lwm2m_structs) ->
     , {mountpoint, t(string())}
     , {update_msg_publish_condition, t(union([always, contains_object_list]))}
     , {translators, t(ref(translators))}
+    , {authentication,  t(ref(authentication))}
     , {listener, t(ref(udp_listener_group))}
     ];
 
@@ -201,11 +203,11 @@ fields(coap) ->
 
 fields(coap_structs) ->
     [ {enable_stats, t(boolean(), undefined, true)}
-    , {authentication,  t(ref(authentication))}
     , {heartbeat, t(duration(), undefined, "30s")}
     , {notify_type, t(union([non, con, qos]), undefined, qos)}
     , {subscribe_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
     , {publish_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
+    , {authentication,  t(ref(authentication))}
     , {listener, t(ref(udp_listener_group))}
     ];
 
