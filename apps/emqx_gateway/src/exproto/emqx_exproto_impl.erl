@@ -47,6 +47,8 @@ unreg() ->
 %% emqx_gateway_registry callbacks
 %%--------------------------------------------------------------------
 
+start_grpc_server(_GwType, undefined) ->
+    undefined;
 start_grpc_server(GwType, Options = #{bind := ListenOn}) ->
     Services = #{protos => [emqx_exproto_pb],
                  services => #{
@@ -60,6 +62,8 @@ start_grpc_server(GwType, Options = #{bind := ListenOn}) ->
     _ = grpc:start_server(GwType, ListenOn, Services, SvrOptions),
     ?ULOG("Start ~s gRPC server on ~p successfully.~n", [GwType, ListenOn]).
 
+start_grpc_client_channel(_GwType, undefined) ->
+    undefined;
 start_grpc_client_channel(GwType, Options = #{address := UriStr}) ->
     UriMap = uri_string:parse(UriStr),
     Scheme = maps:get(scheme, UriMap),
@@ -88,10 +92,10 @@ on_gateway_load(_Gateway = #{ type := GwType,
     PoolSize = emqx_vm:schedulers() * 2,
     {ok, _} = emqx_pool_sup:start_link(PoolName, hash, PoolSize,
                                        {emqx_exproto_gcli, start_link, []}),
-    _ = start_grpc_client_channel(GwType, maps:get(handler, RawConf)),
+    _ = start_grpc_client_channel(GwType, maps:get(handler, RawConf, undefined)),
 
     %% XXX: How to monitor it ?
-    _ = start_grpc_server(GwType, maps:get(server, RawConf)),
+    _ = start_grpc_server(GwType, maps:get(server, RawConf, undefined)),
 
     NRawConf = maps:without(
                  [server, handler],

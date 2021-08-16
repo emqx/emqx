@@ -53,17 +53,17 @@ on_gateway_load(_Gateway = #{ type := GwType,
 
     %% We Also need to start `emqx_sn_broadcast` &
     %% `emqx_sn_registry` process
-    SnGwId = maps:get(gateway_id, RawConf),
-    case maps:get(broadcast, RawConf) of
+    case maps:get(broadcast, RawConf, false) of
         false ->
             ok;
         true ->
             %% FIXME:
             Port = 1884,
+            SnGwId = maps:get(gateway_id, RawConf, undefined),
             _ = emqx_sn_broadcast:start_link(SnGwId, Port), ok
     end,
 
-    PredefTopics = maps:get(predefined, RawConf),
+    PredefTopics = maps:get(predefined, RawConf, []),
     {ok, RegistrySvr} = emqx_sn_registry:start_link(GwType, PredefTopics),
 
     NRawConf = maps:without(

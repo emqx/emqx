@@ -254,7 +254,7 @@ cb_gateway_unload(State = #state{gw = Gateway = #{type := GwType},
                                  gw_state = GwState}) ->
     try
         #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwType),
-        CbMod:on_gateway_unload(Gateway, GwState, GwState),
+        CbMod:on_gateway_unload(Gateway, GwState),
         {ok, State#state{child_pids = [],
                          gw_state = undefined,
                          status = stopped}}
@@ -316,6 +316,7 @@ cb_gateway_update(NewGateway,
             {error, {Class, Reason1, Stk}}
     end.
 
+start_child_process([]) -> [];
 start_child_process([Indictor|_] = ChildPidOrSpecs) ->
     case erlang:is_pid(Indictor) of
         true ->
