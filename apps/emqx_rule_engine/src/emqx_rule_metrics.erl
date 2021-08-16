@@ -302,47 +302,6 @@ handle_info(ticking, State = #state{rule_speeds = RuleSpeeds0,
 handle_info(_Info, State) ->
     {noreply, State}.
 
-code_change({down, Vsn}, State = #state{metric_ids = MIDs}, _Extra)
-        when Vsn =:= "4.2.0";
-             Vsn =:= "4.2.1" ->
-    emqx_metrics:ensure('actions.failure'),
-    emqx_metrics:set('actions.failure',
-                     emqx_metrics:val('actions.error')
-                     + emqx_metrics:val('actions.exception')),
-    [begin
-        Matched = get_rules_matched(Id),
-        Succ = get_actions_success(Id),
-        Error = get_actions_error(Id),
-        Except = get_actions_exception(Id),
-        ok = delete_counters(Id),
-        ok = create_counters(Id),
-        inc_rules_matched(Id, Matched),
-        inc_actions_success(Id, Succ),
-        inc_actions_error(Id, Error + Except)
-    end || Id <- sets:to_list(MIDs)],
-    {ok, State};
-
-code_change(Vsn, State = #state{metric_ids = MIDs}, _Extra)
-        when Vsn =:= "4.2.0";
-             Vsn =:= "4.2.1" ->
-    [emqx_metrics:ensure(Name)
-     || Name <-
-        ['actions.error', 'actions.taken',
-         'actions.exception', 'actions.retry'
-        ]],
-    emqx_metrics:set('actions.error', emqx_metrics:val('actions.failure')),
-    [begin
-        Matched = get_rules_matched(Id),
-        Succ = get_actions_success(Id),
-        Error = get_actions_error(Id),
-        ok = delete_counters(Id),
-        ok = create_counters(Id),
-        inc_rules_matched(Id, Matched),
-        inc_actions_success(Id, Succ),
-        inc_actions_error(Id, Error)
-    end || Id <- sets:to_list(MIDs)],
-    {ok, State};
-
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
