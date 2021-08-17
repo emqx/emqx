@@ -38,15 +38,8 @@
 
 -define(MOD, {mod}).
 
--export_type([update_opts/0, update_cmd/0, update_args/0]).
 -type handler_name() :: module().
 -type handlers() :: #{emqx_config:config_key() => handlers(), ?MOD => handler_name()}.
--type update_cmd() :: {update, emqx_config:update_request()} | remove.
--type update_opts() :: #{
-        %% fill the default values into the rawconf map
-        rawconf_with_defaults => boolean()
-    }.
--type update_args() :: {update_cmd(), Opts :: update_opts()}.
 
 -optional_callbacks([ pre_config_update/2
                     , post_config_update/3
@@ -66,7 +59,7 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, {}, []).
 
--spec update_config(module(), emqx_config:config_key_path(), update_args()) ->
+-spec update_config(module(), emqx_config:config_key_path(), emqx_config:update_args()) ->
     {ok, emqx_config:config(), emqx_config:raw_config()} | {error, term()}.
 update_config(SchemaModule, ConfKeyPath, UpdateArgs) ->
     gen_server:call(?MODULE, {change_config, SchemaModule, ConfKeyPath, UpdateArgs}).
