@@ -88,8 +88,17 @@
         error:badarg -> EXP_ON_FAIL
     end).
 
--export_type([update_request/0, raw_config/0, config/0]).
+-export_type([update_request/0, raw_config/0, config/0,
+              update_opts/0, update_cmd/0, update_args/0]).
+
 -type update_request() :: term().
+-type update_cmd() :: {update, update_request()} | remove.
+-type update_opts() :: #{
+        %% fill the default values into the rawconf map
+        rawconf_with_defaults => boolean()
+    }.
+-type update_args() :: {update_cmd(), Opts :: update_opts()}.
+
 %% raw_config() is the config that is NOT parsed and tranlated by hocon schema
 -type raw_config() :: #{binary() => term()} | undefined.
 %% config() is the config that is parsed and tranlated by hocon schema
@@ -188,7 +197,7 @@ update(KeyPath, UpdateReq) ->
     update(KeyPath, UpdateReq, #{}).
 
 -spec update(emqx_map_lib:config_key_path(), update_request(),
-             emqx_config_handler:update_opts()) ->
+             update_opts()) ->
     {ok, config(), raw_config()} | {error, term()}.
 update([RootName | _] = KeyPath, UpdateReq, Opts) ->
     emqx_config_handler:update_config(get_schema_mod(RootName), KeyPath,
@@ -198,12 +207,12 @@ update([RootName | _] = KeyPath, UpdateReq, Opts) ->
 remove(KeyPath) ->
     remove(KeyPath, #{}).
 
--spec remove(emqx_map_lib:config_key_path(), emqx_config_handler:update_opts()) ->
+-spec remove(emqx_map_lib:config_key_path(), update_opts()) ->
     ok | {error, term()}.
 remove([RootName | _] = KeyPath, Opts) ->
     emqx_config_handler:update_config(get_schema_mod(RootName), KeyPath, {remove, Opts}).
 
--spec reset(emqx_map_lib:config_key_path(), emqx_config_handler:update_opts()) ->
+-spec reset(emqx_map_lib:config_key_path(), update_opts()) ->
     {ok, config(), raw_config()} | {error, term()}.
 reset([RootName | _] = KeyPath, Opts) ->
     case get_default_value(KeyPath) of
