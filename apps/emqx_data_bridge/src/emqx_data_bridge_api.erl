@@ -124,7 +124,7 @@ format_api_reply(#{resource_type := Type, id := Id, config := Conf, status := St
 
 update_config_and_reply(Name, BridgeType, Config, Data) ->
     case emqx_data_bridge:update_config({update, ?BRIDGE(Name, BridgeType, Config)}) of
-        {ok, _, _} ->
+        {ok, _} ->
             {200, #{code => 0, data => format_api_reply(
                         emqx_resource_api:format_data(Data))}};
         {error, Reason} ->
@@ -133,7 +133,7 @@ update_config_and_reply(Name, BridgeType, Config, Data) ->
 
 delete_config_and_reply(Name) ->
     case emqx_data_bridge:update_config({delete, Name}) of
-        {ok, _, _} -> {200, #{code => 0, data => #{}}};
+        {ok, _} -> {200, #{code => 0, data => #{}}};
         {error, Reason} ->
             {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
     end.

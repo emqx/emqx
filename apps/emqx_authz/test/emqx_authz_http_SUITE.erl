@@ -35,8 +35,8 @@ init_per_suite(Config) ->
 
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
 
-    {ok, _, _} = emqx:update_config([zones, default, authorization, cache, enable], false),
-    {ok, _, _} = emqx:update_config([zones, default, authorization, enable], true),
+    {ok, _} = emqx:update_config([zones, default, authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([zones, default, authorization, enable], true),
     Rules = [#{ <<"config">> => #{
                     <<"url">> => <<"https://fake.com:443/">>,
                     <<"headers">> => #{},
@@ -46,11 +46,11 @@ init_per_suite(Config) ->
                 <<"principal">> => <<"all">>,
                 <<"type">> => <<"http">>}
             ],
-    {ok, _, _} = emqx_authz:update(replace, Rules),
+    {ok, _} = emqx_authz:update(replace, Rules),
     Config.
 
 end_per_suite(_Config) ->
-    {ok, _, _} = emqx_authz:update(replace, []),
+    {ok, _} = emqx_authz:update(replace, []),
     emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
     meck:unload(emqx_resource),
     ok.
