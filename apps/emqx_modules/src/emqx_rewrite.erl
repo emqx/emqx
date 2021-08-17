@@ -44,7 +44,7 @@
 
 enable() ->
     Rules = emqx_config:get([rewrite, rules], []),
-    update(Rules, false).
+    register_hook(Rules).
 
 disable() ->
     emqx_hooks:del('client.subscribe',   {?MODULE, rewrite_subscribe}),
@@ -54,28 +54,20 @@ disable() ->
 list() ->
     maps:get(<<"rules">>, emqx_config:get_raw([<<"rewrite">>], #{}), []).
 
-update(Rules) ->
-    update(Rules, true).
+update([]) ->
+    disable();
+update(Rules0) ->
+    {ok, Rules, _} = emqx_config:update([rewrite], Rules0),
+    register_hook(Rules).
 
-update(Rules0, RefreshConfig) ->
-    Rules = format_params(Rules0),
-    {PubRules, SubRules} = compile(Rules),
+register_hook(Rules) ->
     case Rules =:= [] of
-        true ->
-            ok;
+        true -> ok;
         false ->
             {PubRules, SubRules} = compile(Rules),
             emqx_hooks:put('client.subscribe',   {?MODULE, rewrite_subscribe, [SubRules]}),
             emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}),
             emqx_hooks:put('message.publish',    {?MODULE, rewrite_publish, [PubRules]})
-    end,
-    case RefreshConfig of
-        true ->
-            Rewrite = emqx_config:get_raw([<<"rewrite">>], #{}),
-            {ok, _, _} = emqx_config:update([rewrite], maps:put(<<"rules">>, Rules, Rewrite)),
-            ok;
-        _ ->
-            ok
     end.
 
 rewrite_subscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
@@ -90,14 +82,6 @@ rewrite_publish(Message = #message{topic = Topic}, Rules) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-format_params(ParamsList) when is_list(ParamsList) ->
-    [format_params(Params) || Params <- ParamsList];
-format_params(#{<<"source_topic">> := Topic, <<"re">> := Re, <<"dest_topic">> := Dest, <<"action">> := Action}) ->
-    #{source_topic => Topic, re => Re, dest_topic => Dest, action => binary_to_atom(Action, utf8)};
-format_params(Params) when is_map(Params) ->
-    Params.
-
-
 -spec(compile(Rules :: list()) -> {PublishRules :: list(), SubscribeRules :: list()}).
 compile(Rules) when is_list(Rules) ->
     Fun =
