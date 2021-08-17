@@ -82,7 +82,8 @@
     end).
 
 -export_type([update_request/0, raw_config/0, config/0,
-              update_opts/0, update_cmd/0, update_args/0]).
+              update_opts/0, update_cmd/0, update_args/0,
+              update_error/0, update_result/0]).
 
 -type update_request() :: term().
 -type update_cmd() :: {update, update_request()} | remove.
@@ -91,6 +92,13 @@
         rawconf_with_defaults => boolean()
     }.
 -type update_args() :: {update_cmd(), Opts :: update_opts()}.
+-type update_stage() :: pre_config_update | post_config_update.
+-type update_error() :: {update_stage(), module(), term()} | {save_configs, term()} | term().
+-type update_result() :: #{
+    config := emqx_config:config(),
+    raw_config := emqx_config:raw_config(),
+    post_config_update => #{module() => any()}
+}.
 
 %% raw_config() is the config that is NOT parsed and tranlated by hocon schema
 -type raw_config() :: #{binary() => term()} | undefined.
