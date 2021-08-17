@@ -113,14 +113,14 @@ config(get, Req) ->
 
 config(put, Req) ->
     Path = conf_path(Req),
-    {ok, _, RawConf} = emqx_config:update(Path, http_body(Req),
+    {ok, _, RawConf} = emqx:update_config(Path, http_body(Req),
         #{rawconf_with_defaults => true}),
     {200, emqx_map_lib:deep_get(Path, emqx_map_lib:jsonable_map(RawConf))}.
 
 config_reset(post, Req) ->
     %% reset the config specified by the query string param 'conf_path'
     Path = conf_path_reset(Req) ++ conf_path_from_querystr(Req),
-    case emqx_config:reset(Path, #{}) of
+    case emqx:reset_config(Path, #{}) of
         {ok, _, _} -> {200};
         {error, Reason} ->
             {400, ?ERR_MSG(Reason)}

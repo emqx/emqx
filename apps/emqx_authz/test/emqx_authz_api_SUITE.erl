@@ -76,8 +76,8 @@ init_per_suite(Config) ->
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
     ok = emqx_ct_helpers:start_apps([emqx_management, emqx_authz], fun set_special_configs/1),
-    {ok, _, _} = emqx_config:update([zones, default, authorization, cache, enable], false),
-    {ok, _, _} = emqx_config:update([zones, default, authorization, enable], true),
+    {ok, _, _} = emqx:update_config([zones, default, authorization, cache, enable], false),
+    {ok, _, _} = emqx:update_config([zones, default, authorization, enable], true),
 
     Config.
 

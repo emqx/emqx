@@ -61,13 +61,6 @@
         , find_listener_conf/3
         ]).
 
--export([ update/2
-        , update/3
-        , remove/1
-        , remove/2
-        , reset/2
-        ]).
-
 -export([ get_raw/1
         , get_raw/2
         , put_raw/1
@@ -190,38 +183,6 @@ put(Config) ->
 
 -spec put(emqx_map_lib:config_key_path(), term()) -> ok.
 put(KeyPath, Config) -> do_put(?CONF, KeyPath, Config).
-
--spec update(emqx_map_lib:config_key_path(), update_request()) ->
-    {ok, config(), raw_config()} | {error, term()}.
-update(KeyPath, UpdateReq) ->
-    update(KeyPath, UpdateReq, #{}).
-
--spec update(emqx_map_lib:config_key_path(), update_request(),
-             update_opts()) ->
-    {ok, config(), raw_config()} | {error, term()}.
-update([RootName | _] = KeyPath, UpdateReq, Opts) ->
-    emqx_config_handler:update_config(get_schema_mod(RootName), KeyPath,
-        {{update, UpdateReq}, Opts}).
-
--spec remove(emqx_map_lib:config_key_path()) -> {ok, config(), raw_config()} | {error, term()}.
-remove(KeyPath) ->
-    remove(KeyPath, #{}).
-
--spec remove(emqx_map_lib:config_key_path(), update_opts()) ->
-    ok | {error, term()}.
-remove([RootName | _] = KeyPath, Opts) ->
-    emqx_config_handler:update_config(get_schema_mod(RootName), KeyPath, {remove, Opts}).
-
--spec reset(emqx_map_lib:config_key_path(), update_opts()) ->
-    {ok, config(), raw_config()} | {error, term()}.
-reset([RootName | _] = KeyPath, Opts) ->
-    case get_default_value(KeyPath) of
-        {ok, Default} ->
-            emqx_config_handler:update_config(get_schema_mod(RootName), KeyPath,
-                {{update, Default}, Opts});
-        {error, _} = Error ->
-            Error
-    end.
 
 -spec get_default_value(emqx_map_lib:config_key_path()) -> {ok, term()} | {error, term()}.
 get_default_value([RootName | _] = KeyPath) ->
