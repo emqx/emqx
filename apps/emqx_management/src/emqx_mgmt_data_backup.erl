@@ -185,7 +185,7 @@ confs_to_binary(Confs) ->
 
 -endif.
 
--dialyzer([{nowarn_function, [import_rule/1]}]).
+-dialyzer([{nowarn_function, [import_rules/1, import_rule/1]}]).
 import_rule(#{<<"id">> := RuleId,
               <<"rawsql">> := RawSQL,
               <<"actions">> := Actions,
@@ -197,9 +197,10 @@ import_rule(#{<<"id">> := RuleId,
              enabled => Enabled,
              description => Desc},
     case emqx_rule_engine:create_rule(Rule) of
-        {ok, _Rule} -> ok;
-        {error, {resource_not_initialized, _}} ->
-            emqx_rule_engine:create_rule(Rule#{enabled => false})
+        {ok, _} -> ok;
+        {error, _} ->
+            _ = emqx_rule_engine:create_rule(Rule#{enabled => false}),
+            ok
     end.
 
 map_to_actions(Maps) ->
