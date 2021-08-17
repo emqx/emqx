@@ -91,7 +91,7 @@ statsd(put, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Params = emqx_json:decode(Body, [return_maps]),
     Enable = maps:get(<<"enable">>, Params),
-    {ok, _, _} = emqx:update_config([statsd], Params),
+    {ok, _} = emqx:update_config([statsd], Params),
     enable_statsd(Enable).
 
 enable_statsd(true) ->
