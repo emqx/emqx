@@ -21,7 +21,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
-
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
@@ -44,6 +43,11 @@
 %% gen_server callbacks
 -export([ enable/0
         , disable/0
+        , set_max_delayed_messages/1
+        , update_config/2
+        , list/1
+        , get_delayed_message/1
+        , delete_delayed_message/1
         ]).
 
 -record(delayed_message, {key, msg}).
@@ -117,6 +121,64 @@ enable() ->
 disable() ->
     gen_server:call(?SERVER, disable).
 
+set_max_delayed_messages(Max) ->
+    gen_server:call(?SERVER, {set_max_delayed_messages, Max}).
+
+list(Params) ->
+    emqx_mgmt_api:paginate(?TAB, Params, fun format_delayed/1).
+
+format_delayed(Delayed) ->
+    format_delayed(Delayed, false).
+
+format_delayed(#delayed_message{key = {TimeStamp, Id},
+            msg = #message{topic = Topic,
+                           from = From,
+                           headers = #{username := Username},
+                           qos = Qos,
+                           payload = Payload}}, WithPayload) ->
+    Result = #{
+        id => emqx_guid:to_hexstr(Id),
+        publish_time => list_to_binary(calendar:system_time_to_rfc3339(TimeStamp, [{unit, second}])),
+        topic => Topic,
+        qos => Qos,
+        from_clientid => From,
+        from_username => Username
+    },
+    case WithPayload of
+        true ->
+            Result#{payload => Payload};
+        _ ->
+            Result
+    end.
+
+get_delayed_message(Id0) ->
+    Id = emqx_guid:from_hexstr(Id0),
+    Ms = [{{delayed_message,{'_',Id},'_'},[],['$_']}],
+    case ets:select(?TAB, Ms) of
+        [] ->
+            {error, not_found};
+        Rows ->
+            Message = hd(Rows),
+            {ok, format_delayed(Message, true)}
+    end.
+
+delete_delayed_message(Id0) ->
+    Id = emqx_guid:from_hexstr(Id0),
+    Ms = [{{delayed_message, {'$1', Id}, '_'}, [], ['$1']}],
+    case ets:select(?TAB, Ms) of
+        [] ->
+            {error, not_found};
+        Rows ->
+            Timestamp = hd(Rows),
+            ekka_mnesia:dirty_delete(?TAB, {Timestamp, Id})
+    end.
+
+update_config(Enable, MaxDelayedMessages) ->
+    Opts0 = emqx_config:get_raw([<<"delayed">>], #{}),
+    Opts1 = maps:put(<<"enable">>, Enable, Opts0),
+    Opts = maps:put(<<"max_delayed_messages">>, MaxDelayedMessages, Opts1),
+    {ok, _} = emqx:update_config([delayed], Opts).
+
 %%--------------------------------------------------------------------
 %% gen_server callback
 %%--------------------------------------------------------------------
@@ -127,6 +189,9 @@ init([Opts]) ->
            ensure_publish_timer(#{timer => undefined,
                                   publish_at => 0,
                                   max_delayed_messages => MaxDelayedMessages}))}.
+
+handle_call({set_max_delayed_messages, Max}, _From, State) ->
+    {reply, ok, State#{max_delayed_messages => Max}};
 
 handle_call({store, DelayedMsg = #delayed_message{key = Key}},
             _From, State = #{max_delayed_messages := 0}) ->

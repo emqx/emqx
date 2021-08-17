@@ -20,110 +20,133 @@
 
 -import(emqx_mgmt_util, [ response_schema/1
                         , response_schema/2
+                        , response_error_schema/2
+                        , response_page_schema/1
                         , request_body_schema/1
                         ]).
 
-% -export([cli/1]).
-
 -export([ status/2
         , delayed_messages/2
-        , delete_delayed_message/2
+        , delayed_message/2
         ]).
 
--export([enable_delayed/2]).
+%% for rpc
+-export([update_config_/2]).
 
 -export([api_spec/0]).
 
+-define(ALREADY_ENABLED, 'ALREADY_ENABLED').
+-define(ALREADY_DISABLED, 'ALREADY_DISABLED').
+
+-define(BAD_REQUEST, 'BAD_REQUEST').
+
+-define(MESSAGE_ID_NOT_FOUND, 'ALREADY_DISABLED').
+
 api_spec() ->
-    {[status(), delayed_messages(), delete_delayed_message()],
-     [delayed_message_schema()]}.
+    {
+        [status_api(), delayed_messages_api(), delayed_message_api()],
+        []
+    }.
 
+delayed_schema() ->
+    delayed_schema(false).
 
-delayed_message_schema() ->
-    #{broker_info => #{
+delayed_schema(WithPayload) ->
+    case WithPayload of
+        true ->
+            #{
+                type => object,
+                properties => delayed_message_properties()
+            };
+        _ ->
+            #{
+                type => object,
+                properties => maps:without([payload], delayed_message_properties())
+            }
+    end.
+
+delayed_message_properties() ->
+    #{
+        id => #{
+            type => integer,
+            description => <<"Message Id (MQTT message id hash)">>},
+        publish_time => #{
+            type => string,
+            description => <<"publish time, rfc 3339">>},
+        topic => #{
+            type => string,
+            description => <<"Topic">>},
+        qos => #{
+            type => integer,
+            enum => [0, 1, 2],
+            description => <<"Qos">>},
+        payload => #{
+            type => string,
+            description => <<"Payload">>},
+        form_clientid => #{
+            type => string,
+            description => <<"Client ID">>},
+        form_username => #{
+            type => string,
+            description => <<"Username">>}
+    }.
+
+status_api() ->
+    Schema = #{
         type => object,
         properties => #{
-            msgid => #{
-                type => string,
-                description => <<"Message Id">>
-            }
-        }
-    }}.
-
-status() ->
+            enable => #{
+                type => boolean},
+            max_delayed_messages => #{
+                type => integer,
+                description => <<"Max limit, 0 is no limit">>}}},
     Metadata = #{
         get => #{
             description => "Get delayed status",
             responses => #{
-                <<"200">> => response_schema(<<"Bad Request">>,
-                    #{
-                        type => object,
-                        properties => #{enable => #{type => boolean}}
-                    }
-                )
-            }
-        },
+                <<"200">> => response_schema(<<"Bad Request">>, Schema)}},
         put => #{
-            description => "Enable or disbale delayed",
-            'requestBody' => request_body_schema(#{
-                type => object,
-                properties => #{
-                    enable => #{
-                        type => boolean
-                    }
-                }
-            }),
+            description => "Enable or disable delayed, set max delayed messages",
+            'requestBody' => request_body_schema(Schema),
             responses => #{
                 <<"200">> =>
-                    response_schema(<<"Enable or disbale delayed successfully">>),
+                    response_schema(<<"Enable or disable delayed successfully">>),
                 <<"400">> =>
-                    response_schema(<<"Bad Request">>,
-                        #{
-                            type => object,
-                            properties => #{
-                                message => #{type => string},
-                                code => #{type => string}
-                            }
-                        }
-                    )
-            }
-        }
-    },
-    {"/delayed/status", Metadata, status}.
+                    response_error_schema(<<"Already disabled or enabled">>, [?ALREADY_ENABLED, ?ALREADY_DISABLED])}}},
+    {"/mqtt/delayed_messages/status", Metadata, status}.
 
-delayed_messages() ->
+delayed_messages_api() ->
     Metadata = #{
         get => #{
-            description => "Get delayed message list",
+            description => "List delayed messages",
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_array_schema(<<>>, delayed_message)
-            }
-        }
-    },
-    {"/delayed/messages", Metadata, delayed_messages}.
+                <<"200">> => response_page_schema(delayed_schema())}}},
+    {"/mqtt/delayed_messages", Metadata, delayed_messages}.
 
-delete_delayed_message() ->
+delayed_message_api() ->
     Metadata = #{
-        delete => #{
-            description => "Delete delayed message",
+        get => #{
+            description => "Get delayed message",
             parameters => [#{
-                name => msgid,
+                name => id,
                 in => path,
                 schema => #{type => string},
                 required => true
             }],
             responses => #{
-                <<"200">> => response_schema(<<"Bad Request">>,
-                    #{
-                        type => object,
-                        properties => #{enable => #{type => boolean}}
-                    }
-                )
-            }
-        }
-    },
-    {"/delayed/messages/:msgid", Metadata, delete_delayed_message}.
-
+                <<"200">> => response_schema(<<"Get delayed message success">>, delayed_schema(true)),
+                <<"404">> => response_error_schema(<<"Message ID not found">>, [?MESSAGE_ID_NOT_FOUND])}},
+        delete => #{
+            description => "Delete delayed message",
+            parameters => [#{
+                name => id,
+                in => path,
+                schema => #{type => string},
+                required => true
+            }],
+            responses => #{
+                <<"200">> => response_schema(<<"Delete delayed message success">>)}}},
+    {"/mqtt/delayed_messages/:id", Metadata, delayed_message}.
 
 %%--------------------------------------------------------------------
 %% HTTP API
@@ -135,33 +158,60 @@ status(put, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Params = emqx_json:decode(Body, [return_maps]),
     Enable = maps:get(<<"enable">>, Params),
-    case Enable =:= get_status() of
-        true ->
-            Reason = case Enable of
-                true -> <<"Telemetry status is already enabled">>;
-                false -> <<"Telemetry status is already disable">>
-            end,
-            {400, #{code => "BAD_REQUEST", message => Reason}};
-        false ->
-            enable_delayed(Enable),
-             {200}
-    end.
+    MaxDelayedMessages = maps:get(<<"max_delayed_messages">>, Params),
+    update_config(Enable, MaxDelayedMessages).
 
-delayed_messages(get, _Request) ->
-    {200, []}.
+delayed_messages(get, Request) ->
+    Qs = cowboy_req:parse_qs(Request),
+    {200, emqx_delayed:list(Qs)}.
 
-delete_delayed_message(delete, _Request) ->
+delayed_message(get, Request) ->
+    Id = cowboy_req:binding(id, Request),
+    case emqx_delayed:get_delayed_message(Id) of
+        {ok, Message} ->
+            {200, Message};
+        {error, not_found} ->
+            Message = list_to_binary(io_lib:format("Message ID ~p not found", [Id])),
+            {404, #{code => ?MESSAGE_ID_NOT_FOUND, message => Message}}
+    end;
+delayed_message(delete, Request) ->
+    Id = cowboy_req:binding(id, Request),
+    _ = emqx_delayed:delete_delayed_message(Id),
     {200}.
 
 %%--------------------------------------------------------------------
 %% internal function
 %%--------------------------------------------------------------------
-enable_delayed(Enable) ->
+get_status() ->
+    #{
+        enable => emqx:get_config([delayed, enable], true),
+        max_delayed_messages => emqx:get_config([delayed, max_delayed_messages], 0)
+    }.
+
+update_config(Enable, MaxDelayedMessages) when MaxDelayedMessages >= 0 ->
+    case Enable =:= maps:get(enable, get_status()) of
+        true ->
+            update_config_error_response(Enable);
+        _ ->
+            update_config_(Enable, MaxDelayedMessages),
+            {200}
+    end;
+update_config(_Enable, _MaxDelayedMessages) ->
+    {400, #{code => ?BAD_REQUEST, message => <<"Max delayed must be equal or greater than 0">>}}.
+
+update_config_error_response(true) ->
+    {400, #{code => ?ALREADY_ENABLED, message => <<"Delayed message status is already enabled">>}};
+update_config_error_response(false) ->
+    {400, #{code => ?ALREADY_DISABLED, message => <<"Delayed message status is already disable">>}}.
+
+update_config_(Enable, MaxDelayedMessages) ->
     lists:foreach(fun(Node) ->
-        enable_delayed(Node, Enable)
+        update_config_(Node, Enable, MaxDelayedMessages)
     end, ekka_mnesia:running_nodes()).
 
-enable_delayed(Node, Enable) when Node =:= node() ->
+update_config_(Node, Enable, MaxDelayedMessages) when Node =:= node() ->
+    _ = emqx_delayed:update_config(Enable, MaxDelayedMessages),
+    ok = emqx_delayed:set_max_delayed_messages(MaxDelayedMessages),
     case Enable of
         true ->
             emqx_delayed:enable();
@@ -169,14 +219,11 @@ enable_delayed(Node, Enable) when Node =:= node() ->
             emqx_delayed:disable()
     end;
 
-enable_delayed(Node, Enable) ->
-    rpc_call(Node, ?MODULE, enable_delayed, [Node, Enable]).
+update_config_(Node, Enable, MaxDelayedMessages) ->
+    rpc_call(Node, ?MODULE, update_config_, [Node, Enable, MaxDelayedMessages]).
 
 rpc_call(Node, Module, Fun, Args) ->
     case rpc:call(Node, Module, Fun, Args) of
         {badrpc, Reason} -> {error, Reason};
         Result -> Result
     end.
-
-get_status() ->
-    emqx_config:get([delayed, enable], true).
