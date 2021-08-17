@@ -87,27 +87,19 @@ rewrite_publish(Message = #message{topic = Topic}, Rules) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
--spec(compile(Rules :: list()) -> {PublishRules :: list(), SubscribeRules :: list()}).
-compile(Rules) when is_list(Rules) ->
-    Fun =
-        fun(Rewrite, {Acc1, Acc2}) ->
-            {Action, Rule} = compile_rule(Rewrite),
-            case Action of
-                publish ->
-                    {[Rule | Acc1], Acc2};
-                subscribe ->
-                    {Acc1, [Rule | Acc2]}
-            end
-        end,
-    lists:foldl(Fun, {[], []}, Rules).
-
--spec(compile_rule(Rules :: map()) ->
-    {Action :: subscribe | publish, 
-    {Topic :: binary(), Re :: {re_pattern, term(), term(), term(), term()}},
-    Dest :: binary()}).
-compile_rule(#{source_topic := Topic, re := Re, dest_topic := Dest, action := Action}) ->
-    {ok, MP} = re:compile(Re),
-    {Action, {Topic, MP, Dest}}.
+compile(Rules) ->
+     lists:foldl(fun(#{source_topic := Topic,
+                       re := Re,
+                       dest_topic := Dest,
+                       action := Action}, {Acc1, Acc2}) ->
+         {ok, MP} = re:compile(Re),
+         case Action of
+             publish ->
+                 {[{Topic, MP, Dest} | Acc1], Acc2};
+             subscribe ->
+                 {Acc1, [{Topic, MP, Dest} | Acc2]}
+         end
+     end, {[], []}, Rules).
 
 match_and_rewrite(Topic, []) ->
     Topic;
