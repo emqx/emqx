@@ -195,9 +195,10 @@ import_rule(#{<<"id">> := RuleId,
              actions => map_to_actions(Actions),
              enabled => Enabled,
              description => Desc},
-    try emqx_rule_engine:create_rule(Rule)
-    catch throw:{resource_not_initialized, _ResId} ->
-        emqx_rule_engine:create_rule(Rule#{enabled => false})
+    case emqx_rule_engine:create_rule(Rule) of
+        {ok, _Rule} -> ok;
+        {error, {resource_not_initialized, _}} ->
+            emqx_rule_engine:create_rule(Rule#{enabled => false})
     end.
 
 map_to_actions(Maps) ->
