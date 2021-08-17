@@ -107,7 +107,12 @@ gateway(_) ->
 
 'gateway-clients'(["list", Name]) ->
     InfoTab = emqx_gateway_cm:tabname(info, Name),
-    dump(InfoTab, client);
+    case ets:info(InfoTab) of
+        undefined ->
+            emqx_ctl:print("Bad Gateway Name.~n");
+        _ ->
+        dump(InfoTab, client)
+    end;
 
 'gateway-clients'(["lookup", Name, ClientId]) ->
     ChanTab = emqx_gateway_cm:tabname(chan, Name),
@@ -191,7 +196,7 @@ print({client, {_, Infos, Stats}}) ->
               keepalive => SafeGet(keepalive, ConnInfo),
               subscriptions_cnt => StatsGet(subscriptions_cnt),
               send_msg => StatsGet(send_msg),
-              connected => SafeGet(conn_state, ClientInfo) == connected,
+              connected => SafeGet(conn_state, Infos) == connected,
               created_at => ConnectedAt,
               connected_at => ConnectedAt
             },
