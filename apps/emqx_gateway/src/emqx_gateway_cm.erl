@@ -61,13 +61,13 @@
         ]).
 
 -record(state, {
-          type      :: atom(),    %% Gateway Type
-          locker    :: pid(),     %% ClientId Locker for CM
-          registry  :: pid(),     %% ClientId Registry server
+          gwname    :: gateway_name(), %% Gateway Name
+          locker    :: pid(),          %% ClientId Locker for CM
+          registry  :: pid(),          %% ClientId Registry server
           chan_pmon :: emqx_pmon:pmon()
          }).
 
--type option() :: {type, gateway_type()}.
+-type option() :: {gwname, gateway_name()}.
 -type options() :: list(option()).
 
 -define(T_TAKEOVER, 15000).
@@ -79,142 +79,147 @@
 
 -spec start_link(options()) -> {ok, pid()} | ignore | {error, any()}.
 start_link(Options) ->
-    Type = proplists:get_value(type, Options),
-    gen_server:start_link({local, procname(Type)}, ?MODULE, Options, []).
+    GwName = proplists:get_value(gwname, Options),
+    gen_server:start_link({local, procname(GwName)}, ?MODULE, Options, []).
 
-procname(Type) ->
-    list_to_atom(lists:concat([emqx_gateway_, Type, '_cm'])).
+procname(GwName) ->
+    list_to_atom(lists:concat([emqx_gateway_, GwName, '_cm'])).
 
--spec cmtabs(Type :: atom()) -> {ChanTab :: atom(),
-                                 ConnTab :: atom(),
-                                 ChannInfoTab :: atom()}.
-cmtabs(Type) ->
-    { tabname(chan, Type)   %% Client Tabname; Record: {ClientId, Pid}
-    , tabname(conn, Type)   %% Client ConnMod; Recrod: {{ClientId, Pid}, ConnMod}
-    , tabname(info, Type)   %% ClientInfo Tabname; Record: {{ClientId, Pid}, ClientInfo, ClientStats}
+-spec cmtabs(GwName :: gateway_name())
+    -> {ChanTab :: atom(),
+        ConnTab :: atom(),
+        ChannInfoTab :: atom()}.
+cmtabs(GwName) ->
+    { tabname(chan, GwName)   %% Client Tabname; Record: {ClientId, Pid}
+    , tabname(conn, GwName)   %% Client ConnMod; Recrod: {{ClientId, Pid}, ConnMod}
+    , tabname(info, GwName)   %% ClientInfo Tabname; Record: {{ClientId, Pid}, ClientInfo, ClientStats}
     }.
 
-tabname(chan, Type) ->
-    list_to_atom(lists:concat([emqx_gateway_, Type, '_channel']));
-tabname(conn, Type) ->
-    list_to_atom(lists:concat([emqx_gateway_, Type, '_channel_conn']));
-tabname(info, Type) ->
-    list_to_atom(lists:concat([emqx_gateway_, Type, '_channel_info'])).
+tabname(chan, GwName) ->
+    list_to_atom(lists:concat([emqx_gateway_, GwName, '_channel']));
+tabname(conn, GwName) ->
+    list_to_atom(lists:concat([emqx_gateway_, GwName, '_channel_conn']));
+tabname(info, GwName) ->
+    list_to_atom(lists:concat([emqx_gateway_, GwName, '_channel_info'])).
 
-lockername(Type) ->
-    list_to_atom(lists:concat([emqx_gateway_, Type, '_locker'])).
+lockername(GwName) ->
+    list_to_atom(lists:concat([emqx_gateway_, GwName, '_locker'])).
 
--spec register_channel(atom(), binary(), pid(), emqx_types:conninfo()) -> ok.
-register_channel(Type, ClientId, ChanPid, #{conn_mod := ConnMod}) when is_pid(ChanPid) ->
+-spec register_channel(gateway_name(),
+                       emqx_types:clientid(),
+                       pid(),
+                       emqx_types:conninfo()) -> ok.
+register_channel(GwName, ClientId, ChanPid, #{conn_mod := ConnMod}) when is_pid(ChanPid) ->
     Chan = {ClientId, ChanPid},
-    true = ets:insert(tabname(chan, Type), Chan),
-    true = ets:insert(tabname(conn, Type), {Chan, ConnMod}),
-    ok = emqx_gateway_cm_registry:register_channel(Type, Chan),
-    cast(procname(Type), {registered, Chan}).
+    true = ets:insert(tabname(chan, GwName), Chan),
+    true = ets:insert(tabname(conn, GwName), {Chan, ConnMod}),
+    ok = emqx_gateway_cm_registry:register_channel(GwName, Chan),
+    cast(procname(GwName), {registered, Chan}).
 
 %% @doc Unregister a channel.
--spec unregister_channel(atom(), emqx_types:clientid()) -> ok.
-unregister_channel(Type, ClientId) when is_binary(ClientId) ->
-    true = do_unregister_channel(Type, {ClientId, self()}, cmtabs(Type)),
+-spec unregister_channel(gateway_name(), emqx_types:clientid()) -> ok.
+unregister_channel(GwName, ClientId) when is_binary(ClientId) ->
+    true = do_unregister_channel(GwName, {ClientId, self()}, cmtabs(GwName)),
     ok.
 
 %% @doc Insert/Update the channel info and stats
--spec insert_channel_info(atom(),
+-spec insert_channel_info(gateway_name(),
                           emqx_types:clientid(),
                           emqx_types:infos(),
                           emqx_types:stats()) -> ok.
-insert_channel_info(Type, ClientId, Info, Stats) ->
+insert_channel_info(GwName, ClientId, Info, Stats) ->
     Chan = {ClientId, self()},
-    true = ets:insert(tabname(info, Type), {Chan, Info, Stats}),
+    true = ets:insert(tabname(info, GwName), {Chan, Info, Stats}),
     %%?tp(debug, insert_channel_info, #{client_id => ClientId}),
     ok.
 
 %% @doc Get info of a channel.
--spec get_chan_info(gateway_type(), emqx_types:clientid())
+-spec get_chan_info(gateway_name(), emqx_types:clientid())
       -> emqx_types:infos() | undefined.
-get_chan_info(Type, ClientId) ->
-    with_channel(Type, ClientId,
+get_chan_info(GwName, ClientId) ->
+    with_channel(GwName, ClientId,
         fun(ChanPid) ->
-            get_chan_info(Type, ClientId, ChanPid)
+            get_chan_info(GwName, ClientId, ChanPid)
         end).
 
--spec get_chan_info(gateway_type(), emqx_types:clientid(), pid())
+-spec get_chan_info(gateway_name(), emqx_types:clientid(), pid())
       -> emqx_types:infos() | undefined.
-get_chan_info(Type, ClientId, ChanPid) when node(ChanPid) == node() ->
+get_chan_info(GwName, ClientId, ChanPid) when node(ChanPid) == node() ->
     Chan = {ClientId, ChanPid},
-    try ets:lookup_element(tabname(info, Type), Chan, 2)
+    try ets:lookup_element(tabname(info, GwName), Chan, 2)
     catch
         error:badarg -> undefined
     end;
-get_chan_info(Type, ClientId, ChanPid) ->
-    rpc_call(node(ChanPid), get_chan_info, [Type, ClientId, ChanPid]).
+get_chan_info(GwName, ClientId, ChanPid) ->
+    rpc_call(node(ChanPid), get_chan_info, [GwName, ClientId, ChanPid]).
 
 %% @doc Update infos of the channel.
--spec set_chan_info(gateway_type(),
+-spec set_chan_info(gateway_name(),
                     emqx_types:clientid(),
                     emqx_types:infos()) -> boolean().
-set_chan_info(Type, ClientId, Infos) ->
-    set_chan_info(Type, ClientId, self(), Infos).
+set_chan_info(GwName, ClientId, Infos) ->
+    set_chan_info(GwName, ClientId, self(), Infos).
 
--spec set_chan_info(gateway_type(),
+-spec set_chan_info(gateway_name(),
                     emqx_types:clientid(),
                     pid(),
                     emqx_types:infos()) -> boolean().
-set_chan_info(Type, ClientId, ChanPid, Infos) when node(ChanPid) == node() ->
+set_chan_info(GwName, ClientId, ChanPid, Infos) when node(ChanPid) == node() ->
     Chan = {ClientId, ChanPid},
-    try ets:update_element(tabname(info, Type), Chan, {2, Infos})
+    try ets:update_element(tabname(info, GwName), Chan, {2, Infos})
     catch
         error:badarg -> false
     end;
-set_chan_info(Type, ClientId, ChanPid, Infos) ->
-    rpc_call(node(ChanPid), set_chan_info, [Type, ClientId, ChanPid, Infos]).
+set_chan_info(GwName, ClientId, ChanPid, Infos) ->
+    rpc_call(node(ChanPid), set_chan_info, [GwName, ClientId, ChanPid, Infos]).
 
 %% @doc Get channel's stats.
--spec get_chan_stats(gateway_type(), emqx_types:clientid())
+-spec get_chan_stats(gateway_name(), emqx_types:clientid())
       -> emqx_types:stats() | undefined.
-get_chan_stats(Type, ClientId) ->
-    with_channel(Type, ClientId,
+get_chan_stats(GwName, ClientId) ->
+    with_channel(GwName, ClientId,
         fun(ChanPid) ->
-            get_chan_stats(Type, ClientId, ChanPid)
+            get_chan_stats(GwName, ClientId, ChanPid)
         end).
 
--spec get_chan_stats(gateway_type(), emqx_types:clientid(), pid())
+-spec get_chan_stats(gateway_name(), emqx_types:clientid(), pid())
       -> emqx_types:stats() | undefined.
-get_chan_stats(Type, ClientId, ChanPid) when node(ChanPid) == node() ->
+get_chan_stats(GwName, ClientId, ChanPid) when node(ChanPid) == node() ->
     Chan = {ClientId, ChanPid},
-    try ets:lookup_element(tabname(info, Type), Chan, 3)
+    try ets:lookup_element(tabname(info, GwName), Chan, 3)
     catch
         error:badarg -> undefined
     end;
-get_chan_stats(Type, ClientId, ChanPid) ->
-    rpc_call(node(ChanPid), get_chan_stats, [Type, ClientId, ChanPid]).
+get_chan_stats(GwName, ClientId, ChanPid) ->
+    rpc_call(node(ChanPid), get_chan_stats, [GwName, ClientId, ChanPid]).
 
--spec set_chan_stats(gateway_type(),
+-spec set_chan_stats(gateway_name(),
                      emqx_types:clientid(),
                      emqx_types:stats()) -> boolean().
-set_chan_stats(Type, ClientId, Stats) ->
-    set_chan_stats(Type, ClientId, self(), Stats).
+set_chan_stats(GwName, ClientId, Stats) ->
+    set_chan_stats(GwName, ClientId, self(), Stats).
 
--spec set_chan_stats(gateway_type(),
+-spec set_chan_stats(gateway_name(),
                      emqx_types:clientid(),
                      pid(),
                      emqx_types:stats()) -> boolean().
-set_chan_stats(Type, ClientId, ChanPid, Stats)  when node(ChanPid) == node() ->
+set_chan_stats(GwName, ClientId, ChanPid, Stats)  when node(ChanPid) == node() ->
     Chan = {ClientId, self()},
-    try ets:update_element(tabname(info, Type), Chan, {3, Stats})
+    try ets:update_element(tabname(info, GwName), Chan, {3, Stats})
     catch
         error:badarg -> false
     end;
-set_chan_stats(Type, ClientId, ChanPid, Stats) ->
-    rpc_call(node(ChanPid), set_chan_stats, [Type, ClientId, ChanPid, Stats]).
+set_chan_stats(GwName, ClientId, ChanPid, Stats) ->
+    rpc_call(node(ChanPid), set_chan_stats, [GwName, ClientId, ChanPid, Stats]).
 
--spec connection_closed(gateway_type(), emqx_types:clientid()) -> true.
-connection_closed(Type, ClientId) ->
+-spec connection_closed(gateway_name(), emqx_types:clientid()) -> true.
+connection_closed(GwName, ClientId) ->
     %% XXX: Why we need to delete conn_mod tab ???
     Chan = {ClientId, self()},
-    ets:delete_object(tabname(conn, Type), Chan).
+    ets:delete_object(tabname(conn, GwName), Chan).
 
--spec open_session(Type :: atom(), CleanStart :: boolean(),
+-spec open_session(GwName :: gateway_name(),
+                   CleanStart :: boolean(),
                    ClientInfo :: emqx_types:clientinfo(),
                    ConnInfo :: emqx_types:conninfo(),
                    CreateSessionFun :: fun((emqx_types:clientinfo(),
@@ -226,24 +231,24 @@ connection_closed(Type, ClientId) ->
           }}
      | {error, any()}.
 
-open_session(Type, CleanStart, ClientInfo, ConnInfo, CreateSessionFun) ->
-    open_session(Type, CleanStart, ClientInfo, ConnInfo, CreateSessionFun, emqx_session).
+open_session(GwName, CleanStart, ClientInfo, ConnInfo, CreateSessionFun) ->
+    open_session(GwName, CleanStart, ClientInfo, ConnInfo, CreateSessionFun, emqx_session).
 
-open_session(Type, true = _CleanStart, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
+open_session(GwName, true = _CleanStart, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
     Self = self(),
     ClientId = maps:get(clientid, ClientInfo),
     Fun = fun(_) ->
-                  ok = discard_session(Type, ClientId),
-                  Session = create_session(Type,
+                  ok = discard_session(GwName, ClientId),
+                  Session = create_session(GwName,
                                            ClientInfo,
                                            ConnInfo,
                                            CreateSessionFun,
                                            SessionMod
                                           ),
-                  register_channel(Type, ClientId, Self, ConnInfo),
+                  register_channel(GwName, ClientId, Self, ConnInfo),
                   {ok, #{session => Session, present => false}}
           end,
-    locker_trans(Type, ClientId, Fun);
+    locker_trans(GwName, ClientId, Fun);
 
 open_session(_Type, false = _CleanStart,
              _ClientInfo, _ConnInfo, _CreateSessionFun, _SessionMod) ->
@@ -251,13 +256,13 @@ open_session(_Type, false = _CleanStart,
     {error, not_supported_now}.
 
 %% @private
-create_session(Type, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
+create_session(GwName, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
     try
         Session = emqx_gateway_utils:apply(
                     CreateSessionFun,
                     [ClientInfo, ConnInfo]
                    ),
-        ok = emqx_gateway_metrics:inc(Type, 'session.created'),
+        ok = emqx_gateway_metrics:inc(GwName, 'session.created'),
         SessionInfo = case is_tuple(Session)
                            andalso element(1, Session) == session of
                           true -> SessionMod:info(Session);
@@ -279,17 +284,17 @@ create_session(Type, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
     end.
 
 %% @doc Discard all the sessions identified by the ClientId.
--spec discard_session(Type :: atom(), binary()) -> ok.
-discard_session(Type, ClientId) when is_binary(ClientId) ->
-    case lookup_channels(Type, ClientId) of
+-spec discard_session(GwName :: gateway_name(), binary()) -> ok.
+discard_session(GwName, ClientId) when is_binary(ClientId) ->
+    case lookup_channels(GwName, ClientId) of
         [] -> ok;
-        ChanPids -> lists:foreach(fun(Pid) -> do_discard_session(Type, ClientId, Pid) end, ChanPids)
+        ChanPids -> lists:foreach(fun(Pid) -> do_discard_session(GwName, ClientId, Pid) end, ChanPids)
     end.
 
 %% @private
-do_discard_session(Type, ClientId, Pid) ->
+do_discard_session(GwName, ClientId, Pid) ->
     try
-        discard_session(Type, ClientId, Pid)
+        discard_session(GwName, ClientId, Pid)
     catch
         _ : noproc -> % emqx_ws_connection: call
             %?tp(debug, "session_already_gone", #{pid => Pid}),
@@ -307,72 +312,72 @@ do_discard_session(Type, ClientId, Pid) ->
     end.
 
 %% @private
-discard_session(Type, ClientId, ChanPid) when node(ChanPid) == node() ->
-    case get_chann_conn_mod(Type, ClientId, ChanPid) of
+discard_session(GwName, ClientId, ChanPid) when node(ChanPid) == node() ->
+    case get_chann_conn_mod(GwName, ClientId, ChanPid) of
         undefined -> ok;
         ConnMod when is_atom(ConnMod) ->
             ConnMod:call(ChanPid, discard, ?T_TAKEOVER)
     end;
 
 %% @private
-discard_session(Type, ClientId, ChanPid) ->
-    rpc_call(node(ChanPid), discard_session, [Type, ClientId, ChanPid]).
+discard_session(GwName, ClientId, ChanPid) ->
+    rpc_call(node(ChanPid), discard_session, [GwName, ClientId, ChanPid]).
 
--spec kick_session(gateway_type(), emqx_types:clientid())
+-spec kick_session(gateway_name(), emqx_types:clientid())
     -> {error, any()}
      | ok.
-kick_session(Type, ClientId) ->
-    case lookup_channels(Type, ClientId) of
+kick_session(GwName, ClientId) ->
+    case lookup_channels(GwName, ClientId) of
         [] -> {error, not_found};
         [ChanPid] ->
-            kick_session(Type, ClientId, ChanPid);
+            kick_session(GwName, ClientId, ChanPid);
         ChanPids ->
             [ChanPid|StalePids] = lists:reverse(ChanPids),
             ?LOG(error, "More than one channel found: ~p", [ChanPids]),
             lists:foreach(fun(StalePid) ->
-                              catch discard_session(Type, ClientId, StalePid)
+                              catch discard_session(GwName, ClientId, StalePid)
                           end, StalePids),
-            kick_session(Type, ClientId, ChanPid)
+            kick_session(GwName, ClientId, ChanPid)
     end.
 
-kick_session(Type, ClientId, ChanPid) when node(ChanPid) == node() ->
-    case get_chan_info(Type, ClientId, ChanPid) of
+kick_session(GwName, ClientId, ChanPid) when node(ChanPid) == node() ->
+    case get_chan_info(GwName, ClientId, ChanPid) of
         #{conninfo := #{conn_mod := ConnMod}} ->
             ConnMod:call(ChanPid, kick, ?T_TAKEOVER);
         undefined ->
             {error, not_found}
     end;
 
-kick_session(Type, ClientId, ChanPid) ->
-    rpc_call(node(ChanPid), kick_session, [Type, ClientId, ChanPid]).
+kick_session(GwName, ClientId, ChanPid) ->
+    rpc_call(node(ChanPid), kick_session, [GwName, ClientId, ChanPid]).
 
-with_channel(Type, ClientId, Fun) ->
-    case lookup_channels(Type, ClientId) of
+with_channel(GwName, ClientId, Fun) ->
+    case lookup_channels(GwName, ClientId) of
         []    -> undefined;
         [Pid] -> Fun(Pid);
         Pids  -> Fun(lists:last(Pids))
     end.
 
 %% @doc Lookup channels.
--spec(lookup_channels(atom(), emqx_types:clientid()) -> list(pid())).
-lookup_channels(Type, ClientId) ->
-    emqx_gateway_cm_registry:lookup_channels(Type, ClientId).
+-spec(lookup_channels(gateway_name(), emqx_types:clientid()) -> list(pid())).
+lookup_channels(GwName, ClientId) ->
+    emqx_gateway_cm_registry:lookup_channels(GwName, ClientId).
 
-get_chann_conn_mod(Type, ClientId, ChanPid) when node(ChanPid) == node() ->
+get_chann_conn_mod(GwName, ClientId, ChanPid) when node(ChanPid) == node() ->
     Chan = {ClientId, ChanPid},
-    try [ConnMod] = ets:lookup_element(tabname(conn, Type), Chan, 2), ConnMod
+    try [ConnMod] = ets:lookup_element(tabname(conn, GwName), Chan, 2), ConnMod
     catch
         error:badarg -> undefined
     end;
-get_chann_conn_mod(Type, ClientId, ChanPid) ->
-    rpc_call(node(ChanPid), get_chann_conn_mod, [Type, ClientId, ChanPid]).
+get_chann_conn_mod(GwName, ClientId, ChanPid) ->
+    rpc_call(node(ChanPid), get_chann_conn_mod, [GwName, ClientId, ChanPid]).
 
 %% Locker
 
 locker_trans(_Type, undefined, Fun) ->
     Fun([]);
-locker_trans(Type, ClientId, Fun) ->
-    Locker = lockername(Type),
+locker_trans(GwName, ClientId, Fun) ->
+    Locker = lockername(GwName),
     case locker_lock(Locker, ClientId) of
         {true, Nodes} ->
             try Fun(Nodes) after locker_unlock(Locker, ClientId) end;
@@ -401,27 +406,27 @@ cast(Name, Msg) ->
 %%--------------------------------------------------------------------
 
 init(Options) ->
-    Type = proplists:get_value(type, Options),
+    GwName = proplists:get_value(gwname, Options),
 
     TabOpts = [public, {write_concurrency, true}],
 
-    {ChanTab, ConnTab, InfoTab} = cmtabs(Type),
+    {ChanTab, ConnTab, InfoTab} = cmtabs(GwName),
     ok = emqx_tables:new(ChanTab, [bag, {read_concurrency, true}|TabOpts]),
     ok = emqx_tables:new(ConnTab, [bag | TabOpts]),
     ok = emqx_tables:new(InfoTab, [set, compressed | TabOpts]),
 
     %% Start link cm-registry process
     %% XXX: Should I hang it under a higher level supervisor?
-    {ok, Registry} = emqx_gateway_cm_registry:start_link(Type),
+    {ok, Registry} = emqx_gateway_cm_registry:start_link(GwName),
 
     %% Start locker process
-    {ok, Locker} = ekka_locker:start_link(lockername(Type)),
+    {ok, Locker} = ekka_locker:start_link(lockername(GwName)),
 
     %% Interval update stats
     %% TODO: v0.2
     %ok = emqx_stats:update_interval(chan_stats, fun ?MODULE:stats_fun/0),
 
-    {ok, #state{type = Type,
+    {ok, #state{gwname = GwName,
                 locker = Locker,
                 registry = Registry,
                 chan_pmon = emqx_pmon:new()}}.
@@ -438,12 +443,12 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, Pid, _Reason},
-            State = #state{type = Type, chan_pmon = PMon}) ->
+            State = #state{gwname = GwName, chan_pmon = PMon}) ->
     ChanPids = [Pid | emqx_misc:drain_down(?DEFAULT_BATCH_SIZE)],
     {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
 
-    CmTabs = cmtabs(Type),
-    ok = emqx_pool:async_submit(fun do_unregister_channel_task/3, [Items, Type, CmTabs]),
+    CmTabs = cmtabs(GwName),
+    ok = emqx_pool:async_submit(fun do_unregister_channel_task/3, [Items, GwName, CmTabs]),
     {noreply, State#state{chan_pmon = PMon1}};
 
 handle_info(_Info, State) ->
@@ -455,18 +460,18 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-do_unregister_channel_task(Items, Type, CmTabs) ->
+do_unregister_channel_task(Items, GwName, CmTabs) ->
     lists:foreach(
       fun({ChanPid, ClientId}) ->
-          do_unregister_channel(Type, {ClientId, ChanPid}, CmTabs)
+          do_unregister_channel(GwName, {ClientId, ChanPid}, CmTabs)
       end, Items).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-do_unregister_channel(Type, Chan, {ChanTab, ConnTab, InfoTab}) ->
-    ok = emqx_gateway_cm_registry:unregister_channel(Type, Chan),
+do_unregister_channel(GwName, Chan, {ChanTab, ConnTab, InfoTab}) ->
+    ok = emqx_gateway_cm_registry:unregister_channel(GwName, Chan),
     true = ets:delete(ConnTab, Chan),
     true = ets:delete(InfoTab, Chan),
     ets:delete_object(ChanTab, Chan).
