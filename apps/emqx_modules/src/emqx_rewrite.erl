@@ -88,18 +88,18 @@ rewrite_publish(Message = #message{topic = Topic}, Rules) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 compile(Rules) ->
-     lists:foldl(fun(#{source_topic := Topic,
-                       re := Re,
-                       dest_topic := Dest,
-                       action := Action}, {Acc1, Acc2}) ->
-         {ok, MP} = re:compile(Re),
-         case Action of
-             publish ->
-                 {[{Topic, MP, Dest} | Acc1], Acc2};
-             subscribe ->
-                 {Acc1, [{Topic, MP, Dest} | Acc2]}
-         end
-     end, {[], []}, Rules).
+    lists:foldl(fun(#{source_topic := Topic,
+                      re := Re,
+                      dest_topic := Dest,
+                      action := Action}, {Acc1, Acc2}) ->
+        {ok, MP} = re:compile(Re),
+        case Action of
+            publish ->
+                {[{Topic, MP, Dest} | Acc1], Acc2};
+            subscribe ->
+                {Acc1, [{Topic, MP, Dest} | Acc2]}
+        end
+    end, {[], []}, Rules).
 
 match_and_rewrite(Topic, []) ->
     Topic;
