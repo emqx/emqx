@@ -6,6 +6,10 @@
 
 -export([topic_rewrite/2]).
 
+-define(MAX_RULES_LIMIT, 20).
+
+-define(EXCEED_LIMIT, 'EXCEED_LIMIT').
+
 api_spec() ->
     {[rewrite_api()], []}.
 
@@ -30,7 +34,7 @@ topic_rewrite_schema() ->
     }.
 
 rewrite_api() ->
-    Path = "/topic_rewrite",
+    Path = "/mqtt/topic_rewrite",
     Metadata = #{
         get => #{
             description => <<"List topic rewrite">>,
@@ -38,11 +42,12 @@ rewrite_api() ->
                 <<"200">> =>
                     emqx_mgmt_util:response_array_schema(<<"List all rewrite rules">>, topic_rewrite_schema())}},
         post => #{
-            description => <<"New topic rewrite">>,
+            description => <<"Update topic rewrite">>,
             'requestBody' => emqx_mgmt_util:request_body_array_schema(topic_rewrite_schema()),
             response => #{
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Update topic rewrite success">>, topic_rewrite_schema())}}},
+                    emqx_mgmt_util:response_schema(<<"Update topic rewrite success">>, topic_rewrite_schema()),
+                <<"413">> => emqx_mgmt_util:response_error_schema(<<"Rules count exceed max limit">>, [?EXCEED_LIMIT])}}},
     {Path, Metadata, topic_rewrite}.
 
 topic_rewrite(get, _Request) ->
@@ -51,5 +56,11 @@ topic_rewrite(get, _Request) ->
 topic_rewrite(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Params = emqx_json:decode(Body, [return_maps]),
-    ok = emqx_rewrite:update(Params),
-    {200, emqx_rewrite:list()}.
+    case length(Params) < ?MAX_RULES_LIMIT of
+        true ->
+            ok = emqx_rewrite:update(Params),
+            {200, emqx_rewrite:list()};
+        _ ->
+            Message = list_to_binary(io_lib:format("Max rewrite rules count is ~p", [?MAX_RULES_LIMIT])),
+            {413, #{code => ?EXCEED_LIMIT, message => Message}}
+    end.
