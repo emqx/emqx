@@ -35,12 +35,37 @@
         , disable/0
         ]).
 
+-export([ list/0
+        , update/1]).
+
 %%--------------------------------------------------------------------
 %% Load/Unload
 %%--------------------------------------------------------------------
 
 enable() ->
     Rules = emqx_config:get([rewrite, rules], []),
+    register_hook(Rules).
+
+disable() ->
+    emqx_hooks:del('client.subscribe',   {?MODULE, rewrite_subscribe}),
+    emqx_hooks:del('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
+    emqx_hooks:del('message.publish',    {?MODULE, rewrite_publish}).
+
+list() ->
+    maps:get(<<"rules">>, emqx_config:get_raw([<<"rewrite">>], #{}), []).
+
+update(Rules0) ->
+    Rewrite = emqx_config:get_raw([<<"rewrite">>], #{}),
+    {ok, Config, _} = emqx_config:update([rewrite], maps:put(<<"rules">>, Rules0, Rewrite)),
+    Rules = maps:get(rules, maps:get(rewrite, Config, #{}), []),
+    case Rules of
+        [] ->
+            disable();
+        _ ->
+            register_hook(Rules)
+    end.
+
+register_hook(Rules) ->
     case Rules =:= [] of
         true -> ok;
         false ->
@@ -49,11 +74,6 @@ enable() ->
             emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}),
             emqx_hooks:put('message.publish',    {?MODULE, rewrite_publish, [PubRules]})
     end.
-
-disable() ->
-    emqx_hooks:del('client.subscribe',   {?MODULE, rewrite_subscribe}),
-    emqx_hooks:del('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
-    emqx_hooks:del('message.publish',    {?MODULE, rewrite_publish}).
 
 rewrite_subscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
     {ok, [{match_and_rewrite(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
@@ -67,7 +87,6 @@ rewrite_publish(Message = #message{topic = Topic}, Rules) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
 compile(Rules) ->
     lists:foldl(fun(#{source_topic := Topic,
                       re := Re,
@@ -102,4 +121,3 @@ rewrite(Topic, MP, Dest) ->
                     end, Dest, Vars));
         nomatch -> Topic
     end.
-
