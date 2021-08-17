@@ -35,8 +35,8 @@ init_per_suite(Config) ->
 
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
 
-    {ok, _, _} = emqx_config:update([zones, default, authorization, cache, enable], false),
-    {ok, _, _} = emqx_config:update([zones, default, authorization, enable], true),
+    {ok, _, _} = emqx:update_config([zones, default, authorization, cache, enable], false),
+    {ok, _, _} = emqx:update_config([zones, default, authorization, enable], true),
     Rules = [#{ <<"config">> => #{
                     <<"server">> => <<"127.0.0.1:27017">>,
                     <<"pool_size">> => 1,
