@@ -54,11 +54,16 @@ disable() ->
 list() ->
     maps:get(<<"rules">>, emqx_config:get_raw([<<"rewrite">>], #{}), []).
 
-update([]) ->
-    disable();
 update(Rules0) ->
-    {ok, Rules, _} = emqx_config:update([rewrite], Rules0),
-    register_hook(Rules).
+    Rewrite = emqx_config:get_raw([<<"rewrite">>], #{}),
+    {ok, Config, _} = emqx_config:update([rewrite], maps:put(<<"rules">>, Rules0, Rewrite)),
+    Rules = maps:get(rules, maps:get(rewrite, Config, #{}), []),
+    case Rules of
+        [] ->
+            disable();
+        _ ->
+            register_hook(Rules)
+    end.
 
 register_hook(Rules) ->
     case Rules =:= [] of
@@ -124,4 +129,3 @@ rewrite(Topic, MP, Dest) ->
                     end, Dest, Vars));
         nomatch -> Topic
     end.
-
