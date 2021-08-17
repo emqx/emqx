@@ -185,6 +185,7 @@ confs_to_binary(Confs) ->
 
 -endif.
 
+-dialyzer([{nowarn_function, [import_rule/1]}]).
 import_rule(#{<<"id">> := RuleId,
               <<"rawsql">> := RawSQL,
               <<"actions">> := Actions,
