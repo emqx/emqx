@@ -38,6 +38,13 @@
 
 -define(MOD, {mod}).
 
+-define(ATOM_CONF_PATH(PATH, EXP, EXP_ON_FAIL),
+    try [safe_atom(Key) || Key <- PATH] of
+        AtomKeyPath -> EXP
+    catch
+        error:badarg -> EXP_ON_FAIL
+    end).
+
 -type handler_name() :: module().
 -type handlers() :: #{emqx_config:config_key() => handlers(), ?MOD => handler_name()}.
 
@@ -62,7 +69,8 @@ start_link() ->
 -spec update_config(module(), emqx_config:config_key_path(), emqx_config:update_args()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update_config(SchemaModule, ConfKeyPath, UpdateArgs) ->
-    gen_server:call(?MODULE, {change_config, SchemaModule, ConfKeyPath, UpdateArgs}).
+    ?ATOM_CONF_PATH(ConfKeyPath, gen_server:call(?MODULE, {change_config, SchemaModule,
+        AtomKeyPath, UpdateArgs}), {error, ConfKeyPath}).
 
 -spec add_handler(emqx_config:config_key_path(), handler_name()) -> ok.
 add_handler(ConfKeyPath, HandlerName) ->
@@ -224,3 +232,10 @@ bin_path(ConfKeyPath) -> [bin(Key) || Key <- ConfKeyPath].
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B.
+
+safe_atom(Bin) when is_binary(Bin) ->
+    binary_to_existing_atom(Bin, latin1);
+safe_atom(Str) when is_list(Str) ->
+    list_to_existing_atom(Str);
+safe_atom(Atom) when is_atom(Atom) ->
+    Atom.
