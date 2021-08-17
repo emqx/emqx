@@ -69,12 +69,12 @@ update(Cmd, Rules) ->
 pre_config_update({move, Id, <<"top">>}, Conf) when is_list(Conf) ->
     {Index, _} = find_rule_by_id(Id),
     {List1, List2} = lists:split(Index, Conf),
-    [lists:nth(Index, Conf)] ++ lists:droplast(List1) ++ List2;
+    {ok, [lists:nth(Index, Conf)] ++ lists:droplast(List1) ++ List2};
 
 pre_config_update({move, Id, <<"bottom">>}, Conf) when is_list(Conf) ->
     {Index, _} = find_rule_by_id(Id),
     {List1, List2} = lists:split(Index, Conf),
-    lists:droplast(List1) ++ List2 ++ [lists:nth(Index, Conf)];
+    {ok, lists:droplast(List1) ++ List2 ++ [lists:nth(Index, Conf)]};
 
 pre_config_update({move, Id, #{<<"before">> := BeforeId}}, Conf) when is_list(Conf) ->
     {Index1, _} = find_rule_by_id(Id),
@@ -83,9 +83,9 @@ pre_config_update({move, Id, #{<<"before">> := BeforeId}}, Conf) when is_list(Co
     Conf2 = lists:nth(Index2, Conf),
 
     {List1, List2} = lists:split(Index2, Conf),
-    lists:delete(Conf1, lists:droplast(List1))
-    ++ [Conf1] ++ [Conf2]
-    ++ lists:delete(Conf1, List2);
+    {ok, lists:delete(Conf1, lists:droplast(List1))
+        ++ [Conf1] ++ [Conf2]
+        ++ lists:delete(Conf1, List2)};
 
 pre_config_update({move, Id, #{<<"after">> := AfterId}}, Conf) when is_list(Conf) ->
     {Index1, _} = find_rule_by_id(Id),
@@ -93,21 +93,21 @@ pre_config_update({move, Id, #{<<"after">> := AfterId}}, Conf) when is_list(Conf
     {Index2, _} = find_rule_by_id(AfterId),
 
     {List1, List2} = lists:split(Index2, Conf),
-    lists:delete(Conf1, List1)
-    ++ [Conf1]
-    ++ lists:delete(Conf1, List2);
+    {ok, lists:delete(Conf1, List1)
+        ++ [Conf1]
+        ++ lists:delete(Conf1, List2)};
 
 pre_config_update({head, Rules}, Conf) when is_list(Rules), is_list(Conf) ->
-    Rules ++ Conf;
+    {ok, Rules ++ Conf};
 pre_config_update({tail, Rules}, Conf) when is_list(Rules), is_list(Conf) ->
-    Conf ++ Rules;
+    {ok, Conf ++ Rules};
 pre_config_update({{replace_once, Id}, Rule}, Conf) when is_map(Rule), is_list(Conf) ->
     {Index, _} = find_rule_by_id(Id),
     {List1, List2} = lists:split(Index, Conf),
-    lists:droplast(List1) ++ [Rule] ++ List2;
+    {ok, lists:droplast(List1) ++ [Rule] ++ List2};
 pre_config_update({_, Rules}, _Conf) when is_list(Rules)->
     %% overwrite the entire config!
-    Rules.
+    {ok, Rules}.
 
 post_config_update(_, undefined, _Conf) ->
     ok;

@@ -113,7 +113,7 @@ prometheus(put, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Params = emqx_json:decode(Body, [return_maps]),
     Enable = maps:get(<<"enable">>, Params),
-    {ok, _, _} = emqx:update_config([prometheus], Params),
+    {ok, _} = emqx:update_config([prometheus], Params),
     enable_prometheus(Enable).
 
 % stats(_Bindings, Params) ->

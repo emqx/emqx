@@ -449,7 +449,7 @@ rules(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     RawConfig = jsx:decode(Body, [return_maps]),
     case emqx_authz:update(head, [RawConfig]) of
-        {ok, _, _} -> {204};
+        {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
@@ -458,7 +458,7 @@ rules(put, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     RawConfig = jsx:decode(Body, [return_maps]),
     case emqx_authz:update(replace, RawConfig) of
-        {ok, _, _} -> {204};
+        {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
@@ -486,7 +486,7 @@ rule(put, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     RawConfig = jsx:decode(Body, [return_maps]),
     case emqx_authz:update({replace_once, RuleId}, RawConfig) of
-        {ok, _, _} -> {204};
+        {ok, _} -> {204};
         {error, not_found_rule} ->
             {404, #{code => <<"NOT_FOUND">>,
                     messgae => <<"rule ", RuleId/binary, " not found">>}};
@@ -497,7 +497,7 @@ rule(put, Request) ->
 rule(delete, Request) ->
     RuleId = cowboy_req:binding(id, Request),
     case emqx_authz:update({replace_once, RuleId}, #{}) of
-        {ok, _, _} -> {204};
+        {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
@@ -507,7 +507,7 @@ move_rule(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     #{<<"position">> := Position} = jsx:decode(Body, [return_maps]),
     case emqx_authz:move(RuleId, Position) of
-        {ok, _, _} -> {204};
+        {ok, _} -> {204};
         {error, not_found_rule} ->
             {404, #{code => <<"NOT_FOUND">>,
                     messgae => <<"rule ", RuleId/binary, " not found">>}};

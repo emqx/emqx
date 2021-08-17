@@ -32,12 +32,12 @@ stop(_State) ->
 
 %% internal functions
 pre_config_update({update, Bridge = #{<<"name">> := Name}}, OldConf) ->
-    [Bridge | remove_bridge(Name, OldConf)];
+    {ok, [Bridge | remove_bridge(Name, OldConf)]};
 pre_config_update({delete, Name}, OldConf) ->
-    remove_bridge(Name, OldConf);
+    {ok, remove_bridge(Name, OldConf)};
 pre_config_update(NewConf, _OldConf) when is_list(NewConf) ->
     %% overwrite the entire config!
-    NewConf.
+    {ok, NewConf}.
 
 remove_bridge(_Name, undefined) ->
     [];
