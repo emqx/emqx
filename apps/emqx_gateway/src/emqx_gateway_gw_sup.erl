@@ -42,18 +42,18 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-start_link(Type) ->
-    supervisor:start_link({local, Type}, ?MODULE, [Type]).
+start_link(GwName) ->
+    supervisor:start_link({local, GwName}, ?MODULE, [GwName]).
 
 -spec create_insta(pid(), gateway(), map()) -> {ok, GwInstaPid :: pid()} | {error, any()}.
-create_insta(Sup, Gateway = #{type := GwType}, GwDscrptr) ->
-    case emqx_gateway_utils:find_sup_child(Sup, GwType) of
+create_insta(Sup, Gateway = #{name := Name}, GwDscrptr) ->
+    case emqx_gateway_utils:find_sup_child(Sup, Name) of
         {ok, _GwInstaPid} -> {error, alredy_existed};
         false ->
-            Ctx = ctx(Sup, GwType),
+            Ctx = ctx(Sup, Name),
             %%
             ChildSpec = emqx_gateway_utils:childspec(
-                          GwType,
+                          Name,
                           worker,
                           emqx_gateway_insta_sup,
                           [Gateway, Ctx, GwDscrptr]
@@ -63,34 +63,34 @@ create_insta(Sup, Gateway = #{type := GwType}, GwDscrptr) ->
              )
     end.
 
--spec remove_insta(pid(), GwType :: gateway_type()) -> ok | {error, any()}.
-remove_insta(Sup, GwType) ->
-    case emqx_gateway_utils:find_sup_child(Sup, GwType) of
+-spec remove_insta(pid(), Name :: gateway_name()) -> ok | {error, any()}.
+remove_insta(Sup, Name) ->
+    case emqx_gateway_utils:find_sup_child(Sup, Name) of
         false -> ok;
         {ok, _GwInstaPid} ->
-            ok = supervisor:terminate_child(Sup, GwType),
-            ok = supervisor:delete_child(Sup, GwType)
+            ok = supervisor:terminate_child(Sup, Name),
+            ok = supervisor:delete_child(Sup, Name)
     end.
 
 -spec update_insta(pid(), NewGateway :: gateway()) -> ok | {error, any()}.
-update_insta(Sup, NewGateway = #{type := GwType}) ->
-    case emqx_gateway_utils:find_sup_child(Sup, GwType) of
+update_insta(Sup, NewGateway = #{name := Name}) ->
+    case emqx_gateway_utils:find_sup_child(Sup, Name) of
         false -> {error, not_found};
         {ok, GwInstaPid} ->
             emqx_gateway_insta_sup:update(GwInstaPid, NewGateway)
     end.
 
--spec start_insta(pid(), gateway_type()) -> ok | {error, any()}.
-start_insta(Sup, GwType) ->
-    case emqx_gateway_utils:find_sup_child(Sup, GwType) of
+-spec start_insta(pid(), gateway_name()) -> ok | {error, any()}.
+start_insta(Sup, Name) ->
+    case emqx_gateway_utils:find_sup_child(Sup, Name) of
         false -> {error, not_found};
         {ok, GwInstaPid} ->
             emqx_gateway_insta_sup:enable(GwInstaPid)
     end.
 
--spec stop_insta(pid(), gateway_type()) -> ok | {error, any()}.
-stop_insta(Sup, GwType) ->
-    case emqx_gateway_utils:find_sup_child(Sup, GwType) of
+-spec stop_insta(pid(), gateway_name()) -> ok | {error, any()}.
+stop_insta(Sup, Name) ->
+    case emqx_gateway_utils:find_sup_child(Sup, Name) of
         false -> {error, not_found};
         {ok, GwInstaPid} ->
             emqx_gateway_insta_sup:disable(GwInstaPid)
@@ -99,33 +99,31 @@ stop_insta(Sup, GwType) ->
 -spec list_insta(pid()) -> [gateway()].
 list_insta(Sup) ->
     lists:filtermap(
-      fun({GwType, GwInstaPid, _Type, _Mods}) ->
-        is_gateway_insta_id(GwType)
+      fun({Name, GwInstaPid, _Type, _Mods}) ->
+        is_gateway_insta_id(Name)
           andalso {true, emqx_gateway_insta_sup:info(GwInstaPid)}
       end, supervisor:which_children(Sup)).
 
 %% Supervisor callback
 
 %% @doc Initialize Top Supervisor for a Protocol
-init([Type]) ->
+init([GwName]) ->
     SupFlags = #{ strategy => one_for_one
                 , intensity => 10
                 , period => 60
                 },
-    CmOpts = [{type, Type}],
+    CmOpts = [{gwname, GwName}],
     CM = emqx_gateway_utils:childspec(worker, emqx_gateway_cm, [CmOpts]),
-    Metrics = emqx_gateway_utils:childspec(worker, emqx_gateway_metrics, [Type]),
+    Metrics = emqx_gateway_utils:childspec(worker, emqx_gateway_metrics, [GwName]),
     {ok, {SupFlags, [CM, Metrics]}}.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-ctx(Sup, GwType) ->
-    {_, Type} = erlang:process_info(Sup, registered_name),
+ctx(Sup, Name) ->
     {ok, CM}  = emqx_gateway_utils:find_sup_child(Sup, emqx_gateway_cm),
-    #{ instid => GwType
-     , type => Type
+    #{ gwname => Name
      , cm => CM
      }.
 

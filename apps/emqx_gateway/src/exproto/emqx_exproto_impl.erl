@@ -47,9 +47,9 @@ unreg() ->
 %% emqx_gateway_registry callbacks
 %%--------------------------------------------------------------------
 
-start_grpc_server(_GwType, undefined) ->
+start_grpc_server(_GwName, undefined) ->
     undefined;
-start_grpc_server(GwType, Options = #{bind := ListenOn}) ->
+start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
     Services = #{protos => [emqx_exproto_pb],
                  services => #{
                    'emqx.exproto.v1.ConnectionAdapter' => emqx_exproto_gsvr}
@@ -59,12 +59,12 @@ start_grpc_server(GwType, Options = #{bind := ListenOn}) ->
                   SslOpts ->
                       [{ssl_options, SslOpts}]
               end,
-    _ = grpc:start_server(GwType, ListenOn, Services, SvrOptions),
-    ?ULOG("Start ~s gRPC server on ~p successfully.~n", [GwType, ListenOn]).
+    _ = grpc:start_server(GwName, ListenOn, Services, SvrOptions),
+    ?ULOG("Start ~s gRPC server on ~p successfully.~n", [GwName, ListenOn]).
 
 start_grpc_client_channel(_GwType, undefined) ->
     undefined;
-start_grpc_client_channel(GwType, Options = #{address := UriStr}) ->
+start_grpc_client_channel(GwName, Options = #{address := UriStr}) ->
     UriMap = uri_string:parse(UriStr),
     Scheme = maps:get(scheme, UriMap),
     Host = maps:get(host, UriMap),
@@ -81,36 +81,36 @@ start_grpc_client_channel(GwType, Options = #{address := UriStr}) ->
                              transport_opts => SslOpts}};
                      _ -> #{}
                  end,
-    grpc_client_sup:create_channel_pool(GwType, SvrAddr, ClientOpts).
+    grpc_client_sup:create_channel_pool(GwName, SvrAddr, ClientOpts).
 
-on_gateway_load(_Gateway = #{ type := GwType,
+on_gateway_load(_Gateway = #{ name := GwName,
                               rawconf := RawConf
                             }, Ctx) ->
     %% XXX: How to monitor it ?
     %% Start grpc client pool & client channel
-    PoolName = pool_name(GwType),
+    PoolName = pool_name(GwName),
     PoolSize = emqx_vm:schedulers() * 2,
     {ok, _} = emqx_pool_sup:start_link(PoolName, hash, PoolSize,
                                        {emqx_exproto_gcli, start_link, []}),
-    _ = start_grpc_client_channel(GwType, maps:get(handler, RawConf, undefined)),
+    _ = start_grpc_client_channel(GwName, maps:get(handler, RawConf, undefined)),
 
     %% XXX: How to monitor it ?
-    _ = start_grpc_server(GwType, maps:get(server, RawConf, undefined)),
+    _ = start_grpc_server(GwName, maps:get(server, RawConf, undefined)),
 
     NRawConf = maps:without(
                  [server, handler],
                  RawConf#{pool_name => PoolName}
                 ),
     Listeners = emqx_gateway_utils:normalize_rawconf(
-                  NRawConf#{handler => GwType}
+                  NRawConf#{handler => GwName}
                  ),
     ListenerPids = lists:map(fun(Lis) ->
-                     start_listener(GwType, Ctx, Lis)
+                     start_listener(GwName, Ctx, Lis)
                    end, Listeners),
     {ok, ListenerPids, _GwState = #{ctx => Ctx}}.
 
 on_gateway_update(NewGateway, OldGateway, GwState = #{ctx := Ctx}) ->
-    GwType = maps:get(type, NewGateway),
+    GwName = maps:get(name, NewGateway),
     try
         %% XXX: 1. How hot-upgrade the changes ???
         %% XXX: 2. Check the New confs first before destroy old instance ???
@@ -120,40 +120,40 @@ on_gateway_update(NewGateway, OldGateway, GwState = #{ctx := Ctx}) ->
         Class : Reason : Stk ->
             logger:error("Failed to update ~s; "
                          "reason: {~0p, ~0p} stacktrace: ~0p",
-                         [GwType, Class, Reason, Stk]),
+                         [GwName, Class, Reason, Stk]),
             {error, {Class, Reason}}
     end.
 
-on_gateway_unload(_Gateway = #{ type := GwType,
+on_gateway_unload(_Gateway = #{ name := GwName,
                                 rawconf := RawConf
                               }, _GwState) ->
     Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
     lists:foreach(fun(Lis) ->
-        stop_listener(GwType, Lis)
+        stop_listener(GwName, Lis)
     end, Listeners).
 
-pool_name(GwType) ->
-    list_to_atom(lists:concat([GwType, "_gcli_pool"])).
+pool_name(GwName) ->
+    list_to_atom(lists:concat([GwName, "_gcli_pool"])).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-start_listener(GwType, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
+start_listener(GwName, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
-    case start_listener(GwType, Ctx, Type, ListenOn, SocketOpts, Cfg) of
+    case start_listener(GwName, Ctx, Type, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
             ?ULOG("Start ~s:~s listener on ~s successfully.~n",
-                      [GwType, Type, ListenOnStr]),
+                      [GwName, Type, ListenOnStr]),
             Pid;
         {error, Reason} ->
             ?ELOG("Failed to start ~s:~s listener on ~s: ~0p~n",
-                  [GwType, Type, ListenOnStr, Reason]),
+                  [GwName, Type, ListenOnStr, Reason]),
             throw({badconf, Reason})
     end.
 
-start_listener(GwType, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
-    Name = name(GwType, Type),
+start_listener(GwName, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
+    Name = name(GwName, Type),
     NCfg = Cfg#{
              ctx => Ctx,
              frame_mod => emqx_exproto_frame,
@@ -172,8 +172,8 @@ do_start_listener(udp, Name, ListenOn, Opts, MFA) ->
 do_start_listener(dtls, Name, ListenOn, Opts, MFA) ->
     esockd:open_dtls(Name, ListenOn, Opts, MFA).
 
-name(GwType, Type) ->
-    list_to_atom(lists:concat([GwType, ":", Type])).
+name(GwName, Type) ->
+    list_to_atom(lists:concat([GwName, ":", Type])).
 
 merge_default_by_type(Type, Options) when Type =:= tcp;
                                           Type =:= ssl ->
@@ -196,18 +196,18 @@ merge_default_by_type(Type, Options) when Type =:= udp;
             [{udp_options, Default} | Options]
     end.
 
-stop_listener(GwType, {Type, ListenOn, SocketOpts, Cfg}) ->
-    StopRet = stop_listener(GwType, Type, ListenOn, SocketOpts, Cfg),
+stop_listener(GwName, {Type, ListenOn, SocketOpts, Cfg}) ->
+    StopRet = stop_listener(GwName, Type, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
         ok -> ?ULOG("Stop ~s:~s listener on ~s successfully.~n",
-                    [GwType, Type, ListenOnStr]);
+                    [GwName, Type, ListenOnStr]);
         {error, Reason} ->
             ?ELOG("Failed to stop ~s:~s listener on ~s: ~0p~n",
-                  [GwType, Type, ListenOnStr, Reason])
+                  [GwName, Type, ListenOnStr, Reason])
     end,
     StopRet.
 
-stop_listener(GwType, Type, ListenOn, _SocketOpts, _Cfg) ->
-    Name = name(GwType, Type),
+stop_listener(GwName, Type, ListenOn, _SocketOpts, _Cfg) ->
+    Name = name(GwName, Type),
     esockd:close(Name, ListenOn).

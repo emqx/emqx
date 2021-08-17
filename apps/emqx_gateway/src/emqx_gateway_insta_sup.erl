@@ -86,8 +86,8 @@ call(Pid, Req) ->
 
 init([Gateway, Ctx0, _GwDscrptr]) ->
     process_flag(trap_exit, true),
-    #{type := GwType, rawconf := RawConf} = Gateway,
-    Ctx   = do_init_context(GwType, RawConf, Ctx0),
+    #{name := GwName, rawconf := RawConf} = Gateway,
+    Ctx   = do_init_context(GwName, RawConf, Ctx0),
     State = #state{
                gw = Gateway,
                ctx   = Ctx,
@@ -102,11 +102,11 @@ init([Gateway, Ctx0, _GwDscrptr]) ->
             {ok, NState}
     end.
 
-do_init_context(GwType, RawConf, Ctx) ->
+do_init_context(GwName, RawConf, Ctx) ->
     Auth = case maps:get(authentication, RawConf, #{enable => false}) of
                #{enable := true,
                  authenticators := AuthCfgs} when is_list(AuthCfgs) ->
-                   create_authenticators_for_gateway_insta(GwType, AuthCfgs);
+                   create_authenticators_for_gateway_insta(GwName, AuthCfgs);
                _ ->
                    undefined
            end,
@@ -116,8 +116,8 @@ do_deinit_context(Ctx) ->
     cleanup_authenticators_for_gateway_insta(maps:get(auth, Ctx)),
     ok.
 
-handle_call(info, _From, State = #state{gw = Gateway}) ->
-    {reply, Gateway, State};
+handle_call(info, _From, State = #state{gw = Gateway, status = Status}) ->
+    {reply, Gateway#{status => Status}, State};
 
 handle_call(disable, _From, State = #state{status = Status}) ->
     case Status of
@@ -146,21 +146,22 @@ handle_call(enable, _From, State = #state{status = Status}) ->
     end;
 
 %% Stopped -> update
-handle_call({update, NewGateway}, _From, State = #state{gw = Gateway,
-                                                      status = stopped}) ->
-    case maps:get(type, NewGateway, undefined)
-         == maps:get(type, Gateway, undefined) of
+handle_call({update, NewGateway}, _From, State = #state{
+                                                    gw = Gateway,
+                                                    status = stopped}) ->
+    case maps:get(name, NewGateway, undefined)
+         == maps:get(name, Gateway, undefined) of
         true ->
             {reply, ok, State#state{gw = NewGateway}};
         false ->
-            {reply, {error, gateway_type_not_match}, State}
+            {reply, {error, gateway_name_not_match}, State}
     end;
 
 %% Running -> update
 handle_call({update, NewGateway}, _From, State = #state{gw = Gateway,
                                                       status = running}) ->
-    case maps:get(type, NewGateway, undefined)
-         == maps:get(type, Gateway, undefined) of
+    case maps:get(name, NewGateway, undefined)
+         == maps:get(name, Gateway, undefined) of
         true ->
             case cb_gateway_update(NewGateway, State) of
                 {ok, NState} ->
@@ -169,7 +170,7 @@ handle_call({update, NewGateway}, _From, State = #state{gw = Gateway,
                     {reply, {error, Reason}, State}
             end;
         false ->
-            {reply, {error, gateway_type_not_match}, State}
+            {reply, {error, gateway_name_not_match}, State}
     end;
 
 handle_call(_Request, _From, State) ->
@@ -215,8 +216,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% @doc AuthCfgs is a array of authenticatior configurations,
 %% see: emqx_authn_schema:authenticators/1
-create_authenticators_for_gateway_insta(GwType, AuthCfgs) ->
-    ChainId = atom_to_binary(GwType, utf8),
+create_authenticators_for_gateway_insta(GwName, AuthCfgs) ->
+    ChainId = atom_to_binary(GwName, utf8),
     case emqx_authn:create_chain(#{id => ChainId}) of
         {ok, _ChainInfo} ->
             Results = lists:map(fun(AuthCfg = #{name := Name}) ->
@@ -250,10 +251,10 @@ cleanup_authenticators_for_gateway_insta(ChainId) ->
                          "reason: ~p", [ChainId, Reason])
     end.
 
-cb_gateway_unload(State = #state{gw = Gateway = #{type := GwType},
+cb_gateway_unload(State = #state{gw = Gateway = #{name := GwName},
                                  gw_state = GwState}) ->
     try
-        #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwType),
+        #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwName),
         CbMod:on_gateway_unload(Gateway, GwState),
         {ok, State#state{child_pids = [],
                          gw_state = undefined,
@@ -267,10 +268,10 @@ cb_gateway_unload(State = #state{gw = Gateway = #{type := GwType},
             {error, {Class, Reason, Stk}}
     end.
 
-cb_gateway_load(State = #state{gw = Gateway = #{type := GwType},
+cb_gateway_load(State = #state{gw = Gateway = #{name := GwName},
                                ctx = Ctx}) ->
     try
-        #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwType),
+        #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwName),
         case CbMod:on_gateway_load(Gateway, Ctx) of
             {error, Reason} -> throw({callback_return_error, Reason});
             {ok, ChildPidOrSpecs, GwState} ->
@@ -285,17 +286,17 @@ cb_gateway_load(State = #state{gw = Gateway = #{type := GwType},
         Class : Reason1 : Stk ->
             logger:error("Failed to load ~s gateway (~0p, ~0p) crashed: "
                          "{~p, ~p}, stacktrace: ~0p",
-                         [GwType, Gateway, Ctx,
+                         [GwName, Gateway, Ctx,
                           Class, Reason1, Stk]),
             {error, {Class, Reason1, Stk}}
     end.
 
 cb_gateway_update(NewGateway,
-                State = #state{gw = Gateway = #{type := GwType},
+                State = #state{gw = Gateway = #{name := GwName},
                                ctx = Ctx,
                                gw_state = GwState}) ->
     try
-        #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwType),
+        #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwName),
         case CbMod:on_gateway_update(NewGateway, Gateway, GwState) of
             {error, Reason} -> throw({callback_return_error, Reason});
             {ok, ChildPidOrSpecs, NGwState} ->

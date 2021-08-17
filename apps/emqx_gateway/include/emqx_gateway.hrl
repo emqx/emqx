@@ -18,11 +18,11 @@
 -define(EMQX_GATEWAY_HRL, 1).
 
 -type instance_id()  :: atom().
--type gateway_type() :: atom().
+-type gateway_name() :: atom().
 
 %% @doc The Gateway defination
 -type gateway() ::
-        #{ type    := gateway_type()
+        #{ name    := gateway_name()
          , descr   => binary() | undefined
          %% Appears only in creating or detailed info
          , rawconf => map()

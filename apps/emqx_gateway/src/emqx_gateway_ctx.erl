@@ -27,10 +27,8 @@
 %% configuration, register devices and other common operations.
 %%
 -type context() ::
-        #{ %% Gateway Instance ID
-           instid := instance_id()
-           %% Gateway ID
-         , type   := gateway_type()
+        #{ %% Gateway Name
+           gwname := gateway_name()
            %% Autenticator
          , auth   := emqx_authn:chain_id() | undefined
            %% The ConnectionManager PID
@@ -98,41 +96,43 @@ authenticate(_Ctx, ClientInfo) ->
              }}
      | {error, any()}.
 open_session(Ctx, CleanStart, ClientInfo, ConnInfo, CreateSessionFun) ->
-    open_session(Ctx, CleanStart, ClientInfo, ConnInfo, CreateSessionFun, emqx_session).
+    open_session(Ctx, CleanStart, ClientInfo, ConnInfo,
+                 CreateSessionFun, emqx_session).
 
 open_session(Ctx, false, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
     logger:warning("clean_start=false is not supported now, "
                    "fallback to clean_start mode"),
     open_session(Ctx, true, ClientInfo, ConnInfo, CreateSessionFun, SessionMod);
 
-open_session(_Ctx = #{type := Type},
+open_session(_Ctx = #{gwname := GwName},
              CleanStart, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
-    emqx_gateway_cm:open_session(Type, CleanStart,
-                                 ClientInfo, ConnInfo, CreateSessionFun, SessionMod).
+    emqx_gateway_cm:open_session(GwName, CleanStart,
+                                 ClientInfo, ConnInfo,
+                                 CreateSessionFun, SessionMod).
 
 -spec insert_channel_info(context(),
                           emqx_types:clientid(),
                           emqx_types:infos(),
                           emqx_types:stats()) -> ok.
-insert_channel_info(_Ctx = #{type := Type}, ClientId, Infos, Stats) ->
-    emqx_gateway_cm:insert_channel_info(Type, ClientId, Infos, Stats).
+insert_channel_info(_Ctx = #{gwname := GwName}, ClientId, Infos, Stats) ->
+    emqx_gateway_cm:insert_channel_info(GwName, ClientId, Infos, Stats).
 
 %% @doc Set the Channel Info to the ConnectionManager for this client
 -spec set_chan_info(context(),
                     emqx_types:clientid(),
                     emqx_types:infos()) -> boolean().
-set_chan_info(_Ctx = #{type := Type}, ClientId, Infos) ->
-    emqx_gateway_cm:set_chan_info(Type, ClientId, Infos).
+set_chan_info(_Ctx = #{gwname := GwName}, ClientId, Infos) ->
+    emqx_gateway_cm:set_chan_info(GwName, ClientId, Infos).
 
 -spec set_chan_stats(context(),
                      emqx_types:clientid(),
                      emqx_types:stats()) -> boolean().
-set_chan_stats(_Ctx = #{type := Type}, ClientId, Stats) ->
-    emqx_gateway_cm:set_chan_stats(Type, ClientId, Stats).
+set_chan_stats(_Ctx = #{gwname := GwName}, ClientId, Stats) ->
+    emqx_gateway_cm:set_chan_stats(GwName, ClientId, Stats).
 
 -spec connection_closed(context(), emqx_types:clientid()) -> boolean().
-connection_closed(_Ctx = #{type := Type}, ClientId) ->
-    emqx_gateway_cm:connection_closed(Type, ClientId).
+connection_closed(_Ctx = #{gwname := GwName}, ClientId) ->
+    emqx_gateway_cm:connection_closed(GwName, ClientId).
 
 -spec authorize(context(), emqx_types:clientinfo(),
                 emqx_types:pubsub(), emqx_types:topic())
@@ -140,11 +140,11 @@ connection_closed(_Ctx = #{type := Type}, ClientId) ->
 authorize(_Ctx, ClientInfo, PubSub, Topic) ->
     emqx_access_control:authorize(ClientInfo, PubSub, Topic).
 
-metrics_inc(_Ctx = #{type := Type}, Name) ->
-    emqx_gateway_metrics:inc(Type, Name).
+metrics_inc(_Ctx = #{gwname := GwName}, Name) ->
+    emqx_gateway_metrics:inc(GwName, Name).
 
-metrics_inc(_Ctx = #{type := Type}, Name, Oct) ->
-    emqx_gateway_metrics:inc(Type, Name, Oct).
+metrics_inc(_Ctx = #{gwname := GwName}, Name, Oct) ->
+    emqx_gateway_metrics:inc(GwName, Name, Oct).
 
 %%--------------------------------------------------------------------
 %% Internal funcs

@@ -30,7 +30,7 @@
         ]).
 
 -spec registered_gateway() ->
-    [{gateway_type(), emqx_gateway_registry:descriptor()}].
+    [{gateway_name(), emqx_gateway_registry:descriptor()}].
 registered_gateway() ->
     emqx_gateway_registry:list().
 
@@ -41,35 +41,35 @@ registered_gateway() ->
 list() ->
     emqx_gateway_sup:list_gateway_insta().
 
--spec load(gateway_type(), map())
+-spec load(gateway_name(), map())
     -> {ok, pid()}
      | {error, any()}.
-load(GwType, RawConf) ->
-    Gateway = #{ type => GwType
+load(Name, RawConf) ->
+    Gateway = #{ name => Name
                , descr => undefined
                , rawconf => RawConf
                },
     emqx_gateway_sup:load_gateway(Gateway).
 
--spec unload(gateway_type()) -> ok | {error, any()}.
-unload(GwType) ->
-    emqx_gateway_sup:unload_gateway(GwType).
+-spec unload(gateway_name()) -> ok | {error, any()}.
+unload(Name) ->
+    emqx_gateway_sup:unload_gateway(Name).
 
--spec lookup(gateway_type()) -> gateway() | undefined.
-lookup(GwType) ->
-    emqx_gateway_sup:lookup_gateway(GwType).
+-spec lookup(gateway_name()) -> gateway() | undefined.
+lookup(Name) ->
+    emqx_gateway_sup:lookup_gateway(Name).
 
 -spec update(gateway()) -> ok | {error, any()}.
 update(NewGateway) ->
     emqx_gateway_sup:update_gateway(NewGateway).
 
--spec start(gateway_type()) -> ok | {error, any()}.
-start(GwType) ->
-    emqx_gateway_sup:start_gateway_insta(GwType).
+-spec start(gateway_name()) -> ok | {error, any()}.
+start(Name) ->
+    emqx_gateway_sup:start_gateway_insta(Name).
 
--spec stop(gateway_type()) -> ok | {error, any()}.
-stop(GwType) ->
-    emqx_gateway_sup:stop_gateway_insta(GwType).
+-spec stop(gateway_name()) -> ok | {error, any()}.
+stop(Name) ->
+    emqx_gateway_sup:stop_gateway_insta(Name).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
