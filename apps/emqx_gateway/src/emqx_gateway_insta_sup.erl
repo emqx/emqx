@@ -232,9 +232,9 @@ create_authenticators_for_gateway_insta(GwName, AuthCfgs) ->
             NResults /= [] andalso begin
                 logger:error("Failed to create authenticators: ~p", [NResults]),
                 throw({bad_autheticators, NResults})
-            end, ok;
+            end, ChainId;
         {error, Reason} ->
-            logger:error("Failed to create authenticator chain: ~p", [Reason]),
+            logger:error("Failed to create authentication chain: ~p", [Reason]),
             throw({bad_chain, {ChainId, Reason}})
     end.
 
@@ -244,10 +244,10 @@ cleanup_authenticators_for_gateway_insta(ChainId) ->
     case emqx_authn:delete_chain(ChainId) of
         ok -> ok;
         {error, {not_found, _}} ->
-            logger:warning("Failed to clean authenticator chain: ~s, "
+            logger:warning("Failed to clean authentication chain: ~s, "
                            "reason: not_found", [ChainId]);
         {error, Reason} ->
-            logger:error("Failed to clean authenticator chain: ~s, "
+            logger:error("Failed to clean authentication chain: ~s, "
                          "reason: ~p", [ChainId, Reason])
     end.
 
