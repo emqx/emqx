@@ -44,27 +44,27 @@ start_link() ->
 
 
 -spec load_gateway(gateway()) -> {ok, pid()} | {error, any()}.
-load_gateway(Gateway = #{type := GwType}) ->
-    case emqx_gateway_registry:lookup(GwType) of
-        undefined -> {error, {unknown_gateway_type, GwType}};
+load_gateway(Gateway = #{name := GwName}) ->
+    case emqx_gateway_registry:lookup(GwName) of
+        undefined -> {error, {unknown_gateway_name, GwName}};
         GwDscrptr ->
-            {ok, GwSup} = ensure_gateway_suptree_ready(GwType),
+            {ok, GwSup} = ensure_gateway_suptree_ready(GwName),
             emqx_gateway_gw_sup:create_insta(GwSup, Gateway, GwDscrptr)
     end.
 
--spec unload_gateway(gateway_type()) -> ok | {error, not_found}.
-unload_gateway(GwType) ->
-    case lists:keyfind(GwType, 1, supervisor:which_children(?MODULE)) of
+-spec unload_gateway(gateway_name()) -> ok | {error, not_found}.
+unload_gateway(GwName) ->
+    case lists:keyfind(GwName, 1, supervisor:which_children(?MODULE)) of
         false -> {error, not_found};
         _ ->
-            _ = supervisor:terminate_child(?MODULE, GwType),
-            _ = supervisor:delete_child(?MODULE, GwType),
+            _ = supervisor:terminate_child(?MODULE, GwName),
+            _ = supervisor:delete_child(?MODULE, GwName),
             ok
     end.
 
--spec lookup_gateway(gateway_type()) -> gateway() | undefined.
-lookup_gateway(GwType) ->
-    case search_gateway_insta_proc(GwType) of
+-spec lookup_gateway(gateway_name()) -> gateway() | undefined.
+lookup_gateway(GwName) ->
+    case search_gateway_insta_proc(GwName) of
         {ok, {_, GwInstaPid}} ->
             emqx_gateway_insta_sup:info(GwInstaPid);
         _ ->
@@ -74,25 +74,25 @@ lookup_gateway(GwType) ->
 -spec update_gateway(gateway())
     -> ok
      | {error, any()}.
-update_gateway(NewGateway = #{type := GwType}) ->
-    case emqx_gateway_utils:find_sup_child(?MODULE, GwType) of
+update_gateway(NewGateway = #{name := GwName}) ->
+    case emqx_gateway_utils:find_sup_child(?MODULE, GwName) of
         {ok, GwSup} ->
             emqx_gateway_gw_sup:update_insta(GwSup, NewGateway);
         _ -> {error, not_found}
     end.
 
-start_gateway_insta(GwType) ->
-    case search_gateway_insta_proc(GwType) of
+start_gateway_insta(GwName) ->
+    case search_gateway_insta_proc(GwName) of
         {ok, {GwSup, _}} ->
-            emqx_gateway_gw_sup:start_insta(GwSup, GwType);
+            emqx_gateway_gw_sup:start_insta(GwSup, GwName);
         _ -> {error, not_found}
     end.
 
--spec stop_gateway_insta(gateway_type()) -> ok | {error, any()}.
-stop_gateway_insta(GwType) ->
-    case search_gateway_insta_proc(GwType) of
+-spec stop_gateway_insta(gateway_name()) -> ok | {error, any()}.
+stop_gateway_insta(GwName) ->
+    case search_gateway_insta_proc(GwName) of
         {ok, {GwSup, _}} ->
-            emqx_gateway_gw_sup:stop_insta(GwSup, GwType);
+            emqx_gateway_gw_sup:stop_insta(GwSup, GwName);
         _ -> {error, not_found}
     end.
 
@@ -103,9 +103,9 @@ list_gateway_insta() ->
         emqx_gateway_gw_sup:list_insta(SupId)
       end, list_started_gateway())).
 
--spec list_started_gateway() -> [gateway_type()].
+-spec list_started_gateway() -> [gateway_name()].
 list_started_gateway() ->
-    started_gateway_type().
+    started_gateway().
 
 %% Supervisor callback
 
@@ -122,14 +122,14 @@ init([]) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-ensure_gateway_suptree_ready(GwType) ->
-    case lists:keyfind(GwType, 1, supervisor:which_children(?MODULE)) of
+ensure_gateway_suptree_ready(GwName) ->
+    case lists:keyfind(GwName, 1, supervisor:which_children(?MODULE)) of
         false ->
             ChildSpec = emqx_gateway_utils:childspec(
-                          GwType,
+                          GwName,
                           supervisor,
                           emqx_gateway_gw_sup,
-                          [GwType]
+                          [GwName]
                          ),
             emqx_gateway_utils:supervisor_ret(
               supervisor:start_child(?MODULE, ChildSpec)
@@ -150,7 +150,7 @@ search_gateway_insta_proc(InstaId, [SupPid|More]) ->
             search_gateway_insta_proc(InstaId, More)
     end.
 
-started_gateway_type() ->
+started_gateway() ->
     lists:filtermap(
         fun({Id, _, _, _}) ->
             is_a_gateway_id(Id) andalso {true, Id}
