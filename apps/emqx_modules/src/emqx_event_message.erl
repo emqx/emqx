@@ -20,14 +20,16 @@
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_modules.hrl").
 
--export([ enable/0
+-export([ list/0
+        , update/1
+        , enable/0
         , disable/0
         ]).
 
 -export([ on_client_connected/2
         , on_client_disconnected/3
-        , on_session_subscribed/3
-        , on_session_unsubscribed/3
+        , on_client_subscribed/3
+        , on_client_unsubscribed/3
         , on_message_dropped/3
         , on_message_delivered/2
         , on_message_acked/2
@@ -37,51 +39,59 @@
 -export([reason/1]).
 -endif.
 
+list() ->
+    emqx:get_config([event_message], #{}).
+
+update(Params) ->
+    disable(),
+    {ok, _} = emqx:update_config([event_message], Params),
+    enable().
+
 enable() ->
-    Topics = emqx:get_config([event_message, topics], []),
-    lists:foreach(fun(Topic) ->
+    lists:foreach(fun({_Topic, false}) -> ok;
+                     ({Topic, true}) ->
         case Topic of
-            <<"$event/client_connected">> ->
+            '$event/client_connected' ->
                 emqx_hooks:put('client.connected', {?MODULE, on_client_connected, []});
-            <<"$event/client_disconnected">> ->
+            '$event/client_disconnected' ->
                 emqx_hooks:put('client.disconnected', {?MODULE, on_client_disconnected, []});
-            <<"$event/session_subscribed">> ->
-                emqx_hooks:put('session.subscribed', {?MODULE, on_session_subscribed, []});
-            <<"$event/session_unsubscribed">> ->
-                emqx_hooks:put('session.unsubscribed', {?MODULE, on_session_unsubscribed, []});
-            <<"$event/message_delivered">> ->
+            '$event/client_subscribed' ->
+                emqx_hooks:put('session.subscribed', {?MODULE, on_client_subscribed, []});
+            '$event/client_unsubscribed' ->
+                emqx_hooks:put('session.unsubscribed', {?MODULE, on_client_unsubscribed, []});
+            '$event/message_delivered' ->
                 emqx_hooks:put('message.delivered', {?MODULE, on_message_delivered, []});
-            <<"$event/message_acked">> ->
+            '$event/message_acked' ->
                 emqx_hooks:put('message.acked', {?MODULE, on_message_acked, []});
-            <<"$event/message_dropped">> ->
+            '$event/message_dropped' ->
                 emqx_hooks:put('message.dropped', {?MODULE, on_message_dropped, []});
             _ ->
                 ok
         end
-    end, Topics).
+    end, maps:to_list(list())).
 
 disable() ->
-    Topics = emqx:get_config([event_message, topics], []),
-    lists:foreach(fun(Topic) ->
+    lists:foreach(fun({_Topic, false}) -> ok;
+                     ({Topic, true}) ->
         case Topic of
-            <<"$event/client_connected">> ->
+            '$event/client_connected' ->
                 emqx_hooks:del('client.connected', {?MODULE, on_client_connected});
-            <<"$event/client_disconnected">> ->
+            '$event/client_disconnected' ->
                 emqx_hooks:del('client.disconnected', {?MODULE, on_client_disconnected});
-            <<"$event/session_subscribed">> ->
-                emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed});
-            <<"$event/session_unsubscribed">> ->
-                emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed});
-            <<"$event/message_delivered">> ->
+            '$event/client_subscribed' ->
+                emqx_hooks:del('session.subscribed', {?MODULE, on_client_subscribed});
+            '$event/client_unsubscribed' ->
+                emqx_hooks:del('session.unsubscribed', {?MODULE, on_client_unsubscribed});
+            '$event/message_delivered' ->
                 emqx_hooks:del('message.delivered', {?MODULE, on_message_delivered});
-            <<"$event/message_acked">> ->
+            '$event/message_acked' ->
                 emqx_hooks:del('message.acked', {?MODULE, on_message_acked});
-            <<"$event/message_dropped">> ->
+            '$event/message_dropped' ->
                 emqx_hooks:del('message.dropped', {?MODULE, on_message_dropped});
             _ ->
                 ok
         end
-    end, ?BASE_TOPICS -- Topics).
+    end, maps:to_list(list())).
 
 %%--------------------------------------------------------------------
 %% Callbacks
@@ -90,7 +100,6 @@ disable() ->
 on_client_connected(ClientInfo, ConnInfo) ->
     Payload0 = common_infos(ClientInfo, ConnInfo),
     Payload = Payload0#{
-        connack         => 0, %% XXX: connack will be removed in 5.0
         keepalive       => maps:get(keepalive, ConnInfo, 0),
         clean_start     => maps:get(clean_start, ConnInfo, true),
         expiry_interval => maps:get(expiry_interval, ConnInfo, 0),
@@ -108,8 +117,8 @@ on_client_disconnected(ClientInfo,
                  },
     publish_event_msg(<<"$event/client_disconnected">>, Payload).
 
-on_session_subscribed(_ClientInfo = #{clientid := ClientId,
-                                      username := Username},
+on_client_subscribed(_ClientInfo = #{clientid := ClientId,
+                                     username := Username},
                       Topic, SubOpts) ->
     Payload = #{clientid => ClientId,
                 username => Username,
@@ -117,17 +126,17 @@ on_session_subscribed(_ClientInfo = #{clientid := ClientId,
                 subopts => SubOpts,
                 ts => erlang:system_time(millisecond)
                },
-    publish_event_msg(<<"$event/session_subscribed">>, Payload).
+    publish_event_msg(<<"$event/client_subscribed">>, Payload).
 
-on_session_unsubscribed(_ClientInfo = #{clientid := ClientId,
-                                        username := Username},
+on_client_unsubscribed(_ClientInfo = #{clientid := ClientId,
+                                       username := Username},
                       Topic, _SubOpts) ->
     Payload = #{clientid => ClientId,
                 username => Username,
                 topic => Topic,
                 ts => erlang:system_time(millisecond)
                },
-    publish_event_msg(<<"$event/session_unsubscribed">>, Payload).
+    publish_event_msg(<<"$event/client_unsubscribed">>, Payload).
 
 on_message_dropped(Message = #message{from = ClientId}, _, Reason) ->
     case ignore_sys_message(Message) of
@@ -201,8 +210,7 @@ common_infos(
       ipaddress => ntoa(PeerHost),
       sockport => SockPort,
       proto_name => ProtoName,
-      proto_ver => ProtoVer,
-      ts => erlang:system_time(millisecond)
+      proto_ver => ProtoVer
      }.
 
 make_msg(Topic, Payload) ->
