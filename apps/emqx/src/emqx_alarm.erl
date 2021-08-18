@@ -248,7 +248,7 @@ handle_cast(Msg, State) ->
 handle_info({timeout, _TRef, delete_expired_deactivated_alarm},
        #state{timer = TRef} = State) ->
     Period = get_validity_period(),
-    delete_expired_deactivated_alarms(erlang:system_time(?TIMESTAMP_PRECISION) - Period),
+    delete_expired_deactivated_alarms((erlang:system_time(?TIMESTAMP_PRECISION) - Period) * 1000),
     {noreply, State#state{timer = ensure_timer(TRef, Period)}};
 
 handle_info({update_timer, Period}, #state{timer = TRef} = State) ->
