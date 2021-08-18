@@ -24,6 +24,7 @@
         , safe_atom_key_map/1
         , unsafe_atom_key_map/1
         , jsonable_map/1
+        , jsonable_value/1
         , deep_convert/2
         ]).
 

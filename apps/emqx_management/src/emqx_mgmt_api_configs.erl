@@ -24,6 +24,8 @@
         , config_reset/2
         ]).
 
+-export([get_conf_schema/2]).
+
 -define(PARAM_CONF_PATH, [#{
     name => conf_path,
     in => query,
@@ -171,15 +173,19 @@ get_conf_schema(BasePath, [{Key, Conf} | Confs], Result, MaxDepth) ->
 
 %% TODO: generate from hocon schema
 gen_schema(Conf) when is_boolean(Conf) ->
-    #{type => boolean};
+    with_default_value(#{type => boolean}, Conf);
 gen_schema(Conf) when is_binary(Conf); is_atom(Conf) ->
-    #{type => string};
+    with_default_value(#{type => string}, Conf);
 gen_schema(Conf) when is_number(Conf) ->
-    #{type => number};
+    with_default_value(#{type => number}, Conf);
 gen_schema(Conf) when is_list(Conf) ->
     #{type => array, items => case Conf of
             [] -> #{}; %% don't know the type
-            _ -> gen_schema(hd(Conf))
+            _ ->
+                case io_lib:printable_unicode_list(Conf) of
+                    true -> gen_schema(unicode:characters_to_binary(Conf));
+                    false -> gen_schema(hd(Conf))
+                end
         end};
 gen_schema(Conf) when is_map(Conf) ->
     #{type => object, properties =>
@@ -188,6 +194,9 @@ gen_schema(_Conf) ->
     %% the conf is not of JSON supported type, it may have been converted
     %% by the hocon schema
     #{type => string}.
+
+with_default_value(Type, Value) ->
+    Type#{example => emqx_map_lib:jsonable_value(Value)}.
 
 path_join(Path) ->
     path_join(Path, "/").
