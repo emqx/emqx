@@ -179,4 +179,4 @@ rpc_call(Node, Module, Fun, Args) ->
     end.
 
 get_status() ->
-    emqx_config:get([delayed, enable], true).
+    emqx:get_config([delayed, enable], true).
