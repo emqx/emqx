@@ -85,6 +85,8 @@
 
 -define(DEACTIVATED_ALARM, emqx_deactivated_alarm).
 
+-define(TIMESTAMP_PRECISION, millisecond).
+
 -rlog_shard({?COMMON_SHARD, ?ACTIVATED_ALARM}).
 -rlog_shard({?COMMON_SHARD, ?DEACTIVATED_ALARM}).
 
@@ -156,7 +158,7 @@ post_config_update(_, #{validity_period := Period0}, _OldConf) ->
     ok.
 
 format(#activated_alarm{name = Name, message = Message, activate_at = At, details = Details}) ->
-    Now = erlang:system_time(microsecond),
+    Now = erlang:system_time(?TIMESTAMP_PRECISION),
     #{
         node => node(),
         name => Name,
@@ -197,7 +199,7 @@ handle_call({activate_alarm, Name, Details}, _From, State) ->
             Alarm = #activated_alarm{name = Name,
                                      details = Details,
                                      message = normalize_message(Name, Details),
-                                     activate_at = erlang:system_time(microsecond)},
+                                     activate_at = erlang:system_time(?TIMESTAMP_PRECISION)},
             ekka_mnesia:dirty_write(?ACTIVATED_ALARM, Alarm),
             do_actions(activate, Alarm, emqx_config:get([alarm, actions])),
             {reply, ok, State}
@@ -246,7 +248,7 @@ handle_cast(Msg, State) ->
 handle_info({timeout, _TRef, delete_expired_deactivated_alarm},
        #state{timer = TRef} = State) ->
     Period = get_validity_period(),
-    delete_expired_deactivated_alarms(erlang:system_time(microsecond) - Period * 1000),
+    delete_expired_deactivated_alarms(erlang:system_time(?TIMESTAMP_PRECISION) - Period),
     {noreply, State#state{timer = ensure_timer(TRef, Period)}};
 
 handle_info({update_timer, Period}, #state{timer = TRef} = State) ->
@@ -283,10 +285,10 @@ deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name
         false -> ok
     end,
     HistoryAlarm = make_deactivated_alarm(ActivateAt, Name, Details0, Msg0,
-                        erlang:system_time(microsecond)),
+                        erlang:system_time(?TIMESTAMP_PRECISION)),
     DeActAlarm = make_deactivated_alarm(ActivateAt, Name, Details,
                     normalize_message(Name, Details),
-                    erlang:system_time(microsecond)),
+                    erlang:system_time(?TIMESTAMP_PRECISION)),
     ekka_mnesia:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
     ekka_mnesia:dirty_delete(?ACTIVATED_ALARM, Name),
     do_actions(deactivate, DeActAlarm, emqx_config:get([alarm, actions])).
@@ -311,7 +313,7 @@ deactivate_all_alarms() ->
                     name = Name,
                     details = Details,
                     message = Message,
-                    deactivate_at = erlang:system_time(microsecond)})
+                    deactivate_at = erlang:system_time(?TIMESTAMP_PRECISION)})
         end, ets:tab2list(?ACTIVATED_ALARM)),
     clear_table(?ACTIVATED_ALARM).
 
