@@ -67,6 +67,8 @@
     !./bin/emqx_ctl rules create 'SELECT * FROM "t/#"' '[{"name":"data_to_webserver", "params": {"$$resource":  "resource:691c29ba"}}]'
     ?created
     ?SH-PROMPT
+    ?sleep 5
+    ?SH-PROMPT
 
 [shell emqx]
     !./bin/emqx_ctl resources list
