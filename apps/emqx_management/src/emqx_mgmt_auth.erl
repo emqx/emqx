@@ -68,7 +68,7 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 -spec(add_default_app() -> list()).
 add_default_app() ->
-    Apps = emqx_config:get([?APP, applications], []),
+    Apps = emqx:get_config([?APP, applications], []),
     [ begin
           case {AppId, AppSecret} of
               {undefined, _} -> ok;

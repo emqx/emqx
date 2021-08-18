@@ -84,7 +84,7 @@ statsd_api() ->
     [{"/statsd", Metadata, statsd}].
 
 statsd(get, _Request) ->
-    Response = emqx_config:get_raw([<<"statsd">>], #{}),
+    Response = emqx:get_raw_config([<<"statsd">>], #{}),
     {200, Response};
 
 statsd(put, Request) ->
@@ -96,11 +96,11 @@ statsd(put, Request) ->
 
 enable_statsd(true) ->
     ok = emqx_statsd_sup:stop_child(?APP),
-    emqx_statsd_sup:start_child(?APP, emqx_config:get([statsd], #{})),
+    emqx_statsd_sup:start_child(?APP, emqx:get_config([statsd], #{})),
     {200};
 enable_statsd(false) ->
     _ = emqx_statsd_sup:stop_child(?APP),
     {200}.
 
 get_raw(Key, Def) ->
-    emqx_config:get_raw([<<"statsd">>]++ [Key], Def).
+    emqx:get_raw_config([<<"statsd">>]++ [Key], Def).

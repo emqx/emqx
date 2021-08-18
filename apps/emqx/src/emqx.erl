@@ -55,7 +55,12 @@
 -export([ set_debug_secret/1
         ]).
 
--export([ update_config/2
+%% Configs APIs
+-export([ get_config/1
+        , get_config/2
+        , get_raw_config/1
+        , get_raw_config/2
+        , update_config/2
         , update_config/3
         , remove_config/1
         , remove_config/2
@@ -191,6 +196,22 @@ run_hook(HookPoint, Args) ->
 -spec(run_fold_hook(emqx_hooks:hookpoint(), list(any()), any()) -> any()).
 run_fold_hook(HookPoint, Args, Acc) ->
     emqx_hooks:run_fold(HookPoint, Args, Acc).
+
+-spec get_config(emqx_map_lib:config_key_path()) -> term().
+get_config(KeyPath) ->
+    emqx_config:get(KeyPath).
+
+-spec get_config(emqx_map_lib:config_key_path(), term()) -> term().
+get_config(KeyPath, Default) ->
+    emqx_config:get(KeyPath, Default).
+
+-spec get_raw_config(emqx_map_lib:config_key_path()) -> term().
+get_raw_config(KeyPath) ->
+    emqx_config:get_raw(KeyPath).
+
+-spec get_raw_config(emqx_map_lib:config_key_path(), term()) -> term().
+get_raw_config(KeyPath, Default) ->
+    emqx_config:get_raw(KeyPath, Default).
 
 -spec update_config(emqx_map_lib:config_key_path(), emqx_config:update_request()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.

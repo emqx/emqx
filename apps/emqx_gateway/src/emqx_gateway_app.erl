@@ -79,4 +79,4 @@ load_gateway_by_default([{Type, Confs}|More]) ->
     load_gateway_by_default(More).
 
 confs() ->
-    maps:to_list(emqx_config:get([gateway], [])).
+    maps:to_list(emqx:get_config([gateway], [])).

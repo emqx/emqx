@@ -57,8 +57,8 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, _Timer, check}, State) ->
-    ProcHighWatermark = emqx_config:get([sysmon, vm, process_high_watermark]),
-    ProcLowWatermark = emqx_config:get([sysmon, vm, process_low_watermark]),
+    ProcHighWatermark = emqx:get_config([sysmon, vm, process_high_watermark]),
+    ProcLowWatermark = emqx:get_config([sysmon, vm, process_low_watermark]),
     ProcessCount = erlang:system_info(process_count),
     case ProcessCount / erlang:system_info(process_limit) of
         Percent when Percent >= ProcHighWatermark ->
@@ -89,5 +89,5 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 start_check_timer() ->
-    Interval = emqx_config:get([sysmon, vm, process_check_interval]),
+    Interval = emqx:get_config([sysmon, vm, process_check_interval]),
     emqx_misc:start_timer(Interval, check).

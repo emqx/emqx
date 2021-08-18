@@ -27,7 +27,7 @@
         ]).
 
 load_bridges() ->
-    Bridges = emqx_config:get([emqx_data_bridge, bridges], []),
+    Bridges = emqx:get_config([emqx_data_bridge, bridges], []),
     emqx_data_bridge_monitor:ensure_all_started(Bridges).
 
 resource_type(mysql) -> emqx_connector_mysql;

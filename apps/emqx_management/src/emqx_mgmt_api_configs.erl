@@ -56,7 +56,7 @@ api_spec() ->
 
 config_apis() ->
     [config_api(ConfPath, Schema) || {ConfPath, Schema} <-
-     get_conf_schema(emqx_config:get([]), ?MAX_DEPTH), is_core_conf(ConfPath)].
+     get_conf_schema(emqx:get_config([]), ?MAX_DEPTH), is_core_conf(ConfPath)].
 
 config_api(ConfPath, Schema) ->
     Path = path_join(ConfPath),
@@ -131,7 +131,7 @@ config_reset(post, Req) ->
 
 get_full_config() ->
     emqx_map_lib:jsonable_map(
-        emqx_config:fill_defaults(emqx_config:get_raw([]))).
+        emqx_config:fill_defaults(emqx:get_raw_config([]))).
 
 conf_path_from_querystr(Req) ->
     case proplists:get_value(<<"conf_path">>, cowboy_req:parse_qs(Req)) of
