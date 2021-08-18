@@ -48,12 +48,15 @@
 
 -define(ERR_MSG(MSG), list_to_binary(io_lib:format("~p", [MSG]))).
 
+-define(CORE_CONFS, [node, log, alarm, zones, cluster, rpc, broker, sysmon,
+    emqx_dashboard, emqx_management]).
+
 api_spec() ->
     {config_apis() ++ [config_reset_api()], []}.
 
 config_apis() ->
     [config_api(ConfPath, Schema) || {ConfPath, Schema} <-
-     get_conf_schema(emqx:get_config([]), ?MAX_DEPTH)].
+     get_conf_schema(emqx:get_config([]), ?MAX_DEPTH), is_core_conf(ConfPath)].
 
 config_api(ConfPath, Schema) ->
     Path = path_join(ConfPath),
@@ -192,6 +195,9 @@ path_join(Path) ->
 path_join([P], _Sp) -> str(P);
 path_join([P | Path], Sp) ->
     str(P) ++ Sp ++ path_join(Path, Sp).
+
+is_core_conf(Path) ->
+    lists:member(hd(Path), ?CORE_CONFS).
 
 str(S) when is_list(S) -> S;
 str(S) when is_binary(S) -> binary_to_list(S);
