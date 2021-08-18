@@ -35,7 +35,7 @@
         ]).
 
 lookup_config(_Bindings, _Params) ->
-    Config = emqx_config:get([emqx_retainer]),
+    Config = emqx:get_config([emqx_retainer]),
     return({ok, Config}).
 
 update_config(_Bindings, Params) ->

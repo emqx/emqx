@@ -102,10 +102,10 @@ datetime() ->
             "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
 
 sys_interval() ->
-    emqx_config:get([broker, sys_msg_interval]).
+    emqx:get_config([broker, sys_msg_interval]).
 
 sys_heatbeat_interval() ->
-    emqx_config:get([broker, sys_heartbeat_interval]).
+    emqx:get_config([broker, sys_heartbeat_interval]).
 
 %% @doc Get sys info
 -spec(info() -> list(tuple())).

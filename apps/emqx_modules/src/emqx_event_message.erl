@@ -38,7 +38,7 @@
 -endif.
 
 enable() ->
-    Topics = emqx_config:get([event_message, topics], []),
+    Topics = emqx:get_config([event_message, topics], []),
     lists:foreach(fun(Topic) ->
         case Topic of
             <<"$event/client_connected">> ->
@@ -61,7 +61,7 @@ enable() ->
     end, Topics).
 
 disable() ->
-    Topics = emqx_config:get([event_message, topics], []),
+    Topics = emqx:get_config([event_message, topics], []),
     lists:foreach(fun(Topic) ->
         case Topic of
             <<"$event/client_connected">> ->

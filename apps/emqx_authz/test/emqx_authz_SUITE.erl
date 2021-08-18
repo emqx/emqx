@@ -87,7 +87,7 @@ t_update_rule(_) ->
     {ok, _} = emqx_authz:update(tail, [?RULE3]),
 
     Lists1 = emqx_authz:check_rules([?RULE1, ?RULE2, ?RULE3]),
-    ?assertMatch(Lists1, emqx_config:get([authorization, rules], [])),
+    ?assertMatch(Lists1, emqx:get_config([authorization, rules], [])),
 
     [#{annotations := #{id := Id1,
                         principal := all,
@@ -109,7 +109,7 @@ t_update_rule(_) ->
 
     {ok, _} = emqx_authz:update({replace_once, Id3}, ?RULE4),
     Lists2 = emqx_authz:check_rules([?RULE1, ?RULE2, ?RULE4]),
-    ?assertMatch(Lists2, emqx_config:get([authorization, rules], [])),
+    ?assertMatch(Lists2, emqx:get_config([authorization, rules], [])),
 
     [#{annotations := #{id := Id1,
                         principal := all,

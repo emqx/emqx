@@ -65,7 +65,7 @@ start_link() ->
 %% @doc Is the global registry enabled?
 -spec(is_enabled() -> boolean()).
 is_enabled() ->
-    emqx_config:get([broker, enable_session_registry]).
+    emqx:get_config([broker, enable_session_registry]).
 
 %% @doc Register a global channel.
 -spec(register_channel(emqx_types:clientid()

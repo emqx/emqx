@@ -94,7 +94,7 @@ stop_listener({Proto, Port, _}) ->
 listeners() ->
     [{Protocol, Port, maps:to_list(maps:without([protocol, port], Map))}
         || Map = #{protocol := Protocol,port := Port}
-        <- emqx_config:get([emqx_management, listeners], [])].
+        <- emqx:get_config([emqx_management, listeners], [])].
 
 listener_name(Proto) ->
     list_to_atom(atom_to_list(Proto) ++ ":management").
