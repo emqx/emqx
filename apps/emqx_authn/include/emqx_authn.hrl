@@ -26,7 +26,6 @@
         { id :: binary()
         , name :: binary()
         , provider :: module()
-        , config :: map()
         , state :: map()
         }).
 

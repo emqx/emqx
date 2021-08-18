@@ -790,6 +790,7 @@ definitions() ->
                          , minirest:ref(<<"password_based_mysql">>)
                          , minirest:ref(<<"password_based_pgsql">>)
                          , minirest:ref(<<"password_based_mongodb">>)
+                         , minirest:ref(<<"password_based_redis">>)
                          , minirest:ref(<<"password_based_http_server">>)
                          ]    
             }
@@ -1292,7 +1293,7 @@ authentication(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     case emqx_json:decode(Body, [return_maps]) of
         #{<<"enable">> := Enable} ->
-            emqx_authn:update_config([authentication, enable], {enable, Enable}),
+            {ok, _} = emqx_authn:update_config([authentication, enable], {enable, Enable}),
             {204};
         _ ->
             serialize_error({missing_parameter, enable})
@@ -1305,20 +1306,28 @@ authenticators(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Config = emqx_json:decode(Body, [return_maps]),
     case emqx_authn:update_config([authentication, authenticators], {create_authenticator, Config}) of
-        ok ->    
-            {204};
-        {error, Reason} ->
+        {ok, #{post_config_update := #{emqx_authn := #{id := ID, name := Name}},
+               raw_config := RawConfig}} ->
+            [RawConfig1] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],
+            {200, RawConfig1#{id => ID}};
+        {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end;
 authenticators(get, _Request) ->
+    RawConfig = get_raw_config([authentication, authenticators]),
     {ok, Authenticators} = emqx_authn:list_authenticators(?CHAIN),
-    {200, Authenticators}.
+    NAuthenticators = lists:zipwith(fun(#{<<"name">> := Name} = Config, #{id := ID, name := Name}) ->
+                                        Config#{id => ID}
+                                    end, RawConfig, Authenticators),
+    {200, NAuthenticators}.
 
 authenticators2(get, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     case emqx_authn:lookup_authenticator(?CHAIN, AuthenticatorID) of
-        {ok, Authenticator} ->
-           {200, Authenticator};
+        {ok, #{id := ID, name := Name}} ->
+            RawConfig = get_raw_config([authentication, authenticators]),
+            [RawConfig1] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],
+            {200, RawConfig1#{id => ID}};
         {error, Reason} ->
             serialize_error(Reason)
     end;
@@ -1328,17 +1337,19 @@ authenticators2(put, Request) ->
     Config = emqx_json:decode(Body, [return_maps]),
     case emqx_authn:update_config([authentication, authenticators],
                                   {update_or_create_authenticator, AuthenticatorID, Config}) of
-        ok ->
-            {204};
-        {error, Reason} ->
+        {ok, #{post_config_update := #{emqx_authn := #{id := ID, name := Name}},
+               raw_config := RawConfig}} ->
+            [RawConfig0] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],
+            {200, RawConfig0#{id => ID}};
+        {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end;
 authenticators2(delete, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     case emqx_authn:update_config([authentication, authenticators], {delete_authenticator, AuthenticatorID}) of
-        ok ->
+        {ok, _} ->
             {204};
-        {error, Reason} ->
+        {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end.
 
@@ -1348,8 +1359,8 @@ move(post, Request) ->
     case emqx_json:decode(Body, [return_maps]) of
         #{<<"position">> := Position} ->
             case emqx_authn:update_config([authentication, authenticators], {move_authenticator, AuthenticatorID, Position}) of
-                ok -> {204};
-                {error, Reason} -> serialize_error(Reason)
+                {ok, _} -> {204};
+                {error, {_, _, Reason}} -> serialize_error(Reason)
             end;
         _ ->
             serialize_error({missing_parameter, position})
@@ -1361,10 +1372,8 @@ import_users(post, Request) ->
     case emqx_json:decode(Body, [return_maps]) of
         #{<<"filename">> := Filename} ->
             case emqx_authn:import_users(?CHAIN, AuthenticatorID, Filename) of
-                ok ->
-                    {204};
-                {error, Reason} ->
-                    serialize_error(Reason)
+                ok -> {204};
+                {error, Reason} -> serialize_error(Reason)
             end;
         _ ->
             serialize_error({missing_parameter, filename})
@@ -1434,6 +1443,11 @@ users2(delete, Request) ->
         {error, Reason} ->
             serialize_error(Reason)
     end.
+
+get_raw_config(ConfKeyPath) ->
+    %% TODO: call emqx_config:get_raw(ConfKeyPath) directly
+    NConfKeyPath = [atom_to_binary(Key, utf8) || Key <- ConfKeyPath],
+    emqx_map_lib:deep_get(NConfKeyPath, emqx_config:fill_defaults(emqx_config:get_raw([]))).
 
 serialize_error({not_found, {authenticator, ID}}) ->
     {404, #{code => <<"NOT_FOUND">>,

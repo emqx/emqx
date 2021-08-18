@@ -71,7 +71,7 @@ t_authenticator(_) ->
                              secret => <<"abcdef">>,
                              secret_base64_encoded => false,
                              verify_claims => []},
-    {ok, #{name := AuthenticatorName1, id := ID1, mechanism := jwt}} = ?AUTH:update_authenticator(?CHAIN, ID1, AuthenticatorConfig2),
+    {ok, #{name := AuthenticatorName1, id := ID1}} = ?AUTH:update_authenticator(?CHAIN, ID1, AuthenticatorConfig2),
 
     ID2 = <<"random">>,
     ?assertEqual({error, {not_found, {authenticator, ID2}}}, ?AUTH:update_authenticator(?CHAIN, ID2, AuthenticatorConfig2)),
@@ -79,9 +79,9 @@ t_authenticator(_) ->
 
     AuthenticatorName2 = <<"myauthenticator2">>,
     AuthenticatorConfig3 = AuthenticatorConfig2#{name => AuthenticatorName2},
-    {ok, #{name := AuthenticatorName2, id := ID2, secret := <<"abcdef">>}} = ?AUTH:update_or_create_authenticator(?CHAIN, ID2, AuthenticatorConfig3),
+    {ok, #{name := AuthenticatorName2, id := ID2}} = ?AUTH:update_or_create_authenticator(?CHAIN, ID2, AuthenticatorConfig3),
     ?assertMatch({ok, #{name := AuthenticatorName2}}, ?AUTH:lookup_authenticator(?CHAIN, ID2)),
-    {ok, #{name := AuthenticatorName2, id := ID2, secret := <<"fedcba">>}} = ?AUTH:update_or_create_authenticator(?CHAIN, ID2, AuthenticatorConfig3#{secret := <<"fedcba">>}),
+    {ok, #{name := AuthenticatorName2, id := ID2}} = ?AUTH:update_or_create_authenticator(?CHAIN, ID2, AuthenticatorConfig3#{secret := <<"fedcba">>}),
 
     ?assertMatch({ok, #{id := ?CHAIN, authenticators := [#{name := AuthenticatorName1}, #{name := AuthenticatorName2}]}}, ?AUTH:lookup_chain(?CHAIN)),
     ?assertMatch({ok, [#{name := AuthenticatorName1}, #{name := AuthenticatorName2}]}, ?AUTH:list_authenticators(?CHAIN)),

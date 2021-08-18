@@ -76,60 +76,63 @@
 %%------------------------------------------------------------------------------
 
 pre_config_update({enable, Enable}, _OldConfig) ->
-    Enable;
+    {ok, Enable};
 pre_config_update({create_authenticator, Config}, OldConfig) ->
-    OldConfig ++ [Config];
+    {ok, OldConfig ++ [Config]};
 pre_config_update({delete_authenticator, ID}, OldConfig) ->
     case lookup_authenticator(?CHAIN, ID) of
-        {error, Reason} -> error(Reason);
+        {error, Reason} -> {error, Reason};
         {ok, #{name := Name}} ->
-            lists:filter(fun(#{<<"name">> := N}) ->
-                             N =/= Name
-                         end, OldConfig)
+            NewConfig = lists:filter(fun(#{<<"name">> := N}) ->
+                                         N =/= Name
+                                     end, OldConfig),
+            {ok, NewConfig}
     end;
 pre_config_update({update_authenticator, ID, Config}, OldConfig) ->
     case lookup_authenticator(?CHAIN, ID) of
-        {error, Reason} -> error(Reason);
+        {error, Reason} -> {error, Reason};
         {ok, #{name := Name}} ->
-            lists:map(fun(#{<<"name">> := N} = C) ->
-                          case N =:= Name of
-                              true -> Config;
-                              false -> C
-                          end
-                      end, OldConfig)
+            NewConfig = lists:map(fun(#{<<"name">> := N} = C) ->
+                                      case N =:= Name of
+                                          true -> Config;
+                                          false -> C
+                                      end
+                                  end, OldConfig),
+            {ok, NewConfig}
     end;
 pre_config_update({update_or_create_authenticator, ID, Config}, OldConfig) ->
     case lookup_authenticator(?CHAIN, ID) of
         {error, _Reason} -> OldConfig ++ [Config];
         {ok, #{name := Name}} ->
-            lists:map(fun(#{<<"name">> := N} = C) ->
-                          case N =:= Name of
-                              true -> Config;
-                              false -> C
-                          end
-                      end, OldConfig)
+            NewConfig = lists:map(fun(#{<<"name">> := N} = C) ->
+                                      case N =:= Name of
+                                          true -> Config;
+                                          false -> C
+                                      end
+                                  end, OldConfig),
+            {ok, NewConfig}
     end;
-pre_config_update({move, ID, Position}, OldConfig) ->
+pre_config_update({move_authenticator, ID, Position}, OldConfig) ->
     case lookup_authenticator(?CHAIN, ID) of
-        {error, Reason} -> error(Reason);
+        {error, Reason} -> {error, Reason};
         {ok, #{name := Name}} ->
             {ok, Found, Part1, Part2} = split_by_name(Name, OldConfig),
             case Position of
                 <<"top">> ->
-                    [Found | Part1] ++ Part2;
+                    {ok, [Found | Part1] ++ Part2};
                 <<"bottom">> ->
-                    Part1 ++ Part2 ++ [Found];
+                    {ok, Part1 ++ Part2 ++ [Found]};
                 Before ->
                     case binary:split(Before, <<":">>, [global]) of
                         [<<"before">>, ID0] ->
                             case lookup_authenticator(?CHAIN, ID0) of
-                                {error, Reason} -> error(Reason);
+                                {error, Reason} -> {error, Reason};
                                 {ok, #{name := Name1}} ->
-                                    {ok, NFound, NPart1, NPart2} = split_by_name(Name1, Part1 + Part2),
-                                    NPart1 ++ [Found, NFound | NPart2]
+                                    {ok, NFound, NPart1, NPart2} = split_by_name(Name1, Part1 ++ Part2),
+                                    {ok, NPart1 ++ [Found, NFound | NPart2]}
                             end;
                         _ ->
-                            error({invalid_parameter, position})
+                            {error, {invalid_parameter, position}}
                     end
             end
     end.
@@ -144,12 +147,9 @@ post_config_update({create_authenticator, #{<<"name">> := Name}}, NewConfig, _Ol
                  N =:= Name
              end, NewConfig) of
         [Config] ->
-            case create_authenticator(?CHAIN, Config) of
-                {ok, _} -> ok;
-                {error, Reason} -> throw(Reason)
-            end;
+            create_authenticator(?CHAIN, Config);
         [_Config | _] ->
-            error(name_has_be_used)
+            {error, name_has_be_used}
     end;
 post_config_update({delete_authenticator, ID}, _NewConfig, _OldConfig) ->
     case delete_authenticator(?CHAIN, ID) of
@@ -162,12 +162,9 @@ post_config_update({update_authenticator, ID, #{<<"name">> := Name}}, NewConfig,
                  N =:= Name
              end, NewConfig) of
         [Config] ->
-            case update_authenticator(?CHAIN, ID, Config) of
-                {ok, _} -> ok;
-                {error, Reason} -> throw(Reason)
-            end;
+            update_authenticator(?CHAIN, ID, Config);
         [_Config | _] ->
-            error(name_has_be_used)
+            {error, name_has_be_used}
     end;
 post_config_update({update_or_create_authenticator, ID, #{<<"name">> := Name}}, NewConfig, _OldConfig) ->
     case lists:filter(
@@ -175,14 +172,11 @@ post_config_update({update_or_create_authenticator, ID, #{<<"name">> := Name}}, 
                  N =:= Name
              end, NewConfig) of
         [Config] ->
-            case update_or_create_authenticator(?CHAIN, ID, Config) of
-                {ok, _} -> ok;
-                {error, Reason} -> throw(Reason)
-            end;
+            update_or_create_authenticator(?CHAIN, ID, Config);
         [_Config | _] ->
-            error(name_has_be_used)
+            {error, name_has_be_used}
     end;
-post_config_update({move, ID, Position}, _NewConfig, _OldConfig) ->
+post_config_update({move_authenticator, ID, Position}, _NewConfig, _OldConfig) ->
     NPosition = case Position of
                     <<"top">> -> top;
                     <<"bottom">> -> bottom;
@@ -191,16 +185,13 @@ post_config_update({move, ID, Position}, _NewConfig, _OldConfig) ->
                             [<<"before">>, ID0] ->
                                 {before, ID0};
                             _ ->
-                                error({invalid_parameter, position})
+                                {error, {invalid_parameter, position}}
                         end
                 end,
-    case move_authenticator(?CHAIN, ID, NPosition) of
-        ok -> ok;
-        {error, Reason} -> throw(Reason)
-    end.
+    move_authenticator(?CHAIN, ID, NPosition).
 
 update_config(Path, ConfigRequest) ->
-    emqx_config:update(emqx_authn_schema, Path, ConfigRequest).
+    emqx:update_config(Path, ConfigRequest, #{rawconf_with_defaults => true}).
 
 enable() ->
     case emqx:hook('client.authenticate', {?MODULE, authenticate, []}) of
@@ -522,7 +513,6 @@ do_create_authenticator(ChainID, AuthenticatorID, #{name := Name} = Config) ->
             Authenticator = #authenticator{id = AuthenticatorID,
                                            name = Name,
                                            provider = Provider,
-                                           config = Config,
                                            state = switch_version(State)},
             {ok, Authenticator};
         {error, Reason} ->
@@ -570,8 +560,7 @@ update_or_create_authenticator(ChainID, AuthenticatorID, #{name := NewName} = Co
                                     case Provider:update(Config#{'_unique' => Unique}, State) of
                                         {ok, NewState} ->
                                             NewAuthenticator = Authenticator#authenticator{name = NewName,
-                                                                                            config = Config,
-                                                                                            state = switch_version(NewState)},
+                                                                                           state = switch_version(NewState)},
                                             NewAuthenticators = replace_authenticator(AuthenticatorID, NewAuthenticator, Authenticators),
                                             true = ets:insert(?CHAIN_TAB, Chain#chain{authenticators = NewAuthenticators}),
                                             {ok, serialize_authenticator(NewAuthenticator)};
@@ -583,9 +572,8 @@ update_or_create_authenticator(ChainID, AuthenticatorID, #{name := NewName} = Co
                                     case NewProvider:create(Config#{'_unique' => Unique}) of
                                         {ok, NewState} ->
                                             NewAuthenticator = Authenticator#authenticator{name = NewName,
-                                                                                            provider = NewProvider,
-                                                                                            config = Config,
-                                                                                            state = switch_version(NewState)},
+                                                                                           provider = NewProvider,
+                                                                                           state = switch_version(NewState)},
                                             NewAuthenticators = replace_authenticator(AuthenticatorID, NewAuthenticator, Authenticators),
                                             true = ets:insert(?CHAIN_TAB, Chain#chain{authenticators = NewAuthenticators}),
                                             _ = Provider:destroy(State),
@@ -660,5 +648,7 @@ serialize_authenticators(Authenticators) ->
     [serialize_authenticator(Authenticator) || {_, _, Authenticator} <- Authenticators].
 
 serialize_authenticator(#authenticator{id = ID,
-                                       config = Config}) ->
-    Config#{id => ID}.
+                                       name = Name,
+                                       provider = Provider,
+                                       state = State}) ->
+    #{id => ID, name => Name, provider => Provider, state => State}.
