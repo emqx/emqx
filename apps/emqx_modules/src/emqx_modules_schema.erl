@@ -45,8 +45,15 @@ fields("rewrite") ->
     [ {rules, hoconsc:array(hoconsc:ref(?MODULE, "rules"))}
     ];
 
+
 fields("event_message") ->
-    [ {topics, fun topics/1}
+    [ {"$event/client_connected", emqx_schema:t(boolean(), undefined, false)}
+    , {"$event/client_disconnected", emqx_schema:t(boolean(), undefined, false)}
+    , {"$event/client_subscribed", emqx_schema:t(boolean(), undefined, false)}
+    , {"$event/client_unsubscribed", emqx_schema:t(boolean(), undefined, false)}
+    , {"$event/message_delivered", emqx_schema:t(boolean(), undefined, false)}
+    , {"$event/message_acked", emqx_schema:t(boolean(), undefined, false)}
+    , {"$event/message_dropped", emqx_schema:t(boolean(), undefined, false)}
     ];
 
 fields("topic_metrics") ->
@@ -60,19 +67,3 @@ fields("rules") ->
     , {dest_topic, emqx_schema:t(binary())}
     ].
 
-topics(type) -> hoconsc:array(binary());
-topics(default) -> [];
-% topics(validator) -> [
-%     fun(Conf) ->
-%         case lists:member(Conf, ["$event/client_connected",
-%                                  "$event/client_disconnected",
-%                                  "$event/session_subscribed",
-%                                  "$event/session_unsubscribed",
-%                                  "$event/message_delivered",
-%                                  "$event/message_acked",
-%                                  "$event/message_dropped"]) of
-%             true -> ok;
-%             false -> {error, "Bad event topic"}
-%         end
-%     end];
-topics(_) -> undefined.
