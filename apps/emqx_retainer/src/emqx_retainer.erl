@@ -37,7 +37,8 @@
 -export([ get_expiry_time/1
         , update_config/1
         , clean/0
-        , delete/1]).
+        , delete/1
+        , page_read/3]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -66,6 +67,8 @@
 -callback delete_message(context(), topic()) -> ok.
 -callback store_retained(context(), message()) -> ok.
 -callback read_message(context(), topic()) -> {ok, list()}.
+-callback page_read(context(), topic(), non_neg_integer(), non_neg_integer()) ->
+    {ok, list()}.
 -callback match_messages(context(), topic(), cursor()) -> {ok, list(), cursor()}.
 -callback clear_expired(context()) -> ok.
 -callback clean(context()) -> ok.
@@ -166,6 +169,9 @@ clean() ->
 delete(Topic) ->
     gen_server:call(?MODULE, {?FUNCTION_NAME, Topic}).
 
+page_read(Topic, Page, Limit) ->
+    gen_server:call(?MODULE, {?FUNCTION_NAME, Topic, Page, Limit}).
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
@@ -197,6 +203,11 @@ handle_call(clean, _, #{context := Context} = State) ->
 handle_call({delete, Topic}, _, #{context := Context} = State) ->
     delete_message(Context, Topic),
     {reply, ok, State};
+
+handle_call({page_read, Topic, Page, Limit}, _, #{context := Context} = State) ->
+    Mod = get_backend_module(),
+    Result = Mod:page_read(Context, Topic, Page, Limit),
+    {reply, Result, State};
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
