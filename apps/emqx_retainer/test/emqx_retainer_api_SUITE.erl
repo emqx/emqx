@@ -33,10 +33,11 @@
 -define(HOST, "http://127.0.0.1:8081/").
 -define(API_VERSION, "v4").
 -define(BASE_PATH, "api").
+-define(CFG_URI, "/configs/retainer").
 
 all() ->
-%%    TODO: V5 API
-%%    emqx_ct:all(?MODULE).
+    %%    TODO: V5 API
+    %%    emqx_ct:all(?MODULE).
     [].
 
 groups() ->
@@ -69,16 +70,12 @@ set_special_configs(_) ->
 %%------------------------------------------------------------------------------
 
 t_config(_Config) ->
-    {ok, Return} = request_http_rest_lookup(["retainer"]),
+    {ok, Return} = request_http_rest_lookup([?CFG_URI]),
     NowCfg = get_http_data(Return),
     NewCfg = NowCfg#{<<"msg_expiry_interval">> => timer:seconds(60)},
     RetainerConf = #{<<"emqx_retainer">> => NewCfg},
 
-    {ok, _} = request_http_rest_update(["retainer?action=test"], RetainerConf),
-    {ok, TestReturn} = request_http_rest_lookup(["retainer"]),
-    ?assertEqual(NowCfg, get_http_data(TestReturn)),
-
-    {ok, _} = request_http_rest_update(["retainer"], RetainerConf),
+    {ok, _} = request_http_rest_update([?CFG_URI], RetainerConf),
     {ok, UpdateReturn} = request_http_rest_lookup(["retainer"]),
     ?assertEqual(NewCfg, get_http_data(UpdateReturn)),
     ok.
@@ -141,12 +138,12 @@ receive_messages(Count, Msgs) ->
     end.
 
 switch_emqx_retainer(undefined, IsEnable) ->
-    {ok, Return} = request_http_rest_lookup(["retainer"]),
+    {ok, Return} = request_http_rest_lookup([?COMMON_SHARD]),
     NowCfg = get_http_data(Return),
     switch_emqx_retainer(NowCfg, IsEnable);
 
 switch_emqx_retainer(NowCfg, IsEnable) ->
     NewCfg = NowCfg#{<<"enable">> => IsEnable},
     RetainerConf = #{<<"emqx_retainer">> => NewCfg},
-    {ok, _} = request_http_rest_update(["retainer"], RetainerConf),
+    {ok, _} = request_http_rest_update([?CFG_URI], RetainerConf),
     NewCfg.

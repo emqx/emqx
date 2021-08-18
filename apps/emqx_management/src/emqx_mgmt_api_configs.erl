@@ -24,7 +24,7 @@
         , config_reset/2
         ]).
 
--export([get_conf_schema/2]).
+-export([get_conf_schema/2, gen_schema/1]).
 
 -define(PARAM_CONF_PATH, [#{
     name => conf_path,
