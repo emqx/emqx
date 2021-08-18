@@ -47,7 +47,7 @@ register_metrics() ->
 init() ->
     ok = register_metrics(),
     emqx_config_handler:add_handler(?CONF_KEY_PATH, ?MODULE),
-    NRules = [init_rule(Rule) || Rule <- emqx_config:get(?CONF_KEY_PATH, [])],
+    NRules = [init_rule(Rule) || Rule <- emqx:get_config(?CONF_KEY_PATH, [])],
     ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NRules]}, -1).
 
 lookup() ->

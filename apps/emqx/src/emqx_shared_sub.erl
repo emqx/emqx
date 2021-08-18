@@ -136,11 +136,11 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
 
 -spec(strategy() -> strategy()).
 strategy() ->
-    emqx_config:get([broker, shared_subscription_strategy]).
+    emqx:get_config([broker, shared_subscription_strategy]).
 
 -spec(ack_enabled() -> boolean()).
 ack_enabled() ->
-    emqx_config:get([broker, shared_dispatch_ack_enabled]).
+    emqx:get_config([broker, shared_dispatch_ack_enabled]).
 
 do_dispatch(SubPid, Topic, Msg, _Type) when SubPid =:= self() ->
     %% Deadlock otherwise

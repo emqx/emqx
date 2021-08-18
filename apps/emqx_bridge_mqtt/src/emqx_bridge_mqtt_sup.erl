@@ -39,7 +39,7 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    BridgesConf = emqx_config:get([?APP, bridges], []),
+    BridgesConf = emqx:get_config([?APP, bridges], []),
     BridgeSpec = lists:map(fun bridge_spec/1, BridgesConf),
     SupFlag = #{strategy => one_for_one,
                 intensity => 100,

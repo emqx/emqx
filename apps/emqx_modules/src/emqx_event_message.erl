@@ -40,7 +40,7 @@
 -endif.
 
 list() ->
-    emqx_config:get([event_message], #{}).
+    emqx:get_config([event_message], #{}).
 
 update(Params) ->
     disable(),

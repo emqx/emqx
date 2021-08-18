@@ -130,7 +130,7 @@ read_message(_, Topic) ->
     {ok, read_messages(Topic)}.
 
 match_messages(_, Topic, Cursor) ->
-    MaxReadNum = emqx_config:get([?APP, flow_control, max_read_number]),
+    MaxReadNum = emqx:get_config([?APP, flow_control, max_read_number]),
     case Cursor of
         undefined ->
             case MaxReadNum of
@@ -227,7 +227,7 @@ make_match_spec(Filter) ->
 
 -spec is_table_full() -> boolean().
 is_table_full() ->
-    #{max_retained_messages := Limit} = emqx_config:get([?APP, config]),
+    #{max_retained_messages := Limit} = emqx:get_config([?APP, config]),
     Limit > 0 andalso (table_size() >= Limit).
 
 -spec table_size() -> non_neg_integer().

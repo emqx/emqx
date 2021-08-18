@@ -905,7 +905,7 @@ get_state(Pid) ->
                              tl(tuple_to_list(State)))).
 
 get_active_n(Zone, Listener) ->
-    case emqx_config:get([zones, Zone, listeners, Listener, type]) of
+    case emqx:get_config([zones, Zone, listeners, Listener, type]) of
         quic -> 100;
         _ -> emqx_config:get_listener_conf(Zone, Listener, [tcp, active_n])
     end.

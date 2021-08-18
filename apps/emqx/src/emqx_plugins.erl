@@ -43,7 +43,7 @@
 %% @doc Load all plugins when the broker started.
 -spec(load() -> ok | ignore | {error, term()}).
 load() ->
-    ok = load_ext_plugins(emqx_config:get([plugins, expand_plugins_dir], undefined)).
+    ok = load_ext_plugins(emqx:get_config([plugins, expand_plugins_dir], undefined)).
 
 %% @doc Load a Plugin
 -spec(load(atom()) -> ok | {error, term()}).

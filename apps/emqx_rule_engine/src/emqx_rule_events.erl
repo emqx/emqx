@@ -595,4 +595,4 @@ printable_maps(Headers) ->
 
 ignore_sys_message(#message{flags = Flags}) ->
     maps:get(sys, Flags, false) andalso
-      emqx_config:get([emqx_rule_engine, ignore_sys_message]).
+      emqx:get_config([emqx_rule_engine, ignore_sys_message]).

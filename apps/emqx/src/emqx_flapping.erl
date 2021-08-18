@@ -160,4 +160,4 @@ start_timer(Zone) ->
 start_timers() ->
     lists:foreach(fun({Zone, _ZoneConf}) ->
             start_timer(Zone)
-        end, maps:to_list(emqx_config:get([zones], #{}))).
+        end, maps:to_list(emqx:get_config([zones], #{}))).

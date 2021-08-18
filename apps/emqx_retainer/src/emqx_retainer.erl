@@ -129,7 +129,7 @@ deliver(Result, #{context_id := Id} = Context, Pid, Topic, Cursor) ->
         false ->
             ok;
         _ ->
-            #{msg_deliver_quota := MaxDeliverNum} = emqx_config:get([?APP, flow_control]),
+            #{msg_deliver_quota := MaxDeliverNum} = emqx:get_config([?APP, flow_control]),
             case MaxDeliverNum of
                 0 ->
                     _ = [Pid ! {deliver, Topic, Msg} || Msg <- Result],
@@ -150,7 +150,7 @@ get_expiry_time(#message{headers = #{properties := #{'Message-Expiry-Interval' :
                          timestamp = Ts}) ->
     Ts + Interval * 1000;
 get_expiry_time(#message{timestamp = Ts}) ->
-    Interval = emqx_config:get([?APP, msg_expiry_interval], ?DEF_EXPIRY_INTERVAL),
+    Interval = emqx:get_config([?APP, msg_expiry_interval], ?DEF_EXPIRY_INTERVAL),
     case Interval of
         0 -> 0;
         _ -> Ts + Interval
@@ -173,7 +173,7 @@ delete(Topic) ->
 init([]) ->
     init_shared_context(),
     State = new_state(),
-    #{enable := Enable} = Cfg = emqx_config:get([?APP]),
+    #{enable := Enable} = Cfg = emqx:get_config([?APP]),
     {ok,
      case Enable of
          true ->
@@ -209,7 +209,7 @@ handle_cast(Msg, State) ->
 handle_info(clear_expired, #{context := Context} = State) ->
     Mod = get_backend_module(),
     Mod:clear_expired(Context),
-    Interval = emqx_config:get([?APP, msg_clear_interval], ?DEF_EXPIRY_INTERVAL),
+    Interval = emqx:get_config([?APP, msg_clear_interval], ?DEF_EXPIRY_INTERVAL),
     {noreply, State#{clear_timer := add_timer(Interval, clear_expired)}, hibernate};
 
 handle_info(release_deliver_quota, #{context := Context, wait_quotas := Waits} = State) ->
@@ -225,7 +225,7 @@ handle_info(release_deliver_quota, #{context := Context, wait_quotas := Waits} =
                           end,
                           Waits2)
     end,
-    Interval = emqx_config:get([?APP, flow_control, quota_release_interval]),
+    Interval = emqx:get_config([?APP, flow_control, quota_release_interval]),
     {noreply, State#{release_quota_timer := add_timer(Interval, release_deliver_quota),
                      wait_quotas := []}};
 
@@ -258,7 +258,7 @@ new_context(Id) ->
     #{context_id => Id}.
 
 is_too_big(Size) ->
-    Limit = emqx_config:get([?APP, max_payload_size], ?DEF_MAX_PAYLOAD_SIZE),
+    Limit = emqx:get_config([?APP, max_payload_size], ?DEF_MAX_PAYLOAD_SIZE),
     Limit > 0 andalso (Size > Limit).
 
 %% @private
@@ -332,7 +332,7 @@ insert_shared_context(Key, Term) ->
 
 -spec get_msg_deliver_quota() -> non_neg_integer().
 get_msg_deliver_quota() ->
-    emqx_config:get([?APP, flow_control, msg_deliver_quota]).
+    emqx:get_config([?APP, flow_control, msg_deliver_quota]).
 
 -spec update_config(state(), hocons:config()) -> state().
 update_config(#{clear_timer := ClearTimer,
@@ -342,7 +342,7 @@ update_config(#{clear_timer := ClearTimer,
       flow_control := #{quota_release_interval := QuotaInterval},
       msg_clear_interval := ClearInterval} = Conf,
 
-    #{config := OldConfig} = emqx_config:get([?APP]),
+    #{config := OldConfig} = emqx:get_config([?APP]),
 
     case Enable of
         true ->
@@ -416,7 +416,7 @@ check_timer(Timer, _, _) ->
 
 -spec get_backend_module() -> backend().
 get_backend_module() ->
-    #{type := Backend} = emqx_config:get([?APP, config]),
+    #{type := Backend} = emqx:get_config([?APP, config]),
     ModName = if Backend =:= built_in_database ->
                       mnesia;
                  true ->

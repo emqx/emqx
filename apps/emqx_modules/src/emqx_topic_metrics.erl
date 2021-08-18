@@ -137,7 +137,7 @@ on_message_dropped(#message{topic = Topic}, _, _) ->
     end.
 
 start_link() ->
-    Opts = emqx_config:get([topic_metrics], #{}),
+    Opts = emqx:get_config([topic_metrics], #{}),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
 
 stop() ->
