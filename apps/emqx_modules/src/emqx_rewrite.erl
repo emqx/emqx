@@ -56,7 +56,8 @@ list() ->
 
 update(Rules0) ->
     Rewrite = emqx_config:get_raw([<<"rewrite">>], #{}),
-    {ok, Config, _} = emqx_config:update([rewrite], maps:put(<<"rules">>, Rules0, Rewrite)),
+    {ok, #{config := Config}} = emqx:update_config([rewrite], maps:put(<<"rules">>,
+        Rules0, Rewrite)),
     Rules = maps:get(rules, maps:get(rewrite, Config, #{}), []),
     case Rules of
         [] ->
