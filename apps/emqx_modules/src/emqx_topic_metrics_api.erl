@@ -13,195 +13,242 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
-
+%% TODO: refactor uri path
 -module(emqx_topic_metrics_api).
 
-% -rest_api(#{name   => list_all_topic_metrics,
-%             method => 'GET',
-%             path   => "/topic-metrics",
-%             func   => list,
-%             descr  => "A list of all topic metrics of all nodes in the cluster"}).
+-behavior(minirest_api).
 
-% -rest_api(#{name   => list_topic_metrics,
-%             method => 'GET',
-%             path   => "/topic-metrics/:bin:topic",
-%             func   => list,
-%             descr  => "A list of specfied topic metrics of all nodes in the cluster"}).
+-import(emqx_mgmt_util, [ request_body_schema/1
+                        , response_schema/1
+                        , response_schema/2
+                        , response_array_schema/2
+                        , response_error_schema/2
+                        ]).
 
-% -rest_api(#{name   => register_topic_metrics,
-%             method => 'POST',
-%             path   => "/topic-metrics",
-%             func   => register,
-%             descr  => "Register topic metrics"}).
+-export([api_spec/0]).
 
-% -rest_api(#{name   => unregister_all_topic_metrics,
-%             method => 'DELETE',
-%             path   => "/topic-metrics",
-%             func   => unregister,
-%             descr  => "Unregister all topic metrics"}).
+-export([ list_topic/2
+        , list_topic_metrics/2
+        , operate_topic_metrics/2
+        , reset_all_topic_metrics/2
+        , reset_topic_metrics/2
+        ]).
 
-% -rest_api(#{name   => unregister_topic_metrics,
-%             method => 'DELETE',
-%             path   => "/topic-metrics/:bin:topic",
-%             func   => unregister,
-%             descr  => "Unregister topic metrics"}).
+-define(ERROR_TOPIC, 'ERROR_TOPIC').
 
-% -export([ list/2
-%         , register/2
-%         , unregister/2
-%         ]).
+-define(EXCEED_LIMIT, 'EXCEED_LIMIT').
 
-% -export([ get_topic_metrics/2
-%         , register_topic_metrics/2
-%         , unregister_topic_metrics/2
-%         , unregister_all_topic_metrics/1
-%         ]).
+-define(BAD_REQUEST, 'BAD_REQUEST').
 
-% list(#{topic := Topic0}, _Params) ->
-%     execute_when_enabled(fun() ->
-%         Topic = emqx_mgmt_util:urldecode(Topic0),
-%         case safe_validate(Topic) of
-%             true ->
-%                 case get_topic_metrics(Topic) of
-%                     {error, Reason} -> return({error, Reason});
-%                     Metrics         -> return({ok, maps:from_list(Metrics)})
-%                 end;
-%             false ->
-%                 return({error, invalid_topic_name})
-%         end
-%     end);
+api_spec() ->
+    {
+        [
+            list_topic_api(),
+            list_topic_metrics_api(),
+            list_topic_metrics_api(),
+            get_topic_metrics_api(),
+            reset_all_topic_metrics_api(),
+            reset_topic_metrics_api()
+        ],
+        [
+            topic_metrics_schema()
+        ]
+    }.
 
-% list(_Bindings, _Params) ->
-%     execute_when_enabled(fun() ->
-%         case get_all_topic_metrics() of
-%             {error, Reason} -> return({error, Reason});
-%             Metrics         -> return({ok, Metrics})
-%         end
-%     end).
+topic_metrics_schema() ->
+    #{
+        topic_metrics => #{
+            type => object,
+            properties => #{
+                topic => #{type => string},
+                create_time => #{
+                    type => string,
+                    description => <<"Date time, rfc3339">>
+                },
+                reset_time => #{
+                    type => string,
+                    description => <<"Nullable. Date time, rfc3339.">>
+                },
+                metrics => #{
+                    type => object,
+                    properties => #{
+                        'messages.dropped.count'  => #{type => integer},
+                        'messages.dropped.rate'   => #{type => number},
+                        'messages.in.count'       => #{type => integer},
+                        'messages.in.rate'        => #{type => number},
+                        'messages.out.count'      => #{type => integer},
+                        'messages.out.rate'       => #{type => number},
+                        'messages.qos0.in.count'  => #{type => integer},
+                        'messages.qos0.in.rate'   => #{type => number},
+                        'messages.qos0.out.count' => #{type => integer},
+                        'messages.qos0.out.rate'  => #{type => number},
+                        'messages.qos1.in.count'  => #{type => integer},
+                        'messages.qos1.in.rate'   => #{type => number},
+                        'messages.qos1.out.count' => #{type => integer},
+                        'messages.qos1.out.rate'  => #{type => number},
+                        'messages.qos2.in.count'  => #{type => integer},
+                        'messages.qos2.in.rate'   => #{type => number},
+                        'messages.qos2.out.count' => #{type => integer},
+                        'messages.qos2.out.rate'  => #{type => number}
+                    }
+                }
+            }
+        }
+    }.
 
-% register(_Bindings, Params) ->
-%     execute_when_enabled(fun() ->
-%         case proplists:get_value(<<"topic">>, Params) of
-%             undefined ->
-%                 return({error, missing_required_params});
-%             Topic ->
-%                 case safe_validate(Topic) of
-%                     true ->
-%                         register_topic_metrics(Topic),
-%                         return(ok);
-%                     false ->
-%                         return({error, invalid_topic_name})
-%                 end
-%         end
-%     end).
+list_topic_api() ->
+    Path = "/mqtt/topic_metrics",
+    TopicSchema = #{
+        type => object,
+        properties => #{
+            topic => #{
+                type => string}}},
+    MetaData = #{
+        get => #{
+            description => <<"List topic">>,
+            responses => #{
+                <<"200">> =>
+                    response_array_schema(<<"List topic">>, TopicSchema)}}},
+    {Path, MetaData, list_topic}.
 
-% unregister(Bindings, _Params) when map_size(Bindings) =:= 0 ->
-%     execute_when_enabled(fun() ->
-%         unregister_all_topic_metrics(),
-%         return(ok)
-%     end);
+list_topic_metrics_api() ->
+    Path = "/mqtt/topic_metrics/metrics",
+    MetaData = #{
+        get => #{
+            description => <<"List topic metrics">>,
+            responses => #{
+                <<"200">> =>
+                    response_array_schema(<<"List topic metrics">>, topic_metrics)}}},
+    {Path, MetaData, list_topic_metrics}.
 
-% unregister(#{topic := Topic0}, _Params) ->
-%     execute_when_enabled(fun() ->
-%         Topic = emqx_mgmt_util:urldecode(Topic0),
-%         case safe_validate(Topic) of
-%             true ->
-%                 unregister_topic_metrics(Topic),
-%                 return(ok);
-%             false ->
-%                 return({error, invalid_topic_name})
-%         end
-%     end).
+get_topic_metrics_api() ->
+    Path = "/mqtt/topic_metrics/metrics/:topic",
+    MetaData = #{
+        get => #{
+            description => <<"List topic metrics">>,
+            parameters => [topic_param()],
+            responses => #{
+                <<"200">> =>
+                    response_schema(<<"List topic metrics">>, topic_metrics)}},
+        put => #{
+            description => <<"Register topic metrics">>,
+            parameters => [topic_param()],
+            responses => #{
+                <<"200">> =>
+                    response_schema(<<"Register topic metrics">>),
+                <<"409">> =>
+                    response_error_schema(<<"Topic metrics max limit">>, [?EXCEED_LIMIT]),
+                <<"400">> =>
+                    response_error_schema(<<"Topic metrics already exist">>, [?BAD_REQUEST])}},
+        delete => #{
+            description => <<"Deregister topic metrics">>,
+            parameters => [topic_param()],
+            responses => #{
+                <<"200">> =>
+                    response_schema(<<"Deregister topic metrics">>)}}},
+    {Path, MetaData, operate_topic_metrics}.
 
-% execute_when_enabled(Fun) ->
-%     case emqx_modules:find_module(topic_metrics) of
-%         true ->
-%             Fun();
-%         false ->
-%             return({error, module_not_loaded})
-%     end.
+reset_all_topic_metrics_api() ->
+    Path = "/mqtt/topic_metrics/reset",
+    MetaData = #{
+        put => #{
+            description => <<"Reset all topic metrics">>,
+            responses => #{
+                <<"200">> =>
+                    response_schema(<<"Reset all topic metrics">>)}}},
+    {Path, MetaData, reset_all_topic_metrics}.
 
-% safe_validate(Topic) ->
-%     try emqx_topic:validate(name, Topic) of
-%         true -> true
-%     catch
-%         error:_Error ->
-%             false
-%     end.
+reset_topic_metrics_api() ->
+    Path = "/mqtt/topic_metrics/reset/:topic",
+    MetaData = #{
+        put => #{
+            description => <<"Reset topic metrics">>,
+            parameters => [topic_param()],
+            responses => #{
+                <<"200">> =>
+                    response_schema(<<"Reset topic metrics">>)}}},
+    {Path, MetaData, reset_topic_metrics}.
 
-% get_all_topic_metrics() ->
-%     lists:foldl(fun(Topic, Acc) ->
-%                     case get_topic_metrics(Topic) of
-%                         {error, _Reason} ->
-%                             Acc;
-%                         Metrics ->
-%                             [#{topic => Topic, metrics => Metrics} | Acc]
-%                     end
-%                 end, [], emqx_mod_topic_metrics:all_registered_topics()).
+topic_param() ->
+    #{
+        name => topic,
+        in => path,
+        required => true,
+        schema => #{type => string}
+    }.
 
-% get_topic_metrics(Topic) ->
-%     lists:foldl(fun(Node, Acc) ->
-%                     case get_topic_metrics(Node, Topic) of
-%                         {error, _Reason} ->
-%                             Acc;
-%                         Metrics ->
-%                             case Acc of
-%                                 [] -> Metrics;
-%                                 _ ->
-%                                     lists:foldl(fun({K, V}, Acc0) ->
-%                                                     [{K, V + proplists:get_value(K, Metrics, 0)} | Acc0]
-%                                                 end, [], Acc)
-%                             end
-%                     end
-%                 end, [], ekka_mnesia:running_nodes()).
+topic_param(Request) ->
+    cowboy_req:binding(topic, Request).
 
-% get_topic_metrics(Node, Topic) when Node =:= node() ->
-%     emqx_mod_topic_metrics:metrics(Topic);
-% get_topic_metrics(Node, Topic) ->
-%     rpc_call(Node, get_topic_metrics, [Node, Topic]).
+%%--------------------------------------------------------------------
+%% api callback
+list_topic(get, _) ->
+    list_topics().
 
-% register_topic_metrics(Topic) ->
-%     Results = [register_topic_metrics(Node, Topic) || Node <- ekka_mnesia:running_nodes()],
-%     case lists:any(fun(Item) -> Item =:= ok end, Results) of
-%         true  -> ok;
-%         false -> lists:last(Results)
-%     end.
+list_topic_metrics(get, _) ->
+    list_metrics().
 
-% register_topic_metrics(Node, Topic) when Node =:= node() ->
-%     emqx_mod_topic_metrics:register(Topic);
-% register_topic_metrics(Node, Topic) ->
-%     rpc_call(Node, register_topic_metrics, [Node, Topic]).
+operate_topic_metrics(Method, Request) ->
+    Topic = topic_param(Request),
+    case Method of
+        get ->
+            get_metrics(Topic);
+        put ->
+            register(Topic);
+        delete ->
+            deregister(Topic)
+    end.
 
-% unregister_topic_metrics(Topic) ->
-%     Results = [unregister_topic_metrics(Node, Topic) || Node <- ekka_mnesia:running_nodes()],
-%     case lists:any(fun(Item) -> Item =:= ok end, Results) of
-%         true  -> ok;
-%         false -> lists:last(Results)
-%     end.
+reset_all_topic_metrics(put, _) ->
+    reset().
 
-% unregister_topic_metrics(Node, Topic) when Node =:= node() ->
-%     emqx_mod_topic_metrics:unregister(Topic);
-% unregister_topic_metrics(Node, Topic) ->
-%     rpc_call(Node, unregister_topic_metrics, [Node, Topic]).
+reset_topic_metrics(put, Request) ->
+    Topic = topic_param(Request),
+    reset(Topic).
 
-% unregister_all_topic_metrics() ->
-%     Results = [unregister_all_topic_metrics(Node) || Node <- ekka_mnesia:running_nodes()],
-%     case lists:any(fun(Item) -> Item =:= ok end, Results) of
-%         true  -> ok;
-%         false -> lists:last(Results)
-%     end.
+%%--------------------------------------------------------------------
+%% api apply
+list_topics() ->
+    {200, emqx_topic_metrics:all_registered_topics()}.
 
-% unregister_all_topic_metrics(Node) when Node =:= node() ->
-%     emqx_mod_topic_metrics:unregister_all();
-% unregister_all_topic_metrics(Node) ->
-%     rpc_call(Node, unregister_topic_metrics, [Node]).
+list_metrics() ->
+    {200, emqx_topic_metrics:metrics()}.
 
-% rpc_call(Node, Fun, Args) ->
-%     case rpc:call(Node, ?MODULE, Fun, Args) of
-%         {badrpc, Reason} -> {error, Reason};
-%         Res -> Res
-%     end.
+register(Topic) ->
+    case emqx_topic_metrics:register(Topic) of
+        {error, quota_exceeded} ->
+            Message = list_to_binary(io_lib:format("Max topic metrics count is  ~p",
+                                        [emqx_topic_metrics:max_limit()])),
+            {409, #{code => ?EXCEED_LIMIT, message => Message}};
+        {error, already_existed} ->
+            Message = list_to_binary(io_lib:format("Topic ~p already registered", [Topic])),
+            {400, #{code => ?BAD_REQUEST, message => Message}};
+        ok ->
+            {200}
+    end.
 
-% return(_) ->
-% %%    TODO: V5 API
-%     ok.
+deregister(Topic) ->
+    _ = emqx_topic_metrics:deregister(Topic),
+    {200}.
+
+get_metrics(Topic) ->
+    case emqx_topic_metrics:metrics(Topic) of
+        {error, topic_not_found} ->
+            Message = list_to_binary(io_lib:format("Topic ~p not found", [Topic])),
+            {404, #{code => ?ERROR_TOPIC, message => Message}};
+        Metrics ->
+            {200, Metrics}
+    end.
+
+reset() ->
+    ok = emqx_topic_metrics:reset(),
+    {200}.
+
+reset(Topic) ->
+    case emqx_topic_metrics:reset(Topic) of
+        {error, topic_not_found} ->
+            Message = list_to_binary(io_lib:format("Topic ~p not found", [Topic])),
+            {404, #{code => ?ERROR_TOPIC, message => Message}};
+        ok ->
+            {200}
+    end.
