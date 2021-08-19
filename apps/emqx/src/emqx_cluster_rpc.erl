@@ -147,11 +147,14 @@ handle_event(info, {mnesia_table_event, {write, #cluster_rpc_mfa{} = MFARec, _AI
     handle_mfa_write_event(MFARec, Node);
 handle_event(info, {mnesia_table_event, {write, #cluster_rpc_mfa{}, _ActivityId}}, ?CATCH_UP, _Node) ->
     {keep_state_and_data, [postpone, ?CATCH_UP_AFTER(0)]};
+%% we should catch up as soon as possible when we reset all.
+handle_event(info, {mnesia_table_event, {delete,{schema, ?CLUSTER_MFA}, _Tid}}, _, _Node) ->
+    {keep_state_and_data, [?CATCH_UP_AFTER(0)]};
 
 handle_event({call, From}, reset, _State, _Node) ->
     _ = ekka_mnesia:clear_table(?CLUSTER_COMMIT),
     _ = ekka_mnesia:clear_table(?CLUSTER_MFA),
-    {keep_state_and_data, [{reply, From, ok}, ?CATCH_UP_AFTER(1)]};
+    {keep_state_and_data, [{reply, From, ok}, ?CATCH_UP_AFTER(0)]};
 
 handle_event({call, From}, {initiate, MFA}, ?REALTIME, Node) ->
     case transaction(fun() -> init_mfa(Node, MFA) end) of
@@ -172,6 +175,7 @@ handle_event({call, From}, {initiate, _MFA}, ?CATCH_UP, Node) ->
 handle_event(_EventType, _EventContent, ?CATCH_UP, _Node) ->
     {keep_state_and_data, [?CATCH_UP_AFTER(10)]};
 handle_event(_EventType, _EventContent, _StateName, _Node) ->
+    ?LOG(error, "~p", [{_EventType, _EventContent, _StateName, _Node}]),
     keep_state_and_data.
 
 terminate(_Reason, _StateName, _Node) ->
@@ -223,19 +227,19 @@ do_catch_up(ToTnxId, Node) ->
         [] ->
             commit(Node, ToTnxId),
             caught_up;
-        [#cluster_rpc_commit{tnx_id = DoneTnxId}] when ToTnxId =:= DoneTnxId ->
+        [#cluster_rpc_commit{tnx_id = LastAppliedId}] when ToTnxId =:= LastAppliedId ->
             caught_up;
-        [#cluster_rpc_commit{tnx_id = DoneTnxId}] when ToTnxId > DoneTnxId ->
-            CurTnxId = DoneTnxId + 1,
+        [#cluster_rpc_commit{tnx_id = LastAppliedId}] when ToTnxId > LastAppliedId ->
+            CurTnxId = LastAppliedId + 1,
             [#cluster_rpc_mfa{mfa = MFA}] = mnesia:read(?CLUSTER_MFA, CurTnxId),
             case apply_mfa(CurTnxId, MFA) of
                 ok -> ok = commit(Node, CurTnxId);
                 {error, Reason} -> mnesia:abort(Reason);
                 Other -> mnesia:abort(Other)
             end;
-        [#cluster_rpc_commit{tnx_id = DoneTnxId}]  ->
-            Reason = lists:flatten(io_lib:format("~p catch up failed by DoneTnxId(~p) > ToTnxId(~p)",
-                [Node, DoneTnxId, ToTnxId])),
+        [#cluster_rpc_commit{tnx_id = LastAppliedId}]  ->
+            Reason = lists:flatten(io_lib:format("~p catch up failed by LastAppliedId(~p) > ToTnxId(~p)",
+                [Node, LastAppliedId, ToTnxId])),
             ?LOG(error, Reason),
             {error, Reason}
     end.
@@ -249,27 +253,27 @@ get_latest_id() ->
         Id -> Id
     end.
 
-handle_mfa_write_event(#cluster_rpc_mfa{tnx_id = TnxId, mfa = MFA}, Node) ->
-    {atomic, DoneTnxId} = transaction(fun() -> get_done_id(Node, TnxId - 1) end),
-    if DoneTnxId =:= TnxId - 1 ->
-        case apply_mfa(TnxId, MFA) of
+handle_mfa_write_event(#cluster_rpc_mfa{tnx_id = EventId, mfa = MFA}, Node) ->
+    {atomic, LastAppliedId} = transaction(fun() -> get_last_applied_id(Node, EventId - 1) end),
+    if LastAppliedId + 1 =:= EventId ->
+        case apply_mfa(EventId, MFA) of
             ok ->
-                case transaction(fun() -> commit(Node, TnxId) end) of
+                case transaction(fun() -> commit(Node, EventId) end) of
                     {atomic, ok} ->
                         {next_state, ?REALTIME, Node};
                     _ -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
                 end;
             _ -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
         end;
-        DoneTnxId >= TnxId -> %% It's means the initiator receive self event or other receive stale event.
+        LastAppliedId >= EventId -> %% It's means the initiator receive self event or other receive stale event.
             keep_state_and_data;
         true ->
-            ?LOG(error, "LastAppliedID+1=/=EventId, maybe the mnesia event'order is messed up! restart process:~p",
-                [{DoneTnxId, TnxId, MFA, Node}]),
-            {stop, {"LastAppliedID+1=/=EventId", {DoneTnxId, TnxId, MFA, Node}}}
+            ?LOG(error, "LastAppliedId+1<EventId, maybe the mnesia event'order is messed up! restart process:~p",
+                [{LastAppliedId, EventId, MFA, Node}]),
+            {stop, {"LastAppliedId+1<EventId", {LastAppliedId, EventId, MFA, Node}}}
     end.
 
-get_done_id(Node, Default) ->
+get_last_applied_id(Node, Default) ->
     case mnesia:wread({?CLUSTER_COMMIT, Node}) of
         [#cluster_rpc_commit{tnx_id = TnxId}] -> TnxId;
         [] ->

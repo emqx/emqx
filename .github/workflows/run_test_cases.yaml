@@ -98,8 +98,8 @@ jobs:
         - name: run cover
           run: |
             printenv > .env
-            docker exec -i ${{ matrix.otp_release }} bash -c "make cover"
-            docker exec --env-file .env -i ${{ matrix.otp_release }} bash -c "make coveralls"
+            docker exec -i ${{ matrix.otp_release }} bash -c "DIAGNOSTIC=1 make cover"
+            docker exec --env-file .env -i ${{ matrix.otp_release }} bash -c "DIAGNOSTIC=1 make coveralls"
         - name: cat rebar.crashdump
           if: failure()
           run: if [ -f 'rebar3.crashdump' ];then cat 'rebar3.crashdump'; fi
