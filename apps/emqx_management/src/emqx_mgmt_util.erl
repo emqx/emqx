@@ -140,6 +140,8 @@ response_error_schema(Description, Enum) ->
 response_page_schema(Def) when is_atom(Def) ->
     response_page_schema(atom_to_binary(Def, utf8));
 response_page_schema(Def) when is_binary(Def) ->
+    response_page_schema(minirest:ref(Def));
+response_page_schema(ItemSchema) when is_map(ItemSchema) ->
     Schema = #{
         type => object,
         properties => #{
@@ -154,7 +156,7 @@ response_page_schema(Def) when is_binary(Def) ->
                         type => integer}}},
             data => #{
                 type => array,
-                items => minirest:ref(Def)}}},
+                items => ItemSchema}}},
     json_content_schema("", Schema).
 
 response_batch_schema(DefName) when is_atom(DefName) ->

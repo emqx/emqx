@@ -153,8 +153,8 @@ node_stats_api() ->
                 example => node()}],
             responses => #{
                 <<"400">> => emqx_mgmt_util:response_error_schema(<<"Node error">>, ['SOURCE_ERROR']),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Get EMQ X Node Stats">>, stats)}}},
-    {"/nodes/:node_name/stats", Metadata, node_metrics}.
+                <<"200">> => emqx_mgmt_util:response_schema(<<"Get EMQ X Node Stats">>, stat)}}},
+    {"/nodes/:node_name/stats", Metadata, node_stats}.
 
 %%%==============================================================================================
 %% parameters trans
