@@ -162,7 +162,7 @@ handle_event({call, From}, {initiate, MFA}, ?REALTIME, Node) ->
     end;
 handle_event({call, From}, {initiate, _MFA}, ?CATCH_UP, Node) ->
     case catch_up(Node) of
-        {next_state, ?REALTIME, Node, _Actions} ->
+        {next_state, ?REALTIME, Node} ->
             {next_state, ?REALTIME, Node, [{postpone, true}]};
         _ ->
             Reason = "There are still transactions that have not been executed.",
@@ -250,19 +250,23 @@ get_latest_id() ->
     end.
 
 handle_mfa_write_event(#cluster_rpc_mfa{tnx_id = TnxId, mfa = MFA}, Node) ->
-    case transaction(fun() -> get_done_id(Node, TnxId - 1) end) of
-        {atomic, DoneTnxId} when DoneTnxId =:= TnxId - 1 ->
-            case apply_mfa(TnxId, MFA) of
-                ok ->
-                    case transaction(fun() -> commit(Node, TnxId) end) of
-                        {atomic, ok} ->
-                            {next_state, ?REALTIME, Node};
-                        _ -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
-                    end;
-                _ -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
-            end;
-        {atomic, _DoneTnxId} -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(0)]};
-        _ -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
+    {atomic, DoneTnxId} = transaction(fun() -> get_done_id(Node, TnxId - 1) end),
+    if DoneTnxId =:= TnxId - 1 ->
+        case apply_mfa(TnxId, MFA) of
+            ok ->
+                case transaction(fun() -> commit(Node, TnxId) end) of
+                    {atomic, ok} ->
+                        {next_state, ?REALTIME, Node};
+                    _ -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
+                end;
+            _ -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
+        end;
+        DoneTnxId =:= TnxId -> %% It's means the initiator receive self event.
+            keep_state_and_data;
+        true ->
+            ?LOG(error, "LastAppliedID+1=/=EventId, maybe the mnesia event'order is messed up! restart process:~p",
+                [{DoneTnxId, TnxId, MFA, Node}]),
+            {stop, "LastAppliedID+1=/=EventId"}
     end.
 
 get_done_id(Node, Default) ->
