@@ -89,12 +89,10 @@ handle_call({add_child, ConfKeyPath, HandlerName}, _From,
 
 handle_call({change_config, SchemaModule, ConfKeyPath, UpdateArgs}, _From,
             #{handlers := Handlers} = State) ->
-    OldConf = emqx_config:get_root(ConfKeyPath),
-    OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     Reply = try
-        case process_update_request(ConfKeyPath, OldRawConf, Handlers, UpdateArgs) of
+        case process_update_request(ConfKeyPath, Handlers, UpdateArgs) of
             {ok, NewRawConf, OverrideConf} ->
-                check_and_save_configs(SchemaModule, ConfKeyPath, Handlers, NewRawConf, OldConf,
+                check_and_save_configs(SchemaModule, ConfKeyPath, Handlers, NewRawConf,
                     OverrideConf, UpdateArgs);
             {error, Result} ->
                 {error, Result}
@@ -121,12 +119,14 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-process_update_request(ConfKeyPath, OldRawConf, _Handlers, {remove, _Opts}) ->
+process_update_request(ConfKeyPath, _Handlers, {remove, _Opts}) ->
+    OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     BinKeyPath = bin_path(ConfKeyPath),
     NewRawConf = emqx_map_lib:deep_remove(BinKeyPath, OldRawConf),
     OverrideConf = emqx_map_lib:deep_remove(BinKeyPath, emqx_config:read_override_conf()),
     {ok, NewRawConf, OverrideConf};
-process_update_request(ConfKeyPath, OldRawConf, Handlers, {{update, UpdateReq}, _Opts}) ->
+process_update_request(ConfKeyPath, Handlers, {{update, UpdateReq}, _Opts}) ->
+    OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     case do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq) of
         {ok, NewRawConf} ->
             OverrideConf = update_override_config(NewRawConf),
@@ -146,12 +146,15 @@ do_update_config([ConfKey | ConfKeyPath], Handlers, OldRawConf, UpdateReq) ->
             Error
     end.
 
-check_and_save_configs(SchemaModule, ConfKeyPath, Handlers, NewRawConf, OldConf, OverrideConf,
+check_and_save_configs(SchemaModule, ConfKeyPath, Handlers, NewRawConf, OverrideConf,
         UpdateArgs) ->
-    {AppEnvs, CheckedConf} = emqx_config:check_config(SchemaModule, NewRawConf),
-    case do_post_config_update(ConfKeyPath, Handlers, OldConf, CheckedConf, UpdateArgs, #{}) of
+    OldConf = emqx_config:get_root(ConfKeyPath),
+    FullRawConf = with_full_raw_confs(NewRawConf),
+    {AppEnvs, CheckedConf} = emqx_config:check_config(SchemaModule, FullRawConf),
+    NewConf = maps:with(maps:keys(OldConf), CheckedConf),
+    case do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, UpdateArgs, #{}) of
         {ok, Result0} ->
-            case save_configs(ConfKeyPath, AppEnvs, CheckedConf, NewRawConf, OverrideConf,
+            case save_configs(ConfKeyPath, AppEnvs, NewConf, NewRawConf, OverrideConf,
                     UpdateArgs) of
                 {ok, Result1} ->
                     {ok, Result1#{post_config_update => Result0}};
@@ -230,6 +233,9 @@ return_rawconf(ConfKeyPath, #{rawconf_with_defaults := true}) ->
     emqx_map_lib:deep_get(bin_path(ConfKeyPath), FullRawConf);
 return_rawconf(ConfKeyPath, _) ->
     emqx_config:get_raw(ConfKeyPath).
+
+with_full_raw_confs(PartialConf) ->
+    maps:merge(emqx_config:get_raw([]), PartialConf).
 
 bin_path(ConfKeyPath) -> [bin(Key) || Key <- ConfKeyPath].
 
