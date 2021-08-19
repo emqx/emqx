@@ -161,7 +161,7 @@ format(#activated_alarm{name = Name, message = Message, activate_at = At, detail
         node => node(),
         name => Name,
         message => Message,
-        duration => Now - At,
+        duration => (Now - At) div 1000, %% to millisecond
         details => Details
     };
 format(#deactivated_alarm{name = Name, message = Message, activate_at = At, details = Details,
