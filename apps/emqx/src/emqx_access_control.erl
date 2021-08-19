@@ -27,9 +27,14 @@
 %%--------------------------------------------------------------------
 
 -spec(authenticate(emqx_types:clientinfo()) ->
-    ok | {ok, binary()} | {continue, map()} | {continue, binary(), map()} | {error, term()}).
+    {ok, map()} | {ok, map(), binary()} | {continue, map()} | {continue, binary(), map()} | {error, term()}).
 authenticate(Credential) ->
-    run_hooks('client.authenticate', [Credential], ok).
+    case run_hooks('client.authenticate', [Credential], {ok, #{superuser => false}}) of
+        ok ->
+            {ok, #{superuser => false}};
+        Other ->
+            Other
+    end.
 
 %% @doc Check Authorization
 -spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic())

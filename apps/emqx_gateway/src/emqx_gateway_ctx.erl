@@ -73,7 +73,7 @@ authenticate(_Ctx = #{auth := ChainId}, ClientInfo0) ->
                    chain_id => ChainId
                   },
     case emqx_access_control:authenticate(ClientInfo) of
-        ok ->
+        {ok, _} ->
             {ok, mountpoint(ClientInfo)};
         {error, Reason} ->
             {error, Reason}

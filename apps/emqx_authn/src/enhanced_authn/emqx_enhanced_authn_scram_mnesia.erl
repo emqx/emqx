@@ -17,7 +17,6 @@
 -module(emqx_enhanced_authn_scram_mnesia).
 
 -include("emqx_authn.hrl").
--include_lib("esasl/include/esasl_scram.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
@@ -48,6 +47,14 @@
 
 -rlog_shard({?AUTH_SHARD, ?TAB}).
 
+-record(user_info,
+        { user_id
+        , stored_key
+        , server_key
+        , salt
+        , superuser
+        }).
+
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
@@ -57,8 +64,8 @@
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
                 {disc_copies, [node()]},
-                {record_name, scram_user_credentail},
-                {attributes, record_info(fields, scram_user_credentail)},
+                {record_name, user_info},
+                {attributes, record_info(fields, user_info)},
                 {storage_properties, [{ets, [{read_concurrency, true}]}]}]);
 
 mnesia(copy) ->
@@ -126,20 +133,21 @@ authenticate(_Credential, _State) ->
 destroy(#{user_group := UserGroup}) ->
     trans(
         fun() ->
-            MatchSpec = [{{scram_user_credentail, {UserGroup, '_'}, '_', '_', '_'}, [], ['$_']}],
-            ok = lists:foreach(fun(UserCredential) ->
-                                  mnesia:delete_object(?TAB, UserCredential, write)
+            MatchSpec = [{{user_info, {UserGroup, '_'}, '_', '_', '_', '_'}, [], ['$_']}],
+            ok = lists:foreach(fun(UserInfo) ->
+                                  mnesia:delete_object(?TAB, UserInfo, write)
                                end, mnesia:select(?TAB, MatchSpec, write))
         end).
 
 add_user(#{user_id := UserID,
-           password := Password}, #{user_group := UserGroup} = State) ->
+           password := Password} = UserInfo, #{user_group := UserGroup} = State) ->
     trans(
         fun() ->
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
-                    add_user(UserID, Password, State),
-                    {ok, #{user_id => UserID}};
+                    Superuser = maps:get(superuser, UserInfo, false),
+                    add_user(UserID, Password, Superuser, State),
+                    {ok, #{user_id => UserID, superuser => Superuser}};
                 [_] ->
                     {error, already_exist}
             end
@@ -156,31 +164,41 @@ delete_user(UserID, #{user_group := UserGroup}) ->
             end
         end).
 
-update_user(UserID, #{password := Password},
+update_user(UserID, User,
             #{user_group := UserGroup} = State) ->
     trans(
         fun() ->
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
                     {error, not_found};
-                [_] ->
-                    add_user(UserID, Password, State),
-                    {ok, #{user_id => UserID}}
+                [#user_info{superuser = Superuser} = UserInfo] ->
+                    UserInfo1 = UserInfo#user_info{superuser = maps:get(superuser, User, Superuser)},
+                    UserInfo2 = case maps:get(password, User, undefined) of
+                                    undefined ->
+                                        UserInfo1;
+                                    Password ->
+                                        {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(Password, State),
+                                        UserInfo1#user_info{stored_key = StoredKey,
+                                                            server_key = ServerKey,
+                                                            salt       = Salt}
+                                end,
+                    mnesia:write(?TAB, UserInfo2, write),
+                    {ok, serialize_user_info(UserInfo2)}
             end
         end).
 
 lookup_user(UserID, #{user_group := UserGroup}) ->
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
-        [#scram_user_credentail{user_id = {_, UserID}}] ->
-            {ok, #{user_id => UserID}};
+        [UserInfo] ->
+            {ok, serialize_user_info(UserInfo)};
         [] ->
             {error, not_found}
     end.
 
 %% TODO: Support Pagination
 list_users(#{user_group := UserGroup}) ->
-    Users = [#{user_id => UserID} ||
-                 #scram_user_credentail{user_id = {UserGroup0, UserID}} <- ets:tab2list(?TAB), UserGroup0 =:= UserGroup],
+    Users = [serialize_user_info(UserInfo) ||
+                 #user_info{user_id = {UserGroup0, _}} = UserInfo <- ets:tab2list(?TAB), UserGroup0 =:= UserGroup],
     {ok, Users}.
 
 %%------------------------------------------------------------------------------
@@ -195,13 +213,13 @@ ensure_auth_method(_, _) ->
     false.
 
 check_client_first_message(Bin, _Cache, #{iteration_count := IterationCount} = State) ->
-    LookupFun = fun(Username) ->
-                    lookup_user2(Username, State)
+    RetrieveFun = fun(Username) ->
+                    retrieve(Username, State)
                 end,
     case esasl_scram:check_client_first_message(
              Bin,
              #{iteration_count => IterationCount,
-               lookup => LookupFun}
+               retrieve => RetrieveFun}
          ) of
         {cotinue, ServerFirstMessage, Cache} ->
             {cotinue, ServerFirstMessage, Cache};
@@ -209,25 +227,36 @@ check_client_first_message(Bin, _Cache, #{iteration_count := IterationCount} = S
             {error, not_authorized}
     end.
 
-check_client_final_message(Bin, Cache, #{algorithm := Alg}) ->
+check_client_final_message(Bin, #{superuser := Superuser} = Cache, #{algorithm := Alg}) ->
     case esasl_scram:check_client_final_message(
              Bin,
              Cache#{algorithm => Alg}
          ) of
         {ok, ServerFinalMessage} ->
-            {ok, ServerFinalMessage};
+            {ok, #{superuser => Superuser}, ServerFinalMessage};
         {error, _Reason} ->
             {error, not_authorized}
     end.
 
-add_user(UserID, Password, State) ->
-    UserCredential = esasl_scram:generate_user_credential(UserID, Password, State),
-    mnesia:write(?TAB, UserCredential, write).
+add_user(UserID, Password, Superuser, State) ->
+    {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(Password, State),
+    UserInfo = #user_info{user_id    = UserID,
+                          stored_key = StoredKey,
+                          server_key = ServerKey,
+                          salt       = Salt,
+                          superuser  = Superuser},
+    mnesia:write(?TAB, UserInfo, write).
 
-lookup_user2(UserID, #{user_group := UserGroup}) ->
+retrieve(UserID, #{user_group := UserGroup}) ->
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
-        [#scram_user_credentail{} = UserCredential] ->
-            {ok, UserCredential};
+        [#user_info{stored_key = StoredKey,
+                    server_key = ServerKey,
+                    salt       = Salt,
+                    superuser  = Superuser}] ->
+            {ok, #{stored_key => StoredKey,
+                   server_key => ServerKey,
+                   salt => Salt,
+                   superuser => Superuser}};
         [] ->
             {error, not_found}
     end.
@@ -241,3 +270,6 @@ trans(Fun, Args) ->
         {atomic, Res} -> Res;
         {aborted, Reason} -> {error, Reason}
     end.
+
+serialize_user_info(#user_info{user_id = {_, UserID}, superuser = Superuser}) ->
+    #{user_id => UserID, superuser => Superuser}.

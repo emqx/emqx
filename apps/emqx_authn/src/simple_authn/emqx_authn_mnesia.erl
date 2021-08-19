@@ -46,6 +46,7 @@
         { user_id :: {user_group(), user_id()}
         , password_hash :: binary()
         , salt :: binary()
+        , superuser :: boolean()
         }).
 
 -reflect_type([ user_id_type/0 ]).
@@ -147,13 +148,13 @@ authenticate(#{password := Password} = Credential,
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
         [] ->
             ignore;
-        [#user_info{password_hash = PasswordHash, salt = Salt0}] ->
+        [#user_info{password_hash = PasswordHash, salt = Salt0, superuser = Superuser}] ->
             Salt = case Algorithm of
                        bcrypt -> PasswordHash;
                        _ -> Salt0
                    end,
             case PasswordHash =:= hash(Algorithm, Password, Salt) of
-                true -> ok;
+                true -> {ok, #{superuser => Superuser}};
                 false -> {error, bad_username_or_password}
             end
     end.
@@ -161,7 +162,7 @@ authenticate(#{password := Password} = Credential,
 destroy(#{user_group := UserGroup}) ->
     trans(
         fun() ->
-            MatchSpec = [{{user_info, {UserGroup, '_'}, '_', '_'}, [], ['$_']}],
+            MatchSpec = [{{user_info, {UserGroup, '_'}, '_', '_', '_'}, [], ['$_']}],
             ok = lists:foreach(fun delete_user2/1, mnesia:select(?TAB, MatchSpec, write))
         end).
 
@@ -179,14 +180,16 @@ import_users(Filename0, State) ->
     end.
 
 add_user(#{user_id := UserID,
-           password := Password},
+           password := Password} = UserInfo,
          #{user_group := UserGroup} = State) ->
     trans(
         fun() ->
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
-                    add(UserID, Password, State),
-                    {ok, #{user_id => UserID}};
+                    {PasswordHash, Salt} = hash(Password, State),
+                    Superuser = maps:get(superuser, UserInfo, false),
+                    insert_user(UserGroup, UserID, PasswordHash, Salt, Superuser),
+                    {ok, #{user_id => UserID, superuser => Superuser}};
                 [_] ->
                     {error, already_exist}
             end
@@ -203,29 +206,38 @@ delete_user(UserID, #{user_group := UserGroup}) ->
             end
         end).
 
-update_user(UserID, #{password := Password},
+update_user(UserID, UserInfo,
             #{user_group := UserGroup} = State) ->
     trans(
         fun() ->
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
                     {error, not_found};
-                [_] ->
-                    add(UserID, Password, State),
-                    {ok, #{user_id => UserID}}
+                [#user_info{ password_hash = PasswordHash
+                           , salt = Salt
+                           , superuser = Superuser}] ->
+                    NSuperuser = maps:get(superuser, UserInfo, Superuser),
+                    {NPasswordHash, NSalt} = case maps:get(password, UserInfo, undefined) of
+                                                 undefined ->
+                                                     {PasswordHash, Salt};
+                                                 Password ->
+                                                     hash(Password, State)
+                                             end,
+                    insert_user(UserGroup, UserID, NPasswordHash, NSalt, NSuperuser),
+                    {ok, #{user_id => UserID, superuser => NSuperuser}}
             end
         end).
 
 lookup_user(UserID, #{user_group := UserGroup}) ->
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
-        [#user_info{user_id = {_, UserID}}] ->
-            {ok, #{user_id => UserID}};
+        [UserInfo] ->
+            {ok, serialize_user_info(UserInfo)};
         [] ->
             {error, not_found}
     end.
 
 list_users(#{user_group := UserGroup}) ->
-    Users = [#{user_id => UserID} || #user_info{user_id = {UserGroup0, UserID}} <- ets:tab2list(?TAB), UserGroup0 =:= UserGroup],
+    Users = [serialize_user_info(UserInfo) || #user_info{user_id = {UserGroup0, _}} = UserInfo <- ets:tab2list(?TAB), UserGroup0 =:= UserGroup],
     {ok, Users}.
 
 %%------------------------------------------------------------------------------
@@ -268,7 +280,8 @@ import(UserGroup, [#{<<"user_id">> := UserID,
                      <<"password_hash">> := PasswordHash} = UserInfo | More])
   when is_binary(UserID) andalso is_binary(PasswordHash) ->
     Salt = maps:get(<<"salt">>, UserInfo, <<>>),
-    insert_user(UserGroup, UserID, PasswordHash, Salt),
+    Superuser = maps:get(<<"superuser">>, UserInfo, false),
+    insert_user(UserGroup, UserID, PasswordHash, Salt, Superuser),
     import(UserGroup, More);
 import(_UserGroup, [_ | _More]) ->
     {error, bad_format}.
@@ -282,7 +295,8 @@ import(UserGroup, File, Seq) ->
                 {ok, #{user_id := UserID,
                        password_hash := PasswordHash} = UserInfo} ->
                     Salt = maps:get(salt, UserInfo, <<>>),
-                    insert_user(UserGroup, UserID, PasswordHash, Salt),
+                    Superuser = maps:get(superuser, UserInfo, false),
+                    insert_user(UserGroup, UserID, PasswordHash, Salt, Superuser),
                     import(UserGroup, File, Seq);
                 {error, Reason} ->
                     {error, Reason}
@@ -307,8 +321,6 @@ get_csv_header(File) ->
 get_user_info_by_seq(Fields, Seq) ->
     get_user_info_by_seq(Fields, Seq, #{}).
 
-get_user_info_by_seq([], [], #{user_id := _, password_hash := _, salt := _} = Acc) ->
-    {ok, Acc};
 get_user_info_by_seq([], [], #{user_id := _, password_hash := _} = Acc) ->
     {ok, Acc};
 get_user_info_by_seq(_, [], _) ->
@@ -319,18 +331,12 @@ get_user_info_by_seq([PasswordHash | More1], [<<"password_hash">> | More2], Acc)
     get_user_info_by_seq(More1, More2, Acc#{password_hash => PasswordHash});
 get_user_info_by_seq([Salt | More1], [<<"salt">> | More2], Acc) ->
     get_user_info_by_seq(More1, More2, Acc#{salt => Salt});
+get_user_info_by_seq([<<"true">> | More1], [<<"superuser">> | More2], Acc) ->
+    get_user_info_by_seq(More1, More2, Acc#{superuser => true});
+get_user_info_by_seq([<<"false">> | More1], [<<"superuser">> | More2], Acc) ->
+    get_user_info_by_seq(More1, More2, Acc#{superuser => false});
 get_user_info_by_seq(_, _, _) ->
     {error, bad_format}.
-
--compile({inline, [add/3]}).
-add(UserID, Password, #{user_group := UserGroup,
-                        password_hash_algorithm := Algorithm} = State) ->
-    Salt = gen_salt(State),
-    PasswordHash = hash(Algorithm, Password, Salt),
-    case Algorithm of
-        bcrypt -> insert_user(UserGroup, UserID, PasswordHash);
-        _ -> insert_user(UserGroup, UserID, PasswordHash, Salt)
-    end.
 
 gen_salt(#{password_hash_algorithm := plain}) ->
     <<>>;
@@ -347,13 +353,16 @@ hash(bcrypt, Password, Salt) ->
 hash(Algorithm, Password, Salt) ->
     emqx_passwd:hash(Algorithm, <<Salt/binary, Password/binary>>).
 
-insert_user(UserGroup, UserID, PasswordHash) ->
-    insert_user(UserGroup, UserID, PasswordHash, <<>>).
+hash(Password, #{password_hash_algorithm := Algorithm} = State) ->
+    Salt = gen_salt(State),
+    PasswordHash = hash(Algorithm, Password, Salt),
+    {PasswordHash, Salt}.
 
-insert_user(UserGroup, UserID, PasswordHash, Salt) ->
+insert_user(UserGroup, UserID, PasswordHash, Salt, Superuser) ->
      UserInfo = #user_info{user_id = {UserGroup, UserID},
                            password_hash = PasswordHash,
-                           salt = Salt},
+                           salt = Salt,
+                           superuser = Superuser},
     mnesia:write(?TAB, UserInfo, write).
 
 delete_user2(UserInfo) ->
@@ -376,8 +385,10 @@ trans(Fun, Args) ->
         {aborted, Reason} -> {error, Reason}
     end.
 
-
 to_binary(B) when is_binary(B) ->
     B;
 to_binary(L) when is_list(L) ->
     iolist_to_binary(L).
+
+serialize_user_info(#user_info{user_id = {_, UserID}, superuser = Superuser}) ->
+    #{user_id => UserID, superuser => Superuser}.

@@ -1299,14 +1299,17 @@ authenticate(?AUTH_PACKET(_, #{'Authentication-Method' := AuthMethod} = Properti
             {error, ?RC_BAD_AUTHENTICATION_METHOD}
     end.
 
-do_authenticate(#{auth_method := AuthMethod} = Credential, Channel) ->
+do_authenticate(#{auth_method := AuthMethod} = Credential, #channel{clientinfo = ClientInfo} = Channel) ->
     Properties = #{'Authentication-Method' => AuthMethod},
     case emqx_access_control:authenticate(Credential) of
-        ok ->
-            {ok, Properties, Channel#channel{auth_cache = #{}}};
-        {ok, AuthData} ->
+        {ok, Result} ->
+            {ok, Properties,
+             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(superuser, Result, false)},
+                             auth_cache = #{}}};
+        {ok, Result, AuthData} ->
             {ok, Properties#{'Authentication-Data' => AuthData},
-             Channel#channel{auth_cache = #{}}};
+             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(superuser, Result, false)},
+                             auth_cache = #{}}};
         {continue, AuthCache} ->
             {continue, Properties, Channel#channel{auth_cache = AuthCache}};
         {continue, AuthData, AuthCache} ->
@@ -1316,10 +1319,10 @@ do_authenticate(#{auth_method := AuthMethod} = Credential, Channel) ->
             {error, emqx_reason_codes:connack_error(Reason)}
     end;
 
-do_authenticate(Credential, Channel) ->
+do_authenticate(Credential, #channel{clientinfo = ClientInfo} = Channel) ->
     case emqx_access_control:authenticate(Credential) of
-        ok ->
-            {ok, #{}, Channel};
+        {ok, #{superuser := Superuser}} ->
+            {ok, #{}, Channel#channel{clientinfo = ClientInfo#{is_superuser => Superuser}}};
         {error, Reason} ->
             {error, emqx_reason_codes:connack_error(Reason)}
     end.
