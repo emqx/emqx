@@ -22,6 +22,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(CONF_DEFAULT, <<"authorization_rules: {rules: []}">>).
+
 all() ->
     emqx_ct:all(?MODULE).
 
@@ -33,10 +35,11 @@ init_per_suite(Config) ->
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, remove, fun(_) -> ok end ),
 
+    ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
 
-    {ok, _} = emqx:update_config([zones, default, authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([zones, default, authorization, enable], true),
+    {ok, _} = emqx:update_config([authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([authorization, no_match], deny),
     Rules = [#{ <<"config">> => #{
                     <<"url">> => <<"https://fake.com:443/">>,
                     <<"headers">> => #{},

@@ -22,6 +22,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(CONF_DEFAULT, <<"authorization_rules: {rules: []}">>).
+
 -import(emqx_ct_http, [ request_api/3
                       , request_api/5
                       , get_http_data/1
@@ -75,9 +77,11 @@ groups() ->
 init_per_suite(Config) ->
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
+
+    ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_management, emqx_authz], fun set_special_configs/1),
-    {ok, _} = emqx:update_config([zones, default, authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([zones, default, authorization, enable], true),
+    {ok, _} = emqx:update_config([authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([authorization, no_match], deny),
 
     Config.
 
@@ -91,7 +95,7 @@ set_special_configs(emqx_management) ->
         applications =>[#{id => "admin", secret => "public"}]}),
     ok;
 set_special_configs(emqx_authz) ->
-    emqx_config:put([authorization], #{rules => []}),
+    emqx_config:put([authorization_rules], #{rules => []}),
     ok;
 set_special_configs(_App) ->
     ok.
