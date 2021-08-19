@@ -34,21 +34,14 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
--define(CLUSTER_MFA, cluster_rpc_mfa).
--define(CLUSTER_COMMIT, cluster_rpc_commit).
+-include("emqx_cluster_rpc.hrl").
 
 -rlog_shard({?COMMON_SHARD, ?CLUSTER_MFA}).
 -rlog_shard({?COMMON_SHARD, ?CLUSTER_COMMIT}).
 
 -define(CATCH_UP, catch_up).
 -define(REALTIME, realtime).
--define(DEL_MFA_AFTER(_Sec1_), {timeout, timer:seconds(_Sec1_), del_stale_mfa}).
--define(CATCH_UP_AFTER(_Sec2_), {state_timeout, timer:seconds(_Sec2_), catch_up_delay}).
--define(MFA_HISTORY_LEN, 100).
-
--record(cluster_rpc_mfa, {tnx_id :: pos_integer(), mfa :: mfa(),
-    created_at :: calendar:datetime(), initiator :: node()}).
--record(cluster_rpc_commit, {node :: node(), tnx_id :: pos_integer()}).
+-define(CATCH_UP_AFTER(_Sec_), {state_timeout, timer:seconds(_Sec_), catch_up_delay}).
 
 %%%===================================================================
 %%% API
@@ -76,7 +69,7 @@ start_link(Node, Name) ->
     gen_statem:start_link({local, Name}, ?MODULE, [Node], []).
 
 multicall(M, F, A) ->
-    multicall(M, F, A, 2 * 60 * 1000).
+    multicall(M, F, A, timer:minutes(2)).
 
 -spec multicall(Module, Function, Args, Timeout) -> {ok, TnxId} |{error, Reason} when
     Module :: module(),
@@ -137,7 +130,6 @@ status() ->
 %% @private
 init([Node]) ->
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
-    _ = emqx_misc:rand_seed(),
     {ok, ?CATCH_UP, Node, ?CATCH_UP_AFTER(0)}.
 
 callback_mode() ->
@@ -150,10 +142,6 @@ format_status(Opt, [_PDict, StateName, Node]) ->
 %% @private
 handle_event(state_timeout, catch_up_delay, _State, Node) ->
     catch_up(Node);
-
-handle_event(timeout, del_stale_mfa, ?REALTIME, _Node) ->
-    transaction(fun del_stale_mfa/0),
-    {keep_state_and_data, [?CATCH_UP_AFTER(10 * 60)]};
 
 handle_event(info, {mnesia_table_event, {write, #cluster_rpc_mfa{} = MFARec, _AId}}, ?REALTIME, Node) ->
     handle_mfa_write_event(MFARec, Node);
@@ -168,9 +156,9 @@ handle_event({call, From}, reset, _State, _Node) ->
 handle_event({call, From}, {initiate, MFA}, ?REALTIME, Node) ->
     case transaction(fun() -> init_mfa(Node, MFA) end) of
         {atomic, {ok, TnxId}} ->
-            {keep_state, Node, [{reply, From, {ok, TnxId}}, ?DEL_MFA_AFTER(5 * 60)]};
+            {keep_state, Node, [{reply, From, {ok, TnxId}}]};
         {aborted, Reason} ->
-            {keep_state, Node, [{reply, From, {error, Reason}}, ?DEL_MFA_AFTER(5 * 60)]}
+            {keep_state, Node, [{reply, From, {error, Reason}}]}
     end;
 handle_event({call, From}, {initiate, _MFA}, ?CATCH_UP, Node) ->
     case catch_up(Node) of
@@ -181,9 +169,10 @@ handle_event({call, From}, {initiate, _MFA}, ?CATCH_UP, Node) ->
             {keep_state, Node, [{reply, From, {error, Reason}}, ?CATCH_UP_AFTER(1)]}
     end;
 
+handle_event(_EventType, _EventContent, ?CATCH_UP, _Node) ->
+    {keep_state_and_data, [?CATCH_UP_AFTER(10)]};
 handle_event(_EventType, _EventContent, _StateName, _Node) ->
-    ?LOG(notice, "unknown:~p", [{_EventType, _EventContent, _StateName, _Node}]),
-    {keep_state_and_data, [?DEL_MFA_AFTER(5 + rand:uniform(5))]}.
+    keep_state_and_data.
 
 terminate(_Reason, _StateName, _Node) ->
     ok.
@@ -196,7 +185,7 @@ code_change(_OldVsn, StateName, Node, _Extra) ->
 %%%===================================================================
 catch_up(Node) ->
     case get_next_mfa(Node) of
-        {atomic, caught_up} -> {next_state, ?REALTIME, Node, [?DEL_MFA_AFTER(5 * 60)]};
+        {atomic, caught_up} -> {next_state, ?REALTIME, Node};
         {atomic, {still_lagging, NextId, MFA}} ->
             case apply_mfa(NextId, MFA) of
                 ok ->
@@ -261,15 +250,13 @@ get_latest_id() ->
     end.
 
 handle_mfa_write_event(#cluster_rpc_mfa{tnx_id = TnxId, mfa = MFA}, Node) ->
-    ?LOG(error, "~p", [{self(), TnxId, MFA, Node}]),
     case transaction(fun() -> get_done_id(Node, TnxId - 1) end) of
         {atomic, DoneTnxId} when DoneTnxId =:= TnxId - 1 ->
             case apply_mfa(TnxId, MFA) of
                 ok ->
-                    ?LOG(error, "~p", [{ok, apply_mfa, Node, DoneTnxId}, TnxId]),
                     case transaction(fun() -> commit(Node, TnxId) end) of
                         {atomic, ok} ->
-                            {next_state, ?REALTIME, Node, [?DEL_MFA_AFTER(1 * 60)]};
+                            {next_state, ?REALTIME, Node};
                         _ -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
                     end;
                 _ -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
@@ -306,22 +293,6 @@ do_catch_up_in_one_trans(LatestId, Node) ->
         ok -> do_catch_up_in_one_trans(LatestId, Node);
         {error, Reason} -> mnesia:abort(Reason)
     end.
-
-%% @doc Keep the latest completed 100 records for querying and troubleshooting.
-del_stale_mfa() ->
-    DoneId =
-        mnesia:foldl(fun(Rec, Min) -> min(Rec#cluster_rpc_commit.tnx_id, Min) end,
-            infinity, ?CLUSTER_COMMIT),
-    delete_stale_mfa(mnesia:last(?CLUSTER_MFA), DoneId, ?MFA_HISTORY_LEN).
-
-delete_stale_mfa('$end_of_table', _DoneId, _Count) -> ok;
-delete_stale_mfa(CurrId, DoneId, Count) when CurrId > DoneId ->
-    delete_stale_mfa(mnesia:prev(?CLUSTER_MFA, CurrId), DoneId, Count);
-delete_stale_mfa(CurrId, DoneId, Count) when Count > 0 ->
-    delete_stale_mfa(mnesia:prev(?CLUSTER_MFA, CurrId), DoneId, Count - 1);
-delete_stale_mfa(CurrId, DoneId, Count) when Count =< 0 ->
-    mnesia:delete(?CLUSTER_MFA, CurrId, write),
-    delete_stale_mfa(mnesia:prev(?CLUSTER_MFA, CurrId), DoneId, Count - 1).
 
 transaction(Fun) ->
     ekka_mnesia:transaction(?COMMON_SHARD, Fun).

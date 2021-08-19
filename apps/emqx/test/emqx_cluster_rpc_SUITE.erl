@@ -103,10 +103,11 @@ t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     Now = erlang:system_time(second),
-    MFA = {M, F, A} = {?MODULE, failed_on_other_recover_after_5_second, [erlang:whereis(?NODE1), Now]},
+    {M, F, A} = {?MODULE, failed_on_other_recover_after_5_second, [erlang:whereis(?NODE1), Now]},
     {ok, _} = emqx_cluster_rpc:multicall(M, F, A),
+    {ok, _} = emqx_cluster_rpc:multicall(io, format, ["test"]),
     {atomic, [Status]} = emqx_cluster_rpc:status(),
-    ?assertEqual(MFA, maps:get(mfa, Status)),
+    ?assertEqual({io, format, ["test"]}, maps:get(mfa, Status)),
     ?assertEqual({node(), ?NODE1}, maps:get(node, Status)),
     ?assertEqual(realtime, element(1, sys:get_state(?NODE1))),
     ?assertEqual(catch_up, element(1, sys:get_state(?NODE2))),
@@ -146,8 +147,7 @@ t_del_stale_mfa(_Config) ->
              {ok, TnxId} = emqx_cluster_rpc:multicall(M, F, A),
          TnxId end ||_<- Keys2],
     ?assertEqual(Keys2, Ids2),
-    erlang:send(?NODE1, del_mfa_after),
-    sleep(11500),
+    sleep(1200),
     [begin
          ?assertEqual({aborted, not_found}, emqx_cluster_rpc:query(I))
      end||I<- lists:seq(1, 50)],
@@ -163,7 +163,8 @@ start() ->
     {ok, Pid1} = emqx_cluster_rpc:start_link({node(), ?NODE1}, ?NODE1),
     {ok, Pid2} = emqx_cluster_rpc:start_link({node(), ?NODE2}, ?NODE2),
     {ok, Pid3} = emqx_cluster_rpc:start_link({node(), ?NODE3}, ?NODE3),
-    {ok, [Pid1, Pid2, Pid3]}.
+    {ok, Pid4 } = emqx_cluster_rpc_handler:start_link(),
+    {ok, [Pid1, Pid2, Pid3, Pid4]}.
 
 stop() ->
     [begin
