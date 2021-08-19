@@ -26,7 +26,6 @@ all() -> emqx_ct:all(?MODULE).
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
-    toggle_authz(true),
     Config.
 
 end_per_suite(_Config) ->
@@ -78,6 +77,3 @@ t_drain_authz_cache(_) ->
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     ?assert(length(gen_server:call(ClientPid, list_authz_cache)) > 0),
     emqtt:stop(Client).
-
-toggle_authz(Bool) when is_boolean(Bool) ->
-    emqx_config:put_zone_conf(default, [authorization, enable], Bool).
