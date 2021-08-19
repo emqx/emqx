@@ -44,7 +44,7 @@
 -export([ enable/0
         , disable/0
         , set_max_delayed_messages/1
-        , update_config/2
+        , update_config/1
         , list/1
         , get_delayed_message/1
         , delete_delayed_message/1
@@ -146,7 +146,7 @@ format_delayed(#delayed_message{key = {TimeStamp, Id},
     },
     case WithPayload of
         true ->
-            Result#{payload => Payload};
+            Result#{payload => base64:encode(Payload)};
         _ ->
             Result
     end.
@@ -172,12 +172,8 @@ delete_delayed_message(Id0) ->
             Timestamp = hd(Rows),
             ekka_mnesia:dirty_delete(?TAB, {Timestamp, Id})
     end.
-
-update_config(Enable, MaxDelayedMessages) ->
-    Opts0 = emqx_config:get_raw([<<"delayed">>], #{}),
-    Opts1 = maps:put(<<"enable">>, Enable, Opts0),
-    Opts = maps:put(<<"max_delayed_messages">>, MaxDelayedMessages, Opts1),
-    {ok, _} = emqx:update_config([delayed], Opts).
+update_config(Config) ->
+    {ok, _} = emqx:update_config([delayed], Config).
 
 %%--------------------------------------------------------------------
 %% gen_server callback
