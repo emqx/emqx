@@ -1302,13 +1302,13 @@ authenticate(?AUTH_PACKET(_, #{'Authentication-Method' := AuthMethod} = Properti
 do_authenticate(#{auth_method := AuthMethod} = Credential, #channel{clientinfo = ClientInfo} = Channel) ->
     Properties = #{'Authentication-Method' => AuthMethod},
     case emqx_access_control:authenticate(Credential) of
-        {ok, #{superuser := Superuser}} ->
+        {ok, Result} ->
             {ok, Properties,
-             Channel#channel{clientinfo = ClientInfo#{is_superuser => Superuser},
+             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(superuser, Result, false)},
                              auth_cache = #{}}};
-        {ok, #{superuser := Superuser}, AuthData} ->
+        {ok, Result, AuthData} ->
             {ok, Properties#{'Authentication-Data' => AuthData},
-             Channel#channel{clientinfo = ClientInfo#{is_superuser => Superuser},
+             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(superuser, Result, false)},
                              auth_cache = #{}}};
         {continue, AuthCache} ->
             {continue, Properties, Channel#channel{auth_cache = AuthCache}};
