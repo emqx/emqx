@@ -177,7 +177,7 @@ update_user(UserID, User,
                                     undefined ->
                                         UserInfo1;
                                     Password ->
-                                        {StoredKey, ServerKey, Salt} = esasl_scram:generate_user_credential(Password, State),
+                                        {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(Password, State),
                                         UserInfo1#user_info{stored_key = StoredKey,
                                                             server_key = ServerKey,
                                                             salt       = Salt}
@@ -239,7 +239,7 @@ check_client_final_message(Bin, #{superuser := Superuser} = Cache, #{algorithm :
     end.
 
 add_user(UserID, Password, Superuser, State) ->
-    {StoredKey, ServerKey, Salt} = esasl_scram:generate_user_credential(Password, State),
+    {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(Password, State),
     UserInfo = #user_info{user_id    = UserID,
                           stored_key = StoredKey,
                           server_key = ServerKey,
