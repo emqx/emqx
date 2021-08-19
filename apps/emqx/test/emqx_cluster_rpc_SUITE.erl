@@ -29,6 +29,7 @@
 all() -> [
     t_base_test,
     t_commit_fail_test,
+    t_commit_crash_test,
     t_commit_ok_but_apply_fail_on_other_node,
     t_commit_ok_apply_fail_on_other_node_then_recover,
     t_del_stale_mfa
@@ -39,6 +40,7 @@ groups() -> [].
 init_per_suite(Config) ->
     application:load(emqx),
     ok = ekka:start(),
+    emqx_cluster_rpc:mnesia(copy),
     %%dbg:tracer(),
     %%dbg:p(all, c),
     %%dbg:tpl(emqx_cluster_rpc, cx),
@@ -68,10 +70,12 @@ t_base_test(_Config) ->
     MFA = {M, F, A} = {?MODULE, echo, [Pid, test]},
     {ok, TnxId} = emqx_cluster_rpc:multicall(M, F, A),
     {atomic, Query} = emqx_cluster_rpc:query(TnxId),
-    ?assertEqual(MFA,maps:get(mfa, Query)),
-    ?assertEqual({node(), ?NODE1},maps:get(initiator, Query)),
+    ?assertEqual(MFA, maps:get(mfa, Query)),
+    ?assertEqual(node(), maps:get(initiator, Query)),
     ?assert(maps:is_key(created_at, Query)),
-    ?assertEqual(ok,receive_msg(3, test)),
+    ?assertEqual(ok, receive_msg(3, test)),
+    SysStatus = lists:last(lists:last(element(4,sys:get_status(?NODE1)))),
+    ?assertEqual(#{node => node(), opt => normal, state => realtime}, SysStatus),
     sleep(400),
     {atomic, Status} = emqx_cluster_rpc:status(),
     ?assertEqual(3, length(Status)),
@@ -86,6 +90,15 @@ t_commit_fail_test(_Config) ->
     ?assertEqual({atomic, []}, emqx_cluster_rpc:status()),
     ok.
 
+t_commit_crash_test(_Config) ->
+    emqx_cluster_rpc:reset(),
+    {atomic, []} = emqx_cluster_rpc:status(),
+    {M, F, A} = {?MODULE, no_exist_function, []},
+    Error = emqx_cluster_rpc:multicall(M, F, A),
+    ?assertEqual({error, "TnxId(1) apply MFA({emqx_cluster_rpc_SUITE,no_exist_function,[]}) crash"}, Error),
+    ?assertEqual({atomic, []}, emqx_cluster_rpc:status()),
+    ok.
+
 t_commit_ok_but_apply_fail_on_other_node(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
@@ -93,10 +106,22 @@ t_commit_ok_but_apply_fail_on_other_node(_Config) ->
     {ok, _} = emqx_cluster_rpc:multicall(M, F, A),
     {atomic, [Status]} = emqx_cluster_rpc:status(),
     ?assertEqual(MFA, maps:get(mfa, Status)),
-    ?assertEqual({node(), ?NODE1}, maps:get(node, Status)),
+    ?assertEqual(node(), maps:get(node, Status)),
     ?assertEqual(realtime, element(1, sys:get_state(?NODE1))),
     ?assertEqual(catch_up, element(1, sys:get_state(?NODE2))),
     ?assertEqual(catch_up, element(1, sys:get_state(?NODE3))),
+    erlang:send(?NODE2, test),
+    Res = gen_statem:call(?NODE2,  {initiate, {M, F, A}}),
+    ?assertEqual({error, "There are still transactions that have not been executed."}, Res),
+    ok.
+
+t_catch_up_status_handle_next_commit(_Config) ->
+    emqx_cluster_rpc:reset(),
+    {atomic, []} = emqx_cluster_rpc:status(),
+    {M, F, A} = {?MODULE, failed_on_node_by_odd, [erlang:whereis(?NODE1)]},
+    {ok, _} = emqx_cluster_rpc:multicall(M, F, A),
+    ?assertEqual(catch_up, element(1, sys:get_state(?NODE2))),
+    {ok, 2} = gen_statem:call(?NODE2,  {initiate, {M, F, A}}),
     ok.
 
 t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
@@ -108,7 +133,7 @@ t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
     {ok, _} = emqx_cluster_rpc:multicall(io, format, ["test"]),
     {atomic, [Status]} = emqx_cluster_rpc:status(),
     ?assertEqual({io, format, ["test"]}, maps:get(mfa, Status)),
-    ?assertEqual({node(), ?NODE1}, maps:get(node, Status)),
+    ?assertEqual(node(), maps:get(node, Status)),
     ?assertEqual(realtime, element(1, sys:get_state(?NODE1))),
     ?assertEqual(catch_up, element(1, sys:get_state(?NODE2))),
     ?assertEqual(catch_up, element(1, sys:get_state(?NODE3))),
@@ -126,7 +151,7 @@ t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
     {ok, TnxId} = emqx_cluster_rpc:multicall(M1, F1, A1),
     {atomic, Query} = emqx_cluster_rpc:query(TnxId),
     ?assertEqual(MFAEcho, maps:get(mfa, Query)),
-    ?assertEqual({node(), ?NODE1}, maps:get(initiator, Query)),
+    ?assertEqual(node(), maps:get(initiator, Query)),
     ?assert(maps:is_key(created_at, Query)),
     ?assertEqual(ok, receive_msg(3, test)),
     ok.
@@ -140,30 +165,30 @@ t_del_stale_mfa(_Config) ->
     Ids =
         [begin
              {ok, TnxId} = emqx_cluster_rpc:multicall(M, F, A),
-             TnxId end ||_<- Keys],
+             TnxId end || _ <- Keys],
     ?assertEqual(Keys, Ids),
     Ids2 =
         [begin
              {ok, TnxId} = emqx_cluster_rpc:multicall(M, F, A),
-         TnxId end ||_<- Keys2],
+             TnxId end || _ <- Keys2],
     ?assertEqual(Keys2, Ids2),
     sleep(1200),
     [begin
          ?assertEqual({aborted, not_found}, emqx_cluster_rpc:query(I))
-     end||I<- lists:seq(1, 50)],
+     end || I <- lists:seq(1, 50)],
     [begin
-         {atomic,Map} = emqx_cluster_rpc:query(I),
+         {atomic, Map} = emqx_cluster_rpc:query(I),
          ?assertEqual(MFA, maps:get(mfa, Map)),
-         ?assertEqual({node(), ?NODE1}, maps:get(initiator, Map)),
+         ?assertEqual(node(), maps:get(initiator, Map)),
          ?assert(maps:is_key(created_at, Map))
-     end||I<- lists:seq(51, 150)],
+     end || I <- lists:seq(51, 150)],
     ok.
 
 start() ->
-    {ok, Pid1} = emqx_cluster_rpc:start_link({node(), ?NODE1}, ?NODE1),
+    {ok, Pid1} = emqx_cluster_rpc:start_link(),
     {ok, Pid2} = emqx_cluster_rpc:start_link({node(), ?NODE2}, ?NODE2),
     {ok, Pid3} = emqx_cluster_rpc:start_link({node(), ?NODE3}, ?NODE3),
-    {ok, Pid4 } = emqx_cluster_rpc_handler:start_link(),
+    {ok, Pid4} = emqx_cluster_rpc_handler:start_link(),
     {ok, [Pid1, Pid2, Pid3, Pid4]}.
 
 stop() ->
@@ -191,6 +216,18 @@ failed_on_node(Pid) ->
     case Pid =:= self() of
         true -> ok;
         false -> "MFA return not ok"
+    end.
+
+failed_on_node_by_odd(Pid) ->
+    case Pid =:= self() of
+        true -> ok;
+        false ->
+            catch ets:new(test, [named_table, set, public]),
+            Num = ets:update_counter(test, self(), {2, 1}, {self(), 1}),
+            case Num rem 2 =:= 0 of
+                false -> "MFA return not ok";
+                true -> ok
+            end
     end.
 
 failed_on_other_recover_after_5_second(Pid, CreatedAt) ->

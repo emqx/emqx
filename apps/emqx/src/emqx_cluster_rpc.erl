@@ -175,7 +175,6 @@ handle_event({call, From}, {initiate, _MFA}, ?CATCH_UP, Node) ->
 handle_event(_EventType, _EventContent, ?CATCH_UP, _Node) ->
     {keep_state_and_data, [?CATCH_UP_AFTER(10)]};
 handle_event(_EventType, _EventContent, _StateName, _Node) ->
-    ?LOG(error, "~p", [{_EventType, _EventContent, _StateName, _Node}]),
     keep_state_and_data.
 
 terminate(_Reason, _StateName, _Node) ->
