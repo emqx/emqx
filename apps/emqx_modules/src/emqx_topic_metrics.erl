@@ -356,9 +356,8 @@ add_topic_config(Topic) when is_binary(Topic) ->
     update_config(Topics).
 
 update_config(Topics) when is_list(Topics) ->
-    %% TODO: update config bug
-    % Opts = emqx_config:get_raw([<<"topic_metrics">>], #{}),
-    % {ok, _} = emqx:update_config([topic_metrics], maps:put(<<"topics">>, Topics, Opts)),
+    Opts = emqx_config:get_raw([<<"topic_metrics">>], #{}),
+    {ok, _} = emqx:update_config([topic_metrics], maps:put(<<"topics">>, Topics, Opts)),
     ok.
 
 try_inc(Topic, Metric) ->
