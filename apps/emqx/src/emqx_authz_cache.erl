@@ -18,15 +18,15 @@
 
 -include("emqx.hrl").
 
--export([ list_authz_cache/1
-        , get_authz_cache/3
-        , put_authz_cache/4
-        , cleanup_authz_cache/1
+-export([ list_authz_cache/0
+        , get_authz_cache/2
+        , put_authz_cache/3
+        , cleanup_authz_cache/0
         , empty_authz_cache/0
         , dump_authz_cache/0
-        , get_cache_max_size/1
-        , get_cache_ttl/1
-        , is_enabled/1
+        , get_cache_max_size/0
+        , get_cache_ttl/0
+        , is_enabled/0
         , drain_cache/0
         ]).
 
@@ -50,45 +50,45 @@ cache_k(PubSub, Topic)-> {PubSub, Topic}.
 cache_v(AuthzResult)-> {AuthzResult, time_now()}.
 drain_k() -> {?MODULE, drain_timestamp}.
 
--spec(is_enabled(atom()) -> boolean()).
-is_enabled(Zone) ->
-    emqx_config:get_zone_conf(Zone, [authorization, cache, enable]).
+-spec(is_enabled() -> boolean()).
+is_enabled() ->
+    emqx:get_config([authorization, cache, enable], false).
 
--spec(get_cache_max_size(atom()) -> integer()).
-get_cache_max_size(Zone) ->
-    emqx_config:get_zone_conf(Zone, [authorization, cache, max_size]).
+-spec(get_cache_max_size() -> integer()).
+get_cache_max_size() ->
+    emqx:get_config([authorization, cache, max_size]).
 
--spec(get_cache_ttl(atom()) -> integer()).
-get_cache_ttl(Zone) ->
-    emqx_config:get_zone_conf(Zone, [authorization, cache, ttl]).
+-spec(get_cache_ttl() -> integer()).
+get_cache_ttl() ->
+    emqx:get_config([authorization, cache, ttl]).
 
--spec(list_authz_cache(atom()) -> [authz_cache_entry()]).
-list_authz_cache(Zone) ->
-    cleanup_authz_cache(Zone),
+-spec(list_authz_cache() -> [authz_cache_entry()]).
+list_authz_cache() ->
+    cleanup_authz_cache(),
     map_authz_cache(fun(Cache) -> Cache end).
 
 %% We'll cleanup the cache before replacing an expired authz.
--spec get_authz_cache(atom(), emqx_types:pubsub(), emqx_topic:topic()) ->
+-spec get_authz_cache(emqx_types:pubsub(), emqx_topic:topic()) ->
     authz_result() | not_found.
-get_authz_cache(Zone, PubSub, Topic) ->
+get_authz_cache(PubSub, Topic) ->
     case erlang:get(cache_k(PubSub, Topic)) of
         undefined -> not_found;
         {AuthzResult, CachedAt} ->
-            if_expired(get_cache_ttl(Zone), CachedAt,
+            if_expired(get_cache_ttl(), CachedAt,
                 fun(false) ->
                       AuthzResult;
                    (true) ->
-                      cleanup_authz_cache(Zone),
+                      cleanup_authz_cache(),
                       not_found
                 end)
     end.
 
 %% If the cache get full, and also the latest one
 %%   is expired, then delete all the cache entries
--spec put_authz_cache(atom(), emqx_types:pubsub(), emqx_topic:topic(), authz_result())
+-spec put_authz_cache(emqx_types:pubsub(), emqx_topic:topic(), authz_result())
     -> ok.
-put_authz_cache(Zone, PubSub, Topic, AuthzResult) ->
-    MaxSize = get_cache_max_size(Zone), true = (MaxSize =/= 0),
+put_authz_cache(PubSub, Topic, AuthzResult) ->
+    MaxSize = get_cache_max_size(), true = (MaxSize =/= 0),
     Size = get_cache_size(),
     case Size < MaxSize of
         true ->
@@ -96,7 +96,7 @@ put_authz_cache(Zone, PubSub, Topic, AuthzResult) ->
         false ->
             NewestK = get_newest_key(),
             {_AuthzResult, CachedAt} = erlang:get(NewestK),
-            if_expired(get_cache_ttl(Zone), CachedAt,
+            if_expired(get_cache_ttl(), CachedAt,
                 fun(true) ->
                       % all cache expired, cleanup first
                       empty_authz_cache(),
@@ -123,10 +123,10 @@ evict_authz_cache() ->
     decr_cache_size().
 
 %% cleanup all the expired cache entries
--spec(cleanup_authz_cache(atom()) -> ok).
-cleanup_authz_cache(Zone) ->
+-spec(cleanup_authz_cache() -> ok).
+cleanup_authz_cache() ->
     keys_queue_set(
-        cleanup_authz(get_cache_ttl(Zone), keys_queue_get())).
+        cleanup_authz(get_cache_ttl(), keys_queue_get())).
 
 get_oldest_key() ->
     keys_queue_pick(queue_front()).
@@ -143,8 +143,8 @@ dump_authz_cache() ->
     map_authz_cache(fun(Cache) -> Cache end).
 
 map_authz_cache(Fun) ->
-    [Fun(R) || R = {{SubPub, _T}, _Authz} <- get(), SubPub =:= publish
-                                             orelse SubPub =:= subscribe].
+    [Fun(R) || R = {{SubPub, _T}, _Authz} <- erlang:get(),
+               SubPub =:= publish orelse SubPub =:= subscribe].
 foreach_authz_cache(Fun) ->
     _ = map_authz_cache(Fun),
     ok.
