@@ -261,12 +261,12 @@ handle_mfa_write_event(#cluster_rpc_mfa{tnx_id = TnxId, mfa = MFA}, Node) ->
                 end;
             _ -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
         end;
-        DoneTnxId =:= TnxId -> %% It's means the initiator receive self event.
+        DoneTnxId >= TnxId -> %% It's means the initiator receive self event or other receive stale event.
             keep_state_and_data;
         true ->
             ?LOG(error, "LastAppliedID+1=/=EventId, maybe the mnesia event'order is messed up! restart process:~p",
                 [{DoneTnxId, TnxId, MFA, Node}]),
-            {stop, "LastAppliedID+1=/=EventId"}
+            {stop, {"LastAppliedID+1=/=EventId", {DoneTnxId, TnxId, MFA, Node}}}
     end.
 
 get_done_id(Node, Default) ->
