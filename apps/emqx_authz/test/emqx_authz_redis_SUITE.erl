@@ -23,6 +23,8 @@
 -include_lib("common_test/include/ct.hrl").
 -define(CONF_DEFAULT, <<"authorization: {rules: []}">>).
 
+-define(CONF_DEFAULT, <<"authorization_rules: {rules: []}">>).
+
 all() ->
     emqx_ct:all(?MODULE).
 
@@ -37,8 +39,8 @@ init_per_suite(Config) ->
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
 
-    {ok, _} = emqx:update_config([zones, default, authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([zones, default, authorization, enable], true),
+    {ok, _} = emqx:update_config([authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([authorization, no_match], deny),
     Rules = [#{ <<"config">> => #{
                     <<"server">> => <<"127.0.0.1:27017">>,
                     <<"pool_size">> => 1,

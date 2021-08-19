@@ -22,7 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"authorization: {rules: []}">>).
+-define(CONF_DEFAULT, <<"authorization_rules: {rules: []}">>).
 
 all() ->
     emqx_ct:all(?MODULE).
@@ -33,8 +33,8 @@ groups() ->
 init_per_suite(Config) ->
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
-    {ok, _} = emqx:update_config([zones, default, authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([zones, default, authorization, enable], true),
+    {ok, _} = emqx:update_config([authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([authorization, no_match], deny),
     Config.
 
 end_per_suite(_Config) ->
@@ -87,7 +87,7 @@ t_update_rule(_) ->
     {ok, _} = emqx_authz:update(tail, [?RULE3]),
 
     Lists1 = emqx_authz:check_rules([?RULE1, ?RULE2, ?RULE3]),
-    ?assertMatch(Lists1, emqx:get_config([authorization, rules], [])),
+    ?assertMatch(Lists1, emqx:get_config([authorization_rules, rules], [])),
 
     [#{annotations := #{id := Id1,
                         principal := all,
@@ -109,7 +109,7 @@ t_update_rule(_) ->
 
     {ok, _} = emqx_authz:update({replace_once, Id3}, ?RULE4),
     Lists2 = emqx_authz:check_rules([?RULE1, ?RULE2, ?RULE4]),
-    ?assertMatch(Lists2, emqx:get_config([authorization, rules], [])),
+    ?assertMatch(Lists2, emqx:get_config([authorization_rules, rules], [])),
 
     [#{annotations := #{id := Id1,
                         principal := all,
