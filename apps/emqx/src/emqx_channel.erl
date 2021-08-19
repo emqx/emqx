@@ -1416,7 +1416,6 @@ check_pub_alias(_Packet, _Channel) -> ok.
 check_pub_authz(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
               #channel{clientinfo = ClientInfo}) ->
     case emqx_access_control:authorize(ClientInfo, publish, Topic) of
-        false -> ok;
         allow -> ok;
         deny  -> {error, ?RC_NOT_AUTHORIZED}
     end.
@@ -1437,8 +1436,10 @@ check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos    = QoS,
 check_sub_authzs(TopicFilters, Channel) ->
     check_sub_authzs(TopicFilters, Channel, []).
 
-check_sub_authzs([ TopicFilter = {Topic, _} | More] , Channel, Acc) ->
-    case check_sub_authz(Topic, Channel) of
+check_sub_authzs([ TopicFilter = {Topic, _} | More],
+                 Channel = #channel{clientinfo = ClientInfo},
+                 Acc) ->
+    case emqx_access_control:authorize(ClientInfo, subscribe, Topic) of
         allow ->
             check_sub_authzs(More, Channel, [ {TopicFilter, 0} | Acc]);
         deny ->
@@ -1446,12 +1447,6 @@ check_sub_authzs([ TopicFilter = {Topic, _} | More] , Channel, Acc) ->
     end;
 check_sub_authzs([], _Channel, Acc) ->
     lists:reverse(Acc).
-
-check_sub_authz(TopicFilter, #channel{clientinfo = ClientInfo}) ->
-    case emqx_access_control:authorize(ClientInfo, subscribe, TopicFilter) of
-        false  -> allow;
-        Result -> Result
-    end.
 
 %%--------------------------------------------------------------------
 %% Check Sub Caps
