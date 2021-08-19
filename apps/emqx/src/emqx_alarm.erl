@@ -161,7 +161,7 @@ format(#activated_alarm{name = Name, message = Message, activate_at = At, detail
         node => node(),
         name => Name,
         message => Message,
-        duration => Now - At,
+        duration => (Now - At) div 1000, %% to millisecond
         details => Details
     };
 format(#deactivated_alarm{name = Name, message = Message, activate_at = At, details = Details,
@@ -199,7 +199,7 @@ handle_call({activate_alarm, Name, Details}, _From, State) ->
                                      message = normalize_message(Name, Details),
                                      activate_at = erlang:system_time(microsecond)},
             ekka_mnesia:dirty_write(?ACTIVATED_ALARM, Alarm),
-            do_actions(activate, Alarm, emqx_config:get([alarm, actions])),
+            do_actions(activate, Alarm, emqx:get_config([alarm, actions])),
             {reply, ok, State}
     end;
 
@@ -268,11 +268,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 get_validity_period() ->
-    emqx_config:get([alarm, validity_period]).
+    emqx:get_config([alarm, validity_period]).
 
 deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name,
         details = Details0, message = Msg0}) ->
-    SizeLimit = emqx_config:get([alarm, size_limit]),
+    SizeLimit = emqx:get_config([alarm, size_limit]),
     case SizeLimit > 0 andalso (mnesia:table_info(?DEACTIVATED_ALARM, size) >= SizeLimit) of
         true ->
             case mnesia:dirty_first(?DEACTIVATED_ALARM) of
@@ -289,7 +289,7 @@ deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name
                     erlang:system_time(microsecond)),
     ekka_mnesia:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
     ekka_mnesia:dirty_delete(?ACTIVATED_ALARM, Name),
-    do_actions(deactivate, DeActAlarm, emqx_config:get([alarm, actions])).
+    do_actions(deactivate, DeActAlarm, emqx:get_config([alarm, actions])).
 
 make_deactivated_alarm(ActivateAt, Name, Details, Message, DeActivateAt) ->
     #deactivated_alarm{

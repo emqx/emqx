@@ -24,6 +24,7 @@
         , safe_atom_key_map/1
         , unsafe_atom_key_map/1
         , jsonable_map/1
+        , jsonable_value/1
         , deep_convert/2
         ]).
 
@@ -117,7 +118,7 @@ unsafe_atom_key_map(Map) ->
 safe_atom_key_map(Map) ->
     covert_keys_to_atom(Map, fun(K) -> binary_to_existing_atom(K, utf8) end).
 
--spec jsonable_map(map()) -> map().
+-spec jsonable_map(map() | list()) -> map() | list().
 jsonable_map(Map) ->
     deep_convert(Map, fun(K, V) ->
             {jsonable_value(K), jsonable_value(V)}

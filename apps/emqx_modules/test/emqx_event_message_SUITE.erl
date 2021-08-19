@@ -24,16 +24,14 @@
 
 -define(EVENT_MESSAGE, <<"""
 event_message: {
-  topics : [
-    \"$event/client_connected\",
-    \"$event/client_disconnected\",
-    \"$event/session_subscribed\",
-    \"$event/session_unsubscribed\",
-    \"$event/message_delivered\",
-    \"$event/message_acked\",
-    \"$event/message_dropped\"
-  ]}""">>).
-
+    \"$event/client_connected\": true
+    \"$event/client_disconnected\": true
+    \"$event/client_subscribed\": true
+    \"$event/client_unsubscribed\": true
+    \"$event/message_delivered\": true
+    \"$event/message_acked\": true
+    \"$event/message_dropped\": true
+  }""">>).
 
 all() -> emqx_ct:all(?MODULE).
 
@@ -56,12 +54,12 @@ t_event_topic(_) ->
     {ok, _} = emqtt:connect(C2),
     ok = recv_connected(<<"clientid">>),
 
-    {ok, _, [?QOS_1]} = emqtt:subscribe(C1, <<"$event/session_subscribed">>, qos1),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(C1, <<"$event/client_subscribed">>, qos1),
     _ = receive_publish(100),
     timer:sleep(50),
     {ok, _, [?QOS_1]} = emqtt:subscribe(C2, <<"test_sub">>, qos1),
     ok = recv_subscribed(<<"clientid">>),
-    emqtt:unsubscribe(C1, <<"$event/session_subscribed">>),
+    emqtt:unsubscribe(C1, <<"$event/client_subscribed">>),
     timer:sleep(50),
 
     {ok, _, [?QOS_1]} = emqtt:subscribe(C1, <<"$event/message_delivered">>, qos1),
@@ -77,7 +75,7 @@ t_event_topic(_) ->
     ok= emqtt:publish(C2, <<"test_sub1">>, <<"test">>),
     recv_message_dropped(<<"clientid">>),
 
-    {ok, _, [?QOS_1]} = emqtt:subscribe(C1, <<"$event/session_unsubscribed">>, qos1),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(C1, <<"$event/client_unsubscribed">>, qos1),
     _ = emqtt:unsubscribe(C2, <<"test_sub">>),
     ok = recv_unsubscribed(<<"clientid">>),
 
@@ -101,12 +99,14 @@ recv_connected(ClientId) ->
                    <<"ipaddress">> := <<"127.0.0.1">>,
                    <<"proto_name">> := <<"MQTT">>,
                    <<"proto_ver">> := ?MQTT_PROTO_V4,
-                   <<"connack">> := ?RC_SUCCESS,
-                   <<"clean_start">> := true}, emqx_json:decode(Payload, [return_maps])).
+                   <<"clean_start">> := true,
+                   <<"expiry_interval">> := 0,
+                   <<"keepalive">> := 60
+                   }, emqx_json:decode(Payload, [return_maps])).
 
 recv_subscribed(_ClientId) ->
     {ok, #{qos := ?QOS_0, topic := Topic}} = receive_publish(100),
-    ?assertMatch(<<"$event/session_subscribed">>, Topic).
+    ?assertMatch(<<"$event/client_subscribed">>, Topic).
 
 recv_message_dropped(_ClientId) ->
     {ok, #{qos := ?QOS_0, topic := Topic}} = receive_publish(100),
@@ -123,7 +123,7 @@ recv_message_acked(_ClientId) ->
 
 recv_unsubscribed(_ClientId) ->
     {ok, #{qos := ?QOS_0, topic := Topic}} = receive_publish(100),
-    ?assertMatch(<<"$event/session_unsubscribed">>, Topic).
+    ?assertMatch(<<"$event/client_unsubscribed">>, Topic).
 
 recv_disconnected(ClientId) ->
     {ok, #{qos := ?QOS_0, topic := Topic, payload := Payload}} = receive_publish(100),

@@ -60,7 +60,7 @@ start_timer(State) ->
     State#{timer := emqx_misc:start_timer(timer:seconds(2), reset)}.
 
 sysm_opts() ->
-    sysm_opts(maps:to_list(emqx_config:get([sysmon, vm])), []).
+    sysm_opts(maps:to_list(emqx:get_config([sysmon, vm])), []).
 sysm_opts([], Acc) ->
     Acc;
 sysm_opts([{_, disabled}|Opts], Acc) ->

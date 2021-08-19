@@ -87,7 +87,7 @@ init(CoapPid, EndpointName, Peername = {_Peerhost, _Port}, RegInfo = #{<<"lt">> 
     ClientInfo = clientinfo(Lwm2mState),
     _ = run_hooks('client.connect', [conninfo(Lwm2mState)], undefined),
     case emqx_access_control:authenticate(ClientInfo) of
-        ok ->
+        {ok, _} ->
             _ = run_hooks('client.connack', [conninfo(Lwm2mState), success], undefined),
 
             %% FIXME:

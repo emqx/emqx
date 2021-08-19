@@ -29,6 +29,7 @@
 start(_StartType, _StartArgs) ->
     ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),
+    emqx_config_handler:add_handler([authentication, authenticators], emqx_authn),
     initialize(),
     {ok, Sup}.
 
@@ -36,7 +37,7 @@ stop(_State) ->
     ok.
 
 initialize() ->
-    AuthNConfig = emqx_config:get([authentication], #{enable => false,
+    AuthNConfig = emqx:get_config([authentication], #{enable => false,
                                                       authenticators => []}),
     initialize(AuthNConfig).
 

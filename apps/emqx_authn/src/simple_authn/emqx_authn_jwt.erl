@@ -169,7 +169,7 @@ authenticate(Credential = #{password := JWT}, #{jwk := JWK,
            end,
     VerifyClaims = replace_placeholder(VerifyClaims0, Credential),
     case verify(JWT, JWKs, VerifyClaims) of
-        ok -> ok;
+        {ok, Extra} -> {ok, Extra};
         {error, invalid_signature} -> ignore;
         {error, {claims, _}} -> {error, bad_username_or_password}
     end.
@@ -239,7 +239,12 @@ verify(JWS, [JWK | More], VerifyClaims) ->
     try jose_jws:verify(JWK, JWS) of
         {true, Payload, _JWS} ->
             Claims = emqx_json:decode(Payload, [return_maps]),
-            verify_claims(Claims, VerifyClaims);
+            case verify_claims(Claims, VerifyClaims) of
+                ok ->
+                    {ok, #{superuser => maps:get(<<"superuser">>, Claims, false)}};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
         {false, _, _} ->
             verify(JWS, More, VerifyClaims)
     catch

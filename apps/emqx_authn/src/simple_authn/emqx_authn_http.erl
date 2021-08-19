@@ -154,15 +154,16 @@ authenticate(Credential, #{'_unique' := Unique,
     try
         Request = generate_request(Credential, State),
         case emqx_resource:query(Unique, {Method, Request, RequestTimeout}) of
-            {ok, 204, _Headers} -> ok;
+            {ok, 204, _Headers} -> {ok, #{superuser => false}};
             {ok, 200, Headers, Body} ->
                 ContentType = proplists:get_value(<<"content-type">>, Headers, <<"application/json">>),
                 case safely_parse_body(ContentType, Body) of
-                    {ok, _NBody} ->
+                    {ok, NBody} ->
                         %% TODO: Return by user property
-                        ok;
+                        {ok, #{superuser => maps:get(<<"superuser">>, NBody, false),
+                               user_property => NBody}};
                     {error, _Reason} ->
-                        ok
+                        {ok, #{superuser => false}}
                 end;
             {error, _Reason} ->
                 ignore
@@ -291,8 +292,8 @@ safely_parse_body(ContentType, Body) ->
     end.
 
 parse_body(<<"application/json">>, Body) ->
-    {ok, emqx_json:decode(Body)};
+    {ok, emqx_json:decode(Body, [return_maps])};
 parse_body(<<"application/x-www-form-urlencoded">>, Body) ->
-    {ok, cow_qs:parse_qs(Body)};
+    {ok, maps:from_list(cow_qs:parse_qs(Body))};
 parse_body(ContentType, _) ->
     {error, {unsupported_content_type, ContentType}}.

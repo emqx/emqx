@@ -24,7 +24,7 @@
         , authentication/2
         , authenticators/2
         , authenticators2/2
-        , position/2
+        , move/2
         , import_users/2
         , users/2
         , users2/2
@@ -109,7 +109,7 @@ api_spec() ->
     {[ authentication_api()
      , authenticators_api()
      , authenticators_api2()
-     , position_api()
+     , move_api()
      , import_users_api()
      , users_api()
      , users2_api()
@@ -405,10 +405,10 @@ authenticators_api2() ->
     },
     {"/authentication/authenticators/:id", Metadata, authenticators2}.
 
-position_api() ->
+move_api() ->
     Metadata = #{
         post => #{
-            description => "Change the order of authenticators",
+            description => "Move authenticator",
             parameters => [
                 #{
                     name => id,
@@ -423,14 +423,30 @@ position_api() ->
                 content => #{
                     'application/json' => #{
                         schema => #{
-                            type => object,
-                            required => [position],
-                            properties => #{
-                                position => #{
-                                    type => integer,
-                                    example => 1
+                            oneOf => [
+                                #{
+                                    type => object,
+                                    required => [position],
+                                    properties => #{
+                                        position => #{
+                                            type => string,
+                                            enum => [<<"top">>, <<"bottom">>],
+                                            example => <<"top">>
+                                        }
+                                    }
+                                },
+                                #{
+                                    type => object,
+                                    required => [position],
+                                    properties => #{
+                                        position => #{
+                                            type => string,
+                                            description => <<"before:<authenticator_id>">>,
+                                            example => <<"before:67e4c9d3">>
+                                        }
+                                    }
                                 }
-                            }
+                            ]
                         }
                     }
                 }
@@ -444,7 +460,7 @@ position_api() ->
             }
         }
     },
-    {"/authentication/authenticators/:id/position", Metadata, position}.
+    {"/authentication/authenticators/:id/move", Metadata, move}.
 
 import_users_api() ->
     Metadata = #{
@@ -512,6 +528,10 @@ users_api() ->
                                 },
                                 password => #{
                                     type => string
+                                },
+                                superuser => #{
+                                    type => boolean,
+                                    default => false
                                 }
                             }
                         }
@@ -525,10 +545,12 @@ users_api() ->
                         'application/json' => #{
                             schema => #{
                                 type => object,
-                                required => [user_id],
                                 properties => #{
                                     user_id => #{
                                         type => string
+                                    },
+                                    superuser => #{
+                                        type => boolean
                                     }
                                 }
                             }
@@ -560,10 +582,12 @@ users_api() ->
                                 type => array,
                                 items => #{
                                     type => object,
-                                    required => [user_id],
                                     properties => #{
                                         user_id => #{
                                             type => string
+                                        },
+                                        superuser => #{
+                                            type => boolean
                                         }
                                     }
                                 }
@@ -604,10 +628,12 @@ users2_api() ->
                     'application/json' => #{
                         schema => #{
                             type => object,
-                            required => [password],
                             properties => #{
                                 password => #{
                                     type => string
+                                },
+                                superuser => #{
+                                    type => boolean    
                                 }
                             }
                         }
@@ -626,6 +652,9 @@ users2_api() ->
                                     properties => #{
                                         user_id => #{
                                             type => string
+                                        },
+                                        superuser => #{
+                                            type => boolean
                                         }
                                     }
                                 }
@@ -669,6 +698,9 @@ users2_api() ->
                                     properties => #{
                                         user_id => #{
                                             type => string
+                                        },
+                                        superuser => #{
+                                            type => boolean
                                         }
                                     }
                                 }
@@ -758,6 +790,7 @@ definitions() ->
                          , minirest:ref(<<"password_based_mysql">>)
                          , minirest:ref(<<"password_based_pgsql">>)
                          , minirest:ref(<<"password_based_mongodb">>)
+                         , minirest:ref(<<"password_based_redis">>)
                          , minirest:ref(<<"password_based_http_server">>)
                          ]    
             }
@@ -1054,7 +1087,13 @@ definitions() ->
 
     PasswordBasedRedisDef = #{
         type => object,
-        required => [],
+        required => [ server_type
+                    , server
+                    , servers
+                    , password
+                    , database
+                    , query
+                    ],
         properties => #{
             server_type => #{
                 type => string,
@@ -1083,7 +1122,7 @@ definitions() ->
             },
             database => #{
                 type => integer,
-                exmaple => 0
+                example => 0
             },
             query => #{
                 type => string,
@@ -1253,14 +1292,9 @@ definitions() ->
 authentication(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     case emqx_json:decode(Body, [return_maps]) of
-        #{<<"enable">> := true} ->
-            ok = emqx_authn:enable(),
+        #{<<"enable">> := Enable} ->
+            {ok, _} = emqx_authn:update_config([authentication, enable], {enable, Enable}),
             {204};
-        #{<<"enable">> := false} ->
-            ok = emqx_authn:disable(),
-            {204};
-        #{<<"enable">> := _} ->
-            serialize_error({invalid_parameter, enable});
         _ ->
             serialize_error({missing_parameter, enable})
     end;
@@ -1270,96 +1304,100 @@ authentication(get, _Request) ->
 
 authenticators(post, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
-    AuthenticatorConfig = emqx_json:decode(Body, [return_maps]),
-    Config = #{<<"authentication">> => #{
-                   <<"authenticators">> => [AuthenticatorConfig]
-               }},
-    NConfig = hocon_schema:check_plain(emqx_authn_schema, Config,
-                                       #{nullable => true}),
-    #{authentication := #{authenticators := [NAuthenticatorConfig]}} = emqx_map_lib:unsafe_atom_key_map(NConfig),
-    case emqx_authn:create_authenticator(?CHAIN, NAuthenticatorConfig) of
-        {ok, Authenticator2} ->
-            {201, Authenticator2};
-        {error, Reason} ->
+    Config = emqx_json:decode(Body, [return_maps]),
+    case emqx_authn:update_config([authentication, authenticators], {create_authenticator, Config}) of
+        {ok, #{post_config_update := #{emqx_authn := #{id := ID, name := Name}},
+               raw_config := RawConfig}} ->
+            [RawConfig1] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],
+            {200, RawConfig1#{id => ID}};
+        {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end;
 authenticators(get, _Request) ->
+    RawConfig = get_raw_config([authentication, authenticators]),
     {ok, Authenticators} = emqx_authn:list_authenticators(?CHAIN),
-    {200, Authenticators}.
+    NAuthenticators = lists:zipwith(fun(#{<<"name">> := Name} = Config, #{id := ID, name := Name}) ->
+                                        Config#{id => ID}
+                                    end, RawConfig, Authenticators),
+    {200, NAuthenticators}.
 
 authenticators2(get, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     case emqx_authn:lookup_authenticator(?CHAIN, AuthenticatorID) of
-        {ok, Authenticator} ->
-           {200, Authenticator};
+        {ok, #{id := ID, name := Name}} ->
+            RawConfig = get_raw_config([authentication, authenticators]),
+            [RawConfig1] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],
+            {200, RawConfig1#{id => ID}};
         {error, Reason} ->
             serialize_error(Reason)
     end;
 authenticators2(put, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    AuthenticatorConfig = emqx_json:decode(Body, [return_maps]),
-    Config = #{<<"authentication">> => #{
-                   <<"authenticators">> => [AuthenticatorConfig]
-               }},
-    NConfig = hocon_schema:check_plain(emqx_authn_schema, Config,
-                                       #{nullable => true}),
-    #{authentication := #{authenticators := [NAuthenticatorConfig]}} = emqx_map_lib:unsafe_atom_key_map(NConfig),
-    case emqx_authn:update_or_create_authenticator(?CHAIN, AuthenticatorID, NAuthenticatorConfig) of
-        {ok, Authenticator} ->
-            {200, Authenticator};
-        {error, Reason} ->
+    Config = emqx_json:decode(Body, [return_maps]),
+    case emqx_authn:update_config([authentication, authenticators],
+                                  {update_or_create_authenticator, AuthenticatorID, Config}) of
+        {ok, #{post_config_update := #{emqx_authn := #{id := ID, name := Name}},
+               raw_config := RawConfig}} ->
+            [RawConfig0] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],
+            {200, RawConfig0#{id => ID}};
+        {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end;
 authenticators2(delete, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
-    case emqx_authn:delete_authenticator(?CHAIN, AuthenticatorID) of
-        ok ->
+    case emqx_authn:update_config([authentication, authenticators], {delete_authenticator, AuthenticatorID}) of
+        {ok, _} ->
             {204};
-        {error, Reason} ->
+        {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end.
 
-position(post, Request) ->
+move(post, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    NBody = emqx_json:decode(Body, [return_maps]),
-    Config = hocon_schema:check_plain(emqx_authn_other_schema, #{<<"position">> => NBody},
-                                      #{nullable => true}, ["position"]),
-    #{position := #{position := Position}} = emqx_map_lib:unsafe_atom_key_map(Config),
-    case emqx_authn:move_authenticator_to_the_nth(?CHAIN, AuthenticatorID, Position) of
-        ok ->
-            {204};
-        {error, Reason} ->
-            serialize_error(Reason)
+    case emqx_json:decode(Body, [return_maps]) of
+        #{<<"position">> := Position} ->
+            case emqx_authn:update_config([authentication, authenticators], {move_authenticator, AuthenticatorID, Position}) of
+                {ok, _} -> {204};
+                {error, {_, _, Reason}} -> serialize_error(Reason)
+            end;
+        _ ->
+            serialize_error({missing_parameter, position})
     end.
 
 import_users(post, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    NBody = emqx_json:decode(Body, [return_maps]),
-    Config = hocon_schema:check_plain(emqx_authn_other_schema, #{<<"filename">> => NBody},
-                                      #{nullable => true}, ["filename"]),
-    #{filename := #{filename := Filename}} = emqx_map_lib:unsafe_atom_key_map(Config),
-    case emqx_authn:import_users(?CHAIN, AuthenticatorID, Filename) of
-        ok ->
-            {204};
-        {error, Reason} ->
-            serialize_error(Reason)
+    case emqx_json:decode(Body, [return_maps]) of
+        #{<<"filename">> := Filename} ->
+            case emqx_authn:import_users(?CHAIN, AuthenticatorID, Filename) of
+                ok -> {204};
+                {error, Reason} -> serialize_error(Reason)
+            end;
+        _ ->
+            serialize_error({missing_parameter, filename})
     end.
 
 users(post, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    NBody = emqx_json:decode(Body, [return_maps]),
-    Config = hocon_schema:check_plain(emqx_authn_other_schema, #{<<"user_info">> => NBody},
-                                      #{nullable => true}, ["user_info"]),
-    #{user_info := UserInfo} = emqx_map_lib:unsafe_atom_key_map(Config),
-    case emqx_authn:add_user(?CHAIN, AuthenticatorID, UserInfo) of
-        {ok, User} ->
-            {201, User};
-        {error, Reason} ->
-            serialize_error(Reason)
+    case emqx_json:decode(Body, [return_maps]) of
+        #{ <<"user_id">> := UserID
+         , <<"password">> := Password} = UserInfo ->
+            Superuser = maps:get(<<"superuser">>, UserInfo, false),
+            case emqx_authn:add_user(?CHAIN, AuthenticatorID, #{ user_id => UserID
+                                                               , password => Password
+                                                               , superuser => Superuser}) of
+                {ok, User} ->
+                    {201, User};
+                {error, Reason} ->
+                    serialize_error(Reason)
+            end;
+        #{<<"user_id">> := _} ->
+            serialize_error({missing_parameter, password});
+        _ ->
+            serialize_error({missing_parameter, user_id})
     end;
 users(get, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
@@ -1374,15 +1412,18 @@ users2(patch, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     UserID = cowboy_req:binding(user_id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
-    NBody = emqx_json:decode(Body, [return_maps]),
-    Config = hocon_schema:check_plain(emqx_authn_other_schema, #{<<"new_user_info">> => NBody},
-                                      #{nullable => true}, ["new_user_info"]),
-    #{new_user_info := NewUserInfo} = emqx_map_lib:unsafe_atom_key_map(Config),
-    case emqx_authn:update_user(?CHAIN, AuthenticatorID, UserID, NewUserInfo) of
-        {ok, User} ->
-            {200, User};
-        {error, Reason} ->
-            serialize_error(Reason)
+    UserInfo = emqx_json:decode(Body, [return_maps]),
+    NUserInfo = maps:with([<<"password">>, <<"superuser">>], UserInfo),
+    case NUserInfo =:= #{} of
+        true ->
+            serialize_error({missing_parameter, password});
+        false ->
+            case emqx_authn:update_user(?CHAIN, AuthenticatorID, UserID, UserInfo) of
+                {ok, User} ->
+                    {200, User};
+                {error, Reason} ->
+                    serialize_error(Reason)
+            end
     end;
 users2(get, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
@@ -1403,15 +1444,17 @@ users2(delete, Request) ->
             serialize_error(Reason)
     end.
 
+get_raw_config(ConfKeyPath) ->
+    %% TODO: call emqx_config:get_raw(ConfKeyPath) directly
+    NConfKeyPath = [atom_to_binary(Key, utf8) || Key <- ConfKeyPath],
+    emqx_map_lib:deep_get(NConfKeyPath, emqx_config:fill_defaults(emqx_config:get_raw([]))).
+
 serialize_error({not_found, {authenticator, ID}}) ->
     {404, #{code => <<"NOT_FOUND">>,
             message => list_to_binary(io_lib:format("Authenticator '~s' does not exist", [ID]))}};
 serialize_error(name_has_be_used) ->
     {409, #{code => <<"ALREADY_EXISTS">>,
             message => <<"Name has be used">>}};
-serialize_error(out_of_range) ->
-    {400, #{code => <<"OUT_OF_RANGE">>,
-            message => <<"Out of range">>}};
 serialize_error({missing_parameter, Name}) ->
     {400, #{code => <<"MISSING_PARAMETER">>,
             message => list_to_binary(

@@ -24,6 +24,8 @@
         , config_reset/2
         ]).
 
+-export([get_conf_schema/2, gen_schema/1]).
+
 -define(PARAM_CONF_PATH, [#{
     name => conf_path,
     in => query,
@@ -48,12 +50,15 @@
 
 -define(ERR_MSG(MSG), list_to_binary(io_lib:format("~p", [MSG]))).
 
+-define(CORE_CONFS, [node, log, alarm, zones, cluster, rpc, broker, sysmon,
+    emqx_dashboard, emqx_management]).
+
 api_spec() ->
     {config_apis() ++ [config_reset_api()], []}.
 
 config_apis() ->
     [config_api(ConfPath, Schema) || {ConfPath, Schema} <-
-     get_conf_schema(emqx_config:get([]), ?MAX_DEPTH)].
+     get_conf_schema(emqx:get_config([]), ?MAX_DEPTH), is_core_conf(ConfPath)].
 
 config_api(ConfPath, Schema) ->
     Path = path_join(ConfPath),
@@ -115,7 +120,7 @@ config(put, Req) ->
     Path = conf_path(Req),
     {ok, #{raw_config := RawConf}} = emqx:update_config(Path, http_body(Req),
         #{rawconf_with_defaults => true}),
-    {200, emqx_map_lib:deep_get(Path, emqx_map_lib:jsonable_map(RawConf))}.
+    {200, emqx_map_lib:jsonable_map(RawConf)}.
 
 config_reset(post, Req) ->
     %% reset the config specified by the query string param 'conf_path'
@@ -128,7 +133,7 @@ config_reset(post, Req) ->
 
 get_full_config() ->
     emqx_map_lib:jsonable_map(
-        emqx_config:fill_defaults(emqx_config:get_raw([]))).
+        emqx_config:fill_defaults(emqx:get_raw_config([]))).
 
 conf_path_from_querystr(Req) ->
     case proplists:get_value(<<"conf_path">>, cowboy_req:parse_qs(Req)) of
@@ -168,15 +173,19 @@ get_conf_schema(BasePath, [{Key, Conf} | Confs], Result, MaxDepth) ->
 
 %% TODO: generate from hocon schema
 gen_schema(Conf) when is_boolean(Conf) ->
-    #{type => boolean};
+    with_default_value(#{type => boolean}, Conf);
 gen_schema(Conf) when is_binary(Conf); is_atom(Conf) ->
-    #{type => string};
+    with_default_value(#{type => string}, Conf);
 gen_schema(Conf) when is_number(Conf) ->
-    #{type => number};
+    with_default_value(#{type => number}, Conf);
 gen_schema(Conf) when is_list(Conf) ->
     #{type => array, items => case Conf of
             [] -> #{}; %% don't know the type
-            _ -> gen_schema(hd(Conf))
+            _ ->
+                case io_lib:printable_unicode_list(Conf) of
+                    true -> gen_schema(unicode:characters_to_binary(Conf));
+                    false -> gen_schema(hd(Conf))
+                end
         end};
 gen_schema(Conf) when is_map(Conf) ->
     #{type => object, properties =>
@@ -186,12 +195,18 @@ gen_schema(_Conf) ->
     %% by the hocon schema
     #{type => string}.
 
+with_default_value(Type, Value) ->
+    Type#{example => emqx_map_lib:jsonable_value(Value)}.
+
 path_join(Path) ->
     path_join(Path, "/").
 
 path_join([P], _Sp) -> str(P);
 path_join([P | Path], Sp) ->
     str(P) ++ Sp ++ path_join(Path, Sp).
+
+is_core_conf(Path) ->
+    lists:member(hd(Path), ?CORE_CONFS).
 
 str(S) when is_list(S) -> S;
 str(S) when is_binary(S) -> binary_to_list(S);

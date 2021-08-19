@@ -76,7 +76,7 @@ set_procmem_high_watermark(Float) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    Opts = emqx_config:get([sysmon, os]),
+    Opts = emqx:get_config([sysmon, os]),
     set_mem_check_interval(maps:get(mem_check_interval, Opts)),
     set_sysmem_high_watermark(maps:get(sysmem_high_watermark, Opts)),
     set_procmem_high_watermark(maps:get(procmem_high_watermark, Opts)),
@@ -91,8 +91,8 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, _Timer, check}, State) ->
-    CPUHighWatermark = emqx_config:get([sysmon, os, cpu_high_watermark]) * 100,
-    CPULowWatermark = emqx_config:get([sysmon, os, cpu_low_watermark]) * 100,
+    CPUHighWatermark = emqx:get_config([sysmon, os, cpu_high_watermark]) * 100,
+    CPULowWatermark = emqx:get_config([sysmon, os, cpu_low_watermark]) * 100,
     _ = case emqx_vm:cpu_util() of %% TODO: should be improved?
         0 -> ok;
         Busy when Busy >= CPUHighWatermark ->
@@ -123,7 +123,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 start_check_timer() ->
-    Interval = emqx_config:get([sysmon, os, cpu_check_interval]),
+    Interval = emqx:get_config([sysmon, os, cpu_check_interval]),
     case erlang:system_info(system_architecture) of
         "x86_64-pc-linux-musl" -> ok;
         _ -> emqx_misc:start_timer(Interval, check)

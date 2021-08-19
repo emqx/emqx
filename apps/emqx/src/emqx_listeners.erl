@@ -43,7 +43,7 @@ list() ->
     [{listener_id(ZoneName, LName), LConf} || {ZoneName, LName, LConf} <- do_list()].
 
 do_list() ->
-    Zones = maps:to_list(emqx_config:get([zones], #{})),
+    Zones = maps:to_list(emqx:get_config([zones], #{})),
     lists:append([list(ZoneName, ZoneConf) || {ZoneName, ZoneConf} <- Zones]).
 
 list(ZoneName, ZoneConf) ->

@@ -590,7 +590,7 @@ check_row_limit([Tab|Tables], Limit) ->
     end.
 
 max_row_limit() ->
-    emqx_config:get([?APP, max_row_limit], ?MAX_ROW_LIMIT).
+    emqx:get_config([?APP, max_row_limit], ?MAX_ROW_LIMIT).
 
 table_size(Tab) -> ets:info(Tab, size).
 

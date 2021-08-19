@@ -43,6 +43,12 @@
         , put/2
         ]).
 
+-export([ get_raw/1
+        , get_raw/2
+        , put_raw/1
+        , put_raw/2
+        ]).
+
 -export([ save_schema_mod_and_names/1
         , get_schema_mod/0
         , get_schema_mod/1
@@ -59,12 +65,6 @@
         , get_listener_conf/4
         , put_listener_conf/4
         , find_listener_conf/3
-        ]).
-
--export([ get_raw/1
-        , get_raw/2
-        , put_raw/1
-        , put_raw/2
         ]).
 
 -define(CONF, conf).
@@ -101,9 +101,9 @@
 }.
 
 %% raw_config() is the config that is NOT parsed and tranlated by hocon schema
--type raw_config() :: #{binary() => term()} | undefined.
+-type raw_config() :: #{binary() => term()} | list() | undefined.
 %% config() is the config that is parsed and tranlated by hocon schema
--type config() :: #{atom() => term()} | undefined.
+-type config() :: #{atom() => term()} | list() | undefined.
 -type app_envs() :: [proplists:property()].
 
 %% @doc For the given path, get root value enclosed in a single-key map.
