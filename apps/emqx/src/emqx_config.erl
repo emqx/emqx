@@ -101,9 +101,9 @@
 }.
 
 %% raw_config() is the config that is NOT parsed and tranlated by hocon schema
--type raw_config() :: #{binary() => term()} | undefined.
+-type raw_config() :: #{binary() => term()} | list() | undefined.
 %% config() is the config that is parsed and tranlated by hocon schema
--type config() :: #{atom() => term()} | undefined.
+-type config() :: #{atom() => term()} | list() | undefined.
 -type app_envs() :: [proplists:property()].
 
 %% @doc For the given path, get root value enclosed in a single-key map.

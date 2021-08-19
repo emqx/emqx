@@ -314,9 +314,9 @@ list_users(ChainID, AuthenticatorID) ->
 %%--------------------------------------------------------------------
 
 init(_Opts) ->
-    ets:new(?CHAIN_TAB, [ named_table, set, public
-                        , {keypos, #chain.id}
-                        , {read_concurrency, true}]),
+    _ = ets:new(?CHAIN_TAB, [ named_table, set, public
+                            , {keypos, #chain.id}
+                            , {read_concurrency, true}]),
     {ok, #{}}.
 
 handle_call({create_chain, ID}, _From, State) ->
