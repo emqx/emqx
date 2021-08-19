@@ -89,8 +89,8 @@ handle_call({add_child, ConfKeyPath, HandlerName}, _From,
 
 handle_call({change_config, SchemaModule, ConfKeyPath, UpdateArgs}, _From,
             #{handlers := Handlers} = State) ->
-    OldConf = emqx_config:get([]),
-    OldRawConf = emqx_config:get_raw([]),
+    OldConf = emqx_config:get_root(ConfKeyPath),
+    OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     Reply = try
         case process_update_request(ConfKeyPath, OldRawConf, Handlers, UpdateArgs) of
             {ok, NewRawConf, OverrideConf} ->
@@ -151,7 +151,8 @@ check_and_save_configs(SchemaModule, ConfKeyPath, Handlers, NewRawConf, OldConf,
     {AppEnvs, CheckedConf} = emqx_config:check_config(SchemaModule, NewRawConf),
     case do_post_config_update(ConfKeyPath, Handlers, OldConf, CheckedConf, UpdateArgs, #{}) of
         {ok, Result0} ->
-            case save_configs(AppEnvs, CheckedConf, NewRawConf, OverrideConf, UpdateArgs) of
+            case save_configs(ConfKeyPath, AppEnvs, CheckedConf, NewRawConf, OverrideConf,
+                    UpdateArgs) of
                 {ok, Result1} ->
                     {ok, Result1#{post_config_update => Result0}};
                 Error -> Error
@@ -200,9 +201,10 @@ call_post_config_update(Handlers, OldConf, NewConf, UpdateReq, Result) ->
         false -> {ok, Result}
     end.
 
-save_configs(AppEnvs, CheckedConf, NewRawConf, OverrideConf, {_Cmd, Opts}) ->
+save_configs(ConfKeyPath, AppEnvs, CheckedConf, NewRawConf, OverrideConf, {_Cmd, Opts}) ->
     case emqx_config:save_configs(AppEnvs, CheckedConf, NewRawConf, OverrideConf) of
-        ok -> {ok, #{config => emqx_config:get([]), raw_config => return_rawconf(Opts)}};
+        ok -> {ok, #{config => emqx_config:get(ConfKeyPath),
+                     raw_config => return_rawconf(ConfKeyPath, Opts)}};
         {error, Reason} -> {error, {save_configs, Reason}}
     end.
 
@@ -223,10 +225,11 @@ update_override_config(RawConf) ->
 up_req({remove, _Opts}) -> '$remove';
 up_req({{update, Req}, _Opts}) -> Req.
 
-return_rawconf(#{rawconf_with_defaults := true}) ->
-    emqx_config:fill_defaults(emqx_config:get_raw([]));
-return_rawconf(_) ->
-    emqx_config:get_raw([]).
+return_rawconf(ConfKeyPath, #{rawconf_with_defaults := true}) ->
+    FullRawConf = emqx_config:fill_defaults(emqx_config:get_raw([])),
+    emqx_map_lib:deep_get(bin_path(ConfKeyPath), FullRawConf);
+return_rawconf(ConfKeyPath, _) ->
+    emqx_config:get_raw(ConfKeyPath).
 
 bin_path(ConfKeyPath) -> [bin(Key) || Key <- ConfKeyPath].
 
