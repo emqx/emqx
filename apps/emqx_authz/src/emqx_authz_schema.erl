@@ -17,9 +17,9 @@
         , fields/1
         ]).
 
-structs() -> ["authorization"].
+structs() -> ["authorization_rules"].
 
-fields("authorization") ->
+fields("authorization_rules") ->
     [ {rules, rules()}
     ];
 fields(http) ->
