@@ -293,7 +293,7 @@ fields("broker") ->
     , {"shared_dispatch_ack_enabled", t(boolean(), undefined, false)}
     , {"route_batch_clean", t(boolean(), undefined, true)}
     , {"perf", ref("perf")}
-    , {"cluster_call", ref("cluster_call")}
+    , {"hot_config_loader", ref("hot_config_loader")}
     ];
 
 fields("perf") ->
@@ -326,8 +326,8 @@ fields("sysmon_os") ->
     , {"procmem_high_watermark", t(percent(), undefined, "5%")}
     ];
 
-fields("cluster_call") ->
-    [{"retry_interval", t(duration(), undefined, "2s")}
+fields("hot_config_loader") ->
+    [{"retry_interval", t(duration(), undefined, "1s")}
     , {"mfa_max_history", t(range(1, 500), undefined, 50)}
     , {"mfa_cleanup_interval", t(duration(), undefined, "5m")}
     ];

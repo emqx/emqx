@@ -41,7 +41,7 @@ init_per_suite(Config) ->
     application:load(emqx),
     ok = ekka:start(),
     emqx_cluster_rpc:mnesia(copy),
-    emqx_config:put([broker, cluster_call], #{
+    emqx_config:put([broker, hot_config_loader], #{
         mfa_max_history => 100,
         mfa_cleanup_interval => 1000,
         retry_interval => 900

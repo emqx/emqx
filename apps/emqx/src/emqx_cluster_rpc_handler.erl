@@ -28,8 +28,8 @@
 -define(MFA_HISTORY_LEN, 100).
 
 start_link() ->
-    MaxHistory = emqx:get_config([broker, cluster_call, mfa_max_history]),
-    CleanupMs = emqx:get_config([broker, cluster_call, mfa_cleanup_interval]),
+    MaxHistory = emqx:get_config([broker, hot_config_loader, mfa_max_history]),
+    CleanupMs = emqx:get_config([broker, hot_config_loader, mfa_cleanup_interval]),
     start_link(MaxHistory, CleanupMs).
 
 start_link(MaxHistory, CleanupMs) ->

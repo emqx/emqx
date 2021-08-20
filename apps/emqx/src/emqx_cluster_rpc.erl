@@ -64,7 +64,7 @@ mnesia(copy) ->
     ok = ekka_mnesia:copy_table(cluster_rpc_commit, disc_copies).
 
 start_link() ->
-    RetryMs = emqx:get_config([broker, cluster_call, retry_interval]),
+    RetryMs = emqx:get_config([broker, hot_config_loader, retry_interval]),
     start_link(node(), ?MODULE, RetryMs).
 start_link(Node, Name, RetryMs) ->
     gen_statem:start_link({local, Name}, ?MODULE, [Node, RetryMs], []).
