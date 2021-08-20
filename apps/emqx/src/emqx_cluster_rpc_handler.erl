@@ -21,22 +21,27 @@
 -include("logger.hrl").
 -include("emqx_cluster_rpc.hrl").
 
--export([start_link/0]).
+-export([start_link/0, start_link/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
     code_change/3]).
 
 -define(MFA_HISTORY_LEN, 100).
 
 start_link() ->
-    gen_server:start_link(?MODULE, [], []).
+    MaxHistory = emqx:get_config([broker, cluster_call, mfa_max_history]),
+    CleanupMs = emqx:get_config([broker, cluster_call, mfa_cleanup_interval]),
+    start_link(MaxHistory, CleanupMs).
+
+start_link(MaxHistory, CleanupMs) ->
+    State = #{max_history => MaxHistory, cleanup_ms => CleanupMs, timer => undefined},
+    gen_server:start_link(?MODULE, [State], []).
 
 %%%===================================================================
 %%% Spawning and gen_server implementation
 %%%===================================================================
 
-init([]) ->
-    _ = emqx_misc:rand_seed(),
-    {ok, ensure_timer(#{timer => undefined})}.
+init([State]) ->
+    {ok, ensure_timer(State)}.
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "unexpected call: ~p", [Req]),
@@ -46,8 +51,8 @@ handle_cast(Msg, State) ->
     ?LOG(error, "unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({timeout, TRef, del_stale_mfa}, State = #{timer := TRef}) ->
-    case ekka_mnesia:transaction(?COMMON_SHARD, fun del_stale_mfa/0, []) of
+handle_info({timeout, TRef, del_stale_mfa}, State = #{timer := TRef, max_history := MaxHistory}) ->
+    case ekka_mnesia:transaction(?COMMON_SHARD, fun del_stale_mfa/1, [MaxHistory]) of
         {atomic, ok} -> ok;
         Error -> ?LOG(error, "del_stale_cluster_rpc_mfa error:~p", [Error])
     end,
@@ -66,23 +71,15 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
--ifdef(TEST).
-ensure_timer(State) ->
-    State#{timer := emqx_misc:start_timer(timer:seconds(1), del_stale_mfa)}.
--else.
-ensure_timer(State) ->
-    Ms = timer:minutes(5) + rand:uniform(5000),
+ensure_timer(State = #{cleanup_ms := Ms}) ->
     State#{timer := emqx_misc:start_timer(Ms, del_stale_mfa)}.
--endif.
-
 
 %% @doc Keep the latest completed 100 records for querying and troubleshooting.
-del_stale_mfa() ->
+del_stale_mfa(MaxHistory) ->
     DoneId =
         mnesia:foldl(fun(Rec, Min) -> min(Rec#cluster_rpc_commit.tnx_id, Min) end,
             infinity, ?CLUSTER_COMMIT),
-    delete_stale_mfa(mnesia:last(?CLUSTER_MFA), DoneId, ?MFA_HISTORY_LEN).
+    delete_stale_mfa(mnesia:last(?CLUSTER_MFA), DoneId, MaxHistory).
 
 delete_stale_mfa('$end_of_table', _DoneId, _Count) -> ok;
 delete_stale_mfa(CurrId, DoneId, Count) when CurrId > DoneId ->

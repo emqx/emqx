@@ -41,6 +41,11 @@ init_per_suite(Config) ->
     application:load(emqx),
     ok = ekka:start(),
     emqx_cluster_rpc:mnesia(copy),
+    emqx_config:put([broker, cluster_call], #{
+        mfa_max_history => 100,
+        mfa_cleanup_interval => 1000,
+        retry_interval => 900
+    }),
     %%dbg:tracer(),
     %%dbg:p(all, c),
     %%dbg:tpl(emqx_cluster_rpc, cx),
@@ -75,7 +80,7 @@ t_base_test(_Config) ->
     ?assert(maps:is_key(created_at, Query)),
     ?assertEqual(ok, receive_msg(3, test)),
     SysStatus = lists:last(lists:last(element(4,sys:get_status(?NODE1)))),
-    ?assertEqual(#{node => node(), opt => normal, state => realtime}, SysStatus),
+    ?assertEqual(#{data => #{node => node(),retry_interval => 900}, opt => normal, state => realtime}, SysStatus),
     sleep(400),
     {atomic, Status} = emqx_cluster_rpc:status(),
     ?assertEqual(3, length(Status)),
@@ -186,9 +191,9 @@ t_del_stale_mfa(_Config) ->
 
 start() ->
     {ok, Pid1} = emqx_cluster_rpc:start_link(),
-    {ok, Pid2} = emqx_cluster_rpc:start_link({node(), ?NODE2}, ?NODE2),
-    {ok, Pid3} = emqx_cluster_rpc:start_link({node(), ?NODE3}, ?NODE3),
-    {ok, Pid4} = emqx_cluster_rpc_handler:start_link(),
+    {ok, Pid2} = emqx_cluster_rpc:start_link({node(), ?NODE2}, ?NODE2, 500),
+    {ok, Pid3} = emqx_cluster_rpc:start_link({node(), ?NODE3}, ?NODE3, 500),
+    {ok, Pid4} = emqx_cluster_rpc_handler:start_link(100, 500),
     {ok, [Pid1, Pid2, Pid3, Pid4]}.
 
 stop() ->

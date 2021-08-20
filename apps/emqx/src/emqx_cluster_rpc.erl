@@ -26,7 +26,7 @@
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
--export([start_link/2]).
+-export([start_link/3]).
 -endif.
 
 -boot_mnesia({mnesia, [boot]}).
@@ -41,7 +41,7 @@
 
 -define(CATCH_UP, catch_up).
 -define(REALTIME, realtime).
--define(CATCH_UP_AFTER(_Sec_), {state_timeout, timer:seconds(_Sec_), catch_up_delay}).
+-define(CATCH_UP_AFTER(_Ms_), {state_timeout, _Ms_, catch_up_delay}).
 
 %%%===================================================================
 %%% API
@@ -64,9 +64,10 @@ mnesia(copy) ->
     ok = ekka_mnesia:copy_table(cluster_rpc_commit, disc_copies).
 
 start_link() ->
-    start_link(node(), ?MODULE).
-start_link(Node, Name) ->
-    gen_statem:start_link({local, Name}, ?MODULE, [Node], []).
+    RetryMs = emqx:get_config([broker, cluster_call, retry_interval]),
+    start_link(node(), ?MODULE, RetryMs).
+start_link(Node, Name, RetryMs) ->
+    gen_statem:start_link({local, Name}, ?MODULE, [Node, RetryMs], []).
 
 multicall(M, F, A) ->
     multicall(M, F, A, timer:minutes(2)).
@@ -91,14 +92,14 @@ multicall(M, F, A, Timeout) ->
 
 -spec query(pos_integer()) -> {'atomic', map()} | {'aborted', Reason :: term()}.
 query(TnxId) ->
-    Fun = fun() ->
-        case mnesia:read(?CLUSTER_MFA, TnxId) of
-            [] -> mnesia:abort(not_found);
-            [#cluster_rpc_mfa{mfa = MFA, initiator = InitNode, created_at = CreatedAt}] ->
-                #{tnx_id => TnxId, mfa => MFA, initiator => InitNode, created_at => CreatedAt}
-        end
-          end,
-    transaction(Fun).
+    transaction(fun do_query/1, [TnxId]).
+
+do_query(TnxId) ->
+    case mnesia:read(?CLUSTER_MFA, TnxId) of
+        [] -> mnesia:abort(not_found);
+        [#cluster_rpc_mfa{mfa = MFA, initiator = InitNode, created_at = CreatedAt}] ->
+            #{tnx_id => TnxId, mfa => MFA, initiator => InitNode, created_at => CreatedAt}
+    end.
 
 -spec reset() -> reset.
 reset() -> gen_statem:call(?MODULE, reset).
@@ -128,77 +129,77 @@ status() ->
 %%%===================================================================
 
 %% @private
-init([Node]) ->
+init([Node, RetryMs]) ->
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
-    {ok, ?CATCH_UP, Node, ?CATCH_UP_AFTER(0)}.
+    {ok, ?CATCH_UP, #{node => Node, retry_interval => RetryMs}, ?CATCH_UP_AFTER(0)}.
 
 callback_mode() ->
     handle_event_function.
 
 %% @private
-format_status(Opt, [_PDict, StateName, Node]) ->
-    #{state => StateName, node => Node, opt => Opt}.
+format_status(Opt, [_PDict, StateName, Data]) ->
+    #{state => StateName, data => Data , opt => Opt}.
 
 %% @private
-handle_event(state_timeout, catch_up_delay, _State, Node) ->
-    catch_up(Node);
+handle_event(state_timeout, catch_up_delay, _State, Data) ->
+    catch_up(Data);
 
-handle_event(info, {mnesia_table_event, {write, #cluster_rpc_mfa{} = MFARec, _AId}}, ?REALTIME, Node) ->
-    handle_mfa_write_event(MFARec, Node);
-handle_event(info, {mnesia_table_event, {write, #cluster_rpc_mfa{}, _ActivityId}}, ?CATCH_UP, _Node) ->
+handle_event(info, {mnesia_table_event, {write, #cluster_rpc_mfa{} = MFARec, _AId}}, ?REALTIME, Data) ->
+    handle_mfa_write_event(MFARec, Data);
+handle_event(info, {mnesia_table_event, {write, #cluster_rpc_mfa{}, _ActivityId}}, ?CATCH_UP, _Data) ->
     {keep_state_and_data, [postpone, ?CATCH_UP_AFTER(0)]};
 %% we should catch up as soon as possible when we reset all.
-handle_event(info, {mnesia_table_event, {delete,{schema, ?CLUSTER_MFA}, _Tid}}, _, _Node) ->
+handle_event(info, {mnesia_table_event, {delete,{schema, ?CLUSTER_MFA}, _Tid}}, _, _Data) ->
     {keep_state_and_data, [?CATCH_UP_AFTER(0)]};
 
-handle_event({call, From}, reset, _State, _Node) ->
+handle_event({call, From}, reset, _State, _Data) ->
     _ = ekka_mnesia:clear_table(?CLUSTER_COMMIT),
     _ = ekka_mnesia:clear_table(?CLUSTER_MFA),
     {keep_state_and_data, [{reply, From, ok}, ?CATCH_UP_AFTER(0)]};
 
-handle_event({call, From}, {initiate, MFA}, ?REALTIME, Node) ->
+handle_event({call, From}, {initiate, MFA}, ?REALTIME, Data = #{node := Node}) ->
     case transaction(fun() -> init_mfa(Node, MFA) end) of
         {atomic, {ok, TnxId}} ->
-            {keep_state, Node, [{reply, From, {ok, TnxId}}]};
+            {keep_state, Data, [{reply, From, {ok, TnxId}}]};
         {aborted, Reason} ->
-            {keep_state, Node, [{reply, From, {error, Reason}}]}
+            {keep_state, Data, [{reply, From, {error, Reason}}]}
     end;
-handle_event({call, From}, {initiate, _MFA}, ?CATCH_UP, Node) ->
-    case catch_up(Node) of
-        {next_state, ?REALTIME, Node} ->
-            {next_state, ?REALTIME, Node, [{postpone, true}]};
+handle_event({call, From}, {initiate, _MFA}, ?CATCH_UP, Data = #{retry_interval := RetryMs}) ->
+    case catch_up(Data) of
+        {next_state, ?REALTIME, Data} ->
+            {next_state, ?REALTIME, Data, [{postpone, true}]};
         _ ->
             Reason = "There are still transactions that have not been executed.",
-            {keep_state, Node, [{reply, From, {error, Reason}}, ?CATCH_UP_AFTER(1)]}
+            {keep_state_and_data, [{reply, From, {error, Reason}}, ?CATCH_UP_AFTER(RetryMs)]}
     end;
 
-handle_event(_EventType, _EventContent, ?CATCH_UP, _Node) ->
-    {keep_state_and_data, [?CATCH_UP_AFTER(10)]};
-handle_event(_EventType, _EventContent, _StateName, _Node) ->
+handle_event(_EventType, _EventContent, ?CATCH_UP, #{retry_interval := RetryMs}) ->
+    {keep_state_and_data, [?CATCH_UP_AFTER(RetryMs)]};
+handle_event(_EventType, _EventContent, _StateName, _Data) ->
     keep_state_and_data.
 
-terminate(_Reason, _StateName, _Node) ->
+terminate(_Reason, _StateName, _Data) ->
     ok.
 
-code_change(_OldVsn, StateName, Node, _Extra) ->
-    {ok, StateName, Node}.
+code_change(_OldVsn, StateName, Data, _Extra) ->
+    {ok, StateName, Data}.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-catch_up(Node) ->
+catch_up(#{node := Node, retry_interval := RetryMs} = Data) ->
     case get_next_mfa(Node) of
-        {atomic, caught_up} -> {next_state, ?REALTIME, Node};
+        {atomic, caught_up} -> {next_state, ?REALTIME, Data};
         {atomic, {still_lagging, NextId, MFA}} ->
             case apply_mfa(NextId, MFA) of
                 ok ->
                     case transaction(fun() -> commit(Node, NextId) end) of
-                        {atomic, ok} -> catch_up(Node);
-                        _ -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
+                        {atomic, ok} -> catch_up(Data);
+                        _ -> {next_state, ?CATCH_UP, Data, [?CATCH_UP_AFTER(RetryMs)]}
                     end;
-                _ -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
+                _ -> {next_state, ?CATCH_UP, Data, [?CATCH_UP_AFTER(RetryMs)]}
             end;
-        {aborted, _Reason} -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
+        {aborted, _Reason} -> {next_state, ?CATCH_UP, Data, [?CATCH_UP_AFTER(RetryMs)]}
     end.
 
 get_next_mfa(Node) ->
@@ -252,17 +253,18 @@ get_latest_id() ->
         Id -> Id
     end.
 
-handle_mfa_write_event(#cluster_rpc_mfa{tnx_id = EventId, mfa = MFA}, Node) ->
+handle_mfa_write_event(#cluster_rpc_mfa{tnx_id = EventId, mfa = MFA}, Data) ->
+    #{node := Node, retry_interval := RetryMs} = Data,
     {atomic, LastAppliedId} = transaction(fun() -> get_last_applied_id(Node, EventId - 1) end),
     if LastAppliedId + 1 =:= EventId ->
         case apply_mfa(EventId, MFA) of
             ok ->
                 case transaction(fun() -> commit(Node, EventId) end) of
                     {atomic, ok} ->
-                        {next_state, ?REALTIME, Node};
-                    _ -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
+                        {next_state, ?REALTIME, Data};
+                    _ -> {next_state, ?CATCH_UP, Data, [?CATCH_UP_AFTER(RetryMs)]}
                 end;
-            _ -> {next_state, ?CATCH_UP, Node, [?CATCH_UP_AFTER(1)]}
+            _ -> {next_state, ?CATCH_UP, Data, [?CATCH_UP_AFTER(RetryMs)]}
         end;
         LastAppliedId >= EventId -> %% It's means the initiator receive self event or other receive stale event.
             keep_state_and_data;
@@ -301,8 +303,11 @@ do_catch_up_in_one_trans(LatestId, Node) ->
         {error, Reason} -> mnesia:abort(Reason)
     end.
 
-transaction(Fun) ->
-    ekka_mnesia:transaction(?COMMON_SHARD, Fun).
+transaction(Func, Args) ->
+    ekka_mnesia:transaction(?COMMON_SHARD, Func, Args).
+
+transaction(Func) ->
+    ekka_mnesia:transaction(?COMMON_SHARD, Func).
 
 apply_mfa(TnxId, {M, F, A} = MFA) ->
     try
