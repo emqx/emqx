@@ -105,7 +105,7 @@ init([Gateway, Ctx0, _GwDscrptr]) ->
     end.
 
 do_init_context(GwName, RawConf, Ctx) ->
-    Auth = case maps:get(authenticators, RawConf, #{enable => false}) of
+    Auth = case maps:get(authenticator, RawConf, #{enable => false}) of
                #{enable := false} -> undefined;
                AuthCfg when is_map(AuthCfg) ->
                    case maps:get(enable, AuthCfg, true) of
@@ -120,7 +120,7 @@ do_init_context(GwName, RawConf, Ctx) ->
     Ctx#{auth => Auth}.
 
 do_deinit_context(Ctx) ->
-    cleanup_authenticators_for_gateway_insta(maps:get(auth, Ctx)),
+    cleanup_authenticator_for_gateway_insta(maps:get(auth, Ctx)),
     ok.
 
 handle_call(info, _From, State = #state{gw = Gateway}) ->
@@ -240,9 +240,9 @@ create_authenticator_for_gateway_insta(GwName, AuthCfg) ->
             throw({bad_chain, {ChainId, Reason}})
     end.
 
-cleanup_authenticators_for_gateway_insta(undefined) ->
+cleanup_authenticator_for_gateway_insta(undefined) ->
     ok;
-cleanup_authenticators_for_gateway_insta(ChainId) ->
+cleanup_authenticator_for_gateway_insta(ChainId) ->
     case emqx_authn:delete_chain(ChainId) of
         ok -> ok;
         {error, {not_found, _}} ->
