@@ -19,10 +19,9 @@
 
 -include("include/emqx_gateway.hrl").
 
-
 -behavior(gen_server).
 
-%% APIs for Impl.
+%% APIs
 -export([ reg/2
         , unreg/1
         , list/0
@@ -100,7 +99,6 @@ call(Req) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    %% TODO: Metrics ???
     process_flag(trap_exit, true),
     {ok, #state{reged = #{}}}.
 

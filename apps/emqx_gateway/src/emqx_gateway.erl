@@ -41,7 +41,7 @@ registered_gateway() ->
 list() ->
     emqx_gateway_sup:list_gateway_insta().
 
--spec load(gateway_name(), map())
+-spec load(gateway_name(), rawconf())
     -> {ok, pid()}
      | {error, any()}.
 load(Name, RawConf) ->
@@ -59,8 +59,9 @@ unload(Name) ->
 lookup(Name) ->
     emqx_gateway_sup:lookup_gateway(Name).
 
--spec update(gateway()) -> ok | {error, any()}.
-update(NewGateway) ->
+-spec update(gateway_name(), rawconf()) -> ok | {error, any()}.
+update(Name, RawConf) ->
+    NewGateway = #{name => Name, rawconf => RawConf},
     emqx_gateway_sup:update_gateway(NewGateway).
 
 -spec start(gateway_name()) -> ok | {error, any()}.

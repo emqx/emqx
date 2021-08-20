@@ -21,7 +21,6 @@
 
 -include("include/emqx_gateway.hrl").
 
-
 %% APIs
 -export([ start_link/3
         , info/1
@@ -40,11 +39,13 @@
         ]).
 
 -record(state, {
-          gw     :: gateway(),
-          ctx    :: emqx_gateway_ctx:context(),
-          status :: stopped | running,
+          gw         :: gateway(),
+          ctx        :: emqx_gateway_ctx:context(),
+          status     :: stopped | running,
           child_pids :: [pid()],
-          gw_state :: emqx_gateway_impl:state() | undefined
+          gw_state   :: emqx_gateway_impl:state() | undefined,
+          created_at :: integer(),
+          started_at :: integer() | undefined
          }).
 
 %%--------------------------------------------------------------------
@@ -92,7 +93,8 @@ init([Gateway, Ctx0, _GwDscrptr]) ->
                gw = Gateway,
                ctx   = Ctx,
                child_pids = [],
-               status = stopped
+               status = stopped,
+               created_at = erlang:system_time(millisecond)
               },
     case cb_gateway_load(State) of
         {error, Reason} ->
@@ -116,8 +118,12 @@ do_deinit_context(Ctx) ->
     cleanup_authenticators_for_gateway_insta(maps:get(auth, Ctx)),
     ok.
 
-handle_call(info, _From, State = #state{gw = Gateway, status = Status}) ->
-    {reply, Gateway#{status => Status}, State};
+handle_call(info, _From, State = #state{gw = Gateway}) ->
+    GwInfo = Gateway#{status => State#state.status,
+                      created_at => State#state.created_at,
+                      started_at => State#state.started_at
+                     },
+    {reply, GwInfo, State};
 
 handle_call(disable, _From, State = #state{status = Status}) ->
     case Status of
@@ -159,7 +165,7 @@ handle_call({update, NewGateway}, _From, State = #state{
 
 %% Running -> update
 handle_call({update, NewGateway}, _From, State = #state{gw = Gateway,
-                                                      status = running}) ->
+                                                        status = running}) ->
     case maps:get(name, NewGateway, undefined)
          == maps:get(name, Gateway, undefined) of
         true ->
@@ -279,7 +285,8 @@ cb_gateway_load(State = #state{gw = Gateway = #{name := GwName},
                 {ok, State#state{
                        status = running,
                        child_pids = ChildPids,
-                       gw_state = GwState
+                       gw_state = GwState,
+                       started_at = erlang:system_time(millisecond)
                       }}
         end
     catch
@@ -303,7 +310,6 @@ cb_gateway_update(NewGateway,
                 %% XXX: Hot-upgrade ???
                 ChildPids = start_child_process(ChildPidOrSpecs),
                 {ok, State#state{
-                       status = running,
                        child_pids = ChildPids,
                        gw_state = NGwState
                       }}
