@@ -30,7 +30,7 @@
 all() ->
     [ {group, engine}
     , {group, actions}
-    , {group, api}
+%%    , {group, api}
     , {group, cli}
     , {group, funcs}
     , {group, registry}
