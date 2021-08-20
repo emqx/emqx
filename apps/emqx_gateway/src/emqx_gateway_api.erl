@@ -33,7 +33,7 @@
            , status => <<"running">>
            , started_at => <<"2021-08-19T11:45:56.006373+08:00">>
            , max_connection => 1024000
-           , current_connection => 12
+           , current_connection => 1000
            , listeners => [
                 #{name => <<"lw-udp-1">>, status => <<"activing">>},
                 #{name => <<"lw-udp-2">>, status => <<"inactived">>}
