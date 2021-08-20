@@ -1,4 +1,20 @@
--type(rule() :: #{atom() => any()}).
+-type(ipaddress() :: {ipaddr,  esockd_cidr:cidr_string()} |
+                     {ipaddrs, list(esockd_cidr:cidr_string())}).
+
+-type(username() :: {username, binary()}).
+
+-type(clientid() :: {clientid, binary()}).
+
+-type(who() :: ipaddress() | username() | clientid() |
+               {'and', [ipaddress() | username() | clientid()]} |
+               {'or',  [ipaddress() | username() | clientid()]} |
+               all).
+
+-type(action() :: subscribe | publish | all).
+
+-type(permission() :: allow | deny).
+
+-type(rule() :: {permission(), who(), action(), list(emqx_topic:topic())}).
 -type(rules() :: [rule()]).
 
 -define(APP, emqx_authz).

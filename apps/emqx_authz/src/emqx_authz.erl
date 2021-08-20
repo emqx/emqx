@@ -255,6 +255,28 @@ init_rule(#{topics := Topics,
 
 init_rule(#{principal := Principal,
             enable := true,
+            type := file,
+            path := Path
+           } = Rule) ->
+    Rules = case file:consult(Path) of
+                {ok, Terms} ->
+                    [emqx_authz_rule:compile(Term) || Term <- Terms];
+                {error, eacces} ->
+                    ?LOG(alert, "Insufficient permissions to read the ~s file", [Path]),
+                    error(eaccess);
+                {error, enoent} ->
+                    ?LOG(alert, "The ~s file does not exist", [Path]),
+                    error(enoent);
+                {error, Reason} ->
+                    ?LOG(alert, "Failed to read ~s: ~p", [Path, Reason]),
+                    error(Reason)
+            end,
+    Rule#{annotations =>
+            #{id => gen_id(file),
+              rules => Rules
+         }};
+init_rule(#{principal := Principal,
+            enable := true,
             type := http,
             config := #{url := Url} = Config
            } = Rule) ->

@@ -22,6 +22,19 @@ structs() -> ["authorization_rules"].
 fields("authorization_rules") ->
     [ {rules, rules()}
     ];
+fields(file) ->
+    [ {principal, principal()}
+    , {type, #{type => http}}
+    , {enable, #{type => boolean(),
+                 default => true}}
+    , {path, #{type => string(),
+               validator => fun(S) -> case filelib:is_file(S) of
+                                        true -> ok;
+                                        _ -> {error, "File does not exist"}
+                                      end
+                            end
+              }}
+    ];
 fields(http) ->
     [ {principal, principal()}
     , {type, #{type => http}}
@@ -148,6 +161,7 @@ union_array(Item) when is_list(Item) ->
 rules() ->
     #{type => union_array(
                 [ hoconsc:ref(?MODULE, simple_rule)
+                , hoconsc:ref(?MODULE, file)
                 , hoconsc:ref(?MODULE, http)
                 , hoconsc:ref(?MODULE, mysql)
                 , hoconsc:ref(?MODULE, pgsql)
