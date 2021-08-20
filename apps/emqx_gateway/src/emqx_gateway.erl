@@ -23,7 +23,7 @@
         , load/2
         , unload/1
         , lookup/1
-        , update/1
+        , update/2
         , start/1
         , stop/1
         , list/0

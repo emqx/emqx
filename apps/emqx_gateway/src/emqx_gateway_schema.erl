@@ -42,7 +42,7 @@ fields("gateway") ->
 fields(stomp_structs) ->
     [ {frame, t(ref(stomp_frame))}
     , {clientinfo_override, t(ref(clientinfo_override))}
-    , {authentication,  t(ref(authentication))}
+    , {authenticator,  t(authenticator(), undefined, undefined)}
     , {listener, t(ref(tcp_listener_group))}
     ];
 
@@ -60,7 +60,7 @@ fields(mqttsn_structs) ->
     , {idle_timeout, t(duration())}
     , {predefined, hoconsc:array(ref(mqttsn_predefined))}
     , {clientinfo_override, t(ref(clientinfo_override))}
-    , {authentication,  t(ref(authentication))}
+    , {authenticator,  t(authenticator(), undefined, undefined)}
     , {listener, t(ref(udp_listener_group))}
     ];
 
@@ -79,14 +79,14 @@ fields(lwm2m_structs) ->
     , {mountpoint, t(string())}
     , {update_msg_publish_condition, t(union([always, contains_object_list]))}
     , {translators, t(ref(translators))}
-    , {authentication,  t(ref(authentication))}
+    , {authenticator,  t(authenticator(), undefined, undefined)}
     , {listener, t(ref(udp_listener_group))}
     ];
 
 fields(exproto_structs) ->
     [ {server, t(ref(exproto_grpc_server))}
     , {handler, t(ref(exproto_grpc_handler))}
-    , {authentication,  t(ref(authentication))}
+    , {authenticator,  t(authenticator(), undefined, undefined)}
     , {listener, t(ref(udp_tcp_listener_group))}
     ];
 
@@ -98,11 +98,6 @@ fields(exproto_grpc_server) ->
 fields(exproto_grpc_handler) ->
     [ {address, t(string())}
       %% TODO: ssl
-    ];
-
-fields(authentication) ->
-    [ {enable, #{type => boolean(), default => false}}
-    , {authenticators, fun emqx_authn_schema:authenticators/1}
     ];
 
 fields(clientinfo_override) ->
@@ -207,13 +202,33 @@ fields(coap_structs) ->
     , {notify_type, t(union([non, con, qos]), undefined, qos)}
     , {subscribe_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
     , {publish_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
-    , {authentication,  t(ref(authentication))}
+    , {authenticator,  t(authenticator(), undefined, undefined)}
     , {listener, t(ref(udp_listener_group))}
     ];
 
 fields(ExtraField) ->
     Mod = list_to_atom(ExtraField++"_schema"),
     Mod:fields(ExtraField).
+
+authenticator() ->
+    hoconsc:union(
+      [ undefined
+      , hoconsc:ref(emqx_authn_mnesia, config)
+      , hoconsc:ref(emqx_authn_mysql, config)
+      , hoconsc:ref(emqx_authn_pgsql, config)
+      , hoconsc:ref(emqx_authn_mongodb, standalone)
+      , hoconsc:ref(emqx_authn_mongodb, 'replica-set')
+      , hoconsc:ref(emqx_authn_mongodb, 'sharded-cluster')
+      , hoconsc:ref(emqx_authn_redis, standalone)
+      , hoconsc:ref(emqx_authn_redis, cluster)
+      , hoconsc:ref(emqx_authn_redis, sentinel)
+      , hoconsc:ref(emqx_authn_http, get)
+      , hoconsc:ref(emqx_authn_http, post)
+      , hoconsc:ref(emqx_authn_jwt, 'hmac-based')
+      , hoconsc:ref(emqx_authn_jwt, 'public-key')
+      , hoconsc:ref(emqx_authn_jwt, 'jwks')
+      , hoconsc:ref(emqx_enhanced_authn_scram_mnesia, config)
+      ]).
 
 %translations() -> [].
 %
