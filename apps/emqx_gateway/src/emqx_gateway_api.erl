@@ -72,7 +72,7 @@ api_spec() ->
     {apis(), schemas()}.
 
 apis() ->
-    [ {"/gateway", metadata(gateway), gateway}  
+    [ {"/gateway", metadata(gateway), gateway}
     , {"/gateway/:name", metadata(gateway_insta), gateway_insta}
     , {"/gateway/:name/stats", metadata(gateway_insta_stats), gateway_insta_stats}
     ].
@@ -100,7 +100,7 @@ metadata(gateway) ->
                             }
                         }
                     }
-                }         
+                }
             }
         }
      }};
@@ -203,7 +203,7 @@ metadata(gateway_insta_stats) ->
                             }
                         }
                     }
-                }         
+                }
             }
         }
      }}.

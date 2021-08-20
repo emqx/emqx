@@ -105,10 +105,15 @@ init([Gateway, Ctx0, _GwDscrptr]) ->
     end.
 
 do_init_context(GwName, RawConf, Ctx) ->
-    Auth = case maps:get(authentication, RawConf, #{enable => false}) of
-               #{enable := true,
-                 authenticators := AuthCfgs} when is_list(AuthCfgs) ->
-                   create_authenticators_for_gateway_insta(GwName, AuthCfgs);
+    Auth = case maps:get(authenticators, RawConf, #{enable => false}) of
+               #{enable := false} -> undefined;
+               AuthCfg when is_map(AuthCfg) ->
+                   case maps:get(enable, AuthCfg, true) of
+                       false ->
+                           undefined;
+                       _ ->
+                           create_authenticator_for_gateway_insta(GwName, AuthCfg)
+                   end;
                _ ->
                    undefined
            end,
@@ -220,25 +225,16 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-%% @doc AuthCfgs is a array of authenticatior configurations,
-%% see: emqx_authn_schema:authenticators/1
-create_authenticators_for_gateway_insta(GwName, AuthCfgs) ->
+create_authenticator_for_gateway_insta(GwName, AuthCfg) ->
     ChainId = atom_to_binary(GwName, utf8),
     case emqx_authn:create_chain(#{id => ChainId}) of
         {ok, _ChainInfo} ->
-            Results = lists:map(fun(AuthCfg = #{name := Name}) ->
-                         case emqx_authn:create_authenticator(
-                                ChainId,
-                                AuthCfg) of
-                             {ok, _AuthInfo} -> ok;
-                             {error, Reason} -> {Name, Reason}
-                         end
-                      end, AuthCfgs),
-            NResults = [ E || E <- Results, E /= ok],
-            NResults /= [] andalso begin
-                logger:error("Failed to create authenticators: ~p", [NResults]),
-                throw({bad_autheticators, NResults})
-            end, ChainId;
+            case emqx_authn:create_authenticator(ChainId, AuthCfg) of
+                {ok, _} -> ChainId;
+                {error, Reason} ->
+                    logger:error("Failed to create authenticator ~p", [Reason]),
+                    throw({bad_autheticator, Reason})
+            end;
         {error, Reason} ->
             logger:error("Failed to create authentication chain: ~p", [Reason]),
             throw({bad_chain, {ChainId, Reason}})
