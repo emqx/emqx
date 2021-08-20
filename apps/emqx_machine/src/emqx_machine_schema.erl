@@ -244,8 +244,7 @@ tr_cluster__discovery(Conf) ->
     {Strategy, filter(options(Strategy, Conf))}.
 
 tr_logger_level(Conf) ->
-    %% TODO: use the lowest level of all the handlers
-    io:format(standard_error, "primary level", []),
+    io:format(standard_error, "TODO: use the lowest level of all the handlers as primary level~n", []),
     conf_get("log.console_handler.level", Conf).
 
 tr_logger(Conf) ->
@@ -321,7 +320,6 @@ log_handler_conf(Conf) ->
     }.
 
 log_formatter(Conf) ->
-    io:format(standard_error, "log_formatter: ~p~n", [Conf]),
     CharsLimit = case conf_get("chars_limit", Conf) of
         unlimited -> unlimited;
         V when V > 0 -> V
