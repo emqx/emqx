@@ -159,42 +159,25 @@ fields("rpc") ->
     ];
 
 fields("log") ->
-    [ {"primary_level", t(log_level(), undefined, warning)}
-    , {"console_handler", ref("console_handler")}
+    [ {"console_handler", ref("console_handler")}
     , {"file_handlers", ref("file_handlers")}
-    , {"time_offset", t(string(), undefined, "system")}
-    , {"chars_limit", #{type => hoconsc:union([unlimited, range(1, inf)]),
-                        default => unlimited
-                       }}
-    , {"supervisor_reports", t(union([error, progress]), undefined, error)}
-    , {"max_depth", t(union([unlimited, integer()]),
-                      "kernel.error_logger_format_depth", 80)}
-    , {"formatter", t(union([text, json]), undefined, text)}
-    , {"single_line", t(boolean(), undefined, true)}
-    , {"sync_mode_qlen", t(integer(), undefined, 100)}
-    , {"drop_mode_qlen", t(integer(), undefined, 3000)}
-    , {"flush_qlen", t(integer(), undefined, 8000)}
-    , {"overload_kill", ref("log_overload_kill")}
-    , {"burst_limit", ref("log_burst_limit")}
     , {"error_logger", t(atom(), "kernel.error_logger", silent)}
     ];
 
 fields("console_handler") ->
     [ {"enable", t(boolean(), undefined, false)}
-    , {"level", t(log_level(), undefined, warning)}
-    ];
+    ] ++ log_handler_common_confs();
 
 fields("file_handlers") ->
     [ {"$name", ref("log_file_handler")}
     ];
 
 fields("log_file_handler") ->
-    [ {"level", t(log_level(), undefined, warning)}
-    , {"file", t(file(), undefined, undefined)}
+    [ {"file", t(file(), undefined, undefined)}
     , {"rotation", ref("log_rotation")}
     , {"max_size", #{type => union([infinity, emqx_schema:bytesize()]),
                      default => "10MB"}}
-    ];
+    ] ++ log_handler_common_confs();
 
 fields("log_rotation") ->
     [ {"enable", t(boolean(), undefined, true)}
@@ -213,6 +196,7 @@ fields("log_burst_limit") ->
     , {"max_count", t(integer(), undefined, 10000)}
     , {"window_time", t(emqx_schema:duration(), undefined, "1s")}
     ];
+
 fields(Name) ->
     find_field(Name, ?MERGED_CONFIGS).
 
@@ -259,49 +243,31 @@ tr_cluster__discovery(Conf) ->
     Strategy = conf_get("cluster.discovery_strategy", Conf),
     {Strategy, filter(options(Strategy, Conf))}.
 
-tr_logger_level(Conf) -> conf_get("log.primary_level", Conf).
+tr_logger_level(Conf) ->
+    %% TODO: use the lowest level of all the handlers
+    io:format(standard_error, "primary level", []),
+    conf_get("log.console_handler.level", Conf).
 
 tr_logger(Conf) ->
-    CharsLimit = case conf_get("log.chars_limit", Conf) of
-                     unlimited -> unlimited;
-                     V when V > 0 -> V
-                 end,
-    SingleLine = conf_get("log.single_line", Conf),
-    FmtName = conf_get("log.formatter", Conf),
-    Formatter = formatter(FmtName, CharsLimit, SingleLine),
-    BasicConf = #{
-        sync_mode_qlen => conf_get("log.sync_mode_qlen", Conf),
-        drop_mode_qlen => conf_get("log.drop_mode_qlen", Conf),
-        flush_qlen => conf_get("log.flush_qlen", Conf),
-        overload_kill_enable => conf_get("log.overload_kill.enable", Conf),
-        overload_kill_qlen => conf_get("log.overload_kill.qlen", Conf),
-        overload_kill_mem_size => conf_get("log.overload_kill.mem_size", Conf),
-        overload_kill_restart_after => conf_get("log.overload_kill.restart_after", Conf),
-        burst_limit_enable => conf_get("log.burst_limit.enable", Conf),
-        burst_limit_max_count => conf_get("log.burst_limit.max_count", Conf),
-        burst_limit_window_time => conf_get("log.burst_limit.window_time", Conf)
-    },
-    Filters = case conf_get("log.supervisor_reports", Conf) of
-                  error -> [{drop_progress_reports, {fun logger_filters:progress/2, stop}}];
-                  progress -> []
-              end,
     %% For the default logger that outputs to console
     ConsoleHandler =
         case conf_get("log.console_handler.enable", Conf) of
             true ->
+                ConsoleConf = conf_get("log.console_handler", Conf),
                 [{handler, console, logger_std_h, #{
                     level => conf_get("log.console_handler.level", Conf),
-                    config => BasicConf#{type => standard_io},
-                    formatter => Formatter,
-                    filters => Filters
+                    config => (log_handler_conf(ConsoleConf)) #{type => standard_io},
+                    formatter => log_formatter(ConsoleConf),
+                    filters => log_filter(ConsoleConf)
                 }}];
             false -> []
         end,
     %% For the file logger
     FileHandlers =
-        [{handler, binary_to_atom(HandlerName, latin1), logger_disk_log_h, #{
+        [begin
+         {handler, binary_to_atom(HandlerName, latin1), logger_disk_log_h, #{
                 level => conf_get("level", SubConf),
-                config => BasicConf#{
+                config => (log_handler_conf(SubConf)) #{
                     type => case conf_get("rotation.enable", SubConf) of
                                 true -> wrap;
                                 _ -> halt
@@ -310,35 +276,96 @@ tr_logger(Conf) ->
                     max_no_files => conf_get("rotation.count", SubConf),
                     max_no_bytes => conf_get("max_size", SubConf)
                 },
-                formatter => Formatter,
-                filters => Filters,
+                formatter => log_formatter(SubConf),
+                filters => log_filter(SubConf),
                 filesync_repeat_interval => no_repeat
             }}
-        || {HandlerName, SubConf} <- maps:to_list(conf_get("log.file_handlers", Conf, #{}))],
+        end || {HandlerName, SubConf} <- maps:to_list(conf_get("log.file_handlers", Conf, #{}))],
 
     [{handler, default, undefined}] ++ ConsoleHandler ++ FileHandlers.
 
+log_handler_common_confs() ->
+    [ {"level", t(log_level(), undefined, warning)}
+    , {"time_offset", t(string(), undefined, "system")}
+    , {"chars_limit", #{type => hoconsc:union([unlimited, range(1, inf)]),
+                        default => unlimited
+                       }}
+    , {"formatter", t(union([text, json]), undefined, text)}
+    , {"single_line", t(boolean(), undefined, true)}
+    , {"sync_mode_qlen", t(integer(), undefined, 100)}
+    , {"drop_mode_qlen", t(integer(), undefined, 3000)}
+    , {"flush_qlen", t(integer(), undefined, 8000)}
+    , {"overload_kill", ref("log_overload_kill")}
+    , {"burst_limit", ref("log_burst_limit")}
+    , {"supervisor_reports", t(union([error, progress]), undefined, error)}
+    , {"max_depth", t(union([unlimited, integer()]), undefined, 100)}
+    ].
+
+log_handler_conf(Conf) ->
+    SycModeQlen = conf_get("sync_mode_qlen", Conf),
+    DropModeQlen = conf_get("drop_mode_qlen", Conf),
+    FlushQlen = conf_get("flush_qlen", Conf),
+    Overkill = conf_get("overload_kill", Conf),
+    BurstLimit = conf_get("burst_limit", Conf),
+    #{
+        sync_mode_qlen => SycModeQlen,
+        drop_mode_qlen => DropModeQlen,
+        flush_qlen => FlushQlen,
+        overload_kill_enable => conf_get("enable", Overkill),
+        overload_kill_qlen => conf_get("qlen", Overkill),
+        overload_kill_mem_size => conf_get("mem_size", Overkill),
+        overload_kill_restart_after => conf_get("restart_after", Overkill),
+        burst_limit_enable => conf_get("enable", BurstLimit),
+        burst_limit_max_count => conf_get("max_count", BurstLimit),
+        burst_limit_window_time => conf_get("window_time", BurstLimit)
+    }.
+
+log_formatter(Conf) ->
+    io:format(standard_error, "log_formatter: ~p~n", [Conf]),
+    CharsLimit = case conf_get("chars_limit", Conf) of
+        unlimited -> unlimited;
+        V when V > 0 -> V
+    end,
+    TimeOffSet = case conf_get("time_offset", Conf) of
+        "system" -> "";
+        "utc" -> 0;
+        OffSetStr -> OffSetStr
+    end,
+    SingleLine = conf_get("single_line", Conf),
+    Depth = conf_get("max_depth", Conf),
+    do_formatter(conf_get("formatter", Conf), CharsLimit, SingleLine, TimeOffSet, Depth).
+
 %% helpers
-formatter(json, CharsLimit, SingleLine) ->
+do_formatter(json, CharsLimit, SingleLine, TimeOffSet, Depth) ->
     {emqx_logger_jsonfmt,
         #{chars_limit => CharsLimit,
-            single_line => SingleLine
+          single_line => SingleLine,
+          time_offset => TimeOffSet,
+          depth => Depth
         }};
-formatter(text, CharsLimit, SingleLine) ->
+do_formatter(text, CharsLimit, SingleLine, TimeOffSet, Depth) ->
     {emqx_logger_textfmt,
         #{template =>
-        [time," [",level,"] ",
-            {clientid,
-                [{peername,
-                    [clientid,"@",peername," "],
-                    [clientid, " "]}],
-                [{peername,
-                    [peername," "],
-                    []}]},
-            msg,"\n"],
-            chars_limit => CharsLimit,
-            single_line => SingleLine
+            [time," [",level,"] ",
+                {clientid,
+                    [{peername,
+                        [clientid,"@",peername," "],
+                        [clientid, " "]}],
+                    [{peername,
+                        [peername," "],
+                        []}]},
+                msg,"\n"],
+          chars_limit => CharsLimit,
+          single_line => SingleLine,
+          time_offset => TimeOffSet,
+          depth => Depth
         }}.
+
+log_filter(Conf) ->
+    case conf_get("supervisor_reports", Conf) of
+        error -> [{drop_progress_reports, {fun logger_filters:progress/2, stop}}];
+        progress -> []
+    end.
 
 %% utils
 -spec(conf_get(string() | [string()], hocon:config()) -> term()).
