@@ -23,17 +23,17 @@ check_config(X) -> logger_formatter:check_config(X).
 
 format(#{msg := {report, Report}, meta := Meta} = Event, Config) when is_map(Report) ->
     logger_formatter:format(Event#{msg := {report, enrich(Report, Meta)}}, Config);
-format(#{msg := {Fmt, Args}, meta := Meta} = Event, Config) when is_list(Fmt) ->
-    {NewFmt, NewArgs} = enrich_fmt(Fmt, Args, Meta),
-    logger_formatter:format(Event#{msg := {NewFmt, NewArgs}}, Config).
+format(#{msg := Msg, meta := Meta} = Event, Config) ->
+    NewMsg = enrich_fmt(Msg, Meta),
+    logger_formatter:format(Event#{msg := NewMsg}, Config).
 
 enrich(Report, #{mfa := Mfa, line := Line}) ->
     Report#{mfa => mfa(Mfa), line => Line};
 enrich(Report, _) -> Report.
 
-enrich_fmt(Fmt, Args, #{mfa := Mfa, line := Line}) ->
+enrich_fmt({Fmt, Args}, #{mfa := Mfa, line := Line}) when is_list(Fmt) ->
     {Fmt ++ " mfa: ~s line: ~w", Args ++ [mfa(Mfa), Line]};
-enrich_fmt(Fmt, Args, _) ->
-    {Fmt, Args}.
+enrich_fmt(Msg, _) ->
+    Msg.
 
 mfa({M, F, A}) -> atom_to_list(M) ++ ":" ++ atom_to_list(F) ++ "/" ++ integer_to_list(A).
