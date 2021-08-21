@@ -20,10 +20,7 @@
 
 -include("emqx_statsd.hrl").
 
--import(emqx_mgmt_util, [ response_schema/1
-                        , response_schema/2
-                        , request_body_schema/1
-                        ]).
+-import(emqx_mgmt_util, [response_schema/2, request_body_schema/1]).
 
 -export([api_spec/0]).
 
@@ -34,42 +31,22 @@ api_spec() ->
     {statsd_api(), schemas()}.
 
 schemas() ->
-    [#{statsd => #{
-        type => object,
-        properties => #{
-            server => #{
-                type => string,
-                description => <<"Statsd Server">>,
-                example => get_raw(<<"server">>, <<"127.0.0.1:8125">>)},
-            enable => #{
-                type => boolean,
-                description => <<"Statsd status">>,
-                example => get_raw(<<"enable">>, false)},
-            sample_time_interval => #{
-                type => string,
-                description => <<"Sample Time Interval">>,
-                example => get_raw(<<"sample_time_interval">>, <<"10s">>)},
-            flush_time_interval => #{
-                type => string,
-                description => <<"Flush Time Interval">>,
-                example => get_raw(<<"flush_time_interval">>, <<"10s">>)}
-        }
-    }}].
+    [#{statsd => emqx_mgmt_api_configs:gen_schema(emqx:get_raw_config([statsd]))}].
 
 statsd_api() ->
     Metadata = #{
         get => #{
             description => <<"Get statsd info">>,
             responses => #{
-                <<"200">> => response_schema(<<"statsd">>)
+                <<"200">> => response_schema(<<>>, statsd)
             }
         },
         put => #{
             description => <<"Update Statsd">>,
-            'requestBody' => request_body_schema(<<"statsd">>),
+            'requestBody' => request_body_schema(statsd),
             responses => #{
                 <<"200">> =>
-                    response_schema(<<"Update Statsd successfully">>),
+                    response_schema(<<>>, statsd),
                 <<"400">> =>
                     response_schema(<<"Bad Request">>, #{
                         type => object,
@@ -84,23 +61,18 @@ statsd_api() ->
     [{"/statsd", Metadata, statsd}].
 
 statsd(get, _Request) ->
-    Response = emqx:get_raw_config([<<"statsd">>], #{}),
-    {200, Response};
+    {200, emqx:get_raw_config([<<"statsd">>], #{})};
 
 statsd(put, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Params = emqx_json:decode(Body, [return_maps]),
-    Enable = maps:get(<<"enable">>, Params),
-    {ok, _} = emqx:update_config([statsd], Params),
-    enable_statsd(Enable).
-
-enable_statsd(true) ->
-    ok = emqx_statsd_sup:stop_child(?APP),
-    emqx_statsd_sup:start_child(?APP, emqx:get_config([statsd], #{})),
-    {200};
-enable_statsd(false) ->
-    _ = emqx_statsd_sup:stop_child(?APP),
-    {200}.
-
-get_raw(Key, Def) ->
-    emqx:get_raw_config([<<"statsd">>]++ [Key], Def).
+    {ok, Config} = emqx:update_config([statsd], Params),
+    case maps:get(<<"enable">>, Params) of
+        true ->
+            _ = emqx_statsd_sup:stop_child(?APP),
+            emqx_statsd_sup:start_child(?APP, maps:get(config, Config));
+        false ->
+            _ = emqx_statsd_sup:stop_child(?APP),
+            ok
+    end,
+    {200, emqx:get_raw_config([<<"statsd">>], #{})}.
