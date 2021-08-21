@@ -350,7 +350,7 @@ handle_call({lookup_chain, ID}, _From, State) ->
     end;
 
 handle_call({create_authenticator, ChainID, #{name := Name} = Config}, _From, State) ->
-    UpdateFun = 
+    UpdateFun =
         fun(#chain{authenticators = Authenticators} = Chain) ->
             case lists:keymember(Name, 2, Authenticators) of
                 true ->
@@ -374,7 +374,7 @@ handle_call({create_authenticator, ChainID, #{name := Name} = Config}, _From, St
     reply(Reply, State);
 
 handle_call({delete_authenticator, ChainID, AuthenticatorID}, _From, State) ->
-    UpdateFun = 
+    UpdateFun =
         fun(#chain{authenticators = Authenticators} = Chain) ->
             case lists:keytake(AuthenticatorID, 1, Authenticators) of
                 false ->
@@ -397,7 +397,7 @@ handle_call({update_or_create_authenticator, ChainID, AuthenticatorID, Config}, 
     reply(Reply, State);
 
 handle_call({move_authenticator, ChainID, AuthenticatorID, Position}, _From, State) ->
-    UpdateFun = 
+    UpdateFun =
         fun(#chain{authenticators = Authenticators} = Chain) ->
             case do_move_authenticator(AuthenticatorID, Authenticators, Position) of
                 {ok, NAuthenticators} ->
@@ -524,7 +524,7 @@ do_delete_authenticator(#authenticator{provider = Provider, state = State}) ->
     ok.
 
 update_or_create_authenticator(ChainID, AuthenticatorID, #{name := NewName} = Config, CreateWhenNotFound) ->
-    UpdateFun = 
+    UpdateFun =
         fun(#chain{authenticators = Authenticators} = Chain) ->
             case lists:keytake(AuthenticatorID, 1, Authenticators) of
                 false ->
@@ -586,7 +586,7 @@ update_or_create_authenticator(ChainID, AuthenticatorID, #{name := NewName} = Co
             end
         end,
     update_chain(ChainID, UpdateFun).
-    
+
 replace_authenticator(ID, #authenticator{name = Name} = Authenticator, Authenticators) ->
     lists:keyreplace(ID, 1, Authenticators, {ID, Name, Authenticator}).
 
