@@ -244,8 +244,14 @@ tr_cluster__discovery(Conf) ->
     {Strategy, filter(options(Strategy, Conf))}.
 
 tr_logger_level(Conf) ->
-    io:format(standard_error, "TODO: use the lowest level of all the handlers as primary level~n", []),
-    conf_get("log.console_handler.level", Conf).
+    ConsoleLevel = conf_get("log.console_handler.level", Conf, undefined),
+    FileLevels = [conf_get("level", SubConf) || {_, SubConf}
+                    <- maps:to_list(conf_get("log.file_handlers", Conf, #{}))],
+    case FileLevels ++ [ConsoleLevel || ConsoleLevel =/= undefined] of
+        [] -> warning; %% warning is the default level we should use
+        Levels ->
+            least_severe_log_level(Levels)
+    end.
 
 tr_logger(Conf) ->
     %% For the default logger that outputs to console
@@ -364,6 +370,17 @@ log_filter(Conf) ->
         error -> [{drop_progress_reports, {fun logger_filters:progress/2, stop}}];
         progress -> []
     end.
+
+least_severe_log_level(Levels) ->
+    hd(sort_log_levels(Levels)).
+
+sort_log_levels(Levels) ->
+    lists:sort(fun(A, B) ->
+            case logger:compare_levels(A, B) of
+                R when R == lt; R == eq -> true;
+                gt -> false
+            end
+        end, Levels).
 
 %% utils
 -spec(conf_get(string() | [string()], hocon:config()) -> term()).
