@@ -60,8 +60,6 @@
 %-boot_mnesia({mnesia, [boot]}).
 %-copy_mnesia({mnesia, [copy]}).
 
-%-rlog_shard({?SN_SHARD, ?TAB}).
-
 %%% @doc Create or replicate tables.
 %-spec(mnesia(boot | copy) -> ok).
 %mnesia(boot) ->

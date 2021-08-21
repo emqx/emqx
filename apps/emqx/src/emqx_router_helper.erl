@@ -52,8 +52,6 @@
 -define(ROUTING_NODE, emqx_routing_node).
 -define(LOCK, {?MODULE, cleanup_routes}).
 
--rlog_shard({?ROUTE_SHARD, ?ROUTING_NODE}).
-
 -dialyzer({nowarn_function, [cleanup_routes/1]}).
 
 %%--------------------------------------------------------------------
@@ -63,6 +61,7 @@
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?ROUTING_NODE, [
                 {type, set},
+                {rlog_shard, ?ROUTE_SHARD},
                 {ram_copies, [node()]},
                 {record_name, routing_node},
                 {attributes, record_info(fields, routing_node)},

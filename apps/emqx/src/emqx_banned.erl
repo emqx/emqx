@@ -50,8 +50,6 @@
 
 -define(BANNED_TAB, ?MODULE).
 
--rlog_shard({?COMMON_SHARD, ?BANNED_TAB}).
-
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
@@ -59,6 +57,7 @@
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?BANNED_TAB, [
                 {type, set},
+                {rlog_shard, ?COMMON_SHARD},
                 {disc_copies, [node()]},
                 {record_name, banned},
                 {attributes, record_info(fields, banned)},

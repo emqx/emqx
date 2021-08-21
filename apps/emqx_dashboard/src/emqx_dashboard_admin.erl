@@ -20,8 +20,6 @@
 
 -include("emqx_dashboard.hrl").
 
--rlog_shard({?DASHBOARD_SHARD, mqtt_admin}).
-
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
@@ -54,6 +52,7 @@
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(mqtt_admin, [
                 {type, set},
+                {rlog_shard, ?DASHBOARD_SHARD},
                 {disc_copies, [node()]},
                 {record_name, mqtt_admin},
                 {attributes, record_info(fields, mqtt_admin)},

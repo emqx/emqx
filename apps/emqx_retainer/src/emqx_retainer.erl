@@ -57,8 +57,6 @@
                   , wait_quotas := list()
                   }.
 
--rlog_shard({?RETAINER_SHARD, ?TAB}).
-
 -define(DEF_MAX_PAYLOAD_SIZE, (1024 * 1024)).
 -define(DEF_EXPIRY_INTERVAL, 0).
 

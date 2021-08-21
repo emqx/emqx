@@ -40,6 +40,8 @@
         , code_change/3
         ]).
 
+-include_lib("emqx/include/emqx.hrl").
+
 -define(LOCK, {?MODULE, cleanup_down}).
 
 -record(channel, {chid, pid}).
@@ -89,6 +91,7 @@ init([Type]) ->
     Tab = tabname(Type),
     ok = ekka_mnesia:create_table(Tab, [
                 {type, bag},
+                {rlog_shard, ?CM_SHARD},
                 {ram_copies, [node()]},
                 {record_name, channel},
                 {attributes, record_info(fields, channel)},

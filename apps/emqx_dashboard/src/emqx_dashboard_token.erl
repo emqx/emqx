@@ -26,8 +26,6 @@
         , destroy_by_username/1
         ]).
 
--rlog_shard({?DASHBOARD_SHARD, mqtt_admin_jwt}).
-
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
@@ -80,6 +78,7 @@ destroy_by_username(Username) ->
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
                 {type, set},
+                {rlog_shard, ?DASHBOARD_SHARD},
                 {disc_copies, [node()]},
                 {record_name, mqtt_admin_jwt},
                 {attributes, record_info(fields, mqtt_admin_jwt)},

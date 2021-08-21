@@ -50,8 +50,6 @@
         , count = 0 :: non_neg_integer()
         }).
 
--rlog_shard({?ROUTE_SHARD, ?TRIE}).
-
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
@@ -64,6 +62,7 @@ mnesia(boot) ->
                          {write_concurrency, true}
                         ]}],
     ok = ekka_mnesia:create_table(?TRIE, [
+                {rlog_shard, ?ROUTE_SHARD},
                 {ram_copies, [node()]},
                 {record_name, ?TRIE},
                 {attributes, record_info(fields, ?TRIE)},
