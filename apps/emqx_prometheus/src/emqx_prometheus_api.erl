@@ -20,8 +20,7 @@
 
 -include("emqx_prometheus.hrl").
 
--import(emqx_mgmt_util, [ response_schema/1
-                        , response_schema/2
+-import(emqx_mgmt_util, [ response_schema/2
                         , request_body_schema/1
                         ]).
 
@@ -35,38 +34,21 @@ api_spec() ->
     {[prometheus_api()], schemas()}.
 
 schemas() ->
-    [#{prometheus => #{
-        type => object,
-        properties => #{
-            push_gateway_server => #{
-                type => string,
-                description => <<"prometheus PushGateway Server">>,
-                example => get_raw(<<"push_gateway_server">>, <<"http://127.0.0.1:9091">>)},
-            interval => #{
-                type => string,
-                description => <<"Interval">>,
-                example => get_raw(<<"interval">>, <<"15s">>)},
-            enable => #{
-                type => boolean,
-                description => <<"Prometheus status">>,
-                example => get_raw(<<"enable">>, false)}
-        }
-    }}].
+    [#{prometheus => emqx_mgmt_api_configs:gen_schema(emqx:get_raw_config([prometheus]))}].
 
 prometheus_api() ->
     Metadata = #{
         get => #{
             description => <<"Get Prometheus info">>,
             responses => #{
-                <<"200">> => response_schema(prometheus)
+                <<"200">> => response_schema(<<>>, prometheus)
             }
         },
         put => #{
             description => <<"Update Prometheus">>,
             'requestBody' => request_body_schema(prometheus),
             responses => #{
-                <<"200">> =>
-                    response_schema(<<"Update Prometheus successfully">>),
+                <<"200">> =>response_schema(<<>>, prometheus),
                 <<"400">> =>
                     response_schema(<<"Bad Request">>, #{
                         type => object,
@@ -106,15 +88,21 @@ prometheus_api() ->
 %     {"/prometheus/stats", Metadata, stats}.
 
 prometheus(get, _Request) ->
-    Response = emqx:get_raw_config([<<"prometheus">>], #{}),
-    {200, Response};
+    {200, emqx:get_raw_config([<<"prometheus">>], #{})};
 
 prometheus(put, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Params = emqx_json:decode(Body, [return_maps]),
-    Enable = maps:get(<<"enable">>, Params),
-    {ok, _} = emqx:update_config([prometheus], Params),
-    enable_prometheus(Enable).
+    {ok, Config} = emqx:update_config([prometheus], Params),
+    case maps:get(<<"enable">>, Params) of
+        true ->
+            _ = emqx_prometheus_sup:stop_child(?APP),
+            emqx_prometheus_sup:start_child(?APP, maps:get(config, Config));
+        false ->
+            _ = emqx_prometheus_sup:stop_child(?APP),
+            ok
+        end,
+    {200, emqx:get_raw_config([<<"prometheus">>], #{})}.
 
 % stats(_Bindings, Params) ->
 %     Type = proplists:get_value(<<"format_type">>, Params, <<"json">>),
@@ -125,14 +113,3 @@ prometheus(put, Request) ->
 %         <<"prometheus">> ->
 %             {ok, #{<<"content-type">> => <<"text/plain">>}, Data}
 %     end.
-
-enable_prometheus(true) ->
-    ok = emqx_prometheus_sup:stop_child(?APP),
-    emqx_prometheus_sup:start_child(?APP, emqx:get_config([prometheus], #{})),
-    {200};
-enable_prometheus(false) ->
-    _ = emqx_prometheus_sup:stop_child(?APP),
-    {200}.
-
-get_raw(Key, Def) ->
-    emqx:get_raw_config([<<"prometheus">>] ++ [Key], Def).

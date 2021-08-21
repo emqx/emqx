@@ -179,14 +179,12 @@ gen_schema(Conf) when is_binary(Conf); is_atom(Conf) ->
 gen_schema(Conf) when is_number(Conf) ->
     with_default_value(#{type => number}, Conf);
 gen_schema(Conf) when is_list(Conf) ->
-    #{type => array, items => case Conf of
-            [] -> #{}; %% don't know the type
-            _ ->
-                case io_lib:printable_unicode_list(Conf) of
-                    true -> gen_schema(unicode:characters_to_binary(Conf));
-                    false -> gen_schema(hd(Conf))
-                end
-        end};
+    case io_lib:printable_unicode_list(Conf) of
+        true ->
+            gen_schema(unicode:characters_to_binary(Conf));
+        false ->
+            #{type => array, items => gen_schema(hd(Conf))}
+    end;
 gen_schema(Conf) when is_map(Conf) ->
     #{type => object, properties =>
         maps:map(fun(_K, V) -> gen_schema(V) end, Conf)};
