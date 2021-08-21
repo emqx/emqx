@@ -122,8 +122,7 @@ run_test(){
 export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60
 export EMQX_MQTT__MAX_TOPIC_ALIAS=10
 export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
-export EMQX_LOG__FILE_HANDLERS__EMQX_LOG__LEVEL=debug
-export EMQX_LOG__PRIMARY_LEVEL=debug
+export EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL=debug
 EOF
         ## for ARM, due to CI env issue, skip start of quic listener for the moment
         [[ $(arch) == *arm* || $(arch) == aarch64 ]] && tee -a "$emqx_env_vars" <<EOF
