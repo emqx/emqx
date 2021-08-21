@@ -21,8 +21,8 @@ fields("statsd") ->
     ].
 
 server(type) -> emqx_schema:ip_port();
-server(default) -> "127.0.0.1:8125";
 server(nullable) -> false;
+server(default) -> "127.0.0.1:8125";
 server(_) -> undefined.
 
 duration_ms(type) -> emqx_schema:duration_ms();
