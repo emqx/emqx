@@ -1,5 +1,7 @@
 -module('rebar.config').
 
+%% just test the CI
+%%
 -export([do/2]).
 
 do(Dir, CONFIG) ->
