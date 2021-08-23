@@ -28,32 +28,22 @@
 -define(ACTIVATED_ALARM, emqx_activated_alarm).
 -define(DEACTIVATED_ALARM, emqx_deactivated_alarm).
 
-api_spec() ->
-    {[alarms_api()], [alarm_schema()]}.
+-import(emqx_mgmt_util, [ object_array_schema/2
+                        , schema/1
+                        , properties/1
+                        ]).
 
-alarm_schema() ->
-    #{
-        alarm => #{
-            type => object,
-            properties => #{
-                node => #{
-                    type => string,
-                    description => <<"Alarm in node">>},
-                name => #{
-                    type => string,
-                    description => <<"Alarm name">>},
-                message => #{
-                    type => string,
-                    description => <<"Alarm readable information">>},
-                details => #{
-                    type => object,
-                    description => <<"Alarm detail">>},
-                duration => #{
-                    type => integer,
-                    description => <<"Alarms duration time; UNIX time stamp">>}
-            }
-        }
-    }.
+api_spec() ->
+    {[alarms_api()], []}.
+
+properties() ->
+    properties([
+        {node, string, <<"Alarm in node">>},
+        {name, string, <<"Alarm name">>},
+        {message, string, <<"Alarm readable information">>},
+        {details, object},
+        {duration, integer, <<"Alarms duration time; UNIX time stamp">>}
+    ]).
 
 alarms_api() ->
     Metadata = #{
@@ -68,12 +58,12 @@ alarms_api() ->
             }],
             responses => #{
                 <<"200">> =>
-                emqx_mgmt_util:response_array_schema(<<"List all alarms">>, alarm)}},
+                object_array_schema(properties(), <<"List all alarms">>)}},
         delete => #{
             description => <<"Remove all deactivated alarms">>,
             responses => #{
                 <<"200">> =>
-                emqx_mgmt_util:response_schema(<<"Remove all deactivated alarms ok">>)}}},
+                schema(<<"Remove all deactivated alarms ok">>)}}},
     {"/alarms", Metadata, alarms}.
 
 %%%==============================================================================================

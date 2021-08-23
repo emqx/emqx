@@ -304,14 +304,7 @@ metrics_api() ->
                 schema => #{type => boolean}
             }],
             responses => #{
-                <<"200">> => #{
-                    description => <<"List all metrics">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"metrics_info">>)
-                        }
-                    }
-                }
+                <<"200">> => emqx_mgmt_util:schema(metrics_info, <<"List all metrics">>)
             }
         }
     },

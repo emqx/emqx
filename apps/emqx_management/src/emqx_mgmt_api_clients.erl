@@ -333,7 +333,7 @@ clients_api() ->
                 }
             ],
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_array_schema(<<"List clients 200 OK">>, client)}}},
+                <<"200">> => emqx_mgmt_util:array_schema(client, <<"List clients 200 OK">>)}}},
     {"/clients", Metadata, clients}.
 
 client_api() ->
@@ -347,8 +347,8 @@ client_api() ->
                 required => true
             }],
             responses => #{
-                <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"List clients 200 OK">>, client)}},
+                <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
+                <<"200">> => emqx_mgmt_util:schema(client, <<"List clients 200 OK">>)}},
         delete => #{
             description => <<"Kick out client by client ID">>,
             parameters => [#{
@@ -358,8 +358,8 @@ client_api() ->
                 required => true
             }],
             responses => #{
-                <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"List clients 200 OK">>, client)}}},
+                <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
+                <<"200">> => emqx_mgmt_util:schema(client, <<"List clients 200 OK">>)}}},
     {"/clients/:clientid", Metadata, client}.
 
 clients_authz_cache_api() ->
@@ -373,8 +373,8 @@ clients_authz_cache_api() ->
                 required => true
             }],
             responses => #{
-                <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Get client authz cache">>, <<"authz_cache">>)}},
+                <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
+                <<"200">> => emqx_mgmt_util:schema(authz_cache, <<"Get client authz cache">>)}},
         delete => #{
             description => <<"Clean client authz cache">>,
             parameters => [#{
@@ -384,8 +384,8 @@ clients_authz_cache_api() ->
                 required => true
             }],
             responses => #{
-                <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Delete clients 200 OK">>)}}},
+                <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
+                <<"200">> => emqx_mgmt_util:schema(<<"Delete clients 200 OK">>)}}},
     {"/clients/:clientid/authz_cache", Metadata, authz_cache}.
 
 clients_subscriptions_api() ->
@@ -400,7 +400,7 @@ clients_subscriptions_api() ->
             }],
             responses => #{
                 <<"200">> =>
-                    emqx_mgmt_util:response_array_schema(<<"Get client subscriptions">>, subscription)}}
+                    emqx_mgmt_util:array_schema(subscription, <<"Get client subscriptions">>)}}
     },
     {"/clients/:clientid/subscriptions", Metadata, subscriptions}.
 
@@ -416,15 +416,15 @@ unsubscribe_api() ->
                     required => true
                 }
             ],
-            'requestBody' => emqx_mgmt_util:request_body_schema(#{
+            'requestBody' => emqx_mgmt_util:schema(#{
                 type => object,
                 properties => #{
                     topic => #{
                         type => string,
                         description => <<"Topic">>}}}),
             responses => #{
-                <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Unsubscribe ok">>)}}},
+                <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
+                <<"200">> => emqx_mgmt_util:schema(<<"Unsubscribe ok">>)}}},
     {"/clients/:clientid/unsubscribe", Metadata, unsubscribe}.
 subscribe_api() ->
     Metadata = #{
@@ -436,7 +436,7 @@ subscribe_api() ->
                 schema => #{type => string},
                 required => true
             }],
-            'requestBody' => emqx_mgmt_util:request_body_schema(#{
+            'requestBody' => emqx_mgmt_util:schema(#{
                 type => object,
                 properties => #{
                     topic => #{
@@ -448,8 +448,8 @@ subscribe_api() ->
                         example => 0,
                         description => <<"QoS">>}}}),
             responses => #{
-                <<"404">> => emqx_mgmt_util:response_error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Subscribe ok">>)}}},
+                <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
+                <<"200">> => emqx_mgmt_util:schema(<<"Subscribe ok">>)}}},
     {"/clients/:clientid/subscribe", Metadata, subscribe}.
 
 %%%==============================================================================================

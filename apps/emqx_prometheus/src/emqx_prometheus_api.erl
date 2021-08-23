@@ -20,9 +20,8 @@
 
 -include("emqx_prometheus.hrl").
 
--import(emqx_mgmt_util, [ response_schema/2
-                        , request_body_schema/1
-                        ]).
+-import(emqx_mgmt_util, [ schema/1
+                        , bad_request/0]).
 
 -export([api_spec/0]).
 
@@ -40,23 +39,14 @@ prometheus_api() ->
     Metadata = #{
         get => #{
             description => <<"Get Prometheus info">>,
-            responses => #{
-                <<"200">> => response_schema(<<>>, prometheus)
-            }
+            responses => #{<<"200">> => schema(prometheus)}
         },
         put => #{
             description => <<"Update Prometheus">>,
-            'requestBody' => request_body_schema(prometheus),
+            'requestBody' => schema(prometheus),
             responses => #{
-                <<"200">> =>response_schema(<<>>, prometheus),
-                <<"400">> =>
-                    response_schema(<<"Bad Request">>, #{
-                        type => object,
-                        properties => #{
-                            message => #{type => string},
-                            code => #{type => string}
-                        }
-                    })
+                <<"200">> => schema(prometheus),
+                <<"400">> => bad_request()
             }
         }
     },

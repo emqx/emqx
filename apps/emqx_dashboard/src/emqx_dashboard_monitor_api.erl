@@ -8,6 +8,7 @@
 
 -behaviour(minirest_api).
 
+-import(emqx_mgmt_util, [schema/2]).
 -export([api_spec/0]).
 
 -export([ monitor/2
@@ -47,7 +48,7 @@ monitor_api() ->
                 }
             ],
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Monitor count data">>, counters_schema())}}},
+                <<"200">> => schema(counters_schema(), <<"Monitor count data">>)}}},
     {"/monitor", Metadata, monitor}.
 
 monitor_nodes_api() ->
@@ -56,7 +57,7 @@ monitor_nodes_api() ->
             description => <<"List monitor data">>,
             parameters => [path_param_node()],
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Monitor count data in node">>, counters_schema())}}},
+                <<"200">> => schema(counters_schema(), <<"Monitor count data in node">>)}}},
     {"/monitor/nodes/:node", Metadata, monitor_nodes}.
 
 monitor_nodes_counters_api() ->
@@ -68,7 +69,7 @@ monitor_nodes_counters_api() ->
                 path_param_counter()
             ],
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Monitor single count data in node">>, counter_schema())}}},
+                <<"200">> => schema(counter_schema(), <<"Monitor single count data in node">>)}}},
     {"/monitor/nodes/:node/counters/:counter", Metadata, monitor_nodes_counters}.
 
 monitor_counters_api() ->
@@ -80,15 +81,14 @@ monitor_counters_api() ->
             ],
             responses => #{
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Monitor single count data">>, counter_schema())}}},
+                    schema(counter_schema(), <<"Monitor single count data">>)}}},
     {"/monitor/counters/:counter", Metadata, counters}.
 monitor_current_api() ->
     Metadata = #{
         get => #{
             description => <<"Current monitor data">>,
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Current monitor data">>,
-                    current_counters_schema())}}},
+                <<"200">> => schema(current_counters_schema(), <<"Current monitor data">>)}}},
     {"/monitor/current", Metadata, current_counters}.
 
 path_param_node() ->

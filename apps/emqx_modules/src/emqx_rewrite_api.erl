@@ -25,28 +25,20 @@
 
 -define(EXCEED_LIMIT, 'EXCEED_LIMIT').
 
+-import(emqx_mgmt_util, [ object_array_schema/1
+                        , object_array_schema/2
+                        , error_schema/2
+                        , properties/1
+                        ]).
+
 api_spec() ->
     {[rewrite_api()], []}.
 
-topic_rewrite_schema() ->
-    #{
-        type => object,
-        properties => #{
-            action => #{
-                type => string,
-                description => <<"Node">>,
-                enum => [subscribe, publish]},
-            source_topic => #{
-                type => string,
-                description => <<"Topic">>},
-            re => #{
-                type => string,
-                description => <<"Regular expressions">>},
-            dest_topic => #{
-                type => string,
-                description => <<"Destination topic">>}
-        }
-    }.
+properties() ->
+    properties([{action, string, <<"Node">>, [subscribe, publish]},
+                {source_topic, string, <<"Topic">>},
+                {re, string, <<"Regular expressions">>},
+                {dest_topic, string, <<"Destination topic">>}]).
 
 rewrite_api() ->
     Path = "/mqtt/topic_rewrite",
@@ -54,15 +46,18 @@ rewrite_api() ->
         get => #{
             description => <<"List topic rewrite">>,
             responses => #{
-                <<"200">> =>
-                    emqx_mgmt_util:response_array_schema(<<"List all rewrite rules">>, topic_rewrite_schema())}},
+                <<"200">> => object_array_schema(properties(), <<"List all rewrite rules">>)
+            }
+        },
         post => #{
             description => <<"Update topic rewrite">>,
-            'requestBody' => emqx_mgmt_util:request_body_array_schema(topic_rewrite_schema()),
+            'requestBody' => object_array_schema(properties()),
             responses => #{
-                <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Update topic rewrite success">>, topic_rewrite_schema()),
-                <<"413">> => emqx_mgmt_util:response_error_schema(<<"Rules count exceed max limit">>, [?EXCEED_LIMIT])}}},
+                <<"200">> =>object_array_schema(properties(), <<"Update topic rewrite success">>),
+                <<"413">> => error_schema(<<"Rules count exceed max limit">>, [?EXCEED_LIMIT])
+            }
+        }
+    },
     {Path, Metadata, topic_rewrite}.
 
 topic_rewrite(get, _Request) ->
@@ -76,6 +71,6 @@ topic_rewrite(post, Request) ->
             ok = emqx_rewrite:update(Params),
             {200, emqx_rewrite:list()};
         _ ->
-            Message = list_to_binary(io_lib:format("Max rewrite rules count is ~p", [?MAX_RULES_LIMIT])),
+            Message = iolist_to_binary(io_lib:format("Max rewrite rules count is ~p", [?MAX_RULES_LIMIT])),
             {413, #{code => ?EXCEED_LIMIT, message => Message}}
     end.
