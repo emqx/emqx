@@ -45,7 +45,6 @@ api_spec() ->
         [
             list_topic_api(),
             list_topic_metrics_api(),
-            list_topic_metrics_api(),
             get_topic_metrics_api(),
             reset_all_topic_metrics_api(),
             reset_topic_metrics_api()
