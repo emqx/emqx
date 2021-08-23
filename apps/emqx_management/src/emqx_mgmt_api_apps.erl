@@ -18,8 +18,17 @@
 
 -behaviour(minirest_api).
 
--export([api_spec/0]).
+-import(emqx_mgmt_util, [ schema/1
+                        , schema/2
+                        , object_schema/1
+                        , object_schema/2
+                        , object_array_schema/2
+                        , error_schema/1
+                        , error_schema/2
+                        , properties/1
+                        ]).
 
+-export([api_spec/0]).
 
 -export([ apps/2
         , app/2]).
@@ -30,48 +39,22 @@
 api_spec() ->
     {
         [apps_api(), app_api()],
-        [app_schema(), app_secret_schema()]
+        []
     }.
 
-app_schema() ->
-     #{app => #{
-         type => object,
-         properties => app_properties()}}.
-
-app_properties() ->
-    #{
-        app_id => #{
-            type => string,
-            description => <<"App ID">>},
-        secret => #{
-            type => string,
-            description => <<"App Secret">>},
-        name => #{
-            type => string,
-            description => <<"Dsiplay name">>},
-        desc => #{
-            type => string,
-            description => <<"App description">>},
-        status => #{
-            type => boolean,
-            description => <<"Enable or disable">>},
-        expired => #{
-            type => integer,
-            description => <<"Expired time">>}
-    }.
-
-app_secret_schema() ->
-    #{app_secret => #{
-        type => object,
-        properties => #{
-            secret => #{type => string}}}}.
+properties() ->
+    properties([
+        {app_id, string, <<"App ID">>},
+        {secret, string, <<"App Secret">>},
+        {name, string, <<"Dsiplay name">>},
+        {desc, string, <<"App description">>},
+        {status, boolean, <<"Enable or disable">>},
+        {expired, integer, <<"Expired time">>}
+    ]).
 
 %% not export schema
 app_without_secret_schema() ->
-    #{
-        type => object,
-        properties => maps:without([secret], app_properties())
-    }.
+    maps:without([secret], properties()).
 
 apps_api() ->
     Metadata = #{
@@ -79,16 +62,20 @@ apps_api() ->
             description => <<"List EMQ X apps">>,
             responses => #{
                 <<"200">> =>
-                    emqx_mgmt_util:response_array_schema(<<"All apps">>,
-                        app_without_secret_schema())}},
+                    object_array_schema(app_without_secret_schema(), <<"All apps">>)
+                }
+        },
         post => #{
             description => <<"EMQ X create apps">>,
-            'requestBody' => emqx_mgmt_util:request_body_schema(<<"app">>),
+            'requestBody' => schema(app),
             responses => #{
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Create apps">>, app_secret),
+                    schema(app_secret, <<"Create apps">>),
                 <<"400">> =>
-                    emqx_mgmt_util:response_error_schema(<<"App ID already exist">>, [?BAD_APP_ID])}}},
+                    error_schema(<<"App ID already exist">>, [?BAD_APP_ID])
+            }
+        }
+    },
     {"/apps", Metadata, apps}.
 
 app_api() ->
@@ -102,9 +89,9 @@ app_api() ->
                 schema => #{type => string}}],
             responses => #{
                 <<"404">> =>
-                    emqx_mgmt_util:response_error_schema(<<"App id not found">>),
+                    error_schema(<<"App id not found">>),
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Get App">>, app_without_secret_schema())}},
+                    object_schema(app_without_secret_schema(), <<"Get App">>)}},
         delete => #{
             description => <<"EMQ X apps">>,
             parameters => [#{
@@ -114,7 +101,7 @@ app_api() ->
                 schema => #{type => string}
             }],
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Remove app ok">>)}},
+                <<"200">> => schema(<<"Remove app ok">>)}},
         put => #{
             description => <<"EMQ X update apps">>,
             parameters => [#{
@@ -123,12 +110,12 @@ app_api() ->
                 required => true,
                 schema => #{type => string}
             }],
-            'requestBody' => emqx_mgmt_util:request_body_schema(app_without_secret_schema()),
+            'requestBody' => object_schema(app_without_secret_schema()),
             responses => #{
                 <<"404">> =>
-                    emqx_mgmt_util:response_error_schema(<<"App id not found">>, [?BAD_APP_ID]),
+                    error_schema(<<"App id not found">>, [?BAD_APP_ID]),
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Update ok">>, app_without_secret_schema())}}},
+                    object_schema(app_without_secret_schema(), <<"Update ok">>)}}},
     {"/apps/:app_id", Metadata, app}.
 
 %%%==============================================================================================

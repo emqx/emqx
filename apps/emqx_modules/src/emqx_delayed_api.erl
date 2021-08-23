@@ -18,11 +18,12 @@
 
 -behavior(minirest_api).
 
--import(emqx_mgmt_util, [ response_schema/1
-                        , response_schema/2
-                        , response_error_schema/2
-                        , response_page_schema/1
-                        , request_body_schema/1
+-import(emqx_mgmt_util, [ schema/1
+                        , schema/2
+                        , object_schema/2
+                        , error_schema/2
+                        , page_object_schema/1
+                        , properties/1
                         ]).
 
 -define(MAX_PAYLOAD_LENGTH, 2048).
@@ -48,77 +49,50 @@
 api_spec() ->
     {
         [status_api(), delayed_messages_api(), delayed_message_api()],
-        []
+        schemas()
     }.
 
-delayed_schema() ->
-    delayed_schema(false).
+schemas() ->
+    [#{delayed => emqx_mgmt_api_configs:gen_schema(emqx:get_raw_config([delayed]))}].
+properties() ->
+    PayloadDesc = io_lib:format("Payload, base64 encode. Payload will be ~p if length large than ~p",
+            [?PAYLOAD_TOO_LARGE, ?MAX_PAYLOAD_LENGTH]),
+    properties([
+        {id, integer, <<"Message Id (MQTT message id hash)">>},
+        {publish_time, string, <<"publish time, rfc 3339">>},
+        {topic, string, <<"Topic">>},
+        {qos, string, <<"QoS">>},
+        {payload, string, iolist_to_binary(PayloadDesc)},
+        {form_clientid, string, <<"Form ClientId">>},
+        {form_username, string, <<"Form Username">>}
+    ]).
 
-delayed_schema(WithPayload) ->
-    case WithPayload of
-        true ->
-            #{
-                type => object,
-                properties => delayed_message_properties()
-            };
-        _ ->
-            #{
-                type => object,
-                properties => maps:without([payload], delayed_message_properties())
-            }
-    end.
-
-delayed_message_properties() ->
-    PayloadDesc = list_to_binary(
-        io_lib:format("Payload, base64 encode. Payload will be ~p if length large than ~p",
-            [?PAYLOAD_TOO_LARGE, ?MAX_PAYLOAD_LENGTH])),
-    #{
-        id => #{
-            type => integer,
-            description => <<"Message Id (MQTT message id hash)">>},
-        publish_time => #{
-            type => string,
-            description => <<"publish time, rfc 3339">>},
-        topic => #{
-            type => string,
-            description => <<"Topic">>},
-        qos => #{
-            type => integer,
-            enum => [0, 1, 2],
-            description => <<"Qos">>},
-        payload => #{
-            type => string,
-            description => PayloadDesc},
-        form_clientid => #{
-            type => string,
-            description => <<"Client ID">>},
-        form_username => #{
-            type => string,
-            description => <<"Username">>}
-    }.
+parameters() ->
+    [#{
+        name => id,
+        in => path,
+        schema => #{type => string},
+        required => true
+    }].
 
 status_api() ->
-    Schema = #{
-        type => object,
-        properties => #{
-            enable => #{
-                type => boolean},
-            max_delayed_messages => #{
-                type => integer,
-                description => <<"Max limit, 0 is no limit">>}}},
     Metadata = #{
         get => #{
-            description => "Get delayed status",
+            description => <<"Get delayed status">>,
             responses => #{
-                <<"200">> => response_schema(<<"Bad Request">>, Schema)}},
+                <<"200">> => schema(delayed)}
+            },
         put => #{
-            description => "Enable or disable delayed, set max delayed messages",
-            'requestBody' => request_body_schema(Schema),
+            description => <<"Enable or disable delayed, set max delayed messages">>,
+            'requestBody' => schema(delayed),
             responses => #{
                 <<"200">> =>
-                    response_schema(<<"Enable or disable delayed successfully">>, Schema),
+                    schema(delayed, <<"Enable or disable delayed successfully">>),
                 <<"400">> =>
-                    response_error_schema(<<"Already disabled or enabled">>, [?ALREADY_ENABLED, ?ALREADY_DISABLED])}}},
+                    error_schema(<<"Already disabled or enabled">>, [?ALREADY_ENABLED, ?ALREADY_DISABLED])
+            }
+        }
+    },
     {"/mqtt/delayed_messages/status", Metadata, status}.
 
 delayed_messages_api() ->
@@ -126,32 +100,30 @@ delayed_messages_api() ->
         get => #{
             description => "List delayed messages",
             responses => #{
-                <<"200">> => response_page_schema(delayed_schema())}}},
+                <<"200">> => page_object_schema(properties())
+            }
+        }
+    },
     {"/mqtt/delayed_messages", Metadata, delayed_messages}.
 
 delayed_message_api() ->
     Metadata = #{
         get => #{
-            description => "Get delayed message",
-            parameters => [#{
-                name => id,
-                in => path,
-                schema => #{type => string},
-                required => true
-            }],
+            description => <<"Get delayed message">>,
+            parameters => parameters(),
             responses => #{
-                <<"200">> => response_schema(<<"Get delayed message success">>, delayed_schema(true)),
-                <<"404">> => response_error_schema(<<"Message ID not found">>, [?MESSAGE_ID_NOT_FOUND])}},
+                <<"200">> => object_schema(maps:without([payload], properties()), <<"Get delayed message success">>),
+                <<"404">> => error_schema(<<"Message ID not found">>, [?MESSAGE_ID_NOT_FOUND])
+            }
+        },
         delete => #{
-            description => "Delete delayed message",
-            parameters => [#{
-                name => id,
-                in => path,
-                schema => #{type => string},
-                required => true
-            }],
+            description => <<"Delete delayed message">>,
+            parameters => parameters(),
             responses => #{
-                <<"200">> => response_schema(<<"Delete delayed message success">>)}}},
+                <<"200">> => schema(<<"Delete delayed message success">>)
+            }
+        }
+    },
     {"/mqtt/delayed_messages/:id", Metadata, delayed_message}.
 
 %%--------------------------------------------------------------------
@@ -181,7 +153,7 @@ delayed_message(get, Request) ->
                     {200, Message#{payload => base64:encode(Payload)}}
             end;
         {error, not_found} ->
-            Message = list_to_binary(io_lib:format("Message ID ~p not found", [Id])),
+            Message = iolist_to_binary(io_lib:format("Message ID ~p not found", [Id])),
             {404, #{code => ?MESSAGE_ID_NOT_FOUND, message => Message}}
     end;
 delayed_message(delete, Request) ->

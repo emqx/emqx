@@ -20,6 +20,11 @@
 
 -include_lib("emqx/include/emqx.hrl").
 
+-import(emqx_mgmt_util, [ page_schema/1
+                        , properties/1
+                        , page_params/0
+                        ]).
+
 -export([api_spec/0]).
 
 -export([subscriptions/2]).
@@ -39,84 +44,67 @@
 -define(format_fun, {?MODULE, format}).
 
 api_spec() ->
-    {
-        [subscriptions_api()],
-        [subscription_schema()]
-    }.
+    {subscriptions_api(), subscription_schema()}.
 
 subscriptions_api() ->
     MetaData = #{
         get => #{
             description => <<"List subscriptions">>,
-            parameters => [
-                #{
-                    name => page,
-                    in => query,
-                    description => <<"Page">>,
-                    schema => #{type => integer}
-                },
-                #{
-                    name => limit,
-                    in => query,
-                    description => <<"Page size">>,
-                    schema => #{type => integer}
-                },
-                #{
-                    name => clientid,
-                    in => query,
-                    description => <<"Client ID">>,
-                    schema => #{type => string}
-                },
-                #{
-                    name => node,
-                    in => query,
-                    description => <<"Node name">>,
-                    schema => #{type => string}
-                },
-                #{
-                    name => qos,
-                    in => query,
-                    description => <<"QoS">>,
-                    schema => #{type => integer, enum => [0, 1, 2]}
-                },
-                #{
-                    name => share,
-                    in => query,
-                    description => <<"Shared subscription">>,
-                    schema => #{type => boolean}
-                },
-                #{
-                    name => topic,
-                    in => query,
-                    description => <<"Topic">>,
-                    schema => #{type => string}
-                }
-                #{
-                    name => match_topic,
-                    in => query,
-                    description => <<"Match topic string">>,
-                    schema => #{type => string}
-                }
-            ],
+            parameters => parameters(),
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_page_schema(subscription)}}},
-    {"/subscriptions", MetaData, subscriptions}.
+                <<"200">> => page_schema(subscription)
+            }
+        }
+    },
+    [{"/subscriptions", MetaData, subscriptions}].
 
 subscription_schema() ->
-    #{
-        subscription => #{
-            type => object,
-            properties => #{
-                node => #{
-                    type => string},
-                topic => #{
-                    type => string},
-                clientid => #{
-                    type => string},
-                qos => #{
-                    type => integer,
-                    enum => [0,1,2]}}}
-    }.
+    Props = properties([
+        {node, string},
+        {topic, string},
+        {clientid, string},
+        {qos, integer, <<>>, [0,1,2]}]),
+    [#{subscription => #{type => object, properties => Props}}].
+
+parameters() ->
+    [
+        #{
+            name => clientid,
+            in => query,
+            description => <<"Client ID">>,
+            schema => #{type => string}
+        },
+        #{
+            name => node,
+            in => query,
+            description => <<"Node name">>,
+            schema => #{type => string}
+        },
+        #{
+            name => qos,
+            in => query,
+            description => <<"QoS">>,
+            schema => #{type => integer, enum => [0, 1, 2]}
+        },
+        #{
+            name => share,
+            in => query,
+            description => <<"Shared subscription">>,
+            schema => #{type => boolean}
+        },
+        #{
+            name => topic,
+            in => query,
+            description => <<"Topic">>,
+            schema => #{type => string}
+        }
+        #{
+            name => match_topic,
+            in => query,
+            description => <<"Match topic string">>,
+            schema => #{type => string}
+        } | page_params()
+    ].
 
 subscriptions(get, Request) ->
     Params = cowboy_req:parse_qs(Request),

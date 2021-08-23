@@ -28,43 +28,35 @@
 
 -define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 
+-import(emqx_mgmt_util, [ object_schema/2
+                        , object_array_schema/2
+                        , error_schema/2
+                        , properties/1
+                        , page_params/0
+                        ]).
+
 api_spec() ->
     {
         [routes_api(), route_api()],
-        [route_schema()]
+        []
     }.
 
-route_schema() ->
-    #{
-        route => #{
-            type => object,
-            properties => #{
-                topic => #{
-                    type => string},
-                node => #{
-                    type => string,
-                    example => node()}}}}.
+properties() ->
+    properties([
+        {topic, string},
+        {node, string}
+    ]).
 
 routes_api() ->
     Metadata = #{
         get => #{
             description => <<"EMQ X routes">>,
-            parameters => [
-                #{
-                    name => page,
-                    in => query,
-                    description => <<"Page">>,
-                    schema => #{type => integer, default => 1}
-                },
-                #{
-                    name => limit,
-                    in => query,
-                    description => <<"Page size">>,
-                    schema => #{type => integer, default => emqx_mgmt:max_row_limit()}
-                }],
+            parameters => page_params(),
             responses => #{
-                <<"200">> =>
-                    emqx_mgmt_util:response_array_schema("List route info", route)}}},
+                <<"200">> => object_array_schema(properties(), <<"List route info">>)
+            }
+        }
+    },
     {"/routes", Metadata, routes}.
 
 route_api() ->
@@ -80,10 +72,12 @@ route_api() ->
             }],
             responses => #{
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Route info">>, route),
+                    object_schema(properties(), <<"Route info">>),
                 <<"404">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Topic not found">>, [?TOPIC_NOT_FOUND])
-            }}},
+                    error_schema(<<"Topic not found">>, [?TOPIC_NOT_FOUND])
+            }
+        }
+    },
     {"/routes/:topic", Metadata, route}.
 
 %%%==============================================================================================
