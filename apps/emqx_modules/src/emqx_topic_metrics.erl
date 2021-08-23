@@ -58,10 +58,10 @@
         , terminate/2
         ]).
 
-% -ifdef(TEST).
+-ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
-% -endif.
+-endif.
 
 -define(MAX_TOPICS, 512).
 -define(TAB, ?MODULE).
