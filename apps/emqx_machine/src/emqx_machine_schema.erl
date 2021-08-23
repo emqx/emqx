@@ -48,6 +48,7 @@
         , emqx_statsd_schema
         , emqx_authn_schema
         , emqx_authz_schema
+        , emqx_auto_subscribe_schema
         , emqx_bridge_mqtt_schema
         , emqx_modules_schema
         , emqx_management_schema

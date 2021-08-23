@@ -267,6 +267,7 @@ relx_apps(ReleaseType) ->
     , emqx_connector
     , emqx_authn
     , emqx_authz
+    , emqx_auto_subscribe
     , emqx_gateway
     , emqx_exhook
     , emqx_data_bridge
