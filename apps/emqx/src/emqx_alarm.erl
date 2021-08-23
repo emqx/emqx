@@ -85,9 +85,6 @@
 
 -define(DEACTIVATED_ALARM, emqx_deactivated_alarm).
 
--rlog_shard({?COMMON_SHARD, ?ACTIVATED_ALARM}).
--rlog_shard({?COMMON_SHARD, ?DEACTIVATED_ALARM}).
-
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).

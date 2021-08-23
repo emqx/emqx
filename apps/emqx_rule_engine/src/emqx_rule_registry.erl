@@ -96,11 +96,6 @@
 
 -define(T_CALL, 10000).
 
--rlog_shard({?RULE_ENGINE_SHARD, ?RULE_TAB}).
--rlog_shard({?RULE_ENGINE_SHARD, ?ACTION_TAB}).
--rlog_shard({?RULE_ENGINE_SHARD, ?RES_TAB}).
--rlog_shard({?RULE_ENGINE_SHARD, ?RES_TYPE_TAB}).
-
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
@@ -112,6 +107,7 @@ mnesia(boot) ->
     StoreProps = [{ets, [{read_concurrency, true}]}],
     %% Rule table
     ok = ekka_mnesia:create_table(?RULE_TAB, [
+                {rlog_shard, ?RULE_ENGINE_SHARD},
                 {disc_copies, [node()]},
                 {record_name, rule},
                 {index, [#rule.for]},
@@ -119,6 +115,7 @@ mnesia(boot) ->
                 {storage_properties, StoreProps}]),
     %% Rule action table
     ok = ekka_mnesia:create_table(?ACTION_TAB, [
+                {rlog_shard, ?RULE_ENGINE_SHARD},
                 {ram_copies, [node()]},
                 {record_name, action},
                 {index, [#action.for, #action.app]},
@@ -126,6 +123,7 @@ mnesia(boot) ->
                 {storage_properties, StoreProps}]),
     %% Resource table
     ok = ekka_mnesia:create_table(?RES_TAB, [
+                {rlog_shard, ?RULE_ENGINE_SHARD},
                 {disc_copies, [node()]},
                 {record_name, resource},
                 {index, [#resource.type]},
@@ -133,6 +131,7 @@ mnesia(boot) ->
                 {storage_properties, StoreProps}]),
     %% Resource type table
     ok = ekka_mnesia:create_table(?RES_TYPE_TAB, [
+                {rlog_shard, ?RULE_ENGINE_SHARD},
                 {ram_copies, [node()]},
                 {record_name, resource_type},
                 {index, [#resource_type.provider]},

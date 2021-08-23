@@ -45,8 +45,6 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
--rlog_shard({?AUTH_SHARD, ?TAB}).
-
 -record(user_info,
         { user_id
         , stored_key
@@ -63,6 +61,7 @@
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
+                {rlog_shard, ?AUTH_SHARD},
                 {disc_copies, [node()]},
                 {record_name, user_info},
                 {attributes, record_info(fields, user_info)},
@@ -112,7 +111,7 @@ create(#{ algorithm := Algorithm
 
 update(Config, #{user_group := Unique}) ->
     create(Config#{'_unique' => Unique}).
-    
+
 authenticate(#{auth_method := AuthMethod,
                auth_data := AuthData,
                auth_cache := AuthCache}, State) ->

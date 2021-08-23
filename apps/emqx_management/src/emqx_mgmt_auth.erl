@@ -48,14 +48,13 @@
 
 -include("emqx_mgmt.hrl").
 
--rlog_shard({?MANAGEMENT_SHARD, mqtt_app}).
-
 %%--------------------------------------------------------------------
 %% Mnesia Bootstrap
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(mqtt_app, [
+                {rlog_shard, ?MANAGEMENT_SHARD},
                 {disc_copies, [node()]},
                 {record_name, mqtt_app},
                 {attributes, record_info(fields, mqtt_app)}]);

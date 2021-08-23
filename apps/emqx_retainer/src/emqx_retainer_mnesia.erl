@@ -34,8 +34,6 @@
 
 -export([create_resource/1]).
 
--rlog_shard({?RETAINER_SHARD, ?TAB}).
-
 -record(retained, {topic, msg, expiry_time}).
 
 -type batch_read_result() ::
@@ -56,6 +54,7 @@ create_resource(#{storage_type := StorageType}) ->
                   {dets, [{auto_save, 1000}]}],
     ok = ekka_mnesia:create_table(?TAB, [
                 {type, set},
+                {rlog_shard, ?RETAINER_SHARD},
                 {Copies, [node()]},
                 {record_name, retained},
                 {attributes, record_info(fields, retained)},

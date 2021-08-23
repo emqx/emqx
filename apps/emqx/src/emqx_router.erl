@@ -68,7 +68,6 @@
 -type(dest() :: node() | {group(), node()}).
 
 -define(ROUTE_TAB, emqx_route).
--rlog_shard({?ROUTE_SHARD, ?ROUTE_TAB}).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -77,6 +76,7 @@
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?ROUTE_TAB, [
                 {type, bag},
+                {rlog_shard, ?ROUTE_SHARD},
                 {ram_copies, [node()]},
                 {record_name, route},
                 {attributes, record_info(fields, route)},

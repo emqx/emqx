@@ -58,7 +58,6 @@
 
 -define(TAB, ?MODULE).
 
--rlog_shard({?AUTH_SHARD, ?TAB}).
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
@@ -67,6 +66,7 @@
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
+                {rlog_shard, ?AUTH_SHARD},
                 {disc_copies, [node()]},
                 {record_name, user_info},
                 {attributes, record_info(fields, user_info)},

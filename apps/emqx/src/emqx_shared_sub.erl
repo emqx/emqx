@@ -76,8 +76,6 @@
 -define(NACK(Reason), {shared_sub_nack, Reason}).
 -define(NO_ACK, no_ack).
 
--rlog_shard({?SHARED_SUB_SHARD, ?TAB}).
-
 -record(state, {pmon}).
 
 -record(emqx_shared_subscription, {group, topic, subpid}).
@@ -89,6 +87,7 @@
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
                 {type, bag},
+                {rlog_shard, ?SHARED_SUB_SHARD},
                 {ram_copies, [node()]},
                 {record_name, emqx_shared_subscription},
                 {attributes, record_info(fields, emqx_shared_subscription)}]);
