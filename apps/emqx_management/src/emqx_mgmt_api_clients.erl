@@ -642,7 +642,6 @@ format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
 do_subscribe(ClientID, Topic0, Qos) ->
     {Topic, Opts} = emqx_topic:parse(Topic0),
     TopicTable = [{Topic, Opts#{qos => Qos}}],
-    emqx_mgmt:subscribe(ClientID, TopicTable),
     case emqx_mgmt:subscribe(ClientID, TopicTable) of
         {error, Reason} ->
             {error, Reason};
