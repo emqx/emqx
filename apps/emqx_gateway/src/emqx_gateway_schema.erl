@@ -1,4 +1,22 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
 -module(emqx_gateway_schema).
+
+-behaviour(hocon_schema).
 
 -dialyzer(no_return).
 -dialyzer(no_match).
@@ -8,17 +26,16 @@
 
 -include_lib("typerefl/include/types.hrl").
 
+-type ip_port() :: tuple().
 -type duration() :: integer().
 -type bytesize() :: integer().
 -type comma_separated_list() :: list().
--type ip_port() :: tuple().
 
+-typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({bytesize/0, emqx_schema, to_bytesize}).
--typerefl_from_string({comma_separated_list/0, emqx_schema, to_comma_separated_list}).
--typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
-
--behaviour(hocon_schema).
+-typerefl_from_string({comma_separated_list/0, emqx_schema,
+                       to_comma_separated_list}).
 
 -reflect_type([ duration/0
               , bytesize/0
@@ -27,11 +44,15 @@
               ]).
 
 -export([structs/0 , fields/1]).
+
 -export([t/1, t/3, t/4, ref/1]).
 
-structs() -> ["gateway"].
+%%--------------------------------------------------------------------
+%% Structs
 
-fields("gateway") ->
+structs() -> [gateway].
+
+fields(gateway) ->
     [{stomp, t(ref(stomp_structs))},
      {mqttsn, t(ref(mqttsn_structs))},
      {coap, t(ref(coap_structs))},
@@ -43,7 +64,7 @@ fields(stomp_structs) ->
     [ {frame, t(ref(stomp_frame))}
     , {clientinfo_override, t(ref(clientinfo_override))}
     , {authenticator,  t(authenticator(), undefined, undefined)}
-    , {listener, t(ref(tcp_listener_group))}
+    , {listeners, t(ref(tcp_listener_group))}
     ];
 
 fields(stomp_frame) ->
@@ -61,11 +82,10 @@ fields(mqttsn_structs) ->
     , {predefined, hoconsc:array(ref(mqttsn_predefined))}
     , {clientinfo_override, t(ref(clientinfo_override))}
     , {authenticator,  t(authenticator(), undefined, undefined)}
-    , {listener, t(ref(udp_listener_group))}
+    , {listeners, t(ref(udp_listener_group))}
     ];
 
 fields(mqttsn_predefined) ->
-    %% FIXME: How to check the $id is a integer ???
     [ {id, t(integer())}
     , {topic, t(string())}
     ];
@@ -80,18 +100,18 @@ fields(lwm2m_structs) ->
     , {update_msg_publish_condition, t(union([always, contains_object_list]))}
     , {translators, t(ref(translators))}
     , {authenticator,  t(authenticator(), undefined, undefined)}
-    , {listener, t(ref(udp_listener_group))}
+    , {listeners, t(ref(udp_listener_group))}
     ];
 
 fields(exproto_structs) ->
     [ {server, t(ref(exproto_grpc_server))}
     , {handler, t(ref(exproto_grpc_handler))}
     , {authenticator,  t(authenticator(), undefined, undefined)}
-    , {listener, t(ref(udp_tcp_listener_group))}
+    , {listeners, t(ref(udp_tcp_listener_group))}
     ];
 
 fields(exproto_grpc_server) ->
-    [ {bind, t(integer())}
+    [ {bind, t(union(ip_port(), integer()))}
       %% TODO: ssl options
     ];
 
@@ -139,9 +159,7 @@ fields(dtls_listener) ->
     [ {"$name", t(ref(dtls_listener_settings))}];
 
 fields(listener_settings) ->
-    % FIXME:
-    %[ {"bind", t(union(ip_port(), integer()))}
-    [ {bind, t(integer())}
+    [ {bind, t(union(ip_port(), integer()))}
     , {acceptors, t(integer(), undefined, 8)}
     , {max_connections, t(integer(), undefined, 1024)}
     , {max_conn_rate, t(integer())}
@@ -203,7 +221,7 @@ fields(coap_structs) ->
     , {subscribe_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
     , {publish_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
     , {authenticator,  t(authenticator(), undefined, undefined)}
-    , {listener, t(ref(udp_listener_group))}
+    , {listeners, t(ref(udp_listener_group))}
     ];
 
 fields(ExtraField) ->

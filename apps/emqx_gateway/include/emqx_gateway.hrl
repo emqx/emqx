@@ -19,8 +19,15 @@
 
 -type gateway_name() :: atom().
 
+-type listener() :: #{}.
+
 %% The RawConf got from emqx:get_config/1
--type rawconf() :: map().
+-type rawconf() ::
+        #{ clientinfo_override => map()
+         , authenticator       => map()
+         , listeners           => listener()
+         , atom()              => any()
+         }.
 
 %% @doc The Gateway defination
 -type gateway() ::
