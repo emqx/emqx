@@ -514,8 +514,15 @@ subscriptions(get, Request) ->
 %% api apply
 
 list(Params) ->
-    Response = emqx_mgmt_api:cluster_query(Params, ?CLIENT_QS_SCHEMA, ?query_fun),
-    {200, Response}.
+    case proplists:get_value(<<"node">>, Params, undefined) of
+        undefined ->
+            Response = emqx_mgmt_api:cluster_query(Params, ?CLIENT_QS_SCHEMA, ?query_fun),
+            {200, Response};
+        Node1 ->
+            Node = binary_to_atom(Node1, utf8),
+            Response = emqx_mgmt_api:node_query(Node, proplists:delete(<<"node">>, Params), ?CLIENT_QS_SCHEMA, ?query_fun),
+            {200, Response}
+    end.
 
 lookup(#{clientid := ClientID}) ->
     case emqx_mgmt:lookup_client({clientid, ClientID}, ?format_fun) of
