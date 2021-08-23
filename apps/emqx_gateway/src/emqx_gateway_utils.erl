@@ -17,6 +17,8 @@
 %% @doc Utils funcs for emqx-gateway
 -module(emqx_gateway_utils).
 
+-include("emqx_gateway.hrl").
+
 -export([ childspec/2
         , childspec/3
         , childspec/4
@@ -105,15 +107,6 @@ format_listenon({Addr, Port}) when is_list(Addr) ->
 format_listenon({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
 
--type listener() :: #{}.
-
--type rawconf() ::
-        #{ clientinfo_override => #{}
-         , authenticators      := list()
-         , listeners           => listener()
-         , atom()              => any()
-         }.
-
 -spec normalize_rawconf(rawconf())
     -> list({ Type :: udp | tcp | ssl | dtls
             , ListenOn :: esockd:listen_on()
@@ -121,8 +114,8 @@ format_listenon({Addr, Port}) when is_tuple(Addr) ->
             , Cfg :: map()
             }).
 normalize_rawconf(RawConf) ->
-    LisMap = maps:get(listener, RawConf, #{}),
-    Cfg0 = maps:without([listener], RawConf),
+    LisMap = maps:get(listeners, RawConf, #{}),
+    Cfg0 = maps:without([listeners], RawConf),
     lists:append(maps:fold(fun(Type, Liss, AccIn1) ->
         Listeners =
             maps:fold(fun(_Name, Confs, AccIn2) ->
