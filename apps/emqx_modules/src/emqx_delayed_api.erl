@@ -93,7 +93,7 @@ status_api() ->
             }
         }
     },
-    {"/mqtt/delayed_messages/status", Metadata, status}.
+    {"/mqtt/delayed", Metadata, status}.
 
 delayed_messages_api() ->
     Metadata = #{
@@ -104,7 +104,7 @@ delayed_messages_api() ->
             }
         }
     },
-    {"/mqtt/delayed_messages", Metadata, delayed_messages}.
+    {"/mqtt/delayed/messages", Metadata, delayed_messages}.
 
 delayed_message_api() ->
     Metadata = #{
@@ -124,7 +124,7 @@ delayed_message_api() ->
             }
         }
     },
-    {"/mqtt/delayed_messages/:id", Metadata, delayed_message}.
+    {"/mqtt/delayed/messages/:id", Metadata, delayed_message}.
 
 %%--------------------------------------------------------------------
 %% HTTP API
