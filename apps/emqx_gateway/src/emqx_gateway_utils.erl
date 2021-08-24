@@ -109,6 +109,7 @@ format_listenon({Addr, Port}) when is_tuple(Addr) ->
 
 -spec normalize_rawconf(rawconf())
     -> list({ Type :: udp | tcp | ssl | dtls
+            , Name :: atom()
             , ListenOn :: esockd:listen_on()
             , SocketOpts :: esockd:option()
             , Cfg :: map()
@@ -118,14 +119,14 @@ normalize_rawconf(RawConf) ->
     Cfg0 = maps:without([listeners], RawConf),
     lists:append(maps:fold(fun(Type, Liss, AccIn1) ->
         Listeners =
-            maps:fold(fun(_Name, Confs, AccIn2) ->
+            maps:fold(fun(Name, Confs, AccIn2) ->
                 ListenOn   = maps:get(bind, Confs),
                 SocketOpts = esockd:parse_opt(maps:to_list(Confs)),
                 RemainCfgs = maps:without(
                                [bind] ++ proplists:get_keys(SocketOpts),
                                Confs),
                 Cfg = maps:merge(Cfg0, RemainCfgs),
-                [{Type, ListenOn, SocketOpts, Cfg}|AccIn2]
+                [{Type, Name, ListenOn, SocketOpts, Cfg}|AccIn2]
             end, [], Liss),
             [Listeners|AccIn1]
     end, [], LisMap)).
