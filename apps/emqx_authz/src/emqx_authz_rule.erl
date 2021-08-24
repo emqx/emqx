@@ -70,11 +70,6 @@ atom(B) when is_binary(B) ->
     catch
         _ -> binary_to_atom(B)
     end;
-atom(L) when is_list(L) ->
-    try list_to_existing_atom(L)
-    catch
-        _ -> list_to_atom(L)
-    end;
 atom(A) when is_atom(A) -> A.
 
 bin(L) when is_list(L) ->
@@ -84,7 +79,7 @@ bin(B) when is_binary(B) ->
 
 -spec(matches(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic(), [rule()])
       -> {matched, allow} | {matched, deny} | nomatch).
-matches(Client, PubSub, Topic, []) -> nomatch;
+matches(_Client, _PubSub, _Topic, []) -> nomatch;
 matches(Client, PubSub, Topic, [{Permission, Who, Action, TopicFilters} | Tail]) ->
     case match(Client, PubSub, Topic, {Permission, Who, Action, TopicFilters}) of
         nomatch -> matches(Client, PubSub, Topic, Tail);

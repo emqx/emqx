@@ -84,7 +84,9 @@ mongo_fields() ->
                       nullable => true}}
     , {database, fun emqx_connector_schema_lib:database/1}
     , {topology, #{type => hoconsc:ref(?MODULE, topology),
-                   nullable => true}}
+                   default => #{}}}
+                   %% TODO: Does the ref type support nullable=ture ?
+                   % nullable => true}}
     ] ++
     emqx_connector_schema_lib:ssl_fields().
 

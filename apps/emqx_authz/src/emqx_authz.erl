@@ -233,7 +233,6 @@ create_resource(#{type := DB,
         {error, Reason} -> {error, Reason}
     end.
 
--spec(init_provider(rule()) -> rule()).
 init_provider(#{enable := true,
                 type := file,
                 path := Path
@@ -301,7 +300,7 @@ init_provider(#{enable := false} = Rule) ->Rule.
       -> {stop, allow} | {ok, deny}).
 authorize(#{username := Username,
             peerhost := IpAddress
-           } = Client, PubSub, Topic, _DefaultResult, Rules) ->
+           } = Client, PubSub, Topic, DefaultResult, Rules) ->
     case do_authorize(Client, PubSub, Topic, Rules) of
         {matched, allow} ->
             ?LOG(info, "Client succeeded authorization: Username: ~p, IP: ~p, Topic: ~p, Permission: allow", [Username, IpAddress, Topic]),
@@ -313,7 +312,7 @@ authorize(#{username := Username,
             {stop, deny};
         nomatch ->
             ?LOG(info, "Client failed authorization: Username: ~p, IP: ~p, Topic: ~p, Reasion: ~p", [Username, IpAddress, Topic, "no-match rule"]),
-            {stop, deny}
+            {stop, DefaultResult}
     end.
 
 do_authorize(Client, PubSub, Topic,
