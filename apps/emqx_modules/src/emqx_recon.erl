@@ -27,12 +27,14 @@
 %% enable/disable
 %%--------------------------------------------------------------------
 enable() ->
-    emqx_ctl:register_command(recon, {?MODULE, cmd}, []).
+    emqx_ctl:register_command(recon, {?MODULE, cmd}, []),
+    emqx_ctl:register_command(observer, {?MODULE, cmd}, []).
 
 disable() ->
-    emqx_ctl:unregister_command(recon).
+    emqx_ctl:unregister_command(recon),
+    emqx_ctl:unregister_command(observer).
 
-cmd(["observer_cli"]) ->
+cmd(["status"]) ->
     observer_cli:start();
 cmd(["memory"]) ->
     Print = fun(Key, Keyword) ->
@@ -58,7 +60,7 @@ cmd(["proc_count", Attr, N]) ->
     emqx_ctl:print("~p~n", [recon:proc_count(list_to_atom(Attr), list_to_integer(N))]);
 
 cmd(_) ->
-    emqx_ctl:usage([{"observer_cli",           "observer_cli:start()"},
+    emqx_ctl:usage([{"observer status",           "observer_cli:start()"},
                     {"recon memory",           "recon_alloc:memory/2"},
                     {"recon allocated",        "recon_alloc:memory(allocated_types, current|max)"},
                     {"recon bin_leak",         "recon:bin_leak(100)"},
