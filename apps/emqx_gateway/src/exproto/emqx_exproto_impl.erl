@@ -139,21 +139,21 @@ pool_name(GwName) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-start_listener(GwName, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
+start_listener(GwName, Ctx, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
-    case start_listener(GwName, Ctx, Type, ListenOn, SocketOpts, Cfg) of
+    case start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
-            ?ULOG("Start ~s:~s listener on ~s successfully.~n",
-                      [GwName, Type, ListenOnStr]),
+            ?ULOG("Start ~s:~s:~s listener on ~s successfully.~n",
+                      [GwName, Type, LisName, ListenOnStr]),
             Pid;
         {error, Reason} ->
-            ?ELOG("Failed to start ~s:~s listener on ~s: ~0p~n",
-                  [GwName, Type, ListenOnStr, Reason]),
+            ?ELOG("Failed to start ~s:~s:~s listener on ~s: ~0p~n",
+                  [GwName, Type, LisName, ListenOnStr, Reason]),
             throw({badconf, Reason})
     end.
 
-start_listener(GwName, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
-    Name = name(GwName, Type),
+start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) ->
+    Name = name(GwName, LisName, Type),
     NCfg = Cfg#{
              ctx => Ctx,
              frame_mod => emqx_exproto_frame,
@@ -172,8 +172,8 @@ do_start_listener(udp, Name, ListenOn, Opts, MFA) ->
 do_start_listener(dtls, Name, ListenOn, Opts, MFA) ->
     esockd:open_dtls(Name, ListenOn, Opts, MFA).
 
-name(GwName, Type) ->
-    list_to_atom(lists:concat([GwName, ":", Type])).
+name(GwName, LisName, Type) ->
+    list_to_atom(lists:concat([GwName, ":", LisName, ":", Type])).
 
 merge_default_by_type(Type, Options) when Type =:= tcp;
                                           Type =:= ssl ->
@@ -196,18 +196,18 @@ merge_default_by_type(Type, Options) when Type =:= udp;
             [{udp_options, Default} | Options]
     end.
 
-stop_listener(GwName, {Type, ListenOn, SocketOpts, Cfg}) ->
-    StopRet = stop_listener(GwName, Type, ListenOn, SocketOpts, Cfg),
+stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
+    StopRet = stop_listener(GwName, Type, LisName, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
-        ok -> ?ULOG("Stop ~s:~s listener on ~s successfully.~n",
-                    [GwName, Type, ListenOnStr]);
+        ok -> ?ULOG("Stop ~s:~s:~s listener on ~s successfully.~n",
+                    [GwName, Type, LisName, ListenOnStr]);
         {error, Reason} ->
-            ?ELOG("Failed to stop ~s:~s listener on ~s: ~0p~n",
-                  [GwName, Type, ListenOnStr, Reason])
+            ?ELOG("Failed to stop ~s:~s:~s listener on ~s: ~0p~n",
+                  [GwName, Type, LisName, ListenOnStr, Reason])
     end,
     StopRet.
 
-stop_listener(GwName, Type, ListenOn, _SocketOpts, _Cfg) ->
-    Name = name(GwName, Type),
+stop_listener(GwName, Type, LisName, ListenOn, _SocketOpts, _Cfg) ->
+    Name = name(GwName, LisName, Type),
     esockd:close(Name, ListenOn).

@@ -103,21 +103,21 @@ on_gateway_unload(_Gateway = #{ name := GwName,
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-start_listener(GwName, Ctx, {Type, ListenOn, SocketOpts, Cfg}) ->
+start_listener(GwName, Ctx, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
-    case start_listener(GwName, Ctx, Type, ListenOn, SocketOpts, Cfg) of
+    case start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
-            ?ULOG("Start ~s:~s listener on ~s successfully.~n",
-                  [GwName, Type, ListenOnStr]),
+            ?ULOG("Start ~s:~s:~s listener on ~s successfully.~n",
+                  [GwName, Type, LisName, ListenOnStr]),
             Pid;
         {error, Reason} ->
-            ?ELOG("Failed to start ~s:~s listener on ~s: ~0p~n",
-                  [GwName, Type, ListenOnStr, Reason]),
+            ?ELOG("Failed to start ~s:~s:~s listener on ~s: ~0p~n",
+                  [GwName, Type, LisName, ListenOnStr, Reason]),
             throw({badconf, Reason})
     end.
 
-start_listener(GwName, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
-    Name = name(GwName, udp),
+start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) ->
+    Name = name(GwName, LisName, udp),
     NCfg = Cfg#{ctx => Ctx},
     NSocketOpts = merge_default(SocketOpts),
     Options = [{config, NCfg}|NSocketOpts],
@@ -128,8 +128,8 @@ start_listener(GwName, Ctx, Type, ListenOn, SocketOpts, Cfg) ->
             lwm2m_coap_server:start_dtls(Name, ListenOn, Options)
     end.
 
-name(GwName, Type) ->
-    list_to_atom(lists:concat([GwName, ":", Type])).
+name(GwName, LisName, Type) ->
+    list_to_atom(lists:concat([GwName, ":", LisName, ":", Type])).
 
 merge_default(Options) ->
     Default = emqx_gateway_utils:default_udp_options(),
@@ -141,20 +141,20 @@ merge_default(Options) ->
             [{udp_options, Default} | Options]
     end.
 
-stop_listener(GwName, {Type, ListenOn, SocketOpts, Cfg}) ->
-    StopRet = stop_listener(GwName, Type, ListenOn, SocketOpts, Cfg),
+stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
+    StopRet = stop_listener(GwName, Type, LisName, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
-        ok -> ?ULOG("Stop ~s:~s listener on ~s successfully.~n",
-                    [GwName, Type, ListenOnStr]);
+        ok -> ?ULOG("Stop ~s:~s:~s listener on ~s successfully.~n",
+                    [GwName, Type, LisName, ListenOnStr]);
         {error, Reason} ->
-            ?ELOG("Failed to stop ~s:~s listener on ~s: ~0p~n",
-                  [GwName, Type, ListenOnStr, Reason])
+            ?ELOG("Failed to stop ~s:~s:~s listener on ~s: ~0p~n",
+                  [GwName, Type, LisName, ListenOnStr, Reason])
     end,
     StopRet.
 
-stop_listener(GwName, Type, ListenOn, _SocketOpts, _Cfg) ->
-    Name = name(GwName, Type),
+stop_listener(GwName, Type, LisName, ListenOn, _SocketOpts, _Cfg) ->
+    Name = name(GwName, LisName, Type),
     case Type of
         udp ->
             lwm2m_coap_server:stop_udp(Name, ListenOn);
