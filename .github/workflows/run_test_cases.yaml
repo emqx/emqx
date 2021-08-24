@@ -106,11 +106,11 @@ jobs:
         - uses: actions/upload-artifact@v1
           if: failure()
           with:
-            name: logs
+            name: logs_${{ matrix.otp_release }}
             path: _build/test/logs
         - uses: actions/upload-artifact@v1
           with:
-            name: cover
+            name: cover_${{ matrix.otp_release }}
             path: _build/test/cover
 
     finish:
