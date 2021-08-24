@@ -18,11 +18,11 @@
 
 -behavior(minirest_api).
 
--import(emqx_mgmt_util, [ request_body_schema/1
-                        , response_schema/1
-                        , response_schema/2
-                        , response_array_schema/2
-                        , response_error_schema/2
+-import(emqx_mgmt_util, [ properties/1
+                        , schema/1
+                        , object_schema/2
+                        , object_array_schema/2
+                        , error_schema/2
                         ]).
 
 -export([api_spec/0]).
@@ -49,113 +49,88 @@ api_spec() ->
             reset_all_topic_metrics_api(),
             reset_topic_metrics_api()
         ],
-        [
-            topic_metrics_schema()
-        ]
+        []
     }.
 
-topic_metrics_schema() ->
-    #{
-        topic_metrics => #{
-            type => object,
-            properties => #{
-                topic => #{type => string},
-                create_time => #{
-                    type => string,
-                    description => <<"Date time, rfc3339">>
-                },
-                reset_time => #{
-                    type => string,
-                    description => <<"Nullable. Date time, rfc3339.">>
-                },
-                metrics => #{
-                    type => object,
-                    properties => #{
-                        'messages.dropped.count'  => #{type => integer},
-                        'messages.dropped.rate'   => #{type => number},
-                        'messages.in.count'       => #{type => integer},
-                        'messages.in.rate'        => #{type => number},
-                        'messages.out.count'      => #{type => integer},
-                        'messages.out.rate'       => #{type => number},
-                        'messages.qos0.in.count'  => #{type => integer},
-                        'messages.qos0.in.rate'   => #{type => number},
-                        'messages.qos0.out.count' => #{type => integer},
-                        'messages.qos0.out.rate'  => #{type => number},
-                        'messages.qos1.in.count'  => #{type => integer},
-                        'messages.qos1.in.rate'   => #{type => number},
-                        'messages.qos1.out.count' => #{type => integer},
-                        'messages.qos1.out.rate'  => #{type => number},
-                        'messages.qos2.in.count'  => #{type => integer},
-                        'messages.qos2.in.rate'   => #{type => number},
-                        'messages.qos2.out.count' => #{type => integer},
-                        'messages.qos2.out.rate'  => #{type => number}
-                    }
-                }
-            }
-        }
-    }.
+properties() ->
+    properties([
+        {topic, string},
+        {create_time, string, <<"Date time, rfc3339">>},
+        {reset_time, string, <<"Nullable. Date time, rfc3339.">>},
+        {metrics, object, [{'messages.dropped.count', integer},
+                           {'messages.dropped.rate', number},
+                           {'messages.in.count', integer},
+                           {'messages.in.rate', number},
+                           {'messages.out.count', integer},
+                           {'messages.out.rate', number},
+                           {'messages.qos0.in.count', integer},
+                           {'messages.qos0.in.rate', number},
+                           {'messages.qos0.out.count', integer},
+                           {'messages.qos0.out.rate', number},
+                           {'messages.qos1.in.count', integer},
+                           {'messages.qos1.in.rate', number},
+                           {'messages.qos1.out.count', integer},
+                           {'messages.qos1.out.rate', number},
+                           {'messages.qos2.in.count', integer},
+                           {'messages.qos2.in.rate', number},
+                           {'messages.qos2.out.count', integer},
+                           {'messages.qos2.out.rate', number}]}
+    ]).
+
 
 list_topic_api() ->
-    Path = "/mqtt/topic_metrics",
-    TopicSchema = #{
-        type => object,
-        properties => #{
-            topic => #{
-                type => string}}},
+    Props = properties([{topic, string}]),
     MetaData = #{
         get => #{
             description => <<"List topic">>,
-            responses => #{
-                <<"200">> =>
-                    response_array_schema(<<"List topic">>, TopicSchema)}}},
-    {Path, MetaData, list_topic}.
+            responses => #{<<"200">> => object_array_schema(Props, <<"List topic">>)}
+        }
+    },
+    {"/mqtt/topic_metrics", MetaData, list_topic}.
 
 list_topic_metrics_api() ->
-    Path = "/mqtt/topic_metrics/metrics",
     MetaData = #{
         get => #{
             description => <<"List topic metrics">>,
             responses => #{
-                <<"200">> =>
-                    response_array_schema(<<"List topic metrics">>, topic_metrics)}}},
-    {Path, MetaData, list_topic_metrics}.
+                <<"200">> => object_array_schema(properties(), <<"List topic metrics">>)
+            }
+        }
+    },
+    {"/mqtt/topic_metrics/metrics", MetaData, list_topic_metrics}.
 
 get_topic_metrics_api() ->
-    Path = "/mqtt/topic_metrics/metrics/:topic",
     MetaData = #{
         get => #{
             description => <<"List topic metrics">>,
             parameters => [topic_param()],
             responses => #{
-                <<"200">> =>
-                    response_schema(<<"List topic metrics">>, topic_metrics)}},
+                <<"200">> => object_schema(properties(), <<"List topic metrics">>)}},
         put => #{
             description => <<"Register topic metrics">>,
             parameters => [topic_param()],
             responses => #{
-                <<"200">> =>
-                    response_schema(<<"Register topic metrics">>),
-                <<"409">> =>
-                    response_error_schema(<<"Topic metrics max limit">>, [?EXCEED_LIMIT]),
-                <<"400">> =>
-                    response_error_schema(<<"Topic metrics already exist">>, [?BAD_REQUEST])}},
+                <<"200">> => schema(<<"Register topic metrics">>),
+                <<"409">> => error_schema(<<"Topic metrics max limit">>, [?EXCEED_LIMIT]),
+                <<"400">> => error_schema(<<"Topic metrics already exist">>, [?BAD_REQUEST])
+            }
+        },
         delete => #{
             description => <<"Deregister topic metrics">>,
             parameters => [topic_param()],
-            responses => #{
-                <<"200">> =>
-                    response_schema(<<"Deregister topic metrics">>)}}},
-    {Path, MetaData, operate_topic_metrics}.
+            responses => #{ <<"200">> => schema(<<"Deregister topic metrics">>)}
+        }
+    },
+    {"/mqtt/topic_metrics/metrics/:topic", MetaData, operate_topic_metrics}.
 
 reset_all_topic_metrics_api() ->
-    Path = "/mqtt/topic_metrics/reset",
     MetaData = #{
         put => #{
             description => <<"Reset all topic metrics">>,
-            responses => #{
-                <<"200">> =>
-                    response_schema(<<"Reset all topic metrics">>)}}},
-    {Path, MetaData, reset_all_topic_metrics}.
+            responses => #{<<"200">> => schema(<<"Reset all topic metrics">>)}
+        }
+    },
+    {"/mqtt/topic_metrics/reset", MetaData, reset_all_topic_metrics}.
 
 reset_topic_metrics_api() ->
     Path = "/mqtt/topic_metrics/reset/:topic",
@@ -163,9 +138,9 @@ reset_topic_metrics_api() ->
         put => #{
             description => <<"Reset topic metrics">>,
             parameters => [topic_param()],
-            responses => #{
-                <<"200">> =>
-                    response_schema(<<"Reset topic metrics">>)}}},
+            responses => #{<<"200">> => schema(<<"Reset topic metrics">>)}
+        }
+    },
     {Path, MetaData, reset_topic_metrics}.
 
 topic_param() ->
