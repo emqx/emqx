@@ -49,7 +49,7 @@ alarms_api() ->
     Metadata = #{
         get => #{
             description => <<"EMQ X alarms">>,
-            parameters => [#{
+            parameters => emqx_mgmt_util:page_params() ++ [#{
                 name => activated,
                 in => query,
                 description => <<"All alarms, if not specified">>,
@@ -69,26 +69,25 @@ alarms_api() ->
 %%%==============================================================================================
 %% parameters trans
 alarms(get, Request) ->
-    case proplists:get_value(<<"activated">>, cowboy_req:parse_qs(Request), undefined) of
-        undefined ->
-            list(#{activated => undefined});
-        <<"true">> ->
-            list(#{activated => true});
-        <<"false">> ->
-            list(#{activated => false})
-    end;
+    Params = cowboy_req:parse_qs(Request),
+    list(Params);
 
 alarms(delete, _Request) ->
     delete().
 
 %%%==============================================================================================
 %% api apply
-list(#{activated := true}) ->
-    do_list(activated);
-list(#{activated := false}) ->
-    do_list(deactivated);
-list(#{activated := undefined}) ->
-    do_list(activated).
+list(Params) ->
+    {Table, Function} =
+        case proplists:get_value(<<"activated">>, Params, <<"true">>) of
+            <<"true">> ->
+                {?ACTIVATED_ALARM, query_activated};
+            <<"false">> ->
+                {?DEACTIVATED_ALARM, query_deactivated}
+        end,
+    Params1 = proplists:delete(<<"activated">>, Params),
+    Response = emqx_mgmt_api:cluster_query(Params1, {Table, []}, {?MODULE, Function}),
+    {200, Response}.
 
 delete() ->
     _ = emqx_mgmt:delete_all_deactivated_alarms(),
@@ -96,17 +95,6 @@ delete() ->
 
 %%%==============================================================================================
 %% internal
-do_list(Type) ->
-    {Table, Function} =
-        case Type of
-            activated ->
-                {?ACTIVATED_ALARM, query_activated};
-            deactivated ->
-                {?DEACTIVATED_ALARM, query_deactivated}
-        end,
-    Response = emqx_mgmt_api:cluster_query([], {Table, []}, {?MODULE, Function}),
-    {200, Response}.
-
 query_activated(_, Start, Limit) ->
     query(?ACTIVATED_ALARM, Start, Limit).
 
