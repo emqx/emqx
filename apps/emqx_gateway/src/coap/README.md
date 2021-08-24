@@ -9,6 +9,7 @@
         4.  [Query String](#org9a6b996)
     2.  [Implementation](#org9985dfe)
         1.  [Request/Response flow](#orge94210c)
+    3.  [Example](#ref_example)
 
 
 
@@ -401,3 +402,33 @@ CoAP gateway uses some options in query string to conversion between MQTT CoAP.
         </tr>
         </tbody>
         </table>
+
+<a id="ref_example"></a>
+
+## Example
+1. Create Connection
+```
+coap-client -m post -e "" "coap://127.0.0.1/mqtt/connection?clientid=123&username=admin&password=public"
+```
+Server will return token **X** in payload
+
+2. Update Connection
+```
+coap-client -m put -e "" "coap://127.0.0.1/mqtt/connection?clientid=123&username=admin&password=public&token=X"
+```
+
+3. Publish
+```
+coap-client -m post -e "Hellow" "coap://127.0.0.1/ps/coap/test?clientid=123&username=admin&password=public"
+```
+if you want to publish with auth, you must first establish a connection, and then post publish request on the same socket, so libcoap client can't simulation publish with a token
+
+4. Subscribe
+```
+coap-client -m get -s 60 -O 6,0x00 -o - -T "obstoken" "coap://127.0.0.1/ps/coap/test?clientid=123&username=admin&password=public"
+```
+
+5. Close Connection
+```
+coap-client -m delete -e "" "coap://127.0.0.1/mqtt/connection?clientid=123&username=admin&password=public&token=X"
+```

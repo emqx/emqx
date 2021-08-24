@@ -9,19 +9,27 @@
 -define(EXCHANGE_LIFETIME, 247000).
 -define(NON_LIFETIME, 145000).
 
+-type request_context() :: any().
+
 -record(transport, { cache :: undefined | emqx_coap_message()
+                   , req_context :: request_context()
                    , retry_interval :: non_neg_integer()
                    , retry_count :: non_neg_integer()
+                   , observe :: non_neg_integer() | undefined
                    }).
 
 -type transport() :: #transport{}.
 
--export([ new/0, idle/4, maybe_reset/4
-        , maybe_resend/4, wait_ack/4, until_stop/4]).
+-export([ new/0, idle/3, maybe_reset/3, set_cache/2
+        , maybe_resend_4request/3, wait_ack/3, until_stop/3
+        , observe/3, maybe_resend_4response/3]).
 
 -export_type([transport/0]).
 
 -import(emqx_coap_message, [reset/1]).
+-import(emqx_coap_medium, [ empty/0, reset/2, proto_out/2
+                          , out/1, out/2, proto_out/1
+                          , reply/2]).
 
 -spec new() -> transport().
 new() ->
@@ -31,96 +39,152 @@ new() ->
 
 idle(in,
      #coap_message{type = non, method = Method} = Msg,
-     Ctx,
      _) ->
-    Ret = #{next => until_stop,
-            timeouts => [{stop_timeout, ?NON_LIFETIME}]},
     case Method of
         undefined ->
-            ?RESET(Msg);
+            reset(Msg, #{next => stop});
         _ ->
-            Result = call_handler(Msg, Ctx),
-            maps:merge(Ret, Result)
+            proto_out({request, Msg},
+                      #{next => until_stop,
+                        timeouts =>
+                            [{stop_timeout, ?NON_LIFETIME}]})
     end;
 
 idle(in,
      #coap_message{type = con, method = Method} = Msg,
-     Ctx,
-     Transport) ->
-    Ret = #{next => maybe_resend,
-            timeouts =>[{stop_timeout, ?EXCHANGE_LIFETIME}]},
+     _) ->
     case Method of
         undefined ->
-            ResetMsg = reset(Msg),
-            Ret#{transport => Transport#transport{cache = ResetMsg},
-                 out  => ResetMsg};
+            reset(Msg, #{next => stop});
         _ ->
-            Result = call_handler(Msg, Ctx),
-            maps:merge(Ret, Result)
+            proto_out({request, Msg},
+                      #{next => maybe_resend_4request,
+                        timeouts =>[{stop_timeout, ?EXCHANGE_LIFETIME}]})
     end;
 
-idle(out, #coap_message{type = non} = Msg, _, _) ->
-    #{next => maybe_reset,
-      out => Msg,
-      timeouts => [{stop_timeout, ?NON_LIFETIME}]};
+idle(out, {Ctx, Msg}, Transport) ->
+    idle(out, Msg, Transport#transport{req_context = Ctx});
 
-idle(out, Msg, _, Transport) ->
+idle(out, #coap_message{type = non} = Msg, _) ->
+    out(Msg, #{next => maybe_reset,
+               timeouts => [{stop_timeout, ?NON_LIFETIME}]});
+
+idle(out, Msg, Transport) ->
     _ = emqx_misc:rand_seed(),
     Timeout = ?ACK_TIMEOUT + rand:uniform(?ACK_RANDOM_FACTOR),
-    #{next => wait_ack,
-      transport => Transport#transport{cache = Msg},
-      out => Msg,
-      timeouts => [ {state_timeout, Timeout, ack_timeout}
-                  , {stop_timeout, ?EXCHANGE_LIFETIME}]}.
+    out(Msg, #{next => wait_ack,
+               transport => Transport#transport{cache = Msg},
+               timeouts => [ {state_timeout, Timeout, ack_timeout}
+                           , {stop_timeout, ?EXCHANGE_LIFETIME}]}).
 
-maybe_reset(in, Message, _, _) ->
-    case Message of
-        #coap_message{type = reset} ->
-            ?INFO("Reset Message:~p~n", [Message]);
+maybe_resend_4request(in, Msg, Transport) ->
+    maybe_resend(Msg, true, Transport).
+
+maybe_resend_4response(in, Msg, Transport) ->
+    maybe_resend(Msg, false, Transport).
+
+maybe_resend(Msg, IsExpecteReq, #transport{cache = Cache}) ->
+    IsExpected = emqx_coap_message:is_request(Msg) =:= IsExpecteReq,
+    case IsExpected of
+        true ->
+            case Cache of
+                undefined ->
+                    %% handler in processing, ignore
+                    empty();
+                _ ->
+                    out(Cache)
+            end;
         _ ->
-            ok
-    end,
-    ?EMPTY_RESULT.
+            reset(Msg, #{next => stop})
+    end.
 
-maybe_resend(in, _, _, #transport{cache = Cache}) ->
-    #{out => Cache}.
+maybe_reset(in, #coap_message{type = Type, method = Method} = Message,
+            #transport{req_context = Ctx} = Transport) ->
+    Ret = #{next => stop},
+    CtxMsg = {Ctx, Message},
+    if Type =:= reset ->
+            proto_out({reset, CtxMsg}, Ret);
+       is_tuple(Method) ->
+            on_response(Message,
+                        Transport,
+                        if Type =:= non -> until_stop;
+                           true -> maybe_resend_4response
+                        end);
+       true ->
+            reset(Message, Ret)
+    end.
 
-wait_ack(in, #coap_message{type = Type}, _, _) ->
+wait_ack(in, #coap_message{type = Type, method = Method} = Msg, #transport{req_context = Ctx}) ->
+    CtxMsg = {Ctx, Msg},
     case Type of
-        ack ->
-            #{next => until_stop};
         reset ->
-            #{next => until_stop};
+            proto_out({reset, CtxMsg}, #{next => stop});
         _ ->
-            ?EMPTY_RESULT
+            case Method of
+                undefined ->
+                    %% empty ack, keep transport to recv response
+                    proto_out({ack, CtxMsg});
+                {_, _} ->
+                    %% ack with payload
+                    proto_out({response, CtxMsg}, #{next => stop});
+                _ ->
+                    reset(Msg, #{next => stop})
+            end
     end;
 
 wait_ack(state_timeout,
          ack_timeout,
-         _,
          #transport{cache = Msg,
                     retry_interval = Timeout,
                     retry_count = Count} =Transport) ->
     case Count < ?MAX_RETRANSMIT of
         true ->
             Timeout2 = Timeout * 2,
-            #{transport => Transport#transport{retry_interval = Timeout2,
-                                               retry_count = Count + 1},
-              out => Msg,
-              timeouts => [{state_timeout, Timeout2, ack_timeout}]};
+            out(Msg,
+                #{transport => Transport#transport{retry_interval = Timeout2,
+                                                   retry_count = Count + 1},
+                  timeouts => [{state_timeout, Timeout2, ack_timeout}]});
         _ ->
-            #{next_state => until_stop}
+            proto_out({ack_failure, Msg}, #{next_state => stop})
     end.
 
-until_stop(_, _, _, _) ->
-    ?EMPTY_RESULT.
-
-call_handler(#coap_message{options = Opts} = Msg, Ctx) ->
-    case maps:get(uri_path, Opts, undefined) of
-        [<<"ps">> | RestPath] ->
-            emqx_coap_pubsub_handler:handle_request(RestPath, Msg, Ctx);
-        [<<"mqtt">> | RestPath] ->
-            emqx_coap_mqtt_handler:handle_request(RestPath, Msg, Ctx);
+observe(in,
+        #coap_message{method = Method} = Message,
+        #transport{observe = Observe} = Transport) ->
+    case Method of
+        {ok, _} ->
+            case emqx_coap_message:get_option(observe, Message, Observe) of
+                Observe ->
+                    %% repeatd notify, ignore
+                    empty();
+                NewObserve ->
+                    on_response(Message,
+                                Transport#transport{observe = NewObserve},
+                                ?FUNCTION_NAME)
+            end;
+        {error, _} ->
+            #{next => stop};
         _ ->
-            ?REPLY({error, bad_request}, Msg)
+            reset(Message)
+    end.
+
+until_stop(_, _, _) ->
+    empty().
+
+set_cache(Cache, Transport) ->
+    Transport#transport{cache = Cache}.
+
+on_response(#coap_message{type = Type} = Message,
+            #transport{req_context = Ctx} = Transport,
+            NextState) ->
+    CtxMsg = {Ctx, Message},
+    if Type =:= non ->
+            proto_out({response, CtxMsg}, #{next => NextState});
+       Type =:= con ->
+            Ack = emqx_coap_message:ack(Message),
+            proto_out({response, CtxMsg},
+                      out(Ack, #{next => NextState,
+                                 transport => Transport#transport{cache = Ack}}));
+       true ->
+            reset(Message)
     end.

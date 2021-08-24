@@ -50,24 +50,13 @@ unreg() ->
 on_gateway_load(_Gateway = #{ name := GwName,
                               config := Config
                             }, Ctx) ->
-
-    %% Handler
-    _ = lwm2m_coap_server:start_registry(),
-    lwm2m_coap_server_registry:add_handler(
-      [<<"rd">>],
-      emqx_lwm2m_coap_resource, undefined
-     ),
     %% Xml registry
     {ok, _} = emqx_lwm2m_xml_object_db:start_link(maps:get(xml_dir, Config)),
 
-    %% XXX: Self managed table?
-    %% TODO: Improve it later
-    {ok, _} = emqx_lwm2m_cm:start_link(),
-
     Listeners = emqx_gateway_utils:normalize_config(Config),
     ListenerPids = lists:map(fun(Lis) ->
-                     start_listener(GwName, Ctx, Lis)
-                   end, Listeners),
+                                     start_listener(GwName, Ctx, Lis)
+                             end, Listeners),
     {ok, ListenerPids, _GwState = #{ctx => Ctx}}.
 
 on_gateway_update(NewGateway, OldGateway, GwState = #{ctx := Ctx}) ->
@@ -88,12 +77,6 @@ on_gateway_update(NewGateway, OldGateway, GwState = #{ctx := Ctx}) ->
 on_gateway_unload(_Gateway = #{ name := GwName,
                                 config := Config
                               }, _GwState) ->
-    %% XXX:
-    lwm2m_coap_server_registry:remove_handler(
-      [<<"rd">>],
-      emqx_lwm2m_coap_resource, undefined
-     ),
-
     Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:foreach(fun(Lis) ->
         stop_listener(GwName, Lis)
@@ -118,18 +101,13 @@ start_listener(GwName, Ctx, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
 
 start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) ->
     Name = name(GwName, LisName, udp),
-    NCfg = Cfg#{ctx => Ctx},
+    NCfg = Cfg#{ ctx => Ctx
+               , frame_mod => emqx_coap_frame
+               , chann_mod => emqx_lwm2m_channel
+               },
     NSocketOpts = merge_default(SocketOpts),
-    Options = [{config, NCfg}|NSocketOpts],
-    case Type of
-        udp ->
-            lwm2m_coap_server:start_udp(Name, ListenOn, Options);
-        dtls ->
-            lwm2m_coap_server:start_dtls(Name, ListenOn, Options)
-    end.
-
-name(GwName, LisName, Type) ->
-    list_to_atom(lists:concat([GwName, ":", Type, ":", LisName])).
+    MFA = {emqx_gateway_conn, start_link, [NCfg]},
+    do_start_listener(Type, Name, ListenOn, NSocketOpts, MFA).
 
 merge_default(Options) ->
     Default = emqx_gateway_utils:default_udp_options(),
@@ -140,6 +118,16 @@ merge_default(Options) ->
         false ->
             [{udp_options, Default} | Options]
     end.
+
+name(GwName, LisName, Type) ->
+    list_to_atom(lists:concat([GwName, ":", Type, ":", LisName])).
+
+do_start_listener(udp, Name, ListenOn, SocketOpts, MFA) ->
+    esockd:open_udp(Name, ListenOn, SocketOpts, MFA);
+
+do_start_listener(dtls, Name, ListenOn, SocketOpts, MFA) ->
+    esockd:open_dtls(Name, ListenOn, SocketOpts, MFA).
+
 
 stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     StopRet = stop_listener(GwName, Type, LisName, ListenOn, SocketOpts, Cfg),
@@ -155,9 +143,4 @@ stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
 
 stop_listener(GwName, Type, LisName, ListenOn, _SocketOpts, _Cfg) ->
     Name = name(GwName, LisName, Type),
-    case Type of
-        udp ->
-            lwm2m_coap_server:stop_udp(Name, ListenOn);
-        dtls ->
-            lwm2m_coap_server:stop_dtls(Name, ListenOn)
-    end.
+    esockd:close(Name, ListenOn).

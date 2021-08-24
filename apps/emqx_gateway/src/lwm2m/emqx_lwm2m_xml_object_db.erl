@@ -16,7 +16,7 @@
 
 -module(emqx_lwm2m_xml_object_db).
 
--include("src/lwm2m/include/emqx_lwm2m.hrl").
+-include_lib("emqx_gateway/src/lwm2m/include/emqx_lwm2m.hrl").
 -include_lib("xmerl/include/xmerl.hrl").
 
 % This module is for future use. Disabled now.
@@ -49,15 +49,14 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
--spec start_link(binary() | string()) -> {ok, pid()} | ignore | {error, any()}.
 start_link(XmlDir) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [XmlDir], []).
 
 find_objectid(ObjectId) ->
-    ObjectIdInt =   case is_list(ObjectId) of
-                        true -> list_to_integer(ObjectId);
-                        false -> ObjectId
-                    end,
+    ObjectIdInt = case is_list(ObjectId) of
+                      true -> list_to_integer(ObjectId);
+                      false -> ObjectId
+                  end,
     case ets:lookup(?LWM2M_OBJECT_DEF_TAB, ObjectIdInt) of
         [] -> {error, no_xml_definition};
         [{ObjectId, Xml}] -> Xml
@@ -81,15 +80,14 @@ find_name(Name) ->
 stop() ->
     gen_server:stop(?MODULE).
 
-
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init([XmlDir0]) ->
+init([XmlDir]) ->
     _ = ets:new(?LWM2M_OBJECT_DEF_TAB, [set, named_table, protected]),
     _ = ets:new(?LWM2M_OBJECT_NAME_TO_ID_TAB, [set, named_table, protected]),
-    load(to_list(XmlDir0)),
+    load(XmlDir),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->
@@ -113,11 +111,13 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 load(BaseDir) ->
-    Wild = case lists:last(BaseDir) == $/ of
-               true  -> BaseDir++"*.xml";
-               false -> BaseDir++"/*.xml"
-           end,
-    case filelib:wildcard(Wild) of
+    Wild = filename:join(BaseDir, "*.xml"),
+    Wild2 = if is_binary(Wild) ->
+                    erlang:binary_to_list(Wild);
+               true ->
+                    Wild
+            end,
+    case filelib:wildcard(Wild2) of
         [] -> error(no_xml_files_found, BaseDir);
         AllXmlFiles -> load_loop(AllXmlFiles)
     end.
@@ -135,13 +135,7 @@ load_loop([FileName|T]) ->
     ets:insert(?LWM2M_OBJECT_NAME_TO_ID_TAB, {NameBinary, ObjectId}),
     load_loop(T).
 
-
 load_xml(FileName) ->
     {Xml, _Rest} = xmerl_scan:file(FileName),
     [ObjectXml] = xmerl_xpath:string("/LWM2M/Object", Xml),
     ObjectXml.
-
-to_list(B) when is_binary(B) ->
-    binary_to_list(B);
-to_list(S) when is_list(S) ->
-    S.

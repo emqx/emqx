@@ -94,6 +94,7 @@ fields(lwm2m_structs) ->
     , {lifetime_max, t(duration())}
     , {qmode_time_windonw, t(integer())}
     , {auto_observe, t(boolean())}
+    , {mountpoint, t(string())}
     , {update_msg_publish_condition, t(union([always, contains_object_list]))}
     , {translators, t(ref(translators))}
     , {listeners, t(ref(udp_listener_group))}
@@ -122,7 +123,17 @@ fields(clientinfo_override) ->
     ];
 
 fields(translators) ->
-    [{"$name", t(binary())}];
+    [ {command, t(ref(translator))}
+    , {response, t(ref(translator))}
+    , {notify, t(ref(translator))}
+    , {register, t(ref(translator))}
+    , {update, t(ref(translator))}
+    ];
+
+fields(translator) ->
+    [ {topic, t(binary())}
+    , {qos, t(range(0, 2))}
+    ];
 
 fields(udp_listener_group) ->
     [ {udp, t(ref(udp_listener))}
@@ -160,7 +171,7 @@ fields(listener_settings) ->
     , {max_connections, t(integer(), undefined, 1024)}
     , {max_conn_rate, t(integer())}
     , {active_n, t(integer(), undefined, 100)}
-    %, {rate_limit, t(comma_separated_list())}
+                                                %, {rate_limit, t(comma_separated_list())}
     , {access, t(ref(access))}
     , {proxy_protocol, t(boolean())}
     , {proxy_protocol_timeout, t(duration())}
@@ -183,24 +194,24 @@ fields(tcp_listener_settings) ->
 
 fields(ssl_listener_settings) ->
     [
-      %% some special confs for ssl listener
+     %% some special confs for ssl listener
     ] ++
-    ssl(undefined, #{handshake_timeout => <<"15s">>
-                   , depth => 10
-                   , reuse_sessions => true}) ++ fields(listener_settings);
+        ssl(undefined, #{handshake_timeout => <<"15s">>
+                        , depth => 10
+                        , reuse_sessions => true}) ++ fields(listener_settings);
 
 fields(udp_listener_settings) ->
     [
-      %% some special confs for udp listener
+     %% some special confs for udp listener
     ] ++ fields(listener_settings);
 
 fields(dtls_listener_settings) ->
     [
-      %% some special confs for dtls listener
+     %% some special confs for dtls listener
     ] ++
-    ssl(undefined, #{handshake_timeout => <<"15s">>
-                   , depth => 10
-                   , reuse_sessions => true}) ++ fields(listener_settings);
+        ssl(undefined, #{handshake_timeout => <<"15s">>
+                        , depth => 10
+                        , reuse_sessions => true}) ++ fields(listener_settings);
 
 fields(access) ->
     [ {"$id", #{type => binary(),
@@ -270,7 +281,7 @@ ref(Field) ->
 %% ...
 ssl(Mapping, Defaults) ->
     M = fun (Field) ->
-        case (Mapping) of
+                case (Mapping) of
             undefined -> undefined;
             _ -> Mapping ++ "." ++ Field
         end end,
