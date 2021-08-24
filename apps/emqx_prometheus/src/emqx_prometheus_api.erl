@@ -29,21 +29,21 @@
         ]).
 
 api_spec() ->
-    {[prometheus_api(), prometheus_data_api()], schemas()}.
+    {[prometheus_api(), prometheus_data_api()], []}.
 
-schemas() ->
-    [#{prometheus => emqx_mgmt_api_configs:gen_schema(emqx:get_raw_config([prometheus]))}].
+conf_schema() ->
+    emqx_mgmt_api_configs:gen_schema(emqx:get_raw_config([prometheus])).
 
 prometheus_api() ->
     Metadata = #{
         get => #{
             description => <<"Get Prometheus info">>,
-            responses => #{<<"200">> => schema(prometheus)}
+            responses => #{<<"200">> => schema(conf_schema())}
         },
         put => #{
             description => <<"Update Prometheus">>,
-            'requestBody' => schema(prometheus),
-            responses => #{<<"200">> => schema(prometheus)}
+            'requestBody' => schema(conf_schema()),
+            responses => #{<<"200">> => schema(conf_schema())}
         }
     },
     {"/prometheus", Metadata, prometheus}.

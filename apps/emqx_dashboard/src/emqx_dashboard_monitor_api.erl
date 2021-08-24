@@ -26,14 +26,13 @@
                   , dropped]).
 
 api_spec() ->
-    {
-        [ monitor_api()
-        , monitor_nodes_api()
-        , monitor_nodes_counters_api()
-        , monitor_counters_api()
-        , monitor_current_api()],
-        []
-    }.
+    {[ monitor_api()
+     , monitor_nodes_api()
+     , monitor_nodes_counters_api()
+     , monitor_counters_api()
+     , monitor_current_api()
+    ],
+    []}.
 
 monitor_api() ->
     Metadata = #{
