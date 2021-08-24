@@ -39,13 +39,12 @@ groups() -> [].
 
 init_per_suite(Config) ->
     application:load(emqx),
+    application:load(emqx_machine),
     ok = ekka:start(),
-    emqx_cluster_rpc:mnesia(copy),
-    emqx_config:put([broker, hot_config_loader], #{
-        mfa_max_history => 100,
-        mfa_cleanup_interval => 1000,
-        retry_interval => 900
-    }),
+    ok = ekka_rlog:wait_for_shards([emqx_common_shard], infinity),
+    application:set_env(emqx_machine, cluster_call_max_history, 100),
+    application:set_env(emqx_machine, cluster_call_clean_interval, 1000),
+    application:set_env(emqx_machine, cluster_call_retry_interval, 900),
     %%dbg:tracer(),
     %%dbg:p(all, c),
     %%dbg:tpl(emqx_cluster_rpc, cx),

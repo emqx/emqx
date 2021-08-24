@@ -17,19 +17,17 @@
 
 -behaviour(gen_server).
 
--include("emqx.hrl").
--include("logger.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include("emqx_cluster_rpc.hrl").
 
 -export([start_link/0, start_link/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
     code_change/3]).
 
--define(MFA_HISTORY_LEN, 100).
-
 start_link() ->
-    MaxHistory = emqx:get_config([broker, hot_config_loader, mfa_max_history]),
-    CleanupMs = emqx:get_config([broker, hot_config_loader, mfa_cleanup_interval]),
+    MaxHistory = application:get_env(emqx_machine, cluster_call_max_history, 100),
+    CleanupMs = application:get_env(emqx_machine, cluster_call_cleanup_interval, 5*60*1000),
     start_link(MaxHistory, CleanupMs).
 
 start_link(MaxHistory, CleanupMs) ->

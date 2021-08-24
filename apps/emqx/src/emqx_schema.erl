@@ -293,7 +293,6 @@ fields("broker") ->
     , {"shared_dispatch_ack_enabled", t(boolean(), undefined, false)}
     , {"route_batch_clean", t(boolean(), undefined, true)}
     , {"perf", ref("perf")}
-    , {"hot_config_loader", ref("hot_config_loader")}
     ];
 
 fields("perf") ->
@@ -324,12 +323,6 @@ fields("sysmon_os") ->
     , {"mem_check_interval", maybe_disabled(duration(), "60s")}
     , {"sysmem_high_watermark", t(percent(), undefined, "70%")}
     , {"procmem_high_watermark", t(percent(), undefined, "5%")}
-    ];
-
-fields("hot_config_loader") ->
-    [{"retry_interval", t(duration(), undefined, "1s")}
-    , {"mfa_max_history", t(range(1, 500), undefined, 50)}
-    , {"mfa_cleanup_interval", t(duration(), undefined, "5m")}
     ];
 
 fields("alarm") ->

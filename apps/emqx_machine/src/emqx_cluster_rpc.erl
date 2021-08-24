@@ -32,8 +32,8 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
--include("emqx.hrl").
--include("logger.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include("emqx_cluster_rpc.hrl").
 
 -rlog_shard({?COMMON_SHARD, ?CLUSTER_MFA}).
@@ -64,11 +64,17 @@ mnesia(copy) ->
     ok = ekka_mnesia:copy_table(cluster_rpc_commit, disc_copies).
 
 start_link() ->
-    RetryMs = emqx:get_config([broker, hot_config_loader, retry_interval]),
+    RetryMs = application:get_env(emqx_machine, cluster_call_retry_interval, 1000),
     start_link(node(), ?MODULE, RetryMs).
 start_link(Node, Name, RetryMs) ->
     gen_statem:start_link({local, Name}, ?MODULE, [Node, RetryMs], []).
 
+-spec multicall(Module, Function, Args) -> {ok, TnxId} | {error, Reason} when
+    Module :: module(),
+    Function :: atom(),
+    Args :: [term()],
+    TnxId :: pos_integer(),
+    Reason :: term().
 multicall(M, F, A) ->
     multicall(M, F, A, timer:minutes(2)).
 
