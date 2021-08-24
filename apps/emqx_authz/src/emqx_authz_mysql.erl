@@ -62,39 +62,25 @@ authorize(Client, PubSub, Topic,
 do_authorize(_Client, _PubSub, _Topic, _Columns, []) ->
     nomatch;
 do_authorize(Client, PubSub, Topic, Columns, [Row | Tail]) ->
-    case match(Client, PubSub, Topic, format_result(Columns, Row)) of
+    case emqx_authz_rule:match(Client, PubSub, Topic,
+                               emqx_authz_rule:compile(format_result(Columns, Row))
+                              ) of
         {matched, Permission} -> {matched, Permission};
         nomatch -> do_authorize(Client, PubSub, Topic, Columns, Tail)
     end.
 
-format_result(Columns, Row) ->
-    L = [ begin
-              K = lists:nth(I, Columns),
-              V = lists:nth(I, Row),
-              {K, V}
-          end || I <- lists:seq(1, length(Columns)) ],
-    maps:from_list(L).
 
-match(Client, PubSub, Topic,
-      #{<<"permission">> := Permission,
-        <<"action">> := Action,
-        <<"topic">> := TopicFilter
-       }) ->
-    Rule = #{<<"topics">> => [TopicFilter],
-             <<"action">> => Action,
-             <<"permission">> =>  Permission
-            },
-    #{simple_rule :=
-      #{permission := NPermission} = NRule
-     } = hocon_schema:check_plain(
-            emqx_authz_schema,
-            #{<<"simple_rule">> => Rule},
-            #{atom_key => true},
-            [simple_rule]),
-    case emqx_authz:match(Client, PubSub, Topic, emqx_authz:init_rule(NRule)) of
-        true -> {matched, NPermission};
-        false -> nomatch
-    end.
+format_result(Columns, Row) ->
+    Permission = lists:nth(index(<<"permission">>, Columns), Row),
+    Action = lists:nth(index(<<"action">>, Columns), Row),
+    Topic = lists:nth(index(<<"topic">>, Columns), Row),
+    {Permission, all, Action, [Topic]}.
+
+index(Elem, List) ->
+    index(Elem, List, 1).
+index(_Elem, [], _Index) -> {error, not_found};
+index(Elem, [ Elem | _List], Index) -> Index;
+index(Elem, [ _ | List], Index) -> index(Elem, List, Index + 1).
 
 replvar(Params, ClientInfo) ->
     replvar(Params, ClientInfo, []).

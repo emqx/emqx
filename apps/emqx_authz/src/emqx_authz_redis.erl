@@ -50,33 +50,11 @@ authorize(Client, PubSub, Topic,
 do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;
 do_authorize(Client, PubSub, Topic, [TopicFilter, Action | Tail]) ->
-    case match(Client, PubSub, Topic,
-               #{topics => TopicFilter,
-                 action => Action
-                })
-    of
+    case emqx_authz_rule:match(Client, PubSub, Topic,
+                               emqx_authz_rule:compile({allow, all, Action, [TopicFilter]})
+                              )of
         {matched, Permission} -> {matched, Permission};
         nomatch -> do_authorize(Client, PubSub, Topic, Tail)
-    end.
-
-match(Client, PubSub, Topic,
-      #{topics := TopicFilter,
-        action := Action
-       }) ->
-    Rule = #{<<"principal">> => all,
-             <<"topics">> => [TopicFilter],
-             <<"action">> => Action,
-             <<"permission">> => allow
-            },
-    #{simple_rule := NRule
-     } = hocon_schema:check_plain(
-            emqx_authz_schema,
-            #{<<"simple_rule">> => Rule},
-            #{atom_key => true},
-            [simple_rule]),
-    case emqx_authz:match(Client, PubSub, Topic, emqx_authz:init_rule(NRule)) of
-        true -> {matched, allow};
-        false -> nomatch
     end.
 
 replvar(Cmd, Client = #{cn := CN}) ->

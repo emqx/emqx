@@ -26,15 +26,14 @@
 
 %% APIs
 -export([ match/4
+        , matches/4
         , compile/1
         ]).
 
 -export_type([rule/0]).
 
 compile({Permission, Who, Action, TopicFilters}) when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(TopicFilters) ->
-    {Permission, compile_who(Who), Action, [compile_topic(Topic) || Topic <- TopicFilters]};
-compile({Permission, Who, Action, Topic}) when ?ALLOW_DENY(Permission), ?PUBSUB(Action) ->
-    {Permission, compile_who(Who), Action, [compile_topic(Topic)]}.
+    {atom(Permission), compile_who(Who), atom(Action), [compile_topic(Topic) || Topic <- TopicFilters]}.
 
 compile_who(all) -> all;
 compile_who({username, Username}) ->
@@ -52,6 +51,8 @@ compile_who({'and', L}) when is_list(L) ->
 compile_who({'or', L}) when is_list(L) ->
     {'or', [compile_who(Who) || Who <- L]}.
 
+compile_topic(<<"eq ", Topic/binary>>) ->
+    {eq, emqx_topic:words(Topic)};
 compile_topic({eq, Topic}) ->
     {eq, emqx_topic:words(bin(Topic))};
 compile_topic(Topic) ->
@@ -64,10 +65,31 @@ compile_topic(Topic) ->
 pattern(Words) ->
     lists:member(<<"%u">>, Words) orelse lists:member(<<"%c">>, Words).
 
+atom(B) when is_binary(B) ->
+    try binary_to_existing_atom(B, utf8)
+    catch
+        _ -> binary_to_atom(B)
+    end;
+atom(L) when is_list(L) ->
+    try list_to_existing_atom(L)
+    catch
+        _ -> list_to_atom(L)
+    end;
+atom(A) when is_atom(A) -> A.
+
 bin(L) when is_list(L) ->
     list_to_binary(L);
 bin(B) when is_binary(B) ->
     B.
+
+-spec(matches(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic(), [rule()])
+      -> {matched, allow} | {matched, deny} | nomatch).
+matches(Client, PubSub, Topic, []) -> nomatch;
+matches(Client, PubSub, Topic, [{Permission, Who, Action, TopicFilters} | Tail]) ->
+    case match(Client, PubSub, Topic, {Permission, Who, Action, TopicFilters}) of
+        nomatch -> matches(Client, PubSub, Topic, Tail);
+        Matched -> Matched
+    end.
 
 -spec(match(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic(), rule())
       -> {matched, allow} | {matched, deny} | nomatch).

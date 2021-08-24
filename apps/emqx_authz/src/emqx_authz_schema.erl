@@ -23,8 +23,7 @@ fields("authorization_rules") ->
     [ {rules, rules()}
     ];
 fields(file) ->
-    [ {principal, principal()}
-    , {type, #{type => http}}
+    [ {type, #{type => http}}
     , {enable, #{type => boolean(),
                  default => true}}
     , {path, #{type => string(),
@@ -36,8 +35,7 @@ fields(file) ->
               }}
     ];
 fields(http) ->
-    [ {principal, principal()}
-    , {type, #{type => http}}
+    [ {type, #{type => http}}
     , {enable, #{type => boolean(),
                  default => true}}
     , {config, #{type => hoconsc:union([ hoconsc:ref(?MODULE, http_get)
@@ -113,16 +111,6 @@ fields(mysql) ->
 fields(pgsql) ->
     connector_fields(pgsql) ++
     [ {sql, query()} ];
-fields(simple_rule) ->
-    [ {permission,   #{type => permission()}}
-    , {action,   #{type => action()}}
-    , {topics,   #{type => union_array(
-                             [ binary()
-                             , hoconsc:ref(?MODULE, eq_topic)
-                             ]
-                            )}}
-    , {principal, principal()}
-    ];
 fields(username) ->
     [{username, #{type => binary()}}];
 fields(clientid) ->
@@ -160,8 +148,7 @@ union_array(Item) when is_list(Item) ->
 
 rules() ->
     #{type => union_array(
-                [ hoconsc:ref(?MODULE, simple_rule)
-                , hoconsc:ref(?MODULE, file)
+                [ hoconsc:ref(?MODULE, file)
                 , hoconsc:ref(?MODULE, http)
                 , hoconsc:ref(?MODULE, mysql)
                 , hoconsc:ref(?MODULE, pgsql)
@@ -169,18 +156,6 @@ rules() ->
                 , hoconsc:ref(?MODULE, mongo)
                 ])
     }.
-
-principal() ->
-    #{default => all,
-      type => hoconsc:union(
-                [ all
-                , hoconsc:ref(?MODULE, username)
-                , hoconsc:ref(?MODULE, clientid)
-                , hoconsc:ref(?MODULE, ipaddress)
-                , hoconsc:ref(?MODULE, andlist)
-                , hoconsc:ref(?MODULE, orlist)
-                ])
-     }.
 
 query() ->
     #{type => binary(),
@@ -202,8 +177,7 @@ connector_fields(DB) ->
               Error ->
                   erlang:error(Error)
           end,
-    [ {principal, principal()}
-    , {type, #{type => DB}}
+    [ {type, #{type => DB}}
     , {enable, #{type => boolean(),
                  default => true}}
     ] ++ Mod:fields("").

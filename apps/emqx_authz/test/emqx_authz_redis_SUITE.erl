@@ -41,16 +41,16 @@ init_per_suite(Config) ->
 
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
-    Rules = [#{ <<"config">> => #{
-                    <<"server">> => <<"127.0.0.1:27017">>,
-                    <<"pool_size">> => 1,
-                    <<"database">> => 0,
-                    <<"password">> => <<"ee">>,
-                    <<"auto_reconnect">> => true,
-                    <<"ssl">> => #{<<"enable">> => false}
-                },
-                <<"cmd">> => <<"HGETALL mqtt_authz:%u">>,
-                <<"type">> => <<"redis">> }],
+    Rules = [#{<<"type">> => <<"redis">>,
+               <<"config">> => #{
+                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => 0,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false}},
+               <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
+              }],
     {ok, _} = emqx_authz:update(replace, Rules),
     Config.
 

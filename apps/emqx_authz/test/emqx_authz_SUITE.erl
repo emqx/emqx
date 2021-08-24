@@ -31,6 +31,10 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
+    meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
+    meck:expect(emqx_resource, remove, fun(_) -> ok end ),
+
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
@@ -39,43 +43,63 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     {ok, _} = emqx_authz:update(replace, []),
-    emqx_ct_helpers:stop_apps([emqx_authz]),
+    emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
+    meck:unload(emqx_resource),
     ok.
 
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_authz:update(replace, []),
     Config.
 
--define(RULE1, #{<<"principal">> => <<"all">>,
-                 <<"topics">> => [<<"#">>],
-                 <<"action">> => <<"all">>,
-                 <<"permission">> => <<"deny">>}
-       ).
--define(RULE2, #{<<"principal">> =>
-                    #{<<"ipaddress">> => <<"127.0.0.1">>},
-                 <<"topics">> =>
-                        [#{<<"eq">> => <<"#">>},
-                         #{<<"eq">> => <<"+">>}
-                        ] ,
-                 <<"action">> => <<"all">>,
-                 <<"permission">> => <<"allow">>}
-       ).
--define(RULE3,#{<<"principal">> =>
-                    #{<<"and">> => [#{<<"username">> => <<"^test?">>},
-                                    #{<<"clientid">> => <<"^test?">>}
-                                   ]},
-                <<"topics">> => [<<"test">>],
-                <<"action">> => <<"publish">>,
-                <<"permission">> => <<"allow">>}
-       ).
--define(RULE4,#{<<"principal">> =>
-                    #{<<"or">> => [#{<<"username">> => <<"^test">>},
-                                   #{<<"clientid">> => <<"test?">>}
-                                  ]},
-                <<"topics">> => [<<"%u">>,<<"%c">>],
-                <<"action">> => <<"publish">>,
-                <<"permission">> => <<"deny">>}
-       ).
+-define(RULE1, #{<<"type">> => <<"http">>,
+                 <<"config">> => #{
+                    <<"url">> => <<"https://fake.com:443/">>,
+                    <<"headers">> => #{},
+                    <<"method">> => <<"get">>,
+                    <<"request_timeout">> => 5000}
+                }).
+-define(RULE2, #{<<"type">> => <<"mongo">>,
+                 <<"config">> => #{
+                        <<"mongo_type">> => <<"single">>,
+                        <<"server">> => <<"127.0.0.1:27017">>,
+                        <<"pool_size">> => 1,
+                        <<"database">> => <<"mqtt">>,
+                        <<"ssl">> => #{<<"enable">> => false}},
+                 <<"collection">> => <<"fake">>,
+                 <<"find">> => #{<<"a">> => <<"b">>}
+                }).
+-define(RULE3, #{<<"type">> => <<"mysql">>,
+                 <<"config">> => #{
+                     <<"server">> => <<"127.0.0.1:27017">>,
+                     <<"pool_size">> => 1,
+                     <<"database">> => <<"mqtt">>,
+                     <<"username">> => <<"xx">>,
+                     <<"password">> => <<"ee">>,
+                     <<"auto_reconnect">> => true,
+                     <<"ssl">> => #{<<"enable">> => false}},
+                 <<"sql">> => <<"abcb">>
+                }).
+-define(RULE4, #{<<"type">> => <<"pgsql">>,
+                 <<"config">> => #{
+                     <<"server">> => <<"127.0.0.1:27017">>,
+                     <<"pool_size">> => 1,
+                     <<"database">> => <<"mqtt">>,
+                     <<"username">> => <<"xx">>,
+                     <<"password">> => <<"ee">>,
+                     <<"auto_reconnect">> => true,
+                     <<"ssl">> => #{<<"enable">> => false}},
+                 <<"sql">> => <<"abcb">>
+                }).
+-define(RULE5, #{<<"type">> => <<"redis">>,
+                 <<"config">> => #{
+                     <<"server">> => <<"127.0.0.1:27017">>,
+                     <<"pool_size">> => 1,
+                     <<"database">> => 0,
+                     <<"password">> => <<"ee">>,
+                     <<"auto_reconnect">> => true,
+                     <<"ssl">> => #{<<"enable">> => false}},
+                 <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
+                }).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -86,73 +110,50 @@ t_update_rule(_) ->
     {ok, _} = emqx_authz:update(head, [?RULE1]),
     {ok, _} = emqx_authz:update(tail, [?RULE3]),
 
+    dbg:tracer(),dbg:p(all,c),
+    dbg:tpl(hocon_schema, check, cx),
     Lists1 = emqx_authz:check_rules([?RULE1, ?RULE2, ?RULE3]),
     ?assertMatch(Lists1, emqx:get_config([authorization_rules, rules], [])),
 
-    [#{annotations := #{id := Id1,
-                        principal := all,
-                        topics := [['#']]}
-      },
-     #{annotations := #{id := Id2,
-                        principal := #{ipaddress := {{127,0,0,1},{127,0,0,1},32}},
-                        topics := [#{eq := ['#']}, #{eq := ['+']}]}
-      },
-     #{annotations := #{id := Id3,
-                        principal :=
-                             #{'and' := [#{username := {re_pattern, _, _, _, _}},
-                                         #{clientid := {re_pattern, _, _, _, _}}
-                                        ]
-                              },
-                        topics := [[<<"test">>]]}
-      }
+    [#{annotations := #{id := Id1}, type := http},
+     #{annotations := #{id := Id2}, type := mongo},
+     #{annotations := #{id := Id3}, type := mysql}
     ] = emqx_authz:lookup(),
 
+    {ok, _} = emqx_authz:update({replace_once, Id1}, ?RULE5),
     {ok, _} = emqx_authz:update({replace_once, Id3}, ?RULE4),
     Lists2 = emqx_authz:check_rules([?RULE1, ?RULE2, ?RULE4]),
     ?assertMatch(Lists2, emqx:get_config([authorization_rules, rules], [])),
 
-    [#{annotations := #{id := Id1,
-                        principal := all,
-                        topics := [['#']]}
-      },
-     #{annotations := #{id := Id2,
-                        principal := #{ipaddress := {{127,0,0,1},{127,0,0,1},32}},
-                        topics := [#{eq := ['#']},
-                                   #{eq := ['+']}]}
-      },
-     #{annotations := #{id := Id3,
-                        principal :=
-                              #{'or' := [#{username := {re_pattern, _, _, _, _}},
-                                         #{clientid := {re_pattern, _, _, _, _}}
-                                        ]
-                               },
-                        topics := [#{pattern := [<<"%u">>]},
-                                   #{pattern := [<<"%c">>]}
-                                  ]}
-      }
+    [#{annotations := #{id := Id1}, type := redis},
+     #{annotations := #{id := Id2}, type := mongo},
+     #{annotations := #{id := Id3}, type := pgsql}
     ] = emqx_authz:lookup(),
 
     {ok, _} = emqx_authz:update(replace, []).
 
 t_move_rule(_) ->
-    {ok, _} = emqx_authz:update(replace, [?RULE1, ?RULE2, ?RULE3, ?RULE4]),
+    {ok, _} = emqx_authz:update(replace, [?RULE1, ?RULE2, ?RULE3, ?RULE4, ?RULE5]),
     [#{annotations := #{id := Id1}},
      #{annotations := #{id := Id2}},
      #{annotations := #{id := Id3}},
-     #{annotations := #{id := Id4}}
+     #{annotations := #{id := Id4}},
+     #{annotations := #{id := Id5}}
     ] = emqx_authz:lookup(),
 
     {ok, _} = emqx_authz:move(Id4, <<"top">>),
     ?assertMatch([#{annotations := #{id := Id4}},
                   #{annotations := #{id := Id1}},
                   #{annotations := #{id := Id2}},
-                  #{annotations := #{id := Id3}}
+                  #{annotations := #{id := Id3}},
+                  #{annotations := #{id := Id5}}
                  ], emqx_authz:lookup()),
 
     {ok, _} = emqx_authz:move(Id1, <<"bottom">>),
     ?assertMatch([#{annotations := #{id := Id4}},
                   #{annotations := #{id := Id2}},
                   #{annotations := #{id := Id3}},
+                  #{annotations := #{id := Id5}},
                   #{annotations := #{id := Id1}}
                  ], emqx_authz:lookup()),
 
@@ -160,66 +161,15 @@ t_move_rule(_) ->
     ?assertMatch([#{annotations := #{id := Id3}},
                   #{annotations := #{id := Id4}},
                   #{annotations := #{id := Id2}},
+                  #{annotations := #{id := Id5}},
                   #{annotations := #{id := Id1}}
                  ], emqx_authz:lookup()),
 
     {ok, _} = emqx_authz:move(Id2, #{<<"after">> => Id1}),
     ?assertMatch([#{annotations := #{id := Id3}},
                   #{annotations := #{id := Id4}},
+                  #{annotations := #{id := Id5}},
                   #{annotations := #{id := Id1}},
                   #{annotations := #{id := Id2}}
                  ], emqx_authz:lookup()),
-    ok.
-
-t_authz(_) ->
-    ClientInfo1 = #{clientid => <<"test">>,
-                    username => <<"test">>,
-                    peerhost => {127,0,0,1},
-                    zone => default,
-                    listener => mqtt_tcp
-                   },
-    ClientInfo2 = #{clientid => <<"test">>,
-                    username => <<"test">>,
-                    peerhost => {192,168,0,10},
-                    zone => default,
-                    listener => mqtt_tcp
-                   },
-    ClientInfo3 = #{clientid => <<"test">>,
-                    username => <<"fake">>,
-                    peerhost => {127,0,0,1},
-                    zone => default,
-                    listener => mqtt_tcp
-                   },
-    ClientInfo4 = #{clientid => <<"fake">>,
-                    username => <<"test">>,
-                    peerhost => {127,0,0,1},
-                    zone => default,
-                    listener => mqtt_tcp
-                   },
-
-    Rules1 = [emqx_authz:init_rule(Rule) || Rule <- emqx_authz:check_rules([?RULE1, ?RULE2])],
-    Rules2 = [emqx_authz:init_rule(Rule) || Rule <- emqx_authz:check_rules([?RULE2, ?RULE1])],
-    Rules3 = [emqx_authz:init_rule(Rule) || Rule <- emqx_authz:check_rules([?RULE3, ?RULE4])],
-    Rules4 = [emqx_authz:init_rule(Rule) || Rule <- emqx_authz:check_rules([?RULE4, ?RULE1])],
-
-    ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo1, subscribe, <<"#">>, deny, [])),
-    ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo1, subscribe, <<"+">>, deny, Rules1)),
-    ?assertEqual({stop, allow},
-        emqx_authz:authorize(ClientInfo1, subscribe, <<"+">>, deny, Rules2)),
-    ?assertEqual({stop, allow},
-        emqx_authz:authorize(ClientInfo1, publish, <<"test">>, deny, Rules3)),
-    ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo1, publish, <<"test">>, deny, Rules4)),
-    ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo2, subscribe, <<"#">>, deny, Rules2)),
-    ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo3, publish, <<"test">>, deny, Rules3)),
-    ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo3, publish, <<"fake">>, deny, Rules4)),
-    ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo4, publish, <<"test">>, deny, Rules3)),
-    ?assertEqual({stop, deny},
-        emqx_authz:authorize(ClientInfo4, publish, <<"fake">>, deny, Rules4)),
     ok.

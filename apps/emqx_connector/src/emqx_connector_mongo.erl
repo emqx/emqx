@@ -19,8 +19,9 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
--type server() :: string().
+-type server() :: emqx_schema:ip_port().
 -reflect_type([server/0]).
+-typerefl_from_string({server/0, emqx_connector_schema_lib, to_ip_port}).
 
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
@@ -95,7 +96,7 @@ on_start(InstId, Config = #{server := Server,
                             mongo_type := single}) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
     Opts = [{type, single},
-            {hosts, [Server]}
+            {hosts, [emqx_connector_schema_lib:ip_port_to_string(Server)]}
             ],
     do_start(InstId, Opts, Config);
 
@@ -104,14 +105,17 @@ on_start(InstId, Config = #{servers := Servers,
                             replica_set_name := RsName}) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
     Opts = [{type,  {rs, RsName}},
-            {hosts, Servers}],
+            {hosts, [emqx_connector_schema_lib:ip_port_to_string(S)
+                     || S <- Servers]}
+           ],
     do_start(InstId, Opts, Config);
 
 on_start(InstId, Config = #{servers := Servers,
                             mongo_type := sharded}) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
     Opts = [{type, sharded},
-            {hosts, Servers}
+            {hosts, [emqx_connector_schema_lib:ip_port_to_string(S)
+                     || S <- Servers]}
             ],
     do_start(InstId, Opts, Config).
 

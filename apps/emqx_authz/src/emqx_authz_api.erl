@@ -419,12 +419,26 @@ move_rule_api() ->
     {"/authorization/:id/move", Metadata, move_rule}.
 
 rules(get, #{query_string := Query}) ->
-    Rules = lists:foldl(fun (#{type := _Type, enable := true, annotations := #{id := Id} = Annotations} = Rule, AccIn) ->
+    Rules = lists:foldl(fun (#{type := _Type, enable := true, config := #{server := Server} = Config, annotations := #{id := Id}} = Rule, AccIn) ->
                                 NRule = case emqx_resource:health_check(Id) of
                                     ok ->
-                                        Rule#{annotations => Annotations#{status => healthy}};
+                                        Rule#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
+                                              annotations => #{id => Id,
+                                                               status => healthy}};
                                     _ ->
-                                        Rule#{annotations => Annotations#{status => unhealthy}}
+                                        Rule#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
+                                              annotations => #{id => Id,
+                                                               status => unhealthy}}
+                                end,
+                                lists:append(AccIn, [NRule]);
+                            (#{type := _Type, enable := true, annotations := #{id := Id}} = Rule, AccIn) ->
+                                NRule = case emqx_resource:health_check(Id) of
+                                    ok ->
+                                        Rule#{annotations => #{id => Id,
+                                                               status => healthy}};
+                                    _ ->
+                                        Rule#{annotations => #{id => Id,
+                                                               status => unhealthy}}
                                 end,
                                 lists:append(AccIn, [NRule]);
                             (Rule, AccIn) ->
@@ -462,17 +476,26 @@ rules(put, #{body := RawConfig}) ->
 rule(get, #{bindings := #{id := Id}}) ->
     case emqx_authz:lookup(Id) of
         {error, Reason} -> {404, #{messgae => atom_to_binary(Reason)}};
-        Rule ->
-            case maps:get(type, Rule, undefined) of
-                undefined -> {200, Rule};
+        #{type := file} = Rule -> {200, Rule};
+        #{config := #{server := Server} = Config} = Rule ->
+            case emqx_resource:health_check(Id) of
+                ok ->
+                    {200, Rule#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
+                                annotations => #{id => Id,
+                                                 status => healthy}}};
                 _ ->
-                    case emqx_resource:health_check(Id) of
-                        ok ->
-                            {200, Rule#{annotations => #{status => healthy}}};
-                        _ ->
-                            {200, Rule#{annotations => #{status => unhealthy}}}
-                    end
-
+                    {200, Rule#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
+                                annotations => #{id => Id,
+                                                 status => unhealthy}}}
+            end;
+        Rule ->
+            case emqx_resource:health_check(Id) of
+                ok ->
+                    {200, Rule#{annotations => #{id => Id,
+                                                 status => healthy}}};
+                _ ->
+                    {200, Rule#{annotations => #{id => Id,
+                                                 status => unhealthy}}}
             end
     end;
 rule(put, #{bindings := #{id := RuleId}, body := RawConfig}) ->
