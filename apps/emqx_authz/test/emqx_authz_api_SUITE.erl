@@ -35,6 +35,8 @@
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
 
+-define(CONF_DEFAULT, <<"authorization: {rules: []}">>).
+
 -define(RULE1, #{<<"principal">> => <<"all">>,
                  <<"topics">> => [<<"#">>],
                  <<"action">> => <<"all">>,
@@ -75,6 +77,7 @@ groups() ->
 init_per_suite(Config) ->
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
+    ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_management, emqx_authz], fun set_special_configs/1),
     {ok, _} = emqx:update_config([zones, default, authorization, cache, enable], false),
     {ok, _} = emqx:update_config([zones, default, authorization, enable], true),

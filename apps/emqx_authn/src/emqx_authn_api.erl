@@ -21,13 +21,13 @@
 -include("emqx_authn.hrl").
 
 -export([ api_spec/0
-        , authentication/3
-        , authenticators/3
-        , authenticators2/3
-        , move/3
-        , import_users/3
-        , users/3
-        , users2/3
+        , authentication/2
+        , authenticators/2
+        , authenticators2/2
+        , move/2
+        , import_users/2
+        , users/2
+        , users2/2
         ]).
 
 -define(EXAMPLE_1, #{name => <<"example 1">>,
@@ -1289,22 +1289,19 @@ definitions() ->
     , #{<<"error">> => ErrorDef}
     ].
 
-authentication(post, _Params, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    case emqx_json:decode(Body, [return_maps]) of
+authentication(post, #{body := Config}) ->
+    case Config of
         #{<<"enable">> := Enable} ->
             {ok, _} = emqx_authn:update_config([authentication, enable], {enable, Enable}),
             {204};
         _ ->
             serialize_error({missing_parameter, enable})
     end;
-authentication(get, _Params, _Request) ->
+authentication(get, _Params) ->
     Enabled = emqx_authn:is_enabled(),
     {200, #{enabled => Enabled}}.
 
-authenticators(post, _Params, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Config = emqx_json:decode(Body, [return_maps]),
+authenticators(post, #{body := Config}) ->
     case emqx_authn:update_config([authentication, authenticators], {create_authenticator, Config}) of
         {ok, #{post_config_update := #{emqx_authn := #{id := ID, name := Name}},
                raw_config := RawConfig}} ->
@@ -1313,7 +1310,7 @@ authenticators(post, _Params, Request) ->
         {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end;
-authenticators(get, _Params, _Request) ->
+authenticators(get, _Params) ->
     RawConfig = get_raw_config([authentication, authenticators]),
     {ok, Authenticators} = emqx_authn:list_authenticators(?CHAIN),
     NAuthenticators = lists:zipwith(fun(#{<<"name">> := Name} = Config, #{id := ID, name := Name}) ->
@@ -1321,8 +1318,7 @@ authenticators(get, _Params, _Request) ->
                                     end, RawConfig, Authenticators),
     {200, NAuthenticators}.
 
-authenticators2(get, _Params, Request) ->
-    AuthenticatorID = cowboy_req:binding(id, Request),
+authenticators2(get, #{bindings := #{id := AuthenticatorID}}) ->
     case emqx_authn:lookup_authenticator(?CHAIN, AuthenticatorID) of
         {ok, #{id := ID, name := Name}} ->
             RawConfig = get_raw_config([authentication, authenticators]),
@@ -1331,10 +1327,7 @@ authenticators2(get, _Params, Request) ->
         {error, Reason} ->
             serialize_error(Reason)
     end;
-authenticators2(put, _Params, Request) ->
-    AuthenticatorID = cowboy_req:binding(id, Request),
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Config = emqx_json:decode(Body, [return_maps]),
+authenticators2(put, #{bindings := #{id := AuthenticatorID}, body := Config}) ->
     case emqx_authn:update_config([authentication, authenticators],
                                   {update_or_create_authenticator, AuthenticatorID, Config}) of
         {ok, #{post_config_update := #{emqx_authn := #{id := ID, name := Name}},
@@ -1344,8 +1337,7 @@ authenticators2(put, _Params, Request) ->
         {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end;
-authenticators2(delete, _Params, Request) ->
-    AuthenticatorID = cowboy_req:binding(id, Request),
+authenticators2(delete, #{bindings := #{id := AuthenticatorID}}) ->
     case emqx_authn:update_config([authentication, authenticators], {delete_authenticator, AuthenticatorID}) of
         {ok, _} ->
             {204};
@@ -1353,10 +1345,8 @@ authenticators2(delete, _Params, Request) ->
             serialize_error(Reason)
     end.
 
-move(post, _Params, Request) ->
-    AuthenticatorID = cowboy_req:binding(id, Request),
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    case emqx_json:decode(Body, [return_maps]) of
+move(post, #{bindings := #{id := AuthenticatorID}, body := Body}) ->
+    case Body of
         #{<<"position">> := Position} ->
             case emqx_authn:update_config([authentication, authenticators], {move_authenticator, AuthenticatorID, Position}) of
                 {ok, _} -> {204};
@@ -1366,10 +1356,8 @@ move(post, _Params, Request) ->
             serialize_error({missing_parameter, position})
     end.
 
-import_users(post, _Params, Request) ->
-    AuthenticatorID = cowboy_req:binding(id, Request),
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    case emqx_json:decode(Body, [return_maps]) of
+import_users(post, #{bindings := #{id := AuthenticatorID}, body := Body}) ->
+    case Body of
         #{<<"filename">> := Filename} ->
             case emqx_authn:import_users(?CHAIN, AuthenticatorID, Filename) of
                 ok -> {204};
@@ -1379,12 +1367,9 @@ import_users(post, _Params, Request) ->
             serialize_error({missing_parameter, filename})
     end.
 
-users(post, _Params, Request) ->
-    AuthenticatorID = cowboy_req:binding(id, Request),
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    case emqx_json:decode(Body, [return_maps]) of
-        #{ <<"user_id">> := UserID
-         , <<"password">> := Password} = UserInfo ->
+users(post, #{bindings := #{id := AuthenticatorID}, body := UserInfo}) ->
+    case UserInfo of
+        #{ <<"user_id">> := UserID, <<"password">> := Password} ->
             Superuser = maps:get(<<"superuser">>, UserInfo, false),
             case emqx_authn:add_user(?CHAIN, AuthenticatorID, #{ user_id => UserID
                                                                , password => Password
@@ -1399,8 +1384,7 @@ users(post, _Params, Request) ->
         _ ->
             serialize_error({missing_parameter, user_id})
     end;
-users(get, _Params, Request) ->
-    AuthenticatorID = cowboy_req:binding(id, Request),
+users(get, #{bindings := #{id := AuthenticatorID}}) ->
     case emqx_authn:list_users(?CHAIN, AuthenticatorID) of
         {ok, Users} ->
             {200, Users};
@@ -1408,11 +1392,9 @@ users(get, _Params, Request) ->
             serialize_error(Reason)
     end.
 
-users2(patch, _Params, Request) ->
-    AuthenticatorID = cowboy_req:binding(id, Request),
-    UserID = cowboy_req:binding(user_id, Request),
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    UserInfo = emqx_json:decode(Body, [return_maps]),
+users2(patch, #{bindings := #{id := AuthenticatorID,
+                              user_id := UserID},
+                body := UserInfo}) ->
     NUserInfo = maps:with([<<"password">>, <<"superuser">>], UserInfo),
     case NUserInfo =:= #{} of
         true ->
@@ -1425,18 +1407,14 @@ users2(patch, _Params, Request) ->
                     serialize_error(Reason)
             end
     end;
-users2(get, _Params, Request) ->
-    AuthenticatorID = cowboy_req:binding(id, Request),
-    UserID = cowboy_req:binding(user_id, Request),
+users2(get, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
     case emqx_authn:lookup_user(?CHAIN, AuthenticatorID, UserID) of
         {ok, User} ->
             {200, User};
         {error, Reason} ->
             serialize_error(Reason)
     end;
-users2(delete, _Params, Request) ->
-    AuthenticatorID = cowboy_req:binding(id, Request),
-    UserID = cowboy_req:binding(user_id, Request),
+users2(delete, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
     case emqx_authn:delete_user(?CHAIN, AuthenticatorID, UserID) of
         ok ->
             {204};

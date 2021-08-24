@@ -265,11 +265,11 @@ list_listener(Params) ->
     format(list_listener_(Params)).
 
 list_listener_(#{node := Node, id := Identifier}) ->
-    emqx_mgmt:get_listener(Node, Identifier);
+    emqx_mgmt:get_listener(b2a(Node), b2a(Identifier));
 list_listener_(#{id := Identifier}) ->
-    emqx_mgmt:list_listeners_by_id(Identifier);
+    emqx_mgmt:list_listeners_by_id(b2a(Identifier));
 list_listener_(#{node := Node}) ->
-    emqx_mgmt:list_listeners(Node);
+    emqx_mgmt:list_listeners(b2a(Node));
 list_listener_(#{}) ->
     emqx_mgmt:list_listeners().
 
