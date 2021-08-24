@@ -70,18 +70,17 @@
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([ssl/1]).
 
-structs() -> ["zones", "listeners", "broker", "plugins", "sysmon", "alarm", "authorization"].
+structs() -> ["zones", "mqtt", "flapping_detect", "force_shutdown", "force_gc",
+    "conn_congestion", "rate_limit", "quota", "listeners", "broker", "plugins",
+    "sysmon", "alarm", "authorization"].
 
 fields("stats") ->
     [ {"enable", t(boolean(), undefined, true)}
     ];
 
-fields("auth") ->
-    [ {"enable", t(boolean(), undefined, false)}
-    ];
-
 fields("authorization") ->
     [ {"no_match", t(union(allow, deny), undefined, allow)}
+    , {"enable", t(boolean(), undefined, true)}
     , {"deny_action", t(union(ignore, disconnect), undefined, ignore)}
     , {"cache", ref("authorization_cache")}
     ];
@@ -93,8 +92,7 @@ fields("authorization_cache") ->
     ];
 
 fields("mqtt") ->
-    [ {"mountpoint", t(binary(), undefined, <<>>)}
-    , {"idle_timeout", maybe_infinity(duration(), "15s")}
+    [ {"idle_timeout", maybe_infinity(duration(), "15s")}
     , {"max_packet_size", t(bytesize(), undefined, "1MB")}
     , {"max_clientid_len", t(range(23, 65535), undefined, 65535)}
     , {"max_topic_levels", t(range(1, 65535), undefined, 65535)}
@@ -129,13 +127,11 @@ fields("zones") ->
 
 fields("zone_settings") ->
     [ {"mqtt", ref("mqtt")}
-    , {"auth", ref("auth")}
     , {"stats", ref("stats")}
     , {"flapping_detect", ref("flapping_detect")}
     , {"force_shutdown", ref("force_shutdown")}
     , {"conn_congestion", ref("conn_congestion")}
     , {"force_gc", ref("force_gc")}
-    , {"overall_max_connections", maybe_infinity(integer())}
     , {"listeners", t("listeners")}
     ];
 
@@ -143,10 +139,10 @@ fields("rate_limit") ->
     [ {"max_conn_rate", maybe_infinity(integer(), 1000)}
     , {"conn_messages_in", maybe_infinity(comma_separated_list())}
     , {"conn_bytes_in", maybe_infinity(comma_separated_list())}
-    , {"quota", ref("rate_limit_quota")}
+    , {"quota", ref("quota")}
     ];
 
-fields("rate_limit_quota") ->
+fields("quota") ->
     [ {"conn_messages_routing", maybe_infinity(comma_separated_list())}
     , {"overall_messages_routing", maybe_infinity(comma_separated_list())}
     ];
@@ -190,30 +186,51 @@ fields("force_gc") ->
     ];
 
 fields("listeners") ->
-    [ {"$name", hoconsc:union(
-        [ disabled
-        , hoconsc:ref("mqtt_tcp_listener")
-        , hoconsc:ref("mqtt_ws_listener")
-        , hoconsc:ref("mqtt_quic_listener")
-        ])}
+    [ {"tcp", ref("t_tcp_listeners")}
+    , {"ssl", ref("t_ssl_listeners")}
+    , {"ws", ref("t_ws_listeners")}
+    , {"wss", ref("t_wss_listeners")}
+    , {"quic", ref("t_quic_listeners")}
+    ];
+
+fields("t_tcp_listeners") ->
+    [ {"$name", ref("mqtt_tcp_listener")}
+    ];
+fields("t_ssl_listeners") ->
+    [ {"$name", ref("mqtt_ssl_listener")}
+    ];
+fields("t_ws_listeners") ->
+    [ {"$name", ref("mqtt_ws_listener")}
+    ];
+fields("t_wss_listeners") ->
+    [ {"$name", ref("mqtt_wss_listener")}
+    ];
+fields("t_quic_listeners") ->
+    [ {"$name", ref("mqtt_quic_listener")}
     ];
 
 fields("mqtt_tcp_listener") ->
-    [ {"type", t(tcp)}
-    , {"tcp", ref("tcp_opts")}
+    [ {"tcp", ref("tcp_opts")}
+    ] ++ mqtt_listener();
+
+fields("mqtt_ssl_listener") ->
+    [ {"tcp", ref("tcp_opts")}
     , {"ssl", ref("ssl_opts")}
     ] ++ mqtt_listener();
 
 fields("mqtt_ws_listener") ->
-    [ {"type", t(ws)}
-    , {"tcp", ref("tcp_opts")}
+    [ {"tcp", ref("tcp_opts")}
+    , {"websocket", ref("ws_opts")}
+    ] ++ mqtt_listener();
+
+fields("mqtt_wss_listener") ->
+    [ {"tcp", ref("tcp_opts")}
     , {"ssl", ref("ssl_opts")}
     , {"websocket", ref("ws_opts")}
     ] ++ mqtt_listener();
 
 fields("mqtt_quic_listener") ->
     [ {"enabled", t(boolean(), undefined, true)}
-    , {"type", t(quic)}
     , {"certfile", t(string(), undefined, undefined)}
     , {"keyfile", t(string(), undefined, undefined)}
     , {"ciphers", t(comma_separated_list(), undefined, "TLS_AES_256_GCM_SHA384,"
@@ -332,6 +349,8 @@ base_listener() ->
     , {"acceptors", t(integer(), undefined, 16)}
     , {"max_connections", maybe_infinity(integer(), infinity)}
     , {"rate_limit", ref("rate_limit")}
+    , {"mountpoint", t(binary(), undefined, <<>>)}
+    , {"zone", t(binary(), undefined, undefined)}
     ].
 
 %% utils

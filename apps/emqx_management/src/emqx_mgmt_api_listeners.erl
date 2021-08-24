@@ -154,13 +154,11 @@ param_path_node() ->
     }.
 
 param_path_id() ->
-    {Example,_} = hd(emqx_mgmt:list_listeners(node())),
     #{
         name => id,
         in => path,
         schema => #{type => string},
-        required => true,
-        example => Example
+        required => true
     }.
 
 param_path_operation()->
