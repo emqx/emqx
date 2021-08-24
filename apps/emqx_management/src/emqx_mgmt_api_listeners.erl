@@ -22,10 +22,7 @@
 
 -export([ listeners/2
         , listener/2
-        , node_listener/2
-        , node_listeners/2
-        , manage_listeners/2
-        , manage_nodes_listeners/2]).
+        , manage_listeners/2]).
 
 -import(emqx_mgmt_util, [ schema/1
                         , schema/2
@@ -121,7 +118,7 @@ manage_nodes_listeners_api() ->
                     error_schema(<<"Listener id not found">>, ['BAD_REQUEST']),
                 <<"200">> =>
                     schema(<<"Operation success">>)}}},
-    {"/node/:node/listeners/:id/:operation", Metadata, manage_nodes_listeners}.
+    {"/node/:node/listeners/:id/:operation", Metadata, manage_listeners}.
 
 nodes_listeners_api() ->
     Metadata = #{
@@ -134,7 +131,7 @@ nodes_listeners_api() ->
                         ['BAD_NODE_NAME', 'BAD_LISTENER_ID']),
                 <<"200">> =>
                     schema(properties(), <<"Get listener info ok">>)}}},
-    {"/nodes/:node/listeners/:id", Metadata, node_listener}.
+    {"/nodes/:node/listeners/:id", Metadata, listener}.
 
 nodes_listener_api() ->
     Metadata = #{
@@ -144,7 +141,7 @@ nodes_listener_api() ->
             responses => #{
                 <<"404">> => error_schema(<<"Listener id not found">>),
                 <<"200">> => object_schema(properties(), <<"Get listener info ok">>)}}},
-    {"/nodes/:node/listeners", Metadata, node_listeners}.
+    {"/nodes/:node/listeners", Metadata, listeners}.
 %%%==============================================================================================
 %% parameters
 param_path_node() ->
@@ -182,29 +179,11 @@ param_path_operation()->
 listeners(get, _Request) ->
     list().
 
-listener(get, Request) ->
-    ID = b2a(cowboy_req:binding(id, Request)),
-    get_listeners(#{id => ID}).
+listener(get, #{bindings := Bindings}) ->
+    get_listeners(Bindings).
 
-node_listeners(get, Request) ->
-    Node = b2a(cowboy_req:binding(node, Request)),
-    get_listeners(#{node => Node}).
-
-node_listener(get, Request) ->
-    Node = b2a(cowboy_req:binding(node, Request)),
-    ID = b2a(cowboy_req:binding(id, Request)),
-    get_listeners(#{node => Node, id => ID}).
-
-manage_listeners(_, Request) ->
-    ID = b2a(cowboy_req:binding(id, Request)),
-    Operation = b2a(cowboy_req:binding(operation, Request)),
-    manage(Operation, #{id => ID}).
-
-manage_nodes_listeners(_, Request) ->
-    Node = b2a(cowboy_req:binding(node, Request)),
-    ID = b2a(cowboy_req:binding(id, Request)),
-    Operation = b2a(cowboy_req:binding(operation, Request)),
-    manage(Operation, #{id => ID, node => Node}).
+manage_listeners(_, #{bindings := Bindings}) ->
+    manage(Bindings).
 
 %%%==============================================================================================
 
@@ -215,37 +194,39 @@ list() ->
 get_listeners(Param) ->
     case list_listener(Param) of
         {error, not_found} ->
-            ID = maps:get(id, Param),
+            ID = b2a(maps:get(id, Param)),
             Reason = iolist_to_binary(io_lib:format("Error listener id ~p", [ID])),
             {404, #{code => 'BAD_LISTENER_ID', message => Reason}};
         {error, nodedown} ->
-            Node = maps:get(node, Param),
+            Node = b2a(maps:get(node, Param)),
             Reason = iolist_to_binary(io_lib:format("Node ~p rpc failed", [Node])),
             Response = #{code => 'BAD_NODE_NAME', message => Reason},
             {404, Response};
         [] ->
-            ID = maps:get(id, Param),
+            ID = b2a(maps:get(id, Param)),
             Reason = iolist_to_binary(io_lib:format("Error listener id ~p", [ID])),
             {404, #{code => 'BAD_LISTENER_ID', message => Reason}};
         Data ->
             {200, Data}
     end.
 
-manage(Operation0, Param) ->
-    OperationMap = #{start => start_listener, stop => stop_listener, restart => restart_listener},
-    Operation = maps:get(Operation0, OperationMap),
+manage(Param) ->
+    OperationMap = #{start => start_listener,
+                     stop => stop_listener,
+                     restart => restart_listener},
+    Operation = maps:get(b2a(maps:get(operation, Param)), OperationMap),
     case list_listener(Param) of
         {error, not_found} ->
-            ID = maps:get(id, Param),
+            ID = b2a(maps:get(id, Param)),
             Reason = iolist_to_binary(io_lib:format("Error listener id ~p", [ID])),
             {404, #{code => 'BAD_LISTENER_ID', message => Reason}};
         {error, nodedown} ->
-            Node = maps:get(node, Param),
+            Node = b2a(maps:get(node, Param)),
             Reason = iolist_to_binary(io_lib:format("Node ~p rpc failed", [Node])),
             Response = #{code => 'BAD_NODE_NAME', message => Reason},
             {404, Response};
         [] ->
-            ID = maps:get(id, Param),
+            ID = b2a(maps:get(id, Param)),
             Reason = iolist_to_binary(io_lib:format("Error listener id ~p", [ID])),
             {404, #{code => 'RESOURCE_NOT_FOUND', message => Reason}};
         ListenersOrSingleListener ->
@@ -318,4 +299,5 @@ trans_running(Conf) ->
     end.
 
 
-b2a(B) when is_binary(B) -> binary_to_atom(B, utf8).
+b2a(B) when is_binary(B) -> binary_to_atom(B, utf8);
+b2a(Any) -> Any.

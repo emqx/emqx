@@ -31,9 +31,7 @@ definitions() ->
                                 },
                                 principal => minirest:ref(<<"principal">>)
                             }
-                            
                         }
-                        
                      }
                    }
                  , minirest:ref(<<"rules">>)

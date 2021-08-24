@@ -25,8 +25,8 @@
 
 -export([api_spec/0]).
 
--export([ config/2
-        , config_reset/2
+-export([ config/3
+        , config_reset/3
         ]).
 
 -export([get_conf_schema/2, gen_schema/1]).
@@ -100,7 +100,7 @@ config_reset_api() ->
 
 %%%==============================================================================================
 %% parameters trans
-config(get, Req) ->
+config(get, _Params, Req) ->
     Path = conf_path(Req),
     case emqx_map_lib:deep_find(Path, get_full_config()) of
         {ok, Conf} ->
@@ -109,13 +109,13 @@ config(get, Req) ->
             {404, #{code => 'NOT_FOUND', message => <<"Config cannot found">>}}
     end;
 
-config(put, Req) ->
+config(put, _Params, Req) ->
     Path = conf_path(Req),
     {ok, #{raw_config := RawConf}} = emqx:update_config(Path, http_body(Req),
         #{rawconf_with_defaults => true}),
     {200, emqx_map_lib:jsonable_map(RawConf)}.
 
-config_reset(post, Req) ->
+config_reset(post, _Params, Req) ->
     %% reset the config specified by the query string param 'conf_path'
     Path = conf_path_reset(Req) ++ conf_path_from_querystr(Req),
     case emqx:reset_config(Path, #{}) of

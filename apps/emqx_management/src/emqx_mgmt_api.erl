@@ -33,8 +33,8 @@
 paginate(Tables, Params, RowFun) ->
     Qh = query_handle(Tables),
     Count = count(Tables),
-    Page = page(Params),
-    Limit = limit(Params),
+    Page = b2i(page(Params)),
+    Limit = b2i(limit(Params)),
     Cursor = qlc:cursor(Qh),
     case Page > 1 of
         true  ->
@@ -64,14 +64,15 @@ count(Tables) ->
 count(Table, Nodes) ->
     lists:sum([rpc_call(Node, ets, info, [Table, size], 5000) || Node <- Nodes]).
 
+page(Params) when is_map(Params) ->
+    maps:get(<<"page">>, Params, 1);
 page(Params) ->
-    binary_to_integer(proplists:get_value(<<"page">>, Params, <<"1">>)).
+    proplists:get_value(<<"page">>, Params, <<"1">>).
 
+limit(Params) when is_map(Params) ->
+    maps:get(<<"limit">>, Params, emqx_mgmt:max_row_limit());
 limit(Params) ->
-    case proplists:get_value(<<"limit">>, Params) of
-        undefined -> emqx_mgmt:max_row_limit();
-        Size      -> binary_to_integer(Size)
-    end.
+    proplists:get_value(<<"limit">>, Params, emqx_mgmt:max_row_limit()).
 
 %%--------------------------------------------------------------------
 %% Node Query
@@ -79,8 +80,8 @@ limit(Params) ->
 
 node_query(Node, Params, {Tab, QsSchema}, QueryFun) ->
     {CodCnt, Qs} = params2qs(Params, QsSchema),
-    Limit = limit(Params),
-    Page  = page(Params),
+    Limit = b2i(limit(Params)),
+    Page  = b2i(page(Params)),
     Start = if Page > 1 -> (Page-1) * Limit;
                true -> 0
             end,
@@ -111,8 +112,8 @@ rpc_call(Node, M, F, A, T) ->
 
 cluster_query(Params, {Tab, QsSchema}, QueryFun) ->
     {CodCnt, Qs} = params2qs(Params, QsSchema),
-    Limit = limit(Params),
-    Page  = page(Params),
+    Limit = b2i(limit(Params)),
+    Page  = b2i(page(Params)),
     Start = if Page > 1 -> (Page-1) * Limit;
                true -> 0
             end,
@@ -199,6 +200,8 @@ select_n_by_one({Rows0, Cons}, Start, Limit, Acc) ->
             select_n_by_one(ets:select(Cons), 0, NLimit, [Got|Acc])
     end.
 
+params2qs(Params, QsSchema) when is_map(Params) ->
+    params2qs(maps:to_list(Params), QsSchema);
 params2qs(Params, QsSchema) ->
     {Qs, Fuzzy} = pick_params_to_qs(Params, QsSchema, [], []),
     {length(Qs) + length(Fuzzy), {Qs, Fuzzy}}.
@@ -342,3 +345,9 @@ params2qs_test() ->
     {0, {[], []}} = params2qs([{not_a_predefined_params, val}], Schema).
 
 -endif.
+
+
+b2i(Bin) when is_binary(Bin) ->
+    binary_to_integer(Bin);
+b2i(Any) ->
+    Any.

@@ -86,13 +86,11 @@ data_api() ->
 %%--------------------------------------------------------------------
 %% HTTP API
 %%--------------------------------------------------------------------
-status(get, _Request) ->
+status(get, _Params) ->
     {200, get_telemetry_status()};
 
-status(put, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Params = emqx_json:decode(Body, [return_maps]),
-    Enable = maps:get(<<"enable">>, Params),
+status(put, #{body := Body}) ->
+    Enable = maps:get(<<"enable">>, Body),
     case Enable =:= emqx_telemetry:get_status() of
         true ->
             Reason = case Enable of

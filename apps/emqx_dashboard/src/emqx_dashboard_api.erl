@@ -158,9 +158,7 @@ change_pwd_api() ->
     },
     {"/users/:username/change_pwd", Metadata, change_pwd}.
 
-login(post, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Params = emqx_json:decode(Body, [return_maps]),
+login(post, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
     case emqx_dashboard_admin:sign_token(Username, Password) of
@@ -171,9 +169,7 @@ login(post, Request) ->
             {401, #{code => Code, message => <<"Auth filed">>}}
     end.
 
-logout(_, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Params = emqx_json:decode(Body, [return_maps]),
+logout(_, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),
     emqx_dashboard_admin:destroy_token_by_username(Username),
     {200}.
@@ -181,9 +177,7 @@ logout(_, Request) ->
 users(get, _Request) ->
     {200, [row(User) || User <- emqx_dashboard_admin:all_users()]};
 
-users(post, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Params = emqx_json:decode(Body, [return_maps]),
+users(post, #{body := Params}) ->
     Tag = maps:get(<<"tag">>, Params),
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
@@ -199,10 +193,7 @@ users(post, Request) ->
             end
     end.
 
-user(put, Request) ->
-    Username = cowboy_req:binding(username, Request),
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Params = emqx_json:decode(Body, [return_maps]),
+user(put, #{bindings := #{username := Username}, body := Params}) ->
     Tag = maps:get(<<"tag">>, Params),
     case emqx_dashboard_admin:update_user(Username, Tag) of
         ok -> {200};
@@ -210,8 +201,7 @@ user(put, Request) ->
             {400, #{code => <<"UPDATE_FAIL">>, message => Reason}}
     end;
 
-user(delete, Request) ->
-    Username = cowboy_req:binding(username, Request),
+user(delete, #{bindings := #{username := Username}}) ->
     case Username == <<"admin">> of
         true -> {400, #{code => <<"CONNOT_DELETE_ADMIN">>,
                         message => <<"Cannot delete admin">>}};
@@ -220,10 +210,7 @@ user(delete, Request) ->
             {200}
     end.
 
-change_pwd(put, Request) ->
-    Username = cowboy_req:binding(username, Request),
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Params = emqx_json:decode(Body, [return_maps]),
+change_pwd(put, #{bindings := #{username := Username}, body := Params}) ->
     OldPwd = maps:get(<<"old_pwd">>, Params),
     NewPwd = maps:get(<<"new_pwd">>, Params),
     case emqx_dashboard_admin:change_password(Username, OldPwd, NewPwd) of

@@ -21,13 +21,13 @@
 -include("emqx_authn.hrl").
 
 -export([ api_spec/0
-        , authentication/2
-        , authenticators/2
-        , authenticators2/2
-        , move/2
-        , import_users/2
-        , users/2
-        , users2/2
+        , authentication/3
+        , authenticators/3
+        , authenticators2/3
+        , move/3
+        , import_users/3
+        , users/3
+        , users2/3
         ]).
 
 -define(EXAMPLE_1, #{name => <<"example 1">>,
@@ -35,7 +35,7 @@
                      server_type => <<"built-in-database">>,
                      user_id_type => <<"username">>,
                      password_hash_algorithm => #{
-                         name => <<"sha256">>    
+                         name => <<"sha256">>
                      }}).
 
 -define(EXAMPLE_2, #{name => <<"example 2">>,
@@ -332,7 +332,7 @@ authenticators_api2() ->
                             oneOf => [ minirest:ref(<<"password_based">>)
                                      , minirest:ref(<<"jwt">>)
                                      , minirest:ref(<<"scram">>)
-                                     ]   
+                                     ]
                         },
                         examples => #{
                             example1 => #{
@@ -633,7 +633,7 @@ users2_api() ->
                                     type => string
                                 },
                                 superuser => #{
-                                    type => boolean    
+                                    type => boolean
                                 }
                             }
                         }
@@ -746,7 +746,7 @@ definitions() ->
         oneOf => [ minirest:ref(<<"password_based">>)
                  , minirest:ref(<<"jwt">>)
                  , minirest:ref(<<"scram">>)
-                 ]   
+                 ]
     },
 
     ReturnedAuthenticatorDef = #{
@@ -763,7 +763,7 @@ definitions() ->
                 oneOf => [ minirest:ref(<<"password_based">>)
                          , minirest:ref(<<"jwt">>)
                          , minirest:ref(<<"scram">>)
-                         ]    
+                         ]
             }
         ]
     },
@@ -792,7 +792,7 @@ definitions() ->
                          , minirest:ref(<<"password_based_mongodb">>)
                          , minirest:ref(<<"password_based_redis">>)
                          , minirest:ref(<<"password_based_http_server">>)
-                         ]    
+                         ]
             }
         ]
     },
@@ -840,7 +840,7 @@ definitions() ->
             ssl => minirest:ref(<<"ssl">>)
         }
     },
-    
+
     SCRAMDef = #{
         type => object,
         required => [name, mechanism, server_type],
@@ -1205,7 +1205,7 @@ definitions() ->
                 type => boolean,
                 default => true
             }
-        }  
+        }
     },
 
     PasswordHashAlgorithmDef = #{
@@ -1229,7 +1229,7 @@ definitions() ->
         properties => #{
             enable => #{
                 type => boolean,
-                default => false    
+                default => false
             },
             certfile => #{
                 type => string
@@ -1289,7 +1289,7 @@ definitions() ->
     , #{<<"error">> => ErrorDef}
     ].
 
-authentication(post, Request) ->
+authentication(post, _Params, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     case emqx_json:decode(Body, [return_maps]) of
         #{<<"enable">> := Enable} ->
@@ -1298,11 +1298,11 @@ authentication(post, Request) ->
         _ ->
             serialize_error({missing_parameter, enable})
     end;
-authentication(get, _Request) ->
+authentication(get, _Params, _Request) ->
     Enabled = emqx_authn:is_enabled(),
     {200, #{enabled => Enabled}}.
 
-authenticators(post, Request) ->
+authenticators(post, _Params, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     Config = emqx_json:decode(Body, [return_maps]),
     case emqx_authn:update_config([authentication, authenticators], {create_authenticator, Config}) of
@@ -1313,7 +1313,7 @@ authenticators(post, Request) ->
         {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end;
-authenticators(get, _Request) ->
+authenticators(get, _Params, _Request) ->
     RawConfig = get_raw_config([authentication, authenticators]),
     {ok, Authenticators} = emqx_authn:list_authenticators(?CHAIN),
     NAuthenticators = lists:zipwith(fun(#{<<"name">> := Name} = Config, #{id := ID, name := Name}) ->
@@ -1321,7 +1321,7 @@ authenticators(get, _Request) ->
                                     end, RawConfig, Authenticators),
     {200, NAuthenticators}.
 
-authenticators2(get, Request) ->
+authenticators2(get, _Params, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     case emqx_authn:lookup_authenticator(?CHAIN, AuthenticatorID) of
         {ok, #{id := ID, name := Name}} ->
@@ -1331,7 +1331,7 @@ authenticators2(get, Request) ->
         {error, Reason} ->
             serialize_error(Reason)
     end;
-authenticators2(put, Request) ->
+authenticators2(put, _Params, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
     Config = emqx_json:decode(Body, [return_maps]),
@@ -1344,7 +1344,7 @@ authenticators2(put, Request) ->
         {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end;
-authenticators2(delete, Request) ->
+authenticators2(delete, _Params, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     case emqx_authn:update_config([authentication, authenticators], {delete_authenticator, AuthenticatorID}) of
         {ok, _} ->
@@ -1353,7 +1353,7 @@ authenticators2(delete, Request) ->
             serialize_error(Reason)
     end.
 
-move(post, Request) ->
+move(post, _Params, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
     case emqx_json:decode(Body, [return_maps]) of
@@ -1366,7 +1366,7 @@ move(post, Request) ->
             serialize_error({missing_parameter, position})
     end.
 
-import_users(post, Request) ->
+import_users(post, _Params, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
     case emqx_json:decode(Body, [return_maps]) of
@@ -1379,7 +1379,7 @@ import_users(post, Request) ->
             serialize_error({missing_parameter, filename})
     end.
 
-users(post, Request) ->
+users(post, _Params, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
     case emqx_json:decode(Body, [return_maps]) of
@@ -1399,7 +1399,7 @@ users(post, Request) ->
         _ ->
             serialize_error({missing_parameter, user_id})
     end;
-users(get, Request) ->
+users(get, _Params, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     case emqx_authn:list_users(?CHAIN, AuthenticatorID) of
         {ok, Users} ->
@@ -1408,7 +1408,7 @@ users(get, Request) ->
             serialize_error(Reason)
     end.
 
-users2(patch, Request) ->
+users2(patch, _Params, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     UserID = cowboy_req:binding(user_id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
@@ -1425,7 +1425,7 @@ users2(patch, Request) ->
                     serialize_error(Reason)
             end
     end;
-users2(get, Request) ->
+users2(get, _Params, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     UserID = cowboy_req:binding(user_id, Request),
     case emqx_authn:lookup_user(?CHAIN, AuthenticatorID, UserID) of
@@ -1434,7 +1434,7 @@ users2(get, Request) ->
         {error, Reason} ->
             serialize_error(Reason)
     end;
-users2(delete, Request) ->
+users2(delete, _Params, Request) ->
     AuthenticatorID = cowboy_req:binding(id, Request),
     UserID = cowboy_req:binding(user_id, Request),
     case emqx_authn:delete_user(?CHAIN, AuthenticatorID, UserID) of

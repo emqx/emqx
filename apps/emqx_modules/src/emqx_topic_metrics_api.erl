@@ -151,9 +151,6 @@ topic_param() ->
         schema => #{type => string}
     }.
 
-topic_param(Request) ->
-    cowboy_req:binding(topic, Request).
-
 %%--------------------------------------------------------------------
 %% api callback
 list_topic(get, _) ->
@@ -162,8 +159,7 @@ list_topic(get, _) ->
 list_topic_metrics(get, _) ->
     list_metrics().
 
-operate_topic_metrics(Method, Request) ->
-    Topic = topic_param(Request),
+operate_topic_metrics(Method, #{bindings := #{topic := Topic}}) ->
     case Method of
         get ->
             get_metrics(Topic);
@@ -176,8 +172,7 @@ operate_topic_metrics(Method, Request) ->
 reset_all_topic_metrics(put, _) ->
     reset().
 
-reset_topic_metrics(put, Request) ->
-    Topic = topic_param(Request),
+reset_topic_metrics(put, #{bindings := #{topic := Topic}}) ->
     reset(Topic).
 
 %%--------------------------------------------------------------------
