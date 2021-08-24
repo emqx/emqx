@@ -454,46 +454,32 @@ subscribe_api() ->
 
 %%%==============================================================================================
 %% parameters trans
-clients(get, Request) ->
-    Params = cowboy_req:parse_qs(Request),
-    list(Params).
+clients(get, #{query_string := Qs}) ->
+    list(Qs).
 
-client(get, Request) ->
-    ClientID = cowboy_req:binding(clientid, Request),
-    lookup(#{clientid => ClientID});
+client(get, #{bindings := Bindings}) ->
+    lookup(Bindings);
 
-client(delete, Request) ->
-    ClientID = cowboy_req:binding(clientid, Request),
-    kickout(#{clientid => ClientID}).
+client(delete, #{bindings := Bindings}) ->
+    kickout(Bindings).
 
-authz_cache(get, Request) ->
-    ClientID = cowboy_req:binding(clientid, Request),
-    get_authz_cache(#{clientid => ClientID});
+authz_cache(get, #{bindings := Bindings}) ->
+    get_authz_cache(Bindings);
 
-authz_cache(delete, Request) ->
-    ClientID = cowboy_req:binding(clientid, Request),
-    clean_authz_cache(#{clientid => ClientID}).
+authz_cache(delete, #{bindings := Bindings}) ->
+    clean_authz_cache(Bindings).
 
-subscribe(post, Request) ->
-    ClientID = cowboy_req:binding(clientid, Request),
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    TopicInfo = emqx_json:decode(Body, [return_maps]),
+subscribe(post, #{bindings := #{clientid := ClientID}, body := TopicInfo}) ->
     Topic = maps:get(<<"topic">>, TopicInfo),
     Qos = maps:get(<<"qos">>, TopicInfo, 0),
     subscribe(#{clientid => ClientID, topic => Topic, qos => Qos}).
 
-unsubscribe(post, Request) ->
-    ClientID = cowboy_req:binding(clientid, Request),
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    TopicInfo = emqx_json:decode(Body, [return_maps]),
+unsubscribe(post, #{bindings := #{clientid := ClientID}, body := TopicInfo}) ->
     Topic = maps:get(<<"topic">>, TopicInfo),
     unsubscribe(#{clientid => ClientID, topic => Topic}).
 
 %% TODO: batch
-subscribe_batch(post, Request) ->
-    ClientID = cowboy_req:binding(clientid, Request),
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    TopicInfos = emqx_json:decode(Body, [return_maps]),
+subscribe_batch(post, #{bindings := #{clientid := ClientID}, body := TopicInfos}) ->
     Topics =
         [begin
              Topic = maps:get(<<"topic">>, TopicInfo),
@@ -502,8 +488,7 @@ subscribe_batch(post, Request) ->
          end || TopicInfo <- TopicInfos],
     subscribe_batch(#{clientid => ClientID, topics => Topics}).
 
-subscriptions(get, Request) ->
-    ClientID = cowboy_req:binding(clientid, Request),
+subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
     {Node, Subs0} = emqx_mgmt:list_client_subscriptions(ClientID),
     Subs = lists:map(fun({Topic, SubOpts}) ->
         #{node => Node, clientid => ClientID, topic => Topic, qos => maps:get(qos, SubOpts)}
@@ -514,13 +499,13 @@ subscriptions(get, Request) ->
 %% api apply
 
 list(Params) ->
-    case proplists:get_value(<<"node">>, Params, undefined) of
+    case maps:get(<<"node">>, Params, undefined) of
         undefined ->
             Response = emqx_mgmt_api:cluster_query(Params, ?CLIENT_QS_SCHEMA, ?query_fun),
             {200, Response};
         Node1 ->
             Node = binary_to_atom(Node1, utf8),
-            Response = emqx_mgmt_api:node_query(Node, proplists:delete(<<"node">>, Params), ?CLIENT_QS_SCHEMA, ?query_fun),
+            Response = emqx_mgmt_api:node_query(Node, Params, ?CLIENT_QS_SCHEMA, ?query_fun),
             {200, Response}
     end.
 

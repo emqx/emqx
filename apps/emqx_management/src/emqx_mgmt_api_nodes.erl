@@ -115,20 +115,17 @@ node_stats_api() ->
 
 %%%==============================================================================================
 %% parameters trans
-nodes(get, _Request) ->
+nodes(get, _Params) ->
     list(#{}).
 
-node(get, Request) ->
-    Params = node_name_path_parameter(Request),
-    get_node(Params).
+node(get, #{bingings := #{node_name := NodeName}}) ->
+    get_node(binary_to_atom(NodeName, utf8)).
 
-node_metrics(get, Request) ->
-    Params = node_name_path_parameter(Request),
-    get_metrics(Params).
+node_metrics(get, #{bingings := #{node_name := NodeName}}) ->
+    get_metrics(binary_to_atom(NodeName, utf8)).
 
-node_stats(get, Request) ->
-    Params = node_name_path_parameter(Request),
-    get_stats(Params).
+node_stats(get, #{bingings := #{node_name := NodeName}}) ->
+    get_stats(binary_to_atom(NodeName, utf8)).
 
 %%%==============================================================================================
 %% api apply
@@ -136,7 +133,7 @@ list(#{}) ->
     NodesInfo = [format(Node, NodeInfo) || {Node, NodeInfo} <- emqx_mgmt:list_nodes()],
     {200, NodesInfo}.
 
-get_node(#{node := Node}) ->
+get_node(Node) ->
     case emqx_mgmt:lookup_node(Node) of
         #{node_status := 'ERROR'} ->
             {400, #{code => 'SOURCE_ERROR', message => <<"rpc_failed">>}};
@@ -144,7 +141,7 @@ get_node(#{node := Node}) ->
             {200, format(Node, NodeInfo)}
     end.
 
-get_metrics(#{node := Node}) ->
+get_metrics(Node) ->
     case emqx_mgmt:get_metrics(Node) of
         {error, _} ->
             {400, #{code => 'SOURCE_ERROR', message => <<"rpc_failed">>}};
@@ -152,7 +149,7 @@ get_metrics(#{node := Node}) ->
             {200, Metrics}
     end.
 
-get_stats(#{node := Node}) ->
+get_stats(Node) ->
     case emqx_mgmt:get_stats(Node) of
         {error, _} ->
             {400, #{code => 'SOURCE_ERROR', message => <<"rpc_failed">>}};
@@ -162,10 +159,6 @@ get_stats(#{node := Node}) ->
 
 %%============================================================================================================
 %% internal function
-node_name_path_parameter(Request) ->
-    NodeName = cowboy_req:binding(node_name, Request),
-    Node = binary_to_atom(NodeName, utf8),
-    #{node => Node}.
 
 format(_Node, Info = #{memory_total := Total, memory_used := Used}) ->
     {ok, SysPathBinary} = file:get_cwd(),

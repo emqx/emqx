@@ -122,23 +122,19 @@ config_api() ->
     },
     {"/mqtt/retainer", MetaData, config}.
 
-lookup_retained_warp(Type, Req) ->
-    check_backend(Type, Req, fun lookup_retained/2).
+lookup_retained_warp(Type, Params) ->
+    check_backend(Type, Params, fun lookup_retained/2).
 
-with_topic_warp(Type, Req) ->
-    check_backend(Type, Req, fun with_topic/2).
+with_topic_warp(Type, Params) ->
+    check_backend(Type, Params, fun with_topic/2).
 
 config(get, _) ->
-    Config = emqx:get_config([mqtt_retainer]),
-    Body = emqx_json:encode(Config),
-    {200, Body};
+    {200, emqx:get_raw_config([emqx_retainer])};
 
-config(put, Req) ->
+config(put, #{body := Body}) ->
     try
-        {ok, Body, _} = cowboy_req:read_body(Req),
-        Cfg = emqx_json:decode(Body),
-        emqx_retainer:update_config(Cfg),
-        {200,  #{<<"content-type">> => <<"text/plain">>}, <<"Update configs successfully">>}
+        ok = emqx_retainer:update_config(Body),
+        {200,  emqx:get_raw_config([emqx_retainer])}
     catch _:Reason:_ ->
             {400,
              #{code => 'UPDATE_FAILED',
@@ -148,27 +144,25 @@ config(put, Req) ->
 %%------------------------------------------------------------------------------
 %% Interval Funcs
 %%------------------------------------------------------------------------------
-lookup_retained(get, Req) ->
-    lookup(undefined, Req, fun format_message/1).
+lookup_retained(get, Params) ->
+    lookup(undefined, Params, fun format_message/1).
 
-with_topic(get, Req) ->
-    Topic = cowboy_req:binding(topic, Req),
-    lookup(Topic, Req, fun format_detail_message/1);
+with_topic(get, #{bindings := Bindings} = Params) ->
+    Topic = maps:get(topic, Bindings),
+    lookup(Topic, Params, fun format_detail_message/1);
 
-with_topic(delete, Req) ->
-    Topic = cowboy_req:binding(topic, Req),
+with_topic(delete, #{bindings := Bindings}) ->
+    Topic = maps:get(topic, Bindings),
     emqx_retainer_mnesia:delete_message(undefined, Topic),
     {200}.
 
 -spec lookup(undefined | binary(),
-             cowboy_req:req(),
+             map(),
              fun((#message{}) -> map())) ->
           {200, map()}.
-lookup(Topic, Req, Formatter) ->
-    #{page := Page,
-      limit := Limit} = cowboy_req:match_qs([{page, int, 1},
-                                             {limit, int, emqx_mgmt:max_row_limit()}],
-                                            Req),
+lookup(Topic, #{query_string := Qs}, Formatter) ->
+    Page = maps:get(page, Qs, 1),
+    Limit = maps:get(page, Qs, emqx_mgmt:max_row_limit()),
     {ok, Msgs} = emqx_retainer_mnesia:page_read(undefined, Topic, Page, Limit),
     {200, format_message(Msgs, Formatter)}.
 
@@ -197,10 +191,10 @@ to_bin_string(Data) when is_binary(Data) ->
 to_bin_string(Data)  ->
     list_to_binary(io_lib:format("~p", [Data])).
 
-check_backend(Type, Req, Cont) ->
+check_backend(Type, Params, Cont) ->
     case emqx:get_config([emqx_retainer, config, type]) of
         built_in_database ->
-            Cont(Type, Req);
+            Cont(Type, Params);
         _ ->
             {405,
              #{<<"content-type">> => <<"text/plain">>},

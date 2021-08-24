@@ -145,24 +145,20 @@ counter_schema() ->
                     type => integer}}}}.
 %%%==============================================================================================
 %% parameters trans
-monitor(get, Request) ->
-    Aggregate = proplists:get_value(<<"aggregate">>, cowboy_req:parse_qs(Request), <<"false">>),
+monitor(get, #{query_string := Qs}) ->
+    Aggregate = maps:get(<<"aggregate">>, Qs, <<"false">>),
     {200, list_collect(Aggregate)}.
 
-monitor_nodes(get, Request) ->
-    Node = cowboy_req:binding(node, Request),
+monitor_nodes(get, #{bindings := #{node := Node}}) ->
     lookup([{<<"node">>, Node}]).
 
-monitor_nodes_counters(get, Request) ->
-    Node = cowboy_req:binding(node, Request),
-    Counter = cowboy_req:binding(counter, Request),
+monitor_nodes_counters(get, #{bindings := #{node := Node, counter := Counter}}) ->
     lookup([{<<"node">>, Node}, {<<"counter">>, Counter}]).
 
-counters(get, Request) ->
-    Counter = cowboy_req:binding(counter, Request),
+counters(get, #{bindings := #{counter := Counter}}) ->
     lookup([{<<"counter">>, Counter}]).
 
-current_counters(get, _) ->
+current_counters(get, _Params) ->
     Data = [get_collect(Node) || Node <- ekka_mnesia:running_nodes()],
     Nodes = length(ekka_mnesia:running_nodes()),
     {Received, Sent, Sub, Conn} = format_current_metrics(Data),

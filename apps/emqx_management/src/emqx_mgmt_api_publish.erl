@@ -62,15 +62,13 @@ properties() ->
         {retain, boolean, <<"Retain message flag, nullable, default false">>}
     ]).
 
-publish(post, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Message = message(emqx_json:decode(Body, [return_maps])),
+publish(post, #{body := Body}) ->
+    Message = message(Body),
     _ = emqx_mgmt:publish(Message),
     {200, format_message(Message)}.
 
-publish_batch(post, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Messages = messages(emqx_json:decode(Body, [return_maps])),
+publish_batch(post, #{body := Body}) ->
+    Messages = messages(Body),
     _ = [emqx_mgmt:publish(Message) || Message <- Messages],
     {200, format_message(Messages)}.
 

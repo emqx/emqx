@@ -82,13 +82,11 @@ route_api() ->
 
 %%%==============================================================================================
 %% parameters trans
-routes(get, Request) ->
-    Params = cowboy_req:parse_qs(Request),
-    list(Params).
+routes(get, #{query_string := Qs}) ->
+    list(Qs).
 
-route(get, Request) ->
-    Topic = cowboy_req:binding(topic, Request),
-    lookup(#{topic => Topic}).
+route(get, #{bindings := Bindings}) ->
+    lookup(Bindings).
 
 %%%==============================================================================================
 %% api apply

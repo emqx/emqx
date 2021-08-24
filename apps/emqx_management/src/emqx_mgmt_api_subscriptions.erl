@@ -106,12 +106,11 @@ parameters() ->
         } | page_params()
     ].
 
-subscriptions(get, Request) ->
-    Params = cowboy_req:parse_qs(Request),
+subscriptions(get, #{query_string := Params}) ->
     list(Params).
 
 list(Params) ->
-    case proplists:get_value(<<"node">>, Params, undefined) of
+    case maps:get(<<"node">>, Params, undefined) of
         undefined ->
             {200, emqx_mgmt_api:cluster_query(Params, ?SUBS_QS_SCHEMA, ?query_fun)};
         Node ->

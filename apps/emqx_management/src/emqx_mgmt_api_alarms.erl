@@ -68,28 +68,18 @@ alarms_api() ->
 
 %%%==============================================================================================
 %% parameters trans
-alarms(get, Request) ->
-    Params = cowboy_req:parse_qs(Request),
-    list(Params);
-
-alarms(delete, _Request) ->
-    delete().
-
-%%%==============================================================================================
-%% api apply
-list(Params) ->
+alarms(get, #{query_string := Qs}) ->
     {Table, Function} =
-        case proplists:get_value(<<"activated">>, Params, <<"true">>) of
+        case maps:get(<<"activated">>, Qs, <<"true">>) of
             <<"true">> ->
                 {?ACTIVATED_ALARM, query_activated};
             <<"false">> ->
                 {?DEACTIVATED_ALARM, query_deactivated}
         end,
-    Params1 = proplists:delete(<<"activated">>, Params),
-    Response = emqx_mgmt_api:cluster_query(Params1, {Table, []}, {?MODULE, Function}),
-    {200, Response}.
+    Response = emqx_mgmt_api:cluster_query(Qs, {Table, []}, {?MODULE, Function}),
+    {200, Response};
 
-delete() ->
+alarms(delete, _Params) ->
     _ = emqx_mgmt:delete_all_deactivated_alarms(),
     {200}.
 

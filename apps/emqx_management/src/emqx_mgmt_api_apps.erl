@@ -120,12 +120,10 @@ app_api() ->
 
 %%%==============================================================================================
 %% parameters trans
-apps(get, _Request) ->
+apps(get, _Params) ->
     list(#{});
 
-apps(post, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Data = emqx_json:decode(Body, [return_maps]),
+apps(post, #{body := Data}) ->
     Parameters = #{
         app_id  => maps:get(<<"app_id">>, Data),
         name    => maps:get(<<"name">>, Data),
@@ -136,18 +134,13 @@ apps(post, Request) ->
     },
     create(Parameters).
 
-app(get, Request) ->
-    AppID = cowboy_req:binding(app_id, Request),
+app(get, #{bindings := #{app_id := AppID}}) ->
     lookup(#{app_id => AppID});
 
-app(delete, Request) ->
-    AppID = cowboy_req:binding(app_id, Request),
+app(delete, #{bindings := #{app_id := AppID}}) ->
     delete(#{app_id => AppID});
 
-app(put, Request) ->
-    AppID = cowboy_req:binding(app_id, Request),
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Data = emqx_json:decode(Body, [return_maps]),
+app(put, #{bindings := #{app_id := AppID}, body := Data}) ->
     Parameters = #{
         app_id  => AppID,
         name    => maps:get(<<"name">>, Data),

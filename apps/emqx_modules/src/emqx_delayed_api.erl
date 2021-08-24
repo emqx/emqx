@@ -129,20 +129,16 @@ delayed_message_api() ->
 %%--------------------------------------------------------------------
 %% HTTP API
 %%--------------------------------------------------------------------
-status(get, _Request) ->
+status(get, _Params) ->
     {200, get_status()};
 
-status(put, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Config = emqx_json:decode(Body, [return_maps]),
-    update_config(Config).
+status(put, #{body := Body}) ->
+    update_config(Body).
 
-delayed_messages(get, Request) ->
-    Qs = cowboy_req:parse_qs(Request),
+delayed_messages(get, #{query_string := Qs}) ->
     {200, emqx_delayed:list(Qs)}.
 
-delayed_message(get, Request) ->
-    Id = cowboy_req:binding(id, Request),
+delayed_message(get, #{bindings := #{id := Id}}) ->
     case emqx_delayed:get_delayed_message(Id) of
         {ok, Message} ->
             Payload = maps:get(payload, Message),
@@ -156,8 +152,7 @@ delayed_message(get, Request) ->
             Message = iolist_to_binary(io_lib:format("Message ID ~p not found", [Id])),
             {404, #{code => ?MESSAGE_ID_NOT_FOUND, message => Message}}
     end;
-delayed_message(delete, Request) ->
-    Id = cowboy_req:binding(id, Request),
+delayed_message(delete, #{bindings := #{id := Id}}) ->
     _ = emqx_delayed:delete_delayed_message(Id),
     {200}.
 

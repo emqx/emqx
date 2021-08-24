@@ -40,9 +40,9 @@
                          topics => [<<"#">>]}).
 
 -export([ api_spec/0
-        , rules/2
-        , rule/2
-        , move_rule/2
+        , rules/3
+        , rule/3
+        , move_rule/3
         ]).
 
 api_spec() ->
@@ -418,7 +418,7 @@ move_rule_api() ->
     },
     {"/authorization/:id/move", Metadata, move_rule}.
 
-rules(get, Request) ->
+rules(get, _Params, Request) ->
     Rules = lists:foldl(fun (#{type := _Type, enable := true, annotations := #{id := Id} = Annotations} = Rule, AccIn) ->
                                 NRule = case emqx_resource:health_check(Id) of
                                     ok ->
@@ -445,7 +445,7 @@ rules(get, Request) ->
             end;
         false -> {200, #{rules => Rules}}
     end;
-rules(post, Request) ->
+rules(post, _Params, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     RawConfig = jsx:decode(Body, [return_maps]),
     case emqx_authz:update(head, [RawConfig]) of
@@ -454,7 +454,7 @@ rules(post, Request) ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end;
-rules(put, Request) ->
+rules(put, _Params, Request) ->
     {ok, Body, _} = cowboy_req:read_body(Request),
     RawConfig = jsx:decode(Body, [return_maps]),
     case emqx_authz:update(replace, RawConfig) of
@@ -464,7 +464,7 @@ rules(put, Request) ->
                     messgae => atom_to_binary(Reason)}}
     end.
 
-rule(get, Request) ->
+rule(get, _Params, Request) ->
     Id = cowboy_req:binding(id, Request),
     case emqx_authz:lookup(Id) of
         {error, Reason} -> {404, #{messgae => atom_to_binary(Reason)}};
@@ -481,7 +481,7 @@ rule(get, Request) ->
 
             end
     end;
-rule(put, Request) ->
+rule(put, _Params, Request) ->
     RuleId = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
     RawConfig = jsx:decode(Body, [return_maps]),
@@ -494,7 +494,7 @@ rule(put, Request) ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end;
-rule(delete, Request) ->
+rule(delete, _Params, Request) ->
     RuleId = cowboy_req:binding(id, Request),
     case emqx_authz:update({replace_once, RuleId}, #{}) of
         {ok, _} -> {204};
@@ -502,7 +502,7 @@ rule(delete, Request) ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end.
-move_rule(post, Request) ->
+move_rule(post, _Params, Request) ->
     RuleId = cowboy_req:binding(id, Request),
     {ok, Body, _} = cowboy_req:read_body(Request),
     #{<<"position">> := Position} = jsx:decode(Body, [return_maps]),

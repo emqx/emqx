@@ -50,11 +50,9 @@ event_message_api() ->
     },
     {Path, Metadata, event_message}.
 
-event_message(get, _Request) ->
+event_message(get, _Params) ->
     {200, emqx_event_message:list()};
 
-event_message(post, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Params = emqx_json:decode(Body, [return_maps]),
-    _ = emqx_event_message:update(Params),
+event_message(post, #{body := Body}) ->
+    _ = emqx_event_message:update(Body),
     {200, emqx_event_message:list()}.

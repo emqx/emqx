@@ -60,15 +60,13 @@ rewrite_api() ->
     },
     {Path, Metadata, topic_rewrite}.
 
-topic_rewrite(get, _Request) ->
+topic_rewrite(get, _Params) ->
     {200, emqx_rewrite:list()};
 
-topic_rewrite(post, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Params = emqx_json:decode(Body, [return_maps]),
-    case length(Params) < ?MAX_RULES_LIMIT of
+topic_rewrite(post, #{body := Body}) ->
+    case length(Body) < ?MAX_RULES_LIMIT of
         true ->
-            ok = emqx_rewrite:update(Params),
+            ok = emqx_rewrite:update(Body),
             {200, emqx_rewrite:list()};
         _ ->
             Message = iolist_to_binary(io_lib:format("Max rewrite rules count is ~p", [?MAX_RULES_LIMIT])),

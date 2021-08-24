@@ -51,14 +51,12 @@ statsd_api() ->
     },
     [{"/statsd", Metadata, statsd}].
 
-statsd(get, _Request) ->
+statsd(get, _Params) ->
     {200, emqx:get_raw_config([<<"statsd">>], #{})};
 
-statsd(put, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Params = emqx_json:decode(Body, [return_maps]),
-    {ok, Config} = emqx:update_config([statsd], Params),
-    case maps:get(<<"enable">>, Params) of
+statsd(put, #{body := Body}) ->
+    {ok, Config} = emqx:update_config([statsd], Body),
+    case maps:get(<<"enable">>, Body) of
         true ->
             _ = emqx_statsd_sup:stop_child(?APP),
             emqx_statsd_sup:start_child(?APP, maps:get(config, Config));

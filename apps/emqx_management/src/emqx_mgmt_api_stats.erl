@@ -130,9 +130,8 @@ stats_api() ->
 
 %%%==============================================================================================
 %% api apply
-list(get, Request) ->
-    Params = cowboy_req:parse_qs(Request),
-    case proplists:get_value(<<"aggregate">>, Params, undefined) of
+list(get, #{query_string := Qs}) ->
+    case maps:get(<<"aggregate">>, Qs, undefined) of
         <<"true">> ->
             {200, emqx_mgmt:get_stats()};
         _ ->

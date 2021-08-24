@@ -77,14 +77,12 @@ prometheus_api() ->
 %     },
 %     {"/prometheus/stats", Metadata, stats}.
 
-prometheus(get, _Request) ->
+prometheus(get, _Params) ->
     {200, emqx:get_raw_config([<<"prometheus">>], #{})};
 
-prometheus(put, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Params = emqx_json:decode(Body, [return_maps]),
-    {ok, Config} = emqx:update_config([prometheus], Params),
-    case maps:get(<<"enable">>, Params) of
+prometheus(put, #{body := Body}) ->
+    {ok, Config} = emqx:update_config([prometheus], Body),
+    case maps:get(<<"enable">>, Body) of
         true ->
             _ = emqx_prometheus_sup:stop_child(?APP),
             emqx_prometheus_sup:start_child(?APP, maps:get(config, Config));
