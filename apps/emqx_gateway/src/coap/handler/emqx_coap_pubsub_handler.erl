@@ -20,7 +20,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
 
--export([handle_request/3]).
+-export([handle_request/5]).
 
 -import(emqx_coap_message, [response/2, response/3]).
 
@@ -28,30 +28,29 @@
 -define(SUB(Topic, Token), #{subscribe => {Topic, Token}}).
 -define(SUBOPTS, #{qos => 0, rh => 0, rap => 0, nl => 0, is_new => false}).
 
-handle_request(Path, #coap_message{method = Method} = Msg, Ctx) ->
+handle_request(Path, #coap_message{method = Method} = Msg, Cfg, Ctx, CInfo) ->
     case check_topic(Path) of
         {ok, Topic} ->
-            handle_method(Method, Topic, Msg, Ctx);
+            handle_method(Method, Topic, Msg, Cfg, Ctx, CInfo);
         _ ->
             ?REPLY({error, bad_request}, <<"invalid topic">>, Msg)
     end.
 
-handle_method(get, Topic, #coap_message{options = Opts} = Msg, Ctx) ->
+handle_method(get, Topic, #coap_message{options = Opts} = Msg, Cfg, Ctx, CInfo) ->
     case maps:get(observe, Opts, undefined) of
         0 ->
-            subscribe(Msg, Topic, Ctx);
+            subscribe(Msg, Topic, Cfg, Ctx, CInfo);
         1 ->
-            unsubscribe(Topic, Ctx);
+            unsubscribe(Topic, CInfo);
         _ ->
             ?REPLY({error, bad_request}, <<"invalid observe value">>, Msg)
     end;
 
-handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx) ->
-    case emqx_coap_channel:validator(publish, Topic, Ctx) of
+handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Cfg, Ctx, CInfo) ->
+    case emqx_coap_channel:validator(publish, Topic, Ctx, CInfo) of
         allow ->
-            ClientInfo = emqx_coap_channel:get_clientinfo(Ctx),
-            #{clientid := ClientId} = ClientInfo,
-            QOS = get_publish_qos(Msg, Ctx),
+            #{clientid := ClientId} = CInfo,
+            QOS = get_publish_qos(Msg, Cfg),
             MQTTMsg = emqx_message:make(ClientId, QOS, Topic, Payload),
             MQTTMsg2 = apply_publish_opts(Msg, MQTTMsg),
             _ = emqx_broker:publish(MQTTMsg2),
@@ -60,7 +59,7 @@ handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx) ->
             ?REPLY({error, unauthorized}, Msg)
     end;
 
-handle_method(_, _, Msg, _) ->
+handle_method(_, _, Msg, _, _, _) ->
     ?REPLY({error, method_not_allowed}, Msg).
 
 check_topic([]) ->
@@ -76,13 +75,13 @@ check_topic(Path) ->
                    <<>>,
                    Path))}.
 
-get_sub_opts(#coap_message{options = Opts} = Msg, Ctx) ->
+get_sub_opts(#coap_message{options = Opts} = Msg, Cfg) ->
     SubOpts = maps:fold(fun parse_sub_opts/3, #{}, Opts),
     case SubOpts of
         #{qos := _} ->
             maps:merge(SubOpts, ?SUBOPTS);
         _ ->
-            CfgType = emqx_coap_channel:get_config(subscribe_qos, Ctx),
+            CfgType = maps:get(subscribe_qos, Cfg, ?QOS_0),
             maps:merge(SubOpts, ?SUBOPTS#{qos => type_to_qos(CfgType, Msg)})
     end.
 
@@ -106,12 +105,12 @@ type_to_qos(coap, #coap_message{type = Type}) ->
             ?QOS_1
     end.
 
-get_publish_qos(#coap_message{options = Opts} = Msg, Ctx) ->
+get_publish_qos(#coap_message{options = Opts} = Msg, Cfg) ->
     case maps:get(uri_query, Opts) of
         #{<<"qos">> := QOS} ->
             erlang:binary_to_integer(QOS);
         _ ->
-            CfgType = emqx_coap_channel:get_config(publish_qos, Ctx),
+            CfgType = maps:get(publish_qos, Cfg, ?QOS_0),
             type_to_qos(CfgType, Msg)
     end.
 
@@ -131,25 +130,23 @@ apply_publish_opts(#coap_message{options = Opts}, MQTTMsg) ->
               MQTTMsg,
               maps:get(uri_query, Opts)).
 
-subscribe(#coap_message{token = <<>>} = Msg, _, _) ->
+subscribe(#coap_message{token = <<>>} = Msg, _, _, _, _) ->
     ?REPLY({error, bad_request}, <<"observe without token">>, Msg);
 
-subscribe(#coap_message{token = Token} = Msg, Topic, Ctx) ->
-    case emqx_coap_channel:validator(subscribe, Topic, Ctx) of
+subscribe(#coap_message{token = Token} = Msg, Topic, Cfg, Ctx, CInfo) ->
+    case emqx_coap_channel:validator(subscribe, Topic, Ctx, CInfo) of
         allow ->
-            ClientInfo = emqx_coap_channel:get_clientinfo(Ctx),
-            #{clientid := ClientId} = ClientInfo,
-            SubOpts = get_sub_opts(Msg, Ctx),
+            #{clientid := ClientId} = CInfo,
+            SubOpts = get_sub_opts(Msg, Cfg),
             emqx_broker:subscribe(Topic, ClientId, SubOpts),
             emqx_hooks:run('session.subscribed',
-                           [ClientInfo, Topic, SubOpts]),
+                           [CInfo, Topic, SubOpts]),
             ?SUB(Topic, Token);
         _ ->
             ?REPLY({error, unauthorized}, Msg)
     end.
 
-unsubscribe(Topic, Ctx) ->
-    ClientInfo = emqx_coap_channel:get_clientinfo(Ctx),
+unsubscribe(Topic, CInfo) ->
     emqx_broker:unsubscribe(Topic),
-    emqx_hooks:run('session.unsubscribed', [ClientInfo, Topic, ?SUBOPTS]),
+    emqx_hooks:run('session.unsubscribed', [CInfo, Topic, ?SUBOPTS]),
     ?UNSUB(Topic).

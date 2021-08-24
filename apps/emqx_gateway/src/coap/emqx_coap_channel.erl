@@ -27,10 +27,7 @@
 -export([ info/1
         , info/2
         , stats/1
-        , validator/3
-        , get_clientinfo/1
-        , get_config/2
-        , get_config/3
+        , validator/4
         , result_keys/0
         , transfer_result/3]).
 
@@ -64,12 +61,6 @@
                   token :: binary() | undefined,
                   config :: hocon:config()
                  }).
-
-%% the execuate context for session call
--record(exec_ctx, { config :: hocon:config(),
-                    ctx :: emqx_gateway_ctx:context(),
-                    clientinfo :: emqx_types:clientinfo()
-                  }).
 
 -type channel() :: #channel{}.
 -define(DISCONNECT_WAIT_TIME, timer:seconds(10)).
@@ -134,21 +125,11 @@ init(ConnInfo = #{peername := {PeerHost, _},
             , keepalive = emqx_keepalive:init(maps:get(heartbeat, Config))
             }.
 
-validator(Type, Topic, #exec_ctx{ctx = Ctx,
-                                 clientinfo = ClientInfo}) ->
+validator(Type, Topic, Ctx, ClientInfo) ->
     emqx_gateway_ctx:authorize(Ctx, ClientInfo, Type, Topic).
 
-get_clientinfo(#exec_ctx{clientinfo = ClientInfo}) ->
-    ClientInfo.
-
-get_config(Key, Ctx) ->
-    get_config(Key, Ctx, undefined).
-
-get_config(Key, #exec_ctx{config = Cfg}, Def) ->
-    maps:get(Key, Cfg, Def).
-
 result_keys() ->
-    [out, connection].
+    [out, connection, input].
 
 transfer_result(From, Value, Result) ->
     ?TRANSFER_RESULT(From, Value, Result).
@@ -167,7 +148,7 @@ handle_in(Msg, ChannleT) ->
                     call_session(handle_response, Msg2, Channel)
             end;
         _ ->
-            response({error, bad_request}, <<"bad uri_query">>, Msg, Channel)
+            reply({error, bad_request}, <<"bad uri_query">>, Msg, Channel)
     end.
 
 %%--------------------------------------------------------------------
@@ -257,10 +238,10 @@ ensure_keepalive_timer(Fun, #channel{config = Cfg} = Channel) ->
 
 call_session(Fun,
              Msg,
-             #channel{session = Session} = Channel) ->
-    Ctx = new_exec_ctx(Channel),
-    Result = erlang:apply(emqx_coap_session, Fun, [Msg, Ctx, Session]),
-    process_result([session, connection, out], Result, Msg, Channel).
+             #channel{session = Session,
+                      config = Cfg} = Channel) ->
+    Result = erlang:apply(emqx_coap_session, Fun, [Msg, Cfg, Session]),
+    process_result([session, out, input], Result, Msg, Channel).
 
 process_result([Key | T], Result, Msg, Channel) ->
     case handle_result(Key, Result, Msg, Channel) of
@@ -286,6 +267,9 @@ handle_result(connection, #{connection := close}, Msg, Channel) ->
 handle_result(out, #{out := Out}, _, Channel) ->
     {ok, {outgoing, Out}, Channel};
 
+handle_result(input, #{input := {Type, Msg}}, _, Channel) ->
+    call_handler(Type, Msg, Channel);
+
 handle_result(_, _, _, Channel) ->
     {ok, Channel}.
 
@@ -305,7 +289,7 @@ check_token(true,
         #{<<"clientid">> := DesireId} ->
             try_takeover(ClientId, DesireId, Msg, Channel);
         _ ->
-            response({error, unauthorized}, Msg, Channel)
+            reply({error, unauthorized}, Msg, Channel)
     end;
 
 check_token(false,
@@ -313,17 +297,17 @@ check_token(false,
             Channel) ->
     case maps:get(uri_query, Options, undefined) of
         #{<<"clientid">> := _} ->
-            response({error, unauthorized}, Msg, Channel);
+            reply({error, unauthorized}, Msg, Channel);
         #{<<"token">> := _} ->
-            response({error, unauthorized}, Msg, Channel);
+            reply({error, unauthorized}, Msg, Channel);
         _ ->
             call_session(handle_request, Msg, Channel)
     end.
 
-response(Method, Req, Channel) ->
-    response(Method, <<>>, Req, Channel).
+reply(Method, Req, Channel) ->
+    reply(Method, <<>>, Req, Channel).
 
-response(Method, Payload, Req, Channel) ->
+reply(Method, Payload, Req, Channel) ->
     Reply = emqx_coap_message:piggyback(Method, Payload, Req),
     call_session(handle_out, Reply, Channel).
 
@@ -349,13 +333,6 @@ do_takeover(_DesireId, Msg, Channel) ->
     Reset = emqx_coap_message:reset(Msg),
     call_session(handle_out, Reset, Channel).
 
-new_exec_ctx(#channel{config = Cfg,
-                      ctx = Ctx,
-                      clientinfo = ClientInfo}) ->
-    #exec_ctx{config = Cfg,
-              ctx = Ctx,
-              clientinfo = ClientInfo}.
-
 do_connect(#coap_message{options = Opts} = Req, Channel) ->
     Queries = maps:get(uri_query, Opts),
     case emqx_misc:pipeline(
@@ -370,7 +347,7 @@ do_connect(#coap_message{options = Opts} = Req, Channel) ->
             process_connect(ensure_connected(NChannel), Req);
         {error, ReasonCode, NChannel} ->
             ErrMsg = io_lib:format("Login Failed: ~s", [ReasonCode]),
-            response({error, bad_request}, ErrMsg, Req, NChannel)
+            reply({error, bad_request}, ErrMsg, Req, NChannel)
     end.
 
 run_conn_hooks(Input, Channel = #channel{ctx = Ctx,
@@ -448,10 +425,10 @@ process_connect(Channel = #channel{ctx = Ctx,
            emqx_coap_session
           ) of
         {ok, _Sess} ->
-            response({ok, created}, <<"connected">>, Msg, Channel);
+            reply({ok, created}, <<"connected">>, Msg, Channel);
         {error, Reason} ->
             ?LOG(error, "Failed to open session du to ~p", [Reason]),
-            response({error, bad_request}, Msg, Channel)
+            reply({error, bad_request}, Msg, Channel)
     end.
 
 run_hooks(Ctx, Name, Args) ->
@@ -479,3 +456,22 @@ convert_queries([H | T], Queries, Msg) ->
     end;
 convert_queries([], Queries, #coap_message{options = Opts} = Msg) ->
     {ok, Msg#coap_message{options = Opts#{uri_query => Queries}}}.
+
+call_handler(request,
+             #coap_message{options = Opts} = Msg,
+             #channel{ctx = Ctx,
+                      config = Cfg,
+                      clientinfo = ClientInfo} = Channel) ->
+    Result =
+        case maps:get(uri_path, Opts, undefined) of
+                        [<<"ps">> | RestPath] ->
+                emqx_coap_pubsub_handler:handle_request(RestPath, Msg, Cfg, Ctx, ClientInfo);
+            [<<"mqtt">> | RestPath] ->
+                emqx_coap_mqtt_handler:handle_request(RestPath, Msg, Cfg, Ctx, ClientInfo);
+            _ ->
+                ?REPLY({error, bad_request}, Msg)
+        end,
+    process_result([session, connection, out], Result, Msg, Channel);
+
+call_handler(_, _, Channel) ->
+    {ok, Channel}.

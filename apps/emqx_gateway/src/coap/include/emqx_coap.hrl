@@ -31,6 +31,7 @@
         end).
 
 -define(RESET(Msg), #{out => emqx_coap_message:reset(Msg)}).
+-define(INPUT(Type, Msg), #{input => {Type, Msg}}).
 -define(REPLY(Resp, Payload, Msg), #{out => emqx_coap_message:piggyback(Resp, Payload, Msg)}).
 -define(REPLY(Resp, Msg), ?REPLY(Resp, <<>>, Msg)).
 

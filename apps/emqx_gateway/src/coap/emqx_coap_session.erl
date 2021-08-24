@@ -130,20 +130,19 @@ stats(Session) -> info(?STATS_KEYS, Session).
 %%%-------------------------------------------------------------------
 %%% Process Message
 %%%-------------------------------------------------------------------
-handle_request(Msg, Ctx, Session) ->
+handle_request(Msg, _Cfg, Session) ->
     call_transport_manager(?FUNCTION_NAME,
                            Msg,
-                           Ctx,
                            [fun process_tm/3, fun process_subscribe/3],
                            Session).
 
-handle_response(Msg, Ctx, Session) ->
-    call_transport_manager(?FUNCTION_NAME, Msg, Ctx, [fun process_tm/3], Session).
+handle_response(Msg, _Cfg, Session) ->
+    call_transport_manager(?FUNCTION_NAME, Msg, [fun process_tm/3], Session).
 
-handle_out(Msg, Ctx, Session) ->
-    call_transport_manager(?FUNCTION_NAME, Msg, Ctx, [fun process_tm/3], Session).
+handle_out(Msg, _Cfg, Session) ->
+    call_transport_manager(?FUNCTION_NAME, Msg, [fun process_tm/3], Session).
 
-deliver(Delivers, Ctx, Session) ->
+deliver(Delivers, Cfg, Session) ->
     Fun = fun({_, Topic, Message},
               #{out := OutAcc,
                 session := #session{observe_manager = OM,
@@ -153,10 +152,10 @@ deliver(Delivers, Ctx, Session) ->
                       undefined ->
                           Acc;
                       {Token, SeqId, OM2} ->
-                          Msg = mqtt_to_coap(Message, MsgId, Token, SeqId, Ctx),
+                          Msg = mqtt_to_coap(Message, MsgId, Token, SeqId, Cfg),
                           SAcc2 = SAcc#session{next_msg_id = next_msg_id(MsgId, TM),
                                                observe_manager = OM2},
-                          #{out := Out} = Result = handle_out(Msg, Ctx, SAcc2),
+                          #{out := Out} = Result = handle_out(Msg, Cfg, SAcc2),
                           Result#{out := [Out | OutAcc]}
                   end
           end,
@@ -164,8 +163,8 @@ deliver(Delivers, Ctx, Session) ->
                 #{out => [], session => Session},
                 lists:reverse(Delivers)).
 
-timeout(Timer, Ctx, Session) ->
-    call_transport_manager(?FUNCTION_NAME, Timer, Ctx, [fun process_tm/3], Session).
+timeout(Timer, _Cfg, Session) ->
+    call_transport_manager(?FUNCTION_NAME, Timer, [fun process_tm/3], Session).
 
 result_keys() ->
     [tm, subscribe] ++ emqx_coap_channel:result_keys().
@@ -178,11 +177,10 @@ transfer_result(From, Value, Result) ->
 %%%-------------------------------------------------------------------
 call_transport_manager(Fun,
                        Msg,
-                       Ctx,
                        Processor,
                        #session{transport_manager = TM} = Session) ->
     try
-        Result = emqx_coap_tm:Fun(Msg, Ctx, TM),
+        Result = emqx_coap_tm:Fun(Msg, TM),
         {ok, Result2, Session2} = pipeline(Processor,
                                            Result,
                                            Msg,
@@ -218,17 +216,17 @@ process_subscribe(#{subscribe := Sub} = Result,
 process_subscribe(Result, _, Session) ->
     {ok, Result, Session}.
 
-mqtt_to_coap(MQTT, MsgId, Token, SeqId, Ctx) ->
+mqtt_to_coap(MQTT, MsgId, Token, SeqId, Cfg) ->
     #message{payload = Payload} = MQTT,
-    #coap_message{type = get_notify_type(MQTT, Ctx),
+    #coap_message{type = get_notify_type(MQTT, Cfg),
                   method = {ok, content},
                   id = MsgId,
                   token = Token,
                   payload = Payload,
                   options = #{observe => SeqId}}.
 
-get_notify_type(#message{qos = Qos}, Ctx) ->
-    case emqx_coap_channel:get_config(notify_type, Ctx) of
+get_notify_type(#message{qos = Qos}, Cfg) ->
+    case maps:get(notify_type, Cfg, non) of
         qos ->
             case Qos of
                 ?QOS_0 ->

@@ -18,13 +18,13 @@
 
 -include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
 
--export([handle_request/3]).
+-export([handle_request/5]).
 -import(emqx_coap_message, [response/2, response/3]).
 
-handle_request([<<"connection">>], #coap_message{method = Method} = Msg, _) ->
+handle_request([<<"connection">>], #coap_message{method = Method} = Msg, _Cfg, _Ctx, _CInfo) ->
     handle_method(Method, Msg);
 
-handle_request(_, Msg, _) ->
+handle_request(_, Msg, _, _, _) ->
     ?REPLY({error, bad_request}, Msg).
 
 handle_method(put, Msg) ->

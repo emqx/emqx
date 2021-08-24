@@ -18,10 +18,10 @@
 -module(emqx_coap_tm).
 
 -export([ new/0
-        , handle_request/3
-        , handle_response/3
-        , handle_out/3
-        , timeout/3
+        , handle_request/2
+        , handle_response/2
+        , handle_out/2
+        , timeout/2
         , is_inused/3]).
 
 -export_type([manager/0, event_result/1]).
@@ -61,18 +61,20 @@
 new() ->
     #{}.
 
-handle_request(#coap_message{id = MsgId} = Msg, Ctx, TM) ->
+%% client request
+handle_request(#coap_message{id = MsgId} = Msg, TM) ->
     Id = {in, MsgId},
     case maps:get(Id, TM, undefined) of
         undefined ->
             Transport = emqx_coap_transport:new(),
             Machine = new_state_machine(Id, Transport),
-            process_event(in, Msg, TM, Ctx, Machine);
+            process_event(in, Msg, TM, Machine);
         Machine ->
-            process_event(in, Msg, TM, Ctx, Machine)
+            process_event(in, Msg, TM, Machine)
     end.
 
-handle_response(#coap_message{type = Type, id = MsgId} = Msg, Ctx, TM) ->
+%% client response
+handle_response(#coap_message{type = Type, id = MsgId} = Msg, TM) ->
     Id = {out, MsgId},
     case maps:get(Id, TM, undefined) of
         undefined ->
@@ -83,22 +85,23 @@ handle_response(#coap_message{type = Type, id = MsgId} = Msg, Ctx, TM) ->
                     ?RESET(Msg)
             end;
         Machine ->
-            process_event(in, Msg, TM, Ctx, Machine)
+            process_event(in, Msg, TM, Machine)
     end.
 
-handle_out(#coap_message{id = MsgId} = Msg, Ctx, TM) ->
+%% send to a client, msg can be request/piggyback/separate/notify
+handle_out(#coap_message{id = MsgId} = Msg, TM) ->
     Id = {out, MsgId},
     case maps:get(Id, TM, undefined) of
         undefined ->
             Transport = emqx_coap_transport:new(),
             Machine = new_state_machine(Id, Transport),
-            process_event(out, Msg, TM, Ctx, Machine);
+            process_event(out, Msg, TM, Machine);
         _ ->
             %% ignore repeat send
             ?EMPTY_RESULT
     end.
 
-timeout({Id, Type, Msg}, Ctx, TM) ->
+timeout({Id, Type, Msg}, TM) ->
     case maps:get(Id, TM, undefined) of
         undefined ->
             ?EMPTY_RESULT;
@@ -106,7 +109,7 @@ timeout({Id, Type, Msg}, Ctx, TM) ->
             %% maybe timer has been canceled
             case maps:is_key(Type, Timers) of
                 true ->
-                    process_event(Type, Msg, TM, Ctx, Machine);
+                    process_event(Type, Msg, TM, Machine);
                 _ ->
                     ?EMPTY_RESULT
             end
@@ -128,7 +131,6 @@ new_state_machine(Id, Transport) ->
 process_event(stop_timeout,
               _,
               TM,
-              _,
               #state_machine{id = Id,
                              timers = Timers}) ->
     lists:foreach(fun({_, Ref}) ->
@@ -140,11 +142,10 @@ process_event(stop_timeout,
 process_event(Event,
               Msg,
               TM,
-              Ctx,
               #state_machine{id = Id,
                              state = State,
                              transport = Transport} = Machine) ->
-    Result = emqx_coap_transport:State(Event, Msg, Ctx, Transport),
+    Result = emqx_coap_transport:State(Event, Msg, Transport),
     {ok, _, Machine2} = emqx_misc:pipeline([fun process_state_change/2,
                                             fun process_transport_change/2,
                                             fun process_timeouts/2],
