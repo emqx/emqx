@@ -37,37 +37,6 @@
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
 
-% -define(RULE1, #{<<"principal">> => <<"all">>,
-%                  <<"topics">> => [<<"#">>],
-%                  <<"action">> => <<"all">>,
-%                  <<"permission">> => <<"deny">>}
-%        ).
-% -define(RULE2, #{<<"principal">> =>
-%                     #{<<"ipaddress">> => <<"127.0.0.1">>},
-%                  <<"topics">> =>
-%                         [#{<<"eq">> => <<"#">>},
-%                          #{<<"eq">> => <<"+">>}
-%                         ] ,
-%                  <<"action">> => <<"all">>,
-%                  <<"permission">> => <<"allow">>}
-%        ).
-% -define(RULE3,#{<<"principal">> =>
-%                     #{<<"and">> => [#{<<"username">> => <<"^test?">>},
-%                                     #{<<"clientid">> => <<"^test?">>}
-%                                    ]},
-%                 <<"topics">> => [<<"test">>],
-%                 <<"action">> => <<"publish">>,
-%                 <<"permission">> => <<"allow">>}
-%        ).
-% -define(RULE4,#{<<"principal">> =>
-%                     #{<<"or">> => [#{<<"username">> => <<"^test">>},
-%                                    #{<<"clientid">> => <<"test?">>}
-%                                   ]},
-%                 <<"topics">> => [<<"%u">>,<<"%c">>],
-%                 <<"action">> => <<"publish">>,
-%                 <<"permission">> => <<"deny">>}
-%        ).
-
 -define(RULE1, #{<<"type">> => <<"http">>,
                  <<"config">> => #{
                     <<"url">> => <<"https://fake.com:443/">>,
@@ -119,8 +88,7 @@
                 }).
 
 all() ->
-    % emqx_ct:all(?MODULE).
-    [].
+    emqx_ct:all(?MODULE).
 
 groups() ->
     [].
@@ -129,6 +97,7 @@ init_per_suite(Config) ->
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, update, fun(_, _, _, _) -> {ok, meck_data} end),
+    meck:expect(emqx_resource, health_check, fun(_) -> ok end),
     meck:expect(emqx_resource, remove, fun(_) -> ok end ),
 
     ekka_mnesia:start(),

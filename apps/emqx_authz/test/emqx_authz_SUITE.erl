@@ -33,6 +33,7 @@ groups() ->
 init_per_suite(Config) ->
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
+    meck:expect(emqx_resource, update, fun(_, _, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, remove, fun(_) -> ok end ),
 
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
@@ -110,10 +111,7 @@ t_update_rule(_) ->
     {ok, _} = emqx_authz:update(head, [?RULE1]),
     {ok, _} = emqx_authz:update(tail, [?RULE3]),
 
-    dbg:tracer(),dbg:p(all,c),
-    dbg:tpl(hocon_schema, check, cx),
-    Lists1 = emqx_authz:check_rules([?RULE1, ?RULE2, ?RULE3]),
-    ?assertMatch(Lists1, emqx:get_config([authorization_rules, rules], [])),
+    ?assertMatch([#{type := http}, #{type := mongo}, #{type := mysql}], emqx:get_config([authorization_rules, rules], [])),
 
     [#{annotations := #{id := Id1}, type := http},
      #{annotations := #{id := Id2}, type := mongo},
@@ -122,8 +120,7 @@ t_update_rule(_) ->
 
     {ok, _} = emqx_authz:update({replace_once, Id1}, ?RULE5),
     {ok, _} = emqx_authz:update({replace_once, Id3}, ?RULE4),
-    Lists2 = emqx_authz:check_rules([?RULE1, ?RULE2, ?RULE4]),
-    ?assertMatch(Lists2, emqx:get_config([authorization_rules, rules], [])),
+    ?assertMatch([#{type := redis}, #{type := mongo}, #{type := pgsql}], emqx:get_config([authorization_rules, rules], [])),
 
     [#{annotations := #{id := Id1}, type := redis},
      #{annotations := #{id := Id2}, type := mongo},
