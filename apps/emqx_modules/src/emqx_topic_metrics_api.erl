@@ -27,8 +27,7 @@
 
 -export([api_spec/0]).
 
--export([ list_topic/2
-        , list_topic_metrics/2
+-export([ list_topic_metrics/2
         , operate_topic_metrics/2
         , reset_all_topic_metrics/2
         , reset_topic_metrics/2
@@ -43,7 +42,6 @@
 api_spec() ->
     {
         [
-            list_topic_api(),
             list_topic_metrics_api(),
             get_topic_metrics_api(),
             reset_all_topic_metrics_api(),
@@ -77,17 +75,6 @@ properties() ->
                            {'messages.qos2.out.rate', number}]}
     ]).
 
-
-list_topic_api() ->
-    Props = properties([{topic, string}]),
-    MetaData = #{
-        get => #{
-            description => <<"List topic">>,
-            responses => #{<<"200">> => object_array_schema(Props, <<"List topic">>)}
-        }
-    },
-    {"/mqtt/topic_metrics", MetaData, list_topic}.
-
 list_topic_metrics_api() ->
     MetaData = #{
         get => #{
@@ -97,7 +84,7 @@ list_topic_metrics_api() ->
             }
         }
     },
-    {"/mqtt/topic_metrics/metrics", MetaData, list_topic_metrics}.
+    {"/mqtt/topic_metrics", MetaData, list_topic_metrics}.
 
 get_topic_metrics_api() ->
     MetaData = #{
@@ -121,7 +108,7 @@ get_topic_metrics_api() ->
             responses => #{ <<"200">> => schema(<<"Deregister topic metrics">>)}
         }
     },
-    {"/mqtt/topic_metrics/metrics/:topic", MetaData, operate_topic_metrics}.
+    {"/mqtt/topic_metrics/:topic", MetaData, operate_topic_metrics}.
 
 reset_all_topic_metrics_api() ->
     MetaData = #{
@@ -133,7 +120,7 @@ reset_all_topic_metrics_api() ->
     {"/mqtt/topic_metrics/reset", MetaData, reset_all_topic_metrics}.
 
 reset_topic_metrics_api() ->
-    Path = "/mqtt/topic_metrics/reset/:topic",
+    Path = "/mqtt/topic_metrics/:topic/reset",
     MetaData = #{
         put => #{
             description => <<"Reset topic metrics">>,
@@ -148,18 +135,17 @@ topic_param() ->
         name => topic,
         in => path,
         required => true,
+        description => <<"Notice: Topic string url must encode">>,
         schema => #{type => string}
     }.
 
 %%--------------------------------------------------------------------
 %% api callback
-list_topic(get, _) ->
-    list_topics().
-
 list_topic_metrics(get, _) ->
     list_metrics().
 
-operate_topic_metrics(Method, #{bindings := #{topic := Topic}}) ->
+operate_topic_metrics(Method, #{bindings := #{topic := Topic0}}) ->
+    Topic = decode_topic(Topic0),
     case Method of
         get ->
             get_metrics(Topic);
@@ -172,14 +158,15 @@ operate_topic_metrics(Method, #{bindings := #{topic := Topic}}) ->
 reset_all_topic_metrics(put, _) ->
     reset().
 
-reset_topic_metrics(put, #{bindings := #{topic := Topic}}) ->
+reset_topic_metrics(put, #{bindings := #{topic := Topic0}}) ->
+    Topic = decode_topic(Topic0),
     reset(Topic).
+
+decode_topic(Topic) ->
+    uri_string:percent_decode(Topic).
 
 %%--------------------------------------------------------------------
 %% api apply
-list_topics() ->
-    {200, emqx_topic_metrics:all_registered_topics()}.
-
 list_metrics() ->
     {200, emqx_topic_metrics:metrics()}.
 
