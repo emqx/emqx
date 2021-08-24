@@ -40,9 +40,9 @@
                          topics => [<<"#">>]}).
 
 -export([ api_spec/0
-        , rules/3
-        , rule/3
-        , move_rule/3
+        , rules/2
+        , rule/2
+        , move_rule/2
         ]).
 
 api_spec() ->
@@ -418,7 +418,7 @@ move_rule_api() ->
     },
     {"/authorization/:id/move", Metadata, move_rule}.
 
-rules(get, _Params, Request) ->
+rules(get, #{query_string := Query}) ->
     Rules = lists:foldl(fun (#{type := _Type, enable := true, annotations := #{id := Id} = Annotations} = Rule, AccIn) ->
                                 NRule = case emqx_resource:health_check(Id) of
                                     ok ->
@@ -430,11 +430,10 @@ rules(get, _Params, Request) ->
                             (Rule, AccIn) ->
                                 lists:append(AccIn, [Rule])
                         end, [], emqx_authz:lookup()),
-    Query = cowboy_req:parse_qs(Request),
-    case lists:keymember(<<"page">>, 1, Query) andalso lists:keymember(<<"limit">>, 1, Query) of
+    case maps:is_key(<<"page">>, Query) andalso maps:is_key(<<"limit">>, Query) of
         true ->
-            {<<"page">>, Page} = lists:keyfind(<<"page">>, 1, Query),
-            {<<"limit">>, Limit} = lists:keyfind(<<"limit">>, 1, Query),
+            Page = maps:get(<<"page">>, Query),
+            Limit = maps:get(<<"limit">>, Query),
             Index = (binary_to_integer(Page) - 1) * binary_to_integer(Limit),
             {_, Rules1} = lists:split(Index, Rules),
             case binary_to_integer(Limit) < length(Rules1) of
@@ -445,18 +444,14 @@ rules(get, _Params, Request) ->
             end;
         false -> {200, #{rules => Rules}}
     end;
-rules(post, _Params, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    RawConfig = jsx:decode(Body, [return_maps]),
+rules(post, #{body := RawConfig}) ->
     case emqx_authz:update(head, [RawConfig]) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end;
-rules(put, _Params, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    RawConfig = jsx:decode(Body, [return_maps]),
+rules(put, #{body := RawConfig}) ->
     case emqx_authz:update(replace, RawConfig) of
         {ok, _} -> {204};
         {error, Reason} ->
@@ -464,8 +459,7 @@ rules(put, _Params, Request) ->
                     messgae => atom_to_binary(Reason)}}
     end.
 
-rule(get, _Params, Request) ->
-    Id = cowboy_req:binding(id, Request),
+rule(get, #{bindings := #{id := Id}}) ->
     case emqx_authz:lookup(Id) of
         {error, Reason} -> {404, #{messgae => atom_to_binary(Reason)}};
         Rule ->
@@ -481,10 +475,7 @@ rule(get, _Params, Request) ->
 
             end
     end;
-rule(put, _Params, Request) ->
-    RuleId = cowboy_req:binding(id, Request),
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    RawConfig = jsx:decode(Body, [return_maps]),
+rule(put, #{bindings := #{id := RuleId}, body := RawConfig}) ->
     case emqx_authz:update({replace_once, RuleId}, RawConfig) of
         {ok, _} -> {204};
         {error, not_found_rule} ->
@@ -494,18 +485,15 @@ rule(put, _Params, Request) ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end;
-rule(delete, _Params, Request) ->
-    RuleId = cowboy_req:binding(id, Request),
+rule(delete, #{bindings := #{id := RuleId}}) ->
     case emqx_authz:update({replace_once, RuleId}, #{}) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end.
-move_rule(post, _Params, Request) ->
-    RuleId = cowboy_req:binding(id, Request),
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    #{<<"position">> := Position} = jsx:decode(Body, [return_maps]),
+move_rule(post, #{bindings := #{id := RuleId}, body := Body}) ->
+    #{<<"position">> := Position} = Body,
     case emqx_authz:move(RuleId, Position) of
         {ok, _} -> {204};
         {error, not_found_rule} ->

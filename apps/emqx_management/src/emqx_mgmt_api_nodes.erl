@@ -118,13 +118,13 @@ node_stats_api() ->
 nodes(get, _Params) ->
     list(#{}).
 
-node(get, #{bingings := #{node_name := NodeName}}) ->
+node(get, #{bindings := #{node_name := NodeName}}) ->
     get_node(binary_to_atom(NodeName, utf8)).
 
-node_metrics(get, #{bingings := #{node_name := NodeName}}) ->
+node_metrics(get, #{bindings := #{node_name := NodeName}}) ->
     get_metrics(binary_to_atom(NodeName, utf8)).
 
-node_stats(get, #{bingings := #{node_name := NodeName}}) ->
+node_stats(get, #{bindings := #{node_name := NodeName}}) ->
     get_stats(binary_to_atom(NodeName, utf8)).
 
 %%%==============================================================================================
@@ -135,7 +135,7 @@ list(#{}) ->
 
 get_node(Node) ->
     case emqx_mgmt:lookup_node(Node) of
-        #{node_status := 'ERROR'} ->
+        {error, _} ->
             {400, #{code => 'SOURCE_ERROR', message => <<"rpc_failed">>}};
         NodeInfo ->
             {200, format(Node, NodeInfo)}
