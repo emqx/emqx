@@ -137,11 +137,7 @@ config(put, Req) ->
     try
         {ok, Body, _} = cowboy_req:read_body(Req),
         Cfg = emqx_json:decode(Body),
-        {ok, RawConf} = hocon:binary(jsx:encode(#{<<"mqtt_retainer">> => Cfg}),
-                                     #{format => richmap}),
-        RichConf = hocon_schema:check(emqx_retainer_schema, RawConf, #{atom_key => true}),
-        #{mqtt_retainer := Conf} = hocon_schema:richmap_to_map(RichConf),
-        emqx_retainer:update_config(Conf),
+        emqx_retainer:update_config(Cfg),
         {200,  #{<<"content-type">> => <<"text/plain">>}, <<"Update configs successfully">>}
     catch _:Reason:_ ->
             {400,
