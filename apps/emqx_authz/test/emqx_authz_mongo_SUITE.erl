@@ -39,17 +39,16 @@ init_per_suite(Config) ->
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
-    Rules = [#{ <<"config">> => #{
-                        <<"mongo_type">> => <<"single">>,
-                        <<"server">> => <<"127.0.0.1:27017">>,
-                        <<"pool_size">> => 1,
-                        <<"database">> => <<"mqtt">>,
-                        <<"ssl">> => #{<<"enable">> => false}},
-                <<"principal">> => <<"all">>,
-                <<"collection">> => <<"fake">>,
-                <<"find">> => #{<<"a">> => <<"b">>},
-                <<"type">> => <<"mongo">>}
-            ],
+    Rules = [#{<<"type">> => <<"mongo">>,
+               <<"config">> => #{
+                      <<"mongo_type">> => <<"single">>,
+                      <<"server">> => <<"127.0.0.1:27017">>,
+                      <<"pool_size">> => 1,
+                      <<"database">> => <<"mqtt">>,
+                      <<"ssl">> => #{<<"enable">> => false}},
+               <<"collection">> => <<"fake">>,
+               <<"find">> => #{<<"a">> => <<"b">>}
+              }],
     {ok, _} = emqx_authz:update(replace, Rules),
     Config.
 

@@ -20,8 +20,8 @@ jobs:
     container: ${{ matrix.container }}
 
     outputs:
-      profiles: ${{ steps.set_profile.outputs.profiles}}
-      old_vsns: ${{ steps.set_profile.outputs.old_vsns}}
+      profiles: ${{ steps.set_profile.outputs.profiles }}
+      old_vsns: ${{ steps.set_profile.outputs.old_vsns }}
 
     steps:
       - uses: actions/checkout@v2

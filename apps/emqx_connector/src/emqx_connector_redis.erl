@@ -19,10 +19,9 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
--type server() :: tuple().
+-type server() :: emqx_schema:ip_port().
 -reflect_type([server/0]).
--typerefl_from_string({server/0, ?MODULE, to_server}).
--export([to_server/1]).
+-typerefl_from_string({server/0, emqx_connector_schema_lib, to_ip_port}).
 
 -export([structs/0, fields/1]).
 
@@ -170,9 +169,3 @@ redis_fields() ->
                    default => 0}}
     , {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
     ].
-
-to_server(Server) ->
-    case string:tokens(Server, ":") of
-        [Host, Port] -> {ok, {Host, list_to_integer(Port)}};
-        _ -> {error, Server}
-    end.

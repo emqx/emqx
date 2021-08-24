@@ -66,39 +66,25 @@ authorize(Client, PubSub, Topic,
 do_authorize(_Client, _PubSub, _Topic, _Columns, []) ->
     nomatch;
 do_authorize(Client, PubSub, Topic, Columns, [Row | Tail]) ->
-    case match(Client, PubSub, Topic, format_result(Columns, Row)) of
+    case emqx_authz_rule:match(Client, PubSub, Topic,
+                               emqx_authz_rule:compile(format_result(Columns, Row))
+                              ) of
         {matched, Permission} -> {matched, Permission};
         nomatch -> do_authorize(Client, PubSub, Topic, Columns, Tail)
     end.
 
 format_result(Columns, Row) ->
-    L = [ begin
-              {column, K, _, _, _, _, _, _, _} = lists:nth(I, Columns),
-              V = lists:nth(I, tuple_to_list(Row)),
-              {K, V}
-          end || I <- lists:seq(1, length(Columns)) ],
-    maps:from_list(L).
+    Permission = lists:nth(index(<<"permission">>, 2, Columns), erlang:tuple_to_list(Row)),
+    Action = lists:nth(index(<<"action">>, 2, Columns), erlang:tuple_to_list(Row)),
+    Topic = lists:nth(index(<<"topic">>, 2, Columns), erlang:tuple_to_list(Row)),
+    {Permission, all, Action, [Topic]}.
 
-match(Client, PubSub, Topic,
-      #{<<"permission">> := Permission,
-        <<"action">> := Action,
-        <<"topic">> := TopicFilter
-       }) ->
-    Rule = #{<<"topics">> => [TopicFilter],
-             <<"action">> => Action,
-             <<"permission">> =>  Permission
-            },
-    #{simple_rule :=
-      #{permission := NPermission} = NRule
-     } = hocon_schema:check_plain(
-            emqx_authz_schema,
-            #{<<"simple_rule">> => Rule},
-            #{atom_key => true},
-            [simple_rule]),
-    case emqx_authz:match(Client, PubSub, Topic, emqx_authz:init_rule(NRule)) of
-        true -> {matched, NPermission};
-        false -> nomatch
-    end.
+index(Key, N, TupleList) when is_integer(N) ->
+    Tuple = lists:keyfind(Key, N, TupleList),
+    index(Tuple, TupleList, 1);
+index(_Tuple, [], _Index) -> {error, not_found};
+index(Tuple, [Tuple | _TupleList], Index) -> Index;
+index(Tuple, [_ | TupleList], Index) -> index(Tuple, TupleList, Index + 1).
 
 replvar(Params, ClientInfo) ->
     replvar(Params, ClientInfo, []).

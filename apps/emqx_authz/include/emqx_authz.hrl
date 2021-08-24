@@ -19,8 +19,13 @@
 
 -define(APP, emqx_authz).
 
--define(ALLOW_DENY(A), ((A =:= allow) orelse (A =:= deny))).
--define(PUBSUB(A), ((A =:= subscribe) orelse (A =:= publish) orelse (A =:= all))).
+-define(ALLOW_DENY(A), ((A =:= allow) orelse (A =:= <<"allow">>) orelse
+                        (A =:= deny)  orelse (A =:= <<"deny">>)
+                       )).
+-define(PUBSUB(A), ((A =:= subscribe) orelse (A =:= <<"subscribe">>) orelse
+                    (A =:= publish)   orelse (A =:= <<"publish">>) orelse
+                    (A =:= all)       orelse (A =:= <<"all">>)
+                   )).
 
 -record(authz_metrics, {
         allow = 'client.authorize.allow',

@@ -37,46 +37,100 @@
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
 
--define(CONF_DEFAULT, <<"authorization: {rules: []}">>).
+% -define(RULE1, #{<<"principal">> => <<"all">>,
+%                  <<"topics">> => [<<"#">>],
+%                  <<"action">> => <<"all">>,
+%                  <<"permission">> => <<"deny">>}
+%        ).
+% -define(RULE2, #{<<"principal">> =>
+%                     #{<<"ipaddress">> => <<"127.0.0.1">>},
+%                  <<"topics">> =>
+%                         [#{<<"eq">> => <<"#">>},
+%                          #{<<"eq">> => <<"+">>}
+%                         ] ,
+%                  <<"action">> => <<"all">>,
+%                  <<"permission">> => <<"allow">>}
+%        ).
+% -define(RULE3,#{<<"principal">> =>
+%                     #{<<"and">> => [#{<<"username">> => <<"^test?">>},
+%                                     #{<<"clientid">> => <<"^test?">>}
+%                                    ]},
+%                 <<"topics">> => [<<"test">>],
+%                 <<"action">> => <<"publish">>,
+%                 <<"permission">> => <<"allow">>}
+%        ).
+% -define(RULE4,#{<<"principal">> =>
+%                     #{<<"or">> => [#{<<"username">> => <<"^test">>},
+%                                    #{<<"clientid">> => <<"test?">>}
+%                                   ]},
+%                 <<"topics">> => [<<"%u">>,<<"%c">>],
+%                 <<"action">> => <<"publish">>,
+%                 <<"permission">> => <<"deny">>}
+%        ).
 
--define(RULE1, #{<<"principal">> => <<"all">>,
-                 <<"topics">> => [<<"#">>],
-                 <<"action">> => <<"all">>,
-                 <<"permission">> => <<"deny">>}
-       ).
--define(RULE2, #{<<"principal">> =>
-                    #{<<"ipaddress">> => <<"127.0.0.1">>},
-                 <<"topics">> =>
-                        [#{<<"eq">> => <<"#">>},
-                         #{<<"eq">> => <<"+">>}
-                        ] ,
-                 <<"action">> => <<"all">>,
-                 <<"permission">> => <<"allow">>}
-       ).
--define(RULE3,#{<<"principal">> =>
-                    #{<<"and">> => [#{<<"username">> => <<"^test?">>},
-                                    #{<<"clientid">> => <<"^test?">>}
-                                   ]},
-                <<"topics">> => [<<"test">>],
-                <<"action">> => <<"publish">>,
-                <<"permission">> => <<"allow">>}
-       ).
--define(RULE4,#{<<"principal">> =>
-                    #{<<"or">> => [#{<<"username">> => <<"^test">>},
-                                   #{<<"clientid">> => <<"test?">>}
-                                  ]},
-                <<"topics">> => [<<"%u">>,<<"%c">>],
-                <<"action">> => <<"publish">>,
-                <<"permission">> => <<"deny">>}
-       ).
+-define(RULE1, #{<<"type">> => <<"http">>,
+                 <<"config">> => #{
+                    <<"url">> => <<"https://fake.com:443/">>,
+                    <<"headers">> => #{},
+                    <<"method">> => <<"get">>,
+                    <<"request_timeout">> => 5000}
+                }).
+-define(RULE2, #{<<"type">> => <<"mongo">>,
+                 <<"config">> => #{
+                        <<"mongo_type">> => <<"single">>,
+                        <<"server">> => <<"127.0.0.1:27017">>,
+                        <<"pool_size">> => 1,
+                        <<"database">> => <<"mqtt">>,
+                        <<"ssl">> => #{<<"enable">> => false}},
+                 <<"collection">> => <<"fake">>,
+                 <<"find">> => #{<<"a">> => <<"b">>}
+                }).
+-define(RULE3, #{<<"type">> => <<"mysql">>,
+                 <<"config">> => #{
+                     <<"server">> => <<"127.0.0.1:27017">>,
+                     <<"pool_size">> => 1,
+                     <<"database">> => <<"mqtt">>,
+                     <<"username">> => <<"xx">>,
+                     <<"password">> => <<"ee">>,
+                     <<"auto_reconnect">> => true,
+                     <<"ssl">> => #{<<"enable">> => false}},
+                 <<"sql">> => <<"abcb">>
+                }).
+-define(RULE4, #{<<"type">> => <<"pgsql">>,
+                 <<"config">> => #{
+                     <<"server">> => <<"127.0.0.1:27017">>,
+                     <<"pool_size">> => 1,
+                     <<"database">> => <<"mqtt">>,
+                     <<"username">> => <<"xx">>,
+                     <<"password">> => <<"ee">>,
+                     <<"auto_reconnect">> => true,
+                     <<"ssl">> => #{<<"enable">> => false}},
+                 <<"sql">> => <<"abcb">>
+                }).
+-define(RULE5, #{<<"type">> => <<"redis">>,
+                 <<"config">> => #{
+                     <<"server">> => <<"127.0.0.1:27017">>,
+                     <<"pool_size">> => 1,
+                     <<"database">> => 0,
+                     <<"password">> => <<"ee">>,
+                     <<"auto_reconnect">> => true,
+                     <<"ssl">> => #{<<"enable">> => false}},
+                 <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
+                }).
 
 all() ->
-    emqx_ct:all(?MODULE).
+    % emqx_ct:all(?MODULE).
+    [].
 
 groups() ->
     [].
 
 init_per_suite(Config) ->
+    meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
+    meck:expect(emqx_resource, update, fun(_, _, _, _) -> {ok, meck_data} end),
+    meck:expect(emqx_resource, remove, fun(_) -> ok end ),
+
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
 
@@ -89,7 +143,8 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     {ok, _} = emqx_authz:update(replace, []),
-    emqx_ct_helpers:stop_apps([emqx_authz, emqx_management]),
+    emqx_ct_helpers:stop_apps([emqx_resource, emqx_authz, emqx_management]),
+    meck:unload(emqx_resource),
     ok.
 
 set_special_configs(emqx_management) ->
@@ -111,12 +166,7 @@ t_api(_) ->
     ?assertEqual([], get_rules(Result1)),
 
     lists:foreach(fun(_) ->
-                        {ok, 204, _} = request(post, uri(["authorization"]),
-                                         #{<<"action">> => <<"all">>,
-                                           <<"permission">> => <<"deny">>,
-                                           <<"principal">> => <<"all">>,
-                                           <<"topics">> => [<<"#">>]}
-                                        )
+                        {ok, 204, _} = request(post, uri(["authorization"]), ?RULE1)
                   end, lists:seq(1, 20)),
     {ok, 200, Result2} = request(get, uri(["authorization"]), []),
     ?assertEqual(20, length(get_rules(Result2))),
@@ -128,30 +178,23 @@ t_api(_) ->
                           ?assertEqual(10, length(get_rules(Result)))
                   end, lists:seq(1, 2)),
 
-    {ok, 204, _} = request(put, uri(["authorization"]),
-                           [ #{<<"action">> => <<"all">>, <<"permission">> => <<"allow">>, <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}
-                           , #{<<"action">> => <<"all">>, <<"permission">> => <<"allow">>, <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}
-                           , #{<<"action">> => <<"all">>, <<"permission">> => <<"allow">>, <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}
-                           ]),
+    {ok, 204, _} = request(put, uri(["authorization"]), [?RULE1, ?RULE2, ?RULE3, ?RULE4]),
 
     {ok, 200, Result3} = request(get, uri(["authorization"]), []),
     Rules = get_rules(Result3),
-    ?assertEqual(3, length(Rules)),
-
-    lists:foreach(fun(#{<<"permission">> := Allow}) ->
-                          ?assertEqual(<<"allow">>, Allow)
-                  end, Rules),
+    ?assertEqual(4, length(Rules)),
+    ?assertMatch([ #{<<"type">> := <<"http">>}
+                 , #{<<"type">> := <<"mongo">>}
+                 , #{<<"type">> := <<"mysql">>}
+                 , #{<<"type">> := <<"pgsql">>}
+                 ], Rules),
 
     #{<<"annotations">> := #{<<"id">> := Id}} = lists:nth(2, Rules),
 
-    {ok, 204, _} = request(put, uri(["authorization", binary_to_list(Id)]),
-                           #{<<"action">> => <<"all">>, <<"permission">> => <<"deny">>,
-                             <<"principal">> => <<"all">>, <<"topics">> => [<<"#">>]}),
+    {ok, 204, _} = request(put, uri(["authorization", binary_to_list(Id)]), ?RULE5),
 
     {ok, 200, Result4} = request(get, uri(["authorization", binary_to_list(Id)]), []),
-    ?assertMatch(#{<<"annotations">> := #{<<"id">> := Id},
-                   <<"permission">> := <<"deny">>
-                  }, jsx:decode(Result4)),
+    ?assertMatch(#{<<"type">> := <<"redis">>}, jsx:decode(Result4)),
 
     lists:foreach(fun(#{<<"annotations">> := #{<<"id">> := Id0}}) ->
                     {ok, 204, _} = request(delete, uri(["authorization", binary_to_list(Id0)]), [])
@@ -161,11 +204,12 @@ t_api(_) ->
     ok.
 
 t_move_rule(_) ->
-    {ok, _} = emqx_authz:update(replace, [?RULE1, ?RULE2, ?RULE3, ?RULE4]),
+    {ok, _} = emqx_authz:update(replace, [?RULE1, ?RULE2, ?RULE3, ?RULE4, ?RULE5]),
     [#{annotations := #{id := Id1}},
      #{annotations := #{id := Id2}},
      #{annotations := #{id := Id3}},
-     #{annotations := #{id := Id4}}
+     #{annotations := #{id := Id4}},
+     #{annotations := #{id := Id5}}
     ] = emqx_authz:lookup(),
 
     {ok, 204, _} = request(post, uri(["authorization", Id4, "move"]),
@@ -173,7 +217,8 @@ t_move_rule(_) ->
     ?assertMatch([#{annotations := #{id := Id4}},
                   #{annotations := #{id := Id1}},
                   #{annotations := #{id := Id2}},
-                  #{annotations := #{id := Id3}}
+                  #{annotations := #{id := Id3}},
+                  #{annotations := #{id := Id5}}
                  ], emqx_authz:lookup()),
 
     {ok, 204, _} = request(post, uri(["authorization", Id1, "move"]),
@@ -181,6 +226,7 @@ t_move_rule(_) ->
     ?assertMatch([#{annotations := #{id := Id4}},
                   #{annotations := #{id := Id2}},
                   #{annotations := #{id := Id3}},
+                  #{annotations := #{id := Id5}},
                   #{annotations := #{id := Id1}}
                  ], emqx_authz:lookup()),
 
@@ -189,6 +235,7 @@ t_move_rule(_) ->
     ?assertMatch([#{annotations := #{id := Id3}},
                   #{annotations := #{id := Id4}},
                   #{annotations := #{id := Id2}},
+                  #{annotations := #{id := Id5}},
                   #{annotations := #{id := Id1}}
                  ], emqx_authz:lookup()),
 
@@ -196,6 +243,7 @@ t_move_rule(_) ->
                            #{<<"position">> => #{<<"after">> => Id1}}),
     ?assertMatch([#{annotations := #{id := Id3}},
                   #{annotations := #{id := Id4}},
+                  #{annotations := #{id := Id5}},
                   #{annotations := #{id := Id1}},
                   #{annotations := #{id := Id2}}
                  ], emqx_authz:lookup()),

@@ -40,18 +40,17 @@ init_per_suite(Config) ->
 
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
-    Rules = [#{ <<"config">> => #{
-                    <<"server">> => <<"127.0.0.1:27017">>,
-                    <<"pool_size">> => 1,
-                    <<"database">> => <<"mqtt">>,
-                    <<"username">> => <<"xx">>,
-                    <<"password">> => <<"ee">>,
-                    <<"auto_reconnect">> => true,
-                    <<"ssl">> => #{<<"enable">> => false}
-                },
-                <<"principal">> => <<"all">>,
-                <<"sql">> => <<"abcb">>,
-                <<"type">> => <<"mysql">> }],
+    Rules = [#{<<"type">> => <<"mysql">>,
+               <<"config">> => #{
+                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"username">> => <<"xx">>,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false}},
+               <<"sql">> => <<"abcb">>
+              }],
     {ok, _} = emqx_authz:update(replace, Rules),
     Config.
 
@@ -60,17 +59,14 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
     meck:unload(emqx_resource).
 
--define(COLUMNS, [ <<"ipaddress">>
-                 , <<"username">>
-                 , <<"clientid">>
-                 , <<"action">>
+-define(COLUMNS, [ <<"action">>
                  , <<"permission">>
                  , <<"topic">>
                  ]).
--define(RULE1, [[<<"127.0.0.1">>, <<>>, <<>>, <<"all">>, <<"deny">>, <<"#">>]]).
--define(RULE2, [[<<"127.0.0.1">>, <<>>, <<>>, <<"all">>, <<"allow">>, <<"eq #">>]]).
--define(RULE3, [[<<>>, <<"^test">>, <<"^test">> ,<<"subscribe">>, <<"allow">>, <<"test/%c">>]]).
--define(RULE4, [[<<>>, <<"^test">>, <<"^test">> ,<<"publish">>, <<"allow">>, <<"test/%u">>]]).
+-define(RULE1, [[<<"all">>, <<"deny">>, <<"#">>]]).
+-define(RULE2, [[<<"all">>, <<"allow">>, <<"eq #">>]]).
+-define(RULE3, [[<<"subscribe">>, <<"allow">>, <<"test/%c">>]]).
+-define(RULE4, [[<<"publish">>, <<"allow">>, <<"test/%u">>]]).
 
 %%------------------------------------------------------------------------------
 %% Testcases
