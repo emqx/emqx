@@ -36,10 +36,7 @@
                         ]).
 
 api_spec() ->
-    {
-        [routes_api(), route_api()],
-        []
-    }.
+    {[routes_api(), route_api()], []}.
 
 properties() ->
     properties([

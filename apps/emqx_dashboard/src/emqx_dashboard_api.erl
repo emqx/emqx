@@ -50,14 +50,13 @@
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
 
 api_spec() ->
-    {
-        [ login_api()
-        , logout_api()
-        , users_api()
-        , user_api()
-        , change_pwd_api()
-        ],
-        []}.
+    {[ login_api()
+     , logout_api()
+     , users_api()
+     , user_api()
+     , change_pwd_api()
+     ],
+    []}.
 
 login_api() ->
     AuthProps = properties([{username, string, <<"Username">>},

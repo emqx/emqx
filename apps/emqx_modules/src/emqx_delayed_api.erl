@@ -49,11 +49,11 @@
 api_spec() ->
     {
         [status_api(), delayed_messages_api(), delayed_message_api()],
-        schemas()
+        []
     }.
 
-schemas() ->
-    [#{delayed => emqx_mgmt_api_configs:gen_schema(emqx:get_raw_config([delayed]))}].
+conf_schema() ->
+    emqx_mgmt_api_configs:gen_schema(emqx:get_raw_config([delayed])).
 properties() ->
     PayloadDesc = io_lib:format("Payload, base64 encode. Payload will be ~p if length large than ~p",
             [?PAYLOAD_TOO_LARGE, ?MAX_PAYLOAD_LENGTH]),
@@ -80,14 +80,14 @@ status_api() ->
         get => #{
             description => <<"Get delayed status">>,
             responses => #{
-                <<"200">> => schema(delayed)}
+                <<"200">> => schema(conf_schema())}
             },
         put => #{
             description => <<"Enable or disable delayed, set max delayed messages">>,
-            'requestBody' => schema(delayed),
+            'requestBody' => schema(conf_schema()),
             responses => #{
                 <<"200">> =>
-                    schema(delayed, <<"Enable or disable delayed successfully">>),
+                    schema(conf_schema(), <<"Enable or disable delayed successfully">>),
                 <<"400">> =>
                     error_schema(<<"Already disabled or enabled">>, [?ALREADY_ENABLED, ?ALREADY_DISABLED])
             }

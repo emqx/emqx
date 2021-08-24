@@ -29,9 +29,7 @@ status_api() ->
     Metadata = #{
         get => #{
             security => [],
-            responses => #{
-                <<"200">> => #{description => <<"running">>}
-            }
+            responses => #{<<"200">> => #{description => <<"running">>}}
         }
     },
     {Path, Metadata, running_status}.

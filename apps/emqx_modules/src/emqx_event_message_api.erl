@@ -25,11 +25,10 @@
                         ]).
 
 api_spec() ->
-    {[event_message_api()], [event_message_schema()]}.
+    {[event_message_api()], []}.
 
-event_message_schema() ->
-    Conf = emqx:get_raw_config([event_message]),
-    #{event_message => emqx_mgmt_api_configs:gen_schema(Conf)}.
+conf_schema() ->
+    emqx_mgmt_api_configs:gen_schema(emqx:get_config([event_message])).
 
 event_message_api() ->
     Path = "/mqtt/event_message",
@@ -37,14 +36,14 @@ event_message_api() ->
         get => #{
             description => <<"Event Message">>,
             responses => #{
-                <<"200">> => schema(event_message)
+                <<"200">> => schema(conf_schema())
             }
         },
         post => #{
             description => <<"Update Event Message">>,
-            'requestBody' => schema(event_message),
+            'requestBody' => schema(conf_schema()),
             responses => #{
-                <<"200">> => schema(event_message)
+                <<"200">> => schema(conf_schema())
             }
         }
     },

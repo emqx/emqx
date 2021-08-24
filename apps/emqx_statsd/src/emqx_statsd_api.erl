@@ -29,22 +29,22 @@
         ]).
 
 api_spec() ->
-    {statsd_api(), schemas()}.
+    {statsd_api(), []}.
 
-schemas() ->
-    [#{statsd => emqx_mgmt_api_configs:gen_schema(emqx:get_raw_config([statsd]))}].
+conf_schema() ->
+    emqx_mgmt_api_configs:gen_schema(emqx:get_raw_config([statsd])).
 
 statsd_api() ->
     Metadata = #{
         get => #{
             description => <<"Get statsd info">>,
-            responses => #{<<"200">> => schema(statsd)}
+            responses => #{<<"200">> => schema(conf_schema())}
         },
         put => #{
             description => <<"Update Statsd">>,
-            'requestBody' => schema(statsd),
+            'requestBody' => schema(conf_schema()),
             responses => #{
-                <<"200">> => schema(statsd),
+                <<"200">> => schema(conf_schema()),
                 <<"400">> => bad_request()
             }
         }

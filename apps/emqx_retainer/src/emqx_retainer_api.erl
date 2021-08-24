@@ -35,17 +35,10 @@
                         , properties/1]).
 
 api_spec() ->
-    {
-     [ lookup_retained_api()
-     , with_topic_api()
-     , config_api()
-     ],
-     schemas()
-    }.
+    {[lookup_retained_api(), with_topic_api(), config_api()], []}.
 
-schemas() ->
-    MqttRetainer = gen_schema(emqx:get_raw_config([emqx_retainer])),
-    [#{emqx_retainer => MqttRetainer}].
+conf_schema() ->
+    gen_schema(emqx:get_raw_config([emqx_retainer])).
 
 message_props() ->
     properties([
@@ -56,7 +49,7 @@ message_props() ->
         {publish_at, string, <<"publish datetime">>},
         {from_clientid, string, <<"publisher ClientId">>},
         {from_username, string, <<"publisher Username">>}
-        ]).
+    ]).
 
 parameters() ->
     [#{
@@ -107,15 +100,15 @@ config_api() ->
         get => #{
             description => <<"get retainer config">>,
             responses => #{
-                <<"200">> => schema(mqtt_retainer, <<"Get configs successfully">>),
+                <<"200">> => schema(conf_schema(), <<"Get configs successfully">>),
                 <<"404">> => error_schema(<<"Config not found">>, ['NOT_FOUND'])
             }
         },
         put => #{
             description => <<"Update retainer config">>,
-            'requestBody' => schema(mqtt_retainer),
+            'requestBody' => schema(conf_schema()),
             responses => #{
-                <<"200">> => schema(mqtt_retainer, <<"Update configs successfully">>),
+                <<"200">> => schema(conf_schema(), <<"Update configs successfully">>),
                 <<"400">> => error_schema(<<"Update configs failed">>, ['UPDATE_FAILED'])
             }
         }
