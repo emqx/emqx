@@ -21,26 +21,37 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(BASE_CONF, <<"""
+emqx_retainer {
+    enable = true
+    msg_clear_interval = 0s
+    msg_expiry_interval = 0s
+    max_payload_size = 1MB
+    flow_control {
+        max_read_number = 0
+        msg_deliver_quota = 0
+        quota_release_interval = 0s
+    }
+    config {
+        type = built_in_database
+        storage_type = ram
+        max_retained_messages = 0
+        }
+  }""">>).
+
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
+    ok = emqx_config:init_load(emqx_retainer_schema, ?BASE_CONF),
     %% Meck emqtt
     ok = meck:new(emqtt, [non_strict, passthrough, no_history, no_link]),
     %% Start Apps
-    emqx_ct_helpers:start_apps([emqx_retainer], fun set_special_configs/1),
+    emqx_ct_helpers:start_apps([emqx_retainer]),
     Config.
 
 end_per_suite(_Config) ->
     ok = meck:unload(emqtt),
     emqx_ct_helpers:stop_apps([emqx_retainer]).
-
-%%--------------------------------------------------------------------
-%% Helpers
-%%--------------------------------------------------------------------
-set_special_configs(emqx_retainer) ->
-    emqx_retainer_SUITE:init_emqx_retainer_conf();
-set_special_configs(_) ->
-    ok.
 
 client_info(Key, Client) ->
     maps:get(Key, maps:from_list(emqtt:info(Client)), undefined).

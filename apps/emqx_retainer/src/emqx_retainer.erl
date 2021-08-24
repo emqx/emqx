@@ -189,8 +189,8 @@ init([]) ->
      end}.
 
 handle_call({update_config, Conf}, _, State) ->
-    State2 = update_config(State, Conf),
-    _ = emqx:update_config([?APP], Conf),
+    {ok, Config} = emqx:update_config([?APP], Conf),
+    State2 = update_config(State, maps:get(config, Config)),
     {reply, ok, State2};
 
 handle_call({wait_semaphore, Id}, From, #{wait_quotas := Waits} = State) ->
