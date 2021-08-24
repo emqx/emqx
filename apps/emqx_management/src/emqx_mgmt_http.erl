@@ -133,3 +133,4 @@ api_modules() ->
 api_modules() ->
     minirest_api:find_api_modules(apps()) -- [emqx_mgmt_api_apps].
 -endif.
+

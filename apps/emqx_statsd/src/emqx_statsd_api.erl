@@ -20,7 +20,8 @@
 
 -include("emqx_statsd.hrl").
 
--import(emqx_mgmt_util, [response_schema/2, request_body_schema/1]).
+-import(emqx_mgmt_util, [ schema/1
+                        , bad_request/0]).
 
 -export([api_spec/0]).
 
@@ -37,24 +38,14 @@ statsd_api() ->
     Metadata = #{
         get => #{
             description => <<"Get statsd info">>,
-            responses => #{
-                <<"200">> => response_schema(<<>>, statsd)
-            }
+            responses => #{<<"200">> => schema(statsd)}
         },
         put => #{
             description => <<"Update Statsd">>,
-            'requestBody' => request_body_schema(statsd),
+            'requestBody' => schema(statsd),
             responses => #{
-                <<"200">> =>
-                    response_schema(<<>>, statsd),
-                <<"400">> =>
-                    response_schema(<<"Bad Request">>, #{
-                        type => object,
-                        properties => #{
-                            message => #{type => string},
-                            code => #{type => string}
-                        }
-                    })
+                <<"200">> => schema(statsd),
+                <<"400">> => bad_request()
             }
         }
     },

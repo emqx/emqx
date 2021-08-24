@@ -21,51 +21,15 @@
 
 -export([event_message/2]).
 
+-import(emqx_mgmt_util, [ schema/1
+                        ]).
 
 api_spec() ->
     {[event_message_api()], [event_message_schema()]}.
 
 event_message_schema() ->
-    #{
-        type => object,
-        properties => #{
-            '$event/client_connected' => #{
-                type => boolean,
-                description => <<"Client connected event">>,
-                example => get_raw(<<"$event/client_connected">>)
-            },
-            '$event/client_disconnected' => #{
-                type => boolean,
-                description => <<"client_disconnected">>,
-                example => get_raw(<<"Client disconnected event">>)
-            },
-            '$event/client_subscribed' => #{
-                type => boolean,
-                description => <<"client_subscribed">>,
-                example => get_raw(<<"Client subscribed event">>)
-            },
-            '$event/client_unsubscribed' => #{
-                type => boolean,
-                description => <<"client_unsubscribed">>,
-                example => get_raw(<<"Client unsubscribed event">>)
-            },
-            '$event/message_delivered' => #{
-                type => boolean,
-                description => <<"message_delivered">>,
-                example => get_raw(<<"Message delivered event">>)
-            },
-            '$event/message_acked' => #{
-                type => boolean,
-                description => <<"message_acked">>,
-                example => get_raw(<<"Message acked event">>)
-            },
-            '$event/message_dropped' => #{
-                type => boolean,
-                description => <<"message_dropped">>,
-                example => get_raw(<<"Message dropped event">>)
-            }
-        }
-    }.
+    Conf = emqx:get_raw_config([event_message]),
+    #{event_message => emqx_mgmt_api_configs:gen_schema(Conf)}.
 
 event_message_api() ->
     Path = "/mqtt/event_message",
@@ -73,14 +37,14 @@ event_message_api() ->
         get => #{
             description => <<"Event Message">>,
             responses => #{
-                <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<>>, event_message_schema())}},
+                <<"200">> => schema(event_message)
+            }
+        },
         post => #{
-            description => <<"">>,
-            'requestBody' => emqx_mgmt_util:request_body_schema(event_message_schema()),
+            description => <<"Update Event Message">>,
+            'requestBody' => schema(event_message),
             responses => #{
-                <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<>>, event_message_schema())
+                <<"200">> => schema(event_message)
             }
         }
     },
@@ -94,6 +58,3 @@ event_message(post, Request) ->
     Params = emqx_json:decode(Body, [return_maps]),
     _ = emqx_event_message:update(Params),
     {200, emqx_event_message:list()}.
-
-get_raw(Key) ->
-    emqx_config:get_raw([<<"event_message">>] ++ [Key], false).

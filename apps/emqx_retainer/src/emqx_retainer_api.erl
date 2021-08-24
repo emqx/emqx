@@ -27,14 +27,12 @@
         , config/2]).
 
 -import(emqx_mgmt_api_configs, [gen_schema/1]).
--import(emqx_mgmt_util, [ response_array_schema/2
-                        , response_schema/1
-                        , response_error_schema/2]).
-
--define(CFG_BODY(DESCR),
-        #{description => list_to_binary(DESCR),
-          content => #{<<"application/json">> =>
-                           #{schema => gen_schema(emqx_config:get([emqx_retainer]))}}}).
+-import(emqx_mgmt_util, [ object_array_schema/2
+                        , schema/1
+                        , schema/2
+                        , error_schema/2
+                        , page_params/0
+                        , properties/1]).
 
 api_spec() ->
     {
@@ -42,76 +40,86 @@ api_spec() ->
      , with_topic_api()
      , config_api()
      ],
-     [ message_schema(message, fun message_properties/0)
-     , message_schema(detail_message, fun detail_message_properties/0)
-     ]
+     schemas()
     }.
 
+schemas() ->
+    MqttRetainer = gen_schema(emqx:get_raw_config([emqx_retainer])),
+    [#{emqx_retainer => MqttRetainer}].
+
+message_props() ->
+    properties([
+        {id, string, <<"Message ID">>},
+        {topic, string, <<"MQTT Topic">>},
+        {qos, string, <<"MQTT QoS">>},
+        {payload, string, <<"MQTT Payload">>},
+        {publish_at, string, <<"publish datetime">>},
+        {from_clientid, string, <<"publisher ClientId">>},
+        {from_username, string, <<"publisher Username">>}
+        ]).
+
+parameters() ->
+    [#{
+        name => topic,
+        in => path,
+        required => true,
+        schema => #{type => "string"}
+    }].
+
 lookup_retained_api() ->
-    Metadata =
-        #{get => #{description => <<"lookup matching messages">>,
-                   parameters => [ #{name => page,
-                                     in => query,
-                                     description => <<"Page">>,
-                                     schema => #{type => integer, default => 1}}
-                                 , #{name => limit,
-                                     in => query,
-                                     description => <<"Page size">>,
-                                     schema => #{type => integer,
-                                                 default => emqx_mgmt:max_row_limit()}}
-                                 ],
-                   responses => #{ <<"200">> =>
-                                       response_array_schema("List retained messages", message)
-                                 , <<"405">> => response_schema(<<"NotAllowed">>)
-                                 }}},
+    Metadata = #{
+        get => #{
+            description => <<"lookup matching messages">>,
+            parameters => page_params(),
+            responses => #{
+                <<"200">> => object_array_schema(
+                    maps:without([payload], message_props()),
+                    <<"List retained messages">>),
+                <<"405">> => schema(<<"NotAllowed">>)
+            }
+        }
+    },
     {"/mqtt/retainer/messages", Metadata, lookup_retained_warp}.
 
 with_topic_api() ->
-    MetaData = #{get => #{description => <<"lookup matching messages">>,
-                          parameters => [ #{name => topic,
-                                            in => path,
-                                            required => true,
-                                            schema => #{type => "string"}}
-                                        , #{name => page,
-                                            in => query,
-                                            description => <<"Page">>,
-                                            schema => #{type => integer, default => 1}}
-                                        , #{name => limit,
-                                            in => query,
-                                            description => <<"Page size">>,
-                                            schema => #{type => integer,
-                                                        default => emqx_mgmt:max_row_limit()}}
-                                        ],
-                          responses => #{ <<"200">> =>
-                                              response_array_schema("List retained messages", detail_message)
-                                        , <<"405">> => response_schema(<<"NotAllowed">>)}},
-                 delete => #{description => <<"delete matching messages">>,
-                             parameters => [#{name => topic,
-                                              in => path,
-                                              required => true,
-                                              schema => #{type => "string"}}],
-                             responses => #{ <<"200">> => response_schema(<<"Successed">>)
-                                           , <<"405">> => response_schema(<<"NotAllowed">>)}}
-                },
+    MetaData = #{
+        get => #{
+            description => <<"lookup matching messages">>,
+            parameters => parameters() ++ page_params(),
+            responses => #{
+                <<"200">> => object_array_schema(message_props(), <<"List retained messages">>),
+                <<"405">> => schema(<<"NotAllowed">>)
+            }
+        },
+        delete => #{
+            description => <<"delete matching messages">>,
+            parameters => parameters(),
+            responses => #{
+                <<"200">> => schema(<<"Successed">>),
+                <<"405">> => schema(<<"NotAllowed">>)
+            }
+        }
+    },
     {"/mqtt/retainer/message/:topic", MetaData, with_topic_warp}.
 
 config_api() ->
     MetaData = #{
-                 get => #{
-                          description => <<"get retainer config">>,
-                          responses => #{<<"200">> => ?CFG_BODY("Get configs successfully"),
-                                         <<"404">> => response_error_schema(
-                                                        <<"Config not found">>, ['NOT_FOUND'])}
-                         },
-                 put => #{
-                          description => <<"Update retainer config">>,
-                          'requestBody' =>
-                              ?CFG_BODY("The format of the request body is depend on the 'conf_path' parameter in the query string"),
-                          responses => #{<<"200">> => response_schema("Update configs successfully"),
-                                         <<"400">> => response_error_schema(
-                                                        <<"Update configs failed">>, ['UPDATE_FAILED'])}
-                         }
-                },
+        get => #{
+            description => <<"get retainer config">>,
+            responses => #{
+                <<"200">> => schema(mqtt_retainer, <<"Get configs successfully">>),
+                <<"404">> => error_schema(<<"Config not found">>, ['NOT_FOUND'])
+            }
+        },
+        put => #{
+            description => <<"Update retainer config">>,
+            'requestBody' => schema(mqtt_retainer),
+            responses => #{
+                <<"200">> => schema(mqtt_retainer, <<"Update configs successfully">>),
+                <<"400">> => error_schema(<<"Update configs failed">>, ['UPDATE_FAILED'])
+            }
+        }
+    },
     {"/mqtt/retainer", MetaData, config}.
 
 lookup_retained_warp(Type, Req) ->
@@ -121,7 +129,7 @@ with_topic_warp(Type, Req) ->
     check_backend(Type, Req, fun with_topic/2).
 
 config(get, _) ->
-    Config = emqx_config:get([emqx_retainer]),
+    Config = emqx:get_config([mqtt_retainer]),
     Body = emqx_json:encode(Config),
     {200, Body};
 
@@ -129,16 +137,12 @@ config(put, Req) ->
     try
         {ok, Body, _} = cowboy_req:read_body(Req),
         Cfg = emqx_json:decode(Body),
-        {ok, RawConf} = hocon:binary(jsx:encode(#{<<"emqx_retainer">> => Cfg}),
-                                     #{format => richmap}),
-        RichConf = hocon_schema:check(emqx_retainer_schema, RawConf, #{atom_key => true}),
-        #{emqx_retainer := Conf} = hocon_schema:richmap_to_map(RichConf),
-        emqx_retainer:update_config(Conf),
+        emqx_retainer:update_config(Cfg),
         {200,  #{<<"content-type">> => <<"text/plain">>}, <<"Update configs successfully">>}
     catch _:Reason:_ ->
             {400,
              #{code => 'UPDATE_FAILED',
-               message => erlang:list_to_binary(io_lib:format("~p~n", [Reason]))}}
+               message => iolist_to_binary(io_lib:format("~p~n", [Reason]))}}
     end.
 
 %%------------------------------------------------------------------------------
@@ -168,30 +172,6 @@ lookup(Topic, Req, Formatter) ->
     {ok, Msgs} = emqx_retainer_mnesia:page_read(undefined, Topic, Page, Limit),
     {200, format_message(Msgs, Formatter)}.
 
-
-message_schema(Type, Properties) ->
-    #{Type => #{type => object,
-                properties => Properties()}}.
-
-message_properties() ->
-    #{msgid => #{type => string,
-                 description => <<"Message ID">>},
-      topic => #{type => string,
-                 description => <<"Topic">>},
-      qos => #{type => integer,
-               enum => [0, 1, 2],
-               description => <<"Qos">>},
-      publish_at => #{type => string,
-                      description => <<"publish datetime">>},
-      from_clientid => #{type => string,
-                         description => <<"Message from">>},
-      from_username => #{type => string,
-                         description => <<"publish username">>}}.
-
-detail_message_properties() ->
-    Base = message_properties(),
-    Base#{payload => #{type => string,
-                       description => <<"Topic">>}}.
 
 format_message(Messages, Formatter) when is_list(Messages)->
     [Formatter(Message) || Message <- Messages];

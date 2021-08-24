@@ -18,6 +18,11 @@
 
 -behaviour(minirest_api).
 
+-import(emqx_mgmt_util, [ schema/1
+                        , schema/2
+                        , error_schema/2
+                        ]).
+
 -export([api_spec/0]).
 
 -export([ config/2
@@ -33,15 +38,6 @@
     required => false,
     schema => #{type => string, default => <<".">>}
 }]).
-
--define(TEXT_BODY(DESCR, SCHEMA), #{
-    description => list_to_binary(DESCR),
-    content => #{
-        <<"text/plain">> => #{
-            schema => SCHEMA
-        }
-    }
-}).
 
 -define(PREFIX, "/configs").
 -define(PREFIX_RESET, "/configs_reset").
@@ -69,18 +65,16 @@ config_api(ConfPath, Schema) ->
         get => #{
             description => Descr("Get configs for"),
             responses => #{
-                <<"200">> => ?TEXT_BODY("Get configs successfully", Schema),
-                <<"404">> => emqx_mgmt_util:response_error_schema(
-                    <<"Config not found">>, ['NOT_FOUND'])
+                <<"200">> => schema(Schema, <<"Get configs successfully">>),
+                <<"404">> => emqx_mgmt_util:error_schema(<<"Config not found">>, ['NOT_FOUND'])
             }
         },
         put => #{
             description => Descr("Update configs for"),
-            'requestBody' => ?TEXT_BODY("The format of the request body is depend on the 'conf_path' parameter in the query string", Schema),
+            'requestBody' => schema(Schema),
             responses => #{
-                <<"200">> => ?TEXT_BODY("Update configs successfully", Schema),
-                <<"400">> => emqx_mgmt_util:response_error_schema(
-                    <<"Update configs failed">>, ['UPDATE_FAILED'])
+                <<"200">> => schema(Schema, <<"Update configs successfully">>),
+                <<"400">> => error_schema(<<"Update configs failed">>, ['UPDATE_FAILED'])
             }
         }
     },
@@ -97,9 +91,8 @@ config_reset_api() ->
                 %% We only return "200" rather than the new configs that has been changed, as
                 %% the schema of the changed configs is depends on the request parameter
                 %% `conf_path`, it cannot be defined here.
-                <<"200">> => emqx_mgmt_util:response_schema(<<"Reset configs successfully">>),
-                <<"400">> => emqx_mgmt_util:response_error_schema(
-                    <<"It's not able to reset the config">>, ['INVALID_OPERATION'])
+                <<"200">> => schema(<<"Reset configs successfully">>),
+                <<"400">> => error_schema(<<"It's not able to reset the config">>, ['INVALID_OPERATION'])
             }
         }
     },

@@ -27,6 +27,15 @@
         , manage_listeners/2
         , manage_nodes_listeners/2]).
 
+-import(emqx_mgmt_util, [ schema/1
+                        , schema/2
+                        , object_schema/2
+                        , object_array_schema/2
+                        , error_schema/1
+                        , error_schema/2
+                        , properties/1
+                        ]).
+
 -export([format/1]).
 
 -include_lib("emqx/include/emqx.hrl").
@@ -41,39 +50,20 @@ api_spec() ->
             manage_listeners_api(),
             manage_nodes_listeners_api()
         ],
-        [listener_schema()]
+        []
     }.
 
-listener_schema() ->
-    #{
-        listener => #{
-        type => object,
-        properties => #{
-            node => #{
-                type => string,
-                description => <<"Node">>,
-                example => node()},
-            id => #{
-                type => string,
-                description => <<"Identifier">>},
-            acceptors => #{
-                type => integer,
-                description => <<"Number of Acceptor process">>},
-            max_conn => #{
-                type => integer,
-                description => <<"Maximum number of allowed connection">>},
-            type => #{
-                type => string,
-                description => <<"Listener type">>},
-            listen_on => #{
-                type => string,
-                description => <<"Listening port">>},
-            running => #{
-                type => boolean,
-                description => <<"Open or close">>},
-            auth => #{
-                type => boolean,
-                description => <<"Has auth">>}}}}.
+properties() ->
+    properties([
+        {node, string, <<"Node">>},
+        {id, string, <<"Identifier">>},
+        {acceptors, integer, <<"Number of Acceptor process">>},
+        {max_conn, integer, <<"Maximum number of allowed connection">>},
+        {type, string, <<"Listener type">>},
+        {listen_on, string, <<"Listener port">>},
+        {running, boolean, <<"Open or close">>},
+        {auth, boolean, <<"Has auth">>}
+    ]).
 
 listeners_api() ->
     Metadata = #{
@@ -81,7 +71,7 @@ listeners_api() ->
             description => <<"List listeners in cluster">>,
             responses => #{
                 <<"200">> =>
-                    emqx_mgmt_util:response_array_schema(<<"List all listeners">>, listener)}}},
+                    object_array_schema(properties(), <<"List all listeners">>)}}},
     {"/listeners", Metadata, listeners}.
 
 listener_api() ->
@@ -91,9 +81,9 @@ listener_api() ->
             parameters => [param_path_id()],
             responses => #{
                 <<"404">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Listener id not found">>, ['BAD_LISTENER_ID']),
+                    error_schema(<<"Listener id not found">>, ['BAD_LISTENER_ID']),
                 <<"200">> =>
-                    emqx_mgmt_util:response_array_schema(<<"List listener info ok">>, listener)}}},
+                    object_array_schema(properties(), <<"List listener info ok">>)}}},
     {"/listeners/:id", Metadata, listener}.
 
 manage_listeners_api() ->
@@ -105,15 +95,12 @@ manage_listeners_api() ->
                 param_path_operation()],
             responses => #{
                 <<"500">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Operation  Failed">>, ['INTERNAL_ERROR']),
+                    error_schema(<<"Operation  Failed">>, ['INTERNAL_ERROR']),
                 <<"404">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Listener id not found">>,
-                        ['BAD_LISTENER_ID']),
+                    error_schema(<<"Listener id not found">>, ['BAD_LISTENER_ID']),
                 <<"400">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Listener id not found">>,
-                        ['BAD_REQUEST']),
-                <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Operation success">>)}}},
+                    error_schema(<<"Listener id not found">>, ['BAD_REQUEST']),
+                <<"200">> => schema(<<"Operation success">>)}}},
     {"/listeners/:id/:operation", Metadata, manage_listeners}.
 
 manage_nodes_listeners_api() ->
@@ -126,15 +113,14 @@ manage_nodes_listeners_api() ->
                 param_path_operation()],
             responses => #{
                 <<"500">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Operation Failed">>, ['INTERNAL_ERROR']),
+                    error_schema(<<"Operation Failed">>, ['INTERNAL_ERROR']),
                 <<"404">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Bad node or Listener id not found">>,
+                    error_schema(<<"Bad node or Listener id not found">>,
                         ['BAD_NODE_NAME','BAD_LISTENER_ID']),
                 <<"400">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Listener id not found">>,
-                        ['BAD_REQUEST']),
+                    error_schema(<<"Listener id not found">>, ['BAD_REQUEST']),
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Operation success">>)}}},
+                    schema(<<"Operation success">>)}}},
     {"/node/:node/listeners/:id/:operation", Metadata, manage_nodes_listeners}.
 
 nodes_listeners_api() ->
@@ -144,10 +130,10 @@ nodes_listeners_api() ->
             parameters => [param_path_node(), param_path_id()],
             responses => #{
                 <<"404">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Node name or listener id not found">>,
+                    error_schema(<<"Node name or listener id not found">>,
                         ['BAD_NODE_NAME', 'BAD_LISTENER_ID']),
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Get listener info ok">>, listener)}}},
+                    schema(properties(), <<"Get listener info ok">>)}}},
     {"/nodes/:node/listeners/:id", Metadata, node_listener}.
 
 nodes_listener_api() ->
@@ -156,10 +142,8 @@ nodes_listener_api() ->
             description => <<"List listeners in one node">>,
             parameters => [param_path_node()],
             responses => #{
-                <<"404">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Listener id not found">>),
-                <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Get listener info ok">>, listener)}}},
+                <<"404">> => error_schema(<<"Listener id not found">>),
+                <<"200">> => object_schema(properties(), <<"Get listener info ok">>)}}},
     {"/nodes/:node/listeners", Metadata, node_listeners}.
 %%%==============================================================================================
 %% parameters
@@ -199,27 +183,27 @@ listeners(get, _Request) ->
     list().
 
 listener(get, Request) ->
-    ID = binary_to_atom(cowboy_req:binding(id, Request)),
+    ID = b2a(cowboy_req:binding(id, Request)),
     get_listeners(#{id => ID}).
 
 node_listeners(get, Request) ->
-    Node = binary_to_atom(cowboy_req:binding(node, Request)),
+    Node = b2a(cowboy_req:binding(node, Request)),
     get_listeners(#{node => Node}).
 
 node_listener(get, Request) ->
-    Node = binary_to_atom(cowboy_req:binding(node, Request)),
-    ID = binary_to_atom(cowboy_req:binding(id, Request)),
+    Node = b2a(cowboy_req:binding(node, Request)),
+    ID = b2a(cowboy_req:binding(id, Request)),
     get_listeners(#{node => Node, id => ID}).
 
 manage_listeners(_, Request) ->
-    ID = binary_to_atom(cowboy_req:binding(id, Request)),
-    Operation = binary_to_atom(cowboy_req:binding(operation, Request)),
+    ID = b2a(cowboy_req:binding(id, Request)),
+    Operation = b2a(cowboy_req:binding(operation, Request)),
     manage(Operation, #{id => ID}).
 
 manage_nodes_listeners(_, Request) ->
-    Node = binary_to_atom(cowboy_req:binding(node, Request)),
-    ID = binary_to_atom(cowboy_req:binding(id, Request)),
-    Operation = binary_to_atom(cowboy_req:binding(operation, Request)),
+    Node = b2a(cowboy_req:binding(node, Request)),
+    ID = b2a(cowboy_req:binding(id, Request)),
+    Operation = b2a(cowboy_req:binding(operation, Request)),
     manage(Operation, #{id => ID, node => Node}).
 
 %%%==============================================================================================
@@ -232,16 +216,16 @@ get_listeners(Param) ->
     case list_listener(Param) of
         {error, not_found} ->
             ID = maps:get(id, Param),
-            Reason = list_to_binary(io_lib:format("Error listener id ~p", [ID])),
+            Reason = iolist_to_binary(io_lib:format("Error listener id ~p", [ID])),
             {404, #{code => 'BAD_LISTENER_ID', message => Reason}};
         {error, nodedown} ->
             Node = maps:get(node, Param),
-            Reason = list_to_binary(io_lib:format("Node ~p rpc failed", [Node])),
+            Reason = iolist_to_binary(io_lib:format("Node ~p rpc failed", [Node])),
             Response = #{code => 'BAD_NODE_NAME', message => Reason},
             {404, Response};
         [] ->
             ID = maps:get(id, Param),
-            Reason = list_to_binary(io_lib:format("Error listener id ~p", [ID])),
+            Reason = iolist_to_binary(io_lib:format("Error listener id ~p", [ID])),
             {404, #{code => 'BAD_LISTENER_ID', message => Reason}};
         Data ->
             {200, Data}
@@ -253,16 +237,16 @@ manage(Operation0, Param) ->
     case list_listener(Param) of
         {error, not_found} ->
             ID = maps:get(id, Param),
-            Reason = list_to_binary(io_lib:format("Error listener id ~p", [ID])),
+            Reason = iolist_to_binary(io_lib:format("Error listener id ~p", [ID])),
             {404, #{code => 'BAD_LISTENER_ID', message => Reason}};
         {error, nodedown} ->
             Node = maps:get(node, Param),
-            Reason = list_to_binary(io_lib:format("Node ~p rpc failed", [Node])),
+            Reason = iolist_to_binary(io_lib:format("Node ~p rpc failed", [Node])),
             Response = #{code => 'BAD_NODE_NAME', message => Reason},
             {404, Response};
         [] ->
             ID = maps:get(id, Param),
-            Reason = list_to_binary(io_lib:format("Error listener id ~p", [ID])),
+            Reason = iolist_to_binary(io_lib:format("Error listener id ~p", [ID])),
             {404, #{code => 'RESOURCE_NOT_FOUND', message => Reason}};
         ListenersOrSingleListener ->
             manage_(Operation, ListenersOrSingleListener)
@@ -279,16 +263,16 @@ manage_(Operation, Listeners) when is_list(Listeners) ->
             case lists:filter(fun({error, {already_started, _}}) -> false; (_) -> true end, Results) of
                 [] ->
                     ID = maps:get(id, hd(Listeners)),
-                    Message = list_to_binary(io_lib:format("Already Started: ~s", [ID])),
+                    Message = iolist_to_binary(io_lib:format("Already Started: ~s", [ID])),
                     {400, #{code => 'BAD_REQUEST', message => Message}};
                 _ ->
                     case lists:filter(fun({error,not_found}) -> false; (_) -> true end, Results) of
                         [] ->
                             ID = maps:get(id, hd(Listeners)),
-                            Message = list_to_binary(io_lib:format("Already Stopped: ~s", [ID])),
+                            Message = iolist_to_binary(io_lib:format("Already Stopped: ~s", [ID])),
                             {400, #{code => 'BAD_REQUEST', message => Message}};
                         _ ->
-                            Reason = list_to_binary(io_lib:format("~p", [Errors])),
+                            Reason = iolist_to_binary(io_lib:format("~p", [Errors])),
                             {500, #{code => 'UNKNOW_ERROR', message => Reason}}
                     end
             end
@@ -332,3 +316,6 @@ trans_running(Conf) ->
         Running ->
             Running
     end.
+
+
+b2a(B) when is_binary(B) -> binary_to_atom(B, utf8).

@@ -30,7 +30,10 @@ status_api() ->
         get => #{
             security => [],
             responses => #{
-                <<"200">> => #{description => <<"running">>}}}},
+                <<"200">> => #{description => <<"running">>}
+            }
+        }
+    },
     {Path, Metadata, running_status}.
 
 running_status(get, _Request) ->
