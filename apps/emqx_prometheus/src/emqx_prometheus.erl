@@ -125,13 +125,13 @@ collect(<<"json">>) ->
     Metrics = emqx_metrics:all(),
     Stats = emqx_stats:getstats(),
     VMData = emqx_vm_data(),
-    [{stats, [collect_stats(Name, Stats) || Name <- emqx_stats()]},
-     {metrics, [collect_stats(Name, VMData) || Name <- emqx_vm()]},
-     {packets, [collect_stats(Name, Metrics) || Name <- emqx_metrics_packets()]},
-     {messages, [collect_stats(Name, Metrics) || Name <- emqx_metrics_messages()]},
-     {delivery, [collect_stats(Name, Metrics) || Name <- emqx_metrics_delivery()]},
-     {client, [collect_stats(Name, Metrics) || Name <- emqx_metrics_client()]},
-     {session, [collect_stats(Name, Metrics) || Name <- emqx_metrics_session()]}];
+    #{stats => maps:from_list([collect_stats(Name, Stats) || Name <- emqx_stats()]),
+      metrics => maps:from_list([collect_stats(Name, VMData) || Name <- emqx_vm()]),
+      packets => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_packets()]),
+      messages => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_messages()]),
+      delivery => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_delivery()]),
+      client => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_client()]),
+      session => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_session()])};
 
 collect(<<"prometheus">>) ->
     prometheus_text_format:format().

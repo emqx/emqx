@@ -20,17 +20,16 @@
 
 -include("emqx_prometheus.hrl").
 
--import(emqx_mgmt_util, [ schema/1
-                        , bad_request/0]).
+-import(emqx_mgmt_util, [ schema/1]).
 
 -export([api_spec/0]).
 
 -export([ prometheus/2
-        % , stats/2
+        , stats/2
         ]).
 
 api_spec() ->
-    {[prometheus_api()], schemas()}.
+    {[prometheus_api(), prometheus_data_api()], schemas()}.
 
 schemas() ->
     [#{prometheus => emqx_mgmt_api_configs:gen_schema(emqx:get_raw_config([prometheus]))}].
@@ -44,38 +43,24 @@ prometheus_api() ->
         put => #{
             description => <<"Update Prometheus">>,
             'requestBody' => schema(prometheus),
-            responses => #{
-                <<"200">> => schema(prometheus),
-                <<"400">> => bad_request()
-            }
+            responses => #{<<"200">> => schema(prometheus)}
         }
     },
     {"/prometheus", Metadata, prometheus}.
 
-% prometheus_data_api() ->
-%     Metadata = #{
-%         get => #{
-%             description => <<"Get Prometheus Data">>,
-%             parameters => [#{
-%                 name => format_type,
-%                 in => path,
-%                 schema => #{type => string}
-%             }],
-%             responses => #{
-%                 <<"200">> =>
-%                     response_schema(<<"Update Prometheus successfully">>),
-%                 <<"400">> =>
-%                     response_schema(<<"Bad Request">>, #{
-%                         type => object,
-%                         properties => #{
-%                             message => #{type => string},
-%                             code => #{type => string}
-%                         }
-%                     })
-%             }
-%         }
-%     },
-%     {"/prometheus/stats", Metadata, stats}.
+prometheus_data_api() ->
+    Metadata = #{
+        get => #{
+            description => <<"Get Prometheus Data">>,
+            parameters => [#{
+                name => format_type,
+                in => path,
+                schema => #{type => string}
+            }],
+            responses => #{<<"200">> => schema(#{type => object})}
+        }
+    },
+    {"/prometheus/stats", Metadata, stats}.
 
 prometheus(get, _Params) ->
     {200, emqx:get_raw_config([<<"prometheus">>], #{})};
@@ -92,12 +77,10 @@ prometheus(put, #{body := Body}) ->
         end,
     {200, emqx:get_raw_config([<<"prometheus">>], #{})}.
 
-% stats(_Bindings, Params) ->
-%     Type = proplists:get_value(<<"format_type">>, Params, <<"json">>),
-%     Data = emqx_prometheus:collect(Type),
-%     case Type of
-%         <<"json">> ->
-%             {ok, Data};
-%         <<"prometheus">> ->
-%             {ok, #{<<"content-type">> => <<"text/plain">>}, Data}
-%     end.
+stats(get, #{query_string := Qs}) ->
+    Type = maps:get(<<"format_type">>, Qs, <<"json">>),
+    Data = emqx_prometheus:collect(Type),
+    case Type of
+        <<"json">> -> {200, Data};
+        <<"prometheus">> -> {200, #{<<"content-type">> => <<"text/plain">>}, Data}
+    end.
