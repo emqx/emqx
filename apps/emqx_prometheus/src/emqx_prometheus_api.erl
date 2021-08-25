@@ -52,11 +52,6 @@ prometheus_data_api() ->
     Metadata = #{
         get => #{
             description => <<"Get Prometheus Data">>,
-            parameters => [#{
-                name => format_type,
-                in => path,
-                schema => #{type => string}
-            }],
             responses => #{<<"200">> => schema(#{type => object})}
         }
     },
