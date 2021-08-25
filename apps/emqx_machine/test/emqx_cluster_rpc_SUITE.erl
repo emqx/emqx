@@ -78,8 +78,6 @@ t_base_test(_Config) ->
     ?assertEqual(node(), maps:get(initiator, Query)),
     ?assert(maps:is_key(created_at, Query)),
     ?assertEqual(ok, receive_msg(3, test)),
-    SysStatus = lists:last(lists:last(element(4,sys:get_status(?NODE1)))),
-    ?assertEqual(#{data => #{node => node(),retry_interval => 900}, opt => normal, state => realtime}, SysStatus),
     sleep(400),
     {atomic, Status} = emqx_cluster_rpc:status(),
     ?assertEqual(3, length(Status)),
@@ -111,12 +109,9 @@ t_commit_ok_but_apply_fail_on_other_node(_Config) ->
     {atomic, [Status]} = emqx_cluster_rpc:status(),
     ?assertEqual(MFA, maps:get(mfa, Status)),
     ?assertEqual(node(), maps:get(node, Status)),
-    ?assertEqual(realtime, element(1, sys:get_state(?NODE1))),
-    ?assertEqual(catch_up, element(1, sys:get_state(?NODE2))),
-    ?assertEqual(catch_up, element(1, sys:get_state(?NODE3))),
     erlang:send(?NODE2, test),
     Res = gen_statem:call(?NODE2,  {initiate, {M, F, A}}),
-    ?assertEqual({error, "There are still transactions that have not been executed."}, Res),
+    ?assertEqual({error, "MFA return not ok"}, Res),
     ok.
 
 t_catch_up_status_handle_next_commit(_Config) ->
@@ -124,7 +119,6 @@ t_catch_up_status_handle_next_commit(_Config) ->
     {atomic, []} = emqx_cluster_rpc:status(),
     {M, F, A} = {?MODULE, failed_on_node_by_odd, [erlang:whereis(?NODE1)]},
     {ok, _} = emqx_cluster_rpc:multicall(M, F, A),
-    ?assertEqual(catch_up, element(1, sys:get_state(?NODE2))),
     {ok, 2} = gen_statem:call(?NODE2,  {initiate, {M, F, A}}),
     ok.
 
@@ -139,17 +133,11 @@ t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
     ?assertEqual([], L),
     ?assertEqual({io, format, ["test"]}, maps:get(mfa, Status)),
     ?assertEqual(node(), maps:get(node, Status)),
-    ?assertEqual(realtime, element(1, sys:get_state(?NODE1))),
-    ?assertEqual(catch_up, element(1, sys:get_state(?NODE2))),
-    ?assertEqual(catch_up, element(1, sys:get_state(?NODE3))),
     sleep(4000),
     {atomic, [Status1]} = emqx_cluster_rpc:status(),
     ?assertEqual(Status, Status1),
     sleep(1600),
     {atomic, NewStatus} = emqx_cluster_rpc:status(),
-    ?assertEqual(realtime, element(1, sys:get_state(?NODE1))),
-    ?assertEqual(realtime, element(1, sys:get_state(?NODE2))),
-    ?assertEqual(realtime, element(1, sys:get_state(?NODE3))),
     ?assertEqual(3, length(NewStatus)),
     Pid = self(),
     MFAEcho = {M1, F1, A1} = {?MODULE, echo, [Pid, test]},
