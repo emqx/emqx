@@ -39,7 +39,7 @@ event_message_api() ->
                 <<"200">> => schema(conf_schema())
             }
         },
-        post => #{
+        put => #{
             description => <<"Update Event Message">>,
             'requestBody' => schema(conf_schema()),
             responses => #{
@@ -52,6 +52,6 @@ event_message_api() ->
 event_message(get, _Params) ->
     {200, emqx_event_message:list()};
 
-event_message(post, #{body := Body}) ->
+event_message(put, #{body := Body}) ->
     _ = emqx_event_message:update(Body),
     {200, emqx_event_message:list()}.
