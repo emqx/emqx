@@ -299,7 +299,7 @@ save_schema_mod_and_names(SchemaMod) ->
     RootNames = SchemaMod:structs(),
     OldMods = get_schema_mod(),
     OldNames = get_root_names(),
-    NewMods = maps:from_list([{bin(Name), SchemaMod} || Name <- RootNames]),
+    NewMods = maps:from_list([{root_bin(Name), SchemaMod} || Name <- RootNames]),
     persistent_term:put(?PERSIS_SCHEMA_MODS, #{
         mods => maps:merge(OldMods, NewMods),
         names => lists:usort(OldNames ++ RootNames)
@@ -440,3 +440,6 @@ conf_key(?CONF, RootName) ->
     atom(RootName);
 conf_key(?RAW_CONF, RootName) ->
     bin(RootName).
+
+root_bin({array, Bin}) -> bin(Bin);
+root_bin(Bin) -> bin(Bin).
