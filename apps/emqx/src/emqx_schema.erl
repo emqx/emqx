@@ -126,19 +126,14 @@ fields("zones") ->
     [ {"$name", ref("zone_settings")}];
 
 fields("zone_settings") ->
-    [ {"mqtt", ref("mqtt")}
-    , {"stats", ref("stats")}
-    , {"flapping_detect", ref("flapping_detect")}
-    , {"force_shutdown", ref("force_shutdown")}
-    , {"conn_congestion", ref("conn_congestion")}
-    , {"force_gc", ref("force_gc")}
-    ];
+    Fields = ["mqtt", "stats", "authorization", "flapping_detect", "force_shutdown",
+              "conn_congestion", "rate_limit", "quota", "force_gc"],
+    [{F, ref("strip_default:" ++ F)} || F <- Fields];
 
 fields("rate_limit") ->
     [ {"max_conn_rate", maybe_infinity(integer(), 1000)}
     , {"conn_messages_in", maybe_infinity(comma_separated_list())}
     , {"conn_bytes_in", maybe_infinity(comma_separated_list())}
-    , {"quota", ref("quota")}
     ];
 
 fields("quota") ->
@@ -334,7 +329,10 @@ fields("alarm") ->
     [ {"actions", t(hoconsc:array(atom()), undefined, [log, publish])}
     , {"size_limit", t(integer(), undefined, 1000)}
     , {"validity_period", t(duration(), undefined, "24h")}
-    ].
+    ];
+
+fields("strip_default:" ++ Name) ->
+    strip_default(fields(Name)).
 
 mqtt_listener() ->
     base_listener() ++
@@ -546,6 +544,19 @@ to_erl_cipher_suite(Str) ->
         {error, Reason} -> error({invalid_cipher, Reason});
         Cipher -> Cipher
     end.
+
+strip_default(Fields) ->
+    [do_strip_default(F) || F <- Fields].
+
+do_strip_default({Name, #{type := {ref, Ref}}}) ->
+    {Name, nullable_no_def(ref("strip_default:" ++ Ref))};
+do_strip_default({Name, #{type := {ref, _Mod, Ref}}}) ->
+    {Name, nullable_no_def(ref("strip_default:" ++ Ref))};
+do_strip_default({Name, Type}) ->
+    {Name, nullable_no_def(Type)}.
+
+nullable_no_def(Type) when is_map(Type) ->
+    Type#{default => undefined, nullable => true}.
 
 to_atom(Atom) when is_atom(Atom) ->
     Atom;
