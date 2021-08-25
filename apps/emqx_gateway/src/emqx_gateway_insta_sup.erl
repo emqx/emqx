@@ -45,7 +45,8 @@
           child_pids :: [pid()],
           gw_state   :: emqx_gateway_impl:state() | undefined,
           created_at :: integer(),
-          started_at :: integer() | undefined
+          started_at :: integer() | undefined,
+          stopped_at :: integer() | undefined
          }).
 
 %%--------------------------------------------------------------------
@@ -126,7 +127,8 @@ do_deinit_context(Ctx) ->
 handle_call(info, _From, State = #state{gw = Gateway}) ->
     GwInfo = Gateway#{status => State#state.status,
                       created_at => State#state.created_at,
-                      started_at => State#state.started_at
+                      started_at => State#state.started_at,
+                      stopped_at => State#state.stopped_at
                      },
     {reply, GwInfo, State};
 
@@ -259,8 +261,10 @@ cb_gateway_unload(State = #state{gw = Gateway = #{name := GwName},
         #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwName),
         CbMod:on_gateway_unload(Gateway, GwState),
         {ok, State#state{child_pids = [],
+                         status = stopped,
                          gw_state = undefined,
-                         status = stopped}}
+                         started_at = undefined,
+                         stopped_at = erlang:system_time(millisecond)}}
     catch
         Class : Reason : Stk ->
             logger:error("Failed to unload gateway (~0p, ~0p) crashed: "
@@ -282,6 +286,7 @@ cb_gateway_load(State = #state{gw = Gateway = #{name := GwName},
                        status = running,
                        child_pids = ChildPids,
                        gw_state = GwState,
+                       stopped_at = undefined,
                        started_at = erlang:system_time(millisecond)
                       }}
         end
