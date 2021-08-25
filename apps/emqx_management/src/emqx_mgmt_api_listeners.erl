@@ -25,7 +25,6 @@
         , manage_listeners/2]).
 
 -import(emqx_mgmt_util, [ schema/1
-                        , schema/2
                         , object_schema/2
                         , object_array_schema/2
                         , error_schema/1
@@ -130,7 +129,7 @@ nodes_listeners_api() ->
                     error_schema(<<"Node name or listener id not found">>,
                         ['BAD_NODE_NAME', 'BAD_LISTENER_ID']),
                 <<"200">> =>
-                    schema(properties(), <<"Get listener info ok">>)}}},
+                    object_schema(properties(), <<"Get listener info ok">>)}}},
     {"/nodes/:node/listeners/:id", Metadata, listener}.
 
 nodes_listener_api() ->
