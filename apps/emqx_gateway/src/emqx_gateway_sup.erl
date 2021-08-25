@@ -52,7 +52,10 @@ load_gateway(Gateway = #{name := GwName}) ->
             emqx_gateway_gw_sup:create_insta(GwSup, Gateway, GwDscrptr)
     end.
 
--spec unload_gateway(gateway_name()) -> ok | {error, not_found}.
+-spec unload_gateway(gateway_name())
+    -> ok
+     | {error, not_found}
+     | {error, any()}.
 unload_gateway(GwName) ->
     case lists:keyfind(GwName, 1, supervisor:which_children(?MODULE)) of
         false -> {error, not_found};

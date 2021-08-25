@@ -70,7 +70,7 @@ set_special_cfg(emqx_gateway) ->
       #{authentication => #{enable => false},
         server => #{bind => 9100},
         handler => #{address => "http://127.0.0.1:9001"},
-        listener => listener_confs(LisType)
+        listeners => listener_confs(LisType)
        });
 set_special_cfg(_App) ->
     ok.

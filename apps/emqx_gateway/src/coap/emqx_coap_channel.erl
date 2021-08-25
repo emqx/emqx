@@ -106,7 +106,7 @@ init(ConnInfo = #{peername := {PeerHost, _},
      #{ctx := Ctx} = Config) ->
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Mountpoint = maps:get(mountpoint, Config, undefined),
-    EnableAuth = is_authenticator_enabled(Config),
+    EnableAuth = is_authentication_enabled(Config),
     ClientInfo = set_peercert_infos(
                    Peercert,
                    #{ zone => default
@@ -134,8 +134,8 @@ init(ConnInfo = #{peername := {PeerHost, _},
             , keepalive = emqx_keepalive:init(maps:get(heartbeat, Config))
             }.
 
-is_authenticator_enabled(Cfg) ->
-    case maps:get(authenticator, Cfg, #{enable => false}) of
+is_authentication_enabled(Cfg) ->
+    case maps:get(authentication, Cfg, #{enable => false}) of
         AuthCfg when is_map(AuthCfg) ->
             maps:get(enable, AuthCfg, true);
         _ -> false
@@ -297,7 +297,7 @@ handle_result(_, _, _, Channel) ->
     {ok, Channel}.
 
 check_auth_state(Msg, #channel{config = Cfg} = Channel) ->
-    Enable = is_authenticator_enabled(Cfg),
+    Enable = is_authentication_enabled(Cfg),
     check_token(Enable, Msg, Channel).
 
 check_token(true,

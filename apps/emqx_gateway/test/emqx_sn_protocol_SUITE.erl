@@ -52,26 +52,25 @@
                                     integer_to_list(erlang:system_time())])).
 
 -define(CONF_DEFAULT, <<"
-gateway: {
-    mqttsn: {
-        gateway_id: 1
-        broadcast: true
-        enable_stats: true
-        enable_qos3: true
-        predefined: [
-            {id: 1, topic: \"/predefined/topic/name/hello\"},
-            {id: 2, topic: \"/predefined/topic/name/nice\"}
-        ]
-        clientinfo_override: {
-            username: \"user1\"
-            password: \"pw123\"
-        }
-        listener.udp.1: {
-            bind: 1884
-            max_connections: 10240000
-            max_conn_rate: 1000
-        }
+gateway.mqttsn {
+  gateway_id = 1
+  broadcast = true
+  enable_qos3 = true
+  predefined = [
+    { id = 1,
+      topic = \"/predefined/topic/name/hello\"
+    },
+    { id = 2,
+      topic = \"/predefined/topic/name/nice\"
     }
+  ]
+  clientinfo_override {
+    username = \"user1\"
+    password = \"pw123\"
+  }
+  listeners.udp.default {
+    bind = 1884
+  }
 }
 ">>).
 
@@ -98,7 +97,7 @@ end_per_suite(_) ->
 %% Connect
 
 t_connect(_) ->
-    SockName = {'mqttsn:udp', 1884},
+    SockName = {'mqttsn:udp:default', 1884},
     ?assertEqual(true, lists:keymember(SockName, 1, esockd:listeners())),
 
     {ok, Socket} = gen_udp:open(0, [binary]),

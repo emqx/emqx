@@ -29,26 +29,24 @@
 -include_lib("common_test/include/ct.hrl").
 
 -define(CONF_DEFAULT, <<"
-gateway: {
-    lwm2m: {
-        xml_dir: \"../../lib/emqx_gateway/src/lwm2m/lwm2m_xml\"
-        lifetime_min: 1s
-        lifetime_max: 86400s
-        qmode_time_windonw: 22
-        auto_observe: false
-        mountpoint: \"lwm2m/%e/\"
-        update_msg_publish_condition: contains_object_list
-        translators: {
-            command: \"dn/#\"
-            response: \"up/resp\"
-            notify: \"up/notify\"
-            register: \"up/resp\"
-            update: \"up/resp\"
-        }
-        listener.udp.1 {
-            bind: 5783
-        }
-    }
+gateway.lwm2m {
+  xml_dir = \"../../lib/emqx_gateway/src/lwm2m/lwm2m_xml\"
+  lifetime_min = 1s
+  lifetime_max = 86400s
+  qmode_time_windonw = 22
+  auto_observe = false
+  mountpoint = \"lwm2m/%e/\"
+  update_msg_publish_condition = contains_object_list
+  translators {
+    command = \"dn/#\"
+    response = \"up/resp\"
+    notify = \"up/notify\"
+    register = \"up/resp\"
+    update = \"up/resp\"
+  }
+  listeners.udp.default {
+    bind = 5783
+  }
 }
 ">>).
 

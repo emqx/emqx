@@ -62,10 +62,8 @@ fields(gateway) ->
 
 fields(stomp_structs) ->
     [ {frame, t(ref(stomp_frame))}
-    , {clientinfo_override, t(ref(clientinfo_override))}
-    , {authenticator,  t(authenticator(), undefined, undefined)}
     , {listeners, t(ref(tcp_listener_group))}
-    ];
+    ] ++ gateway_common_options();
 
 fields(stomp_frame) ->
     [ {max_headers, t(integer(), undefined, 10)}
@@ -76,39 +74,40 @@ fields(stomp_frame) ->
 fields(mqttsn_structs) ->
     [ {gateway_id, t(integer())}
     , {broadcast, t(boolean())}
-    , {enable_stats, t(boolean())}
     , {enable_qos3, t(boolean())}
-    , {idle_timeout, t(duration())}
     , {predefined, hoconsc:array(ref(mqttsn_predefined))}
-    , {clientinfo_override, t(ref(clientinfo_override))}
-    , {authenticator,  t(authenticator(), undefined, undefined)}
     , {listeners, t(ref(udp_listener_group))}
-    ];
+    ] ++ gateway_common_options();
 
 fields(mqttsn_predefined) ->
     [ {id, t(integer())}
-    , {topic, t(string())}
+    , {topic, t(binary())}
     ];
 
+fields(coap_structs) ->
+    [ {heartbeat, t(duration(), undefined, "30s")}
+    , {notify_type, t(union([non, con, qos]), undefined, qos)}
+    , {subscribe_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
+    , {publish_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
+    , {listeners, t(ref(udp_listener_group))}
+    ] ++ gateway_common_options();
+
 fields(lwm2m_structs) ->
-    [ {xml_dir, t(string())}
+    [ {xml_dir, t(binary())}
     , {lifetime_min, t(duration())}
     , {lifetime_max, t(duration())}
     , {qmode_time_windonw, t(integer())}
     , {auto_observe, t(boolean())}
-    , {mountpoint, t(string())}
     , {update_msg_publish_condition, t(union([always, contains_object_list]))}
     , {translators, t(ref(translators))}
-    , {authenticator,  t(authenticator(), undefined, undefined)}
     , {listeners, t(ref(udp_listener_group))}
-    ];
+    ] ++ gateway_common_options();
 
 fields(exproto_structs) ->
     [ {server, t(ref(exproto_grpc_server))}
     , {handler, t(ref(exproto_grpc_handler))}
-    , {authenticator,  t(authenticator(), undefined, undefined)}
     , {listeners, t(ref(udp_tcp_listener_group))}
-    ];
+    ] ++ gateway_common_options();
 
 fields(exproto_grpc_server) ->
     [ {bind, t(union(ip_port(), integer()))}
@@ -116,18 +115,18 @@ fields(exproto_grpc_server) ->
     ];
 
 fields(exproto_grpc_handler) ->
-    [ {address, t(string())}
+    [ {address, t(binary())}
       %% TODO: ssl
     ];
 
 fields(clientinfo_override) ->
-    [ {username, t(string())}
-    , {password, t(string())}
-    , {clientid, t(string())}
+    [ {username, t(binary())}
+    , {password, t(binary())}
+    , {clientid, t(binary())}
     ];
 
 fields(translators) ->
-    [{"$name", t(string())}];
+    [{"$name", t(binary())}];
 
 fields(udp_listener_group) ->
     [ {udp, t(ref(udp_listener))}
@@ -164,7 +163,6 @@ fields(listener_settings) ->
     , {max_connections, t(integer(), undefined, 1024)}
     , {max_conn_rate, t(integer())}
     , {active_n, t(integer(), undefined, 100)}
-    %, {zone, t(string())}
     %, {rate_limit, t(comma_separated_list())}
     , {access, t(ref(access))}
     , {proxy_protocol, t(boolean())}
@@ -208,27 +206,14 @@ fields(dtls_listener_settings) ->
                    , reuse_sessions => true}) ++ fields(listener_settings);
 
 fields(access) ->
-    [ {"$id", #{type => string(),
+    [ {"$id", #{type => binary(),
                 nullable => true}}];
-
-fields(coap) ->
-    [{"$id", t(ref(coap_structs))}];
-
-fields(coap_structs) ->
-    [ {enable_stats, t(boolean(), undefined, true)}
-    , {heartbeat, t(duration(), undefined, "30s")}
-    , {notify_type, t(union([non, con, qos]), undefined, qos)}
-    , {subscribe_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
-    , {publish_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
-    , {authenticator,  t(authenticator(), undefined, undefined)}
-    , {listeners, t(ref(udp_listener_group))}
-    ];
 
 fields(ExtraField) ->
     Mod = list_to_atom(ExtraField++"_schema"),
     Mod:fields(ExtraField).
 
-authenticator() ->
+authentication() ->
     hoconsc:union(
       [ undefined
       , hoconsc:ref(emqx_authn_mnesia, config)
@@ -251,6 +236,15 @@ authenticator() ->
 %translations() -> [].
 %
 %translations(_) -> [].
+
+gateway_common_options() ->
+    [ {enable, t(boolean(), undefined, true)}
+    , {enable_stats, t(boolean(), undefined, true)}
+    , {idle_timeout, t(duration(), undefined, "30s")}
+    , {mountpoint, t(binary())}
+    , {clientinfo_override, t(ref(clientinfo_override))}
+    , {authentication,  t(authentication(), undefined, undefined)}
+    ].
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -289,9 +283,9 @@ ssl(Mapping, Defaults) ->
         end end,
     D = fun (Field) -> maps:get(list_to_atom(Field), Defaults, undefined) end,
     [ {"enable", t(boolean(), M("enable"), D("enable"))}
-    , {"cacertfile", t(string(), M("cacertfile"), D("cacertfile"))}
-    , {"certfile", t(string(), M("certfile"), D("certfile"))}
-    , {"keyfile", t(string(), M("keyfile"), D("keyfile"))}
+    , {"cacertfile", t(binary(), M("cacertfile"), D("cacertfile"))}
+    , {"certfile", t(binary(), M("certfile"), D("certfile"))}
+    , {"keyfile", t(binary(), M("keyfile"), D("keyfile"))}
     , {"verify", t(union(verify_peer, verify_none), M("verify"), D("verify"))}
     , {"fail_if_no_peer_cert", t(boolean(), M("fail_if_no_peer_cert"), D("fail_if_no_peer_cert"))}
     , {"secure_renegotiate", t(boolean(), M("secure_renegotiate"), D("secure_renegotiate"))}
@@ -299,12 +293,12 @@ ssl(Mapping, Defaults) ->
     , {"honor_cipher_order", t(boolean(), M("honor_cipher_order"), D("honor_cipher_order"))}
     , {"handshake_timeout", t(duration(), M("handshake_timeout"), D("handshake_timeout"))}
     , {"depth", t(integer(), M("depth"), D("depth"))}
-    , {"password", hoconsc:t(string(), #{mapping => M("key_password"),
+    , {"password", hoconsc:t(binary(), #{mapping => M("key_password"),
                                          default => D("key_password"),
                                          sensitive => true
                                         })}
-    , {"dhfile", t(string(), M("dhfile"), D("dhfile"))}
-    , {"server_name_indication", t(union(disable, string()), M("server_name_indication"),
+    , {"dhfile", t(binary(), M("dhfile"), D("dhfile"))}
+    , {"server_name_indication", t(union(disable, binary()), M("server_name_indication"),
                                    D("server_name_indication"))}
     , {"tls_versions", t(comma_separated_list(), M("tls_versions"), D("tls_versions"))}
     , {"ciphers", t(comma_separated_list(), M("ciphers"), D("ciphers"))}

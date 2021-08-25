@@ -28,6 +28,7 @@
 
 -export([ apply/2
         , format_listenon/1
+        , unix_ts_to_rfc3339/2
         ]).
 
 -export([ normalize_rawconf/1
@@ -106,6 +107,16 @@ format_listenon({Addr, Port}) when is_list(Addr) ->
     io_lib:format("~s:~w", [Addr, Port]);
 format_listenon({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
+
+unix_ts_to_rfc3339(Keys, Map) when is_list(Keys) ->
+    lists:foldl(fun(K, Acc) -> unix_ts_to_rfc3339(K, Acc) end, Map, Keys);
+unix_ts_to_rfc3339(Key, Map) ->
+    case maps:get(Key, Map, undefined) of
+        undefined -> Map;
+        Ts ->
+          Map#{Key =>
+               emqx_rule_funcs:unix_ts_to_rfc3339(Ts, <<"millisecond">>)}
+    end.
 
 -spec normalize_rawconf(rawconf())
     -> list({ Type :: udp | tcp | ssl | dtls
