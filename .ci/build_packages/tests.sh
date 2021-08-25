@@ -36,9 +36,9 @@ emqx_test(){
             "zip")
                 packagename=$(basename "${PACKAGE_PATH}/${EMQX_NAME}"-*.zip)
                 unzip -q "${PACKAGE_PATH}/${packagename}"
-                export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60 \
+                export EMQX_ZONES__DEFAULT__MQTT__SERVER_KEEPALIVE=60 \
                     EMQX_MQTT__MAX_TOPIC_ALIAS=10
-                [[ $(arch) == *arm* || $(arch) == aarch64 ]] && export EMQX_ZONES__DEFAULT__LISTENERS__MQTT_QUIC__ENABLED=false
+                [[ $(arch) == *arm* || $(arch) == aarch64 ]] && export EMQX_LISTENERS__QUIC__DEFAULT__ENABLED=false
                 # sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
                 echo "running ${packagename} start"
@@ -119,7 +119,7 @@ run_test(){
     if [ -f "$emqx_env_vars" ];
     then
         tee -a "$emqx_env_vars" <<EOF
-export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60
+export EMQX_ZONES__DEFAULT__MQTT__SERVER_KEEPALIVE=60
 export EMQX_MQTT__MAX_TOPIC_ALIAS=10
 export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
 export EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL=debug
