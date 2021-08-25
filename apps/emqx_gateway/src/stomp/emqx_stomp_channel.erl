@@ -649,7 +649,7 @@ handle_call(discard, Channel) ->
 
 handle_call(list_authz_cache, Channel) ->
     %% This won't work
-    {reply, emqx_authz_cache:list_authz_cache(), Channel};
+    {reply, emqx_authz_cache:list_authz_cache(default), Channel};
 
 %% XXX: No Quota Now
 % handle_call({quota, Policy}, Channel) ->

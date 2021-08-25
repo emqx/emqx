@@ -105,8 +105,8 @@ init_per_suite(Config) ->
 
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_management, emqx_authz], fun set_special_configs/1),
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
+    {ok, _} = emqx:update_config([zones, default, authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([zones, default, authorization, no_match], deny),
 
     Config.
 

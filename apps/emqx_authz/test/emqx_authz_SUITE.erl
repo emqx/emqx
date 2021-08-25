@@ -38,8 +38,8 @@ init_per_suite(Config) ->
 
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
+    {ok, _} = emqx:update_config([zones, default, authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([zones, default, authorization, no_match], deny),
     Config.
 
 end_per_suite(_Config) ->

@@ -54,8 +54,8 @@ check_authorization_cache(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
         AuthzResult -> AuthzResult
     end.
 
-do_authorize(ClientInfo, PubSub, Topic) ->
-    NoMatch = emqx:get_config([authorization, no_match], allow),
+do_authorize(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
+    NoMatch = emqx_config:get_zone_conf(Zone, [authorization, no_match]),
     case run_hooks('client.authorize', [ClientInfo, PubSub, Topic], NoMatch) of
         allow  -> allow;
         _Other -> deny
