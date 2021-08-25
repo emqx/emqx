@@ -50,12 +50,8 @@ new_conn(Conn, S) ->
 
 -spec connected(quicer:connection_handler(), cb_state()) -> {ok, cb_state()} | {error, any()}.
 connected(Conn, #{slow_start := false} = S) ->
-    case emqx_connection:start_link(emqx_quic_stream, Conn, S) of
-        {ok, _Pid} ->
-            {ok, S};
-        Other ->
-            {error, Other}
-    end;
+    {ok, _Pid} = emqx_connection:start_link(emqx_quic_stream, Conn, S),
+    {ok, S};
 connected(_Conn, S) ->
     {ok, S}.
 

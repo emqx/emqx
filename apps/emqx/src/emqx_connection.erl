@@ -135,7 +135,9 @@
                             , system_code_change/4
                             ]}).
 
--spec(start_link(esockd:transport(), esockd:socket(), emqx_channel:opts())
+-spec(start_link(esockd:transport(),
+                 esockd:socket() | {pid(), quicer:connection_handler()},
+                 emqx_channel:opts())
       -> {ok, pid()}).
 start_link(Transport, Socket, Options) ->
     Args = [self(), Transport, Socket, Options],
