@@ -233,7 +233,7 @@ properties([{Key, Type, Desc} | Props], Acc) ->
 properties([{Key, Type, Desc, Enum} | Props], Acc) ->
     properties(Props, maps:put(Key, #{type => Type,
                                       description => Desc,
-                                      emum => Enum}, Acc)).
+                                      enum => Enum}, Acc)).
 page_params() ->
     [#{
         name => page,
