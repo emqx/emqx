@@ -82,7 +82,6 @@ fields("authorization") ->
     [ {"no_match", t(union(allow, deny), undefined, allow)}
     , {"deny_action", t(union(ignore, disconnect), undefined, ignore)}
     , {"cache", ref("authorization_cache")}
-    , {"deny_action", t(union(ignore, disconnect), undefined, ignore)}
     ];
 
 fields("authorization_cache") ->

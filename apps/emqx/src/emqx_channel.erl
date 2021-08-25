@@ -1616,11 +1616,6 @@ maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Is Authorization enabled?
-is_authz_enabled(#{zone := Zone, is_superuser := IsSuperuser}) ->
-    (not IsSuperuser) andalso emqx_config:get_zone_conf(Zone, [authorization, enable]).
-
-%%--------------------------------------------------------------------
 %% Parse Topic Filters
 
 -compile({inline, [parse_topic_filters/1]}).
