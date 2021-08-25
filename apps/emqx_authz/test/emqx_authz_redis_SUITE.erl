@@ -70,7 +70,7 @@ t_authz(_) ->
                    username => <<"username">>,
                    peerhost => {127,0,0,1},
                    zone => default,
-                   listener => mqtt_tcp
+                   listener => {tcp, default}
                    },
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, []} end),

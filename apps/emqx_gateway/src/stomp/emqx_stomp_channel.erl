@@ -113,7 +113,7 @@ init(ConnInfo = #{peername := {PeerHost, _},
     ClientInfo = setting_peercert_infos(
                    Peercert,
                    #{ zone => default
-                    , listener => mqtt_tcp
+                    , listener => {tcp, default}
                     , protocol => stomp
                     , peerhost => PeerHost
                     , sockport => SockPort

@@ -70,25 +70,25 @@ t_match(_) ->
                     username => <<"test">>,
                     peerhost => {127,0,0,1},
                     zone => default,
-                    listener => mqtt_tcp
+                    listener => {tcp, default}
                    },
     ClientInfo2 = #{clientid => <<"test">>,
                     username => <<"test">>,
                     peerhost => {192,168,1,10},
                     zone => default,
-                    listener => mqtt_tcp
+                    listener => {tcp, default}
                    },
     ClientInfo3 = #{clientid => <<"test">>,
                     username => <<"fake">>,
                     peerhost => {127,0,0,1},
                     zone => default,
-                    listener => mqtt_tcp
+                    listener => {tcp, default}
                    },
     ClientInfo4 = #{clientid => <<"fake">>,
                     username => <<"test">>,
                     peerhost => {127,0,0,1},
                     zone => default,
-                    listener => mqtt_tcp
+                    listener => {tcp, default}
                    },
 
     ?assertEqual({matched, deny},

@@ -79,8 +79,8 @@ groups() ->
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
-    emqx_config:put_listener_conf(default, mqtt_ssl, [ssl, verify], verify_peer),
-    emqx_listeners:restart_listener('default:mqtt_ssl'),
+    emqx_config:put_listener_conf(ssl, default, [ssl, verify], verify_peer),
+    emqx_listeners:restart_listener('ssl:default'),
     Config.
 
 end_per_suite(_Config) ->

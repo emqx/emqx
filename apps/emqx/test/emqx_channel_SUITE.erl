@@ -27,149 +27,112 @@
 all() ->
     emqx_ct:all(?MODULE).
 
+force_gc_conf() ->
+    #{bytes => 16777216,count => 16000,enable => true}.
+
+force_shutdown_conf() ->
+    #{enable => true,max_heap_size => 4194304, max_message_queue_len => 1000}.
+
+rate_limit_conf() ->
+    #{conn_bytes_in => ["100KB","10s"],
+      conn_messages_in => ["100","10s"],
+      max_conn_rate => 1000,
+      quota =>
+       #{conn_messages_routing => infinity,
+         overall_messages_routing => infinity}}.
+
+rpc_conf() ->
+    #{async_batch_size => 256,authentication_timeout => 5000,
+      call_receive_timeout => 15000,connect_timeout => 5000,
+      mode => async,port_discovery => stateless,
+      send_timeout => 5000,socket_buffer => 1048576,
+      socket_keepalive_count => 9,socket_keepalive_idle => 900,
+      socket_keepalive_interval => 75,socket_recbuf => 1048576,
+      socket_sndbuf => 1048576,tcp_client_num => 1,
+      tcp_server_port => 5369}.
+
 mqtt_conf() ->
-    #{await_rel_timeout => 300000,
-    idle_timeout => 15000,
-    ignore_loop_deliver => false,
-    keepalive_backoff => 0.75,
-    max_awaiting_rel => 100,
-    max_clientid_len => 65535,
-    max_inflight => 32,
-    max_mqueue_len => 1000,
-    max_packet_size => 1048576,
-    max_qos_allowed => 2,
-    max_subscriptions => infinity,
-    max_topic_alias => 65535,
-    max_topic_levels => 65535,
-    mountpoint => <<>>,
-    mqueue_default_priority => lowest,
-    mqueue_priorities => #{},
-    mqueue_store_qos0 => true,
-    peer_cert_as_clientid => disabled,
-    peer_cert_as_username => disabled,
-    response_information => [],
-    retain_available => true,
-    retry_interval => 30000,
-    server_keepalive => disabled,
-    session_expiry_interval => 7200000,
-    shared_subscription => true,
-    strict_mode => false,
-    upgrade_qos => false,
-    use_username_as_clientid => false,
-    wildcard_subscription => true}.
+    #{await_rel_timeout => 300000,idle_timeout => 15000,
+      ignore_loop_deliver => false,keepalive_backoff => 0.75,
+      max_awaiting_rel => 100,max_clientid_len => 65535,
+      max_inflight => 32,max_mqueue_len => 1000,
+      max_packet_size => 1048576,max_qos_allowed => 2,
+      max_subscriptions => infinity,max_topic_alias => 65535,
+      max_topic_levels => 65535,mqueue_default_priority => lowest,
+      mqueue_priorities => disabled,mqueue_store_qos0 => true,
+      peer_cert_as_clientid => disabled,
+      peer_cert_as_username => disabled,
+      response_information => [],retain_available => true,
+      retry_interval => 30000,server_keepalive => disabled,
+      session_expiry_interval => 7200000,
+      shared_subscription => true,strict_mode => false,
+      upgrade_qos => false,use_username_as_clientid => false,
+      wildcard_subscription => true}.
+
 
 listener_mqtt_tcp_conf() ->
     #{acceptors => 16,
-    access_rules => ["allow all"],
-    bind => {{0,0,0,0},1883},
-    max_connections => 1024000,
-    proxy_protocol => false,
-    proxy_protocol_timeout => 3000,
-    rate_limit =>
-        #{conn_bytes_in =>
-            ["100KB","10s"],
-        conn_messages_in =>
-            ["100","10s"],
-        max_conn_rate => 1000,
-        quota =>
-            #{conn_messages_routing => infinity,
-              overall_messages_routing => infinity}},
-    tcp =>
-        #{active_n => 100,
-        backlog => 1024,
-        buffer => 4096,
-        high_watermark => 1048576,
-        send_timeout => 15000,
-        send_timeout_close =>
-            true},
-    type => tcp}.
+      zone => default,
+      access_rules => ["allow all"],
+      bind => {{0,0,0,0},1883},
+      max_connections => 1024000,mountpoint => <<>>,
+      proxy_protocol => false,proxy_protocol_timeout => 3000,
+      tcp => #{
+        active_n => 100,backlog => 1024,buffer => 4096,
+        high_watermark => 1048576,nodelay => false,
+        reuseaddr => true,send_timeout => 15000,
+        send_timeout_close => true}}.
 
 listener_mqtt_ws_conf() ->
     #{acceptors => 16,
-    access_rules => ["allow all"],
-    bind => {{0,0,0,0},8083},
-    max_connections => 1024000,
-    proxy_protocol => false,
-    proxy_protocol_timeout => 3000,
-    rate_limit =>
-        #{conn_bytes_in =>
-            ["100KB","10s"],
-        conn_messages_in =>
-            ["100","10s"],
-        max_conn_rate => 1000,
-        quota =>
-            #{conn_messages_routing => infinity,
-              overall_messages_routing => infinity}},
-    tcp =>
-        #{active_n => 100,
-        backlog => 1024,
-        buffer => 4096,
-        high_watermark => 1048576,
-        send_timeout => 15000,
-        send_timeout_close =>
-            true},
-    type => ws,
-    websocket =>
-        #{allow_origin_absence =>
-            true,
-        check_origin_enable =>
-            false,
-        check_origins => [],
-        compress => false,
-        deflate_opts =>
-            #{client_max_window_bits =>
-                    15,
-                mem_level => 8,
-                server_max_window_bits =>
-                    15},
-        fail_if_no_subprotocol =>
-            true,
-        idle_timeout => 86400000,
-        max_frame_size => infinity,
-        mqtt_path => "/mqtt",
-        mqtt_piggyback => multiple,
-        proxy_address_header =>
-            "x-forwarded-for",
-        proxy_port_header =>
-            "x-forwarded-port",
-        supported_subprotocols =>
-            ["mqtt","mqtt-v3",
-                "mqtt-v3.1.1",
-                "mqtt-v5"]}}.
+      zone => default,
+      access_rules => ["allow all"],
+      bind => {{0,0,0,0},8083},
+      max_connections => 1024000,mountpoint => <<>>,
+      proxy_protocol => false,proxy_protocol_timeout => 3000,
+      tcp =>
+          #{active_n => 100,backlog => 1024,buffer => 4096,
+            high_watermark => 1048576,nodelay => false,
+            reuseaddr => true,send_timeout => 15000,
+            send_timeout_close => true},
+      websocket =>
+          #{allow_origin_absence => true,check_origin_enable => false,
+            check_origins => [],compress => false,
+            deflate_opts =>
+                #{client_max_window_bits => 15,mem_level => 8,
+                    server_max_window_bits => 15},
+            fail_if_no_subprotocol => true,idle_timeout => 86400000,
+            max_frame_size => infinity,mqtt_path => "/mqtt",
+            mqtt_piggyback => multiple,
+            proxy_address_header => "x-forwarded-for",
+            proxy_port_header => "x-forwarded-port",
+            supported_subprotocols =>
+                ["mqtt","mqtt-v3","mqtt-v3.1.1","mqtt-v5"]}}.
 
-default_zone_conf() ->
-    #{zones =>
-        #{default =>
-            #{  authorization => #{
-                    cache => #{enable => true,max_size => 32, ttl => 60000},
-                    deny_action => ignore,
-                    enable => false
-                },
-                auth => #{enable => false},
-                overall_max_connections => infinity,
-                stats => #{enable => true},
-                conn_congestion =>
-                    #{enable_alarm => true, min_alarm_sustain_duration => 60000},
-                flapping_detect =>
-                    #{ban_time => 300000,enable => false,
-                    max_count => 15,window_time => 60000},
-                force_gc =>
-                    #{bytes => 16777216,count => 16000,
-                    enable => true},
-                force_shutdown =>
-                    #{enable => true,
-                    max_heap_size => 4194304,
-                    max_message_queue_len => 1000},
-                mqtt => mqtt_conf(),
-                listeners =>
-                    #{mqtt_tcp => listener_mqtt_tcp_conf(),
-                    mqtt_ws => listener_mqtt_ws_conf()}
-            }
-        }
+listeners_conf() ->
+    #{tcp => #{default => listener_mqtt_tcp_conf()},
+      ws => #{default => listener_mqtt_ws_conf()}
     }.
 
-set_default_zone_conf() ->
-    emqx_config:put(default_zone_conf()).
+stats_conf() ->
+    #{enable => true}.
+
+zone_conf() ->
+    #{}.
+
+basic_conf() ->
+    #{rate_limit => rate_limit_conf(),
+      force_gc => force_gc_conf(),
+      force_shutdown => force_shutdown_conf(),
+      mqtt => mqtt_conf(),
+      rpc => rpc_conf(),
+      stats => stats_conf(),
+      listeners => listeners_conf(),
+      zones => zone_conf()
+    }.
+
+set_test_listenser_confs() ->
+    emqx_config:put(basic_conf()).
 
 %%--------------------------------------------------------------------
 %% CT Callbacks
@@ -211,7 +174,7 @@ end_per_suite(_Config) ->
                 ]).
 
 init_per_testcase(_TestCase, Config) ->
-    set_default_zone_conf(),
+    set_test_listenser_confs(),
     Config.
 
 end_per_testcase(_TestCase, Config) ->
@@ -917,7 +880,7 @@ t_ws_cookie_init(_) ->
                  conn_mod => emqx_ws_connection,
                  ws_cookie => WsCookie
                 },
-    Channel = emqx_channel:init(ConnInfo, #{zone => default, listener => mqtt_tcp}),
+    Channel = emqx_channel:init(ConnInfo, #{zone => default, listener => {tcp, default}}),
     ?assertMatch(#{ws_cookie := WsCookie}, emqx_channel:info(clientinfo, Channel)).
 
 %%--------------------------------------------------------------------
@@ -942,7 +905,7 @@ channel(InitFields) ->
     maps:fold(fun(Field, Value, Channel) ->
                       emqx_channel:set_field(Field, Value, Channel)
               end,
-              emqx_channel:init(ConnInfo, #{zone => default, listener => mqtt_tcp}),
+              emqx_channel:init(ConnInfo, #{zone => default, listener => {tcp, default}}),
               maps:merge(#{clientinfo => clientinfo(),
                            session    => session(),
                            conn_state => connected
@@ -951,7 +914,7 @@ channel(InitFields) ->
 clientinfo() -> clientinfo(#{}).
 clientinfo(InitProps) ->
     maps:merge(#{zone       => default,
-                 listener   => mqtt_tcp,
+                 listener   => {tcp, default},
                  protocol   => mqtt,
                  peerhost   => {127,0,0,1},
                  clientid   => <<"clientid">>,
