@@ -182,7 +182,7 @@ do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
             ListenOpts = [ {cert, maps:get(certfile, Opts)}
                          , {key, maps:get(keyfile, Opts)}
                          , {alpn, ["mqtt"]}
-                         , {conn_acceptors, maps:get(acceptors, Opts, DefAcceptors)}
+                         , {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])}
                          , {idle_timeout_ms, lists:max([
                                                 emqx_config:get_zone_conf(zone(Opts), [mqtt, idle_timeout]) * 3
                                               , timer:seconds(maps:get(idle_timeout, Opts))]
