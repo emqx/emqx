@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_recon).
+-module(emqx_observer_cli).
 
 -export([ enable/0
         , disable/0
@@ -27,51 +27,27 @@
 %% enable/disable
 %%--------------------------------------------------------------------
 enable() ->
-    emqx_ctl:register_command(recon, {?MODULE, cmd}, []),
     emqx_ctl:register_command(observer, {?MODULE, cmd}, []).
 
 disable() ->
-    emqx_ctl:unregister_command(recon),
     emqx_ctl:unregister_command(observer).
 
 cmd(["status"]) ->
     observer_cli:start();
-cmd(["memory"]) ->
-    Print = fun(Key, Keyword) ->
-              emqx_ctl:print("~-20s: ~w~n", [concat(Key, Keyword), recon_alloc:memory(Key, Keyword)])
-            end,
-    [Print(Key, Keyword) || Key <- [usage, used, allocated, unused], Keyword <- [current, max]];
-
-cmd(["allocated"]) ->
-    Print = fun(Keyword, Key, Val) -> emqx_ctl:print("~-20s: ~w~n", [concat(Key, Keyword), Val]) end,
-    Alloc = fun(Keyword) -> recon_alloc:memory(allocated_types, Keyword) end,
-    [Print(Keyword, Key, Val) || Keyword <- [current, max], {Key, Val} <- Alloc(Keyword)];
 
 cmd(["bin_leak"]) ->
     [emqx_ctl:print("~p~n", [Row]) || Row <- recon:bin_leak(100)];
 
-cmd(["node_stats"]) ->
-    recon:node_stats_print(10, 1000);
-
-cmd(["remote_load", Mod]) ->
-    emqx_ctl:print("~p~n", [remote_load(list_to_atom(Mod))]);
-
-cmd(["proc_count", Attr, N]) ->
-    emqx_ctl:print("~p~n", [recon:proc_count(list_to_atom(Attr), list_to_integer(N))]);
+cmd(["load", Mod]) ->
+    Module = list_to_existing_atom(Mod),
+    Nodes = nodes(),
+    Res = remote_load(Nodes, Module),
+    emqx_ctl:print("Loaded ~p module on ~p on ~n", [Mod, Nodes, Res]);
 
 cmd(_) ->
     emqx_ctl:usage([{"observer status",           "observer_cli:start()"},
-                    {"recon memory",           "recon_alloc:memory/2"},
-                    {"recon allocated",        "recon_alloc:memory(allocated_types, current|max)"},
-                    {"recon bin_leak",         "recon:bin_leak(100)"},
-                    {"recon node_stats",       "recon:node_stats(10, 1000)"},
-                    {"recon remote_load Mod",  "recon:remote_load(Mod)"},
-                    {"recon proc_count Attr N","recon:proc_count(Attr, N)"}]).
-
-concat(Key, Keyword) ->
-    lists:concat([atom_to_list(Key), "/", atom_to_list(Keyword)]).
-
-remote_load(Module) -> remote_load(nodes(), Module).
+                    {"observer bin_leak",         "recon:bin_leak(100)"},
+                    {"observer load Mod",         "recon:remote_load(Mod) to all nodes"}]).
 
 %% recon:remote_load/1 has a bug, when nodes() returns [], it is
 %% taken by recon as a node name.

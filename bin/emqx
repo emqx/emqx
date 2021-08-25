@@ -681,7 +681,7 @@ case "$1" in
 
         shift
 
-        relx_nodetool rpc emqx_ctl run_command "$@"
+        relx_nodetool rpc_infinity emqx_ctl run_command "$@"
         ;;
     rpc)
         assert_node_alive
