@@ -197,6 +197,10 @@ fields("log_burst_limit") ->
     , {"window_time", t(emqx_schema:duration(), undefined, "1s")}
     ];
 
+fields("authorization") ->
+    emqx_schema:fields("authorization") ++
+    emqx_authz_schema:fields("authorization");
+
 fields(Name) ->
     find_field(Name, ?MERGED_CONFIGS).
 

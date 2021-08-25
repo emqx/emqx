@@ -17,9 +17,9 @@
         , fields/1
         ]).
 
-structs() -> ["authorization_rules"].
+structs() -> ["authorization"].
 
-fields("authorization_rules") ->
+fields("authorization") ->
     [ {rules, rules()}
     ];
 fields(file) ->
