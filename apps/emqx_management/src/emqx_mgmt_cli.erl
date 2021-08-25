@@ -37,7 +37,6 @@
         , mnesia/1
         , trace/1
         , log/1
-        , mgmt/1
         , authz/1
         ]).
 
@@ -60,55 +59,6 @@ load() ->
 
 is_cmd(Fun) ->
     not lists:member(Fun, [init, load, module_info]).
-
-mgmt(["insert", AppId, Name]) ->
-    case emqx_mgmt_auth:add_app(list_to_binary(AppId), list_to_binary(Name)) of
-        {ok, Secret} ->
-            emqx_ctl:print("AppSecret: ~s~n", [Secret]);
-        {error, already_existed} ->
-            emqx_ctl:print("Error: already existed~n");
-        {error, Reason} ->
-            emqx_ctl:print("Error: ~p~n", [Reason])
-    end;
-
-mgmt(["lookup", AppId]) ->
-    case emqx_mgmt_auth:lookup_app(list_to_binary(AppId)) of
-        {AppId1, AppSecret, Name, Desc, Status, Expired} ->
-            emqx_ctl:print("app_id: ~s~nsecret: ~s~nname: ~s~ndesc: ~s~nstatus: ~s~nexpired: ~p~n",
-                           [AppId1, AppSecret, Name, Desc, Status, Expired]);
-        undefined ->
-            emqx_ctl:print("Not Found.~n")
-    end;
-
-mgmt(["update", AppId, Status]) ->
-    case emqx_mgmt_auth:update_app(list_to_binary(AppId), list_to_atom(Status)) of
-        ok ->
-            emqx_ctl:print("update successfully.~n");
-        {error, Reason} ->
-            emqx_ctl:print("Error: ~p~n", [Reason])
-    end;
-
-mgmt(["delete", AppId]) ->
-    case emqx_mgmt_auth:del_app(list_to_binary(AppId)) of
-        ok -> emqx_ctl:print("ok~n");
-        {error, not_found} ->
-            emqx_ctl:print("Error: app not found~n");
-        {error, Reason} ->
-            emqx_ctl:print("Error: ~p~n", [Reason])
-    end;
-
-mgmt(["list"]) ->
-    lists:foreach(fun({AppId, AppSecret, Name, Desc, Status, Expired}) ->
-                      emqx_ctl:print("app_id: ~s, secret: ~s, name: ~s, desc: ~s, status: ~s, expired: ~p~n",
-                                    [AppId, AppSecret, Name, Desc, Status, Expired])
-                  end, emqx_mgmt_auth:list_apps());
-
-mgmt(_) ->
-    emqx_ctl:usage([{"mgmt list",                    "List Applications"},
-                    {"mgmt insert <AppId> <Name>",   "Add Application of REST API"},
-                    {"mgmt update <AppId> <status>", "Update Application of REST API"},
-                    {"mgmt lookup <AppId>",          "Get Application of REST API"},
-                    {"mgmt delete <AppId>",          "Delete Application of REST API"}]).
 
 %%--------------------------------------------------------------------
 %% @doc Node status

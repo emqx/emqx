@@ -33,4 +33,4 @@ start(_Type, _Args) ->
     {ok, Sup}.
 
 stop(_State) ->
-    emqx_mgmt_http:stop_listeners().
+    ok.
