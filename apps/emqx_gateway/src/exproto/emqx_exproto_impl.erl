@@ -173,7 +173,7 @@ do_start_listener(dtls, Name, ListenOn, Opts, MFA) ->
     esockd:open_dtls(Name, ListenOn, Opts, MFA).
 
 name(GwName, LisName, Type) ->
-    list_to_atom(lists:concat([GwName, ":", LisName, ":", Type])).
+    list_to_atom(lists:concat([GwName, ":", Type, ":", LisName])).
 
 merge_default_by_type(Type, Options) when Type =:= tcp;
                                           Type =:= ssl ->

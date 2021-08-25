@@ -115,7 +115,7 @@ do_start_listener(dtls, Name, ListenOn, SocketOpts, MFA) ->
     esockd:open_dtls(Name, ListenOn, SocketOpts, MFA).
 
 name(GwName, LisName, Type) ->
-    list_to_atom(lists:concat([GwName, ":", LisName, ":", Type])).
+    list_to_atom(lists:concat([GwName, ":", Type, ":", LisName])).
 
 stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     StopRet = stop_listener(GwName, Type, LisName, ListenOn, SocketOpts, Cfg),

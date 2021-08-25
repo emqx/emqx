@@ -113,7 +113,7 @@ start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) ->
                 {emqx_gateway_conn, start_link, [NCfg]}).
 
 name(GwName, LisName, Type) ->
-    list_to_atom(lists:concat([GwName, ":", LisName, ":", Type])).
+    list_to_atom(lists:concat([GwName, ":", Type, ":", LisName])).
 
 merge_default(Options) ->
     Default = emqx_gateway_utils:default_tcp_options(),

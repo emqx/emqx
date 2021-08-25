@@ -374,8 +374,13 @@ schema_for_gateway_stats() ->
 %%--------------------------------------------------------------------
 %% http handlers
 
-gateway(get, _Request) ->
-    {200, ok}.
+gateway(get, Request) ->
+    Params = cowboy_req:parse_qs(Request),
+    Status = case proplists:get_value(<<"status">>, Params) of
+                 undefined -> all;
+                 S0 -> binary_to_existing_atom(S0, utf8)
+             end,
+    {200, emqx_gateway_intr:gateways(Status)}.
 
 gateway_insta(delete, _Request) ->
     {200, ok};
