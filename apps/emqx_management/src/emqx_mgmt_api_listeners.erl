@@ -277,15 +277,15 @@ format({error, Reason}) ->
     {error, Reason};
 
 format({ID, Conf}) ->
+    {Type, _Name} = emqx_listeners:parse_listener_id(ID),
     #{
         id              => ID,
         node            => maps:get(node, Conf),
         acceptors       => maps:get(acceptors, Conf),
         max_conn        => maps:get(max_connections, Conf),
-        type            => maps:get(type, Conf),
+        type            => Type,
         listen_on       => list_to_binary(esockd:to_string(maps:get(bind, Conf))),
-        running         => trans_running(Conf),
-        auth            => maps:get(enable, maps:get(auth, Conf))
+        running         => trans_running(Conf)
     }.
 trans_running(Conf) ->
     case maps:get(running, Conf) of
