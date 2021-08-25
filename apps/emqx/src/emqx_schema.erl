@@ -72,7 +72,7 @@
 
 structs() -> ["zones", "mqtt", "flapping_detect", "force_shutdown", "force_gc",
     "conn_congestion", "rate_limit", "quota", "listeners", "broker", "plugins",
-    "sysmon", "alarm", "authorization"].
+    "stats", "sysmon", "alarm", "authorization"].
 
 fields("stats") ->
     [ {"enable", t(boolean(), undefined, true)}
@@ -132,7 +132,6 @@ fields("zone_settings") ->
     , {"force_shutdown", ref("force_shutdown")}
     , {"conn_congestion", ref("conn_congestion")}
     , {"force_gc", ref("force_gc")}
-    , {"listeners", t("listeners")}
     ];
 
 fields("rate_limit") ->
@@ -348,9 +347,8 @@ base_listener() ->
     [ {"bind", t(union(ip_port(), integer()))}
     , {"acceptors", t(integer(), undefined, 16)}
     , {"max_connections", maybe_infinity(integer(), infinity)}
-    , {"rate_limit", ref("rate_limit")}
     , {"mountpoint", t(binary(), undefined, <<>>)}
-    , {"zone", t(binary(), undefined, undefined)}
+    , {"zone", t(atom(), undefined, default)}
     ].
 
 %% utils

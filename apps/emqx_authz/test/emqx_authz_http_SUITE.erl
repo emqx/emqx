@@ -67,7 +67,7 @@ t_authz(_) ->
                    protocol => mqtt,
                    mountpoint => <<"fake">>,
                    zone => default,
-                   listener => mqtt_tcp
+                   listener => {tcp, default}
                    },
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, 204, fake_headers} end),

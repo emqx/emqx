@@ -105,7 +105,7 @@ t_authenticator(_) ->
 
 t_authenticate(_) ->
     ClientInfo = #{zone => default,
-                   listener => mqtt_tcp,
+                   listener => {tcp, default},
                    username => <<"myuser">>,
 			       password => <<"mypass">>},
     ?assertEqual({ok, #{superuser => false}}, emqx_access_control:authenticate(ClientInfo)),

@@ -80,19 +80,19 @@ t_authz(_) ->
                     username => <<"test">>,
                     peerhost => {127,0,0,1},
                     zone => default,
-                    listener => mqtt_tcp
+                    listener => {tcp, default}
                    },
     ClientInfo2 = #{clientid => <<"test_clientid">>,
                     username => <<"test_username">>,
                     peerhost => {192,168,0,10},
                     zone => default,
-                    listener => mqtt_tcp
+                    listener => {tcp, default}
                    },
     ClientInfo3 = #{clientid => <<"test_clientid">>,
                     username => <<"fake_username">>,
                     peerhost => {127,0,0,1},
                     zone => default,
-                    listener => mqtt_tcp
+                    listener => {tcp, default}
                    },
 
     meck:expect(emqx_resource, query, fun(_, _) -> [] end),

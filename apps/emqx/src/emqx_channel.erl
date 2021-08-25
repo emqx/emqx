@@ -202,14 +202,15 @@ caps(#channel{clientinfo = #{zone := Zone}}) ->
 
 -spec(init(emqx_types:conninfo(), opts()) -> channel()).
 init(ConnInfo = #{peername := {PeerHost, _Port},
-                  sockname := {_Host, SockPort}}, #{zone := Zone, listener := Listener}) ->
+                  sockname := {_Host, SockPort}},
+     #{zone := Zone, listener := {Type, Listener}}) ->
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Protocol = maps:get(protocol, ConnInfo, mqtt),
-    MountPoint = case get_mqtt_conf(Zone, mountpoint) of
+    MountPoint = case emqx_config:get_listener_conf(Type, Listener, [mountpoint]) of
         <<>> -> undefined;
         MP -> MP
     end,
-    QuotaPolicy = emqx_config:get_listener_conf(Zone, Listener,[rate_limit, quota], []),
+    QuotaPolicy = emqx_config:get_zone_conf(Zone, [quota], #{}),
     ClientInfo = set_peercert_infos(
                    Peercert,
                    #{zone         => Zone,

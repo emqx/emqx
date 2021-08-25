@@ -57,7 +57,7 @@ init_per_suite(Config) ->
     ok = meck:expect(emqx_alarm, deactivate, fun(_) -> ok end),
     ok = meck:expect(emqx_alarm, deactivate, fun(_, _) -> ok end),
 
-    emqx_channel_SUITE:set_default_zone_conf(),
+    emqx_channel_SUITE:set_test_listenser_confs(),
     Config.
 
 end_per_suite(_Config) ->
@@ -219,9 +219,9 @@ t_handle_msg_deliver(_) ->
 
 t_handle_msg_inet_reply(_) ->
     ok = meck:expect(emqx_pd, get_counter, fun(_) -> 10 end),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [tcp, active_n], 0),
+    emqx_config:put_listener_conf(tcp, default, [tcp, active_n], 0),
     ?assertMatch({ok, _St}, handle_msg({inet_reply, for_testing, ok}, st())),
-    emqx_config:put_listener_conf(default, mqtt_tcp, [tcp, active_n], 100),
+    emqx_config:put_listener_conf(tcp, default, [tcp, active_n], 100),
     ?assertEqual(ok, handle_msg({inet_reply, for_testing, ok}, st())),
     ?assertMatch({stop, {shutdown, for_testing}, _St},
                  handle_msg({inet_reply, for_testing, {error, for_testing}}, st())).
@@ -456,7 +456,7 @@ with_conn(TestFun, Opts) when is_map(Opts) ->
     TrapExit = maps:get(trap_exit, Opts, false),
     process_flag(trap_exit, TrapExit),
     {ok, CPid} = emqx_connection:start_link(emqx_transport, sock,
-        maps:merge(Opts, #{zone => default, listener => mqtt_tcp})),
+        maps:merge(Opts, #{zone => default, listener => {tcp, default}})),
     TestFun(CPid),
     TrapExit orelse emqx_connection:stop(CPid),
     ok.
@@ -479,7 +479,7 @@ st(InitFields) when is_map(InitFields) ->
     st(InitFields, #{}).
 st(InitFields, ChannelFields) when is_map(InitFields) ->
     St = emqx_connection:init_state(emqx_transport, sock, #{zone => default,
-        listener => mqtt_tcp}),
+        listener => {tcp, default}}),
     maps:fold(fun(N, V, S) -> emqx_connection:set_field(N, V, S) end,
               emqx_connection:set_field(channel, channel(ChannelFields), St),
               InitFields
@@ -500,7 +500,7 @@ channel(InitFields) ->
                  expiry_interval => 0
                 },
     ClientInfo = #{zone       => default,
-                   listener   => mqtt_tcp,
+                   listener   => {tcp, default},
                    protocol   => mqtt,
                    peerhost   => {127,0,0,1},
                    clientid   => <<"clientid">>,
@@ -513,7 +513,7 @@ channel(InitFields) ->
     maps:fold(fun(Field, Value, Channel) ->
                 emqx_channel:set_field(Field, Value, Channel)
               end,
-              emqx_channel:init(ConnInfo, #{zone => default, listener => mqtt_tcp}),
+              emqx_channel:init(ConnInfo, #{zone => default, listener => {tcp, default}}),
               maps:merge(#{clientinfo => ClientInfo,
                            session    => Session,
                            conn_state => connected

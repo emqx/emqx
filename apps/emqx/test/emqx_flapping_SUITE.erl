@@ -40,7 +40,7 @@ end_per_suite(_Config) ->
 
 t_detect_check(_) ->
     ClientInfo = #{zone => default,
-                   listener => mqtt_tcp,
+                   listener => {tcp, default},
                    clientid => <<"client007">>,
                    peerhost => {127,0,0,1}
                   },
@@ -64,7 +64,7 @@ t_detect_check(_) ->
 
 t_expired_detecting(_) ->
     ClientInfo = #{zone => default,
-                   listener => mqtt_tcp,
+                   listener => {tcp, default},
                    clientid => <<"client008">>,
                    peerhost => {127,0,0,1}},
     false = emqx_flapping:detect(ClientInfo),

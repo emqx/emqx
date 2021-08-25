@@ -61,7 +61,7 @@ t_get_node_listeners(_) ->
     get_api(Path).
 
 t_manage_listener(_) ->
-    ID = "default:mqtt_tcp",
+    ID = "tcp:default",
     manage_listener(ID, "stop", false),
     manage_listener(ID, "start", true),
     manage_listener(ID, "restart", true).
