@@ -426,7 +426,7 @@ handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), Channel = #channel{session = S
     end;
 
 handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
-          Channel = #channel{clientinfo = ClientInfo}) ->
+          Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
     case emqx_packet:check(Packet) of
         ok ->
             TopicFilters0 = parse_topic_filters(TopicFilters),
@@ -435,7 +435,7 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
             HasAuthzDeny = lists:any(fun({_TopicFilter, ReasonCode}) ->
                     ReasonCode =:= ?RC_NOT_AUTHORIZED
                 end, TupleTopicFilters0),
-            DenyAction = emqx:get_config([authorization, deny_action], ignore),
+            DenyAction = emqx_config:get_zone_conf(Zone, [authorization, deny_action]),
             case DenyAction =:= disconnect andalso HasAuthzDeny of
                 true -> handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel);
                 false ->
@@ -537,7 +537,8 @@ process_connect(AckProps, Channel = #channel{conninfo = ConnInfo,
 %% Process Publish
 %%--------------------------------------------------------------------
 
-process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
+process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
+                Channel = #channel{clientinfo = #{zone := Zone}}) ->
     case pipeline([fun check_quota_exceeded/2,
                    fun process_alias/2,
                    fun check_pub_alias/2,
@@ -550,7 +551,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
         {error, Rc = ?RC_NOT_AUTHORIZED, NChannel} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s.",
                  [Topic, emqx_reason_codes:text(Rc)]),
-            case emqx:get_config([authorization, deny_action], ignore) of
+            case emqx_config:get_zone_conf(Zone, [authorization, deny_action]) of
                 ignore ->
                     case QoS of
                        ?QOS_0 -> {ok, NChannel};
@@ -955,8 +956,9 @@ handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
     AllPendings = lists:append(Delivers, Pendings),
     disconnect_and_shutdown(takeovered, AllPendings, Channel);
 
-handle_call(list_authz_cache, Channel) ->
-    {reply, emqx_authz_cache:list_authz_cache(), Channel};
+handle_call(list_authz_cache, #channel{clientinfo = #{zone := Zone}}
+        = Channel) ->
+    {reply, emqx_authz_cache:list_authz_cache(Zone), Channel};
 
 handle_call({quota, Policy}, Channel) ->
     Zone = info(zone, Channel),
@@ -1612,6 +1614,11 @@ maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
             {ok, ensure_timer(expire_timer, I, Channel)};
         _ -> shutdown(Reason, Channel)
     end.
+
+%%--------------------------------------------------------------------
+%% Is Authorization enabled?
+is_authz_enabled(#{zone := Zone, is_superuser := IsSuperuser}) ->
+    (not IsSuperuser) andalso emqx_config:get_zone_conf(Zone, [authorization, enable]).
 
 %%--------------------------------------------------------------------
 %% Parse Topic Filters
