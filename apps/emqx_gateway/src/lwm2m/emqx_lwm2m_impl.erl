@@ -129,7 +129,7 @@ start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) ->
     end.
 
 name(GwName, LisName, Type) ->
-    list_to_atom(lists:concat([GwName, ":", LisName, ":", Type])).
+    list_to_atom(lists:concat([GwName, ":", Type, ":", LisName])).
 
 merge_default(Options) ->
     Default = emqx_gateway_utils:default_udp_options(),
