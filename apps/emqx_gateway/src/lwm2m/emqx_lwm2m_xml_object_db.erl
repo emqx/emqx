@@ -49,6 +49,7 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
+-spec start_link(binary() | string()) -> {ok, pid()} | ignore | {error, any()}.
 start_link(XmlDir) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [XmlDir], []).
 
@@ -85,10 +86,10 @@ stop() ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init([XmlDir]) ->
+init([XmlDir0]) ->
     _ = ets:new(?LWM2M_OBJECT_DEF_TAB, [set, named_table, protected]),
     _ = ets:new(?LWM2M_OBJECT_NAME_TO_ID_TAB, [set, named_table, protected]),
-    load(XmlDir),
+    load(to_list(XmlDir0)),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->
@@ -140,3 +141,7 @@ load_xml(FileName) ->
     [ObjectXml] = xmerl_xpath:string("/LWM2M/Object", Xml),
     ObjectXml.
 
+to_list(B) when is_binary(B) ->
+    binary_to_list(B);
+to_list(S) when is_list(S) ->
+    S.

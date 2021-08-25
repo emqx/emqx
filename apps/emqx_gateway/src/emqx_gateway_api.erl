@@ -20,6 +20,9 @@
 
 -compile(nowarn_unused_function).
 
+-import(emqx_mgmt_util, [ schema/1
+                        ]).
+
 %% minirest behaviour callbacks
 -export([api_spec/0]).
 
@@ -41,21 +44,109 @@
            }
         ]).
 
--define(EXAMPLE_STOMP_GATEWAY_CONF, #{
-            frame => #{
-                max_headers => 10,
-                max_headers_length => 1024,
-                max_body_length => 8192
-            },
-            listener => #{
-                tcp => #{<<"default-stomp-listener">> => #{
-                            bind => <<"61613">>
-                       }}
-            }
-        }).
+%% XXX: This is whole confs for all type gateways. It is used to fill the
+%% default configurations and generate the swagger-schema
+%%
+%% NOTE: It is a temporary measure to generate swagger-schema
+-define(COAP_GATEWAY_CONFS,
+#{<<"authentication">> =>
+      #{<<"mechanism">> => <<"password-based">>,
+        <<"name">> => <<"authenticator1">>,
+        <<"server_type">> => <<"built-in-database">>,
+        <<"user_id_type">> => <<"clientid">>},
+  <<"enable">> => true,
+  <<"enable_stats">> => true,<<"heartbeat">> => <<"30s">>,
+  <<"idle_timeout">> => <<"30s">>,
+  <<"listeners">> =>
+      #{<<"udp">> => #{<<"default">> => #{<<"bind">> => 5683}}},
+  <<"mountpoint">> => <<>>,<<"notify_type">> => <<"qos">>,
+  <<"publish_qos">> => <<"qos1">>,
+  <<"subscribe_qos">> => <<"qos0">>}
+).
 
--define(EXAMPLE_MQTTSN_GATEWAY_CONF, #{
-        }).
+-define(EXPROTO_GATEWAY_CONFS,
+#{<<"enable">> => true,
+  <<"enable_stats">> => true,
+  <<"handler">> =>
+      #{<<"address">> => <<"http://127.0.0.1:9001">>},
+  <<"idle_timeout">> => <<"30s">>,
+  <<"listeners">> =>
+      #{<<"tcp">> =>
+            #{<<"default">> =>
+                  #{<<"acceptors">> => 8,<<"bind">> => 7993,
+                    <<"max_conn_rate">> => 1000,
+                    <<"max_connections">> => 10240}}},
+  <<"mountpoint">> => <<>>,
+  <<"server">> => #{<<"bind">> => 9100}}
+).
+
+-define(LWM2M_GATEWAY_CONFS,
+#{<<"auto_observe">> => false,
+  <<"enable">> => true,
+  <<"enable_stats">> => true,
+  <<"idle_timeout">> => <<"30s">>,
+  <<"lifetime_max">> => <<"86400s">>,
+  <<"lifetime_min">> => <<"1s">>,
+  <<"listeners">> =>
+      #{<<"udp">> => #{<<"default">> => #{<<"bind">> => 5783}}},
+  <<"mountpoint">> => <<"lwm2m/%e/">>,
+  <<"qmode_time_windonw">> => 22,
+  <<"translators">> =>
+      #{<<"command">> => <<"dn/#">>,<<"notify">> => <<"up/notify">>,
+        <<"register">> => <<"up/resp">>,
+        <<"response">> => <<"up/resp">>,
+        <<"update">> => <<"up/resp">>},
+  <<"update_msg_publish_condition">> =>
+      <<"contains_object_list">>,
+  <<"xml_dir">> => <<"etc/lwm2m_xml">>}
+).
+
+-define(MQTTSN_GATEWAY_CONFS,
+#{<<"broadcast">> => true,
+  <<"clientinfo_override">> =>
+      #{<<"password">> => <<"abc">>,
+        <<"username">> => <<"mqtt_sn_user">>},
+  <<"enable">> => true,
+  <<"enable_qos3">> => true,<<"enable_stats">> => true,
+  <<"gateway_id">> => 1,<<"idle_timeout">> => <<"30s">>,
+  <<"listeners">> =>
+      #{<<"udp">> =>
+            #{<<"default">> =>
+                  #{<<"bind">> => 1884,<<"max_conn_rate">> => 1000,
+                    <<"max_connections">> => 10240000}}},
+  <<"mountpoint">> => <<>>,
+  <<"predefined">> =>
+      [#{<<"id">> => 1,
+         <<"topic">> => <<"/predefined/topic/name/hello">>},
+       #{<<"id">> => 2,
+         <<"topic">> => <<"/predefined/topic/name/nice">>}]}
+).
+
+-define(STOMP_GATEWAY_CONFS,
+#{<<"authentication">> =>
+      #{<<"mechanism">> => <<"password-based">>,
+        <<"name">> => <<"authenticator1">>,
+        <<"server_type">> => <<"built-in-database">>,
+        <<"user_id_type">> => <<"clientid">>},
+  <<"clientinfo_override">> =>
+      #{<<"password">> => <<"${Packet.headers.passcode}">>,
+        <<"username">> => <<"${Packet.headers.login}">>},
+  <<"enable">> => true,
+  <<"enable_stats">> => true,
+  <<"frame">> =>
+      #{<<"max_body_length">> => 8192,<<"max_headers">> => 10,
+        <<"max_headers_length">> => 1024},
+  <<"idle_timeout">> => <<"30s">>,
+  <<"listeners">> =>
+      #{<<"tcp">> =>
+            #{<<"default">> =>
+                  #{<<"acceptors">> => 16,<<"active_n">> => 100,
+                    <<"bind">> => 61613,<<"max_conn_rate">> => 1000,
+                    <<"max_connections">> => 1024000}}},
+  <<"mountpoint">> => <<>>}
+).
+
+%% --- END
 
 -define(EXAMPLE_GATEWAY_STATS, #{
             max_connection => 10240000,
@@ -121,7 +212,7 @@ metadata(gateway_insta) ->
                         summary => <<"Not Found">>,
                         value => #{
                             code => <<"NOT_FOUND">>,
-                            message => <<"gateway xxx not found">>
+                            message => <<"The gateway not found">>
                         }
                     }
                 }
@@ -140,46 +231,13 @@ metadata(gateway_insta) ->
         parameters => [UriNameParamDef],
         responses => #{
             <<"404">> => NameNotFoundRespDef,
-            <<"200">> => #{
-                description => <<"OK">>,
-                content => #{
-                    'application/json' => #{
-                        schema => minirest:ref(<<"gateway_conf">>),
-                        examples => #{
-                            simple1 => #{
-                                summary => <<"Stomp Gateway">>,
-                                value => emqx_json:encode(?EXAMPLE_STOMP_GATEWAY_CONF)
-                            },
-                            simple2 => #{
-                                summary => <<"MQTT-SN Gateway">>,
-                                value => emqx_json:encode(?EXAMPLE_MQTTSN_GATEWAY_CONF)
-                            }
-                        }
-                    }
-                }
-            }
+            <<"200">> => schema(schema_for_gateway_conf())
         }
       },
       put => #{
         description => <<"Update the gateway configurations/status">>,
         parameters => [UriNameParamDef],
-        requestBody => #{
-            content => #{
-                'application/json' => #{
-                    schema => minirest:ref(<<"gateway_conf">>),
-                    examples => #{
-                        simple1 => #{
-                            summary => <<"Stom Gateway">>,
-                            value => emqx_json:encode(?EXAMPLE_STOMP_GATEWAY_CONF)
-                        },
-                        simple2 => #{
-                            summary => <<"MQTT-SN Gateway">>,
-                            value => emqx_json:encode(?EXAMPLE_MQTTSN_GATEWAY_CONF)
-                        }
-                    }
-                }
-            }
-        },
+        requestBody => schema(schema_for_gateway_conf()),
         responses => #{
             <<"404">> => NameNotFoundRespDef,
             <<"204">> => #{description => <<"Created">>}
@@ -210,7 +268,6 @@ metadata(gateway_insta_stats) ->
 
 schemas() ->
     [ #{<<"gateway_overrview">> => schema_for_gateway_overrview()}
-    , #{<<"gateway_conf">> => schema_for_gateway_conf()}
     , #{<<"gateway_stats">> => schema_for_gateway_stats()}
     ].
 
@@ -262,108 +319,12 @@ schema_for_gateway_overrview() ->
 
 schema_for_gateway_conf() ->
    #{oneOf =>
-     [ schema_for_gateway_conf_stomp()
-     , schema_for_gateway_conf_mqttsn()
-     , schema_for_gateway_conf_coap()
-     , schema_for_gateway_conf_lwm2m()
-     , schema_for_gateway_conf_exproto()
+     [ emqx_mgmt_api_configs:gen_schema(?STOMP_GATEWAY_CONFS)
+     , emqx_mgmt_api_configs:gen_schema(?MQTTSN_GATEWAY_CONFS)
+     , emqx_mgmt_api_configs:gen_schema(?COAP_GATEWAY_CONFS)
+     , emqx_mgmt_api_configs:gen_schema(?LWM2M_GATEWAY_CONFS)
+     , emqx_mgmt_api_configs:gen_schema(?EXPROTO_GATEWAY_CONFS)
      ]}.
-
-schema_for_clientinfo_override() ->
-    #{type => object,
-      properties => #{
-        clientid => #{type => string},
-        username => #{type => string},
-        password => #{type => string}
-     }}.
-
-schema_for_authenticator() ->
-    %% TODO.
-    #{type => object, properties => #{
-        a_key => #{type => string}
-     }}.
-
-schema_for_tcp_listener() ->
-    %% TODO.
-    #{type => object, properties => #{
-        a_key => #{type => string}
-     }}.
-
-schema_for_udp_listener() ->
-    %% TODO.
-    #{type => object, properties => #{
-        a_key => #{type => string}
-     }}.
-
-%% It should be generated by _schema.erl module
-%% and emqx_gateway.conf
-schema_for_gateway_conf_stomp() ->
-    #{type => object,
-      properties => #{
-        frame => #{
-            type => object,
-            properties => #{
-                max_headers => #{type => integer},
-                max_headers_length => #{type => integer},
-                max_body_length => #{type => integer}
-            }
-        },
-        clientinfo_override => schema_for_clientinfo_override(),
-        authenticator => schema_for_authenticator(),
-        listener => schema_for_tcp_listener()
-      }
-     }.
-
-schema_for_gateway_conf_mqttsn() ->
-    #{type => object,
-      properties => #{
-        gateway_id => #{type => integer},
-        broadcast => #{type => boolean},
-        enable_stats => #{type => boolean},
-        enable_qos3 => #{type => boolean},
-        idle_timeout => #{type => integer},
-        predefined => #{
-            type => array,
-            items => #{
-                type => object,
-                properties => #{
-                    id => #{type => integer},
-                    topic => #{type => string}
-                }
-            }
-        },
-        clientinfo_override => schema_for_clientinfo_override(),
-        authenticator => schema_for_authenticator(),
-        listener => schema_for_udp_listener()
-     }}.
-
-
-schema_for_gateway_conf_coap() ->
-    #{type => object,
-      properties => #{
-        clientinfo_override => schema_for_clientinfo_override(),
-        authenticator => schema_for_authenticator(),
-        listener => schema_for_udp_listener()
-     }}.
-
-schema_for_gateway_conf_lwm2m() ->
-    #{type => object,
-      properties => #{
-        clientinfo_override => schema_for_clientinfo_override(),
-        authenticator => schema_for_authenticator(),
-        listener => schema_for_udp_listener()
-     }}.
-
-schema_for_gateway_conf_exproto() ->
-    #{type => object,
-      properties => #{
-        clientinfo_override => schema_for_clientinfo_override(),
-        authenticator => schema_for_authenticator(),
-        listener => #{oneOf => [schema_for_tcp_listener(),
-                                schema_for_udp_listener()
-                               ]
-                     }
-     }}.
 
 schema_for_gateway_stats() ->
     #{type => object,
@@ -382,13 +343,26 @@ gateway(get, Request) ->
              end,
     {200, emqx_gateway_intr:gateways(Status)}.
 
-gateway_insta(delete, _Request) ->
-    {200, ok};
-gateway_insta(get, _Request) ->
-    {200, ok};
-gateway_insta(put, _Request) ->
+gateway_insta(delete, Request) ->
+    Name = binary_to_existing_atom(cowboy_req:binding(name, Request)),
+    case emqx_gateway:unload(Name) of
+        ok ->
+            {200, ok};
+        {error, not_found} ->
+            {404, <<"Not Found">>};
+        {error, Reason} ->
+            {500, Reason}
+    end;
+gateway_insta(get, Request) ->
+    Name = binary_to_existing_atom(cowboy_req:binding(name, Request)),
+    case emqx_gateway:lookup(Name) of
+        #{rawconf := RawConf} ->
+            {200, RawConf};
+        undefined ->
+            {404, <<"Not Found">>}
+    end;
+gateway_insta(post, _Request) ->
     {200, ok}.
 
 gateway_insta_stats(get, _Req) ->
     {401, <<"Implement it later (maybe 5.1)">>}.
-

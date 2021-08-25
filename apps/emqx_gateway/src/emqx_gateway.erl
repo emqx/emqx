@@ -51,7 +51,7 @@ load(Name, RawConf) ->
                },
     emqx_gateway_sup:load_gateway(Gateway).
 
--spec unload(gateway_name()) -> ok | {error, any()}.
+-spec unload(gateway_name()) -> ok | {error, not_found}.
 unload(Name) ->
     emqx_gateway_sup:unload_gateway(Name).
 

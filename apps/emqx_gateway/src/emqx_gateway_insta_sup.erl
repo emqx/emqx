@@ -106,14 +106,14 @@ init([Gateway, Ctx0, _GwDscrptr]) ->
     end.
 
 do_init_context(GwName, RawConf, Ctx) ->
-    Auth = case maps:get(authenticator, RawConf, #{enable => false}) of
+    Auth = case maps:get(authentication, RawConf, #{enable => false}) of
                #{enable := false} -> undefined;
                AuthCfg when is_map(AuthCfg) ->
                    case maps:get(enable, AuthCfg, true) of
                        false ->
                            undefined;
                        _ ->
-                           create_authenticator_for_gateway_insta(GwName, AuthCfg)
+                           create_authentication_for_gateway_insta(GwName, AuthCfg)
                    end;
                _ ->
                    undefined
@@ -121,7 +121,7 @@ do_init_context(GwName, RawConf, Ctx) ->
     Ctx#{auth => Auth}.
 
 do_deinit_context(Ctx) ->
-    cleanup_authenticator_for_gateway_insta(maps:get(auth, Ctx)),
+    cleanup_authentication_for_gateway_insta(maps:get(auth, Ctx)),
     ok.
 
 handle_call(info, _From, State = #state{gw = Gateway}) ->
@@ -227,24 +227,24 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-create_authenticator_for_gateway_insta(GwName, AuthCfg) ->
+create_authentication_for_gateway_insta(GwName, AuthCfg) ->
     ChainId = atom_to_binary(GwName, utf8),
     case emqx_authn:create_chain(#{id => ChainId}) of
         {ok, _ChainInfo} ->
             case emqx_authn:create_authenticator(ChainId, AuthCfg) of
                 {ok, _} -> ChainId;
                 {error, Reason} ->
-                    logger:error("Failed to create authenticator ~p", [Reason]),
-                    throw({bad_autheticator, Reason})
+                    logger:error("Failed to create authentication ~p", [Reason]),
+                    throw({bad_authentication, Reason})
             end;
         {error, Reason} ->
             logger:error("Failed to create authentication chain: ~p", [Reason]),
             throw({bad_chain, {ChainId, Reason}})
     end.
 
-cleanup_authenticator_for_gateway_insta(undefined) ->
+cleanup_authentication_for_gateway_insta(undefined) ->
     ok;
-cleanup_authenticator_for_gateway_insta(ChainId) ->
+cleanup_authentication_for_gateway_insta(ChainId) ->
     case emqx_authn:delete_chain(ChainId) of
         ok -> ok;
         {error, {not_found, _}} ->
