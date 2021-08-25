@@ -134,7 +134,7 @@
     !sleep 5
     ?SH-PROMPT
 
-    !curl --user admin:public --silent --show-error http://localhost:8081/api/v4/rules | jq --raw-output ".data[0].metrics[] | select(.node==\"emqx@127.0.0.1\").matched"
+    !curl --user admin:public --silent --show-error http://localhost:18083/api/v4/rules | jq --raw-output ".data[0].metrics[] | select(.node==\"emqx@127.0.0.1\").matched"
     ?300
     ?SH-PROMPT
 
