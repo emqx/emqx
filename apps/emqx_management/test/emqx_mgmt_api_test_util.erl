@@ -17,8 +17,31 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(SERVER, "http://127.0.0.1:8081").
+-define(SERVER, "http://127.0.0.1:18083").
 -define(BASE_PATH, "/api/v5").
+
+init_suite() ->
+    ekka_mnesia:start(),
+    application:load(emqx_management),
+    emqx_ct_helpers:start_apps([emqx_dashboard], fun set_special_configs/1).
+
+end_suite() ->
+    application:unload(emqx_management),
+    emqx_ct_helpers:stop_apps([emqx_dashboard]).
+
+set_special_configs(emqx_dashboard) ->
+    Config = #{
+        default_username => <<"admin">>,
+        default_password => <<"public">>,
+        listeners => [#{
+            protocol => http,
+            port => 18083
+        }]
+    },
+    emqx_config:put([emqx_dashboard], Config),
+    ok;
+set_special_configs(_App) ->
+    ok.
 
 request_api(Method, Url) ->
     request_api(Method, Url, [], auth_header_(), []).
@@ -55,13 +78,10 @@ do_request_api(Method, Request)->
     end.
 
 auth_header_() ->
-    AppId = <<"admin">>,
-    AppSecret = <<"public">>,
-    auth_header_(binary_to_list(AppId), binary_to_list(AppSecret)).
-
-auth_header_(User, Pass) ->
-    Encoded = base64:encode_to_string(lists:append([User,":",Pass])),
-    {"Authorization","Basic " ++ Encoded}.
+    Username = <<"admin">>,
+    Password = <<"public">>,
+    {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 api_path(Parts)->
     ?SERVER ++ filename:join([?BASE_PATH | Parts]).
