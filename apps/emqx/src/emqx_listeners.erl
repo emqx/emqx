@@ -37,6 +37,10 @@
         , has_enabled_listener_conf_by_type/1
         ]).
 
+-export([ listener_id/2
+        , parse_listener_id/1
+        ]).
+
 %% @doc List configured listeners.
 -spec(list() -> [{ListenerId :: atom(), ListenerConf :: map()}]).
 list() ->
@@ -264,7 +268,7 @@ format_addr({Addr, Port}) when is_tuple(Addr) ->
 listener_id(Type, ListenerName) ->
     list_to_atom(lists:append([atom_to_list(Type), ":", atom_to_list(ListenerName)])).
 
-decode_listener_id(Id) ->
+parse_listener_id(Id) ->
     try
         [Zone, Listen] = string:split(atom_to_list(Id), ":", leading),
         {list_to_existing_atom(Zone), list_to_existing_atom(Listen)}
@@ -299,7 +303,7 @@ has_enabled_listener_conf_by_type(Type) ->
         end, do_list()).
 
 apply_on_listener(ListenerId, Do) ->
-    {Type, ListenerName} = decode_listener_id(ListenerId),
+    {Type, ListenerName} = parse_listener_id(ListenerId),
     case emqx_config:find_listener_conf(Type, ListenerName, []) of
         {not_found, _, _} -> error({listener_config_not_found, Type, ListenerName});
         {ok, Conf} -> Do(Type, ListenerName, Conf)

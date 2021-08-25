@@ -117,8 +117,7 @@ comparison_listener(Local, Response) ->
     ?assertEqual(maps:get(acceptors, Local), maps:get(<<"acceptors">>, Response)),
     ?assertEqual(maps:get(max_conn, Local), maps:get(<<"max_conn">>, Response)),
     ?assertEqual(maps:get(listen_on, Local), maps:get(<<"listen_on">>, Response)),
-    ?assertEqual(maps:get(running, Local), maps:get(<<"running">>, Response)),
-    ?assertEqual(maps:get(auth, Local), maps:get(<<"auth">>, Response)).
+    ?assertEqual(maps:get(running, Local), maps:get(<<"running">>, Response)).
 
 
 listener_stats(Listener, Stats) ->
