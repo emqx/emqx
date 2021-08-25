@@ -158,7 +158,8 @@ fields(dtls_listener) ->
     [ {"$name", t(ref(dtls_listener_settings))}];
 
 fields(listener_settings) ->
-    [ {bind, t(union(ip_port(), integer()))}
+    [ {enable, t(boolean(), undefined, true)}
+    , {bind, t(union(ip_port(), integer()))}
     , {acceptors, t(integer(), undefined, 8)}
     , {max_connections, t(integer(), undefined, 1024)}
     , {max_conn_rate, t(integer())}

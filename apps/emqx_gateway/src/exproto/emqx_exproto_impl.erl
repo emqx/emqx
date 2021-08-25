@@ -84,7 +84,7 @@ start_grpc_client_channel(GwName, Options = #{address := UriStr}) ->
     grpc_client_sup:create_channel_pool(GwName, SvrAddr, ClientOpts).
 
 on_gateway_load(_Gateway = #{ name := GwName,
-                              rawconf := RawConf
+                              config := Config
                             }, Ctx) ->
     %% XXX: How to monitor it ?
     %% Start grpc client pool & client channel
@@ -92,17 +92,17 @@ on_gateway_load(_Gateway = #{ name := GwName,
     PoolSize = emqx_vm:schedulers() * 2,
     {ok, _} = emqx_pool_sup:start_link(PoolName, hash, PoolSize,
                                        {emqx_exproto_gcli, start_link, []}),
-    _ = start_grpc_client_channel(GwName, maps:get(handler, RawConf, undefined)),
+    _ = start_grpc_client_channel(GwName, maps:get(handler, Config, undefined)),
 
     %% XXX: How to monitor it ?
-    _ = start_grpc_server(GwName, maps:get(server, RawConf, undefined)),
+    _ = start_grpc_server(GwName, maps:get(server, Config, undefined)),
 
-    NRawConf = maps:without(
+    NConfig = maps:without(
                  [server, handler],
-                 RawConf#{pool_name => PoolName}
+                 Config#{pool_name => PoolName}
                 ),
-    Listeners = emqx_gateway_utils:normalize_rawconf(
-                  NRawConf#{handler => GwName}
+    Listeners = emqx_gateway_utils:normalize_config(
+                  NConfig#{handler => GwName}
                  ),
     ListenerPids = lists:map(fun(Lis) ->
                      start_listener(GwName, Ctx, Lis)
@@ -125,9 +125,9 @@ on_gateway_update(NewGateway, OldGateway, GwState = #{ctx := Ctx}) ->
     end.
 
 on_gateway_unload(_Gateway = #{ name := GwName,
-                                rawconf := RawConf
+                                config := Config
                               }, _GwState) ->
-    Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
+    Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:foreach(fun(Lis) ->
         stop_listener(GwName, Lis)
     end, Listeners).

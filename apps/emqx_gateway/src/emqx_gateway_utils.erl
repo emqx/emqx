@@ -31,7 +31,7 @@
         , unix_ts_to_rfc3339/2
         ]).
 
--export([ normalize_rawconf/1
+-export([ normalize_config/1
         ]).
 
 %% Common Envs
@@ -118,14 +118,14 @@ unix_ts_to_rfc3339(Key, Map) ->
                emqx_rule_funcs:unix_ts_to_rfc3339(Ts, <<"millisecond">>)}
     end.
 
--spec normalize_rawconf(rawconf())
+-spec normalize_config(emqx_config:config())
     -> list({ Type :: udp | tcp | ssl | dtls
             , Name :: atom()
             , ListenOn :: esockd:listen_on()
             , SocketOpts :: esockd:option()
             , Cfg :: map()
             }).
-normalize_rawconf(RawConf) ->
+normalize_config(RawConf) ->
     LisMap = maps:get(listeners, RawConf, #{}),
     Cfg0 = maps:without([listeners], RawConf),
     lists:append(maps:fold(fun(Type, Liss, AccIn1) ->

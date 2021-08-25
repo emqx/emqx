@@ -39,7 +39,7 @@ gateways(Status) ->
     Gateways = lists:map(fun({GwName, _}) ->
         case emqx_gateway:lookup(GwName) of
             undefined -> #{name => GwName, status => unloaded};
-            GwInfo = #{rawconf := RawConf} ->
+            GwInfo = #{config := Config} ->
                 GwInfo0 = emqx_gateway_utils:unix_ts_to_rfc3339(
                             [created_at, started_at, stopped_at],
                             GwInfo),
@@ -48,7 +48,7 @@ gateways(Status) ->
                                      created_at,
                                      started_at,
                                      stopped_at], GwInfo0),
-                GwInfo1#{listeners => get_listeners_status(GwName, RawConf)}
+                GwInfo1#{listeners => get_listeners_status(GwName, Config)}
 
         end
     end, emqx_gateway_registry:list()),
@@ -59,8 +59,8 @@ gateways(Status) ->
     end.
 
 %% @private
-get_listeners_status(GwName, RawConf) ->
-    Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
+get_listeners_status(GwName, Config) ->
+    Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:map(fun({Type, LisName, ListenOn, _, _}) ->
         Name0 = listener_name(GwName, Type, LisName),
         Name = {Name0, ListenOn},

@@ -21,14 +21,6 @@
 
 -type listener() :: #{}.
 
-%% The RawConf got from emqx:get_config/1
--type rawconf() ::
-        #{ clientinfo_override => map()
-         , authenticator       => map()
-         , listeners           => listener()
-         , atom()              => any()
-         }.
-
 %% @doc The Gateway defination
 -type gateway() ::
         #{ name    := gateway_name()
@@ -40,7 +32,7 @@
          %% Timestamp in millisecond
          , started_at => integer()
          %% Appears only in getting gateway info
-         , rawconf => rawconf()
+         , config => emqx_config:config()
          }.
 
 -endif.

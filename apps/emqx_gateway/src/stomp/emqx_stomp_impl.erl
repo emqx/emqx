@@ -50,10 +50,10 @@ unreg() ->
 %%--------------------------------------------------------------------
 
 on_gateway_load(_Gateway = #{ name := GwName,
-                              rawconf := RawConf
+                              config := Config
                             }, Ctx) ->
-    %% Step1. Fold the rawconfs to listeners
-    Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
+    %% Step1. Fold the config to listeners
+    Listeners = emqx_gateway_utils:normalize_config(Config),
     %% Step2. Start listeners or escokd:specs
     ListenerPids = lists:map(fun(Lis) ->
                      start_listener(GwName, Ctx, Lis)
@@ -78,9 +78,9 @@ on_gateway_update(NewGateway, OldGateway, GwState = #{ctx := Ctx}) ->
     end.
 
 on_gateway_unload(_Gateway = #{ name := GwName,
-                                rawconf := RawConf
+                                config := Config
                               }, _GwState) ->
-    Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
+    Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:foreach(fun(Lis) ->
         stop_listener(GwName, Lis)
     end, Listeners).

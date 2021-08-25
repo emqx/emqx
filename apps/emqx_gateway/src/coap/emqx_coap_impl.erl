@@ -49,9 +49,9 @@ unreg() ->
 %%--------------------------------------------------------------------
 
 on_gateway_load(_Gateway = #{name := GwName,
-                             rawconf := RawConf
+                             config := Config
                             }, Ctx) ->
-    Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
+    Listeners = emqx_gateway_utils:normalize_config(Config),
     ListenerPids = lists:map(fun(Lis) ->
                                      start_listener(GwName, Ctx, Lis)
                              end, Listeners),
@@ -74,9 +74,9 @@ on_gateway_update(NewGateway, OldGateway, GwState = #{ctx := Ctx}) ->
     end.
 
 on_gateway_unload(_Gateway = #{ name := GwName,
-                                rawconf := RawConf
+                                config := Config
                               }, _GwState) ->
-    Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
+    Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:foreach(fun(Lis) ->
         stop_listener(GwName, Lis)
     end, Listeners).

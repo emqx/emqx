@@ -88,8 +88,8 @@ call(Pid, Req) ->
 
 init([Gateway, Ctx0, _GwDscrptr]) ->
     process_flag(trap_exit, true),
-    #{name := GwName, rawconf := RawConf} = Gateway,
-    Ctx   = do_init_context(GwName, RawConf, Ctx0),
+    #{name := GwName, config := Config } = Gateway,
+    Ctx   = do_init_context(GwName, Config, Ctx0),
     State = #state{
                gw = Gateway,
                ctx   = Ctx,
@@ -105,8 +105,8 @@ init([Gateway, Ctx0, _GwDscrptr]) ->
             {ok, NState}
     end.
 
-do_init_context(GwName, RawConf, Ctx) ->
-    Auth = case maps:get(authentication, RawConf, #{enable => false}) of
+do_init_context(GwName, Config, Ctx) ->
+    Auth = case maps:get(authentication, Config, #{enable => false}) of
                #{enable := false} -> undefined;
                AuthCfg when is_map(AuthCfg) ->
                    case maps:get(enable, AuthCfg, true) of
