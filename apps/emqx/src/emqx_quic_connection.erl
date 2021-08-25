@@ -34,10 +34,16 @@ init(ConnOpts) when is_map(ConnOpts) ->
 
 -spec new_conn(quicer:connection_handler(), cb_state()) -> {ok, cb_state()} | {error, any()}.
 new_conn(Conn, S) ->
-    case emqx_connection:start_link(emqx_quic_stream, Conn, S) of
-        {ok, _Pid} ->
-            ok = quicer:async_handshake(Conn),
-            {ok, S};
+    process_flag(trap_exit, true),
+    case emqx_connection:start_link(emqx_quic_stream, {self(), Conn}, S) of
+        {ok, Pid} ->
+            receive
+                {Pid, stream_acceptor_ready} ->
+                    ok = quicer:async_handshake(Conn),
+                    {ok, S};
+                {'EXIT', Pid, _Reason} ->
+                    {error, stream_accept_error}
+            end;
         Other ->
             {error, Other}
     end.

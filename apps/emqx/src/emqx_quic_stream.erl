@@ -31,8 +31,16 @@
         , peercert/1
         ]).
 
-wait(Conn) ->
-    quicer:accept_stream(Conn, []).
+wait({ConnOwner, Conn}) ->
+    {ok, Conn} = quicer:async_accept_stream(Conn, []),
+    ConnOwner ! {self(), stream_acceptor_ready},
+    receive
+        %% from msquic
+        {quic, new_stream, Stream} ->
+            {ok, Stream};
+        {'EXIT', ConnOwner, _Reason} ->
+            {error, enotconn}
+    end.
 
 type(_) ->
     quic.
@@ -44,6 +52,7 @@ sockname(S) ->
     quicer:sockname(S).
 
 peercert(_S) ->
+    %% @todo but unsupported by msquic
     nossl.
 
 getstat(Socket, Stats) ->
