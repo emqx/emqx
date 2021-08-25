@@ -99,7 +99,7 @@
 
 -type(channel() :: #channel{}).
 
--type(opts() :: #{zone := atom(), listener := atom(), atom() => term()}).
+-type(opts() :: #{zone := atom(), listener := {Type::atom(), Name::atom()}, atom() => term()}).
 
 -type(conn_state() :: idle | connecting | connected | reauthenticating | disconnected).
 
