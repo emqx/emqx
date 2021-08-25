@@ -23,13 +23,9 @@
 -export([ structs/0
         , fields/1]).
 
-structs() -> ["emqx_bridge_mqtt"].
+structs() -> [{array, "bridge_mqtt"}].
 
-fields("emqx_bridge_mqtt") ->
-    [ {bridges, hoconsc:array(hoconsc:ref(?MODULE, "bridges"))}
-    ];
-
-fields("bridges") ->
+fields("bridge_mqtt") ->
     [ {name, emqx_schema:t(string(), undefined, true)}
     , {start_type, fun start_type/1}
     , {forwards, fun forwards/1}

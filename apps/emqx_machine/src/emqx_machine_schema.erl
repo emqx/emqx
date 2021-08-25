@@ -203,7 +203,8 @@ fields(Name) ->
 find_field(Name, []) ->
     error({unknown_config_struct_field, Name});
 find_field(Name, [SchemaModule | Rest]) ->
-    case lists:member(Name, SchemaModule:structs()) of
+    case lists:member(Name, SchemaModule:structs()) orelse
+        lists:keymember(Name, 2, SchemaModule:structs()) of
         true -> SchemaModule:fields(Name);
         false -> find_field(Name, Rest)
     end.
