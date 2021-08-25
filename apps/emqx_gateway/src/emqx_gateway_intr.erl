@@ -40,8 +40,14 @@ gateways(Status) ->
         case emqx_gateway:lookup(GwName) of
             undefined -> #{name => GwName, status => unloaded};
             GwInfo = #{rawconf := RawConf} ->
-                GwInfo1 = maps:with(
-                            [name, started_at, craeted_at, status], GwInfo),
+                GwInfo0 = unix_ts_to_rfc3339(
+                            [created_at, started_at, stopped_at],
+                            GwInfo),
+                GwInfo1 = maps:with([name,
+                                     status,
+                                     created_at,
+                                     started_at,
+                                     stopped_at], GwInfo0),
                 GwInfo1#{listeners => get_listeners_status(GwName, RawConf)}
 
         end
@@ -70,3 +76,14 @@ get_listeners_status(GwName, RawConf) ->
 %% @private
 listener_name(GwName, Type, LisName) ->
     list_to_atom(lists:concat([GwName, ":", Type, ":", LisName])).
+
+%% @private
+unix_ts_to_rfc3339(Keys, Map) when is_list(Keys) ->
+    lists:foldl(fun(K, Acc) -> unix_ts_to_rfc3339(K, Acc) end, Map, Keys);
+unix_ts_to_rfc3339(Key, Map) ->
+    case maps:get(Key, Map, undefined) of
+        undefined -> Map;
+        Ts ->
+          Map#{Key =>
+               emqx_rule_funcs:unix_ts_to_rfc3339(Ts, <<"millisecond">>)}
+    end.
