@@ -48,7 +48,7 @@ You can change the prefix by overriding "HOCON_ENV_OVERRIDE_PREFIX".
 Example:
 
 ```bash
-EMQX_ZONES__DEFAULT__LISTENERS__MQTT_SSL__ACCEPTORS <--> zones.default.listeners.mqtt_ssl.acceptors
+EMQX_LISTENERS__SSL__DEFAULT__ACCEPTORS <--> listeners.ssl.default.acceptors
 EMQX_ZONES__DEFAULT__MQTT__MAX_PACKET_SIZE <--> zones.default.mqtt.max_packet_size
 ```
 
@@ -87,7 +87,7 @@ If set ``EMQX_NAME`` and ``EMQX_HOST``, and unset ``EMQX_NODE_NAME``, ``EMQX_NOD
 
 For example, set mqtt tcp port to 1883
 
-``docker run -d --name emqx -e EMQX_ZONES__DEFAULT__LISTENERS__MQTT_TCP__BIND=1883 -p 18083:18083 -p 1883:1883 emqx/emqx:latest``
+``docker run -d --name emqx -e EMQX__LISTENERS__TCP__DEFAULT__BIND=1883 -p 18083:18083 -p 1883:1883 emqx/emqx:latest``
 
 #### EMQ Loaded Modules Configuration
 
@@ -169,7 +169,7 @@ Assume you are using redis auth plugin, for example:
 #EMQX_RETAINER.MAX_PAYLOAD_SIZE = 1MB
 
 docker run -d --name emqx -p 18083:18083 -p 1883:1883 -p 4369:4369 \
-    -e EMQX_LISTENER__TCP__EXTERNAL=1883 \
+    -e EMQX_LISTENERS__TCP__DEFAULT=1883 \
     -e EMQX_LOADED_PLUGINS="emqx_retainer" \
     -e EMQX_RETAINER__STORAGE_TYPE = "ram" \
     -e EMQX_RETAINER__MAX_PAYLOAD_SIZE = 1MB \

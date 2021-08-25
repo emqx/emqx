@@ -35,7 +35,7 @@ spec:
     {{- else if eq .Values.service.type "ClusterIP" }}
     nodePort: null
     {{- end }}
-    {{- if not (empty .Values.emqxConfig.EMQX_LISTENER__TCP__INTERNAL) }}
+    {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT) }}
   - name: internalmqtt
     port: {{ .Values.service.internalmqtt | default 11883 }}
     protocol: TCP
@@ -126,7 +126,7 @@ spec:
     port: {{ .Values.service.mqtt | default 1883 }}
     protocol: TCP
     targetPort: mqtt
-    {{- if not (empty .Values.emqxConfig.EMQX_LISTENER__TCP__INTERNAL) }}
+    {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT) }}
   - name: internalmqtt
     port: {{ .Values.service.internalmqtt | default 11883 }}
     protocol: TCP
