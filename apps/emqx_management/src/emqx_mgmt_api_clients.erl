@@ -505,7 +505,8 @@ list(Params) ->
             {200, Response};
         Node1 ->
             Node = binary_to_atom(Node1, utf8),
-            Response = emqx_mgmt_api:node_query(Node, Params, ?CLIENT_QS_SCHEMA, ?query_fun),
+            ParamsWithoutNode = maps:without([<<"node">>], Params),
+            Response = emqx_mgmt_api:node_query(Node, ParamsWithoutNode, ?CLIENT_QS_SCHEMA, ?query_fun),
             {200, Response}
     end.
 
