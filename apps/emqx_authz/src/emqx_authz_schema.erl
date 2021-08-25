@@ -23,7 +23,7 @@ fields("authorization") ->
     [ {rules, rules()}
     ];
 fields(file) ->
-    [ {type, #{type => http}}
+    [ {type, #{type => file}}
     , {enable, #{type => boolean(),
                  default => true}}
     , {path, #{type => string(),
