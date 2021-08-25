@@ -29,6 +29,6 @@ fields("auto_subscribe") ->
     [ {topics, hoconsc:array(hoconsc:ref(?MODULE, "topic"))}];
 
 fields("topic") ->
-    [ {topic, emqx_schema:t(binary(), undefined, <<"">>)}
+    [ {topic, emqx_schema:t(binary())}
     , {qos, emqx_schema:t(integer(), undefined, 0)}
     ].

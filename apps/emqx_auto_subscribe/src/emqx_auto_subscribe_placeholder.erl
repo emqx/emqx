@@ -61,7 +61,7 @@ to_topic([Binary | PTs], C, Co, Res) when is_binary(Binary) ->
 to_topic([clientid | PTs], C = #{clientid := ClientID}, Co, Res) ->
     to_topic(PTs, C, Co, [ClientID | Res]);
 to_topic([username | PTs], C = #{username := undefined}, Co, Res) ->
-    to_topic(PTs, C, Co, [<<"undefined">> | Res]);
+    to_topic(PTs, C, Co, [<<"${username}">> | Res]);
 to_topic([username | PTs], C = #{username := Username}, Co, Res) ->
     to_topic(PTs, C, Co, [Username | Res]);
 to_topic([host | PTs], C, Co = #{peername := {Host, _}}, Res) ->
