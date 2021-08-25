@@ -48,29 +48,29 @@ unreg() ->
 %%--------------------------------------------------------------------
 
 on_gateway_load(_Gateway = #{ name := GwName,
-                              rawconf := RawConf
+                              config := Config
                             }, Ctx) ->
 
     %% We Also need to start `emqx_sn_broadcast` &
     %% `emqx_sn_registry` process
-    case maps:get(broadcast, RawConf, false) of
+    case maps:get(broadcast, Config, false) of
         false ->
             ok;
         true ->
             %% FIXME:
             Port = 1884,
-            SnGwId = maps:get(gateway_id, RawConf, undefined),
+            SnGwId = maps:get(gateway_id, Config, undefined),
             _ = emqx_sn_broadcast:start_link(SnGwId, Port), ok
     end,
 
-    PredefTopics = maps:get(predefined, RawConf, []),
+    PredefTopics = maps:get(predefined, Config, []),
     {ok, RegistrySvr} = emqx_sn_registry:start_link(GwName, PredefTopics),
 
-    NRawConf = maps:without(
+    NConfig = maps:without(
                  [broadcast, predefined],
-                 RawConf#{registry => emqx_sn_registry:lookup_name(RegistrySvr)}
+                 Config#{registry => emqx_sn_registry:lookup_name(RegistrySvr)}
                 ),
-    Listeners = emqx_gateway_utils:normalize_rawconf(NRawConf),
+    Listeners = emqx_gateway_utils:normalize_config(NConfig),
 
     ListenerPids = lists:map(fun(Lis) ->
                      start_listener(GwName, Ctx, Lis)
@@ -93,9 +93,9 @@ on_gateway_update(NewGateway = #{name := GwName}, OldGateway,
     end.
 
 on_gateway_unload(_Insta = #{ name := GwName,
-                              rawconf := RawConf
+                              config := Config 
                             }, _GwState) ->
-    Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
+    Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:foreach(fun(Lis) ->
         stop_listener(GwName, Lis)
     end, Listeners).

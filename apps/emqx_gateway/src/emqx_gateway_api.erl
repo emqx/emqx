@@ -356,8 +356,9 @@ gateway_insta(delete, Request) ->
 gateway_insta(get, Request) ->
     Name = binary_to_existing_atom(cowboy_req:binding(name, Request)),
     case emqx_gateway:lookup(Name) of
-        #{rawconf := RawConf} ->
-            {200, RawConf};
+        #{config := Config} ->
+            %% TODO: ??? RawConf or Config ??
+            {200, Config};
         undefined ->
             {404, <<"Not Found">>}
     end;

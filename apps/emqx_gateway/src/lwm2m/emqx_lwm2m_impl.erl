@@ -48,7 +48,7 @@ unreg() ->
 %%--------------------------------------------------------------------
 
 on_gateway_load(_Gateway = #{ name := GwName,
-                              rawconf := RawConf
+                              config := Config
                             }, Ctx) ->
 
     %% Handler
@@ -58,13 +58,13 @@ on_gateway_load(_Gateway = #{ name := GwName,
       emqx_lwm2m_coap_resource, undefined
      ),
     %% Xml registry
-    {ok, _} = emqx_lwm2m_xml_object_db:start_link(maps:get(xml_dir, RawConf)),
+    {ok, _} = emqx_lwm2m_xml_object_db:start_link(maps:get(xml_dir, Config)),
 
     %% XXX: Self managed table?
     %% TODO: Improve it later
     {ok, _} = emqx_lwm2m_cm:start_link(),
 
-    Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
+    Listeners = emqx_gateway_utils:normalize_config(Config),
     ListenerPids = lists:map(fun(Lis) ->
                      start_listener(GwName, Ctx, Lis)
                    end, Listeners),
@@ -86,7 +86,7 @@ on_gateway_update(NewGateway, OldGateway, GwState = #{ctx := Ctx}) ->
     end.
 
 on_gateway_unload(_Gateway = #{ name := GwName,
-                                rawconf := RawConf
+                                config := Config
                               }, _GwState) ->
     %% XXX:
     lwm2m_coap_server_registry:remove_handler(
@@ -94,7 +94,7 @@ on_gateway_unload(_Gateway = #{ name := GwName,
       emqx_lwm2m_coap_resource, undefined
      ),
 
-    Listeners = emqx_gateway_utils:normalize_rawconf(RawConf),
+    Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:foreach(fun(Lis) ->
         stop_listener(GwName, Lis)
     end, Listeners).

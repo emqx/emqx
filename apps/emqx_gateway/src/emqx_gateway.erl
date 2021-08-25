@@ -29,6 +29,8 @@
         , list/0
         ]).
 
+-export([update_rawconf/2]).
+
 -spec registered_gateway() ->
     [{gateway_name(), emqx_gateway_registry:descriptor()}].
 registered_gateway() ->
@@ -41,13 +43,13 @@ registered_gateway() ->
 list() ->
     emqx_gateway_sup:list_gateway_insta().
 
--spec load(gateway_name(), rawconf())
+-spec load(gateway_name(), emqx_config:config())
     -> {ok, pid()}
      | {error, any()}.
-load(Name, RawConf) ->
+load(Name, Config) ->
     Gateway = #{ name => Name
                , descr => undefined
-               , rawconf => RawConf
+               , config => Config
                },
     emqx_gateway_sup:load_gateway(Gateway).
 
@@ -59,9 +61,9 @@ unload(Name) ->
 lookup(Name) ->
     emqx_gateway_sup:lookup_gateway(Name).
 
--spec update(gateway_name(), rawconf()) -> ok | {error, any()}.
-update(Name, RawConf) ->
-    NewGateway = #{name => Name, rawconf => RawConf},
+-spec update(gateway_name(), emqx_config:config()) -> ok | {error, any()}.
+update(Name, Config) ->
+    NewGateway = #{name => Name, config => Config},
     emqx_gateway_sup:update_gateway(NewGateway).
 
 -spec start(gateway_name()) -> ok | {error, any()}.
@@ -71,6 +73,13 @@ start(Name) ->
 -spec stop(gateway_name()) -> ok | {error, any()}.
 stop(Name) ->
     emqx_gateway_sup:stop_gateway_insta(Name).
+
+-spec update_rawconf(gateway_name(), emqx_config:raw_config())
+    -> ok
+     | {error, any()}.
+update_rawconf(_Name, _RawConf) ->
+    %% TODO:
+    ok.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
