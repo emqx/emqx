@@ -43,7 +43,7 @@
 %%--------------------------------------------------------------------
 
 enable() ->
-    Rules = emqx:get_config([rewrite, rules], []),
+    Rules = emqx:get_config([rewrite], []),
     register_hook(Rules).
 
 disable() ->
@@ -52,13 +52,10 @@ disable() ->
     emqx_hooks:del('message.publish',    {?MODULE, rewrite_publish}).
 
 list() ->
-    maps:get(<<"rules">>, emqx:get_raw_config([<<"rewrite">>], #{}), []).
+    maps:get(<<"rules">>, emqx:get_raw_config([<<"rewrite">>], []), []).
 
 update(Rules0) ->
-    Rewrite = emqx:get_raw_config([<<"rewrite">>], #{}),
-    {ok, #{config := Config}} = emqx:update_config([rewrite], maps:put(<<"rules">>,
-        Rules0, Rewrite)),
-    Rules = maps:get(rules, maps:get(rewrite, Config, #{}), []),
+    {ok, #{config := Rules}} = emqx:update_config([rewrite], Rules0),
     case Rules of
         [] ->
             disable();

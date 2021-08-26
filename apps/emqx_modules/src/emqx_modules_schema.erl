@@ -28,8 +28,8 @@ structs() ->
      "recon",
      "telemetry",
      "event_message",
-     "rewrite",
-     "topic_metrics"].
+     {array, "rewrite"},
+     {array, "topic_metrics"}].
 
 fields(Name) when Name =:= "recon";
                   Name =:= "telemetry" ->
@@ -42,9 +42,11 @@ fields("delayed") ->
     ];
 
 fields("rewrite") ->
-    [ {rules, hoconsc:array(hoconsc:ref(?MODULE, "rules"))}
+    [ {action, hoconsc:enum([publish, subscribe])}
+    , {source_topic, emqx_schema:t(binary())}
+    , {re, emqx_schema:t(binary())}
+    , {dest_topic, emqx_schema:t(binary())}
     ];
-
 
 fields("event_message") ->
     [ {"$event/client_connected", emqx_schema:t(boolean(), undefined, false)}
@@ -57,13 +59,5 @@ fields("event_message") ->
     ];
 
 fields("topic_metrics") ->
-    [ {topics, hoconsc:array(binary())}
-    ];
-
-fields("rules") ->
-    [ {action, hoconsc:enum([publish, subscribe])}
-    , {source_topic, emqx_schema:t(binary())}
-    , {re, emqx_schema:t(binary())}
-    , {dest_topic, emqx_schema:t(binary())}
-    ].
+    [{topic, emqx_schema:t(binary())}].
 
