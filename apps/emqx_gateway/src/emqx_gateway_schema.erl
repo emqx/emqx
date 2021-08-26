@@ -85,7 +85,7 @@ fields(mqttsn_predefined) ->
     ];
 
 fields(coap_structs) ->
-    [ {heartbeat, t(duration(), undefined, "30s")}
+    [ {heartbeat, t(duration(), undefined, <<"30s">>)}
     , {notify_type, t(union([non, con, qos]), undefined, qos)}
     , {subscribe_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
     , {publish_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
@@ -169,12 +169,12 @@ fields(listener_settings) ->
     , {proxy_protocol, t(boolean())}
     , {proxy_protocol_timeout, t(duration())}
     , {backlog, t(integer(), undefined, 1024)}
-    , {send_timeout, t(duration(), undefined, "15s")}       %% FIXME: mapping it
+    , {send_timeout, t(duration(), undefined, <<"15s">>)}
     , {send_timeout_close, t(boolean(), undefined, true)}
     , {recbuf, t(bytesize())}
     , {sndbuf, t(bytesize())}
     , {buffer, t(bytesize())}
-    , {high_watermark, t(bytesize(), undefined, "1MB")}
+    , {high_watermark, t(bytesize(), undefined, <<"1MB">>)}
     , {tune_buffer, t(boolean())}
     , {nodelay, t(boolean())}
     , {reuseaddr, t(boolean())}
@@ -189,7 +189,7 @@ fields(ssl_listener_settings) ->
     [
       %% some special confs for ssl listener
     ] ++
-    ssl(undefined, #{handshake_timeout => "15s"
+    ssl(undefined, #{handshake_timeout => <<"15s">>
                    , depth => 10
                    , reuse_sessions => true}) ++ fields(listener_settings);
 
@@ -202,7 +202,7 @@ fields(dtls_listener_settings) ->
     [
       %% some special confs for dtls listener
     ] ++
-    ssl(undefined, #{handshake_timeout => "15s"
+    ssl(undefined, #{handshake_timeout => <<"15s">>
                    , depth => 10
                    , reuse_sessions => true}) ++ fields(listener_settings);
 
@@ -241,7 +241,7 @@ authentication() ->
 gateway_common_options() ->
     [ {enable, t(boolean(), undefined, true)}
     , {enable_stats, t(boolean(), undefined, true)}
-    , {idle_timeout, t(duration(), undefined, "30s")}
+    , {idle_timeout, t(duration(), undefined, <<"30s">>)}
     , {mountpoint, t(binary())}
     , {clientinfo_override, t(ref(clientinfo_override))}
     , {authentication,  t(authentication(), undefined, undefined)}

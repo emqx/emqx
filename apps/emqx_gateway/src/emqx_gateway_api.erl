@@ -357,13 +357,23 @@ gateway_insta(get, Request) ->
     Name = binary_to_existing_atom(cowboy_req:binding(name, Request)),
     case emqx_gateway:lookup(Name) of
         #{config := Config} ->
-            %% TODO: ??? RawConf or Config ??
+            %% TODO: ??? RawConf or Config or RunningState ???
             {200, Config};
         undefined ->
             {404, <<"Not Found">>}
     end;
-gateway_insta(post, _Request) ->
-    {200, ok}.
+gateway_insta(post, Request) ->
+    Name = binary_to_existing_atom(cowboy_req:binding(name, Request)),
+    {ok, RawConf, _NRequest} = cowboy_req:read_body(Request),
+    %% XXX: Consistence ??
+    case emqx_gateway:update_rawconf(Name, RawConf) of
+        ok ->
+            {200, ok};
+        {error, not_found} ->
+            {404, <<"Not Found">>};
+        {error, Reason} ->
+            {500, Reason}
+    end.
 
 gateway_insta_stats(get, _Req) ->
     {401, <<"Implement it later (maybe 5.1)">>}.

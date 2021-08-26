@@ -74,13 +74,13 @@ start(Name) ->
 stop(Name) ->
     emqx_gateway_sup:stop_gateway_insta(Name).
 
--spec update_rawconf(gateway_name(), emqx_config:raw_config())
+-spec update_rawconf(binary(), emqx_config:raw_config())
     -> ok
      | {error, any()}.
-update_rawconf(_Name, _RawConf) ->
-    %% TODO:
-    ok.
+update_rawconf(RawName, RawConfDiff) ->
+    emqx:update_config([gateway], {RawName, RawConfDiff}).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
+
