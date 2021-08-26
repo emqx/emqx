@@ -20,8 +20,11 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
--export([ roots/0, fields/1 ]).
+-export([ roots/0
+        , fields/1
+        ]).
 
 -export([ create/1
         , update/2
@@ -82,12 +85,10 @@ mnesia(copy) ->
 roots() -> [config].
 
 fields(config) ->
-    [ {name,                    fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,               {enum, ['password-based']}}
-    , {server_type,             {enum, ['built-in-database']}}
+    [ {type,                    {enum, ['password-based:built-in-database']}}
     , {user_id_type,            fun user_id_type/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
-    ];
+    ] ++ emqx_authn_schema:common_fields();
 
 fields(bcrypt) ->
     [ {name, {enum, [bcrypt]}}

@@ -17,22 +17,23 @@
 -define(APP, emqx_authn).
 -define(CHAIN, <<"mqtt">>).
 
--define(VER_1, <<"1">>).
--define(VER_2, <<"2">>).
+% -define(VER_1, <<"1">>).
+% -define(VER_2, <<"2">>).
 
 -define(RE_PLACEHOLDER, "\\$\\{[a-z0-9\\-]+\\}").
 
--record(authenticator,
-        { id :: binary()
-        , name :: binary()
-        , provider :: module()
-        , state :: map()
-        }).
+% -record(authenticator,
+%         { id :: binary()
+%         , name :: binary()
+%         , listeners :: map()
+%         , provider :: module()
+%         , enable :: boolean()
+%         , state :: map()
+%         }).
 
--record(chain,
-        { id :: binary()
-        , authenticators :: [{binary(), binary(), #authenticator{}}]
-        , created_at :: integer()
-        }).
+% -record(chain,
+%         { name :: term()
+%         , authenticators :: [#authenticator{}]
+%         }).
 
 -define(AUTH_SHARD, emqx_authn_shard).

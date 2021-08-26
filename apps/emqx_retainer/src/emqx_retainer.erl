@@ -19,9 +19,7 @@
 -behaviour(gen_server).
 
 -include("emqx_retainer.hrl").
--include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
-
 
 -export([start_link/0]).
 

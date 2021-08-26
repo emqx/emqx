@@ -21,6 +21,7 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
 -export([ roots/0
         , fields/1
@@ -53,16 +54,14 @@ fields('sharded-cluster') ->
     common_fields() ++ emqx_connector_mongo:fields(sharded).
 
 common_fields() ->
-    [ {name,                    fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,               {enum, ['password-based']}}
-    , {server_type,             {enum, [mongodb]}}
+    [ {type,                    {enum, ['password-based:mongodb']}}
     , {collection,              fun collection/1}
     , {selector,                fun selector/1}
     , {password_hash_field,     fun password_hash_field/1}
     , {salt_field,              fun salt_field/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position,           fun salt_position/1}
-    ].
+    ] ++ emqx_authn_schema:common_fields().
 
 collection(type) -> binary();
 collection(nullable) -> false;
