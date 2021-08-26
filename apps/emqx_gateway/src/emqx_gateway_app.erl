@@ -17,22 +17,51 @@
 -module(emqx_gateway_app).
 
 -behaviour(application).
+-behaviour(emqx_config_handler).
 
 -include_lib("emqx/include/logger.hrl").
 
-
 -export([start/2, stop/1]).
+
+-export([ pre_config_update/2
+        , post_config_update/3
+        ]).
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_gateway_sup:start_link(),
     emqx_gateway_cli:load(),
     load_default_gateway_applications(),
     load_gateway_by_default(),
+    emqx_config_handler:add_handler([gateway], ?MODULE),
     {ok, Sup}.
 
 stop(_State) ->
     emqx_gateway_cli:unload(),
+    %% XXX: No api now
+    %emqx_config_handler:remove_handler([gateway], ?MODULE),
     ok.
+
+%%--------------------------------------------------------------------
+%% Config Handler
+
+%% All of update_request is created by emqx_gateway_xx_api.erl module
+
+-spec pre_config_update(emqx_config:update_request(), emqx_config:raw_config()) ->
+    {ok, emqx_config:update_request()} | {error, term()}.
+pre_config_update({RawName, RawConfDiff}, RawConf) ->
+    {ok, emqx_map_lib:deep_merge(RawConf, #{RawName => RawConfDiff})}.
+
+-spec post_config_update(emqx_config:update_request(), emqx_config:config(),
+    emqx_config:config()) -> ok | {ok, Result::any()} | {error, Reason::term()}.
+post_config_update({RawName, _}, NewConfig, OldConfig) ->
+    GwName = binary_to_existing_atom(RawName),
+    SubConf = maps:get(GwName, NewConfig),
+    case maps:get(GwName, OldConfig, undefined) of
+        undefined ->
+            emqx_gateway:load(GwName, SubConf);
+        _ ->
+            emqx_gateway:update(GwName, SubConf)
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
