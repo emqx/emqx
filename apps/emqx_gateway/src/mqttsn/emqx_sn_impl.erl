@@ -77,13 +77,13 @@ on_gateway_load(_Gateway = #{ name := GwName,
                    end, Listeners),
     {ok, ListenerPids, _InstaState = #{ctx => Ctx}}.
 
-on_gateway_update(NewGateway = #{name := GwName}, OldGateway,
-                  GwState = #{ctx := Ctx}) ->
+on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
+    GwName = maps:get(name, Gateway),
     try
         %% XXX: 1. How hot-upgrade the changes ???
         %% XXX: 2. Check the New confs first before destroy old instance ???
-        on_gateway_unload(OldGateway, GwState),
-        on_gateway_load(NewGateway, Ctx)
+        on_gateway_unload(Gateway, GwState),
+        on_gateway_load(Gateway#{config => Config}, Ctx)
     catch
         Class : Reason : Stk ->
             logger:error("Failed to update ~s; "
@@ -92,9 +92,9 @@ on_gateway_update(NewGateway = #{name := GwName}, OldGateway,
             {error, {Class, Reason}}
     end.
 
-on_gateway_unload(_Insta = #{ name := GwName,
-                              config := Config 
-                            }, _GwState) ->
+on_gateway_unload(_Gateway = #{ name := GwName,
+                                config := Config
+                              }, _GwState) ->
     Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:foreach(fun(Lis) ->
         stop_listener(GwName, Lis)

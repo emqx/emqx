@@ -69,15 +69,15 @@ info(Pid) ->
 disable(Pid) ->
     call(Pid, disable).
 
-%% @doc Start gateway 
+%% @doc Start gateway
 -spec enable(pid()) -> ok | {error, any()}.
 enable(Pid) ->
     call(Pid, enable).
 
 %% @doc Update the gateway configurations
--spec update(pid(), gateway()) -> ok | {error, any()}.
-update(Pid, NewGateway) ->
-    call(Pid, {update, NewGateway}).
+-spec update(pid(), emqx_config:config()) -> ok | {error, any()}.
+update(Pid, Config) ->
+    call(Pid, {update, Config}).
 
 call(Pid, Req) ->
     gen_server:call(Pid, Req, 5000).
@@ -125,12 +125,7 @@ do_deinit_context(Ctx) ->
     ok.
 
 handle_call(info, _From, State = #state{gw = Gateway}) ->
-    GwInfo = Gateway#{status => State#state.status,
-                      created_at => State#state.created_at,
-                      started_at => State#state.started_at,
-                      stopped_at => State#state.stopped_at
-                     },
-    {reply, GwInfo, State};
+    {reply, state2info(Gateway), State};
 
 handle_call(disable, _From, State = #state{status = Status}) ->
     case Status of
@@ -158,32 +153,12 @@ handle_call(enable, _From, State = #state{status = Status}) ->
             {reply, {error, already_started}, State}
     end;
 
-%% Stopped -> update
-handle_call({update, NewGateway}, _From, State = #state{
-                                                    gw = Gateway,
-                                                    status = stopped}) ->
-    case maps:get(name, NewGateway, undefined)
-         == maps:get(name, Gateway, undefined) of
-        true ->
-            {reply, ok, State#state{gw = NewGateway}};
-        false ->
-            {reply, {error, gateway_name_not_match}, State}
-    end;
-
-%% Running -> update
-handle_call({update, NewGateway}, _From, State = #state{gw = Gateway,
-                                                        status = running}) ->
-    case maps:get(name, NewGateway, undefined)
-         == maps:get(name, Gateway, undefined) of
-        true ->
-            case cb_gateway_update(NewGateway, State) of
-                {ok, NState} ->
-                    {reply, ok, NState};
-                {error, Reason} ->
-                    {reply, {error, Reason}, State}
-            end;
-        false ->
-            {reply, {error, gateway_name_not_match}, State}
+handle_call({update, Config}, _From, State) ->
+    case cb_gateway_update(Config, State) of
+        {ok, NState} ->
+            {reply, ok, NState};
+        {error, Reason} ->
+            {reply, {error, Reason}, State}
     end;
 
 handle_call(_Request, _From, State) ->
@@ -222,6 +197,14 @@ terminate(_Reason, State = #state{ctx = Ctx, child_pids = Pids}) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+state2info(State = #state{gw = Gateway}) ->
+    Gateway#{
+      status => State#state.status,
+      created_at => State#state.created_at,
+      started_at => State#state.started_at,
+      stopped_at => State#state.stopped_at
+     }.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
@@ -299,13 +282,12 @@ cb_gateway_load(State = #state{gw = Gateway = #{name := GwName},
             {error, {Class, Reason1, Stk}}
     end.
 
-cb_gateway_update(NewGateway,
-                State = #state{gw = Gateway = #{name := GwName},
-                               ctx = Ctx,
+cb_gateway_update(Config,
+                State = #state{gw = #{name := GwName},
                                gw_state = GwState}) ->
     try
         #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwName),
-        case CbMod:on_gateway_update(NewGateway, Gateway, GwState) of
+        case CbMod:on_gateway_update(Config, state2info(State), GwState) of
             {error, Reason} -> throw({callback_return_error, Reason});
             {ok, ChildPidOrSpecs, NGwState} ->
                 %% XXX: Hot-upgrade ???
@@ -317,9 +299,9 @@ cb_gateway_update(NewGateway,
         end
     catch
         Class : Reason1 : Stk ->
-            logger:error("Failed to update gateway (~0p, ~0p, ~0p) crashed: "
+            logger:error("Failed to update ~s gateway to config: ~0p crashed: "
                          "{~p, ~p}, stacktrace: ~0p",
-                         [NewGateway, Gateway, Ctx,
+                         [GwName, Config,
                           Class, Reason1, Stk]),
             {error, {Class, Reason1, Stk}}
     end.

@@ -26,7 +26,7 @@
 -export([ load_gateway/1
         , unload_gateway/1
         , lookup_gateway/1
-        , update_gateway/1
+        , update_gateway/2
         , start_gateway_insta/1
         , stop_gateway_insta/1
         , list_gateway_insta/0
@@ -74,13 +74,13 @@ lookup_gateway(GwName) ->
             undefined
     end.
 
--spec update_gateway(gateway())
+-spec update_gateway(gateway_name(), emqx_config:config())
     -> ok
      | {error, any()}.
-update_gateway(NewGateway = #{name := GwName}) ->
+update_gateway(GwName, Config) ->
     case emqx_gateway_utils:find_sup_child(?MODULE, GwName) of
         {ok, GwSup} ->
-            emqx_gateway_gw_sup:update_insta(GwSup, NewGateway);
+            emqx_gateway_gw_sup:update_insta(GwSup, GwName, Config);
         _ -> {error, not_found}
     end.
 

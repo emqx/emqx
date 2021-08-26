@@ -30,8 +30,8 @@
      | {ok, [Childspec :: supervisor:child_spec()], GwState :: state()}.
 
 %% @doc
--callback on_gateway_update(NewGateway :: gateway(),
-                            OldGateway :: gateway(),
+-callback on_gateway_update(Config :: emqx_config:config(),
+                            Gateway :: gateway(),
                             GwState :: state())
     -> ok
      | {ok, [ChildPid :: pid()], NGwState :: state()}
