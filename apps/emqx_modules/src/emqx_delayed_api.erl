@@ -92,7 +92,7 @@ status_api() ->
                 <<"200">> =>
                     schema(conf_schema(), <<"Enable or disable delayed successfully">>),
                 <<"400">> =>
-                    error_schema(<<"Already disabled or enabled">>, [?ALREADY_ENABLED, ?ALREADY_DISABLED])
+                    error_schema(<<"Max limit illegality">>, [?BAD_REQUEST])
             }
         }
     },
@@ -174,7 +174,7 @@ update_config(Config) ->
             {400, #{code => Code, message => Message}}
     end.
 generate_config(Config) ->
-    generate_config(Config, [fun generate_enable/1, fun generate_max_delayed_messages/1]).
+    generate_config(Config, [fun generate_max_delayed_messages/1]).
 
 generate_config(Config, []) ->
     {ok, Config};
@@ -185,18 +185,6 @@ generate_config(Config, [Fun | Tail]) ->
         {error, CodeMessage} ->
             {error, CodeMessage}
     end.
-
-generate_enable(Config = #{<<"enable">> := Enable}) ->
-    case {Enable =:= maps:get(enable, get_status()), Enable} of
-        {true, true} ->
-            {error, {?ALREADY_ENABLED, <<"Delayed message status is already enabled">>}};
-        {true, false} ->
-            {error, {?ALREADY_DISABLED, <<"Delayed message status is already disable">>}};
-        _ ->
-            {ok, Config}
-    end;
-generate_enable(Config) ->
-    {ok, Config}.
 
 generate_max_delayed_messages(Config = #{<<"max_delayed_messages">> := Max}) when Max >= 0 ->
     {ok, Config};
