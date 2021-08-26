@@ -49,7 +49,7 @@ rewrite_api() ->
                 <<"200">> => object_array_schema(properties(), <<"List all rewrite rules">>)
             }
         },
-        post => #{
+        put => #{
             description => <<"Update topic rewrite">>,
             'requestBody' => object_array_schema(properties()),
             responses => #{
@@ -63,7 +63,7 @@ rewrite_api() ->
 topic_rewrite(get, _Params) ->
     {200, emqx_rewrite:list()};
 
-topic_rewrite(post, #{body := Body}) ->
+topic_rewrite(put, #{body := Body}) ->
     case length(Body) < ?MAX_RULES_LIMIT of
         true ->
             ok = emqx_rewrite:update(Body),
