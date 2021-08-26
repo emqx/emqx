@@ -36,7 +36,7 @@
 
 -export([post_config_update/3, pre_config_update/2]).
 
--define(CONF_KEY_PATH, [authorization_rules, rules]).
+-define(CONF_KEY_PATH, [authorization, rules]).
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
@@ -185,9 +185,9 @@ post_config_update(_, NewRules, _OldConf) ->
 %%--------------------------------------------------------------------
 
 check_rules(RawRules) ->
-    {ok, Conf} = hocon:binary(jsx:encode(#{<<"authorization_rules">> => #{<<"rules">> => RawRules}}), #{format => richmap}),
+    {ok, Conf} = hocon:binary(jsx:encode(#{<<"authorization">> => #{<<"rules">> => RawRules}}), #{format => richmap}),
     CheckConf = hocon_schema:check(emqx_authz_schema, Conf, #{atom_key => true}),
-    #{authorization_rules := #{rules := Rules}} = hocon_schema:richmap_to_map(CheckConf),
+    #{authorization:= #{rules := Rules}} = hocon_schema:richmap_to_map(CheckConf),
     Rules.
 
 find_rule_by_id(Id) -> find_rule_by_id(Id, lookup()).
