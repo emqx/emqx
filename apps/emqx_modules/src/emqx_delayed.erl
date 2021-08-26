@@ -128,20 +128,22 @@ list(Params) ->
 format_delayed(Delayed) ->
     format_delayed(Delayed, false).
 
-format_delayed(#delayed_message{key = {TimeStamp, Id}, delayed = Delayed,
+format_delayed(#delayed_message{key = {ExpectTimeStamp, Id}, delayed = Delayed,
             msg = #message{topic = Topic,
                            from = From,
                            headers = #{username := Username},
                            qos = Qos,
-                           timestamp = StartTimestamp,
+                           timestamp = PublishTimeStamp,
                            payload = Payload}}, WithPayload) ->
-    StartTime = to_rfc3339(StartTimestamp div 1000),
-    PublishTime = to_rfc3339(TimeStamp),
+    PublishTime = to_rfc3339(PublishTimeStamp div 1000),
+    ExpectTime = to_rfc3339(ExpectTimeStamp),
+    RemainingTime = ExpectTimeStamp - erlang:system_time(second),
     Result = #{
         id => emqx_guid:to_hexstr(Id),
-        publish_time => PublishTime,
-        delayed => Delayed,
-        start_time => StartTime,
+        publish_at => PublishTime,
+        delayed_interval => Delayed,
+        delayed_remaining => RemainingTime,
+        expected_at => ExpectTime,
         topic => Topic,
         qos => Qos,
         from_clientid => From,

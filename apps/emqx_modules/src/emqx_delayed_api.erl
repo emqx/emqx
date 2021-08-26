@@ -59,9 +59,10 @@ properties() ->
             [?PAYLOAD_TOO_LARGE, ?MAX_PAYLOAD_LENGTH]),
     properties([
         {id, integer, <<"Message Id (MQTT message id hash)">>},
-        {start_time, string, <<"Client delivered message time, rfc 3339">>},
-        {delayed, integer, <<"Delayed interval, second">>},
-        {publish_time, string, <<"Broker publish time, rfc 3339">>},
+        {publish_at, string, <<"Client publish message time, rfc 3339">>},
+        {delayed_interval, integer, <<"Delayed interval, second">>},
+        {delayed_remaining, integer, <<"Delayed remaining, second">>},
+        {expected_at, string, <<"Expect publish time, rfc 3339">>},
         {topic, string, <<"Topic">>},
         {qos, string, <<"QoS">>},
         {payload, string, iolist_to_binary(PayloadDesc)},
