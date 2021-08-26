@@ -22,7 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"authorization_rules: {rules: []}">>).
+-define(CONF_DEFAULT, <<"authorization: {rules: []}">>).
 
 all() ->
     emqx_ct:all(?MODULE).
@@ -37,7 +37,7 @@ init_per_suite(Config) ->
     meck:expect(emqx_resource, remove, fun(_) -> ok end ),
 
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
-    ok = emqx_ct_helpers:start_apps([emqx_authz]),
+    ok = emqx_ct_helpers:start_apps([emqx_machine, emqx_authz]),
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
     Config.
@@ -111,7 +111,7 @@ t_update_rule(_) ->
     {ok, _} = emqx_authz:update(head, [?RULE1]),
     {ok, _} = emqx_authz:update(tail, [?RULE3]),
 
-    ?assertMatch([#{type := http}, #{type := mongo}, #{type := mysql}], emqx:get_config([authorization_rules, rules], [])),
+    ?assertMatch([#{type := http}, #{type := mongo}, #{type := mysql}], emqx:get_config([authorization, rules], [])),
 
     [#{annotations := #{id := Id1}, type := http},
      #{annotations := #{id := Id2}, type := mongo},
@@ -120,7 +120,7 @@ t_update_rule(_) ->
 
     {ok, _} = emqx_authz:update({replace_once, Id1}, ?RULE5),
     {ok, _} = emqx_authz:update({replace_once, Id3}, ?RULE4),
-    ?assertMatch([#{type := redis}, #{type := mongo}, #{type := pgsql}], emqx:get_config([authorization_rules, rules], [])),
+    ?assertMatch([#{type := redis}, #{type := mongo}, #{type := pgsql}], emqx:get_config([authorization, rules], [])),
 
     [#{annotations := #{id := Id1}, type := redis},
      #{annotations := #{id := Id2}, type := mongo},

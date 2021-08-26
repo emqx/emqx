@@ -22,7 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"authorization_rules: {rules: []}">>).
+-define(CONF_DEFAULT, <<"authorization: {rules: []}">>).
 
 -import(emqx_ct_http, [ request_api/3
                       , request_api/5
@@ -126,7 +126,7 @@ set_special_configs(emqx_dashboard) ->
     emqx_config:put([emqx_dashboard], Config),
     ok;
 set_special_configs(emqx_authz) ->
-    emqx_config:put([authorization_rules], #{rules => []}),
+    emqx_config:put([authorization], #{rules => []}),
     ok;
 set_special_configs(_App) ->
     ok.
