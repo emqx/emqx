@@ -21,7 +21,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--record(delayed_message, {key, msg}).
+-record(delayed_message, {key, delayed, msg}).
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
