@@ -21,8 +21,7 @@
 
 
 -define(TOPIC, <<"""
-topic_metrics: {
-  topics : []}""">>).
+topic_metrics: []""">>).
 
 -include_lib("eunit/include/eunit.hrl").
 
