@@ -221,7 +221,7 @@ remove_rules(Rules) ->
 
 %% @private
 insert_rule(Rule) ->
-    _ = ?CLUSTER_CALL(load_hooks_for_rule, [Rule]),
+    _ =  emqx_rule_utils:cluster_call(?MODULE, load_hooks_for_rule, [Rule]),
     mnesia:write(?RULE_TAB, Rule, write).
 
 %% @private
@@ -231,7 +231,7 @@ delete_rule(RuleId) when is_binary(RuleId) ->
         not_found -> ok
     end;
 delete_rule(Rule) ->
-    _ = ?CLUSTER_CALL(unload_hooks_for_rule, [Rule]),
+    _ =  emqx_rule_utils:cluster_call(?MODULE, unload_hooks_for_rule, [Rule]),
     mnesia:delete_object(?RULE_TAB, Rule, write).
 
 load_hooks_for_rule(#rule{for = Topics}) ->
@@ -476,10 +476,11 @@ code_change(_OldVsn, State, _Extra) ->
 
 get_all_records(Tab) ->
     %mnesia:dirty_match_object(Tab, mnesia:table_info(Tab, wild_pattern)).
-    %% Wrapping ets to a r/o transaction to avoid reading inconsistent
+    %% Wrapping ets to a transaction to avoid reading inconsistent
+    %% ( nest cluster_call transaction, no a r/o transaction)
     %% data during shard bootstrap
     {atomic, Ret} =
-        ekka_mnesia:ro_transaction(?RULE_ENGINE_SHARD,
+        ekka_mnesia:transaction(?RULE_ENGINE_SHARD,
                                    fun() ->
                                            ets:tab2list(Tab)
                                    end),

@@ -216,7 +216,7 @@ delete_rule(RuleId) ->
     case emqx_rule_registry:get_rule(RuleId) of
         {ok, Rule = #rule{actions = Actions}} ->
             try
-                _ = ?CLUSTER_CALL(clear_rule, [Rule]),
+                _ = emqx_rule_utils:cluster_call(?MODULE, clear_rule, [Rule]),
                 ok = emqx_rule_registry:remove_rule(Rule)
             catch
                 Error:Reason:ST ->
@@ -242,7 +242,7 @@ create_resource(#{type := Type, config := Config0} = Params) ->
             ok = emqx_rule_registry:add_resource(Resource),
             %% Note that we will return OK in case of resource creation failure,
             %% A timer is started to re-start the resource later.
-            catch _ = ?CLUSTER_CALL(init_resource, [M, F, ResId, Config]),
+            catch _ = emqx_rule_utils:cluster_call(?MODULE, init_resource, [M, F, ResId, Config]),
             {ok, Resource};
         not_found ->
             {error, {resource_type_not_found, Type}}
@@ -280,7 +280,7 @@ do_check_and_update_resource(#{id := Id, type := Type, description := NewDescrip
             Config = emqx_rule_validator:validate_params(NewConfig, ParamSpec),
             case test_resource(#{type => Type, config => NewConfig}) of
                 ok ->
-                    _ = ?CLUSTER_CALL(init_resource, [Module, Create, Id, Config]),
+                    _ =  emqx_rule_utils:cluster_call(?MODULE, init_resource, [Module, Create, Id, Config]),
                     emqx_rule_registry:add_resource(#resource{
                         id = Id,
                         type = Type,
@@ -319,8 +319,8 @@ test_resource(#{type := Type, config := Config0}) ->
             Config = emqx_rule_validator:validate_params(Config0, ParamSpec),
             ResId = resource_id(),
             try
-                _ = ?CLUSTER_CALL(init_resource, [ModC, Create, ResId, Config]),
-                _ = ?CLUSTER_CALL(clear_resource, [ModD, Destroy, ResId]),
+                _ =  emqx_rule_utils:cluster_call(?MODULE, init_resource, [ModC, Create, ResId, Config]),
+                _ =  emqx_rule_utils:cluster_call(?MODULE, clear_resource, [ModD, Destroy, ResId]),
                 ok
             catch
                 throw:Reason -> {error, Reason}
@@ -359,7 +359,7 @@ delete_resource(ResId) ->
             try
                 case emqx_rule_registry:remove_resource(ResId) of
                     ok ->
-                        _ = ?CLUSTER_CALL(clear_resource, [ModD, Destroy, ResId]),
+                        _ =  emqx_rule_utils:cluster_call(?MODULE, clear_resource, [ModD, Destroy, ResId]),
                         ok;
                     {error, _} = R -> R
                 end
@@ -426,7 +426,7 @@ prepare_action(#{name := Name, args := Args0} = Action, NeedInit) ->
             ActionInstId = maps:get(id, Action, action_instance_id(Name)),
             case NeedInit of
                 true ->
-                    _ = ?CLUSTER_CALL(init_action, [Mod, Create, ActionInstId,
+                    _ =  emqx_rule_utils:cluster_call(?MODULE, init_action, [Mod, Create, ActionInstId,
                             with_resource_params(Args)]),
                     ok;
                 false -> ok
@@ -485,7 +485,7 @@ may_update_rule_params(Rule, Params = #{on_action_failed := OnFailed}) ->
 may_update_rule_params(Rule = #rule{actions = OldActions}, Params = #{actions := Actions}) ->
     %% prepare new actions before removing old ones
     NewActions = prepare_actions(Actions, maps:get(enabled, Params, true)),
-    _ = ?CLUSTER_CALL(clear_actions, [OldActions]),
+    _ =  emqx_rule_utils:cluster_call(?MODULE, clear_actions, [OldActions]),
     may_update_rule_params(Rule#rule{actions = NewActions}, maps:remove(actions, Params));
 may_update_rule_params(Rule, _Params) -> %% ignore all the unsupported params
     Rule.
@@ -631,7 +631,7 @@ refresh_actions(Actions, Pred) ->
                 true ->
                     {ok, #action{module = Mod, on_create = Create}}
                         = emqx_rule_registry:find_action(ActName),
-                    _ = ?CLUSTER_CALL(init_action, [Mod, Create, Id, with_resource_params(Args)]),
+                    _ =  emqx_rule_utils:cluster_call(?MODULE, init_action, [Mod, Create, Id, with_resource_params(Args)]),
                     refresh_actions(Fallbacks, Pred);
                 false -> ok
             end

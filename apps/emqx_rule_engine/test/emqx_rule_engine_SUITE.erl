@@ -148,6 +148,7 @@ groups() ->
 %%------------------------------------------------------------------------------
 
 init_per_suite(Config) ->
+    application:load(emqx_machine),
     ok = ekka_mnesia:start(),
     ok = emqx_rule_registry:mnesia(boot),
     ok = emqx_ct_helpers:start_apps([emqx_rule_engine], fun set_special_configs/1),
@@ -181,6 +182,7 @@ end_per_group(_Groupname, _Config) ->
 %%------------------------------------------------------------------------------
 
 init_per_testcase(t_events, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     ok = emqx_rule_engine:load_providers(),
     init_events_counters(),
     ok = emqx_rule_registry:register_resource_types([make_simple_resource_type(simple_resource_type)]),
@@ -214,6 +216,7 @@ init_per_testcase(Test, Config)
             ;Test =:= t_sqlselect_multi_actoins_3_1
             ;Test =:= t_sqlselect_multi_actoins_4
         ->
+    emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     ok = emqx_rule_engine:load_providers(),
     ok = emqx_rule_registry:add_action(
             #action{name = 'crash_action', app = ?APP,
@@ -252,6 +255,7 @@ init_per_testcase(Test, Config)
      {connsql, SQL}
     | Config];
 init_per_testcase(_TestCase, Config) ->
+    emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     ok = emqx_rule_registry:register_resource_types(
             [#resource_type{
                 name = built_in,

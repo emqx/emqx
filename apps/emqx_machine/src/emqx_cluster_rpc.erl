@@ -130,8 +130,8 @@ handle_call(reset, _From, State) ->
 
 handle_call({initiate, MFA}, _From, State = #{node := Node}) ->
     case transaction(fun init_mfa/2, [Node, MFA]) of
-        {atomic, {ok, TnxId}} ->
-            {reply, {ok, TnxId}, State, {continue, ?CATCH_UP}};
+        {atomic, {ok, TnxId, Result}} ->
+            {reply, {ok, TnxId, Result}, State, {continue, ?CATCH_UP}};
         {aborted, Reason} ->
             {reply, {error, Reason}, State, {continue, ?CATCH_UP}}
     end;
@@ -159,8 +159,9 @@ catch_up(#{node := Node, retry_interval := RetryMs} = State) ->
     case transaction(fun get_next_mfa/1, [Node]) of
         {atomic, caught_up} -> ?TIMEOUT;
         {atomic, {still_lagging, NextId, MFA}} ->
-            case apply_mfa(NextId, MFA) of
-                ok ->
+            {Succeed, _} = apply_mfa(NextId, MFA),
+            case Succeed of
+                true ->
                     case transaction(fun commit/2, [Node, NextId]) of
                         {atomic, ok} -> catch_up(State);
                         Error ->
@@ -171,7 +172,7 @@ catch_up(#{node := Node, retry_interval := RetryMs} = State) ->
                                 error => Error}),
                             RetryMs
                     end;
-                _Error -> RetryMs
+                false -> RetryMs
             end;
         {aborted, Reason} ->
             ?SLOG(error, #{
@@ -209,9 +210,8 @@ do_catch_up(ToTnxId, Node) ->
             CurTnxId = LastAppliedId + 1,
             [#cluster_rpc_mfa{mfa = MFA}] = mnesia:read(?CLUSTER_MFA, CurTnxId),
             case apply_mfa(CurTnxId, MFA) of
-                ok -> ok = commit(Node, CurTnxId);
-                {error, Reason} -> mnesia:abort(Reason);
-                Other -> mnesia:abort(Other)
+                {true, _Result} -> ok = commit(Node, CurTnxId);
+                {false, Error} -> mnesia:abort(Error)
             end;
         [#cluster_rpc_commit{tnx_id = LastAppliedId}] ->
             Reason = lists:flatten(io_lib:format("~p catch up failed by LastAppliedId(~p) > ToTnxId(~p)",
@@ -243,9 +243,8 @@ init_mfa(Node, MFA) ->
     ok = mnesia:write(?CLUSTER_MFA, MFARec, write),
     ok = commit(Node, TnxId),
     case apply_mfa(TnxId, MFA) of
-        ok -> {ok, TnxId};
-        {error, Reason} -> mnesia:abort(Reason);
-        Other -> mnesia:abort(Other)
+        {true, Result} -> {ok, TnxId, Result};
+        {false, Error} -> mnesia:abort(Error)
     end.
 
 do_catch_up_in_one_trans(LatestId, Node) ->
@@ -284,15 +283,21 @@ trans_query(TnxId) ->
 apply_mfa(TnxId, {M, F, A} = MFA) ->
     try
         Res = erlang:apply(M, F, A),
-        case Res =:= ok of
-            true ->
-                ?SLOG(notice, #{msg => "succeeded to apply MFA", tnx_id => TnxId, mfa => MFA, result => ok});
-            false ->
-                ?SLOG(error, #{msg => "failed to apply MFA", tnx_id => TnxId, mfa => MFA, result => Res})
+        Succeed =
+        case Res of
+             ok ->
+                 ?SLOG(notice, #{msg => "succeeded to apply MFA", tnx_id => TnxId, mfa => MFA, result => Res}),
+                 true;
+            {ok, _} ->
+                ?SLOG(notice, #{msg => "succeeded to apply MFA", tnx_id => TnxId, mfa => MFA, result => Res}),
+                true;
+            _ ->
+                ?SLOG(error, #{msg => "failed to apply MFA", tnx_id => TnxId, mfa => MFA, result => Res}),
+                false
         end,
-        Res
+        {Succeed, Res}
     catch
         C : E ->
             ?SLOG(critical, #{msg => "crash to apply MFA", tnx_id => TnxId, mfa => MFA, exception => C, reason => E}),
-            {error, lists:flatten(io_lib:format("TnxId(~p) apply MFA(~p) crash", [TnxId, MFA]))}
+            {false, lists:flatten(io_lib:format("TnxId(~p) apply MFA(~p) crash", [TnxId, MFA]))}
     end.

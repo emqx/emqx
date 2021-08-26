@@ -162,7 +162,7 @@ do_update(InstId, ResourceType, NewConfig, Params) ->
 
 do_create(InstId, ResourceType, Config) ->
     case lookup(InstId) of
-        {ok, _} -> {error, already_created};
+        {ok, _} -> {ok, already_created};
         _ ->
             case emqx_resource:call_start(InstId, ResourceType, Config) of
                 {ok, ResourceState} ->

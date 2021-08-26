@@ -89,9 +89,9 @@ create(#{ query := Query
                           , '_unique'], Config),
         NState = State#{query => NQuery},
         case emqx_resource:create_local(Unique, emqx_connector_redis, Config) of
-            {ok, _} ->
+            {ok, already_created} ->
                 {ok, NState};
-            {error, already_created} ->
+            {ok, _} ->
                 {ok, NState};
             {error, Reason} ->
                 {error, Reason}
@@ -176,7 +176,7 @@ check_fields(["superuser" | More], HasPassHash) ->
     check_fields(More, HasPassHash);
 check_fields([Field | _], _) ->
     error({unsupported_field, Field}).
-    
+
 parse_key(Key) ->
     Tokens = re:split(Key, "(" ++ ?RE_PLACEHOLDER ++ ")", [{return, binary}, group, trim]),
     parse_key(Tokens, []).

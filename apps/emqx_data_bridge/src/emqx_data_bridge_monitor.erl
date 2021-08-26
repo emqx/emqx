@@ -73,8 +73,8 @@ load_bridge(#{name := Name, type := Type, config := Config}) ->
     case emqx_resource:create_local(
             emqx_data_bridge:name_to_resource_id(Name),
             emqx_data_bridge:resource_type(Type), Config) of
+        {ok, already_created} -> ok;
         {ok, _} -> ok;
-        {error, already_created} -> ok;
         {error, Reason} ->
             error({load_bridge, Reason})
     end.

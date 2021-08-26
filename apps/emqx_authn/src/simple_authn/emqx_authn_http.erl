@@ -89,7 +89,7 @@ headers(_) -> undefined.
 headers_no_content_type(type) -> map();
 headers_no_content_type(converter) ->
     fun(Headers) ->
-       maps:merge(default_headers_no_content_type(), transform_header_name(Headers)) 
+       maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
     end;
 headers_no_content_type(default) -> default_headers_no_content_type();
 headers_no_content_type(_) -> undefined.
@@ -129,9 +129,9 @@ create(#{ method := Method
                                     emqx_connector_http,
                                     Config#{base_url => maps:remove(query, URIMap),
                                             pool_type => random}) of
-        {ok, _} ->
+        {ok, already_created} ->
             {ok, State};
-        {error, already_created} ->
+        {ok, _} ->
             {ok, State};
         {error, Reason} ->
             {error, Reason}

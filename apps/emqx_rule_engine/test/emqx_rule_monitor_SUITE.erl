@@ -39,6 +39,7 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    application:load(emqx_machine),
     ok = ekka_mnesia:start(),
     ok = emqx_rule_registry:mnesia(boot),
     Config.
@@ -65,6 +66,7 @@ end_per_testcase(_, Config) ->
 
 t_restart_resource(_) ->
     {ok, _} = emqx_rule_monitor:start_link(),
+    emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc,1000),
     ok = emqx_rule_registry:register_resource_types(
             [#resource_type{
                 name = test_res_1,
