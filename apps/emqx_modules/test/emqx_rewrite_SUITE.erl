@@ -23,8 +23,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(REWRITE, <<"""
-rewrite: {
-  rules : [
+rewrite: [
     {
       action : publish
       source_topic : \"x/#\"
@@ -37,7 +36,7 @@ rewrite: {
       re : \"^y/(.+)/z/(.+)$\"
       dest_topic : \"y/z/$2\"
     }
-  ]}""">>).
+]""">>).
 
 all() -> emqx_ct:all(?MODULE).
 
@@ -87,12 +86,7 @@ t_mod_rewrite(_Config) ->
     ok = emqx_rewrite:disable().
 
 t_rewrite_rule(_Config) ->
-    {ok, Rewite} = hocon:binary(?REWRITE),
-    #{rewrite := #{rules := Rules}} =
-        hocon_schema:check_plain(emqx_modules_schema, Rewite,
-                                 #{atom_key => true},
-                                 ["rewrite"]),
-    {PubRules, SubRules} = emqx_rewrite:compile(Rules),
+    {PubRules, SubRules} = emqx_rewrite:compile(emqx:get_config([rewrite])),
     ?assertEqual(<<"z/y/2">>, emqx_rewrite:match_and_rewrite(<<"x/y/2">>, PubRules)),
     ?assertEqual(<<"x/1/2">>, emqx_rewrite:match_and_rewrite(<<"x/1/2">>, PubRules)),
     ?assertEqual(<<"y/z/b">>, emqx_rewrite:match_and_rewrite(<<"y/a/z/b">>, SubRules)),
