@@ -21,6 +21,7 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
 -export([ roots/0
         , fields/1
@@ -53,13 +54,11 @@ fields(sentinel) ->
     common_fields() ++ emqx_connector_redis:fields(sentinel).
 
 common_fields() ->
-    [ {name,                    fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,               {enum, ['password-based']}}
-    , {server_type,             {enum, [redis]}}
+    [ {type,                    {enum, ['password-based:redis']}}
     , {query,                   fun query/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position,           fun salt_position/1}
-    ].
+    ] ++ emqx_authn_schema:common_fields().
 
 query(type) -> string();
 query(nullable) -> false;

@@ -25,27 +25,18 @@
         , fields/1
         ]).
 
--export([ authenticator_name/1
-        ]).
-
 %% Export it for emqx_gateway_schema module
 -export([ authenticators/1
+        ]).
+
+-export([ common_fields/0
         ]).
 
 roots() -> [ "authentication" ].
 
 fields("authentication") ->
-    [ {enable, fun enable/1}
-    , {authenticators, fun authenticators/1}
+    [ {authenticators, fun authenticators/1}
     ].
-
-authenticator_name(type) -> binary();
-authenticator_name(nullable) -> false;
-authenticator_name(_) -> undefined.
-
-enable(type) -> boolean();
-enable(default) -> false;
-enable(_) -> undefined.
 
 authenticators(type) ->
     hoconsc:array({union, [ hoconsc:ref(emqx_authn_mnesia, config)
@@ -66,3 +57,16 @@ authenticators(type) ->
                           ]});
 authenticators(default) -> [];
 authenticators(_) -> undefined.
+
+common_fields() ->
+    [ {name,      fun name/1}
+    , {enable,    fun enable/1}
+    ].
+
+name(type) -> binary();
+name(nullable) -> false;
+name(_) -> undefined.
+
+enable(type) -> boolean();
+enable(default) -> true;
+enable(_) -> undefined.

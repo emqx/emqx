@@ -31,16 +31,14 @@
         ]).
 
 -define(EXAMPLE_1, #{name => <<"example 1">>,
-                     mechanism => <<"password-based">>,
-                     server_type => <<"built-in-database">>,
+                     type => <<"password-based:built-in-database">>,
                      user_id_type => <<"username">>,
                      password_hash_algorithm => #{
                          name => <<"sha256">>
                      }}).
 
 -define(EXAMPLE_2, #{name => <<"example 2">>,
-                     mechanism => <<"password-based">>,
-                     server_type => <<"http-server">>,
+                     type => <<"password-based:http-server">>,
                      method => <<"post">>,
                      url => <<"http://localhost:80/login">>,
                      headers => #{
@@ -52,7 +50,7 @@
                      }}).
 
 -define(EXAMPLE_3, #{name => <<"example 3">>,
-                     mechanism => <<"jwt">>,
+                     type => <<"jwt">>,
                      use_jwks => false,
                      algorithm => <<"hmac-based">>,
                      secret => <<"mysecret">>,
@@ -62,8 +60,7 @@
                      }}).
 
 -define(EXAMPLE_4, #{name => <<"example 4">>,
-                     mechanism => <<"password-based">>,
-                     server_type => <<"mongodb">>,
+                     type => <<"password-based:mongodb">>,
                      server => <<"127.0.0.1:27017">>,
                      database => example,
                      collection => users,
@@ -77,8 +74,7 @@
                     }).
 
 -define(EXAMPLE_5, #{name => <<"example 5">>,
-                     mechanism => <<"password-based">>,
-                     server_type => <<"redis">>,
+                     type => <<"password-based:redis">>,
                      server => <<"127.0.0.1:6379">>,
                      database => 0,
                      query => <<"HMGET ${mqtt-username} password_hash salt">>,
@@ -959,8 +955,8 @@ definitions() ->
         properties => #{
             server_type => #{
                 type => string,
-                enum => [<<"pgsql">>],
-                example => <<"pgsql">>
+                enum => [<<"postgresql">>],
+                example => <<"postgresql">>
             },
             server => #{
                 type => string,
@@ -1330,6 +1326,16 @@ authenticators2(get, #{bindings := #{id := AuthenticatorID}}) ->
 authenticators2(put, #{bindings := #{id := AuthenticatorID}, body := Config}) ->
     case emqx_authn:update_config([authentication, authenticators],
                                   {update_or_create_authenticator, AuthenticatorID, Config}) of
+        {ok, #{post_config_update := #{emqx_authn := #{id := ID, name := Name}},
+               raw_config := RawConfig}} ->
+            [RawConfig0] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],
+            {200, RawConfig0#{id => ID}};
+        {error, {_, _, Reason}} ->
+            serialize_error(Reason)
+    end;
+authenticators2(patch, #{bindings := #{id := AuthenticatorID}, body := Config}) ->
+    case emqx_authn:update_config([authentication, authenticators],
+                                  {update_authenticator, AuthenticatorID, Config}) of
         {ok, #{post_config_update := #{emqx_authn := #{id := ID, name := Name}},
                raw_config := RawConfig}} ->
             [RawConfig0] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],

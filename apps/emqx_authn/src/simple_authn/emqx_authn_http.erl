@@ -21,6 +21,7 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
 -export([ roots/0
         , fields/1
@@ -56,15 +57,14 @@ fields(post) ->
     ] ++ common_fields().
 
 common_fields() ->
-    [ {name,            fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,       {enum, ['password-based']}}
-    , {server_type,     {enum, ['http-server']}}
+    [ {type,            {enum, ['password-based:http-server']}}
     , {url,             fun url/1}
     , {form_data,       fun form_data/1}
     , {request_timeout, fun request_timeout/1}
-    ] ++ maps:to_list(maps:without([ base_url
-                                   , pool_type],
-                      maps:from_list(emqx_connector_http:fields(config)))).
+    ] ++ emqx_authn_schema:common_fields()
+    ++ maps:to_list(maps:without([ base_url
+                                 , pool_type],
+                    maps:from_list(emqx_connector_http:fields(config)))).
 
 validations() ->
     [ {check_ssl_opts, fun check_ssl_opts/1}

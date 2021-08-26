@@ -19,6 +19,7 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
 -export([ roots/0
         , fields/1
@@ -78,10 +79,9 @@ fields(ssl_disable) ->
     [ {enable, #{type => false}} ].
 
 common_fields() ->
-    [ {name,            fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,       {enum, [jwt]}}
+    [ {type,            {enum, [jwt]}}
     , {verify_claims,   fun verify_claims/1}
-    ].
+    ] ++ emqx_authn_schema:common_fields().
 
 secret(type) -> string();
 secret(_) -> undefined.

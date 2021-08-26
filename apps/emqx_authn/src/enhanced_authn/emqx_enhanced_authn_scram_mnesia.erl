@@ -20,6 +20,7 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
 -export([ roots/0
         , fields/1
@@ -77,16 +78,10 @@ mnesia(copy) ->
 roots() -> [config].
 
 fields(config) ->
-    [ {name,            fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,       {enum, [scram]}}
-    , {server_type,     fun server_type/1}
+    [ {type,            {enum, ['scram:built-in-database']}}
     , {algorithm,       fun algorithm/1}
     , {iteration_count, fun iteration_count/1}
-    ].
-
-server_type(type) -> hoconsc:enum(['built-in-database']);
-server_type(default) -> 'built-in-database';
-server_type(_) -> undefined.
+    ] ++ emqx_authn_schema:common_fields().
 
 algorithm(type) -> hoconsc:enum([sha256, sha512]);
 algorithm(default) -> sha256;

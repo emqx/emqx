@@ -22,8 +22,6 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
--include("emqx.hrl").
-
 
 -export([ start_link/0
         , stop/0

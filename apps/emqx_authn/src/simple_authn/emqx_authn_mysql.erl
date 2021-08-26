@@ -21,6 +21,7 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
 -export([ roots/0
         , fields/1
@@ -39,14 +40,13 @@
 roots() -> [config].
 
 fields(config) ->
-    [ {name,                    fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,               {enum, ['password-based']}}
-    , {server_type,             {enum, [mysql]}}
+    [ {type,                    {enum, ['password-based:mysql']}}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position,           fun salt_position/1}
     , {query,                   fun query/1}
     , {query_timeout,           fun query_timeout/1}
-    ] ++ emqx_connector_schema_lib:relational_db_fields()
+    ] ++ emqx_authn_schema:common_fields()
+    ++ emqx_connector_schema_lib:relational_db_fields()
     ++ emqx_connector_schema_lib:ssl_fields().
 
 password_hash_algorithm(type) -> {enum, [plain, md5, sha, sha256, sha512, bcrypt]};
