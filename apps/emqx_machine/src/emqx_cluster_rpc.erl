@@ -69,7 +69,7 @@ start_link() ->
 start_link(Node, Name, RetryMs) ->
     gen_server:start_link({local, Name}, ?MODULE, [Node, RetryMs], []).
 
--spec multicall(Module, Function, Args) -> {ok, TnxId} | {error, Reason} when
+-spec multicall(Module, Function, Args) -> {ok, TnxId, term()} | {error, Reason} when
     Module :: module(),
     Function :: atom(),
     Args :: [term()],
@@ -78,7 +78,7 @@ start_link(Node, Name, RetryMs) ->
 multicall(M, F, A) ->
     multicall(M, F, A, timer:minutes(2)).
 
--spec multicall(Module, Function, Args, Timeout) -> {ok, TnxId} |{error, Reason} when
+-spec multicall(Module, Function, Args, Timeout) -> {ok, TnxId, term()} |{error, Reason} when
     Module :: module(),
     Function :: atom(),
     Args :: [term()],

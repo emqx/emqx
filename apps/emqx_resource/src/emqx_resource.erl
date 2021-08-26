@@ -155,12 +155,12 @@ query_failed({_, {OnFailed, Args}}) ->
 %% APIs for resource instances
 %% =================================================================================
 -spec create(instance_id(), resource_type(), resource_config()) ->
-    {ok, resource_data()} | {error, Reason :: term()}.
+    {ok, resource_data() |'already_created'} | {error, Reason :: term()}.
 create(InstId, ResourceType, Config) ->
     cluster_call(create_local, [InstId, ResourceType, Config]).
 
 -spec create_local(instance_id(), resource_type(), resource_config()) ->
-    {ok, resource_data()} | {error, Reason :: term()}.
+    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
 create_local(InstId, ResourceType, Config) ->
     call_instance(InstId, {create, InstId, ResourceType, Config}).
 
@@ -285,7 +285,7 @@ check_config(ResourceType, RawConfigTerm) ->
     end.
 
 -spec check_and_create(instance_id(), resource_type(), raw_resource_config()) ->
-    {ok, resource_data()} | {error, term()}.
+    {ok, resource_data() |'already_created'} | {error, term()}.
 check_and_create(InstId, ResourceType, RawConfig) ->
     check_and_do(ResourceType, RawConfig,
         fun(InstConf) -> create(InstId, ResourceType, InstConf) end).

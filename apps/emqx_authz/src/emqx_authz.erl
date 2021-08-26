@@ -216,7 +216,6 @@ create_resource(#{type := DB,
             Config,
             [])
     of
-        {ok, already_created} -> ResourceID;
         {ok, _} -> ResourceID;
         {error, Reason} -> {error, Reason}
     end;
