@@ -94,6 +94,13 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
+    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_schema, fields, fun("authorization") ->
+                                             meck:passthrough(["authorization"]) ++
+                                             emqx_authz_schema:fields("authorization");
+                                        (F) -> meck:passthrough([F])
+                                     end),
+
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, update, fun(_, _, _, _) -> {ok, meck_data} end),
@@ -112,6 +119,7 @@ end_per_suite(_Config) ->
     {ok, _} = emqx_authz:update(replace, []),
     emqx_ct_helpers:stop_apps([emqx_resource, emqx_authz, emqx_dashboard]),
     meck:unload(emqx_resource),
+    meck:unload(emqx_schema),
     ok.
 
 set_special_configs(emqx_dashboard) ->
