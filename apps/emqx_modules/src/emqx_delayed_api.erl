@@ -59,12 +59,15 @@ properties() ->
             [?PAYLOAD_TOO_LARGE, ?MAX_PAYLOAD_LENGTH]),
     properties([
         {id, integer, <<"Message Id (MQTT message id hash)">>},
-        {publish_time, string, <<"publish time, rfc 3339">>},
+        {publish_at, string, <<"Client publish message time, rfc 3339">>},
+        {delayed_interval, integer, <<"Delayed interval, second">>},
+        {delayed_remaining, integer, <<"Delayed remaining, second">>},
+        {expected_at, string, <<"Expect publish time, rfc 3339">>},
         {topic, string, <<"Topic">>},
         {qos, string, <<"QoS">>},
         {payload, string, iolist_to_binary(PayloadDesc)},
-        {form_clientid, string, <<"Form ClientId">>},
-        {form_username, string, <<"Form Username">>}
+        {from_clientid, string, <<"From ClientId">>},
+        {from_username, string, <<"From Username">>}
     ]).
 
 parameters() ->
