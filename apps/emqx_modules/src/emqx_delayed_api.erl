@@ -63,8 +63,8 @@ properties() ->
         {topic, string, <<"Topic">>},
         {qos, string, <<"QoS">>},
         {payload, string, iolist_to_binary(PayloadDesc)},
-        {form_clientid, string, <<"Form ClientId">>},
-        {form_username, string, <<"Form Username">>}
+        {from_clientid, string, <<"From ClientId">>},
+        {from_username, string, <<"From Username">>}
     ]).
 
 parameters() ->
