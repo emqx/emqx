@@ -34,7 +34,7 @@
         , authorize/5
         ]).
 
--export([post_config_update/3, pre_config_update/2]).
+-export([post_config_update/4, pre_config_update/2]).
 
 -define(CONF_KEY_PATH, [authorization_rules, rules]).
 
@@ -107,23 +107,23 @@ pre_config_update({_, Rules}, _Conf) when is_list(Rules)->
     %% overwrite the entire config!
     {ok, Rules}.
 
-post_config_update(_, undefined, _Conf) ->
+post_config_update(_, undefined, _Conf, _AppEnvs) ->
     ok;
-post_config_update({move, Id, <<"top">>}, _NewRules, _OldRules) ->
+post_config_update({move, Id, <<"top">>}, _NewRules, _OldRules, _AppEnvs) ->
     InitedRules = lookup(),
     {Index, Rule} = find_rule_by_id(Id, InitedRules),
     {Rules1, Rules2 } = lists:split(Index, InitedRules),
     Rules3 = [Rule] ++ lists:droplast(Rules1) ++ Rules2,
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Rules3]}, -1),
     ok = emqx_authz_cache:drain_cache();
-post_config_update({move, Id, <<"bottom">>}, _NewRules, _OldRules) ->
+post_config_update({move, Id, <<"bottom">>}, _NewRules, _OldRules, _AppEnvs) ->
     InitedRules = lookup(),
     {Index, Rule} = find_rule_by_id(Id, InitedRules),
     {Rules1, Rules2 } = lists:split(Index, InitedRules),
     Rules3 = lists:droplast(Rules1) ++ Rules2 ++ [Rule],
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Rules3]}, -1),
     ok = emqx_authz_cache:drain_cache();
-post_config_update({move, Id, #{<<"before">> := BeforeId}}, _NewRules, _OldRules) ->
+post_config_update({move, Id, #{<<"before">> := BeforeId}}, _NewRules, _OldRules, _AppEnvs) ->
     InitedRules = lookup(),
     {_, Rule0} = find_rule_by_id(Id, InitedRules),
     {Index, Rule1} = find_rule_by_id(BeforeId, InitedRules),
@@ -134,7 +134,7 @@ post_config_update({move, Id, #{<<"before">> := BeforeId}}, _NewRules, _OldRules
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Rules3]}, -1),
     ok = emqx_authz_cache:drain_cache();
 
-post_config_update({move, Id, #{<<"after">> := AfterId}}, _NewRules, _OldRules) ->
+post_config_update({move, Id, #{<<"after">> := AfterId}}, _NewRules, _OldRules, _AppEnvs) ->
     InitedRules = lookup(),
     {_, Rule} = find_rule_by_id(Id, InitedRules),
     {Index, _} = find_rule_by_id(AfterId, InitedRules),
@@ -145,17 +145,17 @@ post_config_update({move, Id, #{<<"after">> := AfterId}}, _NewRules, _OldRules) 
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Rules3]}, -1),
     ok = emqx_authz_cache:drain_cache();
 
-post_config_update({head, Rules}, _NewRules, _OldConf) ->
+post_config_update({head, Rules}, _NewRules, _OldConf, _AppEnvs) ->
     InitedRules = [init_provider(R) || R <- check_rules(Rules)],
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [InitedRules ++ lookup()]}, -1),
     ok = emqx_authz_cache:drain_cache();
 
-post_config_update({tail, Rules}, _NewRules, _OldConf) ->
+post_config_update({tail, Rules}, _NewRules, _OldConf, _AppEnvs) ->
     InitedRules = [init_provider(R) || R <- check_rules(Rules)],
     emqx_hooks:put('client.authorize', {?MODULE, authorize, [lookup() ++ InitedRules]}, -1),
     ok = emqx_authz_cache:drain_cache();
 
-post_config_update({{replace_once, Id}, Rule}, _NewRules, _OldConf) when is_map(Rule) ->
+post_config_update({{replace_once, Id}, Rule}, _NewRules, _OldConf, _AppEnvs) when is_map(Rule) ->
     OldInitedRules = lookup(),
     {Index, OldRule} = find_rule_by_id(Id, OldInitedRules),
     case maps:get(type, OldRule, undefined) of
@@ -169,7 +169,7 @@ post_config_update({{replace_once, Id}, Rule}, _NewRules, _OldConf) when is_map(
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [lists:droplast(OldRules1) ++ InitedRules ++ OldRules2]}, -1),
     ok = emqx_authz_cache:drain_cache();
 
-post_config_update(_, NewRules, _OldConf) ->
+post_config_update(_, NewRules, _OldConf, _AppEnvs) ->
     %% overwrite the entire config!
     OldInitedRules = lookup(),
     InitedRules = [init_provider(Rule) || Rule <- NewRules],

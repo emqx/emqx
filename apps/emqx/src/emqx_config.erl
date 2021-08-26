@@ -80,7 +80,7 @@
         error:badarg -> EXP_ON_FAIL
     end).
 
--export_type([update_request/0, raw_config/0, config/0,
+-export_type([update_request/0, raw_config/0, config/0, app_envs/0,
               update_opts/0, update_cmd/0, update_args/0,
               update_error/0, update_result/0]).
 

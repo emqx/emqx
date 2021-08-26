@@ -24,7 +24,7 @@
 -include_lib("emqx/include/logger.hrl").
 
 -export([ pre_config_update/2
-        , post_config_update/3
+        , post_config_update/4
         , update_config/2
         ]).
 
@@ -137,11 +137,11 @@ pre_config_update({move_authenticator, ID, Position}, OldConfig) ->
             end
     end.
 
-post_config_update({enable, true}, _NewConfig, _OldConfig) ->
+post_config_update({enable, true}, _NewConfig, _OldConfig, _AppEnvs) ->
     emqx_authn:enable();
-post_config_update({enable, false}, _NewConfig, _OldConfig) ->
+post_config_update({enable, false}, _NewConfig, _OldConfig, _AppEnvs) ->
     emqx_authn:disable();
-post_config_update({create_authenticator, #{<<"name">> := Name}}, NewConfig, _OldConfig) ->
+post_config_update({create_authenticator, #{<<"name">> := Name}}, NewConfig, _OldConfig, _AppEnvs) ->
     case lists:filter(
              fun(#{name := N}) ->
                  N =:= Name
@@ -151,12 +151,12 @@ post_config_update({create_authenticator, #{<<"name">> := Name}}, NewConfig, _Ol
         [_Config | _] ->
             {error, name_has_be_used}
     end;
-post_config_update({delete_authenticator, ID}, _NewConfig, _OldConfig) ->
+post_config_update({delete_authenticator, ID}, _NewConfig, _OldConfig, _AppEnvs) ->
     case delete_authenticator(?CHAIN, ID) of
         ok -> ok;
         {error, Reason} -> throw(Reason)
     end;
-post_config_update({update_authenticator, ID, #{<<"name">> := Name}}, NewConfig, _OldConfig) ->
+post_config_update({update_authenticator, ID, #{<<"name">> := Name}}, NewConfig, _OldConfig, _AppEnvs) ->
     case lists:filter(
              fun(#{name := N}) ->
                  N =:= Name
@@ -166,7 +166,7 @@ post_config_update({update_authenticator, ID, #{<<"name">> := Name}}, NewConfig,
         [_Config | _] ->
             {error, name_has_be_used}
     end;
-post_config_update({update_or_create_authenticator, ID, #{<<"name">> := Name}}, NewConfig, _OldConfig) ->
+post_config_update({update_or_create_authenticator, ID, #{<<"name">> := Name}}, NewConfig, _OldConfig, _AppEnvs) ->
     case lists:filter(
              fun(#{name := N}) ->
                  N =:= Name
@@ -176,7 +176,7 @@ post_config_update({update_or_create_authenticator, ID, #{<<"name">> := Name}}, 
         [_Config | _] ->
             {error, name_has_be_used}
     end;
-post_config_update({move_authenticator, ID, Position}, _NewConfig, _OldConfig) ->
+post_config_update({move_authenticator, ID, Position}, _NewConfig, _OldConfig, _AppEnvs) ->
     NPosition = case Position of
                     <<"top">> -> top;
                     <<"bottom">> -> bottom;

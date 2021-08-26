@@ -46,7 +46,13 @@
 
 -define(ERR_MSG(MSG), list_to_binary(io_lib:format("~p", [MSG]))).
 
--define(CORE_CONFS, [node, log, alarm, zones, cluster, rpc, broker, sysmon,
+-define(CORE_CONFS, [
+    %% from emqx_machine_schema
+    log, rpc,
+    %% from emqx_schema
+    zones, mqtt, flapping_detect, force_shutdown, force_gc, conn_congestion, rate_limit, quota,
+    broker, alarm, sysmon,
+    %% from other apps
     emqx_dashboard, emqx_management]).
 
 api_spec() ->
@@ -109,9 +115,9 @@ config(get, _Params, Req) ->
             {404, #{code => 'NOT_FOUND', message => <<"Config cannot found">>}}
     end;
 
-config(put, _Params, Req) ->
+config(put, #{body := Body}, Req) ->
     Path = conf_path(Req),
-    {ok, #{raw_config := RawConf}} = emqx:update_config(Path, http_body(Req),
+    {ok, #{raw_config := RawConf}} = emqx:update_config(Path, Body,
         #{rawconf_with_defaults => true}),
     {200, emqx_map_lib:jsonable_map(RawConf)}.
 
@@ -141,12 +147,6 @@ conf_path(Req) ->
 conf_path_reset(Req) ->
     <<"/api/v5", ?PREFIX_RESET, Path/binary>> = cowboy_req:path(Req),
     string:lexemes(Path, "/ ").
-
-http_body(Req) ->
-    {ok, Body, _} = cowboy_req:read_body(Req),
-    try jsx:decode(Body, [{return_maps, true}])
-    catch error:badarg -> Body
-    end.
 
 get_conf_schema(Conf, MaxDepth) ->
     get_conf_schema([], maps:to_list(Conf), [], MaxDepth).

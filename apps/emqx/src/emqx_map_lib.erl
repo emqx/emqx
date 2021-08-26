@@ -62,12 +62,12 @@ deep_find(_KeyPath, Data) ->
     {not_found, _KeyPath, Data}.
 
 -spec deep_put(config_key_path(), map(), term()) -> map().
-deep_put([], Map, Config) when is_map(Map) ->
-    Config;
-deep_put([], _Map, Config) -> %% not map, replace it
-    Config;
-deep_put([Key | KeyPath], Map, Config) ->
-    SubMap = deep_put(KeyPath, maps:get(Key, Map, #{}), Config),
+deep_put([], Map, Data) when is_map(Map) ->
+    Data;
+deep_put([], _Map, Data) -> %% not map, replace it
+    Data;
+deep_put([Key | KeyPath], Map, Data) ->
+    SubMap = deep_put(KeyPath, maps:get(Key, Map, #{}), Data),
     Map#{Key => SubMap}.
 
 -spec deep_remove(config_key_path(), map()) -> map().

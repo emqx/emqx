@@ -28,7 +28,7 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
--export([post_config_update/3]).
+-export([post_config_update/4]).
 
 -export([ start_link/0
         , stop/0
@@ -148,7 +148,7 @@ get_alarms(activated) ->
 get_alarms(deactivated) ->
     gen_server:call(?MODULE, {get_alarms, deactivated}).
 
-post_config_update(_, #{validity_period := Period0}, _OldConf) ->
+post_config_update(_, #{validity_period := Period0}, _OldConf, _AppEnv) ->
     ?MODULE ! {update_timer, Period0},
     ok.
 
@@ -179,7 +179,7 @@ format(_) ->
 
 init([]) ->
     deactivate_all_alarms(),
-    emqx_config_handler:add_handler([alarm], ?MODULE),
+    ok = emqx_config_handler:add_handler([alarm], ?MODULE),
     {ok, #state{timer = ensure_timer(undefined, get_validity_period())}}.
 
 %% suppress dialyzer warning due to dirty read/write race condition.
@@ -255,6 +255,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    ok = emqx_config_handler:remove_handler([alarm]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
