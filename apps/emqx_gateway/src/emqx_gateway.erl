@@ -63,8 +63,7 @@ lookup(Name) ->
 
 -spec update(gateway_name(), emqx_config:config()) -> ok | {error, any()}.
 update(Name, Config) ->
-    NewGateway = #{name => Name, config => Config},
-    emqx_gateway_sup:update_gateway(NewGateway).
+    emqx_gateway_sup:update_gateway(Name, Config).
 
 -spec start(gateway_name()) -> ok | {error, any()}.
 start(Name) ->

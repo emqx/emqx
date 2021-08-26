@@ -29,7 +29,7 @@
 
 -export([ create_insta/3
         , remove_insta/2
-        , update_insta/2
+        , update_insta/3
         , start_insta/2
         , stop_insta/2
         , list_insta/1
@@ -72,12 +72,13 @@ remove_insta(Sup, Name) ->
             ok = supervisor:delete_child(Sup, Name)
     end.
 
--spec update_insta(pid(), NewGateway :: gateway()) -> ok | {error, any()}.
-update_insta(Sup, NewGateway = #{name := Name}) ->
+-spec update_insta(pid(), gateway_name(), emqx_config:config())
+    -> ok | {error, any()}.
+update_insta(Sup, Name, Config) ->
     case emqx_gateway_utils:find_sup_child(Sup, Name) of
         false -> {error, not_found};
         {ok, GwInstaPid} ->
-            emqx_gateway_insta_sup:update(GwInstaPid, NewGateway)
+            emqx_gateway_insta_sup:update(GwInstaPid, Config)
     end.
 
 -spec start_insta(pid(), gateway_name()) -> ok | {error, any()}.

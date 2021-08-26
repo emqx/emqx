@@ -234,10 +234,6 @@ authentication() ->
       , hoconsc:ref(emqx_enhanced_authn_scram_mnesia, config)
       ]).
 
-%translations() -> [].
-%
-%translations(_) -> [].
-
 gateway_common_options() ->
     [ {enable, t(boolean(), undefined, true)}
     , {enable_stats, t(boolean(), undefined, true)}
