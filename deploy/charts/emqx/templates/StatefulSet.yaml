@@ -94,8 +94,6 @@ spec:
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT | default 1883 }}
           - name: mqttssl
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__SSL__DEFAULT | default 8883 }}
-          - name: mgmt
-            containerPort: {{ .Values.emqxConfig.EMQX_MANAGEMENT__LISTENER__HTTP | default 8081 }}
           - name: ws
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__WS__DEFAULT | default 8083 }}
           - name: wss
@@ -140,7 +138,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /api/v5/status
-              port: {{ .Values.emqxConfig.EMQX_MANAGEMENT__LISTENER__HTTP | default 8081 }}
+              port: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP | default 18083 }}
             initialDelaySeconds: 5
             periodSeconds: 5
     {{- with .Values.nodeSelector }}

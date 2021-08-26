@@ -33,7 +33,7 @@
                       , auth_header/2
                       ]).
 
--define(HOST, "http://127.0.0.1:8081/").
+-define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
 
@@ -100,11 +100,10 @@ init_per_suite(Config) ->
     meck:expect(emqx_resource, health_check, fun(_) -> ok end),
     meck:expect(emqx_resource, remove, fun(_) -> ok end ),
 
-    ekka_mnesia:start(),
-    emqx_mgmt_auth:mnesia(boot),
-
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
-    ok = emqx_ct_helpers:start_apps([emqx_management, emqx_authz], fun set_special_configs/1),
+
+    application:load(emqx_management),
+    ok = emqx_ct_helpers:start_apps([emqx_authz, emqx_dashboard], fun set_special_configs/1),
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
 
@@ -112,13 +111,21 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     {ok, _} = emqx_authz:update(replace, []),
-    emqx_ct_helpers:stop_apps([emqx_resource, emqx_authz, emqx_management]),
+    application:unload(emqx_management),
+    emqx_ct_helpers:stop_apps([emqx_resource, emqx_authz, emqx_dashboard]),
     meck:unload(emqx_resource),
     ok.
 
-set_special_configs(emqx_management) ->
-    emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
-        applications =>[#{id => "admin", secret => "public"}]}),
+set_special_configs(emqx_dashboard) ->
+    Config = #{
+        default_username => <<"admin">>,
+        default_password => <<"public">>,
+        listeners => [#{
+            protocol => http,
+            port => 18083
+        }]
+    },
+    emqx_config:put([emqx_dashboard], Config),
     ok;
 set_special_configs(emqx_authz) ->
     emqx_config:put([authorization_rules], #{rules => []}),
