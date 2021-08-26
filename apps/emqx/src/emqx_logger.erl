@@ -95,16 +95,11 @@ init([]) ->
     {ok, #{}}.
 
 handle_call({update_config, AppEnvs}, _From, State) ->
-    io:format("----new appenvs: ~p~n", [AppEnvs]),
     OldEnvs = application:get_env(kernel, logger, []),
     NewEnvs = proplists:get_value(logger, proplists:get_value(kernel, AppEnvs, []), []),
-    io:format("----new logger configs: ~p~n", [NewEnvs]),
     ok = application:set_env(kernel, logger, NewEnvs),
-    io:format("----1~n", []),
     _ = [logger:remove_handler(HandlerId) || {handler, HandlerId, _Mod, _Conf} <- OldEnvs],
-    io:format("----2~n", []),
     _ = [logger:add_handler(HandlerId, Mod, Conf) || {handler, HandlerId, Mod, Conf} <- NewEnvs],
-    io:format("----3~n", []),
     ok = tune_primary_log_level(),
     {reply, ok, State};
 
