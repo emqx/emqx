@@ -50,7 +50,7 @@
         , delete_delayed_message/1
         ]).
 
--record(delayed_message, {key, msg}).
+-record(delayed_message, {key, delayed, msg}).
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
@@ -78,19 +78,19 @@ on_message_publish(Msg = #message{
                             timestamp = Ts
                            }) ->
     [Delay, Topic1] = binary:split(Topic, <<"/">>),
-    PubAt = case binary_to_integer(Delay) of
+    {PubAt, Delayed} = case binary_to_integer(Delay) of
                 Interval when Interval < ?MAX_INTERVAL ->
-                    Interval + erlang:round(Ts / 1000);
+                    {Interval + erlang:round(Ts / 1000), Interval};
                 Timestamp ->
                     %% Check malicious timestamp?
                     case (Timestamp - erlang:round(Ts / 1000)) > ?MAX_INTERVAL of
                         true  -> error(invalid_delayed_timestamp);
-                        false -> Timestamp
+                        false -> {Timestamp, Timestamp - erlang:round(Ts / 1000)}
                     end
             end,
     PubMsg = Msg#message{topic = Topic1},
     Headers = PubMsg#message.headers,
-    case store(#delayed_message{key = {PubAt, Id}, msg = PubMsg}) of
+    case store(#delayed_message{key = {PubAt, Id}, delayed = Delayed, msg = PubMsg}) of
         ok -> ok;
         {error, Error} ->
             ?LOG(error, "Store delayed message fail: ~p", [Error])
@@ -128,15 +128,20 @@ list(Params) ->
 format_delayed(Delayed) ->
     format_delayed(Delayed, false).
 
-format_delayed(#delayed_message{key = {TimeStamp, Id},
+format_delayed(#delayed_message{key = {TimeStamp, Id}, delayed = Delayed,
             msg = #message{topic = Topic,
                            from = From,
                            headers = #{username := Username},
                            qos = Qos,
+                           timestamp = StartTimestamp,
                            payload = Payload}}, WithPayload) ->
+    StartTime = to_rfc3339(StartTimestamp div 1000),
+    PublishTime = to_rfc3339(TimeStamp),
     Result = #{
         id => emqx_guid:to_hexstr(Id),
-        publish_time => list_to_binary(calendar:system_time_to_rfc3339(TimeStamp, [{unit, second}])),
+        publish_time => PublishTime,
+        delayed => Delayed,
+        start_time => StartTime,
         topic => Topic,
         qos => Qos,
         from_clientid => From,
@@ -148,6 +153,9 @@ format_delayed(#delayed_message{key = {TimeStamp, Id},
         _ ->
             Result
     end.
+
+to_rfc3339(Timestamp) ->
+    list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
 
 get_delayed_message(Id0) ->
     Id = emqx_guid:from_hexstr(Id0),
