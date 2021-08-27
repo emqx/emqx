@@ -382,7 +382,7 @@ emqx_etc_overlay_common() ->
     ].
 
 get_vsn() ->
-    PkgVsn = os:cmd("./pkg-vsn.sh"),
+    PkgVsn = os:cmd("sh pkg-vsn.sh"),
     re:replace(PkgVsn, "\n", "", [{return ,list}]).
 
 maybe_dump(Config) ->
