@@ -31,6 +31,9 @@
         , unix_ts_to_rfc3339/2
         ]).
 
+-export([ stringfy/1
+        ]).
+
 -export([ normalize_config/1
         ]).
 
@@ -117,6 +120,10 @@ unix_ts_to_rfc3339(Key, Map) ->
           Map#{Key =>
                emqx_rule_funcs:unix_ts_to_rfc3339(Ts, <<"millisecond">>)}
     end.
+
+-spec stringfy(term()) -> binary().
+stringfy(T) ->
+    iolist_to_binary(io_lib:format("~0p", [T])).
 
 -spec normalize_config(emqx_config:config())
     -> list({ Type :: udp | tcp | ssl | dtls

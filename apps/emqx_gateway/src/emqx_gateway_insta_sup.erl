@@ -183,13 +183,15 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 detailed_gateway_info(State) ->
-    #{name => State#state.name,
-      config => State#state.config,
-      status => State#state.status,
-      created_at => State#state.created_at,
-      started_at => State#state.started_at,
-      stopped_at => State#state.stopped_at
-     }.
+    maps:filter(
+      fun(_, V) -> V =/= undefined end,
+      #{name => State#state.name,
+        config => State#state.config,
+        status => State#state.status,
+        created_at => State#state.created_at,
+        started_at => State#state.started_at,
+        stopped_at => State#state.stopped_at
+      }).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
@@ -226,7 +228,7 @@ do_deinit_authn(undefined) ->
     ok;
 do_deinit_authn(AuthnRef) ->
     %% TODO:
-    ?LOG(error, "Failed to clean authn ~p, not suppported now", [AuthnRef]).
+    ?LOG(warning, "Failed to clean authn ~p, not suppported now", [AuthnRef]).
     %case emqx_authn:delete_chain(AuthnRef) of
     %    ok -> ok;
     %    {error, {not_found, _}} ->
@@ -307,33 +309,40 @@ cb_gateway_unload(State = #state{name = GwName,
 cb_gateway_load(State = #state{name = GwName,
                                config = Config,
                                ctx = Ctx}) ->
+
     Gateway = detailed_gateway_info(State),
-    try
-        AuthnRef = do_init_authn(GwName, Config),
-        NCtx = Ctx#{auth => AuthnRef},
-        #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwName),
-        case CbMod:on_gateway_load(Gateway, NCtx) of
-            {error, Reason} ->
-                do_deinit_authn(AuthnRef),
-                throw({callback_return_error, Reason});
-            {ok, ChildPidOrSpecs, GwState} ->
-                ChildPids = start_child_process(ChildPidOrSpecs),
-                {ok, State#state{
-                       ctx = NCtx,
-                       status = running,
-                       child_pids = ChildPids,
-                       gw_state = GwState,
-                       stopped_at = undefined,
-                       started_at = erlang:system_time(millisecond)
-                      }}
-        end
-    catch
-        Class : Reason1 : Stk ->
-            ?LOG(error, "Failed to load ~s gateway (~0p, ~0p) crashed: "
-                        "{~p, ~p}, stacktrace: ~0p",
-                         [GwName, Gateway, Ctx,
-                          Class, Reason1, Stk]),
-            {error, {Class, Reason1, Stk}}
+
+    case maps:get(enable, Config, true) of
+        false ->
+            ?LOG(info, "Skipp to start ~s gateway due to disabled", [GwName]);
+        true ->
+            try
+                AuthnRef = do_init_authn(GwName, Config),
+                NCtx = Ctx#{auth => AuthnRef},
+                #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwName),
+                case CbMod:on_gateway_load(Gateway, NCtx) of
+                    {error, Reason} ->
+                        do_deinit_authn(AuthnRef),
+                        throw({callback_return_error, Reason});
+                    {ok, ChildPidOrSpecs, GwState} ->
+                        ChildPids = start_child_process(ChildPidOrSpecs),
+                        {ok, State#state{
+                               ctx = NCtx,
+                               status = running,
+                               child_pids = ChildPids,
+                               gw_state = GwState,
+                               stopped_at = undefined,
+                               started_at = erlang:system_time(millisecond)
+                              }}
+                end
+            catch
+                Class : Reason1 : Stk ->
+                    ?LOG(error, "Failed to load ~s gateway (~0p, ~0p) "
+                                "crashed: {~p, ~p}, stacktrace: ~0p",
+                                 [GwName, Gateway, Ctx,
+                                  Class, Reason1, Stk]),
+                    {error, {Class, Reason1, Stk}}
+            end
     end.
 
 cb_gateway_update(Config,
