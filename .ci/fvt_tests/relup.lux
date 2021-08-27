@@ -67,7 +67,7 @@
     !./bin/emqx_ctl rules create 'SELECT * FROM "t/#"' '[{"name":"data_to_webserver", "params": {"$$resource":  "resource:691c29ba"}}]'
     ?created
     ?SH-PROMPT
-    ?sleep 5
+    !sleep 5
     ?SH-PROMPT
 
 [shell emqx]
@@ -77,6 +77,8 @@
     !./bin/emqx_ctl rules list
     ?691c29ba
     ?SH-PROMPT
+    !./bin/emqx_ctl broker metrics | grep "messages.publish"
+    ???SH-PROMPT
 
 [shell bench]
     !cd $BENCH_PATH
@@ -140,6 +142,11 @@
     !sleep 30
     ?SH-PROMPT
 
+[shell emqx]
+    !./bin/emqx_ctl broker metrics | grep "messages.publish"
+    ???SH-PROMPT
+
+[shell bench]
     !curl --user admin:public --silent --show-error http://localhost:8081/api/v4/rules | jq --raw-output ".data[0].metrics[] | select(.node==\"emqx@127.0.0.1\").matched"
     ?300
     ?SH-PROMPT
