@@ -114,7 +114,7 @@ maybe_format_host({As, Who}) ->
     {As, Who}.
 
 to_rfc3339(Timestamp) ->
-    emqx_rule_funcs:unix_ts_to_rfc3339(Timestamp).
+    list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
 
 -spec(create(emqx_types:banned()) -> ok).
 create(#{who    := Who,
