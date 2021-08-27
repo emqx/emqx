@@ -77,10 +77,10 @@ create_bridge(#{name := Name}, Params) ->
     case emqx_resource:check_and_create(
             emqx_data_bridge:name_to_resource_id(Name),
             emqx_data_bridge:resource_type(atom(BridgeType)), maps:from_list(Config)) of
+        {ok, already_created} ->
+            {400, #{code => 102, message => <<"bridge already created: ", Name/binary>>}};
         {ok, Data} ->
             update_config_and_reply(Name, BridgeType, Config, Data);
-        {error, already_created} ->
-            {400, #{code => 102, message => <<"bridge already created: ", Name/binary>>}};
         {error, Reason0} ->
             Reason = emqx_resource_api:stringnify(Reason0),
             {500, #{code => 102, message => <<"create bridge ", Name/binary,

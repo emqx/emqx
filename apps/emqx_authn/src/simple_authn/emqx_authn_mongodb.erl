@@ -106,9 +106,9 @@ create(#{ selector := Selector
                       , '_unique'], Config),
     NState = State#{selector => NSelector},
     case emqx_resource:create_local(Unique, emqx_connector_mongo, Config) of
-        {ok, _} ->
+        {ok, already_created} ->
             {ok, NState};
-        {error, already_created} ->
+        {ok, _} ->
             {ok, NState};
         {error, Reason} ->
             {error, Reason}

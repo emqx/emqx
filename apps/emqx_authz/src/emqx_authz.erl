@@ -217,7 +217,6 @@ create_resource(#{type := DB,
             [])
     of
         {ok, _} -> ResourceID;
-        {error, already_created} -> ResourceID;
         {error, Reason} -> {error, Reason}
     end;
 create_resource(#{type := DB,
@@ -228,8 +227,8 @@ create_resource(#{type := DB,
             list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
             Config)
     of
+        {ok, already_created} -> ResourceID;
         {ok, _} -> ResourceID;
-        {error, already_created} -> ResourceID;
         {error, Reason} -> {error, Reason}
     end.
 

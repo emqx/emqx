@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,14 +14,22 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--define(SAFE_CALL(_EXP_),
-        ?SAFE_CALL(_EXP_, _ = do_nothing)).
+-ifndef(EMQ_X_CLUSTER_RPC_HRL).
+-define(EMQ_X_CLUSTER_RPC_HRL, true).
 
--define(SAFE_CALL(_EXP_, _EXP_ON_FAIL_),
-        fun() ->
-            try (_EXP_)
-            catch _EXCLASS_:_EXCPTION_:_ST_ ->
-                _EXP_ON_FAIL_,
-                {error, {_EXCLASS_, _EXCPTION_, _ST_}}
-            end
-        end()).
+-define(CLUSTER_MFA, cluster_rpc_mfa).
+-define(CLUSTER_COMMIT, cluster_rpc_commit).
+
+-record(cluster_rpc_mfa, {
+    tnx_id :: pos_integer(),
+    mfa :: mfa(),
+    created_at :: calendar:datetime(),
+    initiator :: node()
+}).
+
+-record(cluster_rpc_commit, {
+    node :: node(),
+    tnx_id :: pos_integer()
+}).
+
+-endif.

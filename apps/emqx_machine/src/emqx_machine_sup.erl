@@ -31,7 +31,9 @@ start_link() ->
 init([]) ->
     GlobalGC = child_worker(emqx_global_gc, [], permanent),
     Terminator = child_worker(emqx_machine_terminator, [], transient),
-    Children = [GlobalGC, Terminator],
+    ClusterRpc = child_worker(emqx_cluster_rpc, [], permanent),
+    ClusterHandler = child_worker(emqx_cluster_rpc_handler, [], permanent),
+    Children = [GlobalGC, Terminator, ClusterRpc, ClusterHandler],
     SupFlags = #{strategy => one_for_one,
                  intensity => 100,
                  period => 10

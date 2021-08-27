@@ -138,6 +138,14 @@ fields("node") ->
     , {"dist_listen_min", t(range(1024, 65535), "kernel.inet_dist_listen_min", 6369)}
     , {"dist_listen_max", t(range(1024, 65535), "kernel.inet_dist_listen_max", 6369)}
     , {"backtrace_depth", t(integer(), "emqx_machine.backtrace_depth", 23)}
+    , {"cluster_call", ref("cluster_call")}
+    ];
+
+
+fields("cluster_call") ->
+    [ {"retry_interval", t(emqx_schema:duration(), "emqx_machine.retry_interval", "1s")}
+    , {"max_history", t(range(1, 500), "emqx_machine.max_history", 100)}
+    , {"cleanup_interval", t(emqx_schema:duration(), "emqx_machine.cleanup_interval", "5m")}
     ];
 
 fields("rpc") ->

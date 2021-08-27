@@ -71,9 +71,9 @@ create(#{ query := Query0
               salt_position => SaltPosition,
               '_unique' => Unique},
     case emqx_resource:create_local(Unique, emqx_connector_pgsql, Config) of
-        {ok, _} ->
+        {ok, already_created} ->
             {ok, State};
-        {error, already_created} ->
+        {ok, _} ->
             {ok, State};
         {error, Reason} ->
             {error, Reason}
@@ -119,7 +119,7 @@ authenticate(#{password := Password} = Credential,
 destroy(#{'_unique' := Unique}) ->
     _ = emqx_resource:remove_local(Unique),
     ok.
-    
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------

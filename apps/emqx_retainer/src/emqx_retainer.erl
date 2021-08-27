@@ -443,9 +443,9 @@ create_resource(Context, #{type := DB} = Config) ->
            ResourceID,
            list_to_existing_atom(io_lib:format("~s_~s", [emqx_connector, DB])),
            Config) of
-        {ok, _} ->
+        {ok, already_created} ->
             Context#{resource_id => ResourceID};
-        {error, already_created} ->
+        {ok, _} ->
             Context#{resource_id => ResourceID};
         {error, Reason} ->
             error({load_config_error, Reason})
