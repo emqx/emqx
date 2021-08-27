@@ -382,7 +382,10 @@ emqx_etc_overlay_common() ->
     ].
 
 get_vsn() ->
-    PkgVsn = os:cmd("./pkg-vsn.sh"),
+    %% to make it compatible to Linux and Windows,
+    %% we must use bash to execute the bash file
+    %% because "./" will not be recognized as an internal or external command
+    PkgVsn = os:cmd("bash pkg-vsn.sh"),
     re:replace(PkgVsn, "\n", "", [{return ,list}]).
 
 maybe_dump(Config) ->
