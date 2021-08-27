@@ -33,8 +33,10 @@
 
 -export([ check/1
         , create/1
+        , look_up/1
         , delete/1
         , info/1
+        , format/1
         ]).
 
 %% gen_server callbacks
@@ -90,7 +92,31 @@ do_check(Who) when is_tuple(Who) ->
             Until > erlang:system_time(second)
     end.
 
--spec(create(emqx_types:banned()) -> ok).
+format(#banned{who = Who0,
+               by = By,
+               reason = Reason,
+               at = At,
+               until = Until}) ->
+    {As, Who} = maybe_format_host(Who0),
+    #{
+        as     => As,
+        who    => Who,
+        by     => By,
+        reason => Reason,
+        at     => to_rfc3339(At),
+        until  => to_rfc3339(Until)
+    }.
+
+maybe_format_host({peerhost, Host}) ->
+    AddrBinary = list_to_binary(inet:ntoa(Host)),
+    {peerhost, AddrBinary};
+maybe_format_host({As, Who}) ->
+    {As, Who}.
+
+to_rfc3339(Timestamp) ->
+    list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
+
+-spec(create(emqx_types:banned() | map()) -> ok).
 create(#{who    := Who,
          by     := By,
          reason := Reason,
@@ -103,6 +129,9 @@ create(#{who    := Who,
                                                  until = Until});
 create(Banned) when is_record(Banned, banned) ->
     ekka_mnesia:dirty_write(?BANNED_TAB, Banned).
+
+look_up(Who) ->
+    mnesia:dirty_read(?BANNED_TAB, Who).
 
 -spec(delete({clientid, emqx_types:clientid()}
            | {username, emqx_types:username()}
