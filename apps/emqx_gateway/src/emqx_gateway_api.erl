@@ -349,9 +349,7 @@ gateway_insta(delete, Request) ->
         ok ->
             {200, ok};
         {error, not_found} ->
-            {404, <<"Not Found">>};
-        {error, Reason} ->
-            {500, Reason}
+            {404, <<"Not Found">>}
     end;
 gateway_insta(get, Request) ->
     Name = binary_to_existing_atom(cowboy_req:binding(name, Request)),
@@ -363,7 +361,7 @@ gateway_insta(get, Request) ->
             {404, <<"Not Found">>}
     end;
 gateway_insta(post, Request) ->
-    Name = binary_to_existing_atom(cowboy_req:binding(name, Request)),
+    Name = cowboy_req:binding(name, Request),
     {ok, RawConf, _NRequest} = cowboy_req:read_body(Request),
     %% XXX: Consistence ??
     case emqx_gateway:update_rawconf(Name, RawConf) of
