@@ -51,9 +51,9 @@
               , servers/0
              ]).
 
--export([structs/0, fields/1]).
+-export([roots/0, fields/1]).
 
-structs() -> [ssl_on, ssl_off].
+roots() -> [ssl_on, ssl_off].
 
 fields(ssl_on) ->
     [ {enable, #{type => true}}

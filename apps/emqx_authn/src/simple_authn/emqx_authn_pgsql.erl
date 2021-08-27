@@ -23,7 +23,7 @@
 
 -behaviour(hocon_schema).
 
--export([ structs/0, fields/1 ]).
+-export([ roots/0, fields/1 ]).
 
 -export([ create/1
         , update/2
@@ -35,7 +35,7 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-structs() -> [config].
+roots() -> [config].
 
 fields(config) ->
     [ {name,                    fun emqx_authn_schema:authenticator_name/1}

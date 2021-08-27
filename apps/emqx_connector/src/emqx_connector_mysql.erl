@@ -28,16 +28,14 @@
 
 -export([connect/1]).
 
--export([structs/0, fields/1]).
+-export([roots/0, fields/1]).
 
 -export([do_health_check/1]).
 
 %%=====================================================================
 %% Hocon schema
-structs() -> [""].
-
-fields("") ->
-    [{config, #{type => hoconsc:ref(?MODULE, config)}}];
+roots() ->
+    [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
     emqx_connector_schema_lib:relational_db_fields() ++

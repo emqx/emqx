@@ -22,7 +22,7 @@
 
 -behaviour(hocon_schema).
 
--export([ structs/0
+-export([ roots/0
         , fields/1
         ]).
 
@@ -36,14 +36,12 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-structs() -> [""].
-
-fields("") ->
+roots() ->
     [ {config, {union, [ hoconsc:t(standalone)
                        , hoconsc:t(cluster)
                        , hoconsc:t(sentinel)
                        ]}}
-    ];
+    ].
 
 fields(standalone) ->
     common_fields() ++ emqx_connector_redis:fields(single);

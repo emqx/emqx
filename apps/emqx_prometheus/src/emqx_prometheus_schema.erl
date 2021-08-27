@@ -19,10 +19,10 @@
 
 -behaviour(hocon_schema).
 
--export([ structs/0
+-export([ roots/0
         , fields/1]).
 
-structs() -> ["prometheus"].
+roots() -> ["prometheus"].
 
 fields("prometheus") ->
     [ {push_gateway_server, emqx_schema:t(string())}

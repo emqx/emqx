@@ -17,10 +17,10 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([ structs/0
+-export([ roots/0
         , fields/1]).
 
-structs() -> ["emqx_dashboard"].
+roots() -> ["emqx_dashboard"].
 
 fields("emqx_dashboard") ->
     [ {listeners, hoconsc:array(hoconsc:union([hoconsc:ref(?MODULE, "http"),

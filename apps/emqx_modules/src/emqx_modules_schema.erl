@@ -20,16 +20,16 @@
 
 -behaviour(hocon_schema).
 
--export([ structs/0
+-export([ roots/0
         , fields/1]).
 
-structs() ->
+roots() ->
     ["delayed",
      "recon",
      "telemetry",
      "event_message",
-     {array, "rewrite"},
-     {array, "topic_metrics"}].
+     array("rewrite"),
+     array("topic_metrics")].
 
 fields(Name) when Name =:= "recon";
                   Name =:= "telemetry" ->
@@ -61,3 +61,4 @@ fields("event_message") ->
 fields("topic_metrics") ->
     [{topic, emqx_schema:t(binary())}].
 
+array(Name) -> {Name, hoconsc:array(hoconsc:ref(Name))}.

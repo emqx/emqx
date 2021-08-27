@@ -34,7 +34,7 @@
                 file/0,
                 cipher/0]).
 
--export([structs/0, fields/1, translations/0, translation/1]).
+-export([roots/0, fields/1, translations/0, translation/1]).
 -export([t/1, t/3, t/4, ref/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 
@@ -59,9 +59,9 @@
         ]).
 
 %% TODO: add a test case to ensure the list elements are unique
-structs() ->
+roots() ->
     ["cluster", "node", "rpc", "log"]
-    ++ lists:flatmap(fun(Mod) -> Mod:structs() end, ?MERGED_CONFIGS).
+    ++ lists:flatmap(fun(Mod) -> Mod:roots() end, ?MERGED_CONFIGS).
 
 fields("cluster") ->
     [ {"name", t(atom(), "ekka.cluster_name", emqxcl)}
@@ -215,8 +215,7 @@ fields(Name) ->
 find_field(Name, []) ->
     error({unknown_config_struct_field, Name});
 find_field(Name, [SchemaModule | Rest]) ->
-    case lists:member(Name, SchemaModule:structs()) orelse
-        lists:keymember(Name, 2, SchemaModule:structs()) of
+    case lists:member(bin(Name), hocon_schema:root_names(SchemaModule)) of
         true -> SchemaModule:fields(Name);
         false -> find_field(Name, Rest)
     end.
@@ -475,3 +474,7 @@ to_atom(Str) when is_list(Str) ->
     list_to_atom(Str);
 to_atom(Bin) when is_binary(Bin) ->
     binary_to_atom(Bin, utf8).
+
+bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
+bin(Bin) when is_binary(Bin) -> Bin;
+bin(L) when is_list(L) -> iolist_to_binary(L).

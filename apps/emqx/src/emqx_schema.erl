@@ -65,14 +65,15 @@
                 cipher/0,
                 comma_separated_atoms/0]).
 
--export([structs/0, fields/1]).
+-export([roots/0, fields/1]).
 -export([t/1, t/3, t/4, ref/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([ssl/1]).
 
-structs() -> ["zones", "mqtt", "flapping_detect", "force_shutdown", "force_gc",
-    "conn_congestion", "rate_limit", "quota", "listeners", "broker", "plugins",
-    "stats", "sysmon", "alarm", "authorization"].
+roots() ->
+    ["zones", "mqtt", "flapping_detect", "force_shutdown", "force_gc",
+     "conn_congestion", "rate_limit", "quota", "listeners", "broker", "plugins",
+     "stats", "sysmon", "alarm", "authorization"].
 
 fields("stats") ->
     [ {"enable", t(boolean(), undefined, true)}

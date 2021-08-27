@@ -2,11 +2,11 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([structs/0, fields/1]).
+-export([roots/0, fields/1]).
 
 -define(TYPE(Type), hoconsc:t(Type)).
 
-structs() -> ["emqx_retainer"].
+roots() -> ["emqx_retainer"].
 
 fields("emqx_retainer") ->
     [ {enable, t(boolean(), false)}

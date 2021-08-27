@@ -298,10 +298,11 @@ read_override_conf() ->
 
 -spec save_schema_mod_and_names(module()) -> ok.
 save_schema_mod_and_names(SchemaMod) ->
-    RootNames = SchemaMod:structs(),
+    RootNames = hocon_schema:root_names(SchemaMod),
     OldMods = get_schema_mod(),
     OldNames = get_root_names(),
-    NewMods = maps:from_list([{root_bin(Name), SchemaMod} || Name <- RootNames]),
+    %% map from root name to schema module name
+    NewMods = maps:from_list([{Name, SchemaMod} || Name <- RootNames]),
     persistent_term:put(?PERSIS_SCHEMA_MODS, #{
         mods => maps:merge(OldMods, NewMods),
         names => lists:usort(OldNames ++ RootNames)
@@ -442,6 +443,3 @@ conf_key(?CONF, RootName) ->
     atom(RootName);
 conf_key(?RAW_CONF, RootName) ->
     bin(RootName).
-
-root_bin({array, Bin}) -> bin(Bin);
-root_bin(Bin) -> bin(Bin).

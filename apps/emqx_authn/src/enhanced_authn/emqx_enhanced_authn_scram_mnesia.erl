@@ -21,7 +21,7 @@
 
 -behaviour(hocon_schema).
 
--export([ structs/0
+-export([ roots/0
         , fields/1
         ]).
 
@@ -74,7 +74,7 @@ mnesia(copy) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-structs() -> [config].
+roots() -> [config].
 
 fields(config) ->
     [ {name,            fun emqx_authn_schema:authenticator_name/1}

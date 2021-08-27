@@ -33,19 +33,18 @@
 
 -export([connect/1]).
 
--export([structs/0, fields/1]).
+-export([roots/0, fields/1]).
 
 -export([mongo_query/5]).
 %%=====================================================================
-structs() -> [""].
-
-fields("") ->
+roots() ->
     [ {config, #{type => hoconsc:union(
                           [ hoconsc:ref(?MODULE, single)
                           , hoconsc:ref(?MODULE, rs)
                           , hoconsc:ref(?MODULE, sharded)
                           ])}}
-    ];
+    ].
+
 fields(single) ->
     [ {mongo_type, #{type => single,
                      default => single}}
