@@ -52,7 +52,7 @@ disable() ->
     emqx_hooks:del('message.publish',    {?MODULE, rewrite_publish}).
 
 list() ->
-    maps:get(<<"rules">>, emqx:get_raw_config([<<"rewrite">>], []), []).
+    emqx:get_raw_config([<<"rewrite">>], []).
 
 update(Rules0) ->
     {ok, #{config := Rules}} = emqx:update_config([rewrite], Rules0),
