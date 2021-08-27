@@ -19,10 +19,10 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([ structs/0
+-export([ roots/0
         , fields/1]).
 
-structs() ->
+roots() ->
     ["auto_subscribe"].
 
 fields("auto_subscribe") ->

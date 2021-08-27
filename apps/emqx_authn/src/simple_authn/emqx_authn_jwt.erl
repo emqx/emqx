@@ -20,7 +20,7 @@
 
 -behaviour(hocon_schema).
 
--export([ structs/0
+-export([ roots/0
         , fields/1
         ]).
 
@@ -34,14 +34,12 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-structs() -> [""].
-
-fields("") ->
+roots() ->
     [ {config, {union, [ hoconsc:t('hmac-based')
                        , hoconsc:t('public-key')
                        , hoconsc:t('jwks')
                        ]}}
-    ];
+    ].
 
 fields('hmac-based') ->
     [ {use_jwks,              {enum, [false]}}

@@ -6,12 +6,12 @@
 
 -export([to_ip_port/1]).
 
--export([ structs/0
+-export([ roots/0
         , fields/1]).
 
 -typerefl_from_string({ip_port/0, emqx_statsd_schema, to_ip_port}).
 
-structs() -> ["statsd"].
+roots() -> ["statsd"].
 
 fields("statsd") ->
     [ {enable, emqx_schema:t(boolean(), undefined, false)}

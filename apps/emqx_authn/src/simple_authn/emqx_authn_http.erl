@@ -22,7 +22,7 @@
 
 -behaviour(hocon_schema).
 
--export([ structs/0
+-export([ roots/0
         , fields/1
         , validations/0
         ]).
@@ -37,13 +37,11 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-structs() -> [""].
-
-fields("") ->
+roots() ->
     [ {config, {union, [ hoconsc:t(get)
                        , hoconsc:t(post)
                        ]}}
-    ];
+    ].
 
 fields(get) ->
     [ {method,          #{type => get,

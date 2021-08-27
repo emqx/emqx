@@ -20,10 +20,10 @@
 
 -behaviour(hocon_schema).
 
--export([ structs/0
+-export([ roots/0
         , fields/1]).
 
-structs() -> ["emqx_rule_engine"].
+roots() -> ["emqx_rule_engine"].
 
 fields("emqx_rule_engine") ->
     [{ignore_sys_message, emqx_schema:t(boolean(), undefined, true)}].

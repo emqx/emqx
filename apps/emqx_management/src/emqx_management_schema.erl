@@ -19,9 +19,9 @@
 
 -behaviour(hocon_schema).
 
--export([ structs/0
+-export([ roots/0
         , fields/1]).
 
-structs() -> [].
+roots() -> [].
 
 fields(_) -> [].

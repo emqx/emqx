@@ -32,11 +32,11 @@
 
 -reflect_type([duration/0]).
 
--export([structs/0, fields/1]).
+-export([roots/0, fields/1]).
 
 -export([t/1, t/3, t/4, ref/1]).
 
-structs() -> [exhook].
+roots() -> [exhook].
 
 fields(exhook) ->
     [ {request_failed_action, t(union([deny, ignore]), undefined, deny)}

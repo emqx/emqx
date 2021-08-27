@@ -32,7 +32,7 @@
 -reflect_type([url/0]).
 -typerefl_from_string({url/0, emqx_http_lib, uri_parse}).
 
--export([ structs/0
+-export([ roots/0
         , fields/1
         , validations/0]).
 
@@ -47,10 +47,8 @@
 
 %%=====================================================================
 %% Hocon schema
-structs() -> [""].
-
-fields("") ->
-    [{config, #{type => hoconsc:ref(?MODULE, config)}}];
+roots() ->
+    [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
     [ {base_url,          fun base_url/1}

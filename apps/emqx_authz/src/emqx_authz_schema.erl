@@ -13,11 +13,11 @@
 -type permission() :: allow | deny.
 -type url() :: emqx_http_lib:uri_map().
 
--export([ structs/0
+-export([ roots/0
         , fields/1
         ]).
 
-structs() -> ["authorization"].
+roots() -> ["authorization"].
 
 fields("authorization") ->
     [ {sources, sources()}
@@ -180,4 +180,4 @@ connector_fields(DB) ->
     [ {type, #{type => DB}}
     , {enable, #{type => boolean(),
                  default => true}}
-    ] ++ Mod:fields("").
+    ] ++ Mod:roots().

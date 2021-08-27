@@ -20,10 +20,12 @@
 
 -behaviour(hocon_schema).
 
--export([ structs/0
+-export([ roots/0
         , fields/1]).
 
-structs() -> [{array, "bridge_mqtt"}].
+roots() -> [array("bridge_mqtt")].
+
+array(Name) -> {Name, hoconsc:array(hoconsc:ref(Name))}.
 
 fields("bridge_mqtt") ->
     [ {name, emqx_schema:t(string(), undefined, true)}

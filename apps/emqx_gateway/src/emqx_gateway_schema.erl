@@ -43,14 +43,10 @@
               , ip_port/0
               ]).
 
--export([structs/0 , fields/1]).
-
+-export([roots/0 , fields/1]).
 -export([t/1, t/3, t/4, ref/1]).
 
-%%--------------------------------------------------------------------
-%% Structs
-
-structs() -> [gateway].
+roots() -> [gateway].
 
 fields(gateway) ->
     [{stomp, t(ref(stomp_structs))},

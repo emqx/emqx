@@ -21,7 +21,7 @@
 
 -behaviour(hocon_schema).
 
--export([ structs/0
+-export([ roots/0
         , fields/1
         ]).
 
@@ -32,7 +32,7 @@
 -export([ authenticators/1
         ]).
 
-structs() -> [ "authentication" ].
+roots() -> [ "authentication" ].
 
 fields("authentication") ->
     [ {enable, fun enable/1}
