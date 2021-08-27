@@ -28,7 +28,8 @@
         , delete_banned/2
         ]).
 
--import(emqx_mgmt_util, [ schema/1
+-import(emqx_mgmt_util, [ page_params/0
+                        , schema/1
                         , object_schema/1
                         , page_object_schema/1
                         , properties/1
@@ -59,22 +60,7 @@ banned_api() ->
     MetaData = #{
         get => #{
             description => <<"List banned">>,
-            parameters => [
-                #{
-                    name => page,
-                    in => query,
-                    required => false,
-                    description => <<"Page">>,
-                    schema => #{type => integer}
-                },
-                #{
-                    name => limit,
-                    in => query,
-                    required => false,
-                    description => <<"Page limit">>,
-                    schema => #{type => integer}
-                }
-            ],
+            parameters => page_params(),
             responses => #{
                 <<"200">> =>
                     page_object_schema(properties())}},
@@ -112,7 +98,7 @@ delete_banned_api() ->
     {Path, MetaData, delete_banned}.
 
 banned(get, #{query_string := Params}) ->
-    Response = emqx_mgmt_api:paginate(?TAB, maps:to_list(Params), fun format/1),
+    Response = emqx_mgmt_api:paginate(?TAB, Params, fun format/1),
     {200, Response};
 banned(post, #{body := Body}) ->
     Banned = trans_param(Body),
