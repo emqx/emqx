@@ -22,7 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"authorization: {rules: []}">>).
+-define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
 
 all() ->
     emqx_ct:all(?MODULE).
@@ -60,14 +60,14 @@ init_per_testcase(_, Config) ->
     {ok, _} = emqx_authz:update(replace, []),
     Config.
 
--define(RULE1, #{<<"type">> => <<"http">>,
+-define(SOURCE1, #{<<"type">> => <<"http">>,
                  <<"config">> => #{
                     <<"url">> => <<"https://fake.com:443/">>,
                     <<"headers">> => #{},
                     <<"method">> => <<"get">>,
                     <<"request_timeout">> => 5000}
                 }).
--define(RULE2, #{<<"type">> => <<"mongo">>,
+-define(SOURCE2, #{<<"type">> => <<"mongo">>,
                  <<"config">> => #{
                         <<"mongo_type">> => <<"single">>,
                         <<"server">> => <<"127.0.0.1:27017">>,
@@ -77,7 +77,7 @@ init_per_testcase(_, Config) ->
                  <<"collection">> => <<"fake">>,
                  <<"find">> => #{<<"a">> => <<"b">>}
                 }).
--define(RULE3, #{<<"type">> => <<"mysql">>,
+-define(SOURCE3, #{<<"type">> => <<"mysql">>,
                  <<"config">> => #{
                      <<"server">> => <<"127.0.0.1:27017">>,
                      <<"pool_size">> => 1,
@@ -88,7 +88,7 @@ init_per_testcase(_, Config) ->
                      <<"ssl">> => #{<<"enable">> => false}},
                  <<"sql">> => <<"abcb">>
                 }).
--define(RULE4, #{<<"type">> => <<"pgsql">>,
+-define(SOURCE4, #{<<"type">> => <<"pgsql">>,
                  <<"config">> => #{
                      <<"server">> => <<"127.0.0.1:27017">>,
                      <<"pool_size">> => 1,
@@ -99,7 +99,7 @@ init_per_testcase(_, Config) ->
                      <<"ssl">> => #{<<"enable">> => false}},
                  <<"sql">> => <<"abcb">>
                 }).
--define(RULE5, #{<<"type">> => <<"redis">>,
+-define(SOURCE5, #{<<"type">> => <<"redis">>,
                  <<"config">> => #{
                      <<"server">> => <<"127.0.0.1:27017">>,
                      <<"pool_size">> => 1,
@@ -114,21 +114,21 @@ init_per_testcase(_, Config) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_update_rule(_) ->
-    {ok, _} = emqx_authz:update(replace, [?RULE2]),
-    {ok, _} = emqx_authz:update(head, [?RULE1]),
-    {ok, _} = emqx_authz:update(tail, [?RULE3]),
+t_update_source(_) ->
+    {ok, _} = emqx_authz:update(replace, [?SOURCE2]),
+    {ok, _} = emqx_authz:update(head, [?SOURCE1]),
+    {ok, _} = emqx_authz:update(tail, [?SOURCE3]),
 
-    ?assertMatch([#{type := http}, #{type := mongo}, #{type := mysql}], emqx:get_config([authorization, rules], [])),
+    ?assertMatch([#{type := http}, #{type := mongo}, #{type := mysql}], emqx:get_config([authorization, sources], [])),
 
     [#{annotations := #{id := Id1}, type := http},
      #{annotations := #{id := Id2}, type := mongo},
      #{annotations := #{id := Id3}, type := mysql}
     ] = emqx_authz:lookup(),
 
-    {ok, _} = emqx_authz:update({replace_once, Id1}, ?RULE5),
-    {ok, _} = emqx_authz:update({replace_once, Id3}, ?RULE4),
-    ?assertMatch([#{type := redis}, #{type := mongo}, #{type := pgsql}], emqx:get_config([authorization, rules], [])),
+    {ok, _} = emqx_authz:update({replace_once, Id1}, ?SOURCE5),
+    {ok, _} = emqx_authz:update({replace_once, Id3}, ?SOURCE4),
+    ?assertMatch([#{type := redis}, #{type := mongo}, #{type := pgsql}], emqx:get_config([authorization, sources], [])),
 
     [#{annotations := #{id := Id1}, type := redis},
      #{annotations := #{id := Id2}, type := mongo},
@@ -137,8 +137,8 @@ t_update_rule(_) ->
 
     {ok, _} = emqx_authz:update(replace, []).
 
-t_move_rule(_) ->
-    {ok, _} = emqx_authz:update(replace, [?RULE1, ?RULE2, ?RULE3, ?RULE4, ?RULE5]),
+t_move_source(_) ->
+    {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5]),
     [#{annotations := #{id := Id1}},
      #{annotations := #{id := Id2}},
      #{annotations := #{id := Id3}},

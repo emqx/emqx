@@ -22,11 +22,11 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(RULE1, {deny,  all, all, ["#"]}).
--define(RULE2, {allow, {ipaddr,  "127.0.0.1"}, all, [{eq, "#"}, {eq, "+"}]}).
--define(RULE3, {allow, {ipaddrs, ["127.0.0.1", "192.168.1.0/24"]}, subscribe, ["%c"]}).
--define(RULE4, {allow, {'and', [{clientid, "^test?"}, {username, "^test?"}]}, publish, ["topic/test"]}).
--define(RULE5, {allow, {'or',  [{username, "^test"},  {clientid, "test?"}]},  publish, ["%u", "%c"]}).
+-define(SOURCE1, {deny,  all, all, ["#"]}).
+-define(SOURCE2, {allow, {ipaddr,  "127.0.0.1"}, all, [{eq, "#"}, {eq, "+"}]}).
+-define(SOURCE3, {allow, {ipaddrs, ["127.0.0.1", "192.168.1.0/24"]}, subscribe, ["%c"]}).
+-define(SOURCE4, {allow, {'and', [{clientid, "^test?"}, {username, "^test?"}]}, publish, ["topic/test"]}).
+-define(SOURCE5, {allow, {'or',  [{username, "^test"},  {clientid, "test?"}]},  publish, ["%u", "%c"]}).
 
 all() ->
     emqx_ct:all(?MODULE).
@@ -40,28 +40,28 @@ end_per_suite(_Config) ->
     ok.
 
 t_compile(_) ->
-    ?assertEqual({deny, all, all, [['#']]}, emqx_authz_rule:compile(?RULE1)),
+    ?assertEqual({deny, all, all, [['#']]}, emqx_authz_rule:compile(?SOURCE1)),
 
-    ?assertEqual({allow, {ipaddr, {{127,0,0,1}, {127,0,0,1}, 32}}, all, [{eq, ['#']}, {eq, ['+']}]}, emqx_authz_rule:compile(?RULE2)),
+    ?assertEqual({allow, {ipaddr, {{127,0,0,1}, {127,0,0,1}, 32}}, all, [{eq, ['#']}, {eq, ['+']}]}, emqx_authz_rule:compile(?SOURCE2)),
 
     ?assertEqual({allow,
                   {ipaddrs,[{{127,0,0,1},{127,0,0,1},32},
                             {{192,168,1,0},{192,168,1,255},24}]},
                   subscribe,
                   [{pattern,[<<"%c">>]}]
-               }, emqx_authz_rule:compile(?RULE3)),
+               }, emqx_authz_rule:compile(?SOURCE3)),
 
     ?assertMatch({allow,
                   {'and', [{clientid, {re_pattern, _, _, _, _}}, {username, {re_pattern, _, _, _, _}}]},
                   publish,
                   [[<<"topic">>, <<"test">>]]
-                 }, emqx_authz_rule:compile(?RULE4)),
+                 }, emqx_authz_rule:compile(?SOURCE4)),
 
     ?assertMatch({allow,
                   {'or', [{username, {re_pattern, _, _, _, _}}, {clientid, {re_pattern, _, _, _, _}}]},
                   publish,
                   [{pattern, [<<"%u">>]},  {pattern, [<<"%c">>]}]
-                 }, emqx_authz_rule:compile(?RULE5)),
+                 }, emqx_authz_rule:compile(?SOURCE5)),
     ok.
 
 
@@ -92,47 +92,47 @@ t_match(_) ->
                    },
 
     ?assertEqual({matched, deny},
-                emqx_authz_rule:match(ClientInfo1, subscribe, <<"#">>, emqx_authz_rule:compile(?RULE1))),
+                emqx_authz_rule:match(ClientInfo1, subscribe, <<"#">>, emqx_authz_rule:compile(?SOURCE1))),
     ?assertEqual({matched, deny},
-                emqx_authz_rule:match(ClientInfo2, subscribe, <<"+">>, emqx_authz_rule:compile(?RULE1))),
+                emqx_authz_rule:match(ClientInfo2, subscribe, <<"+">>, emqx_authz_rule:compile(?SOURCE1))),
     ?assertEqual({matched, deny},
-                emqx_authz_rule:match(ClientInfo3, subscribe, <<"topic/test">>, emqx_authz_rule:compile(?RULE1))),
+                emqx_authz_rule:match(ClientInfo3, subscribe, <<"topic/test">>, emqx_authz_rule:compile(?SOURCE1))),
 
     ?assertEqual({matched, allow},
-                emqx_authz_rule:match(ClientInfo1, subscribe, <<"#">>, emqx_authz_rule:compile(?RULE2))),
+                emqx_authz_rule:match(ClientInfo1, subscribe, <<"#">>, emqx_authz_rule:compile(?SOURCE2))),
     ?assertEqual(nomatch,
-                emqx_authz_rule:match(ClientInfo1, subscribe, <<"topic/test">>, emqx_authz_rule:compile(?RULE2))),
+                emqx_authz_rule:match(ClientInfo1, subscribe, <<"topic/test">>, emqx_authz_rule:compile(?SOURCE2))),
     ?assertEqual(nomatch,
-                emqx_authz_rule:match(ClientInfo2, subscribe, <<"#">>, emqx_authz_rule:compile(?RULE2))),
+                emqx_authz_rule:match(ClientInfo2, subscribe, <<"#">>, emqx_authz_rule:compile(?SOURCE2))),
 
     ?assertEqual({matched, allow},
-                emqx_authz_rule:match(ClientInfo1, subscribe, <<"test">>, emqx_authz_rule:compile(?RULE3))),
+                emqx_authz_rule:match(ClientInfo1, subscribe, <<"test">>, emqx_authz_rule:compile(?SOURCE3))),
     ?assertEqual({matched, allow},
-                emqx_authz_rule:match(ClientInfo2, subscribe, <<"test">>, emqx_authz_rule:compile(?RULE3))),
+                emqx_authz_rule:match(ClientInfo2, subscribe, <<"test">>, emqx_authz_rule:compile(?SOURCE3))),
     ?assertEqual(nomatch,
-                emqx_authz_rule:match(ClientInfo2, subscribe, <<"topic/test">>, emqx_authz_rule:compile(?RULE3))),
+                emqx_authz_rule:match(ClientInfo2, subscribe, <<"topic/test">>, emqx_authz_rule:compile(?SOURCE3))),
 
     ?assertEqual({matched, allow},
-                emqx_authz_rule:match(ClientInfo1, publish, <<"topic/test">>, emqx_authz_rule:compile(?RULE4))),
+                emqx_authz_rule:match(ClientInfo1, publish, <<"topic/test">>, emqx_authz_rule:compile(?SOURCE4))),
     ?assertEqual({matched, allow},
-                emqx_authz_rule:match(ClientInfo2, publish, <<"topic/test">>, emqx_authz_rule:compile(?RULE4))),
+                emqx_authz_rule:match(ClientInfo2, publish, <<"topic/test">>, emqx_authz_rule:compile(?SOURCE4))),
     ?assertEqual(nomatch,
-                emqx_authz_rule:match(ClientInfo3, publish, <<"topic/test">>, emqx_authz_rule:compile(?RULE4))),
+                emqx_authz_rule:match(ClientInfo3, publish, <<"topic/test">>, emqx_authz_rule:compile(?SOURCE4))),
     ?assertEqual(nomatch,
-                emqx_authz_rule:match(ClientInfo4, publish, <<"topic/test">>, emqx_authz_rule:compile(?RULE4))),
+                emqx_authz_rule:match(ClientInfo4, publish, <<"topic/test">>, emqx_authz_rule:compile(?SOURCE4))),
 
     ?assertEqual({matched, allow},
-                emqx_authz_rule:match(ClientInfo1, publish, <<"test">>, emqx_authz_rule:compile(?RULE5))),
+                emqx_authz_rule:match(ClientInfo1, publish, <<"test">>, emqx_authz_rule:compile(?SOURCE5))),
     ?assertEqual({matched, allow},
-                emqx_authz_rule:match(ClientInfo2, publish, <<"test">>, emqx_authz_rule:compile(?RULE5))),
+                emqx_authz_rule:match(ClientInfo2, publish, <<"test">>, emqx_authz_rule:compile(?SOURCE5))),
     ?assertEqual({matched, allow},
-                emqx_authz_rule:match(ClientInfo3, publish, <<"test">>, emqx_authz_rule:compile(?RULE5))),
+                emqx_authz_rule:match(ClientInfo3, publish, <<"test">>, emqx_authz_rule:compile(?SOURCE5))),
     ?assertEqual({matched, allow},
-                emqx_authz_rule:match(ClientInfo3, publish, <<"fake">>, emqx_authz_rule:compile(?RULE5))),
+                emqx_authz_rule:match(ClientInfo3, publish, <<"fake">>, emqx_authz_rule:compile(?SOURCE5))),
     ?assertEqual({matched, allow},
-                emqx_authz_rule:match(ClientInfo4, publish, <<"test">>, emqx_authz_rule:compile(?RULE5))),
+                emqx_authz_rule:match(ClientInfo4, publish, <<"test">>, emqx_authz_rule:compile(?SOURCE5))),
     ?assertEqual({matched, allow},
-                emqx_authz_rule:match(ClientInfo4, publish, <<"fake">>, emqx_authz_rule:compile(?RULE5))),
+                emqx_authz_rule:match(ClientInfo4, publish, <<"fake">>, emqx_authz_rule:compile(?SOURCE5))),
 
     ok.
 

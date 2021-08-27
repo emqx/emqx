@@ -22,7 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"authorization: {rules: []}">>).
+-define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
 
 all() ->
     emqx_ct:all(?MODULE).
@@ -72,10 +72,10 @@ end_per_suite(_Config) ->
                  , {column, <<"permission">>, meck, meck, meck, meck, meck, meck, meck}
                  , {column, <<"topic">>, meck, meck, meck, meck, meck, meck, meck}
                  ]).
--define(RULE1, [{<<"all">>, <<"deny">>, <<"#">>}]).
--define(RULE2, [{<<"all">>, <<"allow">>, <<"eq #">>}]).
--define(RULE3, [{<<"subscribe">>, <<"allow">>, <<"test/%c">>}]).
--define(RULE4, [{<<"publish">>, <<"allow">>, <<"test/%u">>}]).
+-define(SOURCE1, [{<<"all">>, <<"deny">>, <<"#">>}]).
+-define(SOURCE2, [{<<"all">>, <<"allow">>, <<"eq #">>}]).
+-define(SOURCE3, [{<<"subscribe">>, <<"allow">>, <<"test/%c">>}]).
+-define(SOURCE4, [{<<"publish">>, <<"allow">>, <<"test/%u">>}]).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -105,15 +105,15 @@ t_authz(_) ->
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)), % nomatch
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, publish, <<"#">>)), % nomatch
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?RULE1 ++ ?RULE2} end),
+    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?SOURCE1 ++ ?SOURCE2} end),
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"+">>)),
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, publish, <<"+">>)),
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?RULE2 ++ ?RULE1} end),
+    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?SOURCE2 ++ ?SOURCE1} end),
     ?assertEqual(allow, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)),
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo2, subscribe, <<"+">>)),
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?RULE3 ++ ?RULE4} end),
+    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?SOURCE3 ++ ?SOURCE4} end),
     ?assertEqual(allow, emqx_access_control:authorize(ClientInfo2, subscribe, <<"test/test_clientid">>)),
     ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo2, publish,   <<"test/test_clientid">>)),
     ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo2, subscribe, <<"test/test_username">>)),

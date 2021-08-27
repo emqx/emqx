@@ -21,7 +21,7 @@
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--define(CONF_DEFAULT, <<"authorization: {rules: []}">>).
+-define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
 
 all() ->
     emqx_ct:all(?MODULE).
@@ -66,9 +66,9 @@ end_per_suite(_Config) ->
     meck:unload(emqx_schema),
     ok.
 
--define(RULE1, [<<"test/%u">>, <<"publish">>]).
--define(RULE2, [<<"test/%c">>, <<"publish">>]).
--define(RULE3, [<<"#">>, <<"subscribe">>]).
+-define(SOURCE1, [<<"test/%u">>, <<"publish">>]).
+-define(SOURCE2, [<<"test/%c">>, <<"publish">>]).
+-define(SOURCE3, [<<"#">>, <<"subscribe">>]).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -90,7 +90,7 @@ t_authz(_) ->
                  emqx_access_control:authorize(ClientInfo, publish, <<"#">>)),
 
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?RULE1 ++ ?RULE2} end),
+    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?SOURCE1 ++ ?SOURCE2} end),
     % nomatch
     ?assertEqual(deny,
         emqx_access_control:authorize(ClientInfo, subscribe, <<"+">>)),
@@ -103,7 +103,7 @@ t_authz(_) ->
     ?assertEqual(allow,
         emqx_access_control:authorize(ClientInfo, publish, <<"test/clientid">>)),
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?RULE3} end),
+    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?SOURCE3} end),
 
     ?assertEqual(allow,
         emqx_access_control:authorize(ClientInfo, subscribe, <<"#">>)),
