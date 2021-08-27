@@ -117,7 +117,7 @@ reset_all_topic_metrics_api() ->
             responses => #{<<"200">> => schema(<<"Reset all topic metrics">>)}
         }
     },
-    {"/mqtt/topic_metrics/reset", MetaData, reset_all_topic_metrics}.
+    {"/mqtt/topic_metrics/reset/all", MetaData, reset_all_topic_metrics}.
 
 reset_topic_metrics_api() ->
     Path = "/mqtt/topic_metrics/:topic/reset",
