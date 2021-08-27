@@ -18,7 +18,8 @@
 
 -behavior(minirest_api).
 
--import(emqx_mgmt_util, [ schema/1
+-import(emqx_mgmt_util, [ page_params/0
+                        , schema/1
                         , schema/2
                         , object_schema/2
                         , error_schema/2
@@ -102,6 +103,7 @@ delayed_messages_api() ->
     Metadata = #{
         get => #{
             description => "List delayed messages",
+            parameters => page_params(),
             responses => #{
                 <<"200">> => page_object_schema(properties())
             }
