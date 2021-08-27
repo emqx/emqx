@@ -87,7 +87,6 @@
 %% Listeners
 -export([ list_listeners/0
         , list_listeners/1
-        , list_listeners/2
         , list_listeners_by_id/1
         , get_listener/2
         , manage_listener/2
@@ -472,9 +471,6 @@ reload_plugin(Node, Plugin) ->
 
 list_listeners() ->
     lists:append([list_listeners(Node) || Node <- ekka_mnesia:running_nodes()]).
-
-list_listeners(Node, Identifier) ->
-    listener_id_filter(Identifier, list_listeners(Node)).
 
 list_listeners(Node) when Node =:= node() ->
     [{Id, maps:put(node, Node, Conf)} || {Id, Conf} <- emqx_listeners:list()];
