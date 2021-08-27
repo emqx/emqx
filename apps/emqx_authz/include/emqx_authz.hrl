@@ -17,6 +17,8 @@
 -type(rule() :: {permission(), who(), action(), list(emqx_topic:topic())}).
 -type(rules() :: [rule()]).
 
+-type(sources() :: [map()]).
+
 -define(APP, emqx_authz).
 
 -define(ALLOW_DENY(A), ((A =:= allow) orelse (A =:= <<"allow">>) orelse

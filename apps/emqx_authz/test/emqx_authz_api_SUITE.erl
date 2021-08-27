@@ -22,7 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"authorization: {rules: []}">>).
+-define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
 
 -import(emqx_ct_http, [ request_api/3
                       , request_api/5
@@ -37,14 +37,14 @@
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
 
--define(RULE1, #{<<"type">> => <<"http">>,
+-define(SOURCE1, #{<<"type">> => <<"http">>,
                  <<"config">> => #{
                     <<"url">> => <<"https://fake.com:443/">>,
                     <<"headers">> => #{},
                     <<"method">> => <<"get">>,
                     <<"request_timeout">> => 5000}
                 }).
--define(RULE2, #{<<"type">> => <<"mongo">>,
+-define(SOURCE2, #{<<"type">> => <<"mongo">>,
                  <<"config">> => #{
                         <<"mongo_type">> => <<"single">>,
                         <<"server">> => <<"127.0.0.1:27017">>,
@@ -54,7 +54,7 @@
                  <<"collection">> => <<"fake">>,
                  <<"find">> => #{<<"a">> => <<"b">>}
                 }).
--define(RULE3, #{<<"type">> => <<"mysql">>,
+-define(SOURCE3, #{<<"type">> => <<"mysql">>,
                  <<"config">> => #{
                      <<"server">> => <<"127.0.0.1:27017">>,
                      <<"pool_size">> => 1,
@@ -65,7 +65,7 @@
                      <<"ssl">> => #{<<"enable">> => false}},
                  <<"sql">> => <<"abcb">>
                 }).
--define(RULE4, #{<<"type">> => <<"pgsql">>,
+-define(SOURCE4, #{<<"type">> => <<"pgsql">>,
                  <<"config">> => #{
                      <<"server">> => <<"127.0.0.1:27017">>,
                      <<"pool_size">> => 1,
@@ -76,7 +76,7 @@
                      <<"ssl">> => #{<<"enable">> => false}},
                  <<"sql">> => <<"abcb">>
                 }).
--define(RULE5, #{<<"type">> => <<"redis">>,
+-define(SOURCE5, #{<<"type">> => <<"redis">>,
                  <<"config">> => #{
                      <<"server">> => <<"127.0.0.1:27017">>,
                      <<"pool_size">> => 1,
@@ -148,7 +148,7 @@ t_api(_) ->
     ?assertEqual([], get_rules(Result1)),
 
     lists:foreach(fun(_) ->
-                        {ok, 204, _} = request(post, uri(["authorization"]), ?RULE1)
+                        {ok, 204, _} = request(post, uri(["authorization"]), ?SOURCE1)
                   end, lists:seq(1, 20)),
     {ok, 200, Result2} = request(get, uri(["authorization"]), []),
     ?assertEqual(20, length(get_rules(Result2))),
@@ -160,7 +160,7 @@ t_api(_) ->
                           ?assertEqual(10, length(get_rules(Result)))
                   end, lists:seq(1, 2)),
 
-    {ok, 204, _} = request(put, uri(["authorization"]), [?RULE1, ?RULE2, ?RULE3, ?RULE4]),
+    {ok, 204, _} = request(put, uri(["authorization"]), [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4]),
 
     {ok, 200, Result3} = request(get, uri(["authorization"]), []),
     Rules = get_rules(Result3),
@@ -173,7 +173,7 @@ t_api(_) ->
 
     #{<<"annotations">> := #{<<"id">> := Id}} = lists:nth(2, Rules),
 
-    {ok, 204, _} = request(put, uri(["authorization", binary_to_list(Id)]), ?RULE5),
+    {ok, 204, _} = request(put, uri(["authorization", binary_to_list(Id)]), ?SOURCE5),
 
     {ok, 200, Result4} = request(get, uri(["authorization", binary_to_list(Id)]), []),
     ?assertMatch(#{<<"type">> := <<"redis">>}, jsx:decode(Result4)),
@@ -186,7 +186,7 @@ t_api(_) ->
     ok.
 
 t_move_rule(_) ->
-    {ok, _} = emqx_authz:update(replace, [?RULE1, ?RULE2, ?RULE3, ?RULE4, ?RULE5]),
+    {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5]),
     [#{annotations := #{id := Id1}},
      #{annotations := #{id := Id2}},
      #{annotations := #{id := Id3}},

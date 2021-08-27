@@ -21,7 +21,7 @@
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--define(CONF_DEFAULT, <<"authorization: {rules: []}">>).
+-define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
 
 all() ->
     emqx_ct:all(?MODULE).

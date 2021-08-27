@@ -20,7 +20,7 @@
 structs() -> ["authorization"].
 
 fields("authorization") ->
-    [ {rules, rules()}
+    [ {sources, sources()}
     ];
 fields(file) ->
     [ {type, #{type => file}}
@@ -146,7 +146,7 @@ fields(eq_topic) ->
 union_array(Item) when is_list(Item) ->
     hoconsc:array(hoconsc:union(Item)).
 
-rules() ->
+sources() ->
     #{type => union_array(
                 [ hoconsc:ref(?MODULE, file)
                 , hoconsc:ref(?MODULE, http)
