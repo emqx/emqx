@@ -116,7 +116,7 @@ maybe_format_host({As, Who}) ->
 to_rfc3339(Timestamp) ->
     list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
 
--spec(create(emqx_types:banned()) -> ok).
+-spec(create(emqx_types:banned() | map()) -> ok).
 create(#{who    := Who,
          by     := By,
          reason := Reason,

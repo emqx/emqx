@@ -138,12 +138,12 @@ trans_param(Params) ->
     Reason = maps:get(<<"reason">>, Params, <<"">>),
     At     = maps:get(<<"at">>, Params, erlang:system_time(second)),
     Until  = maps:get(<<"until">>, Params, At + 5 * 60),
-    #{
-        who    => Who,
-        by     => By,
-        reason => Reason,
-        at     => At,
-        until  => Until
+    #banned{
+        who    = Who,
+        by     = By,
+        reason = Reason,
+        at     = At,
+        until  = Until
     }.
 
 trans_who(#{as := As, who := Who}) ->
