@@ -33,7 +33,7 @@ fields("emqx_dashboard") ->
 
 fields("http") ->
     [ {"protocol", hoconsc:enum([http, https])}
-    , {"port", emqx_schema:t(integer(), undefined, 8081)}
+    , {"port", emqx_schema:t(integer(), undefined, 18083)}
     , {"num_acceptors", emqx_schema:t(integer(), undefined, 4)}
     , {"max_connections", emqx_schema:t(integer(), undefined, 512)}
     , {"backlog", emqx_schema:t(integer(), undefined, 1024)}

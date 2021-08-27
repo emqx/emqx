@@ -25,23 +25,14 @@
 -define(DE_ACT_ALARM, test_de_act_alarm).
 
 all() ->
-    [t_alarms_api, t_delete_alarms_api].
+    emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    ekka_mnesia:start(),
-    emqx_mgmt_auth:mnesia(boot),
-    emqx_ct_helpers:start_apps([emqx_management], fun set_special_configs/1),
+    emqx_mgmt_api_test_util:init_suite(),
     Config.
 
 end_per_suite(_) ->
-    emqx_ct_helpers:stop_apps([emqx_management]).
-
-set_special_configs(emqx_management) ->
-    emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
-        applications =>[#{id => "admin", secret => "public"}]}),
-    ok;
-set_special_configs(_App) ->
-    ok.
+    emqx_mgmt_api_test_util:end_suite().
 
 t_alarms_api(_) ->
     ok = emqx_alarm:activate(?ACT_ALARM),

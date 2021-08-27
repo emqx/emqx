@@ -114,8 +114,6 @@
 -export([ return/0
         , return/1]).
 
--define(MAX_ROW_LIMIT, 10000).
-
 -define(APP, emqx_management).
 
 %% TODO: remove these function after all api use minirest version 1.X
@@ -590,7 +588,7 @@ check_row_limit([Tab|Tables], Limit) ->
     end.
 
 max_row_limit() ->
-    emqx:get_config([?APP, max_row_limit], ?MAX_ROW_LIMIT).
+    ?MAX_ROW_LIMIT.
 
 table_size(Tab) -> ets:info(Tab, size).
 
