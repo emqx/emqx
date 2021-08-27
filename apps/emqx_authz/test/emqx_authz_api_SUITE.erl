@@ -102,7 +102,6 @@ init_per_suite(Config) ->
 
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
 
-    application:load(emqx_management),
     ok = emqx_ct_helpers:start_apps([emqx_authz, emqx_dashboard], fun set_special_configs/1),
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
@@ -111,7 +110,6 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     {ok, _} = emqx_authz:update(replace, []),
-    application:unload(emqx_management),
     emqx_ct_helpers:stop_apps([emqx_resource, emqx_authz, emqx_dashboard]),
     meck:unload(emqx_resource),
     ok.
@@ -232,8 +230,8 @@ t_move_rule(_) ->
 
 request(Method, Url, Body) ->
     Request = case Body of
-        [] -> {Url, [auth_header("admin", "public")]};
-        _ -> {Url, [auth_header("admin", "public")], "application/json", jsx:encode(Body)}
+        [] -> {Url, [auth_header_()]};
+        _ -> {Url, [auth_header_()], "application/json", jsx:encode(Body)}
     end,
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),
     case httpc:request(Method, Request, [], [{body_format, binary}]) of
@@ -252,3 +250,9 @@ uri(Parts) when is_list(Parts) ->
 
 get_rules(Result) ->
     maps:get(<<"rules">>, jsx:decode(Result), []).
+
+auth_header_() ->
+    Username = <<"admin">>,
+    Password = <<"public">>,
+    {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
