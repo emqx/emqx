@@ -29,6 +29,7 @@
 %% http handlers
 -export([ gateway/2
         , gateway_insta/2
+        , gateway_insta_stats/2
         ]).
 
 -define(EXAMPLE_GATEWAY_LIST,
@@ -240,7 +241,7 @@ metadata(gateway_insta) ->
         requestBody => schema(schema_for_gateway_conf()),
         responses => #{
             <<"404">> => NameNotFoundRespDef,
-            <<"204">> => #{description => <<"Created">>}
+            <<"200">> => #{description => <<"Changed">>}
         }
       }
      };
@@ -336,41 +337,45 @@ schema_for_gateway_stats() ->
 %% http handlers
 
 gateway(get, Request) ->
-    Params = cowboy_req:parse_qs(Request),
-    Status = case proplists:get_value(<<"status">>, Params) of
+    Params = maps:get(query_string, Request, #{}),
+    Status = case maps:get(<<"status">>, Params, undefined) of
                  undefined -> all;
                  S0 -> binary_to_existing_atom(S0, utf8)
              end,
     {200, emqx_gateway_intr:gateways(Status)}.
 
-gateway_insta(delete, Request) ->
-    Name = binary_to_existing_atom(cowboy_req:binding(name, Request)),
+gateway_insta(delete, #{bindings := #{name := Name0}}) ->
+    Name = binary_to_existing_atom(Name0),
     case emqx_gateway:unload(Name) of
         ok ->
             {200, ok};
         {error, not_found} ->
             {404, <<"Not Found">>}
     end;
-gateway_insta(get, Request) ->
-    Name = binary_to_existing_atom(cowboy_req:binding(name, Request)),
+gateway_insta(get, #{bindings := #{name := Name0}}) ->
+    Name = binary_to_existing_atom(Name0),
     case emqx_gateway:lookup(Name) of
-        #{config := Config} ->
-            %% TODO: ??? RawConf or Config or RunningState ???
-            {200, Config};
+        #{config := _Config} ->
+            %% FIXME: Got the parsed config, but we should return rawconfig to
+            %% frontend
+            RawConf = emqx_config:fill_defaults(
+                        emqx_config:get_root_raw([<<"gateway">>])
+                       ),
+            {200, emqx_map_lib:deep_get([<<"gateway">>, Name0], RawConf)};
         undefined ->
             {404, <<"Not Found">>}
     end;
-gateway_insta(post, Request) ->
-    Name = cowboy_req:binding(name, Request),
-    {ok, RawConf, _NRequest} = cowboy_req:read_body(Request),
-    %% XXX: Consistence ??
-    case emqx_gateway:update_rawconf(Name, RawConf) of
+gateway_insta(put, #{body := RawConfsIn,
+                     bindings := #{name := Name}
+                    }) ->
+    %% FIXME: Cluster Consistence ??
+    case emqx_gateway:update_rawconf(Name, RawConfsIn) of
         ok ->
-            {200, ok};
+            {200, <<"Changed">>};
         {error, not_found} ->
             {404, <<"Not Found">>};
         {error, Reason} ->
-            {500, Reason}
+            {500, emqx_gateway_utils:stringfy(Reason)}
     end.
 
 gateway_insta_stats(get, _Req) ->
