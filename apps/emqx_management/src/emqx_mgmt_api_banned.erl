@@ -116,7 +116,7 @@ banned(get, #{query_string := Params}) ->
     {200, Response};
 banned(post, #{body := Body}) ->
     Banned = trans_param(Body),
-    emqx_banned:create(Banned),
+    _ = emqx_banned:create(Banned),
     {200}.
 
 delete_banned(delete, #{bindings := Params}) ->
