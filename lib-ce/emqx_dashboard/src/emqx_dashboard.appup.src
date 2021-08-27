@@ -1,6 +1,6 @@
 %% -*- mode: erlang -*-
 {VSN,
- [ {<<"4.3.[0-2]">>,
+ [ {<<"4.3.[0-3]">>,
     %% load all plugins
     %% NOTE: this depends on the fact that emqx_dashboard is always
     %% the last application gets upgraded
@@ -10,7 +10,7 @@
     ]},
    {<<".*">>, []}
  ],
- [ {<<"4.3.[0-2]">>,
+ [ {<<"4.3.[0-3]">>,
     [ {apply, {emqx_rule_engine, load_providers, []}}
     , {restart_application, emqx_dashboard}
     , {apply, {emqx_plugins, load, []}}
