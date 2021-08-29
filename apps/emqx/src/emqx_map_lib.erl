@@ -24,13 +24,16 @@
         , safe_atom_key_map/1
         , unsafe_atom_key_map/1
         , jsonable_map/1
-        , jsonable_value/1
-        , deep_convert/2
+        , jsonable_map/2
+        , binary_string/1
+        , deep_convert/3
         ]).
 
 -export_type([config_key/0, config_key_path/0]).
 -type config_key() :: atom() | binary().
 -type config_key_path() :: [config_key()].
+-type convert_fun() :: fun((K::any(), V::any(), Args::list()) ->
+    {K1::any(), V1::any()} | drop).
 
 %%-----------------------------------------------------------------
 -spec deep_get(config_key_path(), map()) -> term().
@@ -100,15 +103,17 @@ deep_merge(BaseMap, NewMap) ->
         end, #{}, BaseMap),
     maps:merge(MergedBase, maps:with(NewKeys, NewMap)).
 
--spec deep_convert(map(), fun((K::any(), V::any()) -> {K1::any(), V1::any()})) -> map().
-deep_convert(Map, ConvFun) when is_map(Map) ->
+-spec deep_convert(map(), convert_fun(), Args::list()) -> map().
+deep_convert(Map, ConvFun, Args) when is_map(Map) ->
     maps:fold(fun(K, V, Acc) ->
-            {K1, V1} = ConvFun(K, deep_convert(V, ConvFun)),
-            Acc#{K1 => V1}
+            case apply(ConvFun, [K, deep_convert(V, ConvFun, Args) | Args]) of
+                drop -> Acc;
+                {K1, V1} -> Acc#{K1 => V1}
+            end
         end, #{}, Map);
-deep_convert(ListV, ConvFun) when is_list(ListV) ->
-    [deep_convert(V, ConvFun) || V <- ListV];
-deep_convert(Val, _) -> Val.
+deep_convert(ListV, ConvFun, Args) when is_list(ListV) ->
+    [deep_convert(V, ConvFun, Args) || V <- ListV];
+deep_convert(Val, _, _Args) -> Val.
 
 -spec unsafe_atom_key_map(#{binary() | atom() => any()}) -> #{atom() => any()}.
 unsafe_atom_key_map(Map) ->
@@ -120,17 +125,24 @@ safe_atom_key_map(Map) ->
 
 -spec jsonable_map(map() | list()) -> map() | list().
 jsonable_map(Map) ->
-    deep_convert(Map, fun(K, V) ->
-            {jsonable_value(K), jsonable_value(V)}
-        end).
+    jsonable_map(Map, fun(K, V) -> {K, V} end).
 
-jsonable_value([]) -> [];
-jsonable_value(Val) when is_list(Val) ->
+jsonable_map(Map, JsonableFun) ->
+    deep_convert(Map, fun binary_string_kv/3, [JsonableFun]).
+
+binary_string_kv(K, V, JsonableFun) ->
+    case JsonableFun(K, V) of
+        drop -> drop;
+        {K1, V1} -> {binary_string(K1), binary_string(V1)}
+    end.
+
+binary_string([]) -> [];
+binary_string(Val) when is_list(Val) ->
     case io_lib:printable_unicode_list(Val) of
         true -> unicode:characters_to_binary(Val);
-        false -> Val
+        false -> [binary_string(V) || V <- Val]
     end;
-jsonable_value(Val) ->
+binary_string(Val) ->
     Val.
 
 %%---------------------------------------------------------------------------
@@ -138,4 +150,4 @@ covert_keys_to_atom(BinKeyMap, Conv) ->
     deep_convert(BinKeyMap, fun
             (K, V) when is_atom(K) -> {K, V};
             (K, V) when is_binary(K) -> {Conv(K), V}
-        end).
+        end, []).
