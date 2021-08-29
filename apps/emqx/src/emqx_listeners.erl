@@ -265,12 +265,12 @@ format_addr({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
 
 listener_id(Type, ListenerName) ->
-    list_to_atom(lists:append([atom_to_list(Type), ":", atom_to_list(ListenerName)])).
+    list_to_atom(lists:append([str(Type), ":", str(ListenerName)])).
 
 parse_listener_id(Id) ->
     try
-        [Zone, Listen] = string:split(atom_to_list(Id), ":", leading),
-        {list_to_existing_atom(Zone), list_to_existing_atom(Listen)}
+        [Type, Name] = string:split(str(Id), ":", leading),
+        {list_to_existing_atom(Type), list_to_atom(Name)}
     catch
         _ : _ -> error({invalid_listener_id, Id})
     end.
@@ -291,8 +291,8 @@ tcp_opts(Opts) ->
 
 foreach_listeners(Do) ->
     lists:foreach(
-        fun({ZoneName, LName, LConf}) ->
-                Do(ZoneName, LName, LConf)
+        fun({Type, LName, LConf}) ->
+                Do(Type, LName, LConf)
         end, do_list()).
 
 has_enabled_listener_conf_by_type(Type) ->
@@ -307,3 +307,10 @@ apply_on_listener(ListenerId, Do) ->
         {not_found, _, _} -> error({listener_config_not_found, Type, ListenerName});
         {ok, Conf} -> Do(Type, ListenerName, Conf)
     end.
+
+str(A) when is_atom(A) ->
+    atom_to_list(A);
+str(B) when is_binary(B) ->
+    binary_to_list(B);
+str(S) when is_list(S) ->
+    S.
