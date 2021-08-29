@@ -24,14 +24,9 @@
         , list_listeners_by_id/2
         , list_listeners_on_node/2
         , get_listener_by_id_on_node/2
-        , manage_listeners/2]).
-
--import(emqx_mgmt_util, [ schema/1
-                        , object_schema/2
-                        , object_array_schema/2
-                        , error_schema/2
-                        , properties/1
-                        ]).
+        , manage_listeners/2
+        , jsonable_resp/2
+        ]).
 
 -export([format/1]).
 
@@ -53,17 +48,23 @@ api_spec() ->
         []
     }.
 
-properties() ->
-    properties([
-        {node, string, <<"Node">>},
-        {id, string, <<"Identifier">>},
-        {acceptors, integer, <<"Number of Acceptor process">>},
-        {max_conn, integer, <<"Maximum number of allowed connection">>},
-        {type, string, <<"Listener type">>},
-        {listen_on, string, <<"Listener port">>},
-        {running, boolean, <<"Open or close">>},
-        {auth, boolean, <<"Has auth">>}
-    ]).
+-define(TYPES, [tcp, ssl, ws, wss, quic]).
+req_schema() ->
+    Schema = [emqx_mgmt_api_configs:gen_schema(
+        emqx:get_raw_config([listeners, T, default], #{}))
+     || T <- ?TYPES],
+    #{oneOf => Schema}.
+
+resp_schema() ->
+    #{oneOf := Schema} = req_schema(),
+    AddMetadata = fun(Prop) ->
+        Prop#{running => #{type => boolean},
+              id => #{type => string},
+              node => #{type => string}}
+    end,
+    Schema1 = [S#{properties => AddMetadata(Prop)}
+               || S = #{properties := Prop} <- Schema],
+    #{oneOf => Schema1}.
 
 api_list_listeners() ->
     Metadata = #{
@@ -71,7 +72,7 @@ api_list_listeners() ->
             description => <<"List listeners from all nodes in the cluster">>,
             responses => #{
                 <<"200">> =>
-                    object_array_schema(properties(), <<"List listeners successfully">>)}}},
+                    emqx_mgmt_util:array_schema(resp_schema(), <<"List listeners successfully">>)}}},
     {"/listeners", Metadata, list_listeners}.
 
 api_list_listeners_by_id() ->
@@ -81,9 +82,9 @@ api_list_listeners_by_id() ->
             parameters => [param_path_id()],
             responses => #{
                 <<"404">> =>
-                    error_schema(?LISTENER_NOT_FOUND, ['BAD_LISTENER_ID']),
+                    emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, ['BAD_LISTENER_ID']),
                 <<"200">> =>
-                    object_array_schema(properties(), <<"List listeners successfully">>)}}},
+                    emqx_mgmt_util:array_schema(resp_schema(), <<"List listeners successfully">>)}}},
     {"/listeners/:id", Metadata, list_listeners_by_id}.
 
 api_list_listeners_on_node() ->
@@ -92,7 +93,7 @@ api_list_listeners_on_node() ->
             description => <<"List listeners in one node">>,
             parameters => [param_path_node()],
             responses => #{
-                <<"200">> => object_schema(properties(), <<"List listeners successfully">>)}}},
+                <<"200">> => emqx_mgmt_util:object_schema(resp_schema(), <<"List listeners successfully">>)}}},
     {"/nodes/:node/listeners", Metadata, list_listeners_on_node}.
 
 api_get_listener_by_id_on_node() ->
@@ -102,10 +103,10 @@ api_get_listener_by_id_on_node() ->
             parameters => [param_path_node(), param_path_id()],
             responses => #{
                 <<"404">> =>
-                    error_schema(?NODE_LISTENER_NOT_FOUND,
+                    emqx_mgmt_util:error_schema(?NODE_LISTENER_NOT_FOUND,
                         ['BAD_NODE_NAME', 'BAD_LISTENER_ID']),
                 <<"200">> =>
-                    object_schema(properties(), <<"Get listener successfully">>)}}},
+                    emqx_mgmt_util:object_schema(resp_schema(), <<"Get listener successfully">>)}}},
     {"/nodes/:node/listeners/:id", Metadata, get_listener_by_id_on_node}.
 
 api_manage_listeners() ->
@@ -116,9 +117,9 @@ api_manage_listeners() ->
                 param_path_id(),
                 param_path_operation()],
             responses => #{
-                <<"500">> => error_schema(<<"Operation Failed">>, ['INTERNAL_ERROR']),
-                <<"200">> => schema(<<"Operation success">>)}}},
-    {"/listeners/:id/:operation", Metadata, manage_listeners}.
+                <<"500">> => emqx_mgmt_util:error_schema(<<"Operation Failed">>, ['INTERNAL_ERROR']),
+                <<"200">> => emqx_mgmt_util:schema(<<"Operation success">>)}}},
+    {"/listeners/:id/operation/:operation", Metadata, manage_listeners}.
 
 api_manage_listeners_on_node() ->
     Metadata = #{
@@ -129,9 +130,9 @@ api_manage_listeners_on_node() ->
                 param_path_id(),
                 param_path_operation()],
             responses => #{
-                <<"500">> => error_schema(<<"Operation Failed">>, ['INTERNAL_ERROR']),
-                <<"200">> => schema(<<"Operation success">>)}}},
-    {"/nodes/:node/listeners/:id/:operation", Metadata, manage_listeners}.
+                <<"500">> => emqx_mgmt_util:error_schema(<<"Operation Failed">>, ['INTERNAL_ERROR']),
+                <<"200">> => emqx_mgmt_util:schema(<<"Operation success">>)}}},
+    {"/nodes/:node/listeners/:id/operation/:operation", Metadata, manage_listeners}.
 
 %%%==============================================================================================
 %% parameters
@@ -247,16 +248,12 @@ format({error, Reason}) ->
     {error, Reason};
 
 format({ID, Conf}) ->
-    {Type, _Name} = emqx_listeners:parse_listener_id(ID),
-    #{
+    emqx_map_lib:jsonable_map(Conf#{
         id              => ID,
         node            => maps:get(node, Conf),
-        acceptors       => maps:get(acceptors, Conf),
-        max_conn        => maps:get(max_connections, Conf),
-        type            => Type,
-        listen_on       => list_to_binary(esockd:to_string(maps:get(bind, Conf))),
         running         => trans_running(Conf)
-    }.
+    }, fun ?MODULE:jsonable_resp/2).
+
 trans_running(Conf) ->
     case maps:get(running, Conf) of
         {error, _} ->
@@ -264,6 +261,15 @@ trans_running(Conf) ->
         Running ->
             Running
     end.
+
+jsonable_resp(bind, Port) when is_integer(Port) ->
+    {bind, Port};
+jsonable_resp(bind, {Addr, Port}) when is_tuple(Addr); is_integer(Port)->
+    {bind, inet:ntoa(Addr) ++ ":" ++ integer_to_list(Port)};
+jsonable_resp(user_lookup_fun, _) ->
+    drop;
+jsonable_resp(K, V) ->
+    {K, V}.
 
 atom(B) when is_binary(B) -> binary_to_atom(B, utf8);
 atom(S) when is_list(S) -> list_to_atom(S);
