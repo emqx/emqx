@@ -210,23 +210,14 @@ gen_id(Type) ->
 create_resource(#{type := DB,
                   config := Config,
                   annotations := #{id := ResourceID}}) ->
-    case emqx_resource:update(
-            ResourceID,
-            list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
-            Config,
-            [])
-    of
+    case emqx_resource:update(ResourceID, connector_module(DB), Config, []) of
         {ok, _} -> ResourceID;
         {error, Reason} -> {error, Reason}
     end;
 create_resource(#{type := DB,
                   config := Config}) ->
     ResourceID = gen_id(DB),
-    case emqx_resource:create(
-            ResourceID,
-            list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
-            Config)
-    of
+    case emqx_resource:create(ResourceID, connector_module(DB), Config) of
         {ok, already_created} -> ResourceID;
         {ok, _} -> ResourceID;
         {error, Reason} -> {error, Reason}
@@ -279,7 +270,7 @@ init_source(#{enable := true,
                 sql := SQL
                } = Source) when DB =:= mysql;
                               DB =:= pgsql ->
-    Mod = list_to_existing_atom(io_lib:format("~s_~s",[?APP, DB])),
+    Mod = authz_module(DB),
     case create_resource(Source) of
         {error, Reason} -> error({load_config_error, Reason});
         Id -> Source#{annotations =>
@@ -326,8 +317,14 @@ do_authorize(Client, PubSub, Topic, [#{type := file} = F | Tail]) ->
     end;
 do_authorize(Client, PubSub, Topic,
                [Connector = #{type := Type} | Tail] ) ->
-    Mod = list_to_existing_atom(io_lib:format("emqx_authz_~s",[Type])),
+    Mod = authz_module(Type),
     case Mod:authorize(Client, PubSub, Topic, Connector) of
         nomatch -> do_authorize(Client, PubSub, Topic, Tail);
         Matched -> Matched
     end.
+
+authz_module(Type) ->
+    list_to_existing_atom("emqx_authz_" ++ atom_to_list(Type)).
+
+connector_module(Type) ->
+    list_to_existing_atom("emqx_connector_" ++ atom_to_list(Type)).
