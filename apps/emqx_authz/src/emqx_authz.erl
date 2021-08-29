@@ -311,7 +311,7 @@ do_authorize(Client, PubSub, Topic, [#{enable := false} | Rest]) ->
     do_authorize(Client, PubSub, Topic, Rest);
 do_authorize(Client, PubSub, Topic, [#{type := file} = F | Tail]) ->
     #{annotations := #{rules := Rules}} = F,
-    case emqx_authz_rule:match(Client, PubSub, Topic, Rules) of
+    case emqx_authz_rule:matches(Client, PubSub, Topic, Rules) of
         nomatch -> do_authorize(Client, PubSub, Topic, Tail);
         Matched -> Matched
     end;
