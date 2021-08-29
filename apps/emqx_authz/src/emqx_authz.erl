@@ -314,22 +314,20 @@ authorize(#{username := Username,
             {stop, DefaultResult}
     end.
 
-do_authorize(Client, PubSub, Topic,
-               [#{type := file,
-                  enable := true,
-                  annotations := #{rule := Rules}
-                 } | Tail] ) ->
+do_authorize(_Client, _PubSub, _Topic, []) ->
+    nomatch;
+do_authorize(Client, PubSub, Topic, [#{enable := false} | Rest]) ->
+    do_authorize(Client, PubSub, Topic, Rest);
+do_authorize(Client, PubSub, Topic, [#{type := file} = F | Tail]) ->
+    #{annotations := #{rules := Rules}} = F,
     case emqx_authz_rule:match(Client, PubSub, Topic, Rules) of
         nomatch -> do_authorize(Client, PubSub, Topic, Tail);
         Matched -> Matched
     end;
 do_authorize(Client, PubSub, Topic,
-               [Connector = #{type := Type,
-                              enable := true
-                             } | Tail] ) ->
-    Mod = list_to_existing_atom(io_lib:format("~s_~s",[emqx_authz, Type])),
+               [Connector = #{type := Type} | Tail] ) ->
+    Mod = list_to_existing_atom(io_lib:format("emqx_authz_~s",[Type])),
     case Mod:authorize(Client, PubSub, Topic, Connector) of
         nomatch -> do_authorize(Client, PubSub, Topic, Tail);
         Matched -> Matched
-    end;
-do_authorize(_Client, _PubSub, _Topic, []) -> nomatch.
+    end.
