@@ -342,7 +342,7 @@ mqtt_listener() ->
     ].
 
 base_listener() ->
-    [ {"bind", t(union(ip_port(), integer()))}
+    [ {"bind", hoconsc:t(union(ip_port(), integer()), #{nullable => false})}
     , {"acceptors", t(integer(), undefined, 16)}
     , {"max_connections", maybe_infinity(integer(), infinity)}
     , {"mountpoint", t(binary(), undefined, <<>>)}
