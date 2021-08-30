@@ -58,8 +58,8 @@ t_manage_listener(_) ->
     manage_listener(ID, "restart", true).
 
 manage_listener(ID, Operation, Running) ->
-    Path = emqx_mgmt_api_test_util:api_path(["listeners", ID, Operation]),
-    {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path),
+    Path = emqx_mgmt_api_test_util:api_path(["listeners", ID, "operation", Operation]),
+    {ok, _} = emqx_mgmt_api_test_util:request_api(post, Path),
     timer:sleep(500),
     GetPath = emqx_mgmt_api_test_util:api_path(["listeners", ID]),
     {ok, ListenersResponse} = emqx_mgmt_api_test_util:request_api(get, GetPath),
@@ -106,10 +106,8 @@ comparison_listener(Local, Response) ->
     ?assertEqual(maps:get(id, Local), binary_to_atom(maps:get(<<"id">>, Response))),
     ?assertEqual(maps:get(node, Local), binary_to_atom(maps:get(<<"node">>, Response))),
     ?assertEqual(maps:get(acceptors, Local), maps:get(<<"acceptors">>, Response)),
-    ?assertEqual(maps:get(max_conn, Local), maps:get(<<"max_conn">>, Response)),
-    ?assertEqual(maps:get(listen_on, Local), maps:get(<<"listen_on">>, Response)),
     ?assertEqual(maps:get(running, Local), maps:get(<<"running">>, Response)).
 
 
-listener_stats(Listener, Stats) ->
-    ?assertEqual(maps:get(<<"running">>, Listener), Stats).
+listener_stats(Listener, ExpectedStats) ->
+    ?assertEqual(ExpectedStats, maps:get(<<"running">>, Listener)).
