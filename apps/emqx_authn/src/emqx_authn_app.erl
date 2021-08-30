@@ -16,8 +16,7 @@
 
 -module(emqx_authn_app).
 
-% -include("emqx_authn.hrl").
-% -include_lib("emqx/include/logger.hrl").
+-include("emqx_authn.hrl").
 
 -behaviour(application).
 
@@ -27,9 +26,11 @@
         ]).
 
 start(_StartType, _StartArgs) ->
-    % ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
+    ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),
     add_providers(),
+    emqx_config_handler:add_handler([authentication, authenticators], emqx_authn),
+    emqx_authn:initialize(),
     {ok, Sup}.
 
 stop(_State) ->

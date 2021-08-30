@@ -148,6 +148,6 @@
         }).
 
 -record(chain,
-        { name :: {atom(), binary()}
+        { name :: binary()
         , authenticators :: [#authenticator{}]
         }).
