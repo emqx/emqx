@@ -78,142 +78,63 @@ schemas() ->
     Client = #{
         client => #{
             type => object,
-            properties => #{
-                node => #{
-                    type => string,
-                    description => <<"Name of the node to which the client is connected">>},
-                clientid => #{
-                    type => string,
-                    description => <<"Client identifier">>},
-                username => #{
-                    type => string,
-                    description => <<"User name of client when connecting">>},
-                proto_name => #{
-                    type => string,
-                    description => <<"Client protocol name">>},
-                proto_ver => #{
-                    type => integer,
-                    description => <<"Protocol version used by the client">>},
-                ip_address => #{
-                    type => string,
-                    description => <<"Client's IP address">>},
-                is_bridge => #{
-                    type => boolean,
-                    description => <<"Indicates whether the client is connectedvia bridge">>},
-                connected_at => #{
-                    type => string,
-                    description => <<"Client connection time">>},
-                disconnected_at => #{
-                    type => string,
-                    description => <<"Client offline time, This field is only valid and returned when connected is false">>},
-                connected => #{
-                    type => boolean,
-                    description => <<"Whether the client is connected">>},
-                will_msg => #{
-                    type => string,
-                    description => <<"Client will message">>},
-                zone => #{
-                    type => string,
-                    description => <<"Indicate the configuration group used by the client">>},
-                keepalive => #{
-                    type => integer,
-                    description => <<"keepalive time, with the unit of second">>},
-                clean_start => #{
-                    type => boolean,
-                    description => <<"Indicate whether the client is using a brand new session">>},
-                expiry_interval => #{
-                    type => integer,
-                    description => <<"Session expiration interval, with the unit of second">>},
-                created_at => #{
-                    type => string,
-                    description => <<"Session creation time">>},
-                subscriptions_cnt => #{
-                    type => integer,
-                    description => <<"Number of subscriptions established by this client.">>},
-                subscriptions_max => #{
-                    type => integer,
-                    description => <<"v4 api name [max_subscriptions] Maximum number of subscriptions allowed by this client">>},
-                inflight_cnt => #{
-                    type => integer,
-                    description => <<"Current length of inflight">>},
-                inflight_max => #{
-                    type => integer,
-                    description => <<"v4 api name [max_inflight]. Maximum length of inflight">>},
-                mqueue_len => #{
-                    type => integer,
-                    description => <<"Current length of message queue">>},
-                mqueue_max => #{
-                    type => integer,
-                    description => <<"v4 api name [max_mqueue]. Maximum length of message queue">>},
-                mqueue_dropped => #{
-                    type => integer,
-                    description => <<"Number of messages dropped by the message queue due to exceeding the length">>},
-                awaiting_rel_cnt => #{
-                    type => integer,
-                    description => <<"v4 api name [awaiting_rel] Number of awaiting PUBREC packet">>},
-                awaiting_rel_max => #{
-                    type => integer,
-                    description => <<"v4 api name [max_awaiting_rel]. Maximum allowed number of awaiting PUBREC packet">>},
-                recv_oct => #{
-                    type => integer,
-                    description => <<"Number of bytes received by EMQ X Broker (the same below)">>},
-                recv_cnt => #{
-                    type => integer,
-                    description => <<"Number of TCP packets received">>},
-                recv_pkt => #{
-                    type => integer,
-                    description => <<"Number of MQTT packets received">>},
-                recv_msg => #{
-                    type => integer,
-                    description => <<"Number of PUBLISH packets received">>},
-                send_oct => #{
-                    type => integer,
-                    description => <<"Number of bytes sent">>},
-                send_cnt => #{
-                    type => integer,
-                    description => <<"Number of TCP packets sent">>},
-                send_pkt => #{
-                    type => integer,
-                    description => <<"Number of MQTT packets sent">>},
-                send_msg => #{
-                    type => integer,
-                    description => <<"Number of PUBLISH packets sent">>},
-                mailbox_len => #{
-                    type => integer,
-                    description => <<"Process mailbox size">>},
-                heap_size => #{
-                    type => integer,
-                    description => <<"Process heap size with the unit of byte">>
-                },
-                reductions => #{
-                    type => integer,
-                    description => <<"Erlang reduction">>}
-            }
+            properties => emqx_mgmt_util:properties(properties(client))
         }
-       },
+    },
     AuthzCache = #{
         authz_cache => #{
             type => object,
-            properties => #{
-                topic => #{
-                    type => string,
-                    description => <<"Topic name">>},
-                access => #{
-                    type => string,
-                    enum => [<<"subscribe">>, <<"publish">>],
-                    description => <<"Access type">>},
-                result => #{
-                    type => string,
-                    enum => [<<"allow">>, <<"deny">>],
-                    default => <<"allow">>,
-                    description => <<"Allow or deny">>},
-                updated_time => #{
-                    type => integer,
-                    description => <<"Update time">>}
-            }
+            properties => emqx_mgmt_util:properties(properties(authz_cache))
         }
     },
     [Client, AuthzCache].
+
+properties(client) ->
+    [
+        {awaiting_rel_cnt,  integer, <<"v4 api name [awaiting_rel] Number of awaiting PUBREC packet">>},
+        {awaiting_rel_max,  integer, <<"v4 api name [max_awaiting_rel]. Maximum allowed number of awaiting PUBREC packet">>},
+        {clean_start,       boolean, <<"Indicate whether the client is using a brand new session">>},
+        {clientid,          string , <<"Client identifier">>},
+        {connected,         boolean, <<"Whether the client is connected">>},
+        {connected_at,      string , <<"Client connection time">>},
+        {created_at,        string , <<"Session creation time">>},
+        {disconnected_at,   string , <<"Client offline time, This field is only valid and returned when connected is false">>},
+        {expiry_interval,   integer, <<"Session expiration interval, with the unit of second">>},
+        {heap_size,         integer, <<"Process heap size with the unit of byte">>},
+        {inflight_cnt,      integer, <<"Current length of inflight">>},
+        {inflight_max,      integer, <<"v4 api name [max_inflight]. Maximum length of inflight">>},
+        {ip_address,        string , <<"Client's IP address">>},
+        {is_bridge,         boolean, <<"Indicates whether the client is connectedvia bridge">>},
+        {keepalive,         integer, <<"keepalive time, with the unit of second">>},
+        {mailbox_len,       integer, <<"Process mailbox size">>},
+        {mqueue_dropped,    integer, <<"Number of messages dropped by the message queue due to exceeding the length">>},
+        {mqueue_len,        integer, <<"Current length of message queue">>},
+        {mqueue_max,        integer, <<"v4 api name [max_mqueue]. Maximum length of message queue">>},
+        {node,              string , <<"Name of the node to which the client is connected">>},
+        {proto_name,        string , <<"Client protocol name">>},
+        {proto_ver,         integer, <<"Protocol version used by the client">>},
+        {recv_cnt,          integer, <<"Number of TCP packets received">>},
+        {recv_msg,          integer, <<"Number of PUBLISH packets received">>},
+        {recv_oct,          integer, <<"Number of bytes received by EMQ X Broker (the same below)">>},
+        {recv_pkt,          integer, <<"Number of MQTT packets received">>},
+        {reductions,        integer, <<"Erlang reduction">>},
+        {send_cnt,          integer, <<"Number of TCP packets sent">>},
+        {send_msg,          integer, <<"Number of PUBLISH packets sent">>},
+        {send_oct,          integer, <<"Number of bytes sent">>},
+        {send_pkt,          integer, <<"Number of MQTT packets sent">>},
+        {subscriptions_cnt, integer, <<"Number of subscriptions established by this client.">>},
+        {subscriptions_max, integer, <<"v4 api name [max_subscriptions] Maximum number of subscriptions allowed by this client">>},
+        {username,          string , <<"User name of client when connecting">>},
+        {will_msg,          string , <<"Client will message">>},
+        {zone,              string , <<"Indicate the configuration group used by the client">>}
+    ];
+properties(authz_cache) ->
+    [
+        {access,            string,  <<"Access type">>},
+        {result,            string,  <<"Allow or deny">>},
+        {topic,             string,  <<"Topic name">>},
+        {updated_time,      integer, <<"Update time">>}
+    ].
 
 clients_api() ->
     Metadata = #{
