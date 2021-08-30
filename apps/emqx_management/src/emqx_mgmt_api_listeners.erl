@@ -132,7 +132,7 @@ api_get_update_listener_by_id_on_node() ->
 
 api_manage_listeners() ->
     Metadata = #{
-        get => #{
+        post => #{
             description => <<"Restart listeners on all nodes in the cluster">>,
             parameters => [
                 param_path_id(),

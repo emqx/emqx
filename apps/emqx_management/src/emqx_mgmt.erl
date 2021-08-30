@@ -480,20 +480,19 @@ list_listeners(Node) when Node =:= node() ->
 list_listeners(Node) ->
     rpc_call(Node, list_listeners, [Node]).
 
-list_listeners_by_id(Identifier) ->
-    listener_id_filter(Identifier, list_listeners()).
+list_listeners_by_id(Id) ->
+    listener_id_filter(Id, list_listeners()).
 
-get_listener(Node, Identifier) ->
-    case listener_id_filter(Identifier, list_listeners(Node)) of
+get_listener(Node, Id) ->
+    case listener_id_filter(Id, list_listeners(Node)) of
         [] ->
             {error, not_found};
         [Listener] ->
             Listener
     end.
 
-listener_id_filter(Identifier, Listeners) ->
-    Filter =
-        fun({Id, _}) -> Id =:= Identifier end,
+listener_id_filter(Id, Listeners) ->
+    Filter = fun(#{id := Id0}) -> Id0 =:= Id end,
     lists:filter(Filter, Listeners).
 
 -spec manage_listener(Operation :: start_listener|stop_listener|restart_listener, Param :: map()) ->
