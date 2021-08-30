@@ -34,11 +34,11 @@ definitions() ->
                         }
                      }
                    }
-                 , minirest:ref(<<"rules">>)
+                 , minirest:ref(<<"sources">>)
                  ]
     },
     Rules = #{
-        oneOf => [ minirest:ref(<<"simple_rule">>)
+        oneOf => [ minirest:ref(<<"simple_source">>)
                  % , minirest:ref(<<"connector_redis">>)
                  ]
     },
@@ -144,9 +144,9 @@ definitions() ->
             }
         }
     },
-    [ #{<<"returned_rules">> => RetruenedRules}
-    , #{<<"rules">> => Rules}
-    , #{<<"simple_rule">> => SimpleRule}
+    [ #{<<"returned_sources">> => RetruenedRules}
+    , #{<<"sources">> => Rules}
+    , #{<<"simple_source">> => SimpleRule}
     , #{<<"principal">> => Principal}
     , #{<<"principal_username">> => PrincipalUsername}
     , #{<<"principal_clientid">> => PrincipalClientid}

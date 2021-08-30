@@ -30,7 +30,7 @@
 
 
 -define(EXAMPLE_RETURNED_RULES,
-        #{rules => [?EXAMPLE_RETURNED_RULE1
+        #{sources => [?EXAMPLE_RETURNED_RULE1
                    ]
         }).
 
@@ -40,23 +40,23 @@
                          topics => [<<"#">>]}).
 
 -export([ api_spec/0
-        , rules/2
-        , rule/2
-        , move_rule/2
+        , sources/2
+        , source/2
+        , move_source/2
         ]).
 
 api_spec() ->
-    {[ rules_api()
-     , rule_api()
-     , move_rule_api()
+    {[ sources_api()
+     , source_api()
+     , move_source_api()
      ], definitions()}.
 
 definitions() -> emqx_authz_api_schema:definitions().
 
-rules_api() ->
+sources_api() ->
     Metadata = #{
         get => #{
-            description => "List authorization rules",
+            description => "List authorization sources",
             parameters => [
                 #{
                     name => page,
@@ -82,16 +82,16 @@ rules_api() ->
                         'application/json' => #{
                             schema => #{
                                 type => object,
-                                required => [rules],
-                                properties => #{rules => #{
+                                required => [sources],
+                                properties => #{sources => #{
                                                   type => array,
-                                                  items => minirest:ref(<<"returned_rules">>)
+                                                  items => minirest:ref(<<"returned_sources">>)
                                                  }
                                                }
                             },
                             examples => #{
-                                rules => #{
-                                    summary => <<"Rules">>,
+                                sources => #{
+                                    summary => <<"Sources">>,
                                     value => jsx:encode(?EXAMPLE_RETURNED_RULES)
                                 }
                             }
@@ -101,14 +101,14 @@ rules_api() ->
             }
         },
         post => #{
-            description => "Add new rule",
+            description => "Add new source",
             requestBody => #{
                 content => #{
                     'application/json' => #{
-                        schema => minirest:ref(<<"rules">>),
+                        schema => minirest:ref(<<"sources">>),
                         examples => #{
-                            simple_rule => #{
-                                summary => <<"Rules">>,
+                            simple_source => #{
+                                summary => <<"Sources">>,
                                 value => jsx:encode(?EXAMPLE_RULE1)
                             }
                        }
@@ -138,17 +138,17 @@ rules_api() ->
         },
         put => #{
 
-            description => "Update all rules",
+            description => "Update all sources",
             requestBody => #{
                 content => #{
                     'application/json' => #{
                         schema => #{
                             type => array,
-                            items => minirest:ref(<<"returned_rules">>)
+                            items => minirest:ref(<<"returned_sources">>)
                         },
                         examples => #{
-                            rules => #{
-                                summary => <<"Rules">>,
+                            sources => #{
+                                summary => <<"Sources">>,
                                 value => jsx:encode([?EXAMPLE_RULE1])
                             }
                         }
@@ -177,15 +177,15 @@ rules_api() ->
             }
         }
     },
-    {"/authorization", Metadata, rules}.
+    {"/authorization", Metadata, sources}.
 
-rule_api() ->
+source_api() ->
     Metadata = #{
         get => #{
-            description => "List authorization rules",
+            description => "List authorization sources",
             parameters => [
                 #{
-                    name => id,
+                    name => type,
                     in => path,
                     schema => #{
                        type => string
@@ -198,10 +198,10 @@ rule_api() ->
                     description => <<"OK">>,
                     content => #{
                         'application/json' => #{
-                            schema => minirest:ref(<<"returned_rules">>),
+                            schema => minirest:ref(<<"returned_sources">>),
                             examples => #{
-                                rules => #{
-                                    summary => <<"Rules">>,
+                                sources => #{
+                                    summary => <<"Sources">>,
                                     value => jsx:encode(?EXAMPLE_RETURNED_RULE1)
                                 }
                             }
@@ -218,7 +218,7 @@ rule_api() ->
                                     summary => <<"Not Found">>,
                                     value => #{
                                         code => <<"NOT_FOUND">>,
-                                        message => <<"rule xxx not found">>
+                                        message => <<"source xxx not found">>
                                     }
                                 }
                             }
@@ -228,10 +228,10 @@ rule_api() ->
             }
         },
         put => #{
-            description => "Update rule",
+            description => "Update source",
             parameters => [
                 #{
-                    name => id,
+                    name => type,
                     in => path,
                     schema => #{
                        type => string
@@ -242,10 +242,10 @@ rule_api() ->
             requestBody => #{
                 content => #{
                     'application/json' => #{
-                        schema => minirest:ref(<<"rules">>),
+                        schema => minirest:ref(<<"sources">>),
                         examples => #{
-                            simple_rule => #{
-                                summary => <<"Rules">>,
+                            simple_source => #{
+                                summary => <<"Sources">>,
                                 value => jsx:encode(?EXAMPLE_RULE1)
                             }
                        }
@@ -264,7 +264,7 @@ rule_api() ->
                                     summary => <<"Not Found">>,
                                     value => #{
                                         code => <<"NOT_FOUND">>,
-                                        message => <<"rule xxx not found">>
+                                        message => <<"source xxx not found">>
                                     }
                                 }
                             }
@@ -291,7 +291,7 @@ rule_api() ->
             }
         },
         delete => #{
-            description => "Delete rule",
+            description => "Delete source",
             parameters => [
                 #{
                     name => id,
@@ -324,15 +324,15 @@ rule_api() ->
             }
         }
     },
-    {"/authorization/:id", Metadata, rule}.
+    {"/authorization/:type", Metadata, source}.
 
-move_rule_api() ->
+move_source_api() ->
     Metadata = #{
         post => #{
-            description => "Change the order of rules",
+            description => "Change the order of sources",
             parameters => [
                 #{
-                    name => id,
+                    name => type,
                     in => path,
                     schema => #{
                         type => string
@@ -381,15 +381,13 @@ move_rule_api() ->
                 },
                 <<"404">> => #{
                     description => <<"Bad Request">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>),
+                    content => #{ 'application/json' => #{ schema => minirest:ref(<<"error">>),
                             examples => #{
                                 example1 => #{
                                     summary => <<"Not Found">>,
                                     value => #{
                                         code => <<"NOT_FOUND">>,
-                                        message => <<"rule xxx not found">>
+                                        message => <<"source xxx not found">>
                                     }
                                 }
                             }
@@ -416,56 +414,54 @@ move_rule_api() ->
             }
         }
     },
-    {"/authorization/:id/move", Metadata, move_rule}.
+    {"/authorization/:type/move", Metadata, move_source}.
 
-rules(get, #{query_string := Query}) ->
-    Rules = lists:foldl(fun (#{type := _Type, enable := true, config := #{server := Server} = Config, annotations := #{id := Id}} = Rule, AccIn) ->
-                                NRule = case emqx_resource:health_check(Id) of
+sources(get, #{query_string := Query}) ->
+    Sources = lists:foldl(fun (#{type := _Type, enable := true, config := #{server := Server} = Config, annotations := #{id := Id}} = Source, AccIn) ->
+                                NSource = case emqx_resource:health_check(Id) of
                                     ok ->
-                                        Rule#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
-                                              annotations => #{id => Id,
-                                                               status => healthy}};
+                                        Source#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
+                                                annotations => #{id => Id,
+                                                                 status => healthy}};
                                     _ ->
-                                        Rule#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
-                                              annotations => #{id => Id,
-                                                               status => unhealthy}}
+                                        Source#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
+                                                annotations => #{id => Id,
+                                                                 status => unhealthy}}
                                 end,
-                                lists:append(AccIn, [NRule]);
-                            (#{type := _Type, enable := true, annotations := #{id := Id}} = Rule, AccIn) ->
-                                NRule = case emqx_resource:health_check(Id) of
+                                lists:append(AccIn, [NSource]);
+                            (#{type := _Type, enable := true, annotations := #{id := Id}} = Source, AccIn) ->
+                                NSource = case emqx_resource:health_check(Id) of
                                     ok ->
-                                        Rule#{annotations => #{id => Id,
-                                                               status => healthy}};
+                                        Source#{annotations => #{status => healthy}};
                                     _ ->
-                                        Rule#{annotations => #{id => Id,
-                                                               status => unhealthy}}
+                                        Source#{annotations => #{status => unhealthy}}
                                 end,
-                                lists:append(AccIn, [NRule]);
-                            (Rule, AccIn) ->
-                                lists:append(AccIn, [Rule])
+                                lists:append(AccIn, [NSource]);
+                            (Source, AccIn) ->
+                                lists:append(AccIn, [Source])
                         end, [], emqx_authz:lookup()),
     case maps:is_key(<<"page">>, Query) andalso maps:is_key(<<"limit">>, Query) of
         true ->
             Page = maps:get(<<"page">>, Query),
             Limit = maps:get(<<"limit">>, Query),
             Index = (binary_to_integer(Page) - 1) * binary_to_integer(Limit),
-            {_, Rules1} = lists:split(Index, Rules),
-            case binary_to_integer(Limit) < length(Rules1) of
+            {_, Sources1} = lists:split(Index, Sources),
+            case binary_to_integer(Limit) < length(Sources1) of
                 true ->
-                    {Rules2, _} = lists:split(binary_to_integer(Limit), Rules1),
-                    {200, #{rules => Rules2}};
-                false -> {200, #{rules => Rules1}}
+                    {Sources2, _} = lists:split(binary_to_integer(Limit), Sources1),
+                    {200, #{sources => Sources2}};
+                false -> {200, #{sources => Sources1}}
             end;
-        false -> {200, #{rules => Rules}}
+        false -> {200, #{sources => Sources}}
     end;
-rules(post, #{body := RawConfig}) ->
+sources(post, #{body := RawConfig}) ->
     case emqx_authz:update(head, [RawConfig]) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end;
-rules(put, #{body := RawConfig}) ->
+sources(put, #{body := RawConfig}) ->
     case emqx_authz:update(replace, RawConfig) of
         {ok, _} -> {204};
         {error, Reason} ->
@@ -473,56 +469,57 @@ rules(put, #{body := RawConfig}) ->
                     messgae => atom_to_binary(Reason)}}
     end.
 
-rule(get, #{bindings := #{id := Id}}) ->
-    case emqx_authz:lookup(Id) of
+source(get, #{bindings := #{type := Type}}) ->
+    case emqx_authz:lookup(Type) of
         {error, Reason} -> {404, #{messgae => atom_to_binary(Reason)}};
-        #{type := file} = Rule -> {200, Rule};
-        #{config := #{server := Server} = Config} = Rule ->
+        #{enable := false} = Source -> {200, Source};
+        #{type := file} = Source -> {200, Source};
+        #{config := #{server := Server,
+                      annotations := #{id := Id}
+                     } = Config} = Source ->
             case emqx_resource:health_check(Id) of
                 ok ->
-                    {200, Rule#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
-                                annotations => #{id => Id,
-                                                 status => healthy}}};
+                    {200, Source#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
+                                  annotations => #{status => healthy}}};
                 _ ->
-                    {200, Rule#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
-                                annotations => #{id => Id,
-                                                 status => unhealthy}}}
+                    {200, Source#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
+                                  annotations => #{status => unhealthy}}}
             end;
-        Rule ->
+        #{config := #{annotations := #{id := Id}}} = Source ->
             case emqx_resource:health_check(Id) of
                 ok ->
-                    {200, Rule#{annotations => #{id => Id,
-                                                 status => healthy}}};
+                    {200, Source#{annotations => #{status => healthy}}};
                 _ ->
-                    {200, Rule#{annotations => #{id => Id,
-                                                 status => unhealthy}}}
+                    {200, Source#{annotations => #{status => unhealthy}}}
             end
     end;
-rule(put, #{bindings := #{id := RuleId}, body := RawConfig}) ->
-    case emqx_authz:update({replace_once, RuleId}, RawConfig) of
+source(put, #{bindings := #{type := Type}, body := RawConfig}) ->
+    case emqx_authz:update({replace_once, Type}, RawConfig) of
         {ok, _} -> {204};
-        {error, not_found_rule} ->
+        {error, not_found_source} ->
             {404, #{code => <<"NOT_FOUND">>,
-                    messgae => <<"rule ", RuleId/binary, " not found">>}};
+                    messgae => <<"source ", Type/binary, " not found">>}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end;
-rule(delete, #{bindings := #{id := RuleId}}) ->
-    case emqx_authz:update({replace_once, RuleId}, #{}) of
+source(delete, #{bindings := #{type := Type}}) ->
+    case emqx_authz:update({delete_once, Type}, #{}) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end.
-move_rule(post, #{bindings := #{id := RuleId}, body := Body}) ->
-    #{<<"position">> := Position} = Body,
-    case emqx_authz:move(RuleId, Position) of
+move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Position}}) ->
+    case emqx_authz:move(Type, Position) of
         {ok, _} -> {204};
-        {error, not_found_rule} ->
+        {error, not_found_source} ->
             {404, #{code => <<"NOT_FOUND">>,
-                    messgae => <<"rule ", RuleId/binary, " not found">>}};
+                    messgae => <<"source ", Type/binary, " not found">>}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end.
+
+
+
