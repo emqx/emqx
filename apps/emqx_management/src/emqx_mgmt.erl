@@ -507,8 +507,12 @@ update_listener(Id, Config) ->
 
 update_listener(Node, Id, Config) when Node =:= node() ->
     {Type, Name} = emqx_listeners:parse_listener_id(Id),
-    {ok, #{raw_config := RawConf}} = emqx:update_config([listeners, Type, Name], Config, #{}),
-    RawConf#{node => Node, id => Id, running => true};
+    case emqx:update_config([listeners, Type, Name], Config, #{}) of
+        {ok, #{raw_config := RawConf}} ->
+            RawConf#{node => Node, id => Id, running => true};
+        {error, Reason} ->
+            error(Reason)
+    end;
 update_listener(Node, Id, Config) ->
     rpc_call(Node, update_listener, [Node, Id, Config]).
 
