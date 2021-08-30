@@ -73,10 +73,14 @@
 roots() ->
     ["zones", "mqtt", "flapping_detect", "force_shutdown", "force_gc",
      "conn_congestion", "rate_limit", "quota", "listeners", "broker", "plugins",
-     "stats", "sysmon", "alarm", "authorization"].
+     "stats", "sysmon", "alarm", "authorization", "authentication"].
 
 fields("stats") ->
     [ {"enable", t(boolean(), undefined, true)}
+    ];
+
+fields("authentication") ->
+    [ {"authenticators", t(hoconsc:lazy(hoconsc:array(map())))}
     ];
 
 fields("authorization") ->
@@ -339,6 +343,7 @@ mqtt_listener() ->
     [ {"access_rules", t(hoconsc:array(string()))}
     , {"proxy_protocol", t(boolean(), undefined, false)}
     , {"proxy_protocol_timeout", t(duration())}
+    , {"authentication", t(hoconsc:lazy(hoconsc:array(map())))}
     ].
 
 base_listener() ->

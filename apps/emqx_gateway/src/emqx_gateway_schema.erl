@@ -221,25 +221,25 @@ fields(ExtraField) ->
     Mod = list_to_atom(ExtraField++"_schema"),
     Mod:fields(ExtraField).
 
-authentication() ->
-    hoconsc:union(
-      [ undefined
-      , hoconsc:ref(emqx_authn_mnesia, config)
-      , hoconsc:ref(emqx_authn_mysql, config)
-      , hoconsc:ref(emqx_authn_pgsql, config)
-      , hoconsc:ref(emqx_authn_mongodb, standalone)
-      , hoconsc:ref(emqx_authn_mongodb, 'replica-set')
-      , hoconsc:ref(emqx_authn_mongodb, 'sharded-cluster')
-      , hoconsc:ref(emqx_authn_redis, standalone)
-      , hoconsc:ref(emqx_authn_redis, cluster)
-      , hoconsc:ref(emqx_authn_redis, sentinel)
-      , hoconsc:ref(emqx_authn_http, get)
-      , hoconsc:ref(emqx_authn_http, post)
-      , hoconsc:ref(emqx_authn_jwt, 'hmac-based')
-      , hoconsc:ref(emqx_authn_jwt, 'public-key')
-      , hoconsc:ref(emqx_authn_jwt, 'jwks')
-      , hoconsc:ref(emqx_enhanced_authn_scram_mnesia, config)
-      ]).
+% authentication() ->
+%     hoconsc:union(
+%       [ undefined
+%       , hoconsc:ref(emqx_authn_mnesia, config)
+%       , hoconsc:ref(emqx_authn_mysql, config)
+%       , hoconsc:ref(emqx_authn_pgsql, config)
+%       , hoconsc:ref(emqx_authn_mongodb, standalone)
+%       , hoconsc:ref(emqx_authn_mongodb, 'replica-set')
+%       , hoconsc:ref(emqx_authn_mongodb, 'sharded-cluster')
+%       , hoconsc:ref(emqx_authn_redis, standalone)
+%       , hoconsc:ref(emqx_authn_redis, cluster)
+%       , hoconsc:ref(emqx_authn_redis, sentinel)
+%       , hoconsc:ref(emqx_authn_http, get)
+%       , hoconsc:ref(emqx_authn_http, post)
+%       , hoconsc:ref(emqx_authn_jwt, 'hmac-based')
+%       , hoconsc:ref(emqx_authn_jwt, 'public-key')
+%       , hoconsc:ref(emqx_authn_jwt, 'jwks')
+%       , hoconsc:ref(emqx_enhanced_authn_scram_mnesia, config)
+%       ]).
 
 gateway_common_options() ->
     [ {enable, t(boolean(), undefined, true)}
@@ -247,7 +247,7 @@ gateway_common_options() ->
     , {idle_timeout, t(duration(), undefined, <<"30s">>)}
     , {mountpoint, t(binary())}
     , {clientinfo_override, t(ref(clientinfo_override))}
-    , {authentication,  t(authentication(), undefined, undefined)}
+    , {authentication,  t(hoconsc:lazy(list()))}
     ].
 
 %%--------------------------------------------------------------------

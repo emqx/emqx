@@ -27,7 +27,8 @@
         , fields/1
         ]).
 
--export([ create/1
+-export([ schema/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -75,6 +76,9 @@ salt_position(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+schema() ->
+   hoconsc:ref(?MODULE, config). 
 
 create(#{ query := Query
         , '_unique' := Unique

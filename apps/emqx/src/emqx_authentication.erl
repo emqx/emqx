@@ -17,18 +17,17 @@
 -module(emqx_authentication).
 
 -behaviour(gen_server).
-
--behaviour(emqx_config_handler).
+-behaviour(hocon_schema).
 
 -include("emqx.hrl").
 -include("logger.hrl").
 
-% -export([ pre_config_update/2
-%         , post_config_update/3
-%         , update_config/2
-%         ]).
+-export([ structs/0
+        , fields/1
+        ]).
 
--export([authenticate/2]).
+-export([ authenticate/2
+        ]).
 
 -export([ start_link/0
         , stop/0
@@ -67,7 +66,7 @@
 
 -define(CHAINS_TAB, emqx_authn_chains).
 
--define(ALL_LISTENERS, <<"all">>).
+% -define(GLOBAL, global).
 
 -define(VER_1, <<"1">>).
 -define(VER_2, <<"2">>).
@@ -78,6 +77,8 @@
                    atom() => term()}.
 -type user_info() :: #{user_id := binary(),
                        atom() => term()}.
+
+-callback schema() -> {ref, Module, Ref} when Module::module(), Ref::atom().
 
 -callback create(Config)
     -> {ok, State}
@@ -137,41 +138,36 @@
 %% APIs
 %%------------------------------------------------------------------------------
 
-% pre_config_update({create_authenticator, Config}, OldConfig) ->
-%     {ok, OldConfig ++ [Config]};
-% pre_config_update({delete_authenticator, ID}, OldConfig) ->
-%     case lookup_authenticator(?CHAIN, ID) of
-%         {error, Reason} -> {error, Reason};
-%         {ok, #{name := Name}} ->
-%             NewConfig = lists:filter(fun(#{<<"name">> := N}) ->
-%                                          N =/= Name
-%                                      end, OldConfig),
-%             {ok, NewConfig}
-%     end;
-% pre_config_update({update_authenticator, ID, Config}, OldConfig) ->
-%     case lookup_authenticator(?CHAIN, ID) of
-%         {error, Reason} -> {error, Reason};
-%         {ok, #{name := Name}} ->
-%             NewConfig = lists:map(fun(#{<<"name">> := N} = C) ->
-%                                       case N =:= Name of
-%                                           true -> maps:merge(C, Config);
-%                                           false -> C
-%                                       end
-%                                   end, OldConfig),
-%             {ok, NewConfig}
-%     end;
-% pre_config_update({update_or_create_authenticator, ID, Config}, OldConfig) ->
-%     case lookup_authenticator(?CHAIN, ID) of
-%         {error, _Reason} -> OldConfig ++ [Config];
-%         {ok, #{name := Name}} ->
-%             NewConfig = lists:map(fun(#{<<"name">> := N} = C) ->
-%                                       case N =:= Name of
-%                                           true -> Config;
-%                                           false -> C
-%                                       end
-%                                   end, OldConfig),
-%             {ok, NewConfig}
-%     end;
+structs() -> [ "authentication" ].
+
+fields("authentication") ->
+    [ {authenticators, fun authenticators/1}
+    ].
+
+authenticators(type) ->
+    hoconsc:array({union, get_schemas()});
+    % hoconsc:array({union, [ hoconsc:ref(emqx_authn_mnesia, config)
+    %                       , hoconsc:ref(emqx_authn_mysql, config)
+    %                       , hoconsc:ref(emqx_authn_pgsql, config)
+    %                       , hoconsc:ref(emqx_authn_mongodb, standalone)
+    %                       , hoconsc:ref(emqx_authn_mongodb, 'replica-set')
+    %                       , hoconsc:ref(emqx_authn_mongodb, 'sharded-cluster')
+    %                       , hoconsc:ref(emqx_authn_redis, standalone)
+    %                       , hoconsc:ref(emqx_authn_redis, cluster)
+    %                       , hoconsc:ref(emqx_authn_redis, sentinel)
+    %                       , hoconsc:ref(emqx_authn_http, get)
+    %                       , hoconsc:ref(emqx_authn_http, post)
+    %                       , hoconsc:ref(emqx_authn_jwt, 'hmac-based')
+    %                       , hoconsc:ref(emqx_authn_jwt, 'public-key')
+    %                       , hoconsc:ref(emqx_authn_jwt, 'jwks')
+    %                       , hoconsc:ref(emqx_enhanced_authn_scram_mnesia, config)
+    %                       ]});
+authenticators(default) -> [];
+authenticators(_) -> undefined.
+
+get_schemas() ->
+    gen_server:call(?MODULE, get_schemas).
+
 % pre_config_update({move_authenticator, ID, Position}, OldConfig) ->
 %     case lookup_authenticator(?CHAIN, ID) of
 %         {error, Reason} -> {error, Reason};
@@ -197,41 +193,6 @@
 %             end
 %     end.
 
-% post_config_update({create_authenticator, #{<<"name">> := Name}}, NewConfig, _OldConfig) ->
-%     case lists:filter(
-%              fun(#{name := N}) ->
-%                  N =:= Name
-%              end, NewConfig) of
-%         [Config] ->
-%             create_authenticator(?CHAIN, Config);
-%         [_Config | _] ->
-%             {error, name_has_be_used}
-%     end;
-% post_config_update({delete_authenticator, ID}, _NewConfig, _OldConfig) ->
-%     case delete_authenticator(?CHAIN, ID) of
-%         ok -> ok;
-%         {error, Reason} -> throw(Reason)
-%     end;
-% post_config_update({update_authenticator, ID, #{<<"name">> := Name}}, NewConfig, _OldConfig) ->
-%     case lists:filter(
-%              fun(#{name := N}) ->
-%                  N =:= Name
-%              end, NewConfig) of
-%         [Config] ->
-%             update_authenticator(?CHAIN, ID, Config);
-%         [_Config | _] ->
-%             {error, name_has_be_used}
-%     end;
-% post_config_update({update_or_create_authenticator, ID, #{<<"name">> := Name}}, NewConfig, _OldConfig) ->
-%     case lists:filter(
-%              fun(#{name := N}) ->
-%                  N =:= Name
-%              end, NewConfig) of
-%         [Config] ->
-%             update_or_create_authenticator(?CHAIN, ID, Config);
-%         [_Config | _] ->
-%             {error, name_has_be_used}
-%     end;
 % post_config_update({move_authenticator, ID, Position}, _NewConfig, _OldConfig) ->
 %     NPosition = case Position of
 %                     <<"top">> -> top;
@@ -245,10 +206,6 @@
 %                         end
 %                 end,
 %     move_authenticator(?CHAIN, ID, NPosition).
-
-% update_config(Path, ConfigRequest) ->
-%     emqx:update_config(Path, ConfigRequest, #{rawconf_with_defaults => true}).
-
 
 %%------------------------------------------------------------------------------
 %% Listeners
@@ -280,35 +237,31 @@
 % delete_authentcaiton_for_listener(ListenerName) ->
 %     emqx_authentication:delete_chain(ListenerName).
 
-
-% initialize() ->
-%     AuthNConfig = emqx:get_config([authentication], []),
-%     initialize(AuthNConfig).
-
-% initialize(AuthNConfig) ->
-%     {ok, _} = create_chain(?ALL_LISTENERS),
-%     lists:foreach(fun(#{name := Name} = AuthNConfig0) ->
-%                       case create_authenticator({mqtt, ?ALL_LISTENERS}, AuthNConfig0) of
-%                           {ok, _} ->
-%                             ok;
-%                           {error, Reason} ->
-%                             ?LOG(error, "Failed to create authenticator '~s': ~p", [Name, Reason])
-%                       end
-%                   end, AuthNConfig),
-%     ok.
-
 authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthResult) ->
     case ets:lookup(?CHAINS_TAB, Listener) of
         [#chain{authenticators = Authenticators}] when Authenticators =/= [] ->
             do_authenticate(Authenticators, Credential);
         _ ->
-            case ets:lookup(?CHAINS_TAB, {Protocol, ?ALL_LISTENERS}) of
+            case ets:lookup(?CHAINS_TAB, global_chain(Protocol)) of
                 [#chain{authenticators = Authenticators}] when Authenticators =/= [] ->
                     do_authenticate(Authenticators, Credential);
                 _ ->
                     ignore
             end
     end.
+
+global_chain(mqtt) ->
+    <<"mqtt:global">>;
+global_chain('mqtt-sn') ->
+    <<"mqtt-sn:global">>;
+global_chain(coap) ->
+    <<"coap:global">>;
+global_chain(lwm2m) ->
+    <<"lwm2m:global">>;
+global_chain(stomp) ->
+    <<"stomp:global">>;
+global_chain(_) ->
+    <<"unknown:global">>.
 
 do_authenticate([], _) ->
     {stop, {error, not_authorized}};
@@ -368,7 +321,7 @@ lookup_authenticator(ChainName, AuthenticatorID) ->
             case lists:keyfind(AuthenticatorID, #authenticator.id, Authenticators) of
                 false ->
                     {error, {not_found, {authenticator, AuthenticatorID}}};
-                {_, _, Authenticator} ->
+                Authenticator ->
                     {ok, serialize_authenticator(Authenticator)}
             end
     end.
@@ -416,6 +369,10 @@ init(_Opts) ->
 handle_call({add_provider, AuthNType, Provider}, _From, #{providers := Providers} = State) ->
     reply(ok, State#{providers := Providers#{AuthNType => Provider}});
 
+handle_call(get_schemas, _From, #{providers := Providers} = State) ->
+    Schemas = [Provider:schema() || {_, Provider} <- maps:to_list(Providers)],
+    reply({ok, Schemas}, State);
+
 handle_call({create_chain, Name}, _From, State) ->
     case ets:member(?CHAINS_TAB, Name) of
         true ->
@@ -449,9 +406,9 @@ handle_call({create_authenticator, ChainName, #{name := Name} = Config}, _From, 
     UpdateFun = 
         fun(#chain{authenticators = Authenticators} = Chain) ->
             case lists:keymember(Name, #authenticator.name, Authenticators) of
-                false ->
-                    {error, name_has_be_used};
                 true ->
+                    {error, name_has_be_used};
+                false ->
                     AlreadyExist = fun(ID) ->
                                        lists:keymember(ID, #authenticator.id, Authenticators)
                                    end,
@@ -662,7 +619,7 @@ update_or_create_authenticator(ChainName, AuthenticatorID, #{name := NewName, ty
                                 false ->
                                     case do_create_authenticator(ChainName, AuthenticatorID, Config, Providers) of
                                         {ok, Authenticator} ->
-                                            NAuthenticators = Authenticators ++ [{AuthenticatorID, NewName, Authenticator}],
+                                            NAuthenticators = Authenticators ++ [Authenticator],
                                             true = ets:insert(?CHAINS_TAB, Chain#chain{authenticators = NAuthenticators}),
                                             {ok, serialize_authenticator(Authenticator)};
                                         {error, Reason} ->
@@ -772,7 +729,7 @@ serialize_chain(#chain{name = Name,
      }.
 
 serialize_authenticators(Authenticators) ->
-    [serialize_authenticator(Authenticator) || {_, _, Authenticator} <- Authenticators].
+    [serialize_authenticator(Authenticator) || Authenticator <- Authenticators].
 
 serialize_authenticator(#authenticator{id = ID,
                                        name = Name,

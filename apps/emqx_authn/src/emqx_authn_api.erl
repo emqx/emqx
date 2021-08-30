@@ -21,7 +21,6 @@
 -include("emqx_authn.hrl").
 
 -export([ api_spec/0
-        , authentication/2
         , authenticators/2
         , authenticators2/2
         , move/2
@@ -101,10 +100,11 @@
                                         }
                                   }}}}).
 
+-define(AUTHN, emqx_authentication).
+
 api_spec() ->
     {[ authentication_api()
-     , authenticators_api()
-     , authenticators_api2()
+     , authentication_api2()
      , move_api()
      , import_users_api()
      , users_api()
@@ -114,62 +114,11 @@ api_spec() ->
 authentication_api() ->
     Metadata = #{
         post => #{
-            description => "Enable or disbale authentication",
+            description => "Create a authenticator for global authentication",
             requestBody => #{
                 content => #{
                     'application/json' => #{
-                        schema => #{
-                            type => object,
-                            required => [enable],
-                            properties => #{
-                                enable => #{
-                                    type => boolean,
-                                    example => true
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            responses => #{
-                <<"204">> => #{
-                    description => <<"No Content">>
-                },
-                <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>)
-            }
-        },
-        get => #{
-            description => "Get status of authentication",
-            responses => #{
-                <<"200">> => #{
-                    description => <<"OK">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => #{
-                                type => object,
-                                properties => #{
-                                    enabled => #{
-                                        type => boolean,
-                                        example => true
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    },
-    {"/authentication", Metadata, authentication}.
-
-authenticators_api() ->
-    Metadata = #{
-        post => #{
-            description => "Create authenticator",
-            requestBody => #{
-                content => #{
-                    'application/json' => #{
-                        schema => minirest:ref(<<"authenticator">>),
+                        schema => minirest:ref(<<"authenticator config">>),
                         examples => #{
                             default => #{
                                 summary => <<"Default">>,
@@ -200,7 +149,7 @@ authenticators_api() ->
                     description => <<"Created">>,
                     content => #{
                         'application/json' => #{
-                            schema => minirest:ref(<<"returned_authenticator">>),
+                            schema => minirest:ref(<<"authenticator instance">>),
                             examples => #{
                                 %% TODO: return full content
                                 example1 => #{
@@ -232,7 +181,7 @@ authenticators_api() ->
             }
         },
         get => #{
-            description => "List authenticators",
+            description => "List authenticators for global authentication",
             responses => #{
                 <<"200">> => #{
                     description => <<"OK">>,
@@ -240,7 +189,7 @@ authenticators_api() ->
                         'application/json' => #{
                             schema => #{
                                 type => array,
-                                items => minirest:ref(<<"returned_authenticator">>)
+                                items => minirest:ref(<<"authenticator instance">>)
                             },
                             examples => #{
                                 example1 => #{
@@ -259,12 +208,12 @@ authenticators_api() ->
             }
         }
     },
-    {"/authentication/authenticators", Metadata, authenticators}.
+    {"/authentication", Metadata, authenticators}.
 
-authenticators_api2() ->
+authentication_api2() ->
     Metadata = #{
         get => #{
-            description => "Get authenicator by id",
+            description => "Get authenticator by id",
             parameters => [
                 #{
                     name => id,
@@ -280,7 +229,7 @@ authenticators_api2() ->
                     description => <<"OK">>,
                     content => #{
                         'application/json' => #{
-                            schema => minirest:ref(<<"returned_authenticator">>),
+                            schema => minirest:ref(<<"authenticator instance">>),
                             examples => #{
                                 example1 => #{
                                     summary => <<"Example 1">>,
@@ -348,7 +297,77 @@ authenticators_api2() ->
                     description => <<"OK">>,
                     content => #{
                         'application/json' => #{
-                            schema => minirest:ref(<<"returned_authenticator">>),
+                            schema => minirest:ref(<<"authenticator instance">>),
+                            examples => #{
+                                example1 => #{
+                                    summary => <<"Example 1">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 1">>, ?EXAMPLE_1))
+                                },
+                                example2 => #{
+                                    summary => <<"Example 2">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 2">>, ?EXAMPLE_2))
+                                },
+                                example3 => #{
+                                    summary => <<"Example 3">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 3">>, ?EXAMPLE_3))
+                                },
+                                example4 => #{
+                                    summary => <<"Example 4">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 4">>, ?EXAMPLE_4))
+                                },
+                                example5 => #{
+                                    summary => <<"Example 5">>,
+                                    value => emqx_json:encode(maps:put(id, <<"example 5">>, ?EXAMPLE_5))
+                                }
+                            }
+                        }
+                    }
+                },
+                <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
+                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>),
+                <<"409">> => ?ERR_RESPONSE(<<"Conflict">>)
+            }
+        },
+        patch => #{
+            description => "Update authenticator partially",
+            parameters => [
+                #{
+                    name => id,
+                    in => path,
+                    schema => #{
+                       type => string
+                    },
+                    required => true
+                }
+            ],
+            requestBody => #{
+                content => #{
+                    'application/json' => #{
+                        schema => #{
+                            oneOf => [ minirest:ref(<<"password_based">>)
+                                     , minirest:ref(<<"jwt">>)
+                                     , minirest:ref(<<"scram">>)
+                                     ]
+                        },
+                        examples => #{
+                            example1 => #{
+                                summary => <<"Example 1">>,
+                                value => emqx_json:encode(?EXAMPLE_1)
+                            },
+                            example2 => #{
+                                summary => <<"Example 2">>,
+                                value => emqx_json:encode(?EXAMPLE_2)
+                            }
+                        }
+                    }
+                }
+            },
+            responses => #{
+                <<"200">> => #{
+                    description => <<"OK">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"authenticator instance">>),
                             examples => #{
                                 example1 => #{
                                     summary => <<"Example 1">>,
@@ -399,7 +418,7 @@ authenticators_api2() ->
             }
         }
     },
-    {"/authentication/authenticators/:id", Metadata, authenticators2}.
+    {"/authentication/:id", Metadata, authenticators2}.
 
 move_api() ->
     Metadata = #{
@@ -738,14 +757,33 @@ users2_api() ->
     {"/authentication/authenticators/:id/users/:user_id", Metadata, users2}.
 
 definitions() ->
-    AuthenticatorDef = #{
-        oneOf => [ minirest:ref(<<"password_based">>)
-                 , minirest:ref(<<"jwt">>)
-                 , minirest:ref(<<"scram">>)
-                 ]
+    AuthenticationConfigDef = #{
+        allOf => [
+            #{
+                type => object,
+                required => [name],
+                properties => #{
+                    name => #{
+                        type => string,
+                        example => "exmaple"
+                    }
+                }
+            },
+            #{
+                oneOf => [ minirest:ref(<<"password-based:built-in-database">>)
+                         , minirest:ref(<<"password-based:mysql">>)
+                         , minirest:ref(<<"password-based:postgresql">>)
+                         , minirest:ref(<<"password-based:mongodb">>)
+                         , minirest:ref(<<"password-based:redis">>)
+                         , minirest:ref(<<"password-based:http-server">>)
+                         , minirest:ref(<<"jwt">>)
+                         , minirest:ref(<<"scram:built-in-database">>)
+                         ]
+            }
+        ]
     },
 
-    ReturnedAuthenticatorDef = #{
+    AuthenticationInstanceDef = #{
         allOf => [
             #{
                 type => object,
@@ -754,127 +792,18 @@ definitions() ->
                         type => string
                     }
                 }
-            },
-            #{
-                oneOf => [ minirest:ref(<<"password_based">>)
-                         , minirest:ref(<<"jwt">>)
-                         , minirest:ref(<<"scram">>)
-                         ]
             }
-        ]
-    },
-
-    PasswordBasedDef = #{
-        allOf => [
-            #{
-                type => object,
-                required => [name, mechanism],
-                properties => #{
-                    name => #{
-                        type => string,
-                        example => "exmaple"
-                    },
-                    mechanism => #{
-                        type => string,
-                        enum => [<<"password-based">>],
-                        example => <<"password-based">>
-                    }
-                }
-            },
-            #{
-                oneOf => [ minirest:ref(<<"password_based_built_in_database">>)
-                         , minirest:ref(<<"password_based_mysql">>)
-                         , minirest:ref(<<"password_based_pgsql">>)
-                         , minirest:ref(<<"password_based_mongodb">>)
-                         , minirest:ref(<<"password_based_redis">>)
-                         , minirest:ref(<<"password_based_http_server">>)
-                         ]
-            }
-        ]
-    },
-
-    JWTDef = #{
-        type => object,
-        required => [name, mechanism],
-        properties => #{
-            name => #{
-                type => string,
-                example => "exmaple"
-            },
-            mechanism => #{
-                type => string,
-                enum => [<<"jwt">>],
-                example => <<"jwt">>
-            },
-            use_jwks => #{
-                type => boolean,
-                default => false,
-                example => false
-            },
-            algorithm => #{
-                type => string,
-                enum => [<<"hmac-based">>, <<"public-key">>],
-                default => <<"hmac-based">>,
-                example => <<"hmac-based">>
-            },
-            secret => #{
-                type => string
-            },
-            secret_base64_encoded => #{
-                type => boolean,
-                default => false
-            },
-            certificate => #{
-                type => string
-            },
-            verify_claims => #{
-                type => object,
-                additionalProperties => #{
-                    type => string
-                }
-            },
-            ssl => minirest:ref(<<"ssl">>)
-        }
-    },
-
-    SCRAMDef = #{
-        type => object,
-        required => [name, mechanism, server_type],
-        properties => #{
-            name => #{
-                type => string,
-                example => "exmaple"
-            },
-            mechanism => #{
-                type => string,
-                enum => [<<"scram">>],
-                example => <<"scram">>
-            },
-            server_type => #{
-                type => string,
-                enum => [<<"built-in-database">>],
-                default => <<"built-in-database">>
-            },
-            algorithm => #{
-                type => string,
-                enum => [<<"sha256">>, <<"sha512">>],
-                default => <<"sha256">>
-            },
-            iteration_count => #{
-                type => integer,
-                default => 4096
-            }
-        }
+        ] ++ maps:get(allOf, AuthenticationConfigDef)
     },
 
     PasswordBasedBuiltInDatabaseDef = #{
         type => object,
-        required => [server_type],
+        required => [type],
         properties => #{
-            server_type => #{
+            type => #{
                 type => string,
-                enum => [<<"built-in-database">>],
-                example => <<"built-in-database">>
+                enum => [<<"password-based:built-in-database">>],
+                example => <<"password-based:built-in-database">>
             },
             user_id_type => #{
                 type => string,
@@ -882,23 +811,23 @@ definitions() ->
                 default => <<"username">>,
                 example => <<"username">>
             },
-            password_hash_algorithm => minirest:ref(<<"password_hash_algorithm">>)
+            password_hash_algorithm => minirest:ref(<<"password hash algorithm">>)
         }
     },
 
     PasswordBasedMySQLDef = #{
         type => object,
-        required => [ server_type
+        required => [ type
                     , server
                     , database
                     , username
                     , password
                     , query],
         properties => #{
-            server_type => #{
+            type => #{
                 type => string,
-                enum => [<<"mysql">>],
-                example => <<"mysql">>
+                enum => [<<"password-based:mysql">>],
+                example => <<"password-based:mysql">>
             },
             server => #{
                 type => string,
@@ -944,19 +873,19 @@ definitions() ->
         }
     },
 
-    PasswordBasedPgSQLDef = #{
+    PasswordBasedPostgreSQLDef = #{
         type => object,
-        required => [ server_type
+        required => [ type
                     , server
                     , database
                     , username
                     , password
                     , query],
         properties => #{
-            server_type => #{
+            type => #{
                 type => string,
-                enum => [<<"postgresql">>],
-                example => <<"postgresql">>
+                enum => [<<"password-based:postgresql">>],
+                example => <<"password-based:postgresql">>
             },
             server => #{
                 type => string,
@@ -998,7 +927,7 @@ definitions() ->
 
     PasswordBasedMongoDBDef = #{
         type => object,
-        required => [ server_type
+        required => [ type
                     , server
                     , servers
                     , replica_set_name
@@ -1010,10 +939,10 @@ definitions() ->
                     , password_hash_field
                     ],
         properties => #{
-            server_type => #{
+            type => #{
                 type => string,
-                enum => [<<"mongodb">>],
-                example => [<<"mongodb">>]
+                enum => [<<"password-based:mongodb">>],
+                example => [<<"password-based:mongodb">>]
             },
             server => #{
                 description => <<"Mutually exclusive with the 'servers' field, only valid in standalone mode">>,
@@ -1083,7 +1012,7 @@ definitions() ->
 
     PasswordBasedRedisDef = #{
         type => object,
-        required => [ server_type
+        required => [ type
                     , server
                     , servers
                     , password
@@ -1091,10 +1020,10 @@ definitions() ->
                     , query
                     ],
         properties => #{
-            server_type => #{
+            type => #{
                 type => string,
-                enum => [<<"redis">>],
-                example => [<<"redis">>]
+                enum => [<<"password-based:redis">>],
+                example => [<<"password-based:redis">>]
             },
             server => #{
                 description => <<"Mutually exclusive with the 'servers' field, only valid in standalone mode">>,
@@ -1149,15 +1078,15 @@ definitions() ->
 
     PasswordBasedHTTPServerDef = #{
         type => object,
-        required => [ server_type
+        required => [ type
                     , url
                     , form_data
                     ],
         properties => #{
-            server_type => #{
+            type => #{
                 type => string,
-                enum => [<<"http-server">>],
-                example => <<"http-server">>
+                enum => [<<"password-based:http-server">>],
+                example => <<"password-based:http-server">>
             },
             method => #{
                 type => string,
@@ -1200,6 +1129,75 @@ definitions() ->
             enable_pipelining => #{
                 type => boolean,
                 default => true
+            }
+        }
+    },
+
+    JWTDef = #{
+        type => object,
+        required => [name, type],
+        properties => #{
+            name => #{
+                type => string,
+                example => "exmaple"
+            },
+            type => #{
+                type => string,
+                enum => [<<"jwt">>],
+                example => <<"jwt">>
+            },
+            use_jwks => #{
+                type => boolean,
+                default => false,
+                example => false
+            },
+            algorithm => #{
+                type => string,
+                enum => [<<"hmac-based">>, <<"public-key">>],
+                default => <<"hmac-based">>,
+                example => <<"hmac-based">>
+            },
+            secret => #{
+                type => string
+            },
+            secret_base64_encoded => #{
+                type => boolean,
+                default => false
+            },
+            certificate => #{
+                type => string
+            },
+            verify_claims => #{
+                type => object,
+                additionalProperties => #{
+                    type => string
+                }
+            },
+            ssl => minirest:ref(<<"ssl">>)
+        }
+    },
+
+    SCRAMBuiltInDatabaseDef = #{
+        type => object,
+        required => [name, type],
+        properties => #{
+            name => #{
+                type => string,
+                example => "exmaple"
+            },
+            type => #{
+                type => string,
+                enum => [<<"scram:built-in-database">>],
+                example => <<"scram:built-in-database">>
+            },
+            algorithm => #{
+                type => string,
+                enum => [<<"sha256">>, <<"sha512">>],
+                default => <<"sha256">>
+            },
+            iteration_count => #{
+                type => integer,
+                default => 4096
             }
         }
     },
@@ -1269,36 +1267,35 @@ definitions() ->
         }
     },
 
-    [ #{<<"authenticator">> => AuthenticatorDef}
-    , #{<<"returned_authenticator">> => ReturnedAuthenticatorDef}
-    , #{<<"password_based">> => PasswordBasedDef}
+    [ #{<<"authenticator config">> => AuthenticationConfigDef}
+    , #{<<"authenticator instance">> => AuthenticationInstanceDef}
+    , #{<<"password-based:built-in-database">> => PasswordBasedBuiltInDatabaseDef}
+    , #{<<"password-based:mysql">> => PasswordBasedMySQLDef}
+    , #{<<"password-based:postgresql">> => PasswordBasedPostgreSQLDef}
+    , #{<<"password-based:mongodb">> => PasswordBasedMongoDBDef}
+    , #{<<"password-based:redis">> => PasswordBasedRedisDef}
+    , #{<<"password-based:http_server">> => PasswordBasedHTTPServerDef}
     , #{<<"jwt">> => JWTDef}
-    , #{<<"scram">> => SCRAMDef}
-    , #{<<"password_based_built_in_database">> => PasswordBasedBuiltInDatabaseDef}
-    , #{<<"password_based_mysql">> => PasswordBasedMySQLDef}
-    , #{<<"password_based_pgsql">> => PasswordBasedPgSQLDef}
-    , #{<<"password_based_mongodb">> => PasswordBasedMongoDBDef}
-    , #{<<"password_based_redis">> => PasswordBasedRedisDef}
-    , #{<<"password_based_http_server">> => PasswordBasedHTTPServerDef}
-    , #{<<"password_hash_algorithm">> => PasswordHashAlgorithmDef}
+    , #{<<"scram:built-in-database">> => SCRAMBuiltInDatabaseDef}
+    , #{<<"password hash algorithm">> => PasswordHashAlgorithmDef}
     , #{<<"ssl">> => SSLDef}
     , #{<<"error">> => ErrorDef}
     ].
 
-authentication(post, #{body := Config}) ->
-    case Config of
-        #{<<"enable">> := Enable} ->
-            {ok, _} = emqx_authn:update_config([authentication, enable], {enable, Enable}),
-            {204};
-        _ ->
-            serialize_error({missing_parameter, enable})
-    end;
-authentication(get, _Params) ->
-    Enabled = emqx_authn:is_enabled(),
-    {200, #{enabled => Enabled}}.
+% authentication(post, #{body := Config}) ->
+%     case Config of
+%         #{<<"enable">> := Enable} ->
+%             {ok, _} = emqx_authn:update_config([authentication, enable], {enable, Enable}),
+%             {204};
+%         _ ->
+%             serialize_error({missing_parameter, enable})
+%     end;
+% authentication(get, _Params) ->
+%     Enabled = ?AUTHN:is_enabled(),
+%     {200, #{enabled => Enabled}}.
 
 authenticators(post, #{body := Config}) ->
-    case emqx_authn:update_config([authentication, authenticators], {create_authenticator, Config}) of
+    case emqx_authn:update_config([authentication, authenticators], {create_authenticator, ?GLOBAL, Config}) of
         {ok, #{post_config_update := #{emqx_authn := #{id := ID, name := Name}},
                raw_config := RawConfig}} ->
             [RawConfig1] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],
@@ -1308,14 +1305,14 @@ authenticators(post, #{body := Config}) ->
     end;
 authenticators(get, _Params) ->
     RawConfig = get_raw_config([authentication, authenticators]),
-    {ok, Authenticators} = emqx_authn:list_authenticators(?CHAIN),
+    {ok, Authenticators} = ?AUTHN:list_authenticators(?GLOBAL),
     NAuthenticators = lists:zipwith(fun(#{<<"name">> := Name} = Config, #{id := ID, name := Name}) ->
                                         Config#{id => ID}
                                     end, RawConfig, Authenticators),
     {200, NAuthenticators}.
 
 authenticators2(get, #{bindings := #{id := AuthenticatorID}}) ->
-    case emqx_authn:lookup_authenticator(?CHAIN, AuthenticatorID) of
+    case ?AUTHN:lookup_authenticator(?GLOBAL, AuthenticatorID) of
         {ok, #{id := ID, name := Name}} ->
             RawConfig = get_raw_config([authentication, authenticators]),
             [RawConfig1] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],
@@ -1325,7 +1322,7 @@ authenticators2(get, #{bindings := #{id := AuthenticatorID}}) ->
     end;
 authenticators2(put, #{bindings := #{id := AuthenticatorID}, body := Config}) ->
     case emqx_authn:update_config([authentication, authenticators],
-                                  {update_or_create_authenticator, AuthenticatorID, Config}) of
+                                  {update_or_create_authenticator, ?GLOBAL, AuthenticatorID, Config}) of
         {ok, #{post_config_update := #{emqx_authn := #{id := ID, name := Name}},
                raw_config := RawConfig}} ->
             [RawConfig0] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],
@@ -1335,7 +1332,7 @@ authenticators2(put, #{bindings := #{id := AuthenticatorID}, body := Config}) ->
     end;
 authenticators2(patch, #{bindings := #{id := AuthenticatorID}, body := Config}) ->
     case emqx_authn:update_config([authentication, authenticators],
-                                  {update_authenticator, AuthenticatorID, Config}) of
+                                  {update_authenticator, ?GLOBAL, AuthenticatorID, Config}) of
         {ok, #{post_config_update := #{emqx_authn := #{id := ID, name := Name}},
                raw_config := RawConfig}} ->
             [RawConfig0] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],
@@ -1344,17 +1341,30 @@ authenticators2(patch, #{bindings := #{id := AuthenticatorID}, body := Config}) 
             serialize_error(Reason)
     end;
 authenticators2(delete, #{bindings := #{id := AuthenticatorID}}) ->
-    case emqx_authn:update_config([authentication, authenticators], {delete_authenticator, AuthenticatorID}) of
+    case emqx_authn:update_config([authentication, authenticators], {delete_authenticator, ?GLOBAL, AuthenticatorID}) of
         {ok, _} ->
             {204};
         {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end.
 
+% % POST listeners/tcp:default/authentcaiton
+% authenticators3(post, #{bindings := #{listener_name := ListenerName},
+%                         body := AuthenticatorConfig}) ->
+%     {Protocol, Name} = emqx_listeners:parse_listener_id(ListenerName)
+%     case emqx_authn:update_config([listener, Protocol, Name, authentication], {create_authenticator, Config}) of
+%         {ok, #{post_config_update := #{?AUTHN := #{id := ID, name := Name}},
+%                raw_config := RawConfig}} ->
+%             [RawConfig0] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],
+%             {200, RawConfig0#{id => ID}};
+%         {error, {_, _, Reason}} ->
+%             serialize_error(Reason)
+%     end
+
 move(post, #{bindings := #{id := AuthenticatorID}, body := Body}) ->
     case Body of
         #{<<"position">> := Position} ->
-            case emqx_authn:update_config([authentication, authenticators], {move_authenticator, AuthenticatorID, Position}) of
+            case emqx_authn:update_config([authentication, authenticators], {move_authenticator, ?GLOBAL, AuthenticatorID, Position}) of
                 {ok, _} -> {204};
                 {error, {_, _, Reason}} -> serialize_error(Reason)
             end;
@@ -1365,7 +1375,7 @@ move(post, #{bindings := #{id := AuthenticatorID}, body := Body}) ->
 import_users(post, #{bindings := #{id := AuthenticatorID}, body := Body}) ->
     case Body of
         #{<<"filename">> := Filename} ->
-            case emqx_authn:import_users(?CHAIN, AuthenticatorID, Filename) of
+            case ?AUTHN:import_users(?GLOBAL, AuthenticatorID, Filename) of
                 ok -> {204};
                 {error, Reason} -> serialize_error(Reason)
             end;
@@ -1377,9 +1387,9 @@ users(post, #{bindings := #{id := AuthenticatorID}, body := UserInfo}) ->
     case UserInfo of
         #{ <<"user_id">> := UserID, <<"password">> := Password} ->
             Superuser = maps:get(<<"superuser">>, UserInfo, false),
-            case emqx_authn:add_user(?CHAIN, AuthenticatorID, #{ user_id => UserID
-                                                               , password => Password
-                                                               , superuser => Superuser}) of
+            case ?AUTHN:add_user(?GLOBAL, AuthenticatorID, #{ user_id => UserID
+                                                            , password => Password
+                                                            , superuser => Superuser}) of
                 {ok, User} ->
                     {201, User};
                 {error, Reason} ->
@@ -1391,7 +1401,7 @@ users(post, #{bindings := #{id := AuthenticatorID}, body := UserInfo}) ->
             serialize_error({missing_parameter, user_id})
     end;
 users(get, #{bindings := #{id := AuthenticatorID}}) ->
-    case emqx_authn:list_users(?CHAIN, AuthenticatorID) of
+    case ?AUTHN:list_users(?GLOBAL, AuthenticatorID) of
         {ok, Users} ->
             {200, Users};
         {error, Reason} ->
@@ -1406,7 +1416,7 @@ users2(patch, #{bindings := #{id := AuthenticatorID,
         true ->
             serialize_error({missing_parameter, password});
         false ->
-            case emqx_authn:update_user(?CHAIN, AuthenticatorID, UserID, UserInfo) of
+            case ?AUTHN:update_user(?GLOBAL, AuthenticatorID, UserID, UserInfo) of
                 {ok, User} ->
                     {200, User};
                 {error, Reason} ->
@@ -1414,14 +1424,14 @@ users2(patch, #{bindings := #{id := AuthenticatorID,
             end
     end;
 users2(get, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
-    case emqx_authn:lookup_user(?CHAIN, AuthenticatorID, UserID) of
+    case ?AUTHN:lookup_user(?GLOBAL, AuthenticatorID, UserID) of
         {ok, User} ->
             {200, User};
         {error, Reason} ->
             serialize_error(Reason)
     end;
 users2(delete, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
-    case emqx_authn:delete_user(?CHAIN, AuthenticatorID, UserID) of
+    case ?AUTHN:delete_user(?GLOBAL, AuthenticatorID, UserID) of
         ok ->
             {204};
         {error, Reason} ->
