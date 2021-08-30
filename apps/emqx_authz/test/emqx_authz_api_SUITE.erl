@@ -38,54 +38,59 @@
 -define(BASE_PATH, "api").
 
 -define(SOURCE1, #{<<"type">> => <<"http">>,
-                 <<"config">> => #{
-                    <<"url">> => <<"https://fake.com:443/">>,
-                    <<"headers">> => #{},
-                    <<"method">> => <<"get">>,
-                    <<"request_timeout">> => 5000}
-                }).
+                   <<"enable">> => true,
+                   <<"config">> => #{
+                      <<"url">> => <<"https://fake.com:443/">>,
+                      <<"headers">> => #{},
+                      <<"method">> => <<"get">>,
+                      <<"request_timeout">> => 5000}
+                  }).
 -define(SOURCE2, #{<<"type">> => <<"mongo">>,
-                 <<"config">> => #{
-                        <<"mongo_type">> => <<"single">>,
-                        <<"server">> => <<"127.0.0.1:27017">>,
-                        <<"pool_size">> => 1,
-                        <<"database">> => <<"mqtt">>,
-                        <<"ssl">> => #{<<"enable">> => false}},
-                 <<"collection">> => <<"fake">>,
-                 <<"find">> => #{<<"a">> => <<"b">>}
-                }).
+                   <<"enable">> => true,
+                   <<"config">> => #{
+                          <<"mongo_type">> => <<"single">>,
+                          <<"server">> => <<"127.0.0.1:27017">>,
+                          <<"pool_size">> => 1,
+                          <<"database">> => <<"mqtt">>,
+                          <<"ssl">> => #{<<"enable">> => false}},
+                   <<"collection">> => <<"fake">>,
+                   <<"find">> => #{<<"a">> => <<"b">>}
+                  }).
 -define(SOURCE3, #{<<"type">> => <<"mysql">>,
-                 <<"config">> => #{
-                     <<"server">> => <<"127.0.0.1:27017">>,
-                     <<"pool_size">> => 1,
-                     <<"database">> => <<"mqtt">>,
-                     <<"username">> => <<"xx">>,
-                     <<"password">> => <<"ee">>,
-                     <<"auto_reconnect">> => true,
-                     <<"ssl">> => #{<<"enable">> => false}},
-                 <<"sql">> => <<"abcb">>
-                }).
+                   <<"enable">> => true,
+                   <<"config">> => #{
+                       <<"server">> => <<"127.0.0.1:27017">>,
+                       <<"pool_size">> => 1,
+                       <<"database">> => <<"mqtt">>,
+                       <<"username">> => <<"xx">>,
+                       <<"password">> => <<"ee">>,
+                       <<"auto_reconnect">> => true,
+                       <<"ssl">> => #{<<"enable">> => false}},
+                   <<"sql">> => <<"abcb">>
+                  }).
 -define(SOURCE4, #{<<"type">> => <<"pgsql">>,
-                 <<"config">> => #{
-                     <<"server">> => <<"127.0.0.1:27017">>,
-                     <<"pool_size">> => 1,
-                     <<"database">> => <<"mqtt">>,
-                     <<"username">> => <<"xx">>,
-                     <<"password">> => <<"ee">>,
-                     <<"auto_reconnect">> => true,
-                     <<"ssl">> => #{<<"enable">> => false}},
-                 <<"sql">> => <<"abcb">>
-                }).
+                   <<"enable">> => true,
+                   <<"config">> => #{
+                       <<"server">> => <<"127.0.0.1:27017">>,
+                       <<"pool_size">> => 1,
+                       <<"database">> => <<"mqtt">>,
+                       <<"username">> => <<"xx">>,
+                       <<"password">> => <<"ee">>,
+                       <<"auto_reconnect">> => true,
+                       <<"ssl">> => #{<<"enable">> => false}},
+                   <<"sql">> => <<"abcb">>
+                  }).
 -define(SOURCE5, #{<<"type">> => <<"redis">>,
-                 <<"config">> => #{
-                     <<"server">> => <<"127.0.0.1:27017">>,
-                     <<"pool_size">> => 1,
-                     <<"database">> => 0,
-                     <<"password">> => <<"ee">>,
-                     <<"auto_reconnect">> => true,
-                     <<"ssl">> => #{<<"enable">> => false}},
-                 <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
-                }).
+                   <<"enable">> => true,
+                   <<"config">> => #{
+                       <<"server">> => <<"127.0.0.1:27017">>,
+                       <<"pool_size">> => 1,
+                       <<"database">> => 0,
+                       <<"password">> => <<"ee">>,
+                       <<"auto_reconnect">> => true,
+                       <<"ssl">> => #{<<"enable">> => false}},
+                   <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
+                  }).
 
 all() ->
     emqx_ct:all(?MODULE).
@@ -134,7 +139,7 @@ set_special_configs(emqx_dashboard) ->
     emqx_config:put([emqx_dashboard], Config),
     ok;
 set_special_configs(emqx_authz) ->
-    emqx_config:put([authorization], #{rules => []}),
+    emqx_config:put([authorization], #{sources => []}),
     ok;
 set_special_configs(_App) ->
     ok.
@@ -145,89 +150,86 @@ set_special_configs(_App) ->
 
 t_api(_) ->
     {ok, 200, Result1} = request(get, uri(["authorization"]), []),
-    ?assertEqual([], get_rules(Result1)),
+    ?assertEqual([], get_sources(Result1)),
 
     lists:foreach(fun(_) ->
                         {ok, 204, _} = request(post, uri(["authorization"]), ?SOURCE1)
                   end, lists:seq(1, 20)),
     {ok, 200, Result2} = request(get, uri(["authorization"]), []),
-    ?assertEqual(20, length(get_rules(Result2))),
+    ?assertEqual(20, length(get_sources(Result2))),
 
     lists:foreach(fun(Page) ->
                           Query = "?page=" ++ integer_to_list(Page) ++ "&&limit=10",
                           Url = uri(["authorization" ++ Query]),
                           {ok, 200, Result} = request(get, Url, []),
-                          ?assertEqual(10, length(get_rules(Result)))
+                          ?assertEqual(10, length(get_sources(Result)))
                   end, lists:seq(1, 2)),
 
     {ok, 204, _} = request(put, uri(["authorization"]), [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4]),
 
     {ok, 200, Result3} = request(get, uri(["authorization"]), []),
-    Rules = get_rules(Result3),
-    ?assertEqual(4, length(Rules)),
+    Sources = get_sources(Result3),
     ?assertMatch([ #{<<"type">> := <<"http">>}
                  , #{<<"type">> := <<"mongo">>}
                  , #{<<"type">> := <<"mysql">>}
                  , #{<<"type">> := <<"pgsql">>}
-                 ], Rules),
+                 ], Sources),
 
-    #{<<"annotations">> := #{<<"id">> := Id}} = lists:nth(2, Rules),
+    {ok, 204, _} = request(put, uri(["authorization", "http"]),  ?SOURCE1#{<<"enable">> := false}),
 
-    {ok, 204, _} = request(put, uri(["authorization", binary_to_list(Id)]), ?SOURCE5),
+    {ok, 200, Result4} = request(get, uri(["authorization", "http"]), []),
+    ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result4)),
 
-    {ok, 200, Result4} = request(get, uri(["authorization", binary_to_list(Id)]), []),
-    ?assertMatch(#{<<"type">> := <<"redis">>}, jsx:decode(Result4)),
-
-    lists:foreach(fun(#{<<"annotations">> := #{<<"id">> := Id0}}) ->
-                    {ok, 204, _} = request(delete, uri(["authorization", binary_to_list(Id0)]), [])
-                  end, Rules),
+    lists:foreach(fun(#{<<"type">> := Type}) ->
+                    {ok, 204, _} = request(delete, uri(["authorization", binary_to_list(Type)]), [])
+                  end, Sources),
     {ok, 200, Result5} = request(get, uri(["authorization"]), []),
-    ?assertEqual([], get_rules(Result5)),
+    ?assertEqual([], get_sources(Result5)),
     ok.
 
-t_move_rule(_) ->
+t_move_source(_) ->
     {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5]),
-    [#{annotations := #{id := Id1}},
-     #{annotations := #{id := Id2}},
-     #{annotations := #{id := Id3}},
-     #{annotations := #{id := Id4}},
-     #{annotations := #{id := Id5}}
-    ] = emqx_authz:lookup(),
+    ?assertMatch([ #{type := http}
+                 , #{type := mongo}
+                 , #{type := mysql}
+                 , #{type := pgsql}
+                 , #{type := redis}
+                 ], emqx_authz:lookup()),
 
-    {ok, 204, _} = request(post, uri(["authorization", Id4, "move"]),
+    {ok, 204, _} = request(post, uri(["authorization", "pgsql", "move"]),
                            #{<<"position">> => <<"top">>}),
-    ?assertMatch([#{annotations := #{id := Id4}},
-                  #{annotations := #{id := Id1}},
-                  #{annotations := #{id := Id2}},
-                  #{annotations := #{id := Id3}},
-                  #{annotations := #{id := Id5}}
+    ?assertMatch([ #{type := pgsql}
+                 , #{type := http}
+                 , #{type := mongo}
+                 , #{type := mysql}
+                 , #{type := redis}
                  ], emqx_authz:lookup()),
 
-    {ok, 204, _} = request(post, uri(["authorization", Id1, "move"]),
+    {ok, 204, _} = request(post, uri(["authorization", "http", "move"]),
                            #{<<"position">> => <<"bottom">>}),
-    ?assertMatch([#{annotations := #{id := Id4}},
-                  #{annotations := #{id := Id2}},
-                  #{annotations := #{id := Id3}},
-                  #{annotations := #{id := Id5}},
-                  #{annotations := #{id := Id1}}
+    ?assertMatch([ #{type := pgsql}
+                 , #{type := mongo}
+                 , #{type := mysql}
+                 , #{type := redis}
+                 , #{type := http}
                  ], emqx_authz:lookup()),
 
-    {ok, 204, _} = request(post, uri(["authorization", Id3, "move"]),
-                           #{<<"position">> => #{<<"before">> => Id4}}),
-    ?assertMatch([#{annotations := #{id := Id3}},
-                  #{annotations := #{id := Id4}},
-                  #{annotations := #{id := Id2}},
-                  #{annotations := #{id := Id5}},
-                  #{annotations := #{id := Id1}}
+    {ok, 204, _} = request(post, uri(["authorization", "mysql", "move"]),
+                           #{<<"position">> => #{<<"before">> => <<"pgsql">>}}),
+    ?assertMatch([ #{type := mysql}
+                 , #{type := pgsql}
+                 , #{type := mongo}
+                 , #{type := redis}
+                 , #{type := http}
                  ], emqx_authz:lookup()),
 
-    {ok, 204, _} = request(post, uri(["authorization", Id2, "move"]),
-                           #{<<"position">> => #{<<"after">> => Id1}}),
-    ?assertMatch([#{annotations := #{id := Id3}},
-                  #{annotations := #{id := Id4}},
-                  #{annotations := #{id := Id5}},
-                  #{annotations := #{id := Id1}},
-                  #{annotations := #{id := Id2}}
+    {ok, 204, _} = request(post, uri(["authorization", "mongo", "move"]),
+                           #{<<"position">> => #{<<"after">> => <<"http">>}}),
+    ?assertMatch([ #{type := mysql}
+                 , #{type := pgsql}
+                 , #{type := redis}
+                 , #{type := http}
+                 , #{type := mongo}
                  ], emqx_authz:lookup()),
 
     ok.
@@ -256,8 +258,8 @@ uri(Parts) when is_list(Parts) ->
     NParts = [E || E <- Parts],
     ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION | NParts]).
 
-get_rules(Result) ->
-    maps:get(<<"rules">>, jsx:decode(Result), []).
+get_sources(Result) ->
+    maps:get(<<"sources">>, jsx:decode(Result), []).
 
 auth_header_() ->
     Username = <<"admin">>,
