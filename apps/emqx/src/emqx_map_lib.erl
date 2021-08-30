@@ -32,8 +32,7 @@
 -export_type([config_key/0, config_key_path/0]).
 -type config_key() :: atom() | binary().
 -type config_key_path() :: [config_key()].
--type convert_fun() :: fun((K::any(), V::any(), Args::list()) ->
-    {K1::any(), V1::any()} | drop).
+-type convert_fun() :: fun((...) -> {K1::any(), V1::any()} | drop).
 
 %%-----------------------------------------------------------------
 -spec deep_get(config_key_path(), map()) -> term().
