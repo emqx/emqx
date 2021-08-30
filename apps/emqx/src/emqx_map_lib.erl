@@ -131,20 +131,20 @@ jsonable_map(Map, JsonableFun) ->
     deep_convert(Map, fun binary_string_kv/3, [JsonableFun]).
 
 -spec diff_maps(map(), map()) ->
-    #{added := [map()], identical := [map()], removed := [map()],
-      changed := [#{any() => {OldValue::any(), NewValue::any()}}]}.
+    #{added := map(), identical := map(), removed := map(),
+      changed := #{any() => {OldValue::any(), NewValue::any()}}}.
 diff_maps(NewMap, OldMap) ->
-    InitR = #{identical => [], changed => [], removed => []},
+    InitR = #{identical => #{}, changed => #{}, removed => #{}},
     {Result, RemInNew} =
         lists:foldl(fun({OldK, OldV}, {Result0 = #{identical := I, changed := U, removed := D},
                         RemNewMap}) ->
             Result1 = case maps:find(OldK, NewMap) of
                 error ->
-                    Result0#{removed => [#{OldK => OldV} | D]};
+                    Result0#{removed => D#{OldK => OldV}};
                 {ok, NewV} when NewV == OldV ->
-                    Result0#{identical => [#{OldK => OldV} | I]};
+                    Result0#{identical => I#{OldK => OldV}};
                 {ok, NewV} ->
-                    Result0#{changed => [#{OldK => {OldV, NewV}} | U]}
+                    Result0#{changed => U#{OldK => {OldV, NewV}}}
             end,
             {Result1, maps:remove(OldK, RemNewMap)}
         end, {InitR, NewMap}, maps:to_list(OldMap)),
