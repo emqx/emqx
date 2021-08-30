@@ -20,6 +20,7 @@
 
 -import(emqx_mgmt_util, [ properties/1
                         , schema/1
+                        , object_schema/1
                         , object_schema/2
                         , object_array_schema/2
                         , error_schema/2
@@ -27,10 +28,8 @@
 
 -export([api_spec/0]).
 
--export([ list_topic_metrics/2
+-export([ topic_metrics/2
         , operate_topic_metrics/2
-        , reset_all_topic_metrics/2
-        , reset_topic_metrics/2
         ]).
 
 -define(ERROR_TOPIC, 'ERROR_TOPIC').
@@ -40,15 +39,10 @@
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
 api_spec() ->
-    {
-        [
-            list_topic_metrics_api(),
-            get_topic_metrics_api(),
-            reset_all_topic_metrics_api(),
-            reset_topic_metrics_api()
-        ],
-        []
-    }.
+    {[
+        topic_metrics_api(),
+        operation_topic_metrics_api()
+    ],[]}.
 
 properties() ->
     properties([
@@ -75,60 +69,56 @@ properties() ->
                            {'messages.qos2.out.rate', number}]}
     ]).
 
-list_topic_metrics_api() ->
+topic_metrics_api() ->
     MetaData = #{
         get => #{
             description => <<"List topic metrics">>,
             responses => #{
                 <<"200">> => object_array_schema(properties(), <<"List topic metrics">>)
             }
-        }
-    },
-    {"/mqtt/topic_metrics", MetaData, list_topic_metrics}.
-
-get_topic_metrics_api() ->
-    MetaData = #{
-        get => #{
-            description => <<"List topic metrics">>,
-            parameters => [topic_param()],
-            responses => #{
-                <<"200">> => object_schema(properties(), <<"List topic metrics">>)}},
+        },
         put => #{
-            description => <<"Register topic metrics">>,
-            parameters => [topic_param()],
+            description => <<"Reset topic metrics by topic name, or all">>,
+            'requestBody' => object_schema(properties([
+                {topic, string, <<"no topic will reset all">>},
+                {action, string, <<"Action, default reset">>, [reset]}
+            ])),
             responses => #{
-                <<"200">> => schema(<<"Register topic metrics">>),
+                <<"200">> => schema(<<"Reset topic metrics success">>),
+                <<"404">> => error_schema(<<"Topic not found">>, [?ERROR_TOPIC])
+            }
+        },
+        post => #{
+            description => <<"Create topic metrics">>,
+            'requestBody' => object_schema(properties([{topic, string}])),
+            responses => #{
+                <<"200">> => schema(<<"Create topic metrics success">>),
                 <<"409">> => error_schema(<<"Topic metrics max limit">>, [?EXCEED_LIMIT]),
                 <<"400">> => error_schema(<<"Topic metrics already exist">>, [?BAD_REQUEST])
             }
-        },
+        }
+    },
+    {"/mqtt/topic_metrics", MetaData, topic_metrics}.
+
+operation_topic_metrics_api() ->
+    MetaData = #{
+        get => #{
+            description => <<"Get topic metrics">>,
+            parameters => [topic_param()],
+            responses => #{
+                <<"200">> => object_schema(properties(), <<"Topic metrics">>),
+                <<"404">> => error_schema(<<"Topic not found">>, [?ERROR_TOPIC])
+            }},
         delete => #{
             description => <<"Deregister topic metrics">>,
             parameters => [topic_param()],
-            responses => #{ <<"200">> => schema(<<"Deregister topic metrics">>)}
+            responses => #{
+                <<"200">> => schema(<<"Deregister topic metrics">>),
+                <<"404">> => error_schema(<<"Topic not found">>, [?ERROR_TOPIC])
+            }
         }
     },
     {"/mqtt/topic_metrics/:topic", MetaData, operate_topic_metrics}.
-
-reset_all_topic_metrics_api() ->
-    MetaData = #{
-        put => #{
-            description => <<"Reset all topic metrics">>,
-            responses => #{<<"200">> => schema(<<"Reset all topic metrics">>)}
-        }
-    },
-    {"/mqtt/topic_metrics/reset", MetaData, reset_all_topic_metrics}.
-
-reset_topic_metrics_api() ->
-    Path = "/mqtt/topic_metrics/:topic/reset",
-    MetaData = #{
-        put => #{
-            description => <<"Reset topic metrics">>,
-            parameters => [topic_param()],
-            responses => #{<<"200">> => schema(<<"Reset topic metrics">>)}
-        }
-    },
-    {Path, MetaData, reset_topic_metrics}.
 
 topic_param() ->
     #{
@@ -141,8 +131,14 @@ topic_param() ->
 
 %%--------------------------------------------------------------------
 %% api callback
-list_topic_metrics(get, _) ->
-    list_metrics().
+topic_metrics(get, _) ->
+    list_metrics();
+topic_metrics(put, #{body := #{<<"topic">> := Topic, <<"action">> := <<"reset">>}}) ->
+    reset(Topic);
+topic_metrics(put, #{body := #{<<"action">> := <<"reset">>}}) ->
+    reset();
+topic_metrics(post, #{body := #{<<"topic">> := Topic}}) ->
+    register(Topic).
 
 operate_topic_metrics(Method, #{bindings := #{topic := Topic0}}) ->
     Topic = decode_topic(Topic0),
@@ -154,13 +150,6 @@ operate_topic_metrics(Method, #{bindings := #{topic := Topic0}}) ->
         delete ->
             deregister(Topic)
     end.
-
-reset_all_topic_metrics(put, _) ->
-    reset().
-
-reset_topic_metrics(put, #{bindings := #{topic := Topic0}}) ->
-    Topic = decode_topic(Topic0),
-    reset(Topic).
 
 decode_topic(Topic) ->
     uri_string:percent_decode(Topic).
@@ -184,8 +173,13 @@ register(Topic) ->
     end.
 
 deregister(Topic) ->
-    _ = emqx_topic_metrics:deregister(Topic),
-    {200}.
+    case emqx_topic_metrics:deregister(Topic) of
+        {error, topic_not_found} ->
+            Message = list_to_binary(io_lib:format("Topic ~p not found", [Topic])),
+            {404, #{code => ?ERROR_TOPIC, message => Message}};
+        ok ->
+            {200}
+    end.
 
 get_metrics(Topic) ->
     case emqx_topic_metrics:metrics(Topic) of

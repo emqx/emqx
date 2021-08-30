@@ -226,7 +226,7 @@ handle_call({deregister, all}, _From, State) ->
 handle_call({deregister, Topic}, _From, State = #state{speeds = Speeds}) ->
     case is_registered(Topic) of
         false ->
-            {reply, ok, State};
+            {reply, {error, topic_not_found}, State};
         true ->
             true = ets:delete(?TAB, Topic),
             NSpeeds = lists:foldl(fun(Metric, Acc) ->
