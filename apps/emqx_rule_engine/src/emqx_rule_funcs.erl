@@ -873,7 +873,9 @@ now_timestamp(Unit) ->
 time_unit(<<"second">>) -> second;
 time_unit(<<"millisecond">>) -> millisecond;
 time_unit(<<"microsecond">>) -> microsecond;
-time_unit(<<"nanosecond">>) -> nanosecond.
+time_unit(<<"nanosecond">>) -> nanosecond;
+time_unit(Unit) when is_atom(Unit) -> Unit.
+
 
 %% @doc This is for sql funcs that should be handled in the specific modules.
 %% Here the emqx_rule_funcs module acts as a proxy, forwarding

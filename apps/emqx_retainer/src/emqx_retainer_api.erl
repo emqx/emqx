@@ -46,7 +46,7 @@ message_props() ->
         {topic, string, <<"MQTT Topic">>},
         {qos, string, <<"MQTT QoS">>},
         {payload, string, <<"MQTT Payload">>},
-        {publish_at, string, <<"publish datetime">>},
+        {publish_at, string, <<"publish datetime by rfc 3339">>},
         {from_clientid, string, <<"publisher ClientId">>},
         {from_username, string, <<"publisher Username">>}
     ]).
@@ -170,7 +170,7 @@ format_message(#message{id = ID, qos = Qos, topic = Topic, from = From, timestam
     #{msgid => emqx_guid:to_hexstr(ID),
       qos => Qos,
       topic => Topic,
-      publish_at => erlang:list_to_binary(emqx_mgmt_util:strftime(Timestamp div 1000)),
+      publish_at => emqx_rule_funcs:unix_ts_to_rfc3339(Timestamp div 1000, second),
       from_clientid => to_bin_string(From),
       from_username => maps:get(username, Headers, <<>>)
      }.
