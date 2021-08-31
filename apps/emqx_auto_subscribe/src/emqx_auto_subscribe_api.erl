@@ -47,7 +47,7 @@ auto_subscribe_api() ->
                 <<"400">> => emqx_mgmt_util:error_schema(
                                 <<"Request body required">>, [?BAD_REQUEST]),
                 <<"409">> => emqx_mgmt_util:error_schema(
-                    <<"Auto Subscribe topics max limit">>, [?EXCEED_LIMIT])}}
+                                <<"Auto Subscribe topics max limit">>, [?EXCEED_LIMIT])}}
     },
     {"/mqtt/auto_subscribe", Metadata, auto_subscribe}.
 
