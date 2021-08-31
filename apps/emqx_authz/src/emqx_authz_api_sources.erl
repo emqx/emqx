@@ -14,30 +14,28 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authz_api).
+-module(emqx_authz_api_sources).
 
 -behavior(minirest_api).
 
 -include("emqx_authz.hrl").
 
--define(EXAMPLE_RETURNED_RULE1,
-        #{principal => <<"all">>,
-          permission => <<"allow">>,
-          action => <<"all">>,
-          topics => [<<"#">>],
-          annotations => #{id => 1}
-         }).
-
+-define(EXAMPLE_REDIS,
+        #{type=> redis,
+          config => #{server => <<"127.0.0.1:3306">>,
+                      redis_type => single,
+                      pool_size => 1,
+                      auto_reconnect => true
+                     },
+          cmd => <<"HGETALL mqtt_authz">>}).
+-define(EXAMPLE_RETURNED_REDIS,
+        maps:put(annotations, #{status => healthy}, ?EXAMPLE_REDIS)
+        ).
 
 -define(EXAMPLE_RETURNED_RULES,
-        #{sources => [?EXAMPLE_RETURNED_RULE1
-                   ]
+        #{sources => [?EXAMPLE_RETURNED_REDIS
+                     ]
         }).
-
--define(EXAMPLE_RULE1, #{principal => <<"all">>,
-                         permission => <<"allow">>,
-                         action => <<"all">>,
-                         topics => [<<"#">>]}).
 
 -export([ api_spec/0
         , sources/2
@@ -107,9 +105,9 @@ sources_api() ->
                     'application/json' => #{
                         schema => minirest:ref(<<"sources">>),
                         examples => #{
-                            simple_source => #{
-                                summary => <<"Sources">>,
-                                value => jsx:encode(?EXAMPLE_RULE1)
+                            redis => #{
+                                summary => <<"Redis">>,
+                                value => jsx:encode(?EXAMPLE_REDIS)
                             }
                        }
                     }
@@ -117,23 +115,7 @@ sources_api() ->
             },
             responses => #{
                 <<"204">> => #{description => <<"Created">>},
-                <<"400">> => #{
-                    description => <<"Bad Request">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>),
-                            examples => #{
-                                example1 => #{
-                                    summary => <<"Bad Request">>,
-                                    value => #{
-                                        code => <<"BAD_REQUEST">>,
-                                        message => <<"Bad Request">>
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                <<"400">> => emqx_mgmt_util:bad_request()
             }
         },
         put => #{
@@ -146,9 +128,9 @@ sources_api() ->
                             items => minirest:ref(<<"returned_sources">>)
                         },
                         examples => #{
-                            sources => #{
-                                summary => <<"Sources">>,
-                                value => jsx:encode([?EXAMPLE_RULE1])
+                            redis => #{
+                                summary => <<"Redis">>,
+                                value => jsx:encode([?EXAMPLE_REDIS])
                             }
                         }
                     }
@@ -156,23 +138,7 @@ sources_api() ->
             },
             responses => #{
                 <<"204">> => #{description => <<"Created">>},
-                <<"400">> => #{
-                    description => <<"Bad Request">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>),
-                            examples => #{
-                                example1 => #{
-                                    summary => <<"Bad Request">>,
-                                    value => #{
-                                        code => <<"BAD_REQUEST">>,
-                                        message => <<"Bad Request">>
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                <<"400">> => emqx_mgmt_util:bad_request()
             }
         }
     },
@@ -201,29 +167,13 @@ source_api() ->
                             examples => #{
                                 sources => #{
                                     summary => <<"Sources">>,
-                                    value => jsx:encode(?EXAMPLE_RETURNED_RULE1)
+                                    value => jsx:encode(?EXAMPLE_RETURNED_REDIS)
                                 }
                             }
                          }
                     }
                 },
-                <<"404">> => #{
-                    description => <<"Bad Request">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>),
-                            examples => #{
-                                example1 => #{
-                                    summary => <<"Not Found">>,
-                                    value => #{
-                                        code => <<"NOT_FOUND">>,
-                                        message => <<"source xxx not found">>
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                <<"404">> => emqx_mgmt_util:bad_request(<<"Not Found">>)
             }
         },
         put => #{
@@ -243,9 +193,9 @@ source_api() ->
                     'application/json' => #{
                         schema => minirest:ref(<<"sources">>),
                         examples => #{
-                            simple_source => #{
-                                summary => <<"Sources">>,
-                                value => jsx:encode(?EXAMPLE_RULE1)
+                            redis => #{
+                                summary => <<"Redis">>,
+                                value => jsx:encode(?EXAMPLE_REDIS)
                             }
                        }
                     }
@@ -253,47 +203,15 @@ source_api() ->
             },
             responses => #{
                 <<"204">> => #{description => <<"No Content">>},
-                <<"404">> => #{
-                    description => <<"Bad Request">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>),
-                            examples => #{
-                                example1 => #{
-                                    summary => <<"Not Found">>,
-                                    value => #{
-                                        code => <<"NOT_FOUND">>,
-                                        message => <<"source xxx not found">>
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                <<"400">> => #{
-                    description => <<"Bad Request">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>),
-                            examples => #{
-                                example1 => #{
-                                    summary => <<"Bad Request">>,
-                                    value => #{
-                                        code => <<"BAD_REQUEST">>,
-                                        message => <<"Bad Request">>
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                <<"404">> => emqx_mgmt_util:bad_request(<<"Not Found">>),
+                <<"400">> => emqx_mgmt_util:bad_request()
             }
         },
         delete => #{
             description => "Delete source",
             parameters => [
                 #{
-                    name => id,
+                    name => type,
                     in => path,
                     schema => #{
                        type => string
@@ -303,23 +221,7 @@ source_api() ->
             ],
             responses => #{
                 <<"204">> => #{description => <<"No Content">>},
-                <<"400">> => #{
-                    description => <<"Bad Request">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>),
-                            examples => #{
-                                example1 => #{
-                                    summary => <<"Bad Request">>,
-                                    value => #{
-                                        code => <<"BAD_REQUEST">>,
-                                        message => <<"Bad Request">>
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                <<"400">> => emqx_mgmt_util:bad_request()
             }
         }
     },
@@ -378,38 +280,8 @@ move_source_api() ->
                 <<"204">> => #{
                     description => <<"No Content">>
                 },
-                <<"404">> => #{
-                    description => <<"Bad Request">>,
-                    content => #{ 'application/json' => #{ schema => minirest:ref(<<"error">>),
-                            examples => #{
-                                example1 => #{
-                                    summary => <<"Not Found">>,
-                                    value => #{
-                                        code => <<"NOT_FOUND">>,
-                                        message => <<"source xxx not found">>
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                <<"400">> => #{
-                    description => <<"Bad Request">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"error">>),
-                            examples => #{
-                                example1 => #{
-                                    summary => <<"Bad Request">>,
-                                    value => #{
-                                        code => <<"BAD_REQUEST">>,
-                                        message => <<"Bad Request">>
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                <<"404">> => emqx_mgmt_util:bad_request(<<"Not Found">>),
+                <<"400">> => emqx_mgmt_util:bad_request()
             }
         }
     },
@@ -519,6 +391,3 @@ move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Pos
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end.
-
-
-

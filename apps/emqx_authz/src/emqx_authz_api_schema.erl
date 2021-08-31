@@ -19,17 +19,17 @@
 -export([definitions/0]).
 
 definitions() ->
-    RetruenedRules = #{
+    RetruenedSources = #{
         allOf => [ #{type => object,
                      properties => #{
                         annotations => #{
                             type => object,
-                            required => [id],
+                            required => [status],
                             properties => #{
-                                id => #{
-                                    type => string
-                                },
-                                principal => minirest:ref(<<"principal">>)
+                                status => #{
+                                    type => string,
+                                    example => <<"healthy">>
+                                }
                             }
                         }
                      }
@@ -37,119 +37,76 @@ definitions() ->
                  , minirest:ref(<<"sources">>)
                  ]
     },
-    Rules = #{
-        oneOf => [ minirest:ref(<<"simple_source">>)
-                 % , minirest:ref(<<"connector_redis">>)
+    Sources = #{
+        oneOf => [  minirest:ref(<<"connector_redis">>)
                  ]
     },
-    % ConnectorRedis = #{
-    %     type => object,
-    %     required => [principal, type, enable, config, cmd]
-    %     properties => #{
-    %         principal => minirest:ref(<<"principal">>),
-    %         type => #{
-    %             type => string,
-    %             enum => [<<"redis">>],
-    %             example => <<"redis">>
-    %         },
-    %         enable => #{
-    %             type => boolean,
-    %             example => true
-    %         }
-    %         config => #{
-    %             type => 
-    %         }
-    %     }
-    % }
-    SimpleRule = #{
+    ConnectorRedis= #{
         type => object,
-        required => [principal, permission, action, topics],
+        required => [type, enable, config, cmd],
         properties => #{
-            action => #{
+            type => #{
                 type => string,
-                enum => [<<"publish">>, <<"subscribe">>, <<"all">>],
-                example => <<"publish">>
+                enum => [<<"redis">>],
+                example => <<"redis">>
             },
-            permission => #{
+            enable => #{
+                type => boolean,
+                example => true
+            },
+            config => #{
+                oneOf => [ #{type => object,
+                             required => [server, redis_type, pool_size, auto_reconnect],
+                             properties => #{
+                                server => #{type => string, example => <<"127.0.0.1:3306">>},
+                                redis_type => #{type => string,
+                                                enum => [<<"single">>],
+                                                example => <<"single">>},
+                                pool_size => #{type => integer},
+                                auto_reconnect => #{type => boolean, example => true},
+                                password => #{type => string},
+                                database => #{type => string, example => mqtt}
+                             }
+                            }
+                         , #{type => object,
+                             required => [servers, redis_type, sentinel, pool_size, auto_reconnect],
+                             properties => #{
+                                servers => #{type => array,
+                                             items => #{type => string,example => <<"127.0.0.1:3306">>}},
+                                redis_type => #{type => string,
+                                                enum => [<<"sentinel">>],
+                                                example => <<"sentinel">>},
+                                sentinel => #{type => string},
+                                pool_size => #{type => integer},
+                                auto_reconnect => #{type => boolean, example => true},
+                                password => #{type => string},
+                                database => #{type => string, example => mqtt}
+                             }
+                            }
+                         , #{type => object,
+                             required => [servers, redis_type, pool_size, auto_reconnect],
+                             properties => #{
+                                servers => #{type => array,
+                                             items => #{type => string, example => <<"127.0.0.1:3306">>}},
+                                redis_type => #{type => string,
+                                                enum => [<<"cluster">>],
+                                                example => <<"cluster">>},
+                                pool_size => #{type => integer},
+                                auto_reconnect => #{type => boolean, example => true},
+                                password => #{type => string},
+                                database => #{type => string, example => mqtt}
+                             }
+                            }
+                         ],
+                type => object
+            },
+            cmd => #{
                 type => string,
-                enum => [<<"allow">>, <<"deny">>],
-                example => <<"allow">>
-            },
-            topics => #{
-                type => array,
-                items => #{
-                    oneOf => [ #{type => string, example => <<"#">>}
-                             , #{type => object,
-                                 required => [eq],
-                                 properties => #{
-                                    eq => #{type => string}
-                                 },
-                                 example => #{eq => <<"#">>}
-                                }
-                             ]
-                }
-            },
-            principal => minirest:ref(<<"principal">>)
-        }
-    },
-    Principal = #{
-      oneOf => [ minirest:ref(<<"principal_username">>)
-               , minirest:ref(<<"principal_clientid">>)
-               , minirest:ref(<<"principal_ipaddress">>)
-               , #{type => string, enum=>[<<"all">>], example => <<"all">>}
-               , #{type => object,
-                   required => ['and'],
-                   properties => #{'and' => #{type => array,
-                                              items => #{oneOf => [ minirest:ref(<<"principal_username">>)
-                                                                  , minirest:ref(<<"principal_clientid">>)
-                                                                  , minirest:ref(<<"principal_ipaddress">>)
-                                                                  ]}}},
-                   example => #{'and' => [#{username => <<"emqx">>}, #{clientid => <<"emqx">>}]}
-                  }
-               , #{type => object,
-                   required => ['or'],
-                   properties => #{'and' => #{type => array,
-                                              items => #{oneOf => [ minirest:ref(<<"principal_username">>)
-                                                                  , minirest:ref(<<"principal_clientid">>)
-                                                                  , minirest:ref(<<"principal_ipaddress">>)
-                                                                  ]}}},
-                   example => #{'or' => [#{username => <<"emqx">>}, #{clientid => <<"emqx">>}]}
-                  }
-               ]
-    },
-    PrincipalUsername = #{type => object,
-                           required => [username],
-                           properties => #{username => #{type => string}},
-                           example => #{username => <<"emqx">>}
-                          },
-    PrincipalClientid = #{type => object,
-                           required => [clientid],
-                           properties => #{clientid => #{type => string}},
-                           example => #{clientid => <<"emqx">>}
-                          },
-    PrincipalIpaddress = #{type => object,
-                            required => [ipaddress],
-                            properties => #{ipaddress => #{type => string}},
-                            example => #{ipaddress => <<"127.0.0.1">>}
-                           },
-    ErrorDef = #{
-        type => object,
-        properties => #{
-            code => #{
-                type => string,
-                example => <<"BAD_REQUEST">>
-            },
-            message => #{
-                type => string
+                example => <<"HGETALL mqtt_authz">>
             }
         }
     },
-    [ #{<<"returned_sources">> => RetruenedRules}
-    , #{<<"sources">> => Rules}
-    , #{<<"simple_source">> => SimpleRule}
-    , #{<<"principal">> => Principal}
-    , #{<<"principal_username">> => PrincipalUsername}
-    , #{<<"principal_clientid">> => PrincipalClientid}
-    , #{<<"principal_ipaddress">> => PrincipalIpaddress}
-    , #{<<"error">> => ErrorDef}
+    [ #{<<"returned_sources">> => RetruenedSources}
+    , #{<<"sources">> => Sources}
+    , #{<<"connector_redis">> => ConnectorRedis}
     ].
