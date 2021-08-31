@@ -137,7 +137,6 @@ sources_api() ->
             }
         },
         put => #{
-
             description => "Update all sources",
             requestBody => #{
                 content => #{
@@ -177,7 +176,7 @@ sources_api() ->
             }
         }
     },
-    {"/authorization", Metadata, sources}.
+    {"/authorization/sources", Metadata, sources}.
 
 source_api() ->
     Metadata = #{
@@ -324,7 +323,7 @@ source_api() ->
             }
         }
     },
-    {"/authorization/:type", Metadata, source}.
+    {"/authorization/sources/:type", Metadata, source}.
 
 move_source_api() ->
     Metadata = #{
@@ -414,7 +413,7 @@ move_source_api() ->
             }
         }
     },
-    {"/authorization/:type/move", Metadata, move_source}.
+    {"/authorization/sources/:type/move", Metadata, move_source}.
 
 sources(get, #{query_string := Query}) ->
     Sources = lists:foldl(fun (#{type := _Type, enable := true, config := #{server := Server} = Config, annotations := #{id := Id}} = Source, AccIn) ->

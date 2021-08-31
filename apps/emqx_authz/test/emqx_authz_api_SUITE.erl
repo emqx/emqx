@@ -149,25 +149,25 @@ set_special_configs(_App) ->
 %%------------------------------------------------------------------------------
 
 t_api(_) ->
-    {ok, 200, Result1} = request(get, uri(["authorization"]), []),
+    {ok, 200, Result1} = request(get, uri(["authorization", "sources"]), []),
     ?assertEqual([], get_sources(Result1)),
 
     lists:foreach(fun(_) ->
-                        {ok, 204, _} = request(post, uri(["authorization"]), ?SOURCE1)
+                        {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE1)
                   end, lists:seq(1, 20)),
-    {ok, 200, Result2} = request(get, uri(["authorization"]), []),
+    {ok, 200, Result2} = request(get, uri(["authorization", "sources"]), []),
     ?assertEqual(20, length(get_sources(Result2))),
 
     lists:foreach(fun(Page) ->
                           Query = "?page=" ++ integer_to_list(Page) ++ "&&limit=10",
-                          Url = uri(["authorization" ++ Query]),
+                          Url = uri(["authorization/sources" ++ Query]),
                           {ok, 200, Result} = request(get, Url, []),
                           ?assertEqual(10, length(get_sources(Result)))
                   end, lists:seq(1, 2)),
 
-    {ok, 204, _} = request(put, uri(["authorization"]), [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4]),
+    {ok, 204, _} = request(put, uri(["authorization", "sources"]), [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4]),
 
-    {ok, 200, Result3} = request(get, uri(["authorization"]), []),
+    {ok, 200, Result3} = request(get, uri(["authorization", "sources"]), []),
     Sources = get_sources(Result3),
     ?assertMatch([ #{<<"type">> := <<"http">>}
                  , #{<<"type">> := <<"mongo">>}
@@ -175,15 +175,15 @@ t_api(_) ->
                  , #{<<"type">> := <<"pgsql">>}
                  ], Sources),
 
-    {ok, 204, _} = request(put, uri(["authorization", "http"]),  ?SOURCE1#{<<"enable">> := false}),
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]),  ?SOURCE1#{<<"enable">> := false}),
 
-    {ok, 200, Result4} = request(get, uri(["authorization", "http"]), []),
+    {ok, 200, Result4} = request(get, uri(["authorization", "sources", "http"]), []),
     ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result4)),
 
     lists:foreach(fun(#{<<"type">> := Type}) ->
-                    {ok, 204, _} = request(delete, uri(["authorization", binary_to_list(Type)]), [])
+                    {ok, 204, _} = request(delete, uri(["authorization", "sources", binary_to_list(Type)]), [])
                   end, Sources),
-    {ok, 200, Result5} = request(get, uri(["authorization"]), []),
+    {ok, 200, Result5} = request(get, uri(["authorization", "sources"]), []),
     ?assertEqual([], get_sources(Result5)),
     ok.
 
@@ -196,7 +196,7 @@ t_move_source(_) ->
                  , #{type := redis}
                  ], emqx_authz:lookup()),
 
-    {ok, 204, _} = request(post, uri(["authorization", "pgsql", "move"]),
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "pgsql", "move"]),
                            #{<<"position">> => <<"top">>}),
     ?assertMatch([ #{type := pgsql}
                  , #{type := http}
@@ -205,7 +205,7 @@ t_move_source(_) ->
                  , #{type := redis}
                  ], emqx_authz:lookup()),
 
-    {ok, 204, _} = request(post, uri(["authorization", "http", "move"]),
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "http", "move"]),
                            #{<<"position">> => <<"bottom">>}),
     ?assertMatch([ #{type := pgsql}
                  , #{type := mongo}
@@ -214,7 +214,7 @@ t_move_source(_) ->
                  , #{type := http}
                  ], emqx_authz:lookup()),
 
-    {ok, 204, _} = request(post, uri(["authorization", "mysql", "move"]),
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "mysql", "move"]),
                            #{<<"position">> => #{<<"before">> => <<"pgsql">>}}),
     ?assertMatch([ #{type := mysql}
                  , #{type := pgsql}
@@ -223,7 +223,7 @@ t_move_source(_) ->
                  , #{type := http}
                  ], emqx_authz:lookup()),
 
-    {ok, 204, _} = request(post, uri(["authorization", "mongo", "move"]),
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "mongo", "move"]),
                            #{<<"position">> => #{<<"after">> => <<"http">>}}),
     ?assertMatch([ #{type := mysql}
                  , #{type := pgsql}
