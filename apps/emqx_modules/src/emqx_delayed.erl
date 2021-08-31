@@ -53,7 +53,8 @@
 -record(delayed_message, {key, delayed, msg}).
 
 %% sync ms with record change
--define(DELAYED_MS(Id), [{{delayed_message, {'_', Id}, '_', '_'}, [], ['$_']}]).
+-define(QUERY_MS(Id), [{{delayed_message, {'_', Id}, '_', '_'}, [], ['$_']}]).
+-define(DELETE_MS(Id), [{{delayed_message, {'$1', Id}, '_', '_'}, [], ['$1']}]).
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
@@ -164,7 +165,7 @@ to_rfc3339(Timestamp) ->
 
 get_delayed_message(Id0) ->
     Id = emqx_guid:from_hexstr(Id0),
-    case ets:select(?TAB, ?DELAYED_MS(Id)) of
+    case ets:select(?TAB, ?QUERY_MS(Id)) of
         [] ->
             {error, not_found};
         Rows ->
@@ -174,7 +175,7 @@ get_delayed_message(Id0) ->
 
 delete_delayed_message(Id0) ->
     Id = emqx_guid:from_hexstr(Id0),
-    case ets:select(?TAB, ?DELAYED_MS(Id)) of
+    case ets:select(?TAB, ?DELETE_MS(Id)) of
         [] ->
             {error, not_found};
         Rows ->
