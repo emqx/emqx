@@ -23,6 +23,7 @@
 -export([auto_subscribe/2]).
 
 -define(EXCEED_LIMIT, 'EXCEED_LIMIT').
+-define(BAD_REQUEST, 'BAD_REQUEST').
 
 api_spec() ->
     {[auto_subscribe_api()], []}.
@@ -43,6 +44,8 @@ auto_subscribe_api() ->
             'requestBody' => schema(),
             responses => #{
                 <<"200">> => schema(),
+                <<"400">> => emqx_mgmt_util:error_schema(
+                                <<"Request body required">>, [?BAD_REQUEST]),
                 <<"409">> => emqx_mgmt_util:error_schema(
                                 <<"Auto Subscribe topics max limit">>, [?EXCEED_LIMIT])}}
     },
@@ -53,6 +56,8 @@ auto_subscribe_api() ->
 auto_subscribe(get, _) ->
     {200, emqx_auto_subscribe:list()};
 
+auto_subscribe(put, #{body := #{}}) ->
+    {400, #{code => ?BAD_REQUEST, message => <<"Request body required">>}};
 auto_subscribe(put, #{body := Params}) ->
     case emqx_auto_subscribe:update(Params) of
         {error, quota_exceeded} ->
