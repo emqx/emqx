@@ -52,6 +52,10 @@
 
 -record(delayed_message, {key, delayed, msg}).
 
+%% sync ms with record change
+-define(QUERY_MS(Id), [{{delayed_message, {'_', Id}, '_', '_'}, [], ['$_']}]).
+-define(DELETE_MS(Id), [{{delayed_message, {'$1', Id}, '_', '_'}, [], ['$1']}]).
+
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 -define(MAX_INTERVAL, 4294967).
@@ -161,8 +165,7 @@ to_rfc3339(Timestamp) ->
 
 get_delayed_message(Id0) ->
     Id = emqx_guid:from_hexstr(Id0),
-    Ms = [{{delayed_message,{'_',Id},'_'},[],['$_']}],
-    case ets:select(?TAB, Ms) of
+    case ets:select(?TAB, ?QUERY_MS(Id)) of
         [] ->
             {error, not_found};
         Rows ->
@@ -172,8 +175,7 @@ get_delayed_message(Id0) ->
 
 delete_delayed_message(Id0) ->
     Id = emqx_guid:from_hexstr(Id0),
-    Ms = [{{delayed_message, {'$1', Id}, '_'}, [], ['$1']}],
-    case ets:select(?TAB, Ms) of
+    case ets:select(?TAB, ?DELETE_MS(Id)) of
         [] ->
             {error, not_found};
         Rows ->
