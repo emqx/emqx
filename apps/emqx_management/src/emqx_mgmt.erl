@@ -92,6 +92,8 @@
         , manage_listener/2
         , update_listener/2
         , update_listener/3
+        , remove_listener/1
+        , remove_listener/2
         ]).
 
 %% Alarms
@@ -515,6 +517,19 @@ update_listener(Node, Id, Config) when Node =:= node() ->
     end;
 update_listener(Node, Id, Config) ->
     rpc_call(Node, update_listener, [Node, Id, Config]).
+
+remove_listener(Id) ->
+    [remove_listener(Node, Id) || Node <- ekka_mnesia:running_nodes()].
+
+remove_listener(Node, Id) when Node =:= node() ->
+    {Type, Name} = emqx_listeners:parse_listener_id(Id),
+    case emqx:remove_config([listeners, Type, Name], #{}) of
+        {ok, _} -> ok;
+        {error, Reason} ->
+            error(Reason)
+    end;
+remove_listener(Node, Id) ->
+    rpc_call(Node, remove_listener, [Node, Id]).
 
 %%--------------------------------------------------------------------
 %% Get Alarms

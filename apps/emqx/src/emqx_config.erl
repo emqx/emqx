@@ -94,8 +94,8 @@
 -type update_stage() :: pre_config_update | post_config_update.
 -type update_error() :: {update_stage(), module(), term()} | {save_configs, term()} | term().
 -type update_result() :: #{
-    config := emqx_config:config(),
-    raw_config := emqx_config:raw_config(),
+    config => emqx_config:config(),
+    raw_config => emqx_config:raw_config(),
     post_config_update => #{module() => any()}
 }.
 
