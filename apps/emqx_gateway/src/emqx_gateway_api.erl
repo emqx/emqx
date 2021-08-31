@@ -348,9 +348,9 @@ gateway_insta(delete, #{bindings := #{name := Name0}}) ->
     Name = binary_to_existing_atom(Name0),
     case emqx_gateway:unload(Name) of
         ok ->
-            {200, ok};
+            {200};
         {error, not_found} ->
-            {404, <<"Not Found">>}
+            return_http_error(404, <<"Gateway not found">>)
     end;
 gateway_insta(get, #{bindings := #{name := Name0}}) ->
     Name = binary_to_existing_atom(Name0),
@@ -363,7 +363,7 @@ gateway_insta(get, #{bindings := #{name := Name0}}) ->
                        ),
             {200, emqx_map_lib:deep_get([<<"gateway">>, Name0], RawConf)};
         undefined ->
-            {404, <<"Not Found">>}
+            return_http_error(404, <<"Gateway not found">>)
     end;
 gateway_insta(put, #{body := RawConfsIn,
                      bindings := #{name := Name}
@@ -371,12 +371,22 @@ gateway_insta(put, #{body := RawConfsIn,
     %% FIXME: Cluster Consistence ??
     case emqx_gateway:update_rawconf(Name, RawConfsIn) of
         ok ->
-            {200, <<"Changed">>};
+            {200};
         {error, not_found} ->
-            {404, <<"Not Found">>};
+            return_http_error(404, <<"Gateway not found">>);
         {error, Reason} ->
-            {500, emqx_gateway_utils:stringfy(Reason)}
+            return_http_error(500, Reason)
     end.
 
 gateway_insta_stats(get, _Req) ->
-    {401, <<"Implement it later (maybe 5.1)">>}.
+    return_http_error(401, <<"Implement it later (maybe 5.1)">>).
+
+return_http_error(Code, Msg) ->
+    emqx_json:encode(
+      #{code => codestr(Code),
+        reason => emqx_gateway_utils:stringfy(Msg)
+       }).
+
+codestr(404) -> 'RESOURCE_NOT_FOUND';
+codestr(401) -> 'NOT_SUPPORTED_NOW';
+codestr(500) -> 'UNKNOW_ERROR'.
