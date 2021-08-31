@@ -22,7 +22,8 @@
 
 -behaviour(hocon_schema).
 
--export([ roots/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         , validations/0
         ]).
@@ -37,9 +38,11 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
+namespace() -> "authn:http".
+
 roots() ->
-    [ {config, {union, [ hoconsc:t(get)
-                       , hoconsc:t(post)
+    [ {config, {union, [ hoconsc:ref(?MODULE, get)
+                       , hoconsc:ref(?MODULE, post)
                        ]}}
     ].
 

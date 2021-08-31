@@ -22,5 +22,5 @@ fields(ldap)  -> connector_fields(ldap).
 
 connector_fields(DB) ->
     Mod = list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
-    [{name, hoconsc:t(typerefl:binary())},
+    [{name, hoconsc:mk(typerefl:binary())},
      {type, #{type => DB}}] ++ Mod:roots().

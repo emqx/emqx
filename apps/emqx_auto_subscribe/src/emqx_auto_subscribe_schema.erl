@@ -19,25 +19,30 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([ roots/0
+-export([ namespace/0
+        , roots/0
         , fields/1]).
+
+namespace() -> "auto_subscribe".
 
 roots() ->
     ["auto_subscribe"].
 
 fields("auto_subscribe") ->
-    [ {topics, hoconsc:array(hoconsc:ref(?MODULE, "topic"))}];
+    [ {topics, hoconsc:array(hoconsc:ref(?MODULE, "topic"))}
+    ];
 
 fields("topic") ->
-    [ {topic, emqx_schema:t(binary())}
-    , {qos, t(hoconsc:union([0, 1, 2]), 0)}
-    , {rh,  t(hoconsc:union([0, 1, 2]), 0)}
-    , {rap, t(hoconsc:union([0, 1]), 0)}
-    , {nl,  t(hoconsc:union([0, 1]), 0)}
+    [ {topic, sc(binary(), #{})}
+    , {qos, sc(typerefl:union([0, 1, 2]), #{default => 0})}
+    , {rh,  sc(typerefl:union([0, 1, 2]), #{default => 0})}
+    , {rap, sc(typerefl:union([0, 1]), #{default => 0})}
+    , {nl,  sc(typerefl:union([0, 1]), #{default => 0})}
     ].
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-t(Type, Default) ->
-    hoconsc:t(Type, #{default => Default}).
+
+sc(Type, Meta) ->
+    hoconsc:mk(Type, Meta).

@@ -13,11 +13,14 @@
 -type permission() :: allow | deny.
 -type url() :: emqx_http_lib:uri_map().
 
--export([ roots/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         ]).
 
-roots() -> ["authorization"].
+namespace() -> authz.
+
+roots() -> [].
 
 fields("authorization") ->
     [ {sources, #{type => union_array(

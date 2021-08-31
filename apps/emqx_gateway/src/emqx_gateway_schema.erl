@@ -43,148 +43,149 @@
               , ip_port/0
               ]).
 
--export([roots/0 , fields/1]).
--export([t/1, t/3, t/4, ref/1]).
+-export([namespace/0, roots/0 , fields/1]).
+
+namespace() -> gateway.
 
 roots() -> [gateway].
 
 fields(gateway) ->
-    [{stomp, t(ref(stomp_structs))},
-     {mqttsn, t(ref(mqttsn_structs))},
-     {coap, t(ref(coap_structs))},
-     {lwm2m, t(ref(lwm2m_structs))},
-     {exproto, t(ref(exproto_structs))}
+    [{stomp, sc(ref(stomp_structs))},
+     {mqttsn, sc(ref(mqttsn_structs))},
+     {coap, sc(ref(coap_structs))},
+     {lwm2m, sc(ref(lwm2m_structs))},
+     {exproto, sc(ref(exproto_structs))}
     ];
 
 fields(stomp_structs) ->
-    [ {frame, t(ref(stomp_frame))}
-    , {listeners, t(ref(tcp_listener_group))}
+    [ {frame, sc(ref(stomp_frame))}
+    , {listeners, sc(ref(tcp_listener_group))}
     ] ++ gateway_common_options();
 
 fields(stomp_frame) ->
-    [ {max_headers, t(integer(), undefined, 10)}
-    , {max_headers_length, t(integer(), undefined, 1024)}
-    , {max_body_length, t(integer(), undefined, 8192)}
+    [ {max_headers, sc(integer(), undefined, 10)}
+    , {max_headers_length, sc(integer(), undefined, 1024)}
+    , {max_body_length, sc(integer(), undefined, 8192)}
     ];
 
 fields(mqttsn_structs) ->
-    [ {gateway_id, t(integer())}
-    , {broadcast, t(boolean())}
-    , {enable_qos3, t(boolean())}
+    [ {gateway_id, sc(integer())}
+    , {broadcast, sc(boolean())}
+    , {enable_qos3, sc(boolean())}
     , {predefined, hoconsc:array(ref(mqttsn_predefined))}
-    , {listeners, t(ref(udp_listener_group))}
+    , {listeners, sc(ref(udp_listener_group))}
     ] ++ gateway_common_options();
 
 fields(mqttsn_predefined) ->
-    [ {id, t(integer())}
-    , {topic, t(binary())}
+    [ {id, sc(integer())}
+    , {topic, sc(binary())}
     ];
 
 fields(coap_structs) ->
-    [ {heartbeat, t(duration(), undefined, <<"30s">>)}
-    , {notify_type, t(union([non, con, qos]), undefined, qos)}
-    , {subscribe_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
-    , {publish_qos, t(union([qos0, qos1, qos2, coap]), undefined, coap)}
-    , {listeners, t(ref(udp_listener_group))}
+    [ {heartbeat, sc(duration(), undefined, <<"30s">>)}
+    , {notify_type, sc(union([non, con, qos]), undefined, qos)}
+    , {subscribe_qos, sc(union([qos0, qos1, qos2, coap]), undefined, coap)}
+    , {publish_qos, sc(union([qos0, qos1, qos2, coap]), undefined, coap)}
+    , {listeners, sc(ref(udp_listener_group))}
     ] ++ gateway_common_options();
 
 fields(lwm2m_structs) ->
-    [ {xml_dir, t(binary())}
-    , {lifetime_min, t(duration())}
-    , {lifetime_max, t(duration())}
-    , {qmode_time_windonw, t(integer())}
-    , {auto_observe, t(boolean())}
-    , {mountpoint, t(string())}
-    , {update_msg_publish_condition, t(union([always, contains_object_list]))}
-    , {translators, t(ref(translators))}
-    , {listeners, t(ref(udp_listener_group))}
+    [ {xml_dir, sc(binary())}
+    , {lifetime_min, sc(duration())}
+    , {lifetime_max, sc(duration())}
+    , {qmode_time_windonw, sc(integer())}
+    , {auto_observe, sc(boolean())}
+    , {mountpoint, sc(string())}
+    , {update_msg_publish_condition, sc(union([always, contains_object_list]))}
+    , {translators, sc(ref(translators))}
+    , {listeners, sc(ref(udp_listener_group))}
     ] ++ gateway_common_options();
 
 fields(exproto_structs) ->
-    [ {server, t(ref(exproto_grpc_server))}
-    , {handler, t(ref(exproto_grpc_handler))}
-    , {listeners, t(ref(udp_tcp_listener_group))}
+    [ {server, sc(ref(exproto_grpc_server))}
+    , {handler, sc(ref(exproto_grpc_handler))}
+    , {listeners, sc(ref(udp_tcp_listener_group))}
     ] ++ gateway_common_options();
 
 fields(exproto_grpc_server) ->
-    [ {bind, t(union(ip_port(), integer()))}
+    [ {bind, sc(union(ip_port(), integer()))}
       %% TODO: ssl options
     ];
 
 fields(exproto_grpc_handler) ->
-    [ {address, t(binary())}
+    [ {address, sc(binary())}
       %% TODO: ssl
     ];
 
 fields(clientinfo_override) ->
-    [ {username, t(binary())}
-    , {password, t(binary())}
-    , {clientid, t(binary())}
+    [ {username, sc(binary())}
+    , {password, sc(binary())}
+    , {clientid, sc(binary())}
     ];
 
 fields(translators) ->
-    [ {command, t(ref(translator))}
-    , {response, t(ref(translator))}
-    , {notify, t(ref(translator))}
-    , {register, t(ref(translator))}
-    , {update, t(ref(translator))}
+    [ {command, sc(ref(translator))}
+    , {response, sc(ref(translator))}
+    , {notify, sc(ref(translator))}
+    , {register, sc(ref(translator))}
+    , {update, sc(ref(translator))}
     ];
 
 fields(translator) ->
-    [ {topic, t(binary())}
-    , {qos, t(range(0, 2))}
+    [ {topic, sc(binary())}
+    , {qos, sc(range(0, 2))}
     ];
 
 fields(udp_listener_group) ->
-    [ {udp, t(ref(udp_listener))}
-    , {dtls, t(ref(dtls_listener))}
+    [ {udp, sc(ref(udp_listener))}
+    , {dtls, sc(ref(dtls_listener))}
     ];
 
 fields(tcp_listener_group) ->
-    [ {tcp, t(ref(tcp_listener))}
-    , {ssl, t(ref(ssl_listener))}
+    [ {tcp, sc(ref(tcp_listener))}
+    , {ssl, sc(ref(ssl_listener))}
     ];
 
 fields(udp_tcp_listener_group) ->
-    [ {udp, t(ref(udp_listener))}
-    , {dtls, t(ref(dtls_listener))}
-    , {tcp, t(ref(tcp_listener))}
-    , {ssl, t(ref(ssl_listener))}
+    [ {udp, sc(ref(udp_listener))}
+    , {dtls, sc(ref(dtls_listener))}
+    , {tcp, sc(ref(tcp_listener))}
+    , {ssl, sc(ref(ssl_listener))}
     ];
 
 fields(tcp_listener) ->
-    [ {"$name", t(ref(tcp_listener_settings))}];
+    [ {"$name", sc(ref(tcp_listener_settings))}];
 
 fields(ssl_listener) ->
-    [ {"$name", t(ref(ssl_listener_settings))}];
+    [ {"$name", sc(ref(ssl_listener_settings))}];
 
 fields(udp_listener) ->
-    [ {"$name", t(ref(udp_listener_settings))}];
+    [ {"$name", sc(ref(udp_listener_settings))}];
 
 fields(dtls_listener) ->
-    [ {"$name", t(ref(dtls_listener_settings))}];
+    [ {"$name", sc(ref(dtls_listener_settings))}];
 
 fields(listener_settings) ->
-    [ {enable, t(boolean(), undefined, true)}
-    , {bind, t(union(ip_port(), integer()))}
-    , {acceptors, t(integer(), undefined, 8)}
-    , {max_connections, t(integer(), undefined, 1024)}
-    , {max_conn_rate, t(integer())}
-    , {active_n, t(integer(), undefined, 100)}
-                                                %, {rate_limit, t(comma_separated_list())}
-    , {access, t(ref(access))}
-    , {proxy_protocol, t(boolean())}
-    , {proxy_protocol_timeout, t(duration())}
-    , {backlog, t(integer(), undefined, 1024)}
-    , {send_timeout, t(duration(), undefined, <<"15s">>)}
-    , {send_timeout_close, t(boolean(), undefined, true)}
-    , {recbuf, t(bytesize())}
-    , {sndbuf, t(bytesize())}
-    , {buffer, t(bytesize())}
-    , {high_watermark, t(bytesize(), undefined, <<"1MB">>)}
-    , {tune_buffer, t(boolean())}
-    , {nodelay, t(boolean())}
-    , {reuseaddr, t(boolean())}
+    [ {enable, sc(boolean(), undefined, true)}
+    , {bind, sc(union(ip_port(), integer()))}
+    , {acceptors, sc(integer(), undefined, 8)}
+    , {max_connections, sc(integer(), undefined, 1024)}
+    , {max_conn_rate, sc(integer())}
+    , {active_n, sc(integer(), undefined, 100)}
+    %, {rate_limit, sc(comma_separated_list())}
+    , {access, sc(ref(access))}
+    , {proxy_protocol, sc(boolean())}
+    , {proxy_protocol_timeout, sc(duration())}
+    , {backlog, sc(integer(), undefined, 1024)}
+    , {send_timeout, sc(duration(), undefined, <<"15s">>)}
+    , {send_timeout_close, sc(boolean(), undefined, true)}
+    , {recbuf, sc(bytesize())}
+    , {sndbuf, sc(bytesize())}
+    , {buffer, sc(bytesize())}
+    , {high_watermark, sc(bytesize(), undefined, <<"1MB">>)}
+    , {tune_buffer, sc(boolean())}
+    , {nodelay, sc(boolean())}
+    , {reuseaddr, sc(boolean())}
     ];
 
 fields(tcp_listener_settings) ->
@@ -242,12 +243,12 @@ authentication() ->
       ]).
 
 gateway_common_options() ->
-    [ {enable, t(boolean(), undefined, true)}
-    , {enable_stats, t(boolean(), undefined, true)}
-    , {idle_timeout, t(duration(), undefined, <<"30s">>)}
-    , {mountpoint, t(binary())}
-    , {clientinfo_override, t(ref(clientinfo_override))}
-    , {authentication,  t(authentication(), undefined, undefined)}
+    [ {enable, sc(boolean(), undefined, true)}
+    , {enable_stats, sc(boolean(), undefined, true)}
+    , {idle_timeout, sc(duration(), undefined, <<"30s">>)}
+    , {mountpoint, sc(binary())}
+    , {clientinfo_override, sc(ref(clientinfo_override))}
+    , {authentication,  sc(authentication(), undefined, undefined)}
     ].
 
 %%--------------------------------------------------------------------
@@ -255,16 +256,10 @@ gateway_common_options() ->
 
 %% types
 
-t(Type) -> #{type => Type}.
+sc(Type) -> #{type => Type}.
 
-t(Type, Mapping, Default) ->
-    hoconsc:t(Type, #{mapping => Mapping, default => Default}).
-
-t(Type, Mapping, Default, OverrideEnv) ->
-    hoconsc:t(Type, #{ mapping => Mapping
-                     , default => Default
-                     , override_env => OverrideEnv
-                     }).
+sc(Type, Mapping, Default) ->
+    hoconsc:mk(Type, #{mapping => Mapping, default => Default}).
 
 ref(Field) ->
     hoconsc:ref(?MODULE, Field).
@@ -273,10 +268,10 @@ ref(Field) ->
 
 %% generate a ssl field.
 %% ssl("emqx", #{"verify" => verify_peer}) will return
-%% [ {"cacertfile", t(string(), "emqx.cacertfile", undefined)}
-%% , {"certfile", t(string(), "emqx.certfile", undefined)}
-%% , {"keyfile", t(string(), "emqx.keyfile", undefined)}
-%% , {"verify", t(union(verify_peer, verify_none), "emqx.verify", verify_peer)}
+%% [ {"cacertfile", sc(string(), "emqx.cacertfile", undefined)}
+%% , {"certfile", sc(string(), "emqx.certfile", undefined)}
+%% , {"keyfile", sc(string(), "emqx.keyfile", undefined)}
+%% , {"verify", sc(union(verify_peer, verify_none), "emqx.verify", verify_peer)}
 %% , {"server_name_indication", "emqx.server_name_indication", undefined)}
 %% ...
 ssl(Mapping, Defaults) ->
@@ -286,24 +281,24 @@ ssl(Mapping, Defaults) ->
             _ -> Mapping ++ "." ++ Field
         end end,
     D = fun (Field) -> maps:get(list_to_atom(Field), Defaults, undefined) end,
-    [ {"enable", t(boolean(), M("enable"), D("enable"))}
-    , {"cacertfile", t(binary(), M("cacertfile"), D("cacertfile"))}
-    , {"certfile", t(binary(), M("certfile"), D("certfile"))}
-    , {"keyfile", t(binary(), M("keyfile"), D("keyfile"))}
-    , {"verify", t(union(verify_peer, verify_none), M("verify"), D("verify"))}
-    , {"fail_if_no_peer_cert", t(boolean(), M("fail_if_no_peer_cert"), D("fail_if_no_peer_cert"))}
-    , {"secure_renegotiate", t(boolean(), M("secure_renegotiate"), D("secure_renegotiate"))}
-    , {"reuse_sessions", t(boolean(), M("reuse_sessions"), D("reuse_sessions"))}
-    , {"honor_cipher_order", t(boolean(), M("honor_cipher_order"), D("honor_cipher_order"))}
-    , {"handshake_timeout", t(duration(), M("handshake_timeout"), D("handshake_timeout"))}
-    , {"depth", t(integer(), M("depth"), D("depth"))}
-    , {"password", hoconsc:t(binary(), #{mapping => M("key_password"),
-                                         default => D("key_password"),
-                                         sensitive => true
+    [ {"enable", sc(boolean(), M("enable"), D("enable"))}
+    , {"cacertfile", sc(binary(), M("cacertfile"), D("cacertfile"))}
+    , {"certfile", sc(binary(), M("certfile"), D("certfile"))}
+    , {"keyfile", sc(binary(), M("keyfile"), D("keyfile"))}
+    , {"verify", sc(union(verify_peer, verify_none), M("verify"), D("verify"))}
+    , {"fail_if_no_peer_cert", sc(boolean(), M("fail_if_no_peer_cert"), D("fail_if_no_peer_cert"))}
+    , {"secure_renegotiate", sc(boolean(), M("secure_renegotiate"), D("secure_renegotiate"))}
+    , {"reuse_sessions", sc(boolean(), M("reuse_sessions"), D("reuse_sessions"))}
+    , {"honor_cipher_order", sc(boolean(), M("honor_cipher_order"), D("honor_cipher_order"))}
+    , {"handshake_timeout", sc(duration(), M("handshake_timeout"), D("handshake_timeout"))}
+    , {"depth", sc(integer(), M("depth"), D("depth"))}
+    , {"password", hoconsc:mk(binary(), #{ mapping => M("key_password")
+                                         , default => D("key_password")
+                                         , sensitive => true
                                         })}
-    , {"dhfile", t(binary(), M("dhfile"), D("dhfile"))}
-    , {"server_name_indication", t(union(disable, binary()), M("server_name_indication"),
+    , {"dhfile", sc(binary(), M("dhfile"), D("dhfile"))}
+    , {"server_name_indication", sc(union(disable, binary()), M("server_name_indication"),
                                    D("server_name_indication"))}
-    , {"tls_versions", t(comma_separated_list(), M("tls_versions"), D("tls_versions"))}
-    , {"ciphers", t(comma_separated_list(), M("ciphers"), D("ciphers"))}
-    , {"psk_ciphers", t(comma_separated_list(), M("ciphers"), D("ciphers"))}].
+    , {"tls_versions", sc(comma_separated_list(), M("tls_versions"), D("tls_versions"))}
+    , {"ciphers", sc(comma_separated_list(), M("ciphers"), D("ciphers"))}
+    , {"psk_ciphers", sc(comma_separated_list(), M("ciphers"), D("ciphers"))}].

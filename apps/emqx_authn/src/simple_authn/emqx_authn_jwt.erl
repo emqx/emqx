@@ -20,7 +20,8 @@
 
 -behaviour(hocon_schema).
 
--export([ roots/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         ]).
 
@@ -34,10 +35,12 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
+namespace() -> "authn:jwt".
+
 roots() ->
-    [ {config, {union, [ hoconsc:t('hmac-based')
-                       , hoconsc:t('public-key')
-                       , hoconsc:t('jwks')
+    [ {config, {union, [ hoconsc:mk('hmac-based')
+                       , hoconsc:mk('public-key')
+                       , hoconsc:mk('jwks')
                        ]}}
     ].
 

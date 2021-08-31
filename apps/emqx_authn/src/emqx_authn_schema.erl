@@ -21,7 +21,8 @@
 
 -behaviour(hocon_schema).
 
--export([ roots/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         ]).
 
@@ -31,6 +32,8 @@
 %% Export it for emqx_gateway_schema module
 -export([ authenticators/1
         ]).
+
+namespace() -> authn.
 
 roots() -> [ "authentication" ].
 

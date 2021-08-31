@@ -22,7 +22,8 @@
 
 -behaviour(hocon_schema).
 
--export([ roots/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         ]).
 
@@ -36,10 +37,11 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
+namespace() -> "authn:redis".
 roots() ->
-    [ {config, {union, [ hoconsc:t(standalone)
-                       , hoconsc:t(cluster)
-                       , hoconsc:t(sentinel)
+    [ {config, {union, [ hoconsc:mk(standalone)
+                       , hoconsc:mk(cluster)
+                       , hoconsc:mk(sentinel)
                        ]}}
     ].
 
