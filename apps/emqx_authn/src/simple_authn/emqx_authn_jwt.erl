@@ -21,11 +21,10 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ roots/0
-        , fields/1
-        ]).
+-export([ fields/1 ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -34,13 +33,6 @@
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
-
-roots() ->
-    [ {config, {union, [ hoconsc:t('hmac-based')
-                       , hoconsc:t('public-key')
-                       , hoconsc:t('jwks')
-                       ]}}
-    ].
 
 fields('hmac-based') ->
     [ {use_jwks,              {enum, [false]}}
@@ -79,7 +71,7 @@ fields(ssl_disable) ->
     [ {enable, #{type => false}} ].
 
 common_fields() ->
-    [ {type,            {enum, [jwt]}}
+    [ {mechanism,       {enum, [jwt]}}
     , {verify_claims,   fun verify_claims/1}
     ] ++ emqx_authn_schema:common_fields().
 
@@ -129,6 +121,12 @@ verify_claims(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+refs() ->
+   [ hoconsc:ref(?MODULE, 'hmac-based')
+   , hoconsc:ref(?MODULE, 'public-key')
+   , hoconsc:ref(?MODULE, 'jwks')
+   ].
 
 create(#{verify_claims := VerifyClaims} = Config) ->
     create2(Config#{verify_claims => handle_verify_claims(VerifyClaims)}).

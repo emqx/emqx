@@ -22,7 +22,7 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
--export([ structs/0
+-export([ roots/0
         , fields/1
         ]).
 
@@ -78,7 +78,7 @@
 -type user_info() :: #{user_id := binary(),
                        atom() => term()}.
 
--callback schema() -> {ref, Module, Ref} when Module::module(), Ref::atom().
+-callback refs() -> [{ref, Module, Name}] when Module::module(), Name::atom().
 
 -callback create(Config)
     -> {ok, State}
@@ -138,74 +138,19 @@
 %% APIs
 %%------------------------------------------------------------------------------
 
-structs() -> [ "authentication" ].
+roots() -> [{authentication, fun authentication/1}].
 
-fields("authentication") ->
-    [ {authenticators, fun authenticators/1}
-    ].
+fields(_) -> [].
 
-authenticators(type) ->
-    hoconsc:array({union, get_schemas()});
-    % hoconsc:array({union, [ hoconsc:ref(emqx_authn_mnesia, config)
-    %                       , hoconsc:ref(emqx_authn_mysql, config)
-    %                       , hoconsc:ref(emqx_authn_pgsql, config)
-    %                       , hoconsc:ref(emqx_authn_mongodb, standalone)
-    %                       , hoconsc:ref(emqx_authn_mongodb, 'replica-set')
-    %                       , hoconsc:ref(emqx_authn_mongodb, 'sharded-cluster')
-    %                       , hoconsc:ref(emqx_authn_redis, standalone)
-    %                       , hoconsc:ref(emqx_authn_redis, cluster)
-    %                       , hoconsc:ref(emqx_authn_redis, sentinel)
-    %                       , hoconsc:ref(emqx_authn_http, get)
-    %                       , hoconsc:ref(emqx_authn_http, post)
-    %                       , hoconsc:ref(emqx_authn_jwt, 'hmac-based')
-    %                       , hoconsc:ref(emqx_authn_jwt, 'public-key')
-    %                       , hoconsc:ref(emqx_authn_jwt, 'jwks')
-    %                       , hoconsc:ref(emqx_enhanced_authn_scram_mnesia, config)
-    %                       ]});
-authenticators(default) -> [];
-authenticators(_) -> undefined.
+authentication(type) ->
+    {ok, Refs} = get_refs(),
+    % hoconsc:array({union, Refs});
+    hoconsc:union([hoconsc:array(hoconsc:union(Refs)) | Refs]);
+authentication(default) -> [];
+authentication(_) -> undefined.
 
-get_schemas() ->
-    gen_server:call(?MODULE, get_schemas).
-
-% pre_config_update({move_authenticator, ID, Position}, OldConfig) ->
-%     case lookup_authenticator(?CHAIN, ID) of
-%         {error, Reason} -> {error, Reason};
-%         {ok, #{name := Name}} ->
-%             {ok, Found, Part1, Part2} = split_by_name(Name, OldConfig),
-%             case Position of
-%                 <<"top">> ->
-%                     {ok, [Found | Part1] ++ Part2};
-%                 <<"bottom">> ->
-%                     {ok, Part1 ++ Part2 ++ [Found]};
-%                 Before ->
-%                     case binary:split(Before, <<":">>, [global]) of
-%                         [<<"before">>, ID0] ->
-%                             case lookup_authenticator(?CHAIN, ID0) of
-%                                 {error, Reason} -> {error, Reason};
-%                                 {ok, #{name := Name1}} ->
-%                                     {ok, NFound, NPart1, NPart2} = split_by_name(Name1, Part1 ++ Part2),
-%                                     {ok, NPart1 ++ [Found, NFound | NPart2]}
-%                             end;
-%                         _ ->
-%                             {error, {invalid_parameter, position}}
-%                     end
-%             end
-%     end.
-
-% post_config_update({move_authenticator, ID, Position}, _NewConfig, _OldConfig) ->
-%     NPosition = case Position of
-%                     <<"top">> -> top;
-%                     <<"bottom">> -> bottom;
-%                     Before ->
-%                         case binary:split(Before, <<":">>, [global]) of
-%                             [<<"before">>, ID0] ->
-%                                 {before, ID0};
-%                             _ ->
-%                                 {error, {invalid_parameter, position}}
-%                         end
-%                 end,
-%     move_authenticator(?CHAIN, ID, NPosition).
+get_refs() ->
+    gen_server:call(?MODULE, get_refs).
 
 %%------------------------------------------------------------------------------
 %% Listeners
@@ -369,9 +314,11 @@ init(_Opts) ->
 handle_call({add_provider, AuthNType, Provider}, _From, #{providers := Providers} = State) ->
     reply(ok, State#{providers := Providers#{AuthNType => Provider}});
 
-handle_call(get_schemas, _From, #{providers := Providers} = State) ->
-    Schemas = [Provider:schema() || {_, Provider} <- maps:to_list(Providers)],
-    reply({ok, Schemas}, State);
+handle_call(get_refs, _From, #{providers := Providers} = State) ->
+    Refs = lists:foldl(fun({_, Provider}, Acc) ->
+                           Acc ++ Provider:refs()
+                       end, [], maps:to_list(Providers)),
+    reply({ok, Refs}, State);
 
 handle_call({create_chain, Name}, _From, State) ->
     case ets:member(?CHAINS_TAB, Name) of
@@ -538,23 +485,6 @@ may_unhook(#{hooked := true} = State) ->
 may_unhook(State) ->
     State.
 
-% authenticator_provider(#{mechanism := 'password-based', server_type := 'built-in-database'}) ->
-%     emqx_authn_mnesia;
-% authenticator_provider(#{mechanism := 'password-based', server_type := 'mysql'}) ->
-%     emqx_authn_mysql;
-% authenticator_provider(#{mechanism := 'password-based', server_type := 'pgsql'}) ->
-%     emqx_authn_pgsql;
-% authenticator_provider(#{mechanism := 'password-based', server_type := 'mongodb'}) ->
-%     emqx_authn_mongodb;
-% authenticator_provider(#{mechanism := 'password-based', server_type := 'redis'}) ->
-%     emqx_authn_redis;
-% authenticator_provider(#{mechanism := 'password-based', server_type := 'http-server'}) ->
-%     emqx_authn_http;
-% authenticator_provider(#{mechanism := jwt}) ->
-%     emqx_authn_jwt;
-% authenticator_provider(#{mechanism := scram, server_type := 'built-in-database'}) ->
-%     emqx_enhanced_authn_scram_mnesia.
-
 gen_id(AlreadyExist) ->
     ID = list_to_binary(emqx_rule_id:gen()),
     case AlreadyExist(ID) of
@@ -569,23 +499,8 @@ switch_version(State = #{version := ?VER_2}) ->
 switch_version(State) ->
     State#{version => ?VER_1}.
 
-% split_by_name(Name, Config) ->
-%     {Part1, Part2, true} = lists:foldl(
-%              fun(#{<<"name">> := N} = C, {P1, P2, F0}) ->
-%                  F = case N =:= Name of
-%                          true -> true;
-%                          false -> F0
-%                      end,
-%                  case F of
-%                      false -> {[C | P1], P2, F};
-%                      true -> {P1, [C | P2], F}
-%                  end
-%              end, {[], [], false}, Config),
-%     [Found | NPart2] = lists:reverse(Part2),
-%     {ok, Found, lists:reverse(Part1), NPart2}.
-
-do_create_authenticator(ChainName, AuthenticatorID, #{name := Name, type := Type} = Config, Providers) ->
-    case maps:get(Type, Providers, undefined) of
+do_create_authenticator(ChainName, AuthenticatorID, #{name := Name} = Config, Providers) ->
+    case maps:get(authn_type(Config), Providers, undefined) of
         undefined ->
             {error, no_available_provider};
         Provider ->
@@ -602,11 +517,16 @@ do_create_authenticator(ChainName, AuthenticatorID, #{name := Name, type := Type
             end
     end.
 
+authn_type(#{mechanism := Mechanism, backend := Backend}) ->
+    {Mechanism, Backend};
+authn_type(#{mechanism := Mechanism}) ->
+    Mechanism.
+
 do_delete_authenticator(#authenticator{provider = Provider, state = State}) ->
     _ = Provider:destroy(State),
     ok.
 
-update_or_create_authenticator(ChainName, AuthenticatorID, #{name := NewName, type := Type} = Config, Providers, CreateWhenNotFound) ->
+update_or_create_authenticator(ChainName, AuthenticatorID, #{name := NewName} = Config, Providers, CreateWhenNotFound) ->
     UpdateFun = 
         fun(#chain{authenticators = Authenticators} = Chain) ->
             case lists:keytake(AuthenticatorID, #authenticator.id, Authenticators) of
@@ -637,7 +557,7 @@ update_or_create_authenticator(ChainName, AuthenticatorID, #{name := NewName, ty
                         true ->
                             {error, name_has_be_used};
                         false ->
-                            case maps:get(Type, Providers, undefined) of
+                            case maps:get(authn_type(Config), Providers, undefined) of
                                 undefined ->
                                     {error, no_available_provider};
                                 Provider ->

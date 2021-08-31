@@ -23,12 +23,12 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ roots/0
-        , fields/1
+-export([ fields/1
         , validations/0
         ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -37,12 +37,6 @@
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
-
-roots() ->
-    [ {config, {union, [ hoconsc:t(get)
-                       , hoconsc:t(post)
-                       ]}}
-    ].
 
 fields(get) ->
     [ {method,          #{type => get,
@@ -57,7 +51,8 @@ fields(post) ->
     ] ++ common_fields().
 
 common_fields() ->
-    [ {type,            {enum, ['password-based:http-server']}}
+    [ {mechanism,       {enum, ['password-based']}}
+    , {backend,         {enum, ['http-server']}}
     , {url,             fun url/1}
     , {form_data,       fun form_data/1}
     , {request_timeout, fun request_timeout/1}
@@ -105,6 +100,11 @@ request_timeout(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+refs() ->
+    [ hoconsc:ref(?MODULE, get)
+    , hoconsc:ref(?MODULE, post)
+    ].
 
 create(#{ method := Method
         , url := URL

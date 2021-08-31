@@ -29,47 +29,24 @@ start(_StartType, _StartArgs) ->
     ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),
     add_providers(),
-    emqx_config_handler:add_handler([authentication, authenticators], emqx_authn),
+    emqx_config_handler:add_handler([authentication], emqx_authn),
     emqx_authn:initialize(),
     {ok, Sup}.
 
 stop(_State) ->
+    %% TODO
+    %% emqx_config_handler:remove_handler([authentication], emqx_authn),
+    %% remove_providers(),
     ok.
 
 add_providers() ->
-    Providers = [ {'password-based:built-in-database', emqx_authn_mnesia}
-                , {'password-based:mysql', emqx_authn_mysql}
-                , {'password-based:posgresql', emqx_authn_pgsql}
-                , {'password-based:mongodb', emqx_authn_mongodb}
-                , {'password-based:redis', emqx_authn_redis}
-                , {'password-based:http-server', emqx_authn_http}
+    Providers = [ {{'password-based', 'built-in-database'}, emqx_authn_mnesia}
+                , {{'password-based', mysql}, emqx_authn_mysql}
+                , {{'password-based', posgresql}, emqx_authn_pgsql}
+                , {{'password-based', mongodb}, emqx_authn_mongodb}
+                , {{'password-based', redis}, emqx_authn_redis}
+                , {{'password-based', 'http-server'}, emqx_authn_http}
                 , {jwt, emqx_authn_jwt}
-                , {'scram:built-in-database', emqx_enhanced_authn_scram_mnesia}
+                , {{scram, 'built-in-database'}, emqx_enhanced_authn_scram_mnesia}
                 ],
     [emqx_authentication:add_provider(AuthNType, Provider) || {AuthNType, Provider} <- Providers].
-
-% initialize() ->
-%     emqx_config_handler:add_handler([authentication, authenticators], emqx_authn),
-%     _ = emqx:hook('client.authenticate', {emqx_authn, authenticate, []}),
-%     AuthNConfig = emqx:get_config([authentication], #{authenticators => []}),
-%     initialize(AuthNConfig).
-
-% initialize(#{authenticators := AuthenticatorsConfig}) ->
-%     {ok, _} = emqx_authn:create_group(?GROUP),
-%     initialize_authenticators(AuthenticatorsConfig),
-%     ok.
-
-% deinitialize() ->
-%     _ = emqx:unhook('client.authenticate', {emqx_authn, authenticate, []}),
-%     ok = emqx_authn:delete_group(?GROUP),
-%     ok.
-
-% initialize_authenticators([]) ->
-%     ok;
-% initialize_authenticators([#{name := Name} = AuthenticatorConfig | More]) ->
-%     case emqx_authn:create_authenticator(?GROUP, AuthenticatorConfig) of
-%         {ok, _} ->
-%             initialize_authenticators(More);
-%         {error, Reason} ->
-%             ?LOG(error, "Failed to create authenticator '~s': ~p", [Name, Reason])
-%     end.

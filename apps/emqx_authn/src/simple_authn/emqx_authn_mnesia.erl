@@ -22,11 +22,10 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ roots/0
-        , fields/1
-        ]).
+-export([ fields/1 ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -82,10 +81,9 @@ mnesia(copy) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-roots() -> [config].
-
 fields(config) ->
-    [ {type,                    {enum, ['password-based:built-in-database']}}
+    [ {mechanism,               {enum, ['password-based']}}
+    , {backend,                 {enum, ['built-in-database']}}
     , {user_id_type,            fun user_id_type/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     ] ++ emqx_authn_schema:common_fields();
@@ -114,6 +112,9 @@ salt_rounds(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+refs() ->
+   [hoconsc:ref(?MODULE, config)].
 
 create(#{ user_id_type := Type
         , password_hash_algorithm := #{name := bcrypt,

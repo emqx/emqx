@@ -73,14 +73,10 @@
 roots() ->
     ["zones", "mqtt", "flapping_detect", "force_shutdown", "force_gc",
      "conn_congestion", "rate_limit", "quota", "listeners", "broker", "plugins",
-     "stats", "sysmon", "alarm", "authorization", "authentication"].
+     "stats", "sysmon", "alarm", "authorization", {"authentication", t(hoconsc:lazy(hoconsc:array(map())))}].
 
 fields("stats") ->
     [ {"enable", t(boolean(), undefined, true)}
-    ];
-
-fields("authentication") ->
-    [ {"authenticators", t(hoconsc:lazy(hoconsc:array(map())))}
     ];
 
 fields("authorization") ->
