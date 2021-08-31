@@ -37,6 +37,7 @@
         [ {<<"clientid">>, binary}
         , {<<"topic">>, binary}
         , {<<"share">>, binary}
+        , {<<"share_group">>, binary}
         , {<<"qos">>, integer}
         , {<<"match_topic">>, binary}]}).
 
@@ -87,10 +88,10 @@ parameters() ->
             schema => #{type => integer, enum => [0, 1, 2]}
         },
         #{
-            name => share,
+            name => share_group,
             in => query,
-            description => <<"Shared subscription">>,
-            schema => #{type => boolean}
+            description => <<"Shared subscription group name">>,
+            schema => #{type => string}
         },
         #{
             name => topic,
@@ -183,7 +184,7 @@ update_ms(clientid, X, {{Pid, Topic}, Opts}) ->
     {{Pid, Topic}, Opts#{subid => X}};
 update_ms(topic, X, {{Pid, _Topic}, Opts}) ->
     {{Pid, X}, Opts};
-update_ms(share, X, {{Pid, Topic}, Opts}) ->
+update_ms(share_group, X, {{Pid, Topic}, Opts}) ->
     {{Pid, Topic}, Opts#{share => X}};
 update_ms(qos, X, {{Pid, Topic}, Opts}) ->
     {{Pid, Topic}, Opts#{qos => X}}.
