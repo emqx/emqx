@@ -42,7 +42,9 @@ properties() ->
         {name, string, <<"Alarm name">>},
         {message, string, <<"Alarm readable information">>},
         {details, object},
-        {duration, integer, <<"Alarms duration time; UNIX time stamp">>}
+        {duration, integer, <<"Alarms duration time; UNIX time stamp, millisecond">>},
+        {activate_at, string, <<"Alarms activate time, RFC 3339">>},
+        {deactivate_at, string, <<"Nullable, alarms deactivate time, RFC 3339">>}
     ]).
 
 alarms_api() ->
