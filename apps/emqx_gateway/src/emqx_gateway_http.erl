@@ -18,17 +18,20 @@
 -module(emqx_gateway_http).
 
 -include("include/emqx_gateway.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %% Mgmt APIs - gateway
 -export([ gateways/1
         ]).
 
 %% Mgmt APIs - clients
--export([ client_lookup/2
-        , client_kickout/2
+-export([ lookup_client/3
+        , lookup_client/4
+        , kickout_client/2
+        , kickout_client/3
+        , list_client_subscriptions/2
         , client_subscribe/4
         , client_unsubscribe/3
-        , client_subscriptions/2
         ]).
 
 %% Utils for http, swagger, etc.
@@ -43,6 +46,8 @@
          , current_connect => integer()
          , listeners => []
          }.
+
+-define(DEFAULT_CALL_TIMEOUT, 15000).
 
 %%--------------------------------------------------------------------
 %% Mgmt APIs - gateway
@@ -96,41 +101,104 @@ listener_name(GwName, Type, LisName) ->
 %% Mgmt APIs - clients
 %%--------------------------------------------------------------------
 
--spec client_lookup(gateway_name(), emqx_type:clientid())
-    -> {ok, {emqx_types:infos(), emqx_types:stats()}}
-     | {error, any()}.
-client_lookup(_GwName, _ClientId) ->
-    %% FIXME: The Gap between `ClientInfo in HTTP-API` and
-    %% ClientInfo defination
-    todo.
+-spec lookup_client(gateway_name(), emqx_type:clientid(), function()) -> list().
+lookup_client(GwName, ClientId, FormatFun) ->
+    lists:append([lookup_client(Node, GwName, {clientid, ClientId}, FormatFun)
+                  || Node <- ekka_mnesia:running_nodes()]).
 
--spec client_kickout(gateway_name(), emqx_type:clientid())
+lookup_client(Node, GwName, {clientid, ClientId}, {M,F}) when Node =:= node() ->
+    ChanTab = emqx_gateway_cm:tabname(chan, GwName),
+    InfoTab = emqx_gateway_cm:tabname(info, GwName),
+
+    lists:append(lists:map(
+      fun(Key) ->
+        lists:map(fun M:F/1, ets:lookup(InfoTab, Key))
+      end, ets:lookup(ChanTab, ClientId)));
+
+lookup_client(Node, GwName, {clientid, ClientId}, FormatFun) ->
+    rpc_call(Node, lookup_client,
+             [Node, GwName, {clientid, ClientId}, FormatFun]).
+
+-spec kickout_client(gateway_name(), emqx_type:clientid())
     -> {error, any()}
      | ok.
-client_kickout(GwName, ClientId) ->
-    emqx_gateway_cm:kick_session(GwName, ClientId).
+kickout_client(GwName, ClientId) ->
+    Results = [kickout_client(Node, GwName, ClientId)
+               || Node <- ekka_mnesia:running_nodes()],
+    case lists:any(fun(Item) -> Item =:= ok end, Results) of
+        true  -> ok;
+        false -> lists:last(Results)
+    end.
 
--spec client_subscriptions(gateway_name(), emqx_type:clientid())
+kickout_client(Node, GwName, ClientId) when Node =:= node() ->
+    emqx_gateway_cm:kick_session(GwName, ClientId);
+
+kickout_client(Node, GwName, ClientId) ->
+    rpc_call(Node, kickout_client, [Node, GwName, ClientId]).
+
+-spec list_client_subscriptions(gateway_name(), emqx_type:clientid())
     -> {error, any()}
-     | {ok, list()}.     %% FIXME: #{<<"t/1">> =>
-                         %%           #{nl => 0,qos => 0,rap => 0,rh => 0,
-                         %%             sub_props => #{}}
-client_subscriptions(_GwName, _ClientId) ->
-    todo.
+     | {ok, list()}.
+list_client_subscriptions(GwName, ClientId) ->
+    %% Get the subscriptions from session-info
+    case emqx_gateway_cm:get_chan_info(GwName, ClientId) of
+        undefined ->
+            {error, not_found};
+        Infos ->
+            Subs = maps:get(subscriptions, Infos, #{}),
+            maps:fold(fun(K, V, Acc) ->
+                [maps:merge(
+                   #{topic => K},
+                   maps:with([qos, nl, rap, rh], V))
+                 |Acc]
+            end, [], Subs)
+    end.
 
 -spec client_subscribe(gateway_name(), emqx_type:clientid(),
-                       emqx_type:topic(), emqx_type:qos())
+                       emqx_type:topic(), emqx_type:subopts())
     -> {error, any()}
      | ok.
-client_subscribe(_GwName, _ClientId, _Topic, _QoS) ->
-    todo.
+client_subscribe(GwName, ClientId, Topic, SubOpts) ->
+    case emqx_gateway_cm:lookup_channels(GwName, ClientId) of
+        [] -> {error, not_found};
+        [Pid] ->
+            %% fixed conn module?
+            emqx_gateway_conn:call(
+              Pid, {subscribe, Topic, SubOpts},
+              ?DEFAULT_CALL_TIMEOUT
+             );
+        Pids ->
+            ?LOG(warning, "More than one client process ~p was found "
+                          "clientid ~s", [Pids, ClientId]),
+            _ = [
+                 emqx_gateway_conn:call(
+                  Pid, {subscribe, Topic, SubOpts},
+                  ?DEFAULT_CALL_TIMEOUT
+                 ) || Pid <- Pids],
+            ok
+    end.
 
 -spec client_unsubscribe(gateway_name(),
                          emqx_type:clientid(), emqx_type:topic())
     -> {error, any()}
      | ok.
-client_unsubscribe(_GwName, _ClientId, _Topic) ->
-    todo.
+client_unsubscribe(GwName, ClientId, Topic) ->
+    case emqx_gateway_cm:lookup_channels(GwName, ClientId) of
+        [] -> {error, not_found};
+        [Pid] ->
+            emqx_gateway_conn:call(
+              Pid, {unsubscribe, Topic},
+              ?DEFAULT_CALL_TIMEOUT);
+        Pids ->
+            ?LOG(warning, "More than one client process ~p was found "
+                          "clientid ~s", [Pids, ClientId]),
+            _ = [
+                 emqx_gateway_conn:call(
+                   Pid, {unsubscribe, Topic},
+                   ?DEFAULT_CALL_TIMEOUT
+                 ) || Pid <- Pids],
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Utils
@@ -146,3 +214,12 @@ return_http_error(Code, Msg) ->
 codestr(404) -> 'RESOURCE_NOT_FOUND';
 codestr(401) -> 'NOT_SUPPORTED_NOW';
 codestr(500) -> 'UNKNOW_ERROR'.
+
+%%--------------------------------------------------------------------
+%% Internal funcs
+
+rpc_call(Node, Fun, Args) ->
+    case rpc:call(Node, ?MODULE, Fun, Args) of
+        {badrpc, Reason} -> {error, Reason};
+        Res -> Res
+    end.

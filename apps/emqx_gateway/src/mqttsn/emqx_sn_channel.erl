@@ -1102,6 +1102,12 @@ message_to_packet(MsgId, Message,
        | {shutdown, Reason :: term(), Reply :: term(), channel()}
        | {shutdown, Reason :: term(), Reply :: term(),
           emqx_types:packet(), channel()}.
+handle_call({subscribe, _Topic, _Subopts}, Channel) ->
+    reply({error, not_supported_now}, Channel);
+
+handle_call({unsubscribe, _Topic}, Channel) ->
+    reply({error, not_supported_now}, Channel);
+
 handle_call(kick, Channel) ->
     NChannel = ensure_disconnected(kicked, Channel),
     shutdown_and_reply(kicked, ok, NChannel);
@@ -1149,18 +1155,6 @@ handle_cast(_Req, Channel) ->
 
 -spec handle_info(Info :: term(), channel())
       -> ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}.
-
-%% XXX: Received from the emqx-management ???
-%handle_info({subscribe, TopicFilters}, Channel ) ->
-%    {_, NChannel} = lists:foldl(
-%        fun({TopicFilter, SubOpts}, {_, ChannelAcc}) ->
-%            do_subscribe(TopicFilter, SubOpts, ChannelAcc)
-%        end, {[], Channel}, parse_topic_filters(TopicFilters)),
-%    {ok, NChannel};
-%
-%handle_info({unsubscribe, TopicFilters}, Channel) ->
-%    {_RC, NChannel} = process_unsubscribe(TopicFilters, #{}, Channel),
-%    {ok, NChannel};
 
 handle_info({sock_closed, Reason},
             Channel = #channel{conn_state = idle}) ->

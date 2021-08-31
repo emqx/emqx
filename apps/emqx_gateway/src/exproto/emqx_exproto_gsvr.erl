@@ -96,7 +96,7 @@ publish(Req, Md) ->
 subscribe(Req = #{conn := Conn, topic := Topic, qos := Qos}, Md)
   when ?IS_QOS(Qos) ->
     ?LOG(debug, "Recv ~p function with request ~0p", [?FUNCTION_NAME, Req]),
-    {ok, response(call(Conn, {subscribe, Topic, Qos})), Md};
+    {ok, response(call(Conn, {subscribe_from_client, Topic, Qos})), Md};
 
 subscribe(Req, Md) ->
     ?LOG(debug, "Recv ~p function with request ~0p", [?FUNCTION_NAME, Req]),
@@ -107,7 +107,7 @@ subscribe(Req, Md) ->
      | {error, grpc_cowboy_h:error_response()}.
 unsubscribe(Req = #{conn := Conn, topic := Topic}, Md) ->
     ?LOG(debug, "Recv ~p function with request ~0p", [?FUNCTION_NAME, Req]),
-    {ok, response(call(Conn, {unsubscribe, Topic})), Md}.
+    {ok, response(call(Conn, {unsubscribe_from_client, Topic})), Md}.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
