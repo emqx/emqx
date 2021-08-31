@@ -13,7 +13,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authz_api_SUITE).
+-module(emqx_authz_api_sources_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
