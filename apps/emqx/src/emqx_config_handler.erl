@@ -217,10 +217,9 @@ call_post_config_update(Handlers, OldConf, NewConf, AppEnvs, UpdateReq, Result) 
         false -> {ok, Result}
     end.
 
-save_configs(ConfKeyPath, AppEnvs, CheckedConf, NewRawConf, OverrideConf, {_Cmd, Opts}) ->
+save_configs(ConfKeyPath, AppEnvs, CheckedConf, NewRawConf, OverrideConf, UpdateArgs) ->
     case emqx_config:save_configs(AppEnvs, CheckedConf, NewRawConf, OverrideConf) of
-        ok -> {ok, #{config => emqx_config:get(ConfKeyPath),
-                     raw_config => return_rawconf(ConfKeyPath, Opts)}};
+        ok -> {ok, return_change_result(ConfKeyPath, UpdateArgs)};
         {error, Reason} -> {error, {save_configs, Reason}}
     end.
 
@@ -240,6 +239,12 @@ update_override_config(RawConf) ->
 
 up_req({remove, _Opts}) -> '$remove';
 up_req({{update, Req}, _Opts}) -> Req.
+
+return_change_result(ConfKeyPath, {{update, _Req}, Opts}) ->
+    #{config => emqx_config:get(ConfKeyPath),
+      raw_config => return_rawconf(ConfKeyPath, Opts)};
+return_change_result(_ConfKeyPath, {remove, _Opts}) ->
+    #{}.
 
 return_rawconf(ConfKeyPath, #{rawconf_with_defaults := true}) ->
     FullRawConf = emqx_config:fill_defaults(emqx_config:get_raw([])),
