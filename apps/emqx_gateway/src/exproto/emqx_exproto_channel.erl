@@ -310,7 +310,7 @@ handle_call({start_timer, keepalive, Interval},
     NChannel = Channel#channel{conninfo = NConnInfo, clientinfo = NClientInfo},
     {reply, ok, ensure_keepalive(NChannel)};
 
-handle_call({subscribe, TopicFilter, Qos},
+handle_call({subscribe_from_client, TopicFilter, Qos},
             Channel = #channel{
                          ctx = Ctx,
                          conn_state = connected,
@@ -323,9 +323,17 @@ handle_call({subscribe, TopicFilter, Qos},
             {reply, ok, NChannel}
     end;
 
-handle_call({unsubscribe, TopicFilter},
+handle_call({subscribe, Topic, SubOpts}, Channel) ->
+    {ok, NChannel} = do_subscribe([{Topic, SubOpts}], Channel),
+    {reply, ok, NChannel};
+
+handle_call({unsubscribe_from_client, TopicFilter},
             Channel = #channel{conn_state = connected}) ->
     {ok, NChannel} = do_unsubscribe([{TopicFilter, #{}}], Channel),
+    {reply, ok, NChannel};
+
+handle_call({unsubscribe, Topic}, Channel) ->
+    {ok, NChannel} = do_unsubscribe([Topic], Channel),
     {reply, ok, NChannel};
 
 handle_call({publish, Topic, Qos, Payload},
@@ -363,12 +371,6 @@ handle_cast(Req, Channel) ->
 -spec handle_info(any(), channel())
     -> {ok, channel()}
      | {shutdown, Reason :: term(), channel()}.
-handle_info({subscribe, TopicFilters}, Channel) ->
-    do_subscribe(TopicFilters, Channel);
-
-handle_info({unsubscribe, TopicFilters}, Channel) ->
-    do_unsubscribe(TopicFilters, Channel);
-
 handle_info({sock_closed, Reason},
             Channel = #channel{rqueue = Queue, inflight = Inflight}) ->
     case queue:len(Queue) =:= 0

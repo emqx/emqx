@@ -626,6 +626,50 @@ handle_out(receipt, ReceiptId, Channel) ->
       -> {reply, Reply :: term(), channel()}
        | {shutdown, Reason :: term(), Reply :: term(), channel()}
        | {shutdown, Reason :: term(), Reply :: term(), stomp_frame(), channel()}).
+handle_call({subscribe, Topic, SubOpts},
+            Channel = #channel{
+                         subscriptions = Subs
+                        }) ->
+    case maps:get(subid,
+                  maps:get(sub_prop, SubOpts, #{}),
+                  undefined) of
+        undefined ->
+            reply({error, no_subid}, Channel);
+        SubId ->
+            case emqx_misc:pipeline(
+                 [ fun parse_topic_filter/2
+                 , fun check_subscribed_status/2
+                 ], {SubId, {Topic, SubOpts}}, Channel) of
+                {ok, {_, TopicFilter}, NChannel} ->
+                    [MountedTopic] = do_subscribe([TopicFilter], NChannel),
+                    NChannel1 = NChannel#channel{
+                                  subscriptions =
+                                    [{SubId, MountedTopic, <<"auto">>}|Subs]
+                                 },
+                    reply(ok, NChannel1);
+                {error, ErrMsg, NChannel} ->
+                    ?LOG(error, "Failed to subscribe topic ~s, reason: ~s",
+                                [Topic, ErrMsg]),
+                    reply({error, ErrMsg}, NChannel)
+            end
+    end;
+
+handle_call({unsubscribe, Topic},
+            Channel = #channel{
+                         ctx = Ctx,
+                         clientinfo = ClientInfo = #{mountpoint := Mountpoint},
+                         subscriptions = Subs
+                        }) ->
+    {ParsedTopic, _SubOpts} = emqx_topic:parse(Topic),
+    MountedTopic = emqx_mountpoint:mount(Mountpoint, ParsedTopic),
+    ok = emqx_broker:unsubscribe(MountedTopic),
+    _ = run_hooks(Ctx, 'session.unsubscribe',
+                  [ClientInfo, MountedTopic, #{}]),
+    reply(ok,
+          Channel#channel{
+            subscriptions = lists:keydelete(MountedTopic, 2, Subs)}
+         );
+
 handle_call(kick, Channel) ->
     NChannel = ensure_disconnected(kicked, Channel),
     Frame = error_frame(undefined, <<"Kicked out">>),
@@ -677,18 +721,6 @@ handle_cast(_Req, Channel) ->
 
 -spec(handle_info(Info :: term(), channel())
       -> ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}).
-
-%% XXX: Received from the emqx-management ???
-%handle_info({subscribe, TopicFilters}, Channel ) ->
-%    {_, NChannel} = lists:foldl(
-%        fun({TopicFilter, SubOpts}, {_, ChannelAcc}) ->
-%            do_subscribe(TopicFilter, SubOpts, ChannelAcc)
-%        end, {[], Channel}, parse_topic_filters(TopicFilters)),
-%    {ok, NChannel};
-%
-%handle_info({unsubscribe, TopicFilters}, Channel) ->
-%    {_RC, NChannel} = process_unsubscribe(TopicFilters, #{}, Channel),
-%    {ok, NChannel};
 
 handle_info({sock_closed, Reason},
             Channel = #channel{conn_state = idle}) ->

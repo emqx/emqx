@@ -18,6 +18,8 @@
 
 -behaviour(minirest_api).
 
+-include_lib("emqx/include/logger.hrl").
+
 %% minirest behaviour callbacks
 -export([api_spec/0]).
 
@@ -92,20 +94,22 @@ clients(get, #{ bindings := #{name := GwName0}
     end.
 
 clients_insta(get, #{ bindings := #{name := GwName0,
-                                    clientid := ClientId}
+                                    clientid := ClientId0}
                     }) ->
     GwName = binary_to_existing_atom(GwName0),
-    TabName = emqx_gateway_cm:tabname(info, GwName),
-    %% XXX: We need a lookuo function for it instead of a query
-    #{data := Data} = emqx_mgmt_api:cluster_query(
-                        #{<<"clientid">> => ClientId},
-                        TabName, ?CLIENT_QS_SCHEMA, ?query_fun
-                       ),
-    case Data of
+    ClientId = emqx_mgmt_util:urldecode(ClientId0),
+
+    case emqx_gateway_http:lookup_client(GwName, ClientId,
+                                         {?MODULE, format_channel_info}) of
         [ClientInfo] ->
+            {200, ClientInfo};
+        [ClientInfo|_More] ->
+            ?LOG(warning, "More than one client info was returned on ~s",
+                          [ClientId]),
             {200, ClientInfo};
         [] ->
             return_http_error(404, <<"Gateway or ClientId not found">>)
+
     end;
 
 clients_insta(delete, #{ bindings := #{name := GwName0,
@@ -113,7 +117,7 @@ clients_insta(delete, #{ bindings := #{name := GwName0,
                        }) ->
     GwName = binary_to_existing_atom(GwName0),
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
-    emqx_gateway_http:client_kickout(GwName, ClientId),
+    emqx_gateway_http:kickout_client(GwName, ClientId),
     {200}.
 
 subscriptions(get, #{ bindings := #{name := GwName0,
@@ -121,8 +125,7 @@ subscriptions(get, #{ bindings := #{name := GwName0,
                     }) ->
     GwName = binary_to_existing_atom(GwName0),
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
-    emqx_gateway_http:client_subscriptions(GwName, ClientId),
-    {200, []};
+    {200, emqx_gateway_http:list_client_subscriptions(GwName, ClientId)};
 
 subscriptions(post, #{ bindings := #{name := GwName0,
                                      clientid := ClientId0},
@@ -131,8 +134,7 @@ subscriptions(post, #{ bindings := #{name := GwName0,
     GwName = binary_to_existing_atom(GwName0),
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
 
-    case {maps:get(<<"topic">>, Body, undefined),
-          maps:get(<<"qos">>, Body, 0)} of
+    case {maps:get(<<"topic">>, Body, undefined), subopts(Body)} of
         {undefined, _} ->
             %% FIXME: more reasonable error code??
             return_http_error(404, <<"Request paramter missed: topic">>);
@@ -155,6 +157,23 @@ subscriptions(delete, #{ bindings := #{name := GwName0,
     Topic = emqx_mgmt_util:urldecode(Topic0),
     _ = emqx_gateway_http:client_unsubscribe(GwName, ClientId, Topic),
     {200}.
+
+%%--------------------------------------------------------------------
+%% Utils
+
+subopts(Req) ->
+    #{ qos => maps:get(<<"qos">>, Req, 0)
+     , rap => maps:get(<<"rap">>, Req, 0)
+     , nl => maps:get(<<"nl">>, Req, 0)
+     , rh => maps:get(<<"rh">>, Req, 0)
+     , sub_prop => extra_sub_prop(maps:get(<<"sub_prop">>, Req, #{}))
+     }.
+
+extra_sub_prop(Props) ->
+    maps:filter(
+      fun(_, V) -> V =/= undefined end,
+      #{subid => maps:get(<<"subid">>, Props, undefined)}
+     ).
 
 %%--------------------------------------------------------------------
 %% query funcs
@@ -576,6 +595,10 @@ properties_client() ->
       ]).
 
 properties_subscription() ->
+    ExtraProps = [ {subid, integer,
+                    <<"Only stomp protocol, an uniquely identity for "
+                      "the subscription. range: 1-65535.">>}
+                 ],
     emqx_mgmt_util:properties(
      [ {topic, string,
         <<"Topic Fillter">>}
@@ -587,4 +610,5 @@ properties_subscription() ->
         <<"Retain as Published option, enum: 0, 1">>}
      , {rh, integer,
         <<"Retain Handling option, enum: 0, 1, 2">>}
+     , {sub_prop, object, ExtraProps}
      ]).
