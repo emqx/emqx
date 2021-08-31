@@ -20,8 +20,13 @@
 
 -compile(nowarn_unused_function).
 
--import(emqx_mgmt_util, [ schema/1
-                        ]).
+-import(emqx_mgmt_util,
+        [ schema/1
+        ]).
+
+-import(emqx_gateway_http,
+        [ return_http_error/2
+        ]).
 
 %% minirest behaviour callbacks
 -export([api_spec/0]).
@@ -342,7 +347,7 @@ gateway(get, Request) ->
                  undefined -> all;
                  S0 -> binary_to_existing_atom(S0, utf8)
              end,
-    {200, emqx_gateway_intr:gateways(Status)}.
+    {200, emqx_gateway_http:gateways(Status)}.
 
 gateway_insta(delete, #{bindings := #{name := Name0}}) ->
     Name = binary_to_existing_atom(Name0),
@@ -380,13 +385,3 @@ gateway_insta(put, #{body := RawConfsIn,
 
 gateway_insta_stats(get, _Req) ->
     return_http_error(401, <<"Implement it later (maybe 5.1)">>).
-
-return_http_error(Code, Msg) ->
-    emqx_json:encode(
-      #{code => codestr(Code),
-        reason => emqx_gateway_utils:stringfy(Msg)
-       }).
-
-codestr(404) -> 'RESOURCE_NOT_FOUND';
-codestr(401) -> 'NOT_SUPPORTED_NOW';
-codestr(500) -> 'UNKNOW_ERROR'.
