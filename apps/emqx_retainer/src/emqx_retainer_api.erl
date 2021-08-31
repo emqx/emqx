@@ -170,7 +170,7 @@ format_message(#message{id = ID, qos = Qos, topic = Topic, from = From, timestam
     #{msgid => emqx_guid:to_hexstr(ID),
       qos => Qos,
       topic => Topic,
-      publish_at => list_to_binary(calendar:system_time_to_rfc3339(Timestamp div 1000, [{unit, second}])).
+      publish_at => list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, millisecond}])),
       from_clientid => to_bin_string(From),
       from_username => maps:get(username, Headers, <<>>)
      }.
