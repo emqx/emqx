@@ -23,6 +23,7 @@
 
 %% API functions
 -export([ start_link/0
+        , stop/0
         , add_handler/2
         , remove_handler/1
         , update_config/3
@@ -67,6 +68,9 @@
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, {}, []).
+
+stop() ->
+    gen_server:stop(?MODULE).
 
 -spec update_config(module(), emqx_config:config_key_path(), emqx_config:update_args()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.

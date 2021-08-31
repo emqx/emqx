@@ -37,6 +37,14 @@ end_per_suite(_Config) ->
     application:stop(esockd),
     application:stop(cowboy).
 
+init_per_testcase(_, Config) ->
+    {ok, _} = emqx_config_handler:start_link(),
+    Config.
+
+end_per_testcase(_, _Config) ->
+    _ = emqx_config_handler:stop(),
+    ok.
+
 t_start_stop_listeners(_) ->
     ok = emqx_listeners:start(),
     ?assertException(error, _, emqx_listeners:start_listener({ws,{"127.0.0.1", 8083}, []})),
