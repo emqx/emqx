@@ -24,9 +24,10 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ roots/0, fields/1 ]).
+-export([ fields/1 ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -36,10 +37,9 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-roots() -> [config].
-
 fields(config) ->
-    [ {type,                    {enum, ['password-based:postgresql']}}
+    [ {mechanism,               {enum, ['password-based']}}
+    , {backend,                 {enum, [postgresql]}}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position,           {enum, [prefix, suffix]}}
     , {query,                   fun query/1}
@@ -58,6 +58,9 @@ query(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+refs() ->
+    [hoconsc:ref(?MODULE, config)].
 
 create(#{ query := Query0
         , password_hash_algorithm := Algorithm

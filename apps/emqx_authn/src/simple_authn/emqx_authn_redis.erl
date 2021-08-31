@@ -23,11 +23,9 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ roots/0
-        , fields/1
-        ]).
+-export([ fields/1 ]).
 
--export([ schema/0
+-export([ refs/0
         , create/1
         , update/2
         , authenticate/2
@@ -37,13 +35,6 @@
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
-
-roots() ->
-    [ {config, {union, [ hoconsc:t(standalone)
-                       , hoconsc:t(cluster)
-                       , hoconsc:t(sentinel)
-                       ]}}
-    ].
 
 fields(standalone) ->
     common_fields() ++ emqx_connector_redis:fields(single);
@@ -55,7 +46,8 @@ fields(sentinel) ->
     common_fields() ++ emqx_connector_redis:fields(sentinel).
 
 common_fields() ->
-    [ {type,                    {enum, ['password-based:redis']}}
+    [ {mechanism,               {enum, ['password-based']}}
+    , {backend,                 {enum, [redis]}}
     , {query,                   fun query/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position,           fun salt_position/1}
@@ -77,8 +69,11 @@ salt_position(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
-schema() ->
-   hoconsc:ref(?MODULE, config). 
+refs() ->
+    [ hoconsc:ref(?MODULE, standalone)
+    , hoconsc:ref(?MODULE, cluster)
+    , hoconsc:ref(?MODULE, sentinel)
+    ].
 
 create(#{ query := Query
         , '_unique' := Unique

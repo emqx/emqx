@@ -22,11 +22,10 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ roots/0
-        , fields/1
-        ]).
+-export([ fields/1 ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -75,10 +74,9 @@ mnesia(copy) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-roots() -> [config].
-
 fields(config) ->
-    [ {type,            {enum, ['scram:built-in-database']}}
+    [ {mechanism,       {enum, [scram]}}
+    , {backend,         {enum, ['built-in-database']}}
     , {algorithm,       fun algorithm/1}
     , {iteration_count, fun iteration_count/1}
     ] ++ emqx_authn_schema:common_fields().
@@ -94,6 +92,9 @@ iteration_count(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+refs() ->
+   [hoconsc:ref(?MODULE, config)].
 
 create(#{ algorithm := Algorithm
         , iteration_count := IterationCount

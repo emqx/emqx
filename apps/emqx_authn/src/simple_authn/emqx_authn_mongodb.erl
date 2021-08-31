@@ -23,11 +23,10 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ roots/0
-        , fields/1
-        ]).
+-export([ fields/1 ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -36,13 +35,6 @@
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
-
-roots() ->
-    [ {config, {union, [ hoconsc:t(standalone)
-                       , hoconsc:t('replica-set')
-                       , hoconsc:t('sharded-cluster')
-                       ]}}
-    ].
 
 fields(standalone) ->
     common_fields() ++ emqx_connector_mongo:fields(single);
@@ -54,7 +46,8 @@ fields('sharded-cluster') ->
     common_fields() ++ emqx_connector_mongo:fields(sharded).
 
 common_fields() ->
-    [ {type,                    {enum, ['password-based:mongodb']}}
+    [ {mechanism,               {enum, ['password-based']}}
+    , {backend,                 {enum, [mongodb]}}
     , {collection,              fun collection/1}
     , {selector,                fun selector/1}
     , {password_hash_field,     fun password_hash_field/1}
@@ -90,6 +83,12 @@ salt_position(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+refs() ->
+    [ hoconsc:ref(?MODULE, standalone)
+    , hoconsc:ref(?MODULE, 'replica-set')
+    , hoconsc:ref(?MODULE, 'sharded-cluster')
+    ].
 
 create(#{ selector := Selector
         , '_unique' := Unique

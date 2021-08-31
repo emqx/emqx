@@ -16,47 +16,10 @@
 
 -module(emqx_authn_schema).
 
--include("emqx_authn.hrl").
 -include_lib("typerefl/include/types.hrl").
-
--behaviour(hocon_schema).
-
--export([ roots/0
-        , fields/1
-        ]).
-
-%% Export it for emqx_gateway_schema module
--export([ authenticators/1
-        ]).
 
 -export([ common_fields/0
         ]).
-
-roots() -> [ "authentication" ].
-
-fields("authentication") ->
-    [ {authenticators, fun authenticators/1}
-    ].
-
-authenticators(type) ->
-    hoconsc:array({union, [ hoconsc:ref(emqx_authn_mnesia, config)
-                          , hoconsc:ref(emqx_authn_mysql, config)
-                          , hoconsc:ref(emqx_authn_pgsql, config)
-                          , hoconsc:ref(emqx_authn_mongodb, standalone)
-                          , hoconsc:ref(emqx_authn_mongodb, 'replica-set')
-                          , hoconsc:ref(emqx_authn_mongodb, 'sharded-cluster')
-                          , hoconsc:ref(emqx_authn_redis, standalone)
-                          , hoconsc:ref(emqx_authn_redis, cluster)
-                          , hoconsc:ref(emqx_authn_redis, sentinel)
-                          , hoconsc:ref(emqx_authn_http, get)
-                          , hoconsc:ref(emqx_authn_http, post)
-                          , hoconsc:ref(emqx_authn_jwt, 'hmac-based')
-                          , hoconsc:ref(emqx_authn_jwt, 'public-key')
-                          , hoconsc:ref(emqx_authn_jwt, 'jwks')
-                          , hoconsc:ref(emqx_enhanced_authn_scram_mnesia, config)
-                          ]});
-authenticators(default) -> [];
-authenticators(_) -> undefined.
 
 common_fields() ->
     [ {name,      fun name/1}
