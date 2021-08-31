@@ -28,6 +28,7 @@
 
 -export([ apply/2
         , format_listenon/1
+        , unix_ts_to_rfc3339/1
         , unix_ts_to_rfc3339/2
         ]).
 
@@ -120,6 +121,9 @@ unix_ts_to_rfc3339(Key, Map) ->
           Map#{Key =>
                emqx_rule_funcs:unix_ts_to_rfc3339(Ts, <<"millisecond">>)}
     end.
+
+unix_ts_to_rfc3339(Ts) ->
+    emqx_rule_funcs:unix_ts_to_rfc3339(Ts, <<"millisecond">>).
 
 -spec stringfy(term()) -> binary().
 stringfy(T) ->

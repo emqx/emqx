@@ -13,8 +13,8 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
-%%
--module(emqx_gateway_api_client).
+
+-module(emqx_gateway_api_clients).
 
 -behaviour(minirest_api).
 
@@ -32,6 +32,10 @@
         , format_channel_info/1
         ]).
 
+-import(emqx_gateway_http,
+        [ return_http_error/2
+        ]).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -46,17 +50,14 @@ apis() ->
     , {"/gateway/:name/clients/:clientid/subscriptions/:topic", subscriptions}
     ].
 
-
 -define(CLIENT_QS_SCHEMA,
     [ {<<"node">>, atom}
     , {<<"clientid">>, binary}
     , {<<"username">>, binary}
-    %%, {<<"zone">>, atom}
     , {<<"ip_address">>, ip}
     , {<<"conn_state">>, atom}
     , {<<"clean_start">>, atom}
-    %%, {<<"proto_name">>, binary}
-    %%, {<<"proto_ver">>, integer}
+    , {<<"proto_ver">>, integer}
     , {<<"like_clientid">>, binary}
     , {<<"like_username">>, binary}
     , {<<"gte_created_at">>, timestamp}
@@ -90,14 +91,69 @@ clients(get, #{ bindings := #{name := GwName0}
             {200, Response}
     end.
 
-clients_insta(get, _Req) ->
-    {200, <<"{}">>};
-clients_insta(delete, _Req) ->
+clients_insta(get, #{ bindings := #{name := GwName0,
+                                    clientid := ClientId}
+                    }) ->
+    GwName = binary_to_existing_atom(GwName0),
+    TabName = emqx_gateway_cm:tabname(info, GwName),
+    %% XXX: We need a lookuo function for it instead of a query
+    #{data := Data} = emqx_mgmt_api:cluster_query(
+                        #{<<"clientid">> => ClientId},
+                        TabName, ?CLIENT_QS_SCHEMA, ?query_fun
+                       ),
+    case Data of
+        [ClientInfo] ->
+            {200, ClientInfo};
+        [] ->
+            return_http_error(404, <<"Gateway or ClientId not found">>)
+    end;
+
+clients_insta(delete, #{ bindings := #{name := GwName0,
+                                       clientid := ClientId0}
+                       }) ->
+    GwName = binary_to_existing_atom(GwName0),
+    ClientId = emqx_mgmt_util:urldecode(ClientId0),
+    emqx_gateway_http:client_kickout(GwName, ClientId),
     {200}.
 
-subscriptions(get, _Req) ->
+subscriptions(get, #{ bindings := #{name := GwName0,
+                                    clientid := ClientId0}
+                    }) ->
+    GwName = binary_to_existing_atom(GwName0),
+    ClientId = emqx_mgmt_util:urldecode(ClientId0),
+    emqx_gateway_http:client_subscriptions(GwName, ClientId),
     {200, []};
-subscriptions(delete, _Req) ->
+
+subscriptions(post, #{ bindings := #{name := GwName0,
+                                     clientid := ClientId0},
+                       body := Body
+                    }) ->
+    GwName = binary_to_existing_atom(GwName0),
+    ClientId = emqx_mgmt_util:urldecode(ClientId0),
+
+    case {maps:get(<<"topic">>, Body, undefined),
+          maps:get(<<"qos">>, Body, 0)} of
+        {undefined, _} ->
+            %% FIXME: more reasonable error code??
+            return_http_error(404, <<"Request paramter missed: topic">>);
+        {Topic, QoS} ->
+            case emqx_gateway_http:client_subscribe(GwName, ClientId, Topic, QoS) of
+                {error, Reason} ->
+                    return_http_error(404, Reason);
+                ok ->
+                    {200}
+            end
+    end;
+
+subscriptions(delete, #{ bindings := #{name := GwName0,
+                                       clientid := ClientId0,
+                                       topic := Topic0
+                                      }
+                       }) ->
+    GwName = binary_to_existing_atom(GwName0),
+    ClientId = emqx_mgmt_util:urldecode(ClientId0),
+    Topic = emqx_mgmt_util:urldecode(Topic0),
+    _ = emqx_gateway_http:client_unsubscribe(GwName, ClientId, Topic),
     {200}.
 
 %%--------------------------------------------------------------------
@@ -148,8 +204,6 @@ ms(conn_state, X) ->
     #{conn_state => X};
 ms(clean_start, X) ->
     #{conninfo => #{clean_start => X}};
-ms(proto_name, X) ->
-    #{conninfo => #{proto_name => X}};
 ms(proto_ver, X) ->
     #{conninfo => #{proto_ver => X}};
 ms(connected_at, X) ->
@@ -188,49 +242,79 @@ run_fuzzy_match(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE}|Fuzzy]) -
 %%--------------------------------------------------------------------
 %% format funcs
 
-format_channel_info({_, ClientInfo, ClientStats}) ->
-    Fun =
-        fun
-            (_Key, Value, Current) when is_map(Value) ->
-                maps:merge(Current, Value);
-            (Key, Value, Current) ->
-                maps:put(Key, Value, Current)
-        end,
-    StatsMap = maps:without([memory, next_pkt_id, total_heap_size],
-        maps:from_list(ClientStats)),
-    ClientInfoMap0 = maps:fold(Fun, #{}, ClientInfo),
-    IpAddress      = peer_to_binary(maps:get(peername, ClientInfoMap0)),
-    Connected      = maps:get(conn_state, ClientInfoMap0) =:= connected,
-    ClientInfoMap1 = maps:merge(StatsMap, ClientInfoMap0),
-    ClientInfoMap2 = maps:put(node, node(), ClientInfoMap1),
-    ClientInfoMap3 = maps:put(ip_address, IpAddress, ClientInfoMap2),
-    ClientInfoMap  = maps:put(connected, Connected, ClientInfoMap3),
-    RemoveList = [
-          auth_result
-        , peername
-        , sockname
-        , peerhost
-        , conn_state
-        , send_pend
-        , conn_props
-        , peercert
-        , sockstate
-        , subscriptions
-        , receive_maximum
-        , protocol
-        , is_superuser
-        , sockport
-        , anonymous
-        , mountpoint
-        , socktype
-        , active_n
-        , await_rel_timeout
-        , conn_mod
-        , sockname
-        , retry_interval
-        , upgrade_qos
-    ],
-    maps:without(RemoveList, ClientInfoMap).
+format_channel_info({_, Infos, Stats}) ->
+    ClientInfo = maps:get(clientinfo, Infos, #{}),
+    ConnInfo = maps:get(conninfo, Infos, #{}),
+    SessInfo = maps:get(session, Infos, #{}),
+    FetchX = [ {node, ClientInfo, node()}
+             , {clientid, ClientInfo}
+             , {username, ClientInfo}
+             , {proto_name, ConnInfo}
+             , {proto_ver, ConnInfo}
+             , {ip_address, {peername, ConnInfo, fun peer_to_binary/1}}
+             , {is_bridge, ClientInfo, false}
+             , {connected_at,
+                {connected_at, ConnInfo, fun emqx_gateway_utils:unix_ts_to_rfc3339/1}}
+             , {disconnected_at,
+                {disconnected_at, ConnInfo, fun emqx_gateway_utils:unix_ts_to_rfc3339/1}}
+             , {connected, {conn_state, Infos, fun conn_state_to_connected/1}}
+             , {keepalive, ClientInfo, 0}
+             , {clean_start, ConnInfo, true}
+             , {expiry_interval, ConnInfo, 0}
+             , {created_at,
+                {created_at, SessInfo, fun emqx_gateway_utils:unix_ts_to_rfc3339/1}}
+             , {subscriptions_cnt, Stats, 0}
+             , {subscriptions_max, Stats, infinity}
+             , {inflight_cnt, Stats, 0}
+             , {inflight_max, Stats, infinity}
+             , {mqueue_len, Stats, 0}
+             , {mqueue_max, Stats, infinity}
+             , {mqueue_dropped, Stats, 0}
+             , {awaiting_rel_cnt, Stats, 0}
+             , {awaiting_rel_max, Stats, infinity}
+             , {recv_oct, Stats, 0}
+             , {recv_cnt, Stats, 0}
+             , {recv_pkt, Stats, 0}
+             , {recv_msg, Stats, 0}
+             , {send_oct, Stats, 0}
+             , {send_cnt, Stats, 0}
+             , {send_pkt, Stats, 0}
+             , {send_msg, Stats, 0}
+             , {mailbox_len, Stats, 0}
+             , {heap_size, Stats, 0}
+             , {reductions, Stats, 0}
+             ],
+    eval(FetchX).
+
+eval(Ls) ->
+    eval(Ls, #{}).
+eval([], AccMap) ->
+    AccMap;
+eval([{K, Vx}|More], AccMap) ->
+    case valuex_get(K, Vx) of
+        undefined -> eval(More, AccMap#{K => null});
+        Value -> eval(More, AccMap#{K => Value})
+    end;
+eval([{K, Vx, Default}|More], AccMap) ->
+    case valuex_get(K, Vx) of
+        undefined -> eval(More, AccMap#{K => Default});
+        Value -> eval(More, AccMap#{K => Value})
+    end.
+
+valuex_get(K, Vx) when is_map(Vx); is_list(Vx) ->
+    key_get(K, Vx);
+valuex_get(_K, {InKey, Obj}) when is_map(Obj); is_list(Obj) ->
+    key_get(InKey, Obj);
+valuex_get(_K, {InKey, Obj, MappingFun}) when is_map(Obj); is_list(Obj) ->
+    case key_get(InKey, Obj) of
+        undefined -> undefined;
+        Val -> MappingFun(Val)
+    end.
+
+key_get(K, M) when is_map(M) ->
+    maps:get(K, M, undefined);
+key_get(K, L) when is_list(L) ->
+    proplists:get_value(K, L).
 
 peer_to_binary({Addr, Port}) ->
     AddrBinary = list_to_binary(inet:ntoa(Addr)),
@@ -238,6 +322,9 @@ peer_to_binary({Addr, Port}) ->
     <<AddrBinary/binary, ":", PortBinary/binary>>;
 peer_to_binary(Addr) ->
     list_to_binary(inet:ntoa(Addr)).
+
+conn_state_to_connected(connected) -> true;
+conn_state_to_connected(_) -> false.
 
 %%--------------------------------------------------------------------
 %% Swagger defines
@@ -325,6 +412,7 @@ params_client_searching_in_qs() ->
       , {username, string}
       , {ip_address, string}
       , {conn_state, string}
+      , {proto_ver, string}
       , {clean_start, boolean}
       , {like_clientid, string}
       , {like_username, string}
@@ -426,6 +514,10 @@ properties_client() ->
             "when connected is false">>}
       , {connected, boolean,
          <<"Whether the client is connected">>}
+      %% FIXME: the will_msg attribute is not a general attribute
+      %% for every protocol. But it should be returned to frontend if someone
+      %% want it
+      %%
       %, {will_msg, string,
       %   <<"Client will message">>}
       %, {zone, string,
@@ -488,5 +580,11 @@ properties_subscription() ->
      [ {topic, string,
         <<"Topic Fillter">>}
      , {qos, integer,
-        <<"QoS level">>}
+        <<"QoS level, enum: 0, 1, 2">>}
+     , {nl, integer,     %% FIXME: why not boolean?
+        <<"No Local option, enum: 0, 1">>}
+     , {rap, integer,
+        <<"Retain as Published option, enum: 0, 1">>}
+     , {rh, integer,
+        <<"Retain Handling option, enum: 0, 1, 2">>}
      ]).
