@@ -46,9 +46,9 @@ message_props() ->
         {topic, string, <<"MQTT Topic">>},
         {qos, string, <<"MQTT QoS">>},
         {payload, string, <<"MQTT Payload">>},
-        {publish_at, string, <<"publish datetime by rfc 3339">>},
-        {from_clientid, string, <<"publisher ClientId">>},
-        {from_username, string, <<"publisher Username">>}
+        {publish_at, string, <<"Publish datetime, in RFC 3339 format">>},
+        {from_clientid, string, <<"Publisher ClientId">>},
+        {from_username, string, <<"Publisher Username">>}
     ]).
 
 parameters() ->
