@@ -75,7 +75,7 @@ common_fields() ->
     , {verify_claims,   fun verify_claims/1}
     ] ++ emqx_authn_schema:common_fields().
 
-secret(type) -> string();
+secret(type) -> binary();
 secret(_) -> undefined.
 
 secret_base64_encoded(type) -> boolean();
