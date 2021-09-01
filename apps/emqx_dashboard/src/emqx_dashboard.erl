@@ -70,7 +70,7 @@ stop_listeners() ->
     [begin
         ok = minirest:stop(Name),
         ?ULOG("Stop listener ~s on ~p successfully.~n", [Name, Port])
-    end || {Name, _, Port, RanchOptions} <- listeners()].
+    end || {Name, _, Port, _} <- listeners()].
 
 %%--------------------------------------------------------------------
 %% internal
