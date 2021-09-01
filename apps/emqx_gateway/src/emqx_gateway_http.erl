@@ -101,7 +101,8 @@ listener_name(GwName, Type, LisName) ->
 %% Mgmt APIs - clients
 %%--------------------------------------------------------------------
 
--spec lookup_client(gateway_name(), emqx_type:clientid(), function()) -> list().
+-spec lookup_client(gateway_name(),
+                    emqx_type:clientid(), {atom(), atom()}) -> list().
 lookup_client(GwName, ClientId, FormatFun) ->
     lists:append([lookup_client(Node, GwName, {clientid, ClientId}, FormatFun)
                   || Node <- ekka_mnesia:running_nodes()]).
@@ -185,7 +186,7 @@ with_channel(GwName, ClientId, Fun) ->
 %% Utils
 %%--------------------------------------------------------------------
 
--spec return_http_error(integer(), binary()) -> binary().
+-spec return_http_error(integer(), binary()) -> {integer(), binary()}.
 return_http_error(Code, Msg) ->
     {Code, emqx_json:encode(
              #{code => codestr(Code),

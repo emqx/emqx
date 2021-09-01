@@ -117,7 +117,7 @@ clients_insta(delete, #{ bindings := #{name := GwName0,
                        }) ->
     GwName = binary_to_existing_atom(GwName0),
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
-    emqx_gateway_http:kickout_client(GwName, ClientId),
+    _ = emqx_gateway_http:kickout_client(GwName, ClientId),
     {200}.
 
 %% FIXME:
