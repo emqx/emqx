@@ -31,7 +31,7 @@ api_spec() ->
 schema() ->
     emqx_mgmt_util:schema(
         emqx_mgmt_api_configs:gen_schema(
-            emqx:get_raw_config([auto_subscribe, topics]))).
+            emqx:get_raw_config([auto_subscribe, topics])), <<"">>).
 
 auto_subscribe_api() ->
     Metadata = #{
