@@ -26,6 +26,9 @@ definitions() ->
                             type => object,
                             required => [status],
                             properties => #{
+                                id => #{
+                                    type => string
+                                },
                                 status => #{
                                     type => string,
                                     example => <<"healthy">>
@@ -41,7 +44,18 @@ definitions() ->
         oneOf => [  minirest:ref(<<"connector_redis">>)
                  ]
     },
-    ConnectorRedis= #{
+    SSL = #{
+      type => object,
+      required => [enable],
+      properties => #{
+         enable => #{type => boolean, example => true},
+         cacertfile => #{type => string},
+         keyfile => #{type => string},
+         certfile => #{type => string},
+         verify => #{type => boolean, example => false}
+      }
+    },
+    ConnectorRedis = #{
         type => object,
         required => [type, enable, config, cmd],
         properties => #{
@@ -65,7 +79,8 @@ definitions() ->
                                 pool_size => #{type => integer},
                                 auto_reconnect => #{type => boolean, example => true},
                                 password => #{type => string},
-                                database => #{type => string, example => mqtt}
+                                database => #{type => integer},
+                                ssl => minirest:ref(<<"ssl">>)
                              }
                             }
                          , #{type => object,
@@ -80,7 +95,8 @@ definitions() ->
                                 pool_size => #{type => integer},
                                 auto_reconnect => #{type => boolean, example => true},
                                 password => #{type => string},
-                                database => #{type => string, example => mqtt}
+                                database => #{type => integer},
+                                ssl => minirest:ref(<<"ssl">>)
                              }
                             }
                          , #{type => object,
@@ -94,7 +110,8 @@ definitions() ->
                                 pool_size => #{type => integer},
                                 auto_reconnect => #{type => boolean, example => true},
                                 password => #{type => string},
-                                database => #{type => string, example => mqtt}
+                                database => #{type => integer},
+                                ssl => minirest:ref(<<"ssl">>)
                              }
                             }
                          ],
@@ -108,5 +125,6 @@ definitions() ->
     },
     [ #{<<"returned_sources">> => RetruenedSources}
     , #{<<"sources">> => Sources}
+    , #{<<"ssl">> => SSL}
     , #{<<"connector_redis">> => ConnectorRedis}
     ].
