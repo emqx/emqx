@@ -13,6 +13,10 @@ defmodule EmqxReleaseHelper.Applications do
     end
   end
 
+  application :emqx_machine do
+    start_type :permanent
+  end
+
   application :emqx_connector do
     start_type :permanent
   end
