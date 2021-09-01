@@ -23,16 +23,17 @@
 generate(Topics) when is_list(Topics) ->
     [generate(Topic) || Topic <- Topics];
 
-generate(#{qos := Qos, topic := Topic}) when is_binary(Topic) ->
-    #{qos => Qos, placeholder => generate(Topic, [])}.
+generate(T0 = #{topic := Topic}) ->
+    T = maps:without([topic], T0),
+    T#{placeholder => generate(Topic, [])}.
 
 -spec(to_topic_table(list(), map(), map()) -> list()).
-to_topic_table(PlaceHolders, ClientInfo, ConnInfo) ->
+to_topic_table(PHs, ClientInfo, ConnInfo) ->
     [begin
         Topic0 = to_topic(PlaceHolder, ClientInfo, ConnInfo, []),
         {Topic, Opts} = emqx_topic:parse(Topic0),
-        {Topic, Opts#{qos => Qos}}
-     end || #{qos := Qos, placeholder := PlaceHolder} <- PlaceHolders].
+        {Topic, Opts#{qos => Qos, rh => RH, rap => RAP, nl => NL}}
+     end || #{qos := Qos, rh := RH, rap := RAP, nl := NL, placeholder := PlaceHolder} <- PHs].
 
 %%--------------------------------------------------------------------
 %% internal

@@ -30,5 +30,14 @@ fields("auto_subscribe") ->
 
 fields("topic") ->
     [ {topic, emqx_schema:t(binary())}
-    , {qos, emqx_schema:t(integer(), undefined, 0)}
+    , {qos, t(hoconsc:union([0, 1, 2]), 0)}
+    , {rh,  t(hoconsc:union([0, 1, 2]), 0)}
+    , {rap, t(hoconsc:union([0, 1]), 0)}
+    , {nl,  t(hoconsc:union([0, 1]), 0)}
     ].
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+t(Type, Default) ->
+    hoconsc:t(Type, #{default => Default}).
