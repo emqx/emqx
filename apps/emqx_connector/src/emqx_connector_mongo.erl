@@ -244,15 +244,8 @@ init_worker_options([_ | R], Acc) ->
     init_worker_options(R, Acc);
 init_worker_options([], Acc) -> Acc.
 
-host_port(HostPort) ->
-    case string:split(HostPort, ":") of
-        [Host, Port] ->
-            {ok, Host1} = inet:parse_address(Host),
-            [{host, Host1}, {port, list_to_integer(Port)}];
-        [Host] ->
-            {ok, Host1} = inet:parse_address(Host),
-            [{host, Host1}]
-    end.
+host_port({Host, Port}) ->
+    [{host, Host}, {port, Port}].
 
 server(type) -> server();
 server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
