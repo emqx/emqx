@@ -309,7 +309,7 @@ check_sources(RawSources) ->
 
 find_source_by_type(Type) -> find_source_by_type(Type, lookup()).
 find_source_by_type(Type, Sources) -> find_source_by_type(Type, Sources, 1).
-find_source_by_type(_, [], _N) -> error(not_found_rule);
+find_source_by_type(_, [], _N) -> error(not_found_source);
 find_source_by_type(Type, [ Source = #{type := T} | Tail], N) ->
     case Type =:= T of
         true -> {N, Source};
