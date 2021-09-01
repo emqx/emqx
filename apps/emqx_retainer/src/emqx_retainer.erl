@@ -74,9 +74,11 @@
 %%--------------------------------------------------------------------
 %% Hook API
 %%--------------------------------------------------------------------
+-spec on_session_subscribed(_, _, emqx_types:subopts(), _) -> any().
 on_session_subscribed(_, _, #{share := ShareName}, _) when ShareName =/= undefined ->
     ok;
-on_session_subscribed(_, Topic, #{rh := Rh, is_new := IsNew}, Context) ->
+on_session_subscribed(_, Topic, #{rh := Rh} = Opts, Context) ->
+    IsNew = maps:get(is_new, Opts, true),
     case Rh =:= 0 orelse (Rh =:= 1 andalso IsNew) of
         true -> dispatch(Context, Topic);
         _ -> ok
