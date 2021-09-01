@@ -69,9 +69,8 @@ start_listeners() ->
 stop_listeners() ->
     [begin
         ok = minirest:stop(Name),
-        Port = maps:get(port, RanchOptions),
         ?ULOG("Stop listener ~s on ~p successfully.~n", [Name, Port])
-    end || {Name, _, RanchOptions} <- listeners()].
+    end || {Name, _, Port, RanchOptions} <- listeners()].
 
 %%--------------------------------------------------------------------
 %% internal
