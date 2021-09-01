@@ -141,63 +141,44 @@ kickout_client(Node, GwName, ClientId) ->
      | {ok, list()}.
 list_client_subscriptions(GwName, ClientId) ->
     %% Get the subscriptions from session-info
-    case emqx_gateway_cm:get_chan_info(GwName, ClientId) of
-        undefined ->
-            {error, not_found};
-        Infos ->
-            Subs = maps:get(subscriptions, Infos, #{}),
-            maps:fold(fun(K, V, Acc) ->
-                [maps:merge(
-                   #{topic => K},
-                   maps:with([qos, nl, rap, rh], V))
-                 |Acc]
-            end, [], Subs)
-    end.
+    with_channel(GwName, ClientId,
+        fun(Pid) ->
+            Subs = emqx_gateway_conn:call(
+                     Pid, 
+                     subscriptions, ?DEFAULT_CALL_TIMEOUT),
+            {ok, lists:map(fun({Topic, SubOpts}) ->
+                     SubOpts#{topic => Topic}
+                 end, Subs)}
+        end).
 
 -spec client_subscribe(gateway_name(), emqx_type:clientid(),
                        emqx_type:topic(), emqx_type:subopts())
     -> {error, any()}
      | ok.
 client_subscribe(GwName, ClientId, Topic, SubOpts) ->
-    case emqx_gateway_cm:lookup_channels(GwName, ClientId) of
-        [] -> {error, not_found};
-        [Pid] ->
-            %% fixed conn module?
+    with_channel(GwName, ClientId,
+        fun(Pid) ->
             emqx_gateway_conn:call(
               Pid, {subscribe, Topic, SubOpts},
               ?DEFAULT_CALL_TIMEOUT
-             );
-        Pids ->
-            ?LOG(warning, "More than one client process ~p was found "
-                          "clientid ~s", [Pids, ClientId]),
-            _ = [
-                 emqx_gateway_conn:call(
-                  Pid, {subscribe, Topic, SubOpts},
-                  ?DEFAULT_CALL_TIMEOUT
-                 ) || Pid <- Pids],
-            ok
-    end.
+             )
+        end).
 
 -spec client_unsubscribe(gateway_name(),
                          emqx_type:clientid(), emqx_type:topic())
     -> {error, any()}
      | ok.
 client_unsubscribe(GwName, ClientId, Topic) ->
-    case emqx_gateway_cm:lookup_channels(GwName, ClientId) of
-        [] -> {error, not_found};
-        [Pid] ->
+    with_channel(GwName, ClientId,
+        fun(Pid) ->
             emqx_gateway_conn:call(
-              Pid, {unsubscribe, Topic},
-              ?DEFAULT_CALL_TIMEOUT);
-        Pids ->
-            ?LOG(warning, "More than one client process ~p was found "
-                          "clientid ~s", [Pids, ClientId]),
-            _ = [
-                 emqx_gateway_conn:call(
-                   Pid, {unsubscribe, Topic},
-                   ?DEFAULT_CALL_TIMEOUT
-                 ) || Pid <- Pids],
-            ok
+              Pid, {unsubscribe, Topic}, ?DEFAULT_CALL_TIMEOUT)
+        end).
+
+with_channel(GwName, ClientId, Fun) ->
+    case emqx_gateway_cm:with_channel(GwName, ClientId, Fun) of
+        undefined -> {error, not_found};
+        Res -> Res
     end.
 
 %%--------------------------------------------------------------------
@@ -206,10 +187,11 @@ client_unsubscribe(GwName, ClientId, Topic) ->
 
 -spec return_http_error(integer(), binary()) -> binary().
 return_http_error(Code, Msg) ->
-    emqx_json:encode(
-      #{code => codestr(Code),
-        reason => emqx_gateway_utils:stringfy(Msg)
-       }).
+    {Code, emqx_json:encode(
+             #{code => codestr(Code),
+               reason => emqx_gateway_utils:stringfy(Msg)
+              })
+    }.
 
 codestr(404) -> 'RESOURCE_NOT_FOUND';
 codestr(401) -> 'NOT_SUPPORTED_NOW';

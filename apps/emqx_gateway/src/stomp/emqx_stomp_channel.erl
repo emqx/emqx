@@ -393,11 +393,9 @@ handle_in(?PACKET(?CMD_SUBSCRIBE, Headers),
                 [] ->
                     ErrMsg = "Permission denied",
                     handle_out(error, {receipt_id(Headers), ErrMsg}, Channel);
-                [MountedTopic|_] ->
-                    NChannel1 = NChannel#channel{
-                                  subscriptions = [{SubId, MountedTopic, Ack}
-                                                   | Subs]
-                                 },
+                [{MountedTopic, SubOpts}|_] ->
+                    NSubs = [{SubId, MountedTopic, Ack, SubOpts}|Subs],
+                    NChannel1 = NChannel#channel{subscriptions = NSubs},
                     handle_out(receipt, receipt_id(Headers), NChannel1)
             end;
         {error, ErrMsg, NChannel} ->
@@ -415,7 +413,7 @@ handle_in(?PACKET(?CMD_UNSUBSCRIBE, Headers),
     SubId = header(<<"id">>, Headers),
     {ok, NChannel} =
         case lists:keyfind(SubId, 1, Subs) of
-            {SubId, MountedTopic, _Ack} ->
+            {SubId, MountedTopic, _Ack, _SubOpts} ->
                 Topic = emqx_mountpoint:unmount(Mountpoint, MountedTopic),
                 %% XXX: eval the return topics?
                 _ = run_hooks(Ctx, 'client.unsubscribe',
@@ -539,15 +537,16 @@ trans_pipeline([{Func, Args}|More], Outgoings, Channel) ->
 %% Subs
 
 parse_topic_filter({SubId, Topic}, Channel) ->
-    TopicFilter = emqx_topic:parse(Topic),
-    {ok, {SubId, TopicFilter}, Channel}.
+    {ParsedTopic, SubOpts} = emqx_topic:parse(Topic),
+    NSubOpts = SubOpts#{sub_props => #{subid => SubId}},
+    {ok, {SubId, {ParsedTopic, NSubOpts}}, Channel}.
 
-check_subscribed_status({SubId, TopicFilter},
+check_subscribed_status({SubId, {ParsedTopic, _SubOpts}},
                         #channel{
                            subscriptions = Subs,
                            clientinfo = #{mountpoint := Mountpoint}
                           }) ->
-    MountedTopic = emqx_mountpoint:mount(Mountpoint, TopicFilter),
+    MountedTopic = emqx_mountpoint:mount(Mountpoint, ParsedTopic),
     case lists:keyfind(SubId, 1, Subs) of
         {SubId, MountedTopic, _Ack} ->
             ok;
@@ -557,11 +556,11 @@ check_subscribed_status({SubId, TopicFilter},
             ok
     end.
 
-check_sub_acl({_SubId, TopicFilter},
+check_sub_acl({_SubId, {ParsedTopic, _SubOpts}},
               #channel{
                  ctx = Ctx,
                  clientinfo = ClientInfo}) ->
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, TopicFilter) of
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, ParsedTopic) of
         deny -> {error, "ACL Deny"};
         allow -> ok
     end.
@@ -571,17 +570,17 @@ do_subscribe(TopicFilters, Channel) ->
 
 do_subscribe([], _Channel, Acc) ->
     lists:reverse(Acc);
-do_subscribe([{TopicFilter, Option}|More],
+do_subscribe([{ParsedTopic, SubOpts0}|More],
              Channel = #channel{
                           ctx = Ctx,
                           clientinfo = ClientInfo
                                      = #{clientid := ClientId,
                                          mountpoint := Mountpoint}}, Acc) ->
-    SubOpts = maps:merge(emqx_gateway_utils:default_subopts(), Option),
-    MountedTopic = emqx_mountpoint:mount(Mountpoint, TopicFilter),
+    SubOpts = maps:merge(emqx_gateway_utils:default_subopts(), SubOpts0),
+    MountedTopic = emqx_mountpoint:mount(Mountpoint, ParsedTopic),
     _ = emqx_broker:subscribe(MountedTopic, ClientId, SubOpts),
     run_hooks(Ctx, 'session.subscribed', [ClientInfo, MountedTopic, SubOpts]),
-    do_subscribe(More, Channel, [MountedTopic|Acc]).
+    do_subscribe(More, Channel, [{MountedTopic, SubOpts}|Acc]).
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packet
@@ -631,7 +630,7 @@ handle_call({subscribe, Topic, SubOpts},
                          subscriptions = Subs
                         }) ->
     case maps:get(subid,
-                  maps:get(sub_prop, SubOpts, #{}),
+                  maps:get(sub_props, SubOpts, #{}),
                   undefined) of
         undefined ->
             reply({error, no_subid}, Channel);
@@ -641,11 +640,12 @@ handle_call({subscribe, Topic, SubOpts},
                  , fun check_subscribed_status/2
                  ], {SubId, {Topic, SubOpts}}, Channel) of
                 {ok, {_, TopicFilter}, NChannel} ->
-                    [MountedTopic] = do_subscribe([TopicFilter], NChannel),
-                    NChannel1 = NChannel#channel{
-                                  subscriptions =
-                                    [{SubId, MountedTopic, <<"auto">>}|Subs]
-                                 },
+                    [{MountedTopic, NSubOpts}] = do_subscribe(
+                                                   [TopicFilter],
+                                                   NChannel
+                                                  ),
+                    NSubs = [{SubId, MountedTopic, <<"auto">>, NSubOpts}|Subs],
+                    NChannel1 = NChannel#channel{subscriptions = NSubs},
                     reply(ok, NChannel1);
                 {error, ErrMsg, NChannel} ->
                     ?LOG(error, "Failed to subscribe topic ~s, reason: ~s",
@@ -669,6 +669,14 @@ handle_call({unsubscribe, Topic},
           Channel#channel{
             subscriptions = lists:keydelete(MountedTopic, 2, Subs)}
          );
+
+%% Reply :: [{emqx_types:topic(), emqx_types:subopts()}]
+handle_call(subscriptions, Channel = #channel{subscriptions = Subs}) ->
+    Reply = lists:map(
+              fun({_SubId, Topic, _Ack, SubOpts}) ->
+                {Topic, SubOpts}
+              end, Subs),
+    reply(Reply, Channel);
 
 handle_call(kick, Channel) ->
     NChannel = ensure_disconnected(kicked, Channel),
