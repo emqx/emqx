@@ -23,7 +23,6 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 
-
 %% API
 -export([ info/1
         , info/2
@@ -1106,6 +1105,9 @@ handle_call({subscribe, _Topic, _Subopts}, Channel) ->
     reply({error, not_supported_now}, Channel);
 
 handle_call({unsubscribe, _Topic}, Channel) ->
+    reply({error, not_supported_now}, Channel);
+
+handle_call(subscriptions, Channel) ->
     reply({error, not_supported_now}, Channel);
 
 handle_call(kick, Channel) ->
