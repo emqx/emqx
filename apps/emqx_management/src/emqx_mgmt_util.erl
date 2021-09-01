@@ -224,6 +224,11 @@ properties([{Key, Type} | Props], Acc) ->
 properties([{Key, object, Props1} | Props], Acc) ->
     properties(Props, maps:put(Key, #{type => object,
                                       properties => properties(Props1)}, Acc));
+properties([{Key, {array, object}, Props1} | Props], Acc) ->
+    properties(Props, maps:put(Key, #{type => array,
+                                      items => #{type => object,
+                                                 properties => properties(Props1)
+                                                }}, Acc));
 properties([{Key, {array, Type}, Desc} | Props], Acc) ->
     properties(Props, maps:put(Key, #{type => array,
                                       items => #{type => Type},

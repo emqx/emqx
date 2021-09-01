@@ -548,9 +548,9 @@ check_subscribed_status({SubId, {ParsedTopic, _SubOpts}},
                           }) ->
     MountedTopic = emqx_mountpoint:mount(Mountpoint, ParsedTopic),
     case lists:keyfind(SubId, 1, Subs) of
-        {SubId, MountedTopic, _Ack} ->
+        {SubId, MountedTopic, _Ack, _SubOpts} ->
             ok;
-        {SubId, _OtherTopic, _Ack} ->
+        {SubId, _OtherTopic, _Ack, _SubOpts} ->
             {error, "Conflict subscribe id"};
         false ->
             ok
@@ -795,7 +795,7 @@ handle_deliver(Delivers,
     Frames0 = lists:foldl(fun({_, _, Message}, Acc) ->
                 Topic0 = emqx_message:topic(Message),
                 case lists:keyfind(Topic0, 2, Subs) of
-                    {Id, Topic, Ack} ->
+                    {Id, Topic, Ack, _SubOpts} ->
                         %% XXX: refactor later
                         metrics_inc('messages.delivered', Channel),
                         NMessage = run_hooks_without_metrics(
