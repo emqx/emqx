@@ -120,13 +120,22 @@ clients_insta(delete, #{ bindings := #{name := GwName0,
     emqx_gateway_http:kickout_client(GwName, ClientId),
     {200}.
 
+%% FIXME:
+%% List the subscription without mountpoint, but has SubOpts,
+%% for example, share group ...
 subscriptions(get, #{ bindings := #{name := GwName0,
                                     clientid := ClientId0}
                     }) ->
     GwName = binary_to_existing_atom(GwName0),
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
-    {200, emqx_gateway_http:list_client_subscriptions(GwName, ClientId)};
+    case emqx_gateway_http:list_client_subscriptions(GwName, ClientId) of
+        {error, Reason} ->
+            return_http_error(404, Reason);
+        {ok, Subs} ->
+            {200, Subs}
+    end;
 
+%% Create the subscription without mountpoint
 subscriptions(post, #{ bindings := #{name := GwName0,
                                      clientid := ClientId0},
                        body := Body
@@ -147,6 +156,7 @@ subscriptions(post, #{ bindings := #{name := GwName0,
             end
     end;
 
+%% Remove the subscription without mountpoint
 subscriptions(delete, #{ bindings := #{name := GwName0,
                                        clientid := ClientId0,
                                        topic := Topic0
@@ -166,10 +176,10 @@ subopts(Req) ->
      , rap => maps:get(<<"rap">>, Req, 0)
      , nl => maps:get(<<"nl">>, Req, 0)
      , rh => maps:get(<<"rh">>, Req, 0)
-     , sub_prop => extra_sub_prop(maps:get(<<"sub_prop">>, Req, #{}))
+     , sub_props => extra_sub_props(maps:get(<<"sub_props">>, Req, #{}))
      }.
 
-extra_sub_prop(Props) ->
+extra_sub_props(Props) ->
     maps:filter(
       fun(_, V) -> V =/= undefined end,
       #{subid => maps:get(<<"subid">>, Props, undefined)}
@@ -595,7 +605,7 @@ properties_client() ->
       ]).
 
 properties_subscription() ->
-    ExtraProps = [ {subid, integer,
+    ExtraProps = [ {subid, string,
                     <<"Only stomp protocol, an uniquely identity for "
                       "the subscription. range: 1-65535.">>}
                  ],
@@ -610,5 +620,5 @@ properties_subscription() ->
         <<"Retain as Published option, enum: 0, 1">>}
      , {rh, integer,
         <<"Retain Handling option, enum: 0, 1, 2">>}
-     , {sub_prop, object, ExtraProps}
+     , {sub_props, object, ExtraProps}
      ]).

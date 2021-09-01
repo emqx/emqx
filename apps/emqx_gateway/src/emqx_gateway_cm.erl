@@ -48,6 +48,10 @@
         , connection_closed/2
         ]).
 
+-export([ with_channel/3
+        , lookup_channels/2
+        ]).
+
 %% Internal funcs for getting tabname by GatewayId
 -export([cmtabs/1, tabname/2]).
 

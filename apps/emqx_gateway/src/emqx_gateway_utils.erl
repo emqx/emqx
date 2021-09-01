@@ -209,5 +209,6 @@ default_subopts() ->
     #{rh  => 0, %% Retain Handling
       rap => 0, %% Retain as Publish
       nl  => 0, %% No Local
-      qos => 0  %% QoS
+      qos => 0, %% QoS
+      is_new => true
      }.
