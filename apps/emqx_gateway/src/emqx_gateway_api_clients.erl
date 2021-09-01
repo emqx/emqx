@@ -481,7 +481,7 @@ queries(Ls) ->
     end, Ls).
 
 %%--------------------------------------------------------------------
-%% Schemas
+%% schemas
 
 schema_not_found() ->
     emqx_mgmt_util:error_schema(<<"Gateway not found or unloaded">>).
@@ -518,7 +518,7 @@ schema_subscription() ->
      ).
 
 %%--------------------------------------------------------------------
-%% Object properties def
+%% properties defines
 
 properties_client() ->
     emqx_mgmt_util:properties(
