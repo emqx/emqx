@@ -37,14 +37,13 @@ fields("http") ->
     , {"num_acceptors", emqx_schema:t(integer(), undefined, 4)}
     , {"max_connections", emqx_schema:t(integer(), undefined, 512)}
     , {"backlog", emqx_schema:t(integer(), undefined, 1024)}
-    , {"send_timeout", emqx_schema:t(emqx_schema:duration(), undefined, "15s")}
-    , {"send_timeout_close", emqx_schema:t(boolean(), undefined, true)}
+    , {"send_timeout", emqx_schema:t(emqx_schema:duration(), undefined, "5s")}
     , {"inet6", emqx_schema:t(boolean(), undefined, false)}
     , {"ipv6_v6only", emqx_schema:t(boolean(), undefined, false)}
     ];
 
 fields("https") ->
-    emqx_schema:ssl(#{enable => true}) ++ fields("http").
+    proplists:delete("fail_if_no_peer_cert", emqx_schema:ssl(#{})) ++ fields("http").
 
 default_username(type) -> string();
 default_username(default) -> "admin";

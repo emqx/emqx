@@ -27,7 +27,7 @@
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_dashboard_sup:start_link(),
     ok = ekka_rlog:wait_for_shards([?DASHBOARD_SHARD], infinity),
-    emqx_dashboard:start_listeners(),
+    _ = emqx_dashboard:start_listeners(),
     emqx_dashboard_cli:load(),
     ok = emqx_dashboard_admin:add_default_user(),
     {ok, Sup}.
