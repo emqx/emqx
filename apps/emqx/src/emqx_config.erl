@@ -261,7 +261,7 @@ init_load(SchemaMod, RawRichConf) when is_map(RawRichConf) ->
             normalize_conf(hocon_schema:richmap_to_map(RawRichConf))).
 
 normalize_conf(Conf) ->
-    maps:with(get_root_names(bin), Conf).
+    maps:with(get_root_names(), Conf).
 
 -spec check_config(module(), raw_config()) -> {AppEnvs, CheckedConf}
     when AppEnvs :: app_envs(), CheckedConf :: config().
@@ -277,7 +277,7 @@ check_config(SchemaMod, RawConf) ->
 
 -spec fill_defaults(raw_config()) -> map().
 fill_defaults(RawConf) ->
-    RootNames = get_root_names(bin),
+    RootNames = get_root_names(),
     maps:fold(fun(Key, Conf, Acc) ->
             SubMap = #{Key => Conf},
             WithDefaults = case lists:member(Key, RootNames) of
@@ -319,9 +319,6 @@ get_schema_mod(RootName) ->
 -spec get_root_names() -> [binary()].
 get_root_names() ->
     maps:get(names, persistent_term:get(?PERSIS_SCHEMA_MODS, #{names => []})).
-
-get_root_names(bin) ->
-    maps:keys(get_schema_mod()).
 
 -spec save_configs(app_envs(), config(), raw_config(), raw_config()) -> ok | {error, term()}.
 save_configs(_AppEnvs, Conf, RawConf, OverrideConf) ->
@@ -412,14 +409,7 @@ do_deep_put(?RAW_CONF, KeyPath, Map, Value) ->
 
 root_names_from_conf(RawConf) ->
     Keys = maps:keys(RawConf),
-    StrNames = [str(K) || K <- Keys],
-    AtomNames = lists:foldl(fun(K, Acc) ->
-            try [atom(K) | Acc]
-            catch error:badarg -> Acc
-            end
-        end, [], Keys),
-    PossibleNames = StrNames ++ AtomNames,
-    [Name || Name <- get_root_names(), lists:member(Name, PossibleNames)].
+    [Name || Name <- get_root_names(), lists:member(Name, Keys)].
 
 atom(Bin) when is_binary(Bin) ->
     binary_to_existing_atom(Bin, latin1);
@@ -427,13 +417,6 @@ atom(Str) when is_list(Str) ->
     list_to_existing_atom(Str);
 atom(Atom) when is_atom(Atom) ->
     Atom.
-
-str(Bin) when is_binary(Bin) ->
-    binary_to_list(Bin);
-str(Str) when is_list(Str) ->
-    Str;
-str(Atom) when is_atom(Atom) ->
-    atom_to_list(Atom).
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
