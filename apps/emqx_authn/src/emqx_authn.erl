@@ -31,10 +31,7 @@
 -define(AUTHN, emqx_authentication).
 
 initialize() ->
-    AuthNConfig = emqx:get_raw_config([authentication], []),
-    initialize(check_config2(to_list(AuthNConfig))).
-
-initialize(AuthNConfig) ->
+    AuthNConfig = check_config(to_list(emqx:get_raw_config([authentication], []))),
     {ok, _} = ?AUTHN:create_chain(?GLOBAL),
     lists:foreach(fun(#{name := Name} = AuthNConfig0) ->
                       case ?AUTHN:create_authenticator(?GLOBAL, AuthNConfig0) of
@@ -53,7 +50,7 @@ pre_config_update(UpdateReq, OldConfig) ->
     end.
 
 do_pre_config_update({create_authenticator, _ChainName, Config}, OldConfig) ->
-    {ok, check_config(OldConfig ++ [Config])};
+    {ok, OldConfig ++ [Config]};
 do_pre_config_update({delete_authenticator, ChainName, AuthenticatorID}, OldConfig) ->
     case ?AUTHN:lookup_authenticator(ChainName, AuthenticatorID) of
         {error, {not_found, _}} -> {error, not_found};
@@ -62,7 +59,7 @@ do_pre_config_update({delete_authenticator, ChainName, AuthenticatorID}, OldConf
             NewConfig = lists:filter(fun(#{<<"name">> := N}) ->
                                          N =/= Name
                                      end, OldConfig),
-            {ok, check_config(NewConfig)}
+            {ok, NewConfig}
     end;
 do_pre_config_update({update_or_create_authenticator, ChainName, AuthenticatorID, Config}, OldConfig) ->
     NewConfig = case ?AUTHN:lookup_authenticator(ChainName, AuthenticatorID) of
@@ -75,7 +72,7 @@ do_pre_config_update({update_or_create_authenticator, ChainName, AuthenticatorID
                                       end
                                   end, OldConfig)
                 end,
-    {ok, check_config(NewConfig)};
+    {ok, NewConfig};
 do_pre_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, OldConfig) ->
     case ?AUTHN:lookup_authenticator(ChainName, AuthenticatorID) of
         {error, {not_found, _}} -> {error, not_found};
@@ -87,7 +84,7 @@ do_pre_config_update({update_authenticator, ChainName, AuthenticatorID, Config},
                                           false -> C
                                       end
                                   end, OldConfig),
-            {ok, check_config(NewConfig)}
+            {ok, NewConfig}
     end;
 do_pre_config_update({move_authenticator, ChainName, AuthenticatorID, Position}, OldConfig) ->
     case ?AUTHN:lookup_authenticator(ChainName, AuthenticatorID) of
@@ -114,9 +111,10 @@ do_pre_config_update({move_authenticator, ChainName, AuthenticatorID, Position},
             end
     end.
 
-post_config_update(UpdateReq, NewConfig, OldConfig, AppEnvs) when is_map(NewConfig) ->
-    post_config_update(UpdateReq, [NewConfig], OldConfig, AppEnvs);
-post_config_update({create_authenticator, ChainName, #{<<"name">> := Name}}, NewConfig, _OldConfig, _AppEnvs) ->
+post_config_update(UpdateReq, NewConfig, OldConfig, AppEnvs) ->
+    do_post_config_update(UpdateReq, check_config(to_list(NewConfig)), OldConfig, AppEnvs).
+
+do_post_config_update({create_authenticator, ChainName, #{<<"name">> := Name}}, NewConfig, _OldConfig, _AppEnvs) ->
     case lists:filter(
              fun(#{name := N}) ->
                  N =:= Name
@@ -127,9 +125,9 @@ post_config_update({create_authenticator, ChainName, #{<<"name">> := Name}}, New
         [_Config | _] ->
             {error, name_has_be_used}
     end;
-post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewConfig, _OldConfig, _AppEnvs) ->
+do_post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewConfig, _OldConfig, _AppEnvs) ->
     ?AUTHN:delete_authenticator(ChainName, AuthenticatorID);
-post_config_update({update_or_create_authenticator, ChainName, AuthenticatorID, #{<<"name">> := Name}}, NewConfig, _OldConfig, _AppEnvs) ->
+do_post_config_update({update_or_create_authenticator, ChainName, AuthenticatorID, #{<<"name">> := Name}}, NewConfig, _OldConfig, _AppEnvs) ->
     case lists:filter(
              fun(#{name := N}) ->
                  N =:= Name
@@ -140,7 +138,7 @@ post_config_update({update_or_create_authenticator, ChainName, AuthenticatorID, 
         [_Config | _] ->
             {error, name_has_be_used}
     end;
-post_config_update({update_authenticator, ChainName, AuthenticatorID, _Config}, NewConfig, _OldConfig, _AppEnvs) ->
+do_post_config_update({update_authenticator, ChainName, AuthenticatorID, _Config}, NewConfig, _OldConfig, _AppEnvs) ->
     {ok, #{name := Name}} = ?AUTHN:lookup_authenticator(ChainName, AuthenticatorID),
     case lists:filter(
              fun(#{name := N}) ->
@@ -151,7 +149,7 @@ post_config_update({update_authenticator, ChainName, AuthenticatorID, _Config}, 
         [_Config | _] ->
             {error, name_has_be_used}
     end;
-post_config_update({move_authenticator, ChainName, AuthenticatorID, Position}, _NewConfig, _OldConfig, _AppEnvs) ->
+do_post_config_update({move_authenticator, ChainName, AuthenticatorID, Position}, _NewConfig, _OldConfig, _AppEnvs) ->
     NPosition = case Position of
                     <<"top">> -> top;
                     <<"bottom">> -> bottom;
@@ -169,11 +167,6 @@ update_config(Path, ConfigRequest) ->
     emqx:update_config(Path, ConfigRequest, #{rawconf_with_defaults => true}).
 
 check_config(Config) ->
-    #{<<"authentication">> := CheckedConfig} = hocon_schema:check_plain(emqx_authentication,
-        #{<<"authentication">> => Config}, #{nullable => true}),
-    CheckedConfig.
-
-check_config2(Config) ->
     #{authentication := CheckedConfig} = hocon_schema:check_plain(emqx_authentication,
         #{<<"authentication">> => Config}, #{nullable => true, atom_key => true}),
     CheckedConfig.
