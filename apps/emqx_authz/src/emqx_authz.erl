@@ -224,10 +224,10 @@ init_source(#{enable := true,
     Source#{annotations => #{rules => Rules}};
 init_source(#{enable := true,
               type := http,
-              config := #{url := Url} = Config
+              url := Url
              } = Source) ->
-    NConfig = maps:merge(Config, #{base_url => maps:remove(query, Url)}),
-    case create_resource(Source#{config := NConfig}) of
+    NSource= maps:put(base_url, maps:remove(query, Url), Source),
+    case create_resource(NSource) of
         {error, Reason} -> error({load_config_error, Reason});
         Id -> Source#{annotations => #{id => Id}}
     end;
@@ -325,16 +325,14 @@ gen_id(Type) ->
     iolist_to_binary([io_lib:format("~s_~s",[?APP, Type])]).
 
 create_resource(#{type := DB,
-                  config := Config,
-                  annotations := #{id := ResourceID}}) ->
-    case emqx_resource:update(ResourceID, connector_module(DB), Config, []) of
+                  annotations := #{id := ResourceID}} = Source) ->
+    case emqx_resource:update(ResourceID, connector_module(DB), Source, []) of
         {ok, _} -> ResourceID;
         {error, Reason} -> {error, Reason}
     end;
-create_resource(#{type := DB,
-                  config := Config}) ->
+create_resource(#{type := DB} = Source) ->
     ResourceID = gen_id(DB),
-    case emqx_resource:create(ResourceID, connector_module(DB), Config) of
+    case emqx_resource:create(ResourceID, connector_module(DB), Source) of
         {ok, already_created} -> ResourceID;
         {ok, _} -> ResourceID;
         {error, Reason} -> {error, Reason}

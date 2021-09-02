@@ -35,12 +35,12 @@ description() ->
 
 authorize(Client, PubSub, Topic,
             #{type := http,
-              config := #{url := #{path := Path} = Url,
-                          headers := Headers,
-                          method := Method,
-                          request_timeout := RequestTimeout} = Config,
+              url := #{path := Path} = Url,
+              headers := Headers,
+              method := Method,
+              request_timeout := RequestTimeout,
               annotations := #{id := ResourceID}
-             }) ->
+             } = Source) ->
     Request = case Method of
                   get  -> 
                       Query = maps:get(query, Url, ""),
@@ -49,7 +49,7 @@ authorize(Client, PubSub, Topic,
                   _ ->
                       Body0 = serialize_body(
                                 maps:get('Accept', Headers, <<"application/json">>),
-                                maps:get(body, Config, #{})
+                                maps:get(body, Source, #{})
                               ),
                       Body1 = replvar(Body0, PubSub, Topic, Client),
                       Path1 = replvar(Path, PubSub, Topic, Client),

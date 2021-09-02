@@ -47,12 +47,11 @@ init_per_suite(Config) ->
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
     Rules = [#{<<"type">> => <<"http">>,
-               <<"config">> => #{
-                   <<"url">> => <<"https://fake.com:443/">>,
-                   <<"headers">> => #{},
-                   <<"method">> => <<"get">>,
-                   <<"request_timeout">> => 5000
-               }}
+               <<"url">> => <<"https://fake.com:443/">>,
+               <<"headers">> => #{},
+               <<"method">> => <<"get">>,
+               <<"request_timeout">> => 5000
+              }
             ],
     {ok, _} = emqx_authz:update(replace, Rules),
     Config.

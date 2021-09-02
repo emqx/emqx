@@ -62,56 +62,51 @@ init_per_testcase(_, Config) ->
 
 -define(SOURCE1, #{<<"type">> => <<"http">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                      <<"url">> => <<"https://fake.com:443/">>,
-                      <<"headers">> => #{},
-                      <<"method">> => <<"get">>,
-                      <<"request_timeout">> => 5000}
+                   <<"url">> => <<"https://fake.com:443/">>,
+                   <<"headers">> => #{},
+                   <<"method">> => <<"get">>,
+                   <<"request_timeout">> => 5000
                   }).
 -define(SOURCE2, #{<<"type">> => <<"mongo">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                          <<"mongo_type">> => <<"single">>,
-                          <<"server">> => <<"127.0.0.1:27017">>,
-                          <<"pool_size">> => 1,
-                          <<"database">> => <<"mqtt">>,
-                          <<"ssl">> => #{<<"enable">> => false}},
+                   <<"mongo_type">> => <<"single">>,
+                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"ssl">> => #{<<"enable">> => false},
                    <<"collection">> => <<"fake">>,
                    <<"find">> => #{<<"a">> => <<"b">>}
                   }).
 -define(SOURCE3, #{<<"type">> => <<"mysql">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                       <<"server">> => <<"127.0.0.1:27017">>,
-                       <<"pool_size">> => 1,
-                       <<"database">> => <<"mqtt">>,
-                       <<"username">> => <<"xx">>,
-                       <<"password">> => <<"ee">>,
-                       <<"auto_reconnect">> => true,
-                       <<"ssl">> => #{<<"enable">> => false}},
+                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"username">> => <<"xx">>,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
                    <<"sql">> => <<"abcb">>
                   }).
 -define(SOURCE4, #{<<"type">> => <<"pgsql">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                       <<"server">> => <<"127.0.0.1:27017">>,
-                       <<"pool_size">> => 1,
-                       <<"database">> => <<"mqtt">>,
-                       <<"username">> => <<"xx">>,
-                       <<"password">> => <<"ee">>,
-                       <<"auto_reconnect">> => true,
-                       <<"ssl">> => #{<<"enable">> => false}},
+                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"username">> => <<"xx">>,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
                    <<"sql">> => <<"abcb">>
                   }).
 -define(SOURCE5, #{<<"type">> => <<"redis">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                       <<"server">> => <<"127.0.0.1:27017">>,
-                       <<"pool_size">> => 1,
-                       <<"database">> => 0,
-                       <<"password">> => <<"ee">>,
-                       <<"auto_reconnect">> => true,
-                       <<"ssl">> => #{<<"enable">> => false}},
+                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => 0,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
                    <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
                   }).
 -define(SOURCE6, #{<<"type">> => <<"file">>,

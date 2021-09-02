@@ -20,7 +20,20 @@
 roots() -> ["authorization"].
 
 fields("authorization") ->
-    [ {sources, sources()}
+    [ {sources, #{type => union_array(
+                    [ hoconsc:ref(?MODULE, file)
+                    , hoconsc:ref(?MODULE, http_get)
+                    , hoconsc:ref(?MODULE, http_post)
+                    , hoconsc:ref(?MODULE, mongo_single)
+                    , hoconsc:ref(?MODULE, mongo_rs)
+                    , hoconsc:ref(?MODULE, mongo_sharded)
+                    , hoconsc:ref(?MODULE, mysql)
+                    , hoconsc:ref(?MODULE, pgsql)
+                    , hoconsc:ref(?MODULE, redis_single)
+                    , hoconsc:ref(?MODULE, redis_sentinel)
+                    , hoconsc:ref(?MODULE, redis_cluster)
+                    ])}
+      }
     ];
 fields(file) ->
     [ {type, #{type => file}}
@@ -34,17 +47,11 @@ fields(file) ->
                             end
               }}
     ];
-fields(http) ->
+fields(http_get) ->
     [ {type, #{type => http}}
     , {enable, #{type => boolean(),
                  default => true}}
-    , {config, #{type => hoconsc:union([ hoconsc:ref(?MODULE, http_get)
-                                       , hoconsc:ref(?MODULE, http_post)
-                                       ])}
-      }
-    ];
-fields(http_get) ->
-    [ {url, #{type => url()}}
+    , {url, #{type => url()}}
     , {headers, #{type => map(),
                   default => #{ <<"accept">> => <<"application/json">>
                               , <<"cache-control">> => <<"no-cache">>
@@ -68,7 +75,10 @@ fields(http_get) ->
     , {request_timeout,  #{type => timeout(), default => 30000 }}
     ]  ++ proplists:delete(base_url, emqx_connector_http:fields(config));
 fields(http_post) ->
-    [ {url, #{type => url()}}
+    [ {type, #{type => http}}
+    , {enable, #{type => boolean(),
+                 default => true}}
+    , {url, #{type => url()}}
     , {headers, #{type => map(),
                   default => #{ <<"accept">> => <<"application/json">>
                               , <<"cache-control">> => <<"no-cache">>
@@ -97,47 +107,36 @@ fields(http_post) ->
               }
       }
     ]  ++ proplists:delete(base_url, emqx_connector_http:fields(config));
-fields(mongo) ->
-    connector_fields(mongo) ++
+fields(mongo_single) ->
+    connector_fields(mongo, single) ++
     [ {collection, #{type => atom()}}
     , {find, #{type => map()}}
     ];
-fields(redis) ->
-    connector_fields(redis) ++
-    [ {cmd, query()} ];
+fields(mongo_rs) ->
+    connector_fields(mongo, rs) ++
+    [ {collection, #{type => atom()}}
+    , {find, #{type => map()}}
+    ];
+fields(mongo_sharded) ->
+    connector_fields(mongo, sharded) ++
+    [ {collection, #{type => atom()}}
+    , {find, #{type => map()}}
+    ];
 fields(mysql) ->
     connector_fields(mysql) ++
     [ {sql, query()} ];
 fields(pgsql) ->
     connector_fields(pgsql) ++
     [ {sql, query()} ];
-fields(username) ->
-    [{username, #{type => binary()}}];
-fields(clientid) ->
-    [{clientid, #{type => binary()}}];
-fields(ipaddress) ->
-    [{ipaddress, #{type => string()}}];
-fields(andlist) ->
-    [{'and', #{type => union_array(
-                         [ hoconsc:ref(?MODULE, username)
-                         , hoconsc:ref(?MODULE, clientid)
-                         , hoconsc:ref(?MODULE, ipaddress)
-                         ])
-              }
-     }
-    ];
-fields(orlist) ->
-    [{'or', #{type => union_array(
-                         [ hoconsc:ref(?MODULE, username)
-                         , hoconsc:ref(?MODULE, clientid)
-                         , hoconsc:ref(?MODULE, ipaddress)
-                         ])
-              }
-     }
-    ];
-fields(eq_topic) ->
-    [{eq, #{type => binary()}}].
-
+fields(redis_single) ->
+    connector_fields(redis, single) ++
+    [ {cmd, query()} ];
+fields(redis_sentinel) ->
+    connector_fields(redis, sentinel) ++
+    [ {cmd, query()} ];
+fields(redis_cluster) ->
+    connector_fields(redis, cluster) ++
+    [ {cmd, query()} ].
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -145,17 +144,6 @@ fields(eq_topic) ->
 
 union_array(Item) when is_list(Item) ->
     hoconsc:array(hoconsc:union(Item)).
-
-sources() ->
-    #{type => union_array(
-                [ hoconsc:ref(?MODULE, file)
-                , hoconsc:ref(?MODULE, http)
-                , hoconsc:ref(?MODULE, mysql)
-                , hoconsc:ref(?MODULE, pgsql)
-                , hoconsc:ref(?MODULE, redis)
-                , hoconsc:ref(?MODULE, mongo)
-                ])
-    }.
 
 query() ->
     #{type => binary(),
@@ -168,6 +156,8 @@ query() ->
      }.
 
 connector_fields(DB) ->
+    connector_fields(DB, config).
+connector_fields(DB, Fields) ->
     Mod0 = io_lib:format("~s_~s",[emqx_connector, DB]),
     Mod = try
               list_to_existing_atom(Mod0)
@@ -180,4 +170,4 @@ connector_fields(DB) ->
     [ {type, #{type => DB}}
     , {enable, #{type => boolean(),
                  default => true}}
-    ] ++ Mod:roots().
+    ] ++ Mod:fields(Fields).
