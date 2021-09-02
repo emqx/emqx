@@ -41,7 +41,8 @@ definitions() ->
                  ]
     },
     Sources = #{
-        oneOf => [  minirest:ref(<<"connector_redis">>)
+        oneOf => [ minirest:ref(<<"redis">>)
+                 , minirest:ref(<<"file">>)
                  ]
     },
     SSL = #{
@@ -55,7 +56,7 @@ definitions() ->
          verify => #{type => boolean, example => false}
       }
     },
-    ConnectorRedis = #{
+    Redis = #{
         type => object,
         required => [type, enable, config, cmd],
         properties => #{
@@ -123,8 +124,35 @@ definitions() ->
             }
         }
     },
+    File = #{
+        type => object,
+        required => [type, enable, rules],
+        properties => #{
+            type => #{
+                type => string,
+                enum => [<<"redis">>],
+                example => <<"redis">>
+            },
+            enable => #{
+                type => boolean,
+                example => true
+            },
+            rules => #{
+                type => array,
+                items => #{
+                  type => string,
+                  example => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.">>
+                }
+            },
+            path => #{
+                type => string,
+                example => <<"/path/to/authorizaiton_rules.conf">>
+            }
+        }
+    },
     [ #{<<"returned_sources">> => RetruenedSources}
     , #{<<"sources">> => Sources}
     , #{<<"ssl">> => SSL}
-    , #{<<"connector_redis">> => ConnectorRedis}
+    , #{<<"redis">> => Redis}
+    , #{<<"file">> => File}
     ].

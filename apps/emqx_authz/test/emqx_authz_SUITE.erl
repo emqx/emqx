@@ -114,6 +114,11 @@ init_per_testcase(_, Config) ->
                        <<"ssl">> => #{<<"enable">> => false}},
                    <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
                   }).
+-define(SOURCE6, #{<<"type">> => <<"file">>,
+                   <<"enable">> => true,
+                   <<"path">> => emqx_ct_helpers:deps_path(emqx_authz, "etc/authorization_rules.conf")
+                  }).
+
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -125,12 +130,14 @@ t_update_source(_) ->
     {ok, _} = emqx_authz:update(head, [?SOURCE1]),
     {ok, _} = emqx_authz:update(tail, [?SOURCE4]),
     {ok, _} = emqx_authz:update(tail, [?SOURCE5]),
+    {ok, _} = emqx_authz:update(tail, [?SOURCE6]),
 
     ?assertMatch([ #{type := http,  enable := true}
                  , #{type := mongo, enable := true}
                  , #{type := mysql, enable := true}
                  , #{type := pgsql, enable := true}
                  , #{type := redis, enable := true}
+                 , #{type := file,  enable := true}
                  ], emqx:get_config([authorization, sources], [])),
 
     {ok, _} = emqx_authz:update({replace_once, http},  ?SOURCE1#{<<"enable">> := false}),
@@ -138,23 +145,26 @@ t_update_source(_) ->
     {ok, _} = emqx_authz:update({replace_once, mysql}, ?SOURCE3#{<<"enable">> := false}),
     {ok, _} = emqx_authz:update({replace_once, pgsql}, ?SOURCE4#{<<"enable">> := false}),
     {ok, _} = emqx_authz:update({replace_once, redis}, ?SOURCE5#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({replace_once, file},  ?SOURCE6#{<<"enable">> := false}),
 
     ?assertMatch([ #{type := http,  enable := false}
                  , #{type := mongo, enable := false}
                  , #{type := mysql, enable := false}
                  , #{type := pgsql, enable := false}
                  , #{type := redis, enable := false}
+                 , #{type := file,  enable := false}
                  ], emqx:get_config([authorization, sources], [])),
 
     {ok, _} = emqx_authz:update(replace, []).
 
 t_move_source(_) ->
-    {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5]),
+    {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
     ?assertMatch([ #{type := http}
                  , #{type := mongo}
                  , #{type := mysql}
                  , #{type := pgsql}
                  , #{type := redis}
+                 , #{type := file}
                  ], emqx_authz:lookup()),
 
     {ok, _} = emqx_authz:move(pgsql, <<"top">>),
@@ -163,6 +173,7 @@ t_move_source(_) ->
                  , #{type := mongo}
                  , #{type := mysql}
                  , #{type := redis}
+                 , #{type := file}
                  ], emqx_authz:lookup()),
 
     {ok, _} = emqx_authz:move(http, <<"bottom">>),
@@ -170,6 +181,7 @@ t_move_source(_) ->
                  , #{type := mongo}
                  , #{type := mysql}
                  , #{type := redis}
+                 , #{type := file}
                  , #{type := http}
                  ], emqx_authz:lookup()),
 
@@ -178,6 +190,7 @@ t_move_source(_) ->
                  , #{type := pgsql}
                  , #{type := mongo}
                  , #{type := redis}
+                 , #{type := file}
                  , #{type := http}
                  ], emqx_authz:lookup()),
 
@@ -185,6 +198,7 @@ t_move_source(_) ->
     ?assertMatch([ #{type := mysql}
                  , #{type := pgsql}
                  , #{type := redis}
+                 , #{type := file}
                  , #{type := http}
                  , #{type := mongo}
                  ], emqx_authz:lookup()),

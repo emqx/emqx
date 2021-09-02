@@ -96,6 +96,13 @@
                       },
                    <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
                   }).
+-define(SOURCE6, #{<<"type">> => <<"file">>,
+                   <<"enable">> => true,
+                   <<"rules">> =>
+                        [<<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.">>,
+                         <<"{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
+                        ]
+                  }).
 
 all() ->
     emqx_ct:all(?MODULE).
@@ -119,7 +126,7 @@ init_per_suite(Config) ->
 
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
 
-    ok = emqx_ct_helpers:start_apps([emqx_authz, emqx_dashboard], fun set_special_configs/1),
+   ok = emqx_ct_helpers:start_apps([emqx_authz, emqx_dashboard], fun set_special_configs/1),
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
 
@@ -183,7 +190,7 @@ t_api(_) ->
     {ok, 200, Result2} = request(get, uri(["authorization", "sources"]), []),
     ?assertEqual(20, length(get_sources(Result2))),
 
-    {ok, 204, _} = request(put, uri(["authorization", "sources"]), [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4]),
+    {ok, 204, _} = request(put, uri(["authorization", "sources"]), [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
 
     {ok, 200, Result3} = request(get, uri(["authorization", "sources"]), []),
     Sources = get_sources(Result3),
@@ -191,7 +198,10 @@ t_api(_) ->
                  , #{<<"type">> := <<"mongo">>}
                  , #{<<"type">> := <<"mysql">>}
                  , #{<<"type">> := <<"pgsql">>}
+                 , #{<<"type">> := <<"redis">>}
+                 , #{<<"type">> := <<"file">>}
                  ], Sources),
+    ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "authorization_rules.conf"]))),
 
     {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]),  ?SOURCE1#{<<"enable">> := false}),
     {ok, 200, Result4} = request(get, uri(["authorization", "sources", "http"]), []),

@@ -23,18 +23,30 @@
 
 -define(EXAMPLE_REDIS,
         #{type=> redis,
+          enable => true,
           config => #{server => <<"127.0.0.1:3306">>,
                       redis_type => single,
                       pool_size => 1,
                       auto_reconnect => true
                      },
           cmd => <<"HGETALL mqtt_authz">>}).
+-define(EXAMPLE_FILE,
+        #{type=> file,
+          enable => true,
+          rules => [<<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.">>,
+                    <<"{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
+                   ]}).
+
 -define(EXAMPLE_RETURNED_REDIS,
         maps:put(annotations, #{status => healthy}, ?EXAMPLE_REDIS)
         ).
+-define(EXAMPLE_RETURNED_FILE,
+        maps:put(annotations, #{status => healthy}, ?EXAMPLE_FILE)
+        ).
 
 -define(EXAMPLE_RETURNED,
-        #{sources => [?EXAMPLE_RETURNED_REDIS
+        #{sources => [ ?EXAMPLE_RETURNED_REDIS
+                     , ?EXAMPLE_RETURNED_FILE
                      ]
         }).
 
@@ -91,6 +103,10 @@ sources_api() ->
                             redis => #{
                                 summary => <<"Redis">>,
                                 value => jsx:encode(?EXAMPLE_REDIS)
+                            },
+                            file => #{
+                                summary => <<"File">>,
+                                value => jsx:encode(?EXAMPLE_FILE)
                             }
                        }
                     }
@@ -113,7 +129,11 @@ sources_api() ->
                         examples => #{
                             redis => #{
                                 summary => <<"Redis">>,
-                                value => jsx:encode([?EXAMPLE_REDIS])
+                                value => jsx:encode(?EXAMPLE_REDIS)
+                            },
+                            file => #{
+                                summary => <<"File">>,
+                                value => jsx:encode(?EXAMPLE_FILE)
                             }
                         }
                     }
@@ -148,9 +168,13 @@ source_api() ->
                         'application/json' => #{
                             schema => minirest:ref(<<"returned_sources">>),
                             examples => #{
-                                sources => #{
-                                    summary => <<"Sources">>,
+                                redis => #{
+                                    summary => <<"Redis">>,
                                     value => jsx:encode(?EXAMPLE_RETURNED_REDIS)
+                                },
+                                file => #{
+                                    summary => <<"File">>,
+                                    value => jsx:encode(?EXAMPLE_RETURNED_FILE)
                                 }
                             }
                          }
@@ -179,6 +203,10 @@ source_api() ->
                             redis => #{
                                 summary => <<"Redis">>,
                                 value => jsx:encode(?EXAMPLE_REDIS)
+                            },
+                            file => #{
+                                summary => <<"File">>,
+                                value => jsx:encode(?EXAMPLE_FILE)
                             }
                        }
                     }
@@ -271,7 +299,16 @@ move_source_api() ->
     {"/authorization/sources/:type/move", Metadata, move_source}.
 
 sources(get, _) ->
-    Sources = lists:foldl(fun (#{type := _Type, enable := true, config := Config, annotations := #{id := Id}} = Source, AccIn) ->
+    Sources = lists:foldl(fun (#{enable := false} = Source, AccIn) ->
+                                  lists:append(AccIn, [Source#{annotations => #{status => unhealthy}}]);
+                              (#{type := file, path := Path}, AccIn) ->
+                                  {ok, Rules} = file:consult(Path),
+                                  lists:append(AccIn, [#{type => file,
+                                                         enable => true,
+                                                         rules => [ io_lib:format("~p", [R])|| R <- Rules],
+                                                         annotations => #{status => healthy}
+                                                        }]);
+                              (#{type := _Type, config := Config, annotations := #{id := Id}} = Source, AccIn) ->
                                   NSource0 = case maps:get(server, Config, undefined) of
                                                  undefined -> Source;
                                                  Server ->
@@ -293,15 +330,33 @@ sources(get, _) ->
                                   lists:append(AccIn, [Source#{annotations => #{status => healthy}}])
                         end, [], emqx_authz:lookup()),
     {200, #{sources => Sources}};
-sources(post, #{body := Body}) ->
+sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) when is_list(Rules) ->
+    Filename = filename:join([emqx:get_config([node, data_dir]), "authorization_rules.conf"]),
+    write_file(Filename, erlang:list_to_bitstring([<<Rule/binary, "\n">> || Rule <- Rules])),
+    case emqx_authz:update(head, [#{type => file, enable => Enable, path => Filename}]) of
+        {ok, _} -> {204};
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    messgae => atom_to_binary(Reason)}}
+    end;
+sources(post, #{body := Body}) when is_map(Body) ->
     case emqx_authz:update(head, [save_cert(Body)]) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end;
-sources(put, #{body := Body}) ->
-    case emqx_authz:update(replace, save_cert(Body)) of
+sources(put, #{body := Body}) when is_list(Body) ->
+    NBody = [ begin
+                case Source of
+                    #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable} ->
+                        Filename = filename:join([emqx:get_config([node, data_dir]), "authorization_rules.conf"]),
+                        write_file(Filename, erlang:list_to_bitstring([<<Rule/binary, "\n">> || Rule <- Rules])),
+                        #{type => file, enable => Enable, path => Filename};
+                    _ -> save_cert(Source)
+                end
+              end || Source <- Body],
+    case emqx_authz:update(replace, NBody) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
@@ -311,8 +366,15 @@ sources(put, #{body := Body}) ->
 source(get, #{bindings := #{type := Type}}) ->
     case emqx_authz:lookup(Type) of
         {error, Reason} -> {404, #{messgae => atom_to_binary(Reason)}};
-        #{enable := false} = Source -> {200, Source};
-        #{type := file} = Source -> {200, Source};
+        #{enable := false} = Source -> {200, Source#{annotations => #{status => unhealthy}}};
+        #{type := file, path := Path}->
+            {ok, Rules} = file:consult(Path),
+            {200, #{type => file,
+                    enable => true,
+                    rules => Rules,
+                    annotations => #{status => healthy}
+                   }
+            };
         #{config := Config, annotations := #{id := Id}} = Source ->
             NSource0 = case maps:get(server, Config, undefined) of
                            undefined -> Source;
@@ -332,8 +394,16 @@ source(get, #{bindings := #{type := Type}}) ->
             end,
             {200, NSource2}
     end;
-source(put, #{bindings := #{type := Type}, body := Body}) ->
-
+source(put, #{bindings := #{type := file}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
+    #{path := Path} = emqx_authz:lookup(file),
+    write_file(Path, erlang:list_to_bitstring([<<Rule/binary, "\n">> || Rule <- Rules])),
+    case emqx_authz:update({replace_once, file}, #{type => file, enable => Enable, path => Path}) of
+        {ok, _} -> {204};
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    messgae => atom_to_binary(Reason)}}
+    end;
+source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
     case emqx_authz:update({replace_once, Type}, save_cert(Body)) of
         {ok, _} -> {204};
         {error, not_found_source} ->
