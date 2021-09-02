@@ -1291,61 +1291,36 @@ definitions() ->
     , #{<<"Error">> => ErrorDef}
     ].
 
-% authentication(post, #{body := Config}) ->
-%     case Config of
-%         #{<<"enable">> := Enable} ->
-%             {ok, _} = emqx_authn:update_config([authentication, enable], {enable, Enable}),
-%             {204};
-%         _ ->
-%             serialize_error({missing_parameter, enable})
-%     end;
-% authentication(get, _Params) ->
-%     Enabled = ?AUTHN:is_enabled(),
-%     {200, #{enabled => Enabled}}.
-
 authenticators(post, #{body := Config}) ->
     case emqx_authn:update_config([authentication], {create_authenticator, ?GLOBAL, Config}) of
-        {ok, #{post_config_update := #{emqx_authn := #{id := ID, name := Name}},
-               raw_config := RawConfig}} ->
-            [RawConfig1] = [RC || #{<<"name">> := N} = RC <- to_list(RawConfig), N =:= Name],
-            {200, RawConfig1#{id => ID}};
+        {ok, #{post_config_update := #{emqx_authn := #{id := ID}},
+               raw_config := AuthenticatorsConfig}} ->
+            {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
+            {200, maps:put(id, ID, fill_defaults(AuthenticatorConfig))};
         {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end;
 authenticators(get, _Params) ->
-    RawConfig = to_list(get_raw_config_with_defaults([authentication])),
-    {ok, Authenticators} = ?AUTHN:list_authenticators(?GLOBAL),
-    NAuthenticators = lists:zipwith(fun(#{<<"name">> := Name} = Config, #{id := ID, name := Name}) ->
-                                        Config#{id => ID}
-                                    end, RawConfig, Authenticators),
+    AuthenticatorsConfig = get_raw_config_with_defaults([authentication]),
+    NAuthenticators = [maps:put(id, ?AUTHN:generate_id(AuthenticatorConfig), AuthenticatorConfig)
+                        || AuthenticatorConfig <- AuthenticatorsConfig],
     {200, NAuthenticators}.
 
 authenticators2(get, #{bindings := #{id := AuthenticatorID}}) ->
-    case ?AUTHN:lookup_authenticator(?GLOBAL, AuthenticatorID) of
-        {ok, #{id := ID, name := Name}} ->
-            RawConfig = to_list(get_raw_config_with_defaults([authentication])),
-            [RawConfig1] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],
-            {200, RawConfig1#{id => ID}};
+    AuthenticatorsConfig = get_raw_config_with_defaults([authentication]),
+    case find_config(AuthenticatorID, AuthenticatorsConfig) of
+        {ok, AuthenticatorConfig} ->
+            {200, AuthenticatorConfig#{id => AuthenticatorID}};
         {error, Reason} ->
             serialize_error(Reason)
     end;
 authenticators2(put, #{bindings := #{id := AuthenticatorID}, body := Config}) ->
     case emqx_authn:update_config([authentication],
-                                  {update_or_create_authenticator, ?GLOBAL, AuthenticatorID, Config}) of
-        {ok, #{post_config_update := #{emqx_authn := #{id := ID, name := Name}},
-               raw_config := RawConfig}} ->
-            [RawConfig0] = [RC || #{<<"name">> := N} = RC <- to_list(RawConfig), N =:= Name],
-            {200, RawConfig0#{id => ID}};
-        {error, {_, _, Reason}} ->
-            serialize_error(Reason)
-    end;
-authenticators2(patch, #{bindings := #{id := AuthenticatorID}, body := Config}) ->
-    case emqx_authn:update_config([authentication],
                                   {update_authenticator, ?GLOBAL, AuthenticatorID, Config}) of
-        {ok, #{post_config_update := #{emqx_authn := #{id := ID, name := Name}},
-               raw_config := RawConfig}} ->
-            [RawConfig0] = [RC || #{<<"name">> := N} = RC <- to_list(RawConfig), N =:= Name],
-            {200, RawConfig0#{id => ID}};
+        {ok, #{post_config_update := #{emqx_authn := #{id := ID}},
+               raw_config := AuthenticatorsConfig}} ->
+            {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
+            {200, maps:put(id, ID, fill_defaults(AuthenticatorConfig))};
         {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end;
@@ -1356,19 +1331,6 @@ authenticators2(delete, #{bindings := #{id := AuthenticatorID}}) ->
         {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end.
-
-% % POST listeners/tcp:default/authentcaiton
-% authenticators3(post, #{bindings := #{listener_name := ListenerName},
-%                         body := AuthenticatorConfig}) ->
-%     {Protocol, Name} = emqx_listeners:parse_listener_id(ListenerName)
-%     case emqx_authn:update_config([listener, Protocol, Name, authentication], {create_authenticator, Config}) of
-%         {ok, #{post_config_update := #{?AUTHN := #{id := ID, name := Name}},
-%                raw_config := RawConfig}} ->
-%             [RawConfig0] = [RC || #{<<"name">> := N} = RC <- RawConfig, N =:= Name],
-%             {200, RawConfig0#{id => ID}};
-%         {error, {_, _, Reason}} ->
-%             serialize_error(Reason)
-%     end
 
 move(post, #{bindings := #{id := AuthenticatorID}, body := Body}) ->
     case Body of
@@ -1450,7 +1412,13 @@ users2(delete, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
 get_raw_config_with_defaults(ConfKeyPath) ->
     NConfKeyPath = [atom_to_binary(Key, utf8) || Key <- ConfKeyPath],
     RawConfig = emqx_map_lib:deep_get(NConfKeyPath, emqx_config:get_raw([]), []),
-    fill_defaults(RawConfig).
+    to_list(fill_defaults(RawConfig)).
+
+find_config(AuthenticatorID, AuthenticatorsConfig) ->
+    case [AC || AC <- to_list(AuthenticatorsConfig), AuthenticatorID =:= ?AUTHN:generate_id(AC)] of
+        [] -> {error, {not_found, {authenticator, AuthenticatorID}}};
+        [AuthenticatorConfig] -> {ok, AuthenticatorConfig}
+    end.
 
 fill_defaults(Config) ->
     #{<<"authentication">> := CheckedConfig} = hocon_schema:check_plain(

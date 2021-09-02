@@ -22,13 +22,8 @@
         ]).
 
 common_fields() ->
-    [ {name,      fun name/1}
-    , {enable,    fun enable/1}
+    [ {enable,    fun enable/1}
     ].
-
-name(type) -> binary();
-name(nullable) -> false;
-name(_) -> undefined.
 
 enable(type) -> boolean();
 enable(default) -> true;
