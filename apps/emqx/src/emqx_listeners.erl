@@ -50,7 +50,7 @@
 %% @doc List configured listeners.
 -spec(list() -> [{ListenerId :: atom(), ListenerConf :: map()}]).
 list() ->
-    [{listener_id(ZoneName, LName), LConf} || {ZoneName, LName, LConf} <- do_list()].
+    [{listener_id(Type, LName), LConf} || {Type, LName, LConf} <- do_list()].
 
 do_list() ->
     Listeners = maps:to_list(emqx:get_config([listeners], #{})),
@@ -64,7 +64,7 @@ list(Type, Conf) ->
 
 -spec is_running(ListenerId :: atom()) -> boolean() | {error, no_found}.
 is_running(ListenerId) ->
-    case lists:filtermap(fun({_Zone, Id, #{running := IsRunning}}) ->
+    case lists:filtermap(fun({_Type, Id, #{running := IsRunning}}) ->
                                  Id =:= ListenerId andalso {true, IsRunning}
                          end, do_list()) of
         [IsRunning] -> IsRunning;

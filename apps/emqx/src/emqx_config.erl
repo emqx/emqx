@@ -235,7 +235,7 @@ put_raw(KeyPath, Config) -> do_put(?RAW_CONF, KeyPath, Config).
 %% in the rear of the list overrides prior values.
 -spec init_load(module(), [string()] | binary() | hocon:config()) -> ok.
 init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
-    ParseOptions = #{format => richmap},
+    ParseOptions = #{format => map},
     Parser = case is_binary(Conf) of
               true -> fun hocon:binary/2;
               false -> fun hocon:files/2
@@ -249,19 +249,14 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
                           }),
             error(failed_to_load_hocon_conf)
     end;
-init_load(SchemaMod, RawRichConf) when is_map(RawRichConf) ->
-    %% check with richmap for line numbers in error reports (future enhancement)
-    Opts = #{return_plain => true,
-             nullable => true
-            },
-    %% this call throws exception in case of check failure
-    {_AppEnvs, CheckedConf} = hocon_schema:map_translate(SchemaMod, RawRichConf, Opts),
+init_load(SchemaMod, RawConf0) when is_map(RawConf0) ->
     ok = save_schema_mod_and_names(SchemaMod),
-    ok = save_to_config_map(emqx_map_lib:unsafe_atom_key_map(normalize_conf(CheckedConf)),
-            normalize_conf(hocon_schema:richmap_to_map(RawRichConf))).
-
-normalize_conf(Conf) ->
-    maps:with(get_root_names(), Conf).
+    %% override part of the input conf using emqx_override.conf
+    RawConf = maps:merge(RawConf0, maps:with(maps:keys(RawConf0), read_override_conf())),
+    %% check and save configs
+    {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf),
+    ok = save_to_config_map(maps:with(get_atom_root_names(), CheckedConf),
+            maps:with(get_root_names(), RawConf)).
 
 -spec check_config(module(), raw_config()) -> {AppEnvs, CheckedConf}
     when AppEnvs :: app_envs(), CheckedConf :: config().
@@ -319,6 +314,9 @@ get_schema_mod(RootName) ->
 -spec get_root_names() -> [binary()].
 get_root_names() ->
     maps:get(names, persistent_term:get(?PERSIS_SCHEMA_MODS, #{names => []})).
+
+get_atom_root_names() ->
+    [atom(N) || N <- get_root_names()].
 
 -spec save_configs(app_envs(), config(), raw_config(), raw_config()) -> ok | {error, term()}.
 save_configs(_AppEnvs, Conf, RawConf, OverrideConf) ->
