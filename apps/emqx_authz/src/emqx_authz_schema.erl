@@ -52,6 +52,7 @@ fields(http_get) ->
     , {enable, #{type => boolean(),
                  default => true}}
     , {url, #{type => url()}}
+    , {method,  #{type => get, default => get }}
     , {headers, #{type => map(),
                   default => #{ <<"accept">> => <<"application/json">>
                               , <<"cache-control">> => <<"no-cache">>
@@ -71,7 +72,6 @@ fields(http_get) ->
                                end
                  }
       }
-    , {method,  #{type => get, default => get }}
     , {request_timeout,  #{type => timeout(), default => 30000 }}
     ]  ++ proplists:delete(base_url, emqx_connector_http:fields(config));
 fields(http_post) ->
@@ -79,6 +79,8 @@ fields(http_post) ->
     , {enable, #{type => boolean(),
                  default => true}}
     , {url, #{type => url()}}
+    , {method,  #{type => hoconsc:enum([post, put]),
+                  default => get}}
     , {headers, #{type => map(),
                   default => #{ <<"accept">> => <<"application/json">>
                               , <<"cache-control">> => <<"no-cache">>
@@ -100,8 +102,7 @@ fields(http_post) ->
                                end
                  }
       }
-    , {method,  #{type => hoconsc:enum([post, put]),
-                  default => get}}
+    , {request_timeout,  #{type => timeout(), default => 30000 }}
     , {body, #{type => map(),
                nullable => true
               }
