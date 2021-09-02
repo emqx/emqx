@@ -31,7 +31,8 @@
 
 -export([is_request/1]).
 
--export([set/3, set_payload/2, get_content/1, set_content/2, set_content/3, get_option/2]).
+-export([ set/3, set_payload/2, get_option/2
+        , get_option/3, set_payload_block/3, set_payload_block/4]).
 
 -include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
 
@@ -42,11 +43,10 @@ request(Type, Method, Payload) ->
     request(Type, Method, Payload, []).
 
 request(Type, Method, Payload, Options) when is_binary(Payload) ->
-    #coap_message{type = Type, method = Method, payload = Payload, options = Options};
-
-request(Type, Method, Content=#coap_content{}, Options) ->
-    set_content(Content,
-                #coap_message{type = Type, method = Method, options = Options}).
+    #coap_message{type = Type,
+                  method = Method,
+                  payload = Payload,
+                  options = to_options(Options)}.
 
 ack(#coap_message{id = Id}) ->
     #coap_message{type = ack, id = Id}.
@@ -55,20 +55,20 @@ reset(#coap_message{id = Id}) ->
     #coap_message{type = reset, id = Id}.
 
 %% just make a response
-response(#coap_message{type = Type,
-                       id = Id,
-                       token = Token}) ->
-    #coap_message{type = Type,
-                  id = Id,
-                  token = Token}.
+response(Request) ->
+    response(undefined, Request).
 
 response(Method, Request) ->
-    set_method(Method, response(Request)).
+    response(Method, <<>>, Request).
 
-response(Method, Payload, Request) ->
-    set_method(Method,
-               set_payload(Payload,
-                           response(Request))).
+response(Method, Payload, #coap_message{type = Type,
+                                        id = Id,
+                                        token = Token}) ->
+    #coap_message{type = Type,
+                  id = Id,
+                  token = Token,
+                  method = Method,
+                  payload = Payload}.
 
 %% make a response which maybe is a piggyback ack
 piggyback(Method, Request) ->
@@ -90,63 +90,17 @@ set(max_age, ?DEFAULT_MAX_AGE, Msg) -> Msg;
 set(Option, Value, Msg = #coap_message{options = Options}) ->
     Msg#coap_message{options = Options#{Option => Value}}.
 
-get_option(Option, #coap_message{options = Options}) ->
-    maps:get(Option, Options, undefined).
+get_option(Option, Msg) ->
+    get_option(Option, Msg, undefined).
 
-set_method(Method, Msg) ->
-    Msg#coap_message{method = Method}.
-
-set_payload(Payload = #coap_content{}, Msg) ->
-    set_content(Payload, undefined, Msg);
+get_option(Option, #coap_message{options = Options}, Def) ->
+    maps:get(Option, Options, Def).
 
 set_payload(Payload, Msg) when is_binary(Payload) ->
     Msg#coap_message{payload = Payload};
 
 set_payload(Payload, Msg) when is_list(Payload) ->
     Msg#coap_message{payload = list_to_binary(Payload)}.
-
-get_content(#coap_message{options = Options, payload = Payload}) ->
-    #coap_content{etag = maps:get(etag, Options, undefined),
-                  max_age = maps:get(max_age, Options, ?DEFAULT_MAX_AGE),
-                  format = maps:get(content_format, Options, undefined),
-                  location_path = maps:get(location_path, Options, []),
-                  payload = Payload}.
-
-set_content(Content, Msg) ->
-    set_content(Content, undefined, Msg).
-
-%% segmentation not requested and not required
-set_content(#coap_content{etag = ETag,
-                          max_age = MaxAge,
-                          format = Format,
-                          location_path = LocPath,
-                          payload = Payload},
-            undefined,
-            Msg)
-  when byte_size(Payload)  =< ?MAX_BLOCK_SIZE ->
-    #coap_message{options = Options} = Msg2 = set_payload(Payload, Msg),
-    Options2 = Options#{etag => [ETag],
-                        max_age => MaxAge,
-                        content_format => Format,
-                        location_path => LocPath},
-    Msg2#coap_message{options = Options2};
-
-%% segmentation not requested, but required (late negotiation)
-set_content(Content, undefined, Msg) ->
-    set_content(Content, {0, true, ?MAX_BLOCK_SIZE}, Msg);
-
-%% segmentation requested (early negotiation)
-set_content(#coap_content{etag = ETag,
-                          max_age = MaxAge,
-                          format = Format,
-                          payload = Payload},
-            Block,
-            Msg) ->
-    #coap_message{options = Options} = Msg2 = set_payload_block(Payload, Block, Msg),
-    Options2 = Options#{etag => [ETag],
-                        max => MaxAge,
-                        content_format => Format},
-    Msg2#coap_message{options = Options2}.
 
 set_payload_block(Content, Block, Msg = #coap_message{method = Method}) when is_atom(Method) ->
     set_payload_block(Content, block1, Block, Msg);
@@ -172,3 +126,8 @@ is_request(#coap_message{method = Method}) when is_atom(Method) ->
 
 is_request(_) ->
     false.
+
+to_options(Opts) when is_map(Opts) ->
+    Opts;
+to_options(Opts) ->
+    maps:from_list(Opts).

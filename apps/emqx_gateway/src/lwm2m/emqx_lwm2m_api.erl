@@ -55,7 +55,8 @@ list(#{node := Node }, Params) ->
     end;
 
 list(#{}, _Params) ->
-    Channels = emqx_lwm2m_cm:all_channels(),
+    %% Channels = emqx_lwm2m_cm:all_channels(),
+    Channels = [],
     return({ok, format(Channels)}).
 
 lookup_cmd(#{ep := Ep, node := Node}, Params) ->
@@ -64,26 +65,27 @@ lookup_cmd(#{ep := Ep, node := Node}, Params) ->
         _ -> rpc_call(Node, lookup_cmd, [#{ep => Ep}, Params])
     end;
 
-lookup_cmd(#{ep := Ep}, Params) ->
-    MsgType = proplists:get_value(<<"msgType">>, Params),
-    Path0 = proplists:get_value(<<"path">>, Params),
-    case emqx_lwm2m_cm:lookup_cmd(Ep, Path0, MsgType) of
-        [] -> return({ok, []});
-        [{_, undefined} | _] -> return({ok, []});
-        [{{IMEI, Path, MsgType}, undefined}] ->
-            return({ok, [{imei, IMEI},
-                         {'msgType', IMEI},
-                         {'code', <<"6.01">>},
-                         {'codeMsg', <<"reply_not_received">>},
-                         {'path', Path}]});
-        [{{IMEI, Path, MsgType}, {Code, CodeMsg, Content}}] ->
-            Payload1 = format_cmd_content(Content, MsgType),
-            return({ok, [{imei, IMEI},
-                         {'msgType', IMEI},
-                         {'code', Code},
-                         {'codeMsg', CodeMsg},
-                         {'path', Path}] ++ Payload1})
-    end.
+lookup_cmd(#{ep := _Ep}, Params) ->
+    _MsgType = proplists:get_value(<<"msgType">>, Params),
+    _Path0 = proplists:get_value(<<"path">>, Params),
+    %% case emqx_lwm2m_cm:lookup_cmd(Ep, Path0, MsgType) of
+    %%     [] -> return({ok, []});
+    %%     [{_, undefined} | _] -> return({ok, []});
+    %%     [{{IMEI, Path, MsgType}, undefined}] ->
+    %%         return({ok, [{imei, IMEI},
+    %%                      {'msgType', IMEI},
+    %%                      {'code', <<"6.01">>},
+    %%                      {'codeMsg', <<"reply_not_received">>},
+    %%                      {'path', Path}]});
+    %%     [{{IMEI, Path, MsgType}, {Code, CodeMsg, Content}}] ->
+    %%         Payload1 = format_cmd_content(Content, MsgType),
+    %%         return({ok, [{imei, IMEI},
+    %%                      {'msgType', IMEI},
+    %%                      {'code', Code},
+    %%                      {'codeMsg', CodeMsg},
+    %%                      {'path', Path}] ++ Payload1})
+    %% end.
+    return({ok, []}).
 
 rpc_call(Node, Fun, Args) ->
     case rpc:call(Node, ?MODULE, Fun, Args) of
@@ -115,36 +117,37 @@ format(Channels) ->
          {'objectList', ObjectList}]
     end, Channels).
 
-format_cmd_content(undefined, _MsgType) -> [];
-format_cmd_content(Content, <<"discover">>) ->
-    [H | Content1] = Content,
-    {_, [HObjId]} = emqx_lwm2m_coap_resource:parse_object_list(H),
-    [ObjId | _]= path_list(HObjId),
-    ObjectList = case Content1 of
-        [Content2 | _] ->
-            {_, ObjL} = emqx_lwm2m_coap_resource:parse_object_list(Content2),
-            ObjL;
-        [] -> []
-    end,
-    R = case emqx_lwm2m_xml_object:get_obj_def(binary_to_integer(ObjId), true) of
-        {error, _} ->
-            lists:map(fun(Object) -> {Object, Object} end, ObjectList);
-        ObjDefinition ->
-            lists:map(fun(Object) ->
-                [_, _,  ResId| _] = path_list(Object),
-                Operations = case emqx_lwm2m_xml_object:get_resource_operations(binary_to_integer(ResId), ObjDefinition) of
-                    "E" -> [{operations, list_to_binary("E")}];
-                    Oper -> [{'dataType', list_to_binary(emqx_lwm2m_xml_object:get_resource_type(binary_to_integer(ResId), ObjDefinition))},
-                             {operations, list_to_binary(Oper)}]
-                end,
-                [{path, Object},
-                 {name, list_to_binary(emqx_lwm2m_xml_object:get_resource_name(binary_to_integer(ResId), ObjDefinition))}
-                ] ++ Operations
-            end, ObjectList)
-    end,
-    [{content, R}];
-format_cmd_content(Content, _) ->
-    [{content, Content}].
+%% format_cmd_content(undefined, _MsgType) -> [];
+%% format_cmd_content(_Content, <<"discover">>) ->
+%%     %% [H | Content1] = Content,
+%%     %% {_, [HObjId]} = emqx_lwm2m_coap_resource:parse_object_list(H),
+%%     %% [ObjId | _]= path_list(HObjId),
+%%     %% ObjectList = case Content1 of
+%%     %%     [Content2 | _] ->
+%%     %%         {_, ObjL} = emqx_lwm2m_coap_resource:parse_object_list(Content2),
+%%     %%         ObjL;
+%%     %%     [] -> []
+%%     %% end,
+%%     %% R = case emqx_lwm2m_xml_object:get_obj_def(binary_to_integer(ObjId), true) of
+%%     %%     {error, _} ->
+%%     %%         lists:map(fun(Object) -> {Object, Object} end, ObjectList);
+%%     %%     ObjDefinition ->
+%%     %%         lists:map(fun(Object) ->
+%%     %%             [_, _,  ResId| _] = path_list(Object),
+%%     %%             Operations = case emqx_lwm2m_xml_object:get_resource_operations(binary_to_integer(ResId), ObjDefinition) of
+%%     %%                 "E" -> [{operations, list_to_binary("E")}];
+%%     %%                 Oper -> [{'dataType', list_to_binary(emqx_lwm2m_xml_object:get_resource_type(binary_to_integer(ResId), ObjDefinition))},
+%%     %%                          {operations, list_to_binary(Oper)}]
+%%     %%             end,
+%%     %%             [{path, Object},
+%%     %%              {name, list_to_binary(emqx_lwm2m_xml_object:get_resource_name(binary_to_integer(ResId), ObjDefinition))}
+%%     %%             ] ++ Operations
+%%     %%         end, ObjectList)
+%%     %% end,
+%%     %% [{content, R}];
+%%     [];
+%% format_cmd_content(Content, _) ->
+%%     [{content, Content}].
 
 ntoa({0,0,0,0,0,16#ffff,AB,CD}) ->
     inet_parse:ntoa({AB bsr 8, AB rem 256, CD bsr 8, CD rem 256});

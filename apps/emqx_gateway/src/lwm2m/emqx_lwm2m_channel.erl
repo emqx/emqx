@@ -14,18 +14,19 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_coap_channel).
-
--behavior(emqx_gateway_channel).
+-module(emqx_lwm2m_channel).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
+-include_lib("emqx_gateway/src/lwm2m/include/emqx_lwm2m.hrl").
 
 %% API
 -export([ info/1
         , info/2
         , stats/1
-        , validator/4]).
+        , validator/2
+        , validator/4
+        , do_takeover/3]).
 
 -export([ init/2
         , handle_in/2
@@ -39,8 +40,6 @@
         , handle_info/2
         ]).
 
--export_type([channel/0]).
-
 -record(channel, {
                   %% Context
                   ctx           :: emqx_gateway_ctx:context(),
@@ -49,26 +48,21 @@
                   %% Client Info
                   clientinfo    :: emqx_types:clientinfo(),
                   %% Session
-                  session       :: emqx_coap_session:session() | undefined,
-                  %% Keepalive
-                  keepalive     :: emqx_keepalive:keepalive() | undefined,
+                  session       :: emqx_lwm2m_session:session() | undefined,
+
                   %% Timer
                   timers :: #{atom() => disable | undefined | reference()},
 
-                  conn_state :: idle | connected,
-
-                  token :: binary() | undefined
+                  validator :: function()
                  }).
 
--type channel() :: #channel{}.
--define(TOKEN_MAXIMUM, 4294967295).
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session]).
 
 -import(emqx_coap_medium, [reply/2, reply/3, reply/4, iter/3, iter/4]).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-
 info(Channel) ->
     maps:from_list(info(?INFO_KEYS, Channel)).
 
@@ -77,8 +71,8 @@ info(Keys, Channel) when is_list(Keys) ->
 
 info(conninfo, #channel{conninfo = ConnInfo}) ->
     ConnInfo;
-info(conn_state, #channel{conn_state = CState}) ->
-    CState;
+info(conn_state, _) ->
+    connected;
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
 info(session, #channel{session = Session}) ->
@@ -99,61 +93,54 @@ init(ConnInfo = #{peername := {PeerHost, _},
     ClientInfo = set_peercert_infos(
                    Peercert,
                    #{ zone => default
-                    , protocol => 'coap'
+                    , protocol => lwm2m
                     , peerhost => PeerHost
                     , sockport => SockPort
-                    , clientid => emqx_guid:to_base62(emqx_guid:gen())
                     , username => undefined
+                    , clientid => undefined
                     , is_bridge => false
                     , is_superuser => false
                     , mountpoint => Mountpoint
                     }
                   ),
 
-    Heartbeat = emqx:get_config([gateway, coap, idle_timeout]),
     #channel{ ctx = Ctx
             , conninfo = ConnInfo
             , clientinfo = ClientInfo
             , timers = #{}
-            , session = emqx_coap_session:new()
-            , keepalive = emqx_keepalive:init(Heartbeat)
-            , conn_state = idle
+            , session = emqx_lwm2m_session:new()
+            , validator = validator(Ctx, ClientInfo)
             }.
 
-validator(Type, Topic, Ctx, ClientInfo) ->
-    emqx_gateway_ctx:authorize(Ctx, ClientInfo, Type, Topic).
+validator(_Type, _Topic, _Ctx, _ClientInfo) ->
+    allow.
+                                                %emqx_gateway_ctx:authorize(Ctx, ClientInfo, Type, Topic).
+
+validator(Ctx, ClientInfo) ->
+    fun(Type, Topic) ->
+            validator(Type, Topic, Ctx, ClientInfo)
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
 %%--------------------------------------------------------------------
 handle_in(Msg, ChannleT) ->
-    Channel = ensure_keepalive_timer(ChannleT),
-    case emqx_coap_message:is_request(Msg) of
-        true ->
-            check_auth_state(Msg, Channel);
-        _ ->
-            call_session(handle_response, Msg, Channel)
-    end.
+    Channel = update_life_timer(ChannleT),
+    call_session(handle_coap_in, Msg, Channel).
 
 %%--------------------------------------------------------------------
 %% Handle Delivers from broker to client
 %%--------------------------------------------------------------------
 handle_deliver(Delivers, Channel) ->
-    call_session(deliver, Delivers, Channel).
+    call_session(handle_deliver, Delivers, Channel).
 
 %%--------------------------------------------------------------------
 %% Handle timeout
 %%--------------------------------------------------------------------
-handle_timeout(_, {keepalive, NewVal}, #channel{keepalive = KeepAlive} = Channel) ->
-    case emqx_keepalive:check(NewVal, KeepAlive) of
-        {ok, NewKeepAlive} ->
-            Channel2 = ensure_keepalive_timer(fun make_timer/4, Channel),
-            {ok, Channel2#channel{keepalive = NewKeepAlive}};
-        {error, timeout} ->
-            {shutdown, timeout, Channel}
-    end;
+handle_timeout(_, lifetime, Channel) ->
+    {shutdown, timeout, Channel};
 
-handle_timeout(_, {transport, Msg}, Channel) ->
+handle_timeout(_, {transport, _} = Msg, Channel) ->
     call_session(timeout, Msg, Channel);
 
 handle_timeout(_, disconnect, Channel) ->
@@ -186,8 +173,8 @@ handle_info(Info, Channel) ->
 %%--------------------------------------------------------------------
 %% Terminate
 %%--------------------------------------------------------------------
-terminate(_Reason, _Channel) ->
-    ok.
+terminate(_Reason, #channel{session = Session}) ->
+    emqx_lwm2m_session:on_close(Session).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -201,81 +188,77 @@ set_peercert_infos(Peercert, ClientInfo) ->
                 esockd_peercert:common_name(Peercert)},
     ClientInfo#{dn => DN, cn => CN}.
 
-ensure_timer(Name, Time, Msg, #channel{timers = Timers} = Channel) ->
-    case maps:get(Name, Timers, undefined) of
-        undefined ->
-            make_timer(Name, Time, Msg, Channel);
-        _ ->
-            Channel
-    end.
-
 make_timer(Name, Time, Msg, Channel = #channel{timers = Timers}) ->
     TRef = emqx_misc:start_timer(Time, Msg),
     Channel#channel{timers = Timers#{Name => TRef}}.
 
-ensure_keepalive_timer(Channel) ->
-    ensure_keepalive_timer(fun ensure_timer/4, Channel).
+update_life_timer(#channel{session = Session, timers = Timers} = Channel) ->
+    LifeTime = emqx_lwm2m_session:info(lifetime, Session),
+    _ = case maps:get(lifetime, Timers, undefined) of
+            undefined -> ok;
+            Ref -> erlang:cancel_timer(Ref)
+        end,
+    make_timer(lifetime, LifeTime, lifetime, Channel).
 
-ensure_keepalive_timer(Fun, Channel) ->
-    Heartbeat = emqx:get_config([gateway, coap, idle_timeout]),
-    Fun(keepalive, Heartbeat, keepalive, Channel).
-
-check_auth_state(Msg, Channel) ->
-    Enable = emqx:get_config([gateway, coap, enable_stats]),
-    check_token(Enable, Msg, Channel).
-
-check_token(true,
-            Msg,
-            #channel{token = Token,
-                     clientinfo = ClientInfo,
-                     conn_state = CState} = Channel) ->
-    #{clientid := ClientId} = ClientInfo,
-    case emqx_coap_message:get_option(uri_query, Msg) of
-        #{<<"clientid">> := ClientId,
-          <<"token">> := Token} ->
-            call_session(handle_request, Msg, Channel);
-        #{<<"clientid">> := DesireId} ->
-            try_takeover(CState, DesireId, Msg, Channel);
-        _ ->
-            Reply = emqx_coap_message:piggyback({error, unauthorized}, Msg),
-            {ok, {outgoing, Reply}, Msg}
-    end;
-
-check_token(false, Msg, Channel) ->
-    case emqx_coap_message:get_option(uri_query, Msg) of
-        #{<<"clientid">> := _} ->
-            Reply = emqx_coap_message:piggyback({error, unauthorized}, Msg),
-            {ok, {outgoing, Reply}, Msg};
-        #{<<"token">> := _} ->
-            Reply = emqx_coap_message:piggyback({error, unauthorized}, Msg),
-            {ok, {outgoing, Reply}, Msg};
-        _ ->
-            call_session(handle_request, Msg, Channel)
-    end.
-
-try_takeover(idle, DesireId, Msg, Channel) ->
-    case emqx_coap_message:get_option(uri_path, Msg, []) of
-        [<<"mqtt">>, <<"connection">> | _] ->
-            %% may be is a connect request
-            %% TODO need check repeat connect, unless we implement the
-            %% udp connection baseon the clientid
-            call_session(handle_request, Msg, Channel);
-        _ ->
-            case emqx:get_config([gateway, coap, authentication], undefined) of
-                undefined ->
-                    call_session(handle_request, Msg, Channel);
-                _ ->
-                    do_takeover(DesireId, Msg, Channel)
-            end
-    end;
-
-try_takeover(_, DesireId, Msg, Channel) ->
-    do_takeover(DesireId, Msg, Channel).
+check_location(Location, #channel{session = Session}) ->
+    SLocation = emqx_lwm2m_session:info(location_path, Session),
+    Location =:= SLocation.
 
 do_takeover(_DesireId, Msg, Channel) ->
     %% TODO completed the takeover, now only reset the message
     Reset = emqx_coap_message:reset(Msg),
-    {ok, {outgoing, Reset}, Channel}.
+    call_session(handle_out, Reset, Channel).
+
+do_connect(Req, Result, Channel, Iter) ->
+    case emqx_misc:pipeline(
+           [ fun check_lwm2m_version/2
+           , fun run_conn_hooks/2
+           , fun enrich_clientinfo/2
+           , fun set_log_meta/2
+           , fun auth_connect/2
+           ],
+           Req,
+           Channel) of
+        {ok, _Input, #channel{session = Session,
+                              validator = Validator} = NChannel} ->
+            case emqx_lwm2m_session:info(reg_info, Session) of
+                undefined ->
+                    process_connect(ensure_connected(NChannel), Req, Result, Iter);
+                _ ->
+                    NewResult = emqx_lwm2m_session:reregister(Req, Validator, Session),
+                    iter(Iter, maps:merge(Result, NewResult), NChannel)
+            end;
+        {error, ReasonCode, NChannel} ->
+            ErrMsg = io_lib:format("Login Failed: ~s", [ReasonCode]),
+            Payload = erlang:list_to_binary(lists:flatten(ErrMsg)),
+            iter(Iter,
+                 reply({error, bad_request}, Payload, Req, Result),
+                 NChannel)
+    end.
+
+check_lwm2m_version(#coap_message{options = Opts},
+                    #channel{conninfo = ConnInfo} = Channel) ->
+    Ver = gets([uri_query, <<"lwm2m">>], Opts),
+    IsValid = case Ver of
+                  <<"1.0">> ->
+                      true;
+                  <<"1">> ->
+                      true;
+                  <<"1.1">> ->
+                      true;
+                  _ ->
+                      false
+              end,
+    if IsValid ->
+            NConnInfo = ConnInfo#{ connected_at => erlang:system_time(millisecond)
+                                 , proto_name => <<"lwm2m">>
+                                 , proto_ver => Ver
+                                 },
+            {ok, Channel#channel{conninfo = NConnInfo}};
+       true ->
+            ?LOG(error, "Reject REGISTER due to unsupported version: ~0p", [Ver]),
+            {error, "invalid lwm2m version", Channel}
+    end.
 
 run_conn_hooks(Input, Channel = #channel{ctx = Ctx,
                                          conninfo = ConnInfo}) ->
@@ -286,18 +269,22 @@ run_conn_hooks(Input, Channel = #channel{ctx = Ctx,
             {ok, Input, Channel}
     end.
 
-enrich_clientinfo({Queries, Msg},
+enrich_clientinfo(#coap_message{options = Options} = Msg,
                   Channel = #channel{clientinfo = ClientInfo0}) ->
-    case Queries of
-        #{<<"username">> := UserName,
-          <<"password">> := Password,
-          <<"clientid">> := ClientId} ->
-            ClientInfo = ClientInfo0#{username => UserName,
-                                      password => Password,
-                                      clientid => ClientId},
+    Query = maps:get(uri_query, Options, #{}),
+    case Query of
+        #{<<"ep">> := Epn} ->
+            UserName = maps:get(<<"imei">>, Query, undefined),
+            Password = maps:get(<<"password">>, Query, undefined),
+            ClientId = maps:get(<<"device_id">>, Query, Epn),
+            ClientInfo =
+                ClientInfo0#{username => UserName,
+                             password => Password,
+                             clientid => ClientId},
             {ok, NClientInfo} = fix_mountpoint(Msg, ClientInfo),
             {ok, Channel#channel{clientinfo = NClientInfo}};
         _ ->
+            ?LOG(error, "Reject REGISTER due to wrong parameters, Query=~p", [Query]),
             {error, "invalid queries", Channel}
     end.
 
@@ -307,11 +294,11 @@ set_log_meta(_Input, #channel{clientinfo = #{clientid := ClientId}}) ->
 
 auth_connect(_Input, Channel = #channel{ctx = Ctx,
                                         clientinfo = ClientInfo}) ->
-    #{clientid := ClientId,
-      username := Username} = ClientInfo,
+    #{clientid := ClientId, username := Username} = ClientInfo,
     case emqx_gateway_ctx:authenticate(Ctx, ClientInfo) of
         {ok, NClientInfo} ->
-            {ok, Channel#channel{clientinfo = NClientInfo}};
+            {ok, Channel#channel{clientinfo = NClientInfo,
+                                 validator = validator(Ctx, ClientInfo)}};
         {error, Reason} ->
             ?LOG(warning, "Client ~s (Username: '~s') login failed for ~0p",
                  [ClientId, Username, Reason]),
@@ -329,34 +316,28 @@ fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
 ensure_connected(Channel = #channel{ctx = Ctx,
                                     conninfo = ConnInfo,
                                     clientinfo = ClientInfo}) ->
-    NConnInfo = ConnInfo#{ connected_at => erlang:system_time(millisecond)
-                         , proto_name => <<"COAP">>
-                         , proto_ver => <<"1">>
-                         },
-    ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
-    Channel#channel{conninfo = NConnInfo}.
+    ok = run_hooks(Ctx, 'client.connected', [ClientInfo, ConnInfo]),
+    Channel.
 
-process_connect(#channel{ctx = Ctx,
-                         session = Session,
-                         conninfo = ConnInfo,
-                         clientinfo = ClientInfo} = Channel,
+process_connect(Channel = #channel{ctx = Ctx,
+                                   session = Session,
+                                   conninfo = ConnInfo,
+                                   clientinfo = ClientInfo,
+                                   validator = Validator},
                 Msg, Result, Iter) ->
     %% inherit the old session
-    SessFun = fun(_,_) -> Session end,
+    SessFun = fun(_,_) -> #{} end,
     case emqx_gateway_ctx:open_session(
            Ctx,
            true,
            ClientInfo,
            ConnInfo,
            SessFun,
-           emqx_coap_session
+           emqx_lwm2m_session
           ) of
-        {ok, _Sess} ->
-            RandVal = rand:uniform(?TOKEN_MAXIMUM),
-            Token = erlang:list_to_binary(erlang:integer_to_list(RandVal)),
-            iter(Iter,
-                 reply({ok, created}, Token, Msg, Result),
-                 Channel#channel{token = Token});
+        {ok, _} ->
+            NewResult = emqx_lwm2m_session:init(Msg, Validator, Session),
+            iter(Iter, maps:merge(Result, NewResult), Channel);
         {error, Reason} ->
             ?LOG(error, "Failed to open session du to ~p", [Reason]),
             iter(Iter, reply({error, bad_request}, Msg, Result), Channel)
@@ -370,48 +351,85 @@ run_hooks(Ctx, Name, Args, Acc) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name),
     emqx_hooks:run_fold(Name, Args, Acc).
 
+gets(_, undefined) ->
+    undefined;
+gets([H | T], Map) ->
+    gets(T, maps:get(H, Map, undefined));
+gets([], Val) ->
+    Val.
+
 %%--------------------------------------------------------------------
 %% Call Chain
 %%--------------------------------------------------------------------
 call_session(Fun,
              Msg,
-             #channel{session = Session} = Channel) ->
+             #channel{session = Session,
+                      validator = Validator} = Channel) ->
     iter([ session, fun process_session/4
          , proto, fun process_protocol/4
+         , return, fun process_return/4
+         , lifetime, fun process_lifetime/4
          , reply, fun process_reply/4
          , out, fun process_out/4
          , fun process_nothing/3
          ],
-         emqx_coap_session:Fun(Msg, Session),
+         emqx_lwm2m_session:Fun(Msg, Validator, Session),
          Channel).
-
-call_handler(request, Msg, Result,
-             #channel{ctx = Ctx,
-                      clientinfo = ClientInfo} = Channel, Iter) ->
-    HandlerResult =
-        case emqx_coap_message:get_option(uri_path, Msg) of
-            [<<"ps">> | RestPath] ->
-                emqx_coap_pubsub_handler:handle_request(RestPath, Msg, Ctx, ClientInfo);
-            [<<"mqtt">> | RestPath] ->
-                emqx_coap_mqtt_handler:handle_request(RestPath, Msg, Ctx, ClientInfo);
-            _ ->
-                reply({error, bad_request}, Msg)
-        end,
-    iter([ connection, fun process_connection/4
-         , subscribe, fun process_subscribe/4 | Iter],
-         maps:merge(Result, HandlerResult),
-         Channel);
-
-call_handler(_, _, Result, Channel, Iter) ->
-    iter(Iter, Result, Channel).
 
 process_session(Session, Result, Channel, Iter) ->
     iter(Iter, Result, Channel#channel{session = Session}).
 
-process_protocol({Type, Msg}, Result, Channel, Iter) ->
-    call_handler(Type, Msg, Result, Channel, Iter).
+process_protocol({request, Msg}, Result, Channel, Iter) ->
+    #coap_message{method = Method} = Msg,
+    handle_request_protocol(Method, Msg, Result, Channel, Iter);
 
-%% leaf node
+process_protocol(Msg, Result,
+                 #channel{validator = Validator, session = Session} = Channel, Iter) ->
+    ProtoResult = emqx_lwm2m_session:handle_protocol_in(Msg, Validator, Session),
+    iter(Iter, maps:merge(Result, ProtoResult), Channel).
+
+handle_request_protocol(post, #coap_message{options = Opts} = Msg,
+                        Result, Channel, Iter) ->
+    case Opts of
+        #{uri_path := [?REG_PREFIX]} ->
+            do_connect(Msg, Result, Channel, Iter);
+        #{uri_path := Location} ->
+            do_update(Location, Msg, Result, Channel, Iter);
+        _ ->
+            iter(Iter, reply({error, not_found}, Msg, Result), Channel)
+    end;
+
+handle_request_protocol(delete, #coap_message{options = Opts} = Msg,
+                        Result, Channel, Iter) ->
+    case Opts of
+        #{uri_path := Location} ->
+            case check_location(Location, Channel) of
+                true ->
+                    Reply = emqx_coap_message:piggyback({ok, deleted}, Msg),
+                    {shutdown, close, Reply, Channel};
+                _ ->
+                    iter(Iter, reply({error, not_found}, Msg, Result), Channel)
+            end;
+        _ ->
+            iter(Iter, reply({error, bad_request}, Msg, Result), Channel)
+    end.
+
+do_update(Location, Msg, Result,
+          #channel{session = Session, validator = Validator} = Channel, Iter) ->
+    case check_location(Location, Channel) of
+        true ->
+            NewResult = emqx_lwm2m_session:update(Msg, Validator, Session),
+            iter(Iter, maps:merge(Result, NewResult), Channel);
+        _ ->
+            iter(Iter, reply({error, not_found}, Msg, Result), Channel)
+    end.
+
+process_return({Outs, Session}, Result, Channel, Iter) ->
+    OldOuts = maps:get(out, Result, []),
+    iter(Iter,
+         Result#{out => Outs ++ OldOuts},
+         Channel#channel{session = Session}).
+
 process_out(Outs, Result, Channel, _) ->
     Outs2 = lists:reverse(Outs),
     Outs3 = case maps:get(reply, Result, undefined) of
@@ -420,43 +438,22 @@ process_out(Outs, Result, Channel, _) ->
                 Reply ->
                     [Reply | Outs2]
             end,
-    {ok, {outgoing, Outs3}, Channel}.
+    %% emqx_gateway_conn bug, work around
+    case Outs3 of
+        [] ->
+            {ok, Channel};
+        _ ->
+            {ok, {outgoing, Outs3}, Channel}
+    end.
 
-%% leaf node
-process_nothing(_, _, Channel) ->
-    {ok, Channel}.
-
-process_connection({open, Req}, Result, Channel, Iter) ->
-    Queries = emqx_coap_message:get_option(uri_query, Req),
-    case emqx_misc:pipeline(
-           [ fun run_conn_hooks/2
-           , fun enrich_clientinfo/2
-           , fun set_log_meta/2
-           , fun auth_connect/2
-           ],
-           {Queries, Req},
-           Channel) of
-        {ok, _Input, NChannel} ->
-            process_connect(ensure_connected(NChannel), Req, Result, Iter);
-        {error, ReasonCode, NChannel} ->
-            ErrMsg = io_lib:format("Login Failed: ~s", [ReasonCode]),
-            Payload = erlang:list_to_binary(lists:flatten(ErrMsg)),
-            iter(Iter,
-                 reply({error, bad_request}, Payload, Req, Result),
-                 NChannel)
-    end;
-
-process_connection({close, Msg}, _, Channel, _) ->
-    Reply = emqx_coap_message:piggyback({ok, deleted}, Msg),
-    {shutdown, close, Reply, Channel}.
-
-process_subscribe({Sub, Msg}, Result, #channel{session = Session} = Channel, Iter) ->
-    Result2 = emqx_coap_session:process_subscribe(Sub, Msg, Result, Session),
-    iter([session, fun process_session/4 | Iter], Result2, Channel).
-
-%% leaf node
 process_reply(Reply, Result, #channel{session = Session} = Channel, _) ->
-    Session2 = emqx_coap_session:set_reply(Reply, Session),
+    Session2 = emqx_lwm2m_session:set_reply(Reply, Session),
     Outs = maps:get(out, Result, []),
     Outs2 = lists:reverse(Outs),
     {ok, {outgoing, [Reply | Outs2]}, Channel#channel{session = Session2}}.
+
+process_lifetime(_, Result, Channel, Iter) ->
+    iter(Iter, Result, update_life_timer(Channel)).
+
+process_nothing(_, _, Channel) ->
+    {ok, Channel}.
