@@ -39,61 +39,55 @@
 
 -define(SOURCE1, #{<<"type">> => <<"http">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                      <<"url">> => <<"https://fake.com:443/">>,
-                      <<"headers">> => #{},
-                      <<"method">> => <<"get">>,
-                      <<"request_timeout">> => 5000}
+                   <<"url">> => <<"https://fake.com:443/">>,
+                   <<"headers">> => #{},
+                   <<"method">> => <<"get">>,
+                   <<"request_timeout">> => 5000
                   }).
 -define(SOURCE2, #{<<"type">> => <<"mongo">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                          <<"mongo_type">> => <<"sharded">>,
-                          <<"servers">> => [<<"127.0.0.1:27017">>,
-                                            <<"192.168.0.1:27017">>
-                                           ],
-                          <<"pool_size">> => 1,
-                          <<"database">> => <<"mqtt">>,
-                          <<"ssl">> => #{<<"enable">> => false}},
+                   <<"mongo_type">> => <<"sharded">>,
+                   <<"servers">> => [<<"127.0.0.1:27017">>,
+                                     <<"192.168.0.1:27017">>
+                                    ],
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"ssl">> => #{<<"enable">> => false},
                    <<"collection">> => <<"fake">>,
                    <<"find">> => #{<<"a">> => <<"b">>}
                   }).
 -define(SOURCE3, #{<<"type">> => <<"mysql">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                       <<"server">> => <<"127.0.0.1:3306">>,
-                       <<"pool_size">> => 1,
-                       <<"database">> => <<"mqtt">>,
-                       <<"username">> => <<"xx">>,
-                       <<"password">> => <<"ee">>,
-                       <<"auto_reconnect">> => true,
-                       <<"ssl">> => #{<<"enable">> => false}},
+                   <<"server">> => <<"127.0.0.1:3306">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"username">> => <<"xx">>,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
                    <<"sql">> => <<"abcb">>
                   }).
 -define(SOURCE4, #{<<"type">> => <<"pgsql">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                       <<"server">> => <<"127.0.0.1:5432">>,
-                       <<"pool_size">> => 1,
-                       <<"database">> => <<"mqtt">>,
-                       <<"username">> => <<"xx">>,
-                       <<"password">> => <<"ee">>,
-                       <<"auto_reconnect">> => true,
-                       <<"ssl">> => #{<<"enable">> => false}},
+                   <<"server">> => <<"127.0.0.1:5432">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"username">> => <<"xx">>,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
                    <<"sql">> => <<"abcb">>
                   }).
 -define(SOURCE5, #{<<"type">> => <<"redis">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                       <<"servers">> => [<<"127.0.0.1:6379">>,
-                                         <<"127.0.0.1:6380">>
-                                        ],
-                       <<"pool_size">> => 1,
-                       <<"database">> => 0,
-                       <<"password">> => <<"ee">>,
-                       <<"auto_reconnect">> => true,
-                       <<"ssl">> => #{<<"enable">> => false}
-                      },
+                   <<"servers">> => [<<"127.0.0.1:6379">>,
+                                     <<"127.0.0.1:6380">>
+                                    ],
+                   <<"pool_size">> => 1,
+                   <<"database">> => 0,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
                    <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
                   }).
 -define(SOURCE6, #{<<"type">> => <<"file">>,
@@ -207,27 +201,22 @@ t_api(_) ->
     {ok, 200, Result4} = request(get, uri(["authorization", "sources", "http"]), []),
     ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result4)),
 
-    #{<<"config">> := Config} = ?SOURCE2,
-
-    dbg:tracer(),dbg:p(all,c),
-    dbg:tpl(emqx_authz_api_sources, read_cert, cx),
-    dbg:tpl(emqx_authz_api_sources, write_cert, cx),
     {ok, 204, _} = request(put, uri(["authorization", "sources", "mongo"]),
-                           ?SOURCE2#{<<"config">> := Config#{<<"ssl">> := #{
-                                                                 <<"enable">> => true,
-                                                                 <<"cacertfile">> => <<"fake cacert file">>,
-                                                                 <<"certfile">> => <<"fake cert file">>,
-                                                                 <<"keyfile">> => <<"fake key file">>,
-                                                                 <<"verify">> => false
-                                                                }}}),
+                           ?SOURCE2#{<<"ssl">> := #{
+                                         <<"enable">> => true,
+                                         <<"cacertfile">> => <<"fake cacert file">>,
+                                         <<"certfile">> => <<"fake cert file">>,
+                                         <<"keyfile">> => <<"fake key file">>,
+                                         <<"verify">> => false
+                                        }}),
     {ok, 200, Result5} = request(get, uri(["authorization", "sources", "mongo"]), []),
     ?assertMatch(#{<<"type">> := <<"mongo">>,
-                   <<"config">> := #{<<"ssl">> := #{<<"enable">> := true,
-                                                    <<"cacertfile">> := <<"fake cacert file">>,
-                                                    <<"certfile">> := <<"fake cert file">>,
-                                                    <<"keyfile">> := <<"fake key file">>,
-                                                    <<"verify">> := false
-                                                   }}
+                   <<"ssl">> := #{<<"enable">> := true,
+                                  <<"cacertfile">> := <<"fake cacert file">>,
+                                  <<"certfile">> := <<"fake cert file">>,
+                                  <<"keyfile">> := <<"fake key file">>,
+                                  <<"verify">> := false
+                                 }
                   }, jsx:decode(Result5)),
     ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "cacert-fake.pem"]))),
     ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "cert-fake.pem"]))),

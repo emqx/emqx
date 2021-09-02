@@ -24,11 +24,10 @@
 -define(EXAMPLE_REDIS,
         #{type=> redis,
           enable => true,
-          config => #{server => <<"127.0.0.1:3306">>,
-                      redis_type => single,
-                      pool_size => 1,
-                      auto_reconnect => true
-                     },
+          server => <<"127.0.0.1:3306">>,
+          redis_type => single,
+          pool_size => 1,
+          auto_reconnect => true,
           cmd => <<"HGETALL mqtt_authz">>}).
 -define(EXAMPLE_FILE,
         #{type=> file,
@@ -308,16 +307,16 @@ sources(get, _) ->
                                                          rules => [ io_lib:format("~p", [R])|| R <- Rules],
                                                          annotations => #{status => healthy}
                                                         }]);
-                              (#{type := _Type, config := Config, annotations := #{id := Id}} = Source, AccIn) ->
-                                  NSource0 = case maps:get(server, Config, undefined) of
+                              (#{type := _Type, annotations := #{id := Id}} = Source, AccIn) ->
+                                  NSource0 = case maps:get(server, Source, undefined) of
                                                  undefined -> Source;
                                                  Server ->
-                                                     Source#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}}
+                                                     Source#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}
                                              end,
-                                  NSource1 = case maps:get(servers, Config, undefined) of
+                                  NSource1 = case maps:get(servers, Source, undefined) of
                                                  undefined -> NSource0;
                                                  Servers ->
-                                                     NSource0#{config => Config#{servers => [emqx_connector_schema_lib:ip_port_to_string(Server) || Server <- Servers]}}
+                                                     NSource0#{servers => [emqx_connector_schema_lib:ip_port_to_string(Server) || Server <- Servers]}
                                              end,
                                   NSource2 = case emqx_resource:health_check(Id) of
                                                  ok ->
@@ -377,16 +376,16 @@ source(get, #{bindings := #{type := Type}}) ->
                     annotations => #{status => healthy}
                    }
             };
-        #{config := Config, annotations := #{id := Id}} = Source ->
-            NSource0 = case maps:get(server, Config, undefined) of
+        #{annotations := #{id := Id}} = Source ->
+            NSource0 = case maps:get(server, Source, undefined) of
                            undefined -> Source;
                            Server ->
-                               Source#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}}
+                               Source#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}
                        end,
-            NSource1 = case maps:get(servers, Config, undefined) of
+            NSource1 = case maps:get(servers, Source, undefined) of
                            undefined -> NSource0;
                            Servers ->
-                               NSource0#{config => Config#{servers => [emqx_connector_schema_lib:ip_port_to_string(Server) || Server <- Servers]}}
+                               NSource0#{servers => [emqx_connector_schema_lib:ip_port_to_string(Server) || Server <- Servers]}
                        end,
             NSource2 = case emqx_resource:health_check(Id) of
                 ok ->
@@ -434,7 +433,7 @@ move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Pos
                     messgae => atom_to_binary(Reason)}}
     end.
 
-read_cert(#{config := #{ssl := #{enable := true} = SSL} = Config} = Source) ->
+read_cert(#{ssl := #{enable := true} = SSL} = Source) ->
     CaCert = case file:read_file(maps:get(cacertfile, SSL, "")) of
                  {ok, CaCert0} -> CaCert0;
                  _ -> ""
@@ -447,14 +446,14 @@ read_cert(#{config := #{ssl := #{enable := true} = SSL} = Config} = Source) ->
                  {ok, Key0} -> Key0;
                  _ -> ""
              end,
-    Source#{config => Config#{ssl => SSL#{cacertfile => CaCert,
-                                          certfile => Cert,
-                                          keyfile => Key
-                                         }}
+    Source#{ssl => SSL#{cacertfile => CaCert,
+                        certfile => Cert,
+                        keyfile => Key
+                       }
            };
 read_cert(Source) -> Source.
 
-write_cert(#{<<"config">> := #{<<"ssl">> := #{<<"enable">> := true} = SSL} = Config} = Source) ->
+write_cert(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
     CertPath = filename:join([emqx:get_config([node, data_dir]), "certs"]),
     CaCert = case maps:is_key(<<"cacertfile">>, SSL) of
                  true ->
@@ -477,9 +476,9 @@ write_cert(#{<<"config">> := #{<<"ssl">> := #{<<"enable">> := true} = SSL} = Con
                      KeyFile;
                  false -> ""
              end,
-    Source#{<<"config">> := Config#{<<"ssl">> => SSL#{<<"cacertfile">> => CaCert,
-                                                      <<"certfile">> => Cert,
-                                                      <<"keyfile">> => Key}
+    Source#{<<"ssl">> => SSL#{<<"cacertfile">> => CaCert,
+                              <<"certfile">> => Cert,
+                              <<"keyfile">> => Key
                              }
            };
 write_cert(Source) -> Source.
