@@ -33,12 +33,12 @@
 initialize() ->
     AuthNConfig = check_config(to_list(emqx:get_raw_config([authentication], []))),
     {ok, _} = ?AUTHN:create_chain(?GLOBAL),
-    lists:foreach(fun(#{name := Name} = AuthNConfig0) ->
+    lists:foreach(fun(AuthNConfig0) ->
                       case ?AUTHN:create_authenticator(?GLOBAL, AuthNConfig0) of
                           {ok, _} ->
                             ok;
                           {error, Reason} ->
-                            ?LOG(error, "Failed to create authenticator '~s': ~p", [Name, Reason])
+                            ?LOG(error, "Failed to create authenticator '~s': ~p", [?AUTHN:generate_id(AuthNConfig0), Reason])
                       end
                   end, to_list(AuthNConfig)),
     ok.
@@ -51,115 +51,64 @@ pre_config_update(UpdateReq, OldConfig) ->
 
 do_pre_config_update({create_authenticator, _ChainName, Config}, OldConfig) ->
     {ok, OldConfig ++ [Config]};
-do_pre_config_update({delete_authenticator, ChainName, AuthenticatorID}, OldConfig) ->
-    case ?AUTHN:lookup_authenticator(ChainName, AuthenticatorID) of
-        {error, {not_found, _}} -> {error, not_found};
-        {error, Reason} -> {error, Reason};
-        {ok, #{name := Name}} ->
-            NewConfig = lists:filter(fun(#{<<"name">> := N}) ->
-                                         N =/= Name
-                                     end, OldConfig),
-            {ok, NewConfig}
-    end;
-do_pre_config_update({update_or_create_authenticator, ChainName, AuthenticatorID, Config}, OldConfig) ->
-    NewConfig = case ?AUTHN:lookup_authenticator(ChainName, AuthenticatorID) of
-                    {error, _Reason} -> OldConfig ++ [Config];
-                    {ok, #{name := Name}} ->
-                        lists:map(fun(#{<<"name">> := N} = C) ->
-                                      case N =:= Name of
-                                          true -> Config;
-                                          false -> C
-                                      end
-                                  end, OldConfig)
-                end,
+do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldConfig) ->
+    NewConfig = lists:filter(fun(OldConfig0) ->
+                                AuthenticatorID =/= ?AUTHN:generate_id(OldConfig0)
+                             end, OldConfig),
     {ok, NewConfig};
-do_pre_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, OldConfig) ->
-    case ?AUTHN:lookup_authenticator(ChainName, AuthenticatorID) of
-        {error, {not_found, _}} -> {error, not_found};
+do_pre_config_update({update_authenticator, _ChainName, AuthenticatorID, Config}, OldConfig) ->
+    NewConfig = lists:map(fun(OldConfig0) ->
+                              case AuthenticatorID =:= ?AUTHN:generate_id(OldConfig0) of
+                                  true -> maps:merge(OldConfig0, Config);
+                                  false -> OldConfig0
+                              end
+                          end, OldConfig),
+    {ok, NewConfig};
+do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}, OldConfig) ->
+    case split_by_id(AuthenticatorID, OldConfig) of
         {error, Reason} -> {error, Reason};
-        {ok, #{name := Name}} ->
-            NewConfig = lists:map(fun(#{<<"name">> := N} = C) ->
-                                      case N =:= Name of
-                                          true -> maps:merge(C, Config);
-                                          false -> C
-                                      end
-                                  end, OldConfig),
-            {ok, NewConfig}
-    end;
-do_pre_config_update({move_authenticator, ChainName, AuthenticatorID, Position}, OldConfig) ->
-    case ?AUTHN:lookup_authenticator(ChainName, AuthenticatorID) of
-        {error, Reason} -> {error, Reason};
-        {ok, #{name := Name}} ->
-            {ok, Part1, [Found | Part2]} = split_by_name(Name, OldConfig),
+        {ok, Part1, [Found | Part2]} ->
             case Position of
                 <<"top">> ->
                     {ok, [Found | Part1] ++ Part2};
                 <<"bottom">> ->
                     {ok, Part1 ++ Part2 ++ [Found]};
-                Before ->
-                    case binary:split(Before, <<":">>, [global]) of
-                        [<<"before">>, ID] ->
-                            case ?AUTHN:lookup_authenticator(ChainName, ID) of
-                                {error, Reason} -> {error, Reason};
-                                {ok, #{name := Name1}} ->
-                                    {ok, NPart1, [NFound | NPart2]} = split_by_name(Name1, Part1 ++ Part2),
-                                    {ok, NPart1 ++ [Found, NFound | NPart2]}
-                            end;
-                        _ ->
-                            {error, {invalid_parameter, position}}
-                    end
+                <<"before:", Before/binary>> ->
+                    case split_by_id(Before, Part1 ++ Part2) of
+                        {error, Reason} ->
+                            {error, Reason};
+                        {ok, NPart1, [NFound | NPart2]} ->
+                            {ok, NPart1 ++ [Found, NFound | NPart2]}
+                    end;
+                _ ->
+                    {error, {invalid_parameter, position}}
             end
     end.
 
 post_config_update(UpdateReq, NewConfig, OldConfig, AppEnvs) ->
     do_post_config_update(UpdateReq, check_config(to_list(NewConfig)), OldConfig, AppEnvs).
 
-do_post_config_update({create_authenticator, ChainName, #{<<"name">> := Name}}, NewConfig, _OldConfig, _AppEnvs) ->
-    case lists:filter(
-             fun(#{name := N}) ->
-                 N =:= Name
-             end, NewConfig) of
-        [Config] ->
-            _ = ?AUTHN:create_chain(ChainName),
-            ?AUTHN:create_authenticator(ChainName, Config);
-        [_Config | _] ->
-            {error, name_has_be_used}
-    end;
+do_post_config_update({create_authenticator, ChainName, Config}, _NewConfig, _OldConfig, _AppEnvs) ->
+    NConfig = check_config(Config),
+    _ = ?AUTHN:create_chain(ChainName),
+    ?AUTHN:create_authenticator(ChainName, NConfig);
+
 do_post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewConfig, _OldConfig, _AppEnvs) ->
     ?AUTHN:delete_authenticator(ChainName, AuthenticatorID);
-do_post_config_update({update_or_create_authenticator, ChainName, AuthenticatorID, #{<<"name">> := Name}}, NewConfig, _OldConfig, _AppEnvs) ->
-    case lists:filter(
-             fun(#{name := N}) ->
-                 N =:= Name
-             end, NewConfig) of
-        [Config] ->
-            _ = ?AUTHN:create_chain(ChainName),
-            ?AUTHN:update_or_create_authenticator(ChainName, AuthenticatorID, Config);
-        [_Config | _] ->
-            {error, name_has_be_used}
-    end;
+
 do_post_config_update({update_authenticator, ChainName, AuthenticatorID, _Config}, NewConfig, _OldConfig, _AppEnvs) ->
-    {ok, #{name := Name}} = ?AUTHN:lookup_authenticator(ChainName, AuthenticatorID),
-    case lists:filter(
-             fun(#{name := N}) ->
-                 N =:= Name
-             end, NewConfig) of
-        [Config] ->
-            ?AUTHN:update_authenticator(ChainName, AuthenticatorID, Config);
-        [_Config | _] ->
-            {error, name_has_be_used}
-    end;
+    [Config] = lists:filter(fun(NewConfig0) ->
+                                AuthenticatorID =:= ?AUTHN:generate_id(NewConfig0)
+                            end, NewConfig),
+    NConfig = check_config(Config),
+    ?AUTHN:update_authenticator(ChainName, AuthenticatorID, NConfig);
+
 do_post_config_update({move_authenticator, ChainName, AuthenticatorID, Position}, _NewConfig, _OldConfig, _AppEnvs) ->
     NPosition = case Position of
                     <<"top">> -> top;
                     <<"bottom">> -> bottom;
-                    Before ->
-                        case binary:split(Before, <<":">>, [global]) of
-                            [<<"before">>, ID0] ->
-                                {before, ID0};
-                            _ ->
-                                {error, {invalid_parameter, position}}
-                        end
+                    <<"before:", Before/binary>> ->
+                        {before, Before}
                 end,
     ?AUTHN:move_authenticator(ChainName, AuthenticatorID, NPosition).
 
@@ -181,10 +130,10 @@ to_list(M) when is_map(M) ->
 to_list(L) when is_list(L) ->
     L.
 
-split_by_name(Name, Authenticators) ->
-    {Part1, Part2, true} = lists:foldl(
-             fun(#{<<"name">> := N} = C, {P1, P2, F0}) ->
-                 F = case N =:= Name of
+split_by_id(ID, AuthenticatorsConfig) ->
+    case lists:foldl(
+             fun(C, {P1, P2, F0}) ->
+                 F = case ID =:= ?AUTHN:generate_id(C) of
                          true -> true;
                          false -> F0
                      end,
@@ -192,5 +141,9 @@ split_by_name(Name, Authenticators) ->
                      false -> {[C | P1], P2, F};
                      true -> {P1, [C | P2], F}
                  end
-             end, {[], [], false}, Authenticators),
-    {ok, lists:reverse(Part1), lists:reverse(Part2)}.
+             end, {[], [], false}, AuthenticatorsConfig) of
+        {_, _, false} ->
+            {error, {not_found, {authenticator, ID}}};
+        {Part1, Part2, true} ->
+            {ok, lists:reverse(Part1), lists:reverse(Part2)}
+    end.
