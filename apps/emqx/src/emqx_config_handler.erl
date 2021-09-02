@@ -134,17 +134,17 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-process_update_request(ConfKeyPath, _Handlers, {remove, _Opts}) ->
+process_update_request(ConfKeyPath, _Handlers, {remove, Opts}) ->
     OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     BinKeyPath = bin_path(ConfKeyPath),
     NewRawConf = emqx_map_lib:deep_remove(BinKeyPath, OldRawConf),
-    OverrideConf = emqx_map_lib:deep_remove(BinKeyPath, emqx_config:read_override_conf()),
+    OverrideConf = remove_from_override_config(BinKeyPath, Opts),
     {ok, NewRawConf, OverrideConf};
-process_update_request(ConfKeyPath, Handlers, {{update, UpdateReq}, _Opts}) ->
+process_update_request(ConfKeyPath, Handlers, {{update, UpdateReq}, Opts}) ->
     OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     case do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq) of
         {ok, NewRawConf} ->
-            OverrideConf = update_override_config(NewRawConf),
+            OverrideConf = update_override_config(NewRawConf, Opts),
             {ok, NewRawConf, OverrideConf};
         Error -> Error
     end.
@@ -237,7 +237,15 @@ merge_to_old_config(UpdateReq, RawConf) when is_map(UpdateReq), is_map(RawConf) 
 merge_to_old_config(UpdateReq, _RawConf) ->
     {ok, UpdateReq}.
 
-update_override_config(RawConf) ->
+remove_from_override_config(_BinKeyPath, #{persistent := false}) ->
+    undefined;
+remove_from_override_config(BinKeyPath, _Opts) ->
+    OldConf = emqx_config:read_override_conf(),
+    emqx_map_lib:deep_remove(BinKeyPath, OldConf).
+
+update_override_config(_RawConf, #{persistent := false}) ->
+    undefined;
+update_override_config(RawConf, _Opts) ->
     OldConf = emqx_config:read_override_conf(),
     maps:merge(OldConf, RawConf).
 

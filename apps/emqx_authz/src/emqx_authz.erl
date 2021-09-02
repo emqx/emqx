@@ -30,7 +30,9 @@
         , lookup/0
         , lookup/1
         , move/2
+        , move/3
         , update/2
+        , update/3
         , authorize/5
         ]).
 
@@ -58,19 +60,25 @@ lookup(Type) ->
         error:Reason -> {error, Reason}
     end.
 
-move(Type, #{<<"before">> := Before}) ->
-    emqx:update_config(?CONF_KEY_PATH, {move, atom(Type), #{<<"before">> => atom(Before)}});
-move(Type, #{<<"after">> := After}) ->
-    emqx:update_config(?CONF_KEY_PATH, {move, atom(Type), #{<<"after">> => atom(After)}});
-move(Type, Position) ->
-    emqx:update_config(?CONF_KEY_PATH, {move, atom(Type), Position}).
+move(Type, Cmd) ->
+    move(Type, Cmd, #{}).
 
-update({replace_once, Type}, Sources) ->
-    emqx:update_config(?CONF_KEY_PATH, {{replace_once, atom(Type)}, Sources});
-update({delete_once, Type}, Sources) ->
-    emqx:update_config(?CONF_KEY_PATH, {{delete_once, atom(Type)}, Sources});
+move(Type, #{<<"before">> := Before}, Opts) ->
+    emqx:update_config(?CONF_KEY_PATH, {move, atom(Type), #{<<"before">> => atom(Before)}}, Opts);
+move(Type, #{<<"after">> := After}, Opts) ->
+    emqx:update_config(?CONF_KEY_PATH, {move, atom(Type), #{<<"after">> => atom(After)}}, Opts);
+move(Type, Position, Opts) ->
+    emqx:update_config(?CONF_KEY_PATH, {move, atom(Type), Position}, Opts).
+
 update(Cmd, Sources) ->
-    emqx:update_config(?CONF_KEY_PATH, {Cmd, Sources}).
+    update(Cmd, Sources, #{}).
+
+update({replace_once, Type}, Sources, Opts) ->
+    emqx:update_config(?CONF_KEY_PATH, {{replace_once, atom(Type)}, Sources}, Opts);
+update({delete_once, Type}, Sources, Opts) ->
+    emqx:update_config(?CONF_KEY_PATH, {{delete_once, atom(Type)}, Sources}, Opts);
+update(Cmd, Sources, Opts) ->
+    emqx:update_config(?CONF_KEY_PATH, {Cmd, Sources}, Opts).
 
 pre_config_update({move, Type, <<"top">>}, Conf) when is_list(Conf) ->
     {Index, _} = find_source_by_type(Type),
