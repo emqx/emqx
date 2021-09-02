@@ -247,8 +247,14 @@ metadata(gateway_insta) ->
      };
 
 metadata(gateway_insta_stats) ->
+    UriNameParamDef = #{name => name,
+                        in => path,
+                        schema => #{type => string},
+                        required => true
+                       },
     #{get => #{
         description => <<"Get gateway Statistic">>,
+        parameters => [UriNameParamDef],
         responses => #{
             <<"200">> => #{
                 description => <<"OK">>,
