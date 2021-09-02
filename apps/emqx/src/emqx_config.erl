@@ -258,11 +258,14 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
 init_load(SchemaMod, RawConf0) when is_map(RawConf0) ->
     ok = save_schema_mod_and_names(SchemaMod),
     %% override part of the input conf using emqx_override.conf
-    RawConf = maps:merge(RawConf0, maps:with(maps:keys(RawConf0), read_override_conf())),
+    RawConf = merge_with_override_conf(RawConf0),
     %% check and save configs
     {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf),
     ok = save_to_config_map(maps:with(get_atom_root_names(), CheckedConf),
             maps:with(get_root_names(), RawConf)).
+
+merge_with_override_conf(RawConf) ->
+    maps:merge(RawConf, maps:with(maps:keys(RawConf), read_override_conf())).
 
 -spec check_config(module(), raw_config()) -> {AppEnvs, CheckedConf}
     when AppEnvs :: app_envs(), CheckedConf :: config().
@@ -348,13 +351,16 @@ save_to_config_map(Conf, RawConf) ->
 save_to_override_conf(undefined) ->
     ok;
 save_to_override_conf(RawConf) ->
-    FileName = emqx_override_conf_name(),
-    ok = filelib:ensure_dir(FileName),
-    case file:write_file(FileName, jsx:prettify(jsx:encode(RawConf))) of
-        ok -> ok;
-        {error, Reason} ->
-            logger:error("write to ~s failed, ~p", [FileName, Reason]),
-            {error, Reason}
+    case emqx_override_conf_name() of
+        undefined -> ok;
+        FileName ->
+            ok = filelib:ensure_dir(FileName),
+            case file:write_file(FileName, jsx:prettify(jsx:encode(RawConf))) of
+                ok -> ok;
+                {error, Reason} ->
+                    logger:error("write to ~s failed, ~p", [FileName, Reason]),
+                    {error, Reason}
+            end
     end.
 
 load_hocon_file(FileName, LoadType) ->
@@ -366,7 +372,7 @@ load_hocon_file(FileName, LoadType) ->
     end.
 
 emqx_override_conf_name() ->
-    application:get_env(emqx, override_conf_file, "emqx_override.conf").
+    application:get_env(emqx, override_conf_file, undefined).
 
 do_get(Type, KeyPath) ->
     Ref = make_ref(),
