@@ -26,6 +26,8 @@
         , restart/0
         , stop/0
         , is_running/1
+        , current_conns/2
+        , max_conns/2
         ]).
 
 -export([ start_listener/1
@@ -88,6 +90,28 @@ is_running(Type, ListenerId, _Conf) when Type =:= ws; Type =:= wss ->
 is_running(quic, _ListenerId, _Conf)->
     %% TODO: quic support
     {error, no_found}.
+
+current_conns(ID, ListenOn) ->
+    {Type, Name} = parse_listener_id(ID),
+    current_conns(Type, Name, ListenOn).
+
+current_conns(Type, Name, ListenOn) when Type == tcl; Type == ssl ->
+    esockd:get_current_connections({listener_id(Type, Name), ListenOn});
+current_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
+    proplists:get_value(all_connections, ranch:info(listener_id(Type, Name)));
+current_conns(_, _, _) ->
+    {error, not_support}.
+
+max_conns(ID, ListenOn) ->
+    {Type, Name} = parse_listener_id(ID),
+    max_conns(Type, Name, ListenOn).
+
+max_conns(Type, Name, ListenOn) when Type == tcl; Type == ssl ->
+    esockd:get_max_connections({listener_id(Type, Name), ListenOn});
+max_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
+    proplists:get_value(max_connections, ranch:info(listener_id(Type, Name)));
+max_conns(_, _, _) ->
+    {error, not_support}.
 
 %% @doc Start all listeners.
 -spec(start() -> ok).

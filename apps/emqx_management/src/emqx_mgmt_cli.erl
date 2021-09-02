@@ -412,18 +412,26 @@ trace_off(Who, Name) ->
 %% @doc Listeners Command
 
 listeners([]) ->
-    lists:foreach(fun({Name, Conf}) ->
-                {_, Port}       = maps:get(bind, Conf),
+    lists:foreach(fun({ID, Conf}) ->
+                {Host, Port}    = maps:get(bind, Conf),
                 Acceptors       = maps:get(acceptors, Conf),
                 ProxyProtocol   = maps:get(proxy_protocol, Conf, undefined),
                 Running         = maps:get(running, Conf),
+                CurrentConns    = case emqx_listeners:current_conns(ID, {Host, Port}) of
+                                      {error, _} -> [];
+                                      CC         -> [{current_conn, CC}]
+                                  end,
+                MaxConn         = case emqx_listeners:max_conns(ID, {Host, Port}) of
+                                      {error, _} -> [];
+                                      MC         -> [{max_conns, MC}]
+                                  end,
                 Info = [
                     {listen_on,         {string, format_listen_on(Port)}},
                     {acceptors,         Acceptors},
                     {proxy_protocol,    ProxyProtocol},
                     {running,           Running}
-                ],
-                emqx_ctl:print("~s~n", [Name]),
+                ] ++ CurrentConns ++ MaxConn,
+                emqx_ctl:print("~s~n", [ID]),
                 lists:foreach(fun indent_print/1, Info)
             end, emqx_listeners:list());
 
