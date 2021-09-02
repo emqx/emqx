@@ -22,7 +22,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
-
 -import(proplists, [get_value/2, get_value/3]).
 
 %% API
@@ -548,9 +547,9 @@ check_subscribed_status({SubId, {ParsedTopic, _SubOpts}},
                           }) ->
     MountedTopic = emqx_mountpoint:mount(Mountpoint, ParsedTopic),
     case lists:keyfind(SubId, 1, Subs) of
-        {SubId, MountedTopic, _Ack, _SubOpts} ->
+        {SubId, MountedTopic, _Ack, _} ->
             ok;
-        {SubId, _OtherTopic, _Ack, _SubOpts} ->
+        {SubId, _OtherTopic, _Ack, _} ->
             {error, "Conflict subscribe id"};
         false ->
             ok

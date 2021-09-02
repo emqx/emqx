@@ -20,7 +20,6 @@
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
-
 %% API
 -export([ start_link/3
         , stop/1
@@ -47,7 +46,6 @@
 
 %% Internal callback
 -export([wakeup_from_hib/2, recvloop/2]).
-
 
 -record(state, {
           %% TCP/SSL/UDP/DTLS Wrapped Socket
