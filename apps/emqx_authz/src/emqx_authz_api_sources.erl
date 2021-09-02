@@ -325,7 +325,7 @@ sources(get, _) ->
                                                  _ ->
                                                      NSource1#{annotations => #{status => unhealthy}}
                                              end,
-                                  lists:append(AccIn, [NSource2]);
+                                  lists:append(AccIn, [read_cert(NSource2)]);
                               (Source, AccIn) ->
                                   lists:append(AccIn, [Source#{annotations => #{status => healthy}}])
                         end, [], emqx_authz:lookup()),
@@ -340,7 +340,7 @@ sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"ena
                     messgae => atom_to_binary(Reason)}}
     end;
 sources(post, #{body := Body}) when is_map(Body) ->
-    case emqx_authz:update(head, [save_cert(Body)]) of
+    case emqx_authz:update(head, [write_cert(Body)]) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
@@ -353,7 +353,7 @@ sources(put, #{body := Body}) when is_list(Body) ->
                         Filename = filename:join([emqx:get_config([node, data_dir]), "authorization_rules.conf"]),
                         write_file(Filename, erlang:list_to_bitstring([<<Rule/binary, "\n">> || Rule <- Rules])),
                         #{type => file, enable => Enable, path => Filename};
-                    _ -> save_cert(Source)
+                    _ -> write_cert(Source)
                 end
               end || Source <- Body],
     case emqx_authz:update(replace, NBody) of
@@ -392,7 +392,7 @@ source(get, #{bindings := #{type := Type}}) ->
                 _ ->
                     NSource1#{annotations => #{status => unhealthy}}
             end,
-            {200, NSource2}
+            {200, read_cert(NSource2)}
     end;
 source(put, #{bindings := #{type := file}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
     #{path := Path} = emqx_authz:lookup(file),
@@ -404,7 +404,7 @@ source(put, #{bindings := #{type := file}, body := #{<<"type">> := <<"file">>, <
                     messgae => atom_to_binary(Reason)}}
     end;
 source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
-    case emqx_authz:update({replace_once, Type}, save_cert(Body)) of
+    case emqx_authz:update({replace_once, Type}, write_cert(Body)) of
         {ok, _} -> {204};
         {error, not_found_source} ->
             {404, #{code => <<"NOT_FOUND">>,
@@ -431,7 +431,27 @@ move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Pos
                     messgae => atom_to_binary(Reason)}}
     end.
 
-save_cert(#{<<"config">> := #{<<"ssl">> := #{<<"enable">> := true} = SSL} = Config} = Body) ->
+read_cert(#{config := #{ssl := #{enable := true} = SSL} = Config} = Source) ->
+    CaCert = case file:read_file(maps:get(cacertfile, SSL, "")) of
+                 {ok, CaCert0} -> CaCert0;
+                 _ -> ""
+             end,
+    Cert =   case file:read_file(maps:get(certfile, SSL, "")) of
+                 {ok, Cert0} -> Cert0;
+                 _ -> ""
+             end,
+    Key =   case file:read_file(maps:get(keyfile, SSL, "")) of
+                 {ok, Key0} -> Key0;
+                 _ -> ""
+             end,
+    Source#{config => Config#{ssl => SSL#{cacertfile => CaCert,
+                                          certfile => Cert,
+                                          keyfile => Key
+                                         }}
+           };
+read_cert(Source) -> Source.
+
+write_cert(#{<<"config">> := #{<<"ssl">> := #{<<"enable">> := true} = SSL} = Config} = Source) ->
     CertPath = filename:join([emqx:get_config([node, data_dir]), "certs"]),
     CaCert = case maps:is_key(<<"cacertfile">>, SSL) of
                  true ->
@@ -439,24 +459,24 @@ save_cert(#{<<"config">> := #{<<"ssl">> := #{<<"enable">> := true} = SSL} = Conf
                                 maps:get(<<"cacertfile">>, SSL));
                  false -> ""
              end,
-    Cert = case maps:is_key(<<"certfile">>, SSL) of
+    Cert =   case maps:is_key(<<"certfile">>, SSL) of
                  true ->
                      write_file(filename:join([CertPath, "cert-" ++ emqx_rule_id:gen() ++".pem"]),
                                 maps:get(<<"certfile">>, SSL));
                  false -> ""
              end,
-    Key = case maps:is_key(<<"keyfile">>, SSL) of
+    Key =    case maps:is_key(<<"keyfile">>, SSL) of
                  true ->
                      write_file(filename:join([CertPath, "key-" ++ emqx_rule_id:gen() ++".pem"]),
                                 maps:get(<<"keyfile">>, SSL));
                  false -> ""
              end,
-    Body#{<<"config">> := Config#{<<"ssl">> => SSL#{<<"cacertfile">> => CaCert,
-                                                    <<"certfile">> => Cert,
-                                                    <<"keyfile">> => Key}
-                           }
-         };
-save_cert(Body) -> Body.
+    Source#{<<"config">> := Config#{<<"ssl">> => SSL#{<<"cacertfile">> => CaCert,
+                                                      <<"certfile">> => Cert,
+                                                      <<"keyfile">> => Key}
+                             }
+           };
+write_cert(Source) -> Source.
 
 write_file(Filename, Bytes) ->
     ok = filelib:ensure_dir(Filename),
