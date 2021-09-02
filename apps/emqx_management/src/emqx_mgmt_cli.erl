@@ -412,26 +412,28 @@ trace_off(Who, Name) ->
 %% @doc Listeners Command
 
 listeners([]) ->
-    lists:foreach(fun({{Protocol, ListenOn}, _Pid}) ->
-                Info = [{listen_on,      {string, format_listen_on(ListenOn)}},
-                        {acceptors,      esockd:get_acceptors({Protocol, ListenOn})},
-                        {max_conns,      esockd:get_max_connections({Protocol, ListenOn})},
-                        {current_conn,   esockd:get_current_connections({Protocol, ListenOn})},
-                        {shutdown_count, esockd:get_shutdown_count({Protocol, ListenOn})}
-                       ],
-                    emqx_ctl:print("~s~n", [Protocol]),
+    lists:foreach(fun({ID, Conf}) ->
+                {Host, Port}    = maps:get(bind, Conf),
+                Acceptors       = maps:get(acceptors, Conf),
+                ProxyProtocol   = maps:get(proxy_protocol, Conf, undefined),
+                Running         = maps:get(running, Conf),
+                CurrentConns    = case emqx_listeners:current_conns(ID, {Host, Port}) of
+                                      {error, _} -> [];
+                                      CC         -> [{current_conn, CC}]
+                                  end,
+                MaxConn         = case emqx_listeners:max_conns(ID, {Host, Port}) of
+                                      {error, _} -> [];
+                                      MC         -> [{max_conns, MC}]
+                                  end,
+                Info = [
+                    {listen_on,         {string, format_listen_on(Port)}},
+                    {acceptors,         Acceptors},
+                    {proxy_protocol,    ProxyProtocol},
+                    {running,           Running}
+                ] ++ CurrentConns ++ MaxConn,
+                emqx_ctl:print("~s~n", [ID]),
                 lists:foreach(fun indent_print/1, Info)
-            end, esockd:listeners()),
-    lists:foreach(fun({Protocol, Opts}) ->
-                Port = proplists:get_value(port, Opts),
-                Info = [{listen_on,      {string, format_listen_on(Port)}},
-                        {acceptors,      maps:get(num_acceptors, proplists:get_value(transport_options, Opts, #{}), 0)},
-                        {max_conns,      proplists:get_value(max_connections, Opts)},
-                        {current_conn,   proplists:get_value(all_connections, Opts)},
-                        {shutdown_count, []}],
-                    emqx_ctl:print("~s~n", [Protocol]),
-                lists:foreach(fun indent_print/1, Info)
-            end, ranch:info());
+            end, emqx_listeners:list());
 
 listeners(["stop", ListenerId]) ->
     case emqx_listeners:stop_listener(list_to_atom(ListenerId)) of
