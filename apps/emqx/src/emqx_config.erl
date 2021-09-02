@@ -87,8 +87,14 @@
 -type update_request() :: term().
 -type update_cmd() :: {update, update_request()} | remove.
 -type update_opts() :: #{
-        %% fill the default values into the rawconf map
-        rawconf_with_defaults => boolean()
+        %% rawconf_with_defaults:
+        %%   fill the default values into the `raw_config` field of the return value
+        %%   defaults to `false`
+        rawconf_with_defaults => boolean(),
+        %% persistent:
+        %%   save the updated config to the emqx_override.conf file
+        %%   defaults to `true`
+        persistent => boolean()
     }.
 -type update_args() :: {update_cmd(), Opts :: update_opts()}.
 -type update_stage() :: pre_config_update | post_config_update.
@@ -339,6 +345,8 @@ save_to_config_map(Conf, RawConf) ->
     ?MODULE:put_raw(RawConf).
 
 -spec save_to_override_conf(raw_config()) -> ok | {error, term()}.
+save_to_override_conf(undefined) ->
+    ok;
 save_to_override_conf(RawConf) ->
     FileName = emqx_override_conf_name(),
     ok = filelib:ensure_dir(FileName),
