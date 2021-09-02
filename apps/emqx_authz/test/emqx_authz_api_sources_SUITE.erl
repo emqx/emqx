@@ -126,7 +126,7 @@ init_per_suite(Config) ->
 
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
 
-   ok = emqx_ct_helpers:start_apps([emqx_authz, emqx_dashboard], fun set_special_configs/1),
+    ok = emqx_ct_helpers:start_apps([emqx_authz, emqx_dashboard], fun set_special_configs/1),
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
 
@@ -208,6 +208,10 @@ t_api(_) ->
     ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result4)),
 
     #{<<"config">> := Config} = ?SOURCE2,
+
+    dbg:tracer(),dbg:p(all,c),
+    dbg:tpl(emqx_authz_api_sources, read_cert, cx),
+    dbg:tpl(emqx_authz_api_sources, write_cert, cx),
     {ok, 204, _} = request(put, uri(["authorization", "sources", "mongo"]),
                            ?SOURCE2#{<<"config">> := Config#{<<"ssl">> := #{
                                                                  <<"enable">> => true,
@@ -218,7 +222,12 @@ t_api(_) ->
                                                                 }}}),
     {ok, 200, Result5} = request(get, uri(["authorization", "sources", "mongo"]), []),
     ?assertMatch(#{<<"type">> := <<"mongo">>,
-                   <<"config">> := #{<<"ssl">> := #{<<"enable">> := true}}
+                   <<"config">> := #{<<"ssl">> := #{<<"enable">> := true,
+                                                    <<"cacertfile">> := <<"fake cacert file">>,
+                                                    <<"certfile">> := <<"fake cert file">>,
+                                                    <<"keyfile">> := <<"fake key file">>,
+                                                    <<"verify">> := false
+                                                   }}
                   }, jsx:decode(Result5)),
     ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "cacert-fake.pem"]))),
     ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "cert-fake.pem"]))),
