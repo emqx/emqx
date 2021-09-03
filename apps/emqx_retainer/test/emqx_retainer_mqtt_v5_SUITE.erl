@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(mqtt_protocol_v5_SUITE).
+-module(emqx_retainer_mqtt_v5_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -117,7 +117,7 @@ t_publish_message_expiry_interval(_) ->
     {ok, _} = emqtt:publish(Client1, <<"topic/B">>, #{'Message-Expiry-Interval' => 1}, <<"retained message">>, [{qos, 2}, {retain, true}]),
     {ok, _} = emqtt:publish(Client1, <<"topic/C">>, #{'Message-Expiry-Interval' => 10}, <<"retained message">>, [{qos, 1}, {retain, true}]),
     {ok, _} = emqtt:publish(Client1, <<"topic/D">>, #{'Message-Expiry-Interval' => 10}, <<"retained message">>, [{qos, 2}, {retain, true}]),
-    timer:sleep(1000),
+    timer:sleep(1500),
     {ok, _, [2]} = emqtt:subscribe(Client1, <<"topic/+">>, 2),
     Msgs = receive_messages(4),
     ?assertEqual(2, length(Msgs)),  %% [MQTT-3.3.2-5]
