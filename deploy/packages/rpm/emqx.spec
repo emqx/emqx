@@ -19,7 +19,7 @@ BuildRoot: %{_tmppath}/%{_name}-%{_version}-root
 Provides: %{_name}
 AutoReq: 0
 
-%if 0%{?rhel} == 7
+%if "%{_arch} %{?rhel}" == "amd64 7"
 Requires: openssl11 libatomic
 %else
 Requires: libatomic
