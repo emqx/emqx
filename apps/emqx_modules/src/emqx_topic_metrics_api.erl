@@ -138,7 +138,7 @@ topic_metrics(put, #{body := #{<<"topic">> := Topic, <<"action">> := <<"reset">>
 topic_metrics(put, #{body := #{<<"action">> := <<"reset">>}}) ->
     reset();
 topic_metrics(post, #{body := #{<<"topic">> := <<>>}}) ->
-    {400, 'BAD_REQUEST', <<"Topic can not be null">>};
+    {400, 'BAD_REQUEST', <<"Topic can not be empty">>};
 topic_metrics(post, #{body := #{<<"topic">> := Topic}}) ->
     register(Topic).
 
