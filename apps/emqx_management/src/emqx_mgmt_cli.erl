@@ -73,8 +73,9 @@ status(_) ->
 %% @doc Query broker
 
 broker([]) ->
-    Funs = [sysdescr, version, uptime, datetime],
-    [emqx_ctl:print("~-10s: ~s~n", [Fun, emqx_sys:Fun()]) || Fun <- Funs];
+    Funs = [sysdescr, version, datetime],
+    [emqx_ctl:print("~-10s: ~s~n", [Fun, emqx_sys:Fun()]) || Fun <- Funs],
+    emqx_ctl:print("~-10s: ~p~n", [uptime, emqx_sys:uptime()]);
 
 broker(["stats"]) ->
     [emqx_ctl:print("~-30s: ~w~n", [Stat, Val]) || {Stat, Val} <- lists:sort(emqx_stats:getstats())];
@@ -286,7 +287,7 @@ vm(["io"]) ->
     [emqx_ctl:print("io/~-21s: ~w~n", [Key, proplists:get_value(Key, IoInfo)]) || Key <- [max_fds, active_fds]];
 
 vm(["ports"]) ->
-    [emqx_ctl:print("ports/~-16s: ~w~n", [Name, erlang:system_info(Key)]) || {Name, Key} <- [{count, port_count}, {limit, port_limit}]];
+    [emqx_ctl:print("ports/~-18s: ~w~n", [Name, erlang:system_info(Key)]) || {Name, Key} <- [{count, port_count}, {limit, port_limit}]];
 
 vm(_) ->
     emqx_ctl:usage([{"vm all",     "Show info of Erlang VM"},
