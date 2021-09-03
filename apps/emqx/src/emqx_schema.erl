@@ -377,26 +377,31 @@ fields("listeners") ->
     [ {"tcp",
        sc(ref("tcp_listeners"),
           #{ desc => "TCP listeners"
+           , nullable => {true, recursive}
            })
       }
     , {"ssl",
        sc(ref("ssl_listeners"),
           #{ desc => "SSL listeners"
+           , nullable => {true, recursive}
            })
       }
     , {"ws",
        sc(ref("ws_listeners"),
           #{ desc => "HTTP websocket listeners"
+           , nullable => {true, recursive}
            })
       }
     , {"wss",
        sc(ref("wss_listeners"),
           #{ desc => "HTTPS websocket listeners"
+           , nullable => {true, recursive}
            })
       }
     , {"quic",
        sc(ref("quic_listeners"),
           #{ desc => "QUIC listeners"
+           , nullable => {true, recursive}
            })
       }
     ];
