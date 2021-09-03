@@ -35,7 +35,7 @@
         , terminate/2
         ]).
 
--export([ handle_call/2
+-export([ handle_call/3
         , handle_cast/2
         , handle_info/2
         ]).
@@ -152,7 +152,7 @@ handle_timeout(_, _, Channel) ->
 %%--------------------------------------------------------------------
 %% Handle call
 %%--------------------------------------------------------------------
-handle_call(Req, Channel) ->
+handle_call(Req, _From, Channel) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, Channel}.
 

@@ -31,7 +31,7 @@
         , handle_in/2
         , handle_deliver/2
         , handle_timeout/3
-        , handle_call/2
+        , handle_call/3
         , handle_cast/2
         , handle_info/2
         , terminate/2
@@ -243,23 +243,24 @@ handle_timeout(_TRef, Msg, Channel) ->
     ?WARN("Unexpected timeout: ~p", [Msg]),
     {ok, Channel}.
 
--spec handle_call(any(), channel())
+-spec handle_call(Req :: any(), From :: any(), channel())
     -> {reply, Reply :: term(), channel()}
      | {reply, Reply :: term(), replies(), channel()}
      | {shutdown, Reason :: term(), Reply :: term(), channel()}.
 
-handle_call({send, Data}, Channel) ->
+handle_call({send, Data}, _From, Channel) ->
     {reply, ok, [{outgoing, Data}], Channel};
 
-handle_call(close, Channel = #channel{conn_state = connected}) ->
+handle_call(close, _From, Channel = #channel{conn_state = connected}) ->
     {reply, ok, [{event, disconnected}, {close, normal}], Channel};
-handle_call(close, Channel) ->
+handle_call(close, _From, Channel) ->
     {reply, ok, [{close, normal}], Channel};
 
-handle_call({auth, ClientInfo, _Password}, Channel = #channel{conn_state = connected}) ->
+handle_call({auth, ClientInfo, _Password}, _From,
+            Channel = #channel{conn_state = connected}) ->
     ?LOG(warning, "Duplicated authorized command, dropped ~p", [ClientInfo]),
     {reply, {error, ?RESP_PERMISSION_DENY, <<"Duplicated authenticate command">>}, Channel};
-handle_call({auth, ClientInfo0, Password},
+handle_call({auth, ClientInfo0, Password}, _From,
             Channel = #channel{
                          ctx = Ctx,
                          conninfo = ConnInfo,
@@ -300,7 +301,7 @@ handle_call({auth, ClientInfo0, Password},
             {reply, {error, ?RESP_PERMISSION_DENY, Reason}, Channel}
     end;
 
-handle_call({start_timer, keepalive, Interval},
+handle_call({start_timer, keepalive, Interval}, _From,
             Channel = #channel{
                          conninfo = ConnInfo,
                          clientinfo = ClientInfo
@@ -310,7 +311,7 @@ handle_call({start_timer, keepalive, Interval},
     NChannel = Channel#channel{conninfo = NConnInfo, clientinfo = NClientInfo},
     {reply, ok, ensure_keepalive(NChannel)};
 
-handle_call({subscribe_from_client, TopicFilter, Qos},
+handle_call({subscribe_from_client, TopicFilter, Qos}, _From,
             Channel = #channel{
                          ctx = Ctx,
                          conn_state = connected,
@@ -323,20 +324,20 @@ handle_call({subscribe_from_client, TopicFilter, Qos},
             {reply, ok, NChannel}
     end;
 
-handle_call({subscribe, Topic, SubOpts}, Channel) ->
+handle_call({subscribe, Topic, SubOpts}, _From, Channel) ->
     {ok, NChannel} = do_subscribe([{Topic, SubOpts}], Channel),
     {reply, ok, NChannel};
 
-handle_call({unsubscribe_from_client, TopicFilter},
+handle_call({unsubscribe_from_client, TopicFilter}, _From,
             Channel = #channel{conn_state = connected}) ->
     {ok, NChannel} = do_unsubscribe([{TopicFilter, #{}}], Channel),
     {reply, ok, NChannel};
 
-handle_call({unsubscribe, Topic}, Channel) ->
+handle_call({unsubscribe, Topic}, _From, Channel) ->
     {ok, NChannel} = do_unsubscribe([Topic], Channel),
     {reply, ok, NChannel};
 
-handle_call({publish, Topic, Qos, Payload},
+handle_call({publish, Topic, Qos, Payload}, _From,
             Channel = #channel{
                          ctx = Ctx,
                          conn_state = connected,
@@ -353,10 +354,10 @@ handle_call({publish, Topic, Qos, Payload},
             {reply, ok, Channel}
     end;
 
-handle_call(kick, Channel) ->
+handle_call(kick, _From, Channel) ->
     {shutdown, kicked, ok, Channel};
 
-handle_call(Req, Channel) ->
+handle_call(Req, _From, Channel) ->
     ?LOG(warning, "Unexpected call: ~p", [Req]),
     {reply, {error, unexpected_call}, Channel}.
 

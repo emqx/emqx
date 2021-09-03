@@ -394,6 +394,10 @@ append_msg(Q, Msg) ->
 
 handle_msg({'$gen_call', From, Req}, State) ->
     case handle_call(From, Req, State) of
+        {noreply, NState} ->
+            {ok, NState};
+        {noreply, Msgs, NState} ->
+            {ok, next_msgs(Msgs), NState};
         {reply, Reply, NState} ->
             gen_server:reply(From, Reply),
             {ok, NState};
@@ -545,10 +549,14 @@ handle_call(_From, info, State) ->
 handle_call(_From, stats, State) ->
     {reply, stats(State), State};
 
-handle_call(_From, Req, State = #state{
+handle_call(From, Req, State = #state{
                                    chann_mod = ChannMod,
                                    channel = Channel}) ->
-    case ChannMod:handle_call(Req, Channel) of
+    case ChannMod:handle_call(Req, From, Channel) of
+        {noreply, NChannel} ->
+            {noreply, State#state{channel = NChannel}};
+        {noreply, Msgs, NChannel} ->
+            {noreply, Msgs, State#state{channel = NChannel}};
         {reply, Reply, NChannel} ->
             {reply, Reply, State#state{channel = NChannel}};
         {reply, Reply, Msgs, NChannel} ->
@@ -559,8 +567,6 @@ handle_call(_From, Req, State = #state{
             NState = State#state{channel = NChannel},
             ok = handle_outgoing(Packet, NState),
             shutdown(Reason, Reply, NState)
-
-
     end.
 
 %%--------------------------------------------------------------------
