@@ -39,6 +39,7 @@
 -export([post_config_update/4, pre_config_update/2]).
 
 -define(CONF_KEY_PATH, [authorization, sources]).
+-define(SOURCE_TYPES, [file, http, mongo, mysql, pgsql, redis]).
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
@@ -47,7 +48,9 @@ register_metrics() ->
 init() ->
     ok = register_metrics(),
     emqx_config_handler:add_handler(?CONF_KEY_PATH, ?MODULE),
-    NSources = [init_source(Source) || Source <- emqx:get_config(?CONF_KEY_PATH, [])],
+    Sources = emqx:get_config(?CONF_KEY_PATH, []),
+    ok = check_dup_types(Sources),
+    NSources = [init_source(Source) || Source <- Sources],
     ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NSources]}, -1).
 
 lookup() ->
@@ -83,12 +86,16 @@ update(Cmd, Sources, Opts) ->
 pre_config_update({move, Type, <<"top">>}, Conf) when is_list(Conf) ->
     {Index, _} = find_source_by_type(Type),
     {List1, List2} = lists:split(Index, Conf),
-    {ok, [lists:nth(Index, Conf)] ++ lists:droplast(List1) ++ List2};
+    NConf = [lists:nth(Index, Conf)] ++ lists:droplast(List1) ++ List2,
+    ok = check_dup_types(NConf),
+    {ok, NConf};
 
 pre_config_update({move, Type, <<"bottom">>}, Conf) when is_list(Conf) ->
     {Index, _} = find_source_by_type(Type),
     {List1, List2} = lists:split(Index, Conf),
-    {ok, lists:droplast(List1) ++ List2 ++ [lists:nth(Index, Conf)]};
+    NConf = lists:droplast(List1) ++ List2 ++ [lists:nth(Index, Conf)],
+    ok = check_dup_types(NConf),
+    {ok, NConf};
 
 pre_config_update({move, Type, #{<<"before">> := Before}}, Conf) when is_list(Conf) ->
     {Index1, _} = find_source_by_type(Type),
@@ -97,9 +104,11 @@ pre_config_update({move, Type, #{<<"before">> := Before}}, Conf) when is_list(Co
     Conf2 = lists:nth(Index2, Conf),
 
     {List1, List2} = lists:split(Index2, Conf),
-    {ok, lists:delete(Conf1, lists:droplast(List1))
-        ++ [Conf1] ++ [Conf2]
-        ++ lists:delete(Conf1, List2)};
+    NConf = lists:delete(Conf1, lists:droplast(List1))
+         ++ [Conf1] ++ [Conf2]
+         ++ lists:delete(Conf1, List2),
+    ok = check_dup_types(NConf),
+    {ok, NConf};
 
 pre_config_update({move, Type, #{<<"after">> := After}}, Conf) when is_list(Conf) ->
     {Index1, _} = find_source_by_type(Type),
@@ -107,21 +116,31 @@ pre_config_update({move, Type, #{<<"after">> := After}}, Conf) when is_list(Conf
     {Index2, _} = find_source_by_type(After),
 
     {List1, List2} = lists:split(Index2, Conf),
-    {ok, lists:delete(Conf1, List1)
-        ++ [Conf1]
-        ++ lists:delete(Conf1, List2)};
+    NConf = lists:delete(Conf1, List1)
+         ++ [Conf1]
+         ++ lists:delete(Conf1, List2),
+    ok = check_dup_types(NConf),
+    {ok, NConf};
 
 pre_config_update({head, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
+    NConf = Sources ++ Conf,
+    ok = check_dup_types(NConf),
     {ok, Sources ++ Conf};
 pre_config_update({tail, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
+    NConf = Conf ++ Sources,
+    ok = check_dup_types(NConf),
     {ok, Conf ++ Sources};
 pre_config_update({{replace_once, Type}, Source}, Conf) when is_map(Source), is_list(Conf) ->
     {Index, _} = find_source_by_type(Type),
     {List1, List2} = lists:split(Index, Conf),
-    {ok, lists:droplast(List1) ++ [Source] ++ List2};
+    NConf = lists:droplast(List1) ++ [Source] ++ List2,
+    ok = check_dup_types(NConf),
+    {ok, NConf};
 pre_config_update({{delete_once, Type}, _Source}, Conf) when is_list(Conf) ->
     {_, Source} = find_source_by_type(Type),
-    {ok, lists:delete(Source, Conf)};
+    NConf = lists:delete(Source, Conf),
+    ok = check_dup_types(NConf),
+    {ok, NConf};
 pre_config_update({_, Sources}, _Conf) when is_list(Sources)->
     %% overwrite the entire config!
     {ok, Sources}.
@@ -211,6 +230,27 @@ post_config_update(_, NewSources, _OldConf, _AppEnvs) ->
 %%--------------------------------------------------------------------
 %% Initialize source
 %%--------------------------------------------------------------------
+
+check_dup_types(Sources) ->
+    check_dup_types(Sources, ?SOURCE_TYPES).
+check_dup_types(_Sources, []) -> ok;
+check_dup_types(Sources, [T0 | Tail]) ->
+    case lists:foldl(fun (#{type := T1}, AccIn) ->
+                             case T0 =:= T1 of
+                                 true -> AccIn + 1;
+                                 false -> AccIn
+                             end;
+                         (#{<<"type">> := T1}, AccIn) ->
+                             case T0 =:= atom(T1) of
+                                 true -> AccIn + 1;
+                                 false -> AccIn
+                             end
+                     end, 0, Sources) > 1 of
+        true ->
+           ?LOG(error, "The type is duplicated in the Authorization source"),
+           {error, authz_source_dup};
+        false -> check_dup_types(Sources, Tail)
+    end.
 
 init_source(#{enable := true,
               type := file,
