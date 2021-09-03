@@ -118,7 +118,7 @@ create(#{ method := Method
     State = #{ method          => Method
              , path            => Path
              , base_query      => cow_qs:parse_qs(list_to_binary(Query))
-             , headers         => normalize_headers(Headers)
+             , headers         => maps:to_list(Headers)
              , form_data       => maps:to_list(FormData)
              , request_timeout => RequestTimeout
              , '_unique'       => Unique
@@ -228,9 +228,6 @@ parse_url(URL) ->
         _ ->
             URIMap
     end.
-
-normalize_headers(Headers) ->
-    [{atom_to_binary(K), V} || {K, V} <- maps:to_list(Headers)].
 
 generate_request(Credential, #{method := Method,
                                path := Path,

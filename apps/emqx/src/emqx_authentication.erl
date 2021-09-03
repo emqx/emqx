@@ -41,6 +41,7 @@
         ]).
 
 -export([ add_provider/2
+        , remove_provider/1
         , create_chain/1
         , delete_chain/1
         , lookup_chain/1
@@ -294,6 +295,9 @@ get_refs() ->
 add_provider(AuthNType, Provider) ->
     gen_server:call(?MODULE, {add_provider, AuthNType, Provider}).
 
+remove_provider(AuthNType) ->
+    gen_server:call(?MODULE, {remove_provider, AuthNType}).
+
 create_chain(Name) ->
     gen_server:call(?MODULE, {create_chain, Name}).
 
@@ -378,10 +382,15 @@ init(_Opts) ->
     _ = ets:new(?CHAINS_TAB, [ named_table, set, public
                              , {keypos, #chain.name}
                              , {read_concurrency, true}]),
+    emqx_config_handler:add_handler([authentication], ?MODULE),
+    % emqx_config_handler:add_handler([listeners, '$name', '$name', authentication], ?MODULE),
     {ok, #{hooked => false, providers => #{}}}.
 
 handle_call({add_provider, AuthNType, Provider}, _From, #{providers := Providers} = State) ->
     reply(ok, State#{providers := Providers#{AuthNType => Provider}});
+
+handle_call({remove_provider, AuthNType}, _From, #{providers := Providers} = State) ->
+    reply(ok, State#{providers := maps:remove(AuthNType, Providers)});
 
 handle_call(get_refs, _From, #{providers := Providers} = State) ->
     Refs = lists:foldl(fun({_, Provider}, Acc) ->
@@ -533,6 +542,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    emqx_config_handler:remove_handler([authentication]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -707,6 +717,8 @@ may_to_map([L]) ->
 may_to_map(L) ->
     L.
 
+to_list(M) when M =:= #{} ->
+    [];
 to_list(M) when is_map(M) ->
     [M];
 to_list(L) when is_list(L) ->

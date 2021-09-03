@@ -25,35 +25,44 @@
         , stop/1
         ]).
 
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
+
 start(_StartType, _StartArgs) ->
     ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),
     add_providers(),
-    emqx_config_handler:add_handler([authentication], ?AUTHN),
-    % emqx_config_handler:add_handler([listeners, '$name', '$name', authentication], emqx_authn),
     initialize(),
     {ok, Sup}.
 
 stop(_State) ->
-    %% TODO
-    %% emqx_config_handler:remove_handler([authentication], emqx_authn),
-    %% remove_providers(),
+    remove_providers(),
     ok.
 
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
 add_providers() ->
-    Providers = [ {{'password-based', 'built-in-database'}, emqx_authn_mnesia}
-                , {{'password-based', mysql}, emqx_authn_mysql}
-                , {{'password-based', posgresql}, emqx_authn_pgsql}
-                , {{'password-based', mongodb}, emqx_authn_mongodb}
-                , {{'password-based', redis}, emqx_authn_redis}
-                , {{'password-based', 'http-server'}, emqx_authn_http}
-                , {jwt, emqx_authn_jwt}
-                , {{scram, 'built-in-database'}, emqx_enhanced_authn_scram_mnesia}
-                ],
-    [emqx_authentication:add_provider(AuthNType, Provider) || {AuthNType, Provider} <- Providers].
+    [?AUTHN:add_provider(AuthNType, Provider) || {AuthNType, Provider} <- providers()].
+
+remove_providers() ->
+    [?AUTHN:remove_provider(AuthNType) || {AuthNType, _} <- providers()].
 
 initialize() ->
     ?AUTHN:initialize_authentication(?GLOBAL, emqx:get_raw_config([authentication], [])),
     lists:foreach(fun({ListenerID, ListenerConfig}) ->
                       ?AUTHN:initialize_authentication(atom_to_binary(ListenerID), maps:get(authentication, ListenerConfig, []))
                   end, emqx_listeners:list()).
+
+providers() ->
+    [ {{'password-based', 'built-in-database'}, emqx_authn_mnesia}
+    , {{'password-based', mysql}, emqx_authn_mysql}
+    , {{'password-based', posgresql}, emqx_authn_pgsql}
+    , {{'password-based', mongodb}, emqx_authn_mongodb}
+    , {{'password-based', redis}, emqx_authn_redis}
+    , {{'password-based', 'http-server'}, emqx_authn_http}
+    , {jwt, emqx_authn_jwt}
+    , {{scram, 'built-in-database'}, emqx_enhanced_authn_scram_mnesia}
+    ].
