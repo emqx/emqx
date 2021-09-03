@@ -350,9 +350,9 @@ do_authorize(Client, PubSub, Topic,
 %%--------------------------------------------------------------------
 
 check_sources(RawSources) ->
-    {ok, Conf} = hocon:binary(jsx:encode(#{<<"authorization">> => #{<<"sources">> => RawSources}}), #{format => richmap}),
-    CheckConf = hocon_schema:check(emqx_authz_schema, Conf, #{atom_key => true}),
-    #{authorization:= #{sources := Sources}} = hocon_schema:richmap_to_map(CheckConf),
+    Schema = #{roots => emqx_authz_schema:fields("authorization"), fields => #{}},
+    Conf = #{<<"sources">> => RawSources},
+    #{sources := Sources} = hocon_schema:check_plain(Schema, Conf, #{atom_key => true}),
     Sources.
 
 find_source_by_type(Type) -> find_source_by_type(Type, lookup()).

@@ -23,7 +23,7 @@
 
 -behaviour(hocon_schema).
 
--export([ roots/0, fields/1 ]).
+-export([ namespace/0, roots/0, fields/1 ]).
 
 -export([ create/1
         , update/2
@@ -34,6 +34,8 @@
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
+
+namespace() -> "authn:postgres".
 
 roots() -> [config].
 

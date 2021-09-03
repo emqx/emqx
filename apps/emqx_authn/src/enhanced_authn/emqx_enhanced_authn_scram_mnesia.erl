@@ -21,7 +21,8 @@
 
 -behaviour(hocon_schema).
 
--export([ roots/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         ]).
 
@@ -73,6 +74,8 @@ mnesia(copy) ->
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
+
+namespace() -> "authn:scram:builtin_db".
 
 roots() -> [config].
 

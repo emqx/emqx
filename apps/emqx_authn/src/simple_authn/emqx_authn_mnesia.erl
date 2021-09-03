@@ -21,7 +21,7 @@
 
 -behaviour(hocon_schema).
 
--export([ roots/0, fields/1 ]).
+-export([ namespace/0, roots/0, fields/1 ]).
 
 -export([ create/1
         , update/2
@@ -79,6 +79,8 @@ mnesia(copy) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
+namespace() -> "authn:builtin_db".
+
 roots() -> [config].
 
 fields(config) ->
@@ -102,7 +104,8 @@ user_id_type(type) -> user_id_type();
 user_id_type(default) -> username;
 user_id_type(_) -> undefined.
 
-password_hash_algorithm(type) -> {union, [hoconsc:ref(bcrypt), hoconsc:ref(other_algorithms)]};
+password_hash_algorithm(type) -> hoconsc:union([hoconsc:ref(?MODULE, bcrypt),
+                                                hoconsc:ref(?MODULE, other_algorithms)]);
 password_hash_algorithm(default) -> #{<<"name">> => sha256};
 password_hash_algorithm(_) -> undefined.
 
