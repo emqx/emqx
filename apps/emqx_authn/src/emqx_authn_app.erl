@@ -29,8 +29,9 @@ start(_StartType, _StartArgs) ->
     ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),
     add_providers(),
-    emqx_config_handler:add_handler([authentication], emqx_authn),
-    emqx_authn:initialize(),
+    emqx_config_handler:add_handler([authentication], ?AUTHN),
+    % emqx_config_handler:add_handler([listeners, '$name', '$name', authentication], emqx_authn),
+    initialize(),
     {ok, Sup}.
 
 stop(_State) ->
@@ -50,3 +51,9 @@ add_providers() ->
                 , {{scram, 'built-in-database'}, emqx_enhanced_authn_scram_mnesia}
                 ],
     [emqx_authentication:add_provider(AuthNType, Provider) || {AuthNType, Provider} <- Providers].
+
+initialize() ->
+    ?AUTHN:initialize_authentication(?GLOBAL, emqx:get_raw_config([authentication], [])),
+    lists:foreach(fun({ListenerID, ListenerConfig}) ->
+                      ?AUTHN:initialize_authentication(atom_to_binary(ListenerID), maps:get(authentication, ListenerConfig, []))
+                  end, emqx_listeners:list()).

@@ -18,6 +18,7 @@
 
 -behaviour(gen_server).
 -behaviour(hocon_schema).
+-behaviour(emqx_config_handler).
 
 -include("emqx.hrl").
 -include("logger.hrl").
@@ -26,8 +27,14 @@
         , fields/1
         ]).
 
+-export([ pre_config_update/2
+        , post_config_update/4
+        ]).
+
 -export([ authenticate/2
         ]).
+
+-export([ initialize_authentication/2 ]).
 
 -export([ start_link/0
         , stop/0
@@ -66,8 +73,6 @@
         ]).
 
 -define(CHAINS_TAB, emqx_authn_chains).
-
-% -define(GLOBAL, global).
 
 -define(VER_1, <<"1">>).
 -define(VER_2, <<"2">>).
@@ -136,7 +141,7 @@
                     ]).
 
 %%------------------------------------------------------------------------------
-%% APIs
+%% Hocon Schema
 %%------------------------------------------------------------------------------
 
 roots() -> [{authentication, fun authentication/1}].
@@ -149,8 +154,87 @@ authentication(type) ->
 authentication(default) -> [];
 authentication(_) -> undefined.
 
-get_refs() ->
-    gen_server:call(?MODULE, get_refs).
+%%------------------------------------------------------------------------------
+%% Callbacks of config handler
+%%------------------------------------------------------------------------------
+
+pre_config_update(UpdateReq, OldConfig) ->
+    case do_pre_config_update(UpdateReq, to_list(OldConfig)) of
+        {error, Reason} -> {error, Reason};
+        {ok, NewConfig} -> {ok, may_to_map(NewConfig)}
+    end.
+
+do_pre_config_update({create_authenticator, _ChainName, Config}, OldConfig) ->
+    {ok, OldConfig ++ [Config]};
+do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldConfig) ->
+    NewConfig = lists:filter(fun(OldConfig0) ->
+                                AuthenticatorID =/= generate_id(OldConfig0)
+                             end, OldConfig),
+    {ok, NewConfig};
+do_pre_config_update({update_authenticator, _ChainName, AuthenticatorID, Config}, OldConfig) ->
+    NewConfig = lists:map(fun(OldConfig0) ->
+                              case AuthenticatorID =:= generate_id(OldConfig0) of
+                                  true -> maps:merge(OldConfig0, Config);
+                                  false -> OldConfig0
+                              end
+                          end, OldConfig),
+    {ok, NewConfig};
+do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}, OldConfig) ->
+    case split_by_id(AuthenticatorID, OldConfig) of
+        {error, Reason} -> {error, Reason};
+        {ok, Part1, [Found | Part2]} ->
+            case Position of
+                <<"top">> ->
+                    {ok, [Found | Part1] ++ Part2};
+                <<"bottom">> ->
+                    {ok, Part1 ++ Part2 ++ [Found]};
+                <<"before:", Before/binary>> ->
+                    case split_by_id(Before, Part1 ++ Part2) of
+                        {error, Reason} ->
+                            {error, Reason};
+                        {ok, NPart1, [NFound | NPart2]} ->
+                            {ok, NPart1 ++ [Found, NFound | NPart2]}
+                    end;
+                _ ->
+                    {error, {invalid_parameter, position}}
+            end
+    end.
+
+post_config_update(UpdateReq, NewConfig, OldConfig, AppEnvs) ->
+    do_post_config_update(UpdateReq, check_config(to_list(NewConfig)), OldConfig, AppEnvs).
+
+do_post_config_update({create_authenticator, ChainName, Config}, _NewConfig, _OldConfig, _AppEnvs) ->
+    NConfig = check_config(Config),
+    _ = create_chain(ChainName),
+    create_authenticator(ChainName, NConfig);
+
+do_post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewConfig, _OldConfig, _AppEnvs) ->
+    delete_authenticator(ChainName, AuthenticatorID);
+
+do_post_config_update({update_authenticator, ChainName, AuthenticatorID, _Config}, NewConfig, _OldConfig, _AppEnvs) ->
+    [Config] = lists:filter(fun(NewConfig0) ->
+                                AuthenticatorID =:= generate_id(NewConfig0)
+                            end, NewConfig),
+    NConfig = check_config(Config),
+    update_authenticator(ChainName, AuthenticatorID, NConfig);
+
+do_post_config_update({move_authenticator, ChainName, AuthenticatorID, Position}, _NewConfig, _OldConfig, _AppEnvs) ->
+    NPosition = case Position of
+                    <<"top">> -> top;
+                    <<"bottom">> -> bottom;
+                    <<"before:", Before/binary>> ->
+                        {before, Before}
+                end,
+    move_authenticator(ChainName, AuthenticatorID, NPosition).
+
+check_config(Config) ->
+    #{authentication := CheckedConfig} = hocon_schema:check_plain(emqx_authentication,
+        #{<<"authentication">> => Config}, #{nullable => true, atom_key => true}),
+    CheckedConfig.
+
+%%------------------------------------------------------------------------------
+%% Authenticate
+%%------------------------------------------------------------------------------
 
 authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthResult) ->
     case ets:lookup(?CHAINS_TAB, Listener) of
@@ -180,11 +264,32 @@ do_authenticate([#authenticator{provider = Provider, state = State} | More], Cre
             {stop, Result}
     end.
 
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
+
+initialize_authentication(_, []) ->
+    ok;
+initialize_authentication(ChainName, AuthenticatorsConfig) ->
+    _ = create_chain(ChainName),
+    CheckedConfig = check_config(to_list(AuthenticatorsConfig)),
+    lists:foreach(fun(AuthenticatorConfig) ->
+        case create_authenticator(ChainName, AuthenticatorConfig) of
+            {ok, _} ->
+                ok;
+            {error, Reason} ->
+                ?LOG(error, "Failed to create authenticator '~s': ~p", [generate_id(AuthenticatorConfig), Reason])
+        end
+    end, CheckedConfig).
+
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 stop() ->
     gen_server:stop(?MODULE).
+
+get_refs() ->
+    gen_server:call(?MODULE, get_refs).
 
 add_provider(AuthNType, Provider) ->
     gen_server:call(?MODULE, {add_provider, AuthNType, Provider}).
@@ -440,6 +545,24 @@ reply(Reply, State) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+split_by_id(ID, AuthenticatorsConfig) ->
+    case lists:foldl(
+             fun(C, {P1, P2, F0}) ->
+                 F = case ID =:= generate_id(C) of
+                         true -> true;
+                         false -> F0
+                     end,
+                 case F of
+                     false -> {[C | P1], P2, F};
+                     true -> {P1, [C | P2], F}
+                 end
+             end, {[], [], false}, AuthenticatorsConfig) of
+        {_, _, false} ->
+            {error, {not_found, {authenticator, ID}}};
+        {Part1, Part2, true} ->
+            {ok, lists:reverse(Part1), lists:reverse(Part2)}
+    end.
+
 global_chain(mqtt) ->
     <<"mqtt:global">>;
 global_chain('mqtt-sn') ->
@@ -479,13 +602,6 @@ may_unhook(#{hooked := true} = State) ->
 may_unhook(State) ->
     State.
 
-switch_version(State = #{version := ?VER_1}) ->
-    State#{version := ?VER_2};
-switch_version(State = #{version := ?VER_2}) ->
-    State#{version := ?VER_1};
-switch_version(State) ->
-    State#{version => ?VER_1}.
-
 do_create_authenticator(ChainName, AuthenticatorID, Config, Providers) ->
     case maps:get(authn_type(Config), Providers, undefined) of
         undefined ->
@@ -502,11 +618,6 @@ do_create_authenticator(ChainName, AuthenticatorID, Config, Providers) ->
                     {error, Reason}
             end
     end.
-
-authn_type(#{mechanism := Mechanism, backend := Backend}) ->
-    {Mechanism, Backend};
-authn_type(#{mechanism := Mechanism}) ->
-    Mechanism.
 
 do_delete_authenticator(#authenticator{provider = Provider, state = State}) ->
     _ = Provider:destroy(State),
@@ -578,3 +689,25 @@ serialize_authenticator(#authenticator{id = ID,
      , provider => Provider
      , state => State
      }.
+
+switch_version(State = #{version := ?VER_1}) ->
+    State#{version := ?VER_2};
+switch_version(State = #{version := ?VER_2}) ->
+    State#{version := ?VER_1};
+switch_version(State) ->
+    State#{version => ?VER_1}.
+
+authn_type(#{mechanism := Mechanism, backend := Backend}) ->
+    {Mechanism, Backend};
+authn_type(#{mechanism := Mechanism}) ->
+    Mechanism.
+
+may_to_map([L]) ->
+    L;
+may_to_map(L) ->
+    L.
+
+to_list(M) when is_map(M) ->
+    [M];
+to_list(L) when is_list(L) ->
+    L.
