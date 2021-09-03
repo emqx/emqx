@@ -64,7 +64,7 @@ route_api() ->
                 name => topic,
                 in => path,
                 required => true,
-                description => <<"topic">>,
+                description => <<"Topic string, url encoding">>,
                 schema => #{type => string}
             }],
             responses => #{
