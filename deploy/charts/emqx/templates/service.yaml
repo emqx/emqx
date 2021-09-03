@@ -112,6 +112,7 @@ spec:
   type: ClusterIP
   sessionAffinity: None
   clusterIP: None
+  publishNotReadyAddresses: true
   ports:
   - name: mqtt
     port: {{ .Values.service.mqtt | default 1883 }}
