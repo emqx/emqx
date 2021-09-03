@@ -226,6 +226,9 @@ esockd_send(Data, #state{socket = {udp, _SockPid, Sock},
 esockd_send(Data, #state{socket = {esockd_transport, Sock}}) ->
     esockd_transport:async_send(Sock, Data).
 
+is_datadram_socket({esockd_transport, _}) -> false;
+is_datadram_socket({udp, _, _}) -> true.
+
 %%--------------------------------------------------------------------
 %% callbacks
 %%--------------------------------------------------------------------
@@ -678,8 +681,20 @@ with_channel(Fun, Args, State = #state{
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
 
-handle_outgoing(Packets, State) when is_list(Packets) ->
-    send(lists:map(serialize_and_inc_stats_fun(State), Packets), State);
+handle_outgoing(_Packets = [], _State) ->
+    ok;
+handle_outgoing(Packets,
+                State = #state{socket = Socket}) when is_list(Packets) ->
+    case is_datadram_socket(Socket) of
+        false ->
+            send(
+              lists:map(serialize_and_inc_stats_fun(State), Packets),
+              State);
+        _ ->
+            lists:foreach(fun(Packet) ->
+                handle_outgoing(Packet, State)
+            end, Packets)
+    end;
 
 handle_outgoing(Packet, State) ->
     send((serialize_and_inc_stats_fun(State))(Packet), State).
