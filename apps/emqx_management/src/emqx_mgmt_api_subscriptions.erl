@@ -96,13 +96,13 @@ parameters() ->
         #{
             name => topic,
             in => query,
-            description => <<"Topic, url encode">>,
+            description => <<"Topic, url encoding">>,
             schema => #{type => string}
         }
         #{
             name => match_topic,
             in => query,
-            description => <<"Match topic string, url encode">>,
+            description => <<"Match topic string, url encoding">>,
             schema => #{type => string}
         } | page_params()
     ].
