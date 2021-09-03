@@ -25,7 +25,10 @@
 -export([ info/1
         , info/2
         , stats/1
-        , validator/4]).
+        , validator/4
+        , metrics_inc/2
+        , run_hooks/3
+        , send_request/2]).
 
 -export([ init/2
         , handle_in/2
@@ -57,7 +60,7 @@
 
                   connection_required :: boolean(),
 
-                  conn_state :: idle | connected,
+                  conn_state :: idle | connected | disconnected,
 
                   token :: binary() | undefined
                  }).
@@ -99,7 +102,7 @@ init(ConnInfo = #{peername := {PeerHost, _},
                   sockname := {_, SockPort}},
      #{ctx := Ctx} = Config) ->
     Peercert = maps:get(peercert, ConnInfo, undefined),
-    Mountpoint = maps:get(mountpoint, Config, undefined),
+    Mountpoint = maps:get(mountpoint, Config, <<>>),
     ClientInfo = set_peercert_infos(
                    Peercert,
                    #{ zone => default
@@ -128,6 +131,10 @@ init(ConnInfo = #{peername := {PeerHost, _},
 validator(Type, Topic, Ctx, ClientInfo) ->
     emqx_gateway_ctx:authorize(Ctx, ClientInfo, Type, Topic).
 
+-spec send_request(pid(), emqx_coap_message()) -> any().
+send_request(Channel, Request) ->
+    gen_server:send_request(Channel, {?FUNCTION_NAME, Request}).
+
 %%--------------------------------------------------------------------
 %% Handle incoming packet
 %%--------------------------------------------------------------------
@@ -143,8 +150,9 @@ handle_in(Msg, ChannleT) ->
 %%--------------------------------------------------------------------
 %% Handle Delivers from broker to client
 %%--------------------------------------------------------------------
-handle_deliver(Delivers, Channel) ->
-    call_session(deliver, Delivers, Channel).
+handle_deliver(Delivers, #channel{session = Session,
+                                  ctx = Ctx} = Channel) ->
+    handle_result(emqx_coap_session:deliver(Delivers, Ctx, Session), Channel).
 
 %%--------------------------------------------------------------------
 %% Handle timeout
@@ -155,7 +163,7 @@ handle_timeout(_, {keepalive, NewVal}, #channel{keepalive = KeepAlive} = Channel
             Channel2 = ensure_keepalive_timer(fun make_timer/4, Channel),
             {ok, Channel2#channel{keepalive = NewKeepAlive}};
         {error, timeout} ->
-            {shutdown, timeout, Channel}
+            {shutdown, timeout, ensure_disconnected(keepalive_timeout, Channel)}
     end;
 
 handle_timeout(_, {transport, Msg}, Channel) ->
@@ -170,6 +178,10 @@ handle_timeout(_, _, Channel) ->
 %%--------------------------------------------------------------------
 %% Handle call
 %%--------------------------------------------------------------------
+handle_call({send_request, Msg}, From, Channel) ->
+    Result = call_session(handle_out, {{send_request, From}, Msg}, Channel),
+    erlang:setelement(1, Result, noreply);
+
 handle_call(Req, _From, Channel) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, Channel}.
@@ -184,6 +196,9 @@ handle_cast(Req, Channel) ->
 %%--------------------------------------------------------------------
 %% Handle Info
 %%--------------------------------------------------------------------
+handle_info({subscribe, _}, Channel) ->
+    {ok, Channel};
+
 handle_info(Info, Channel) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
     {ok, Channel}.
@@ -191,8 +206,10 @@ handle_info(Info, Channel) ->
 %%--------------------------------------------------------------------
 %% Terminate
 %%--------------------------------------------------------------------
-terminate(_Reason, _Channel) ->
-    ok.
+terminate(Reason, #channel{clientinfo = ClientInfo,
+                           ctx = Ctx,
+                           session = Session}) ->
+    run_hooks(Ctx, 'session.terminated', [ClientInfo, Reason, Session]).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -242,17 +259,17 @@ check_token(true,
             try_takeover(CState, DesireId, Msg, Channel);
         _ ->
             Reply = emqx_coap_message:piggyback({error, unauthorized}, Msg),
-            {ok, {outgoing, Reply}, Msg}
+            {ok, {outgoing, Reply}, Channel}
     end;
 
 check_token(false, Msg, Channel) ->
     case emqx_coap_message:get_option(uri_query, Msg) of
         #{<<"clientid">> := _} ->
             Reply = emqx_coap_message:piggyback({error, unauthorized}, Msg),
-            {ok, {outgoing, Reply}, Msg};
+            {ok, {outgoing, Reply}, Channel};
         #{<<"token">> := _} ->
             Reply = emqx_coap_message:piggyback({error, unauthorized}, Msg),
-            {ok, {outgoing, Reply}, Msg};
+            {ok, {outgoing, Reply}, Channel};
         _ ->
             call_session(handle_request, Msg, Channel)
     end.
@@ -322,11 +339,9 @@ auth_connect(_Input, Channel = #channel{ctx = Ctx,
             {error, Reason}
     end.
 
-fix_mountpoint(_Packet, #{mountpoint := undefined} = ClientInfo) ->
+fix_mountpoint(_Packet, #{mountpoint := <<>>} = ClientInfo) ->
     {ok, ClientInfo};
 fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
-    %% TODO: Enrich the varibale replacement????
-    %%       i.e: ${ClientInfo.auth_result.productKey}
     Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
     {ok, ClientInfo#{mountpoint := Mountpoint1}}.
 
@@ -338,6 +353,7 @@ ensure_connected(Channel = #channel{ctx = Ctx,
                          , proto_ver => <<"1">>
                          },
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
+    _ = run_hooks(Ctx, 'client.connack', [NConnInfo, connection_accepted, []]),
     Channel#channel{conninfo = NConnInfo}.
 
 process_connect(#channel{ctx = Ctx,
@@ -374,19 +390,32 @@ run_hooks(Ctx, Name, Args, Acc) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name),
     emqx_hooks:run_fold(Name, Args, Acc).
 
+metrics_inc(Name, Ctx) ->
+    emqx_gateway_ctx:metrics_inc(Ctx, Name).
+
+ensure_disconnected(Reason, Channel = #channel{
+                                         ctx = Ctx,
+                                         conninfo = ConnInfo,
+                                         clientinfo = ClientInfo}) ->
+    NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
+    ok = run_hooks(Ctx, 'client.disconnected', [ClientInfo, Reason, NConnInfo]),
+    Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
+
 %%--------------------------------------------------------------------
 %% Call Chain
 %%--------------------------------------------------------------------
-call_session(Fun,
-             Msg,
-             #channel{session = Session} = Channel) ->
+call_session(Fun, Msg, #channel{session = Session} = Channel) ->
+    Result = emqx_coap_session:Fun(Msg, Session),
+    handle_result(Result, Channel).
+
+handle_result(Result, Channel) ->
     iter([ session, fun process_session/4
          , proto, fun process_protocol/4
          , reply, fun process_reply/4
          , out, fun process_out/4
          , fun process_nothing/3
          ],
-         emqx_coap_session:Fun(Msg, Session),
+         Result,
          Channel).
 
 call_handler(request, Msg, Result,
@@ -405,6 +434,10 @@ call_handler(request, Msg, Result,
          , subscribe, fun process_subscribe/4 | Iter],
          maps:merge(Result, HandlerResult),
          Channel);
+
+call_handler(response, {{send_request, From}, Response}, Result, Channel, Iter) ->
+    gen_server:reply(From, Response),
+    iter(Iter, Result, Channel);
 
 call_handler(_, _, Result, Channel, Iter) ->
     iter(Iter, Result, Channel).

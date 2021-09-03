@@ -33,7 +33,7 @@
         , handle_response/2
         , handle_out/2
         , set_reply/2
-        , deliver/2
+        , deliver/3
         , timeout/2]).
 
 -export_type([session/0]).
@@ -66,6 +66,7 @@
                     ]).
 
 -import(emqx_coap_medium, [iter/3]).
+-import(emqx_coap_channel, [metrics_inc/2]).
 
 %%%-------------------------------------------------------------------
 %%% API
@@ -147,13 +148,16 @@ set_reply(Msg, #session{transport_manager = TM} = Session) ->
     TM2 = emqx_coap_tm:set_reply(Msg, TM),
     Session#session{transport_manager = TM2}.
 
-deliver(Delivers, #session{observe_manager = OM,
-                           transport_manager = TM} = Session) ->
+deliver(Delivers, Ctx, #session{observe_manager = OM,
+                                transport_manager = TM} = Session) ->
     Fun = fun({_, Topic, Message}, {OutAcc, OMAcc, TMAcc} = Acc) ->
                   case emqx_coap_observe_res:res_changed(Topic, OMAcc) of
                       undefined ->
+                          metrics_inc('delivery.dropped', Ctx),
+                          metrics_inc('delivery.dropped.no_subid', Ctx),
                           Acc;
                       {Token, SeqId, OM2} ->
+                          metrics_inc('messages.delivered', Ctx),
                           Msg = mqtt_to_coap(Message, Token, SeqId),
                           #{out := Out, tm := TM2} = emqx_coap_tm:handle_out(Msg, TMAcc),
                           {Out ++ OutAcc, OM2, TM2}

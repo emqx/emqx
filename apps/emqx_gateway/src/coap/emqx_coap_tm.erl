@@ -108,6 +108,9 @@ handle_response(#coap_message{type = Type, id = MsgId, token = Token} = Msg, TM)
     end.
 
 %% send to a client, msg can be request/piggyback/separate/notify
+handle_out({Ctx, Msg}, TM) ->
+    handle_out(Msg, Ctx, TM);
+
 handle_out(Msg, TM) ->
     handle_out(Msg, undefined, TM).
 
@@ -119,8 +122,8 @@ handle_out(#coap_message{token = Token} = MsgT, Ctx, TM) ->
     %% TODO why find by token ?
     case find_machine_by_keys([Id, TokenId], TM2) of
         undefined ->
-            {Machine, TM3} = new_out_machine(Id, Msg, TM),
-            process_event(out, {Ctx, Msg}, TM3, Machine);
+            {Machine, TM3} = new_out_machine(Id, Ctx, Msg, TM2),
+            process_event(out, Msg, TM3, Machine);
         _ ->
             %% ignore repeat send
             empty()
@@ -293,9 +296,10 @@ new_in_machine(MachineId, #{seq_id := SeqId} = Manager) ->
                        SeqId => Machine,
                        MachineId => SeqId}}.
 
--spec new_out_machine(state_machine_key(), emqx_coap_message(), manager()) ->
+-spec new_out_machine(state_machine_key(), any(), emqx_coap_message(), manager()) ->
           {state_machine(), manager()}.
 new_out_machine(MachineId,
+                Ctx,
                 #coap_message{type = Type, token = Token, options = Opts},
                 #{seq_id := SeqId} = Manager) ->
     Observe = maps:get(observe, Opts, undefined),
@@ -305,7 +309,7 @@ new_out_machine(MachineId,
                             , observe = Observe
                             , state = idle
                             , timers = #{}
-                            , transport = emqx_coap_transport:new()},
+                            , transport = emqx_coap_transport:new(Ctx)},
 
     Manager2 = Manager#{seq_id := SeqId + 1,
                         SeqId => Machine,
