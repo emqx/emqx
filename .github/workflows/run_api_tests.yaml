@@ -2,12 +2,10 @@ name: API Test Suite
 
 on:
   push:
-#    tags:\
-#      - e*
-  release:
-    types:
-      - published
-  pull_request:
+    tags:
+      - e*
+      - v*
+    pull_request:
 
 jobs:
   build:
