@@ -82,7 +82,8 @@ mongo_fields() ->
     , {auth_source, #{type => binary(),
                       nullable => true}}
     , {database, fun emqx_connector_schema_lib:database/1}
-    , {topology, #{type => hoconsc:ref(?MODULE, topology)}}
+    , {topology, #{type => hoconsc:ref(?MODULE, topology),
+                   nullable => true}}
     ] ++
     emqx_connector_schema_lib:ssl_fields().
 

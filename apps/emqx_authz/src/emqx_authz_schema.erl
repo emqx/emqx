@@ -20,6 +20,8 @@
 
 namespace() -> authz.
 
+%% @doc authorization schema is not exported
+%% but directly used by emqx_schema
 roots() -> [].
 
 fields("authorization") ->

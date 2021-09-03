@@ -93,7 +93,8 @@ roots() ->
      "plugins",
      "stats",
      "sysmon",
-     "alarm"
+     "alarm",
+     "authorization"
     ].
 
 fields("stats") ->
@@ -113,13 +114,13 @@ fields("authorization") ->
           #{ default => ignore
            })}
     , {"cache",
-       sc(ref("authorization_cache"),
+       sc(ref(?MODULE, "cache"),
           #{
            })
        }
     ];
 
-fields("authorization_cache") ->
+fields("cache") ->
     [ {"enable",
        sc(boolean(),
           #{ default => true
@@ -276,7 +277,7 @@ fields("zones") ->
          )}];
 
 fields("zone_settings") ->
-    Fields = ["mqtt", "stats", "authorization", "flapping_detect", "force_shutdown",
+    Fields = ["mqtt", "stats", "flapping_detect", "force_shutdown",
               "conn_congestion", "rate_limit", "quota", "force_gc"],
     [{F, ref(emqx_zone_schema, F)} || F <- Fields];
 

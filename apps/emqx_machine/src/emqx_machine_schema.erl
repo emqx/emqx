@@ -61,7 +61,13 @@
 namespace() -> undefined.
 
 roots() ->
-    ["cluster", "node", "rpc", "log"] ++ lists:flatmap(fun roots/1, ?MERGED_CONFIGS).
+    %% This is a temp workaround to define part of authorization config
+    %% in emqx_schema and part of it in emqx_authz_schema but then
+    %% merged here in this module
+    %% The proper fix should be to make connection (channel, session) state
+    %% extendable by e.g. allow hooks be stateful.
+    ["cluster", "node", "rpc", "log", "authorization"] ++
+    lists:keydelete("authorization", 1, lists:flatmap(fun roots/1, ?MERGED_CONFIGS)).
 
 fields("cluster") ->
     [ {"name",
