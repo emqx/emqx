@@ -22,14 +22,19 @@
 
 @set script=%~n0
 
+@set EPMD_ARG=-start_epmd false -epmd_module ekka_epmd -proto_dist ekka
+@set ERL_FLAGS=%EPMD_ARG%
+
 :: Discover the release root directory from the directory
 :: of this script
 @set script_dir=%~dp0
 @for %%A in ("%script_dir%\..") do @(
   set rel_root_dir=%%~fA
 )
+
 @set rel_dir=%rel_root_dir%\releases\%rel_vsn%
 @set RUNNER_ROOT_DIR=%rel_root_dir%
+@set RUNNER_ETC_DIR=%rel_root_dir%\etc
 
 @set etc_dir=%rel_root_dir%\etc
 @set lib_dir=%rel_root_dir%\lib
@@ -46,22 +51,22 @@
 @set progname=erl.exe
 @set clean_boot_script=%rel_root_dir%\bin\start_clean
 @set erlsrv="%bindir%\erlsrv.exe"
-@set epmd="%bindir%\epmd.exe"
 @set escript="%bindir%\escript.exe"
 @set werl="%bindir%\werl.exe"
 @set erl_exe="%bindir%\erl.exe"
 @set nodetool="%rel_root_dir%\bin\nodetool"
 @set cuttlefish="%rel_root_dir%\bin\cuttlefish"
 @set node_type="-name"
+@set schema_mod="emqx_machine_schema"
 
 :: Extract node name from emqx.conf
-@for /f "usebackq delims=\= tokens=2" %%I in (`findstr /b node\.name "%emqx_conf%"`) do @(
+@for /f "usebackq delims=" %%I in (`"%escript% %nodetool% hocon -s %schema_mod% -c %etc_dir%\emqx.conf get node.name"`) do @(
   @call :set_trim node_name %%I
 )
 
 :: Extract node cookie from emqx.conf
-@for /f "usebackq delims=\= tokens=2" %%I in (`findstr /b node\.cookie "%emqx_conf%"`) do @(
-  @call :set_trim node_cookie= %%I
+@for /f "usebackq delims=" %%I in (`"%escript% %nodetool% hocon -s %schema_mod% -c %etc_dir%\emqx.conf get node.cookie"`) do @(
+  @call :set_trim node_cookie %%I
 )
 
 :: Write the erl.ini file to set up paths relative to this script
@@ -139,11 +144,21 @@
 )
 @goto :eof
 
-:generate_app_config
-@set gen_config_cmd=%escript% %cuttlefish% -i %rel_dir%\emqx.schema -c %etc_dir%\emqx.conf -d %data_dir%\configs generate
-@for /f "delims=" %%A in ('%%gen_config_cmd%%') do @(
-  set generated_config_args=%%A
+:: get the current time with hocon
+:get_cur_time
+@for /f "usebackq tokens=1-6 delims=." %%a in (`"%escript% %nodetool% hocon now_time"`) do @(
+  set now_time=%%a.%%b.%%c.%%d.%%e.%%f
 )
+@goto :eof
+
+:generate_app_config
+@call :get_cur_time
+%escript% %nodetool% hocon -v -t %now_time% -s %schema_mod% -c "%etc_dir%\emqx.conf" -d "%data_dir%\configs" generate
+@set generated_config_args=-config %data_dir%\configs\app.%now_time%.config -args_file %data_dir%\configs\vm.%now_time%.args
+:: create one new line
+@echo.>>%data_dir%\configs\vm.%now_time%.args
+:: write the node type and node name in to vm args file
+@echo %node_type% %node_name%>>%data_dir%\configs\vm.%now_time%.args
 @goto :eof
 
 :: set boot_script variable
@@ -188,13 +203,11 @@
   :: relup and reldown
   goto relup
 )
-
 @goto :eof
 
 :: Uninstall the Windows service
 :uninstall
 @%erlsrv% remove %service_name%
-@%epmd% -kill
 @goto :eof
 
 :: Start the Windows service
@@ -207,7 +220,7 @@
 @echo off
 cd /d %rel_root_dir%
 @echo on
-@start "%rel_name%" %werl% -boot "%boot_script%" %args%
+@start "%rel_name%" %werl% -boot  "%boot_script%" -mode embedded %args%
 @goto :eof
 
 :: Stop the Windows service
@@ -237,7 +250,7 @@ cd /d %rel_root_dir%
 @echo off
 cd /d %rel_root_dir%
 @echo on
-@start "bin\%rel_name% console" %werl% -boot "%boot_script%" %args%
+@start "bin\%rel_name% console" %werl% -boot "%boot_script%" -mode embedded %args%
 @echo emqx is started!
 @goto :eof
 
@@ -262,4 +275,3 @@ cd /d %rel_root_dir%
 :set_trim
 @set %1=%2
 @goto :eof
-
