@@ -78,8 +78,11 @@ namespace() -> undefined.
 roots() ->
     [{"zones",
       sc(map("name", ref("zone")),
-         #{ desc => "A zones is a set configs grouped per the zone's name, there is a builtin zone named 'default' "
-                    "The name of a zone can be bound to listners to apply zone settings to connections accepted by the bound listener."
+         #{ desc => "A zone is a set of configs grouped by the zone `$name`. <br>"
+                    "The `$name` can be set to a listner's `zone` config for "
+                    "flexible configuration mapping. <br>"
+                    "NOTE: A builtin zone named `default` is auto created "
+                    "and can not be deleted."
           })},
      "mqtt",
      "flapping_detect",

@@ -381,7 +381,7 @@ fields("rpc") ->
 fields("log") ->
     [ {"console_handler", ref("console_handler")}
     , {"file_handlers",
-       sc(ref("file_handlers"),
+       sc(map(name, ref("log_file_handler")),
           #{})}
     , {"error_logger",
        sc(atom(),
@@ -395,12 +395,6 @@ fields("console_handler") ->
           #{ default => false
            })}
     ] ++ log_handler_common_confs();
-
-fields("file_handlers") ->
-    [ {"$name",
-       sc(ref("log_file_handler"),
-          #{})}
-    ];
 
 fields("log_file_handler") ->
     [ {"file",
@@ -700,6 +694,8 @@ keys(Parent, Conf) ->
 %% types
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
+
+map(Name, Type) -> hoconsc:map(Name, Type).
 
 ref(Field) -> hoconsc:ref(?MODULE, Field).
 
