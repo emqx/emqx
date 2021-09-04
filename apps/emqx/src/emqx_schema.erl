@@ -76,7 +76,11 @@
 namespace() -> undefined.
 
 roots() ->
-    ["zones",
+    [{"zones",
+      sc(map("name", ref("zone")),
+         #{ desc => "A zones is a set configs grouped per the zone's name, there is a builtin zone named 'default' "
+                    "The name of a zone can be bound to listners to apply zone settings to connections accepted by the bound listener."
+          })},
      "mqtt",
      "flapping_detect",
      "force_shutdown",
@@ -94,8 +98,14 @@ roots() ->
      "stats",
      "sysmon",
      "alarm",
+     {"authentication",
+      sc(hoconsc:lazy(hoconsc:array(map())),
+         #{ desc => "Default authentication configs for all MQTT listeners.<br>"
+                    "For per-listener overrides see <code>authentication</code> "
+                    "in listener configs"
+          })},
      "authorization",
-     {"authentication", sc(hoconsc:lazy(hoconsc:array(map())), #{})}
+     "flapping_detect"
     ].
 
 fields("stats") ->
@@ -270,14 +280,7 @@ fields("mqtt") ->
            })}
     ];
 
-fields("zones") ->
-    [ {"$name",
-       sc(ref("zone_settings"),
-          #{
-           }
-         )}];
-
-fields("zone_settings") ->
+fields("zone") ->
     Fields = ["mqtt", "stats", "flapping_detect", "force_shutdown",
               "conn_congestion", "rate_limit", "quota", "force_gc"],
     [{F, ref(emqx_zone_schema, F)} || F <- Fields];
@@ -375,51 +378,35 @@ fields("force_gc") ->
 
 fields("listeners") ->
     [ {"tcp",
-       sc(ref("tcp_listeners"),
+       sc(map(name, ref("mqtt_tcp_listener")),
           #{ desc => "TCP listeners"
            , nullable => {true, recursive}
            })
       }
     , {"ssl",
-       sc(ref("ssl_listeners"),
+       sc(map(name, ref("mqtt_ssl_listener")),
           #{ desc => "SSL listeners"
            , nullable => {true, recursive}
            })
       }
     , {"ws",
-       sc(ref("ws_listeners"),
+       sc(map(name, ref("mqtt_ws_listener")),
           #{ desc => "HTTP websocket listeners"
            , nullable => {true, recursive}
            })
       }
     , {"wss",
-       sc(ref("wss_listeners"),
+       sc(map(name, ref("mqtt_wss_listener")),
           #{ desc => "HTTPS websocket listeners"
            , nullable => {true, recursive}
            })
       }
     , {"quic",
-       sc(ref("quic_listeners"),
+       sc(map(ref("mqtt_quic_listener")),
           #{ desc => "QUIC listeners"
            , nullable => {true, recursive}
            })
       }
-    ];
-
-fields("tcp_listeners") ->
-    [ {"$name", ref("mqtt_tcp_listener")}
-    ];
-fields("ssl_listeners") ->
-    [ {"$name", ref("mqtt_ssl_listener")}
-    ];
-fields("ws_listeners") ->
-    [ {"$name", ref("mqtt_ws_listener")}
-    ];
-fields("wss_listeners") ->
-    [ {"$name", ref("mqtt_wss_listener")}
-    ];
-fields("quic_listeners") ->
-    [ {"$name", ref("mqtt_quic_listener")}
     ];
 
 fields("mqtt_tcp_listener") ->
@@ -1015,6 +1002,8 @@ ceiling(X) ->
 %% types
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
+
+map(Name, Type) -> hoconsc:map(Name, Type).
 
 ref(Field) -> hoconsc:ref(?MODULE, Field).
 
