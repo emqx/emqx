@@ -405,7 +405,7 @@ fields("listeners") ->
            })
       }
     , {"quic",
-       sc(map(ref("mqtt_quic_listener")),
+       sc(map(name, ref("mqtt_quic_listener")),
           #{ desc => "QUIC listeners"
            , nullable => {true, recursive}
            })
