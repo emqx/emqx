@@ -21,7 +21,10 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ fields/1 ]).
+-export([ namespace/0
+        , roots/0
+        , fields/1
+        ]).
 
 -export([ refs/0
         , create/1
@@ -33,6 +36,15 @@
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
+
+namespace() -> "authn:jwt".
+
+roots() ->
+    [ {config, {union, [ hoconsc:mk('hmac-based')
+                       , hoconsc:mk('public-key')
+                       , hoconsc:mk('jwks')
+                       ]}}
+    ].
 
 fields('hmac-based') ->
     [ {use_jwks,              {enum, [false]}}

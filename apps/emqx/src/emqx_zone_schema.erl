@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,19 +14,21 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_rule_engine_schema).
+-module(emqx_zone_schema).
 
--include_lib("typerefl/include/types.hrl").
+-export([namespace/0, roots/0, fields/1]).
 
--behaviour(hocon_schema).
+namespace() -> zone.
 
--export([ namespace/0
-        , roots/0
-        , fields/1]).
+roots() -> [].
 
-namespace() -> rule_engine.
+%% zone schemas are clones from the same name from root level
+%% only not allowed to have default values.
+fields(Name) ->
+    [{N, no_default(Sc)} || {N, Sc} <- emqx_schema:fields(Name)].
 
-roots() -> ["rule_engine"].
-
-fields("rule_engine") ->
-    [{ignore_sys_message, hoconsc:mk(boolean(), #{default => true})}].
+%% no default values for zone settings
+no_default(Sc) ->
+    fun(default) -> undefined;
+       (Other) -> hocon_schema:field_schema(Sc, Other)
+    end.

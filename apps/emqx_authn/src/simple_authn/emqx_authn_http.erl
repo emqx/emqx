@@ -23,7 +23,9 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ fields/1
+-export([ namespace/0
+        , roots/0
+        , fields/1
         , validations/0
         ]).
 
@@ -37,6 +39,14 @@
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
+
+namespace() -> "authn:password-based:http-server".
+
+roots() ->
+    [ {config, {union, [ hoconsc:ref(?MODULE, get)
+                       , hoconsc:ref(?MODULE, post)
+                       ]}}
+    ].
 
 fields(get) ->
     [ {method,          #{type => get,

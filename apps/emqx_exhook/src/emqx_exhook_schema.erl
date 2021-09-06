@@ -32,43 +32,57 @@
 
 -reflect_type([duration/0]).
 
--export([roots/0, fields/1]).
+-export([namespace/0, roots/0, fields/1]).
 
--export([t/1, t/3, t/4, ref/1]).
+namespace() -> exhook.
 
 roots() -> [exhook].
 
 fields(exhook) ->
-    [ {request_failed_action, t(union([deny, ignore]), undefined, deny)}
-    , {request_timeout, t(duration(), undefined, "5s")}
-    , {auto_reconnect, t(union([false, duration()]), undefined, "60s")}
-    , {servers, t(hoconsc:array(ref(servers)), undefined, [])}
+    [ {request_failed_action,
+       sc(union([deny, ignore]),
+          #{default => deny})}
+    , {request_timeout,
+       sc(duration(),
+          #{default => "5s"})}
+    , {auto_reconnect,
+       sc(union([false, duration()]),
+          #{ default => "60s"
+           })}
+    , {servers,
+       sc(hoconsc:array(ref(servers)),
+          #{default => []})}
     ];
 
 fields(servers) ->
-    [ {name, string()}
-    , {url, string()}
-    , {ssl, t(ref(ssl_conf_group))}
+    [ {name,
+       sc(string(),
+          #{})}
+    , {url,
+       sc(string(),
+          #{})}
+    , {ssl,
+       sc(ref(ssl_conf),
+          #{})}
     ];
 
-fields(ssl_conf_group) ->
-    [ {cacertfile, string()}
-    , {certfile, string()}
-    , {keyfile, string()}
+fields(ssl_conf) ->
+    [ {cacertfile,
+       sc(string(),
+          #{})
+       }
+    , {certfile,
+       sc(string(),
+          #{})
+       }
+    , {keyfile,
+       sc(string(),
+          #{})}
     ].
 
 %% types
 
-t(Type) -> #{type => Type}.
-
-t(Type, Mapping, Default) ->
-    hoconsc:t(Type, #{mapping => Mapping, default => Default}).
-
-t(Type, Mapping, Default, OverrideEnv) ->
-    hoconsc:t(Type, #{ mapping => Mapping
-                     , default => Default
-                     , override_env => OverrideEnv
-                     }).
+sc(Type, Meta) -> Meta#{type => Type}.
 
 ref(Field) ->
     hoconsc:ref(?MODULE, Field).

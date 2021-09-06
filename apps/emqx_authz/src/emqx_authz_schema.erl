@@ -13,11 +13,16 @@
 -type permission() :: allow | deny.
 -type url() :: emqx_http_lib:uri_map().
 
--export([ roots/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         ]).
 
-roots() -> ["authorization"].
+namespace() -> authz.
+
+%% @doc authorization schema is not exported
+%% but directly used by emqx_schema
+roots() -> [].
 
 fields("authorization") ->
     [ {sources, #{type => union_array(

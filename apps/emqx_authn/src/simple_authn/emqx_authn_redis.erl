@@ -23,7 +23,10 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ fields/1 ]).
+-export([ namespace/0
+        , roots/0
+        , fields/1
+        ]).
 
 -export([ refs/0
         , create/1
@@ -35,6 +38,15 @@
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
+
+namespace() -> "authn:password-based:redis".
+
+roots() ->
+    [ {config, {union, [ hoconsc:mk(standalone)
+                       , hoconsc:mk(cluster)
+                       , hoconsc:mk(sentinel)
+                       ]}}
+    ].
 
 fields(standalone) ->
     common_fields() ++ emqx_connector_redis:fields(single);

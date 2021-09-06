@@ -20,8 +20,11 @@
 
 -behaviour(hocon_schema).
 
--export([ roots/0
+-export([ namespace/0
+        , roots/0
         , fields/1]).
+
+namespace() -> modules.
 
 roots() ->
     ["delayed",
@@ -33,32 +36,34 @@ roots() ->
 
 fields(Name) when Name =:= "recon";
                   Name =:= "telemetry" ->
-    [ {enable, emqx_schema:t(boolean(), undefined, false)}
+    [ {enable, hoconsc:mk(boolean(), #{default => false})}
     ];
 
 fields("delayed") ->
-    [ {enable, emqx_schema:t(boolean(), undefined, false)}
-    , {max_delayed_messages, emqx_schema:t(integer())}
+    [ {enable, hoconsc:mk(boolean(), #{default => false})}
+    , {max_delayed_messages, sc(integer(), #{})}
     ];
 
 fields("rewrite") ->
     [ {action, hoconsc:enum([publish, subscribe])}
-    , {source_topic, emqx_schema:t(binary())}
-    , {re, emqx_schema:t(binary())}
-    , {dest_topic, emqx_schema:t(binary())}
+    , {source_topic, sc(binary(), #{})}
+    , {re, sc(binary(), #{})}
+    , {dest_topic, sc(binary(), #{})}
     ];
 
 fields("event_message") ->
-    [ {"$event/client_connected", emqx_schema:t(boolean(), undefined, false)}
-    , {"$event/client_disconnected", emqx_schema:t(boolean(), undefined, false)}
-    , {"$event/client_subscribed", emqx_schema:t(boolean(), undefined, false)}
-    , {"$event/client_unsubscribed", emqx_schema:t(boolean(), undefined, false)}
-    , {"$event/message_delivered", emqx_schema:t(boolean(), undefined, false)}
-    , {"$event/message_acked", emqx_schema:t(boolean(), undefined, false)}
-    , {"$event/message_dropped", emqx_schema:t(boolean(), undefined, false)}
+    [ {"$event/client_connected", sc(boolean(), #{default => false})}
+    , {"$event/client_disconnected", sc(boolean(), #{default => false})}
+    , {"$event/client_subscribed", sc(boolean(), #{default => false})}
+    , {"$event/client_unsubscribed", sc(boolean(), #{default => false})}
+    , {"$event/message_delivered", sc(boolean(), #{default => false})}
+    , {"$event/message_acked", sc(boolean(), #{default => false})}
+    , {"$event/message_dropped", sc(boolean(), #{default => false})}
     ];
 
 fields("topic_metrics") ->
-    [{topic, emqx_schema:t(binary())}].
+    [{topic, sc(binary(), #{})}].
 
-array(Name) -> {Name, hoconsc:array(hoconsc:ref(Name))}.
+array(Name) -> {Name, hoconsc:array(hoconsc:ref(?MODULE, Name))}.
+
+sc(Type, Meta) -> hoconsc:mk(Type, Meta).

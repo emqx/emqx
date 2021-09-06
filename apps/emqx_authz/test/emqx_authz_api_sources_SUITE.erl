@@ -178,16 +178,11 @@ t_api(_) ->
     {ok, 200, Result1} = request(get, uri(["authorization", "sources"]), []),
     ?assertEqual([], get_sources(Result1)),
 
-    lists:foreach(fun(_) ->
-                        {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE1)
-                  end, lists:seq(1, 20)),
+    {ok, 204, _} = request(put, uri(["authorization", "sources"]), [?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
+    {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE1),
+
     {ok, 200, Result2} = request(get, uri(["authorization", "sources"]), []),
-    ?assertEqual(20, length(get_sources(Result2))),
-
-    {ok, 204, _} = request(put, uri(["authorization", "sources"]), [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
-
-    {ok, 200, Result3} = request(get, uri(["authorization", "sources"]), []),
-    Sources = get_sources(Result3),
+    Sources = get_sources(Result2),
     ?assertMatch([ #{<<"type">> := <<"http">>}
                  , #{<<"type">> := <<"mongo">>}
                  , #{<<"type">> := <<"mysql">>}
@@ -198,8 +193,8 @@ t_api(_) ->
     ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "authorization_rules.conf"]))),
 
     {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]),  ?SOURCE1#{<<"enable">> := false}),
-    {ok, 200, Result4} = request(get, uri(["authorization", "sources", "http"]), []),
-    ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result4)),
+    {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http"]), []),
+    ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result3)),
 
     {ok, 204, _} = request(put, uri(["authorization", "sources", "mongo"]),
                            ?SOURCE2#{<<"ssl">> := #{
@@ -209,7 +204,7 @@ t_api(_) ->
                                          <<"keyfile">> => <<"fake key file">>,
                                          <<"verify">> => false
                                         }}),
-    {ok, 200, Result5} = request(get, uri(["authorization", "sources", "mongo"]), []),
+    {ok, 200, Result4} = request(get, uri(["authorization", "sources", "mongo"]), []),
     ?assertMatch(#{<<"type">> := <<"mongo">>,
                    <<"ssl">> := #{<<"enable">> := true,
                                   <<"cacertfile">> := <<"fake cacert file">>,
@@ -217,7 +212,7 @@ t_api(_) ->
                                   <<"keyfile">> := <<"fake key file">>,
                                   <<"verify">> := false
                                  }
-                  }, jsx:decode(Result5)),
+                  }, jsx:decode(Result4)),
     ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "cacert-fake.pem"]))),
     ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "cert-fake.pem"]))),
     ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "key-fake.pem"]))),
@@ -225,8 +220,8 @@ t_api(_) ->
     lists:foreach(fun(#{<<"type">> := Type}) ->
                     {ok, 204, _} = request(delete, uri(["authorization", "sources", binary_to_list(Type)]), [])
                   end, Sources),
-    {ok, 200, Result6} = request(get, uri(["authorization", "sources"]), []),
-    ?assertEqual([], get_sources(Result6)),
+    {ok, 200, Result5} = request(get, uri(["authorization", "sources"]), []),
+    ?assertEqual([], get_sources(Result5)),
     ok.
 
 t_move_source(_) ->

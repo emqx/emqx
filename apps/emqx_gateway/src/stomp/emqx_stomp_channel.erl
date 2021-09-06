@@ -39,7 +39,7 @@
         , set_conn_state/2
         ]).
 
--export([ handle_call/2
+-export([ handle_call/3
         , handle_cast/2
         , handle_info/2
         ]).
@@ -586,10 +586,10 @@ do_subscribe([{ParsedTopic, SubOpts0}|More],
 %%--------------------------------------------------------------------
 
 -spec(handle_out(atom(), term(), channel())
-      -> {ok, channel()}
-       | {ok, replies(), channel()}
-       | {shutdown, Reason :: term(), channel()}
-       | {shutdown, Reason :: term(), replies(), channel()}).
+    -> {ok, channel()}
+     | {ok, replies(), channel()}
+     | {shutdown, Reason :: term(), channel()}
+     | {shutdown, Reason :: term(), replies(), channel()}).
 
 handle_out(connerr, {Headers, ReceiptId, ErrMsg}, Channel) ->
     Frame = error_frame(Headers, ReceiptId, ErrMsg),
@@ -620,11 +620,12 @@ handle_out(receipt, ReceiptId, Channel) ->
 %% Handle call
 %%--------------------------------------------------------------------
 
--spec(handle_call(Req :: term(), channel())
-      -> {reply, Reply :: term(), channel()}
-       | {shutdown, Reason :: term(), Reply :: term(), channel()}
-       | {shutdown, Reason :: term(), Reply :: term(), stomp_frame(), channel()}).
-handle_call({subscribe, Topic, SubOpts},
+-spec(handle_call(Req :: term(), From :: term(), channel())
+    -> {reply, Reply :: term(), channel()}
+     | {reply, Reply :: term(), replies(), channel()}
+     | {shutdown, Reason :: term(), Reply :: term(), channel()}
+     | {shutdown, Reason :: term(), Reply :: term(), stomp_frame(), channel()}).
+handle_call({subscribe, Topic, SubOpts}, _From,
             Channel = #channel{
                          subscriptions = Subs
                         }) ->
@@ -653,7 +654,7 @@ handle_call({subscribe, Topic, SubOpts},
             end
     end;
 
-handle_call({unsubscribe, Topic},
+handle_call({unsubscribe, Topic}, _From,
             Channel = #channel{
                          ctx = Ctx,
                          clientinfo = ClientInfo = #{mountpoint := Mountpoint},
@@ -670,27 +671,27 @@ handle_call({unsubscribe, Topic},
          );
 
 %% Reply :: [{emqx_types:topic(), emqx_types:subopts()}]
-handle_call(subscriptions, Channel = #channel{subscriptions = Subs}) ->
+handle_call(subscriptions, _From, Channel = #channel{subscriptions = Subs}) ->
     Reply = lists:map(
               fun({_SubId, Topic, _Ack, SubOpts}) ->
                 {Topic, SubOpts}
               end, Subs),
     reply(Reply, Channel);
 
-handle_call(kick, Channel) ->
+handle_call(kick, _From, Channel) ->
     NChannel = ensure_disconnected(kicked, Channel),
     Frame = error_frame(undefined, <<"Kicked out">>),
     shutdown_and_reply(kicked, ok, Frame, NChannel);
 
-handle_call(discard, Channel) ->
+handle_call(discard, _From, Channel) ->
     Frame = error_frame(undefined, <<"Discarded">>),
     shutdown_and_reply(discarded, ok, Frame, Channel);
 
 %% XXX: No Session Takeover
-%handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
+%handle_call({takeover, 'begin'}, _From, Channel = #channel{session = Session}) ->
 %    reply(Session, Channel#channel{takeover = true});
 %
-%handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
+%handle_call({takeover, 'end'}, _From, Channel = #channel{session  = Session,
 %                                                  pendings = Pendings}) ->
 %    ok = emqx_session:takeover(Session),
 %    %% TODO: Should not drain deliver here (side effect)
@@ -698,7 +699,7 @@ handle_call(discard, Channel) ->
 %    AllPendings = lists:append(Delivers, Pendings),
 %    shutdown_and_reply(takeovered, AllPendings, Channel);
 
-handle_call(list_authz_cache, Channel) ->
+handle_call(list_authz_cache, _From, Channel) ->
     %% This won't work
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
 
@@ -708,10 +709,9 @@ handle_call(list_authz_cache, Channel) ->
 %     Quota = emqx_limiter:init(Zone, Policy),
 %     reply(ok, Channel#channel{quota = Quota});
 
-handle_call(Req, Channel) ->
+handle_call(Req, _From, Channel) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     reply(ignored, Channel).
-
 
 %%--------------------------------------------------------------------
 %% Handle cast

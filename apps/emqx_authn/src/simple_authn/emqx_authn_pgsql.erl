@@ -24,7 +24,10 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ fields/1 ]).
+-export([ namespace/0
+        , roots/0
+        , fields/1
+        ]).
 
 -export([ refs/0
         , create/1
@@ -36,6 +39,10 @@
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
+
+namespace() -> "authn:password-based:postgresql".
+
+roots() -> [config].
 
 fields(config) ->
     [ {mechanism,               {enum, ['password-based']}}

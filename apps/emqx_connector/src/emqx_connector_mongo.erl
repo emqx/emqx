@@ -83,9 +83,7 @@ mongo_fields() ->
                       nullable => true}}
     , {database, fun emqx_connector_schema_lib:database/1}
     , {topology, #{type => hoconsc:ref(?MODULE, topology),
-                   default => #{}}}
-                   %% TODO: Does the ref type support nullable=ture ?
-                   % nullable => true}}
+                   nullable => true}}
     ] ++
     emqx_connector_schema_lib:ssl_fields().
 
@@ -178,7 +176,7 @@ do_start(InstId, Opts0, Config = #{mongo_type := Type,
                       ];
                   false -> [{ssl, false}]
               end,
-    Topology= maps:get(topology, Config, #{}), 
+    Topology= maps:get(topology, Config, #{}),
     Opts = Opts0 ++
            [{pool_size, PoolSize},
             {options, init_topology_options(maps:to_list(Topology), [])},

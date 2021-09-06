@@ -20,55 +20,60 @@
 
 -behaviour(hocon_schema).
 
--export([ roots/0
+-export([ namespace/0
+        , roots/0
         , fields/1]).
+
+namespace() -> "bridge_mqtt".
 
 roots() -> [array("bridge_mqtt")].
 
-array(Name) -> {Name, hoconsc:array(hoconsc:ref(Name))}.
+array(Name) -> {Name, hoconsc:array(hoconsc:ref(?MODULE, Name))}.
 
 fields("bridge_mqtt") ->
-    [ {name, emqx_schema:t(string(), undefined, true)}
+    [ {name, sc(string(), #{default => true})}
     , {start_type, fun start_type/1}
     , {forwards, fun forwards/1}
-    , {forward_mountpoint, emqx_schema:t(string())}
-    , {reconnect_interval, emqx_schema:t(emqx_schema:duration_ms(), undefined, "30s")}
-    , {batch_size, emqx_schema:t(integer(), undefined, 100)}
-    , {queue, emqx_schema:t(hoconsc:ref(?MODULE, "queue"))}
-    , {config, hoconsc:union([hoconsc:ref(?MODULE, "mqtt"), hoconsc:ref(?MODULE, "rpc")])}
+    , {forward_mountpoint, sc(string(), #{})}
+    , {reconnect_interval, sc(emqx_schema:duration_ms(), #{default => "30s"})}
+    , {batch_size, sc(integer(), #{default => 100})}
+    , {queue, sc(hoconsc:ref(?MODULE, "queue"), #{})}
+    , {config, sc(hoconsc:union([hoconsc:ref(?MODULE, "mqtt"),
+                                 hoconsc:ref(?MODULE, "rpc")]),
+                  #{})}
     ];
 
 fields("mqtt") ->
     [ {conn_type, fun conn_type/1}
-    , {address, emqx_schema:t(string(), undefined, "127.0.0.1:1883")}
+    , {address, sc(string(), #{default => "127.0.0.1:1883"})}
     , {proto_ver, fun proto_ver/1}
-    , {bridge_mode, emqx_schema:t(boolean(), undefined, true)}
-    , {clientid, emqx_schema:t(string())}
-    , {username, emqx_schema:t(string())}
-    , {password, emqx_schema:t(string())}
-    , {clean_start, emqx_schema:t(boolean(), undefined, true)}
-    , {keepalive, emqx_schema:t(integer(), undefined, 300)}
-    , {subscriptions, hoconsc:array("subscriptions")}
-    , {receive_mountpoint, emqx_schema:t(string())}
-    , {retry_interval, emqx_schema:t(emqx_schema:duration_ms(), undefined, "30s")}
-    , {max_inflight, emqx_schema:t(integer(), undefined, 32)}
+    , {bridge_mode, sc(boolean(), #{default => true})}
+    , {clientid, sc(string(), #{})}
+    , {username, sc(string(), #{})}
+    , {password, sc(string(), #{})}
+    , {clean_start, sc(boolean(), #{default => true})}
+    , {keepalive, sc(integer(), #{default => 300})}
+    , {subscriptions, sc(hoconsc:array(hoconsc:ref(?MODULE, "subscriptions")), #{})}
+    , {receive_mountpoint, sc(string(), #{})}
+    , {retry_interval, sc(emqx_schema:duration_ms(), #{default => "30s"})}
+    , {max_inflight, sc(integer(), #{default => 32})}
     ];
 
 fields("rpc") ->
     [ {conn_type, fun conn_type/1}
-    , {node, emqx_schema:t(atom(), undefined, 'emqx@127.0.0.1')}
+    , {node, sc(atom(), #{default => 'emqx@127.0.0.1'})}
     ];
 
 fields("subscriptions") ->
     [ {topic, #{type => binary(), nullable => false}}
-    , {qos, emqx_schema:t(integer(), undefined, 1)}
+    , {qos, sc(integer(), #{default => 1})}
     ];
 
 fields("queue") ->
     [ {replayq_dir, hoconsc:union([boolean(), string()])}
-    , {replayq_seg_bytes, emqx_schema:t(emqx_schema:bytesize(), undefined, "100MB")}
-    , {replayq_offload_mode, emqx_schema:t(boolean(), undefined, false)}
-    , {replayq_max_total_bytes, emqx_schema:t(emqx_schema:bytesize(), undefined, "1024MB")}
+    , {replayq_seg_bytes, sc(emqx_schema:bytesize(), #{default => "100MB"})}
+    , {replayq_offload_mode, sc(boolean(), #{default => false})}
+    , {replayq_max_total_bytes, sc(emqx_schema:bytesize(), #{default => "1024MB"})}
     ].
 
 conn_type(type) -> hoconsc:enum([mqtt, rpc]);
@@ -85,3 +90,5 @@ start_type(_) -> undefined.
 forwards(type) -> hoconsc:array(binary());
 forwards(default) -> [];
 forwards(_) -> undefined.
+
+sc(Type, Meta) -> hoconsc:mk(Type, Meta).

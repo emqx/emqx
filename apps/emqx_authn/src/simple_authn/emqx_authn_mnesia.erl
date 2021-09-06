@@ -22,7 +22,10 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ fields/1 ]).
+-export([ namespace/0
+        , roots/0
+        , fields/1
+        ]).
 
 -export([ refs/0
         , create/1
@@ -81,6 +84,10 @@ mnesia(copy) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
+namespace() -> "authn:password-based:builtin-db".
+
+roots() -> [config].
+
 fields(config) ->
     [ {mechanism,               {enum, ['password-based']}}
     , {backend,                 {enum, ['built-in-database']}}
@@ -101,7 +108,8 @@ user_id_type(type) -> user_id_type();
 user_id_type(default) -> username;
 user_id_type(_) -> undefined.
 
-password_hash_algorithm(type) -> {union, [hoconsc:ref(bcrypt), hoconsc:ref(other_algorithms)]};
+password_hash_algorithm(type) -> hoconsc:union([hoconsc:ref(?MODULE, bcrypt),
+                                                hoconsc:ref(?MODULE, other_algorithms)]);
 password_hash_algorithm(default) -> #{<<"name">> => sha256};
 password_hash_algorithm(_) -> undefined.
 

@@ -6,15 +6,18 @@
 
 -export([to_ip_port/1]).
 
--export([ roots/0
+-export([ namespace/0
+        , roots/0
         , fields/1]).
 
 -typerefl_from_string({ip_port/0, emqx_statsd_schema, to_ip_port}).
 
+namespace() -> "statsd".
+
 roots() -> ["statsd"].
 
 fields("statsd") ->
-    [ {enable, emqx_schema:t(boolean(), undefined, false)}
+    [ {enable, hoconsc:mk(boolean(), #{default => false})}
     , {server, fun server/1}
     , {sample_time_interval, fun duration_ms/1}
     , {flush_time_interval,  fun duration_ms/1}
