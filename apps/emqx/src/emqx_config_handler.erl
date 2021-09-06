@@ -138,6 +138,8 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+deep_put_handler([], Handlers, Mod) when is_map(Handlers) ->
+    {ok, Handlers#{?MOD => Mod}};
 deep_put_handler([], _Handlers, Mod) ->
     {ok, #{?MOD => Mod}};
 deep_put_handler([?WKEY | KeyPath], Handlers, Mod) ->

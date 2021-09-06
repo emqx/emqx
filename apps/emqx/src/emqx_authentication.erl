@@ -382,8 +382,8 @@ init(_Opts) ->
     _ = ets:new(?CHAINS_TAB, [ named_table, set, public
                              , {keypos, #chain.name}
                              , {read_concurrency, true}]),
-    emqx_config_handler:add_handler([authentication], ?MODULE),
-    % emqx_config_handler:add_handler([listeners, '$name', '$name', authentication], ?MODULE),
+    ok = emqx_config_handler:add_handler([authentication], ?MODULE),
+    ok = emqx_config_handler:add_handler([listeners, '?', '?', authentication], ?MODULE),
     {ok, #{hooked => false, providers => #{}}}.
 
 handle_call({add_provider, AuthNType, Provider}, _From, #{providers := Providers} = State) ->
@@ -543,6 +543,7 @@ handle_info(Info, State) ->
 
 terminate(_Reason, _State) ->
     emqx_config_handler:remove_handler([authentication]),
+    emqx_config_handler:remove_handler([listeners, '?', '?', authentication]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -717,6 +718,8 @@ may_to_map([L]) ->
 may_to_map(L) ->
     L.
 
+to_list(undefined) ->
+    [];
 to_list(M) when M =:= #{} ->
     [];
 to_list(M) when is_map(M) ->
