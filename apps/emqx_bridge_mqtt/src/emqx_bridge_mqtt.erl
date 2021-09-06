@@ -50,15 +50,11 @@
 
 start(Config) ->
     Parent = self(),
-    Address = maps:get(address, Config),
+    {Host, Port} = maps:get(server, Config),
     Mountpoint = maps:get(receive_mountpoint, Config, undefined),
     Subscriptions = maps:get(subscriptions, Config, []),
     Subscriptions1 = check_subscriptions(Subscriptions),
     Handlers = make_hdlr(Parent, Mountpoint),
-    {Host, Port} = case string:tokens(Address, ":") of
-                       [H] -> {H, 1883};
-                       [H, P] -> {H, list_to_integer(P)}
-                   end,
     Config1 = Config#{
         msg_handler => Handlers,
         host => Host,
