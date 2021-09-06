@@ -45,7 +45,7 @@
     [ {<<"node">>, atom}
     , {<<"username">>, binary}
     , {<<"zone">>, atom}
-    , {<<"ip_address">>, binary}
+    , {<<"ip_address">>, ip_port}
     , {<<"conn_state">>, atom}
     , {<<"clean_start">>, atom}
     , {<<"proto_name">>, binary}
@@ -419,8 +419,7 @@ subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
 %%%==============================================================================================
 %% api apply
 
-list(Params0) ->
-    Params = generate_query_params(Params0),
+list(Params) ->
     {Tab, QuerySchema} = ?CLIENT_QS_SCHEMA,
     case maps:get(<<"node">>, Params, undefined) of
         undefined ->
@@ -523,14 +522,6 @@ do_unsubscribe(ClientID, Topic) ->
     end.
 %%--------------------------------------------------------------------
 %% Query Functions
-
-generate_query_params(Params) ->
-    maps:fold(fun generate_query_params/3, Params, Params).
-
-generate_query_params(<<"ip_address">>, IPAddress, Params) ->
-    maps:put(<<"ip_address">>, binary_to_peer(IPAddress), Params);
-generate_query_params(_K, _V, Params) ->
-    Params.
 
 query(Tab, {Qs, []}, Start, Limit) ->
     Ms = qs2ms(Qs),
@@ -664,12 +655,6 @@ format_channel_info({_, ClientInfo, ClientStats}) ->
         , upgrade_qos
     ],
     maps:without(RemoveList, ClientInfoMap).
-
-binary_to_peer(IPAddress) ->
-    [IP0, Port0] = string:tokens(binary_to_list(IPAddress), ":"),
-    {ok, IP} = inet:parse_address(IP0),
-    Port = list_to_integer(Port0),
-    {IP, Port}.
 
 peer_to_binary({Addr, Port}) ->
     AddrBinary = list_to_binary(inet:ntoa(Addr)),
