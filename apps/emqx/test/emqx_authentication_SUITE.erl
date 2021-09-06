@@ -24,8 +24,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
-
-% -include("emqx_authn.hrl").
+-include_lib("typerefl/include/types.hrl").
 
 -export([ fields/1 ]).
 
@@ -45,12 +44,18 @@
 fields(type1) ->
     [ {mechanism,               {enum, ['password-based']}}
     , {backend,                 {enum, ['built-in-database']}}
+    , {enable,                  fun enable/1}
     ];
 
 fields(type2) ->
     [ {mechanism,               {enum, ['password-based']}}
     , {backend,                 {enum, ['mysql']}}
+    , {enable,                  fun enable/1}
     ].
+
+enable(type) -> boolean();
+enable(default) -> true;
+enable(_) -> undefined.
 
 %%------------------------------------------------------------------------------
 %% Callbacks
@@ -102,7 +107,8 @@ t_chain(_) ->
 t_authenticator(_) ->
     ChainName = <<"test">>,
     AuthenticatorConfig1 = #{mechanism => 'password-based',
-                             backend => 'built-in-database'},
+                             backend => 'built-in-database',
+                             enable => true},
 
     % Create an authenticator when the authentication chain does not exist
     ?assertEqual({error, {not_found, {chain, ChainName}}}, ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
@@ -129,7 +135,8 @@ t_authenticator(_) ->
     ?AUTHN:add_provider(AuthNType2, ?MODULE),
     ID2 = <<"password-based:mysql">>,
     AuthenticatorConfig2 = #{mechanism => 'password-based',
-                             backend => mysql},
+                             backend => mysql,
+                             enable => true},
     ?assertMatch({ok, #{id := ID1}}, ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
     ?assertMatch({ok, #{id := ID2}}, ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig2)),
 
@@ -160,7 +167,8 @@ t_authenticate(_) ->
     ?AUTHN:add_provider(AuthNType, ?MODULE),
 
     AuthenticatorConfig = #{mechanism => 'password-based',
-                            backend => 'built-in-database'},
+                            backend => 'built-in-database',
+                            enable => true},
     ?AUTHN:create_chain(ListenerID),
     ?assertMatch({ok, _}, ?AUTHN:create_authenticator(ListenerID, AuthenticatorConfig)),
     ?assertEqual({ok, #{superuser => true}}, emqx_access_control:authenticate(ClientInfo)),
@@ -180,9 +188,11 @@ t_update_config(_) ->
 
     Global = <<"mqtt:global">>,
     AuthenticatorConfig1 = #{mechanism => 'password-based',
-                             backend => 'built-in-database'},
+                             backend => 'built-in-database',
+                             enable => true},
     AuthenticatorConfig2 = #{mechanism => 'password-based',
-                             backend => mysql},
+                             backend => mysql,
+                             enable => true},
     ID1 = <<"password-based:built-in-database">>,
     ID2 = <<"password-based:mysql">>,
     
