@@ -5,7 +5,7 @@ on:
     tags:
       - e*
       - v*
-    pull_request:
+  pull_request:
 
 jobs:
   build:
@@ -36,6 +36,9 @@ jobs:
         script_name:
           - api_metrics
           - api_subscriptions
+          - api_routes
+          - api_publish
+          - api_api_clients
     steps:
     - uses: actions/checkout@v2
       with:
