@@ -289,6 +289,7 @@ to_type_(V, atom) -> to_atom(V);
 to_type_(V, integer) -> to_integer(V);
 to_type_(V, timestamp) -> to_timestamp(V);
 to_type_(V, ip) -> aton(V);
+to_type_(V, ip_port) -> to_ip_port(V);
 to_type_(V, _) -> V.
 
 to_atom(A) when is_atom(A) ->
@@ -308,6 +309,12 @@ to_timestamp(B) when is_binary(B) ->
 
 aton(B) when is_binary(B) ->
     list_to_tuple([binary_to_integer(T) || T <- re:split(B, "[.]")]).
+
+to_ip_port(IPAddress) ->
+    [IP0, Port0] = string:tokens(binary_to_list(IPAddress), ":"),
+    {ok, IP} = inet:parse_address(IP0),
+    Port = list_to_integer(Port0),
+    {IP, Port}.
 
 %%--------------------------------------------------------------------
 %% EUnits

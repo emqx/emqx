@@ -45,7 +45,7 @@
     [ {<<"node">>, atom}
     , {<<"username">>, binary}
     , {<<"zone">>, atom}
-    , {<<"ip_address">>, ip}
+    , {<<"ip_address">>, ip_port}
     , {<<"conn_state">>, atom}
     , {<<"clean_start">>, atom}
     , {<<"proto_name">>, binary}
@@ -566,10 +566,10 @@ ms(username, X) ->
     #{clientinfo => #{username => X}};
 ms(zone, X) ->
     #{clientinfo => #{zone => X}};
-ms(ip_address, X) ->
-    #{clientinfo => #{peerhost => X}};
 ms(conn_state, X) ->
     #{conn_state => X};
+ms(ip_address, X) ->
+    #{conninfo => #{peername => X}};
 ms(clean_start, X) ->
     #{conninfo => #{clean_start => X}};
 ms(proto_name, X) ->
