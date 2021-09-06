@@ -45,7 +45,7 @@
     [ {<<"node">>, atom}
     , {<<"username">>, binary}
     , {<<"zone">>, atom}
-    , {<<"ip_address">>, ip}
+    , {<<"ip_address">>, binary}
     , {<<"conn_state">>, atom}
     , {<<"clean_start">>, atom}
     , {<<"proto_name">>, binary}
@@ -419,7 +419,8 @@ subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
 %%%==============================================================================================
 %% api apply
 
-list(Params) ->
+list(Params0) ->
+    Params = generate_query_params(Params0),
     {Tab, QuerySchema} = ?CLIENT_QS_SCHEMA,
     case maps:get(<<"node">>, Params, undefined) of
         undefined ->
@@ -523,6 +524,14 @@ do_unsubscribe(ClientID, Topic) ->
 %%--------------------------------------------------------------------
 %% Query Functions
 
+generate_query_params(Params) ->
+    maps:fold(fun generate_query_params/3, Params, Params).
+
+generate_query_params(<<"ip_address">>, IPAddress, Params) ->
+    maps:put(<<"ip_address">>, binary_to_peer(IPAddress), Params);
+generate_query_params(_K, _V, Params) ->
+    Params.
+
 query(Tab, {Qs, []}, Start, Limit) ->
     Ms = qs2ms(Qs),
     emqx_mgmt_api:select_table(Tab, Ms, Start, Limit,
@@ -566,10 +575,10 @@ ms(username, X) ->
     #{clientinfo => #{username => X}};
 ms(zone, X) ->
     #{clientinfo => #{zone => X}};
-ms(ip_address, X) ->
-    #{clientinfo => #{peerhost => X}};
 ms(conn_state, X) ->
     #{conn_state => X};
+ms(ip_address, X) ->
+    #{conninfo => #{peername => X}};
 ms(clean_start, X) ->
     #{conninfo => #{clean_start => X}};
 ms(proto_name, X) ->
@@ -655,6 +664,12 @@ format_channel_info({_, ClientInfo, ClientStats}) ->
         , upgrade_qos
     ],
     maps:without(RemoveList, ClientInfoMap).
+
+binary_to_peer(IPAddress) ->
+    [IP0, Port0] = string:tokens(binary_to_list(IPAddress), ":"),
+    {ok, IP} = inet:parse_address(IP0),
+    Port = list_to_integer(Port0),
+    {IP, Port}.
 
 peer_to_binary({Addr, Port}) ->
     AddrBinary = list_to_binary(inet:ntoa(Addr)),
