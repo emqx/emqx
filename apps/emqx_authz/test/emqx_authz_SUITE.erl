@@ -111,7 +111,7 @@ init_per_testcase(_, Config) ->
                   }).
 -define(SOURCE6, #{<<"type">> => <<"file">>,
                    <<"enable">> => true,
-                   <<"path">> => emqx_ct_helpers:deps_path(emqx_authz, "etc/authorization_rules.conf")
+                   <<"path">> => emqx_ct_helpers:deps_path(emqx_authz, "etc/acl.conf")
                   }).
 
 

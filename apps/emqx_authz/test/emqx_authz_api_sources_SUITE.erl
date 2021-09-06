@@ -190,7 +190,7 @@ t_api(_) ->
                  , #{<<"type">> := <<"redis">>}
                  , #{<<"type">> := <<"file">>}
                  ], Sources),
-    ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "authorization_rules.conf"]))),
+    ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]))),
 
     {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]),  ?SOURCE1#{<<"enable">> := false}),
     {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http"]), []),

@@ -330,7 +330,7 @@ sources(get, _) ->
                         end, [], emqx_authz:lookup()),
     {200, #{sources => Sources}};
 sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) when is_list(Rules) ->
-    {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "authorization_rules.conf"]),
+    {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]),
                                 erlang:list_to_bitstring([<<Rule/binary, "\n">> || Rule <- Rules])
                                ),
     case emqx_authz:update(head, [#{type => file, enable => Enable, path => Filename}]) of
@@ -350,7 +350,7 @@ sources(put, #{body := Body}) when is_list(Body) ->
     NBody = [ begin
                 case Source of
                     #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable} ->
-                        {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "authorization_rules.conf"]),
+                        {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]),
                                                     erlang:list_to_bitstring([<<Rule/binary, "\n">> || Rule <- Rules])
                                                    ),
                         #{type => file, enable => Enable, path => Filename};
