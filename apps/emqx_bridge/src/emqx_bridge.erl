@@ -45,7 +45,8 @@ bridge_type(emqx_connector_redis) -> redis;
 bridge_type(emqx_connector_ldap) -> ldap.
 
 name_to_resource_id(BridgeName) ->
-    <<"bridge:", BridgeName/binary>>.
+    Name = bin(BridgeName),
+    <<"bridge:", Name/binary>>.
 
 resource_id_to_name(<<"bridge:", BridgeName/binary>> = _ResourceId) ->
     BridgeName.
@@ -63,3 +64,7 @@ config_key_path() ->
 
 update_config(ConfigReq) ->
     emqx:update_config(config_key_path(), ConfigReq).
+
+bin(Bin) when is_binary(Bin) -> Bin;
+bin(Str) when is_list(Str) -> list_to_binary(Str);
+bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).

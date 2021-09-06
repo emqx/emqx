@@ -45,8 +45,7 @@ init([]) ->
     {ok, {SupFlag, []}}.
 
 bridge_spec(Config) ->
-    Name = list_to_atom(maps:get(name, Config)),
-    #{id => Name,
+    #{id => maps:get(name, Config),
       start => {emqx_bridge_worker, start_link, [Config]},
       restart => permanent,
       shutdown => 5000,

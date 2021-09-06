@@ -65,8 +65,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%============================================================================
 load_bridges(Configs) ->
-    lists:foreach(fun(Type, NamedConf) ->
-            lists:foreach(fun(Name, Conf) ->
+    lists:foreach(fun({Type, NamedConf}) ->
+            lists:foreach(fun({Name, Conf}) ->
                     load_bridge(Name, Type, Conf)
                 end, maps:to_list(NamedConf))
         end, maps:to_list(Configs)).

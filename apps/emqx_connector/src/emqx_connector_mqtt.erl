@@ -36,7 +36,7 @@ roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, "config")}}].
 
 fields("config") ->
-    [ {server, emqx_schema:t(string(), undefined, "127.0.0.1:1883")}
+    [ {server, emqx_schema:t(emqx_schema:ip_port(), undefined, "127.0.0.1:1883")}
     , {reconnect_interval, emqx_schema:t(emqx_schema:duration_ms(), undefined, "30s")}
     , {proto_ver, fun proto_ver/1}
     , {bridge_mode, emqx_schema:t(boolean(), undefined, true)}
@@ -48,8 +48,8 @@ fields("config") ->
     , {retry_interval, emqx_schema:t(emqx_schema:duration_ms(), undefined, "30s")}
     , {max_inflight, emqx_schema:t(integer(), undefined, 32)}
     , {replayq, emqx_schema:t(hoconsc:ref(?MODULE, "replayq"))}
-    , {in, hoconsc:array("in")}
-    , {out, hoconsc:array("out")}
+    , {in, hoconsc:array(hoconsc:ref(?MODULE, "in"))}
+    , {out, hoconsc:array(hoconsc:ref(?MODULE, "out"))}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 
 fields("in") ->
@@ -68,7 +68,7 @@ fields("out") ->
 fields("replayq") ->
     [ {dir, hoconsc:union([boolean(), string()])}
     , {seg_bytes, emqx_schema:t(emqx_schema:bytesize(), undefined, "100MB")}
-    , {offload_mode, emqx_schema:t(boolean(), undefined, false)}
+    , {offload, emqx_schema:t(boolean(), undefined, false)}
     , {max_total_bytes, emqx_schema:t(emqx_schema:bytesize(), undefined, "1024MB")}
     ].
 
@@ -93,8 +93,9 @@ on_start(InstId, #{server := Server,
                    out := Out,
                    ssl := #{enable := EnableSsl} = Ssl} = Conf) ->
     logger:info("starting mqtt connector: ~p, ~p", [InstId, Conf]),
+    BridgeName = binary_to_atom(InstId, latin1),
     BridgeConf = Conf#{
-        name => InstId,
+        name => BridgeName,
         config => #{
             conn_type => mqtt,
             subscriptions => In,
@@ -119,9 +120,9 @@ on_start(InstId, #{server := Server,
     },
     case emqx_bridge_mqtt_sup:create_bridge(BridgeConf) of
         {ok, _Pid} ->
-            {ok, #{}};
+            start_bridge(BridgeName);
         {error, {already_started, _Pid}} ->
-            {ok, #{}};
+            start_bridge(BridgeName);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -137,5 +138,11 @@ on_query(InstId, {publish_to_local, Msg}, _AfterQuery, _State) ->
 on_query(InstId, {publish_to_remote, Msg}, _AfterQuery, _State) ->
     logger:debug("publish to remote node, connector: ~p, msg: ~p", [InstId, Msg]).
 
-on_health_check(InstId, #{}) ->
-    emqx_bridge_mqtt_sup:try_ping(InstId).
+on_health_check(_InstId, #{bridge_worker := Worker}) ->
+    {ok, emqx_bridge_worker:ping(Worker)}.
+
+start_bridge(Name) ->
+    case emqx_bridge_worker:ensure_started(Name) of
+        ok -> {ok, #{bridge_name => Name}};
+        {error, Reason} -> {error, Reason}
+    end.

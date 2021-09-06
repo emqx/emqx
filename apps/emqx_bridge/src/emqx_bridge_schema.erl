@@ -8,10 +8,10 @@
 roots() -> ["bridges"].
 
 fields("bridges") ->
-    [{mqtt, hoconsc:ref("mqtt")}];
+    [{mqtt, hoconsc:ref(?MODULE, "mqtt")}];
 
 fields("mqtt") ->
-    [{"?name"}, hoconsc:ref("mqtt_briage")];
+    [{"$name", hoconsc:ref(?MODULE, "mqtt_bridge")}];
 
-fields("mqtt_briage") ->
+fields("mqtt_bridge") ->
     emqx_connector_mqtt:fields("config").
