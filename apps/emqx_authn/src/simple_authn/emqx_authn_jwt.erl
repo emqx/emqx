@@ -19,13 +19,15 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
 -export([ namespace/0
         , roots/0
         , fields/1
         ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -81,12 +83,11 @@ fields(ssl_disable) ->
     [ {enable, #{type => false}} ].
 
 common_fields() ->
-    [ {name,            fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,       {enum, [jwt]}}
+    [ {mechanism,       {enum, [jwt]}}
     , {verify_claims,   fun verify_claims/1}
-    ].
+    ] ++ emqx_authn_schema:common_fields().
 
-secret(type) -> string();
+secret(type) -> binary();
 secret(_) -> undefined.
 
 secret_base64_encoded(type) -> boolean();
@@ -132,6 +133,12 @@ verify_claims(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+refs() ->
+   [ hoconsc:ref(?MODULE, 'hmac-based')
+   , hoconsc:ref(?MODULE, 'public-key')
+   , hoconsc:ref(?MODULE, 'jwks')
+   ].
 
 create(#{verify_claims := VerifyClaims} = Config) ->
     create2(Config#{verify_claims => handle_verify_claims(VerifyClaims)}).

@@ -20,10 +20,15 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
--export([ namespace/0, roots/0, fields/1 ]).
+-export([ namespace/0
+        , roots/0
+        , fields/1
+        ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -79,17 +84,16 @@ mnesia(copy) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn:builtin_db".
+namespace() -> "authn:password-based:builtin-db".
 
 roots() -> [config].
 
 fields(config) ->
-    [ {name,                    fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,               {enum, ['password-based']}}
-    , {server_type,             {enum, ['built-in-database']}}
+    [ {mechanism,               {enum, ['password-based']}}
+    , {backend,                 {enum, ['built-in-database']}}
     , {user_id_type,            fun user_id_type/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
-    ];
+    ] ++ emqx_authn_schema:common_fields();
 
 fields(bcrypt) ->
     [ {name, {enum, [bcrypt]}}
@@ -116,6 +120,9 @@ salt_rounds(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+refs() ->
+   [hoconsc:ref(?MODULE, config)].
 
 create(#{ user_id_type := Type
         , password_hash_algorithm := #{name := bcrypt,

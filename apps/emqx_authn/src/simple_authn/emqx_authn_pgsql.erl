@@ -22,10 +22,15 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
--export([ namespace/0, roots/0, fields/1 ]).
+-export([ namespace/0
+        , roots/0
+        , fields/1
+        ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -35,18 +40,18 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn:postgres".
+namespace() -> "authn:password-based:postgresql".
 
 roots() -> [config].
 
 fields(config) ->
-    [ {name,                    fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,               {enum, ['password-based']}}
-    , {server_type,             {enum, [pgsql]}}
+    [ {mechanism,               {enum, ['password-based']}}
+    , {backend,                 {enum, [postgresql]}}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position,           {enum, [prefix, suffix]}}
     , {query,                   fun query/1}
-    ] ++ emqx_connector_schema_lib:relational_db_fields()
+    ] ++ emqx_authn_schema:common_fields()
+    ++ emqx_connector_schema_lib:relational_db_fields()
     ++ emqx_connector_schema_lib:ssl_fields().
 
 password_hash_algorithm(type) -> {enum, [plain, md5, sha, sha256, sha512, bcrypt]};
@@ -60,6 +65,9 @@ query(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+refs() ->
+    [hoconsc:ref(?MODULE, config)].
 
 create(#{ query := Query0
         , password_hash_algorithm := Algorithm

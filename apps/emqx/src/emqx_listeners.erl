@@ -252,11 +252,15 @@ do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
             {ok, {skipped, quic_app_missing}}
     end.
 
+delete_authentication(Type, ListenerName, _Conf) ->
+    emqx_authentication:delete_chain(atom_to_binary(listener_id(Type, ListenerName))).
+
 %% Update the listeners at runtime
 post_config_update(_Req, NewListeners, OldListeners, _AppEnvs) ->
     #{added := Added, removed := Removed, changed := Updated}
         = diff_listeners(NewListeners, OldListeners),
     perform_listener_changes(fun stop_listener/3, Removed),
+    perform_listener_changes(fun delete_authentication/3, Removed),
     perform_listener_changes(fun start_listener/3, Added),
     perform_listener_changes(fun restart_listener/3, Updated).
 

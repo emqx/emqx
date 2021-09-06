@@ -134,3 +134,19 @@
         }).
 
 -endif.
+
+%%--------------------------------------------------------------------
+%% Authentication
+%%--------------------------------------------------------------------
+
+-record(authenticator,
+        { id :: binary()
+        , provider :: module()
+        , enable :: boolean()
+        , state :: map()
+        }).
+
+-record(chain,
+        { name :: binary()
+        , authenticators :: [#authenticator{}]
+        }).
