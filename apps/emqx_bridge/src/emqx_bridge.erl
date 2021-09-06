@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_data_bridge).
+-module(emqx_bridge).
 
 -export([ load_bridges/0
         , resource_type/1
@@ -27,15 +27,17 @@
         ]).
 
 load_bridges() ->
-    Bridges = emqx:get_config([emqx_data_bridge, bridges], []),
-    emqx_data_bridge_monitor:ensure_all_started(Bridges).
+    Bridges = emqx:get_config([bridges], #{}),
+    emqx_bridge_monitor:ensure_all_started(Bridges).
 
+resource_type(mqtt) -> emqx_connector_mqtt;
 resource_type(mysql) -> emqx_connector_mysql;
 resource_type(pgsql) -> emqx_connector_pgsql;
 resource_type(mongo) -> emqx_connector_mongo;
 resource_type(redis) -> emqx_connector_redis;
 resource_type(ldap) -> emqx_connector_ldap.
 
+bridge_type(emqx_connector_mqtt) -> mqtt;
 bridge_type(emqx_connector_mysql) -> mysql;
 bridge_type(emqx_connector_pgsql) -> pgsql;
 bridge_type(emqx_connector_mongo) -> mongo;
@@ -49,7 +51,7 @@ resource_id_to_name(<<"bridge:", BridgeName/binary>> = _ResourceId) ->
     BridgeName.
 
 list_bridges() ->
-    emqx_resource_api:list_instances(fun emqx_data_bridge:is_bridge/1).
+    emqx_resource_api:list_instances(fun emqx_bridge:is_bridge/1).
 
 is_bridge(#{id := <<"bridge:", _/binary>>}) ->
     true;
@@ -57,7 +59,7 @@ is_bridge(_Data) ->
     false.
 
 config_key_path() ->
-    [emqx_data_bridge, bridges].
+    [emqx_bridge, bridges].
 
 update_config(ConfigReq) ->
     emqx:update_config(config_key_path(), ConfigReq).

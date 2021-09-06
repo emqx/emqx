@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_data_bridge_api).
+-module(emqx_bridge_api).
 
 -rest_api(#{ name => list_data_bridges
            , method => 'GET'
@@ -61,10 +61,10 @@
 
 list_bridges(_Binding, _Params) ->
     {200, #{code => 0, data => [format_api_reply(Data) ||
-        Data <- emqx_data_bridge:list_bridges()]}}.
+        Data <- emqx_bridge:list_bridges()]}}.
 
 get_bridge(#{name := Name}, _Params) ->
-    case emqx_resource:get_instance(emqx_data_bridge:name_to_resource_id(Name)) of
+    case emqx_resource:get_instance(emqx_bridge:name_to_resource_id(Name)) of
         {ok, Data} ->
             {200, #{code => 0, data => format_api_reply(emqx_resource_api:format_data(Data))}};
         {error, not_found} ->
@@ -75,8 +75,8 @@ create_bridge(#{name := Name}, Params) ->
     Config = proplists:get_value(<<"config">>, Params),
     BridgeType = proplists:get_value(<<"type">>, Params),
     case emqx_resource:check_and_create(
-            emqx_data_bridge:name_to_resource_id(Name),
-            emqx_data_bridge:resource_type(atom(BridgeType)), maps:from_list(Config)) of
+            emqx_bridge:name_to_resource_id(Name),
+            emqx_bridge:resource_type(atom(BridgeType)), maps:from_list(Config)) of
         {ok, already_created} ->
             {400, #{code => 102, message => <<"bridge already created: ", Name/binary>>}};
         {ok, Data} ->
@@ -91,8 +91,8 @@ update_bridge(#{name := Name}, Params) ->
     Config = proplists:get_value(<<"config">>, Params),
     BridgeType = proplists:get_value(<<"type">>, Params),
     case emqx_resource:check_and_update(
-            emqx_data_bridge:name_to_resource_id(Name),
-            emqx_data_bridge:resource_type(atom(BridgeType)), maps:from_list(Config), []) of
+            emqx_bridge:name_to_resource_id(Name),
+            emqx_bridge:resource_type(atom(BridgeType)), maps:from_list(Config), []) of
         {ok, Data} ->
             update_config_and_reply(Name, BridgeType, Config, Data);
         {error, not_found} ->
@@ -104,26 +104,26 @@ update_bridge(#{name := Name}, Params) ->
     end.
 
 delete_bridge(#{name := Name}, _Params) ->
-    case emqx_resource:remove(emqx_data_bridge:name_to_resource_id(Name)) of
+    case emqx_resource:remove(emqx_bridge:name_to_resource_id(Name)) of
         ok -> delete_config_and_reply(Name);
         {error, Reason} ->
             {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
     end.
 
 format_api_reply(#{resource_type := Type, id := Id, config := Conf, status := Status}) ->
-    #{type => emqx_data_bridge:bridge_type(Type),
-      name => emqx_data_bridge:resource_id_to_name(Id),
+    #{type => emqx_bridge:bridge_type(Type),
+      name => emqx_bridge:resource_id_to_name(Id),
       config => Conf, status => Status}.
 
 % format_conf(#{resource_type := Type, id := Id, config := Conf}) ->
-%     #{type => Type, name => emqx_data_bridge:resource_id_to_name(Id),
+%     #{type => Type, name => emqx_bridge:resource_id_to_name(Id),
 %       config => Conf}.
 
 % get_all_configs() ->
-%     [format_conf(Data) || Data <- emqx_data_bridge:list_bridges()].
+%     [format_conf(Data) || Data <- emqx_bridge:list_bridges()].
 
 update_config_and_reply(Name, BridgeType, Config, Data) ->
-    case emqx_data_bridge:update_config({update, ?BRIDGE(Name, BridgeType, Config)}) of
+    case emqx_bridge:update_config({update, ?BRIDGE(Name, BridgeType, Config)}) of
         {ok, _} ->
             {200, #{code => 0, data => format_api_reply(
                         emqx_resource_api:format_data(Data))}};
@@ -132,7 +132,7 @@ update_config_and_reply(Name, BridgeType, Config, Data) ->
     end.
 
 delete_config_and_reply(Name) ->
-    case emqx_data_bridge:update_config({delete, Name}) of
+    case emqx_bridge:update_config({delete, Name}) of
         {ok, _} -> {200, #{code => 0, data => #{}}};
         {error, Reason} ->
             {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}

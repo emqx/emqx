@@ -1,4 +1,4 @@
-# emqx_data_bridge
+# emqx_bridge
 
 EMQ X Data Bridge is an application that managing the resources (see emqx_resource) used by emqx
 rule engine.

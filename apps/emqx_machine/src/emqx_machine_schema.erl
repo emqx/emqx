@@ -43,7 +43,7 @@
 %% by nodetool to generate app.<time>.config before EMQ X is started
 -define(MERGED_CONFIGS,
         [ emqx_schema
-        , emqx_data_bridge_schema
+        , emqx_bridge_schema
         , emqx_retainer_schema
         , emqx_statsd_schema
         , emqx_authz_schema
