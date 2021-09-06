@@ -29,13 +29,14 @@
         , reply/2, reply/3, reply/4]).
 
 %%-type result() :: map() | empty.
--define(DEFINE_DEF(Name), Name(Msg) -> Name(Msg, #{})).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 empty() -> #{}.
 
-?DEFINE_DEF(reset).
+reset(Msg) ->
+    reset(Msg, #{}).
 
 reset(Msg, Result) ->
     out(emqx_coap_message:reset(Msg), Result).
@@ -49,7 +50,8 @@ out(Msg, #{out := Outs} = Result) ->
 out(Msg, Result) ->
     Result#{out => [Msg]}.
 
-?DEFINE_DEF(proto_out).
+proto_out(Proto) ->
+    proto_out(Proto, #{}).
 
 proto_out(Proto, Resut) ->
     Resut#{proto => Proto}.

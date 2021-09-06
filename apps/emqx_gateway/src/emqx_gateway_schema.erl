@@ -83,6 +83,7 @@ fields(mqttsn_predefined) ->
 
 fields(coap_structs) ->
     [ {heartbeat, sc(duration(), undefined, <<"30s">>)}
+    , {connection_required, sc(boolean(), undefined, false)}
     , {notify_type, sc(union([non, con, qos]), undefined, qos)}
     , {subscribe_qos, sc(union([qos0, qos1, qos2, coap]), undefined, coap)}
     , {publish_qos, sc(union([qos0, qos1, qos2, coap]), undefined, coap)}

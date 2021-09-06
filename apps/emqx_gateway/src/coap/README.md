@@ -414,21 +414,30 @@ Server will return token **X** in payload
 
 2. Update Connection
 ```
-coap-client -m put -e "" "coap://127.0.0.1/mqtt/connection?clientid=123&username=admin&password=public&token=X"
+coap-client -m put -e "" "coap://127.0.0.1/mqtt/connection?clientid=123&token=X"
 ```
 
 3. Publish
 ```
-coap-client -m post -e "Hellow" "coap://127.0.0.1/ps/coap/test?clientid=123&username=admin&password=public"
+coap-client -m post -e "Hellow" "obstoken" "coap://127.0.0.1/ps/coap/test?clientid=123&username=admin&password=public"
 ```
 if you want to publish with auth, you must first establish a connection, and then post publish request on the same socket, so libcoap client can't simulation publish with a token
+
+```
+coap-client -m post -e "Hellow" "coap://127.0.0.1/ps/coap/test?clientid=123&token=X"
+```
 
 4. Subscribe
 ```
 coap-client -m get -s 60 -O 6,0x00 -o - -T "obstoken" "coap://127.0.0.1/ps/coap/test?clientid=123&username=admin&password=public"
 ```
+**Or**
 
+```
+coap-client -m get -s 60 -O 6,0x00 -o - -T "obstoken" "coap://127.0.0.1/ps/coap/test?clientid=123&token=X"
+```
 5. Close Connection
 ```
-coap-client -m delete -e "" "coap://127.0.0.1/mqtt/connection?clientid=123&username=admin&password=public&token=X"
+coap-client -m delete -e "" "coap://127.0.0.1/mqtt/connection?clientid=123&token=X
 ```
+
