@@ -211,6 +211,33 @@ t_dropped(_) ->
     {Msg, Q2} = ?Q:in(Msg, Q1),
     ?assertEqual(1, ?Q:dropped(Q2)).
 
+t_live_upgrade(_) ->
+    Q = {mqueue,true,1,0,0,none,0,
+                   {queue,[],[],0}},
+    ?assertMatch(#{}, ?Q:info(Q)),
+    ?assertMatch(true, ?Q:is_empty(Q)),
+    ?assertMatch(0, ?Q:len(Q)),
+    ?assertMatch(1, ?Q:max_len(Q)),
+    ?assertMatch({undefined, _}, ?Q:in(#message{qos = 0, topic = <<>>}, Q)),
+    ?assertMatch({empty, _}, ?Q:out(Q)),
+    ?assertMatch([_|_], ?Q:stats(Q)),
+    ?assertMatch(0, ?Q:dropped(Q)).
+
+
+t_live_upgrade2(_) ->
+    Q = {mqueue,false,10,0,0,
+                   #{<<"t">> => 1},
+                   0,
+                   {queue,[],[],0}},
+    ?assertMatch(#{}, ?Q:info(Q)),
+    ?assertMatch(true, ?Q:is_empty(Q)),
+    ?assertMatch(0, ?Q:len(Q)),
+    ?assertMatch(10, ?Q:max_len(Q)),
+    ?assertMatch({_, _}, ?Q:in(#message{qos = 0, topic = <<>>}, Q)),
+    ?assertMatch({empty, _}, ?Q:out(Q)),
+    ?assertMatch([_|_], ?Q:stats(Q)),
+    ?assertMatch(0, ?Q:dropped(Q)).
+
 conservation_prop() ->
     ?FORALL({Priorities, Messages},
             ?LET(Priorities, topic_priorities(),
