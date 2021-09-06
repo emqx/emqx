@@ -39,12 +39,10 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    BridgesConf = emqx:get_config([?APP, bridges], []),
-    BridgeSpec = lists:map(fun bridge_spec/1, BridgesConf),
     SupFlag = #{strategy => one_for_one,
                 intensity => 100,
                 period => 10},
-    {ok, {SupFlag, BridgeSpec}}.
+    {ok, {SupFlag, []}}.
 
 bridge_spec(Config) ->
     Name = list_to_atom(maps:get(name, Config)),
@@ -57,7 +55,8 @@ bridge_spec(Config) ->
 
 -spec(bridges() -> [{node(), map()}]).
 bridges() ->
-    [{Name, emqx_bridge_worker:status(Name)} || {Name, _Pid, _, _} <- supervisor:which_children(?MODULE)].
+    [{Name, emqx_bridge_worker:status(Name)}
+     || {Name, _Pid, _, _} <- supervisor:which_children(?MODULE)].
 
 create_bridge(Config) ->
     supervisor:start_child(?MODULE, bridge_spec(Config)).

@@ -135,12 +135,12 @@
 %% mountpoint: The topic mount point for messages sent to remote node/cluster
 %%      `undefined', `<<>>' or `""' to disable
 %% forwards: Local topics to subscribe.
-%% queue.batch_bytes_limit: Max number of bytes to collect in a batch for each
+%% replayq.batch_bytes_limit: Max number of bytes to collect in a batch for each
 %%      send call towards emqx_bridge_connect
-%% queue.batch_count_limit: Max number of messages to collect in a batch for
+%% replayq.batch_count_limit: Max number of messages to collect in a batch for
 %%      each send call towards emqx_bridge_connect
-%% queue.replayq_dir: Directory where replayq should persist messages
-%% queue.replayq_seg_bytes: Size in bytes for each replayq segment file
+%% replayq.dir: Directory where replayq should persist messages
+%% replayq.seg_bytes: Size in bytes for each replayq segment file
 %%
 %% Find more connection specific configs in the callback modules
 %% of emqx_bridge_connect behaviour.
@@ -208,7 +208,7 @@ init(Opts) ->
     ConnectOpts = maps:get(config, Opts),
     ConnectModule = conn_type(maps:get(conn_type, ConnectOpts)),
     Forwards = maps:get(forwards, Opts, []),
-    Queue = open_replayq(maps:get(queue, Opts, #{})),
+    Queue = open_replayq(maps:get(replayq, Opts, #{})),
     State = init_opts(Opts),
     self() ! idle,
     {ok, idle, State#{connect_module => ConnectModule,
@@ -236,8 +236,8 @@ init_opts(Opts) ->
       name => Name}.
 
 open_replayq(QCfg) ->
-    Dir = maps:get(replayq_dir, QCfg, undefined),
-    SegBytes = maps:get(replayq_seg_bytes, QCfg, ?DEFAULT_SEG_BYTES),
+    Dir = maps:get(dir, QCfg, undefined),
+    SegBytes = maps:get(seg_bytes, QCfg, ?DEFAULT_SEG_BYTES),
     MaxTotalSize = maps:get(max_total_size, QCfg, ?DEFAULT_MAX_TOTAL_SIZE),
     QueueConfig = case Dir =:= undefined orelse Dir =:= "" of
         true -> #{mem_only => true};
