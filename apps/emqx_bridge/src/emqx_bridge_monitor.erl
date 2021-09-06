@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 %% This process monitors all the data bridges, and try to restart a bridge
 %% when one of it stopped.
--module(emqx_data_bridge_monitor).
+-module(emqx_bridge_monitor).
 
 -behaviour(gen_server).
 
@@ -65,14 +65,18 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%============================================================================
 load_bridges(Configs) ->
-    lists:foreach(fun load_bridge/1, Configs).
+    lists:foreach(fun(Type, NamedConf) ->
+            lists:foreach(fun(Name, Conf) ->
+                    load_bridge(Name, Type, Conf)
+                end, maps:to_list(NamedConf))
+        end, maps:to_list(Configs)).
 
 %% TODO: move this monitor into emqx_resource
 %% emqx_resource:check_and_create_local(ResourceId, ResourceType, Config, #{keep_retry => true}).
-load_bridge(#{name := Name, type := Type, config := Config}) ->
+load_bridge(Name, Type, Config) ->
     case emqx_resource:create_local(
-            emqx_data_bridge:name_to_resource_id(Name),
-            emqx_data_bridge:resource_type(Type), Config) of
+            emqx_bridge:name_to_resource_id(Name),
+            emqx_bridge:resource_type(Type), Config) of
         {ok, already_created} -> ok;
         {ok, _} -> ok;
         {error, Reason} ->

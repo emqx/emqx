@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_data_bridge_sup).
+-module(emqx_bridge_sup).
 
 -behaviour(supervisor).
 
@@ -31,11 +31,11 @@ init([]) ->
                  intensity => 10,
                  period => 10},
     ChildSpecs = [
-        #{id => emqx_data_bridge_monitor,
-          start => {emqx_data_bridge_monitor, start_link, []},
+        #{id => emqx_bridge_monitor,
+          start => {emqx_bridge_monitor, start_link, []},
           restart => permanent,
           type => worker,
-          modules => [emqx_data_bridge_monitor]}
+          modules => [emqx_bridge_monitor]}
     ],
     {ok, {SupFlags, ChildSpecs}}.
 

@@ -269,7 +269,7 @@ relx_apps(ReleaseType) ->
     , emqx_auto_subscribe
     , emqx_gateway
     , emqx_exhook
-    , emqx_data_bridge
+    , emqx_bridge
     , emqx_rule_engine
     , emqx_rule_actions
     , emqx_bridge_mqtt
