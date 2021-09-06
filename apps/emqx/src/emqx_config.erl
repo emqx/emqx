@@ -130,7 +130,7 @@ get(KeyPath) -> do_get(?CONF, KeyPath).
 get(KeyPath, Default) -> do_get(?CONF, KeyPath, Default).
 
 -spec find(emqx_map_lib:config_key_path()) ->
-    {ok, term()} | {not_found, emqx_map_lib:config_key_path()}.
+    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
 find([]) ->
     Ref = make_ref(),
     Res = do_get(?CONF, [], Ref),
@@ -143,7 +143,7 @@ find(KeyPath) ->
         {not_found, KeyPath}).
 
 -spec find_raw(emqx_map_lib:config_key_path()) ->
-    {ok, term()} | {not_found, emqx_map_lib:config_key_path()}.
+    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
 find_raw([]) ->
     Ref = make_ref(),
     Res = do_get(?RAW_CONF, [], Ref),

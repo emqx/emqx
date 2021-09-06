@@ -1609,7 +1609,7 @@ users2(delete, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
 find_listener(ListenerID) ->
     {Type, Name} = emqx_listeners:parse_listener_id(ListenerID),
     case emqx_config:find([listeners, Type, Name]) of
-        {not_found, _} ->
+        {not_found, _, _} ->
             {error, {not_found, {listener, ListenerID}}};
         {ok, _} ->
             {ok, {Type, Name}}

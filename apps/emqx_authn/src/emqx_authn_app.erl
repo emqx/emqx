@@ -32,12 +32,12 @@
 start(_StartType, _StartArgs) ->
     ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),
-    add_providers(),
-    initialize(),
+    ok = add_providers(),
+    ok = initialize(),
     {ok, Sup}.
 
 stop(_State) ->
-    remove_providers(),
+    ok = remove_providers(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -45,16 +45,17 @@ stop(_State) ->
 %%------------------------------------------------------------------------------
 
 add_providers() ->
-    [?AUTHN:add_provider(AuthNType, Provider) || {AuthNType, Provider} <- providers()].
+    _ = [?AUTHN:add_provider(AuthNType, Provider) || {AuthNType, Provider} <- providers()], ok.
 
 remove_providers() ->
-    [?AUTHN:remove_provider(AuthNType) || {AuthNType, _} <- providers()].
+    _ = [?AUTHN:remove_provider(AuthNType) || {AuthNType, _} <- providers()], ok.
 
 initialize() ->
     ?AUTHN:initialize_authentication(?GLOBAL, emqx:get_raw_config([authentication], [])),
     lists:foreach(fun({ListenerID, ListenerConfig}) ->
                       ?AUTHN:initialize_authentication(atom_to_binary(ListenerID), maps:get(authentication, ListenerConfig, []))
-                  end, emqx_listeners:list()).
+                  end, emqx_listeners:list()),
+    ok.
 
 providers() ->
     [ {{'password-based', 'built-in-database'}, emqx_authn_mnesia}

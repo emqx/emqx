@@ -613,7 +613,7 @@ may_unhook(#{hooked := true} = State) ->
 may_unhook(State) ->
     State.
 
-do_create_authenticator(ChainName, AuthenticatorID, Config, Providers) ->
+do_create_authenticator(ChainName, AuthenticatorID, #{enable := Enable} = Config, Providers) ->
     case maps:get(authn_type(Config), Providers, undefined) of
         undefined ->
             {error, no_available_provider};
@@ -623,6 +623,7 @@ do_create_authenticator(ChainName, AuthenticatorID, Config, Providers) ->
                 {ok, State} ->
                     Authenticator = #authenticator{id = AuthenticatorID,
                                                    provider = Provider,
+                                                   enable = Enable,
                                                    state = switch_version(State)},
                     {ok, Authenticator};
                 {error, Reason} ->
@@ -695,9 +696,11 @@ serialize_authenticators(Authenticators) ->
 
 serialize_authenticator(#authenticator{id = ID,
                                        provider = Provider,
+                                       enable = Enable,
                                        state = State}) ->
     #{ id => ID
      , provider => Provider
+     , enable => Enable
      , state => State
      }.
 
