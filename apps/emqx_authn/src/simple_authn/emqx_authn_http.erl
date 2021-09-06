@@ -64,7 +64,7 @@ common_fields() ->
     [ {mechanism,       {enum, ['password-based']}}
     , {backend,         {enum, ['http-server']}}
     , {url,             fun url/1}
-    , {form_data,       fun form_data/1}
+    , {body,            fun body/1}
     , {request_timeout, fun request_timeout/1}
     ] ++ emqx_authn_schema:common_fields()
     ++ maps:to_list(maps:without([ base_url
@@ -97,11 +97,10 @@ headers_no_content_type(converter) ->
 headers_no_content_type(default) -> default_headers_no_content_type();
 headers_no_content_type(_) -> undefined.
 
-%% TODO: Using map()
-form_data(type) -> map();
-form_data(nullable) -> false;
-form_data(validate) -> [fun check_form_data/1];
-form_data(_) -> undefined.
+body(type) -> map();
+body(nullable) -> false;
+body(validate) -> [fun check_body/1];
+body(_) -> undefined.
 
 request_timeout(type) -> non_neg_integer();
 request_timeout(default) -> 5000;
@@ -119,7 +118,7 @@ refs() ->
 create(#{ method := Method
         , url := URL
         , headers := Headers
-        , form_data := FormData
+        , body := Body
         , request_timeout := RequestTimeout
         , '_unique' := Unique
         } = Config) ->
@@ -129,7 +128,7 @@ create(#{ method := Method
              , path            => Path
              , base_query      => cow_qs:parse_qs(list_to_binary(Query))
              , headers         => maps:to_list(Headers)
-             , form_data       => maps:to_list(FormData)
+             , body            => maps:to_list(Body)
              , request_timeout => RequestTimeout
              , '_unique'       => Unique
              },
@@ -196,10 +195,10 @@ check_url(URL) ->
         {error, _} -> false
     end.
 
-check_form_data(FormData) ->
+check_body(Body) ->
     lists:any(fun({_, V}) ->
                   not is_binary(V)
-              end, maps:to_list(FormData)).
+              end, maps:to_list(Body)).
 
 default_headers() ->
     maps:put(<<"content-type">>,
@@ -243,16 +242,16 @@ generate_request(Credential, #{method := Method,
                                path := Path,
                                base_query := BaseQuery,
                                headers := Headers,
-                               form_data := FormData0}) ->
-    FormData = replace_placeholders(FormData0, Credential),
+                               body := Body0}) ->
+    Body = replace_placeholders(Body0, Credential),
     case Method of
         get ->
-            NPath = append_query(Path, BaseQuery ++ FormData),
+            NPath = append_query(Path, BaseQuery ++ Body),
             {NPath, Headers};
         post ->
             NPath = append_query(Path, BaseQuery),
             ContentType = proplists:get_value(<<"content-type">>, Headers),
-            Body = serialize_body(ContentType, FormData),
+            Body = serialize_body(ContentType, Body),
             {NPath, Headers, Body}
     end.
 
@@ -283,10 +282,10 @@ qs([], Acc) ->
 qs([{K, V} | More], Acc) ->
     qs(More, [["&", emqx_http_lib:uri_encode(K), "=", emqx_http_lib:uri_encode(V)] | Acc]).
 
-serialize_body(<<"application/json">>, FormData) ->
-    emqx_json:encode(FormData);
-serialize_body(<<"application/x-www-form-urlencoded">>, FormData) ->
-    qs(FormData).
+serialize_body(<<"application/json">>, Body) ->
+    emqx_json:encode(Body);
+serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
+    qs(Body).
 
 safely_parse_body(ContentType, Body) ->
     try parse_body(ContentType, Body) of
