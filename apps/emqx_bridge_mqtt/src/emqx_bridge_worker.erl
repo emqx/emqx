@@ -86,6 +86,7 @@
 -export([ ensure_started/1
         , ensure_stopped/1
         , status/1
+        , ping/1
         ]).
 
 -export([ get_forwards/1
@@ -168,6 +169,11 @@ status(Pid) when is_pid(Pid) ->
     gen_statem:call(Pid, status);
 status(Name) ->
     gen_statem:call(name(Name), status).
+
+ping(Pid) when is_pid(Pid) ->
+    gen_statem:call(Pid, ping);
+ping(Name) ->
+    gen_statem:call(name(Name), ping).
 
 %% @doc Return all forwards (local subscriptions).
 -spec get_forwards(id()) -> [topic()].
@@ -311,6 +317,10 @@ connected(Type, Content, State) ->
 %% Common handlers
 common(StateName, {call, From}, status, _State) ->
     {keep_state_and_data, [{reply, From, StateName}]};
+common(_StateName, {call, From}, ping, #{connection := Conn,
+                                         connect_module := ConnectModule} =_State) ->
+    Reply = ConnectModule:ping(Conn),
+    {keep_state_and_data, [{reply, From, Reply}]};
 common(_StateName, {call, From}, ensure_stopped, #{connection := undefined} = _State) ->
     {keep_state_and_data, [{reply, From, ok}]};
 common(_StateName, {call, From}, ensure_stopped, #{connection := Conn,

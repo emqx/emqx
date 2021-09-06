@@ -21,6 +21,7 @@
 -export([ start/1
         , send/2
         , stop/1
+        , ping/1
         ]).
 
 -export([ ensure_subscribed/3
@@ -85,6 +86,9 @@ start(Config) ->
 stop(#{client_pid := Pid}) ->
     safe_stop(Pid, fun() -> emqtt:stop(Pid) end, 1000),
     ok.
+
+ping(#{client_pid := Pid}) ->
+    emqtt:ping(Pid).
 
 ensure_subscribed(#{client_pid := Pid, subscriptions := Subs} = Conn, Topic, QoS) when is_pid(Pid) ->
     case emqtt:subscribe(Pid, Topic, QoS) of

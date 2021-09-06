@@ -53,24 +53,18 @@
 
 -export([roots/0, fields/1]).
 
-roots() -> [ssl_on, ssl_off].
+roots() -> ["ssl"].
 
-fields(ssl_on) ->
-    [ {enable, #{type => true}}
+fields("ssl") ->
+    [ {enable, #{type => boolean(), default => false}}
     , {cacertfile, fun cacertfile/1}
     , {keyfile, fun keyfile/1}
     , {certfile, fun certfile/1}
     , {verify, fun verify/1}
-    ];
-
-fields(ssl_off) ->
-    [ {enable, #{type => false}} ].
+    ].
 
 ssl_fields() ->
-    [ {ssl, #{type => hoconsc:union(
-                       [ hoconsc:ref(?MODULE, ssl_on)
-                       , hoconsc:ref(?MODULE, ssl_off)
-                       ]),
+    [ {ssl, #{type => hoconsc:ref(?MODULE, "ssl"),
               default => #{<<"enable">> => false}
              }
       }
