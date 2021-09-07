@@ -63,9 +63,9 @@ fields(stomp_structs) ->
     ] ++ gateway_common_options();
 
 fields(stomp_frame) ->
-    [ {max_headers, sc(integer(), undefined, 10)}
-    , {max_headers_length, sc(integer(), undefined, 1024)}
-    , {max_body_length, sc(integer(), undefined, 8192)}
+    [ {max_headers, sc(integer(), 10)}
+    , {max_headers_length, sc(integer(), 1024)}
+    , {max_body_length, sc(integer(), 8192)}
     ];
 
 fields(mqttsn_structs) ->
@@ -82,11 +82,11 @@ fields(mqttsn_predefined) ->
     ];
 
 fields(coap_structs) ->
-    [ {heartbeat, sc(duration(), undefined, <<"30s">>)}
-    , {connection_required, sc(boolean(), undefined, false)}
-    , {notify_type, sc(union([non, con, qos]), undefined, qos)}
-    , {subscribe_qos, sc(union([qos0, qos1, qos2, coap]), undefined, coap)}
-    , {publish_qos, sc(union([qos0, qos1, qos2, coap]), undefined, coap)}
+    [ {heartbeat, sc(duration(), <<"30s">>)}
+    , {connection_required, sc(boolean(), false)}
+    , {notify_type, sc(union([non, con, qos]), qos)}
+    , {subscribe_qos, sc(union([qos0, qos1, qos2, coap]), coap)}
+    , {publish_qos, sc(union([qos0, qos1, qos2, coap]), coap)}
     , {listeners, sc(ref(udp_listener_group))}
     ] ++ gateway_common_options();
 
@@ -166,58 +166,53 @@ fields(udp_listener) ->
 fields(dtls_listener) ->
     [ {"$name", sc(ref(dtls_listener_settings))}];
 
-fields(listener_settings) ->
-    [ {enable, sc(boolean(), undefined, true)}
-    , {bind, sc(union(ip_port(), integer()))}
-    , {acceptors, sc(integer(), undefined, 8)}
-    , {max_connections, sc(integer(), undefined, 1024)}
-    , {max_conn_rate, sc(integer())}
-    , {active_n, sc(integer(), undefined, 100)}
-    %, {rate_limit, sc(comma_separated_list())}
-    , {access, sc(ref(access))}
-    , {proxy_protocol, sc(boolean())}
-    , {proxy_protocol_timeout, sc(duration())}
-    , {backlog, sc(integer(), undefined, 1024)}
-    , {send_timeout, sc(duration(), undefined, <<"15s">>)}
-    , {send_timeout_close, sc(boolean(), undefined, true)}
-    , {recbuf, sc(bytesize())}
-    , {sndbuf, sc(bytesize())}
-    , {buffer, sc(bytesize())}
-    , {high_watermark, sc(bytesize(), undefined, <<"1MB">>)}
-    , {tune_buffer, sc(boolean())}
-    , {nodelay, sc(boolean())}
-    , {reuseaddr, sc(boolean())}
-    ];
-
 fields(tcp_listener_settings) ->
     [
      %% some special confs for tcp listener
-    ] ++ fields(listener_settings);
+    ] ++ tcp_opts()
+      ++ proxy_protocol_opts()
+      ++ common_listener_opts();
 
 fields(ssl_listener_settings) ->
     [
      %% some special confs for ssl listener
-    ] ++
-        ssl(undefined, #{handshake_timeout => <<"15s">>
-                        , depth => 10
-                        , reuse_sessions => true}) ++ fields(listener_settings);
+    ] ++ tcp_opts()
+      ++ ssl_opts()
+      ++ proxy_protocol_opts()
+      ++ common_listener_opts();
 
 fields(udp_listener_settings) ->
     [
      %% some special confs for udp listener
-    ] ++ fields(listener_settings);
+    ] ++ udp_opts()
+      ++ common_listener_opts();
 
 fields(dtls_listener_settings) ->
     [
      %% some special confs for dtls listener
-    ] ++
-        ssl(undefined, #{handshake_timeout => <<"15s">>
-                        , depth => 10
-                        , reuse_sessions => true}) ++ fields(listener_settings);
+    ] ++ udp_opts()
+      ++ dtls_opts()
+      ++ common_listener_opts();
 
-fields(access) ->
-    [ {"$id", #{type => binary(),
-                nullable => true}}];
+fields(udp_opts) ->
+    [ {active_n, sc(integer(), 100)}
+    , {recbuf, sc(bytesize())}
+    , {sndbuf, sc(bytesize())}
+    , {buffer, sc(bytesize())}
+    , {reuseaddr, sc(boolean(), true)}
+    ];
+
+fields(dtls_listener_ssl_opts) ->
+    Base = emqx_schema:fields("listener_ssl_opts"),
+    %% XXX: ciphers ???
+    DtlsVers = hoconsc:mk(
+                 typerefl:alias("string", list(atom())),
+                 #{ default => default_dtls_vsns(),
+                    converter => fun (Vsns) ->
+                      [dtls_vsn(iolist_to_binary(V)) || V <- Vsns]
+                    end
+                  }),
+    lists:keyreplace("versions", 1, Base, {"versions", DtlsVers});
 
 fields(ExtraField) ->
     Mod = list_to_atom(ExtraField++"_schema"),
@@ -244,13 +239,46 @@ fields(ExtraField) ->
 %       ]).
 
 gateway_common_options() ->
-    [ {enable, sc(boolean(), undefined, true)}
-    , {enable_stats, sc(boolean(), undefined, true)}
-    , {idle_timeout, sc(duration(), undefined, <<"30s">>)}
+    [ {enable, sc(boolean(), true)}
+    , {enable_stats, sc(boolean(), true)}
+    , {idle_timeout, sc(duration(), <<"30s">>)}
     , {mountpoint, sc(binary())}
     , {clientinfo_override, sc(ref(clientinfo_override))}
     , {authentication,  sc(hoconsc:lazy(map()))}
     ].
+
+common_listener_opts() ->
+    [ {enable, sc(boolean(), true)}
+    , {bind, sc(union(ip_port(), integer()))}
+    , {acceptors, sc(integer(), 16)}
+    , {max_connections, sc(integer(), 1024)}
+    , {max_conn_rate, sc(integer())}
+    %, {rate_limit, sc(comma_separated_list())}
+    , {access_rules, sc(hoconsc:array(string()), [])}
+    ].
+
+tcp_opts() ->
+    [{tcp, sc(ref(emqx_schema, "tcp_opts"), #{})}].
+
+udp_opts() ->
+    [{udp, sc(ref(udp_opts), #{})}].
+
+ssl_opts() ->
+    [{ssl, sc(ref(emqx_schema, "listener_ssl_opts"), #{})}].
+
+dtls_opts() ->
+    [{dtls, sc(ref(dtls_listener_ssl_opts), #{})}].
+
+proxy_protocol_opts() ->
+    [ {proxy_protocol, sc(boolean())}
+    , {proxy_protocol_timeout, sc(duration())}
+    ].
+
+default_dtls_vsns() ->
+    [<<"dtlsv1.2">>, <<"dtlsv1">>].
+
+dtls_vsn(<<"dtlsv1.2">>) -> 'dtlsv1.2';
+dtls_vsn(<<"dtlsv1">>) -> 'dtlsv1'.
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -259,47 +287,11 @@ gateway_common_options() ->
 
 sc(Type) -> #{type => Type}.
 
-sc(Type, Mapping, Default) ->
-    hoconsc:mk(Type, #{mapping => Mapping, default => Default}).
+sc(Type, Default) ->
+    hoconsc:mk(Type, #{default => Default}).
 
 ref(Field) ->
     hoconsc:ref(?MODULE, Field).
 
-%% utils
-
-%% generate a ssl field.
-%% ssl("emqx", #{"verify" => verify_peer}) will return
-%% [ {"cacertfile", sc(string(), "emqx.cacertfile", undefined)}
-%% , {"certfile", sc(string(), "emqx.certfile", undefined)}
-%% , {"keyfile", sc(string(), "emqx.keyfile", undefined)}
-%% , {"verify", sc(union(verify_peer, verify_none), "emqx.verify", verify_peer)}
-%% , {"server_name_indication", "emqx.server_name_indication", undefined)}
-%% ...
-ssl(Mapping, Defaults) ->
-    M = fun (Field) ->
-                case (Mapping) of
-            undefined -> undefined;
-            _ -> Mapping ++ "." ++ Field
-        end end,
-    D = fun (Field) -> maps:get(list_to_atom(Field), Defaults, undefined) end,
-    [ {"enable", sc(boolean(), M("enable"), D("enable"))}
-    , {"cacertfile", sc(binary(), M("cacertfile"), D("cacertfile"))}
-    , {"certfile", sc(binary(), M("certfile"), D("certfile"))}
-    , {"keyfile", sc(binary(), M("keyfile"), D("keyfile"))}
-    , {"verify", sc(union(verify_peer, verify_none), M("verify"), D("verify"))}
-    , {"fail_if_no_peer_cert", sc(boolean(), M("fail_if_no_peer_cert"), D("fail_if_no_peer_cert"))}
-    , {"secure_renegotiate", sc(boolean(), M("secure_renegotiate"), D("secure_renegotiate"))}
-    , {"reuse_sessions", sc(boolean(), M("reuse_sessions"), D("reuse_sessions"))}
-    , {"honor_cipher_order", sc(boolean(), M("honor_cipher_order"), D("honor_cipher_order"))}
-    , {"handshake_timeout", sc(duration(), M("handshake_timeout"), D("handshake_timeout"))}
-    , {"depth", sc(integer(), M("depth"), D("depth"))}
-    , {"password", hoconsc:mk(binary(), #{ mapping => M("key_password")
-                                         , default => D("key_password")
-                                         , sensitive => true
-                                        })}
-    , {"dhfile", sc(binary(), M("dhfile"), D("dhfile"))}
-    , {"server_name_indication", sc(union(disable, binary()), M("server_name_indication"),
-                                   D("server_name_indication"))}
-    , {"tls_versions", sc(comma_separated_list(), M("tls_versions"), D("tls_versions"))}
-    , {"ciphers", sc(comma_separated_list(), M("ciphers"), D("ciphers"))}
-    , {"psk_ciphers", sc(comma_separated_list(), M("ciphers"), D("ciphers"))}].
+ref(Mod, Field) ->
+    hoconsc:ref(Mod, Field).
