@@ -994,7 +994,7 @@ t_will_case06(_) ->
 
     receive
         {deliver, WillTopic, #message{payload = WillMsg}} -> ok;
-        Msg -> ct:print("recevived --- unex: ~p", [Msg])
+        Msg -> ct:print("received --- unex: ~p", [Msg])
     after
         1000 -> ct:fail(wait_willmsg_timeout)
     end,

@@ -835,7 +835,7 @@ inc_incoming_stats(Ctx, FrameMod, Packet) ->
             ok
     end,
     Name = list_to_atom(
-             lists:concat(["packets.", FrameMod:type(Packet), ".recevied"])),
+             lists:concat(["packets.", FrameMod:type(Packet), ".received"])),
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
 inc_outgoing_stats(Ctx, FrameMod, Packet) ->
