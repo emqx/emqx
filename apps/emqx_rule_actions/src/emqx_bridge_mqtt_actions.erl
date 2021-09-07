@@ -22,7 +22,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_rule_engine/include/rule_actions.hrl").
 
--import(emqx_rule_utils, [str/1]).
+-import(emqx_plugin_libs_rule, [str/1]).
 
 -export([ on_resource_create/2
         , on_get_resource_status/2
@@ -443,10 +443,10 @@ on_action_create_data_to_mqtt_broker(ActId, Opts = #{<<"pool">> := PoolName,
                                                      <<"forward_topic">> := ForwardTopic,
                                                      <<"payload_tmpl">> := PayloadTmpl}) ->
     ?LOG(info, "Initiating Action ~p.", [?FUNCTION_NAME]),
-    PayloadTks = emqx_rule_utils:preproc_tmpl(PayloadTmpl),
+    PayloadTks = emqx_plugin_libs_rule:preproc_tmpl(PayloadTmpl),
     TopicTks = case ForwardTopic == <<"">> of
         true -> undefined;
-        false -> emqx_rule_utils:preproc_tmpl(ForwardTopic)
+        false -> emqx_plugin_libs_rule:preproc_tmpl(ForwardTopic)
     end,
     Opts.
 
@@ -461,7 +461,7 @@ on_action_data_to_mqtt_broker(Msg, _Env =
                                 }}) ->
     Topic1 = case TopicTks =:= undefined of
         true -> Topic;
-        false -> emqx_rule_utils:proc_tmpl(TopicTks, Msg)
+        false -> emqx_plugin_libs_rule:proc_tmpl(TopicTks, Msg)
     end,
     BrokerMsg = #message{id = Id,
                          qos = QoS,
@@ -480,7 +480,7 @@ format_data([], Msg) ->
     emqx_json:encode(Msg);
 
 format_data(Tokens, Msg) ->
-    emqx_rule_utils:proc_tmpl(Tokens, Msg).
+    emqx_plugin_libs_rule:proc_tmpl(Tokens, Msg).
 
 subscriptions(Subscriptions) ->
     scan_binary(<<"[", Subscriptions/binary, "].">>).
