@@ -94,7 +94,7 @@ t_commit_crash_test(_Config) ->
     {atomic, []} = emqx_cluster_rpc:status(),
     {M, F, A} = {?MODULE, no_exist_function, []},
     Error = emqx_cluster_rpc:multicall(M, F, A),
-    ?assertEqual({error, "TnxId(1) apply MFA({emqx_cluster_rpc_SUITE,no_exist_function,[]}) crash"}, Error),
+    ?assertEqual({error, {crash,error,undef}}, Error),
     ?assertEqual({atomic, []}, emqx_cluster_rpc:status()),
     ok.
 
