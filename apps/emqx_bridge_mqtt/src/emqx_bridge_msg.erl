@@ -36,6 +36,14 @@
 -type msg() :: emqx_types:message().
 -type exp_msg() :: emqx_types:message() | #mqtt_msg{}.
 
+-type variables() :: #{
+    mountpoint := undefined | binary(),
+    topic := binary(),
+    qos := original | integer(),
+    retain := original | boolean(),
+    payload := binary()
+}.
+
 %% @doc Make export format:
 %% 1. Mount topic to a prefix
 %% 2. Fix QoS to 1
@@ -43,23 +51,38 @@
 %% Shame that we have to know the callback module here
 %% would be great if we can get rid of #mqtt_msg{} record
 %% and use #message{} in all places.
--spec to_export(emqx_bridge_rpc | emqx_bridge_worker,
-                undefined | binary(), msg()) -> exp_msg().
-to_export(emqx_bridge_mqtt, Mountpoint,
-          #message{topic = Topic,
-                   payload = Payload,
-                   flags = Flags,
-                   qos = QoS
-                  }) ->
-    Retain = maps:get(retain, Flags, false),
+-spec to_export(emqx_bridge_rpc | emqx_bridge_worker, variables(), msg())
+        -> exp_msg().
+to_export(emqx_bridge_mqtt, Vars, #message{flags = Flags0} = Msg) ->
+    Retain0 = maps:get(retain, Flags0, false),
+    MapMsg = maps:put(retain, Retain0, emqx_message:to_map(Msg)),
+    to_export(emqx_bridge_mqtt, Vars, MapMsg);
+to_export(emqx_bridge_mqtt, #{topic := TopicToken, payload := PayloadToken,
+        qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint},
+        MapMsg) when is_map(MapMsg) ->
+    Topic = replace_vars_in_str(TopicToken, MapMsg),
+    Payload = replace_vars_in_str(PayloadToken, MapMsg),
+    QoS = replace_vars(QoSToken, MapMsg),
+    Retain = replace_vars(RetainToken, MapMsg),
     #mqtt_msg{qos = QoS,
               retain = Retain,
               topic = topic(Mountpoint, Topic),
               props = #{},
               payload = Payload};
-to_export(_Module, Mountpoint,
+to_export(_Module, #{mountpoint := Mountpoint},
           #message{topic = Topic} = Msg) ->
     Msg#message{topic = topic(Mountpoint, Topic)}.
+
+replace_vars_in_str(Tokens, Data) when is_list(Tokens) ->
+    emqx_plugin_libs_rule:proc_tmpl(Tokens, Data, #{return => full_binary});
+replace_vars_in_str(Val, _Data) ->
+    Val.
+
+replace_vars(Tokens, Data) when is_list(Tokens) ->
+    [Var] = emqx_plugin_libs_rule:proc_tmpl(Tokens, Data, #{return => rawlist}),
+    Var;
+replace_vars(Val, _Data) ->
+    Val.
 
 %% @doc Make `binary()' in order to make iodata to be persisted on disk.
 -spec to_binary(msg()) -> binary().
