@@ -67,6 +67,9 @@
         , dropped/1
         ]).
 
+-export([ live_upgrade/1
+        ]).
+
 -export_type([mqueue/0, options/0]).
 
 -type(topic() :: emqx_topic:topic()).
@@ -91,6 +94,11 @@
 -define(MAX_LEN_INFINITY, 0).
 -define(INFO_KEYS, [store_qos0, max_len, len, dropped]).
 
+-record(shift_opts, {
+          multiplier :: non_neg_integer(),
+          base       :: integer()
+         }).
+
 -record(mqueue, {
           store_qos0 = false              :: boolean(),
           max_len    = ?MAX_LEN_INFINITY  :: count(),
@@ -98,10 +106,15 @@
           dropped    = 0                  :: count(),
           p_table    = ?NO_PRIORITY_TABLE :: p_table(),
           default_p  = ?LOWEST_PRIORITY   :: priority(),
-          q          = ?PQUEUE:new()      :: pq()
+          q          = ?PQUEUE:new()      :: pq(),
+          shift_opts                      :: #shift_opts{},
+          last_p                          :: non_neg_integer() | undefined,
+          counter                         :: non_neg_integer() | undefined
          }).
 
 -type(mqueue() :: #mqueue{}).
+
+-define(OLD(Q), Q = {mqueue, _, _, _, _, _, _, _}).
 
 -spec(init(options()) -> mqueue()).
 init(Opts = #{max_len := MaxLen0, store_qos0 := QoS_0}) ->
@@ -112,7 +125,8 @@ init(Opts = #{max_len := MaxLen0, store_qos0 := QoS_0}) ->
     #mqueue{max_len = MaxLen,
             store_qos0 = QoS_0,
             p_table = get_opt(priorities, Opts, ?NO_PRIORITY_TABLE),
-            default_p = get_priority_opt(Opts)
+            default_p = get_priority_opt(Opts),
+            shift_opts = get_shift_opt(Opts)
            }.
 
 -spec(info(mqueue()) -> emqx_types:infos()).
@@ -127,22 +141,30 @@ info(max_len, #mqueue{max_len = MaxLen}) ->
 info(len, #mqueue{len = Len}) ->
     Len;
 info(dropped, #mqueue{dropped = Dropped}) ->
-    Dropped.
+    Dropped;
+info(Info, ?OLD(MQ)) ->
+    info(Info, live_upgrade(MQ)).
 
-is_empty(#mqueue{len = Len}) -> Len =:= 0.
+is_empty(#mqueue{len = Len}) -> Len =:= 0;
+is_empty(?OLD(MQ)) -> is_empty(live_upgrade(MQ)).
 
-len(#mqueue{len = Len}) -> Len.
+len(#mqueue{len = Len}) -> Len;
+len(?OLD(MQ)) -> len(live_upgrade(MQ)).
 
-max_len(#mqueue{max_len = MaxLen}) -> MaxLen.
+max_len(#mqueue{max_len = MaxLen}) -> MaxLen;
+max_len(?OLD(MQ)) -> max_len(live_upgrade(MQ)).
 
 %% @doc Return number of dropped messages.
 -spec(dropped(mqueue()) -> count()).
-dropped(#mqueue{dropped = Dropped}) -> Dropped.
+dropped(#mqueue{dropped = Dropped}) -> Dropped;
+dropped(?OLD(MQ)) -> dropped(live_upgrade(MQ)).
 
 %% @doc Stats of the mqueue
 -spec(stats(mqueue()) -> [stat()]).
 stats(#mqueue{max_len = MaxLen, dropped = Dropped} = MQ) ->
-    [{len, len(MQ)}, {max_len, MaxLen}, {dropped, Dropped}].
+    [{len, len(MQ)}, {max_len, MaxLen}, {dropped, Dropped}];
+stats(?OLD(MQ)) ->
+    stats(live_upgrade(MQ)).
 
 %% @doc Enqueue a message.
 -spec(in(message(), mqueue()) -> {maybe(message()), mqueue()}).
@@ -165,15 +187,34 @@ in(Msg = #message{topic = Topic}, MQ = #mqueue{default_p = Dp,
             {DroppedMsg, MQ#mqueue{q = Q2, dropped = Dropped + 1}};
         false ->
             {_DroppedMsg = undefined, MQ#mqueue{len = Len + 1, q = ?PQUEUE:in(Msg, Priority, Q)}}
-    end.
+    end;
+in(Msg, ?OLD(MQ)) ->
+    in(Msg, live_upgrade(MQ)).
 
 -spec(out(mqueue()) -> {empty | {value, message()}, mqueue()}).
 out(MQ = #mqueue{len = 0, q = Q}) ->
     0 = ?PQUEUE:len(Q), %% assert, in this case, ?PQUEUE:len should be very cheap
     {empty, MQ};
-out(MQ = #mqueue{q = Q, len = Len}) ->
+out(MQ = #mqueue{q = Q, len = Len, last_p = undefined, shift_opts = ShiftOpts}) ->
+    {{value, Val, Prio}, Q1} = ?PQUEUE:out_p(Q), %% Shouldn't fail, since we've checked the length
+    MQ1 = MQ#mqueue{
+            q = Q1,
+            len = Len - 1,
+            last_p = Prio,
+            counter = init_counter(Prio, ShiftOpts)
+           },
+    {{value, Val}, MQ1};
+out(MQ = #mqueue{q = Q, counter = 0}) ->
+    MQ1 = MQ#mqueue{
+            q      = ?PQUEUE:shift(Q),
+            last_p = undefined
+           },
+    out(MQ1);
+out(MQ = #mqueue{q = Q, len = Len, counter = Cnt}) ->
     {R, Q1} = ?PQUEUE:out(Q),
-    {R, MQ#mqueue{q = Q1, len = Len - 1}}.
+    {R, MQ#mqueue{q = Q1, len = Len - 1, counter = Cnt - 1}};
+out(?OLD(MQ)) ->
+    out(live_upgrade(MQ)).
 
 get_opt(Key, Opts, Default) ->
     case maps:get(Key, Opts, Default) of
@@ -194,3 +235,46 @@ get_priority_opt(Opts) ->
 %% while the highest 'infinity' is a [{infinity, queue:queue()}]
 get_priority(_Topic, ?NO_PRIORITY_TABLE, _) -> ?LOWEST_PRIORITY;
 get_priority(Topic, PTab, Dp) -> maps:get(Topic, PTab, Dp).
+
+init_counter(?HIGHEST_PRIORITY, Opts) ->
+    Infinity = 1000000,
+    init_counter(Infinity, Opts);
+init_counter(Prio, #shift_opts{multiplier = Mult, base = Base}) ->
+    (Prio + Base) * Mult.
+
+get_shift_opt(Opts) ->
+    Mult = maps:get(shift_multiplier, Opts, 10),
+    Min = case Opts of
+              #{p_table := PTab} ->
+                  case maps:size(PTab) of
+                      0 -> 0;
+                      _ -> lists:min(maps:values(PTab))
+                  end;
+              _ ->
+                  ?LOWEST_PRIORITY
+          end,
+    Base = case Min < 0 of
+               true  -> -Min;
+               false -> 0
+           end,
+    #shift_opts{
+       multiplier = Mult,
+       base       = Base
+      }.
+
+live_upgrade({mqueue, StoreQos0, MaxLen, Len, Dropped, PTable, DefaultP, Q}) ->
+    ShiftOpts = case is_map(PTable) of
+                    true  -> get_shift_opt(#{p_table => PTable});
+                    false -> get_shift_opt(#{})
+                end,
+    #mqueue{ store_qos0 = StoreQos0
+           , max_len    = MaxLen
+           , dropped    = Dropped
+           , p_table    = PTable
+           , default_p  = DefaultP
+           , len        = Len
+           , q          = Q
+           , shift_opts = ShiftOpts
+           , last_p     = undefined
+           , counter    = undefined
+           }.

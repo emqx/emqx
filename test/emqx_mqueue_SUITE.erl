@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
+-include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 -define(Q, emqx_mqueue).
@@ -121,8 +122,55 @@ t_priority_mqueue(_) ->
     {_, Q6} = ?Q:in(#message{qos = 1, topic = <<"t2">>}, Q5),
     ?assertEqual(5, ?Q:len(Q6)),
     {{value, Msg}, Q7} = ?Q:out(Q6),
-    ?assertEqual(4, ?Q:len(Q7)),
-    ?assertEqual(<<"t3">>, Msg#message.topic).
+    ?assertEqual(4, ?Q:len(Q7)).
+
+t_priority_mqueue_conservation(_) ->
+    true = proper:quickcheck(conservation_prop()).
+
+t_priority_order(_) ->
+    Opts = #{max_len => 5,
+             shift_multiplier => 1,
+             priorities =>
+                 #{<<"t1">> => 0,
+                   <<"t2">> => 1,
+                   <<"t3">> => 2
+                  },
+            store_qos0 => false
+            },
+    Messages = [{Topic, Message} ||
+                   Topic <- [<<"t1">>, <<"t2">>, <<"t3">>],
+                   Message <- lists:seq(1, 10)],
+    Q = lists:foldl(fun({Topic, Message}, Q) ->
+                            element(2, ?Q:in(#message{topic = Topic, qos = 1, payload = Message}, Q))
+                    end,
+                    ?Q:init(Opts),
+                    Messages),
+    ?assertMatch([{<<"t3">>, 6},
+                  {<<"t3">>, 7},
+                  {<<"t3">>, 8},
+
+                  {<<"t2">>, 6},
+                  {<<"t2">>, 7},
+
+                  {<<"t1">>, 6},
+
+                  {<<"t3">>, 9},
+                  {<<"t3">>, 10},
+
+                  {<<"t2">>, 8},
+
+                  %% Note: for performance reasons we don't reset the
+                  %% counter when we run out of messages with the
+                  %% current prio, so next is t1:
+                  {<<"t1">>, 7},
+
+                  {<<"t2">>, 9},
+                  {<<"t2">>, 10},
+
+                  {<<"t1">>, 8},
+                  {<<"t1">>, 9},
+                  {<<"t1">>, 10}
+                 ], drain(Q)).
 
 t_infinity_priority_mqueue(_) ->
     Opts = #{max_len => 0,
@@ -163,3 +211,84 @@ t_dropped(_) ->
     {Msg, Q2} = ?Q:in(Msg, Q1),
     ?assertEqual(1, ?Q:dropped(Q2)).
 
+t_live_upgrade(_) ->
+    Q = {mqueue,true,1,0,0,none,0,
+                   {queue,[],[],0}},
+    ?assertMatch(#{}, ?Q:info(Q)),
+    ?assertMatch(true, ?Q:is_empty(Q)),
+    ?assertMatch(0, ?Q:len(Q)),
+    ?assertMatch(1, ?Q:max_len(Q)),
+    ?assertMatch({undefined, _}, ?Q:in(#message{qos = 0, topic = <<>>}, Q)),
+    ?assertMatch({empty, _}, ?Q:out(Q)),
+    ?assertMatch([_|_], ?Q:stats(Q)),
+    ?assertMatch(0, ?Q:dropped(Q)).
+
+
+t_live_upgrade2(_) ->
+    Q = {mqueue,false,10,0,0,
+                   #{<<"t">> => 1},
+                   0,
+                   {queue,[],[],0}},
+    ?assertMatch(#{}, ?Q:info(Q)),
+    ?assertMatch(true, ?Q:is_empty(Q)),
+    ?assertMatch(0, ?Q:len(Q)),
+    ?assertMatch(10, ?Q:max_len(Q)),
+    ?assertMatch({_, _}, ?Q:in(#message{qos = 0, topic = <<>>}, Q)),
+    ?assertMatch({empty, _}, ?Q:out(Q)),
+    ?assertMatch([_|_], ?Q:stats(Q)),
+    ?assertMatch(0, ?Q:dropped(Q)).
+
+conservation_prop() ->
+    ?FORALL({Priorities, Messages},
+            ?LET(Priorities, topic_priorities(),
+                 {Priorities, messages(Priorities)}),
+            try
+                Opts = #{max_len => 0,
+                         priorities => maps:from_list(Priorities),
+                         store_qos0 => false},
+                %% Put messages in
+                Q1 = lists:foldl(fun({Topic, Message}, Q) ->
+                                         element(2, ?Q:in(#message{topic = Topic, qos = 1, payload = Message}, Q))
+                                 end,
+                                 ?Q:init(Opts),
+                                 Messages),
+                %% Collect messages
+                Got = lists:sort(drain(Q1)),
+                Expected = lists:sort(Messages),
+                case Expected =:= Got of
+                    true ->
+                        true;
+                    false ->
+                        ct:pal("Mismatch: expected ~p~nGot ~p~n", [Expected, Got]),
+                        false
+                end
+            catch
+                EC:Err:Stack ->
+                    ct:pal("Error: ~p", [{EC, Err, Stack}]),
+                    false
+            end).
+
+%% Proper generators:
+
+topic(Priorities) ->
+    {Topics, _} = lists:unzip(Priorities),
+    oneof(Topics).
+
+topic_priorities() ->
+    non_empty(list({binary(), priority()})).
+
+priority() ->
+    oneof([integer(), infinity]).
+
+messages(Topics) ->
+    list({topic(Topics), binary()}).
+
+%% Internal functions:
+
+drain(Q) ->
+    case ?Q:out(Q) of
+        {empty, _} ->
+            [];
+        {{value, #message{topic = T, payload = P}}, Q1} ->
+            [{T, P}|drain(Q1)]
+    end.
