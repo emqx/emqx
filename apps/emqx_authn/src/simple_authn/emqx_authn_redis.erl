@@ -21,13 +21,15 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
 -export([ namespace/0
         , roots/0
         , fields/1
         ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -37,7 +39,8 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn:redis".
+namespace() -> "authn:password-based:redis".
+
 roots() ->
     [ {config, {union, [ hoconsc:mk(standalone)
                        , hoconsc:mk(cluster)
@@ -55,13 +58,12 @@ fields(sentinel) ->
     common_fields() ++ emqx_connector_redis:fields(sentinel).
 
 common_fields() ->
-    [ {name,                    fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,               {enum, ['password-based']}}
-    , {server_type,             {enum, [redis]}}
+    [ {mechanism,               {enum, ['password-based']}}
+    , {backend,                 {enum, [redis]}}
     , {query,                   fun query/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position,           fun salt_position/1}
-    ].
+    ] ++ emqx_authn_schema:common_fields().
 
 query(type) -> string();
 query(nullable) -> false;
@@ -78,6 +80,12 @@ salt_position(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+refs() ->
+    [ hoconsc:ref(?MODULE, standalone)
+    , hoconsc:ref(?MODULE, cluster)
+    , hoconsc:ref(?MODULE, sentinel)
+    ].
 
 create(#{ query := Query
         , '_unique' := Unique

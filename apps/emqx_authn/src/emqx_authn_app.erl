@@ -17,7 +17,6 @@
 -module(emqx_authn_app).
 
 -include("emqx_authn.hrl").
--include_lib("emqx/include/logger.hrl").
 
 -behaviour(application).
 
@@ -26,33 +25,45 @@
         , stop/1
         ]).
 
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
+
 start(_StartType, _StartArgs) ->
     ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),
-    emqx_config_handler:add_handler([authentication, authenticators], emqx_authn),
-    initialize(),
+    ok = add_providers(),
+    ok = initialize(),
     {ok, Sup}.
 
 stop(_State) ->
+    ok = remove_providers(),
     ok.
+
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
+add_providers() ->
+    _ = [?AUTHN:add_provider(AuthNType, Provider) || {AuthNType, Provider} <- providers()], ok.
+
+remove_providers() ->
+    _ = [?AUTHN:remove_provider(AuthNType) || {AuthNType, _} <- providers()], ok.
 
 initialize() ->
-    AuthNConfig = emqx:get_config([authentication], #{enable => false,
-                                                      authenticators => []}),
-    initialize(AuthNConfig).
-
-initialize(#{enable := Enable, authenticators := AuthenticatorsConfig}) ->
-    {ok, _} = emqx_authn:create_chain(#{id => ?CHAIN}),
-    initialize_authenticators(AuthenticatorsConfig),
-    Enable =:= true andalso emqx_authn:enable(),
+    ?AUTHN:initialize_authentication(?GLOBAL, emqx:get_raw_config([authentication], [])),
+    lists:foreach(fun({ListenerID, ListenerConfig}) ->
+                      ?AUTHN:initialize_authentication(atom_to_binary(ListenerID), maps:get(authentication, ListenerConfig, []))
+                  end, emqx_listeners:list()),
     ok.
 
-initialize_authenticators([]) ->
-    ok;
-initialize_authenticators([#{name := Name} = AuthenticatorConfig | More]) ->
-    case emqx_authn:create_authenticator(?CHAIN, AuthenticatorConfig) of
-        {ok, _} ->
-            initialize_authenticators(More);
-        {error, Reason} ->
-            ?LOG(error, "Failed to create authenticator '~s': ~p", [Name, Reason])
-    end.
+providers() ->
+    [ {{'password-based', 'built-in-database'}, emqx_authn_mnesia}
+    , {{'password-based', mysql}, emqx_authn_mysql}
+    , {{'password-based', posgresql}, emqx_authn_pgsql}
+    , {{'password-based', mongodb}, emqx_authn_mongodb}
+    , {{'password-based', redis}, emqx_authn_redis}
+    , {{'password-based', 'http-server'}, emqx_authn_http}
+    , {jwt, emqx_authn_jwt}
+    , {{scram, 'built-in-database'}, emqx_enhanced_authn_scram_mnesia}
+    ].

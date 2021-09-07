@@ -94,7 +94,8 @@ roots() ->
      "stats",
      "sysmon",
      "alarm",
-     "authorization"
+     "authorization",
+     {"authentication", sc(hoconsc:lazy(hoconsc:array(map())), #{})}
     ].
 
 fields("stats") ->
@@ -817,6 +818,10 @@ mqtt_listener() ->
       }
     , {"proxy_protocol_timeout",
        sc(duration(),
+          #{})
+      }
+    , {"authentication",
+       sc(hoconsc:lazy(hoconsc:array(map())),
           #{})
       }
     ].

@@ -20,13 +20,15 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
 -export([ namespace/0
         , roots/0
         , fields/1
         ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -75,21 +77,16 @@ mnesia(copy) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn:scram:builtin_db".
+namespace() -> "authn:scram:builtin-db".
 
 roots() -> [config].
 
 fields(config) ->
-    [ {name,            fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,       {enum, [scram]}}
-    , {server_type,     fun server_type/1}
+    [ {mechanism,       {enum, [scram]}}
+    , {backend,         {enum, ['built-in-database']}}
     , {algorithm,       fun algorithm/1}
     , {iteration_count, fun iteration_count/1}
-    ].
-
-server_type(type) -> hoconsc:enum(['built-in-database']);
-server_type(default) -> 'built-in-database';
-server_type(_) -> undefined.
+    ] ++ emqx_authn_schema:common_fields().
 
 algorithm(type) -> hoconsc:enum([sha256, sha512]);
 algorithm(default) -> sha256;
@@ -102,6 +99,9 @@ iteration_count(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+refs() ->
+   [hoconsc:ref(?MODULE, config)].
 
 create(#{ algorithm := Algorithm
         , iteration_count := IterationCount
