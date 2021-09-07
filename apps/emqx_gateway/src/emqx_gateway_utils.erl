@@ -143,15 +143,46 @@ normalize_config(RawConf) ->
         Listeners =
             maps:fold(fun(Name, Confs, AccIn2) ->
                 ListenOn   = maps:get(bind, Confs),
-                SocketOpts = esockd:parse_opt(maps:to_list(Confs)),
+                SocketOpts = esockd_opts(Type, Confs),
                 RemainCfgs = maps:without(
-                               [bind] ++ proplists:get_keys(SocketOpts),
-                               Confs),
+                               [bind, tcp, ssl, udp, dtls]
+                               ++ proplists:get_keys(SocketOpts), Confs),
                 Cfg = maps:merge(Cfg0, RemainCfgs),
                 [{Type, Name, ListenOn, SocketOpts, Cfg}|AccIn2]
             end, [], Liss),
             [Listeners|AccIn1]
     end, [], LisMap)).
+
+esockd_opts(Type, Opts0) ->
+    Opts1 = maps:with([acceptors, max_connections, max_conn_rate,
+                       proxy_protocol, proxy_protocol_timeout], Opts0),
+    Opts2 = Opts1#{access_rules => esockd_access_rules(maps:get(access_rules, Opts0, []))},
+    maps:to_list(case Type of
+        tcp  -> Opts2#{tcp_options => sock_opts(tcp, Opts0)};
+        ssl  -> Opts2#{tcp_options => sock_opts(tcp, Opts0),
+                       ssl_options => ssl_opts(ssl, Opts0)};
+        udp  -> Opts2#{udp_options => sock_opts(udp, Opts0)};
+        dtls -> Opts2#{udp_options => sock_opts(udp, Opts0),
+                       dtls_options => ssl_opts(dtls, Opts0)}
+    end).
+
+esockd_access_rules(StrRules) ->
+    Access = fun(S) ->
+        [A, CIDR] = string:tokens(S, " "),
+        {list_to_atom(A), case CIDR of "all" -> all; _ -> CIDR end}
+    end,
+    [Access(R) || R <- StrRules].
+
+ssl_opts(Name, Opts) ->
+    maps:to_list(
+        emqx_tls_lib:drop_tls13_for_old_otp(
+            maps:without([enable],
+                maps:get(Name, Opts, #{})))).
+
+sock_opts(Name, Opts) ->
+    maps:to_list(
+        maps:without([active_n],
+            maps:get(Name, Opts, #{}))).
 
 %%--------------------------------------------------------------------
 %% Envs
