@@ -16,8 +16,8 @@
 
 -module(emqx_authn_mnesia_SUITE).
 
-% -compile(export_all).
-% -compile(nowarn_export_all).
+-compile(export_all).
+-compile(nowarn_export_all).
 
 % -include_lib("common_test/include/ct.hrl").
 % -include_lib("eunit/include/eunit.hrl").
@@ -26,8 +26,8 @@
 
 % -define(AUTH, emqx_authn).
 
-% all() ->
-%     emqx_ct:all(?MODULE).
+all() ->
+    emqx_ct:all(?MODULE).
 
 % init_per_suite(Config) ->
 %     emqx_ct_helpers:start_apps([emqx_authn]),

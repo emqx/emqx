@@ -55,20 +55,19 @@ metrics() ->
 init_per_group(GrpName, Cfg) ->
     put(grpname, GrpName),
     Svrs = emqx_exproto_echo_svr:start(),
-    emqx_ct_helpers:start_apps([emqx_authn, emqx_gateway], fun set_special_cfg/1),
+    emqx_ct_helpers:start_apps([emqx_gateway], fun set_special_cfg/1),
     emqx_logger:set_log_level(debug),
     [{servers, Svrs}, {listener_type, GrpName} | Cfg].
 
 end_per_group(_, Cfg) ->
-    emqx_ct_helpers:stop_apps([emqx_gateway, emqx_authn]),
+    emqx_ct_helpers:stop_apps([emqx_gateway]),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
 set_special_cfg(emqx_gateway) ->
     LisType = get(grpname),
     emqx_config:put(
       [gateway, exproto],
-      #{authentication => #{enable => false},
-        server => #{bind => 9100},
+      #{server => #{bind => 9100},
         handler => #{address => "http://127.0.0.1:9001"},
         listeners => listener_confs(LisType)
        });

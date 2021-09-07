@@ -142,7 +142,9 @@ to_ip_port(Str) ->
          _ -> {error, Str}
      end.
 
-ip_port_to_string({Ip, Port}) ->
+ip_port_to_string({Ip, Port}) when is_list(Ip) ->
+    iolist_to_binary([Ip, ":", integer_to_list(Port)]);
+ip_port_to_string({Ip, Port}) when is_tuple(Ip) ->
     iolist_to_binary([inet:ntoa(Ip), ":", integer_to_list(Port)]).
 
 to_servers(Str) ->

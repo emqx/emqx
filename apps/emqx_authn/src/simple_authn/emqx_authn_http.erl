@@ -251,8 +251,8 @@ generate_request(Credential, #{method := Method,
         post ->
             NPath = append_query(Path, BaseQuery),
             ContentType = proplists:get_value(<<"content-type">>, Headers),
-            Body = serialize_body(ContentType, Body),
-            {NPath, Headers, Body}
+            NBody = serialize_body(ContentType, Body),
+            {NPath, Headers, NBody}
     end.
 
 replace_placeholders(KVs, Credential) ->
