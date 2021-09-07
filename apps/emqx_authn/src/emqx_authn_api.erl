@@ -28,8 +28,11 @@
         , move/2
         , move2/2
         , import_users/2
+        , import_users2/2
         , users/2
         , users2/2
+        , users3/2
+        , users4/2
         ]).
 
 -define(EXAMPLE_1, #{mechanism => <<"password-based">>,
@@ -153,8 +156,11 @@ api_spec() ->
      , authentication_api4()
      , move_api2()
      , import_users_api()
+     , import_users_api2()
      , users_api()
      , users2_api()
+     , users3_api()
+     , users4_api()
      ], definitions()}.
 
 authentication_api() ->
@@ -166,7 +172,7 @@ authentication_api() ->
 
 authentication_api2() ->
     Metadata = #{
-        get => list_authenticator_api_spec(),
+        get => find_authenticator_api_spec(),
         put => update_authenticator_api_spec(),
         delete => delete_authenticator_api_spec()
     },
@@ -181,7 +187,7 @@ authentication_api3() ->
 
 authentication_api4() ->
     Metadata = #{
-        get => list_authenticator_api_spec2(),
+        get => find_authenticator_api_spec2(),
         put => update_authenticator_api_spec2(),
         delete => delete_authenticator_api_spec2()
     },
@@ -198,6 +204,48 @@ move_api2() ->
         post => move_authenticator_api_spec2()
     },
     {"/listeners/:listener_id/authentication/:id/move", Metadata, move2}.
+
+import_users_api() ->
+    Metadata = #{
+        post => import_users_api_spec()
+    },
+    {"/authentication/:id/import_users", Metadata, import_users}.
+
+import_users_api2() ->
+    Metadata = #{
+        post => import_users_api_spec2()
+    },
+    {"/listeners/:listener_id/authentication/:id/import_users", Metadata, import_users2}.
+
+users_api() ->
+    Metadata = #{
+        post => create_user_api_spec(),
+        get => list_users_api_spec()
+    },
+    {"/authentication/:id/users", Metadata, users}.
+
+users2_api() ->
+    Metadata = #{
+        put => update_user_api_spec(),
+        get => find_user_api_spec(),
+        delete => delete_user_api_spec()
+    },
+    {"/authentication/:id/users/:user_id", Metadata, users2}.
+
+users3_api() ->
+    Metadata = #{
+        post => create_user_api_spec2(),
+        get => list_users_api_spec2()
+    },
+    {"/listeners/:listener_id/authentication/:id/users", Metadata, users3}.
+
+users4_api() ->
+    Metadata = #{
+        put => update_user_api_spec2(),
+        get => find_user_api_spec2(),
+        delete => delete_user_api_spec2()
+    },
+    {"/listeners/:listener_id/authentication/:id/users/:user_id", Metadata, users4}.
 
 create_authenticator_api_spec() ->
     #{
@@ -321,14 +369,14 @@ list_authenticators_api_spec2() ->
         ]
     }.
 
-list_authenticator_api_spec() ->
+find_authenticator_api_spec() ->
     #{
         description => "Get authenticator by id",
         parameters => [
             #{
                 name => id,
                 in => path,
-                description => "ID of authenticator",
+                description => "Authenticator id",
                 schema => #{
                     type => string
                 },
@@ -370,14 +418,14 @@ list_authenticator_api_spec() ->
         }
     }.
 
-list_authenticator_api_spec2() ->
-    Spec = list_authenticator_api_spec(),
+find_authenticator_api_spec2() ->
+    Spec = find_authenticator_api_spec(),
     Spec#{
         parameters => [
             #{
                 name => listener_id,
                 in => path,
-                description => "ID of listener",
+                description => "Listener id",
                 schema => #{
                     type => string
                 },
@@ -386,7 +434,7 @@ list_authenticator_api_spec2() ->
             #{
                 name => id,
                 in => path,
-                description => "ID of authenticator",
+                description => "Authenticator id",
                 schema => #{
                     type => string
                 },
@@ -402,7 +450,7 @@ update_authenticator_api_spec() ->
             #{
                 name => id,
                 in => path,
-                description => "ID of authenticator",
+                description => "Authenticator id",
                 schema => #{
                     type => string
                 },
@@ -482,7 +530,7 @@ update_authenticator_api_spec2() ->
             #{
                 name => listener_id,
                 in => path,
-                description => "ID of listener",
+                description => "Listener id",
                 schema => #{
                     type => string
                 },
@@ -491,7 +539,7 @@ update_authenticator_api_spec2() ->
             #{
                 name => id,
                 in => path,
-                description => "ID of authenticator",
+                description => "Authenticator id",
                 schema => #{
                     type => string
                 },
@@ -507,7 +555,7 @@ delete_authenticator_api_spec() ->
             #{
                 name => id,
                 in => path,
-                description => "ID of authenticator",
+                description => "Authenticator id",
                 schema => #{
                     type => string
                 },
@@ -529,7 +577,7 @@ delete_authenticator_api_spec2() ->
             #{
                 name => listener_id,
                 in => path,
-                description => "ID of listener",
+                description => "Listener id",
                 schema => #{
                     type => string
                 },
@@ -538,7 +586,7 @@ delete_authenticator_api_spec2() ->
             #{
                 name => id,
                 in => path,
-                description => "ID of authenticator",
+                description => "Authenticator id",
                 schema => #{
                     type => string
                 },
@@ -554,7 +602,7 @@ move_authenticator_api_spec() ->
             #{
                 name => id,
                 in => path,
-                description => "ID of authenticator",
+                description => "Authenticator id",
                 schema => #{
                     type => string
                 },
@@ -609,7 +657,7 @@ move_authenticator_api_spec2() ->
             #{
                 name => listener_id,
                 in => path,
-                description => "ID of listener",
+                description => "Listener id",
                 schema => #{
                     type => string
                 },
@@ -618,7 +666,7 @@ move_authenticator_api_spec2() ->
             #{
                 name => id,
                 in => path,
-                description => "ID of authenticator",
+                description => "Authenticator id",
                 schema => #{
                     type => string
                 },
@@ -627,90 +675,176 @@ move_authenticator_api_spec2() ->
         ]
     }.
 
-import_users_api() ->
-    Metadata = #{
-        post => #{
-            description => "Import users from json/csv file",
-            parameters => [
-                #{
-                    name => id,
-                    in => path,
-                    description => "ID of authenticator",
+import_users_api_spec() ->
+    #{
+        description => "Import users from json/csv file",
+        parameters => [
+            #{
+                name => id,
+                in => path,
+                description => "Authenticator id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            }
+        ],
+        requestBody => #{
+            content => #{
+                'application/json' => #{
                     schema => #{
-                        type => string
-                    },
-                    required => true
-                }
-            ],
-            requestBody => #{
-                content => #{
-                    'application/json' => #{
-                        schema => #{
-                            type => object,
-                            required => [filename],
-                            properties => #{
-                                filename => #{
-                                    type => string
-                                }
+                        type => object,
+                        required => [filename],
+                        properties => #{
+                            filename => #{
+                                type => string
                             }
                         }
                     }
                 }
-            },
-            responses => #{
-                <<"204">> => #{
-                    description => <<"No Content">>
-                },
-                <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
-                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
             }
+        },
+        responses => #{
+            <<"204">> => #{
+                description => <<"No Content">>
+            },
+            <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
+            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
         }
-    },
-    {"/authentication/:id/import_users", Metadata, import_users}.
+    }.
 
-users_api() ->
-    Metadata = #{
-        post => #{
-            description => "Add user",
-            parameters => [
-                #{
-                    name => id,
-                    in => path,
-                    description => "ID of authenticator",
+import_users_api_spec2() ->
+    Spec = import_users_api_spec(),
+    Spec#{
+        parameters => [
+            #{
+                name => listener_id,
+                in => path,
+                description => "Listener id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            },
+            #{
+                name => id,
+                in => path,
+                description => "Authenticator id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            }
+        ]
+    }.
+
+create_user_api_spec() ->
+    #{
+        description => "Add user",
+        parameters => [
+            #{
+                name => id,
+                in => path,
+                description => "Authenticator id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            }
+        ],
+        requestBody => #{
+            content => #{
+                'application/json' => #{
                     schema => #{
-                        type => string
-                    },
-                    required => true
+                        type => object,
+                        required => [user_id, password],
+                        properties => #{
+                            user_id => #{
+                                type => string
+                            },
+                            password => #{
+                                type => string
+                            },
+                            superuser => #{
+                                type => boolean,
+                                default => false
+                            }
+                        }
+                    }
                 }
-            ],
-            requestBody => #{
+            }
+        },
+        responses => #{
+            <<"201">> => #{
+                description => <<"Created">>,
                 content => #{
                     'application/json' => #{
                         schema => #{
                             type => object,
-                            required => [user_id, password],
                             properties => #{
                                 user_id => #{
                                     type => string
                                 },
-                                password => #{
-                                    type => string
-                                },
                                 superuser => #{
-                                    type => boolean,
-                                    default => false
+                                    type => boolean
                                 }
                             }
                         }
                     }
                 }
             },
-            responses => #{
-                <<"201">> => #{
-                    description => <<"Created">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => #{
+            <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
+            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
+        }
+    }.
+
+create_user_api_spec2() ->
+    Spec = create_user_api_spec(),
+    Spec#{
+        parameters => [
+            #{
+                name => listener_id,
+                in => path,
+                description => "Listener id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            },
+            #{
+                name => id,
+                in => path,
+                description => "Authenticator id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            }
+        ]
+    }.
+
+list_users_api_spec() ->
+    #{
+        description => "List users",
+        parameters => [
+            #{
+                name => id,
+                in => path,
+                description => "Authenticator id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            }
+        ],
+        responses => #{
+            <<"200">> => #{
+                description => <<"OK">>,
+                content => #{
+                    'application/json' => #{
+                        schema => #{
+                            type => array,
+                            items => #{
                                 type => object,
                                 properties => #{
                                     user_id => #{
@@ -723,194 +857,286 @@ users_api() ->
                             }
                         }
                     }
-                },
-                <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
-                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
-            }
-        },
-        get => #{
-            description => "List users",
-            parameters => [
-                #{
-                    name => id,
-                    in => path,
-                    description => "ID of authenticator",
-                    schema => #{
-                        type => string
-                    },
-                    required => true
                 }
-            ],
-            responses => #{
-                <<"200">> => #{
-                    description => <<"OK">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => #{
-                                type => array,
-                                items => #{
-                                    type => object,
-                                    properties => #{
-                                        user_id => #{
-                                            type => string
-                                        },
-                                        superuser => #{
-                                            type => boolean
-                                        }
-                                    }
-                                }
+            },
+            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
+        }
+    }.
+
+list_users_api_spec2() ->
+    Spec = list_users_api_spec(),
+    Spec#{
+        parameters => [
+            #{
+                name => listener_id,
+                in => path,
+                description => "Listener id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            },
+            #{
+                name => id,
+                in => path,
+                description => "Authenticator id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            }
+        ]
+    }.
+
+update_user_api_spec() ->
+    #{
+        description => "Update user",
+        parameters => [
+            #{
+                name => id,
+                in => path,
+                description => "Authenticator id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            },
+            #{
+                name => user_id,
+                in => path,
+                description => "User id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            }
+        ],
+        requestBody => #{
+            content => #{
+                'application/json' => #{
+                    schema => #{
+                        type => object,
+                        properties => #{
+                            password => #{
+                                type => string
+                            },
+                            superuser => #{
+                                type => boolean
                             }
                         }
                     }
-                },
-                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
-            }
-        }
-    },
-    {"/authentication/:id/users", Metadata, users}.
-
-users2_api() ->
-    Metadata = #{
-        patch => #{
-            description => "Update user",
-            parameters => [
-                #{
-                    name => id,
-                    in => path,
-                    description => "ID of authenticator",
-                    schema => #{
-                        type => string
-                    },
-                    required => true
-                },
-                #{
-                    name => user_id,
-                    in => path,
-                    schema => #{
-                        type => string
-                    },
-                    required => true
                 }
-            ],
-            requestBody => #{
+            }
+        },
+        responses => #{
+            <<"200">> => #{
+                description => <<"OK">>,
                 content => #{
                     'application/json' => #{
                         schema => #{
-                            type => object,
-                            properties => #{
-                                password => #{
-                                    type => string
-                                },
-                                superuser => #{
-                                    type => boolean
+                            type => array,
+                            items => #{
+                                type => object,
+                                properties => #{
+                                    user_id => #{
+                                        type => string
+                                    },
+                                    superuser => #{
+                                        type => boolean
+                                    }
                                 }
                             }
                         }
                     }
                 }
             },
-            responses => #{
-                <<"200">> => #{
-                    description => <<"OK">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => #{
-                                type => array,
-                                items => #{
-                                    type => object,
-                                    properties => #{
-                                        user_id => #{
-                                            type => string
-                                        },
-                                        superuser => #{
-                                            type => boolean
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
-                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
-            }
-        },
-        get => #{
-            description => "Get user info",
-            parameters => [
-                #{
-                    name => id,
-                    in => path,
-                    description => "ID of authenticator",
-                    schema => #{
-                        type => string
-                    },
-                    required => true
-                },
-                #{
-                    name => user_id,
-                    in => path,
-                    schema => #{
-                        type => string
-                    },
-                    required => true
-                }
-            ],
-            responses => #{
-                <<"200">> => #{
-                    description => <<"OK">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => #{
-                                type => array,
-                                items => #{
-                                    type => object,
-                                    properties => #{
-                                        user_id => #{
-                                            type => string
-                                        },
-                                        superuser => #{
-                                            type => boolean
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
-            }
-        },
-        delete => #{
-            description => "Delete user",
-            parameters => [
-                #{
-                    name => id,
-                    in => path,
-                    description => "ID of authenticator",
-                    schema => #{
-                        type => string
-                    },
-                    required => true
-                },
-                #{
-                    name => user_id,
-                    in => path,
-                    schema => #{
-                        type => string
-                    },
-                    required => true
-                }
-            ],
-            responses => #{
-                <<"204">> => #{
-                    description => <<"No Content">>
-                },
-                <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
-            }
+            <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
+            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
         }
-    },
-    {"/authentication/:id/users/:user_id", Metadata, users2}.
+    }.
+
+update_user_api_spec2() ->
+    Spec = update_user_api_spec(),
+    Spec#{
+        parameters => [
+            #{
+                name => listener_id,
+                in => path,
+                description => "Listener id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            },
+            #{
+                name => id,
+                in => path,
+                description => "Authenticator id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            },
+            #{
+                name => user_id,
+                in => path,
+                description => "User id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            }
+        ]
+    }.
+
+find_user_api_spec() ->
+    #{
+        description => "Get user info",
+        parameters => [
+            #{
+                name => id,
+                in => path,
+                description => "Authenticator id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            },
+            #{
+                name => user_id,
+                in => path,
+                description => "User id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            }
+        ],
+        responses => #{
+            <<"200">> => #{
+                description => <<"OK">>,
+                content => #{
+                    'application/json' => #{
+                        schema => #{
+                            type => array,
+                            items => #{
+                                type => object,
+                                properties => #{
+                                    user_id => #{
+                                        type => string
+                                    },
+                                    superuser => #{
+                                        type => boolean
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
+        }
+    }.
+
+find_user_api_spec2() ->
+    Spec = find_user_api_spec(),
+    Spec#{
+        parameters => [
+            #{
+                name => listener_id,
+                in => path,
+                description => "Listener id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            },
+            #{
+                name => id,
+                in => path,
+                description => "Authenticator id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            },
+            #{
+                name => user_id,
+                in => path,
+                description => "User id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            }
+        ]
+    }.
+
+delete_user_api_spec() ->
+    #{
+        description => "Delete user",
+        parameters => [
+            #{
+                name => id,
+                in => path,
+                description => "Authenticator id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            },
+            #{
+                name => user_id,
+                in => path,
+                description => "User id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            }
+        ],
+        responses => #{
+            <<"204">> => #{
+                description => <<"No Content">>
+            },
+            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
+        }
+    }.
+
+delete_user_api_spec2() ->
+    Spec = delete_user_api_spec(),
+    Spec#{
+        parameters => [
+            #{
+                name => listener_id,
+                in => path,
+                description => "Listener id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            },
+            #{
+                name => id,
+                in => path,
+                description => "Authenticator id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            },
+            #{
+                name => user_id,
+                in => path,
+                description => "User id",
+                schema => #{
+                    type => string
+                },
+                required => true
+            }
+        ]
+    }.
+
 
 definitions() ->
     AuthenticatorConfigDef = #{
@@ -1536,71 +1762,54 @@ move2(post, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}, b
 move2(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
     serialize_error({missing_parameter, position}).
 
-import_users(post, #{bindings := #{id := AuthenticatorID}, body := Body}) ->
-    case Body of
-        #{<<"filename">> := Filename} ->
-            case ?AUTHN:import_users(?GLOBAL, AuthenticatorID, Filename) of
-                ok -> {204};
-                {error, Reason} -> serialize_error(Reason)
-            end;
-        _ ->
-            serialize_error({missing_parameter, filename})
-    end.
+import_users(post, #{bindings := #{id := AuthenticatorID}, body := #{<<"filename">> := Filename}}) ->
+    case ?AUTHN:import_users(?GLOBAL, AuthenticatorID, Filename) of
+        ok -> {204};
+        {error, Reason} -> serialize_error(Reason)
+    end;
+import_users(post, #{bindings := #{id := _}, body := _}) ->
+    serialize_error({missing_parameter, filename}).
+
+import_users2(post, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}, body := #{<<"filename">> := Filename}}) ->
+    case ?AUTHN:import_users(ListenerID, AuthenticatorID, Filename) of
+        ok -> {204};
+        {error, Reason} -> serialize_error(Reason)
+    end;
+import_users2(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
+    serialize_error({missing_parameter, filename}).
 
 users(post, #{bindings := #{id := AuthenticatorID}, body := UserInfo}) ->
-    case UserInfo of
-        #{ <<"user_id">> := UserID, <<"password">> := Password} ->
-            Superuser = maps:get(<<"superuser">>, UserInfo, false),
-            case ?AUTHN:add_user(?GLOBAL, AuthenticatorID, #{ user_id => UserID
-                                                            , password => Password
-                                                            , superuser => Superuser}) of
-                {ok, User} ->
-                    {201, User};
-                {error, Reason} ->
-                    serialize_error(Reason)
-            end;
-        #{<<"user_id">> := _} ->
-            serialize_error({missing_parameter, password});
-        _ ->
-            serialize_error({missing_parameter, user_id})
-    end;
+    add_user(?GLOBAL, AuthenticatorID, UserInfo);
 users(get, #{bindings := #{id := AuthenticatorID}}) ->
-    case ?AUTHN:list_users(?GLOBAL, AuthenticatorID) of
-        {ok, Users} ->
-            {200, Users};
-        {error, Reason} ->
-            serialize_error(Reason)
-    end.
+    list_users(?GLOBAL, AuthenticatorID).
 
-users2(patch, #{bindings := #{id := AuthenticatorID,
-                              user_id := UserID},
-                body := UserInfo}) ->
-    NUserInfo = maps:with([<<"password">>, <<"superuser">>], UserInfo),
-    case NUserInfo =:= #{} of
-        true ->
-            serialize_error({missing_parameter, password});
-        false ->
-            case ?AUTHN:update_user(?GLOBAL, AuthenticatorID, UserID, UserInfo) of
-                {ok, User} ->
-                    {200, User};
-                {error, Reason} ->
-                    serialize_error(Reason)
-            end
-    end;
+users2(put, #{bindings := #{id := AuthenticatorID,
+                            user_id := UserID}, body := UserInfo}) ->
+    update_user(?GLOBAL, AuthenticatorID, UserID, UserInfo);
 users2(get, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
-    case ?AUTHN:lookup_user(?GLOBAL, AuthenticatorID, UserID) of
-        {ok, User} ->
-            {200, User};
-        {error, Reason} ->
-            serialize_error(Reason)
-    end;
+    find_user(?GLOBAL, AuthenticatorID, UserID);
 users2(delete, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
-    case ?AUTHN:delete_user(?GLOBAL, AuthenticatorID, UserID) of
-        ok ->
-            {204};
-        {error, Reason} ->
-            serialize_error(Reason)
-    end.
+    delete_user(?GLOBAL, AuthenticatorID, UserID).
+
+users3(post, #{bindings := #{listener_id := ListenerID,
+                             id := AuthenticatorID}, body := UserInfo}) ->
+    add_user(ListenerID, AuthenticatorID, UserInfo);
+users3(get, #{bindings := #{listener_id := ListenerID,
+                            id := AuthenticatorID}}) ->
+    list_users(ListenerID, AuthenticatorID).
+
+users4(put, #{bindings := #{listener_id := ListenerID,
+                            id := AuthenticatorID,
+                            user_id := UserID}, body := UserInfo}) ->
+    update_user(ListenerID, AuthenticatorID, UserID, UserInfo);
+users4(get, #{bindings := #{listener_id := ListenerID,
+                            id := AuthenticatorID,
+                            user_id := UserID}}) ->
+    find_user(ListenerID, AuthenticatorID, UserID);
+users4(delete, #{bindings := #{listener_id := ListenerID,
+                               id := AuthenticatorID,
+                               user_id := UserID}}) ->
+    delete_user(ListenerID, AuthenticatorID, UserID).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -1664,6 +1873,58 @@ move_authenitcator(ConfKeyPath, ChainName, AuthenticatorID, Position) ->
         {ok, _} ->
             {204};
         {error, {_, _, Reason}} ->
+            serialize_error(Reason)
+    end.
+
+add_user(ChainName, AuthenticatorID, #{<<"user_id">> := UserID, <<"password">> := Password} = UserInfo) ->
+    Superuser = maps:get(<<"superuser">>, UserInfo, false),
+    case ?AUTHN:add_user(ChainName, AuthenticatorID, #{ user_id => UserID
+                                                      , password => Password
+                                                      , superuser => Superuser}) of
+        {ok, User} ->
+            {201, User};
+        {error, Reason} ->
+            serialize_error(Reason)
+    end;
+add_user(_, _, #{<<"user_id">> := _}) ->
+    serialize_error({missing_parameter, password});
+add_user(_, _, _) ->
+    serialize_error({missing_parameter, user_id}).
+
+update_user(ChainName, AuthenticatorID, UserID, UserInfo) ->
+    case maps:with([<<"password">>, <<"superuser">>], UserInfo) =:= #{} of
+        true ->
+            serialize_error({missing_parameter, password});
+        false ->
+            case ?AUTHN:update_user(ChainName, AuthenticatorID, UserID, UserInfo) of
+                {ok, User} ->
+                    {200, User};
+                {error, Reason} ->
+                    serialize_error(Reason)
+            end
+    end.
+
+find_user(ChainName, AuthenticatorID, UserID) ->
+    case ?AUTHN:lookup_user(ChainName, AuthenticatorID, UserID) of
+        {ok, User} ->
+            {200, User};
+        {error, Reason} ->
+            serialize_error(Reason)
+    end.
+
+delete_user(ChainName, AuthenticatorID, UserID) ->
+    case ?AUTHN:delete_user(ChainName, AuthenticatorID, UserID) of
+        ok ->
+            {204};
+        {error, Reason} ->
+            serialize_error(Reason)
+    end.
+
+list_users(ChainName, AuthenticatorID) ->
+    case ?AUTHN:list_users(ChainName, AuthenticatorID) of
+        {ok, Users} ->
+            {200, Users};
+        {error, Reason} ->
             serialize_error(Reason)
     end.
 
