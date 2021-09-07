@@ -26,7 +26,11 @@
 -export([ routes/2
         , route/2]).
 
+-export([query/4]).
+
 -define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
+
+-define(ROUTES_QS_SCHEMA, [{<<"topic">>, binary}]).
 
 -import(emqx_mgmt_util, [ object_schema/2
                         , object_array_schema/2
@@ -48,7 +52,7 @@ routes_api() ->
     Metadata = #{
         get => #{
             description => <<"EMQ X routes">>,
-            parameters => page_params(),
+            parameters => [topic_param(query) | page_params()],
             responses => #{
                 <<"200">> => object_array_schema(properties(), <<"List route info">>)
             }
@@ -60,13 +64,7 @@ route_api() ->
     Metadata = #{
         get => #{
             description => <<"EMQ X routes">>,
-            parameters => [#{
-                name => topic,
-                in => path,
-                required => true,
-                description => <<"Topic string, url encoding">>,
-                schema => #{type => string}
-            }],
+            parameters => [topic_param(path)],
             responses => #{
                 <<"200">> =>
                     object_schema(properties(), <<"Route info">>),
@@ -80,15 +78,15 @@ route_api() ->
 %%%==============================================================================================
 %% parameters trans
 routes(get, #{query_string := Qs}) ->
-    list(Qs).
+    list(generate_topic(Qs)).
 
 route(get, #{bindings := Bindings}) ->
-    lookup(Bindings).
+    lookup(generate_topic(Bindings)).
 
 %%%==============================================================================================
 %% api apply
 list(Params) ->
-    Response = emqx_mgmt_api:paginate(emqx_route, Params, fun format/1),
+    Response = emqx_mgmt_api:node_query(node(), Params, emqx_route, ?ROUTES_QS_SCHEMA, {?MODULE, query}),
     {200, Response}.
 
 lookup(#{topic := Topic}) ->
@@ -101,7 +99,31 @@ lookup(#{topic := Topic}) ->
 
 %%%==============================================================================================
 %% internal
+generate_topic(Params = #{<<"topic">> := Topic}) ->
+    Params#{<<"topic">> => uri_string:percent_decode(Topic)};
+generate_topic(Params = #{topic := Topic}) ->
+    Params#{topic => uri_string:percent_decode(Topic)};
+generate_topic(Params) -> Params.
+
+query(Tab, {Qs, _}, Start, Limit) ->
+    Ms = qs2ms(Qs),
+    emqx_mgmt_api:select_table(Tab, Ms, Start, Limit, fun format/1).
+
+qs2ms([]) ->
+    [{{route, '_', '_'}, [], ['$_']}];
+qs2ms([{topic,'=:=',Topic}]) ->
+    [{{route, Topic, '_'}, [], ['$_']}].
+
 format(#route{topic = Topic, dest = {_, Node}}) ->
     #{topic => Topic, node => Node};
 format(#route{topic = Topic, dest = Node}) ->
     #{topic => Topic, node => Node}.
+
+topic_param(In) ->
+    #{
+        name => topic,
+        in => In,
+        required => In == path,
+        description => <<"Topic string, url encoding">>,
+        schema => #{type => string}
+    }.
