@@ -211,7 +211,6 @@ out(MQ = #mqueue{q = Q, counter = 0}) ->
            },
     out(MQ1);
 out(MQ = #mqueue{q = Q, len = Len, counter = Cnt}) ->
-    ct:pal("Cnt ~p", [Cnt]),
     {R, Q1} = ?PQUEUE:out(Q),
     {R, MQ#mqueue{q = Q1, len = Len - 1, counter = Cnt - 1}};
 out(?OLD(MQ)) ->
