@@ -2,10 +2,10 @@ name: API Test Suite
 
 on:
   push:
-#    tags:
-#      - e*
-#      - v*
-#  pull_request:
+   tags:
+     - e*
+     - v*
+  pull_request:
 
 jobs:
   build:
@@ -42,7 +42,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
       with:
-        repository: xujun540/emqx-fvt
+        repository: emqx/emqx-fvt
         path: .
     - uses: actions/setup-java@v1
       with:
