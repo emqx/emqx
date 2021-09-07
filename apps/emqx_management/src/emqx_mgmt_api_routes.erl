@@ -30,7 +30,7 @@
 
 -define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 
--define(ROUTES_QS_SCHEMA, [{<<"topic">>, binary}]).
+-define(ROUTES_QS_SCHEMA, [{<<"topic">>, binary}, {<<"node">>, atom}]).
 
 -import(emqx_mgmt_util, [ object_schema/2
                         , object_array_schema/2
@@ -52,7 +52,7 @@ routes_api() ->
     Metadata = #{
         get => #{
             description => <<"EMQ X routes">>,
-            parameters => [topic_param(query) | page_params()],
+            parameters => [topic_param(query) , node_param()] ++ page_params(),
             responses => #{
                 <<"200">> => object_array_schema(properties(), <<"List route info">>)
             }
@@ -106,13 +106,14 @@ generate_topic(Params = #{topic := Topic}) ->
 generate_topic(Params) -> Params.
 
 query(Tab, {Qs, _}, Start, Limit) ->
-    Ms = qs2ms(Qs),
+    Ms = qs2ms(Qs, [{{route, '_', '_'}, [], ['$_']}]),
     emqx_mgmt_api:select_table(Tab, Ms, Start, Limit, fun format/1).
 
-qs2ms([]) ->
-    [{{route, '_', '_'}, [], ['$_']}];
-qs2ms([{topic,'=:=',Topic}]) ->
-    [{{route, Topic, '_'}, [], ['$_']}].
+qs2ms([], Res) -> Res;
+qs2ms([{topic,'=:=', T} | Qs], [{{route, _, N}, [], ['$_']}]) ->
+    qs2ms(Qs, [{{route, T, N}, [], ['$_']}]);
+qs2ms([{node,'=:=', N} | Qs], [{{route, T, _}, [], ['$_']}]) ->
+    qs2ms(Qs, [{{route, T, N}, [], ['$_']}]).
 
 format(#route{topic = Topic, dest = {_, Node}}) ->
     #{topic => Topic, node => Node};
@@ -125,5 +126,14 @@ topic_param(In) ->
         in => In,
         required => In == path,
         description => <<"Topic string, url encoding">>,
+        schema => #{type => string}
+    }.
+
+node_param()->
+    #{
+        name => node,
+        in => query,
+        required => false,
+        description => <<"Node">>,
         schema => #{type => string}
     }.
