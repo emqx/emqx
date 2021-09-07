@@ -135,8 +135,8 @@ on_action_create_republish(Id, Params = #{
         <<"target_qos">> := TargetQoS,
         <<"payload_tmpl">> := PayloadTmpl
        }) ->
-    TopicTks = emqx_rule_utils:preproc_tmpl(TargetTopic),
-    PayloadTks = emqx_rule_utils:preproc_tmpl(PayloadTmpl),
+    TopicTks = emqx_plugin_libs_rule:preproc_tmpl(TargetTopic),
+    PayloadTks = emqx_plugin_libs_rule:preproc_tmpl(PayloadTmpl),
     Params.
 
 -spec on_action_republish(selected_data(), env_vars()) -> any().
@@ -167,8 +167,8 @@ on_action_republish(Selected, _Envs = #{
             from = ActId,
             flags = Flags,
             headers = #{republish_by => ActId},
-            topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
-            payload = emqx_rule_utils:proc_tmpl(PayloadTks, Selected),
+            topic = emqx_plugin_libs_rule:proc_tmpl(TopicTks, Selected),
+            payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Selected),
             timestamp = Timestamp
         });
 
@@ -190,8 +190,8 @@ on_action_republish(Selected, _Envs = #{
             from = ActId,
             flags = #{dup => false, retain => false},
             headers = #{republish_by => ActId},
-            topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
-            payload = emqx_rule_utils:proc_tmpl(PayloadTks, Selected),
+            topic = emqx_plugin_libs_rule:proc_tmpl(TopicTks, Selected),
+            payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Selected),
             timestamp = erlang:system_time(millisecond)
         }).
 

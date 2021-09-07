@@ -231,8 +231,8 @@ feedvar(Override, Packet, ConnInfo, ClientInfo) ->
             , 'Packet' => connect_packet_to_map(Packet)
             },
     maps:map(fun(_K, V) ->
-        Tokens = emqx_rule_utils:preproc_tmpl(V),
-        emqx_rule_utils:proc_tmpl(Tokens, Envs)
+        Tokens = emqx_plugin_libs_rule:preproc_tmpl(V),
+        emqx_plugin_libs_rule:proc_tmpl(Tokens, Envs)
     end, Override).
 
 connect_packet_to_map(#stomp_frame{headers = Headers}) ->

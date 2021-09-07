@@ -38,7 +38,7 @@ test(#{<<"rawsql">> := Sql, <<"ctx">> := Context}) ->
     case lists:all(fun is_publish_topic/1, EventTopics) of
         true ->
             %% test if the topic matches the topic filters in the rule
-            case emqx_rule_utils:can_topic_match_oneof(InTopic, EventTopics) of
+            case emqx_plugin_libs_rule:can_topic_match_oneof(InTopic, EventTopics) of
                 true -> test_rule(Sql, Select, Context, EventTopics);
                 false -> {error, nomatch}
             end;
@@ -112,7 +112,7 @@ envs_examp(_) ->
       topic => <<"t/a">>,
       qos => 1,
       flags => #{sys => true, event => true},
-      publish_received_at => emqx_rule_utils:now_ms(),
-      timestamp => emqx_rule_utils:now_ms(),
+      publish_received_at => emqx_plugin_libs_rule:now_ms(),
+      timestamp => emqx_plugin_libs_rule:now_ms(),
       node => node()
     }.

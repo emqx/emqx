@@ -237,8 +237,8 @@ on_action_create_data_to_webserver(Id, Params) ->
       body := Body,
       pool := Pool,
       request_timeout := RequestTimeout} = parse_action_params(Params),
-    BodyTokens = emqx_rule_utils:preproc_tmpl(Body),
-    PathTokens = emqx_rule_utils:preproc_tmpl(Path),
+    BodyTokens = emqx_plugin_libs_rule:preproc_tmpl(Body),
+    PathTokens = emqx_plugin_libs_rule:preproc_tmpl(Path),
     Params.
 
 on_action_data_to_webserver(Selected, _Envs =
@@ -252,7 +252,7 @@ on_action_data_to_webserver(Selected, _Envs =
                                 'RequestTimeout' := RequestTimeout},
                               clientid := ClientID}) ->
     NBody = format_msg(BodyTokens, Selected),
-    NPath = emqx_rule_utils:proc_tmpl(PathTokens, Selected),
+    NPath = emqx_plugin_libs_rule:proc_tmpl(PathTokens, Selected),
     Req = create_req(Method, NPath, Headers, NBody),
     case ehttpc:request(ehttpc_pool:pick_worker(Pool, ClientID), Method, Req, RequestTimeout) of
         {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
@@ -273,7 +273,7 @@ on_action_data_to_webserver(Selected, _Envs =
 format_msg([], Data) ->
     emqx_json:encode(Data);
 format_msg(Tokens, Data) ->
-     emqx_rule_utils:proc_tmpl(Tokens, Data).
+     emqx_plugin_libs_rule:proc_tmpl(Tokens, Data).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -366,7 +366,7 @@ get_ssl_opts(Opts, ResId) ->
 test_http_connect(Conf) ->
     Url = fun() -> maps:get(<<"url">>, Conf) end,
     try
-       emqx_rule_utils:http_connectivity(Url())
+       emqx_plugin_libs_rule:http_connectivity(Url())
     of
        ok -> true;
        {error, _Reason} ->

@@ -185,7 +185,7 @@ get_rules_ordered_by_ts() ->
 -spec(get_rules_for(Topic :: binary()) -> list(emqx_rule_engine:rule())).
 get_rules_for(Topic) ->
     [Rule || Rule = #rule{for = For} <- get_rules(),
-             emqx_rule_utils:can_topic_match_oneof(Topic, For)].
+             emqx_plugin_libs_rule:can_topic_match_oneof(Topic, For)].
 
 -spec(get_rules_with_same_event(Topic :: binary()) -> list(emqx_rule_engine:rule())).
 get_rules_with_same_event(Topic) ->
@@ -221,7 +221,7 @@ remove_rules(Rules) ->
 
 %% @private
 insert_rule(Rule) ->
-    _ =  emqx_rule_utils:cluster_call(?MODULE, load_hooks_for_rule, [Rule]),
+    _ =  emqx_plugin_libs_rule:cluster_call(?MODULE, load_hooks_for_rule, [Rule]),
     mnesia:write(?RULE_TAB, Rule, write).
 
 %% @private
@@ -231,7 +231,7 @@ delete_rule(RuleId) when is_binary(RuleId) ->
         not_found -> ok
     end;
 delete_rule(Rule) ->
-    _ =  emqx_rule_utils:cluster_call(?MODULE, unload_hooks_for_rule, [Rule]),
+    _ =  emqx_plugin_libs_rule:cluster_call(?MODULE, unload_hooks_for_rule, [Rule]),
     mnesia:delete_object(?RULE_TAB, Rule, write).
 
 load_hooks_for_rule(#rule{for = Topics}) ->
