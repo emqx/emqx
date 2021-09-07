@@ -35,14 +35,14 @@ gateway.lwm2m {
   lifetime_max = 86400s
   qmode_time_windonw = 22
   auto_observe = false
-  mountpoint = \"lwm2m\"
+  mountpoint = \"lwm2m/%u\"
   update_msg_publish_condition = contains_object_list
   translators {
-    command = {topic = \"dn/#\", qos = 0}
-    response = {topic = \"up/resp\", qos = 0}
-    notify = {topic = \"up/notify\", qos = 0}
-    register = {topic = \"up/resp\", qos = 0}
-    update = {topic = \"up/resp\", qos = 0}
+    command = {topic = \"/dn/#\", qos = 0}
+    response = {topic = \"/up/resp\", qos = 0}
+    notify = {topic = \"/up/notify\", qos = 0}
+    register = {topic = \"/up/resp\", qos = 0}
+    update = {topic = \"/up/resp\", qos = 0}
   }
   listeners.udp.default {
     bind = 5783
@@ -66,7 +66,7 @@ all() ->
     , {group, test_grp_6_observe}
 
       %% {group, test_grp_8_object_19}
-      %% {group, test_grp_9_psm_queue_mode}
+    , {group, test_grp_9_psm_queue_mode}
     ].
 
 suite() -> [{timetrap, {seconds, 90}}].
@@ -1750,7 +1750,7 @@ server_cache_mode(Config, RegOption) ->
     verify_read_response_1(0, UdpSock),
 
     %% server inters into PSM mode
-    timer:sleep(2),
+    timer:sleep(2500),
 
     %% verify server caches downlink commands
     send_read_command_1(1, UdpSock),
@@ -1797,6 +1797,7 @@ verify_read_response_1(CmdId, UdpSock) ->
     ReadResult = emqx_json:encode(#{  <<"requestID">> => CmdId, <<"cacheID">> => CmdId,
                                       <<"msgType">> => <<"read">>,
                                       <<"data">> => #{
+                                                      <<"reqPath">> => <<"/3/0/0">>,
                                                       <<"code">> => <<"2.05">>,
                                                       <<"codeMsg">> => <<"content">>,
                                                       <<"content">> => [#{

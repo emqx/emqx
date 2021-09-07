@@ -55,6 +55,8 @@
                   %% Timer
                   timers :: #{atom() => disable | undefined | reference()},
 
+                  connection_required :: boolean(),
+
                   conn_state :: idle | connected,
 
                   token :: binary() | undefined
@@ -63,6 +65,8 @@
 -type channel() :: #channel{}.
 -define(TOKEN_MAXIMUM, 4294967295).
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session]).
+-define(DEF_IDLE_TIME, timer:seconds(30)).
+-define(GET_IDLE_TIME(Cfg), maps:get(idle_timeout, Cfg, ?DEF_IDLE_TIME)).
 
 -import(emqx_coap_medium, [reply/2, reply/3, reply/4, iter/3, iter/4]).
 %%--------------------------------------------------------------------
@@ -110,13 +114,14 @@ init(ConnInfo = #{peername := {PeerHost, _},
                     }
                   ),
 
-    Heartbeat = emqx:get_config([gateway, coap, idle_timeout]),
+    Heartbeat = ?GET_IDLE_TIME(Config),
     #channel{ ctx = Ctx
             , conninfo = ConnInfo
             , clientinfo = ClientInfo
             , timers = #{}
             , session = emqx_coap_session:new()
             , keepalive = emqx_keepalive:init(Heartbeat)
+            , connection_required = maps:get(connection_required, Config, false)
             , conn_state = idle
             }.
 
@@ -216,13 +221,12 @@ make_timer(Name, Time, Msg, Channel = #channel{timers = Timers}) ->
 ensure_keepalive_timer(Channel) ->
     ensure_keepalive_timer(fun ensure_timer/4, Channel).
 
-ensure_keepalive_timer(Fun, Channel) ->
-    Heartbeat = emqx:get_config([gateway, coap, idle_timeout]),
+ensure_keepalive_timer(Fun, #channel{keepalive = KeepAlive} = Channel) ->
+    Heartbeat = emqx_keepalive:info(interval, KeepAlive),
     Fun(keepalive, Heartbeat, keepalive, Channel).
 
-check_auth_state(Msg, Channel) ->
-    Enable = emqx:get_config([gateway, coap, enable_stats]),
-    check_token(Enable, Msg, Channel).
+check_auth_state(Msg, #channel{connection_required = Required} = Channel) ->
+    check_token(Required, Msg, Channel).
 
 check_token(true,
             Msg,

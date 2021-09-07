@@ -30,20 +30,20 @@
 
 -define(STANDARD, 1).
 
-%-type msg_type() :: <<"create">>
-%                  | <<"delete">>
-%                  | <<"read">>
-%                  | <<"write">>
-%                  | <<"execute">>
-%                  | <<"discover">>
-%                  | <<"write-attr">>
-%                  | <<"observe">>
-%                  | <<"cancel-observe">>.
-%
-                                                %-type cmd() :: #{ <<"msgType">> := msg_type()
-                                                %                , <<"data">> := maps()
-                                                %                %% more keys?
-                                                %                }.
+%%-type msg_type() :: <<"create">>
+%%                  | <<"delete">>
+%%                  | <<"read">>
+%%                  | <<"write">>
+%%                  | <<"execute">>
+%%                  | <<"discover">>
+%%                  | <<"write-attr">>
+%%                  | <<"observe">>
+%%                  | <<"cancel-observe">>.
+%%
+%%-type cmd() :: #{ <<"msgType">> := msg_type()
+%%                , <<"data">> := maps()
+%%                %%%% more keys?
+%%                }.
 
 %%--------------------------------------------------------------------
 %% APIs
