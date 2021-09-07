@@ -144,12 +144,12 @@ do_add(Params) ->
     Username = get_value(<<"username">>, Params, undefined),
     Login = case {Clientid, Username} of
                 {undefined, undefined} -> all;
-                {_, undefined} -> {clientid, urldecode(Clientid)};
-                {undefined, _} -> {username, urldecode(Username)}
+                {_, undefined} -> {clientid, Clientid};
+                {undefined, _} -> {username, Username}
             end,
-    Topic = urldecode(get_value(<<"topic">>, Params)),
-    Action = urldecode(get_value(<<"action">>, Params)),
-    Access = urldecode(get_value(<<"access">>, Params)),
+    Topic = get_value(<<"topic">>, Params),
+    Action = get_value(<<"action">>, Params),
+    Access = get_value(<<"access">>, Params),
     Re = case validate([login, topic, action, access], [Login, Topic, Action, Access]) of
         ok ->
             emqx_acl_mnesia_cli:add_acl(Login, Topic, erlang:binary_to_atom(Action, utf8), erlang:binary_to_atom(Access, utf8));
