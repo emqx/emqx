@@ -34,9 +34,6 @@
         , handle_disconnected/2
         ]).
 
--export([ check_subscriptions/1
-        ]).
-
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
@@ -54,7 +51,6 @@ start(Config) ->
     {Host, Port} = maps:get(server, Config),
     Mountpoint = maps:get(receive_mountpoint, Config, undefined),
     Subscriptions = maps:get(subscriptions, Config, []),
-    Subscriptions1 = check_subscriptions(Subscriptions),
     Handlers = make_hdlr(Parent, Mountpoint),
     Config1 = Config#{
         msg_handler => Handlers,
@@ -68,8 +64,8 @@ start(Config) ->
             case emqtt:connect(Pid) of
                 {ok, _} ->
                     try
-                        Subscriptions2 = subscribe_remote_topics(Pid, Subscriptions1),
-                        {ok, #{client_pid => Pid, subscriptions => Subscriptions2}}
+                        ok = subscribe_remote_topics(Pid, Subscriptions),
+                        {ok, #{client_pid => Pid, subscriptions => Subscriptions}}
                     catch
                         throw : Reason ->
                             ok = stop(#{client_pid => Pid}),
@@ -173,18 +169,12 @@ make_hdlr(Parent, Mountpoint) ->
      }.
 
 subscribe_remote_topics(ClientPid, Subscriptions) ->
-    lists:map(fun({Topic, Qos}) ->
-        case emqtt:subscribe(ClientPid, Topic, Qos) of
-            {ok, _, _} -> {Topic, Qos};
+    lists:foreach(fun(#{subscribe_remote_topic := FromTopic, subscribe_qos := QoS}) ->
+        case emqtt:subscribe(ClientPid, FromTopic, QoS) of
+            {ok, _, _} -> ok;
             Error -> throw(Error)
         end
     end, Subscriptions).
 
 without_config(Config) ->
     maps:without([conn_type, address, receive_mountpoint, subscriptions], Config).
-
-check_subscriptions(Subscriptions) ->
-    lists:map(fun(#{qos := QoS, topic := Topic}) ->
-        true = emqx_topic:validate({filter, Topic}),
-        {Topic, QoS}
-    end, Subscriptions).

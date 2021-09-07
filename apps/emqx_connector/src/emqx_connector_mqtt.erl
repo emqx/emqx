@@ -53,23 +53,27 @@ fields("config") ->
     ] ++ emqx_connector_schema_lib:ssl_fields();
 
 fields("in") ->
-    [ {from_remote_topic, #{type => binary(), nullable => false}}
-    , {to_local_topic, #{type => binary(), nullable => false}}
-    , {qos, emqx_schema:t(integer(), undefined, 1)}
-    , {payload_template, emqx_schema:t(binary(), undefined, <<"${message}">>)}
-    ];
+    [ {subscribe_remote_topic, #{type => binary(), nullable => false}}
+    , {publish_local_topic, emqx_schema:t(binary(), undefined, <<"${topic}">>)}
+    , {subscribe_qos, emqx_schema:t(hoconsc:union([0, 1, 2, binary()]), undefined, 1)}
+    ] ++ publish_confs();
 
 fields("out") ->
-    [ {to_remote_topic, #{type => binary(), nullable => false}}
-    , {from_local_topic, #{type => binary(), nullable => false}}
-    , {payload_template, emqx_schema:t(binary(), undefined, <<"${payload}">>)}
-    ];
+    [ {subscribe_local_topic, #{type => binary(), nullable => false}}
+    , {publish_remote_topic, emqx_schema:t(binary(), undefined, <<"${topic}">>)}
+    ] ++ publish_confs();
 
 fields("replayq") ->
     [ {dir, hoconsc:union([boolean(), string()])}
     , {seg_bytes, emqx_schema:t(emqx_schema:bytesize(), undefined, "100MB")}
     , {offload, emqx_schema:t(boolean(), undefined, false)}
     , {max_total_bytes, emqx_schema:t(emqx_schema:bytesize(), undefined, "1024MB")}
+    ].
+
+publish_confs() ->
+    [ {publish_qos, emqx_schema:t(hoconsc:union([0, 1, 2, binary()]), undefined, <<"${qos}">>)}
+    , {publish_retain, emqx_schema:t(hoconsc:union([boolean(), binary()]), undefined, <<"${retain}">>)}
+    , {publish_payload, emqx_schema:t(binary(), undefined, <<"${payload}">>)}
     ].
 
 proto_ver(type) -> hoconsc:enum([v3, v4, v5]);
@@ -138,8 +142,8 @@ on_query(InstId, {publish_to_local, Msg}, _AfterQuery, _State) ->
 on_query(InstId, {publish_to_remote, Msg}, _AfterQuery, _State) ->
     logger:debug("publish to remote node, connector: ~p, msg: ~p", [InstId, Msg]).
 
-on_health_check(_InstId, #{bridge_worker := Worker}) ->
-    {ok, emqx_bridge_worker:ping(Worker)}.
+on_health_check(_InstId, #{bridge_name := Name}) ->
+    {ok, emqx_bridge_worker:ping(Name)}.
 
 start_bridge(Name) ->
     case emqx_bridge_worker:ensure_started(Name) of
