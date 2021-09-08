@@ -22,49 +22,38 @@
 
 -export([init/1]).
 
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
+
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
+%%--------------------------------------------------------------------
+%% Supervisor callbacks
+%%--------------------------------------------------------------------
+
 init([]) ->
-    Banned = #{id => banned,
-               start => {emqx_banned, start_link, []},
-               restart => permanent,
-               shutdown => 1000,
-               type => worker,
-               modules => [emqx_banned]},
-    Flapping = #{id => flapping,
-                 start => {emqx_flapping, start_link, []},
-                 restart => permanent,
-                 shutdown => 1000,
-                 type => worker,
-                 modules => [emqx_flapping]},
-    %% Channel locker
-    Locker = #{id => locker,
-               start => {emqx_cm_locker, start_link, []},
-               restart => permanent,
-               shutdown => 5000,
-               type => worker,
-               modules => [emqx_cm_locker]
-              },
-    %% Channel registry
-    Registry = #{id => registry,
-                 start => {emqx_cm_registry, start_link, []},
-                 restart => permanent,
-                 shutdown => 5000,
-                 type => worker,
-                 modules => [emqx_cm_registry]
-                },
-    %% Channel Manager
-    Manager = #{id => manager,
-                start => {emqx_cm, start_link, []},
-                restart => permanent,
-                shutdown => 5000,
-                type => worker,
-                modules => [emqx_cm]
-               },
     SupFlags = #{strategy => one_for_one,
                  intensity => 100,
                  period => 10
                 },
+    Banned   = child_spec(emqx_banned, 1000, worker),
+    Flapping = child_spec(emqx_flapping, 1000, worker),
+    Locker   = child_spec(emqx_cm_locker, 5000, worker),
+    Registry = child_spec(emqx_cm_registry, 5000, worker),
+    Manager  = child_spec(emqx_cm, 5000, worker),
     {ok, {SupFlags, [Banned, Flapping, Locker, Registry, Manager]}}.
 
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+child_spec(Mod, Shutdown, Type) ->
+    #{id       => Mod,
+      start    => {Mod, start_link, []},
+      restart  => permanent,
+      shutdown => Shutdown,
+      type     => Type,
+      modules  => [Mod]
+     }.
