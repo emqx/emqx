@@ -135,7 +135,7 @@ authenticate(#{password := Password} = Credential,
                 Selected = merge(Fields, Values),
                 case check_password(Password, Selected, State) of
                    ok ->
-                       {ok, #{superuser => maps:get("superuser", Selected, false)}};
+                       {ok, #{is_superuser => maps:get("is_superuser", Selected, false)}};
                    {error, Reason} ->
                        {error, Reason}
                 end;
@@ -180,7 +180,7 @@ check_fields(["password_hash" | More], false) ->
     check_fields(More, true);
 check_fields(["salt" | More], HasPassHash) ->
     check_fields(More, HasPassHash);
-check_fields(["superuser" | More], HasPassHash) ->
+check_fields(["is_superuser" | More], HasPassHash) ->
     check_fields(More, HasPassHash);
 check_fields([Field | _], _) ->
     error({unsupported_field, Field}).
