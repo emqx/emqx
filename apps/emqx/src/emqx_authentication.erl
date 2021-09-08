@@ -80,7 +80,7 @@
 
 -type config() :: #{atom() => term()}.
 -type state() :: #{atom() => term()}.
--type extra() :: #{superuser := boolean(),
+-type extra() :: #{is_superuser := boolean(),
                    atom() => term()}.
 -type user_info() :: #{user_id := binary(),
                        atom() => term()}.

@@ -123,7 +123,7 @@ authenticate(#{password := Password} = Credential,
                 Selected = maps:from_list(lists:zip(Columns, Rows)),
                 case check_password(Password, Selected, State) of
                     ok ->
-                        {ok, #{superuser => maps:get(<<"superuser">>, Selected, false)}};
+                        {ok, #{is_superuser => maps:get(<<"is_superuser">>, Selected, false)}};
                     {error, Reason} ->
                         {error, Reason}
                 end;

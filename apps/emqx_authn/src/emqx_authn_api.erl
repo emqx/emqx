@@ -765,7 +765,7 @@ create_user_api_spec() ->
                             password => #{
                                 type => string
                             },
-                            superuser => #{
+                            is_superuser => #{
                                 type => boolean,
                                 default => false
                             }
@@ -785,7 +785,7 @@ create_user_api_spec() ->
                                 user_id => #{
                                     type => string
                                 },
-                                superuser => #{
+                                is_superuser => #{
                                     type => boolean
                                 }
                             }
@@ -850,7 +850,7 @@ list_users_api_spec() ->
                                     user_id => #{
                                         type => string
                                     },
-                                    superuser => #{
+                                    is_superuser => #{
                                         type => boolean
                                     }
                                 }
@@ -920,7 +920,7 @@ update_user_api_spec() ->
                             password => #{
                                 type => string
                             },
-                            superuser => #{
+                            is_superuser => #{
                                 type => boolean
                             }
                         }
@@ -941,7 +941,7 @@ update_user_api_spec() ->
                                     user_id => #{
                                         type => string
                                     },
-                                    superuser => #{
+                                    is_superuser => #{
                                         type => boolean
                                     }
                                 }
@@ -1025,7 +1025,7 @@ find_user_api_spec() ->
                                     user_id => #{
                                         type => string
                                     },
-                                    superuser => #{
+                                    is_superuser => #{
                                         type => boolean
                                     }
                                 }
@@ -1882,10 +1882,10 @@ move_authenitcator(ConfKeyPath, ChainName0, AuthenticatorID, Position) ->
 
 add_user(ChainName0, AuthenticatorID, #{<<"user_id">> := UserID, <<"password">> := Password} = UserInfo) ->
     ChainName = to_atom(ChainName0),
-    Superuser = maps:get(<<"superuser">>, UserInfo, false),
+    Superuser = maps:get(<<"is_superuser">>, UserInfo, false),
     case ?AUTHN:add_user(ChainName, AuthenticatorID, #{ user_id => UserID
                                                       , password => Password
-                                                      , superuser => Superuser}) of
+                                                      , is_superuser => Superuser}) of
         {ok, User} ->
             {201, User};
         {error, Reason} ->
@@ -1898,7 +1898,7 @@ add_user(_, _, _) ->
 
 update_user(ChainName0, AuthenticatorID, UserID, UserInfo) ->
     ChainName = to_atom(ChainName0),
-    case maps:with([<<"password">>, <<"superuser">>], UserInfo) =:= #{} of
+    case maps:with([<<"password">>, <<"is_superuser">>], UserInfo) =:= #{} of
         true ->
             serialize_error({missing_parameter, password});
         false ->

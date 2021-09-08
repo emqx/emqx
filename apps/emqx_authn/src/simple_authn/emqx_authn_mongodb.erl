@@ -149,7 +149,7 @@ authenticate(#{password := Password} = Credential,
             Doc ->
                 case check_password(Password, Doc, State) of
                     ok ->
-                        {ok, #{superuser => superuser(Doc, State)}};
+                        {ok, #{is_superuser => is_superuser(Doc, State)}};
                     {error, {cannot_find_password_hash_field, PasswordHashField}} ->
                         ?LOG(error, "['~s'] Can't find password hash field: ~s", [Unique, PasswordHashField]),
                         {error, bad_username_or_password};
@@ -230,9 +230,9 @@ check_password(Password,
             end
     end.
 
-superuser(Doc, #{superuser_field := SuperuserField}) ->
+is_superuser(Doc, #{superuser_field := SuperuserField}) ->
     maps:get(SuperuserField, Doc, false);
-superuser(_, _) ->
+is_superuser(_, _) ->
     false.
 
 hash(Algorithm, Password, Salt, prefix) ->

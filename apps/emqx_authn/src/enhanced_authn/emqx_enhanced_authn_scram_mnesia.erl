@@ -53,7 +53,7 @@
         , stored_key
         , server_key
         , salt
-        , superuser
+        , is_superuser
         }).
 
 %%------------------------------------------------------------------------------
@@ -147,9 +147,9 @@ add_user(#{user_id := UserID,
         fun() ->
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
-                    Superuser = maps:get(superuser, UserInfo, false),
+                    Superuser = maps:get(is_superuser, UserInfo, false),
                     add_user(UserID, Password, Superuser, State),
-                    {ok, #{user_id => UserID, superuser => Superuser}};
+                    {ok, #{user_id => UserID, is_superuser => Superuser}};
                 [_] ->
                     {error, already_exist}
             end
@@ -173,8 +173,8 @@ update_user(UserID, User,
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
                     {error, not_found};
-                [#user_info{superuser = Superuser} = UserInfo] ->
-                    UserInfo1 = UserInfo#user_info{superuser = maps:get(superuser, User, Superuser)},
+                [#user_info{is_superuser = Superuser} = UserInfo] ->
+                    UserInfo1 = UserInfo#user_info{is_superuser = maps:get(is_superuser, User, Superuser)},
                     UserInfo2 = case maps:get(password, User, undefined) of
                                     undefined ->
                                         UserInfo1;
@@ -229,13 +229,13 @@ check_client_first_message(Bin, _Cache, #{iteration_count := IterationCount} = S
             {error, not_authorized}
     end.
 
-check_client_final_message(Bin, #{superuser := Superuser} = Cache, #{algorithm := Alg}) ->
+check_client_final_message(Bin, #{is_superuser := Superuser} = Cache, #{algorithm := Alg}) ->
     case esasl_scram:check_client_final_message(
              Bin,
              Cache#{algorithm => Alg}
          ) of
         {ok, ServerFinalMessage} ->
-            {ok, #{superuser => Superuser}, ServerFinalMessage};
+            {ok, #{is_superuser => Superuser}, ServerFinalMessage};
         {error, _Reason} ->
             {error, not_authorized}
     end.
@@ -246,7 +246,7 @@ add_user(UserID, Password, Superuser, State) ->
                           stored_key = StoredKey,
                           server_key = ServerKey,
                           salt       = Salt,
-                          superuser  = Superuser},
+                          is_superuser  = Superuser},
     mnesia:write(?TAB, UserInfo, write).
 
 retrieve(UserID, #{user_group := UserGroup}) ->
@@ -254,11 +254,11 @@ retrieve(UserID, #{user_group := UserGroup}) ->
         [#user_info{stored_key = StoredKey,
                     server_key = ServerKey,
                     salt       = Salt,
-                    superuser  = Superuser}] ->
+                    is_superuser  = Superuser}] ->
             {ok, #{stored_key => StoredKey,
                    server_key => ServerKey,
                    salt => Salt,
-                   superuser => Superuser}};
+                   is_superuser => Superuser}};
         [] ->
             {error, not_found}
     end.
@@ -273,5 +273,5 @@ trans(Fun, Args) ->
         {aborted, Reason} -> {error, Reason}
     end.
 
-serialize_user_info(#user_info{user_id = {_, UserID}, superuser = Superuser}) ->
-    #{user_id => UserID, superuser => Superuser}.
+serialize_user_info(#user_info{user_id = {_, UserID}, is_superuser = Superuser}) ->
+    #{user_id => UserID, is_superuser => Superuser}.

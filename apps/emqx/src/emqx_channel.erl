@@ -1303,11 +1303,11 @@ do_authenticate(#{auth_method := AuthMethod} = Credential, #channel{clientinfo =
     case emqx_access_control:authenticate(Credential) of
         {ok, Result} ->
             {ok, Properties,
-             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(superuser, Result, false)},
+             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(is_superuser, Result, false)},
                              auth_cache = #{}}};
         {ok, Result, AuthData} ->
             {ok, Properties#{'Authentication-Data' => AuthData},
-             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(superuser, Result, false)},
+             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(is_superuser, Result, false)},
                              auth_cache = #{}}};
         {continue, AuthCache} ->
             {continue, Properties, Channel#channel{auth_cache = AuthCache}};
@@ -1320,7 +1320,7 @@ do_authenticate(#{auth_method := AuthMethod} = Credential, #channel{clientinfo =
 
 do_authenticate(Credential, #channel{clientinfo = ClientInfo} = Channel) ->
     case emqx_access_control:authenticate(Credential) of
-        {ok, #{superuser := Superuser}} ->
+        {ok, #{is_superuser := Superuser}} ->
             {ok, #{}, Channel#channel{clientinfo = ClientInfo#{is_superuser => Superuser}}};
         {error, Reason} ->
             {error, emqx_reason_codes:connack_error(Reason)}

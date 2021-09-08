@@ -56,9 +56,9 @@ all() ->
 %     ClientInfo = #{zone => external,
 %                    username => <<"myuser">>,
 % 			       password => <<"mypass">>},
-%     ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
 %     ?AUTH:enable(),
-%     ?assertEqual({ok, #{superuser => false}}, emqx_access_control:authenticate(ClientInfo)),
+%     ?assertEqual({ok, #{is_superuser => false}}, emqx_access_control:authenticate(ClientInfo)),
 
 %     ClientInfo2 = ClientInfo#{username => <<"baduser">>},
 %     ?assertEqual({stop, {error, not_authorized}}, ?AUTH:authenticate(ClientInfo2, ignored)),
@@ -71,10 +71,10 @@ all() ->
 %     UserInfo2 = UserInfo#{password => <<"mypass2">>},
 %     ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:update_user(?CHAIN, ID, <<"myuser">>, UserInfo2)),
 %     ClientInfo4 = ClientInfo#{password => <<"mypass2">>},
-%     ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo4, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo4, ignored)),
 
-%     ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:update_user(?CHAIN, ID, <<"myuser">>, #{superuser => true})),
-%     ?assertEqual({stop, {ok, #{superuser => true}}}, ?AUTH:authenticate(ClientInfo4, ignored)),
+%     ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:update_user(?CHAIN, ID, <<"myuser">>, #{is_superuser => true})),
+%     ?assertEqual({stop, {ok, #{is_superuser => true}}}, ?AUTH:authenticate(ClientInfo4, ignored)),
 
 %     ?assertEqual(ok, ?AUTH:delete_user(?CHAIN, ID, <<"myuser">>)),
 %     ?assertEqual({error, not_found}, ?AUTH:lookup_user(?CHAIN, ID, <<"myuser">>)),
@@ -107,15 +107,15 @@ all() ->
 
 %     ClientInfo1 = #{username => <<"myuser1">>,
 % 			        password => <<"mypassword1">>},
-%     ?assertEqual({stop, {ok, #{superuser => true}}}, ?AUTH:authenticate(ClientInfo1, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => true}}}, ?AUTH:authenticate(ClientInfo1, ignored)),
 
 %     ClientInfo2 = ClientInfo1#{username => <<"myuser2">>,
 %                                password => <<"mypassword2">>},
-%     ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo2, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo2, ignored)),
 
 %     ClientInfo3 = ClientInfo1#{username => <<"myuser3">>,
 %                                password => <<"mypassword3">>},
-%     ?assertEqual({stop, {ok, #{superuser => true}}}, ?AUTH:authenticate(ClientInfo3, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => true}}}, ?AUTH:authenticate(ClientInfo3, ignored)),
 
 %     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID)),
 %     ok.
@@ -152,12 +152,12 @@ all() ->
 %     ClientInfo1 = #{username => <<"myuser">>,
 %                     clientid => <<"myclient">>,
 % 			        password => <<"mypass1">>},
-%     ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo1, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo1, ignored)),
 %     ?assertEqual(ok, ?AUTH:move_authenticator(?CHAIN, ID2, top)),
 
 %     ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo1, ignored)),
 %     ClientInfo2 = ClientInfo1#{password => <<"mypass2">>},
-%     ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo2, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo2, ignored)),
 
 %     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID1)),
 %     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID2)),

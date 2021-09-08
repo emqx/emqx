@@ -73,7 +73,7 @@ update(_Config, _State) ->
     {ok, #{mark => 2}}.
 
 authenticate(#{username := <<"good">>}, _State) ->
-    {ok, #{superuser => true}};
+    {ok, #{is_superuser => true}};
 authenticate(#{username := _}, _State) ->
     {error, bad_username_or_password}.
 
@@ -161,7 +161,7 @@ t_authenticate(_) ->
                    protocol => mqtt,
                    username => <<"good">>,
 			       password => <<"any">>},
-    ?assertEqual({ok, #{superuser => false}}, emqx_access_control:authenticate(ClientInfo)),
+    ?assertEqual({ok, #{is_superuser => false}}, emqx_access_control:authenticate(ClientInfo)),
 
     AuthNType = {'password-based', 'built-in-database'},
     ?AUTHN:add_provider(AuthNType, ?MODULE),
@@ -171,7 +171,7 @@ t_authenticate(_) ->
                             enable => true},
     ?AUTHN:create_chain(ListenerID),
     ?assertMatch({ok, _}, ?AUTHN:create_authenticator(ListenerID, AuthenticatorConfig)),
-    ?assertEqual({ok, #{superuser => true}}, emqx_access_control:authenticate(ClientInfo)),
+    ?assertEqual({ok, #{is_superuser => true}}, emqx_access_control:authenticate(ClientInfo)),
     ?assertEqual({error, bad_username_or_password}, emqx_access_control:authenticate(ClientInfo#{username => <<"bad">>})),
 
     ?AUTHN:delete_chain(ListenerID),
