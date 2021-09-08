@@ -118,7 +118,7 @@ start_listener(GwName, Ctx, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     end.
 
 start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) ->
-    Name = name(GwName, LisName, Type),
+    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     NCfg = Cfg#{
              ctx => Ctx,
              frame_mod => emqx_sn_frame,
@@ -126,9 +126,6 @@ start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) ->
             },
     esockd:open_udp(Name, ListenOn, merge_default(SocketOpts),
                     {emqx_gateway_conn, start_link, [NCfg]}).
-
-name(GwName, LisName, Type) ->
-    list_to_atom(lists:concat([GwName, ":", Type, ":", LisName])).
 
 merge_default(Options) ->
     Default = emqx_gateway_utils:default_udp_options(),
@@ -153,5 +150,5 @@ stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     StopRet.
 
 stop_listener(GwName, Type, LisName, ListenOn, _SocketOpts, _Cfg) ->
-    Name = name(GwName, LisName, Type),
+    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     esockd:close(Name, ListenOn).

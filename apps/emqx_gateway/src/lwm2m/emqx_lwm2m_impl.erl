@@ -100,7 +100,7 @@ start_listener(GwName, Ctx, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     end.
 
 start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) ->
-    Name = name(GwName, LisName, udp),
+    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     NCfg = Cfg#{ ctx => Ctx
                , frame_mod => emqx_coap_frame
                , chann_mod => emqx_lwm2m_channel
@@ -119,15 +119,11 @@ merge_default(Options) ->
             [{udp_options, Default} | Options]
     end.
 
-name(GwName, LisName, Type) ->
-    list_to_atom(lists:concat([GwName, ":", Type, ":", LisName])).
-
 do_start_listener(udp, Name, ListenOn, SocketOpts, MFA) ->
     esockd:open_udp(Name, ListenOn, SocketOpts, MFA);
 
 do_start_listener(dtls, Name, ListenOn, SocketOpts, MFA) ->
     esockd:open_dtls(Name, ListenOn, SocketOpts, MFA).
-
 
 stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     StopRet = stop_listener(GwName, Type, LisName, ListenOn, SocketOpts, Cfg),
@@ -142,5 +138,5 @@ stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     StopRet.
 
 stop_listener(GwName, Type, LisName, ListenOn, _SocketOpts, _Cfg) ->
-    Name = name(GwName, LisName, Type),
+    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     esockd:close(Name, ListenOn).

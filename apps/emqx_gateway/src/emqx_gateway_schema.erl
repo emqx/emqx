@@ -204,7 +204,6 @@ fields(udp_opts) ->
 
 fields(dtls_listener_ssl_opts) ->
     Base = emqx_schema:fields("listener_ssl_opts"),
-    %% XXX: ciphers ???
     DtlsVers = hoconsc:mk(
                  typerefl:alias("string", list(atom())),
                  #{ default => default_dtls_vsns(),
@@ -212,11 +211,40 @@ fields(dtls_listener_ssl_opts) ->
                       [dtls_vsn(iolist_to_binary(V)) || V <- Vsns]
                     end
                   }),
-    lists:keyreplace("versions", 1, Base, {"versions", DtlsVers});
+    Ciphers = sc(hoconsc:array(string()), default_ciphers()),
+    lists:keydelete(
+        "handshake_timeout", 1,
+        lists:keyreplace(
+            "ciphers", 1,
+            lists:keyreplace("versions", 1, Base, {"versions", DtlsVers}),
+            {"ciphers", Ciphers}
+         )
+     );
 
 fields(ExtraField) ->
     Mod = list_to_atom(ExtraField++"_schema"),
     Mod:fields(ExtraField).
+
+default_ciphers() ->
+    ["ECDHE-ECDSA-AES256-GCM-SHA384",
+     "ECDHE-RSA-AES256-GCM-SHA384", "ECDHE-ECDSA-AES256-SHA384", "ECDHE-RSA-AES256-SHA384",
+     "ECDHE-ECDSA-DES-CBC3-SHA", "ECDH-ECDSA-AES256-GCM-SHA384", "ECDH-RSA-AES256-GCM-SHA384",
+     "ECDH-ECDSA-AES256-SHA384", "ECDH-RSA-AES256-SHA384", "DHE-DSS-AES256-GCM-SHA384",
+     "DHE-DSS-AES256-SHA256", "AES256-GCM-SHA384", "AES256-SHA256",
+     "ECDHE-ECDSA-AES128-GCM-SHA256", "ECDHE-RSA-AES128-GCM-SHA256",
+     "ECDHE-ECDSA-AES128-SHA256", "ECDHE-RSA-AES128-SHA256", "ECDH-ECDSA-AES128-GCM-SHA256",
+     "ECDH-RSA-AES128-GCM-SHA256", "ECDH-ECDSA-AES128-SHA256", "ECDH-RSA-AES128-SHA256",
+     "DHE-DSS-AES128-GCM-SHA256", "DHE-DSS-AES128-SHA256", "AES128-GCM-SHA256", "AES128-SHA256",
+     "ECDHE-ECDSA-AES256-SHA", "ECDHE-RSA-AES256-SHA", "DHE-DSS-AES256-SHA",
+     "ECDH-ECDSA-AES256-SHA", "ECDH-RSA-AES256-SHA", "AES256-SHA", "ECDHE-ECDSA-AES128-SHA",
+     "ECDHE-RSA-AES128-SHA", "DHE-DSS-AES128-SHA", "ECDH-ECDSA-AES128-SHA",
+     "ECDH-RSA-AES128-SHA", "AES128-SHA"
+    ] ++ psk_ciphers().
+
+psk_ciphers() ->
+    ["PSK-AES128-CBC-SHA", "PSK-AES256-CBC-SHA",
+     "PSK-3DES-EDE-CBC-SHA", "PSK-RC4-SHA"
+    ].
 
 % authentication() ->
 %     hoconsc:union(
@@ -242,7 +270,7 @@ gateway_common_options() ->
     [ {enable, sc(boolean(), true)}
     , {enable_stats, sc(boolean(), true)}
     , {idle_timeout, sc(duration(), <<"30s">>)}
-    , {mountpoint, sc(binary())}
+    , {mountpoint, sc(binary(), undefined)}
     , {clientinfo_override, sc(ref(clientinfo_override))}
     , {authentication,  sc(hoconsc:lazy(map()))}
     ].
@@ -254,6 +282,7 @@ common_listener_opts() ->
     , {max_connections, sc(integer(), 1024)}
     , {max_conn_rate, sc(integer())}
     %, {rate_limit, sc(comma_separated_list())}
+    , {mountpoint, sc(binary(), undefined)}
     , {access_rules, sc(hoconsc:array(string()), [])}
     ].
 
