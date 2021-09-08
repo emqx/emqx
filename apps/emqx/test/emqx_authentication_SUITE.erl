@@ -94,7 +94,7 @@ end_per_suite(_) ->
 
 t_chain(_) ->
     % CRUD of authentication chain
-    ChainName = <<"test">>,
+    ChainName = 'test',
     ?assertMatch({ok, []}, ?AUTHN:list_chains()),
     ?assertMatch({ok, #{name := ChainName, authenticators := []}}, ?AUTHN:create_chain(ChainName)),
     ?assertEqual({error, {already_exists, {chain, ChainName}}}, ?AUTHN:create_chain(ChainName)),
@@ -105,7 +105,7 @@ t_chain(_) ->
     ok.
 
 t_authenticator(_) ->
-    ChainName = <<"test">>,
+    ChainName = 'test',
     AuthenticatorConfig1 = #{mechanism => 'password-based',
                              backend => 'built-in-database',
                              enable => true},
@@ -155,7 +155,7 @@ t_authenticator(_) ->
     ok.
 
 t_authenticate(_) ->
-    ListenerID = <<"tcp:default">>,
+    ListenerID = 'tcp:default',
     ClientInfo = #{zone => default,
                    listener => ListenerID,
                    protocol => mqtt,
@@ -186,7 +186,7 @@ t_update_config(_) ->
     ?AUTHN:add_provider(AuthNType1, ?MODULE),
     ?AUTHN:add_provider(AuthNType2, ?MODULE),
 
-    Global = <<"mqtt:global">>,
+    Global = 'mqtt:global',
     AuthenticatorConfig1 = #{mechanism => 'password-based',
                              backend => 'built-in-database',
                              enable => true},
@@ -212,7 +212,7 @@ t_update_config(_) ->
     ?assertMatch({ok, _}, update_config([authentication], {delete_authenticator, Global, ID1})),
     ?assertEqual({error, {not_found, {authenticator, ID1}}}, ?AUTHN:lookup_authenticator(Global, ID1)),
 
-    ListenerID = <<"tcp:default">>,
+    ListenerID = 'tcp:default',
     ConfKeyPath = [listeners, tcp, default, authentication],
     ?assertMatch({ok, _}, update_config(ConfKeyPath, {create_authenticator, ListenerID, AuthenticatorConfig1})),
     ?assertMatch({ok, #{id := ID1, state := #{mark := 1}}}, ?AUTHN:lookup_authenticator(ListenerID, ID1)),

@@ -53,7 +53,7 @@ remove_providers() ->
 initialize() ->
     ?AUTHN:initialize_authentication(?GLOBAL, emqx:get_raw_config([authentication], [])),
     lists:foreach(fun({ListenerID, ListenerConfig}) ->
-                      ?AUTHN:initialize_authentication(atom_to_binary(ListenerID), maps:get(authentication, ListenerConfig, []))
+                      ?AUTHN:initialize_authentication(ListenerID, maps:get(authentication, ListenerConfig, []))
                   end, emqx_listeners:list()),
     ok.
 

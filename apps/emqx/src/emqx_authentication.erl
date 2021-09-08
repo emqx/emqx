@@ -473,7 +473,7 @@ handle_call({update_authenticator, ChainName, AuthenticatorID, Config}, _From, S
                                state    = #{version := Version} = ST} = Authenticator ->
                     case AuthenticatorID =:= generate_id(Config) of
                         true ->
-                            Unique = <<ChainName/binary, "/", AuthenticatorID/binary, ":", Version/binary>>,
+                            Unique = unique(ChainName, AuthenticatorID, Version),
                             case Provider:update(Config#{'_unique' => Unique}, ST) of
                                 {ok, NewST} ->
                                     NewAuthenticator = Authenticator#authenticator{state = switch_version(NewST)},
@@ -575,17 +575,17 @@ split_by_id(ID, AuthenticatorsConfig) ->
     end.
 
 global_chain(mqtt) ->
-    <<"mqtt:global">>;
+    'mqtt:global';
 global_chain('mqtt-sn') ->
-    <<"mqtt-sn:global">>;
+    'mqtt-sn:global';
 global_chain(coap) ->
-    <<"coap:global">>;
+    'coap:global';
 global_chain(lwm2m) ->
-    <<"lwm2m:global">>;
+    'lwm2m:global';
 global_chain(stomp) ->
-    <<"stomp:global">>;
+    'stomp:global';
 global_chain(_) ->
-    <<"unknown:global">>.
+    'unknown:global'.
 
 may_hook(#{hooked := false} = State) ->
     case lists:any(fun(#chain{authenticators = []}) -> false;
@@ -618,7 +618,7 @@ do_create_authenticator(ChainName, AuthenticatorID, #{enable := Enable} = Config
         undefined ->
             {error, no_available_provider};
         Provider ->
-            Unique = <<ChainName/binary, "/", AuthenticatorID/binary, ":", ?VER_1/binary>>,
+            Unique = unique(ChainName, AuthenticatorID, ?VER_1),
             case Provider:create(Config#{'_unique' => Unique}) of
                 {ok, State} ->
                     Authenticator = #authenticator{id = AuthenticatorID,
@@ -703,6 +703,10 @@ serialize_authenticator(#authenticator{id = ID,
      , enable => Enable
      , state => State
      }.
+
+unique(ChainName, AuthenticatorID, Version) ->
+    NChainName = atom_to_binary(ChainName),
+    <<NChainName/binary, "/", AuthenticatorID/binary, ":", Version/binary>>.
 
 switch_version(State = #{version := ?VER_1}) ->
     State#{version := ?VER_2};

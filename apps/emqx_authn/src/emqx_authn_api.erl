@@ -1824,7 +1824,8 @@ find_listener(ListenerID) ->
             {ok, {Type, Name}}
     end.
 
-create_authenticator(ConfKeyPath, ChainName, Config) ->
+create_authenticator(ConfKeyPath, ChainName0, Config) ->
+    ChainName = to_atom(ChainName0),
     case update_config(ConfKeyPath, {create_authenticator, ChainName, Config}) of
         {ok, #{post_config_update := #{?AUTHN := #{id := ID}},
                raw_config := AuthenticatorsConfig}} ->
@@ -1849,7 +1850,8 @@ list_authenticator(ConfKeyPath, AuthenticatorID) ->
             serialize_error(Reason)
     end.
 
-update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
+update_authenticator(ConfKeyPath, ChainName0, AuthenticatorID, Config) ->
+    ChainName = to_atom(ChainName0),
     case update_config(ConfKeyPath,
                                   {update_authenticator, ChainName, AuthenticatorID, Config}) of
         {ok, #{post_config_update := #{?AUTHN := #{id := ID}},
@@ -1860,7 +1862,8 @@ update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
             serialize_error(Reason)
     end.
 
-delete_authenticator(ConfKeyPath, ChainName, AuthenticatorID) ->
+delete_authenticator(ConfKeyPath, ChainName0, AuthenticatorID) ->
+    ChainName = to_atom(ChainName0),
     case update_config(ConfKeyPath, {delete_authenticator, ChainName, AuthenticatorID}) of
         {ok, _} ->
             {204};
@@ -1868,7 +1871,8 @@ delete_authenticator(ConfKeyPath, ChainName, AuthenticatorID) ->
             serialize_error(Reason)
     end.
 
-move_authenitcator(ConfKeyPath, ChainName, AuthenticatorID, Position) ->
+move_authenitcator(ConfKeyPath, ChainName0, AuthenticatorID, Position) ->
+    ChainName = to_atom(ChainName0),
     case update_config(ConfKeyPath, {move_authenticator, ChainName, AuthenticatorID, Position}) of
         {ok, _} ->
             {204};
@@ -1876,7 +1880,8 @@ move_authenitcator(ConfKeyPath, ChainName, AuthenticatorID, Position) ->
             serialize_error(Reason)
     end.
 
-add_user(ChainName, AuthenticatorID, #{<<"user_id">> := UserID, <<"password">> := Password} = UserInfo) ->
+add_user(ChainName0, AuthenticatorID, #{<<"user_id">> := UserID, <<"password">> := Password} = UserInfo) ->
+    ChainName = to_atom(ChainName0),
     Superuser = maps:get(<<"superuser">>, UserInfo, false),
     case ?AUTHN:add_user(ChainName, AuthenticatorID, #{ user_id => UserID
                                                       , password => Password
@@ -1891,7 +1896,8 @@ add_user(_, _, #{<<"user_id">> := _}) ->
 add_user(_, _, _) ->
     serialize_error({missing_parameter, user_id}).
 
-update_user(ChainName, AuthenticatorID, UserID, UserInfo) ->
+update_user(ChainName0, AuthenticatorID, UserID, UserInfo) ->
+    ChainName = to_atom(ChainName0),
     case maps:with([<<"password">>, <<"superuser">>], UserInfo) =:= #{} of
         true ->
             serialize_error({missing_parameter, password});
@@ -1904,7 +1910,8 @@ update_user(ChainName, AuthenticatorID, UserID, UserInfo) ->
             end
     end.
 
-find_user(ChainName, AuthenticatorID, UserID) ->
+find_user(ChainName0, AuthenticatorID, UserID) ->
+    ChainName = to_atom(ChainName0),
     case ?AUTHN:lookup_user(ChainName, AuthenticatorID, UserID) of
         {ok, User} ->
             {200, User};
@@ -1912,7 +1919,8 @@ find_user(ChainName, AuthenticatorID, UserID) ->
             serialize_error(Reason)
     end.
 
-delete_user(ChainName, AuthenticatorID, UserID) ->
+delete_user(ChainName0, AuthenticatorID, UserID) ->
+    ChainName = to_atom(ChainName0),
     case ?AUTHN:delete_user(ChainName, AuthenticatorID, UserID) of
         ok ->
             {204};
@@ -1920,7 +1928,8 @@ delete_user(ChainName, AuthenticatorID, UserID) ->
             serialize_error(Reason)
     end.
 
-list_users(ChainName, AuthenticatorID) ->
+list_users(ChainName0, AuthenticatorID) ->
+    ChainName = to_atom(ChainName0),
     case ?AUTHN:list_users(ChainName, AuthenticatorID) of
         {ok, Users} ->
             {200, Users};
@@ -1974,3 +1983,8 @@ to_list(M) when is_map(M) ->
     [M];
 to_list(L) when is_list(L) ->
     L.
+
+to_atom(B) when is_binary(B) ->
+    binary_to_atom(B);
+to_atom(A) when is_atom(A) ->
+    A.
