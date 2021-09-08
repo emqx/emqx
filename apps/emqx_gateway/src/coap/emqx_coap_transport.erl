@@ -20,7 +20,7 @@
 
 -type transport() :: #transport{}.
 
--export([ new/0, idle/3, maybe_reset/3, set_cache/2
+-export([ new/0, new/1, idle/3, maybe_reset/3, set_cache/2
         , maybe_resend_4request/3, wait_ack/3, until_stop/3
         , observe/3, maybe_resend_4response/3]).
 
@@ -33,9 +33,13 @@
 
 -spec new() -> transport().
 new() ->
+    new(undefined).
+
+new(ReqCtx) ->
     #transport{cache = undefined,
                retry_interval = 0,
-               retry_count = 0}.
+               retry_count = 0,
+               req_context = ReqCtx}.
 
 idle(in,
      #coap_message{type = non, method = Method} = Msg,
@@ -61,9 +65,6 @@ idle(in,
                       #{next => maybe_resend_4request,
                         timeouts =>[{stop_timeout, ?EXCHANGE_LIFETIME}]})
     end;
-
-idle(out, {Ctx, Msg}, Transport) ->
-    idle(out, Msg, Transport#transport{req_context = Ctx});
 
 idle(out, #coap_message{type = non} = Msg, _) ->
     out(Msg, #{next => maybe_reset,
