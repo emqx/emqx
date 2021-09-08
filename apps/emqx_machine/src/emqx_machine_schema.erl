@@ -42,8 +42,7 @@
 %% The list can not be made a dynamic read at run-time as it is used
 %% by nodetool to generate app.<time>.config before EMQ X is started
 -define(MERGED_CONFIGS,
-        [ emqx_schema
-        , emqx_bridge_schema
+        [ emqx_bridge_schema
         , emqx_retainer_schema
         , emqx_statsd_schema
         , emqx_authz_schema
@@ -59,7 +58,8 @@
 namespace() -> undefined.
 
 roots() ->
-    lists:flatmap(fun roots/1, ?MERGED_CONFIGS) ++
+    %% authorization configs are merged in THIS schema's "authorization" fields
+    lists:keydelete("authorization", 1, emqx_schema:roots(high)) ++
     [ {"node",
        sc(hoconsc:ref("node"),
           #{ desc => "Node name, cookie, config & data directories "
@@ -84,7 +84,16 @@ roots() ->
                      "should work, but in case you need to do performance "
                      "fine-turning or experiment a bit, this is where to look."
            })}
-    ].
+    , {"authorization",
+       sc(hoconsc:ref("authorization"),
+          #{ desc => "In EMQ X, MQTT client access control can be just a few "
+                     "lines of text based rules, or delegated to an external "
+                     "HTTP API, or base externa database query results."
+           })}
+    ] ++
+    emqx_schema:roots(medium) ++
+    emqx_schema:roots(low) ++
+    lists:flatmap(fun roots/1, ?MERGED_CONFIGS).
 
 fields("cluster") ->
     [ {"name",

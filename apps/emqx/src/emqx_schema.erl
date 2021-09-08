@@ -69,56 +69,82 @@
                 cipher/0,
                 comma_separated_atoms/0]).
 
--export([namespace/0, roots/0, fields/1]).
+-export([namespace/0, roots/0, roots/1, fields/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([ssl/1]).
 
 namespace() -> undefined.
 
 roots() ->
+    %% TODO change config importance to a field metadata
+    roots(high) ++ roots(medium) ++ roots(low).
+
+roots(high) ->
     [ {"listeners",
       sc(ref("listeners"),
          #{ desc => "MQTT listeners identified by their protocol type and assigned names"
           })
-     },
-     {"zones",
-      sc(map("name", ref("zone")),
-         #{ desc => "A zone is a set of configs grouped by the zone <code>name</code>. <br>"
-                    "For flexible configuration mapping, the <code>name</code> "
-                    "can be set to a listener's <code>zone</code> config . <br>"
-                    "NOTE: A builtin zone named <code>default</code> is auto created "
-                    "and can not be deleted."
-          })},
-     {"mqtt",
-      sc(ref("mqtt"),
+      }
+    , {"zones",
+       sc(map("name", ref("zone")),
+          #{ desc => "A zone is a set of configs grouped by the zone <code>name</code>. <br>"
+                     "For flexible configuration mapping, the <code>name</code> "
+                     "can be set to a listener's <code>zone</code> config . <br>"
+                     "NOTE: A builtin zone named <code>default</code> is auto created "
+                     "and can not be deleted."
+           })}
+    , {"mqtt",
+       sc(ref("mqtt"),
          #{ desc => "Global MQTT configuration.<br>"
                     "The configs here work as default values which can be overriden "
                     "in <code>zone</code> configs"
-          })},
-     "rate_limit",
-     "force_shutdown",
-     "force_gc",
-     "conn_congestion",
-     "quota",
-     "broker",
-     "plugins", %% TODO: move to emqx_machine_schema
-     "stats",
-     "sysmon",
-     "alarm",
-     {"authentication",
+          })}
+    , {"authentication",
       sc(hoconsc:lazy(hoconsc:array(map())),
          #{ desc => "Default authentication configs for all MQTT listeners.<br>"
                     "For per-listener overrides see <code>authentication</code> "
                     "in listener configs"
-          })},
-     {"authentication",
-      sc(hoconsc:lazy(hoconsc:array(map())),
-         #{ desc => "Default authentication configs for all MQTT listeners.<br>"
-                    "For per-listener overrides see <code>authentication</code> "
-                    "in listener configs"
-          })},
-     "authorization",
-     "flapping_detect"
+          })}
+    , {"authorization",
+       sc(ref("authorization"),
+          #{})}
+    ];
+roots(medium) ->
+    [ {"broker",
+       sc(ref("broker"),
+         #{})}
+    , {"rate_limit",
+       sc(ref("rate_limit"),
+          #{})}
+    , {"force_shutdown",
+       sc(ref("force_shutdown"),
+          #{})}
+    ];
+roots(low) ->
+    [ {"force_gc",
+       sc(ref("force_gc"),
+          #{})}
+   , {"conn_congestion",
+       sc(ref("conn_congestion"),
+          #{})}
+   , {"quota",
+       sc(ref("quota"),
+          #{})}
+   , {"plugins", %% TODO: move to emqx_machine_schema
+       sc(ref("plugins"),
+          #{})}
+   , {"stats",
+       sc(ref("stats"),
+          #{})}
+   , {"sysmon",
+       sc(ref("sysmon"),
+          #{})}
+   , {"alarm",
+       sc(ref("alarm"),
+          #{})}
+   , {"flapping_detect",
+       sc(ref("flapping_detect"),
+          #{})}
     ].
 
 fields("stats") ->
@@ -140,8 +166,7 @@ fields("authorization") ->
     , {"cache",
        sc(ref(?MODULE, "cache"),
           #{
-           })
-       }
+           })}
     ];
 
 fields("cache") ->
