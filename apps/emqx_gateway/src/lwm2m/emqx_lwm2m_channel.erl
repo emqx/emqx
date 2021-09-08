@@ -25,7 +25,8 @@
         , info/2
         , stats/1
         , with_context/2
-        , do_takeover/3]).
+        , do_takeover/3
+        , lookup_cmd/3]).
 
 -export([ init/2
         , handle_in/2
@@ -116,6 +117,9 @@ with_context(Ctx, ClientInfo) ->
             with_context(Type, Topic, Ctx, ClientInfo)
     end.
 
+lookup_cmd(Channel, Path, Action) ->
+    gen_server:call(Channel, {?FUNCTION_NAME, Path, Action}).
+
 %%--------------------------------------------------------------------
 %% Handle incoming packet
 %%--------------------------------------------------------------------
@@ -150,6 +154,10 @@ handle_timeout(_, _, Channel) ->
 %%--------------------------------------------------------------------
 %% Handle call
 %%--------------------------------------------------------------------
+handle_call({lookup_cmd, Path, Type}, _From, #channel{session = Session} = Channel) ->
+    Result = emqx_lwm2m_session:find_cmd_record(Path, Type, Session),
+    {reply, {ok, Result}, Channel};
+
 handle_call(Req, _From, Channel) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, Channel}.

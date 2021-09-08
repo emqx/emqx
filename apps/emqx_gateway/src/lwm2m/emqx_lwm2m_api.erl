@@ -16,143 +16,119 @@
 
 -module(emqx_lwm2m_api).
 
--rest_api(#{name   => list,
-            method => 'GET',
-            path   => "/lwm2m_channels/",
-            func   => list,
-            descr  => "A list of all lwm2m channel"
-           }).
+-behaviour(minirest_api).
 
--rest_api(#{name   => list,
-            method => 'GET',
-            path   => "/nodes/:atom:node/lwm2m_channels/",
-            func   => list,
-            descr  => "A list of lwm2m channel of a node"
-           }).
+-export([api_spec/0]).
 
--rest_api(#{name   => lookup_cmd,
-            method => 'GET',
-            path   => "/lookup_cmd/:bin:ep/",
-            func   => lookup_cmd,
-            descr  => "Send a lwm2m downlink command"
-           }).
+-export([lookup_cmd/2]).
 
--rest_api(#{name   => lookup_cmd,
-            method => 'GET',
-            path   => "/nodes/:atom:node/lookup_cmd/:bin:ep/",
-            func   => lookup_cmd,
-            descr  => "Send a lwm2m downlink command of a node"
-           }).
+-define(PREFIX, "/gateway/lwm2m/:clientid").
 
--export([ list/2
-        , lookup_cmd/2
-        ]).
+-import(emqx_mgmt_util, [ object_schema/1
+                        , error_schema/2
+                        , properties/1]).
 
-list(#{node := Node }, Params) ->
-    case Node = node() of
-        true -> list(#{}, Params);
-        _ -> rpc_call(Node, list, [#{}, Params])
-    end;
+api_spec() ->
+    {[lookup_cmd_api()], []}.
 
-list(#{}, _Params) ->
-    %% Channels = emqx_lwm2m_cm:all_channels(),
-    Channels = [],
-    return({ok, format(Channels)}).
+lookup_cmd_paramters() ->
+    [ make_paramter(clientid, path, true, "string")
+    , make_paramter(path, query, true, "string")
+    , make_paramter(action, query, true, "string")].
 
-lookup_cmd(#{ep := Ep, node := Node}, Params) ->
-    case Node = node() of
-        true -> lookup_cmd(#{ep => Ep}, Params);
-        _ -> rpc_call(Node, lookup_cmd, [#{ep => Ep}, Params])
-    end;
+lookup_cmd_properties() ->
+    properties([ {clientid, string}
+               , {path, string}
+               , {action, string}
+               , {code, string}
+               , {codeMsg, string}
+               , {content, {array, object}, lookup_cmd_content_props()}]).
 
-lookup_cmd(#{ep := _Ep}, Params) ->
-    _MsgType = proplists:get_value(<<"msgType">>, Params),
-    _Path0 = proplists:get_value(<<"path">>, Params),
-    %% case emqx_lwm2m_cm:lookup_cmd(Ep, Path0, MsgType) of
-    %%     [] -> return({ok, []});
-    %%     [{_, undefined} | _] -> return({ok, []});
-    %%     [{{IMEI, Path, MsgType}, undefined}] ->
-    %%         return({ok, [{imei, IMEI},
-    %%                      {'msgType', IMEI},
-    %%                      {'code', <<"6.01">>},
-    %%                      {'codeMsg', <<"reply_not_received">>},
-    %%                      {'path', Path}]});
-    %%     [{{IMEI, Path, MsgType}, {Code, CodeMsg, Content}}] ->
-    %%         Payload1 = format_cmd_content(Content, MsgType),
-    %%         return({ok, [{imei, IMEI},
-    %%                      {'msgType', IMEI},
-    %%                      {'code', Code},
-    %%                      {'codeMsg', CodeMsg},
-    %%                      {'path', Path}] ++ Payload1})
-    %% end.
-    return({ok, []}).
+lookup_cmd_content_props() ->
+    [ {operations, string, <<"Resource Operations">>}
+    , {dataType, string, <<"Resource Type">>}
+    , {path, string, <<"Resource Path">>}
+    , {name, string, <<"Resource Name">>}].
 
-rpc_call(Node, Fun, Args) ->
-    case rpc:call(Node, ?MODULE, Fun, Args) of
-        {badrpc, Reason} -> {error, Reason};
-        Res -> Res
+lookup_cmd_api() ->
+    Metadata = #{get =>
+                     #{description => <<"look up resource">>,
+                       parameters => lookup_cmd_paramters(),
+                       responses =>
+                           #{<<"200">> => object_schema(lookup_cmd_properties()),
+                             <<"404">> => error_schema("client not found error", ['CLIENT_NOT_FOUND'])
+                            }
+                      }},
+    {?PREFIX ++ "/lookup_cmd", Metadata, lookup_cmd}.
+
+
+lookup_cmd(get, #{bindings := Bindings, query_string := QS}) ->
+    ClientId = maps:get(clientid, Bindings),
+    case emqx_gateway_cm_registry:lookup_channels(lwm2m, ClientId) of
+        [Channel | _] ->
+            #{<<"path">> := Path,
+              <<"action">> := Action} = QS,
+            {ok, Result} = emqx_lwm2m_channel:lookup_cmd(Channel, Path, Action),
+            lookup_cmd_return(Result, ClientId, Action, Path);
+        _ ->
+            {404, #{code => 'CLIENT_NOT_FOUND'}}
     end.
 
-format(Channels) ->
-    lists:map(fun({IMEI, #{lifetime := LifeTime,
-                           peername := Peername,
-                           version := Version,
-                           reg_info := RegInfo}}) ->
-        ObjectList = lists:map(fun(Path) ->
-            [ObjId | _] = path_list(Path),
-            case emqx_lwm2m_xml_object:get_obj_def(binary_to_integer(ObjId), true) of
-                {error, _} ->
-                    {Path, Path};
-                ObjDefinition ->
-                    ObjectName = emqx_lwm2m_xml_object:get_object_name(ObjDefinition),
-                    {Path, list_to_binary(ObjectName)}
-            end
-        end, maps:get(<<"objectList">>, RegInfo)),
-        {IpAddr, Port} = Peername,
-        [{imei, IMEI},
-         {lifetime, LifeTime},
-         {ip_address, iolist_to_binary(ntoa(IpAddr))},
-         {port, Port},
-         {version, Version},
-         {'objectList', ObjectList}]
-    end, Channels).
+lookup_cmd_return(undefined, ClientId, Action, Path) ->
+    {200,
+     #{clientid => ClientId,
+       action => Action,
+       code => <<"6.01">>,
+       codeMsg => <<"reply_not_received">>,
+       path => Path}};
 
-%% format_cmd_content(undefined, _MsgType) -> [];
-%% format_cmd_content(_Content, <<"discover">>) ->
-%%     %% [H | Content1] = Content,
-%%     %% {_, [HObjId]} = emqx_lwm2m_coap_resource:parse_object_list(H),
-%%     %% [ObjId | _]= path_list(HObjId),
-%%     %% ObjectList = case Content1 of
-%%     %%     [Content2 | _] ->
-%%     %%         {_, ObjL} = emqx_lwm2m_coap_resource:parse_object_list(Content2),
-%%     %%         ObjL;
-%%     %%     [] -> []
-%%     %% end,
-%%     %% R = case emqx_lwm2m_xml_object:get_obj_def(binary_to_integer(ObjId), true) of
-%%     %%     {error, _} ->
-%%     %%         lists:map(fun(Object) -> {Object, Object} end, ObjectList);
-%%     %%     ObjDefinition ->
-%%     %%         lists:map(fun(Object) ->
-%%     %%             [_, _,  ResId| _] = path_list(Object),
-%%     %%             Operations = case emqx_lwm2m_xml_object:get_resource_operations(binary_to_integer(ResId), ObjDefinition) of
-%%     %%                 "E" -> [{operations, list_to_binary("E")}];
-%%     %%                 Oper -> [{'dataType', list_to_binary(emqx_lwm2m_xml_object:get_resource_type(binary_to_integer(ResId), ObjDefinition))},
-%%     %%                          {operations, list_to_binary(Oper)}]
-%%     %%             end,
-%%     %%             [{path, Object},
-%%     %%              {name, list_to_binary(emqx_lwm2m_xml_object:get_resource_name(binary_to_integer(ResId), ObjDefinition))}
-%%     %%             ] ++ Operations
-%%     %%         end, ObjectList)
-%%     %% end,
-%%     %% [{content, R}];
-%%     [];
-%% format_cmd_content(Content, _) ->
-%%     [{content, Content}].
+lookup_cmd_return({Code, CodeMsg, Content}, ClientId, Action, Path) ->
+    {200,
+     format_cmd_content(Content,
+                        Action,
+                        #{clientid => ClientId,
+                          action => Action,
+                          code => Code,
+                          codeMsg => CodeMsg,
+                          path => Path})}.
 
-ntoa({0,0,0,0,0,16#ffff,AB,CD}) ->
-    inet_parse:ntoa({AB bsr 8, AB rem 256, CD bsr 8, CD rem 256});
-ntoa(IP) ->
-    inet_parse:ntoa(IP).
+format_cmd_content(undefined, _MsgType, Result) ->
+    Result;
+
+format_cmd_content(Content, <<"discover">>, Result) ->
+    [H | Content1] = Content,
+    {_, [HObjId]} = emqx_lwm2m_session:parse_object_list(H),
+    [ObjId | _]= path_list(HObjId),
+    ObjectList = case Content1 of
+                     [Content2 | _] ->
+                         {_, ObjL} = emqx_lwm2m_session:parse_object_list(Content2),
+                         ObjL;
+                     [] -> []
+                 end,
+
+    R = case emqx_lwm2m_xml_object:get_obj_def(binary_to_integer(ObjId), true) of
+            {error, _} ->
+                lists:map(fun(Object) -> #{Object => Object} end, ObjectList);
+            ObjDefinition ->
+                lists:map(
+                  fun(Object) ->
+                          [_, _, RawResId| _] = path_list(Object),
+                          ResId = binary_to_integer(RawResId),
+                          Operations = case emqx_lwm2m_xml_object:get_resource_operations(ResId, ObjDefinition) of
+                                           "E" ->
+                                               #{operations => list_to_binary("E")};
+                                           Oper ->
+                                               #{'dataType' => list_to_binary(emqx_lwm2m_xml_object:get_resource_type(ResId, ObjDefinition)),
+                                                 operations => list_to_binary(Oper)}
+                                               end,
+                          Operations#{path => Object,
+                                      name => list_to_binary(emqx_lwm2m_xml_object:get_resource_name(ResId, ObjDefinition))}
+                  end, ObjectList)
+        end,
+    Result#{content => R};
+
+format_cmd_content(Content, _, Result) ->
+    Result#{content => Content}.
 
 path_list(Path) ->
     case binary:split(binary_util:trim(Path, $/), [<<$/>>], [global]) of
@@ -162,6 +138,8 @@ path_list(Path) ->
         [ObjId] -> [ObjId]
     end.
 
-return(_) ->
-%%    TODO: V5 API
-    ok.
+make_paramter(Name, In, IsRequired, Type) ->
+    #{name => Name,
+      in => In,
+      required => IsRequired,
+      schema => #{type => Type}}.

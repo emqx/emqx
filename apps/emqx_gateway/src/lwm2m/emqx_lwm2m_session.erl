@@ -22,7 +22,8 @@
 -include_lib("emqx_gateway/src/lwm2m/include/emqx_lwm2m.hrl").
 
 %% API
--export([new/0, init/4, update/3, reregister/3, on_close/1]).
+-export([ new/0, init/4, update/3, parse_object_list/1
+        , reregister/3, on_close/1, find_cmd_record/3]).
 
 -export([ info/1
         , info/2
@@ -42,6 +43,15 @@
 -type timestamp() :: non_neg_integer().
 -type queued_request() :: {timestamp(), request_context(), emqx_coap_message()}.
 
+-type cmd_path() :: binary().
+-type cmd_type() :: binary().
+-type cmd_record_key() :: {cmd_path(), cmd_type()}.
+-type cmd_code() :: binary().
+-type cmd_code_msg() :: binary().
+-type cmd_code_content() :: list(map()).
+-type cmd_result() :: undefined | {cmd_code(), cmd_code_msg(), cmd_code_content()}.
+-type cmd_record() :: #{cmd_record_key() => cmd_result()}.
+
 -record(session, { coap :: emqx_coap_tm:manager()
                  , queue :: queue:queue(queued_request())
                  , wait_ack :: request_context() | undefined
@@ -52,6 +62,7 @@
                  , is_cache_mode :: boolean()
                  , mountpoint :: binary()
                  , last_active_at :: non_neg_integer()
+                 , cmd_record :: cmd_record()
                  }).
 
 -type session() :: #session{}.
@@ -60,6 +71,8 @@
 -define(NOW, erlang:system_time(second)).
 -define(IGNORE_OBJECT, [<<"0">>, <<"1">>, <<"2">>, <<"4">>, <<"5">>, <<"6">>,
                         <<"7">>, <<"9">>, <<"15">>]).
+
+-define(CMD_KEY(Path, Type), {Path, Type}).
 
 %% uplink and downlink topic configuration
 -define(lwm2m_up_dm_topic,  {<<"/v1/up/dm">>, 0}).
@@ -98,6 +111,7 @@ new() ->
             , last_active_at = ?NOW
             , is_cache_mode = false
             , mountpoint = <<>>
+            , cmd_record = #{}
             , lifetime = emqx:get_config([gateway, lwm2m, lifetime_max])}.
 
 -spec init(emqx_coap_message(), binary(), function(), session()) -> map().
@@ -134,6 +148,10 @@ on_close(Session) ->
     MountedTopic = mount(Topic, Session),
     emqx:unsubscribe(MountedTopic),
     MountedTopic.
+
+-spec find_cmd_record(cmd_path(), cmd_type(), session()) -> cmd_result().
+find_cmd_record(Path, Type, #session{cmd_record = Record}) ->
+    maps:get(?CMD_KEY(Path, Type), Record, undefined).
 
 %%--------------------------------------------------------------------
 %% Info, Stats
@@ -271,7 +289,7 @@ parse_object_list(FullObjLinkList) ->
                       (<<Prefix:LenAlterPath/binary, Link/binary>>) when Prefix =:= AlterPath ->
                                  trim(Link);
                       (Link) -> Link
-                         end, ObjLinkList),
+                  end, ObjLinkList),
             {AlterPath, WithOutPrefix}
     end.
 
@@ -443,19 +461,20 @@ handle_coap_response({Ctx = #{<<"msgType">> := EventType},
                      Session) ->
     MqttPayload = emqx_lwm2m_cmd:coap_to_mqtt(CoapMsgMethod, CoapMsgPayload, CoapMsgOpts, Ctx),
     {ReqPath, _} = emqx_lwm2m_cmd:path_list(emqx_lwm2m_cmd:extract_path(Ctx)),
-    Session2 =
+    Session2 = record_response(EventType, MqttPayload, Session),
+    Session3 =
         case {ReqPath, MqttPayload, EventType, CoapMsgType} of
             {[<<"5">>| _], _, <<"observe">>, CoapMsgType} when CoapMsgType =/= ack ->
                 %% this is a notification for status update during NB firmware upgrade.
                 %% need to reply to DM http callbacks
-                send_to_mqtt(Ctx, <<"notify">>, MqttPayload, ?lwm2m_up_dm_topic, WithContext, Session);
+                send_to_mqtt(Ctx, <<"notify">>, MqttPayload, ?lwm2m_up_dm_topic, WithContext, Session2);
             {_ReqPath, _, <<"observe">>, CoapMsgType} when CoapMsgType =/= ack ->
                 %% this is actually a notification, correct the msgType
-                send_to_mqtt(Ctx, <<"notify">>, MqttPayload, WithContext, Session);
+                send_to_mqtt(Ctx, <<"notify">>, MqttPayload, WithContext, Session2);
             _ ->
-                send_to_mqtt(Ctx, EventType, MqttPayload, WithContext, Session)
+                send_to_mqtt(Ctx, EventType, MqttPayload, WithContext, Session2)
         end,
-    send_dl_msg(Ctx, Session2).
+    send_dl_msg(Ctx, Session3).
 
 %%--------------------------------------------------------------------
 %% Ack
@@ -624,7 +643,8 @@ deliver_to_coap(AlternatePath, TermData, MQTT, CacheMode, WithContext, Session) 
     WithContext(metrics, 'messages.delivered'),
     {Req, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData),
     ExpiryTime = get_expiry_time(MQTT),
-    maybe_do_deliver_to_coap(Ctx, Req, ExpiryTime, CacheMode, Session).
+    Session2 = record_request(Ctx, Session),
+    maybe_do_deliver_to_coap(Ctx, Req, ExpiryTime, CacheMode, Session2).
 
 maybe_do_deliver_to_coap(Ctx, Req, ExpiryTime, CacheMode,
                          #session{wait_ack = WaitAck,
@@ -692,3 +712,23 @@ do_out([{Ctx, Out} | T], TM, Msgs) ->
 
 do_out(_, TM, Msgs) ->
     {ok, TM, Msgs}.
+
+
+%%--------------------------------------------------------------------
+%% CMD Record
+%%--------------------------------------------------------------------
+-spec record_request(request_context(), session()) -> session().
+record_request(#{<<"msgType">> := Type} = Context, Session) ->
+    Path = emqx_lwm2m_cmd:extract_path(Context),
+    record_cmd(Path, Type, undefined, Session).
+
+record_response(EventType, #{<<"data">> := Data}, Session) ->
+    ReqPath = maps:get(<<"reqPath">>, Data, undefined),
+    Code = maps:get(<<"code">>, Data, undefined),
+    CodeMsg = maps:get(<<"codeMsg">>, Data, undefined),
+    Content = maps:get(<<"content">>, Data, undefined),
+    record_cmd(ReqPath, EventType, {Code, CodeMsg, Content}, Session).
+
+record_cmd(Path, Type, Result, #session{cmd_record = Record} = Session) ->
+    Record2 = Record#{?CMD_KEY(Path, Type) => Result},
+    Session#session{cmd_record = Record2}.

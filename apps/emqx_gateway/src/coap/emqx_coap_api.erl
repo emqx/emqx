@@ -64,9 +64,9 @@ request(post, #{body := Body, bindings := Bindings}) ->
 
     case call_client(ClientId, Msg2, timer:seconds(WaitTime)) of
         timeout ->
-            {504};
+            {504, #{code => 'CLIENT_NOT_RESPONSE'}};
         not_found ->
-            {404};
+            {404, #{code => 'CLIENT_NOT_FOUND'}};
         Response ->
             {200, format_to_response(CT, Response)}
     end.
@@ -101,8 +101,8 @@ request_method_meta() ->
                                       <<"request payload, binary must encode by base64">>),
       responses => #{
                      <<"200">> => object_schema(coap_message_properties()),
-                     <<"404">> => schema(<<"NotFound">>),
-                     <<"504">> => schema(<<"Timeout">>)
+                     <<"404">> => error_schema("client not found error", ['CLIENT_NOT_FOUND']),
+                     <<"504">> => error_schema("timeout", ['CLIENT_NOT_RESPONSE'])
                     }}.
 
 

@@ -341,8 +341,8 @@ extract_path(Ref = #{}) ->
     drop_query(
         case Ref of
             #{<<"data">> := Data} ->
-                case maps:get(<<"path">>, Data, nil) of
-                    nil -> maps:get(<<"basePath">>, Data, undefined);
+                case maps:get(<<"path">>, Data, undefined) of
+                    undefined -> maps:get(<<"basePath">>, Data, undefined);
                     Path -> Path
                 end;
             #{<<"path">> := Path} ->
