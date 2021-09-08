@@ -37,6 +37,7 @@
         , delete/1
         , info/1
         , format/1
+        , parse/1
         ]).
 
 %% gen_server callbacks
@@ -107,6 +108,33 @@ format(#banned{who = Who0,
         until  => to_rfc3339(Until)
     }.
 
+parse(Params) ->
+    Who    = pares_who(Params),
+    By     = maps:get(<<"by">>, Params, <<"mgmt_api">>),
+    Reason = maps:get(<<"reason">>, Params, <<"">>),
+    At     = pares_time(maps:get(<<"at">>, Params, undefined), erlang:system_time(second)),
+    Until  = pares_time(maps:get(<<"until">>, Params, undefined), At + 5 * 60),
+    #banned{
+        who    = Who,
+        by     = By,
+        reason = Reason,
+        at     = At,
+        until  = Until
+    }.
+
+pares_who(#{as := As, who := Who}) ->
+    pares_who(#{<<"as">> => As, <<"who">> => Who});
+pares_who(#{<<"as">> := <<"peerhost">>, <<"who">> := Peerhost0}) ->
+    {ok, Peerhost} = inet:parse_address(binary_to_list(Peerhost0)),
+    {peerhost, Peerhost};
+pares_who(#{<<"as">> := As, <<"who">> := Who}) ->
+    {binary_to_atom(As, utf8), Who}.
+
+pares_time(undefined, Default) ->
+    Default;
+pares_time(Rfc3339, _Default) ->
+    to_timestamp(Rfc3339).
+
 maybe_format_host({peerhost, Host}) ->
     AddrBinary = list_to_binary(inet:ntoa(Host)),
     {peerhost, AddrBinary};
@@ -115,6 +143,11 @@ maybe_format_host({As, Who}) ->
 
 to_rfc3339(Timestamp) ->
     list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
+
+to_timestamp(Rfc3339) when is_binary(Rfc3339) ->
+    to_timestamp(binary_to_list(Rfc3339));
+to_timestamp(Rfc3339) ->
+    calendar:rfc3339_to_system_time(Rfc3339, [{unit, second}]).
 
 -spec(create(emqx_types:banned() | map()) -> ok).
 create(#{who    := Who,
@@ -130,12 +163,16 @@ create(#{who    := Who,
 create(Banned) when is_record(Banned, banned) ->
     ekka_mnesia:dirty_write(?BANNED_TAB, Banned).
 
+look_up(Who) when is_map(Who) ->
+    look_up(pares_who(Who));
 look_up(Who) ->
     mnesia:dirty_read(?BANNED_TAB, Who).
 
 -spec(delete({clientid, emqx_types:clientid()}
            | {username, emqx_types:username()}
            | {peerhost, emqx_types:peerhost()}) -> ok).
+delete(Who) when is_map(Who)->
+    delete(pares_who(Who));
 delete(Who) ->
     ekka_mnesia:dirty_delete(?BANNED_TAB, Who).
 

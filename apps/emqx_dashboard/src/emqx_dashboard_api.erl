@@ -49,6 +49,8 @@
 
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
 
+-define(ERROR_USERNAME_OR_PWD, 'ERROR_USERNAME_OR_PWD').
+
 api_spec() ->
     {[ login_api()
      , logout_api()
@@ -164,8 +166,8 @@ login(post, #{body := Params}) ->
         {ok, Token} ->
             Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
             {200, #{token => Token, version => Version, license => #{edition => ?RELEASE}}};
-        {error, Code} ->
-            {401, #{code => Code, message => <<"Auth filed">>}}
+        {error, _} ->
+            {401, #{code => ?ERROR_USERNAME_OR_PWD, message => <<"Auth filed">>}}
     end.
 
 logout(_, #{body := Params}) ->
@@ -233,7 +235,7 @@ parameters() ->
 unauthorized_request() ->
     object_schema(
         properties([{message, string},
-                    {code, string, <<"Resp Code">>, ['PASSWORD_ERROR','USERNAME_ERROR']}
+                    {code, string, <<"Resp Code">>, [?ERROR_USERNAME_OR_PWD]}
                    ]),
         <<"Unauthorized">>
     ).
